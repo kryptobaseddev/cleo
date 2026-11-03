@@ -68,8 +68,8 @@ export type MemoryPatternImpact = 'low' | 'medium' | 'high';
 export interface MemoryCompactHit {
   /** Memory entry identifier (e.g. `O-abc123`, `D-def456`). */
   id: string;
-  /** Table this hit was drawn from. */
-  type: 'decision' | 'pattern' | 'learning' | 'observation';
+  /** Table this hit was drawn from, or `doc` for the docs store (T14152). */
+  type: 'decision' | 'pattern' | 'learning' | 'observation' | 'doc';
   /** Normalized display title for the entry. */
   title: string;
   /** ISO 8601 timestamp of entry creation. */
@@ -173,8 +173,11 @@ export interface MemoryFindParams {
   query: string;
   /** Max results to return. */
   limit?: number;
-  /** Tables to search (defaults to all four). */
-  tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations'>;
+  /**
+   * Sources to search (defaults to the four BRAIN tables). `docs` adds the
+   * docs store: current docs only, ranked with BRAIN hits (T14152).
+   */
+  tables?: Array<'decisions' | 'patterns' | 'learnings' | 'observations' | 'docs'>;
   /** ISO 8601 lower bound on entry date. */
   dateStart?: string;
   /** ISO 8601 upper bound on entry date. */

@@ -148,12 +148,30 @@ const storeCommand = defineCommand({
   },
 });
 
+/**
+ * `tables` for `memory find`: the `--type` table, or every BRAIN table, plus
+ * the docs store with `--docs` (`--type doc` is the docs store alone, T14152).
+ */
+function findTables(memType: string | undefined, docs: boolean): { tables?: string[] } {
+  const byType: Record<string, string> = {
+    decision: 'decisions',
+    pattern: 'patterns',
+    learning: 'learnings',
+    observation: 'observations',
+    doc: 'docs',
+  };
+  const tables = memType === undefined ? [] : [byType[memType] ?? memType];
+  if (!docs) return tables.length > 0 ? { tables } : {};
+  const brain = tables.length > 0 ? tables : ['decisions', 'patterns', 'learnings', 'observations'];
+  return { tables: [...new Set([...brain, 'docs'])] };
+}
+
 /** cleo memory find — search BRAIN memory (all tables, or filter by --type) */
 const findCommand = defineCommand({
   meta: {
     name: 'find',
     description:
-      'Search BRAIN memory (all tables, or filter by --type decision|pattern|learning|observation)',
+      'Search BRAIN memory (all tables, or filter by --type decision|pattern|learning|observation|doc); --docs adds current docs ranked with the BRAIN hits',
   },
   args: {
     query: {
@@ -164,7 +182,12 @@ const findCommand = defineCommand({
     type: {
       type: 'string',
       description:
-        'Filter by memory type: decision, pattern, learning, or observation (default: all)',
+        'Filter by memory type: decision, pattern, learning, observation, or doc (default: all BRAIN tables)',
+    },
+    docs: {
+      type: 'boolean',
+      description:
+        'Also search the docs store: current docs only (a superseded match surfaces its current doc), ranked with the BRAIN hits (T14152)',
     },
     history: {
       type: 'boolean',
@@ -202,10 +225,10 @@ const findCommand = defineCommand({
 
     if (
       memType !== undefined &&
-      !['decision', 'pattern', 'learning', 'observation'].includes(memType)
+      !['decision', 'pattern', 'learning', 'observation', 'doc'].includes(memType)
     ) {
       cliError(
-        `Unknown memory type: ${memType}. Use decision, pattern, learning, or observation.`,
+        `Unknown memory type: ${memType}. Use decision, pattern, learning, observation, or doc.`,
         'E_VALIDATION',
         { name: 'E_VALIDATION' },
       );
@@ -220,7 +243,7 @@ const findCommand = defineCommand({
       return;
     }
 
-    if (memType === 'pattern' && !args.history) {
+    if (memType === 'pattern' && !args.history && !args.docs) {
       await dispatchFromCli(
         'query',
         'memory',
@@ -232,7 +255,7 @@ const findCommand = defineCommand({
         },
         { command: 'memory', operation: 'memory.find' },
       );
-    } else if (memType === 'learning' && !args.history) {
+    } else if (memType === 'learning' && !args.history && !args.docs) {
       await dispatchFromCli(
         'query',
         'memory',
@@ -255,10 +278,7 @@ const findCommand = defineCommand({
           query,
           limit: args.limit !== undefined ? parseInt(args.limit, 10) : undefined,
           includeHistory: args.history,
-          ...(memType === 'pattern' && { tables: ['patterns'] }),
-          ...(memType === 'learning' && { tables: ['learnings'] }),
-          ...(memType === 'decision' && { tables: ['decisions'] }),
-          ...(memType === 'observation' && { tables: ['observations'] }),
+          ...findTables(memType, args.docs === true),
           // T418: forward agent filter when provided
           ...(args.agent !== undefined && { agent: args.agent }),
         },

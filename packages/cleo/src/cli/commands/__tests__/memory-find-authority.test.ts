@@ -46,6 +46,38 @@ describe('memory find authority filters', () => {
       expect.any(Object),
     );
   });
+  it('--docs adds the docs store to every BRAIN table (T14152)', async () => {
+    await runCommand(memoryCommand, { rawArgs: ['find', 'rush', '--docs'] });
+    expect(dispatch).toHaveBeenCalledWith(
+      'query',
+      'memory',
+      'find',
+      expect.objectContaining({
+        tables: ['decisions', 'patterns', 'learnings', 'observations', 'docs'],
+      }),
+      expect.any(Object),
+    );
+  });
+  it('--type doc searches the docs store alone; --type decision --docs adds it (T14152)', async () => {
+    await runCommand(memoryCommand, { rawArgs: ['find', 'rush', '--type', 'doc'] });
+    expect(dispatch).toHaveBeenLastCalledWith(
+      'query',
+      'memory',
+      'find',
+      expect.objectContaining({ tables: ['docs'] }),
+      expect.any(Object),
+    );
+    await runCommand(memoryCommand, {
+      rawArgs: ['find', 'rush', '--type', 'pattern', '--docs'],
+    });
+    expect(dispatch).toHaveBeenLastCalledWith(
+      'query',
+      'memory',
+      'find',
+      expect.objectContaining({ tables: ['patterns', 'docs'] }),
+      expect.any(Object),
+    );
+  });
   it('rejects unsupported type values before dispatch', async () => {
     await runCommand(memoryCommand, { rawArgs: ['find', 'rush', '--type', 'decison'] });
     expect(dispatch).not.toHaveBeenCalled();

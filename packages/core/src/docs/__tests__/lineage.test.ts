@@ -19,6 +19,7 @@ import { buildDocsFetchResult } from '../fetch-result.js';
 import {
   attachCurrentDocs,
   currentDocsForTask,
+  findCurrentDocs,
   readDocLineage,
   supersededDecisionsOf,
 } from '../lineage.js';
@@ -125,6 +126,71 @@ describe('T14110 — doc lineage', () => {
     await attachCurrentDocs(projectRoot, 'guides for T300', result);
     expect(result.results[0]?.docs).toEqual(['guide']);
     expect(result.taskDocs).toEqual([{ taskId: 'T300', docs: ['guide'] }]);
+  });
+
+  it('memory find --docs returns current docs only, a superseded match surfacing its current doc (T14152)', async () => {
+    await seed('retention-old', '# Retention\n\nbackup retention keeps ten snapshots\n', 'T400');
+    await seed('retention', '# Retention\n\nbackup retention keeps twenty snapshots\n', 'T400');
+    await seed('unrelated', '# Kanban\n\nboard columns and swimlanes\n', 'T401');
+    await supersedeDoc(projectRoot, { oldSlug: 'retention-old', newSlug: 'retention' });
+
+    const docs = await findCurrentDocs(projectRoot, 'backup retention snapshots');
+    const ids = docs.map((h) => h.id);
+    expect(ids).toContain('retention');
+    expect(ids).not.toContain('retention-old');
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const hit of docs) {
+      expect(hit.type).toBe('doc');
+      expect(hit._next?.['fetch']).toBe(`cleo docs fetch ${hit.id}`);
+    }
+    const scores = docs.map((h) => h.rrfScore ?? 0);
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+
+    const { memoryFind } = await import('../../memory/engine-compat.js');
+    const docsOnly = await memoryFind(
+      { query: 'backup retention snapshots', tables: ['docs'] },
+      projectRoot,
+    );
+    expect(docsOnly.success).toBe(true);
+    const onlyHits = (docsOnly.data as SearchBrainCompactResult).results;
+    expect(onlyHits.every((h) => h.type === 'doc')).toBe(true);
+    expect(onlyHits.map((h) => h.id)).not.toContain('retention-old');
+
+    const { storeDecision } = await import('../../memory/decisions.js');
+    await storeDecision(projectRoot, {
+      type: 'technical',
+      decision: 'Backup retention keeps twenty snapshots',
+      rationale: 'Ten snapshots lost a week of history.',
+      confidence: 'high',
+      confirmationState: 'accepted',
+    });
+    const mixed = await memoryFind(
+      { query: 'backup retention snapshots', tables: ['decisions', 'docs'] },
+      projectRoot,
+    );
+    expect(mixed.success).toBe(true);
+    const hits = (mixed.data as SearchBrainCompactResult).results;
+    expect(hits.some((h) => h.type === 'decision')).toBe(true);
+    expect(hits.some((h) => h.type === 'doc' && h.id === 'retention')).toBe(true);
+    if (hits.every((h) => h.rrfScore !== undefined)) {
+      const fused = hits.map((h) => h.rrfScore ?? 0);
+      expect(fused).toEqual([...fused].sort((a, b) => b - a));
+    }
+
+    const bad = await memoryFind({ query: 'x', tables: ['wiki'] }, projectRoot);
+    expect(bad.success).toBe(false);
+  });
+
+  it('a match only on a superseded doc names it in replaces (T14152)', async () => {
+    await seed('cadence-v1', '# Cadence\n\nweekly merge freeze on fridays\n', 'T500');
+    await seed('cadence', '# Cadence\n\nPRs merge serially once CI is green\n', 'T500');
+    await supersedeDoc(projectRoot, { oldSlug: 'cadence-v1', newSlug: 'cadence' });
+
+    const docs = await findCurrentDocs(projectRoot, 'weekly merge freeze fridays');
+    const hit = docs.find((h) => h.id === 'cadence');
+    expect(hit).toBeDefined();
+    expect(docs.map((h) => h.id)).not.toContain('cadence-v1');
+    expect(hit?.replaces).toBe('cadence-v1');
   });
 
   it('derives the decisions a doc supersedes from its linked decisions', async () => {
