@@ -2011,17 +2011,26 @@ async function scaffoldInitTarget(
     );
   }
 
-  // LAFS next-step guidance for autonomous agents
+  // LAFS next-step guidance for autonomous agents. T14186: a project with no
+  // tasks starts with its root saga, the only node allowed without a parent.
+  const { ROOT_SAGA_COMMAND } = await import('./tasks/add.js');
+  const rootSagaStep = {
+    action:
+      'First step on a project with no tasks: create the root saga (only a saga may be a root)',
+    command: ROOT_SAGA_COMMAND,
+  };
   const nextSteps: Array<{ action: string; command: string }> =
     classification?.kind === 'greenfield'
       ? [
           {
             action: 'Start the session and record your first research findings',
-            command: 'cleo session start --scope global',
+            command: 'cleo session start --scope global --name "<what you are doing>"',
           },
+          rootSagaStep,
           {
-            action: 'Create the seed epic for Vision/PRD research',
-            command: 'cleo add "Project vision and initial scope" --type epic',
+            action: 'Create the seed epic for Vision/PRD research under the saga',
+            command:
+              'cleo add --type epic --parent <sagaId> --title "Project vision and initial scope" --acceptance "AC1|AC2|AC3"',
           },
           {
             action: 'Invoke the Conductor Loop once the seed epic is present',
@@ -2039,8 +2048,9 @@ async function scaffoldInitTarget(
           },
           {
             action: 'Start a session scoped to the work you want to continue',
-            command: 'cleo session start --scope global',
+            command: 'cleo session start --scope global --name "<what you are doing>"',
           },
+          rootSagaStep,
         ];
 
   // T1263 PSYCHE E6: Read recent session journals for meta-agent context (best-effort)
