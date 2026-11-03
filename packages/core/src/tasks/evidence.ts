@@ -106,6 +106,7 @@ import {
   declaredEvidenceKind,
   evidenceProfileOf,
   gateProfileOf,
+  ignoredProfileReason,
   implementedCodeEvidence,
   isDocumentArtifact,
   isDocumentEvidencePath,
@@ -3948,8 +3949,13 @@ export function checkTaskEvidenceContext(
     gate === 'implemented' &&
     atoms.some((atom) => atom.kind === 'decision') &&
     !atoms.some((atom) => atom.kind === 'commit' || atom.kind === 'pr')
-  )
-    return 'A research decision alone cannot implement a code-fix task.';
+  ) {
+    // T14193: when a gate profile was overridden, say which rule decided code.
+    const ignored = ignoredProfileReason(context.task);
+    return ignored === null
+      ? 'A research decision alone cannot implement a code-fix task.'
+      : `A research decision alone cannot implement a code-fix task: ${ignored}`;
+  }
   return null;
 }
 
@@ -4483,7 +4489,11 @@ export async function taskEvidenceKindReport(
   const kind = classifyEvidenceTask({ task });
   // T14048: a task its record leaves undecided is classified by what it changed.
   const undecided = kind === 'code' && declaredEvidenceKind(task) === null;
-  if (kind === 'code' && !undecided) return { kind };
+  if (kind === 'code' && !undecided) {
+    // T14193: a profile the record overrides is named, with the deciding rule.
+    const ignored = ignoredProfileReason(task);
+    return ignored === null ? { kind } : { kind, reason: ignored };
+  }
   // T13474: a gate profile never covers code evidence, wherever it points.
   const profile = gateProfileOf(task);
   const codeAtom = profile === null ? null : implementedCodeEvidence(task);
