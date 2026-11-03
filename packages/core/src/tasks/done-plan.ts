@@ -54,6 +54,7 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import type { AcCoverageResult } from './ac-coverage-gate.js';
 import {
   cleoConfigSchemaFor,
   evidenceProjectContext,
@@ -63,7 +64,6 @@ import {
   scopedChangedPaths,
   standalonePackage,
 } from './affected-packages.js';
-import type { AcCoverageResult } from './ac-coverage-gate.js';
 import { type TaskMergeInfo, taskChangeMergeState } from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
