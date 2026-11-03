@@ -699,6 +699,10 @@ jobs:
     timeout-minutes: 180
     env:
       VERSION: ${{ needs.build-verify.outputs.version }}
+    # T14192: supervisor-attach runs whenever the GitHub Release exists, even
+    # when a later step of this job fails.
+    outputs:
+      release_created: ${{ steps.gh_release.outputs.release_created }}
 
     steps:
       - name: Checkout code
@@ -876,6 +880,7 @@ jobs:
             --vida-repository kryptobaseddev/VidaPeps
 
       - name: Create GitHub Release (idempotent)
+        id: gh_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IS_PRERELEASE: ${{ needs.build-verify.outputs.is_prerelease }}
@@ -893,6 +898,7 @@ jobs:
             "cleoos-${VERSION}.tar.gz" \
             SHA256SUMS
           echo "GitHub release v${VERSION} published"
+          echo "release_created=true" >> "$GITHUB_OUTPUT"
 
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
       # Publish in dependency WAVES: every package in a wave depends only on
@@ -1177,9 +1183,21 @@ jobs:
             # Retain the normalized source identity recomputed by this release run.
             node scripts/hook-pilot-evidence.mjs digest --root "$GITHUB_WORKSPACE"
             # Independent canaries stop here. A stable tag is a separate release.
-            POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs \
-              --version "$VERSION" --dist-tag canary --output-dir /tmp/canary-postdeploy
-            node scripts/release-canary-soak.mjs --version "$VERSION" --out /tmp/canary-postdeploy/canary-soak.json
+            # T14192: npm accepted every package above, so a check that only
+            # timed out waiting for the registry (verdict `pending`) hands off
+            # to the execute-payload job and release-installability-watch
+            # instead of failing this job; a defect still fails it.
+            if POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs \
+              --version "$VERSION" --dist-tag canary --output-dir /tmp/canary-postdeploy; then
+              node scripts/release-canary-soak.mjs --version "$VERSION" --out /tmp/canary-postdeploy/canary-soak.json
+            else
+              CANARY_VERDICT=$(node -e 'try { process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).verdict ?? "") } catch {}' "/tmp/canary-postdeploy/deploy-summary-${VERSION}.json")
+              if [[ "$CANARY_VERDICT" != "pending" ]]; then
+                echo "::error::Post-deploy check of canary ${VERSION} failed (verdict: ${CANARY_VERDICT:-unknown})"
+                exit 1
+              fi
+              echo "::warning::canary ${VERSION}: npm accepted every package but some were not installable within 900s (registry propagation). The soak is skipped; the Post-Deploy Execution Payload job and release-installability-watch.yml take over."
+            fi
           fi
 
       # Consumed by release-verdict to render the call -> created -> delay table
@@ -1442,6 +1460,8 @@ jobs:
   supervisor-attach:
     name: Attach cleo-supervisor binaries
     needs: [build-verify, publish, supervisor-prebuild]
+    # T14192: gated on the release existing, not on every publish step passing.
+    if: always() && needs.publish.outputs.release_created == 'true' && needs.supervisor-prebuild.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
