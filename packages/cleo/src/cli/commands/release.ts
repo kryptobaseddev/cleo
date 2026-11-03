@@ -658,6 +658,11 @@ const cutCommand = defineCommand({
       description:
         'Create the tag (D11212): asks you to type the version on the terminal (/dev/tty), or uses a standing release authorization (T14141) or the release.agentCut setting (cleo config set release.agentCut canary --scope global, T14170). Without it the cut only reports and prints the confirm command',
     },
+    'allow-in-flight': {
+      type: 'boolean',
+      description:
+        "Cut even while a lower tag's release.yml run is still in progress; its entries repeat in these notes (T14184)",
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -670,6 +675,7 @@ const cutCommand = defineCommand({
         ...(typeof args.lead === 'string' ? { lead: args.lead } : {}),
         dryRun: args['dry-run'] === true,
         yes: args.yes === true,
+        allowInFlight: args['allow-in-flight'] === true,
       },
       { command: 'release' },
     );

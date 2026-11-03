@@ -425,6 +425,16 @@ export const E_RELEASE_TAG_FAILED = 'E_RELEASE_TAG_FAILED' as const;
  */
 export const E_RELEASE_NOT_AUTHORIZED = 'E_RELEASE_NOT_AUTHORIZED' as const;
 /**
+ * `cleo release cut --yes` found a `release.yml` run still in progress for a
+ * lower release tag: its GitHub Release may not exist yet, so the new release
+ * would base its notes on an older tag and repeat that release's entries.
+ * Exit code 6. `--allow-in-flight` cuts anyway; `error.details.inFlight`
+ * names the runs.
+ *
+ * @task T14184
+ */
+export const E_RELEASE_IN_FLIGHT = 'E_RELEASE_IN_FLIGHT' as const;
+/**
  * `cleo release cut` found docs rot (stale, duplicate or orphaned docs, per
  * `cleo docs rot`) and refused to tag. Exit code 6. `error.details.docsRot`
  * carries the scan.

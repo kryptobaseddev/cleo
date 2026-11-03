@@ -495,6 +495,7 @@ export class ReleaseHandler implements DomainHandler {
             ...(typeof params?.lead === 'string' ? { leadFile: params.lead } : {}),
             dryRun: params?.dryRun === true,
             yes: params?.yes === true,
+            allowInFlight: params?.allowInFlight === true,
           };
           return wrapResult(await releaseCut(typed), 'mutate', 'release', operation, startTime);
         }
