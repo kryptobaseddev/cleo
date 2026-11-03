@@ -620,10 +620,9 @@ function finishPlan(
   );
   for (const row of rows) {
     if (!row.overridden) continue;
-    if (
-      (row.disposition === 'merge-into' || row.disposition === 'delete') &&
-      !survivors.has(row.target ?? '')
-    ) {
+    const needsSurvivor =
+      row.disposition === 'merge-into' || (row.disposition === 'delete' && row.target !== null);
+    if (needsSurvivor && !survivors.has(row.target ?? '')) {
       // @sync-invariant none:input-shape an override that folds a file into no survivor is refused before any write
       throw new DocsModernizeOverrideError(
         `override for ${row.path}: ${row.disposition} must name a survivor's slug (got ${row.target ?? 'none'})`,
@@ -699,6 +698,9 @@ function applyOverride(
       (wasSurvivor && !override.slug && !override.kind
         ? row.target
         : canonicalPath(row.path, row.kind, slug, kinds));
+  } else if (override.disposition === 'delete') {
+    // A delete names its survivor or none: no target means no supersede edge (T14212).
+    target = override.target ?? null;
   } else target = override.target ?? (wasSurvivor ? null : row.target);
   return {
     ...row,

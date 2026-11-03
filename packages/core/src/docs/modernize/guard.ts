@@ -267,7 +267,9 @@ export function assertPlanConsistent(plan: DocsModernizePlan): void {
       throw new DocsModernizeUnsafeError(`plan row ${row.path}: ${why}`);
     };
     if (row.disposition === 'merge-into' || row.disposition === 'delete') {
-      if (!row.target || !survivors.has(row.target)) {
+      // A survivor-less delete (target null) is stored under its own slug (T14212).
+      const survivorless = row.disposition === 'delete' && row.target === null;
+      if (!survivorless && (!row.target || !survivors.has(row.target))) {
         bad(`${row.disposition} must name a survivor's slug (got ${row.target ?? 'none'})`);
       }
     } else if (plan.mode !== 'store-only') {

@@ -882,6 +882,71 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     });
   });
 
+  it('deletes with no survivor: stored under its own slug, file removed, no supersede edge (T14212)', async () => {
+    // Omitted and explicit-null targets both mean "no survivor".
+    expect(
+      parseModernizeOverrides(
+        '{"misc/random-thoughts.md":{"disposition":"delete","target":null,"reason":"census"}}',
+      )['misc/random-thoughts.md']?.target,
+    ).toBeNull();
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+      overrides: {
+        'misc/random-thoughts.md': { disposition: 'delete', reason: 'census: scratch notes' },
+      },
+    });
+    const row = plan.rows.find((r) => r.path === 'misc/random-thoughts.md');
+    expect(row).toMatchObject({ disposition: 'delete', target: null, overridden: true });
+
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    expect(existsSync(join(docsRoot, 'misc/random-thoughts.md'))).toBe(false);
+    expect(receipt.deleted).toContain('misc/random-thoughts.md');
+    const blob = receipt.blobs.find((b) => b.path === 'misc/random-thoughts.md');
+    expect(blob?.sha256).toBe(sha(original.get('misc/random-thoughts.md') ?? ''));
+    const ingest = receipt.ops.find(
+      (o) => o.op === 'ingest' && o.path === 'misc/random-thoughts.md',
+    );
+    expect(ingest?.slug).toBeTruthy();
+    const stored = await createAttachmentStore().findBySlug(ingest?.slug ?? '', projectRoot);
+    expect(stored?.lifecycleStatus).not.toBe('superseded');
+    expect(
+      receipt.ops.some((o) => o.op === 'supersede' && o.path === 'misc/random-thoughts.md'),
+    ).toBe(false);
+    expect(receipt.ops.some((o) => o.op === 'supersede' && o.slug === ingest?.slug)).toBe(false);
+  });
+
+  it('a delete that names a survivor still supersedes into it, and a non-survivor target is refused (T14212)', async () => {
+    await expect(
+      planDocsModernize({
+        root: docsRoot,
+        projectRoot,
+        decide: { connection: null },
+        overrides: {
+          'misc/random-thoughts.md': { disposition: 'delete', target: 'no-such-doc', reason: 'x' },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'E_MODERNIZE_OVERRIDE' });
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+      overrides: {
+        'misc/random-thoughts.md': {
+          disposition: 'delete',
+          target: 'gate-integrity-spec',
+          reason: 'census: scratch notes',
+        },
+      },
+    });
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    expect(existsSync(join(docsRoot, 'misc/random-thoughts.md'))).toBe(false);
+    expect(
+      receipt.ops.some((o) => o.op === 'supersede' && o.target === 'gate-integrity-spec'),
+    ).toBe(true);
+  });
+
   it('validates overrides: survivor targets, keep at its own path, schema', async () => {
     await expect(
       planDocsModernize({
