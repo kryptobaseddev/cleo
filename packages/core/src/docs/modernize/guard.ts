@@ -21,6 +21,7 @@ import {
   docsModernizeReceiptSchema,
 } from '@cleocode/contracts/docs/modernize.js';
 import { gitCommonDir } from '../../git/work-tree.js';
+import { repoLinkFixAllowed } from './rules.js';
 
 /** Raised when a plan, receipt or path fails a guard. */
 export class DocsModernizeUnsafeError extends Error {
@@ -172,7 +173,42 @@ export function assertPlanPaths(
       safeJoin(plan.root, row.target);
     }
   }
-  for (const fix of plan.linkFixes ?? []) safeJoin(plan.root, fix.path);
+  const repoFixes = (plan.linkFixes ?? []).filter((f) => f.base === 'repo');
+  if (repoFixes.length > 0) assertRepoBase(projectRoot, plan.root, plan.repoRoot, checkoutRoot);
+  for (const fix of plan.linkFixes ?? []) {
+    if (fix.base !== 'repo') safeJoin(plan.root, fix.path);
+    else safeJoin(plan.repoRoot ?? '', fix.path);
+  }
+}
+
+/**
+ * Check the second write base of a plan or receipt (T14196): it exists, it is
+ * the project root or the invoking checkout (a worktree of this repository),
+ * and the modernize root sits inside it.
+ *
+ * @param projectRoot - Project root.
+ * @param root - Absolute modernize root.
+ * @param repoRoot - The base `repo` paths are relative to.
+ * @param checkoutRoot - The invoking checkout.
+ * @throws DocsModernizeUnsafeError when any of that fails.
+ */
+function assertRepoBase(
+  projectRoot: string,
+  root: string,
+  repoRoot: string | undefined,
+  checkoutRoot: string,
+): void {
+  if (!repoRoot) {
+    // @sync-invariant none:input-shape a repo-base link fix with no repo root is refused before any write
+    throw new DocsModernizeUnsafeError('a base:repo entry needs the plan or receipt repoRoot');
+  }
+  assertRootInProject(projectRoot, repoRoot, checkoutRoot);
+  if (!within(realpathSync(repoRoot), realpathSync(root))) {
+    // @sync-invariant none:input-shape a repo root that does not hold the modernize root is refused before any write
+    throw new DocsModernizeUnsafeError(
+      `repoRoot ${repoRoot} does not hold the modernize root ${root}`,
+    );
+  }
 }
 
 /**
@@ -197,7 +233,14 @@ export function parseModernizeReceipt(
   }
   const receipt = parsed.data;
   assertRootInProject(projectRoot, receipt.root, checkoutRoot);
-  for (const op of receipt.ops) if (op.path) safeJoin(receipt.root, op.path);
+  if (receipt.ops.some((op) => op.base === 'repo')) {
+    assertRepoBase(projectRoot, receipt.root, receipt.repoRoot, checkoutRoot);
+  }
+  for (const op of receipt.ops) {
+    if (!op.path) continue;
+    if (op.base === 'repo') safeJoin(receipt.repoRoot ?? '', op.path);
+    else safeJoin(receipt.root, op.path);
+  }
   return receipt;
 }
 
@@ -205,8 +248,9 @@ export function parseModernizeReceipt(
  * Check that a plan hangs together: every `merge-into`/`delete` row names a
  * survivor's slug (so its content has somewhere to go), every `keep` row
  * targets its own path, every survivor target is a `.md`/`.txt` file, and
- * every `link-fix` names a kept file or an unscanned file (with its sha256) of
- * a tree plan.
+ * every `link-fix` names a kept file, an unscanned file (with its sha256), or
+ * (`base: 'repo'`, T14196) an editable markdown file outside the root (with its
+ * sha256), of a tree plan.
  *
  * @param plan - The plan.
  * @throws DocsModernizeUnsafeError on the first inconsistent row.
@@ -237,14 +281,26 @@ export function assertPlanConsistent(plan: DocsModernizePlan): void {
   // (T14194), which must carry the bytes it was planned against.
   const kept = new Set(plan.rows.filter((r) => r.disposition === 'keep').map((r) => r.path));
   const touched = new Set(plan.rows.flatMap((r) => [r.path, r.target ?? r.path]));
+  // A repo-base fix (T14196) names a file outside the root that policy lets
+  // modernize edit; changelogs, changesets and CLEO state never are.
+  const rootInRepo =
+    plan.repoRoot === undefined
+      ? null
+      : relative(realpathSync(plan.repoRoot), realpathSync(plan.root)).split(sep).join('/');
   for (const fix of plan.linkFixes ?? []) {
     const ok =
       plan.mode === 'tree' &&
-      (kept.has(fix.path) || (!touched.has(fix.path) && fix.sha256 !== undefined));
+      (fix.base === 'repo'
+        ? fix.sha256 !== undefined &&
+          rootInRepo !== null &&
+          rootInRepo !== '' &&
+          !`${fix.path}/`.startsWith(`${rootInRepo}/`) &&
+          repoLinkFixAllowed(fix.path)
+        : kept.has(fix.path) || (!touched.has(fix.path) && fix.sha256 !== undefined));
     if (!ok) {
       // @sync-invariant none:input-shape a link fix for a file the plan moves or does not vouch for is refused before any write
       throw new DocsModernizeUnsafeError(
-        `link-fix ${fix.path}: only a kept file, or an unscanned file with its sha256, of a tree plan`,
+        `link-fix ${fix.path}: only a kept file, an unscanned file with its sha256, or (base repo) an editable markdown file outside the root with its sha256, of a tree plan`,
       );
     }
   }

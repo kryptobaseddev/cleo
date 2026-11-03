@@ -461,6 +461,36 @@ export function applyLinkFixes(
   });
 }
 
+/** Folders a repo-wide link fix never edits: history, CLEO state, vendored and built output. */
+const NEVER_REWRITTEN_DIRS: ReadonlySet<string> = new Set([
+  '.changeset',
+  '.cleo',
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+  'generated',
+  'vendor',
+  '_archived',
+]);
+
+/**
+ * Whether a markdown file outside the modernize root may get `link-fix` edits
+ * (T14196). Changelogs and changesets are history, so they are never
+ * rewritten (they stay listed in a row's `refs`); nor is anything under CLEO
+ * state, vendored or built folders.
+ *
+ * @param repoPath - The file's path relative to the repository root, POSIX.
+ * @returns True when the file may be edited.
+ */
+export function repoLinkFixAllowed(repoPath: string): boolean {
+  const parts = repoPath.split('/');
+  const name = parts.at(-1) ?? '';
+  if (!/\.md$/i.test(name) || /^changelog(\.|$)/i.test(name)) return false;
+  return !parts.slice(0, -1).some((part) => NEVER_REWRITTEN_DIRS.has(part));
+}
+
 /**
  * Where every planned file ends up: a survivor at its target, a merged or
  * deleted file at its survivor's target (T14185).

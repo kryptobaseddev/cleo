@@ -247,10 +247,10 @@ function ownerOf(row: DocsModernizePlanRow): string {
  * Refuse unless the root is a git checkout with no uncommitted changes, so
  * the moves land as one reviewable diff. Fails closed: a git error refuses.
  */
-function assertCleanTree(root: string): void {
+function assertCleanTree(root: string, paths: readonly string[] = ['.']): void {
   let status: string;
   try {
-    status = execFileSync('git', ['status', '--porcelain', '--', '.'], {
+    status = execFileSync('git', ['status', '--porcelain', '--', ...paths], {
       cwd: root,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -346,7 +346,13 @@ export async function applyDocsModernize(
   const tree = plan.mode !== 'store-only';
   assertPlanPaths(plan, projectRoot, options.checkoutRoot);
   assertPlanConsistent(plan);
-  if (tree && !options.allowDirty) assertCleanTree(root);
+  if (tree && !options.allowDirty) {
+    assertCleanTree(root);
+    // Repo-base files outside the root must be committed too (T14196).
+    const repoPaths = (plan.linkFixes ?? []).filter((f) => f.base === 'repo').map((f) => f.path);
+    if (plan.repoRoot && repoPaths.length > 0)
+      assertCleanTree(plan.repoRoot, [...new Set(repoPaths)]);
+  }
   const texts = new Map<string, string>();
   for (const row of plan.rows) {
     const abs = safeJoin(root, row.path);
@@ -361,12 +367,19 @@ export async function applyDocsModernize(
   }
   // Files the plan does not scan but re-points links in (T14194): checked
   // against their planned bytes now, edited on disk only, never stored.
-  const outOfScope = new Map<string, { text: string; fixes: DocsModernizeLinkFix[] }>();
+  // Repo-base files (T14196) sit outside the root, under the plan's repoRoot.
+  const outOfScope = new Map<
+    string,
+    { base: 'repo' | undefined; path: string; text: string; fixes: DocsModernizeLinkFix[] }
+  >();
+  const baseDir = (base: 'repo' | undefined): string =>
+    base === 'repo' ? (plan.repoRoot ?? root) : root;
   for (const fix of plan.linkFixes ?? []) {
-    if (texts.has(fix.path)) continue;
-    let entry = outOfScope.get(fix.path);
+    if (fix.base !== 'repo' && texts.has(fix.path)) continue;
+    const key = `${fix.base ?? 'root'}:${fix.path}`;
+    let entry = outOfScope.get(key);
     if (!entry) {
-      const abs = safeJoin(root, fix.path);
+      const abs = safeJoin(baseDir(fix.base), fix.path);
       const text = existsSync(abs) ? readFileSync(abs, 'utf-8') : null;
       if (text === null || sha256(text) !== fix.sha256) {
         // @sync-invariant none:input-shape the plan no longer matches the tree; refused before any write
@@ -374,8 +387,8 @@ export async function applyDocsModernize(
           `${fix.path} changed since the plan was made; re-run cleo docs modernize --dry-run`,
         );
       }
-      entry = { text, fixes: [] };
-      outOfScope.set(fix.path, entry);
+      entry = { base: fix.base, path: fix.path, text, fixes: [] };
+      outOfScope.set(key, entry);
     }
     entry.fixes.push(fix);
   }
@@ -398,6 +411,7 @@ export async function applyDocsModernize(
     blobs: [...blobs],
     moves: [...moves],
     deleted: [...deleted],
+    ...(plan.repoRoot ? { repoRoot: plan.repoRoot } : {}),
   });
   const save = async (edgeCount = 0): Promise<void> => {
     await writeFileAtomic({
@@ -678,7 +692,7 @@ export async function applyDocsModernize(
         }
         if (target !== row.path) moves.push({ from: row.path, to: target });
       }
-      for (const [path, { text, fixes }] of outOfScope) {
+      for (const { base, path, text, fixes } of outOfScope.values()) {
         const body = applyLinkFixes(text, fixes);
         if (body === text) continue;
         const beforeSha = await backup(projectRoot, runId, text);
@@ -688,8 +702,9 @@ export async function applyDocsModernize(
           path,
           beforeSha256: beforeSha,
           afterSha256: sha256(body),
+          ...(base === 'repo' ? { base } : {}),
         });
-        await writeFileAtomic({ path: safeJoin(root, path), content: body });
+        await writeFileAtomic({ path: safeJoin(baseDir(base), path), content: body });
         journal.done(i);
       }
       const kept = new Set(survivors.map((r) => r.target ?? r.path));
@@ -841,7 +856,8 @@ export async function rollbackDocsModernize(
         case 'remove-file':
         case 'write-file': {
           if (!op.path) break;
-          const abs = safeJoin(receipt.root, op.path);
+          const base = op.base === 'repo' ? (receipt.repoRoot ?? receipt.root) : receipt.root;
+          const abs = safeJoin(base, op.path);
           const current = existsSync(abs) ? sha256(readFileSync(abs, 'utf-8')) : null;
           const expected = op.op === 'write-file' ? op.afterSha256 : null;
           const restored = op.beforeSha256;
@@ -856,7 +872,7 @@ export async function rollbackDocsModernize(
             await writeFileAtomic({ path: abs, content: readBackup(restored) });
           } else if (existsSync(abs)) {
             rmSync(abs);
-            pruneEmptyDirs(receipt.root, dirname(abs));
+            pruneEmptyDirs(base, dirname(abs));
           }
           break;
         }

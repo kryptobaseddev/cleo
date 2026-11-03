@@ -770,6 +770,118 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     expect(existsSync(join(docsRoot, 'spec'))).toBe(false);
   });
 
+  describe('links from markdown outside the root (T14196)', () => {
+    const env = (): NodeJS.ProcessEnv =>
+      Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+    const git = (...args: string[]) =>
+      execFileSync(
+        'git',
+        ['-c', 'core.hooksPath=/dev/null', '-c', 'user.email=t@t', '-c', 'user.name=t', ...args],
+        { cwd: projectRoot, env: env(), stdio: 'ignore' },
+      );
+    const README =
+      '# Repo\n\nRead [the spec](docs/specs/T832-gate-integrity-spec.md#requirements).\n';
+    const PKG = '# Pkg\n\nSee [plan](../../docs/plans/2026-04-21-self-healing-plan.md).\n';
+    const HISTORY = '- shipped [the spec](docs/specs/T832-gate-integrity-spec.md)\n';
+
+    /** A real repo: docs/ plus a README, a package README, a CHANGELOG and a changeset linking into it. */
+    function seedRepo(): void {
+      writeFileSync(join(projectRoot, 'README.md'), README);
+      mkdirSync(join(projectRoot, 'packages', 'x'), { recursive: true });
+      writeFileSync(join(projectRoot, 'packages', 'x', 'README.md'), PKG);
+      writeFileSync(join(projectRoot, 'CHANGELOG.md'), HISTORY);
+      mkdirSync(join(projectRoot, '.changeset'), { recursive: true });
+      writeFileSync(join(projectRoot, '.changeset', 'a.md'), HISTORY);
+      writeFileSync(join(projectRoot, '.gitignore'), '.cleo/\n');
+      rmSync(join(projectRoot, '.git'), { recursive: true, force: true });
+      git('init', '-q');
+      git('add', '.');
+      git('commit', '-qm', 'fixture');
+    }
+
+    it('plans sha-pinned repo-base link fixes, never for history, and applies them with rollback', async () => {
+      seedRepo();
+      const plan = await planDocsModernize({
+        root: docsRoot,
+        projectRoot,
+        decide: { connection: null },
+      });
+      expect(plan.repoRoot).toBe(projectRoot);
+      expect(plan.linkFixes?.filter((f) => f.base === 'repo')).toEqual([
+        {
+          kind: 'link-fix',
+          base: 'repo',
+          path: 'README.md',
+          href: 'docs/specs/T832-gate-integrity-spec.md#requirements',
+          newHref: 'docs/spec/gate-integrity-spec.md#requirements',
+          sha256: sha(README),
+        },
+        {
+          kind: 'link-fix',
+          base: 'repo',
+          path: 'packages/x/README.md',
+          href: '../../docs/plans/2026-04-21-self-healing-plan.md',
+          newHref: '../../docs/plan/self-healing-plan.md',
+          sha256: sha(PKG),
+        },
+      ]);
+      // A clean checkout: no --allow-dirty needed.
+      const receipt = await applyDocsModernize({ plan, projectRoot });
+      expect(readFileSync(join(projectRoot, 'README.md'), 'utf-8')).toBe(
+        README.replace(
+          'docs/specs/T832-gate-integrity-spec.md',
+          'docs/spec/gate-integrity-spec.md',
+        ),
+      );
+      expect(readFileSync(join(projectRoot, 'packages', 'x', 'README.md'), 'utf-8')).toBe(
+        PKG.replace('docs/plans/2026-04-21-self-healing-plan.md', 'docs/plan/self-healing-plan.md'),
+      );
+      // History is never rewritten.
+      expect(readFileSync(join(projectRoot, 'CHANGELOG.md'), 'utf-8')).toBe(HISTORY);
+      expect(readFileSync(join(projectRoot, '.changeset', 'a.md'), 'utf-8')).toBe(HISTORY);
+      // Repo files never reach the store; the receipt records their base.
+      const store = createAttachmentStore();
+      expect(await store.getMetadata(sha(README), projectRoot)).toBeNull();
+      expect(receipt.repoRoot).toBe(projectRoot);
+      expect(receipt.ops.filter((o) => o.base === 'repo').map((o) => [o.op, o.path])).toEqual([
+        ['write-file', 'README.md'],
+        ['write-file', 'packages/x/README.md'],
+      ]);
+
+      await rollbackDocsModernize(projectRoot, receipt.runId);
+      expect(readFileSync(join(projectRoot, 'README.md'), 'utf-8')).toBe(README);
+      expect(readFileSync(join(projectRoot, 'packages', 'x', 'README.md'), 'utf-8')).toBe(PKG);
+    });
+
+    it('refuses repo-base fixes for history, inside the root, or with a dirty or changed file', async () => {
+      seedRepo();
+      const plan = await planDocsModernize({
+        root: docsRoot,
+        projectRoot,
+        decide: { connection: null },
+      });
+      const fix = plan.linkFixes?.find((f) => f.path === 'README.md');
+      if (!fix) throw new Error('fixture: README fix missing');
+      for (const path of ['CHANGELOG.md', '.changeset/a.md', 'docs/misc/random-thoughts.md']) {
+        await expect(
+          applyDocsModernize({
+            plan: { ...plan, linkFixes: [{ ...fix, path }] },
+            projectRoot,
+            allowDirty: true,
+          }),
+        ).rejects.toMatchObject({ code: 'E_MODERNIZE_UNSAFE' });
+      }
+      writeFileSync(join(projectRoot, 'README.md'), `${README}edited\n`);
+      await expect(applyDocsModernize({ plan, projectRoot })).rejects.toMatchObject({
+        code: 'E_MODERNIZE_DIRTY',
+      });
+      await expect(
+        applyDocsModernize({ plan, projectRoot, allowDirty: true }),
+      ).rejects.toMatchObject({ code: 'E_MODERNIZE_STALE' });
+      expect(existsSync(join(docsRoot, 'spec'))).toBe(false);
+    });
+  });
+
   it('validates overrides: survivor targets, keep at its own path, schema', async () => {
     await expect(
       planDocsModernize({
