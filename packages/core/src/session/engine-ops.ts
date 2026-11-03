@@ -591,8 +591,11 @@ export async function sessionStart(
       }
     }
 
+    // T14213: an explicit `--agent` names the session's agent; the
+    // environment's CLEO_AGENT_ID is only the fallback.
     const agentIdentifier =
       ((params as Record<string, unknown>).agentIdentifier as string | undefined) ??
+      params.agentHandle ??
       process.env['CLEO_AGENT_ID'] ??
       null;
 
