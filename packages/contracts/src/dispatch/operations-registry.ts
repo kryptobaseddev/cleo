@@ -161,6 +161,48 @@ export const OPERATIONS: OperationDef[] = [
     },
   },
   {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'req.move',
+    description:
+      'Move one acceptance criterion to another open task as its next AC<n>, keeping its uid and history; audited on both tasks (T14200)',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: true,
+    requiredParams: ['taskId', 'criterion', 'to'],
+    params: [
+      { ...requirementTaskParam, description: 'Task the criterion leaves' },
+      {
+        name: 'criterion',
+        type: 'string',
+        required: true,
+        description: 'The criterion to move, as AC<n>',
+        cli: { positional: true },
+      },
+      {
+        name: 'to',
+        type: 'string',
+        required: true,
+        description: 'Task that gains the criterion',
+        cli: { flag: 'to' },
+      },
+    ],
+    inputSchema: {
+      operation: 'tasks.req.move',
+      schema: {
+        type: 'object',
+        required: ['taskId', 'criterion', 'to'],
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', minLength: 1 },
+          criterion: { type: 'string', minLength: 1 },
+          to: { type: 'string', minLength: 1 },
+        },
+      },
+      examples: [{ name: 'move', value: { taskId: 'T121', criterion: 'AC2', to: 'T122' } }],
+    },
+  },
+  {
     gateway: 'query',
     domain: 'tasks',
     operation: 'req.list',

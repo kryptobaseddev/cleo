@@ -637,6 +637,8 @@ export const AC_HISTORY_REASONS = [
   'restore',
   /** `cleo req replace` superseded a typed gate in place (T12988). */
   'replace',
+  /** `cleo req move` moved the criterion to another task (T14200). */
+  'move',
 ] as const;
 
 /** Union type for {@link AC_HISTORY_REASONS}. */

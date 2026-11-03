@@ -58,13 +58,14 @@ const REGEN_HINT =
 const REAL_OPS: HelpOperationDef[] = OPERATIONS as HelpOperationDef[];
 
 describe('cleo ops — real-registry tier-filter regression lock (T9845)', () => {
-  it('exposes the five canonical requirement routes at tier 1 without expanding tier 0', () => {
+  it('exposes the six canonical requirement routes at tier 1 without expanding tier 0', () => {
     const routes = OPERATIONS.filter(
       (operation) => operation.domain === 'tasks' && operation.operation.startsWith('req.'),
     );
     expect(routes.map(({ gateway, operation, tier }) => ({ gateway, operation, tier }))).toEqual([
       { gateway: 'mutate', operation: 'req.add', tier: 1 },
       { gateway: 'mutate', operation: 'req.replace', tier: 1 },
+      { gateway: 'mutate', operation: 'req.move', tier: 1 },
       { gateway: 'query', operation: 'req.list', tier: 1 },
       { gateway: 'query', operation: 'req.migrate.preview', tier: 1 },
       { gateway: 'mutate', operation: 'req.migrate', tier: 1 },
@@ -85,6 +86,7 @@ describe('cleo ops — real-registry tier-filter regression lock (T9845)', () =>
           : [
               'mutate:req.add',
               'mutate:req.replace',
+              'mutate:req.move',
               'query:req.list',
               'query:req.migrate.preview',
               'mutate:req.migrate',
