@@ -191,8 +191,7 @@ export const detectDriftCommand = defineCommand({
             category: 'spec',
             message: 'Operations reference specification not found',
             file: specPath,
-            recommendation:
-              `Create ${OPERATION_CONSTITUTION_DOC} with canonical operation definitions`,
+            recommendation: `Create ${OPERATION_CONSTITUTION_DOC} with canonical operation definitions`,
           },
         ]);
       } else if (!existsSync(registryPath) || !existsSync(dispatchDomainsDir)) {
@@ -394,8 +393,7 @@ export const detectDriftCommand = defineCommand({
           category: 'spec',
           message: 'Portable Brain spec missing',
           file: specPath,
-          recommendation:
-            `Create ${PORTABLE_BRAIN_SPEC_DOC} with canonical pillars`,
+          recommendation: `Create ${PORTABLE_BRAIN_SPEC_DOC} with canonical pillars`,
         });
       }
 
@@ -424,8 +422,7 @@ export const detectDriftCommand = defineCommand({
                 category: 'vision',
                 message: `Missing pillars: ${missingPillars.join(', ')}`,
                 file: specPath,
-                recommendation:
-                  `Add all five canonical pillars to ${PORTABLE_BRAIN_SPEC_DOC}`,
+                recommendation: `Add all five canonical pillars to ${PORTABLE_BRAIN_SPEC_DOC}`,
               },
             ],
           );
