@@ -23,6 +23,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { loadConfig } from '../config.js';
+import { compactKnowledgeCoverage } from '../doctor/knowledge-summary.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -535,7 +536,8 @@ export async function completeTask(
     return {
       task,
       alreadyCompleted: true,
-      knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
+      // T14201: a bounded summary; `cleo doctor knowledge` has the full report.
+      knowledgeCoverage: compactKnowledgeCoverage(await assessKnowledgeCoverage(resolveOrCwd(cwd))),
     };
   }
 
@@ -1618,7 +1620,8 @@ export async function completeTask(
       : undefined;
 
   return {
-    knowledgeCoverage: await assessKnowledgeCoverage(resolveOrCwd(cwd)),
+    // T14201: a bounded summary; `cleo doctor knowledge` has the full report.
+    knowledgeCoverage: compactKnowledgeCoverage(await assessKnowledgeCoverage(resolveOrCwd(cwd))),
     task,
     ...(autoCompleted.length > 0 && { autoCompleted }),
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
