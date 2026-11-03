@@ -998,12 +998,15 @@ function acMappingBlocker(
  * re-verify that binds each criterion to the work that proves it.
  */
 async function unboundCriteriaBlocker(
-  taskId: string,
+  task: Pick<Task, 'id' | 'acceptance'>,
   accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
   implementedEvidence: string | null,
 ): Promise<DonePlanBlocker | null> {
+  const taskId = task.id;
   const { computeAcCoverage } = await import('./ac-coverage-gate.js');
-  const coverage = await computeAcCoverage(taskId, accessor);
+  const { completionCoverageAccessor } = await import('./ac-table.js');
+  // The criteria complete counts (advisory typed gates excluded), read the same way.
+  const coverage = await computeAcCoverage(taskId, completionCoverageAccessor(task, accessor));
   if (coverage.ok) return null;
   const unbound = coverage.unsatisfied.filter((u) => u.childTaskId === undefined);
   if (unbound.length === 0) return null;
@@ -1481,7 +1484,7 @@ export async function deriveTaskEvidence(
   // binding; a criterion with none blocks here with the write that binds it.
   const coverageBlocker =
     allPassed && task.status !== 'done'
-      ? await unboundCriteriaBlocker(taskId, accessor, changeSet.implementedEvidence)
+      ? await unboundCriteriaBlocker(task, accessor, changeSet.implementedEvidence)
       : null;
   const planned = [
     ...(allPassed
