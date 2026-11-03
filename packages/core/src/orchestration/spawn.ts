@@ -792,6 +792,16 @@ export async function composeSpawnPayload(
     // best-effort — blob store may not be initialized; proceed without docs
   }
 
+  // T14190: the project may tighten or widen the inlined-document budget.
+  let docBudgetChars: number | undefined;
+  try {
+    const { getRawConfigValue } = await import('../config.js');
+    const raw = await getRawConfigValue('orchestration.spawnDocBudgetChars', projectRoot);
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) docBudgetChars = raw;
+  } catch {
+    // best-effort — an unreadable config keeps the default budget
+  }
+
   // 6e. Multi-agent observability summary (T10464).
   //     Best-effort and compact: one line only, tier-1/2 only. Failures must
   //     not block spawn, and tier-0 worker prompts stay lean.
@@ -833,6 +843,7 @@ export async function composeSpawnPayload(
     retrievalBundle,
     ...(attentionDigestLines !== undefined ? { attentionDigestLines } : {}),
     docAttachments,
+    ...(docBudgetChars !== undefined ? { docBudgetChars } : {}),
     spawnCloneExclude: options.spawnCloneExclude,
   });
 
