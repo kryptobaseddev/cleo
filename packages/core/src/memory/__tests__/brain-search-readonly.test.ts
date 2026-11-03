@@ -18,7 +18,7 @@ import type { SearchBrainCompactResult } from '@cleocode/contracts/memory/search
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { settleBackgroundOps } from '../../store/background-ops.js';
 import { closeBrainDb, getBrainDbPath, getBrainNativeDb } from '../../store/memory-sqlite.js';
-import { closeDb } from '../../store/sqlite.js';
+import { closeAllDatabases, closeDb, getDb } from '../../store/sqlite.js';
 import { resetFts5Cache, searchBrain, staleFts5Tables } from '../brain-search.js';
 
 /** A statement slower than this waited on the held lock (the read path's own timeout is 250 ms). */
@@ -45,6 +45,12 @@ describe('T14202 — read-only BRAIN search', () => {
       confidence: 'high',
       confirmationState: 'accepted',
     });
+    // The store as an earlier CLI process leaves it: every command binds the
+    // tasks domain (`cleo init` first), so its lineage is migrated and seeded.
+    // Then every binding is dropped, so the test's first tasks read cold-binds
+    // like a new process (T14210 AC4).
+    await getDb(projectRoot);
+    await closeAllDatabases();
   });
 
   afterEach(() => {
