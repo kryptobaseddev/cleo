@@ -86,6 +86,47 @@ export type MutateTasksReqReplaceResponses = {
 
 export type MutateTasksReqReplaceResponse = MutateTasksReqReplaceResponses[keyof MutateTasksReqReplaceResponses];
 
+export type MutateTasksReqMoveData = {
+    body: {
+        /**
+         * Task the criterion leaves
+         */
+        taskId: string;
+        /**
+         * The criterion to move, as AC<n>
+         */
+        criterion: string;
+        /**
+         * Task that gains the criterion
+         */
+        to: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/req.move';
+};
+
+export type MutateTasksReqMoveResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksReqMoveResponse = MutateTasksReqMoveResponses[keyof MutateTasksReqMoveResponses];
+
 export type QueryTasksReqListData = {
     body: {
         /**

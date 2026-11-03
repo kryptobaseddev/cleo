@@ -13,11 +13,19 @@ import { isDeepStrictEqual } from 'node:util';
 import type { AcceptanceGate, AcceptanceItem, TransactionAccessor } from '@cleocode/contracts';
 import { acceptanceGateSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { enforceAcceptanceImmutability } from './ac-immutability.js';
-import { acItemToText, applyAcPlan, planAcUpdate, replaceAcRowPlan } from './ac-table.js';
+import { enforceAcceptanceImmutability, recordAcceptanceMove } from './ac-immutability.js';
+import {
+  acItemToText,
+  applyAcPlan,
+  buildAcRowId,
+  directTextSourceKey,
+  planAcUpdate,
+  replaceAcRowPlan,
+} from './ac-table.js';
 import { commandGateCmdProblem } from './command-gate-cmd.js';
 import { splitCommandLine } from './command-line.js';
 
@@ -378,6 +386,198 @@ export async function reqReplace(
       index,
       superseded,
       changed: true,
+    };
+  });
+}
+
+/** Result of {@link reqMove}. */
+export interface ReqMoveResult {
+  /** Where the criterion was: its task, `AC<n>` alias and row id. */
+  from: { taskId: string; criterion: string; acId: string };
+  /** Where it is now: its new task, its next `AC<n>` there and its row id. */
+  to: { taskId: string; criterion: string; acId: string };
+  /** The criterion's uid (T12341), kept across the move; its history joins on it. */
+  uid: string | null;
+}
+
+/**
+ * Move one acceptance criterion to another task (T14200, `cleo req move`).
+ *
+ * @remarks
+ * The target gains the criterion as its next `AC<n>`. The criterion keeps its
+ * uid (and birth fingerprint), the identity its history rows join on; its row
+ * id is re-derived for the target task as a task rename does (T12799), so the
+ * source can never collide with it by re-adding the same text. The source
+ * records the move as an AC history row (reason `move`) instead of a removal,
+ * and the acceptance lock audits it as `change: 'move'`, moved rather than
+ * weakened, so no reason is needed; for the target it is a pure append. One
+ * `ac_moved` audit row is written on each task naming the criterion, both
+ * tasks and the actor.
+ *
+ * Refused: a done, cancelled or archived task on either side; a criterion
+ * with recorded evidence bindings (it is proven where it stands); a
+ * child-task projection; a criterion the target already has (same text or
+ * REQ-ID).
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - The task the criterion leaves.
+ * @param criterion - Its `AC<n>` alias on that task.
+ * @param toTaskId - The task that gains it.
+ * @param options - `accessor` for tests.
+ * @returns Both locations and the kept uid.
+ * @throws CleoError E_NOT_FOUND for an unknown task or criterion, E_VALIDATION
+ *   for any refusal above.
+ * @task T14200
+ */
+export async function reqMove(
+  projectRoot: string,
+  taskId: string,
+  criterion: string,
+  toTaskId: string,
+  options: { accessor?: DataAccessor } = {},
+): Promise<ReqMoveResult> {
+  const alias = criterion.trim().toUpperCase();
+  const ordinal = /^AC([1-9]\d*)$/.exec(alias)?.[1];
+  if (ordinal === undefined)
+    // @sync-invariant none:input-shape a malformed criterion alias is refused before any read; nothing is written
+    throw new CleoError(ExitCode.VALIDATION_ERROR, `"${criterion}" is not an AC<n> alias`, {
+      fix: `cleo show ${taskId} --full  # list its criteria`,
+    });
+  if (toTaskId === taskId)
+    // @sync-invariant none:input-shape a move onto the same task is refused before any read; nothing is written
+    throw new CleoError(ExitCode.VALIDATION_ERROR, `${alias} is already on ${taskId}`);
+  const acc = options.accessor ?? (await getTaskAccessor(projectRoot));
+  return acc.transaction(async (tx) => {
+    const source = await loadTask(acc, taskId);
+    const target = await loadTask(acc, toTaskId);
+    for (const task of [source, target])
+      if (TERMINAL_TASK_STATUSES.has(task.status))
+        // @sync-invariant none:input-shape a criterion moves only between open tasks; nothing is written
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `${task.id} is ${task.status}; a criterion moves only between open tasks`,
+        );
+    const rows = [...(await tx.getAcRows(taskId))].sort((a, b) => a.ordinal - b.ordinal);
+    const index = rows.findIndex((r) => r.ordinal === Number(ordinal));
+    const row = rows[index];
+    const acceptance = (source.acceptance ?? []) as AcceptanceItem[];
+    const item = acceptance[index];
+    if (!row || item === undefined)
+      // @sync-invariant none:input-shape an unknown criterion is refused before any write; nothing is written
+      throw new CleoError(ExitCode.NOT_FOUND, `${taskId} has no ${alias}`, {
+        fix: `cleo show ${taskId} --full  # list its criteria`,
+      });
+    if (row.kind === 'child_task' || acItemToText(item) !== row.text)
+      // @sync-invariant none:input-shape a child projection or an unmatched row is refused before any write
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        row.kind === 'child_task'
+          ? `${taskId} ${alias} projects child ${row.targetTaskId}; it follows that child, not a move`
+          : `${taskId} ${alias} does not match its stored row; refusing to move it`,
+        { fix: `cleo show ${taskId} --full` },
+      );
+    const bindings = await tx.getAcBindings([row.id]);
+    if (bindings.length > 0)
+      // @sync-invariant none:input-shape a criterion with evidence stays where its evidence was recorded; nothing is written
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `${taskId} ${alias} has ${bindings.length} recorded evidence binding(s); a proven criterion stays on the task it was proven for`,
+        { fix: `cleo verify ${taskId} --explain  # see the evidence bound to ${alias}` },
+      );
+    const targetAcceptance = (target.acceptance ?? []) as AcceptanceItem[];
+    const req = typeof item === 'object' ? item.req : undefined;
+    if (
+      targetAcceptance.some(
+        (other) =>
+          acItemToText(other) === row.text ||
+          (req !== undefined && typeof other === 'object' && other.req === req),
+      )
+    )
+      // @sync-invariant none:input-shape a criterion the target already carries is refused before any write
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `${toTaskId} already has ${taskId} ${alias}${req ? ` (REQ-ID ${req})` : ''}`,
+      );
+
+    const targetRows = await tx.getAcRows(toTaskId);
+    const nextOrdinal = targetRows.reduce((m, r) => (r.ordinal > m ? r.ordinal : m), 0) + 1;
+    const sourceKey =
+      row.kind === 'text' ? directTextSourceKey(nextOrdinal, row.text) : row.sourceKey;
+    const toAcId = buildAcRowId(toTaskId, row.kind === 'text' ? row.text : sourceKey);
+    const toCriterion = `AC${nextOrdinal}`;
+    const nextSource = acceptance.filter((_, i) => i !== index);
+    const nextTarget = [...targetAcceptance, item];
+    // The target only gains a criterion: a pure append, audited without a reason.
+    enforceAcceptanceImmutability({
+      task: target,
+      newAcceptance: nextTarget,
+      reason: undefined,
+      projectRoot,
+    });
+    recordAcceptanceMove({
+      task: source,
+      newAcceptance: nextSource,
+      reason: `moved ${alias} to ${toTaskId} as ${toCriterion}`,
+      projectRoot,
+    });
+
+    const now = new Date().toISOString();
+    await tx.appendAcHistory([
+      { acId: row.id, acUid: row.uid ?? null, previousText: row.text, reason: 'move' },
+    ]);
+    await tx.deleteAcRowsByIds(taskId, [row.id]);
+    await tx.insertAcRows([
+      {
+        id: toAcId,
+        taskId: toTaskId,
+        ordinal: nextOrdinal,
+        text: row.text,
+        kind: row.kind,
+        sourceKey,
+        targetTaskId: row.targetTaskId,
+        projection: row.projection,
+        contentHash: row.contentHash,
+        ...(row.uid ? { uid: row.uid, ...(row.birthFp ? { birthFp: row.birthFp } : {}) } : {}),
+      },
+    ]);
+    await tx.updateTaskFields(taskId, {
+      acceptanceJson: JSON.stringify(nextSource),
+      updatedAt: now,
+    });
+    await tx.updateTaskFields(toTaskId, {
+      acceptanceJson: JSON.stringify(nextTarget),
+      updatedAt: now,
+    });
+    const actor = process.env['CLEO_AGENT_ID'] ?? 'cleo';
+    const details = {
+      criterion: alias,
+      fromTaskId: taskId,
+      toTaskId,
+      toCriterion,
+      acUid: row.uid ?? null,
+      fromAcId: row.id,
+      toAcId,
+    };
+    await tx.appendLog({
+      timestamp: now,
+      action: 'ac_moved',
+      taskId,
+      actor,
+      details,
+      before: { item },
+    });
+    await tx.appendLog({
+      timestamp: now,
+      action: 'ac_moved',
+      taskId: toTaskId,
+      actor,
+      details,
+      after: { item },
+    });
+    return {
+      from: { taskId, criterion: alias, acId: row.id },
+      to: { taskId: toTaskId, criterion: toCriterion, acId: toAcId },
+      uid: row.uid ?? null,
     };
   });
 }

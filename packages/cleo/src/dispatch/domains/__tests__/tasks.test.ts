@@ -252,6 +252,7 @@ describe('TasksHandler', () => {
         'saga.reconcile',
         'req.add',
         'req.replace',
+        'req.move',
         'req.migrate',
       ]);
     });
@@ -1396,8 +1397,8 @@ describe('typed requirement dispatch', () => {
     expect(new Set(operations.map((operation) => operation.operation)).size).toBe(
       operations.length,
     );
-    // T12988: req.add, req.replace, req.list, req.migrate.preview, req.migrate.
-    expect(operations).toHaveLength(5);
+    // T12988 + T14200: req.add, req.replace, req.move, req.list, req.migrate.preview, req.migrate.
+    expect(operations).toHaveLength(6);
   });
 
   it('parses a validated gate and delegates creation without executing it', async () => {

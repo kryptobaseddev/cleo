@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.25.3 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.25.4 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -32,7 +32,7 @@ Output detail (ADR-086): `--output count` counts the returned rows, agreeing wit
 | Preview batch before inserting | `cleo add-batch --file tasks.json --parent <epicId> --dry-run` |
 | Batch from stdin | `echo '[...]' \| cleo add-batch --file - --parent <epicId>` |
 
-Acceptance input normalizes identically across add, update, batch and saga creation: string arrays in JSON parameters; for `--acceptance`, a JSON-array string or the documented pipe-delimited form. Array entries preserve literal pipes and quoted unions. Strings are trimmed and blank strings omitted; nonstring entries or malformed explicit JSON arrays reject the whole mutation. An explicit `[]` on update requests a clear; omitted acceptance stays unchanged. Normalized criteria still obey policy and immutability, including `--reason` for locked changes. Invalid stored criteria are diagnostic failures; never split historical records without original-input provenance and a guarded repair receipt.
+Acceptance input normalizes identically across add, update, batch and saga creation: string arrays in JSON parameters; for `--acceptance`, a JSON-array string or the documented pipe-delimited form. Array entries preserve literal pipes and quoted unions. Strings are trimmed and blank strings omitted; nonstring entries or malformed explicit JSON arrays reject the whole mutation. An explicit `[]` on update requests a clear; omitted acceptance stays unchanged. Normalized criteria still obey policy and immutability, including `--reason` for locked changes. A criterion that belongs to another task moves, never waived: `cleo req move <id> AC<n> --to <task>` gives it to the target as its next `AC<n>`, keeping its uid and history (the source records a move, and the lock treats it as moved, not weakened) with an `ac_moved` audit row on both tasks; it is refused for a done target and for a criterion with recorded evidence (T14200). Invalid stored criteria are diagnostic failures; never split historical records without original-input provenance and a guarded repair receipt.
 
 Explicit `critical` priority on add/update requires a dependency or a nonempty `--depends-waiver`; updates check the resulting dependency set. CLI flags, JSON params, and SDK calls share this policy. Explicit severity changes use the project's signing identity: a nonempty `ownerPubkeys` allowlist restricts signers; an absent or empty list keeps the existing opt-in policy. Unreadable or malformed authority is an explicit configuration failure. Committed severity, duplicate-bypass, and dependency-waiver evidence lives in the task transaction audit. Historical filesystem attestations alone do not prove a task committed. Dry-run creates no committed attestation; failed writes leave no committed receipt.
 

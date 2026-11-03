@@ -79,6 +79,7 @@ const taskWorkHistory = lazyOperation(
 );
 const reqAdd = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqAdd);
 const reqReplace = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqReplace);
+const reqMove = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqMove);
 const reqList = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqList);
 const reqMigrate = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqMigrate);
 const tasksAddBatchOp = lazyOperation(
@@ -852,6 +853,7 @@ const MUTATE_OPS = new Set<string>([
   'saga.reconcile',
   'req.add',
   'req.replace',
+  'req.move',
   'req.migrate',
 ]);
 
@@ -1164,7 +1166,12 @@ export class TasksHandler implements DomainHandler {
 
     // Saga sub-domain mutate ops (ADR-073) — handled outside typed handler.
     try {
-      if (operation === 'req.add' || operation === 'req.replace' || operation === 'req.migrate') {
+      if (
+        operation === 'req.add' ||
+        operation === 'req.replace' ||
+        operation === 'req.move' ||
+        operation === 'req.migrate'
+      ) {
         if (typeof params?.taskId !== 'string' || !params.taskId.trim()) {
           return errorResult(
             'mutate',
@@ -1212,6 +1219,31 @@ export class TasksHandler implements DomainHandler {
           const data = await reqReplace(getProjectRoot(), params.taskId, params.req, gate, {
             ...(typeof params.reason === 'string' ? { reason: params.reason } : {}),
           });
+          return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
+        }
+        if (operation === 'req.move') {
+          if (
+            typeof params.criterion !== 'string' ||
+            !params.criterion.trim() ||
+            typeof params.to !== 'string' ||
+            !params.to.trim()
+          ) {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              // @sync-invariant none:input-shape a missing criterion or target is refused before any read; nothing is written
+              'E_INVALID_INPUT',
+              'criterion (AC<n>) and to (target task) are required; use req move <task> <ACn> --to <task>',
+              startTime,
+            );
+          }
+          const data = await reqMove(
+            getProjectRoot(),
+            params.taskId,
+            params.criterion,
+            params.to.trim(),
+          );
           return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
         }
         if (params.apply !== true) {
@@ -1381,6 +1413,7 @@ export class TasksHandler implements DomainHandler {
         'saga.reconcile',
         'req.add',
         'req.replace',
+        'req.move',
         'req.migrate',
       ],
     };

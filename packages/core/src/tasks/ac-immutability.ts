@@ -78,9 +78,11 @@ export interface AcceptanceChangeAuditEntry {
    * `append` when every existing criterion was kept byte-for-byte and new ones
    * were added after them (T12237, no reason needed); `override` when an
    * existing criterion was removed or altered under `--reason`. Absent on
-   * records written before T12237 (all overrides).
+   * records written before T12237 (all overrides). `move` when a criterion
+   * left the task for another task with `cleo req move` (T14200): moved, not
+   * weakened, so no reason is needed.
    */
-  change?: 'append' | 'override';
+  change?: 'append' | 'override' | 'move';
 }
 
 /**
@@ -321,6 +323,36 @@ export function enforceAcceptanceImmutability(
 }
 
 /**
+ * Record a criterion leaving a task for another task (`cleo req move`,
+ * T14200). The lock treats it as moved, not weakened: the criterion still
+ * binds, on its new task, so no reason is required. In a locked stage the move
+ * is audited as `change: 'move'`; elsewhere the lock does not apply.
+ *
+ * @param options - The source task, its acceptance after the move, the move's
+ *   description and the project root.
+ * @returns The audit entry, or undefined when the stage is not locked.
+ * @task T14200
+ */
+export function recordAcceptanceMove(options: {
+  task: Pick<Task, 'id' | 'pipelineStage' | 'acceptance'>;
+  newAcceptance: AcceptanceItem[];
+  reason: string;
+  projectRoot?: string | undefined;
+}): AcceptanceChangeAuditEntry | undefined {
+  const { task } = options;
+  if (!isAcceptanceLocked(task.pipelineStage)) return;
+  return appendAcceptanceChangeAudit({
+    projectRoot: resolveOrCwd(options.projectRoot),
+    taskId: task.id,
+    stage: task.pipelineStage ?? '',
+    reason: options.reason,
+    oldAcceptance: task.acceptance ?? [],
+    newAcceptance: options.newAcceptance,
+    change: 'move',
+  });
+}
+
+/**
  * Append a single {@link AcceptanceChangeAuditEntry} to
  * `.cleo/audit/ac-changes.jsonl`.
  *
@@ -336,7 +368,7 @@ function appendAcceptanceChangeAudit(input: {
   reason: string;
   oldAcceptance: AcceptanceItem[];
   newAcceptance: AcceptanceItem[];
-  change: 'append' | 'override';
+  change: 'append' | 'override' | 'move';
 }): AcceptanceChangeAuditEntry {
   const entry: AcceptanceChangeAuditEntry = {
     status: 'authorization-attempt',

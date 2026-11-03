@@ -4,6 +4,7 @@
  * Subcommands:
  *   cleo req add <taskId> --gate '<json>'   — add a typed AcceptanceGate with a REQ-ID
  *   cleo req replace <taskId> <REQ-ID> --gate '<json>' [--reason] — replace a gate in place
+ *   cleo req move <taskId> <ACn> --to <taskId> — move a criterion to another task
  *   cleo req list <taskId>                  — list all REQ-ID gates on a task
  *   cleo req migrate <taskId> [--apply]     — heuristic migrator for free-text criteria
  *
@@ -105,6 +106,43 @@ const replaceCommand = defineCommand({
   },
 });
 
+/** cleo req move <task-id> <ACn> --to <task-id> — move a criterion to another task (T14200) */
+const moveCommand = defineCommand({
+  meta: {
+    name: 'move',
+    description:
+      'Move one acceptance criterion to another open task, which gains it as its next AC<n>. It keeps its ' +
+      'identity and history: the source records a move, not a removal, and an audit row is written on both ' +
+      'tasks. Refused for a done target and for a criterion with recorded evidence.',
+  },
+  args: {
+    'task-id': {
+      type: 'positional',
+      description: 'Task the criterion leaves',
+      required: true,
+    },
+    criterion: {
+      type: 'positional',
+      description: 'The criterion, as AC<n>',
+      required: true,
+    },
+    to: {
+      type: 'string',
+      description: 'Task that gains the criterion',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'req.move',
+      { taskId: args['task-id'], criterion: args.criterion, to: args.to },
+      { command: 'req move' },
+    );
+  },
+});
+
 /** cleo req list <task-id> — list all REQ-ID-addressed acceptance gates on a task */
 const listCommand = defineCommand({
   meta: { name: 'list', description: 'List all REQ-ID-addressed acceptance gates on a task' },
@@ -168,6 +206,9 @@ const migrateCommand = defineCommand({
  * # Replace TIMER-01's command with a repo-relative one
  * cleo req replace T42 TIMER-01 --gate '{"kind":"test","command":"pnpm","args":["--filter","app","exec","vitest","run"],"expect":"pass","description":"Tests pass"}'
  *
+ * # Move T42's AC3 to T43, which gains it as its next AC<n>
+ * cleo req move T42 AC3 --to T43
+ *
  * # List all REQ-ID gates on T42
  * cleo req list T42
  *
@@ -187,6 +228,7 @@ export const reqCommand = defineCommand({
   subCommands: {
     add: addCommand,
     replace: replaceCommand,
+    move: moveCommand,
     list: listCommand,
     migrate: migrateCommand,
   },

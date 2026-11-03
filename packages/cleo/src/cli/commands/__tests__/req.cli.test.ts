@@ -74,6 +74,17 @@ describe('req argv routing', () => {
     );
   });
 
+  it('routes req move with the criterion and the target task (T14200)', async () => {
+    await runCommand(reqCommand, { rawArgs: ['move', 'T121', 'AC2', '--to', 'T122'] });
+    expect(dispatchFromCli).toHaveBeenCalledExactlyOnceWith(
+      'mutate',
+      'tasks',
+      'req.move',
+      { taskId: 'T121', criterion: 'AC2', to: 'T122' },
+      { command: 'req move' },
+    );
+  });
+
   it('lists requirements through the read route', async () => {
     await runCommand(reqCommand, { rawArgs: ['list', 'T121'] });
     expect(dispatchFromCli).toHaveBeenCalledExactlyOnceWith(
