@@ -103,8 +103,12 @@ export interface DocsModernizePlanRow {
 export interface DocsModernizeOverride {
   /** What happens to the file. */
   readonly disposition: DocsModernizeDisposition;
-  /** Canonical path (`keep`/`rename`) or survivor slug (`merge-into`/`delete`). */
-  readonly target?: string;
+  /**
+   * Canonical path (`keep`/`rename`) or survivor slug (`merge-into`/`delete`).
+   * A `delete` may omit it or set it to null: the doc is stored under its own
+   * slug and removed, with no supersede edge (T14212).
+   */
+  readonly target?: string | null;
   /** Why; recorded on the plan row. */
   readonly reason: string;
   /** Kind to use instead of the classified one. */
@@ -374,7 +378,7 @@ export const docsModernizeOverridesSchema = z.record(
   relPath,
   z.object({
     disposition: z.enum(DOCS_MODERNIZE_DISPOSITIONS),
-    target: z.string().min(1).max(1024).optional(),
+    target: z.string().min(1).max(1024).nullable().optional(),
     reason: z.string().min(1),
     kind: z.string().min(1).optional(),
     slug: z
