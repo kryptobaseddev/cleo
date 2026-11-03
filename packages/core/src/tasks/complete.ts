@@ -9,7 +9,6 @@ import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   AcceptanceGate,
-  AcRow,
   KnowledgeCoverage,
   Task,
   TaskRecord,
@@ -54,7 +53,7 @@ import {
   resolveWaivers,
   type UnsatisfiedAc,
 } from './ac-coverage-gate.js';
-import { acItemToText } from './ac-table.js';
+import { type AcCoverageAccessor, completionCoverageAccessor } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { stageGateModeFrom } from './epic-enforcement.js';
@@ -303,7 +302,6 @@ export async function verifyEpicHasEvidence(task: Task, acc: DataAccessor): Prom
  * @internal
  * @task T10509
  */
-type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>;
 
 /** Parent rollups must satisfy their own criteria without inheriting child waivers. */
 async function canAutoCompleteParent(
@@ -327,27 +325,6 @@ async function canAutoCompleteParent(
   return (
     await computeAcCoverage(parent.id, { ...accessor, ...completionCoverageAccessor(parent, tx) })
   ).ok;
-}
-
-/** Exclude only explicitly advisory typed rows after their canonical projection is validated. */
-function completionCoverageAccessor(
-  task: Task,
-  accessor: AcCoverageAccessor,
-  capturedRows?: readonly AcRow[],
-): AcCoverageAccessor {
-  const optional = new Map(
-    (task.acceptance ?? []).flatMap((item, index) =>
-      typeof item !== 'string' && item.advisory ? [[index, acItemToText(item)] as const] : [],
-    ),
-  );
-  return {
-    getAcRows: async (taskId) =>
-      (capturedRows ? [...capturedRows] : await accessor.getAcRows(taskId))
-        .sort((a, b) => a.ordinal - b.ordinal)
-        .filter((row, index) => optional.get(index) !== row.text),
-    getAcBindings: (ids) => accessor.getAcBindings(ids),
-    getChildren: (parentId) => accessor.getChildren(parentId),
-  };
 }
 
 async function enforceAcCoverageGate(

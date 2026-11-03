@@ -19,6 +19,8 @@ import type {
   AcProjectionAuditFinding,
   AcProjectionAuditResult,
   AcRow,
+  DataAccessor,
+  Task,
   TransactionAccessor,
 } from '@cleocode/contracts';
 import { acceptanceGateSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
@@ -930,4 +932,38 @@ function acRowDiffers(current: AcRow, next: AcInsertRow): boolean {
     current.projection !== (next.projection ?? 'legacy') ||
     current.contentHash !== (next.contentHash ?? null)
   );
+}
+
+/** The reads AC coverage takes: criteria, their bindings and the task's children. */
+export type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>;
+
+/**
+ * The criteria AC coverage counts for `task`, as `cleo complete` checks them:
+ * every row except an explicitly advisory typed gate (validated before this
+ * runs). `cleo done --plan` reads coverage through the same accessor, so the
+ * plan and complete agree on which criteria owe a binding (T14198).
+ *
+ * @param task - The task whose acceptance marks advisory gates.
+ * @param accessor - Where rows, bindings and children are read.
+ * @param capturedRows - Rows already read in the completing transaction.
+ * @returns A coverage accessor for `computeAcCoverage`.
+ */
+export function completionCoverageAccessor(
+  task: Pick<Task, 'acceptance'>,
+  accessor: AcCoverageAccessor,
+  capturedRows?: readonly AcRow[],
+): AcCoverageAccessor {
+  const optional = new Map(
+    (task.acceptance ?? []).flatMap((item, index) =>
+      typeof item !== 'string' && item.advisory ? [[index, acItemToText(item)] as const] : [],
+    ),
+  );
+  return {
+    getAcRows: async (taskId) =>
+      (capturedRows ? [...capturedRows] : await accessor.getAcRows(taskId))
+        .sort((a, b) => a.ordinal - b.ordinal)
+        .filter((row, index) => optional.get(index) !== row.text),
+    getAcBindings: (ids) => accessor.getAcBindings(ids),
+    getChildren: (parentId) => accessor.getChildren(parentId),
+  };
 }

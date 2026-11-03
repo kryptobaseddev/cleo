@@ -1558,6 +1558,60 @@ describe('affected-scope test runs (T12635, D11150)', () => {
   });
 });
 
+describe('T14198: a criterion added to --satisfies after every gate is recorded', () => {
+  it('the plan blocks with the re-verify that binds it, and is ready once it runs (the T14173 shape)', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2', 'Keep the export name']);
+    const sha = commitOnTaskBranch(id);
+    // Every gate recorded, linked to AC1 only.
+    const recorded = await validateGateVerify(root, {
+      taskId: id,
+      gateEvidence: {
+        implemented: `commit:${sha};files:src/a.ts;satisfies:${id}#AC1`,
+        testsPassed: `tool:test;satisfies:${id}#AC1`,
+        qaPassed: `tool:lint;tool:typecheck;satisfies:${id}#AC1`,
+      },
+    });
+    expect(recorded.success, JSON.stringify(recorded)).toBe(true);
+    const { computeAcCoverage } = await import('../ac-coverage-gate.js');
+    expect(await computeAcCoverage(id, env.accessor)).toMatchObject({
+      ok: false,
+      unsatisfied: [{ alias: 'AC2' }],
+    });
+
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: ['AC1', 'AC2'],
+    });
+    expect(plan.ready).toBe(false);
+    const blocker = plan.blockers.find((b) => b.code === 'ac-mapping-needed');
+    expect(blocker?.message).toContain('AC2 has no evidence binding');
+    expect(blocker?.message).toContain('E_INTERNAL_AC_COVERAGE_INCOMPLETE');
+    expect(blocker?.next.command).toContain(`cleo verify ${id} --gate implemented --evidence`);
+    expect(blocker?.next.command).toContain(`satisfies:${id}#AC2`);
+    // The plan's next step is the binding write; complete stays listed after it.
+    expect(plan.next?.command).toBe(blocker?.next.command);
+
+    // Run the write the plan names; then the plan is ready and coverage holds.
+    const evidence = /--evidence '([^']+)'/.exec(blocker?.next.command ?? '')?.[1] ?? '';
+    const bound = await validateGateVerify(root, {
+      taskId: id,
+      gateEvidence: { implemented: evidence },
+    });
+    expect(bound.success, JSON.stringify(bound)).toBe(true);
+    expect(await computeAcCoverage(id, env.accessor)).toEqual({ ok: true });
+    const after = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: ['AC1', 'AC2'],
+    });
+    expect(after.blockers.map((b) => b.code)).not.toContain('ac-mapping-needed');
+    expect(after.ready).toBe(true);
+  });
+});
+
 describe('the plan and done share one readiness check (T12672)', () => {
   async function researchWithUnknownDecision(): Promise<{
     id: string;
@@ -2473,6 +2527,19 @@ describe('done --plan readiness matches cleo complete (T14036, T14037)', () => {
       },
     };
     await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    // The recorded implemented write bound AC1, as a real gate write does (T14198):
+    // without a binding cleo complete refuses on coverage, and so does the plan.
+    const [ac1] = await env.accessor.getAcRows(id);
+    await env.accessor.transaction(async (tx) => {
+      await tx.insertAcBindings([
+        {
+          id: randomUUID(),
+          evidenceAtomId: `satisfies:${id}->${id}#AC1`,
+          acId: ac1?.id ?? '',
+          bindingType: 'satisfies',
+        },
+      ]);
+    });
     // The work landed on main directly and its branch is gone: no PR, no branch,
     // no docs, so no change set derives, yet every recorded gate stands.
     git(root, ['switch', '-q', 'main']);
