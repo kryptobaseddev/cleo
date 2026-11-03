@@ -27,6 +27,7 @@ import type {
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { compactKnowledgeCoverage } from '../doctor/knowledge-summary.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
@@ -1363,7 +1364,8 @@ export async function validateGateVerify(
 
     const missing = getMissingGates(verification, configGates);
     const result: GateVerifyResult = {
-      knowledgeCoverage: await assessKnowledgeCoverage(projectRoot),
+      // T14201: a bounded summary; `cleo doctor knowledge` has the full report.
+      knowledgeCoverage: compactKnowledgeCoverage(await assessKnowledgeCoverage(projectRoot)),
       taskId,
       title: task.title,
       status: task.status,
