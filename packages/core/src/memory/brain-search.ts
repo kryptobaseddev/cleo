@@ -96,10 +96,23 @@ let _fts5Available: boolean | null = null;
 let _fts5RebuiltForPath: string | null = null;
 
 /**
- * Check if FTS5 is available in the current SQLite build.
+ * Check if FTS5 is available in the current SQLite build. Read-only when FTS5
+ * is compiled in (T14202): the create-and-drop probe, a write that waits on any
+ * other writer, runs only when the compile options do not say.
  */
 function checkFts5Available(nativeDb: DatabaseSync): boolean {
   if (_fts5Available !== null) return _fts5Available;
+  try {
+    const compiled = nativeDb
+      .prepare("SELECT sqlite_compileoption_used('ENABLE_FTS5') AS enabled")
+      .get() as { enabled?: number } | undefined;
+    if (compiled?.enabled === 1) {
+      _fts5Available = true;
+      return true;
+    }
+  } catch {
+    // Fall through to the probe.
+  }
   try {
     // Use run() to execute DDL statements
     nativeDb.prepare('CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_check USING fts5(test)').run();
@@ -258,6 +271,103 @@ export function ensureFts5Tables(nativeDb: DatabaseSync): boolean {
   return true;
 }
 
+/** The brain content tables each FTS5 index mirrors (`<table>_fts`). */
+const BRAIN_FTS_CONTENT_TABLES = [
+  'brain_decisions',
+  'brain_patterns',
+  'brain_learnings',
+  'brain_observations',
+] as const;
+
+/**
+ * The brain content tables whose FTS5 index is missing, or holds a different
+ * row count than its content table (rows written before the content-sync
+ * triggers existed, or past them). Read-only (T14202): it counts each
+ * content table against its index's `_docsize` shadow. A content table this
+ * store does not have is skipped.
+ *
+ * @param nativeDb - The brain store handle.
+ * @returns The content tables whose index needs a rebuild.
+ * @task T14202
+ */
+export function staleFts5Tables(nativeDb: DatabaseSync): string[] {
+  const exists = nativeDb.prepare(
+    "SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?",
+  );
+  const stale: string[] = [];
+  for (const table of BRAIN_FTS_CONTENT_TABLES) {
+    if (exists.get(table) === undefined) continue;
+    if (
+      exists.get(`${table}_fts`) === undefined ||
+      exists.get(`${table}_fts_docsize`) === undefined
+    ) {
+      stale.push(table);
+      continue;
+    }
+    const counts = nativeDb
+      .prepare(
+        `SELECT (SELECT count(*) FROM ${table}) AS rows, (SELECT count(*) FROM ${table}_fts_docsize) AS indexed`,
+      )
+      .get() as { rows: number; indexed: number };
+    if (counts.rows !== counts.indexed) stale.push(table);
+  }
+  return stale;
+}
+
+/**
+ * How long a search waits for the write lock before it searches without
+ * repairing a missing or stale FTS index (T14202): a read never blocks behind
+ * another writer.
+ */
+export const BRAIN_FTS_READ_BUSY_TIMEOUT_MS = 250;
+
+/**
+ * Make the brain FTS5 indexes searchable for a read (T14202). A store whose
+ * indexes are present and in step is left untouched: the search writes
+ * nothing. A missing or stale index is created and rebuilt, waiting at most
+ * {@link BRAIN_FTS_READ_BUSY_TIMEOUT_MS} for the write lock; when the store
+ * cannot be written now, the indexes are left as they are and the caller
+ * searches without FTS5 (LIKE) only if an index is missing. Never throws.
+ *
+ * @param nativeDb - The brain store handle.
+ * @returns `searchable`: every index the search reads exists; `inStep`: none
+ *   is stale either, so later searches in this process need not check again.
+ * @task T14202
+ */
+function prepareFts5ForRead(nativeDb: DatabaseSync): { searchable: boolean; inStep: boolean } {
+  const no = { searchable: false, inStep: false };
+  if (!checkFts5Available(nativeDb)) return no;
+  try {
+    if (staleFts5Tables(nativeDb).length === 0) return { searchable: true, inStep: true };
+  } catch {
+    return no;
+  }
+  const prior = (nativeDb.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)
+    ?.timeout;
+  nativeDb.exec(`PRAGMA busy_timeout = ${BRAIN_FTS_READ_BUSY_TIMEOUT_MS}`);
+  try {
+    ensureFts5Tables(nativeDb);
+    rebuildFts5Index(nativeDb);
+  } catch {
+    // Another writer holds the store, or it is read-only: search as it is.
+  } finally {
+    if (typeof prior === 'number') nativeDb.exec(`PRAGMA busy_timeout = ${prior}`);
+  }
+  try {
+    const stale = staleFts5Tables(nativeDb);
+    const exists = nativeDb.prepare(
+      "SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?",
+    );
+    // Present but behind is still searchable; only a missing index is not.
+    return {
+      searchable: stale.every((table) => exists.get(`${table}_fts`) !== undefined),
+      inStep: stale.length === 0,
+    };
+  } catch {
+    return no;
+  }
+}
+
 /**
  * Rebuild FTS5 indexes from the content tables.
  * Useful after bulk inserts that bypass triggers.
@@ -315,19 +425,17 @@ export async function searchBrain(
   const includeGlobal = options?.includeGlobal ?? true;
   const includeHistory = options?.includeHistory ?? false;
 
-  const ftsAvailable = ensureFts5Tables(nativeDb);
+  // T14202: a read writes nothing when the indexes are present and in step.
+  // They are checked once per database per process (path-keyed, T12101); a
+  // missing or stale index is repaired then, never waiting on another writer.
+  let ftsAvailable = _fts5RebuiltForPath === getBrainDbPath(projectRoot);
+  if (!ftsAvailable) {
+    const fts = prepareFts5ForRead(nativeDb);
+    ftsAvailable = fts.searchable;
+    if (fts.inStep) _fts5RebuiltForPath = getBrainDbPath(projectRoot);
+  }
 
   if (ftsAvailable) {
-    // On first search against THIS database, rebuild FTS indexes to sync any
-    // data that was inserted before the FTS triggers existed. Path-keyed
-    // (T12101): `getBrainDbPath` runs the same `resolveDualScopeDbPath`
-    // resolver the dual-scope cache keys on, so a fresh or different database
-    // always gets one rebuild — even when an earlier database in this process
-    // was already synced — while repeat searches against the same DB skip it.
-    if (_fts5RebuiltForPath !== getBrainDbPath(projectRoot)) {
-      _fts5RebuiltForPath = getBrainDbPath(projectRoot);
-      rebuildFts5Index(nativeDb);
-    }
     return searchWithFts5(nativeDb, query, tables, limit, peerId, includeGlobal, includeHistory);
   }
 
