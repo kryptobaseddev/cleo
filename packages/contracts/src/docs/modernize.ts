@@ -137,26 +137,34 @@ export interface DocsModernizePlan {
   /** Store-mode rows (`mode: 'store'`); absent or empty otherwise. */
   readonly storeRows?: readonly DocsModernizeStoreRow[];
   /**
-   * The only edits `--apply` makes to `keep` files (`tree` mode, T14185): one
-   * row per relative link whose target moves. Absent or empty means kept
-   * files are not touched.
+   * The only edits `--apply` makes to files it does not move (`tree` mode):
+   * one row per relative link whose target moves, in a `keep` file (T14185)
+   * or in a markdown file under the root that the plan does not scan, such as
+   * an `--exclude`d folder (T14194). Absent or empty means those files are not
+   * touched.
    */
   readonly linkFixes?: readonly DocsModernizeLinkFix[];
 }
 
 /**
- * One href re-pointed inside a `keep` file because its target moves
- * (T14185). Only the href changes; the rest of the file stays byte-identical.
+ * One href re-pointed because its target moves (T14185, T14194). Only the
+ * href changes; the rest of the file stays byte-identical, and a file outside
+ * the plan's rows is never written to the store.
  */
 export interface DocsModernizeLinkFix {
   /** Always `link-fix`. */
   readonly kind: 'link-fix';
-  /** The kept file, relative to the root. */
+  /** The file, relative to the root: a kept row, or a file the plan does not scan. */
   readonly path: string;
   /** The href as written now. */
   readonly href: string;
   /** The href after the move. */
   readonly newHref: string;
+  /**
+   * For a file the plan does not scan: SHA-256 of its bytes at plan time, so
+   * apply refuses a file that changed since (a kept row carries its own).
+   */
+  readonly sha256?: string;
 }
 
 /**
@@ -335,6 +343,10 @@ export const docsModernizePlanSchema = z.object({
         path: relPath,
         href: z.string().min(1).max(2048),
         newHref: z.string().min(1).max(2048),
+        sha256: z
+          .string()
+          .regex(/^[0-9a-f]{64}$/)
+          .optional(),
       }),
     )
     .optional(),

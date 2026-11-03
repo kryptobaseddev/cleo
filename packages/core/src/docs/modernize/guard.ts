@@ -172,6 +172,7 @@ export function assertPlanPaths(
       safeJoin(plan.root, row.target);
     }
   }
+  for (const fix of plan.linkFixes ?? []) safeJoin(plan.root, fix.path);
 }
 
 /**
@@ -204,7 +205,8 @@ export function parseModernizeReceipt(
  * Check that a plan hangs together: every `merge-into`/`delete` row names a
  * survivor's slug (so its content has somewhere to go), every `keep` row
  * targets its own path, every survivor target is a `.md`/`.txt` file, and
- * every `link-fix` names a kept file of a tree plan.
+ * every `link-fix` names a kept file or an unscanned file (with its sha256) of
+ * a tree plan.
  *
  * @param plan - The plan.
  * @throws DocsModernizeUnsafeError on the first inconsistent row.
@@ -231,15 +233,19 @@ export function assertPlanConsistent(plan: DocsModernizePlan): void {
         bad('a survivor must target a .md or .txt file');
     }
   }
-  const kept = new Set(
-    plan.mode === 'tree'
-      ? plan.rows.filter((r) => r.disposition === 'keep').map((r) => r.path)
-      : [],
-  );
+  // A link-fix names a kept row, or a file the plan neither scans nor writes
+  // (T14194), which must carry the bytes it was planned against.
+  const kept = new Set(plan.rows.filter((r) => r.disposition === 'keep').map((r) => r.path));
+  const touched = new Set(plan.rows.flatMap((r) => [r.path, r.target ?? r.path]));
   for (const fix of plan.linkFixes ?? []) {
-    if (!kept.has(fix.path)) {
-      // @sync-invariant none:input-shape a link fix for a file the plan does not keep is refused before any write
-      throw new DocsModernizeUnsafeError(`link-fix ${fix.path}: only a kept file of a tree plan`);
+    const ok =
+      plan.mode === 'tree' &&
+      (kept.has(fix.path) || (!touched.has(fix.path) && fix.sha256 !== undefined));
+    if (!ok) {
+      // @sync-invariant none:input-shape a link fix for a file the plan moves or does not vouch for is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `link-fix ${fix.path}: only a kept file, or an unscanned file with its sha256, of a tree plan`,
+      );
     }
   }
 }

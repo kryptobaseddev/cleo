@@ -474,7 +474,21 @@ export async function planDocsModernize(
     };
   }
 
-  return finishPlan(options, kinds, rows, files);
+  // Markdown under the root that the plan does not scan (an --exclude'd
+  // folder) is read, never planned: its links to moved files become
+  // link-fix rows (T14194).
+  let outOfScope: ScannedFile[] = [];
+  if ((options.exclude ?? []).length > 0) {
+    const scanned = new Set(files.map((f) => f.relPath));
+    outOfScope = (
+      await scanDirectory({
+        root: options.root,
+        extensions: MODERNIZE_EXTENSIONS,
+        excludeDirs: MODERNIZE_EXCLUDE_DIRS,
+      })
+    ).filter((f) => !scanned.has(f.relPath));
+  }
+  return finishPlan(options, kinds, rows, files, outOfScope);
 }
 
 /** A store-only row: ingest the file as is, owned by its task, without a slug. */
@@ -502,6 +516,7 @@ function finishPlan(
   kinds: readonly DocKindMetadata[],
   coreRows: readonly CoreRow[],
   files: readonly ScannedFile[],
+  outOfScope: readonly ScannedFile[] = [],
 ): DocsModernizePlan {
   const overrides = options.overrides ?? {};
   const moved = options.storeOnly
@@ -556,9 +571,9 @@ function finishPlan(
     delete: 0,
   };
   for (const row of rows) counts[row.disposition] += 1;
-  // A kept file stays byte-identical except for hrefs whose targets move;
-  // each such edit is a plan row, so --apply never does more than the dry
-  // run showed (T14185).
+  // A kept file, and a file the plan does not scan, stays byte-identical
+  // except for hrefs whose targets move; each such edit is a plan row, so
+  // --apply never does more than the dry run showed (T14185, T14194).
   const linkFixes: DocsModernizeLinkFix[] = [];
   if (!options.storeOnly) {
     const finalPathOf = finalPaths(rows);
@@ -567,6 +582,11 @@ function finishPlan(
       if (row.disposition !== 'keep') continue;
       for (const fix of markdownLinkFixes(contentOf.get(row.path) ?? '', row.path, finalPathOf)) {
         linkFixes.push({ kind: 'link-fix', path: row.path, ...fix });
+      }
+    }
+    for (const file of outOfScope) {
+      for (const fix of markdownLinkFixes(file.content, file.relPath, finalPathOf)) {
+        linkFixes.push({ kind: 'link-fix', path: file.relPath, ...fix, sha256: file.contentSha });
       }
     }
   }

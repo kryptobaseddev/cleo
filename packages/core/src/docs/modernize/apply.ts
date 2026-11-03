@@ -46,6 +46,7 @@ import {
 import { dirname, join } from 'node:path';
 import type {
   BlobAttachment,
+  DocsModernizeLinkFix,
   DocsModernizeOpPrior,
   DocsModernizePlan,
   DocsModernizePlanRow,
@@ -358,6 +359,26 @@ export async function applyDocsModernize(
     }
     texts.set(row.path, text);
   }
+  // Files the plan does not scan but re-points links in (T14194): checked
+  // against their planned bytes now, edited on disk only, never stored.
+  const outOfScope = new Map<string, { text: string; fixes: DocsModernizeLinkFix[] }>();
+  for (const fix of plan.linkFixes ?? []) {
+    if (texts.has(fix.path)) continue;
+    let entry = outOfScope.get(fix.path);
+    if (!entry) {
+      const abs = safeJoin(root, fix.path);
+      const text = existsSync(abs) ? readFileSync(abs, 'utf-8') : null;
+      if (text === null || sha256(text) !== fix.sha256) {
+        // @sync-invariant none:input-shape the plan no longer matches the tree; refused before any write
+        throw new DocsModernizeStaleError(
+          `${fix.path} changed since the plan was made; re-run cleo docs modernize --dry-run`,
+        );
+      }
+      entry = { text, fixes: [] };
+      outOfScope.set(fix.path, entry);
+    }
+    entry.fixes.push(fix);
+  }
 
   const started = options.now?.() ?? new Date();
   const stamp = started.toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 15);
@@ -656,6 +677,20 @@ export async function applyDocsModernize(
           journal.done(i);
         }
         if (target !== row.path) moves.push({ from: row.path, to: target });
+      }
+      for (const [path, { text, fixes }] of outOfScope) {
+        const body = applyLinkFixes(text, fixes);
+        if (body === text) continue;
+        const beforeSha = await backup(projectRoot, runId, text);
+        await backup(projectRoot, runId, body);
+        const i = journal.begin({
+          op: 'write-file',
+          path,
+          beforeSha256: beforeSha,
+          afterSha256: sha256(body),
+        });
+        await writeFileAtomic({ path: safeJoin(root, path), content: body });
+        journal.done(i);
       }
       const kept = new Set(survivors.map((r) => r.target ?? r.path));
       for (const row of plan.rows) {

@@ -689,6 +689,87 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     );
   });
 
+  it('re-points inbound links from an excluded folder as link-fix rows, with no store write (T14194)', async () => {
+    const outside =
+      '# Index\n\nSee [the spec](../specs/T832-gate-integrity-spec.md), ' +
+      '[the plan](../plans/2026-04-21-self-healing-plan.md#goal) and [the web](https://example.com/a.md).\n';
+    mkdirSync(join(docsRoot, 'concepts'), { recursive: true });
+    writeFileSync(join(docsRoot, 'concepts', 'index.md'), outside);
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      exclude: ['concepts'],
+      decide: { connection: null },
+    });
+    // Read, never planned: no row, only its link-fix rows (with the bytes they were planned on).
+    expect(plan.rows.some((r) => r.path.startsWith('concepts/'))).toBe(false);
+    expect(plan.linkFixes?.filter((f) => f.path === 'concepts/index.md')).toEqual([
+      {
+        kind: 'link-fix',
+        path: 'concepts/index.md',
+        href: '../specs/T832-gate-integrity-spec.md',
+        newHref: '../spec/gate-integrity-spec.md',
+        sha256: sha(outside),
+      },
+      {
+        kind: 'link-fix',
+        path: 'concepts/index.md',
+        href: '../plans/2026-04-21-self-healing-plan.md#goal',
+        newHref: '../plan/self-healing-plan.md#goal',
+        sha256: sha(outside),
+      },
+    ]);
+    // Without --exclude the folder is in scope, so it is planned, not link-fixed.
+    const unscoped = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    expect(unscoped.linkFixes?.some((f) => f.path === 'concepts/index.md')).toBe(false);
+
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    const edited = outside
+      .replace('../specs/T832-gate-integrity-spec.md', '../spec/gate-integrity-spec.md')
+      .replace(
+        '../plans/2026-04-21-self-healing-plan.md#goal',
+        '../plan/self-healing-plan.md#goal',
+      );
+    expect(readFileSync(join(docsRoot, 'concepts', 'index.md'), 'utf-8')).toBe(edited);
+    // Nothing of it reaches the store, and it is not a blob the run confirmed.
+    const store = createAttachmentStore();
+    expect(await store.getMetadata(sha(outside), projectRoot)).toBeNull();
+    expect(await store.getMetadata(sha(edited), projectRoot)).toBeNull();
+    expect(receipt.blobs.some((b) => b.path === 'concepts/index.md')).toBe(false);
+    expect(receipt.ops.filter((o) => o.path === 'concepts/index.md').map((o) => o.op)).toEqual([
+      'write-file',
+    ]);
+
+    await rollbackDocsModernize(projectRoot, receipt.runId);
+    expect(readFileSync(join(docsRoot, 'concepts', 'index.md'), 'utf-8')).toBe(outside);
+  });
+
+  it('refuses an out-of-scope link fix whose file changed since the plan (T14194)', async () => {
+    mkdirSync(join(docsRoot, 'concepts'), { recursive: true });
+    writeFileSync(
+      join(docsRoot, 'concepts', 'index.md'),
+      '[s](../specs/T832-gate-integrity-spec.md)\n',
+    );
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      exclude: ['concepts'],
+      decide: { connection: null },
+    });
+    writeFileSync(
+      join(docsRoot, 'concepts', 'index.md'),
+      '[s](../specs/T832-gate-integrity-spec.md) edited\n',
+    );
+    await expect(applyDocsModernize({ plan, projectRoot, allowDirty: true })).rejects.toThrow(
+      /changed since the plan was made/,
+    );
+    expect(existsSync(join(docsRoot, 'spec'))).toBe(false);
+  });
+
   it('validates overrides: survivor targets, keep at its own path, schema', async () => {
     await expect(
       planDocsModernize({
