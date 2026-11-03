@@ -635,8 +635,11 @@ export async function memoryFind(
           includeHistory: params.includeHistory,
         });
     if (withDocs) {
-      const { findCurrentDocs } = await import('../docs/lineage.js');
-      const docs = await findCurrentDocs(root, params.query, params.limit);
+      // T14197: docs are best-effort on a read; a docs store that cannot be
+      // read or indexed leaves the BRAIN hits standing alone.
+      const docs = await import('../docs/lineage.js')
+        .then(({ findCurrentDocs }) => findCurrentDocs(root, params.query, params.limit))
+        .catch(() => []);
       result.results = rankDocHitsWithBrain(result.results, docs);
       result.total += docs.length;
       result.tokensEstimated += docs.length * 50;

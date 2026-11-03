@@ -8,11 +8,12 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { BlobAttachment } from '@cleocode/contracts';
 import type { SearchBrainCompactResult } from '@cleocode/contracts/memory/search.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAttachmentStore } from '../../store/attachment-store.js';
-import { bindTasksDomain, closeDb } from '../../store/sqlite.js';
+import { bindTasksDomain, closeDb, getDbPath } from '../../store/sqlite.js';
 import { DOCS_FTS_TABLE, docsFtsMatch, searchDocsFts, syncDocsFts } from '../docs-fts.js';
 import { updateDocBySlug } from '../docs-update.js';
 import { findCurrentDocs } from '../lineage.js';
@@ -94,6 +95,71 @@ describe('T14197 — docs full-text index', () => {
     native.exec(`DROP TABLE ${DOCS_FTS_TABLE}`);
     expect(await syncDocsFts(projectRoot)).toMatchObject({ indexed: 2, removed: 0, total: 2 });
     expect(await searchDocsFts(projectRoot, 'snapshots', 10)).toEqual(['retention']);
+  });
+
+  it('a store locked by another writer never fails or blocks a search', async () => {
+    await seed('retention', '# Retention\n\nbackup retention keeps ten snapshots\n');
+    const { storeDecision } = await import('../../memory/decisions.js');
+    await storeDecision(projectRoot, {
+      type: 'technical',
+      decision: 'Backup retention keeps ten snapshots',
+      rationale: 'Enough history for a week.',
+      confidence: 'high',
+      confirmationState: 'accepted',
+    });
+    const { memoryFind } = await import('../../memory/engine-compat.js');
+    const tables = ['decisions', 'patterns', 'learnings', 'observations', 'docs'];
+    // Warm up: build the docs index and the BRAIN FTS tables before the lock.
+    expect((await memoryFind({ query: 'backup retention', tables }, projectRoot)).success).toBe(
+      true,
+    );
+    await seed('kanban', '# Kanban\n\nboard columns and swimlanes\n');
+
+    const locker = new DatabaseSync(getDbPath(projectRoot));
+    locker.exec('BEGIN IMMEDIATE');
+    try {
+      const start = performance.now();
+      // The index cannot catch up, so it is searched as it stands.
+      expect(await searchDocsFts(projectRoot, 'snapshots', 10)).toEqual(['retention']);
+      expect(await searchDocsFts(projectRoot, 'swimlanes', 10)).toEqual([]);
+      expect(performance.now() - start).toBeLessThan(5_000);
+
+      const found = await memoryFind({ query: 'backup retention', tables }, projectRoot);
+      expect(found.success, JSON.stringify(found.error)).toBe(true);
+      const hits = (found.data as SearchBrainCompactResult).results;
+      expect(hits.map((h) => h.type)).toContain('decision');
+      expect(hits.filter((h) => h.type === 'doc').map((h) => h.id)).toEqual(['retention']);
+      await expect(syncDocsFts(projectRoot, { busyTimeoutMs: 50 })).rejects.toThrow();
+    } finally {
+      locker.exec('ROLLBACK');
+      locker.close();
+    }
+    // Once the writer is gone the next search catches up.
+    expect(await searchDocsFts(projectRoot, 'swimlanes', 10)).toEqual(['kanban']);
+  });
+
+  it('with no index and a locked store, a search falls back instead of failing', async () => {
+    await seed('retention', '# Retention\n\nbackup retention keeps ten snapshots\n');
+    expect(await searchDocsFts(projectRoot, 'snapshots', 10)).toEqual(['retention']);
+    const { native } = await bindTasksDomain(projectRoot);
+    native.exec(`DROP TABLE ${DOCS_FTS_TABLE}`);
+
+    const locker = new DatabaseSync(getDbPath(projectRoot));
+    locker.exec('BEGIN IMMEDIATE');
+    try {
+      expect(await searchDocsFts(projectRoot, 'snapshots', 10)).toBeNull();
+      const docs = await findCurrentDocs(projectRoot, 'backup retention snapshots');
+      expect(docs.every((h) => h.type === 'doc')).toBe(true);
+      const { memoryFind } = await import('../../memory/engine-compat.js');
+      const found = await memoryFind(
+        { query: 'backup retention', tables: ['decisions', 'docs'] },
+        projectRoot,
+      );
+      expect(found.success, JSON.stringify(found.error)).toBe(true);
+    } finally {
+      locker.exec('ROLLBACK');
+      locker.close();
+    }
   });
 
   it('AC5: ranks doc hits with BRAIN hits, current docs only', async () => {

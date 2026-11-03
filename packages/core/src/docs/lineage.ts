@@ -224,9 +224,15 @@ export async function findCurrentDocs(
   const { searchDocsFts } = await import('./docs-fts.js');
   let slugs = await searchDocsFts(projectRoot, query, limit * 3);
   if (slugs === null) {
-    const { searchAllProjectDocs } = await import('./docs-ops.js');
-    const { hits } = await searchAllProjectDocs(query, { projectRoot, limit: limit * 3 });
-    slugs = hits.flatMap((hit) => (hit.slug ? [hit.slug] : []));
+    // No usable index (no FTS5, or none yet and the store is busy): the n-gram
+    // scan, and no doc hits when even that cannot read the store.
+    try {
+      const { searchAllProjectDocs } = await import('./docs-ops.js');
+      const { hits } = await searchAllProjectDocs(query, { projectRoot, limit: limit * 3 });
+      slugs = hits.flatMap((hit) => (hit.slug ? [hit.slug] : []));
+    } catch {
+      return [];
+    }
   }
   const db = await getDb(projectRoot);
   const out: BrainCompactHit[] = [];

@@ -35,6 +35,12 @@ export const DOCS_FTS_MAX_BYTES = 64 * 1024;
 /** BM25 column weights: slug and sha256 are unindexed, the title outweighs the body. */
 const BM25_WEIGHTS = '0.0, 0.0, 4.0, 1.0';
 
+/**
+ * How long a search waits for the write lock before it gives up syncing and
+ * reads the index as it is: a read never blocks behind another writer.
+ */
+export const DOCS_FTS_READ_BUSY_TIMEOUT_MS = 250;
+
 /** What one {@link syncDocsFts} did. */
 export interface DocsFtsSync {
   /** False when this SQLite build has no FTS5 (the caller falls back). */
@@ -78,8 +84,18 @@ function isTextAttachment(attachmentJson: string): boolean {
   );
 }
 
-/** Create the table when missing; false when FTS5 is not compiled in. */
+/** Whether the index table exists. */
+function tableExists(native: DatabaseSync): boolean {
+  return (
+    native
+      .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(DOCS_FTS_TABLE) !== undefined
+  );
+}
+
+/** Create the table when missing; false when FTS5 is not compiled in (or the create failed). */
 function ensureTable(native: DatabaseSync): boolean {
+  if (tableExists(native)) return true;
   try {
     native.exec(
       `CREATE VIRTUAL TABLE IF NOT EXISTS ${DOCS_FTS_TABLE} USING fts5(` +
@@ -97,16 +113,37 @@ function ensureTable(native: DatabaseSync): boolean {
  * whose body the index lacks or holds at another sha256, and drop rows whose
  * slug is gone. Creates (and so rebuilds) the table when it is missing. A
  * doc whose bytes cannot be read stays out until a later sync can read them.
+ * Throws when the store cannot be written (another writer past
+ * `busyTimeoutMs`, a read-only store); the index is then left as it was.
  *
  * @param projectRoot - Project root.
+ * @param opts - `busyTimeoutMs`: how long to wait for the write lock (default:
+ *   the connection's own busy timeout).
  * @returns What changed.
  * @example
  * ```ts
  * const { indexed, total } = await syncDocsFts(projectRoot);
  * ```
  */
-export async function syncDocsFts(projectRoot: string): Promise<DocsFtsSync> {
-  const { db, native } = await bindTasksDomain(projectRoot);
+export async function syncDocsFts(
+  projectRoot: string,
+  opts: { busyTimeoutMs?: number } = {},
+): Promise<DocsFtsSync> {
+  const { native } = await bindTasksDomain(projectRoot);
+  if (opts.busyTimeoutMs === undefined) return syncWith(projectRoot, native);
+  const prior = (native.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)
+    ?.timeout;
+  native.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.floor(opts.busyTimeoutMs))}`);
+  try {
+    return await syncWith(projectRoot, native);
+  } finally {
+    if (typeof prior === 'number') native.exec(`PRAGMA busy_timeout = ${prior}`);
+  }
+}
+
+/** {@link syncDocsFts} on a bound connection. */
+async function syncWith(projectRoot: string, native: DatabaseSync): Promise<DocsFtsSync> {
+  const { db } = await bindTasksDomain(projectRoot);
   if (!ensureTable(native)) return { available: false, indexed: 0, removed: 0, total: 0 };
 
   const rows = await db
@@ -195,14 +232,21 @@ export function docsFtsMatch(query: string): string | null {
 }
 
 /**
- * Slugs of the docs matching `query`, best BM25 rank first, after a
- * {@link syncDocsFts}. Superseded docs are included: the caller resolves each
- * to its current doc.
+ * Slugs of the docs matching `query`, best BM25 rank first. Superseded docs
+ * are included: the caller resolves each to its current doc.
+ *
+ * A read never fails or blocks on the index write: the search first tries a
+ * {@link syncDocsFts} that waits at most {@link DOCS_FTS_READ_BUSY_TIMEOUT_MS}
+ * for the write lock. When that sync cannot write (another writer, a
+ * read-only store), the index is searched as it stands; when there is no
+ * index to search, or anything else fails, the result is null and the caller
+ * falls back. Never throws.
  *
  * @param projectRoot - Project root.
  * @param query - The search text.
  * @param limit - Maximum slugs.
- * @returns The slugs, or null when this SQLite build has no FTS5.
+ * @returns The slugs, or null when there is no usable index (no FTS5, not
+ *   yet built and not buildable now, or unreadable).
  * @example
  * ```ts
  * const slugs = await searchDocsFts(projectRoot, 'backup retention', 10);
@@ -213,16 +257,24 @@ export async function searchDocsFts(
   query: string,
   limit: number,
 ): Promise<string[] | null> {
-  const sync = await syncDocsFts(projectRoot);
-  if (!sync.available) return null;
-  const match = docsFtsMatch(query);
-  if (match === null || limit <= 0) return [];
-  const { native } = await bindTasksDomain(projectRoot);
-  const rows = native
-    .prepare(
-      `SELECT slug FROM ${DOCS_FTS_TABLE} WHERE ${DOCS_FTS_TABLE} MATCH ? ` +
-        `ORDER BY bm25(${DOCS_FTS_TABLE}, ${BM25_WEIGHTS}) LIMIT ?`,
-    )
-    .all(match, limit) as Array<{ slug: string }>;
-  return rows.map((row) => row.slug);
+  try {
+    const sync = await syncDocsFts(projectRoot, {
+      busyTimeoutMs: DOCS_FTS_READ_BUSY_TIMEOUT_MS,
+    }).catch(() => null);
+    if (sync !== null && !sync.available) return null;
+    const { native } = await bindTasksDomain(projectRoot);
+    // The sync could not write: search the index as it stands, if there is one.
+    if (!tableExists(native)) return null;
+    const match = docsFtsMatch(query);
+    if (match === null || limit <= 0) return [];
+    const rows = native
+      .prepare(
+        `SELECT slug FROM ${DOCS_FTS_TABLE} WHERE ${DOCS_FTS_TABLE} MATCH ? ` +
+          `ORDER BY bm25(${DOCS_FTS_TABLE}, ${BM25_WEIGHTS}) LIMIT ?`,
+      )
+      .all(match, limit) as Array<{ slug: string }>;
+    return rows.map((row) => row.slug);
+  } catch {
+    return null;
+  }
 }
