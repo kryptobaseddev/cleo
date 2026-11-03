@@ -199,6 +199,28 @@ describe('recording a verdict (T14122)', () => {
     await expect(record()).rejects.toThrow(/reviewer’s own CLEO session/);
   });
 
+  it('a claim released by a refocus still names its author: the author is refused, another reviewer accepted (T14213)', async () => {
+    // Session A (the bound test session) claims T001, then refocuses onto
+    // other work, which releases the claim.
+    await bindTestSession(env);
+    await env.accessor.claimTask('T001', {
+      sessionId: BOUND_TEST_SESSION_ID,
+      agentId: 'agent-author',
+      mode: 'acquire',
+    });
+    await env.accessor.unclaimTask('T001', { sessionId: BOUND_TEST_SESSION_ID });
+    expect((await env.accessor.loadSingleTask('T001'))?.claim ?? null).toBeNull();
+    await expect(record()).rejects.toThrow(/is an author of T001/);
+
+    // Session B, another agent, records the verdict.
+    await bindTestSession(env, 'ses_20261103000000_b1b1b1');
+    vi.stubEnv('CLEO_AGENT_ID', 'agent-reviewer');
+    const v = await record();
+    expect(v.reviewer.sessionId).toBe('ses_20261103000000_b1b1b1');
+    expect(v.authors.sessionIds).toContain(BOUND_TEST_SESSION_ID);
+    expect(v.authors.agentIds).toEqual(['agent-author']);
+  });
+
   it('refuses a stale packet: the head moved since the reviewer read it', async () => {
     await env.accessor.claimTask('T001', {
       sessionId: 'ses_author',

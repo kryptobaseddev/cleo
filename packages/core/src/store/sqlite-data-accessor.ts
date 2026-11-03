@@ -3270,6 +3270,18 @@ async function createOwnedSqliteDataAccessor(
             before: replaced,
             after: lease,
           });
+        } else if (!before) {
+          // T14213: a fresh claim names the task's author in the audit log, so
+          // review independence survives the claim's later release or refocus.
+          await accessor.appendLog({
+            action: 'task_claimed',
+            taskId,
+            actor: request.agentId ?? request.sessionId,
+            sessionId: request.sessionId,
+            timestamp: now,
+            details: { mode: request.mode },
+            after: lease,
+          });
         }
         return lease;
       });
@@ -3301,6 +3313,18 @@ async function createOwnedSqliteDataAccessor(
             sessionId: release.sessionId,
             timestamp: now,
             details: { mode: 'force', leaseExpired: held.leaseExpiresAt <= now },
+            before: held,
+          });
+        } else {
+          // T14213: the holder's own release (cleo stop, a refocus onto another
+          // task) keeps a record of who held it.
+          await accessor.appendLog({
+            action: 'task_claim_released',
+            taskId,
+            actor: held.agentId ?? held.sessionId,
+            sessionId: held.sessionId,
+            timestamp: now,
+            details: { mode: 'release' },
             before: held,
           });
         }

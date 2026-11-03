@@ -42,7 +42,22 @@ import { CleoError } from '../errors.js';
 export const REVIEW_VERDICT_ACTION = 'review.verdict';
 
 /** Claim audit actions whose `before` names a replaced holder (T12502). */
-const CLAIM_REPLACED_ACTIONS = ['task_claim_handoff', 'task_claim_force', 'task_claim_takeover'];
+/**
+ * Audit actions that name a task's claim holders (T14213): a fresh claim, a
+ * holder's own release, and every replacement or forced release. A holder
+ * stays an author after its claim is released or refocused.
+ */
+const CLAIM_AUTHOR_ACTIONS = [
+  'task_claimed',
+  'task_claim_released',
+  'task_claim_handoff',
+  'task_claim_force',
+  'task_claim_takeover',
+  'task_claim_force_release',
+];
+
+/** The forced release's row session is the releaser, never an author. */
+const RELEASER_ACTIONS = new Set(['task_claim_force_release']);
 
 /** Changed paths withheld from a packet: the author's own account of the change. */
 const WITHHELD_PATH = /^\.changeset\//;
@@ -171,15 +186,17 @@ export async function buildReviewPacket(
 
 /**
  * The identities that authored a task (T14122): its current claim holder,
- * every holder a claim hand-off or take-over replaced, and the session that
- * created it.
+ * every session that ever claimed it, including a claim since released or
+ * refocused (T14213), every holder a hand-off or take-over replaced, and the
+ * session that created it.
  *
  * @param task - The task.
- * @param claimRows - Its claim audit rows (`task_claim_handoff` / `_force` / `_takeover`).
+ * @param claimRows - Its claim audit rows ({@link CLAIM_AUTHOR_ACTIONS}); a row's `action`, when given, keeps a forced release's releaser out (T14213).
  */
 export function reviewAuthors(
   task: Pick<Task, 'claim' | 'provenance'>,
-  claimRows: readonly Pick<TaskAuditLogRow, 'beforeJson' | 'afterJson' | 'sessionId'>[],
+  claimRows: readonly (Pick<TaskAuditLogRow, 'beforeJson' | 'afterJson' | 'sessionId'> &
+    Partial<Pick<TaskAuditLogRow, 'action'>>)[],
 ): ReviewAuthors {
   const sessions = new Set<string>();
   const agents = new Set<string>();
@@ -200,7 +217,9 @@ export function reviewAuthors(
         // A malformed row names nobody.
       }
     }
-    add({ sessionId: row.sessionId });
+    if (row.action === undefined || !RELEASER_ACTIONS.has(row.action)) {
+      add({ sessionId: row.sessionId });
+    }
   }
   return { sessionIds: [...sessions].sort(), agentIds: [...agents].sort() };
 }
@@ -290,7 +309,7 @@ export async function recordReviewVerdict(
   if (task === null) throw new CleoError(ExitCode.NOT_FOUND, `Task ${input.taskId} not found`);
   const claimRows = await accessor.queryAuditLog({
     taskIds: [input.taskId],
-    actions: CLAIM_REPLACED_ACTIONS,
+    actions: CLAIM_AUTHOR_ACTIONS,
   });
   const authors = reviewAuthors(task, claimRows);
   if (authors.sessionIds.length === 0 && authors.agentIds.length === 0) {

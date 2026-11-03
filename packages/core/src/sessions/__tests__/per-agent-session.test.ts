@@ -234,6 +234,8 @@ describe('sessionStart — per-agent conflict check (T9975)', () => {
     expect(result.success).toBe(true);
     const newSession = result.data as Session & { agentHandle?: string };
     expect(newSession.agentHandle).toBe('agent-B');
+    // T14213: --agent also names the session's agent identifier.
+    expect(newSession.agentIdentifier).toBe('agent-B');
   });
 
   it('blocks a second session start for the same agent handle', async () => {
