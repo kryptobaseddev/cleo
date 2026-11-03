@@ -90,7 +90,7 @@
  * @task T692
  * @epic T673
  * @see packages/core/src/memory/brain-lifecycle.ts#strengthenCoRetrievedEdges
- * @see docs/specs/stdp-wire-up-spec.md §3.2 Two-Window Architecture
+ * @see docs/spec/stdp-wire-up.md §3.2 Two-Window Architecture
  */
 
 import { typedAll } from '../store/typed-query.js';
@@ -1736,7 +1736,7 @@ export interface HomeostaticDecayResult {
  *
  * @task T690
  * @epic T673
- * @see docs/specs/stdp-wire-up-spec.md §3.9
+ * @see docs/spec/stdp-wire-up.md §3.9
  */
 export async function applyHomeostaticDecay(
   projectRoot: string,

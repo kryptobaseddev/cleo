@@ -312,3 +312,12 @@ crates/cant-napi (Rust napi-rs bindings)
 - [`CANT-EXECUTION-SEMANTICS.md`](./CANT-EXECUTION-SEMANTICS.md) — Runtime execution model
 - `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) — Historical phase roadmap; superseded by shipped implementation + ADR-035 addendum
 - [`CANT-REFERENCE.md`](../guides/CANT-REFERENCE.md) — Human-readable quick reference
+
+<!-- merged from `cant-typescript-integration` by cleo docs modernize -->
+
+## References (from `cant-typescript-integration`)
+
+- [`CANT-DSL-SPEC.md`](./cant-dsl.md) — Formal language specification
+- [`CANT-EXECUTION-SEMANTICS.md`](./cant-execution-semantics.md) — Runtime execution model
+- `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) — Historical phase roadmap; superseded by shipped implementation + ADR-035 addendum
+- [`CANT-REFERENCE.md`](../guides/CANT-REFERENCE.md) — Human-readable quick reference

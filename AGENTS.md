@@ -133,7 +133,7 @@ Canonical docs (adr, spec, plan, research, guide, concept, reference, migration,
 
 CI gate: `cleo check canon docs` (`Canon Drift Check (T9796)`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged), and enforces the naming rule against the baseline.
 
-**LAFS envelope contract:** `docs/specs/LAFS-ENVELOPE-CONTRACT.md` (SSoT slug `lafs-envelope-contract`, owner T11113).
+**LAFS envelope contract:** `docs/spec/lafs-envelope-contract.md` (SSoT slug `lafs-envelope-contract`, owner T11113).
 
 **New doc kind:** add to `packages/contracts/src/docs-taxonomy.ts` (`BUILTIN_DOC_KINDS`) → add routing entry to `.cleo/canon.yml` → `pnpm --filter @cleocode/cleo run build`.
 

@@ -5,7 +5,7 @@
  *   - CANONICAL_DOMAINS length from packages/cleo/src/dispatch/types.ts
  *   - OPERATIONS count from packages/cleo/src/dispatch/registry.ts
  *   - Phrase assertions in CLEO-ARCHITECTURE-GUIDE.md, CLEO-VISION.md,
- *     and CLEO-OPERATION-CONSTITUTION.md
+ *     and docs/spec/cleo-operation-constitution.md
  *
  * Returns a structured result with per-file pass/fail and exit-non-zero
  * when any drift is detected.
@@ -16,6 +16,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { OPERATION_CONSTITUTION_DOC } from '../../../cli/paths.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -189,7 +190,7 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
   const registryFile = join(projectRoot, 'packages/cleo/src/dispatch/registry.ts');
   const archGuide = join(projectRoot, 'docs/concepts/CLEO-ARCHITECTURE-GUIDE.md');
   const visionDoc = join(projectRoot, 'docs/concepts/CLEO-VISION.md');
-  const constitution = join(projectRoot, 'docs/specs/CLEO-OPERATION-CONSTITUTION.md');
+  const constitution = join(projectRoot, OPERATION_CONSTITUTION_DOC);
 
   // Read code sources
   const domainsInCode = countCanonicalDomains(typesFile);
@@ -241,7 +242,7 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
       visionText.includes('six canonical systems'),
   });
 
-  // CLEO-OPERATION-CONSTITUTION.md must reference 11 canonical domains
+  // The operation constitution must reference 11 canonical domains
   const constLines = readLines(constitution);
   const constText = constLines.join('\n');
   assertions.push({

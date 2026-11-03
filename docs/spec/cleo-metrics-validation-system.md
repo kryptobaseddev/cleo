@@ -453,9 +453,9 @@ const meta = await getSkillMetadata("skill-name");
 
 ### 9.1 Related Specifications
 
-- [METRICS-VALUE-PROOF-SPEC.md](METRICS-VALUE-PROOF-SPEC.md) - Initial design
-- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - RCASD-IVTR+C protocols
-- [PROTOCOL-STACK-SPEC.md](PROTOCOL-STACK-SPEC.md) - 7 conditional protocols
+- [METRICS-VALUE-PROOF-SPEC.md](../specs/METRICS-VALUE-PROOF-SPEC.md) - Initial design
+- [PROJECT-LIFECYCLE-SPEC.md](../specs/PROJECT-LIFECYCLE-SPEC.md) - RCASD-IVTR+C protocols
+- [PROTOCOL-STACK-SPEC.md](../specs/PROTOCOL-STACK-SPEC.md) - 7 conditional protocols
 
 ### 9.2 Core Module Documentation
 

@@ -2,7 +2,7 @@
  * Integration tests for STDP M4 plasticity auxiliary tables.
  *
  * Verifies that the three new tables from T673-M4 are created correctly
- * and behave as specified in docs/specs/stdp-wire-up-spec.md §2.1.4–§2.1.6.
+ * and behave as specified in docs/spec/stdp-wire-up.md §2.1.4–§2.1.6.
  *
  * Tests use a real SQLite database (no mocks). Each test gets an isolated
  * temp directory so there are no cross-test state leaks.

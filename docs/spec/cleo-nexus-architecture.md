@@ -424,3 +424,20 @@ Complete operation matrix for all 28 NEXUS operations. Gateway column indicates 
 | `nexus.share.remote.remove` | mutate | `{ name? }` | `{ name, removed }` |
 | `nexus.share.push` | mutate | `{ remote?, force?, setUpstream? }` | `{ remote, pushed, commits, branch }` |
 | `nexus.share.pull` | mutate | `{ remote? }` | `{ remote, pulled, commits, merged }` |
+
+<!-- merged from `cleo-nexus-architecture` by cleo docs modernize -->
+
+## References (from `cleo-nexus-architecture`)
+
+- [CLEO-OPERATION-CONSTITUTION.md](cleo-operation-constitution.md) -- Full operation listing across all domains
+- [VERB-STANDARDS.md](verb-standards.md) -- Canonical verb definitions
+- [CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md](cleo-portable-project-brain.md) -- Portable Project BRAIN (brain.db storage pattern)
+- [CLEO-SYSTEM-FLOW-ATLAS.md](../concepts/CLEO-SYSTEM-FLOW-ATLAS.md) -- Workshop vocabulary and system architecture
+- [CLEO-VISION.md](../concepts/CLEO-VISION.md) -- Workshop language documentation
+- Task T5372 -- Implementation task for this specification
+- Task T5365 -- nexus.db schema definition (nexus-schema.ts)
+- Task T5366 -- Core registry operations (registry.ts)
+- Task T5368 -- Reconciliation protocol (nexusReconcile)
+- Task T4529 -- Graph-RAG discovery algorithms (packages/core/src/tasks/graph-rag.ts)
+
+---

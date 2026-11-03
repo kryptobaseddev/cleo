@@ -8,7 +8,7 @@
  * only ONE DB round-trip is issued per SvelteKit page load. Switching tabs
  * client-side does not re-query the server.
  *
- * Reference spec: `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §3 / §5.
+ * Reference spec: `docs/spec/cleo-task-dashboard.md` §3 / §5.
  *
  * ## Query budget (per `loadExplorerBundle` call)
  *

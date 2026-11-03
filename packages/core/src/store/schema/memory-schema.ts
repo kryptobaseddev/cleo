@@ -1755,7 +1755,7 @@ export const brainPlasticityEvents = sqliteTable(
  * Retention policy: rolling 90 days. runConsolidation Step 9d DELETE sweep
  * purges rows older than 90 days. Actual pruning wired in Wave 3 (T690).
  *
- * Spec: docs/specs/stdp-wire-up-spec.md §2.1.4 (owner Q4 mandate — in scope).
+ * Spec: docs/spec/stdp-wire-up.md §2.1.4 (owner Q4 mandate — in scope).
  *
  * @task T697
  * @epic T673
@@ -1832,7 +1832,7 @@ export const brainWeightHistory = sqliteTable(
  * Both writes (retrieval_log UPDATE and modulators INSERT) use two separate
  * SQLite connections — no ATTACH — matching the cross-db-cleanup.ts pattern.
  *
- * Spec: docs/specs/stdp-wire-up-spec.md §2.1.5 (Lead A §4.5).
+ * Spec: docs/spec/stdp-wire-up.md §2.1.5 (Lead A §4.5).
  *
  * @task T699
  * @epic T673
@@ -1903,7 +1903,7 @@ export const brainModulators = sqliteTable(
  * runConsolidation in brain-lifecycle.ts MUST accept an optional trigger
  * parameter and INSERT one row per run with step_results_json + duration_ms.
  *
- * Spec: docs/specs/stdp-wire-up-spec.md §2.1.6 (Lead A + Lead C joint).
+ * Spec: docs/spec/stdp-wire-up.md §2.1.6 (Lead A + Lead C joint).
  *
  * @task T701
  * @epic T673

@@ -2,7 +2,7 @@
   RecentActivityFeed — last-N task updates extracted verbatim from
   `packages/studio/src/routes/tasks/+page.svelte:412-434`.
 
-  Preservation contract per `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §9:
+  Preservation contract per `docs/spec/cleo-task-dashboard.md` §9:
     - Last 20 non-archived tasks by `updated_at DESC` (server enforces the
       limit; this component just renders the list).
     - Row click navigates to `/tasks/{id}` — full detail page, NOT the

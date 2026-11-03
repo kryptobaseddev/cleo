@@ -4,7 +4,7 @@
  * Performs disk-pressure-aware pruning of ephemeral transcript and temp files
  * under `~/.claude/projects/` using the five-tier threshold model from T751.
  *
- * Retention policy (per ADR-047 and docs/specs/memory-architecture-spec.md §8):
+ * Retention policy (per ADR-047 and docs/spec/memory-architecture.md §8):
  * - `.temp/` files: 24h normal, 1h emergency
  * - Transcript directories (agent-*.jsonl, tool-results/): 7d normal, 1d emergency
  * - `.cleo/logs/`: 30d normal, 7d emergency
@@ -14,7 +14,7 @@
  * skip extraction and only delete transcripts older than 30 days.
  *
  * @see ADR-047 — Autonomous GC and Disk Safety
- * @see docs/specs/memory-architecture-spec.md §8
+ * @see docs/spec/memory-architecture.md §8
  * @task T731
  * @epic T726
  */

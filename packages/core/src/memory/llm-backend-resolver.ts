@@ -33,7 +33,7 @@
  * OWNER OVERRIDE 2026-04-15: Cold tier MUST use claude-sonnet-4-6, NOT Haiku.
  *
  * Research basis: `.cleo/agent-outputs/T750-research-local-llm.md`
- * Spec reference: `docs/specs/memory-architecture-spec.md` §7
+ * Spec reference: `docs/spec/memory-architecture.md` §7
  *
  * @task T730
  * @task T11757

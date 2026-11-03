@@ -7,7 +7,7 @@
  * jsdom). The companion `HierarchyTab.svelte` consumes this module and renders
  * the result with Svelte 5 runes.
  *
- * Spec reference: `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §5.2.
+ * Spec reference: `docs/spec/cleo-task-dashboard.md` §5.2.
  *
  * ## Modes
  *

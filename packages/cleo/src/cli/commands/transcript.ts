@@ -19,7 +19,7 @@
  * ```
  *
  * @see packages/core/src/gc/transcript.ts for scan/prune logic
- * @see docs/specs/memory-architecture-spec.md §6 and §9.1
+ * @see docs/spec/memory-architecture.md §6 and §9.1
  * @task T728 T730 T732 T733 T1723
  * @epic T726
  */

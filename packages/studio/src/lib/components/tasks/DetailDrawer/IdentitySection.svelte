@@ -3,7 +3,7 @@
 
   Extracted from the monolithic DetailDrawer in Wave 1C of T990 so each
   section owns its own layout concerns.  Keeps the visual contract from
-  `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §5.5 identical.
+  `docs/spec/cleo-task-dashboard.md` §5.5 identical.
 
   @task T990
   @wave 1C

@@ -154,3 +154,12 @@ export const RESTORE_VALID_JSON_FILENAMES: Set<string> = new Set([
  * Default filename used when `cleo restore backup` is called without `--file`.
  */
 export const RESTORE_DEFAULT_FILE = TASKS_DB_FILENAME;
+
+/**
+ * Project-relative path of the operation constitution spec that
+ * `cleo check canon` and `cleo detect-drift` read (moved by T14108).
+ */
+export const OPERATION_CONSTITUTION_DOC = 'docs/spec/cleo-operation-constitution.md' as const;
+
+/** Project-relative path of the Portable Brain spec that `cleo detect-drift` reads (T14108). */
+export const PORTABLE_BRAIN_SPEC_DOC = 'docs/spec/cleo-portable-project-brain.md' as const;
