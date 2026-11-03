@@ -60,7 +60,7 @@ type AssertEquals1<T extends 1> = T;
 type _BrainCompactHitShape = {
   matchedHistoricalIds?: string[];
   id: string;
-  type: 'decision' | 'pattern' | 'learning' | 'observation';
+  type: 'decision' | 'pattern' | 'learning' | 'observation' | 'doc';
   title: string;
   date: string;
   relevance?: number;
@@ -69,6 +69,7 @@ type _BrainCompactHitShape = {
   _next?: Record<string, string>;
   scope?: 'project' | 'global';
   docs?: string[];
+  replaces?: string;
 };
 
 type _AssertBrainCompactHitPinned = AssertEquals1<Equals<BrainCompactHit, _BrainCompactHitShape>>;

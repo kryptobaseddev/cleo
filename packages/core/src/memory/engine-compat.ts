@@ -14,6 +14,10 @@
  */
 
 import type { BrainEntrySummary, ContradictionDetail, SupersededEntry } from '@cleocode/contracts';
+import type {
+  BrainCompactHit,
+  SearchBrainCompactResult,
+} from '@cleocode/contracts/memory/search.js';
 import type { EngineResult } from '../engine-result.js';
 import { pushWarning } from '../output.js';
 import { getProjectRoot } from '../paths.js';
@@ -550,6 +554,24 @@ export async function memoryDecisionStore(
 // ============================================================================
 
 /**
+ * Merge `memory find` doc hits into the project's BRAIN hits by RRF score
+ * (T14152). When a BRAIN hit has no RRF score (the BM25-only path) the scores
+ * are not comparable, so the doc hits follow the BRAIN hits instead.
+ *
+ * @param brain - Project BRAIN hits, best first.
+ * @param docs - Doc hits, best first, each with an RRF score.
+ * @returns One list, best first.
+ */
+function rankDocHitsWithBrain(
+  brain: BrainCompactHit[],
+  docs: BrainCompactHit[],
+): BrainCompactHit[] {
+  if (docs.length === 0) return brain;
+  if (brain.some((hit) => hit.rrfScore === undefined)) return [...brain, ...docs];
+  return [...brain, ...docs].sort((a, b) => (b.rrfScore ?? 0) - (a.rrfScore ?? 0));
+}
+
+/**
  * Token-efficient brain search returning compact results.
  *
  * @param params - Search parameters including query string and limit
@@ -582,33 +604,47 @@ export async function memoryFind(
   try {
     if (
       params.tables?.some(
-        (table) => !['decisions', 'patterns', 'learnings', 'observations'].includes(table),
+        (table) => !['decisions', 'patterns', 'learnings', 'observations', 'docs'].includes(table),
       )
     ) {
       return {
         success: false,
         error: {
           code: 'E_INVALID_INPUT',
-          message: 'Unsupported memory table; use decisions, patterns, learnings, or observations.',
+          message:
+            'Unsupported memory table; use decisions, patterns, learnings, observations, or docs.',
         },
       };
     }
     const root = resolveRoot(projectRoot);
-    const result = await searchBrainCompact(root, {
-      query: params.query,
-      limit: params.limit,
-      tables: params.tables as
-        | Array<'decisions' | 'patterns' | 'learnings' | 'observations'>
-        | undefined,
-      dateStart: params.dateStart,
-      dateEnd: params.dateEnd,
-      agent: params.agent,
-      includeHistory: params.includeHistory,
-    });
+    // T14152: `docs` is a source beside the BRAIN tables, never a BRAIN table.
+    const withDocs = params.tables?.includes('docs') === true;
+    const brainTables = params.tables?.filter((table) => table !== 'docs') as
+      | Array<'decisions' | 'patterns' | 'learnings' | 'observations'>
+      | undefined;
+    const docsOnly = withDocs && brainTables?.length === 0;
+    const result: SearchBrainCompactResult = docsOnly
+      ? { results: [], total: 0, tokensEstimated: 0 }
+      : await searchBrainCompact(root, {
+          query: params.query,
+          limit: params.limit,
+          tables: brainTables,
+          dateStart: params.dateStart,
+          dateEnd: params.dateEnd,
+          agent: params.agent,
+          includeHistory: params.includeHistory,
+        });
+    if (withDocs) {
+      const { findCurrentDocs } = await import('../docs/lineage.js');
+      const docs = await findCurrentDocs(root, params.query, params.limit);
+      result.results = rankDocHitsWithBrain(result.results, docs);
+      result.total += docs.length;
+      result.tokensEstimated += docs.length * 50;
+    }
     // T13720: main-brain hits follow the project's, under their own limit, so a
     // busy project never hides them. Agent provenance and date windows are
     // project-only filters, so those searches stay project-only.
-    if (params.agent === undefined && !params.dateStart && !params.dateEnd) {
+    if (!docsOnly && params.agent === undefined && !params.dateStart && !params.dateEnd) {
       const global = await readGlobalBrain(() =>
         findGlobalBrain(params.query, {
           limit: params.limit,

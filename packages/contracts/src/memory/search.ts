@@ -44,8 +44,8 @@ export interface BrainCompactHit {
   matchedHistoricalIds?: string[];
   /** Entry identifier (e.g. `D-arch-001`, `P-feat-042`). */
   id: string;
-  /** Source BRAIN table that produced the hit. */
-  type: 'decision' | 'pattern' | 'learning' | 'observation';
+  /** Source that produced the hit: a BRAIN table, or `doc` for the docs store (T14152). */
+  type: 'decision' | 'pattern' | 'learning' | 'observation' | 'doc';
   /** Display title for the entry. */
   title: string;
   /** ISO 8601 creation date. */
@@ -79,6 +79,11 @@ export interface BrainCompactHit {
    * past any supersession; never a superseded doc (T14110).
    */
   docs?: string[];
+  /**
+   * On a `doc` hit: slug of the superseded doc the query matched, which this
+   * current doc replaces (T14152).
+   */
+  replaces?: string;
 }
 
 // ── SearchBrainCompactParams ────────────────────────────────────────
