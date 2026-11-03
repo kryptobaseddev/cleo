@@ -108,7 +108,8 @@ describe('reqMove (T14200)', () => {
   });
 
   it('refuses a done target', async () => {
-    await env.accessor.updateTaskFields(target, { status: 'done' });
+    // A done task sits in the contribution stage (the T877 status/stage invariant).
+    await env.accessor.updateTaskFields(target, { status: 'done', pipelineStage: 'contribution' });
     await expect(
       reqMove(env.tempDir, source, 'AC2', target, { accessor: env.accessor }),
     ).rejects.toThrow(/is done; a criterion moves only between open tasks/);
