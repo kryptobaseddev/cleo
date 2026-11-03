@@ -179,6 +179,18 @@ export interface TaskDocAttachment {
  */
 export const INLINE_TEXT_SIZE_LIMIT_BYTES = 32 * 1024; // 32 KB
 
+/**
+ * Default budget, in characters, for the prose of a task's attached documents
+ * inlined into a spawn prompt (T14190). Linked history (review findings,
+ * earlier refusals, outcomes) grew one prompt past 100k characters; past this
+ * budget each further document is named by its exact ref (name and SHA-256)
+ * with the command that fetches it. `orchestration.spawnDocBudgetChars` in the
+ * project config overrides it.
+ *
+ * @task T14190
+ */
+export const DEFAULT_SPAWN_DOC_BUDGET_CHARS = 16_000;
+
 /** Protocol tiers per ADR-051 / T882 spawn contract. */
 export type SpawnTier = 0 | 1 | 2;
 
@@ -375,6 +387,12 @@ export interface BuildSpawnPromptInput {
    * @task T1614 — spawn auto-attaches docs to subagent task
    */
   docAttachments?: readonly TaskDocAttachment[];
+  /**
+   * Character budget for inlined attachment prose (T14190); defaults to
+   * {@link DEFAULT_SPAWN_DOC_BUDGET_CHARS}. Documents past it are named by
+   * exact ref instead of inlined.
+   */
+  docBudgetChars?: number;
   /**
    * Agent role for tier-specific skill selection.
    *
@@ -783,15 +801,28 @@ function buildWorkerConstraintsBlock(
  * the agent can read them without additional CLI calls. Binary or large
  * attachments are listed with their name, size, and a `cleo docs fetch` pointer.
  *
+ * Inlined prose is capped at `budgetChars` (T14190): a text attachment that
+ * would push the inlined total past it is named by its exact ref (name and
+ * SHA-256) with its fetch command instead, and the section closes with a list
+ * of every document left out and how to read it.
+ *
  * @param taskId      - Task identifier (for CLI command examples).
  * @param attachments - Resolved attachment records from `blobList`.
+ * @param budgetChars - Most characters of attachment prose to inline.
  * @returns Markdown section string. Returns empty string when `attachments` is
  *          empty — callers omit the section entirely in that case.
  *
  * @task T1614 — spawn auto-attaches docs to subagent task
+ * @task T14190
  */
-function buildDocsBlock(taskId: string, attachments: readonly TaskDocAttachment[]): string {
+function buildDocsBlock(
+  taskId: string,
+  attachments: readonly TaskDocAttachment[],
+  budgetChars: number = DEFAULT_SPAWN_DOC_BUDGET_CHARS,
+): string {
   if (attachments.length === 0) return '';
+  let inlined = 0;
+  const withheld: TaskDocAttachment[] = [];
 
   const lines: string[] = [
     '## Task Documents',
@@ -810,7 +841,10 @@ function buildDocsBlock(taskId: string, attachments: readonly TaskDocAttachment[
     const sizeKb = (att.sizeBytes / 1024).toFixed(1);
     const mimeLabel = att.mimeType ? ` (${att.mimeType})` : '';
 
-    if (att.textContent !== undefined) {
+    const fits = att.textContent !== undefined && inlined + att.textContent.length <= budgetChars;
+    if (att.textContent !== undefined && !fits) withheld.push(att);
+    if (att.textContent !== undefined && fits) {
+      inlined += att.textContent.length;
       // Inline the text content between fenced blocks.
       const fence = att.name.endsWith('.json') ? '```json' : '```';
       lines.push(`### ${att.name}${mimeLabel} — ${sizeKb} KB`);
@@ -825,11 +859,32 @@ function buildDocsBlock(taskId: string, attachments: readonly TaskDocAttachment[
       lines.push('');
       lines.push(`SHA-256: \`${att.sha256}\``);
       lines.push('');
+      if (att.textContent !== undefined) {
+        lines.push(
+          `Not inlined: the spawn prompt's ${budgetChars}-character budget for document prose is spent.`,
+        );
+        lines.push('');
+      }
       lines.push('```bash');
       lines.push(`cleo docs fetch ${att.sha256.slice(0, 8)}`);
       lines.push('```');
       lines.push('');
     }
+  }
+
+  if (withheld.length > 0) {
+    lines.push(
+      `${withheld.length} document${withheld.length === 1 ? ' was' : 's were'} left out to keep this ` +
+        `prompt within ${budgetChars} characters of document prose; read ${withheld.length === 1 ? 'it' : 'each'} ` +
+        'by its exact ref when the task needs it:',
+    );
+    lines.push('');
+    for (const att of withheld) {
+      lines.push(
+        `- ${att.name} — sha256 \`${att.sha256}\` — \`cleo docs fetch ${att.sha256.slice(0, 8)}\``,
+      );
+    }
+    lines.push('');
   }
 
   return lines.join('\n');
@@ -1671,7 +1726,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // Text-based attachments ≤ INLINE_TEXT_SIZE_LIMIT_BYTES are inlined; others get a fetch pointer.
   // Omitted entirely when no attachments exist so the prompt stays lean.
   if (input.docAttachments && input.docAttachments.length > 0) {
-    const docsBlock = buildDocsBlock(taskId, input.docAttachments);
+    const docsBlock = buildDocsBlock(taskId, input.docAttachments, input.docBudgetChars);
     if (docsBlock) {
       authoredSections.push(docsBlock);
     }
