@@ -2719,6 +2719,28 @@ function repairGuards(db: DatabaseSync, pair: TwinPair): void {
   }
 }
 
+/**
+ * Whether {@link collapseTwinTables} would write nothing on this connection
+ * (T14210), decided with the same reads it makes: every pair present in the
+ * store has a collapse marker, its bare table is unchanged since the last
+ * merge, and its guard triggers are intact. A degraded connection answers
+ * false. Read-only.
+ *
+ * @param nativeDb - The project `cleo.db` connection.
+ * @returns True when no pair needs a merge or a guard repair.
+ * @task T14210
+ */
+export function twinTablesCurrent(nativeDb: DatabaseSync): boolean {
+  if (degraded.has(nativeDb)) return false;
+  for (const pair of PAIRS) {
+    if (!pair.tables.every((t) => hasMainTable(nativeDb, t))) continue;
+    const state = readState(nativeDb, pair);
+    if (state === undefined || bareChanged(nativeDb, pair, state)) return false;
+    if (pair.guardsIntact && pair.installGuards && !pair.guardsIntact(nativeDb)) return false;
+  }
+  return true;
+}
+
 /** Options for {@link collapseTwinTables}. */
 export interface CollapseTwinTablesOptions {
   /**

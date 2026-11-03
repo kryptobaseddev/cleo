@@ -34,6 +34,9 @@ import { assertNoPendingMigrationsForWorktreeBuild } from './worktree-build-guar
  */
 export { isSqliteBusy };
 
+/** The unique index {@link ensureJournalHashUnique} keeps on the shared journal's hash. */
+export const JOURNAL_HASH_UNIQUE_INDEX = 'idx_drizzle_migrations_hash';
+
 /** Required column definition for ensureColumns(). */
 export interface RequiredColumn {
   name: string;
@@ -684,20 +687,104 @@ function readSiblingNewestMillis(siblingFolder: string): number {
 function ensureJournalHashUnique(nativeDb: DatabaseSync): void {
   if (!tableExists(nativeDb, '__drizzle_migrations')) return;
   try {
-    // One-time dedup: keep the lowest id per hash, delete the rest. A no-op once
-    // the journal is already unique (the live journal has no dups today).
+    // One-time dedup: keep the lowest id per hash, delete the rest. Read first
+    // (T14210): a DELETE takes the write lock even when it deletes nothing, so
+    // every open of a deduplicated journal waited behind any other writer.
+    if (journalHasDuplicateHashes(nativeDb))
+      nativeDb.exec(
+        'DELETE FROM "__drizzle_migrations" WHERE id NOT IN ' +
+          '(SELECT MIN(id) FROM "__drizzle_migrations" GROUP BY hash)',
+      );
+    // A no-op that takes no lock once the index exists.
     nativeDb.exec(
-      'DELETE FROM "__drizzle_migrations" WHERE id NOT IN ' +
-        '(SELECT MIN(id) FROM "__drizzle_migrations" GROUP BY hash)',
-    );
-    nativeDb.exec(
-      'CREATE UNIQUE INDEX IF NOT EXISTS "idx_drizzle_migrations_hash" ON "__drizzle_migrations" ("hash")',
+      `CREATE UNIQUE INDEX IF NOT EXISTS "${JOURNAL_HASH_UNIQUE_INDEX}" ON "__drizzle_migrations" ("hash")`,
     );
   } catch {
     // Best-effort convergence aid — never block an open on the index/dedup.
     // INSERT OR IGNORE already guards duplicate inserts at the row level even
     // without the index (it just cannot enforce uniqueness without it).
   }
+}
+
+/** Whether two journal rows share a hash (the dedup {@link ensureJournalHashUnique} runs). */
+function journalHasDuplicateHashes(nativeDb: DatabaseSync): boolean {
+  return (
+    nativeDb
+      .prepare(
+        'SELECT 1 AS dup FROM main."__drizzle_migrations" GROUP BY hash HAVING count(*) > 1 LIMIT 1',
+      )
+      .get() !== undefined
+  );
+}
+
+/**
+ * Whether every migration of a lineage folder is journaled by hash, the set
+ * {@link reconcileJournal}, {@link reconcileBrainMigrationsForConsolidatedDb}
+ * and drizzle's migrate all skip (T14210). Read-only.
+ *
+ * @param nativeDb - The store.
+ * @param migrationsFolder - The lineage folder.
+ * @returns True when no migration of the lineage is unjournaled.
+ * @task T14210
+ */
+export function lineageFullyJournaled(nativeDb: DatabaseSync, migrationsFolder: string): boolean {
+  if (!tableExists(nativeDb, '__drizzle_migrations')) return false;
+  const journaled = new Set(
+    (
+      nativeDb.prepare('SELECT hash FROM main."__drizzle_migrations"').all() as Array<{
+        hash: string;
+      }>
+    ).map((row) => row.hash),
+  );
+  return readMigrationFilesCached(migrationsFolder).every((m) => journaled.has(m.hash));
+}
+
+/**
+ * Whether {@link reconcileJournal} followed by {@link migrateWithRetry} would
+ * write nothing for a lineage on this store (T14210), decided by a read. It is
+ * conservative: any doubt answers false, and the caller takes the leased path.
+ *
+ * - the journal exists in the drizzle-v1 format (a `name` column), so neither
+ *   {@link upgradeSharedJournalFormat} nor drizzle's own upgrade runs;
+ * - its hash-unique index exists and no hash repeats ({@link ensureJournalHashUnique});
+ * - every local migration is journaled by hash with its name, so Scenario 1
+ *   (no journal), Scenario 2 sub-case B (orphans with a local migration
+ *   missing), Scenario 3 (missing entries), Scenario 4 (unnamed entries) and
+ *   drizzle's pending set are all empty. Orphans left with every local hash
+ *   present are Sub-case A, which writes nothing.
+ *
+ * @param nativeDb - The store.
+ * @param migrationsFolder - The lineage folder `reconcileJournal` reads.
+ * @returns True when the lineage needs no schema work.
+ * @task T14210
+ */
+export function lineageJournalAtHead(nativeDb: DatabaseSync, migrationsFolder: string): boolean {
+  if (!tableExists(nativeDb, '__drizzle_migrations')) return false;
+  const columns = new Set(
+    (
+      nativeDb.prepare('PRAGMA main.table_info("__drizzle_migrations")').all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name),
+  );
+  if (!columns.has('name')) return false;
+  const indexed =
+    nativeDb
+      .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get(JOURNAL_HASH_UNIQUE_INDEX) !== undefined;
+  if (!indexed || journalHasDuplicateHashes(nativeDb)) return false;
+  const nameByHash = new Map(
+    (
+      nativeDb.prepare('SELECT hash, name FROM main."__drizzle_migrations"').all() as Array<{
+        hash: string;
+        name: string | null;
+      }>
+    ).map((row) => [row.hash, row.name]),
+  );
+  return readMigrationFilesCached(migrationsFolder).every((m) => {
+    const name = nameByHash.get(m.hash);
+    return name !== undefined && name !== null && name === (m.name ?? '');
+  });
 }
 
 /**
@@ -1647,6 +1734,30 @@ export function migrateWithRetry(
  * @param logSubsystem - Logger subsystem name
  * @param context - 'legacy-upgrade' (default, WARN) or 'fresh' (ERROR)
  */
+/**
+ * Whether {@link ensureColumns} would add nothing: the table is absent (it
+ * skips) or holds every required column (T14210). Read-only.
+ *
+ * @param nativeDb - The store.
+ * @param tableName - The table `ensureColumns` repairs.
+ * @param requiredColumns - The same column list `ensureColumns` is given.
+ * @returns True when no column would be added.
+ * @task T14210
+ */
+export function requiredColumnsPresent(
+  nativeDb: DatabaseSync,
+  tableName: string,
+  requiredColumns: readonly RequiredColumn[],
+): boolean {
+  if (!tableExists(nativeDb, tableName)) return true;
+  const existing = new Set(
+    (nativeDb.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  );
+  return requiredColumns.every((req) => existing.has(req.name));
+}
+
 export function ensureColumns(
   nativeDb: DatabaseSync,
   tableName: string,

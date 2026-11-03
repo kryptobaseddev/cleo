@@ -277,7 +277,7 @@ export const EXEMPT = {
   'packages/core/src/store/snapshot-gate.ts': {
     tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
   },
-  'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
+  'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP } },
   'packages/core/src/store/sync/apply/write-api.ts': {
     agent_registry_agent_capabilities: {
       count: 2,
