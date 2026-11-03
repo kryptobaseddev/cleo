@@ -13,13 +13,16 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { SearchBrainCompactResult } from '@cleocode/contracts/memory/search.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { settleBackgroundOps } from '../../store/background-ops.js';
 import { closeBrainDb, getBrainDbPath, getBrainNativeDb } from '../../store/memory-sqlite.js';
 import { closeDb } from '../../store/sqlite.js';
 import { resetFts5Cache, searchBrain, staleFts5Tables } from '../brain-search.js';
+
+/** A statement slower than this waited on the held lock (the read path's own timeout is 250 ms). */
+const SLOW_STATEMENT_MS = 1_000;
 
 describe('T14202 — read-only BRAIN search', () => {
   let projectRoot: string;
@@ -54,15 +57,51 @@ describe('T14202 — read-only BRAIN search', () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  /** Hold the store's write lock from another connection while `fn` runs. */
+  /**
+   * Hold the store's write lock from another connection while `fn` runs, and
+   * fail naming every statement that waited on it (over {@link SLOW_STATEMENT_MS},
+   * with its SQL and the stack that ran it), so a regression names its call site.
+   */
   async function underWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    const slow: string[] = [];
+    const timed = <A extends unknown[], R>(
+      label: (self: { sourceSQL?: string }, args: A) => string,
+      original: (this: unknown, ...args: A) => R,
+    ) =>
+      function (this: { sourceSQL?: string }, ...args: A): R {
+        const start = performance.now();
+        try {
+          return original.apply(this, args);
+        } finally {
+          const ms = performance.now() - start;
+          if (ms > SLOW_STATEMENT_MS)
+            slow.push(`${ms.toFixed(0)} ms: ${label(this, args)}\n${new Error().stack ?? ''}`);
+        }
+      };
+    const execOriginal = DatabaseSync.prototype.exec;
+    const stmt = StatementSync.prototype;
+    const originals = { run: stmt.run, get: stmt.get, all: stmt.all };
+    DatabaseSync.prototype.exec = timed((_self, [sql]: [string]) => sql, execOriginal);
+    for (const name of ['run', 'get', 'all'] as const)
+      Object.assign(stmt, { [name]: timed((self) => self.sourceSQL ?? '?', originals[name]) });
     const locker = new DatabaseSync(getBrainDbPath(projectRoot));
     locker.exec('BEGIN IMMEDIATE');
     try {
-      return await fn();
+      const waited = () => `statements that waited on the held lock:\n${slow.join('\n\n')}`;
+      let result: T;
+      try {
+        result = await fn();
+      } catch (err) {
+        if (slow.length > 0 && err instanceof Error) err.message = `${err.message}\n${waited()}`;
+        throw err;
+      }
+      expect(slow, waited()).toEqual([]);
+      return result;
     } finally {
       locker.exec('ROLLBACK');
       locker.close();
+      DatabaseSync.prototype.exec = execOriginal;
+      Object.assign(stmt, originals);
     }
   }
 
@@ -165,7 +204,10 @@ describe('T14202 — read-only BRAIN search', () => {
   });
 
   it('AC2/AC3: a missing index under a held write lock falls back to a plain search', async () => {
+    // The indexes exist and are in step, as an earlier process left them.
+    expect((await searchBrain(projectRoot, 'retention')).decisions).toHaveLength(1);
     const db = await nativeDb();
+    expect(staleFts5Tables(db)).toEqual([]);
     db.exec('DROP TABLE IF EXISTS brain_decisions_fts');
     resetFts5Cache();
 
