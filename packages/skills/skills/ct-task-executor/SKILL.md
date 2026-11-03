@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.9.0
+version: 2.9.1
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.9.0
+  version: 2.9.1
   tier: core
   install: harness
   covers:
@@ -29,7 +29,7 @@ metadata:
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-10-28
+  lastReviewed: 2026-11-02
   stability: stable
 ---
 
@@ -223,7 +223,7 @@ Record it with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC
 
 ## Acceptance Criteria Verification
 
-Record each criterion's changed artifacts and actual verification results. A merged PR closes the tasks its body names (`Closes:`) when `CI` is green on its exact head and an independent reviewer recorded `met` for each AC (`cleo review verdict`); the PR text alone never satisfies an AC (ADR-099). Hand-recorded atoms are for no-PR work: use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence: they owe `verification.requiredGatesByKind` (default: the required gates without `testsPassed`/`qaPassed`), but once their work touches any non-document path they owe the full code gates, whatever their kind or labels. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met. `cleo verify <id> --all` sets every required gate at once and still requires `--evidence`; bare `--all` is rejected with `E_EVIDENCE_MISSING`. A failing `tool:<name>` reason names the resolved command and its source, so check that command before retrying. To adopt a native typecheck or lint run for `qaPassed` without re-running it, record one `qa-run:<receipt.json>` per check (`cleo verify --help` lists the receipt shape). A change with unit and e2e tests can record both runs in one write, `test-run:<vitest.json>;test-run:<playwright.json>` (Playwright `--reporter=json`): their passing test files cover the change together. Rust and Python suites record `test-run:` from a JUnit XML report (cargo nextest, pytest `--junitxml`) or libtest JSON lines (`cargo test -- --format json`).
+Record each criterion's changed artifacts and actual verification results. A merged PR closes the tasks its body names (`Closes:`) when `CI` is green on its exact head and an independent reviewer recorded `met` for each AC (`cleo review verdict`); the PR text alone never satisfies an AC (ADR-099). Hand-recorded atoms are for no-PR work: use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence: they owe `verification.requiredGatesByKind` (default: the required gates without `testsPassed`/`qaPassed`), but once their work touches any non-document path they owe the full code gates, whatever their kind or labels. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A criterion of a code task that an owner decision or a stored document meets is covered with a receipt, never a waiver: `cleo verify <id> --criterion --evidence 'decision:<id>;satisfies:<id>#AC<n>'` binds only that criterion and sets no gate; a criterion naming a code path is refused. A completed child does not establish that its parent's independent criteria were met. `cleo verify <id> --all` sets every required gate at once and still requires `--evidence`; bare `--all` is rejected with `E_EVIDENCE_MISSING`. A failing `tool:<name>` reason names the resolved command and its source, so check that command before retrying. To adopt a native typecheck or lint run for `qaPassed` without re-running it, record one `qa-run:<receipt.json>` per check (`cleo verify --help` lists the receipt shape). A change with unit and e2e tests can record both runs in one write, `test-run:<vitest.json>;test-run:<playwright.json>` (Playwright `--reporter=json`): their passing test files cover the change together. Rust and Python suites record `test-run:` from a JUnit XML report (cargo nextest, pytest `--junitxml`) or libtest JSON lines (`cargo test -- --format json`).
 
 
 | Criterion | Status | Notes |
