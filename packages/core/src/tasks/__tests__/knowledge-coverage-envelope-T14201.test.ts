@@ -17,8 +17,8 @@ import { resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
 import { completeTask } from '../complete.js';
 
-/** Thousands of reasons and evidence refs, as a stale repo-wide index reports. */
-const REASONS = 5000;
+/** Thousands of reasons and evidence refs, as a stale repo-wide index reports (hoisted with vi.mock). */
+const { REASONS } = vi.hoisted(() => ({ REASONS: 5000 }));
 
 vi.mock('../../nexus/knowledge.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../nexus/knowledge.js')>();
