@@ -706,8 +706,14 @@ function ensureJournalHashUnique(nativeDb: DatabaseSync): void {
   }
 }
 
-/** Whether two journal rows share a hash (the dedup {@link ensureJournalHashUnique} runs). */
-function journalHasDuplicateHashes(nativeDb: DatabaseSync): boolean {
+/**
+ * Whether two journal rows share a hash (the dedup {@link ensureJournalHashUnique} runs).
+ *
+ * @param nativeDb - The store.
+ * @returns True when a hash repeats.
+ * @task T14210
+ */
+export function journalHasDuplicateHashes(nativeDb: DatabaseSync): boolean {
   return (
     nativeDb
       .prepare(
@@ -737,54 +743,6 @@ export function lineageFullyJournaled(nativeDb: DatabaseSync, migrationsFolder: 
     ).map((row) => row.hash),
   );
   return readMigrationFilesCached(migrationsFolder).every((m) => journaled.has(m.hash));
-}
-
-/**
- * Whether {@link reconcileJournal} followed by {@link migrateWithRetry} would
- * write nothing for a lineage on this store (T14210), decided by a read. It is
- * conservative: any doubt answers false, and the caller takes the leased path.
- *
- * - the journal exists in the drizzle-v1 format (a `name` column), so neither
- *   {@link upgradeSharedJournalFormat} nor drizzle's own upgrade runs;
- * - its hash-unique index exists and no hash repeats ({@link ensureJournalHashUnique});
- * - every local migration is journaled by hash with its name, so Scenario 1
- *   (no journal), Scenario 2 sub-case B (orphans with a local migration
- *   missing), Scenario 3 (missing entries), Scenario 4 (unnamed entries) and
- *   drizzle's pending set are all empty. Orphans left with every local hash
- *   present are Sub-case A, which writes nothing.
- *
- * @param nativeDb - The store.
- * @param migrationsFolder - The lineage folder `reconcileJournal` reads.
- * @returns True when the lineage needs no schema work.
- * @task T14210
- */
-export function lineageJournalAtHead(nativeDb: DatabaseSync, migrationsFolder: string): boolean {
-  if (!tableExists(nativeDb, '__drizzle_migrations')) return false;
-  const columns = new Set(
-    (
-      nativeDb.prepare('PRAGMA main.table_info("__drizzle_migrations")').all() as Array<{
-        name: string;
-      }>
-    ).map((c) => c.name),
-  );
-  if (!columns.has('name')) return false;
-  const indexed =
-    nativeDb
-      .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'index' AND name = ?")
-      .get(JOURNAL_HASH_UNIQUE_INDEX) !== undefined;
-  if (!indexed || journalHasDuplicateHashes(nativeDb)) return false;
-  const nameByHash = new Map(
-    (
-      nativeDb.prepare('SELECT hash, name FROM main."__drizzle_migrations"').all() as Array<{
-        hash: string;
-        name: string | null;
-      }>
-    ).map((row) => [row.hash, row.name]),
-  );
-  return readMigrationFilesCached(migrationsFolder).every((m) => {
-    const name = nameByHash.get(m.hash);
-    return name !== undefined && name !== null && name === (m.name ?? '');
-  });
 }
 
 /**

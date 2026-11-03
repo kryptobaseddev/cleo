@@ -51,12 +51,12 @@ import {
   createSafetyBackup,
   ensureColumns,
   isSqliteBusy,
-  lineageJournalAtHead,
   migrateWithRetry,
   reconcileJournal,
   requiredColumnsPresent,
   tableExists,
 } from './migration-manager.js';
+import { lineageAtHead } from './migration-runner.js';
 // T12037: the tasks domain no longer owns a singleton — the path-keyed binding
 // registry does. This module contributes only `establishTasksSchema`.
 import {
@@ -690,7 +690,7 @@ export function seedTasksMeta(nativeDb: DatabaseSync): void {
 /**
  * Whether {@link establishTasksSchema} would write nothing on this store
  * (T14210), decided by reads from the same sources it uses: the
- * `drizzle-tasks` lineage journal ({@link lineageJournalAtHead}), the
+ * `drizzle-tasks` lineage journal ({@link lineageAtHead}), the
  * `ensureColumns` lists, the attachments version columns, the twin-collapse
  * state ({@link twinTablesCurrent}) and the seeded meta keys. When true the
  * bind runs establish without the cold-open writer lease, so a read never
@@ -705,7 +705,7 @@ export function tasksSchemaAtHead(nativeDb: DatabaseSync): boolean {
   try {
     if (!tableExists(nativeDb, 'tasks_schema_meta')) return false;
     return (
-      lineageJournalAtHead(nativeDb, resolveMigrationsFolder()) &&
+      lineageAtHead(nativeDb, resolveMigrationsFolder()) &&
       requiredColumnsPresent(nativeDb, 'sessions', REQUIRED_SESSION_COLUMNS) &&
       requiredColumnsPresent(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS) &&
       requiredColumnsPresent(nativeDb, 'attachments', ATTACHMENTS_VERSION_COLUMNS) &&

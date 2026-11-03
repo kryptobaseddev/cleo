@@ -52,8 +52,12 @@ import { readMigrationFilesCached } from './migration-files.js';
 import {
   isDuplicateColumnError,
   isTableAlreadyExistsError,
+  JOURNAL_HASH_UNIQUE_INDEX,
+  journalHasDuplicateHashes,
+  lineageFullyJournaled,
   reconcileJournal,
   sanitizeMigrationStatements,
+  tableExists,
 } from './migration-manager.js';
 import { isSqliteBusy } from './with-retry.js';
 import { assertNoPendingMigrationsForWorktreeBuild } from './worktree-build-guard.js';
@@ -535,6 +539,49 @@ function journalRows(nativeDb: DatabaseSync): JournalRow[] {
 }
 
 /**
+ * Whether a lineage needs no schema work on this store (T14210), decided by a
+ * read from the sources the schema pass uses. Conservative: any doubt answers
+ * false.
+ *
+ * - The journal exists in drizzle's v1 format (a `name` column), so neither
+ *   `upgradeSharedJournalFormat` nor drizzle's `upgradeSyncIfNeeded` writes.
+ * - Its hash-unique index exists and no hash repeats, so
+ *   `ensureJournalHashUnique` writes nothing.
+ * - Every local migration is journaled by hash ({@link lineageFullyJournaled}),
+ *   so `reconcileJournal`'s Scenarios 1, 2B, 3 and 4 have nothing to do (orphans
+ *   with every local hash present are Sub-case A, which writes nothing).
+ * - Drizzle's own `getMigrationsToRun` over the same journal rows finds nothing
+ *   pending, the set {@link runBracketedMigrations} and drizzle's migrate apply.
+ *
+ * @param nativeDb - The store.
+ * @param migrationsFolder - The lineage folder.
+ * @returns True when the lineage is at head.
+ * @task T14210
+ */
+export function lineageAtHead(nativeDb: DatabaseSync, migrationsFolder: string): boolean {
+  if (!tableExists(nativeDb, MIGRATIONS_TABLE)) return false;
+  const columns = new Set(
+    (
+      nativeDb.prepare(`PRAGMA main.table_info("${MIGRATIONS_TABLE}")`).all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name),
+  );
+  if (!columns.has('name')) return false;
+  const indexed =
+    nativeDb
+      .prepare("SELECT 1 AS found FROM main.sqlite_master WHERE type = 'index' AND name = ?")
+      .get(JOURNAL_HASH_UNIQUE_INDEX) !== undefined;
+  if (!indexed || journalHasDuplicateHashes(nativeDb)) return false;
+  if (!lineageFullyJournaled(nativeDb, migrationsFolder)) return false;
+  const migrations = sanitizeMigrationStatements(readMigrationFilesCached(migrationsFolder));
+  return (
+    getMigrationsToRun({ localMigrations: migrations, dbMigrations: journalRows(nativeDb) })
+      .length === 0
+  );
+}
+
+/**
  * Apply one migration file in its own bracket. Returns whether it ran with
  * foreign keys off.
  */
@@ -633,6 +680,10 @@ export function runBracketedMigrations(
     const raw = readMigrationFilesCached(lineage.folder);
     // T12687: a worktree build never applies its migrations to a foreign store.
     assertNoPendingMigrationsForWorktreeBuild(nativeDb, raw);
+    // T14210: a lineage already at head needs no bracket. The leading bracket
+    // opens BEGIN IMMEDIATE, so running it on every open made every open of a
+    // current store wait behind any other writer.
+    if (lineageAtHead(nativeDb, lineage.folder)) continue;
     const migrations = sanitizeMigrationStatements(raw);
     let reconciledDuplicate = false;
     let reconciledExists = false;

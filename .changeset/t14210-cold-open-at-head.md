@@ -5,8 +5,9 @@ kind: fix
 summary: "Opening a store whose schema is already current no longer takes the write lock, so a read never waits behind another writer (T14210)"
 ---
 
-Every first bind of the tasks and brain domains in a process claimed the
-cold-open writer lease, and the claim is a `BEGIN IMMEDIATE`. So any command,
+Every first open of the store in a process, and every first bind of the tasks
+and brain domains, claimed a cold-open writer lease, and each claim is a
+`BEGIN IMMEDIATE`. So any command,
 read-only ones included, waited out the 30 s busy timeout while another process
 held the store's write lock.
 
@@ -18,3 +19,10 @@ A store at head is bound without the lease. A store that needs any schema work
 takes the leased path as before, so migrations stay serialised. The schema work
 itself no longer writes on a current store: the journal de-duplication and the
 meta seeds read before they write.
+
+The connection open applies the same rule to its own schema pass. It is skipped
+without the lease when step 0's suspend table is empty, the scope's migration
+lineage is at head (drizzle's own pending set is empty), there is no identity
+schema to heal, no unscoped brain FTS trigger or drifted owned trigger, no sync
+capture or flag work, and no identity fill pending. The migration runner also no
+longer opens its leading `BEGIN IMMEDIATE` bracket for a lineage already at head.
