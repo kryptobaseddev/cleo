@@ -1447,24 +1447,37 @@ async function deriveOnePr(
 /** Step 2 — the unmerged task branch or worktree. */
 /**
  * The paths a branch's own commits changed since `baseRef` (T14191): its
- * first-parent, non-merge commits. A merge of the default branch into the
- * task branch (GitHub's "update branch") brings in commits through its second
- * parent; when the local default-branch ref is older than that merge, the
- * merge-base diff lists them as the branch's work. They never are.
+ * first-parent, non-merge commits, plus what its own merge commits added
+ * beyond every parent. A merge of the default branch into the task branch
+ * (GitHub's "update branch") brings the default branch's commits in through
+ * its second parent; when the local default-branch ref is older than that
+ * merge, a merge-base diff lists them as the branch's work. They never are.
+ * A conflict resolution that keeps one side changes nothing new, but one that
+ * writes new content is the task's own edit, and `git diff-tree --cc` lists
+ * exactly those paths.
  *
  * @returns The paths, or null when git cannot list them.
  */
 function branchOwnPaths(root: string, baseRef: string, ref: string): Set<string> | null {
-  const out = git(root, [
+  const range = `${baseRef}..${ref}`;
+  const commits = git(root, [
     'log',
     '--first-parent',
     '--no-merges',
     '--no-renames',
     '--format=',
     '--name-only',
-    `${baseRef}..${ref}`,
+    range,
   ]);
-  return out === null ? null : new Set(out.split('\n').filter(Boolean));
+  const merges = git(root, ['rev-list', '--first-parent', '--merges', range]);
+  if (commits === null || merges === null) return null;
+  const paths = new Set(commits.split('\n').filter(Boolean));
+  for (const merge of merges.split('\n').filter(Boolean)) {
+    const edited = git(root, ['diff-tree', '--cc', '-r', '--name-only', '--no-commit-id', merge]);
+    if (edited === null) return null;
+    for (const path of edited.split('\n').filter(Boolean)) paths.add(path);
+  }
+  return paths;
 }
 
 function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {

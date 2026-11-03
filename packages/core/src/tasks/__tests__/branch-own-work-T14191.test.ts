@@ -105,6 +105,30 @@ describe('a task branch that merged a newer main past a stale origin/main (T1419
     expect(report).toEqual({ kind: 'documentation' });
   });
 
+  /** Main adds lib.ts; the branch merges main and, when `edit`, writes new lib.ts content in the merge. */
+  function mergeLib(edit: boolean): void {
+    git(repo, ['switch', '-q', 'main']);
+    writeFileSync(join(repo, 'lib.ts'), 'export const lib = 1;\n');
+    commit(repo, 'main: add lib');
+    git(repo, ['switch', '-q', 'task/T700-readme']);
+    git(repo, ['merge', '-q', '--no-ff', '--no-commit', 'main']);
+    if (edit)
+      writeFileSync(join(repo, 'lib.ts'), 'export const lib = 2; // adapted in the merge\n');
+    commit(repo, "Merge branch 'main' into task/T700-readme");
+    resetTaskOwnWorkCache();
+  }
+
+  it('a merge that writes new content (an evil merge or a real conflict edit) is the branch work', async () => {
+    mergeLib(true);
+    const work = await taskOwnWorkPaths(repo, 'T700', repo);
+    expect(work.ok && [...work.paths].sort()).toEqual(['README.md', 'lib.ts']);
+  });
+
+  it("a merge that keeps main's side adds nothing to the branch work", async () => {
+    mergeLib(false);
+    expect(await taskOwnWorkPaths(repo, 'T700', repo)).toEqual({ ok: true, paths: ['README.md'] });
+  });
+
   it("the branch's own code change is still found", async () => {
     git(repo, ['switch', '-q', 'task/T700-readme']);
     writeFileSync(join(repo, 'tool.ts'), 'export const tool = 1;\n');
