@@ -1445,6 +1445,41 @@ async function deriveOnePr(
 }
 
 /** Step 2 — the unmerged task branch or worktree. */
+/**
+ * The paths a branch's own commits changed since `baseRef` (T14191): its
+ * first-parent, non-merge commits, plus what its own merge commits added
+ * beyond every parent. A merge of the default branch into the task branch
+ * (GitHub's "update branch") brings the default branch's commits in through
+ * its second parent; when the local default-branch ref is older than that
+ * merge, a merge-base diff lists them as the branch's work. They never are.
+ * A conflict resolution that keeps one side changes nothing new, but one that
+ * writes new content is the task's own edit, and `git diff-tree --cc` lists
+ * exactly those paths.
+ *
+ * @returns The paths, or null when git cannot list them.
+ */
+function branchOwnPaths(root: string, baseRef: string, ref: string): Set<string> | null {
+  const range = `${baseRef}..${ref}`;
+  const commits = git(root, [
+    'log',
+    '--first-parent',
+    '--no-merges',
+    '--no-renames',
+    '--format=',
+    '--name-only',
+    range,
+  ]);
+  const merges = git(root, ['rev-list', '--first-parent', '--merges', range]);
+  if (commits === null || merges === null) return null;
+  const paths = new Set(commits.split('\n').filter(Boolean));
+  for (const merge of merges.split('\n').filter(Boolean)) {
+    const edited = git(root, ['diff-tree', '--cc', '-r', '--name-only', '--no-commit-id', merge]);
+    if (edited === null) return null;
+    for (const path of edited.split('\n').filter(Boolean)) paths.add(path);
+  }
+  return paths;
+}
+
 function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
   const root = cs.executionRoot;
   const current = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -1463,14 +1498,21 @@ function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
   const mergeBase = git(root, ['merge-base', baseRef, headRef]);
   if (!commitSha || !mergeBase || commitSha === mergeBase) return false;
 
+  const diff = parseNameStatus(
+    git(root, ['diff', '--name-status', '--no-renames', mergeBase, commitSha]) ?? '',
+  );
+  // T14191: only what the branch's own commits changed, never the default
+  // branch's commits a later merge brought in past a stale base ref.
+  const own = branchOwnPaths(root, baseRef, commitSha);
+  const files = own === null ? diff.files : diff.files.filter((f) => own.has(f));
+  const deleted = own === null ? diff.deleted : diff.deleted.filter((f) => own.has(f));
+  // A branch whose only commits are merges of the default branch has no work.
+  if (own !== null && files.length === 0 && deleted.length === 0) return false;
   cs.source = 'branch';
   cs.headRef = headRef;
   cs.baseRef = baseRef;
   cs.mergeBase = mergeBase;
   cs.commitSha = commitSha;
-  const { files, deleted } = parseNameStatus(
-    git(root, ['diff', '--name-status', '--no-renames', mergeBase, commitSha]) ?? '',
-  );
   cs.files = files;
   cs.deletedFiles = deleted;
   // T14059: a root checked out at the commit by another ref (detached at the
@@ -1618,11 +1660,11 @@ async function searchOwnWork(
   ]);
   if (refs === null) return unreadable('its branches');
   for (const ref of refs.split('\n').filter(cites)) {
-    const mergeBase = git(root, ['merge-base', baseRef, ref]);
-    if (mergeBase === null) return unreadable(`the merge-base of ${ref}`);
-    if (!add(git(root, ['diff', '--name-only', '--no-renames', mergeBase, ref]))) {
-      return unreadable(`the diff of ${ref}`);
-    }
+    // T14191: the branch's own commits, not a merge-base diff that a stale
+    // base ref widens to the default branch's work merged into the branch.
+    const own = branchOwnPaths(root, baseRef, ref);
+    if (own === null) return unreadable(`the commits of ${ref}`);
+    for (const path of own) paths.add(path);
   }
   const log = git(root, [
     'log',
