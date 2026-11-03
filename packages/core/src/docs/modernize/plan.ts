@@ -24,7 +24,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { extname, relative, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readFileSync, realpathSync } from 'node:fs';
+import { extname, join, relative, resolve, sep } from 'node:path';
 import type {
   DocKindMetadata,
   DocsModernizeDisposition,
@@ -38,6 +40,7 @@ import type {
 import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import type { DecideOptions } from '../../decide/client.js';
 import type { DecisionSiteMode } from '../../decide/site.js';
+import { discoveryEnv } from '../../git/work-tree.js';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { docNameViolation } from '../doc-name-rule.js';
 import { DEFAULT_EXCLUDE_DIRS, type ScannedFile, scanDirectory } from '../import/scanner.js';
@@ -52,6 +55,7 @@ import {
   MODERNIZE_MERGE_SURE,
   markdownLinkFixes,
   readTitle,
+  repoLinkFixAllowed,
   stableSlugFor,
   versionOf,
 } from './rules.js';
@@ -162,6 +166,76 @@ function findRefs(repoRoot: string, root: string, paths: readonly string[]): Map
     out.set(path, list);
   }
   return out;
+}
+
+/**
+ * `link-fix` rows for tracked markdown OUTSIDE the modernize root whose
+ * relative links point at files the plan moves (T14196): the repo README,
+ * AGENTS.md, package READMEs. Read-only. Paths are relative to `repoRoot`;
+ * each row pins the file's bytes. Changelogs, changesets and CLEO, vendored
+ * or built folders are never edited ({@link repoLinkFixAllowed}).
+ *
+ * @param repoRoot - Repository checkout root.
+ * @param root - Absolute modernize root.
+ * @param finalPathOf - Root-relative old path → final path.
+ * @returns The rows, in file then link order.
+ */
+function repoLinkFixes(
+  repoRoot: string,
+  root: string,
+  finalPathOf: ReadonlyMap<string, string>,
+): DocsModernizeLinkFix[] {
+  let prefix: string;
+  try {
+    prefix = relative(realpathSync(repoRoot), realpathSync(root)).split(sep).join('/');
+  } catch {
+    return [];
+  }
+  if (prefix === '' || prefix.startsWith('..')) return [];
+  const moved = [...finalPathOf].filter(([from, to]) => from !== to);
+  if (moved.length === 0) return [];
+  const finalRepo = new Map(moved.map(([from, to]) => [`${prefix}/${from}`, `${prefix}/${to}`]));
+  const names = [...new Set(moved.map(([from]) => from.split('/').pop() ?? from))];
+  let stdout = '';
+  try {
+    stdout = execFileSync(
+      'git',
+      [
+        'grep',
+        '-l',
+        '-F',
+        '-I',
+        ...names.flatMap((n) => ['-e', n]),
+        '--',
+        '*.md',
+        `:!${prefix}/**`,
+      ],
+      {
+        cwd: repoRoot,
+        env: discoveryEnv(),
+        encoding: 'utf-8',
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
+  } catch {
+    return []; // exit 1 = no match; not a repo = nothing to fix
+  }
+  const fixes: DocsModernizeLinkFix[] = [];
+  for (const path of stdout.split('\n').filter(Boolean).sort()) {
+    if (!repoLinkFixAllowed(path)) continue;
+    let content: string;
+    try {
+      content = readFileSync(join(repoRoot, path), 'utf-8');
+    } catch {
+      continue;
+    }
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    for (const fix of markdownLinkFixes(content, path, finalRepo)) {
+      fixes.push({ kind: 'link-fix', base: 'repo', path, ...fix, sha256 });
+    }
+  }
+  return fixes;
 }
 
 /** One scanned file with its classification, before grouping. */
@@ -522,7 +596,8 @@ function finishPlan(
   const moved = options.storeOnly
     ? []
     : coreRows.filter((r) => r.disposition !== 'keep' || overrides[r.path]).map((r) => r.path);
-  const refs = findRefs(options.repoRoot ?? options.projectRoot, options.root, moved);
+  const repoRoot = options.repoRoot ?? options.projectRoot;
+  const refs = findRefs(repoRoot, options.root, moved);
   const scanned = new Set(files.map((f) => f.relPath));
   const rows: DocsModernizePlanRow[] = coreRows.map((row) => {
     const override = overrides[row.path];
@@ -571,9 +646,10 @@ function finishPlan(
     delete: 0,
   };
   for (const row of rows) counts[row.disposition] += 1;
-  // A kept file, and a file the plan does not scan, stays byte-identical
-  // except for hrefs whose targets move; each such edit is a plan row, so
-  // --apply never does more than the dry run showed (T14185, T14194).
+  // A kept file, a file the plan does not scan, and a tracked markdown file
+  // outside the root stay byte-identical except for hrefs whose targets
+  // move; each such edit is a plan row, so --apply never does more than the
+  // dry run showed (T14185, T14194, T14196).
   const linkFixes: DocsModernizeLinkFix[] = [];
   if (!options.storeOnly) {
     const finalPathOf = finalPaths(rows);
@@ -589,7 +665,9 @@ function finishPlan(
         linkFixes.push({ kind: 'link-fix', path: file.relPath, ...fix, sha256: file.contentSha });
       }
     }
+    linkFixes.push(...repoLinkFixes(repoRoot, options.root, finalPathOf));
   }
+  const hasRepoFixes = linkFixes.some((f) => f.base === 'repo');
   return {
     root: options.root,
     generatedAt: (options.now?.() ?? new Date()).toISOString(),
@@ -597,6 +675,7 @@ function finishPlan(
     counts,
     mode: options.storeOnly ? 'store-only' : 'tree',
     ...(linkFixes.length > 0 ? { linkFixes } : {}),
+    ...(hasRepoFixes ? { repoRoot: resolve(repoRoot) } : {}),
   };
 }
 

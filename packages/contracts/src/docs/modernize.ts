@@ -144,6 +144,11 @@ export interface DocsModernizePlan {
    * touched.
    */
   readonly linkFixes?: readonly DocsModernizeLinkFix[];
+  /**
+   * Absolute root of the repository checkout that `base: 'repo'` link fixes
+   * are relative to (T14196); absent when the plan has none.
+   */
+  readonly repoRoot?: string;
 }
 
 /**
@@ -154,7 +159,12 @@ export interface DocsModernizePlan {
 export interface DocsModernizeLinkFix {
   /** Always `link-fix`. */
   readonly kind: 'link-fix';
-  /** The file, relative to the root: a kept row, or a file the plan does not scan. */
+  /**
+   * `repo` for a markdown file outside the modernize root, whose `path` is
+   * then relative to the plan's `repoRoot` (T14196); absent for the root.
+   */
+  readonly base?: 'repo';
+  /** The file, relative to the root (or `repoRoot` for `base: 'repo'`): a kept row, or a file the plan does not scan. */
   readonly path: string;
   /** The href as written now. */
   readonly href: string;
@@ -240,7 +250,8 @@ export interface DocsModernizeOpPrior {
  * - `merge` — the stored doc `slug` was updated with merged content; `prior` names both rows.
  * - `fold` — the file `path` was folded into the survivor `target` (content went there).
  * - `supersede` — `slug` was superseded by `target`; `prior` holds the replaced pointers.
- * - `write-file` — `path` was written; `beforeSha256` is the old bytes, or null when it was new.
+ * - `write-file` — `path` was written; `beforeSha256` is the old bytes, or null when it was new
+ *   (`base: 'repo'`: `path` is relative to the receipt's `repoRoot`, T14196).
  * - `remove-file` — `path` was removed; `beforeSha256` names the bytes kept for rollback.
  * - `link` — the `links-to` edges leaving `slug` were set; `prior.linkTargets` holds the old set.
  * - `rekind` — the row `attachmentId` changed kind; `prior.kind` holds the old one (T14118).
@@ -268,6 +279,8 @@ export interface DocsModernizeReceiptOp {
   readonly afterSha256: string | null;
   /** Store values the step replaced. */
   readonly prior?: DocsModernizeOpPrior;
+  /** `repo` when `path` is relative to the receipt's `repoRoot`, not its root (T14196). */
+  readonly base?: 'repo';
 }
 
 /** The record of one apply run; the input to rollback. */
@@ -294,6 +307,8 @@ export interface DocsModernizeReceipt {
   readonly rolledBackAt: string | null;
   /** Wall time of the apply, in ms (store mode). */
   readonly durationMs?: number;
+  /** Repository root that `base: 'repo'` ops are relative to (T14196). */
+  readonly repoRoot?: string;
 }
 
 // ─── Schemas (a plan or receipt read from disk is untrusted input) ───────────
@@ -343,6 +358,7 @@ export const docsModernizePlanSchema = z.object({
         path: relPath,
         href: z.string().min(1).max(2048),
         newHref: z.string().min(1).max(2048),
+        base: z.literal('repo').optional(),
         sha256: z
           .string()
           .regex(/^[0-9a-f]{64}$/)
@@ -350,6 +366,7 @@ export const docsModernizePlanSchema = z.object({
       }),
     )
     .optional(),
+  repoRoot: z.string().min(1).optional(),
 });
 
 /** Shape check for an `--overrides` file ({@link DocsModernizeOverrides}). */
@@ -396,6 +413,7 @@ const receiptOpSchema = z.object({
       kind: z.string().nullable().optional(),
     })
     .optional(),
+  base: z.literal('repo').optional(),
 });
 
 /** Shape check for one line of a run's write-ahead journal (`<runId>.ops.jsonl`). */
@@ -416,4 +434,5 @@ export const docsModernizeReceiptSchema = z.object({
   deleted: z.array(relPath),
   ops: z.array(receiptOpSchema),
   durationMs: z.number().optional(),
+  repoRoot: z.string().min(1).optional(),
 });

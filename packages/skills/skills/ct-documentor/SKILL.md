@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.37.0
+version: 3.38.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.37.0
+  version: 3.38.0
   tier: core
   install: harness
   covers:
@@ -842,8 +842,11 @@ at the new paths (they still render on GitHub; `--wikilinks` opts into
 file the plan marks `keep`, or a markdown file under the root that an
 `--exclude` kept out of the plan, only by re-pointing the hrefs the plan lists
 as `linkFixes` (`link-fix` rows, so apply never does more than the dry run
-showed, and an excluded file never reaches the store), and keeps every
-replaced byte under
+showed, and an excluded file never reaches the store). Links from tracked
+markdown outside the root (the repo README, AGENTS.md, package READMEs) get
+the same treatment as `base: repo` link-fix rows; CHANGELOG files,
+`.changeset/` and `.cleo/` are history or state and are never rewritten. It
+keeps every replaced byte under
 `.cleo/modernize/<runId>/` for rollback.
 
 ---
