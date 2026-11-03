@@ -117,6 +117,16 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(existsSync(join(testDir, '.cleo'))).toBe(true);
   });
 
+  it('tells a new user the first step is the root saga (T14186)', async () => {
+    const { ROOT_SAGA_COMMAND } = await import('../tasks/add.js');
+    const result = await initProject({ name: 'test-project' });
+    expect(result.nextSteps?.some((step) => step.command === ROOT_SAGA_COMMAND)).toBe(true);
+    // No step may name a command the CLI refuses on a fresh project.
+    expect(result.nextSteps?.some((step) => /^cleo add (?!.*--parent)/.test(step.command))).toBe(
+      false,
+    );
+  });
+
   it('creates tasks.db (SQLite database)', async () => {
     await initProject({ name: 'test-project' });
     const dbPath = join(testDir, '.cleo', 'tasks.db');

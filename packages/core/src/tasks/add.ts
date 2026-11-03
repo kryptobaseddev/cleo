@@ -862,6 +862,16 @@ export function findRecentDuplicate(
 }
 
 /**
+ * The first command on a project with no tasks: only a saga may be a root
+ * (strict-spine containment, T11811), so the root saga comes first. Named in
+ * the first `cleo add` refusal and in `cleo init`'s next steps (T14186).
+ *
+ * @task T14186
+ */
+export const ROOT_SAGA_COMMAND =
+  'cleo saga create --title "<theme>" --description "..." --acceptance "AC1|AC2|AC3|AC4|AC5"';
+
+/**
  * Whether the project contains no tasks at all.
  *
  * Used only on the containment-violation error path, so the cost of the query
@@ -959,13 +969,14 @@ export async function addTask(
       field: 'parentId',
       message: isFirstTask
         ? `This project has no tasks yet, and only a saga may be a root ` +
-          `(strict-spine containment, T11811). Create the root saga first, then ` +
-          `file epics under it and tasks under those.`
+          `(strict-spine containment, T11811). Create the root saga first: ` +
+          `${ROOT_SAGA_COMMAND}. Then file epics under it ` +
+          `(cleo add --type epic --parent <sagaId> --title "..." --acceptance "...") and tasks under those.`
         : `A ${effectiveRootType} must attach to a parent — only a saga may be a root ` +
           `(strict-spine containment, T11811). Use --parent <id> to file it under the ` +
           `correct container (saga→epic, epic→task, task→subtask).`,
       fix: isFirstTask
-        ? 'cleo saga create --title "<theme>" --description "..." --acceptance "AC1|AC2|AC3|AC4|AC5"'
+        ? ROOT_SAGA_COMMAND
         : // T12136 (GH #1232) — was `cleo add "Task title" --parent T### …`, the
           // POSITIONAL-title form, contradicting the `--title` form used
           // throughout CLEO-INJECTION.md. A fix hint that disagrees with the
