@@ -31,10 +31,12 @@ Use CLI (`cleo`) for all memory operations.
 
 - `cleo memory find "{current-topic}" --limit 10`
 - Avoid re-doing work that's already been completed
-- `cleo memory find "{current-topic}" --docs` also searches the docs store, ranked
-  with the BRAIN hits; `--type doc` searches docs alone. Only current docs come
-  back: a match on a superseded doc returns the doc that replaced it (`replaces`
-  names the old slug). Read one with `cleo docs fetch <slug>`.
+- `cleo memory find "{current-topic}"` also searches the docs store, ranked
+  with the BRAIN hits (a full-text index, so it is fast); `--no-docs` leaves
+  docs out, `--type doc` searches docs alone, and `--type <brain-type> --docs`
+  adds them to one BRAIN table. Only current docs come back: a match on a
+  superseded doc returns the doc that replaced it (`replaces` names the old
+  slug). Read one with `cleo docs fetch <slug>`.
 
 ### After Completing Significant Work
 

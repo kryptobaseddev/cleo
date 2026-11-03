@@ -203,8 +203,10 @@ const DOC_RRF_K = 60;
 
 /**
  * Full-text search of the project's docs as a `memory find` source (T14152).
- * Ranks every text doc's body against the query, then resolves each hit along
- * its supersession chain: a superseded doc never appears, and a match on one
+ * Ranks the docs against the query through the derived FTS5 index
+ * (`docs-fts.ts`, BM25, T14197; the n-gram scan of every body is the
+ * fallback when SQLite has no FTS5), then resolves each hit along its
+ * supersession chain: a superseded doc never appears, and a match on one
  * surfaces its current doc instead (named in `replaces`). Hits are unique by
  * current slug and carry an RRF score so they rank alongside BRAIN hits.
  *
@@ -218,22 +220,32 @@ export async function findCurrentDocs(
   query: string,
   limit = 10,
 ): Promise<BrainCompactHit[]> {
-  const { searchAllProjectDocs } = await import('./docs-ops.js');
   // Over-fetch: superseded matches fold into their current doc.
-  const { hits } = await searchAllProjectDocs(query, { projectRoot, limit: limit * 3 });
+  const { searchDocsFts } = await import('./docs-fts.js');
+  let slugs = await searchDocsFts(projectRoot, query, limit * 3);
+  if (slugs === null) {
+    // No usable index (no FTS5, or none yet and the store is busy): the n-gram
+    // scan, and no doc hits when even that cannot read the store.
+    try {
+      const { searchAllProjectDocs } = await import('./docs-ops.js');
+      const { hits } = await searchAllProjectDocs(query, { projectRoot, limit: limit * 3 });
+      slugs = hits.flatMap((hit) => (hit.slug ? [hit.slug] : []));
+    } catch {
+      return [];
+    }
+  }
   const db = await getDb(projectRoot);
   const out: BrainCompactHit[] = [];
-  for (const hit of hits) {
+  for (const slug of slugs) {
     if (out.length >= limit) break;
-    if (!hit.slug) continue;
-    const lineage = await readDocLineage(projectRoot, hit.slug);
+    const lineage = await readDocLineage(projectRoot, slug);
     if (!lineage) continue;
     const current = lineage.currentSlug;
     // Superseded with no successor recorded: nothing current to surface.
-    if (current === hit.slug && lineage.lifecycleStatus === 'superseded') continue;
+    if (current === slug && lineage.lifecycleStatus === 'superseded') continue;
     const existing = out.find((h) => h.id === current);
     if (existing) {
-      if (current !== hit.slug && existing.replaces === undefined) existing.replaces = hit.slug;
+      if (current !== slug && existing.replaces === undefined) existing.replaces = slug;
       continue;
     }
     const row = await db
@@ -252,7 +264,7 @@ export async function findCurrentDocs(
       title: row.summary ?? current,
       date: row.createdAt,
       rrfScore: 1 / (out.length + 1 + DOC_RRF_K),
-      ...(current !== hit.slug ? { replaces: hit.slug } : {}),
+      ...(current !== slug ? { replaces: slug } : {}),
       _next: { fetch: `cleo docs fetch ${current}` },
     });
   }

@@ -78,6 +78,29 @@ describe('memory find authority filters', () => {
       expect.any(Object),
     );
   });
+  it('an untyped search includes the docs store by default; --no-docs and --agent leave it out (T14197)', async () => {
+    const brain = ['decisions', 'patterns', 'learnings', 'observations'];
+    await runCommand(memoryCommand, { rawArgs: ['find', 'rush'] });
+    expect(dispatch).toHaveBeenLastCalledWith(
+      'query',
+      'memory',
+      'find',
+      expect.objectContaining({ tables: [...brain, 'docs'] }),
+      expect.any(Object),
+    );
+    await runCommand(memoryCommand, { rawArgs: ['find', 'rush', '--no-docs'] });
+    expect(dispatch.mock.lastCall?.[3]).not.toHaveProperty('tables');
+    await runCommand(memoryCommand, { rawArgs: ['find', 'rush', '--agent', 'coder'] });
+    expect(dispatch.mock.lastCall?.[3]).not.toHaveProperty('tables');
+    await runCommand(memoryCommand, { rawArgs: ['find', 'rush', '--type', 'decision'] });
+    expect(dispatch).toHaveBeenLastCalledWith(
+      'query',
+      'memory',
+      'find',
+      expect.objectContaining({ tables: ['decisions'] }),
+      expect.any(Object),
+    );
+  });
   it('rejects unsupported type values before dispatch', async () => {
     await runCommand(memoryCommand, { rawArgs: ['find', 'rush', '--type', 'decison'] });
     expect(dispatch).not.toHaveBeenCalled();
