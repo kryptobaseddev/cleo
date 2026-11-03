@@ -52,6 +52,7 @@ import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getBrainDb } from '@cleocode/core/store/memory-sqlite';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON } from '../paths.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -151,6 +152,8 @@ const storeCommand = defineCommand({
 /**
  * `tables` for `memory find`: the `--type` table, or every BRAIN table, plus
  * the docs store with `--docs` (`--type doc` is the docs store alone, T14152).
+ * With no `--type` the docs store is a default source (T14197: its full-text
+ * index answers in milliseconds); `--no-docs` leaves it out.
  */
 function findTables(memType: string | undefined, docs: boolean): { tables?: string[] } {
   const byType: Record<string, string> = {
@@ -187,7 +190,7 @@ const findCommand = defineCommand({
     docs: {
       type: 'boolean',
       description:
-        'Also search the docs store: current docs only (a superseded match surfaces its current doc), ranked with the BRAIN hits (T14152)',
+        'Search the docs store too: current docs only (a superseded match surfaces its current doc), ranked with the BRAIN hits (T14152). On by default without --type or --agent; --no-docs leaves it out (T14197)',
     },
     history: {
       type: 'boolean',
@@ -278,7 +281,12 @@ const findCommand = defineCommand({
           query,
           limit: args.limit !== undefined ? parseInt(args.limit, 10) : undefined,
           includeHistory: args.history,
-          ...findTables(memType, args.docs === true),
+          // T14197: docs are a default source of an untyped, agent-free search.
+          ...findTables(
+            memType,
+            args.docs === true ||
+              (memType === undefined && args.agent === undefined && !negatedFlag(args, 'docs')),
+          ),
           // T418: forward agent filter when provided
           ...(args.agent !== undefined && { agent: args.agent }),
         },

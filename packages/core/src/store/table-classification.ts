@@ -2242,6 +2242,8 @@ const FTS5_BASES = [
   'brain_observations_fts',
   'brain_patterns_fts',
   'conduit_messages_fts',
+  // T14197: the docs store's full-text index, rebuilt from `attachments` by syncDocsFts.
+  'docs_fts',
   'nexus_symbols_fts',
 ] as const;
 

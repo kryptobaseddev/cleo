@@ -2382,6 +2382,18 @@ const QUERY_OPS = new Set<string>([
   'stats',
   'rot',
 ]);
+const syncDocsFts = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-fts')).syncDocsFts,
+);
+
+/**
+ * Keep the docs full-text index in step after a docs mutation (T14197).
+ * Best-effort: the next search re-syncs whatever this misses.
+ */
+async function syncDocsIndex(projectRoot: string): Promise<void> {
+  await syncDocsFts(projectRoot).catch(() => undefined);
+}
+
 const MUTATE_OPS = new Set<string>([
   'add',
   'remove',
@@ -2713,13 +2725,17 @@ export class DocsHandler implements DomainHandler {
               operation as keyof DocsTypedOps & string,
               params ?? {},
             );
-            return docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
+            const response = docsEnvelopeToResponse(envelope, 'mutate', operation, startTime);
+            if (response.success) await syncDocsIndex(projectRoot);
+            return response;
           }
 
+          const data = await dispatchDocsLegacyMutate(operation, params ?? {});
+          await syncDocsIndex(projectRoot);
           return {
             meta: dispatchMeta('mutate', 'docs', operation, startTime),
             success: true,
-            data: await dispatchDocsLegacyMutate(operation, params ?? {}),
+            data,
           };
         },
       );
