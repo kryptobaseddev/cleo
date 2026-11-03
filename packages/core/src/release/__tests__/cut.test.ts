@@ -197,6 +197,8 @@ function fakeRunner(
     failRef?: boolean;
     /** GitHub Release state per tag; absent = published (T14173). */
     releases?: Record<string, 'missing' | 'unreadable'>;
+    /** release.yml runs listed by the in-flight check (T14184). */
+    releaseRuns?: Array<{ id: number; head_branch: string; status: string }>;
   } = {},
 ): { runner: ReleaseCutRunner; calls: string[][] } {
   const calls: string[][] = [];
@@ -242,6 +244,8 @@ function fakeRunner(
       }
       if (path.endsWith('/pulls'))
         return opts.merged === false ? '[]' : '[{"merged_at":"2026-10-28T00:00:00Z"}]';
+      if (path.includes('actions/workflows/release.yml/runs'))
+        return JSON.stringify({ workflow_runs: opts.releaseRuns ?? [] });
       const release = /releases\/tags\/(.+)$/.exec(path);
       if (release) {
         const state = opts.releases?.[release[1] ?? ''];
@@ -683,6 +687,59 @@ describe('previous tag skips an unpublished release (T14173)', () => {
       await releaseCut({ version: `${NEXT}-canary.3`, projectRoot: work, runner: noAuth }),
     );
     expect(refused.message).toContain(`Could not read the GitHub Release of v${NEXT}-canary.2`);
+  });
+});
+
+describe('release.yml runs in flight (T14184)', () => {
+  const running = () => [{ id: 77, head_branch: `v${PREV}`, status: 'in_progress' }];
+
+  it('the dry run reports a lower tag still releasing, and a real cut refuses naming the run', async () => {
+    const { runner, calls } = fakeRunner({ [shas.head]: 'success' }, { releaseRuns: running() });
+    const preview = await releaseCut({ version: NEXT, projectRoot: work, runner });
+    expect(preview.success && preview.data.inFlight).toEqual([
+      { tag: `v${PREV}`, runId: 77, status: 'in_progress' },
+    ]);
+    expect(preview.success && preview.data.warnings.join('\n')).toContain('run 77');
+
+    ttyAnswer = `v${NEXT}`;
+    const refused = errorOf(
+      await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner }),
+    );
+    expect(refused.code).toBe('E_RELEASE_IN_FLIGHT');
+    expect(refused.message).toContain(`v${PREV} (run 77, in_progress)`);
+    expect(calls.some((c) => c.includes('POST'))).toBe(false);
+  });
+
+  it('a completed run, a higher tag or --allow-in-flight lets the cut tag', async () => {
+    ttyAnswer = `v${NEXT}`;
+    const { runner: done } = fakeRunner(
+      { [shas.head]: 'success' },
+      {
+        releaseRuns: [
+          { id: 1, head_branch: `v${PREV}`, status: 'completed' },
+          { id: 2, head_branch: `v${YM}.9`, status: 'in_progress' },
+          { id: 3, head_branch: 'main', status: 'in_progress' },
+        ],
+      },
+    );
+    const clear = await releaseCut({
+      ...confirmed,
+      version: NEXT,
+      projectRoot: work,
+      runner: done,
+    });
+    expect(clear.success && clear.data.inFlight).toEqual([]);
+    expect(clear.success && clear.data.tagCreated).toBe(true);
+
+    const { runner } = fakeRunner({ [shas.head]: 'success' }, { releaseRuns: running() });
+    const forced = await releaseCut({
+      ...confirmed,
+      version: NEXT,
+      projectRoot: work,
+      runner,
+      allowInFlight: true,
+    });
+    expect(forced.success && forced.data.tagCreated).toBe(true);
   });
 });
 

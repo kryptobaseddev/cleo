@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.6.1
+  version: 3.7.0
   tier: on-demand
   install: harness
   covers:
@@ -17,7 +17,7 @@ metadata:
     - packages/core/src/release/cut.ts
     - packages/core/src/release/authorization.ts
   loomStage: release
-  lastReviewed: 2026-11-02
+  lastReviewed: 2026-11-03
   stability: stable
 ---
 
@@ -65,6 +65,8 @@ cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed co
 **Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. With `--yes`, an active standing release authorization covering the version, or the `release.agentCut` setting, allows the tag (an agent); otherwise the cut asks on the controlling terminal (`/dev/tty`) and tags only when the version is typed exactly, refusing with `E_RELEASE_NOT_AUTHORIZED` (and naming the scope to grant) when there is no terminal. The typed confirmation stops casual misuse only: a caller that drives a pseudo-terminal can still type the version. The audit row records `allowedBy` (`tty-confirm`, `authorization:<id>` or `setting:release.agentCut=<level>@<scope>`).
 
 **Previous tag (T14173).** The notes, the CHANGELOG section (`write-changelog`) and `release reconcile` start from the newest reachable lower tag whose GitHub Release published; a tag whose `release.yml` run failed before creating its release (a failed canary) is skipped, so its changesets and tasks land in the next release. A stable cut also skips every prerelease tag. When `gh` cannot read a release (auth, network), cut and `write-changelog` refuse rather than guess; reconcile keeps the tag.
+
+**Release in flight (T14184).** The cut lists `release.yml` runs not yet completed for a lower release tag (`inFlight`, plus a warning in the dry run). Until such a run creates its GitHub Release, the previous-tag pick skips that tag, so a real cut refuses with `E_RELEASE_IN_FLIGHT` naming each run; wait for them, or pass `--allow-in-flight` to cut now and repeat their entries in these notes.
 
 **Agent cut setting (T14170, D11221).** `release.agentCut` is `off` (default), `canary`, `prerelease` or `stable`; an agent sets it with `cleo config set release.agentCut canary --scope global`, with no terminal or owner password. Each level covers its own scope and every narrower one: `canary` covers `-canary.N`, `prerelease` any prerelease, `stable` everything. A project value (even `off`) shadows the global one. A cut it allows reports `allowedBy`, a warning naming the setting, and an audit row with `scope` and `settingSource`; when it does not cover the version and there is no terminal, the refusal names the exact `cleo config set` command.
 

@@ -9955,6 +9955,13 @@ export const OPERATIONS: OperationDef[] = [
         description:
           'Create the tag (D11212): the version typed on the controlling terminal (/dev/tty), or a standing release authorization (T14141), allows it. Without it the cut only reports and prints the confirm command',
       },
+      {
+        name: 'allowInFlight',
+        type: 'boolean',
+        required: false,
+        description:
+          "Cut even while a lower tag's release.yml run is still in progress; its entries repeat in these notes (T14184)",
+      },
     ] satisfies ParamDef[],
   },
 

@@ -41,6 +41,7 @@ import {
   E_DOCS_ROT,
   E_GH_NOT_AUTHENTICATED,
   E_INVALID_STATE,
+  E_RELEASE_IN_FLIGHT,
   E_RELEASE_NO_GREEN_COMMIT,
   E_RELEASE_NOT_AUTHORIZED,
   E_RELEASE_TAG_FAILED,
@@ -109,6 +110,8 @@ export interface ReleaseCutOptions {
    * version typed on the controlling terminal (`/dev/tty`) allows the tag.
    */
   yes?: boolean;
+  /** Cut even while a lower tag's `release.yml` run is still in progress (T14184). */
+  allowInFlight?: boolean;
   /** Default branch name (default `main`). */
   branch?: string;
   /** Test seam for the T14142 merged-work cleanup (default {@link cleanupMergedWork}). */
@@ -117,6 +120,16 @@ export interface ReleaseCutOptions {
   sweep?: (projectRoot: string, opts: MergeSweepOptions) => Promise<MergeSweepResult>;
   /** Test seam. */
   runner?: ReleaseCutRunner;
+}
+
+/** A `release.yml` run still in progress for a lower release tag (T14184). */
+export interface ReleaseCutInFlight {
+  /** The tag the run releases. */
+  tag: string;
+  /** GitHub Actions run id. */
+  runId: number;
+  /** Run status (`queued`, `in_progress`, …). */
+  status: string;
 }
 
 /** CI state of one candidate commit. */
@@ -181,6 +194,8 @@ export interface ReleaseCutResult {
   docsRot: DocsRotResult;
   /** Non-blocking findings, e.g. docs rot on a prerelease (it blocks only a stable cut). */
   warnings: string[];
+  /** `release.yml` runs still in progress for a lower tag; a real cut refuses while any remain (T14184). */
+  inFlight: ReleaseCutInFlight[];
   /** Whether the local checkout is at `origin/<default>` (the docs-rot scan reads it). */
   checkoutAtMain: boolean;
   /** The command that tags exactly this preview (pinned `--sha`), or null once tagged. */
@@ -518,6 +533,36 @@ function renderNotes(
   return [lead.trim(), body.trim()].filter((part) => part.length > 0).join('\n\n');
 }
 
+/**
+ * `release.yml` runs not yet completed for a release tag below `version`
+ * (T14184). Until such a run creates its GitHub Release, T14173's previous-tag
+ * pick skips that tag, so a cut now would repeat its entries.
+ */
+function inFlightReleases(
+  runner: ReleaseCutRunner,
+  cwd: string,
+  version: string,
+): ReleaseCutInFlight[] {
+  const {
+    workflow_runs: runs = [],
+  }: {
+    workflow_runs?: Array<{ id: number; head_branch: string | null; status: string }>;
+  } = JSON.parse(
+    runner.runGh(
+      ['api', 'repos/{owner}/{repo}/actions/workflows/release.yml/runs?per_page=30'],
+      cwd,
+    ),
+  );
+  return runs.flatMap((r) =>
+    r.status !== 'completed' &&
+    r.head_branch !== null &&
+    CALVER.test(r.head_branch) &&
+    compareCalVer(r.head_branch, version) < 0
+      ? [{ tag: r.head_branch, runId: r.id, status: r.status }]
+      : [],
+  );
+}
+
 function channelOf(version: string): string {
   return version.includes('-') ? 'prerelease' : 'latest';
 }
@@ -804,6 +849,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     }
   };
 
+  const inFlight = inFlightReleases(runner, cwd, version);
   const docsRot = scanDocsRot({ projectRoot: cwd });
   const rotFindings = docsRot.stale.length + docsRot.duplicates.length + docsRot.orphans.length;
   const checkoutAtMain =
@@ -824,10 +870,16 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     sweep,
     cleanup: dryRun ? await cleanupTasks(true) : null,
     docsRot,
-    warnings:
-      rotFindings > 0 && channelOf(version) !== 'latest'
+    warnings: [
+      ...(rotFindings > 0 && channelOf(version) !== 'latest'
         ? [`Docs rot (does not block a prerelease): ${docsRot.summary}`]
-        : [],
+        : []),
+      ...inFlight.map(
+        (r) =>
+          `release.yml run ${r.runId} for ${r.tag} is still ${r.status}; a real cut waits for it`,
+      ),
+    ],
+    inFlight,
     checkoutAtMain,
     confirmCommand: [
       'cleo release cut',
@@ -849,6 +901,14 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       details,
     });
   };
+  if (inFlight.length > 0 && opts.allowInFlight !== true) {
+    return refuse(
+      E_RELEASE_IN_FLIGHT,
+      `${inFlight.length} lower release still running: ${inFlight.map((r) => `${r.tag} (run ${r.runId}, ${r.status})`).join(', ')}`,
+      'Wait for those release.yml runs to finish, then re-run; or pass --allow-in-flight to cut now and repeat their entries in these notes',
+      { inFlight },
+    );
+  }
   if (!checkoutAtMain) {
     return refuse(
       E_INVALID_STATE,
