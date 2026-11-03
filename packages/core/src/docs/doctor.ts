@@ -764,7 +764,7 @@ async function scanPublicationLedger(
 ): Promise<LedgerFinding[]> {
   const ledger = await readDocsPublications(projectRoot);
   if (ledger.length === 0) return [];
-  const { statusDocs } = await import('./docs-ops.js');
+  const { resolvePublishedMirror, statusDocs } = await import('./docs-ops.js');
   const status = await statusDocs({ projectRoot, checkoutRoot });
   const key = (r: Pick<DocsPublicationRecord, 'ownerId' | 'blobName' | 'publishedPath'>): string =>
     `${r.ownerId}\u0000${r.blobName}\u0000${r.publishedPath}`;
@@ -782,9 +782,7 @@ async function scanPublicationLedger(
     if (item.drift !== 'deleted' && item.drift !== 'modified') continue;
     const record = recordByKey.get(key(item));
     if (!record) continue;
-    const absPath = isAbsolute(record.publishedPath)
-      ? record.publishedPath
-      : resolve(checkoutRoot, record.publishedPath);
+    const absPath = resolvePublishedMirror(projectRoot, checkoutRoot, record.publishedPath);
     const rel = relative(checkoutRoot, absPath);
     const outsideRoot = rel.startsWith('..') || isAbsolute(rel);
     if (item.drift === 'modified') {

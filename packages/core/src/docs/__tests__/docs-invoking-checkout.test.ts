@@ -19,10 +19,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveInvokingCheckout } from '../../paths.js';
 import { closeDb } from '../../store/sqlite.js';
+import { resolvePublishedMirror } from '../docs-ops.js';
 import { createDocsReadModel } from '../docs-read-model.js';
 import { runDocsDoctor } from '../doctor.js';
 import { runDocsModernize } from '../modernize/index.js';
@@ -110,6 +111,47 @@ describe('docs status and doctor from a worktree (T14188)', () => {
     const checkout = resolveInvokingCheckout(worktree);
     expect(checkout).toBe(root);
     expect((await createDocsReadModel(root).status(root, checkout)).allInSync).toBe(true);
+  });
+});
+
+describe('legacy root-relative ledger rows read from a worktree (T14195)', () => {
+  it('resolve against the project root, so status and doctor see the existing mirror', async () => {
+    // A legacy row recorded a mirror in another worktree relative to the
+    // project root (`../worktrees/hash/T13342/docs/legacy.md`).
+    const LEGACY = '# Legacy\n\npublished from another worktree\n';
+    const sibling = join(tmp, 'worktrees', 'hash', 'T13342');
+    mkdirSync(join(sibling, 'docs'), { recursive: true });
+    writeFileSync(join(sibling, 'docs', 'legacy.md'), LEGACY);
+    const publishedPath = relative(root, join(sibling, 'docs', 'legacy.md'));
+    expect(publishedPath.startsWith('..')).toBe(true);
+    await upsertDocsPublication(root, {
+      ownerId: 'T9999',
+      blobName: 'legacy.md',
+      publishedPath,
+      lastBlobSha: sha(LEGACY),
+    });
+    expect(resolvePublishedMirror(root, worktree, publishedPath)).toBe(
+      join(sibling, 'docs', 'legacy.md'),
+    );
+    // In-tree rows still resolve in the invoking checkout.
+    expect(resolvePublishedMirror(root, worktree, 'docs/published.md')).toBe(
+      join(worktree, 'docs', 'published.md'),
+    );
+
+    const fromWorktree = await createDocsReadModel(root).status(root, worktree);
+    const fromRoot = await createDocsReadModel(root).status(root);
+    const legacyDrift = (items: readonly { publishedPath: string; drift: string }[]) =>
+      items.find((i) => i.publishedPath === publishedPath)?.drift;
+    expect(legacyDrift(fromWorktree.items)).toBe('in-sync');
+    expect(legacyDrift(fromRoot.items)).toBe('in-sync');
+
+    // The doctor never treats it as gone from the worktree (a prune would
+    // delete the synced row on every device).
+    const report = await runDocsDoctor(root, { checkoutRoot: worktree });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const drift = report.report.diagnostics.find((d) => d.kind === 'publication-ledger-drift');
+    expect(drift?.items.map((i) => i['publishedPath'])).toEqual(['docs/published.md']);
   });
 });
 

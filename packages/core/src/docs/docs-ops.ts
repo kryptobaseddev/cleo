@@ -1806,9 +1806,7 @@ export async function statusDocs(opts?: {
 
   const items: DocsDriftItem[] = [];
   for (const row of ledger) {
-    const filePath = isAbsolute(row.publishedPath)
-      ? row.publishedPath
-      : resolvePath(checkout, row.publishedPath);
+    const filePath = resolvePublishedMirror(root, checkout, row.publishedPath);
 
     const blobSha = await getBlobSha(row.ownerId, row.blobName, row.lastBlobSha);
 
@@ -1865,6 +1863,29 @@ export async function statusDocs(opts?: {
     items,
     allInSync: items.every((i) => i.drift === 'in-sync' || i.drift === 'pending-merge'),
   };
+}
+
+/**
+ * Resolve a `docs_publications` path to the file it names (T14195). An
+ * absolute path is taken as-is; a relative path that leaves the project root
+ * (a legacy row such as `../../Library/…/worktrees/<hash>/<id>/docs/x.md`) was
+ * recorded against the project root, so it resolves there; any other relative
+ * path resolves in the invoking checkout, whose mirrors are read (T14188).
+ *
+ * @param projectRoot - Project root the ledger rows were recorded against.
+ * @param checkoutRoot - Checkout whose mirrors are read (a worktree or the root).
+ * @param publishedPath - The row's `publishedPath`.
+ * @returns Absolute path of the mirror file.
+ */
+export function resolvePublishedMirror(
+  projectRoot: string,
+  checkoutRoot: string,
+  publishedPath: string,
+): string {
+  if (isAbsolute(publishedPath)) return publishedPath;
+  const rel = relative(projectRoot, resolvePath(projectRoot, publishedPath));
+  const leavesRoot = rel.startsWith('..') || isAbsolute(rel);
+  return resolvePath(leavesRoot ? projectRoot : checkoutRoot, publishedPath);
 }
 
 /**
