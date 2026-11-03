@@ -69,11 +69,19 @@ afterEach(() => {
  * @param {string} opts.rc - RC_VERSION ('' for a prerelease).
  * @param {string} [opts.tag] - TAG.
  * @param {number} [opts.payloadExit] - Exit code of the post-deploy check.
+ * @param {string} [opts.payloadVerdict] - Verdict the check writes to its deploy summary (T14192).
  * @param {number} [opts.soakExit] - Exit code of the soak.
  * @param {string[]} [opts.published] - `pkg@version` already on npm.
  * @returns {{ status: number, log: string[] }}
  */
-function runPublish({ rc, tag = 'latest', payloadExit = 0, soakExit = 0, published = [] }) {
+function runPublish({
+  rc,
+  tag = 'latest',
+  payloadExit = 0,
+  payloadVerdict,
+  soakExit = 0,
+  published = [],
+}) {
   const log = path.join(dir, 'log');
   writeFileSync(log, '');
   mkdirSync(path.join(dir, 'scripts'), { recursive: true });
@@ -92,7 +100,7 @@ function runPublish({ rc, tag = 'latest', payloadExit = 0, soakExit = 0, publish
   );
   script(
     'execute-payload.mjs',
-    `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(log)}, 'payload ' + process.argv.slice(2).join(' ') + '\\n');\nprocess.exit(${payloadExit});\n`,
+    `import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, 'payload ' + a.join(' ') + '\\n');\nconst out = a[a.indexOf('--output-dir') + 1];\nconst v = a[a.indexOf('--version') + 1];\nif (${JSON.stringify(payloadVerdict ?? '')}) { mkdirSync(out, { recursive: true }); writeFileSync(out + '/deploy-summary-' + v + '.json', JSON.stringify({ verdict: ${JSON.stringify(payloadVerdict ?? '')} })); }\nprocess.exit(${payloadExit});\n`,
   );
   script(
     'release-canary-soak.mjs',
@@ -222,10 +230,53 @@ describe('the Publish step runs the release candidate gate (T13181)', () => {
     expect(log.some((line) => line.startsWith('payload '))).toBe(true);
     expect(log.some((line) => line.startsWith('soak '))).toBe(true);
   });
+  it('an independent canary whose check only timed out on the registry hands off instead of failing (T14192)', () => {
+    const { status, log } = runPublish({
+      rc: '',
+      tag: 'canary',
+      payloadExit: 1,
+      payloadVerdict: 'pending',
+    });
+    expect(status, log.join('\n')).toBe(0);
+    expect(publishes(log, 'canary')).toHaveLength(18);
+    expect(log.some((line) => line.startsWith('soak '))).toBe(false);
+  });
+  it('an independent canary whose check found a defect still fails (T14192)', () => {
+    const { status } = runPublish({
+      rc: '',
+      tag: 'canary',
+      payloadExit: 1,
+      payloadVerdict: 'defect',
+    });
+    expect(status).not.toBe(0);
+  });
+  it('an independent canary whose check left no verdict still fails (T14192)', () => {
+    const { status } = runPublish({ rc: '', tag: 'canary', payloadExit: 1 });
+    expect(status).not.toBe(0);
+  });
+  it('a release candidate that only timed out on the registry still never reaches latest', () => {
+    const { status, log } = runPublish({ rc: RC, payloadExit: 1, payloadVerdict: 'pending' });
+    expect(status).not.toBe(0);
+    expect(publishes(log, 'latest')).toHaveLength(0);
+  });
   it('an independent canary with failed soak cannot publish latest', () => {
     const { status, log } = runPublish({ rc: '', tag: 'canary', soakExit: 1 });
     expect(status).not.toBe(0);
     expect(publishes(log, 'latest')).toHaveLength(0);
+  });
+});
+
+describe('supervisor-attach follows the GitHub Release, not the whole publish job (T14192)', () => {
+  it('runs whenever publish created the release', () => {
+    const attach = releaseYaml.jobs['supervisor-attach'];
+    expect(attach.needs).toEqual(['build-verify', 'publish', 'supervisor-prebuild']);
+    expect(attach.if).toContain('always()');
+    expect(attach.if).toContain("needs.publish.outputs.release_created == 'true'");
+    expect(releaseYaml.jobs.publish.outputs.release_created).toContain(
+      'steps.gh_release.outputs.release_created',
+    );
+    const create = releaseYaml.jobs.publish.steps.find((s) => s.id === 'gh_release');
+    expect(create.run).toContain('echo "release_created=true" >> "$GITHUB_OUTPUT"');
   });
 });
 
