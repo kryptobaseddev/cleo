@@ -63,6 +63,7 @@ import {
   scopedChangedPaths,
   standalonePackage,
 } from './affected-packages.js';
+import type { AcCoverageResult } from './ac-coverage-gate.js';
 import { type TaskMergeInfo, taskChangeMergeState } from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
@@ -612,9 +613,40 @@ function recordedCriteria(task: Task): Set<string> {
 }
 
 /**
+ * The AC coverage `cleo complete` reads (T14198, T14209): computed through the
+ * shared {@link completionCoverageAccessor}, so the plan and complete count the
+ * same criteria (advisory typed gates excluded) and the same live bindings.
+ */
+async function completionCoverage(
+  task: Pick<Task, 'id' | 'acceptance'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+): Promise<AcCoverageResult> {
+  const { computeAcCoverage } = await import('./ac-coverage-gate.js');
+  const { completionCoverageAccessor } = await import('./ac-table.js');
+  return computeAcCoverage(task.id, completionCoverageAccessor(task, accessor));
+}
+
+/**
+ * Criterion IDs a live (non-stale) evidence binding already covers, as
+ * `cleo complete` counts them (T14209): a per-criterion receipt
+ * (`cleo verify --criterion`) or an earlier gate write. Such a criterion needs
+ * no `--satisfies`; naming it would bind it to this change's code as well.
+ */
+async function boundCriteria(
+  task: Task,
+  rows: readonly AcRow[],
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+): Promise<Set<string>> {
+  const coverage = await completionCoverage(task, accessor);
+  const unbound = new Set(coverage.ok ? [] : coverage.unsatisfied.map((u) => u.acId));
+  return new Set(rows.map((row) => row.id).filter((id) => !unbound.has(id)));
+}
+
+/**
  * Map each criterion conservatively. Keyword matching is deliberately absent:
  * a criterion is linked only by a stored passing typed gate, by every path it
- * names being in the change set, by prior recorded evidence, or by the agent.
+ * names being in the change set, by prior recorded evidence or a live binding,
+ * or by the agent.
  */
 function mapCriteria(
   task: Task,
@@ -623,6 +655,7 @@ function mapCriteria(
   changeSet: TaskChangeSet,
   pending: readonly VerificationGate[],
   satisfies: readonly string[] | 'all' | undefined,
+  bound: ReadonlySet<string>,
   runTyped = false,
 ): DonePlanAcMapping[] {
   const recorded = recordedCriteria(task);
@@ -662,7 +695,8 @@ function mapCriteria(
         files: named,
       };
     }
-    if (recorded.has(row.id)) return { ...base, mapped: true, gates: [], basis: 'recorded' };
+    if (recorded.has(row.id) || bound.has(row.id))
+      return { ...base, mapped: true, gates: [], basis: 'recorded' };
     return {
       ...base,
       mapped: false,
@@ -1003,10 +1037,7 @@ async function unboundCriteriaBlocker(
   implementedEvidence: string | null,
 ): Promise<DonePlanBlocker | null> {
   const taskId = task.id;
-  const { computeAcCoverage } = await import('./ac-coverage-gate.js');
-  const { completionCoverageAccessor } = await import('./ac-table.js');
-  // The criteria complete counts (advisory typed gates excluded), read the same way.
-  const coverage = await computeAcCoverage(taskId, completionCoverageAccessor(task, accessor));
+  const coverage = await completionCoverage(task, accessor);
   if (coverage.ok) return null;
   const unbound = coverage.unsatisfied.filter((u) => u.childTaskId === undefined);
   if (unbound.length === 0) return null;
@@ -1132,8 +1163,7 @@ async function epicPlan(
   storeRoot: string,
   accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
 ): Promise<DonePlan> {
-  const { computeAcCoverage } = await import('./ac-coverage-gate.js');
-  const coverage = await computeAcCoverage(task.id, accessor);
+  const coverage = await completionCoverage(task, accessor);
   const unbound = coverage.ok ? [] : coverage.unsatisfied;
   const children = unbound.flatMap((u) => (u.childTaskId ? [u.childTaskId] : []));
   const criteria = unbound.filter((u) => u.childTaskId === undefined);
@@ -1457,6 +1487,7 @@ export async function deriveTaskEvidence(
     changeSet,
     pending,
     satisfies,
+    await boundCriteria(task, rows, accessor),
     opts.runTyped === true,
   );
 
