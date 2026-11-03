@@ -16,3 +16,7 @@ comparing its row count with its content table. Only a missing or stale index
 is created or rebuilt, waiting at most 250 ms for the write lock; when the
 store is busy, a stale index is searched as it stands and a missing one falls
 back to a plain search.
+
+The retrieval-log row a search writes in the background gets the same 250 ms
+limit: when the store is busy, that row is dropped with a debug log line, never
+queued or retried, so the CLI's exit does not wait on the lock either.

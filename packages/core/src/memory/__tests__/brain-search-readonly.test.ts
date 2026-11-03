@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { SearchBrainCompactResult } from '@cleocode/contracts/memory/search.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { settleBackgroundOps } from '../../store/background-ops.js';
 import { closeBrainDb, getBrainDbPath, getBrainNativeDb } from '../../store/memory-sqlite.js';
 import { closeDb } from '../../store/sqlite.js';
 import { resetFts5Cache, searchBrain, staleFts5Tables } from '../brain-search.js';
@@ -65,6 +66,23 @@ describe('T14202 — read-only BRAIN search', () => {
     }
   }
 
+  /** Retrieval-log rows for `query`, read on a separate connection (0 when the table is absent). */
+  function retrievalLogRows(query: string): number {
+    const reader = new DatabaseSync(getBrainDbPath(projectRoot));
+    try {
+      const table = reader
+        .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('brain_retrieval_log');
+      if (table === undefined) return 0;
+      const row = reader
+        .prepare('SELECT count(*) AS n FROM brain_retrieval_log WHERE query = ?')
+        .get(query) as { n: number };
+      return row.n;
+    } finally {
+      reader.close();
+    }
+  }
+
   async function nativeDb(): Promise<DatabaseSync> {
     const { getBrainDb } = await import('../../store/memory-sqlite.js');
     await getBrainDb(projectRoot);
@@ -97,8 +115,21 @@ describe('T14202 — read-only BRAIN search', () => {
       expect((compact.data as SearchBrainCompactResult).results.map((h) => h.type)).toContain(
         'decision',
       );
-      expect(performance.now() - start).toBeLessThan(5_000);
+      // The retrieval-log row is a background write the CLI settles before it
+      // exits: under the lock it is dropped, so the whole call, settle
+      // included, stays well under the CLI's 5 s settle budget.
+      expect(await settleBackgroundOps(5_000)).toBe(0);
+      expect(performance.now() - start).toBeLessThan(2_000);
     });
+    expect(retrievalLogRows('backup retention')).toBe(0);
+
+    // With the store free the row is written as before.
+    await memoryFind(
+      { query: 'backup retention', tables: ['decisions', 'patterns', 'learnings', 'observations'] },
+      projectRoot,
+    );
+    expect(await settleBackgroundOps(5_000)).toBe(0);
+    expect(retrievalLogRows('backup retention')).toBeGreaterThan(0);
   });
 
   it('AC2: a stale index is rebuilt when the store is free, and searched as it stands when not', async () => {
