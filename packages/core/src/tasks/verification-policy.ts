@@ -191,16 +191,74 @@ const AC_CODE_DIR = /^(?:\.\/)?(?:packages|src|scripts|crates|tests?|apps|lib|bi
  */
 function acceptancePathKinds(acceptance: Task['acceptance']): { docs: number; code: number } {
   const kinds = { docs: 0, code: 0 };
+  for (const { token } of acceptancePathTokens(acceptance)) {
+    if (isDocumentArtifact(token)) kinds.docs++;
+    else kinds.code++;
+  }
+  return kinds;
+}
+
+/**
+ * The path tokens acceptance prose names, document or code, with the
+ * criterion (1-based, among the string criteria) each sits in.
+ */
+function acceptancePathTokens(
+  acceptance: Task['acceptance'],
+): Array<{ token: string; criterion: number }> {
+  const found: Array<{ token: string; criterion: number }> = [];
+  let criterion = 0;
   for (const item of acceptance ?? []) {
+    criterion++;
     if (typeof item !== 'string') continue;
     for (const word of item.split(/\s+/)) {
       const token = word.replace(/^[("'`[{<]+|[)"'`\]}>,.;:!?]+$/g, '');
       if (!token || token.includes('://')) continue;
-      if (isDocumentArtifact(token)) kinds.docs++;
-      else if (AC_CODE_EXTENSION.test(token) || AC_CODE_DIR.test(token)) kinds.code++;
+      if (isDocumentArtifact(token) || AC_CODE_EXTENSION.test(token) || AC_CODE_DIR.test(token))
+        found.push({ token, criterion });
     }
   }
-  return kinds;
+  return found;
+}
+
+/**
+ * Why a task's gate profile does not apply, naming the rule that decided
+ * code and the exact file or token (T14193), or `null` when it has no
+ * profile or the profile applies. The record decides before a profile: a
+ * bug, a declared non-document file, or a criterion naming a code path keeps
+ * the task code. The fix is to correct the record; a waiver never applies.
+ *
+ * @param task - The task's id, kind, declared files, acceptance and labels.
+ * @returns The explanation with its fix, or `null`.
+ * @task T14193
+ */
+export function ignoredProfileReason(
+  task: Pick<Task, 'id' | 'kind' | 'files' | 'acceptance'> & Partial<Pick<Task, 'labels'>>,
+): string | null {
+  const profile = gateProfileOf(task);
+  if (profile === null || declaredEvidenceKind(task) !== 'code') return null;
+  const ignored = `profile:${profile} does not apply`;
+  if (task.kind === 'bug')
+    return (
+      `${ignored}: ${task.id} is kind bug, which is always code. If it fixed no code, set its kind ` +
+      `(cleo update ${task.id} --kind work); a bug fix owes its tests.`
+    );
+  const codeFile = task.files?.find((file) => !isDocumentArtifact(file));
+  if (codeFile !== undefined)
+    return (
+      `${ignored}: ${task.id} declares the non-document file ${codeFile}, and declared files decide ` +
+      `before a profile (T14001). If ${task.id} changed no code, drop that entry from its files ` +
+      `(cleo update ${task.id} --files <document paths only>).`
+    );
+  const code = acceptancePathTokens(task.acceptance).find(
+    ({ token }) => !isDocumentArtifact(token),
+  );
+  if (code !== undefined)
+    return (
+      `${ignored}: acceptance criterion AC${code.criterion} names the code path ${code.token}, and a ` +
+      `criterion naming code decides before a profile (T14065). If ${task.id} changed no code, ` +
+      'reword that criterion so it names no code path.'
+    );
+  return null;
 }
 
 /**

@@ -73,6 +73,7 @@ import {
 } from '../tasks/gate-runner.js';
 import {
   evidenceProfileOf,
+  ignoredProfileReason,
   loadVerificationGatePolicy,
   requiredGatesFor,
 } from '../tasks/verification-policy.js';
@@ -861,11 +862,10 @@ export async function validateGateVerify(
           if (missing) {
             // T12220: name the decision-only route, or what disqualifies it.
             const route = decisionOnlyRouteNote(targetGate, verification.evidence?.implemented);
-            return engineError(
-              'E_EVIDENCE_INSUFFICIENT',
-              route === null ? missing.message : `${missing.message}. ${route}`,
-              { fix: missing.hint },
-            );
+            // T14193: a gate profile the task's record overrides is named, with the rule.
+            const ignored = targetGate === 'implemented' ? ignoredProfileReason(task) : null;
+            const why = [missing.message, route, ignored].filter((part) => part !== null);
+            return engineError('E_EVIDENCE_INSUFFICIENT', why.join('. '), { fix: missing.hint });
           }
         }
 
