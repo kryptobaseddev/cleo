@@ -1558,6 +1558,59 @@ describe('affected-scope test runs (T12635, D11150)', () => {
   });
 });
 
+describe('T14198: a criterion added to --satisfies after every gate is recorded', () => {
+  it('the plan blocks with the re-verify that binds it, and is ready once it runs (the T14173 shape)', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2', 'Keep the export name']);
+    const sha = commitOnTaskBranch(id);
+    // Every gate recorded, linked to AC1 only.
+    const recorded = await validateGateVerify(root, {
+      taskId: id,
+      gateEvidence: {
+        implemented: `commit:${sha};files:src/a.ts;satisfies:${id}#AC1`,
+        testsPassed: `tool:test;satisfies:${id}#AC1`,
+        qaPassed: `tool:lint;tool:typecheck;satisfies:${id}#AC1`,
+      },
+    });
+    expect(recorded.success, JSON.stringify(recorded)).toBe(true);
+    const { computeAcCoverage } = await import('../ac-coverage-gate.js');
+    expect(await computeAcCoverage(id, env.accessor)).toMatchObject({
+      ok: false,
+      unsatisfied: [{ alias: 'AC2' }],
+    });
+
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: ['AC1', 'AC2'],
+    });
+    expect(plan.ready).toBe(false);
+    const blocker = plan.blockers.find((b) => b.code === 'ac-mapping-needed');
+    expect(blocker?.message).toContain('AC2 has no evidence binding');
+    expect(blocker?.message).toContain('E_INTERNAL_AC_COVERAGE_INCOMPLETE');
+    expect(blocker?.next.command).toContain(`cleo verify ${id} --gate implemented --evidence`);
+    expect(blocker?.next.command).toContain(`satisfies:${id}#AC2`);
+    expect(plan.commands.some((c) => c.startsWith('cleo complete'))).toBe(false);
+
+    // Run the write the plan names; then the plan is ready and coverage holds.
+    const evidence = /--evidence '([^']+)'/.exec(blocker?.next.command ?? '')?.[1] ?? '';
+    const bound = await validateGateVerify(root, {
+      taskId: id,
+      gateEvidence: { implemented: evidence },
+    });
+    expect(bound.success, JSON.stringify(bound)).toBe(true);
+    expect(await computeAcCoverage(id, env.accessor)).toEqual({ ok: true });
+    const after = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: ['AC1', 'AC2'],
+    });
+    expect(after.blockers.map((b) => b.code)).not.toContain('ac-mapping-needed');
+    expect(after.ready).toBe(true);
+  });
+});
+
 describe('the plan and done share one readiness check (T12672)', () => {
   async function researchWithUnknownDecision(): Promise<{
     id: string;

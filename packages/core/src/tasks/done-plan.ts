@@ -991,6 +991,41 @@ function acMappingBlocker(
 }
 
 /**
+ * The blocker for criteria `cleo complete` would refuse as unbound
+ * (E_INTERNAL_AC_COVERAGE_INCOMPLETE) when every required gate is already
+ * recorded (T14198): no write is planned, so `--satisfies` alone binds
+ * nothing. It reads the same coverage `cleo complete` checks and names the
+ * re-verify that binds each criterion to the work that proves it.
+ */
+async function unboundCriteriaBlocker(
+  taskId: string,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  implementedEvidence: string | null,
+): Promise<DonePlanBlocker | null> {
+  const { computeAcCoverage } = await import('./ac-coverage-gate.js');
+  const coverage = await computeAcCoverage(taskId, accessor);
+  if (coverage.ok) return null;
+  const unbound = coverage.unsatisfied.filter((u) => u.childTaskId === undefined);
+  if (unbound.length === 0) return null;
+  const aliases = unbound.map((u) => u.alias);
+  const links = aliases.map((alias) => `satisfies:${taskId}#${alias}`).join(';');
+  const evidence = `${implementedEvidence ?? '<the recorded implemented atoms>'};${links}`;
+  return {
+    code: 'ac-mapping-needed',
+    message:
+      `${aliases.join(', ')} ${aliases.length === 1 ? 'has' : 'have'} no evidence binding, and every ` +
+      `required gate is already recorded, so no write here binds ${aliases.length === 1 ? 'it' : 'them'} and ` +
+      'cleo complete would refuse (E_INTERNAL_AC_COVERAGE_INCOMPLETE). Re-record implemented with ' +
+      `${aliases.length === 1 ? 'its link' : 'their links'}.`,
+    next: step(
+      `cleo verify ${taskId} --gate implemented --evidence ${shellQuote(evidence)}`,
+      'Binds each criterion to the recorded work that proves it; then cleo complete.',
+    ),
+    cause: 'E_EVIDENCE_CONTENT_MISMATCH',
+  };
+}
+
+/**
  * A required evidence gate that is neither passed nor planned (T14036): no
  * evidence derives for it and no other blocker names it, so `cleo complete`
  * would refuse while the plan said ready. A gate whose recorded pass no longer
@@ -1442,6 +1477,12 @@ export async function deriveTaskEvidence(
   // T14036: with every required gate already standing, complete re-judges the
   // recorded evidence and needs no change set, so its derivation blockers go.
   const allPassed = requiredGates.every(passed);
+  // T14198: with every gate recorded, complete still checks each criterion's
+  // binding; a criterion with none blocks here with the write that binds it.
+  const coverageBlocker =
+    allPassed && task.status !== 'done'
+      ? await unboundCriteriaBlocker(taskId, accessor, changeSet.implementedEvidence)
+      : null;
   const planned = [
     ...(allPassed
       ? []
@@ -1450,7 +1491,7 @@ export async function deriveTaskEvidence(
         )),
     ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
     ...testRunBlockers,
-    ...(acBlocker ? [acBlocker] : []),
+    ...(coverageBlocker ? [coverageBlocker] : acBlocker ? [acBlocker] : []),
     ...manualGateBlockers(taskId, gates),
   ];
   const derivedBlockers = orderBlockers([
