@@ -3,13 +3,20 @@
  *
  * `memory find --docs` ranked every doc body per query with n-gram
  * similarity (`searchAllProjectDocs`): about 3.5 s on a 3,312-doc store, so
- * docs stayed an opt-in source. This index is an FTS5 table, `docs_fts`, in
- * the project `cleo.db`: one row per slugged text doc (the slug's current
- * body, superseded docs included, so a match on one can surface its current
- * doc), ranked by BM25.
+ * docs stayed an opt-in source. This index lives in the project `cleo.db`:
+ * one row per slugged text doc (the slug's current body, superseded docs
+ * included, so a match on one can surface its current doc), ranked by BM25.
  *
- * The index is derived: it holds nothing the store cannot rebuild, and it is
- * classified `derived` (Gate A, never synced). {@link syncDocsFts} keeps it in
+ * Two tables, rowid for rowid: `docs_fts`, a contentless FTS5 table (title
+ * and body are tokenized, not stored a second time), and `docs_fts_rows`,
+ * which names the slug and sha256 each rowid holds. FTS5's
+ * `contentless_unindexed` would keep those in one table, but dropping such a
+ * table leaves its `_content` shadow behind (SQLite 3.51 to 3.54), which can
+ * neither be dropped nor let the table be created again: a lost index could
+ * never be rebuilt.
+ *
+ * The index is derived: it holds nothing the store cannot rebuild, and both
+ * tables are classified `derived` (Gate A, never synced). {@link syncDocsFts} keeps it in
  * step by diffing the slug → sha256 map of `attachments` against the index
  * and re-reading only the bodies that changed. The docs mutations (add,
  * update, supersede, remove, merge, import) call it after they succeed, and
@@ -29,11 +36,14 @@ import { attachments } from '../store/tasks-schema.js';
 /** The FTS5 table (project `cleo.db`, class `derived`). */
 export const DOCS_FTS_TABLE = 'docs_fts';
 
+/** The slug and sha256 each `docs_fts` rowid holds (class `derived`). */
+export const DOCS_FTS_ROWS_TABLE = 'docs_fts_rows';
+
 /** Bytes of a doc body indexed (the n-gram search read the same window). */
 export const DOCS_FTS_MAX_BYTES = 64 * 1024;
 
-/** BM25 column weights: slug and sha256 are unindexed, the title outweighs the body. */
-const BM25_WEIGHTS = '0.0, 0.0, 4.0, 1.0';
+/** BM25 column weights: the title outweighs the body. */
+const BM25_WEIGHTS = '4.0, 1.0';
 
 /**
  * How long a search waits for the write lock before it gives up syncing and
@@ -84,26 +94,45 @@ function isTextAttachment(attachmentJson: string): boolean {
   );
 }
 
-/** Whether the index table exists. */
-function tableExists(native: DatabaseSync): boolean {
+/** Whether a table exists. */
+function tableExists(native: DatabaseSync, name: string): boolean {
   return (
     native
       .prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ?")
-      .get(DOCS_FTS_TABLE) !== undefined
+      .get(name) !== undefined
   );
 }
 
-/** Create the table when missing; false when FTS5 is not compiled in (or the create failed). */
-function ensureTable(native: DatabaseSync): boolean {
-  if (tableExists(native)) return true;
+/** Whether both index tables exist. */
+function indexExists(native: DatabaseSync): boolean {
+  return tableExists(native, DOCS_FTS_TABLE) && tableExists(native, DOCS_FTS_ROWS_TABLE);
+}
+
+/**
+ * Create the index when either table is missing, dropping the other so the
+ * pair always starts empty together; false when FTS5 is not compiled in or
+ * the store cannot be written now.
+ */
+function ensureIndex(native: DatabaseSync): boolean {
+  if (indexExists(native)) return true;
+  native.exec('SAVEPOINT docs_fts_create');
   try {
+    native.exec(`DROP TABLE IF EXISTS ${DOCS_FTS_TABLE}`);
+    native.exec(`DROP TABLE IF EXISTS ${DOCS_FTS_ROWS_TABLE}`);
+    // Literal names: Gate A pins this runtime DDL (table-classification-gate.test.ts).
     native.exec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS ${DOCS_FTS_TABLE} USING fts5(` +
-        "slug UNINDEXED, sha256 UNINDEXED, title, body, content='', " +
-        "contentless_delete=1, contentless_unindexed=1, tokenize='porter unicode61')",
+      "CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, body, content='', " +
+        "contentless_delete=1, tokenize='porter unicode61')",
     );
+    native.exec(
+      'CREATE TABLE IF NOT EXISTS docs_fts_rows (' +
+        'rowid INTEGER PRIMARY KEY, slug TEXT NOT NULL, sha256 TEXT NOT NULL)',
+    );
+    native.exec('RELEASE docs_fts_create');
     return true;
   } catch {
+    native.exec('ROLLBACK TO docs_fts_create');
+    native.exec('RELEASE docs_fts_create');
     return false;
   }
 }
@@ -144,7 +173,7 @@ export async function syncDocsFts(
 /** {@link syncDocsFts} on a bound connection. */
 async function syncWith(projectRoot: string, native: DatabaseSync): Promise<DocsFtsSync> {
   const { db } = await bindTasksDomain(projectRoot);
-  if (!ensureTable(native)) return { available: false, indexed: 0, removed: 0, total: 0 };
+  if (!ensureIndex(native)) return { available: false, indexed: 0, removed: 0, total: 0 };
 
   const rows = await db
     .select({
@@ -167,7 +196,7 @@ async function syncWith(projectRoot: string, native: DatabaseSync): Promise<Docs
   }
 
   const indexedRows = native
-    .prepare(`SELECT rowid, slug, sha256 FROM ${DOCS_FTS_TABLE}`)
+    .prepare(`SELECT rowid, slug, sha256 FROM ${DOCS_FTS_ROWS_TABLE}`)
     .all() as Array<{ rowid: number; slug: string; sha256: string }>;
   const current = new Set<string>();
   const stale: number[] = [];
@@ -192,12 +221,22 @@ async function syncWith(projectRoot: string, native: DatabaseSync): Promise<Docs
 
   native.exec('SAVEPOINT docs_fts_sync');
   try {
-    const remove = native.prepare(`DELETE FROM ${DOCS_FTS_TABLE} WHERE rowid = ?`);
-    for (const rowid of stale) remove.run(rowid);
-    const insert = native.prepare(
-      `INSERT INTO ${DOCS_FTS_TABLE}(slug, sha256, title, body) VALUES (?, ?, ?, ?)`,
+    const removeText = native.prepare(`DELETE FROM ${DOCS_FTS_TABLE} WHERE rowid = ?`);
+    const removeRow = native.prepare(`DELETE FROM ${DOCS_FTS_ROWS_TABLE} WHERE rowid = ?`);
+    for (const rowid of stale) {
+      removeText.run(rowid);
+      removeRow.run(rowid);
+    }
+    const insertRow = native.prepare(
+      `INSERT INTO ${DOCS_FTS_ROWS_TABLE}(slug, sha256) VALUES (?, ?)`,
     );
-    for (const { doc, body } of bodies) insert.run(doc.slug, doc.sha256, doc.title, body);
+    const insertText = native.prepare(
+      `INSERT INTO ${DOCS_FTS_TABLE}(rowid, title, body) VALUES (?, ?, ?)`,
+    );
+    for (const { doc, body } of bodies) {
+      const { lastInsertRowid } = insertRow.run(doc.slug, doc.sha256);
+      insertText.run(lastInsertRowid, doc.title, body);
+    }
     native.exec('RELEASE docs_fts_sync');
   } catch (err) {
     native.exec('ROLLBACK TO docs_fts_sync');
@@ -264,12 +303,13 @@ export async function searchDocsFts(
     if (sync !== null && !sync.available) return null;
     const { native } = await bindTasksDomain(projectRoot);
     // The sync could not write: search the index as it stands, if there is one.
-    if (!tableExists(native)) return null;
+    if (!indexExists(native)) return null;
     const match = docsFtsMatch(query);
     if (match === null || limit <= 0) return [];
     const rows = native
       .prepare(
-        `SELECT slug FROM ${DOCS_FTS_TABLE} WHERE ${DOCS_FTS_TABLE} MATCH ? ` +
+        `SELECT r.slug FROM ${DOCS_FTS_TABLE} JOIN ${DOCS_FTS_ROWS_TABLE} r ` +
+          `ON r.rowid = ${DOCS_FTS_TABLE}.rowid WHERE ${DOCS_FTS_TABLE} MATCH ? ` +
           `ORDER BY bm25(${DOCS_FTS_TABLE}, ${BM25_WEIGHTS}) LIMIT ?`,
       )
       .all(match, limit) as Array<{ slug: string }>;

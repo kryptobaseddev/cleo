@@ -254,6 +254,8 @@ const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl
       ddl: 'packages/core/src/store/exodus/recovery.ts',
     },
     _fts5_check: { class: 'local-only', ddl: 'packages/core/src/memory/brain-search.ts' },
+    // T14197: the docs full-text index's rowid → slug map, beside docs_fts.
+    docs_fts_rows: { class: 'derived', ddl: 'packages/core/src/docs/docs-fts.ts' },
     ...SYNC_JOURNAL_TABLES,
   },
   global: {
@@ -686,7 +688,9 @@ describe('Gate A: two-tier policy', () => {
     t === 'conduit_attachment_contributors' ||
     // T12919: re-derived from the synced doc rows' provenance columns by
     // rebuildDocsWikilinks; no body parsing, no LLM.
-    t === 'docs_wikilinks';
+    t === 'docs_wikilinks' ||
+    // T14197: the docs FTS index's rowid → slug/sha256 map, rebuilt with it.
+    t === 'docs_fts_rows';
 
   it.each([
     'project',

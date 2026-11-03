@@ -744,6 +744,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
+  docs_fts_rows: {
+    class: 'derived',
+    status: 'optional-transient',
+    source: 'T14197 (docs full-text index)',
+    note: 'the slug and sha256 each docs_fts rowid holds; syncDocsFts (docs/docs-fts.ts) rebuilds both tables from the synced docs_attachments rows and blob bodies, cheaply and without an LLM. Never captured, never replicated',
+  },
   docs_publications: {
     class: 'portable-project',
     status: 'resolved',
