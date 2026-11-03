@@ -53,8 +53,10 @@ import {
   isSqliteBusy,
   migrateWithRetry,
   reconcileJournal,
+  requiredColumnsPresent,
   tableExists,
 } from './migration-manager.js';
+import { lineageAtHead } from './migration-runner.js';
 // T12037: the tasks domain no longer owns a singleton — the path-keyed binding
 // registry does. This module contributes only `establishTasksSchema`.
 import {
@@ -69,7 +71,7 @@ import {
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
-import { collapseTwinTables, twinCollapseFailureOf } from './twin-collapse.js';
+import { collapseTwinTables, twinCollapseFailureOf, twinTablesCurrent } from './twin-collapse.js';
 import { isWorktreeBuildSchemaError } from './worktree-build-guard.js';
 import {
   assertDbPathIsNotWorktreeResident,
@@ -560,10 +562,15 @@ export async function bindTasksDomain(
   // cache hit we must not re-probe `tasks_tasks` and re-scan the backup
   // directory, which `getDb` does hundreds of times per process.
   let coldBind = false;
-  const binding = await bindProjectDomain('tasks', cwd, (nativeDb, store) => {
-    coldBind = true;
-    return establishTasksSchema(nativeDb, store, cwd);
-  });
+  const binding = await bindProjectDomain(
+    'tasks',
+    cwd,
+    (nativeDb, store) => {
+      coldBind = true;
+      return establishTasksSchema(nativeDb, store, cwd);
+    },
+    tasksSchemaAtHead,
+  );
 
   if (!coldBind) return binding;
 
@@ -576,8 +583,11 @@ export async function bindTasksDomain(
   // DB is non-empty, so the emptiness probe short-circuits.
   if (await autoRecoverFromBackup(binding.native, binding.store.dbPath, cwd)) {
     releaseDomainBindings({ scope: 'project', dbPath: binding.store.dbPath });
-    return bindProjectDomain('tasks', cwd, (nativeDb, store) =>
-      establishTasksSchema(nativeDb, store, cwd),
+    return bindProjectDomain(
+      'tasks',
+      cwd,
+      (nativeDb, store) => establishTasksSchema(nativeDb, store, cwd),
+      tasksSchemaAtHead,
     );
   }
 
@@ -641,18 +651,70 @@ function establishTasksSchema(
  */
 export const TASK_ID_SEQUENCE_SEED = '{"counter":0,"lastId":"T000","checksum":"seed"}';
 
+/** The `tasks_schema_meta` defaults {@link seedTasksMeta} seeds, by key. */
+const TASKS_META_SEEDS: ReadonlyArray<readonly [key: string, value: string]> = [
+  ['schemaVersion', SCHEMA_VERSION],
+  ['task_id_sequence', TASK_ID_SEQUENCE_SEED],
+];
+
+/** The {@link TASKS_META_SEEDS} keys already present. */
+function seededTasksMetaKeys(nativeDb: DatabaseSync): Set<string> {
+  return new Set(
+    (
+      nativeDb
+        .prepare(
+          `SELECT key FROM tasks_schema_meta WHERE key IN (${TASKS_META_SEEDS.map(() => '?').join(', ')})`,
+        )
+        .all(...TASKS_META_SEEDS.map(([key]) => key)) as Array<{ key: string }>
+    ).map((row) => row.key),
+  );
+}
+
 /**
  * Seed the tasks domain's `tasks_schema_meta` defaults (no-op for keys already set).
+ *
+ * Reads first (T14202, T14210): an `INSERT OR IGNORE` takes the write lock even
+ * when it inserts nothing, so every cold bind of a seeded store waited behind
+ * any other writer. A seeded store is bound without a write.
  *
  * @param nativeDb - Connection on the project `cleo.db`.
  */
 export function seedTasksMeta(nativeDb: DatabaseSync): void {
-  nativeDb.exec(
-    `INSERT OR IGNORE INTO tasks_schema_meta (key, value) VALUES ('schemaVersion', '${SCHEMA_VERSION}')`,
+  const present = seededTasksMetaKeys(nativeDb);
+  const insert = nativeDb.prepare(
+    'INSERT OR IGNORE INTO tasks_schema_meta (key, value) VALUES (?, ?)',
   );
-  nativeDb
-    .prepare("INSERT OR IGNORE INTO tasks_schema_meta (key, value) VALUES ('task_id_sequence', ?)")
-    .run(TASK_ID_SEQUENCE_SEED);
+  for (const [key, value] of TASKS_META_SEEDS) if (!present.has(key)) insert.run(key, value);
+}
+
+/**
+ * Whether {@link establishTasksSchema} would write nothing on this store
+ * (T14210), decided by reads from the same sources it uses: the
+ * `drizzle-tasks` lineage journal ({@link lineageAtHead}), the
+ * `ensureColumns` lists, the attachments version columns, the twin-collapse
+ * state ({@link twinTablesCurrent}) and the seeded meta keys. When true the
+ * bind runs establish without the cold-open writer lease, so a read never
+ * waits behind another writer; any doubt answers false and the bind takes
+ * the leased path unchanged. Read-only; never throws.
+ *
+ * @param nativeDb - The project `cleo.db` connection.
+ * @returns True when the tasks schema needs no work.
+ * @task T14210
+ */
+export function tasksSchemaAtHead(nativeDb: DatabaseSync): boolean {
+  try {
+    if (!tableExists(nativeDb, 'tasks_schema_meta')) return false;
+    return (
+      lineageAtHead(nativeDb, resolveMigrationsFolder()) &&
+      requiredColumnsPresent(nativeDb, 'sessions', REQUIRED_SESSION_COLUMNS) &&
+      requiredColumnsPresent(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS) &&
+      requiredColumnsPresent(nativeDb, 'attachments', ATTACHMENTS_VERSION_COLUMNS) &&
+      twinTablesCurrent(nativeDb) &&
+      seededTasksMetaKeys(nativeDb).size === TASKS_META_SEEDS.length
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -699,6 +761,15 @@ export function resolveMigrationsFolder(): string {
 
 /** Re-export isSqliteBusy for external consumers. */
 export { isSqliteBusy } from './migration-manager.js';
+
+/**
+ * T11181 version-ssot columns of the bare `attachments` table, added by
+ * `runMigrations` to databases created before the migration was wired in.
+ */
+const ATTACHMENTS_VERSION_COLUMNS: RequiredColumn[] = [
+  { name: 'owner_version', ddl: 'TEXT' },
+  { name: 'doc_version', ddl: 'INTEGER NOT NULL DEFAULT 1' },
+];
 
 const REQUIRED_TASK_COLUMNS: RequiredColumn[] = [
   { name: 'pipeline_stage', ddl: 'text' },
@@ -821,12 +892,9 @@ function runMigrations(
   // T11181 — version-ssot columns (owner_version, doc_version)
   // These columns are defined in the attachments schema but may not exist
   // in databases created before the T11181 migration was wired in.
-  for (const stmt of [
-    'ALTER TABLE attachments ADD COLUMN owner_version TEXT',
-    'ALTER TABLE attachments ADD COLUMN doc_version INTEGER NOT NULL DEFAULT 1',
-  ]) {
+  for (const column of ATTACHMENTS_VERSION_COLUMNS) {
     try {
-      nativeDb.exec(stmt);
+      nativeDb.exec(`ALTER TABLE attachments ADD COLUMN ${column.name} ${column.ddl}`);
     } catch {
       /* column may already exist */
     }

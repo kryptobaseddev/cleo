@@ -76,7 +76,11 @@ import {
 } from './exodus/abort-events.js';
 import type { ExodusOnOpenPreparation } from './exodus/on-open.js';
 import { installExodusWriteGuard, peekExodusWriteGuard } from './exodus/write-guard.js';
-import { ForeignKeysNotRestoredError, migrateBracketed } from './migration-runner.js';
+import {
+  ForeignKeysNotRestoredError,
+  lineageAtHead,
+  migrateBracketed,
+} from './migration-runner.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
   resolveConsolidatedJournalSiblings,
@@ -89,16 +93,21 @@ import {
   ROW_IDENTITY,
   registerRowUidFunction,
   rowIdentityFillPending,
+  unscopedBrainFtsUpdateTriggers,
   upgradeBrainFtsUpdateTriggers,
 } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { syncCaptureOpenPass } from './sync/capture.js';
+import { captureOpenPassReadOnly, syncCaptureOpenPass } from './sync/capture.js';
 import { anySyncFlagOn } from './sync/flags.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
 import { syncMigrationHooks } from './sync/migration-hooks.js';
 import { auditScrubPending } from './sync/schema.js';
-import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
+import {
+  ensureTriggerSuspendTable,
+  hasTriggerSuspendTable,
+  verifyOwnedTriggers,
+} from './sync/trigger-classes.js';
 import { assertWriterVersion } from './sync/writer-version.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
@@ -953,6 +962,57 @@ async function migrateScopeSchema(
 }
 
 /**
+ * Whether the cold-open schema pass ({@link migrateScopeSchema} and the
+ * row-identity fill) would write nothing on this store (T14210), decided by
+ * reads from the same sources the pass uses:
+ *
+ * - step 0: `cleo_trigger_suspend` exists and is empty;
+ * - the scope's lineage is at head ({@link lineageAtHead}), so its migration
+ *   bracket is skipped;
+ * - no row-identity schema to heal ({@link identityWorkOnOpen}) and no
+ *   unscoped brain FTS update trigger;
+ * - project: every owned trigger matches its owned DDL ({@link verifyOwnedTriggers});
+ * - a live-sync open: the capture step only reads, no audit scrub is pending
+ *   and every sync flag is off;
+ * - the identity fill has nothing pending ({@link rowIdentityFillPending}).
+ *
+ * The writer-version check, the per-connection uid triggers and function, and
+ * the exodus assessment run in the pass itself on both paths. Any doubt, or a
+ * throw, answers false. Read-only.
+ */
+function openSchemaAtHead(
+  scope: DualScope,
+  nativeDb: DatabaseSync,
+  migrationsFolder: string,
+  syncMode: StoreSyncMode,
+): boolean {
+  try {
+    if (
+      !hasTriggerSuspendTable(nativeDb) ||
+      nativeDb.prepare('SELECT 1 AS held FROM main.cleo_trigger_suspend LIMIT 1').get() !==
+        undefined
+    )
+      return false;
+    if (!lineageAtHead(nativeDb, migrationsFolder)) return false;
+    if (identityWorkOnOpen(nativeDb, scope)) return false;
+    if (unscopedBrainFtsUpdateTriggers(nativeDb).length > 0) return false;
+    if (scope === 'project' && verifyOwnedTriggers(nativeDb).length > 0) return false;
+    if (
+      syncMode !== 'off' &&
+      (!captureOpenPassReadOnly(nativeDb) || auditScrubPending(nativeDb) || anySyncFlagOn(nativeDb))
+    )
+      return false;
+    if (rowUidFillEnabled() && ROW_IDENTITY[scope].length > 0) {
+      registerRowUidFunction(nativeDb, scope);
+      if (rowIdentityFillPending(nativeDb, scope).length > 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Whether the schema pass has row-identity work: identity schema to heal
  * (T12878). A scope with nothing declared has none. The fill is decided after
  * the schema pass by {@link rowIdentityFillPending} (T12341 C1).
@@ -1356,157 +1416,160 @@ export async function openDualScopeDbAtPath(
       // and `runExodusMigrate` CLOSES + re-opens the scope handles, which would
       // close the very handle the lease row lives on mid-section. Releasing first is
       // both correct (exodus is already serialized) and necessary (no close-under-lease).
-      const handle = await withColdOpenLease(
-        scope,
-        nativeDb,
-        async (): Promise<DualScopeDbHandle> => {
-          // Reconcile the migration journal (handles WAL/journal divergence across
-          // SQLite version upgrades — same pattern as sqlite.ts / memory-sqlite.ts).
-          // T11829: pass the OTHER lineages that share this scope's consolidated cleo.db
-          // journal so their rows are not deleted as cross-lineage orphans (the confirmed
-          // OOM root cause: each lineage previously deleted the others' rows so the shared
-          // journal never converged).
-          execution?.assertActive();
-          // The schema pass also heals the identity schema (T12878), on every
-          // open, flag or not, before capture is installed.
-          await migrateScopeSchema(
-            scope,
-            nativeDb,
-            db,
-            migrationsFolder,
-            log,
-            { mode: syncMode, dbPath: normalizedPath },
-            execution,
-          );
+      const coldOpen = async (): Promise<DualScopeDbHandle> => {
+        // Reconcile the migration journal (handles WAL/journal divergence across
+        // SQLite version upgrades — same pattern as sqlite.ts / memory-sqlite.ts).
+        // T11829: pass the OTHER lineages that share this scope's consolidated cleo.db
+        // journal so their rows are not deleted as cross-lineage orphans (the confirmed
+        // OOM root cause: each lineage previously deleted the others' rows so the shared
+        // journal never converged).
+        execution?.assertActive();
+        // The schema pass also heals the identity schema (T12878), on every
+        // open, flag or not, before capture is installed.
+        await migrateScopeSchema(
+          scope,
+          nativeDb,
+          db,
+          migrationsFolder,
+          log,
+          { mode: syncMode, dbPath: normalizedPath },
+          execution,
+        );
 
-          // T12341 (on unless CLEO_ROW_UID_FILL=0, T13305): fill every NULL row uid
-          // deterministically, inside this lease so two processes never fill at
-          // once, and arm this connection's uid triggers. Never throws.
-          execution?.assertActive();
-          if (rowUidFillEnabled() && ROW_IDENTITY[scope].length > 0) {
-            const pending = await prepareFillWriters(nativeDb, scope);
-            // A derived rewrite: uncaptured, its tables marked suspect (S2).
-            prepareRowIdentityUnderCapture(nativeDb, scope, { pending });
+        // T12341 (on unless CLEO_ROW_UID_FILL=0, T13305): fill every NULL row uid
+        // deterministically, inside this lease so two processes never fill at
+        // once, and arm this connection's uid triggers. Never throws.
+        execution?.assertActive();
+        if (rowUidFillEnabled() && ROW_IDENTITY[scope].length > 0) {
+          const pending = await prepareFillWriters(nativeDb, scope);
+          // A derived rewrite: uncaptured, its tables marked suspect (S2).
+          prepareRowIdentityUnderCapture(nativeDb, scope, { pending });
+        }
+
+        execution?.assertActive();
+        log.debug({ scope, dbPath: normalizedPath }, 'dual-scope cleo.db ready');
+
+        const identity = makeWriterLeaseIdentity(scope, normalizedPath);
+        registerDbIdentity(db, identity);
+
+        const built: DualScopeDbHandle = {
+          db,
+          scope,
+          dbPath: normalizedPath,
+          identity,
+          get isOpen() {
+            return nativeDb.isOpen;
+          },
+          // T13158 / T13167: the marker is the connection's write guard, so
+          // every in-process holder sees a deferral or abort set (or lifted)
+          // after publication.
+          get exodusAbort() {
+            return peekExodusWriteGuard(nativeDb)?.detail;
+          },
+          close() {
+            // Identity-guarded deletion: only evict from the singleton cache
+            // when the current entry still references THIS exact handle. A stale
+            // store close after a replacement was opened leaves the replacement
+            // intact. The native connection is always closed regardless.
+            const entry = _cache.get(key);
+            if (entry?.handle === built) {
+              _cache.delete(key);
+            }
+            try {
+              nativeDb.close();
+            } catch {
+              // Idempotent — ignore double-close errors.
+            }
+          },
+        };
+
+        // T13158: never publish an unguarded handle for a store that still
+        // owes a migration. Publication hands this connection to every
+        // concurrent in-process open, and an INSERT through it before the
+        // migration (or its guard) would make the store look populated and
+        // strand the legacy rows. So assess first, and when a migration is
+        // pending, guard the connection before anyone else can see it.
+        // Populated stores cost one COUNT(*) here.
+        if (
+          exodusCwd !== undefined &&
+          normalizedPath === resolveDualScopeDbPath(scope, exodusCwd)
+        ) {
+          try {
+            execution?.assertActive();
+            const { prepareExodusOnOpen } = await import('./exodus/on-open.js');
+            execution?.assertActive();
+            exodusState.preparation = await prepareExodusOnOpen(
+              scope,
+              normalizedPath,
+              nativeDb,
+              exodusCwd,
+            );
+          } catch (err) {
+            execution?.assertActive();
+            exodusState.preparation = null;
+            log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
           }
-
-          execution?.assertActive();
-          log.debug({ scope, dbPath: normalizedPath }, 'dual-scope cleo.db ready');
-
-          const identity = makeWriterLeaseIdentity(scope, normalizedPath);
-          registerDbIdentity(db, identity);
-
-          const built: DualScopeDbHandle = {
-            db,
-            scope,
-            dbPath: normalizedPath,
-            identity,
-            get isOpen() {
-              return nativeDb.isOpen;
-            },
-            // T13158 / T13167: the marker is the connection's write guard, so
-            // every in-process holder sees a deferral or abort set (or lifted)
-            // after publication.
-            get exodusAbort() {
-              return peekExodusWriteGuard(nativeDb)?.detail;
-            },
-            close() {
-              // Identity-guarded deletion: only evict from the singleton cache
-              // when the current entry still references THIS exact handle. A stale
-              // store close after a replacement was opened leaves the replacement
-              // intact. The native connection is always closed regardless.
-              const entry = _cache.get(key);
-              if (entry?.handle === built) {
-                _cache.delete(key);
-              }
-              try {
-                nativeDb.close();
-              } catch {
-                // Idempotent — ignore double-close errors.
-              }
-            },
-          };
-
-          // T13158: never publish an unguarded handle for a store that still
-          // owes a migration. Publication hands this connection to every
-          // concurrent in-process open, and an INSERT through it before the
-          // migration (or its guard) would make the store look populated and
-          // strand the legacy rows. So assess first, and when a migration is
-          // pending, guard the connection before anyone else can see it.
-          // Populated stores cost one COUNT(*) here.
-          if (
-            exodusCwd !== undefined &&
-            normalizedPath === resolveDualScopeDbPath(scope, exodusCwd)
-          ) {
+          // An abort decided at assessment (unreadable marker, plan mismatch,
+          // assessment failure) owes the same protection before publication
+          // as a pending migration (#1839 review HIGH): the post-lease abort
+          // branch would guard only after concurrent opens could write.
+          const preparation = exodusState.preparation;
+          const stranded =
+            preparation?.kind === 'pending'
+              ? { kind: 'deferred' as const, reason: 'its migration has not run yet' }
+              : preparation?.kind === 'decided' && preparation.result.outcome === 'aborted'
+                ? { kind: 'aborted' as const, reason: preparation.result.reason }
+                : null;
+          if (stranded !== null) {
             try {
               execution?.assertActive();
-              const { prepareExodusOnOpen } = await import('./exodus/on-open.js');
-              execution?.assertActive();
-              exodusState.preparation = await prepareExodusOnOpen(
+              await guardStrandedStore(
+                nativeDb,
                 scope,
                 normalizedPath,
-                nativeDb,
                 exodusCwd,
+                stranded.kind,
+                stranded.reason,
               );
             } catch (err) {
               execution?.assertActive();
-              exodusState.preparation = null;
-              log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
-            }
-            // An abort decided at assessment (unreadable marker, plan mismatch,
-            // assessment failure) owes the same protection before publication
-            // as a pending migration (#1839 review HIGH): the post-lease abort
-            // branch would guard only after concurrent opens could write.
-            const preparation = exodusState.preparation;
-            const stranded =
-              preparation?.kind === 'pending'
-                ? { kind: 'deferred' as const, reason: 'its migration has not run yet' }
-                : preparation?.kind === 'decided' && preparation.result.outcome === 'aborted'
-                  ? { kind: 'aborted' as const, reason: preparation.result.reason }
-                  : null;
-            if (stranded !== null) {
-              try {
-                execution?.assertActive();
-                await guardStrandedStore(
-                  nativeDb,
-                  scope,
-                  normalizedPath,
-                  exodusCwd,
-                  stranded.kind,
-                  stranded.reason,
-                );
-              } catch (err) {
-                execution?.assertActive();
-                // A failed guard must cost neither the migration nor the
-                // protection (#1836 review LOW-a): the preparation stays
-                // pending, so the migration still runs after the lease, and the
-                // anchor table is guarded at the least. If even that fails, the
-                // open is refused (E_EXODUS_GUARD_FAILED, T13171).
-                log.warn(
-                  { err, scope },
-                  'exodus-on-open: the store could not be fully guarded before its migration',
-                );
-                guardAnchorOnly(nativeDb, scope, normalizedPath, stranded.kind, stranded.reason);
-              }
+              // A failed guard must cost neither the migration nor the
+              // protection (#1836 review LOW-a): the preparation stays
+              // pending, so the migration still runs after the lease, and the
+              // anchor table is guarded at the least. If even that fails, the
+              // open is refused (E_EXODUS_GUARD_FAILED, T13171).
+              log.warn(
+                { err, scope },
+                'exodus-on-open: the store could not be fully guarded before its migration',
+              );
+              guardAnchorOnly(nativeDb, scope, normalizedPath, stranded.kind, stranded.reason);
             }
           }
+        }
 
-          execution?.assertActive();
-          // Update the cache entry to mark init complete.
-          const entry = _cache.get(key);
-          if (!entry || entry.initPromise !== initPromise) {
-            throw new Error('Database initialization lost its cache ownership before publication');
-          }
-          if (entry) {
-            entry.initPromise = null;
-            entry.handle = built;
-            entry.nativeDb = nativeDb;
-            published = true;
-          }
+        execution?.assertActive();
+        // Update the cache entry to mark init complete.
+        const entry = _cache.get(key);
+        if (!entry || entry.initPromise !== initPromise) {
+          throw new Error('Database initialization lost its cache ownership before publication');
+        }
+        if (entry) {
+          entry.initPromise = null;
+          entry.handle = built;
+          entry.nativeDb = nativeDb;
+          published = true;
+        }
 
-          return built;
-        },
-        { execution },
-      );
+        return built;
+      };
+      // T14210: the lease serialises the schema pass's WRITES. A store this
+      // scope reads as already at head gets none, so the same pass runs without
+      // claiming the lease (its claim is a BEGIN IMMEDIATE that made every open,
+      // read commands included, wait behind any other writer). Any doubt, and
+      // every store owing schema work, takes the lease.
+      const handle = openSchemaAtHead(scope, nativeDb, migrationsFolder, syncMode)
+        ? await coldOpen()
+        : await withColdOpenLease(scope, nativeDb, coldOpen, { execution });
 
       // ── Exodus-on-open (E6 · T11553) — runs AFTER the cold-open lease releases ──
       // Data-continuity safety net: on a canonical open where the consolidated

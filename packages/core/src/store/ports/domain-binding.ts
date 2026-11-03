@@ -207,16 +207,37 @@ function reuseValid(key: string, store: ProjectStore | GlobalStore): BindingRow 
 }
 
 /**
+ * A domain's read-only test that its establish would write nothing on this
+ * store (T14210). True lets the bind run establish without the cold-open
+ * writer lease, so a bind of a current store never waits behind another
+ * writer; false (and any throw) takes the leased path.
+ */
+export type DomainSchemaAtHead = (native: DatabaseSync) => boolean;
+
+/** Run a domain's at-head test; a missing test or a throw answers false (leased path). */
+function schemaAtHead(native: DatabaseSync, atHead: DomainSchemaAtHead | undefined): boolean {
+  if (!atHead) return false;
+  try {
+    return atHead(native);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Establish (or reuse) `domain`'s binding against a store, single-flighted.
  *
  * @param key - Composite registry key.
  * @param store - The store to bind against.
  * @param establish - Domain schema reconciliation.
+ * @param atHead - Optional read-only test that `establish` would write nothing
+ *   (T14210); true runs it without the cold-open writer lease.
  */
 async function bindAgainst<TDb>(
   key: string,
   store: ProjectStore | GlobalStore,
   establish: (native: DatabaseSync, store: never) => TDb | Promise<TDb>,
+  atHead?: DomainSchemaAtHead,
 ): Promise<BindingRow> {
   const execution = worktreeScope.getStore()?.execution;
   execution?.assertActive();
@@ -237,12 +258,12 @@ async function bindAgainst<TDb>(
     execution?.assertActive();
     // The in-flight establishment may have raced an eviction; re-validate.
     if (row.store === store && row.native.isOpen) return row;
-    return bindAgainst(key, store, establish);
+    return bindAgainst(key, store, establish, atHead);
   }
 
   const native = nativeOf(store);
   const flight = (async (): Promise<BindingRow> => {
-    const row = await withStoreSchemaOwnership(store, native, async () => {
+    const run = async (): Promise<BindingRow> => {
       const membership: DomainEstablishmentScope = { parent, key, active: true };
       try {
         const db = await domainEstablishment.run(membership, () =>
@@ -255,7 +276,14 @@ async function bindAgainst<TDb>(
       } finally {
         membership.active = false;
       }
-    });
+    };
+    // T14210: the cold-open lease serialises establish's schema WRITES. A store
+    // the domain reads as already at head gets none, so establish runs without
+    // claiming the lease (its claim is a BEGIN IMMEDIATE that waited behind any
+    // other writer, read commands included). Anything else takes the lease.
+    const row = schemaAtHead(native, atHead)
+      ? await run()
+      : await withStoreSchemaOwnership(store, native, run);
     // Ownership and file-generation checks complete before publishing the binding.
     // A deliberate callback close releases its independent lease handle first;
     // bindLive can then reacquire without waiting on its own stranded claim.
@@ -299,6 +327,7 @@ const MAX_LIVENESS_ATTEMPTS = 2;
  * @param dbPath - Canonical database path, for the eviction filter.
  * @param openStore - Opens (or reuses) the store for this key.
  * @param establish - Domain schema reconciliation.
+ * @param atHead - Optional read-only at-head test (T14210), see {@link bindAgainst}.
  * @returns A row whose `native` was open at publication.
  * @throws When every attempt yielded a dead connection.
  */
@@ -308,6 +337,7 @@ async function bindLive<TDb>(
   dbPath: string,
   openStore: () => Promise<ProjectStore | GlobalStore>,
   establish: (native: DatabaseSync, store: never) => TDb | Promise<TDb>,
+  atHead?: DomainSchemaAtHead,
 ): Promise<BindingRow> {
   let lastError: unknown;
 
@@ -329,7 +359,7 @@ async function bindLive<TDb>(
     }
 
     try {
-      const row = await bindAgainst(key, store, establish);
+      const row = await bindAgainst(key, store, establish, atHead);
       if (row.store.isOpen && row.native.isOpen) return row;
     } catch (err) {
       // A connection closed mid-`establish` surfaces as "database is not
@@ -373,12 +403,16 @@ async function bindLive<TDb>(
  *   and return the domain-typed Drizzle instance. Called once per
  *   (path, domain, store instance); MUST be idempotent because a store
  *   eviction re-runs it.
+ * @param atHead - Optional read-only test that `establish` would write
+ *   nothing on this store (T14210). True runs establish without the
+ *   cold-open writer lease; omit it to keep the leased path.
  * @returns The live {@link DomainBinding}.
  */
 export async function bindProjectDomain<TDb>(
   domain: string,
   cwd: string | undefined,
   establish: (native: DatabaseSync, store: ProjectStore) => TDb | Promise<TDb>,
+  atHead?: DomainSchemaAtHead,
 ): Promise<DomainBinding<TDb, ProjectStore>> {
   const dbPath = resolve(resolveDualScopeDbPath('project', cwd));
   const row = await bindLive(
@@ -387,6 +421,7 @@ export async function bindProjectDomain<TDb>(
     dbPath,
     () => getCleoRuntime().openProject(dbPath, { exodusCwd: cwd }),
     establish,
+    atHead,
   );
   return row as DomainBinding<TDb, ProjectStore>;
 }

@@ -882,6 +882,19 @@ export type CaptureOpenResult =
   | { readonly capture: 'on'; readonly report: CaptureInstallReport; readonly conn: string };
 
 /**
+ * Whether {@link syncCaptureOpenPass} would only read on this store: capture
+ * is off and no capture trigger is present (T14210: the open-time at-head
+ * read). Read-only.
+ *
+ * @param db - The store.
+ * @returns True when the capture step writes nothing.
+ * @task T14210
+ */
+export function captureOpenPassReadOnly(db: DatabaseSync): boolean {
+  return !readSyncFlags(db)['sync.capture'] && liveCaptureTriggers(db).size === 0;
+}
+
+/**
  * The capture step of the open pass, after migrations: triggers match the
  * persisted flag. With the flag off and no trigger present it only reads.
  */

@@ -58,6 +58,7 @@ import { loadNodeSqliteDrizzle } from './drizzle-node-sqlite.js';
 import { type ProjectStore, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   createSafetyBackup,
+  lineageFullyJournaled,
   migrateWithRetry,
   reconcileBrainMigrationsForConsolidatedDb,
   reconcileJournal,
@@ -74,7 +75,7 @@ import {
 } from './ports/domain-binding.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as brainSchema from './schema/memory-schema.js';
-import { collapseTwinTables } from './twin-collapse.js';
+import { collapseTwinTables, twinTablesCurrent } from './twin-collapse.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -368,11 +369,7 @@ function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
  * @task T13740
  */
 export function initializeBrainVec(nativeDb: DatabaseSync): void {
-  const shape = (): 'tagged' | 'untagged' | 'missing' => {
-    const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
-    if (columns.length === 0) return 'missing';
-    return columns.some((c) => c.name === 'model') ? 'tagged' : 'untagged';
-  };
+  const shape = (): 'tagged' | 'untagged' | 'missing' => brainEmbeddingsShape(nativeDb);
   // Fast path, no lock: every bind of a current store ends here, so reads
   // never queue for the write lock.
   if (shape() === 'tagged') return;
@@ -395,6 +392,13 @@ export function initializeBrainVec(nativeDb: DatabaseSync): void {
     if (own && nativeDb.isTransaction) nativeDb.prepare('ROLLBACK').run();
     throw err;
   }
+}
+
+/** The embeddings table's shape: model-tagged (T13740), untagged, or missing. */
+function brainEmbeddingsShape(nativeDb: DatabaseSync): 'tagged' | 'untagged' | 'missing' {
+  const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
+  if (columns.length === 0) return 'missing';
+  return columns.some((c) => c.name === 'model') ? 'tagged' : 'untagged';
 }
 
 /**
@@ -476,13 +480,56 @@ export function establishBrainSchema(nativeDb: DatabaseSync, dbPath: string): No
   // the tasks bind already did it in this open.
   collapseTwinTables(nativeDb, dbPath, { onFailure: 'degrade' });
 
-  // Seed schema version for new databases (no-op if already set).
-  nativeDb
-    .prepare(
-      `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
-    )
-    .run();
+  // Seed schema version for new databases (no-op if already set). Read first
+  // (T14210): an INSERT OR IGNORE takes the write lock even when it inserts nothing.
+  if (!brainSchemaVersionSeeded(nativeDb))
+    nativeDb
+      .prepare(
+        `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
+      )
+      .run();
   return drizzle;
+}
+
+/** Whether `brain_schema_meta` already holds its `schemaVersion` seed. */
+function brainSchemaVersionSeeded(nativeDb: DatabaseSync): boolean {
+  return (
+    tableExists(nativeDb, 'brain_schema_meta') &&
+    nativeDb
+      .prepare("SELECT 1 AS found FROM main.brain_schema_meta WHERE key = 'schemaVersion'")
+      .get() !== undefined
+  );
+}
+
+/**
+ * Whether the brain bind's establish would write nothing on this store
+ * (T14210), decided by reads from the same sources it uses: the consolidated
+ * `cleo.db` path of {@link establishLegacyBrainSchema} (legacy-shaped brain
+ * tables, every `drizzle-brain` migration journaled), the twin-collapse state
+ * ({@link twinTablesCurrent}), the schema-version seed, and, when sqlite-vec
+ * loads on this connection, the model-tagged embeddings table
+ * {@link initializeBrainVec} keeps. A standalone `brain.db` or a store needing
+ * its legacy rebuild answers false, as does any doubt: the bind then takes the
+ * leased path unchanged. Read-only; never throws.
+ *
+ * @param nativeDb - The project `cleo.db` connection.
+ * @returns True when the brain schema needs no work.
+ * @task T14210
+ */
+export function brainSchemaAtHead(nativeDb: DatabaseSync): boolean {
+  try {
+    return (
+      tableExists(nativeDb, 'brain_decisions') &&
+      !brainTablesAreConsolidatedShape(nativeDb) &&
+      lineageFullyJournaled(nativeDb, resolveBrainMigrationsFolder()) &&
+      twinTablesCurrent(nativeDb) &&
+      brainSchemaVersionSeeded(nativeDb) &&
+      // The same load establish runs; loading sqlite-vec again is a no-op.
+      (!loadBrainVecExtension(nativeDb) || brainEmbeddingsShape(nativeDb) === 'tagged')
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -549,32 +596,37 @@ export async function bindBrainDomain(
   const { assertTestEnv } = await import('./data-accessor.js');
   assertTestEnv(getBrainDbPath(cwd));
 
-  return bindProjectDomain('brain', cwd, (nativeDb, store) => {
-    // Load the sqlite-vec extension for vector similarity search (T5157). The
-    // dual-scope handle is opened with `allowExtension: true`, so loading is
-    // permitted. Non-fatal if unavailable — vec0 tables simply won't be created.
-    const vecLoaded = loadBrainVecExtension(nativeDb);
+  return bindProjectDomain(
+    'brain',
+    cwd,
+    (nativeDb, store) => {
+      // Load the sqlite-vec extension for vector similarity search (T5157). The
+      // dual-scope handle is opened with `allowExtension: true`, so loading is
+      // permitted. Non-fatal if unavailable — vec0 tables simply won't be created.
+      const vecLoaded = loadBrainVecExtension(nativeDb);
 
-    const drizzle = establishBrainSchema(nativeDb, store.dbPath);
+      const drizzle = establishBrainSchema(nativeDb, store.dbPath);
 
-    // Create the vec0 virtual table for embeddings if the extension is loaded
-    // (T5157). Must run after migrations so the schema is consistent.
-    if (vecLoaded) {
-      initializeBrainVec(nativeDb);
-    }
+      // Create the vec0 virtual table for embeddings if the extension is loaded
+      // (T5157). Must run after migrations so the schema is consistent.
+      if (vecLoaded) {
+        initializeBrainVec(nativeDb);
+      }
 
-    // Wire the default embedding provider when vec is loaded and embedding is
-    // enabled. Best-effort, async, never blocks DB access. (T539)
-    if (vecLoaded) {
-      setImmediate(() => {
-        initEmbeddingProvider(cwd).catch(() => {
-          // Non-fatal — embedding will be unavailable until next startup.
+      // Wire the default embedding provider when vec is loaded and embedding is
+      // enabled. Best-effort, async, never blocks DB access. (T539)
+      if (vecLoaded) {
+        setImmediate(() => {
+          initEmbeddingProvider(cwd).catch(() => {
+            // Non-fatal — embedding will be unavailable until next startup.
+          });
         });
-      });
-    }
+      }
 
-    return { drizzle, vecLoaded };
-  });
+      return { drizzle, vecLoaded };
+    },
+    brainSchemaAtHead,
+  );
 }
 
 /**

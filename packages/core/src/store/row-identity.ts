@@ -2479,6 +2479,24 @@ export function brainFtsUpdateTriggerSql(table: string): string {
 }
 
 /**
+ * The brain FTS update triggers still in their unscoped form, the ones
+ * {@link upgradeBrainFtsUpdateTriggers} rewrites (T14210: the open-time
+ * at-head read). Read-only.
+ *
+ * @param db - The store handle.
+ * @returns Their names.
+ * @task T14210
+ */
+export function unscopedBrainFtsUpdateTriggers(db: DatabaseSync): string[] {
+  const live = db
+    .prepare(
+      "SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' AND name IN (?, ?, ?, ?)",
+    )
+    .all(...BRAIN_FTS.map((f) => `${f.table}_au`)) as Array<{ name: string; sql: string }>;
+  return live.filter(({ sql }) => !/\bAFTER\s+UPDATE\s+OF\b/i.test(sql)).map(({ name }) => name);
+}
+
+/**
  * Rewrite every existing unscoped brain FTS update trigger to its scoped form.
  * A store without the trigger is left alone (the FTS tables are created
  * lazily by `ensureFts5Tables`). Idempotent; one `sqlite_master` read when
@@ -2488,14 +2506,8 @@ export function brainFtsUpdateTriggerSql(table: string): string {
  * @returns The triggers rewritten.
  */
 export function upgradeBrainFtsUpdateTriggers(db: DatabaseSync): string[] {
-  const live = db
-    .prepare(
-      "SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' AND name IN (?, ?, ?, ?)",
-    )
-    .all(...BRAIN_FTS.map((f) => `${f.table}_au`)) as Array<{ name: string; sql: string }>;
   const rewritten: string[] = [];
-  for (const { name, sql } of live) {
-    if (/\bAFTER\s+UPDATE\s+OF\b/i.test(sql)) continue;
+  for (const name of unscopedBrainFtsUpdateTriggers(db)) {
     const table = name.slice(0, -'_au'.length);
     db.exec('SAVEPOINT brain_fts_au');
     try {
