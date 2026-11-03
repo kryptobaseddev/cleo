@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.25.2 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.25.3 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -354,6 +354,10 @@ The evidence run is the one run. Start with `cleo done <id> --plan`, which picks
 A task PR merged into an integration branch is a component: `pr:<component>@<integration>` (and `ci:<component>@<integration>`) takes the merge commit and CI from the integration PR that landed it, and the task linkage and changed files from the component PR — only its files that survive the integration merge, never the whole integration diff (T12671). `cleo done` derives this from either PR number. A file a later change also edited still counts while the component's own hunks apply to the landed version. A component that only deleted files implements with `pr:<component>@<integration>;note:<deleted paths>`, because a deletion has no bytes for `files:`. A PR merged directly into the default branch that only deleted files implements with `pr:<number>;note:<deleted paths>` (T14024). Its note is a comma-separated list of the deleted paths, optionally after a label ending at the first `:` — `note:dropped old schema: db/schema.ts, db/relations.ts`; there is no other prose in it. Every listed path must be one the PR deleted (absent from its merged tree) that is still absent at HEAD; a path it did not delete, or one that exists again at HEAD, is refused by name, and the refusal quotes the paths it parsed. Every `note:` atom in that evidence write is read as such a list, so do not add a second, explanatory note: its words are refused as paths the PR did not delete. Put the explanation in the label instead. The component form's note stays free-form.
 
 Several `pr:` atoms in one write read each `files:` path at the merge of the latest cited PR that changed it (T12848). An earlier PR is proven by a listed file read at its own merge, or by one whose read version still carries that PR's own hunks, the same rule as for components (T14025). When a later cited PR rewrote or reverted every listed hunk, the write is refused naming each file and the PR whose merge it is read at; list a file only that PR changed among those cited, or record it in its own `cleo verify` write.
+
+### Per-criterion receipt (T14199)
+
+A criterion of a code task that an owner decision or a stored document meets is covered with a receipt, never a waiver: `cleo verify <id> --criterion --evidence 'decision:<id>;satisfies:<id>#AC<n>'` (or `files:<document paths>` in place of the decision). It binds that one criterion in the AC-coverage gate and sets no gate: `implemented`, `testsPassed` and `qaPassed` still owe their code evidence. A criterion that names a code path (the T14065 token rule) is refused with `E_CRITERION_NAMES_CODE`, naming the token, as are code files, gate atoms (`commit:`, `pr:`, `tool:` …), several criteria in one receipt, and child-task or typed criteria. Each receipt writes a `criterion.receipt` audit-log entry.
 
 ### `ci:<number>` merge-commit CI atom (D11149 · T12742)
 

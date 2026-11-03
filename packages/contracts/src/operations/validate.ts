@@ -238,6 +238,12 @@ export interface ValidateGateParams {
    * with these REQ-IDs (comma-separated); the others are not run.
    */
   req?: string;
+  /**
+   * `cleo verify --criterion` (T14199): record a per-criterion receipt from
+   * `evidence` (one `satisfies:` plus a `decision:` or stored-document
+   * `files:` atom) instead of a gate. Exclusive with `gate`, `all` and `reset`.
+   */
+  criterion?: boolean;
 }
 export interface ValidateGateResult {
   taskId: string;

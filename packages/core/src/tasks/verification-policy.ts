@@ -221,6 +221,21 @@ function acceptancePathTokens(
 }
 
 /**
+ * The code paths one acceptance criterion names, by the T14065 token rule:
+ * every path token that is not a document (T14199). A criterion naming one
+ * is proven by code evidence, never by a per-criterion receipt.
+ *
+ * @param criterion - The criterion's text.
+ * @returns The code-path tokens, in order; empty when it names none.
+ * @task T14199
+ */
+export function criterionCodePaths(criterion: string): string[] {
+  return acceptancePathTokens([criterion])
+    .filter(({ token }) => !isDocumentArtifact(token))
+    .map(({ token }) => token);
+}
+
+/**
  * Why a task's gate profile does not apply, naming the rule that decided
  * code and the exact file or token (T14193), or `null` when it has no
  * profile or the profile applies. The record decides before a profile: a

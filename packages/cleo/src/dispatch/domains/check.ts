@@ -95,6 +95,9 @@ const previewTaskGates = lazyOperation(
 const validateGateVerify = lazyOperation(
   async () => (await import('@cleocode/core/validation/engine-ops')).validateGateVerify,
 );
+const recordCriterionReceipt = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/criterion-receipt')).recordCriterionReceipt,
+);
 const validateProtocolArchitectureDecision = lazyOperation(
   async () =>
     (await import('@cleocode/core/validation/engine-ops')).validateProtocolArchitectureDecision,
@@ -718,6 +721,25 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     const projectRoot = resolveWorktreeRouting().canonicalRoot;
     if (!params.taskId) {
       return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.set');
+    }
+    // T14199: a per-criterion receipt binds one criterion and sets no gate.
+    if (params.criterion === true) {
+      if (params.gate || params.all || params.reset || !params.evidence)
+        // @sync-invariant none:input-shape contradictory receipt flags are refused before any read; nothing is written
+        return lafsError(
+          // @sync-invariant none:input-shape contradictory receipt flags are refused before any read; nothing is written
+          'E_INVALID_INPUT',
+          '--criterion records a receipt for one criterion: it takes --evidence and excludes --gate/--all/--reset',
+          'gate.set',
+        );
+      const receipt = await recordCriterionReceipt(projectRoot, {
+        taskId: params.taskId,
+        evidence: params.evidence,
+        ...(params.agent ? { agent: params.agent } : {}),
+      });
+      return receipt.success
+        ? lafsSuccess(receipt.data, 'gate.set')
+        : lafsError(receipt.error.code, receipt.error.message, 'gate.set', receipt.error.fix);
     }
     const gateParams = {
       taskId: params.taskId,
