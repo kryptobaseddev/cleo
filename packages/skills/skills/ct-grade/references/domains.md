@@ -1,6 +1,6 @@
 # CLEO Domain Operation Reference for A/B Testing
 
-**Source**: `docs/specs/CLEO-OPERATION-CONSTITUTION.md`
+**Source**: `docs/spec/cleo-operation-constitution.md`
 **Purpose**: Lists the key operations to test in A/B comparisons.
 
 All operations use the CLI (`cleo` / `cleo-dev`). There is no MCP interface.

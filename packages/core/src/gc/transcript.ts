@@ -19,7 +19,7 @@
  *         <toolUseId>.json
  * ```
  *
- * @see docs/specs/memory-architecture-spec.md §6.1–6.2
+ * @see docs/spec/memory-architecture.md §6.1–6.2
  * @task T728
  * @epic T726
  */

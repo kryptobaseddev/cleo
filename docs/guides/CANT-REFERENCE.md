@@ -1,6 +1,6 @@
 # CANT Language Reference
 
-**Version**: 1.0.0 | **Spec**: [`CANT-DSL-SPEC.md`](../specs/CANT-DSL-SPEC.md) | **Status**: Implemented
+**Version**: 1.0.0 | **Spec**: [`CANT-DSL-SPEC.md`](../spec/cant-dsl.md) | **Status**: Implemented
 
 CANT (**C**LEO **A**gent **N**otation for **T**asks) is the non-prose DSL that powers the
 CLEO ecosystem. It defines agents, skills, hooks, workflows, and pipelines in a structured,
@@ -498,7 +498,7 @@ the result is literally `"${evil}"`. Use `\$` to escape a literal `${`.
 
 ## Validation Rules (Summary)
 
-45 rules across 5 categories. Full details in [`CANT-DSL-SPEC.md` Section 4](../specs/CANT-DSL-SPEC.md#4-validation-rules).
+45 rules across 5 categories. Full details in [`CANT-DSL-SPEC.md` Section 4](../spec/cant-dsl.md#4-validation-rules).
 
 ### Scope Rules (S01-S13)
 
@@ -773,8 +773,8 @@ output name = expression
 
 | Document | Purpose |
 |----------|---------|
-| [`CANT-DSL-SPEC.md`](../specs/CANT-DSL-SPEC.md) | Formal specification (EBNF, AST types, 45 validation rules) |
-| [`CANT-EXECUTION-SEMANTICS.md`](../specs/CANT-EXECUTION-SEMANTICS.md) | Workflow executor semantics, domain event protocol |
+| [`CANT-DSL-SPEC.md`](../spec/cant-dsl.md) | Formal specification (EBNF, AST types, 45 validation rules) |
+| [`CANT-EXECUTION-SEMANTICS.md`](../spec/cant-execution-semantics.md) | Workflow executor semantics, domain event protocol |
 | `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) | 7-phase implementation plan with security amendments — superseded by shipped implementation + ADR-035 addendum |
-| [`CANT-TYPESCRIPT-INTEGRATION.md`](../specs/CANT-TYPESCRIPT-INTEGRATION.md) | TypeScript/WASM integration guide |
+| [`CANT-TYPESCRIPT-INTEGRATION.md`](../spec/cant-typescript-integration.md) | TypeScript/WASM integration guide |
 | [`CLEO-CANT.md`](../concepts/CLEO-CANT.md) | Protocol-level spec (directive mapping, Conduit integration) |

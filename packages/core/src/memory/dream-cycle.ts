@@ -18,7 +18,7 @@
  *
  * Each trigger calls `runConsolidation(projectRoot, sessionId, 'scheduled')`
  * which includes Steps 9a (R-STDP reward backfill) + 9b (STDP plasticity) +
- * 9c (homeostatic decay) per docs/specs/stdp-wire-up-spec.md §4.
+ * 9c (homeostatic decay) per docs/spec/stdp-wire-up.md §4.
  *
  * Idempotency: `checkAndDream` tracks `lastDreamAt` in-process so that
  * repeated calls within the same process cannot double-trigger consolidation.
@@ -27,7 +27,7 @@
  *
  * @task T628
  * @epic T627
- * @see docs/specs/stdp-wire-up-spec.md §4.5
+ * @see docs/spec/stdp-wire-up.md §4.5
  */
 
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';

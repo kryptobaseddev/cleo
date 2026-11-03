@@ -2,7 +2,7 @@
   EpicProgressCard — direct-children rollup panel extracted verbatim from
   `packages/studio/src/routes/tasks/+page.svelte:371-409`.
 
-  Preservation contract per `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §9:
+  Preservation contract per `docs/spec/cleo-task-dashboard.md` §9:
     - Direct-children basis per T874 (numerator + denominator symmetric).
     - Per-epic progress bar shows `done / total` on direct children only.
     - Row click navigates to `/tasks/tree/{epic.id}` (existing deep-link).

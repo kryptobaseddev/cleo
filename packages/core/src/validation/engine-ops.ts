@@ -1398,7 +1398,7 @@ export async function validateGateVerify(
     // `cleo complete`.  Only emitted on write actions (not view/reset) when
     // all required gates are green.
     //
-    // Contract is documented at docs/specs/CLEO-TASKS-API-SPEC.md §7.1 and
+    // Contract is documented at docs/spec/cleo-tasks-api.md §7.1 and
     // reproduction-tested in packages/core/src/validation/__tests__/
     // gate-verify-hint.test.ts ("GH #94 reproduction").
     if (

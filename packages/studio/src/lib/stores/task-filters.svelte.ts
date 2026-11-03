@@ -11,7 +11,7 @@
  * - **Reactivity**: Svelte 5 `$state` rune drives reactive updates in
  *   consumer components. The file uses the `.svelte.ts` suffix so the Svelte
  *   compiler rewrites runes into reactive primitives.
- * - **URL contract** (see `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §8):
+ * - **URL contract** (see `docs/spec/cleo-task-dashboard.md` §8):
  *
  *   | Field       | Query param                   | Encoding           |
  *   | ----------- | ----------------------------- | ------------------ |

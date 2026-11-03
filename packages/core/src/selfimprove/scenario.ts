@@ -2,7 +2,7 @@
  * Self-improvement scenario + golden fixture loading and validation (T11889-B).
  *
  * A *scenario* is a deterministic, ordered sequence of READ-ONLY dispatch ops
- * (the GRADE-playbook shape — see `docs/specs/GRADE-SCENARIO-PLAYBOOK.md`) paired
+ * (the GRADE-playbook shape — see `docs/guide/grade-scenario-playbook.md`) paired
  * with a *golden* envelope set: the known-good, already-normalized response for
  * each op. The self-improvement loop replays the ops (see {@link "./replay.js"})
  * and diffs the captured envelopes against the golden (see

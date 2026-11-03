@@ -1977,7 +1977,7 @@ const healthCommand = defineCommand({
  *
  * @task T889 / W2-6
  * @epic T889
- * @see docs/specs/CANTZ-PACKAGE-STANDARD.md
+ * @see docs/spec/cantz-package-standard.md
  */
 const installCommand = defineCommand({
   meta: {
@@ -2155,7 +2155,7 @@ const installCommand = defineCommand({
  * ZIP archive named `<dirname>.cantz` in the current working directory.
  *
  * @task T438 @epic T250
- * @see docs/specs/CANTZ-PACKAGE-STANDARD.md
+ * @see docs/spec/cantz-package-standard.md
  */
 const packCommand = defineCommand({
   meta: {
@@ -2280,7 +2280,7 @@ const packCommand = defineCommand({
  * cleo agent create — scaffold a complete agent package.
  *
  * Creates a directory structure conforming to the CANTZ package standard
- * (docs/specs/CANTZ-PACKAGE-STANDARD.md) with role-based persona templates
+ * (docs/spec/cantz-package-standard.md) with role-based persona templates
  * derived from the starter-bundle canonical agents.
  *
  * Template roles:
@@ -2290,7 +2290,7 @@ const packCommand = defineCommand({
  * - **docs-worker**: documentation-focused worker variant
  *
  * @task T439 @epic T250
- * @see docs/specs/CANTZ-PACKAGE-STANDARD.md
+ * @see docs/spec/cantz-package-standard.md
  * @see packages/cleo-os/starter-bundle/agents/ — canonical format reference
  */
 const createCommand = defineCommand({

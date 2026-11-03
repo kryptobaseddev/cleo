@@ -12,7 +12,7 @@
     - Drop-placeholder styling (dashed outline under the column that
       would receive a card in a future drag-and-drop wave). Drag-and-
       drop itself is still explicitly out of scope (operator decision
-      captured in `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §5.4).
+      captured in `docs/spec/cleo-task-dashboard.md` §5.4).
 
   Preserved:
     - Five canonical status columns in order

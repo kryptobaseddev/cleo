@@ -14,7 +14,7 @@
  * @task T695
  * @task T694
  * @epic T673
- * @see docs/specs/stdp-wire-up-spec.md §3.9, §3.11, §4.1
+ * @see docs/spec/stdp-wire-up.md §3.9, §3.11, §4.1
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';

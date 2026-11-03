@@ -247,3 +247,185 @@ The cloud SignalDock server uses the SAME `signaldock-storage` crate but typical
 The cloud SignalDock server at `api.signaldock.io` uses the same `signaldock-storage` crate compiled with `diesel/postgres` feature, connecting to **PostgreSQL** in production (Railway). The Diesel backend abstraction handles SQLite vs Postgres differences transparently. The `better-auth-diesel` adapter (upgraded from `better-auth-diesel-sqlite`) connects to the same Postgres database for authentication.
 
 The `tasks.db`, `brain.db`, and `nexus.db` databases are LOCAL-ONLY. They do not exist on the cloud server. The cloud server only has `signaldock.db` (or its Postgres equivalent).
+
+<!-- merged from `database-architecture` by cleo docs modernize -->
+
+## Cloud Deployment Note (from `database-architecture`)
+
+The cloud SignalDock server at `api.signaldock.io` uses the same `signaldock-storage` crate compiled with `diesel/postgres` feature, connecting to **PostgreSQL** in production (Railway). The Diesel backend abstraction handles SQLite vs Postgres differences transparently. The `better-auth-diesel` adapter (upgraded from `better-auth-diesel-sqlite`) connects to the same Postgres database for authentication.
+
+The `tasks.db`, `brain.db`, and `nexus.db` databases are LOCAL-ONLY. They do not exist on the cloud server. The cloud server only has `signaldock.db` (or its Postgres equivalent).
+
+<!-- merged from `cleo-data-integrity-spec` by cleo docs modernize -->
+
+## From `cleo-data-integrity-spec`
+
+---
+version: 1.0.0
+status: partially implemented
+task: T4870
+date: 2026-02-25
+---
+
+# CLEO Data Integrity Specification
+
+*Note: `git-checkpoint.ts` exists and is partially implemented based on this specification.*
+
+## 1. Git Checkpoint Isolation
+
+CLEO checkpoints MUST be committed to a dedicated `.cleo/.git` repository, isolated from the project git repository.
+
+The checkpoint system MUST NOT stage or commit files using the project's `.git` index.
+
+The checkpoint git environment MUST be configured via `GIT_DIR=<cleoDir>/.git` and `GIT_WORK_TREE=<cleoDir>` environment variables passed to all git subprocesses.
+
+State file paths in git commands MUST be relative to `<cleoDir>` (e.g., `config.json`, not `.cleo/config.json`).
+
+The `initCleoGitRepo()` function MUST be idempotent -- it MUST check for the existence of `.cleo/.git/HEAD` before running `git init`.
+
+The function `makeCleoGitEnv(cleoDir)` MUST return `{ GIT_DIR: join(cleoDir, '.git'), GIT_WORK_TREE: cleoDir }`.
+
+The function `cleoGitCommand(args, cleoDir)` MUST pass the environment from `makeCleoGitEnv()` to all `execFileAsync('git', ...)` calls and MUST set `cwd` to `cleoDir`.
+
+### Acceptance Criteria
+
+- **AC1**: After `cleo init`, the file `.cleo/.git/HEAD` MUST exist.
+- **AC2**: Running `git log --oneline` in the project root MUST show no `chore(cleo):` checkpoint commits.
+- **AC3**: Pre-staging a project source file and triggering a checkpoint MUST NOT include that file in the `.cleo/.git` commit.
+
+## 2. SQLite State Files in Git
+
+SQLite state files MUST NOT appear in the `STATE_FILES` array in `packages/core/src/store/git-checkpoint.ts`.
+
+These files MUST be listed in `.cleo/.gitignore` to prevent accidental tracking in the isolated `.cleo/.git` repository.
+
+SQLite state files (MUST NOT be tracked in git per ADR-013 §9):
+- `tasks.db`, `tasks.db-shm`, `tasks.db-wal`
+- `brain.db`, `brain.db-shm`, `brain.db-wal`
+- `conduit.db`, `conduit.db-shm`, `conduit.db-wal`
+- `signaldock.db` (global tier — not in project `.cleo/` but at `$XDG_DATA_HOME/cleo/`)
+- `nexus.db` (global tier — at `$XDG_DATA_HOME/cleo/`)
+
+The `.cleo/.gitignore` MUST contain at minimum:
+
+```
+tasks.db
+tasks.db-shm
+tasks.db-wal
+brain.db
+brain.db-shm
+brain.db-wal
+conduit.db
+conduit.db-shm
+conduit.db-wal
+.git/
+```
+
+> **Note**: `signaldock.db` and `nexus.db` are global-tier databases stored outside the project `.cleo/` directory (`$XDG_DATA_HOME/cleo/`). They are not subject to the project `.cleo/.gitignore` but MUST NOT be committed to any git repository.
+
+### Acceptance Criteria
+
+- **AC4**: The file `.cleo/.gitignore` MUST contain the entry `tasks.db`.
+- **AC5**: The `STATE_FILES` array MUST contain no entries with a `.db` extension.
+
+## 3. VACUUM INTO Backup System
+
+When a SQLite backup is triggered, the system MUST first execute `PRAGMA wal_checkpoint(TRUNCATE)` to flush the WAL file before running `VACUUM INTO`.
+
+The `vacuumIntoBackup()` function MUST obtain the native database handle via `getNativeDb()` from `packages/core/src/store/sqlite.ts`. If `getNativeDb()` returns `null`, the backup MUST be skipped silently (non-fatal).
+
+The backup directory MUST be `.cleo/backups/sqlite/`.
+
+Snapshot filenames MUST follow the pattern `tasks-YYYYMMDD-HHmmss.db`.
+
+The system MUST retain at most 10 snapshots, deleting the oldest when the limit is exceeded.
+
+Backup failures MUST be non-fatal -- the operation MUST log the error and continue without throwing.
+
+The backup function MUST implement debouncing to avoid excessive I/O during high-write sessions. The debounce interval SHOULD match the git checkpoint debounce (configurable, default 5 minutes).
+
+The `vacuumIntoBackup()` function MUST be called alongside `gitCheckpoint()` at all checkpoint trigger sites:
+- `packages/core/src/store/data-safety.ts:206` via `triggerCheckpoint()`
+- `packages/core/src/store/data-safety-central.ts:125` via `checkpoint()` helper
+- `packages/core/src/store/data-safety-central.ts:393` via `forceSafetyCheckpoint()`
+- `packages/core/src/store/data-safety.ts:396` via `forceCheckpointBeforeOperation()`
+
+### Acceptance Criteria
+
+- **AC6**: After a write operation, a `.db` file MUST exist in `.cleo/backups/sqlite/`.
+- **AC7**: After 11 write operations, the number of files in `.cleo/backups/sqlite/` MUST be <=10.
+- **AC8**: Any snapshot in `.cleo/backups/sqlite/` MUST be a valid, readable SQLite database.
+- **AC9**: Copying a snapshot to `.cleo/tasks.db` and running `cleo dash` MUST succeed without errors.
+
+## 4. Integration Requirements
+
+`cleo init` MUST initialize the `.cleo/.git` repository via `initCleoGitRepo()` if it does not already exist. This step MUST execute after core files are created (step 1 in `initProject()` at `packages/core/src/init.ts:759`) and before all subsequent initialization steps.
+
+`cleo doctor` MUST include a `cleo_git_repo` health check that reports `warn` status if `.cleo/.git/HEAD` does not exist, using the standard check shape: `{ check: string, status: 'ok' | 'warning' | 'error', message: string, details?: Record<string, unknown> }`.
+
+The `shouldCheckpoint()` function MUST include an `isCleoGitInitialized()` guard that returns `false` when `.cleo/.git/HEAD` does not exist, preventing checkpoint attempts before the isolated repo is initialized.
+
+The `vacuumIntoBackup()` function MUST be called alongside `gitCheckpoint()` at all checkpoint trigger sites in `packages/core/src/store/data-safety.ts` and `packages/core/src/store/data-safety-central.ts`.
+
+### Acceptance Criteria
+
+- **AC10**: Running `cleo init` on a fresh project MUST create `.cleo/.git/HEAD`.
+- **AC11**: Running `cleo doctor` when `.cleo/.git` does not exist MUST produce a check with `status: 'warning'` and `check: 'cleo_git_repo'`.
+
+<!-- merged from `schema-authority` by cleo docs modernize -->
+
+## From `schema-authority`
+
+# Schema Authority
+
+This document defines how to interpret CLEO schema state and migration history.
+
+## Canonical Sources
+
+1. The schema files below are the single source of truth for current DB structure, constraints, and types:
+   - `packages/core/src/store/tasks-schema.ts` — tasks.db (tasks, sessions, lifecycle, audit, agents, token usage, WarpChain, ADR)
+   - `packages/core/src/store/brain-schema.ts` — brain.db (decisions, patterns, learnings, observations, graph)
+   - `packages/core/src/store/chain-schema.ts` — WarpChain tables (re-exported from tasks-schema.ts)
+   - `packages/core/src/agents/agent-schema.ts` — agent_instances, agent_error_log tables (re-exported from tasks-schema.ts)
+   - `packages/core/src/store/nexus-schema.ts` — nexus.db (project_registry, nexus_audit_log)
+   - `packages/core/src/store/conduit-sqlite.ts` — conduit.db DDL (project-tier messaging, project_agent_refs)
+   - `packages/core/src/store/signaldock-sqlite.ts` — signaldock.db DDL (global-tier agent identity)
+   - `packages/contracts/src/status-registry.ts` — canonical status enum constants (SSoT per ADR-018)
+2. The latest effective migration state under `packages/core/migrations/` is the runtime DDL history:
+   - `drizzle-tasks/` — tasks.db migrations
+   - `drizzle-brain/` — brain.db migrations
+3. `packages/core/src/store/tasks-schema.ts` also exports all lifecycle stage constant names via `LIFECYCLE_STAGE_NAMES`.
+
+> **Note**: The legacy `packages/core/src/store/schema.ts` no longer exists. All references to it should point to `tasks-schema.ts` instead.
+
+## Migration History Rules
+
+- Historical migration files MAY contain superseded intermediate constraints.
+- Do not treat an older migration file as the current schema by itself.
+- Always compare current behavior against `packages/core/src/store/schema.ts` plus latest effective migration state.
+
+## Validation Guardrails
+
+- Lifecycle parity guardrail: `packages/core/src/store/__tests__/lifecycle-schema-parity.test.ts`
+- Recovery DDL anti-hardcoding guardrail: `packages/core/src/store/__tests__/recover-tooling-guardrail.test.ts`
+- AJV canonical path checks: `packages/core/src/__tests__/schema.test.ts`
+
+## Contributor Checklist
+
+1. Update schema definitions in the appropriate file under `packages/core/src/store/` (see Canonical Sources above).
+   - Status enums go in `packages/contracts/src/status-registry.ts` only (ADR-018).
+   - Do not duplicate status constants in schema files.
+2. Generate/update migrations under `packages/core/migrations/drizzle-tasks/` or `drizzle-brain/`.
+3. Run guardrails:
+   - `pnpm vitest run packages/core/src/store/__tests__/lifecycle-schema-parity.test.ts`
+   - `pnpm vitest run packages/core/src/store/__tests__/recover-tooling-guardrail.test.ts`
+4. Run typecheck: `pnpm tsc --noEmit`.
+5. Run biome: `pnpm biome check --write .`
+6. Commit schema + migration + tests/docs together (single coherent change set).
+7. Update `docs/architecture/DATABASE-ERDS.md` to reflect any table/column/index changes.
+
+## Related ADRs
+
+- `/.cleo/adrs/ADR-012-drizzle-kit-migration-system.md` (Section 8)
+- `/.cleo/adrs/ADR-006-canonical-sqlite-storage.md`
+- `/.cleo/adrs/ADR-008-CLEO-CANONICAL-ARCHITECTURE.md`

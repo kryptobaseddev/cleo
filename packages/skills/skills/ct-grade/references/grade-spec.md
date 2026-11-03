@@ -1,7 +1,7 @@
 # CLEO Grade Specification (Current)
 
 **Source**: `src/core/sessions/session-grade.ts`
-**Spec**: `docs/specs/CLEO-GRADE-SPEC.md`
+**Spec**: `docs/spec/cleo-grade.md`
 **Status**: Active
 
 This document reflects the **current rubric implementation** as of v2026.3.x. It is derived from the live source code, not the original spec (which may be outdated).

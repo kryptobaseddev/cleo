@@ -25,7 +25,7 @@
  *
  * @task T682
  * @epic T673
- * @see docs/specs/stdp-wire-up-spec.md §6.3
+ * @see docs/spec/stdp-wire-up.md §6.3
  */
 
 import { execFile, spawnSync } from 'node:child_process';

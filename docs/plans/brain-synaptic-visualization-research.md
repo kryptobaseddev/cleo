@@ -171,7 +171,7 @@ CONDUIT (project)                         SIGNALDOCK (global)
 - `co_retrieved` and `code_reference` both added to `BRAIN_EDGE_TYPES` (`brain-schema.ts:550–573`)
 - Migration relabels historical `relates_to` rows → `co_retrieved` (produced 0 changes because no `relates_to` rows existed)
 
-**Full STDP wire-up** — see [Phase 5](#phase-5) and [docs/specs/stdp-wire-up-spec.md](../specs/stdp-wire-up-spec.md).
+**Full STDP wire-up** — see [Phase 5](#phase-5) and [docs/specs/stdp-wire-up-spec.md](../spec/stdp-wire-up.md).
 
 ---
 

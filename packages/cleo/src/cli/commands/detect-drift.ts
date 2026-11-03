@@ -18,7 +18,13 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { defineCommand } from 'citty';
-import { CLEO_DIR_NAME, CLEO_INJECTION_MD, TEMPLATES_SUBDIR } from '../paths.js';
+import {
+  CLEO_DIR_NAME,
+  CLEO_INJECTION_MD,
+  OPERATION_CONSTITUTION_DOC,
+  PORTABLE_BRAIN_SPEC_DOC,
+  TEMPLATES_SUBDIR,
+} from '../paths.js';
 import { cliOutput } from '../renderers/index.js';
 
 function findProjectRoot(): string {
@@ -174,19 +180,19 @@ export const detectDriftCommand = defineCommand({
 
     // Check 1: Gateway-to-spec sync
     try {
-      const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-OPERATION-CONSTITUTION.md');
+      const specPath = join(projectRoot, OPERATION_CONSTITUTION_DOC);
       const registryPath = join(cleoSrcRoot, 'dispatch', 'registry.ts');
       const dispatchDomainsDir = join(cleoSrcRoot, 'dispatch', 'domains');
 
       if (!existsSync(specPath)) {
-        addCheck('Gateway-to-spec sync', 'fail', 'CLEO-OPERATION-CONSTITUTION.md missing', [
+        addCheck('Gateway-to-spec sync', 'fail', `${OPERATION_CONSTITUTION_DOC} missing`, [
           {
             severity: 'error',
             category: 'spec',
             message: 'Operations reference specification not found',
             file: specPath,
             recommendation:
-              'Create docs/specs/CLEO-OPERATION-CONSTITUTION.md with canonical operation definitions',
+              `Create ${OPERATION_CONSTITUTION_DOC} with canonical operation definitions`,
           },
         ]);
       } else if (!existsSync(registryPath) || !existsSync(dispatchDomainsDir)) {
@@ -368,7 +374,7 @@ export const detectDriftCommand = defineCommand({
     // Check 6: Canonical identity
     try {
       const visionPath = join(projectRoot, 'docs', 'concepts', 'CLEO-VISION.md');
-      const specPath = join(projectRoot, 'docs', 'specs', 'CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md');
+      const specPath = join(projectRoot, PORTABLE_BRAIN_SPEC_DOC);
 
       const issues: DriftIssue[] = [];
 
@@ -389,7 +395,7 @@ export const detectDriftCommand = defineCommand({
           message: 'Portable Brain spec missing',
           file: specPath,
           recommendation:
-            'Create docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md with canonical pillars',
+            `Create ${PORTABLE_BRAIN_SPEC_DOC} with canonical pillars`,
         });
       }
 
@@ -419,7 +425,7 @@ export const detectDriftCommand = defineCommand({
                 message: `Missing pillars: ${missingPillars.join(', ')}`,
                 file: specPath,
                 recommendation:
-                  'Add all five canonical pillars to CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md',
+                  `Add all five canonical pillars to ${PORTABLE_BRAIN_SPEC_DOC}`,
               },
             ],
           );

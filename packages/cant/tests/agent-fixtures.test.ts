@@ -21,7 +21,7 @@
  * Option Y collapse removed that namespace so the fixture tests keep
  * running and continue to guard the canonical agent files.
  *
- * @see docs/specs/CANT-DSL-SPEC.md Section 2 (Grammar)
+ * @see docs/spec/cant-dsl.md Section 2 (Grammar)
  * @see ../../../.cleo/cant/agents/cleo-historian.cant
  */
 

@@ -35,7 +35,7 @@ import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
  *
  * Deliberately excludes `archived` (filtered at the loader) and `proposed`
  * (pre-lifecycle; not surfaced in the primary dashboard view). Operator
- * decision captured in `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §5.4.
+ * decision captured in `docs/spec/cleo-task-dashboard.md` §5.4.
  */
 export const KANBAN_COLUMN_ORDER: readonly TaskStatus[] = [
   'pending',

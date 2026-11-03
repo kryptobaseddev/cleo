@@ -414,7 +414,7 @@ export async function typedDispatch<O extends TypedOpRecord, K extends keyof O &
   if (!parsed.success) {
     return lafsError('E_VALIDATION', parsed.error.message, `${handler.domain}.${op}`);
   }
-  return handler.operations[op](parsed.data);
+  return handler.operations[op](../specs/parsed.data);
 }
 ```
 
@@ -426,7 +426,7 @@ function.
 **Phase 2 additional scope** (beyond the adapter itself):
 - Zod schemas MUST be generated from contracts (tooling choice is open; see §9).
 - All Studio HTTP handlers (see
-  [`CLEO-STUDIO-HTTP-SPEC.md`](./CLEO-STUDIO-HTTP-SPEC.md))
+  [`CLEO-STUDIO-HTTP-SPEC.md`](./cleo-studio-http.md))
   MUST validate request bodies via the same schemas — currently zero input
   validation, a known security gap.
 - `@cleocode/contracts` MUST be republished with the schema exports on a major
@@ -492,7 +492,7 @@ Option A "Testing strategy").
 ### 8.4 CI enforcement
 
 Post-migration, a `forge-ts` rule (see
-[`docs/specs/CORE-PACKAGE-SPEC.md`](./CORE-PACKAGE-SPEC.md) for forge-ts
+[`docs/specs/CORE-PACKAGE-SPEC.md`](./core-package.md) for forge-ts
 integration pattern) SHOULD fail the build if any `params?.\w+ as ` pattern
 appears under `packages/cleo/src/dispatch/domains/`. This rule MUST land in
 the final Wave D task (T983 or a follow-up gate task) and gate regressions.
@@ -518,7 +518,7 @@ migrations ship:
 
 3. **Studio HTTP handler validation.** Currently zero input validation on
    Studio routes (see
-   [`CLEO-STUDIO-HTTP-SPEC.md`](./CLEO-STUDIO-HTTP-SPEC.md)).
+   [`CLEO-STUDIO-HTTP-SPEC.md`](./cleo-studio-http.md)).
    Should T988 extend validation to the HTTP boundary, or is that a separate
    Studio-focused epic? Audit §Section 5 flags this as a known security gap.
 
@@ -577,14 +577,14 @@ migrations ship:
 
 ### 10.2 Authority documents
 
-- [`docs/specs/CLEO-API-AUTHORITY.md`](./CLEO-API-AUTHORITY.md) — pointer
+- [`docs/specs/CLEO-API-AUTHORITY.md`](./cleo-operation-constitution.md) — pointer
   document naming the Code SSoT files that this adapter bridges.
-- [`docs/specs/CORE-PACKAGE-SPEC.md`](./CORE-PACKAGE-SPEC.md) — style model
+- [`docs/specs/CORE-PACKAGE-SPEC.md`](./core-package.md) — style model
   for this spec; defines the `@cleocode/core` contract the dispatch layer
   consumes.
-- [`docs/specs/SCHEMA-AUTHORITY.md`](./SCHEMA-AUTHORITY.md) — parallel
+- [`docs/specs/SCHEMA-AUTHORITY.md`](./database-architecture.md) — parallel
   authority pointer for the DB schema layer.
-- [`docs/specs/CLEO-OPERATION-CONSTITUTION.md`](./CLEO-OPERATION-CONSTITUTION.md)
+- [`docs/specs/CLEO-OPERATION-CONSTITUTION.md`](./cleo-operation-constitution.md)
   — full op catalogue; each op listed there has (or will have) a matching
   entry in a `TypedOpRecord`.
 

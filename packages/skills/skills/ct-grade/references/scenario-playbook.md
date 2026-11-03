@@ -1,6 +1,6 @@
 # Grade Scenario Playbook (Updated)
 
-**Based on**: `docs/specs/GRADE-SCENARIO-PLAYBOOK.md` + current session-grade.ts implementation
+**Based on**: `docs/guide/grade-scenario-playbook.md` + current session-grade.ts implementation
 **Status**: Active — reflects current rubric
 
 Each scenario targets specific grade dimensions. Run via `agents/scenario-runner.md`.
