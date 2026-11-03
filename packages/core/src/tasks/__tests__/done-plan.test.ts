@@ -1612,6 +1612,70 @@ describe('T14198: a criterion added to --satisfies after every gate is recorded'
   });
 });
 
+describe('T14209: a criterion a live binding covers needs no --satisfies', () => {
+  const criteria = [
+    'Change src/a.ts to return 2',
+    'The owner chose the rollout order',
+    'Handles every edge case',
+  ];
+
+  async function receiptOnAc2(): Promise<string> {
+    const id = await seedTask(criteria);
+    commitOnTaskBranch(id);
+    await cacheTestPass();
+    const { storeDecision } = await import('../../memory/decisions.js');
+    const decision = await storeDecision(root, {
+      type: 'technical',
+      decision: 'Roll out to staging before production',
+      rationale: 'Staging catches store migrations first.',
+      confidence: 'high',
+      confirmationState: 'accepted',
+    });
+    const { recordCriterionReceipt } = await import('../criterion-receipt.js');
+    const receipt = await recordCriterionReceipt(root, {
+      taskId: id,
+      evidence: `decision:${decision.id};satisfies:${id}#AC2`,
+    });
+    expect(receipt.success, JSON.stringify(receipt)).toBe(true);
+    return id;
+  }
+
+  it('AC2 bound by a decision receipt: --satisfies AC1,AC3 gives a ready plan', async () => {
+    const id = await receiptOnAc2();
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: ['AC1', 'AC3'],
+    });
+    expect(plan.acMapping[1]).toMatchObject({ alias: 'AC2', mapped: true, basis: 'recorded' });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('ac-mapping-needed');
+    expect(plan.ready, JSON.stringify(plan.blockers)).toBe(true);
+    // AC2 is not bound to the change's code: no gate write names it.
+    expect(plan.commands.some((c) => c.includes(`satisfies:${id}#AC2`))).toBe(false);
+  });
+
+  it('a stale receipt (AC2 edited after it) still blocks with ac-mapping-needed', async () => {
+    const id = await receiptOnAc2();
+    const edited = [criteria[0], 'The owner chose the rollout order and the date', criteria[2]];
+    await env.accessor.transaction(async (tx) => {
+      const existing = await tx.getAcRows(id);
+      const { applyAcPlan, planAcUpdate } = await import('../ac-table.js');
+      await applyAcPlan(tx, id, planAcUpdate(id, existing, edited));
+      await tx.updateTaskFields(id, { acceptanceJson: JSON.stringify(edited) });
+    });
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: ['AC1', 'AC3'],
+    });
+    expect(plan.acMapping[1]).toMatchObject({ alias: 'AC2', mapped: false });
+    expect(plan.blockers.map((b) => b.code)).toContain('ac-mapping-needed');
+    expect(plan.ready).toBe(false);
+  });
+});
+
 describe('the plan and done share one readiness check (T12672)', () => {
   async function researchWithUnknownDecision(): Promise<{
     id: string;
