@@ -1,8 +1,17 @@
 /**
+ * How long a retrieval-log write waits for the write lock (T14202). Past it
+ * the row is dropped, never queued or retried: a search (and the CLI's exit,
+ * which settles this background write) never waits on another writer.
+ */
+export const RETRIEVAL_LOG_BUSY_TIMEOUT_MS = 250;
+
+/**
  * Log a retrieval event to brain_retrieval_log for co-retrieval analysis.
  *
  * Creates the table on first use if it doesn't exist (self-healing).
- * Best-effort: errors are silently swallowed.
+ * Best-effort: errors are swallowed. When another writer holds the store past
+ * {@link RETRIEVAL_LOG_BUSY_TIMEOUT_MS}, the row is dropped with a debug log
+ * line (T14202).
  *
  * @param projectRoot - Project root directory
  * @param query - The search query or fetch IDs
@@ -38,13 +47,15 @@ export async function logRetrieval(
     'session_id TEXT,' +
     "created_at TEXT NOT NULL DEFAULT (datetime('now'))" +
     ')';
+  // Synchronous between the two PRAGMAs: no other work on this connection
+  // runs under the short timeout.
+  let dropped: Error | null = null;
+  let prior: number | undefined;
   try {
+    prior = (nativeDb.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)
+      ?.timeout;
+    nativeDb.exec(`PRAGMA busy_timeout = ${RETRIEVAL_LOG_BUSY_TIMEOUT_MS}`);
     nativeDb.prepare(createSql).run();
-  } catch {
-    return;
-  }
-
-  try {
     nativeDb
       .prepare(
         'INSERT INTO brain_retrieval_log (query, entry_ids, entry_count, source, tokens_used, session_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -57,7 +68,16 @@ export async function logRetrieval(
         tokensUsed ?? null,
         sessionId ?? null,
       );
-  } catch {
-    /* best-effort */
+  } catch (err) {
+    dropped = err instanceof Error ? err : new Error(String(err));
+  } finally {
+    if (typeof prior === 'number') nativeDb.exec(`PRAGMA busy_timeout = ${prior}`);
+  }
+  if (dropped !== null) {
+    const { getLogger } = await import('../../logger.js');
+    getLogger('retrieval-log').debug(
+      { err: dropped, source, entryCount: entryIds.length },
+      'retrieval log row dropped (store busy or unwritable)',
+    );
   }
 }
