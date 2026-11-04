@@ -2,7 +2,7 @@
 
 > **Status**: canonical (2026-05-23) · indexed by `cleo docs fetch cleo-canonical-north-star` (mirror: [`docs/plan/cleo-canonical-north-star.md`](../plan/cleo-canonical-north-star.md))
 > **Layer owned**: Tier 0 Harness Layer (Cockpit TUI · TS Daemon · ZeroMQ IPC · VCM mutex · PTY isolation)
-> **Sibling canon**: [`docs/plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md`](../plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md) — persona/memory layer (Tier 1-14)
+> **Sibling canon**: [`docs/plans/CLEO-PRIME-SENTIENT-MASTERPLAN.md`](../plan/cleo-canonical-north-star.md) — persona/memory layer (Tier 1-14)
 > **Seam between layers**: LAFS envelope (ADR-039); contract hardened by saga **T10343 SG-ENVELOPE-FIRST**
 > **Filed sagas covering this doc's scope** (per `cleo docs fetch sg-canonical-saga-mesh-2026-05-23`; decisions ratified in BRAIN D018-D024):
 > - **T10401 SG-HARNESS-DAEMON-IPC** — `cleo daemon serve` + VCM mutex queue + ZeroMQ data plane + WASI/Docker sandbox (§§2, 7, 8.D, 8.E)

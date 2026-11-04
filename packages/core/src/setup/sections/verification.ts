@@ -30,7 +30,7 @@
  *
  * @task T9594
  * @epic T9591
- * @see docs/plans/E-CLEO-SETUP-V2.md §4.9, §5.2 T9594
+ * @see `cleo docs fetch e-cleo-setup-v2` §4.9, §5.2 T9594
  */
 
 import { existsSync } from 'node:fs';

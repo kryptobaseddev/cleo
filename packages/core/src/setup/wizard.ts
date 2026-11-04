@@ -41,8 +41,8 @@
  * @task T9613
  * @epic T9402
  * @epic T9591
- * @see docs/plans/E-CONFIG-AUTH-UNIFY.md §3.3.5, §5.3 T-E3-1
- * @see docs/plans/E-CLEO-SETUP-V2.md §3.1, §3.2, §3.3, §3.4
+ * @see `cleo docs fetch e-config-auth-unify` §3.3.5, §5.3 T-E3-1
+ * @see `cleo docs fetch e-cleo-setup-v2` §3.1, §3.2, §3.3, §3.4
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';

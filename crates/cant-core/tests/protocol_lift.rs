@@ -9,7 +9,7 @@
 //! - `packages/core/src/validation/protocols/cant/*.cant`
 //! - `packages/core/src/lifecycle/cant/lifecycle-rcasd.cant`
 //!
-//! Reference: `docs/plans/CLEO-ULTRAPLAN.md` Section 17 Wave 4.
+//! Reference: `cleo docs fetch cleo-ultraplan` Section 17 Wave 4.
 
 use cant_core::dsl::ast::DocumentKind;
 use cant_core::dsl::parse_document;

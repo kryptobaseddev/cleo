@@ -6,7 +6,7 @@
  * them before the `getCleoStatus` import resolves (the standard
  * `vi.mock(path, factory)` pattern used elsewhere in `packages/core/src`).
  *
- * Spec: `docs/plans/E-CONFIG-AUTH-UNIFY.md` §5.3 T-E3-4.
+ * Spec: `cleo docs fetch e-config-auth-unify` §5.3 T-E3-4.
  *
  * @task T9423
  */

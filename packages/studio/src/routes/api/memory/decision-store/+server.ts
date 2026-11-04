@@ -5,7 +5,7 @@
  * `packages/core/src/memory/decisions.ts` is not yet promoted to the CORE
  * public API (`packages/core/src/memory/public-api.ts`). Once promoted, this
  * handler should be migrated to call `storeDecision` rather than issuing raw
- * SQL. See docs/plans/E-CORE-FIRST-ARCH.md Task 2.
+ * SQL. See `cleo docs fetch e-core-first-arch` Task 2.
  *
  * POST /api/memory/decision-store
  *   body: {

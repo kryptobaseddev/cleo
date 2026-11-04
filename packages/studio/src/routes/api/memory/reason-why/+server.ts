@@ -6,7 +6,7 @@
  * should expose a `reasonWhyBlocked(taskId, projectRoot)` op in
  * `packages/core/src/memory/public-api.ts` using the existing
  * `memory.reason.why` CLI logic, then migrate this handler.
- * See docs/plans/E-CORE-FIRST-ARCH.md Task 2.
+ * See `cleo docs fetch e-core-first-arch` Task 2.
  *
  * GET /api/memory/reason-why?taskId=<id>
  *

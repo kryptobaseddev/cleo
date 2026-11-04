@@ -246,7 +246,7 @@ pub fn validate_document(doc: &dsl::ast::CantDocument) -> Vec<validate::diagnost
 /// Renders a parsed [`dsl::ast::CantDocument`] back into a `.cant` source string.
 ///
 /// This is the top-level entry point for the `CleoOS` v2 Wave 1 render pipeline
-/// (`docs/plans/CLEO-ULTRAPLAN.md` §17). The renderer is the forward half of
+/// (`cleo docs fetch cleo-ultraplan` §17). The renderer is the forward half of
 /// the byte-identical round-trip contract: any hand-authored fixture that
 /// matches the canonical formatting rules documented on
 /// [`render::render_document`] round-trips `parse → render → parse`

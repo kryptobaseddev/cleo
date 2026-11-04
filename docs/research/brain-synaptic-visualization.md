@@ -4,7 +4,7 @@
 > **Active epic**: [T627 — Stabilization + Phase 2 RCASD](https://github.com/) (Phase 1 epic [T626](https://github.com/) is **done**)
 > **Owner**: keatonhoskins@gmail.com
 > **Subject**: Visualize and instrument CLEO's typed memory + code intelligence + tasks + messaging across all substrates as a single, plastic, living graph.
-> **STDP details**: factored into [docs/plans/stdp-feasibility.md](./stdp-feasibility.md)
+> **STDP details**: factored into [docs/plans/stdp-feasibility.md](../spec/stdp-wire-up.md)
 
 ---
 
@@ -461,7 +461,7 @@ What `/brain` actually renders today, mapped to the target above:
 - [sqlite-rag (sqliteai.com) — skip](https://github.com/sqliteai/sqlite-rag)
 - [sqlite-agent (sqliteai.com) — skip](https://github.com/sqliteai/sqlite-agent)
 
-### STDP / SNN reference (full details in [stdp-feasibility.md](./stdp-feasibility.md))
+### STDP / SNN reference (full details in [stdp-feasibility.md](../spec/stdp-wire-up.md))
 - [BindsNET (PyTorch SNN)](https://github.com/BindsNET/bindsnet)
 - [Brian2 simulator](https://briansimulator.org/)
 - [Inferno SNN framework (2024)](https://arxiv.org/html/2409.11567v1)

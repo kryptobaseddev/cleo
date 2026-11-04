@@ -1,7 +1,7 @@
 /**
  * T9603 / T-WT-4 — Regression test suite for worktree IVTR flow.
  *
- * Covers the four scenarios from docs/plans/E-WORKTREE-IVTR.md §5.1 T-WT-4:
+ * Covers the four scenarios from `cleo docs fetch e-worktree-ivtr` §5.1 T-WT-4:
  *
  * 1. Worktree-spawned agent can verify an `implemented` gate with a commit on
  *    its task branch (T-WT-1 / T-WT-3 fix — getEffectiveHead wired in).

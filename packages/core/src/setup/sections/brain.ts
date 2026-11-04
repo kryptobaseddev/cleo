@@ -30,8 +30,8 @@
  * @task T9610
  * @epic T9402
  * @epic T9591
- * @see docs/plans/E-CLEO-SETUP-V2.md §4.6 (BRAIN-1 through BRAIN-6)
- * @see docs/plans/E-CONFIG-AUTH-UNIFY.md §5.3 T-E3-6
+ * @see `cleo docs fetch e-cleo-setup-v2` §4.6 (BRAIN-1 through BRAIN-6)
+ * @see `cleo docs fetch e-config-auth-unify` §5.3 T-E3-6
  */
 
 import type { MemoryBridgeMode } from '@cleocode/contracts';

@@ -35,7 +35,7 @@
  *
  * @task T9608
  * @epic T9591
- * @see docs/plans/E-CLEO-SETUP-V2.md §4.8, §5.2 T9593
+ * @see `cleo docs fetch e-cleo-setup-v2` §4.8, §5.2 T9593
  */
 
 import {
