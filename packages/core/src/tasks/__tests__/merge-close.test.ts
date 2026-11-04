@@ -665,7 +665,15 @@ describe('a sweep never skips merged PRs past one page (T14101, council review)'
     const id = await seedTask(['only criterion']);
     const all = many(total, (i) => (i === 0 ? `Closes: ${id} AC1` : 'no task'));
     const { deps } = fakeDeps(all);
-    const sweep = { ...deps, listMergedPrs: windowed(all) };
+    // T14214: neither sweep passes --since, so the first reads back
+    // MERGE_SWEEP_LOOKBACK_MS from the sweep's clock. The clock is anchored to
+    // the fixture's merge dates (2026-10-28), never the wall clock: from
+    // 2026-11-04 a wall-clock lookback starts after PR #1000 and drops it.
+    const sweep = {
+      ...deps,
+      listMergedPrs: windowed(all),
+      now: () => Date.UTC(2026, 9, 29),
+    };
     const first = await sweepMergedClosures(root, { force: true }, sweep);
     // Each page after the first repeats its boundary PR (the window is inclusive).
     expect(first.truncated?.read).toBeGreaterThan(
