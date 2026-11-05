@@ -123,6 +123,59 @@ export function claimColumnsOf(claim: TaskClaim | undefined): TaskClaimColumns {
   };
 }
 
+/** Clock override for tests (T14268): milliseconds since the epoch, or null for the wall clock. */
+let claimClockOverride: (() => number) | null = null;
+
+/**
+ * The one clock claim leases are written and read against (T14268), so a read
+ * and a write in the same command agree on whether a lease is live.
+ *
+ * @returns The current instant as ISO-8601 UTC.
+ * @example
+ * ```ts
+ * const live = isLiveClaim(task.claim, claimClockNow());
+ * ```
+ */
+export function claimClockNow(): string {
+  return new Date(claimClockOverride ? claimClockOverride() : Date.now()).toISOString();
+}
+
+/**
+ * Inject the claim clock (tests only). Pass `null` to return to the wall clock.
+ *
+ * @param clock - Returns milliseconds since the epoch, or `null`.
+ * @example
+ * ```ts
+ * setClaimClock(() => Date.parse('2026-11-05T00:00:00Z'));
+ * ```
+ */
+export function setClaimClock(clock: (() => number) | null): void {
+  claimClockOverride = clock;
+}
+
+/**
+ * Whether a task is in progress at `now`: it carries a claim lease that has not
+ * expired (T14268, owner decision D11230). This is the one "active" predicate;
+ * {@link LIVE_CLAIM_SQL} is its SQL form.
+ *
+ * @param claim - The task's lease, if any.
+ * @param now - ISO-8601 UTC instant (defaults to {@link claimClockNow}).
+ * @returns `true` while a lease is live.
+ * @example
+ * ```ts
+ * isLiveClaim(task.claim); // false once the lease lapses, with no write
+ * ```
+ */
+export function isLiveClaim(claim: TaskClaim | undefined, now: string = claimClockNow()): boolean {
+  return claim !== undefined && !isClaimExpired(claim, now);
+}
+
+/**
+ * SQL form of {@link isLiveClaim} over `tasks_tasks` columns; bind one
+ * parameter, the ISO-8601 UTC `now` (T14268).
+ */
+export const LIVE_CLAIM_SQL = '(claimed_by_session IS NOT NULL AND lease_expires_at > ?)';
+
 /**
  * Whether a lease has lapsed at `now`. A lease with no recorded expiry
  * counts as lapsed (it can never be renewed into validity by its holder
