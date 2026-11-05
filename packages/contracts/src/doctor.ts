@@ -962,6 +962,8 @@ export type LegacyBackupOriginHint =
   | 'quarantine-snapshot'
   | 'brain-malformed'
   | 'db-backup-rotation'
+  /** A `<cleoHome>/.cleanup-<version>-<hash>` marker of the retired startup sweep (T14315). */
+  | 'cleanup-marker'
   | 'unknown';
 
 /**

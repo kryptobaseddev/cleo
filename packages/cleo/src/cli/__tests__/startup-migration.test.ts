@@ -30,8 +30,6 @@ const {
   validateGlobalSaltMock,
   getGlobalSaltMock,
   getLoggerMock,
-  isCleanupMarkerSetMock,
-  setCleanupMarkerMock,
   isMissingProjectErrorMock,
   withWarningCollectorMock,
 } = vi.hoisted(() => {
@@ -60,10 +58,6 @@ const {
         Buffer.from('deadbeef0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c', 'hex'),
       ),
     getLoggerMock: vi.fn().mockReturnValue(logInstance),
-    // T9028: one-shot marker mocks — default to false (marker not set) so
-    // existing tests continue to exercise the cleanup code path.
-    isCleanupMarkerSetMock: vi.fn().mockReturnValue(false),
-    setCleanupMarkerMock: vi.fn(),
     // T12733: startup classifies "no project here" through this predicate.
     // Its full rule set is covered in core's missing-project-error.test.ts;
     // here it recognises the E_NO_PROJECT signal these tests throw.
@@ -77,12 +71,10 @@ const {
 
 // T13126: startup imports narrow CORE modules, not the `@cleocode/core/internal`
 // barrel, so each module is mocked where the CLI now imports it from.
+// T14315: startup no longer sweeps; mocked so an accidental call is seen.
 vi.mock('@cleocode/core/store/cleanup-legacy', () => ({
   detectAndRemoveLegacyGlobalFiles: detectAndRemoveLegacyGlobalFilesMock,
   detectAndRemoveStrayProjectNexus: detectAndRemoveStrayProjectNexusMock,
-  // T9028: one-shot cleanup marker helpers
-  isCleanupMarkerSet: isCleanupMarkerSetMock,
-  setCleanupMarker: setCleanupMarkerMock,
 }));
 vi.mock('@cleocode/core/store/global-salt', () => ({
   validateGlobalSalt: validateGlobalSaltMock,
@@ -268,9 +260,6 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     getGlobalSaltMock.mockReturnValue(
       Buffer.from('deadbeef0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c', 'hex'),
     );
-    // T9028: default — marker not set, so cleanup runs (existing test behaviour preserved)
-    isCleanupMarkerSetMock.mockReturnValue(false);
-    setCleanupMarkerMock.mockReset();
   });
 
   afterEach(async () => {
@@ -390,60 +379,25 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     expect(ensureConduitDbMock).not.toHaveBeenCalled();
   });
 
-  // T9028: one-shot marker tests
-  it('T9028: skips both cleanup functions when marker is already set (fast path)', async () => {
-    isCleanupMarkerSetMock.mockReturnValue(true);
-
-    const { runStartupMaintenance } = await import('../index.js');
-    await runStartupMaintenance();
-
-    // Marker is set → neither cleanup function should run
-    expect(detectAndRemoveLegacyGlobalFilesMock).not.toHaveBeenCalled();
-    expect(detectAndRemoveStrayProjectNexusMock).not.toHaveBeenCalled();
-    // setCleanupMarker should NOT be called again when marker already exists
-    expect(setCleanupMarkerMock).not.toHaveBeenCalled();
-  });
-
-  it('T9028: runs both cleanup functions and writes marker on first run (marker not set)', async () => {
-    isCleanupMarkerSetMock.mockReturnValue(false);
-
-    const { runStartupMaintenance } = await import('../index.js');
-    await runStartupMaintenance();
-
-    // No marker → both cleanup functions should run
-    expect(detectAndRemoveLegacyGlobalFilesMock).toHaveBeenCalled();
-    expect(detectAndRemoveStrayProjectNexusMock).toHaveBeenCalledWith('/test/project');
-    // After successful sweep, marker should be written
-    expect(setCleanupMarkerMock).toHaveBeenCalled();
-  });
-
-  it('T9028: writes marker even when cleanup functions return errors (non-fatal)', async () => {
-    isCleanupMarkerSetMock.mockReturnValue(false);
-    detectAndRemoveLegacyGlobalFilesMock.mockReturnValue({
-      removed: [],
-      errors: [{ file: 'x', error: 'EPERM' }],
-    });
-
-    const { runStartupMaintenance } = await import('../index.js');
-    await expect(runStartupMaintenance()).resolves.not.toThrow();
-    // Marker should still be written to prevent re-running a no-op sweep
-    expect(setCleanupMarkerMock).toHaveBeenCalled();
-  });
-
-  it('T9028: skips stray-nexus cleanup when getProjectRoot throws (no project context)', async () => {
-    isCleanupMarkerSetMock.mockReturnValue(false);
-    getProjectRootMock.mockImplementation(() => {
-      throw new Error('E_NO_PROJECT: no .cleo directory found');
-    });
-
-    const { runStartupMaintenance } = await import('../index.js');
-    await expect(runStartupMaintenance()).resolves.not.toThrow();
-    // Global cleanup runs even without project context
-    expect(detectAndRemoveLegacyGlobalFilesMock).toHaveBeenCalled();
-    // Stray nexus cleanup requires a project path — should be skipped
-    expect(detectAndRemoveStrayProjectNexusMock).not.toHaveBeenCalled();
-    // Marker should still be written for the empty-project-root path
-    expect(setCleanupMarkerMock).toHaveBeenCalled();
+  it('T14315: repeated starts run no legacy sweep and leave no .cleanup-* marker', async () => {
+    const { mkdtempSync, readdirSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const home = mkdtempSync(join(tmpdir(), 'cleo-startup-markers-'));
+    vi.stubEnv('CLEO_HOME', home);
+    try {
+      for (let run = 0; run < 3; run++) {
+        vi.resetModules();
+        const { runStartupMaintenance } = await import('../index.js');
+        await runStartupMaintenance();
+      }
+      expect(detectAndRemoveLegacyGlobalFilesMock).not.toHaveBeenCalled();
+      expect(detectAndRemoveStrayProjectNexusMock).not.toHaveBeenCalled();
+      expect(readdirSync(home).filter((name) => name.startsWith('.cleanup-'))).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

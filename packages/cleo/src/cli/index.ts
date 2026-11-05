@@ -786,66 +786,24 @@ export async function runStartupMaintenance(): Promise<void> {
   // Narrow CORE modules, never the `@cleocode/core/internal` barrel (T13126):
   // this runs before every real command, read verbs included.
   const [
-    {
-      detectAndRemoveLegacyGlobalFiles,
-      detectAndRemoveStrayProjectNexus,
-      isCleanupMarkerSet,
-      setCleanupMarker,
-    },
     { getGlobalSalt, validateGlobalSalt },
     { getLogger },
     { getProjectRoot, isMissingProjectError },
     { migrateSignaldockToConduit, needsSignaldockToConduitMigration },
   ] = await Promise.all([
-    import('@cleocode/core/store/cleanup-legacy'),
     import('@cleocode/core/store/global-salt'),
     import('@cleocode/core/logger'),
     import('@cleocode/core/project-scope'),
     import('@cleocode/core/store/migrate-signaldock-to-conduit'),
   ]);
 
-  // ---------------------------------------------------------------------------
-  // One-shot legacy cleanup gated by a per-version marker file (T9028).
-  //
-  // detectAndRemoveLegacyGlobalFiles + detectAndRemoveStrayProjectNexus perform
-  // stat() calls on every invocation even when there is nothing left to clean.
-  // The marker file ~/.cleo/.cleanup-{version}-{projectHash} lets us skip both
-  // functions entirely after the first successful sweep per code version.
-  //
-  // New releases get a new marker name → sweep re-runs exactly once on upgrade.
-  // ---------------------------------------------------------------------------
-  let projectRootForCleanup = '';
-  try {
-    projectRootForCleanup = getProjectRoot();
-  } catch {
-    // E_NO_PROJECT: global command with no project context — use empty string
-    // (produces a stable hash that covers the global-only cleanup path).
-  }
-
-  if (!isCleanupMarkerSet(CLI_VERSION, projectRootForCleanup)) {
-    // One-shot idempotent cleanup of legacy global-tier files (T304 / ADR-036).
-    try {
-      detectAndRemoveLegacyGlobalFiles();
-    } catch {
-      // Non-fatal: legacy cleanup must never break the CLI startup path.
-    }
-
-    // One-shot cleanup of stray project-tier nexus.db (T307 / ADR-036).
-    try {
-      if (projectRootForCleanup) {
-        detectAndRemoveStrayProjectNexus(projectRootForCleanup);
-      }
-    } catch {
-      // Non-fatal: stray-nexus cleanup must never break the CLI startup path.
-    }
-
-    // Mark this version + project as swept so subsequent invocations skip
-    // the stat()-heavy scan entirely.
-    setCleanupMarker(CLI_VERSION, projectRootForCleanup);
-  }
+  // T14315: the per-version legacy cleanup sweep (T9028) no longer runs here.
+  // Its targets predate v2026.4.11 and its marker files were never pruned;
+  // `cleo doctor --scan-stray-nexus-dbs` keeps the cleanup, and
+  // `cleo doctor legacy-backups --prune` removes the old markers.
 
   // ---------------------------------------------------------------------------
-  // T310 startup sequence (spec §4.6) — runs AFTER cleanups and BEFORE any DB
+  // T310 startup sequence (spec §4.6) — runs BEFORE any DB
   // accessor is called so the first command sees the new topology. All steps
   // are non-fatal: errors are logged and CLI continues normally.
   // ---------------------------------------------------------------------------

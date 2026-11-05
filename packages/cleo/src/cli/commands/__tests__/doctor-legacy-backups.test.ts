@@ -308,6 +308,27 @@ describe('doctor legacy-backups (T10309)', () => {
   });
 
   describe('pruneLegacyBackups', () => {
+    it('lists the retired startup-sweep markers per file, and prunes every one (T14315)', () => {
+      const markers = ['.cleanup-2026.5.126-a3f2c1b0', '.cleanup-2026.10.27-0123abcd'];
+      for (const name of markers) seedFileAged(join(cleoHomeOverride, name), 1, '');
+      // Not a marker: no 8-hex project hash, and a marker name below the root.
+      seedFileAged(join(cleoHomeOverride, '.cleanup-notes'), 1);
+      mkdirSync(join(cleoHomeOverride, 'nested'), { recursive: true });
+      seedFileAged(join(cleoHomeOverride, 'nested', '.cleanup-2026.5.1-a3f2c1b0'), 1);
+
+      const plan = pruneLegacyBackups(projectRoot, { nowMs: FROZEN_NOW_MS });
+      const listed = plan.pruned.filter((e) => e.originHint === 'cleanup-marker');
+      expect(listed.map((e) => e.path).sort()).toEqual(
+        markers.map((name) => join(cleoHomeOverride, name)).sort(),
+      );
+      for (const name of markers) expect(existsSync(join(cleoHomeOverride, name))).toBe(true);
+
+      pruneLegacyBackups(projectRoot, { nowMs: FROZEN_NOW_MS, dryRun: false });
+      for (const name of markers) expect(existsSync(join(cleoHomeOverride, name))).toBe(false);
+      expect(existsSync(join(cleoHomeOverride, '.cleanup-notes'))).toBe(true);
+      expect(existsSync(join(cleoHomeOverride, 'nested', '.cleanup-2026.5.1-a3f2c1b0'))).toBe(true);
+    });
+
     it('defaults to dry-run and removes nothing from disk', () => {
       seedFileAged(join(cleoHomeOverride, 'tasks-pre-cleo.db.bak'), 200);
       const result = pruneLegacyBackups(projectRoot, { nowMs: FROZEN_NOW_MS });

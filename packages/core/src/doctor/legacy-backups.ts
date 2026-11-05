@@ -11,6 +11,7 @@
  *   - `<projectRoot>/.cleo/backups/safety/` (T5158 pre-untrack siblings)
  *   - `<cleoHome>/`                          (global tier legacy DBs)
  *   - `<cleoHome>/nexus/`                    (nested-nexus legacy DBs)
+ *   - `<cleoHome>/.cleanup-*`                (retired startup-sweep markers, T14315)
  *
  * Each match is classified by `LegacyBackupOriginHint` and given a
  * retention recommendation (`keep` / `compress` / `delete`) based on the
@@ -61,6 +62,9 @@ export const DEFAULT_SOFT_RETENTION_DAYS = 30;
  * quarantine tree are classified `delete`.
  */
 export const DEFAULT_HARD_RETENTION_DAYS = 90;
+
+/** A marker the retired startup cleanup sweep wrote: `.cleanup-<version>-<8 hex>` (T14315). */
+const CLEANUP_MARKER = /^\.cleanup-.+-[0-9a-f]{8}$/;
 
 /**
  * One millisecond budget per day (used for day-rounded age math).
@@ -421,6 +425,22 @@ export function scanLegacyBackups(
     entry.reason = `rotation overflow — ${reco.reason}`;
     seen.add(overflowPath);
     entries.push(entry);
+  }
+
+  // T14315: the retired startup sweep left one marker per (version, project)
+  // at the CLEO home root and never pruned them. They gate nothing now, so
+  // every one is a delete candidate whatever its age.
+  for (const entry of safeReaddir(cleoHome)) {
+    if (!entry.isFile() || !CLEANUP_MARKER.test(entry.name)) continue;
+    const markerPath = join(cleoHome, entry.name);
+    if (seen.has(markerPath)) continue;
+    const marker = mintEntry(markerPath, nowMs, softRetentionDays, hardRetentionDays);
+    if (marker === null) continue;
+    marker.originHint = 'cleanup-marker';
+    marker.recommendation = 'delete';
+    marker.reason = 'marker of the retired startup cleanup sweep (T14315) — gates nothing';
+    seen.add(markerPath);
+    entries.push(marker);
   }
 
   entries.sort((a, b) => a.path.localeCompare(b.path));

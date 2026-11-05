@@ -1523,9 +1523,6 @@ export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/clean
 export {
   detectAndRemoveLegacyGlobalFiles,
   detectAndRemoveStrayProjectNexus,
-  getCleanupMarkerPath,
-  isCleanupMarkerSet,
-  setCleanupMarker,
 } from './store/cleanup-legacy.js';
 // DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
 export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';

@@ -163,7 +163,6 @@ export const GLOBAL_HOME_RULES: SectionRules = {
     '.backups': 'local snapshots (regenerable)',
     locks: 'lock directory (machine-local runtime state)',
     cache: 'cache (regenerable)',
-    '.cleanup-*': 'upgrade cleanup markers (machine-local)',
     '.cleo-import-*': 'in-progress import staging',
   },
   excludedDirNamesAnywhere: {
