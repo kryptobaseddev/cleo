@@ -34,7 +34,12 @@
 
 import { isStorableTaskId } from '@cleocode/contracts/task-id.js';
 import { sql } from 'drizzle-orm';
-import { openDualScopeDb } from '../store/dual-scope-db.js';
+import { getDualScopeNativeDb, openDualScopeDb } from '../store/dual-scope-db.js';
+import {
+  type FollowUpRekeyReport,
+  LEGACY_FOLLOWUP_ID,
+  rekeyLegacyFollowUps,
+} from './legacy-followup-rekey.js';
 
 /**
  * Columns that hold a task id, by convention across the prefixed schema.
@@ -106,20 +111,25 @@ export interface MalformedTaskIdReport {
    * so the repair reports them and stops.
    */
   readonly refused: readonly string[];
+  /**
+   * The legacy `T-RECONCILE-FOLLOWUP-*` rows (T14324): listed with the id each
+   * would take, or re-keyed by `--fix`. They are not in {@link rows}: they get
+   * a `T####` through the journal re-mint path, never a delete.
+   */
+  readonly followUps: FollowUpRekeyReport;
 }
 
 /**
  * Find task rows whose id could not be an identifier at all.
  *
- * Uses {@link isStorableTaskId}, NOT the canonical {@link isTaskId}. That
- * distinction is load-bearing: CLEO deliberately mints structured ids such as
- * `T-RECONCILE-FOLLOWUP-v2026.5.63-6` (see `archive-reason-invariant.ts`) which
- * the canonical pattern rejects. Reporting those here would be wrong, and
- * `--fix` would DELETE working release follow-up tasks.
+ * Uses {@link isStorableTaskId}. The legacy `T-RECONCILE-FOLLOWUP-*` rows are
+ * working follow-up tasks, never malformed rows here: they are re-keyed
+ * ({@link rekeyLegacyFollowUps}), never deleted, so they stay out of the scan
+ * once `isStorableTaskId` narrows to the task grammar (T14324).
  *
  * @param cwd - project root.
- * @param opts - `fix: true` deletes rows that nothing references; default is
- *               read-only. Rows WITH references are never deleted — see
+ * @param opts - `fix: true` re-keys the legacy follow-ups and deletes rows that
+ *               nothing references; `dryRun` (or no `fix`) is read-only. Rows WITH references are never deleted — see
  *               {@link MalformedTaskIdReport.refused}.
  * @returns the rows found, their references, and what was deleted or refused.
  *
@@ -133,9 +143,15 @@ export interface MalformedTaskIdReport {
  */
 export async function scanMalformedTaskIds(
   cwd: string,
-  opts: { fix?: boolean } = {},
+  opts: { fix?: boolean; dryRun?: boolean } = {},
 ): Promise<MalformedTaskIdReport> {
-  const { db } = await openDualScopeDb('project', cwd);
+  const handle = await openDualScopeDb('project', cwd);
+  const { db } = handle;
+  const fix = opts.fix === true && opts.dryRun !== true;
+
+  // T14324: re-key the legacy follow-ups first, so the scan below never
+  // deletes or refuses them.
+  const followUps = await rekeyLegacyFollowUps(getDualScopeNativeDb(handle), cwd, { apply: fix });
 
   // Every prefixed table holding a task-id-shaped column. Discovered from the
   // live schema rather than hardcoded, so a table added later is covered
@@ -165,6 +181,7 @@ export async function scanMalformedTaskIds(
   for (const raw of all) {
     if (isStorableTaskId(raw.id)) continue;
     const id = String(raw.id);
+    if (LEGACY_FOLLOWUP_ID.test(id)) continue;
 
     const dependents: DependentRows[] = [];
     for (const { table, column } of refs) {
@@ -195,7 +212,7 @@ export async function scanMalformedTaskIds(
   let deleted = false;
   const refused = rows.filter((r) => r.dependents.length > 0);
 
-  if (opts.fix && rows.length > 0 && refused.length === 0) {
+  if (fix && rows.length > 0 && refused.length === 0) {
     // One transaction: a partially-repaired store is worse than an unrepaired
     // one, because the operator would then have to re-derive which rows were
     // left behind — and these are the rows no query can name.
@@ -212,5 +229,5 @@ export async function scanMalformedTaskIds(
     }
   }
 
-  return { rows, deleted, refused: refused.map((r) => r.id) };
+  return { rows, deleted, refused: refused.map((r) => r.id), followUps };
 }
