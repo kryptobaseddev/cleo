@@ -32,10 +32,12 @@
  */
 
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -51,6 +53,15 @@ import { getCleoHome, getCleoPlatformPaths } from '@cleocode/paths';
  * @internal
  */
 export const GLOBAL_CONFIG_FILENAME = 'config.json';
+
+/**
+ * File mode for every global `config.json` write (owner read/write only).
+ * The file can hold flat provider keys (`legacy-flat-key-import.ts`), so no
+ * other local user may read it (T14221).
+ *
+ * @public
+ */
+export const GLOBAL_CONFIG_FILE_MODE = 0o600;
 
 /**
  * Subdirectory in the data dir where migration markers are stamped.
@@ -186,8 +197,11 @@ export function migrateGlobalConfigToConfigDir(): boolean {
     // the final path. rename(2) is atomic on the same filesystem (always true
     // here — both paths are inside the config dir).
     const temp = tempTargetPath();
-    writeFileSync(temp, raw, { mode: 0o644 });
+    // A stale temp keeps its old mode; recreate it so the 0600 mode applies.
+    if (existsSync(temp)) unlinkSync(temp);
+    writeFileSync(temp, raw, { mode: GLOBAL_CONFIG_FILE_MODE });
     renameSync(temp, target);
+    chmodSync(target, GLOBAL_CONFIG_FILE_MODE);
 
     // Stamp the migration marker — must come BEFORE the source rename so a
     // crash between rename(temp→target) and marker write doesn't leave the
@@ -296,4 +310,45 @@ export function ensureGlobalConfigMigrated(): void {
  */
 export function _resetGlobalConfigMigrationLatch(): void {
   hasRunInProcess = false;
+}
+
+/** One global `config.json` checked by {@link auditGlobalConfigModes}. */
+export interface GlobalConfigModeFinding {
+  /** Absolute path of the file. */
+  readonly path: string;
+  /** Permission bits before any fix, e.g. `0o644`. */
+  readonly mode: number;
+  /** True when group or others can read or write it. */
+  readonly exposed: boolean;
+  /** True when this call tightened it to {@link GLOBAL_CONFIG_FILE_MODE}. */
+  readonly fixed: boolean;
+}
+
+/**
+ * Report the global `config.json` files (config dir and legacy data dir)
+ * that group or others can access, and with `fix` tighten them to
+ * {@link GLOBAL_CONFIG_FILE_MODE} (T14221). POSIX only: on Windows the mode
+ * bits do not express access, so nothing is reported.
+ *
+ * @param opts - `fix` chmods each exposed file to 0600.
+ * @returns One finding per existing file.
+ *
+ * @public
+ */
+export function auditGlobalConfigModes(opts: { fix: boolean }): GlobalConfigModeFinding[] {
+  if (process.platform === 'win32') return [];
+  const findings: GlobalConfigModeFinding[] = [];
+  const paths = [...new Set([configDirGlobalConfigPath(), legacyGlobalConfigPath()])];
+  for (const path of paths) {
+    if (!existsSync(path)) continue;
+    const mode = statSync(path).mode & 0o777;
+    const exposed = (mode & 0o077) !== 0;
+    let fixed = false;
+    if (exposed && opts.fix) {
+      chmodSync(path, GLOBAL_CONFIG_FILE_MODE);
+      fixed = true;
+    }
+    findings.push({ path, mode, exposed, fixed });
+  }
+  return findings;
 }

@@ -396,5 +396,13 @@ async function _writeSuperviseStudioConfig(value: boolean): Promise<void> {
   config['daemon'] = { ...daemonCfg, superviseStudio: value };
 
   await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  // The global config can hold provider keys: owner-only, and an existing
+  // file is tightened too (writeFile's mode applies only on create) (T14221).
+  const { chmod } = await import('node:fs/promises');
+  const { GLOBAL_CONFIG_FILE_MODE } = await import('../llm/global-config-migration.js');
+  await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', {
+    encoding: 'utf-8',
+    mode: GLOBAL_CONFIG_FILE_MODE,
+  });
+  await chmod(configPath, GLOBAL_CONFIG_FILE_MODE);
 }
