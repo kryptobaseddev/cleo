@@ -89,7 +89,7 @@ describe('WorkGraph planning doc generator', () => {
       // Seed saga + 2 epics + tasks
       await createTask(
         makeTask({
-          id: 'SG-TEST',
+          id: 'T96012',
           title: 'Test Saga',
           type: 'saga',
           description: 'A test saga for planning doc generation',
@@ -100,28 +100,28 @@ describe('WorkGraph planning doc generator', () => {
       // Epic 1 — done
       await createTask(
         makeTask({
-          id: 'EP-1',
+          id: 'T96000',
           title: 'First Epic',
           type: 'epic',
-          parentId: 'SG-TEST',
+          parentId: 'T96012',
           status: 'done',
         }),
       );
       await createTask(
         makeTask({
-          id: 'T-1A',
+          id: 'T97022',
           title: 'Task 1A — done',
           type: 'task',
-          parentId: 'EP-1',
+          parentId: 'T96000',
           status: 'done',
         }),
       );
       await createTask(
         makeTask({
-          id: 'T-1B',
+          id: 'T97023',
           title: 'Task 1B — done',
           type: 'task',
-          parentId: 'EP-1',
+          parentId: 'T96000',
           status: 'done',
         }),
       );
@@ -129,64 +129,64 @@ describe('WorkGraph planning doc generator', () => {
       // Epic 2 — active with mixed children
       await createTask(
         makeTask({
-          id: 'EP-2',
+          id: 'T96001',
           title: 'Second Epic',
           type: 'epic',
-          parentId: 'SG-TEST',
+          parentId: 'T96012',
           status: 'active',
         }),
       );
       await createTask(
         makeTask({
-          id: 'T-2A',
+          id: 'T97024',
           title: 'Task 2A — active',
           type: 'task',
-          parentId: 'EP-2',
+          parentId: 'T96001',
           status: 'active',
         }),
       );
       await createTask(
         makeTask({
-          id: 'T-2B',
+          id: 'T97025',
           title: 'Task 2B — pending',
           type: 'task',
-          parentId: 'EP-2',
+          parentId: 'T96001',
           status: 'pending',
-          depends: ['T-2A'],
+          depends: ['T97024'],
         }),
       );
       await createTask(
         makeTask({
-          id: 'T-2C',
+          id: 'T97026',
           title: 'Task 2C — pending, ready',
           type: 'task',
-          parentId: 'EP-2',
+          parentId: 'T96001',
           status: 'pending',
           depends: [],
         }),
       );
 
-      const result = await generatePlanningDoc(tempDir, { sagaId: 'SG-TEST' });
+      const result = await generatePlanningDoc(tempDir, { sagaId: 'T96012' });
 
       // Basic structure assertions
-      expect(result.sagaId).toBe('SG-TEST');
+      expect(result.sagaId).toBe('T96012');
       expect(result.sagaTitle).toBe('Test Saga');
       expect(result.audience).toBe('maintainer');
       expect(result.estimatedTokens).toBeGreaterThan(0);
       expect(result.generatedAt).toBeTruthy();
       expect(result.markdown).toContain('Test Saga');
-      expect(result.markdown).toContain('SG-TEST');
+      expect(result.markdown).toContain('T96012');
 
       // Epic entries
       expect(result.epics).toHaveLength(2);
 
-      const ep1 = result.epics.find((e) => e.epicId === 'EP-1');
+      const ep1 = result.epics.find((e) => e.epicId === 'T96000');
       expect(ep1).toBeDefined();
       expect(ep1!.completionPct).toBe(100);
       expect(ep1!.doneChildren).toBe(2);
       expect(ep1!.totalChildren).toBe(2);
 
-      const ep2 = result.epics.find((e) => e.epicId === 'EP-2');
+      const ep2 = result.epics.find((e) => e.epicId === 'T96001');
       expect(ep2).toBeDefined();
       expect(ep2!.completionPct).toBe(0);
       expect(ep2!.doneChildren).toBe(0);
@@ -194,15 +194,15 @@ describe('WorkGraph planning doc generator', () => {
       expect(ep2!.pendingChildren).toBe(2);
 
       // Ready task
-      const ready = result.readyTasks.find((t) => t.id === 'T-2C');
+      const ready = result.readyTasks.find((t) => t.id === 'T97026');
       expect(ready).toBeDefined();
-      expect(ready!.epicId).toBe('EP-2');
+      expect(ready!.epicId).toBe('T96001');
       expect(ready!.depends).toEqual([]);
 
       // Blocked task
-      const blocked = result.blockedTasks.find((t) => t.id === 'T-2B');
+      const blocked = result.blockedTasks.find((t) => t.id === 'T97025');
       expect(blocked).toBeDefined();
-      expect(blocked!.blockedBy).toEqual(['T-2A']);
+      expect(blocked!.blockedBy).toEqual(['T97024']);
     });
 
     it('handles empty saga (no member epics)', async () => {
@@ -211,7 +211,7 @@ describe('WorkGraph planning doc generator', () => {
 
       await createTask(
         makeTask({
-          id: 'SG-EMPTY',
+          id: 'T96007',
           title: 'Empty Saga',
           type: 'saga',
           description: 'Saga with no members',
@@ -219,7 +219,7 @@ describe('WorkGraph planning doc generator', () => {
         }),
       );
 
-      const result = await generatePlanningDoc(tempDir, { sagaId: 'SG-EMPTY' });
+      const result = await generatePlanningDoc(tempDir, { sagaId: 'T96007' });
 
       expect(result.epics).toHaveLength(0);
       expect(result.readyTasks).toHaveLength(0);
@@ -246,26 +246,26 @@ describe('WorkGraph planning doc generator', () => {
       const { generatePlanningDoc } = await import('../scaffold-plan.js');
 
       await createTask(
-        makeTask({ id: 'SG-SSOT', title: 'SSoT Saga', type: 'saga', status: 'active' }),
+        makeTask({ id: 'T96011', title: 'SSoT Saga', type: 'saga', status: 'active' }),
       );
       await createTask(
         makeTask({
-          id: 'EP-SSOT',
+          id: 'T96005',
           title: 'SSoT Epic',
           type: 'epic',
-          parentId: 'SG-SSOT',
+          parentId: 'T96011',
           status: 'done',
         }),
       );
 
-      const result = await generatePlanningDoc(tempDir, { sagaId: 'SG-SSOT' });
+      const result = await generatePlanningDoc(tempDir, { sagaId: 'T96011' });
 
       // AC2: result carries structured data for attachment
       expect(result.markdown).toBeTruthy();
       expect(result.epics).toBeDefined();
       expect(result.readyTasks).toBeDefined();
       expect(result.blockedTasks).toBeDefined();
-      expect(result.sagaId).toBe('SG-SSOT');
+      expect(result.sagaId).toBe('T96011');
       expect(result.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
       // Epics have the right shape for attachment metadata
@@ -292,10 +292,10 @@ describe('WorkGraph planning doc generator', () => {
       const { generatePlanningDoc } = await import('../scaffold-plan.js');
 
       await createTask(
-        makeTask({ id: 'SG-IDX', title: 'Index Saga', type: 'saga', status: 'active' }),
+        makeTask({ id: 'T96008', title: 'Index Saga', type: 'saga', status: 'active' }),
       );
 
-      const result = await generatePlanningDoc(tempDir, { sagaId: 'SG-IDX' });
+      const result = await generatePlanningDoc(tempDir, { sagaId: 'T96008' });
 
       // Has planning document header
       expect(result.markdown).toContain('Planning Document');
@@ -320,7 +320,7 @@ describe('WorkGraph planning doc generator', () => {
 
       await createTask(
         makeTask({
-          id: 'SG-MODE',
+          id: 'T96009',
           title: 'Mode Test Saga',
           type: 'saga',
           status: 'active',
@@ -328,19 +328,19 @@ describe('WorkGraph planning doc generator', () => {
       );
       await createTask(
         makeTask({
-          id: 'EP-M1',
+          id: 'T96003',
           title: 'Mode Epic 1',
           type: 'epic',
-          parentId: 'SG-MODE',
+          parentId: 'T96009',
           status: 'active',
         }),
       );
       await createTask(
         makeTask({
-          id: 'T-M1A',
+          id: 'T97029',
           title: 'Ready task for mode test',
           type: 'task',
-          parentId: 'EP-M1',
+          parentId: 'T96003',
           status: 'pending',
           depends: [],
           priority: 'high',
@@ -348,11 +348,11 @@ describe('WorkGraph planning doc generator', () => {
       );
 
       const agentResult = await generatePlanningDoc(tempDir, {
-        sagaId: 'SG-MODE',
+        sagaId: 'T96009',
         audience: 'agent',
       });
       const maintainerResult = await generatePlanningDoc(tempDir, {
-        sagaId: 'SG-MODE',
+        sagaId: 'T96009',
         audience: 'maintainer',
       });
 
@@ -380,23 +380,23 @@ describe('WorkGraph planning doc generator', () => {
       const { generatePlanningDoc } = await import('../scaffold-plan.js');
 
       await createTask(
-        makeTask({ id: 'SG-AG', title: 'Agent Saga', type: 'saga', status: 'active' }),
+        makeTask({ id: 'T96006', title: 'Agent Saga', type: 'saga', status: 'active' }),
       );
       await createTask(
         makeTask({
-          id: 'EP-AG',
+          id: 'T96002',
           title: 'Agent Epic',
           type: 'epic',
-          parentId: 'SG-AG',
+          parentId: 'T96006',
           status: 'active',
         }),
       );
       await createTask(
         makeTask({
-          id: 'T-AG-READY',
+          id: 'T97028',
           title: 'Agent mode ready task',
           type: 'task',
-          parentId: 'EP-AG',
+          parentId: 'T96002',
           status: 'pending',
           depends: [],
           priority: 'high',
@@ -404,29 +404,29 @@ describe('WorkGraph planning doc generator', () => {
       );
       await createTask(
         makeTask({
-          id: 'T-AG-BLOCKED',
+          id: 'T97027',
           title: 'Agent mode blocked task',
           type: 'task',
-          parentId: 'EP-AG',
+          parentId: 'T96002',
           status: 'blocked',
-          depends: ['T-AG-READY'],
+          depends: ['T97028'],
           priority: 'medium',
         }),
       );
 
       const result = await generatePlanningDoc(tempDir, {
-        sagaId: 'SG-AG',
+        sagaId: 'T96006',
         audience: 'agent',
       });
 
       // Has ready section
       expect(result.markdown).toContain('### Ready');
-      expect(result.markdown).toContain('T-AG-READY');
+      expect(result.markdown).toContain('T97028');
       expect(result.markdown).toContain('(high)');
 
       // Has blocked section
       expect(result.markdown).toContain('### Blocked');
-      expect(result.markdown).toContain('T-AG-BLOCKED');
+      expect(result.markdown).toContain('T97027');
 
       // Has overall metrics
       expect(result.markdown).toContain('Overall:');
@@ -440,7 +440,7 @@ describe('WorkGraph planning doc generator', () => {
 
       await createTask(
         makeTask({
-          id: 'SG-REC',
+          id: 'T96010',
           title: 'Recommendation Saga',
           type: 'saga',
           status: 'active',
@@ -448,20 +448,20 @@ describe('WorkGraph planning doc generator', () => {
       );
       await createTask(
         makeTask({
-          id: 'EP-REC',
+          id: 'T96004',
           title: 'Rec Epic',
           type: 'epic',
-          parentId: 'SG-REC',
+          parentId: 'T96010',
           status: 'active',
         }),
       );
       // Multiple ready tasks to trigger parallelization recommendation
       await createTask(
         makeTask({
-          id: 'T-REC-R1',
+          id: 'T97031',
           title: 'Ready task 1',
           type: 'task',
-          parentId: 'EP-REC',
+          parentId: 'T96004',
           status: 'pending',
           depends: [],
           priority: 'high',
@@ -469,10 +469,10 @@ describe('WorkGraph planning doc generator', () => {
       );
       await createTask(
         makeTask({
-          id: 'T-REC-R2',
+          id: 'T97032',
           title: 'Ready task 2',
           type: 'task',
-          parentId: 'EP-REC',
+          parentId: 'T96004',
           status: 'pending',
           depends: [],
           priority: 'medium',
@@ -480,10 +480,10 @@ describe('WorkGraph planning doc generator', () => {
       );
       await createTask(
         makeTask({
-          id: 'T-REC-R3',
+          id: 'T97033',
           title: 'Ready task 3',
           type: 'task',
-          parentId: 'EP-REC',
+          parentId: 'T96004',
           status: 'pending',
           depends: [],
           priority: 'low',
@@ -492,25 +492,25 @@ describe('WorkGraph planning doc generator', () => {
       // Blocked task
       await createTask(
         makeTask({
-          id: 'T-REC-BLOCKED',
+          id: 'T97030',
           title: 'Blocked task',
           type: 'task',
-          parentId: 'EP-REC',
+          parentId: 'T96004',
           status: 'blocked',
-          depends: ['T-REC-R1'],
+          depends: ['T97031'],
           priority: 'medium',
         }),
       );
 
       const result = await generatePlanningDoc(tempDir, {
-        sagaId: 'SG-REC',
+        sagaId: 'T96010',
         audience: 'maintainer',
       });
 
       // Has recommendations
       expect(result.markdown).toContain('## Recommendations');
       // Mentions ready tasks
-      expect(result.markdown).toContain('T-REC-R1');
+      expect(result.markdown).toContain('T97031');
       // Mentions blocked task
       expect(result.markdown).toContain('blocked');
       // Has parallelization recommendation
