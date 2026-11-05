@@ -99,6 +99,10 @@ export interface CommitCheck {
   runAttempt?: number;
   /** ISO 8601 time the run (or this attempt of it) started, when known (T14026). */
   startedAt?: string;
+  /** The workflow run a job belongs to, when read per attempt (T14253). */
+  runId?: number;
+  /** ISO 8601 time the job completed, when read per attempt (T14253). */
+  completedAt?: string;
 }
 
 /** A judged check: which run, on which commit, attests a required name. */
@@ -2765,6 +2769,69 @@ export async function defaultFetchChecks(
       });
     }
     if (runs.length < 100) break;
+  }
+  return { ok: true, checks };
+}
+
+/**
+ * Every attempt's jobs of the GitHub Actions `event` runs on `sha` (T14253):
+ * `commits/<sha>/check-runs` keeps only each job's latest attempt, so a
+ * rerun would replace the evidence; `actions/runs/<id>/attempts/<n>/jobs`
+ * keeps each attempt, with its run id, attempt number and times.
+ *
+ * @param sha - The commit.
+ * @param cwd - Repository work tree for `gh`.
+ * @param event - The triggering event (`push` for main).
+ * @returns The jobs of every attempt, or why they could not be read.
+ * @task T14253
+ */
+export async function defaultFetchRunAttemptJobs(
+  sha: string,
+  cwd: string,
+  event = 'push',
+): Promise<{ ok: true; checks: CommitCheck[] } | { ok: false; reason: string }> {
+  if (!isGitWorkTree(cwd) || !isGhCliAvailable()) {
+    return { ok: false, reason: `gh cannot query runs from ${cwd} (no work tree or gh CLI).` };
+  }
+  const wf = ghApi(
+    `repos/{owner}/{repo}/actions/runs?head_sha=${sha}&event=${event}&per_page=100`,
+    cwd,
+  ) as { workflow_runs?: Array<Record<string, unknown>> } | null;
+  if (wf === null) return { ok: false, reason: `gh api workflow runs for ${sha} failed` };
+  const checks: CommitCheck[] = [];
+  for (const run of wf.workflow_runs ?? []) {
+    const runId = Number(run.id ?? 0);
+    const attempts = typeof run.run_attempt === 'number' ? run.run_attempt : 1;
+    const path = typeof run.path === 'string' ? run.path.replace(/@.*$/, '') : undefined;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      for (let page = 1; page <= 5; page++) {
+        const body = ghApi(
+          `repos/{owner}/{repo}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100&page=${page}`,
+          cwd,
+        ) as { jobs?: Array<Record<string, unknown>> } | null;
+        if (body === null)
+          return { ok: false, reason: `gh api jobs of run ${runId} attempt ${attempt} failed` };
+        const jobs = body.jobs ?? [];
+        for (const j of jobs) {
+          checks.push({
+            name: String(j.name ?? ''),
+            source: 'check-run',
+            status: String(j.status ?? ''),
+            conclusion: typeof j.conclusion === 'string' ? j.conclusion : null,
+            headSha: String(j.head_sha ?? sha),
+            id: Number(j.id ?? 0),
+            appSlug: 'github-actions',
+            event,
+            runId,
+            runAttempt: typeof j.run_attempt === 'number' ? j.run_attempt : attempt,
+            ...(path ? { workflowPath: path } : {}),
+            ...(typeof j.started_at === 'string' ? { startedAt: j.started_at } : {}),
+            ...(typeof j.completed_at === 'string' ? { completedAt: j.completed_at } : {}),
+          });
+        }
+        if (jobs.length < 100) break;
+      }
+    }
   }
   return { ok: true, checks };
 }

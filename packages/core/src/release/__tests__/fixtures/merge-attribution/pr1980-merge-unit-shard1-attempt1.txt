@@ -1,0 +1,28 @@
+2026-10-10T06:58:04.6552521Z      [33m[2m✓[22m[39m rejects an installed runner edited after pack, before loading or executing it [33m 1200[2mms[22m[39m
+2026-10-10T06:58:04.6554338Z      [33m[2m✓[22m[39m rejects a preview inventory and ambiguous package identities [33m 1200[2mms[22m[39m
+2026-10-10T06:58:04.6556195Z      [33m[2m✓[22m[39m preserves pre-existing project instruction bytes and refuses conflict [33m 1285[2mms[22m[39m
+2026-10-10T06:58:04.6558833Z      [33m[2m✓[22m[39m preserves original deadline/cancellation through preparation without launch or bootstrap writes [33m 1136[2mms[22m[39m
+2026-10-10T06:58:04.6560984Z      [33m[2m✓[22m[39m refuses package symlinks escaping the isolated installation [33m 1079[2mms[22m[39m
+2026-10-10T06:58:04.6648769Z 
+2026-10-10T06:58:04.6664997Z [2m Test Files [22m [1m[32m260 passed[39m[22m[90m (260)[39m
+2026-10-10T06:58:04.6688574Z [2m      Tests [22m [1m[32m3333 passed[39m[22m[2m | [22m[33m3 skipped[39m[2m | [22m[90m1 todo[39m[90m (3337)[39m
+2026-10-10T06:58:04.6689850Z [2m   Start at [22m 06:51:57
+2026-10-10T06:58:04.6694440Z [2m   Duration [22m 366.76s[2m (transform 38.33s, setup 5.27s, import 136.21s, tests 551.38s, environment 30ms)[22m
+2026-10-10T06:58:04.6696762Z 
+2026-10-10T06:58:04.6875684Z JSON report written to /tmp/flaky-quarantine-PkBkVV/first.json
+2026-10-10T06:58:05.5072411Z ### Flaky quarantine over budget
+2026-10-10T06:58:05.5072787Z 
+2026-10-10T06:58:05.5073478Z 11 tests are quarantined (most 10). Fix flaky tests and close their `flaky-quarantine` issues.
+2026-10-10T06:58:05.5074178Z 
+2026-10-10T06:58:05.5075017Z - `packages/adapters/src/providers/shared/__tests__/heavy-command-hook-delivery.test.ts` > probeHeavyHookCli reports a cleo without `cleo hook` as older, with the remedy
+2026-10-10T06:58:05.5077805Z - `packages/cleo/src/cli/__tests__/decide-duplicate-exit.test.ts` > T12492 — cleo add exits promptly with an unreachable System One slow DNS (resolver query never answered)
+2026-10-10T06:58:05.5080490Z - `packages/core/src/memory/__tests__/brain-stdp-wave2.test.ts` > STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks) T691 — novelty boost k=1.5 on first co-retrieval T691-1: NEW edge weight is ~1.5× standard Δw (INSERT path)
+2026-10-10T06:58:05.5082189Z - `packages/core/src/nexus/__tests__/living-brain.test.ts` > living-brain SDK trustworthy knowledge coverage preserves T448 file evidence and symbol context with optional analyzer execution failure
+2026-10-10T06:58:05.5083740Z - `scripts/__tests__/lint-stdout-discipline.test.mjs` > lint-stdout-discipline — strict mode fails when any violations exist (including baseline)
+2026-10-10T06:58:05.5085456Z - `scripts/__tests__/lint-stdout-write-allowlist.test.mjs` > lint-stdout-write-allowlist — check mode (default) rejects a deliberate new violation in a non-allowlisted file
+2026-10-10T06:58:05.5088257Z - `packages/core/src/decide/__tests__/observation-owner-sites-exit.test.ts` > T12494 — observation-type and owner-decision sites exit promptly with an unreachable System One observe: slow module load + fast provider — still answered
+2026-10-10T06:58:05.5091083Z - `scripts/__tests__/lint-no-raw-table-writes.test.mjs` > lint-no-raw-table-writes on the real repository passes --check against the committed baseline
+2026-10-10T06:58:05.5092799Z - `packages/core/src/__tests__/project-info.test.ts` > getProjectInfoSync reads project-info.json synchronously
+2026-10-10T06:58:05.5095236Z - `packages/core/src/orchestration/__tests__/spawn-retrieval-parity.test.ts` > M1 spawn-retrieval-parity — E3 GREEN (T1260) degrades gracefully when sessionId absent — no PSYCHE-MEMORY and no crash
+2026-10-10T06:58:05.5099109Z - `packages/core/src/store/__tests__/agent-resolver.test.ts` > W2-4 resolveAgent — 4-tier precedence with real sqlite T9037 — resolveDefaultUniversalBasePath resolves via require.resolve even when fileURL path would differ (published-CLI simulation)
+2026-10-10T06:58:05.5114744Z ##[error]Process completed with exit code 1.
