@@ -33,7 +33,7 @@ import { remintDisplayKey } from '../../store/sync/collision-settle.js';
 import { setSyncFlag } from '../../store/sync/flags.js';
 import { stageTxns } from '../../store/sync/inbox.js';
 import { sealPending } from '../../store/sync/sealer.js';
-import { FOLLOWUP_REKEY_AUDIT_FILE, rekeyLegacyFollowUps } from '../legacy-followup-rekey.js';
+import { MALFORMED_ID_REKEY_AUDIT_FILE, rekeyMalformedTaskRows } from '../malformed-id-rekey.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../migrations/sync-journal');
 const STREAM = 'project:t14324-followup-rekey';
@@ -196,20 +196,22 @@ describe('legacy reconcile follow-ups are re-keyed through the journal re-mint (
   it('a dry run lists each row with its planned id and writes nothing', async () => {
     const a = await replica(RA);
     write(a, SEED);
-    const report = await rekeyLegacyFollowUps(a.db, a.root, { snapshot: async () => SNAPSHOT_OK });
+    const report = await rekeyMalformedTaskRows(a.db, a.root, {
+      snapshot: async () => SNAPSHOT_OK,
+    });
     expect(report).toEqual({
       applied: false,
       rows: [{ oldId: LEGACY, newId: 'T101' }],
       refused: null,
     });
     expect(taskIds(a.db)).toContain(LEGACY);
-    expect(existsSync(join(a.root, '.cleo', FOLLOWUP_REKEY_AUDIT_FILE))).toBe(false);
+    expect(existsSync(join(a.root, '.cleo', MALFORMED_ID_REKEY_AUDIT_FILE))).toBe(false);
   });
 
   it('refuses without a snapshot', async () => {
     const a = await replica(RA);
     write(a, SEED);
-    const report = await rekeyLegacyFollowUps(a.db, a.root, {
+    const report = await rekeyMalformedTaskRows(a.db, a.root, {
       apply: true,
       snapshot: async () => ({ ...SNAPSHOT_OK, snapshotted: [], skipped: 'lock-timeout' }),
     });
@@ -221,7 +223,7 @@ describe('legacy reconcile follow-ups are re-keyed through the journal re-mint (
   it('renames the row and its references, keeps the old id as an alias, and writes a receipt', async () => {
     const a = await replica(RA);
     write(a, SEED);
-    const report = await rekeyLegacyFollowUps(a.db, a.root, {
+    const report = await rekeyMalformedTaskRows(a.db, a.root, {
       apply: true,
       snapshot: async () => SNAPSHOT_OK,
     });
@@ -234,7 +236,7 @@ describe('legacy reconcile follow-ups are re-keyed through the journal re-mint (
     ).toEqual({ task_id: newId });
     const resolved = resolveDisplayId(a.db, 'tasks_tasks', LEGACY);
     expect(resolved).toMatchObject({ status: 'resolved', claimant: { currentId: newId } });
-    const receipts = readFileSync(join(a.root, '.cleo', FOLLOWUP_REKEY_AUDIT_FILE), 'utf8')
+    const receipts = readFileSync(join(a.root, '.cleo', MALFORMED_ID_REKEY_AUDIT_FILE), 'utf8')
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { oldId: string; newId: string });
@@ -249,7 +251,7 @@ describe('legacy reconcile follow-ups are re-keyed through the journal re-mint (
     pull(b);
     expect(taskIds(b.db)).toContain(LEGACY);
 
-    const report = await rekeyLegacyFollowUps(a.db, a.root, {
+    const report = await rekeyMalformedTaskRows(a.db, a.root, {
       apply: true,
       snapshot: async () => SNAPSHOT_OK,
     });
@@ -267,6 +269,42 @@ describe('legacy reconcile follow-ups are re-keyed through the journal re-mint (
       status: 'resolved',
       claimant: { currentId: newId },
     });
+  });
+});
+
+describe('a malformed id on a row that is a task is re-keyed, never deleted (T14324)', () => {
+  it('T932EP with a title is planned and re-keyed; the T12128 path row is not a task', async () => {
+    const a = await replica(RA);
+    write(
+      a,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+         VALUES ('T100', 'original', 'task', 'pending', 'medium', '2026-05-01T00:00:00.000Z');
+       INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+         VALUES ('T932EP', 'T932 standalone epic', 'epic', 'pending', 'medium',
+                 '2026-04-17T00:00:00.000Z');
+       INSERT INTO tasks_tasks (id, title, status, priority, created_at)
+         VALUES ('/mnt/projects/cleocode', 'Task /mnt/projects/cleocode', 'pending', 'medium',
+                 '2026-04-18T00:00:00.000Z');`,
+    );
+    const plan = await rekeyMalformedTaskRows(a.db, a.root, { snapshot: async () => SNAPSHOT_OK });
+    expect(plan.rows).toEqual([{ oldId: 'T932EP', newId: 'T101' }]);
+
+    const report = await rekeyMalformedTaskRows(a.db, a.root, {
+      apply: true,
+      snapshot: async () => SNAPSHOT_OK,
+    });
+    const newId = report.rows[0]?.newId as string;
+    expect(newId).toMatch(/^T\d+$/);
+    expect(a.db.prepare('SELECT title, type FROM tasks_tasks WHERE id = ?').get(newId)).toEqual({
+      title: 'T932 standalone epic',
+      type: 'epic',
+    });
+    expect(resolveDisplayId(a.db, 'tasks_tasks', 'T932EP')).toMatchObject({
+      status: 'resolved',
+      claimant: { currentId: newId },
+    });
+    // The path row has no task content: it is left for the malformed-row delete.
+    expect(taskIds(a.db)).toContain('/mnt/projects/cleocode');
   });
 });
 
