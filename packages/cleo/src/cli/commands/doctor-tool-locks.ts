@@ -14,8 +14,9 @@
  *
  * Each `cleo run` holder also shows what it measures against what it is
  * charged, how long it has run and idled, and whether it is overdue or hung
- * (T13563). Its charge is what it holds now: after a warm-up a run is charged
- * its measured peak plus a margin, never above its plan (T14116).
+ * (T13563). Its charge is what it holds now: the measured charge it was
+ * admitted with (its command's recent peaks plus a margin), or its plan, never
+ * above the plan (T14116, T14281).
  *
  * @task T12113 (gh#1222)
  * @task T13133
@@ -135,7 +136,7 @@ export const doctorToolLocksCommand = defineCommand({
                   sessionId: r.sessionId,
                   childPid: r.childPid,
                   chargedBytes: entryCharge(e).chargedBytes,
-                  plannedBytes: e.footprintBytes,
+                  plannedBytes: entryCharge(e).plannedBytes,
                   measuredRssBytes: r.measuredRssBytes ?? null,
                   cpuMs: r.cpuMs ?? null,
                   elapsedMs: now - r.startedAtMs,
