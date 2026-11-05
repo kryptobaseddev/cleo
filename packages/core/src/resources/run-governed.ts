@@ -46,7 +46,12 @@ import { spawn as nodeSpawn, type StdioOptions } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import { setPriority } from 'node:os';
 import { isatty } from 'node:tty';
-import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
+import type {
+  AdmissionResult,
+  ExternalPressureDetails,
+  MemoryPressureReading,
+  ResourceClass,
+} from '@cleocode/contracts';
 import { detectTestRunner, GovernedRunInTestRunnerError } from '../tasks/tool-runner-guard.js';
 import {
   ADMISSION_ENV,
@@ -68,7 +73,11 @@ import type { ResourceSample } from './backend.js';
 import { admitFailOpen, type GovernorIoError, governor } from './governor.js';
 import { recordHookPeak } from './hook-footprint.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
-import { MEMORY_GATE_RETRY_AFTER_MS, memoryGateReporter } from './pressure-gate.js';
+import {
+  externalPressureFix,
+  MEMORY_GATE_RETRY_AFTER_MS,
+  memoryGateReporter,
+} from './pressure-gate.js';
 import {
   buildRunDeferral,
   decidePause,
@@ -284,6 +293,19 @@ export type RunGovernedResult =
       readonly reason: string;
       readonly details: RunDeferralDetails;
       readonly alternatives: RunAlternative[];
+      readonly fix: string;
+    }
+  | {
+      /**
+       * A `--wait` run gave up: memory pressure stayed above the refuse line
+       * while CLEO held nothing, so it is another program's (T14282). Nothing
+       * started; the details name the programs.
+       */
+      readonly kind: 'external-pressure';
+      readonly reason: string;
+      readonly class: ResourceClass;
+      readonly command: string;
+      readonly details: ExternalPressureDetails;
       readonly fix: string;
     }
   | {
@@ -680,6 +702,17 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       }
       if (!out.admitted) {
         const { refusal } = out;
+        if (refusal.externalPressure !== undefined) {
+          const fix = externalPressureFix(refusal.externalPressure);
+          return {
+            kind: 'external-pressure',
+            reason: refusal.reason,
+            class: opts.cls,
+            command,
+            details: refusal.externalPressure,
+            fix,
+          };
+        }
         return deferral(
           opts,
           d,

@@ -2410,6 +2410,8 @@ export type {
 export * from './render/index.js';
 export type {
   AdmissionResult,
+  ExternalPressureDetails,
+  ExternalPressureProcess,
   GovernorMode,
   HeavyHeapSource,
   HeavyLeverChange,
@@ -2429,6 +2431,7 @@ export {
   RESOURCE_BACKPRESSURE_CODE,
   RESOURCE_CLASSES,
   RESOURCE_DEFERRED_CODE,
+  RESOURCE_EXTERNAL_PRESSURE_CODE,
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
 } from './resource-governor.js';

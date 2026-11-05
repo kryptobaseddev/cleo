@@ -23,7 +23,6 @@ import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMISSION_ENV,
-  ADMISSION_PRESSURE_ENV,
   admissionCapacityBytes,
   admissionToken,
   admit,
@@ -1625,6 +1624,69 @@ describe('admit (one ledger, real critical section)', () => {
     expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
   });
 
+  it('held above the refuse line with CLEO idle, a waiter gets the external-pressure verdict naming the programs (T14282)', async () => {
+    const agy = { pid: 4242, command: 'agy', footprintBytes: 17 * GIB };
+    const node = { pid: 77, command: 'node', footprintBytes: 2 * GIB };
+    let t = Date.now();
+    const t0 = t;
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 600_000,
+        sample: async () => sampleAt(40),
+        topMemory: () => [agy, node],
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+      },
+    );
+    expect(out.admitted).toBe(false);
+    if (out.admitted) return;
+    const ext = out.refusal.externalPressure;
+    expect(ext?.expectedAdmitAt).toBeNull();
+    expect(ext?.topProcesses).toEqual([
+      { pid: 4242, command: 'agy', rssBytes: 17 * GIB },
+      { pid: 77, command: 'node', rssBytes: 2 * GIB },
+    ]);
+    expect(ext?.memoryPressure.score).toBe(40);
+    // Two notice intervals, not the 10-minute deadline.
+    expect(ext?.waitedMs).toBeGreaterThanOrEqual(120_000);
+    expect(t - t0).toBeLessThan(600_000);
+    // The waiter left the queue.
+    expect(readLedger(dir).filter((e) => e.state === 'waiting')).toEqual([]);
+  });
+
+  it('a CLEO run holding the budget is not external pressure: the waiter times out as before (T14282)', async () => {
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(holder.admitted).toBe(true);
+    let t = Date.now();
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 300_000,
+        sample: async () => sampleAt(40),
+        topMemory: () => [{ pid: 4242, command: 'agy', footprintBytes: 17 * GIB }],
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+      },
+    );
+    expect(out.admitted).toBe(false);
+    if (!out.admitted) expect(out.refusal.externalPressure).toBeUndefined();
+    if (holder.admitted) await holder.grant.release();
+  });
+
   it('the memory users named leave out the runs CLEO holds (T13965)', async () => {
     const holder = await admit(
       { label: 'tool:test', footprintBytes: GIB },
@@ -1921,43 +1983,6 @@ describe('admit (one ledger, real critical section)', () => {
     await parent.grant.release();
   });
 
-  it('CLEO_ADMISSION_PRESSURE=off ignores host pressure; an explicit sampler still counts', async () => {
-    const line = { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 };
-    const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue({
-      ...sampleAt(0),
-      globalPressure: { some: line, full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 } },
-    });
-    const saved = process.env[ADMISSION_PRESSURE_ENV];
-    try {
-      const { sample: _ignored, ...noSampler } = base;
-      process.env[ADMISSION_PRESSURE_ENV] = 'off';
-      const off = await admit(
-        { label: 'tool:test', footprintBytes: GIB },
-        { ...noSampler, dir, wait: false },
-      );
-      expect(off.admitted).toBe(true);
-      if (off.admitted) await off.grant.release();
-      delete process.env[ADMISSION_PRESSURE_ENV];
-      _resetMemoryGateForTest();
-      const on = await admit(
-        { label: 'tool:test', footprintBytes: GIB },
-        { ...noSampler, dir, wait: false },
-      );
-      expect(on.admitted).toBe(false);
-      _resetMemoryGateForTest();
-      process.env[ADMISSION_PRESSURE_ENV] = 'off';
-      const explicit = await admit(
-        { label: 'tool:test', footprintBytes: GIB },
-        { ...noSampler, dir, wait: false, sample: async () => sampleAt(40) },
-      );
-      expect(explicit.admitted).toBe(false);
-    } finally {
-      spy.mockRestore();
-      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
-      else process.env[ADMISSION_PRESSURE_ENV] = saved;
-    }
-  });
-
   it('CLEO_RESOURCES_MODE=off admits everything without touching the ledger', async () => {
     process.env.CLEO_RESOURCES_MODE = 'off';
     const out = await admit(
@@ -2172,8 +2197,6 @@ describe('admit (one ledger, real critical section)', () => {
 
   it('waiters reuse a pressure verdict under 2 s old instead of sampling again (LOW-6)', async () => {
     const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(sampleAt(0));
-    const saved = process.env[ADMISSION_PRESSURE_ENV];
-    delete process.env[ADMISSION_PRESSURE_ENV];
     try {
       const { sample: _ignored, ...live } = base;
       let t = 1_000_000;
@@ -2196,8 +2219,6 @@ describe('admit (one ledger, real critical section)', () => {
       expect(spy).toHaveBeenCalledTimes(2);
     } finally {
       spy.mockRestore();
-      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
-      else process.env[ADMISSION_PRESSURE_ENV] = saved;
     }
   });
 
@@ -2209,8 +2230,6 @@ describe('admit (one ledger, real critical section)', () => {
     if (!holder.admitted) throw new Error('expected an admission');
     const sampled = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(sampleAt(0));
     const locks = vi.spyOn(lockfile, 'lock');
-    const saved = process.env[ADMISSION_PRESSURE_ENV];
-    delete process.env[ADMISSION_PRESSURE_ENV];
     try {
       const { sample: _ignored, ...live } = base;
       let t = Date.now();
@@ -2243,8 +2262,6 @@ describe('admit (one ledger, real critical section)', () => {
     } finally {
       sampled.mockRestore();
       locks.mockRestore();
-      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
-      else process.env[ADMISSION_PRESSURE_ENV] = saved;
       await holder.grant.release();
     }
   });

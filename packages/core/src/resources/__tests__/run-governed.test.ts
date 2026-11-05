@@ -651,6 +651,42 @@ describe('T13889 queue deadlines', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('a wait held by pressure outside CLEO ends in the external-pressure verdict naming the programs (T14282)', async () => {
+    const h = harness({});
+    const details = {
+      topProcesses: [{ pid: 4242, command: 'codex', rssBytes: 13 * 1024 ** 3 }],
+      expectedAdmitAt: null,
+      waitedMs: 120_000,
+      memoryPressure: PRESSURE_READING,
+    };
+    const result = await runGoverned({
+      ...base(h, { wait: true, timeoutMs: 600_000 }),
+      deps: {
+        ...h.deps,
+        admit: async () => ({
+          admitted: false,
+          refusal: {
+            reason: 'memory pressure 40 (refused above 25)',
+            retryAfterMs: 10_000,
+            memoryPressure: PRESSURE_READING,
+            ahead: 0,
+            holders: [],
+            externalPressure: details,
+          },
+        }),
+      },
+    });
+    expect(result.kind).toBe('external-pressure');
+    if (result.kind !== 'external-pressure')
+      throw new Error('expected the external-pressure verdict');
+    expect(result.details).toEqual(details);
+    expect(result.details.topProcesses[0]?.rssBytes).toBeGreaterThan(0);
+    expect(result.details.expectedAdmitAt).toBeNull();
+    expect(result.fix).toContain('held outside CLEO by codex pid 4242 13.0 GiB');
+    expect(result.fix).not.toContain('CLEO_RESOURCES_MODE');
+    expect(h.spawned).toEqual([]);
+  });
+
   it('bounds a stalled initial sample before admission', async () => {
     vi.useFakeTimers();
     const h = harness({});

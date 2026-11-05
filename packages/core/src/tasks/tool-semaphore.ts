@@ -27,8 +27,7 @@
  *
  * `CLEO_TOOL_CONCURRENCY_<TOOL>` no longer counts runs: `0` (or below) still
  * bypasses admission for that tool, any other value is ignored, and either
- * prints one deprecation line per process on stderr. `CLEO_RESOURCES_MODE=off`
- * is the supported switch.
+ * prints one deprecation line per process on stderr.
  *
  * @task T1534
  * @task T12091
@@ -49,7 +48,7 @@ import {
 } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
 import { renewInvokingSessionClaims } from '../resources/claim-keepalive.js';
-import { memoryGateReporter } from '../resources/pressure-gate.js';
+import { externalPressureFix, memoryGateReporter } from '../resources/pressure-gate.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -176,8 +175,7 @@ export function legacyConcurrencyOverride(
     _deprecationNoticed.add(key);
     notice(
       `${key} is deprecated: heavy runs now share one machine-wide memory budget and no ` +
-        `longer count slots (T13133). ${effect === 'bypass' ? `${key}=${raw} still bypasses admission for now;` : `${key}=${raw} is ignored;`} ` +
-        'use CLEO_RESOURCES_MODE=off to turn admission off.',
+        `longer count slots (T13133). ${effect === 'bypass' ? `${key}=${raw} still bypasses admission for now.` : `${key}=${raw} is ignored.`}`,
     );
   }
   return effect;
@@ -205,9 +203,13 @@ export class AdmissionTimeoutError extends Error {
    */
   constructor(canonical: CanonicalTool, refusal: AdmissionRefusal) {
     super(
-      `Timed out waiting for admission of a '${canonical}' run: ${refusal.reason}.` +
-        (refusal.holders.length > 0 ? ` Current holders — ${refusal.holders.join(' | ')}.` : '') +
-        ' Use CI as test evidence (ci:<pr>), narrow the run, or set CLEO_RESOURCES_MODE=off to turn admission off.',
+      refusal.externalPressure !== undefined
+        ? `Gave up waiting for admission of a '${canonical}' run: ${externalPressureFix(refusal.externalPressure)}`
+        : `Timed out waiting for admission of a '${canonical}' run: ${refusal.reason}.` +
+            (refusal.holders.length > 0
+              ? ` Current holders — ${refusal.holders.join(' | ')}.`
+              : '') +
+            ' Use CI as test evidence (ci:<pr>) or narrow the run.',
     );
     this.name = 'AdmissionTimeoutError';
     this.refusal = refusal;

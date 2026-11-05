@@ -19,6 +19,10 @@
  *   Nothing was started. `--wait` joins the machine-wide FIFO queue instead;
  *   `--urgent` queues ahead of routine waiters, still within the budget
  *   (T13921).
+ * - Held by pressure outside CLEO (T14282): a `--wait` run held above the
+ *   memory refuse line for two notice intervals while CLEO holds nothing gets
+ *   `E_RESOURCE_EXTERNAL_PRESSURE`, exit 75, naming the programs that hold the
+ *   memory. Nothing was started.
  * - While it runs: at `backoff` only the oldest `cleo run` job keeps going;
  *   younger pausable ones are SIGSTOPped and resumed later; pressure never
  *   kills a job. (Only the orphaned group of a runner that died is stopped.)
@@ -64,6 +68,7 @@ import { constants } from 'node:os';
 import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import {
   RESOURCE_DEFERRED_CODE,
+  RESOURCE_EXTERNAL_PRESSURE_CODE,
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
   RUN_INTERRUPTED_CODE,
@@ -386,6 +391,19 @@ export const runCommand = defineCommand({
           fix: result.fix,
           alternatives: result.alternatives,
         },
+        { operation: 'resources.run' },
+        { stderr: passthrough },
+      );
+      process.exit(RUN_DEFERRED_EXIT_CODE);
+    }
+
+    if (result.kind === 'external-pressure') {
+      // T14282: the pressure is another program's; name it, never an off switch.
+      const { kind: _external, fix, ...details } = result;
+      cliError(
+        `not started: ${fix}`,
+        RESOURCE_EXTERNAL_PRESSURE_CODE,
+        { name: RESOURCE_EXTERNAL_PRESSURE_CODE, details, fix },
         { operation: 'resources.run' },
         { stderr: passthrough },
       );

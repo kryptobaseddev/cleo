@@ -43,7 +43,7 @@
 
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { MemoryPressureReading } from '@cleocode/contracts';
+import type { ExternalPressureDetails, MemoryPressureReading } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
 import { memoryPressureCause } from './top-memory.js';
@@ -71,6 +71,13 @@ export const MEMORY_GATE_RETRY_AFTER_MS = 10_000;
 
 /** A waiter repeats its "waiting: memory pressure" notice at most this often. */
 export const MEMORY_GATE_NOTICE_INTERVAL_MS = 60_000;
+
+/**
+ * A waiter held this long above the refuse line while CLEO itself holds
+ * nothing gets the E_RESOURCE_EXTERNAL_PRESSURE verdict (two notice
+ * intervals): the pressure is another program's (T14282).
+ */
+export const EXTERNAL_PRESSURE_AFTER_MS = 2 * MEMORY_GATE_NOTICE_INTERVAL_MS;
 
 /** The gate's decision for one sample. */
 export interface MemoryGateVerdict {
@@ -305,8 +312,38 @@ export function memoryGateWaitingLine(
   return (
     `waiting: memory pressure ${reading.score} (refused above ${reading.refuseAbove}, ` +
     `resumes at ${reading.resumeAtOrBelow} or below): ${memoryPressureCause(reading)}. ` +
-    `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}${deadline}. ` +
-    '(CLEO_RESOURCES_MODE=off turns admission off.)'
+    `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}${deadline}.`
+  );
+}
+
+/**
+ * The E_RESOURCE_EXTERNAL_PRESSURE remedy in one line (T14282): the pressure
+ * is another program's, which ones, and what to do. It never offers a switch
+ * that turns admission off.
+ *
+ * @param details - the verdict's details.
+ * @returns One line, e.g. `memory pressure 38 stayed above 25 for 2m 00s while
+ *   CLEO held nothing: the memory is held outside CLEO by codex pid 4242 13.0
+ *   GiB, Google Chrome pid 77 9.1 GiB. Nothing was started. ...`
+ */
+export function externalPressureFix(details: ExternalPressureDetails): string {
+  const r = details.memoryPressure;
+  const named =
+    details.topProcesses.length === 0
+      ? 'processes the memory probe could not list (check with top -o mem)'
+      : details.topProcesses
+          .map(
+            (p) =>
+              `${p.command} pid ${p.pid} ${(p.rssBytes / 1024 ** 3).toFixed(1)} GiB` +
+              (p.project !== undefined ? ` (${p.project})` : ''),
+          )
+          .join(', ');
+  return (
+    `memory pressure ${r.score} stayed above ${r.refuseAbove} for ${duration(details.waitedMs)} ` +
+    `while CLEO held nothing: the memory is held outside CLEO by ${named}. Nothing was started, ` +
+    'and waiting longer will not free it. Report these processes to whoever runs them, or quit ' +
+    `them; heavy work starts again once pressure falls to ${r.resumeAtOrBelow} or below. ` +
+    'Prefer CI as evidence meanwhile (ci:<pr>).'
   );
 }
 
