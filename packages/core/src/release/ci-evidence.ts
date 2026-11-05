@@ -61,6 +61,7 @@ import {
   type EvidenceRoots,
   isDocumentArtifact,
   linkedPrChange,
+  reviewedDirectiveLinkage,
 } from '../tasks/evidence.js';
 import { ghQueryTimeoutMs, isGhCliAvailable } from './github-pr.js';
 import {
@@ -2946,7 +2947,18 @@ export async function resolveCiEvidenceAtom(
           : 'E_EVIDENCE_INSUFFICIENT',
     };
   }
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, pr.mergedAt);
+  // T14259: on the merge sweep's path, the Closes:/Refs: line and the
+  // non-author verdicts are the linkage.
+  const reviewed =
+    context.reviewedLinkage === true &&
+    (await reviewedDirectiveLinkage(
+      prNumber,
+      pr.body,
+      pr.headRefOid,
+      roots.storeRoot,
+      context.task.id,
+    ));
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, pr.mergedAt, reviewed);
   if (unlinked) {
     return {
       ok: false,

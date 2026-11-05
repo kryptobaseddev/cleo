@@ -121,6 +121,48 @@ export function withholdDiffPaths(
   return { diff: kept.join(''), withheldPaths };
 }
 
+/**
+ * A criterion's text as a packet shows it (T14259): whitespace runs collapsed
+ * and the ends trimmed, so a whitespace-only rewrite of the criteria changes
+ * neither the packet nor a verdict's {@link acTextSha256}.
+ *
+ * @param text - The criterion text as stored.
+ * @returns The normalised text.
+ * @task T14259
+ */
+export function normalizeAcText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The sha256 of a criterion's normalised text (T14259): a verdict binds the
+ * text it judged, so an edit after the verdict invalidates it.
+ *
+ * @param text - The criterion text, normalised or not.
+ * @returns The hex digest.
+ * @task T14259
+ */
+export function acTextSha256(text: string): string {
+  return createHash('sha256').update(normalizeAcText(text)).digest('hex');
+}
+
+/**
+ * The current normalised text of each of a task's criteria, by alias (T14259).
+ *
+ * @param projectRoot - Project root.
+ * @param taskId - The task.
+ * @returns Alias (`AC2`) to normalised text.
+ * @task T14259
+ */
+export async function currentAcTexts(
+  projectRoot: string,
+  taskId: string,
+): Promise<ReadonlyMap<string, string>> {
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const rows = await (await getTaskAccessor(projectRoot)).getAcRows(taskId);
+  return new Map(rows.map((r) => [`AC${r.ordinal}`, normalizeAcText(r.text)]));
+}
+
 function packetHash(
   headSha: string,
   taskId: string,
@@ -153,7 +195,7 @@ export async function buildReviewPacket(
   if (task === null) throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   const acs = [...(await accessor.getAcRows(taskId))]
     .sort((a, b) => a.ordinal - b.ordinal)
-    .map((r) => ({ alias: `AC${r.ordinal}`, text: r.text }));
+    .map((r) => ({ alias: `AC${r.ordinal}`, text: normalizeAcText(r.text) }));
   const unreadable = (): CleoError =>
     // @sync-invariant none:input-shape a PR gh cannot read is refused before anything is written
     new CleoError(ExitCode.NOT_FOUND, `PR #${prNumber} could not be read with gh`, {
@@ -361,6 +403,7 @@ export async function recordReviewVerdict(
     taskId: input.taskId,
     ac: input.ac,
     acId: acRow?.id ?? '',
+    ...(acRow ? { acTextSha256: acTextSha256(acRow.text) } : {}),
     prNumber: input.prNumber,
     headSha: packet.headSha,
     verdict: input.verdict,
@@ -439,14 +482,21 @@ export async function reviewVerdictsFor(
  * that was not answered. The merge sweep and `cleo review check` share it,
  * so both report the same reasons.
  *
+ * A verdict binds the criterion text it judged (T14259): given the current
+ * texts, one whose {@link ReviewVerdict.acTextSha256} no longer matches is
+ * `edited`. A verdict recorded before that binding carries no hash and is
+ * judged as before.
+ *
  * @param verdicts - The task's verdicts on the PR ({@link reviewVerdictsFor}).
  * @param acs - The criteria to judge (`AC1`, …).
  * @param headSha - The PR head (`headRefOid`).
+ * @param texts - Each criterion's current text by alias ({@link currentAcTexts}); omitted, no edit check.
  */
 export function judgeReviewVerdicts(
   verdicts: readonly ReviewVerdict[],
   acs: readonly string[],
   headSha: string,
+  texts?: ReadonlyMap<string, string>,
 ): ReviewJudgement {
   const short = (sha: string): string => sha.slice(0, 7);
   const byAuthor = (v: ReviewVerdict): boolean =>
@@ -475,7 +525,18 @@ export function judgeReviewVerdicts(
               ),
           )
         : undefined;
-    if (onHead !== undefined && byAuthor(onHead)) {
+    const current = texts?.get(ac);
+    const edited =
+      onHead?.acTextSha256 !== undefined &&
+      current !== undefined &&
+      onHead.acTextSha256 !== acTextSha256(current);
+    if (onHead !== undefined && edited) {
+      gaps.push({
+        ac,
+        kind: 'edited',
+        reason: `${ac}: edited after verdict ${onHead.id} on head ${short(headSha)}; review it again`,
+      });
+    } else if (onHead !== undefined && byAuthor(onHead)) {
       gaps.push({
         ac,
         kind: 'author',
@@ -579,7 +640,7 @@ export async function checkPrReviews(
     const verdicts = await reviewVerdictsFor(projectRoot, taskId, prNumber);
     checks.push({
       taskId,
-      ...judgeReviewVerdicts(verdicts, acs, headSha),
+      ...judgeReviewVerdicts(verdicts, acs, headSha, await currentAcTexts(projectRoot, taskId)),
       answered: reviewAnswers(verdicts, headSha).filter((a) => acs.includes(a.ac)),
     });
   }
