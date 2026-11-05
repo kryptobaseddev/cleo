@@ -62,6 +62,8 @@ export interface RefreshProjectPresenceOptions {
   deviceStore?: Pick<NexusDeviceStore, 'list'>;
   /** Environment. @defaultValue process.env */
   env?: NodeJS.ProcessEnv;
+  /** Aborted at teardown: the request is dropped, never awaited (T14284). */
+  signal?: AbortSignal;
 }
 
 /** The throttle stamp of a project root under the CLEO home. */
@@ -121,6 +123,7 @@ export async function refreshProjectPresence(
     // costs at most one timeout at teardown (T13308). `currentBearer()` only, as
     // every other request: a pending rotation token may not be known to the
     // server yet, and falling back would cost a second request.
+    const fetchWith = fetchFor(opts);
     const sends = links.flatMap((link) => {
       const origin = new URL(link.apiUrl).origin;
       const device = devices.find(
@@ -142,7 +145,7 @@ export async function refreshProjectPresence(
           cliVersion: opts.cliVersion,
           timeoutMs: NEXUS_PRESENCE_REFRESH_TIMEOUT_MS,
           ...(opts.now ? { now: opts.now } : {}),
-          ...(opts.fetch ? { fetch: opts.fetch } : {}),
+          ...(fetchWith ? { fetch: fetchWith } : {}),
         }),
       ];
     });
@@ -157,14 +160,28 @@ export async function refreshProjectPresence(
   }
 }
 
+/** The fetch to send with: the caller's, aborted with its `signal` too (T14284). */
+function fetchFor(opts: RefreshProjectPresenceOptions): FetchLike | undefined {
+  const { signal } = opts;
+  if (signal === undefined) return opts.fetch;
+  const base: FetchLike = opts.fetch ?? ((input, init) => globalThis.fetch(input, init));
+  return (input, init) =>
+    base(input, {
+      ...init,
+      signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
+    });
+}
+
 /**
  * Start {@link refreshProjectPresence} in the background, alongside the
- * command, without awaiting it: registered with the background-op registry
- * so the CLI's teardown can drain it within its deadline instead of
- * abandoning a half-sent request.
+ * command, without awaiting it. It is best-effort work (T14284): teardown
+ * gives it a short grace, then aborts the request and closes the databases
+ * without waiting, so a slow network never holds a command up.
  *
  * @param opts - As for {@link refreshProjectPresence}.
  */
 export function startProjectPresenceRefresh(opts: RefreshProjectPresenceOptions): void {
-  void trackBackgroundOp(() => refreshProjectPresence(opts));
+  void trackBackgroundOp((signal) => refreshProjectPresence({ ...opts, signal }), undefined, {
+    kind: 'best-effort',
+  });
 }
