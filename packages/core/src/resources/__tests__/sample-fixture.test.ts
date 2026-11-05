@@ -7,6 +7,7 @@
  * @task T14282
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -108,6 +109,35 @@ describe('CLEO_RESOURCE_SAMPLE_FILE (T14282)', () => {
     expect(
       backend instanceof DarwinResourceBackend || backend instanceof LinuxResourceBackend,
     ).toBe(true);
+  });
+
+  it('a sandboxed sample used for a project outside the sandbox has no effect, with one stderr line', () => {
+    const path = join(inside, 'calm.json');
+    writeFileSync(path, sampleJson(0));
+    // A real git project beside the sandbox: no marker in any ancestor.
+    const repo = join(outside, 'repo');
+    mkdirSync(repo);
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    const lines: string[] = [];
+    const env = { [RESOURCE_SAMPLE_FILE_ENV]: path };
+    expect(sampleFixturePath(env, (l) => lines.push(l), repo)).toBeNull();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('the file and the project both lie below');
+    // The same file for a project inside the sandbox is honoured.
+    expect(sampleFixturePath(env, () => {}, inside)).toBe(path);
+    // Resolved the way admission resolves it (CLEO_ROOT), the backend reads the host.
+    const savedRoot = process.env.CLEO_ROOT;
+    process.env.CLEO_ROOT = repo;
+    process.env[RESOURCE_SAMPLE_FILE_ENV] = path;
+    try {
+      const backend = defaultResourceBackend();
+      expect(
+        backend instanceof DarwinResourceBackend || backend instanceof LinuxResourceBackend,
+      ).toBe(true);
+    } finally {
+      if (savedRoot === undefined) delete process.env.CLEO_ROOT;
+      else process.env.CLEO_ROOT = savedRoot;
+    }
   });
 
   it('a marker inside a git checkout is not a sandbox', () => {

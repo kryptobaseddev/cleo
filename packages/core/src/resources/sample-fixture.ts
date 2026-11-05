@@ -5,16 +5,19 @@
  * machine's load, and a CLI child a test spawns can be fed a hot sample to
  * drive the real admission logic end to end.
  *
- * It is honoured ONLY for a file below the test sandbox marker
- * ({@link TEST_SANDBOX_MARKER}). Anywhere else it is ignored with one stderr
- * line: on a real machine it would fake a calm host, a bypass of admission
- * under another name.
+ * It is honoured ONLY when both the file AND the project admission runs for
+ * (the resolved CLEO project root, or the cwd when there is none) lie below
+ * the test sandbox marker ({@link TEST_SANDBOX_MARKER}). Anywhere else it is
+ * ignored with one stderr line: on a real project it would fake a calm host,
+ * a bypass of admission under another name. A marker planted beside a sample
+ * file does not make a real project a fixture.
  *
  * @task T14282
  */
 
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { getProjectRoot } from '../paths.js';
 import { insideTestSandbox, TEST_SANDBOX_MARKER } from '../test-sandbox.js';
 import type { ChildRssSweep, ResourceBackend, ResourceSample } from './backend.js';
 
@@ -23,27 +26,42 @@ export const RESOURCE_SAMPLE_FILE_ENV = 'CLEO_RESOURCE_SAMPLE_FILE';
 
 let warned = false;
 
+/** The project admission runs for: the resolved CLEO root, else the cwd. */
+function admissionProjectRoot(): string {
+  try {
+    return getProjectRoot();
+  } catch {
+    return process.cwd(); // CWD-OK: no CLEO project resolves; admission runs for the cwd
+  }
+}
+
 /**
- * The sample file to use, or `null`: unset, or set outside the test sandbox
- * (then ignored, with one stderr line per process).
+ * The sample file to use, or `null`: unset, or the file or the project lies
+ * outside the test sandbox (then ignored, with one stderr line per process).
  *
  * @param env - the environment. @defaultValue process.env
  * @param warn - where the ignored-file line goes. @defaultValue stderr
+ * @param projectRoot - the project admission runs for. @defaultValue the
+ *   resolved CLEO project root, or the cwd when none resolves
  * @returns the absolute path, or `null`.
  */
 export function sampleFixturePath(
   env: NodeJS.ProcessEnv = process.env,
   warn: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
+  projectRoot: string = admissionProjectRoot(),
 ): string | null {
   const raw = env[RESOURCE_SAMPLE_FILE_ENV];
   if (raw === undefined || raw === '') return null;
   const path = resolve(raw);
-  if (insideTestSandbox(path)) return path;
+  // The root itself may hold the marker: search from a path inside it.
+  const inRoot = join(resolve(projectRoot), TEST_SANDBOX_MARKER);
+  if (insideTestSandbox(path) && insideTestSandbox(inRoot)) return path;
   if (!warned) {
     warned = true;
     warn(
       `[cleo] ${RESOURCE_SAMPLE_FILE_ENV} is ignored: it is a test fixture, honoured only ` +
-        `below a ${TEST_SANDBOX_MARKER} marker; admission reads this machine.`,
+        `when the file and the project both lie below a ${TEST_SANDBOX_MARKER} marker; ` +
+        'admission reads this machine.',
     );
   }
   return null;
