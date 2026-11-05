@@ -8,6 +8,11 @@
 -- Each guard now also requires that one of its columns changed
 -- (`OLD.x IS NOT NEW.x`). A real change into an invalid pair is still refused.
 -- The rule text and the suspend clause are unchanged.
+--
+-- Idempotent (DROP TRIGGER IF EXISTS before each CREATE), and must always RUN:
+-- both triggers already exist under the same names, so reconcileJournal would
+-- otherwise probe-stamp it without running it.
+-- cleo:probe-never-stamp
 DROP TRIGGER IF EXISTS `tasks_tasks_parent_type_matrix_update`;
 --> statement-breakpoint
 CREATE TRIGGER `tasks_tasks_parent_type_matrix_update`
