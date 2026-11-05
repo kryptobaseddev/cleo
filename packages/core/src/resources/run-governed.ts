@@ -54,7 +54,6 @@ import {
   type AdmissionRequest,
   type AdmissionScope,
   type AdmitOptions,
-  admissionDir,
   admit,
   describeAdmissionIoError,
   footprintForClass,
@@ -66,7 +65,7 @@ import {
 } from './admission-ledger.js';
 import type { ResourceSample } from './backend.js';
 import { admitFailOpen, type GovernorIoError, governor } from './governor.js';
-import { recordHookPeak } from './hook-footprint.js';
+import { COMMAND_KEY_PREFIX, chargesDir, recordRunPeak } from './hook-footprint.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
 import { MEMORY_GATE_RETRY_AFTER_MS, memoryGateReporter } from './pressure-gate.js';
 import {
@@ -166,8 +165,8 @@ export interface RunGovernedDeps {
   readonly treeUsage: (pid: number, withCommands?: boolean) => ProcessTreeUsage | null;
   /** Whether the runner's stdin is a terminal (T14169). @defaultValue isatty(0) */
   readonly stdinIsTty?: () => boolean;
-  /** Where hook measurements are kept (T13921). @defaultValue the admission directory */
-  readonly hookFootprintsDir: string;
+  /** Where measured charges are kept (T13921, T14281). @defaultValue `<cleoHome>/run` */
+  readonly chargesDir: string;
   /**
    * Whether a git hook is installed for the run's checkout (T14093).
    * @defaultValue probes `opts.cwd` with `gitHookInstalled`
@@ -227,6 +226,8 @@ export interface RunGovernedOptions {
    * (`planFootprintBytes`, T13132). @defaultValue the class's default footprint
    */
   readonly footprintBytes?: number;
+  /** The class plan, when a measured peak lowered `footprintBytes` below it (T14281). */
+  readonly planBytes?: number;
   /** Why the run is charged `footprintBytes`, for the ledger and status (T13367). */
   readonly footprintReason?: string;
   /** How much of the project the run covers, for status (T13132). */
@@ -251,10 +252,10 @@ export interface RunGovernedOptions {
    */
   readonly detach?: boolean;
   /**
-   * The git hook or heavy `node` script the command carries
-   * (`planRunFootprint`'s `hookKey`): its tree is sampled every
-   * {@link HOOK_SAMPLE_MS} and the peak is recorded under this key, so the
-   * next run of that hook (T13921) or script (T14050) is charged by it.
+   * The charge key the command carries (`planRunFootprint`'s `hookKey`): a
+   * git hook (T13921), a script (T14050) or any other command (T14281). Its
+   * tree is sampled every {@link HOOK_SAMPLE_MS} and the peak is recorded under
+   * this key, so the next run is charged by it.
    */
   readonly hookKey?: string;
   readonly deps?: Partial<RunGovernedDeps>;
@@ -434,7 +435,7 @@ function defaultDeps(): RunGovernedDeps {
     groupOf: processGroupOf,
     ancestorsOf: processAncestors,
     treeUsage: processTreeUsage,
-    hookFootprintsDir: admissionDir(),
+    chargesDir: chargesDir(),
   };
 }
 
@@ -629,6 +630,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
           {
             label: `run:${opts.cls}`,
             footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
+            ...(opts.planBytes !== undefined ? { planBytes: opts.planBytes } : {}),
             ...(opts.footprintReason !== undefined
               ? { footprintReason: opts.footprintReason }
               : {}),
@@ -956,12 +958,15 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   let treeSamples = 0;
   // T13972: a sample counts toward the hook's measurement only while the hook
   // itself runs in the tree (a no-op push or a disabled hook never does).
-  const hookName = opts.hookKey?.split(':')[0];
+  // T14281: a plain command's key names no process; its whole tree counts.
+  const keyName = opts.hookKey?.split(':')[0];
+  const hookName = keyName === COMMAND_KEY_PREFIX ? undefined : keyName;
   const hookInTree = (commands: readonly string[] | undefined): boolean =>
-    hookName !== undefined &&
-    (commands ?? []).some((c) =>
-      c.split(/\s+/).some((w) => w === hookName || w.endsWith(`/${hookName}`)),
-    );
+    keyName === COMMAND_KEY_PREFIX ||
+    (hookName !== undefined &&
+      (commands ?? []).some((c) =>
+        c.split(/\s+/).some((w) => w === hookName || w.endsWith(`/${hookName}`)),
+      ));
   const treeSampleMs = opts.hookKey !== undefined ? HOOK_SAMPLE_MS : TREE_SAMPLE_MS;
   const watchdog = (now: number): void => {
     if (childPid === undefined || now - treeSampledAtMs < treeSampleMs) return;
@@ -971,7 +976,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       treeSamples++;
       peakRssBytes = Math.max(peakRssBytes, usage.rssBytes);
     }
-    // T14116: the ledger charge follows the measured tree after a warm-up.
+    // T14116, T14281: a tree climbing past its measured charge restores the plan.
     if (usage) admission.observeRss?.(usage.rssBytes);
     // A pause still in progress is not run time either (T13570).
     const pausedMs = pausedTotalMs + (pausedAtMs !== null ? now - pausedAtMs : 0);
@@ -1101,7 +1106,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   removeRunJob(job.id, d.jobsDir);
   await grant.release();
   // T13921/T13972: only a hooked run that exited 0, with its hook seen in the
-  // tree at HOOK_MIN_SAMPLES samples, is a measurement (recordHookPeak decides).
+  // tree at MEASURED_MIN_SAMPLES samples, is a measurement (recordRunPeak decides).
   // T14162: a run whose peak exceeded its charge is reported and recorded
   // whatever its exit code: the excess is evidence in the safe direction, and
   // the next run of the command is charged from it.
@@ -1116,11 +1121,11 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // A failed run's excess is kept apart: it raises the next charge, never
   // counts toward the runs a lowering needs.
   if (opts.hookKey !== undefined && (result.code === 0 || exceeded)) {
-    await recordHookPeak(
+    await recordRunPeak(
       opts.hookKey,
       peakRssBytes,
       treeSamples,
-      d.hookFootprintsDir,
+      d.chargesDir,
       d.now(),
       result.code === 0,
     );
