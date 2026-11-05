@@ -3,7 +3,7 @@
  *
  * @remarks
  * Implements the canonical discovery topology described in
- * `docs/architecture/SG-CLEO-SKILLS-architecture-v3.md` §1:
+ * `docs/concept/skills-architecture.md` §1:
  *
  * - `~/.cleo/skills/<name>/` is the per-user install root (Sphere A + B).
  * - `~/.claude/skills/agents-shared/<name>` is a symlink INTO `~/.cleo/skills/`
@@ -36,7 +36,7 @@
  * was deleted at the same time — cleo dispatches via citty and never wired
  * the registrar in.
  *
- * @see {@link docs/architecture/SG-CLEO-SKILLS-architecture-v3.md} §1
+ * @see {@link docs/concept/skills-architecture.md} §1
  * @task T9744
  * @epic T9740
  */

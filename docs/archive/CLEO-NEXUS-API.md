@@ -1587,7 +1587,7 @@ const canExecute = checkPermission('my-app', 'execute');
 | [CLEO-NEXUS-ARCHITECTURE.md](./CLEO-NEXUS-ARCHITECTURE.md) | Original NEXUS architecture |
 | [ADR-006](../.cleo/adrs/ADR-006-canonical-sqlite-storage.md) | SQLite storage architecture |
 | [LAFS Protocol](https://github.com/kryptobaseddev/lafs) | LLM-Agent-First Specification |
-| [CLEO-VISION.md](../concepts/CLEO-VISION.md) | Overall system vision |
+| [CLEO-VISION.md](../concept/cleo-vision.md) | Overall system vision |
 
 ---
 

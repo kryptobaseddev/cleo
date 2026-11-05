@@ -777,4 +777,4 @@ output name = expression
 | [`CANT-EXECUTION-SEMANTICS.md`](../spec/cant-execution-semantics.md) | Workflow executor semantics, domain event protocol |
 | `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) | 7-phase implementation plan with security amendments — superseded by shipped implementation + ADR-035 addendum |
 | [`CANT-TYPESCRIPT-INTEGRATION.md`](../spec/cant-typescript-integration.md) | TypeScript/WASM integration guide |
-| [`CLEO-CANT.md`](../concepts/CLEO-CANT.md) | Protocol-level spec (directive mapping, Conduit integration) |
+| [`CLEO-CANT.md`](../concept/cleo-cant.md) | Protocol-level spec (directive mapping, Conduit integration) |

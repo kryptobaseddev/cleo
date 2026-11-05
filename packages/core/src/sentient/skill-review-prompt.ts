@@ -25,7 +25,7 @@
  * @epic T9571
  * @saga T9560
  * @port-of run_agent.py:3981 (Hermes Agent)
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §6/§7
+ * @architecture docs/concept/skills-architecture.md §6/§7
  */
 
 import type { SkillLifecycleState } from '../store/schema/skills-schema.js';

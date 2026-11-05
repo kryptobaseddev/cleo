@@ -26,7 +26,7 @@
  * @task T9729
  * @epic T9571
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §9 (federation)
+ * @architecture docs/concept/skills-architecture.md §9 (federation)
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';

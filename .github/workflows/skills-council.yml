@@ -21,7 +21,7 @@ name: Skills Council (Owner CI)
 #
 # See: .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
 # See: docs/owner-ci/skills-pipeline.md (T9679)
-# See: docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §5
+# See: docs/concept/skills-architecture.md §5
 
 on:
   schedule:

@@ -1,7 +1,7 @@
 /**
  * Drizzle ORM schema for CLEO skills.db — per-user skills registry.
  *
- * Implements section §4 of `docs/architecture/SG-CLEO-SKILLS-architecture-v3.md`:
+ * Implements section §4 of `docs/concept/skills-architecture.md`:
  * a global-tier (per-user, NOT per-project) registry that tracks every Claude
  * Code / cleo skill the local user has installed, regardless of source.
  *
@@ -50,7 +50,7 @@
  * @epic T11249
  * @saga T9560
  * @adr ADR-068 (DB-open chokepoint)
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §4
+ * @architecture docs/concept/skills-architecture.md §4
  */
 
 import { sql } from 'drizzle-orm';

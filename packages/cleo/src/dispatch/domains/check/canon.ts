@@ -4,7 +4,7 @@
  * Compares structural claims in canonical docs against live code:
  *   - CANONICAL_DOMAINS length from packages/cleo/src/dispatch/types.ts
  *   - OPERATIONS count from packages/cleo/src/dispatch/registry.ts
- *   - Phrase assertions in CLEO-ARCHITECTURE-GUIDE.md, CLEO-VISION.md,
+ *   - Phrase assertions in docs/concept/cleo-architecture-guide.md, docs/concept/cleo-vision.md,
  *     and docs/spec/cleo-operation-constitution.md
  *
  * Returns a structured result with per-file pass/fail and exit-non-zero
@@ -16,7 +16,11 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { OPERATION_CONSTITUTION_DOC } from '../../../cli/paths.js';
+import {
+  ARCHITECTURE_GUIDE_DOC,
+  OPERATION_CONSTITUTION_DOC,
+  VISION_DOC,
+} from '../../../cli/paths.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -77,10 +81,10 @@ const FORBIDDEN_PHRASES: readonly string[] = [
  * These are story/manifesto files that may reference superseded counts.
  */
 const EXCLUDED_FILENAMES: readonly string[] = [
-  'CLEO-CANT.md',
-  'CLEO-AWAKENING-STORY.md',
-  'CLEO-FOUNDING-STORY.md',
-  'CLEO-MANIFESTO.md',
+  'cleo-cant.md',
+  'cleo-awakening-story.md',
+  'cleo-founding-story.md',
+  'cleo-manifesto.md',
 ];
 
 // ---------------------------------------------------------------------------
@@ -188,8 +192,8 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
   // Resolve paths
   const typesFile = join(projectRoot, 'packages/cleo/src/dispatch/types.ts');
   const registryFile = join(projectRoot, 'packages/cleo/src/dispatch/registry.ts');
-  const archGuide = join(projectRoot, 'docs/concepts/CLEO-ARCHITECTURE-GUIDE.md');
-  const visionDoc = join(projectRoot, 'docs/concepts/CLEO-VISION.md');
+  const archGuide = join(projectRoot, ARCHITECTURE_GUIDE_DOC);
+  const visionDoc = join(projectRoot, VISION_DOC);
   const constitution = join(projectRoot, OPERATION_CONSTITUTION_DOC);
 
   // Read code sources
@@ -215,7 +219,7 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
   // Required positive assertions
   const assertions: CanonDocAssertion[] = [];
 
-  // CLEO-ARCHITECTURE-GUIDE.md must contain "Six Great Systems" + "Circle of Eleven"
+  // The architecture guide must contain "Six Great Systems" + "Circle of Eleven"
   const archLines = readLines(archGuide);
   const archText = archLines.join('\n');
   assertions.push({
@@ -229,7 +233,7 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
     passed: archText.includes('Circle of Eleven'),
   });
 
-  // CLEO-VISION.md must contain at least one reference to "six systems"
+  // The vision doc must contain at least one reference to "six systems"
   const visionLines = readLines(visionDoc);
   const visionText = visionLines.join('\n');
   assertions.push({

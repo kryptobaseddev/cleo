@@ -32,7 +32,7 @@
  * @epic T9571
  * @saga T9560
  * @adr ADR-068 (DB-open chokepoint), ADR-069 (Coordination Layers)
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §4-§5
+ * @architecture docs/concept/skills-architecture.md §4-§5
  */
 
 import { desc, eq, lt, sql } from 'drizzle-orm';

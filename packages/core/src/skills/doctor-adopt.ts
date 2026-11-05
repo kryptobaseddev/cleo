@@ -6,7 +6,7 @@
  * (`~/.cleo/skills/`, legacy `~/.local/share/agents/skills/`,
  * `~/.agents/skills/` as a real dir) but has NO row in the per-user
  * `skills.db` registry described in
- * `docs/architecture/SG-CLEO-SKILLS-architecture-v3.md` §4.
+ * `docs/concept/skills-architecture.md` §4.
  *
  * The handler offers four per-orphan dispositions:
  *
@@ -49,7 +49,7 @@
  * @task T9744
  * @epic T9740
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §1, §6
+ * @architecture docs/concept/skills-architecture.md §1, §6
  */
 
 import { randomUUID } from 'node:crypto';

@@ -18,7 +18,7 @@
  * be safely consumed from environments where `skills.db` is not yet
  * initialized (sentient daemon boot, installer pre-flight, etc.).
  *
- * @see {@link docs/architecture/SG-CLEO-SKILLS-architecture-v3.md} §1, §6
+ * @see {@link docs/concept/skills-architecture.md} §1, §6
  * @task T9746
  * @epic T9740
  */

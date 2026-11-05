@@ -30,7 +30,7 @@
  * @task T9691
  * @epic T9561
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §4
+ * @architecture docs/concept/skills-architecture.md §4
  */
 
 import { existsSync, readFileSync } from 'node:fs';
