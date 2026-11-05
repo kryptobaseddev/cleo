@@ -64,10 +64,9 @@ const log = getLogger('domain:worktree');
 
 const ALL_CATEGORIES: readonly WorktreeStatusCategory[] = [
   'active',
-  'stale',
-  'merged',
-  'orphan',
-  'locked',
+  'redundant',
+  'keep',
+  'unknown',
 ];
 
 /**

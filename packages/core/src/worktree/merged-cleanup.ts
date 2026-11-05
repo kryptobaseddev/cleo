@@ -45,8 +45,8 @@ import {
 } from '@cleocode/worktree';
 import { discoveryEnv } from '../git/work-tree.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
-import { enumerateWorktrees } from './list.js';
-import { loadTaskEvidence, worktreeInUseProbe } from './prune.js';
+import { enumerateWorktrees, worktreeInUseProbe } from './list.js';
+import { loadTaskEvidence } from './prune.js';
 
 /** `task/T123` or `task/T123-slug`: the task id a branch belongs to. */
 const TASK_BRANCH = /^task\/(T\d+)(?:[-/]|$)/;
@@ -311,7 +311,7 @@ export async function cleanupMergedWork(
         evidence,
         // A merged, clean worktree may drop rebuildable output.
         exemptRegenerable: true,
-        inUse: worktreeInUseProbe(root, taskId),
+        inUse: worktreeInUseProbe(readWorktreeTaskLock, root, taskId),
         dryRun,
         probe,
       });

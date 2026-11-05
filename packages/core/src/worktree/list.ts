@@ -15,10 +15,14 @@
  *  - `isMerged` (the worktree's own HEAD is reachable from main and is not a
  *    commit on main's first-parent line, i.e. it carried commits of its own
  *    that were merged; a fresh branch at a main commit is never merged; T14236).
- *  - `isStale`  (no commits in >N days AND (task done/cancelled OR merged)).
+ *  - `isStale`  (annotation: no commits in >N days AND (task done/cancelled OR merged)).
  *  - `owningAgent` (the sentinel index's `adoptedBy`, else null).
- *  - `statusCategory` — one of `locked|orphan|merged|stale|active`, resolved
- *    by precedence in {@link classifyStatus}.
+ *  - `statusCategory` — `active|redundant|keep|unknown` (T14274): a worktree
+ *    whose task is done or cancelled, or that has no stored task and has been
+ *    idle past the stale window, is classified by the one disposal proof
+ *    (`disposeWorktree`, dry run): `redundant` when nothing in it would be
+ *    lost, `keep` naming the failing clause, `unknown` when a probe could not
+ *    answer. Everything else is `active` ({@link classifyStatus}).
  *  - `source` — origin of the worktree: `cleo-spawn`, `claude-agent`, `manual`,
  *                or `adopted`. Set by consulting the sentinel index at
  *                `<projectRoot>/.cleo/worktrees.json` (T9804).
@@ -47,14 +51,15 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  DisposeWorktreeResult,
   EngineResult,
   ListWorktreesOpts,
   ListWorktreesResult,
   WorktreeInfo,
   WorktreeSource,
-  WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
+import { computeProjectHash } from '@cleocode/paths';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
@@ -114,7 +119,24 @@ export async function listWorktrees(
   const staleThresholdMs = staleDays * 24 * 60 * 60 * 1000;
   const nowMs = Date.now();
   // Lazy: keeps @cleocode/worktree out of this module's static graph (T13696).
-  const { readKeepMarker } = await import('@cleocode/worktree');
+  const { disposeWorktree, readKeepMarker, readWorktreeTaskLock } = await import(
+    '@cleocode/worktree'
+  );
+  /**
+   * T14274: what the one disposal proof says, for a disposal candidate. A dry
+   * run: nothing is written, archived or removed (prune re-proves with the
+   * task's evidence before it acts).
+   */
+  const proveRedundant = (path: string, taskId: string | null, isMerged: boolean) =>
+    disposeWorktree({
+      worktreePath: path,
+      projectRoot,
+      taskId,
+      reason: 'list',
+      exemptRegenerable: isMerged,
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
+      dryRun: true,
+    });
 
   let porcelainEntries: PorcelainEntry[];
   try {
@@ -204,18 +226,18 @@ export async function listWorktrees(
     const idleMs = nowMs - lastActivityMs;
     const idleOlderThanThreshold = idleMs > staleThresholdMs;
     const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
-    const isOrphan =
-      owningTaskStatus === 'cancelled' || (taskId !== null && owningTaskStatus === null);
-    // Stale = idle longer than threshold AND (owner is terminal OR branch already integrated).
+    // Stale (an annotation) = idle longer than threshold AND (owner is terminal OR branch already integrated).
     const isStale = idleOlderThanThreshold && (ownerTerminal || isMerged);
 
-    const statusCategory = classifyStatus({
+    const candidate = isDisposalCandidate({
       isPrimary,
-      isLocked: entry.locked,
-      isOrphan,
-      isMerged,
-      isStale,
+      owningTaskStatus,
+      // At or past the window: a zero-day window makes every taskless worktree a candidate.
+      idlePastWindow: idleMs >= staleThresholdMs,
     });
+    const classified = classifyStatus(
+      candidate ? proveRedundant(entry.path, taskId, isMerged) : null,
+    );
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -246,7 +268,7 @@ export async function listWorktrees(
       isStale,
       isMerged,
       owningTaskStatus,
-      statusCategory,
+      ...classified,
       source,
       ...keptField(entry.path, readKeepMarker),
     };
@@ -264,19 +286,16 @@ export async function listWorktrees(
     const owningTaskStatus = taskId ? (taskStatusByid.get(taskId) ?? null) : null;
     const lastActivityMs = mtimeMs(sentinel.path);
     const lastActivity = new Date(lastActivityMs).toISOString();
-    const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
     const idleMs = nowMs - lastActivityMs;
-    const isStale = idleMs > staleThresholdMs && (ownerTerminal || true);
-    const isOrphan =
-      owningTaskStatus === 'cancelled' || (taskId !== null && owningTaskStatus === null);
-
-    const statusCategory = classifyStatus({
+    const isStale = idleMs > staleThresholdMs;
+    const candidate = isDisposalCandidate({
       isPrimary: false,
-      isLocked: false,
-      isOrphan,
-      isMerged: false,
-      isStale,
+      owningTaskStatus,
+      idlePastWindow: idleMs >= staleThresholdMs,
     });
+    const classified = classifyStatus(
+      candidate ? proveRedundant(sentinel.path, taskId, false) : null,
+    );
 
     worktrees.push({
       path: sentinel.path,
@@ -293,7 +312,7 @@ export async function listWorktrees(
       isStale,
       isMerged: false,
       owningTaskStatus,
-      statusCategory,
+      ...classified,
       source: sentinel.source,
       ...keptField(sentinel.path, readKeepMarker),
     });
@@ -449,32 +468,63 @@ export function branchIsMergedToMain(
 }
 
 /**
- * Apply orphan/merged/stale/locked precedence to produce the single
- * mutually-exclusive `statusCategory` field. See the {@link WorktreeStatusCategory}
- * docstring for the resolution order.
+ * Whether a worktree is a disposal candidate at all (T14274): not the primary
+ * checkout (T9686-D), and its task is done or cancelled, or it has no stored
+ * task and has been idle past the stale window. Everything else is `active`.
  *
- * Primary-worktree guard: the canonical project checkout is always classified
- * as `active`, regardless of merge state. The primary worktree's branch is
- * trivially an ancestor of itself (`main` is reachable from `main`), so the
- * naive ancestry check would label it `merged` and make it a prune candidate.
- *
- * @param flags - The set of pre-computed boolean classifiers.
- * @returns The resolved status category.
+ * @param flags - The primary guard, the owning task's status and idleness.
+ * @returns Whether the disposal proof decides its category.
  * @internal Exported for tests only.
  */
-export function classifyStatus(flags: {
-  isPrimary?: boolean;
-  isLocked: boolean;
-  isOrphan: boolean;
-  isMerged: boolean;
-  isStale: boolean;
-}): WorktreeStatusCategory {
-  if (flags.isPrimary === true) return 'active';
-  if (flags.isLocked) return 'locked';
-  if (flags.isOrphan) return 'orphan';
-  if (flags.isMerged) return 'merged';
-  if (flags.isStale) return 'stale';
-  return 'active';
+export function isDisposalCandidate(flags: {
+  isPrimary: boolean;
+  owningTaskStatus: string | null;
+  idlePastWindow: boolean;
+}): boolean {
+  if (flags.isPrimary) return false;
+  if (flags.owningTaskStatus === 'done' || flags.owningTaskStatus === 'cancelled') return true;
+  if (flags.owningTaskStatus !== null) return false; // an open task
+  return flags.idlePastWindow;
+}
+
+/**
+ * The status category from the disposal proof (T14274): `active` for a
+ * non-candidate (`proof === null`), `redundant` when the proof holds,
+ * `unknown` when a probe could not answer, else `keep` with the failing
+ * clause as `keepReason`.
+ *
+ * @param proof - The dry-run `disposeWorktree` result, or `null` for a non-candidate.
+ * @returns The category, and the reason for `keep` / `unknown`.
+ * @internal Exported for tests only.
+ */
+export function classifyStatus(
+  proof: DisposeWorktreeResult | null,
+): Pick<WorktreeInfo, 'statusCategory' | 'keepReason'> {
+  if (proof === null) return { statusCategory: 'active' };
+  if (proof.keptReason === undefined) return { statusCategory: 'redundant' };
+  return {
+    statusCategory: proof.indeterminate === true ? 'unknown' : 'keep',
+    keepReason: proof.keptReason,
+  };
+}
+
+/**
+ * The in-use probe core hands the disposal engine (T13924): a CLEO task lock
+ * record for the worktree's task means an agent may still be working in it.
+ *
+ * @param readLock - The worktree package's lock reader (callers load it statically or lazily).
+ * @param projectRoot - Project whose lock records are read.
+ * @param taskId - The worktree's task, or `null`.
+ * @returns The probe, or `undefined` when no task owns the worktree.
+ */
+export function worktreeInUseProbe(
+  readLock: typeof import('@cleocode/worktree').readWorktreeTaskLock,
+  projectRoot: string,
+  taskId: string | null,
+): (() => string | null) | undefined {
+  if (taskId === null) return undefined;
+  return () =>
+    readLock(computeProjectHash(projectRoot), taskId) !== null ? 'task lock held' : null;
 }
 
 /**
