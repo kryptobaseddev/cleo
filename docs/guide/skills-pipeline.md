@@ -8,7 +8,7 @@ This doc is the **operator-facing** privacy summary for the skills owner-CI
 pipeline. It complements the technical contract in
 [ADR-074](../../.cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md)
 and the architecture in
-[`docs/architecture/SG-CLEO-SKILLS-architecture-v3.md`](../architecture/SG-CLEO-SKILLS-architecture-v3.md).
+[`docs/architecture/SG-CLEO-SKILLS-architecture-v3.md`](../concept/skills-architecture.md).
 
 ---
 
@@ -144,20 +144,3 @@ The full rationale (including the locked anti-patterns) is in
 If you find a violation of any of the above in the codebase, **please open
 an issue** — they are intentional invariants and any regression should be
 fixed at the source, not worked around.
-
-<!-- merged from `skills-pipeline` by cleo docs modernize -->
-
-## From `skills-pipeline`
-
-**Task:** T9679
-**Epic:** T9572 (E-SKILLS-OWNER-CI)
-**Status:** Locked at v2026.5.82 / SG-CLEO-SKILLS Sphere A
-
-This doc is the **operator-facing** privacy summary for the skills owner-CI
-pipeline. It complements the technical contract in
-[ADR-074](../../.cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md)
-and the architecture in
-[`docs/architecture/SG-CLEO-SKILLS-architecture-v3.md`](../concept/skills-architecture.md).
-
----
-

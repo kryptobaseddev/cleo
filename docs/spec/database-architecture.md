@@ -248,14 +248,6 @@ The cloud SignalDock server at `api.signaldock.io` uses the same `signaldock-sto
 
 The `tasks.db`, `brain.db`, and `nexus.db` databases are LOCAL-ONLY. They do not exist on the cloud server. The cloud server only has `signaldock.db` (or its Postgres equivalent).
 
-<!-- merged from `database-architecture` by cleo docs modernize -->
-
-## Cloud Deployment Note (from `database-architecture`)
-
-The cloud SignalDock server at `api.signaldock.io` uses the same `signaldock-storage` crate compiled with `diesel/postgres` feature, connecting to **PostgreSQL** in production (Railway). The Diesel backend abstraction handles SQLite vs Postgres differences transparently. The `better-auth-diesel` adapter (upgraded from `better-auth-diesel-sqlite`) connects to the same Postgres database for authentication.
-
-The `tasks.db`, `brain.db`, and `nexus.db` databases are LOCAL-ONLY. They do not exist on the cloud server. The cloud server only has `signaldock.db` (or its Postgres equivalent).
-
 <!-- merged from `cleo-data-integrity-spec` by cleo docs modernize -->
 
 ## From `cleo-data-integrity-spec`

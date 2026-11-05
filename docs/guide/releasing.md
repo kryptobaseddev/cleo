@@ -71,11 +71,10 @@ On 2026-04-15, worker T665 bypassed the canonical release process and published 
 - Verifies the lockfile passes `--frozen-lockfile` check
 - Gives clear instructions to run `pnpm install` before retrying
 
-**GitHub Actions workflow** (`.github/workflows/lockfile-check.yml`):
-- Runs as a dedicated, fast gate on all PRs and pushes to `main`
-- Executes before the heavy CI matrix (tests, build, etc.)
-- Red-lights immediately if `pnpm install --frozen-lockfile` fails
-- Prevents any downstream CI job from running while lockfile is inconsistent
+**GitHub Actions** (`ci.yml`, job `Repo Lints (installed)`, step `Lockfile Check`; T13840):
+- Runs on all PRs and pushes to `main`: the job's own `pnpm install --frozen-lockfile` is the check
+- Runs in parallel with the rest of CI; it does not gate other jobs from starting
+- Fails that job (and so the required `CI` aggregate) when the lockfile is inconsistent, so the PR cannot merge
 
 **Release workflow best practices**:
 - Always bump versions, run `pnpm install`, and commit both files before pushing the tag
@@ -226,44 +225,6 @@ Never use SemVer (e.g., `v1.2.3`) for this project.
 ---
 
 ## Questions?
-
-Refer to `AGENTS.md` section "Release & Branching" for branch conventions, or run
-`cleo memory find "release"` for recent decisions.
-
-<!-- merged from `releasing` by cleo docs modernize -->
-
-## Why You Should Never `npm publish` Locally (ORC-011) (from `releasing`)
-
-On 2026-04-15, worker T665 bypassed the canonical release process and published v2026.4.59 to npm **after** GitHub CI had already failed due to `pnpm-lock.yaml` drift. This violated the **Orchestration Rule ORC-011**: *"Never bypass CI gates to publish."*
-
-### What Went Wrong
-
-1. Local `package.json` was updated without regenerating `pnpm-lock.yaml`
-2. GitHub CI detected the drift and **RED-LIGHTED** before running expensive jobs
-3. The worker ignored the red CI and ran `npm publish` locally anyway
-4. The npm package was published with an inconsistent lockfile state
-5. Downstream users who installed from npm got a potentially unstable version
-
-### Safeguards Now in Place
-
-**Pre-commit hook** (`.git/hooks/pre-commit`):
-- Blocks any commit where `package.json` changes without a corresponding `pnpm-lock.yaml` change
-- Verifies the lockfile passes `--frozen-lockfile` check
-- Gives clear instructions to run `pnpm install` before retrying
-
-**GitHub Actions** (`ci.yml`, job `Repo Lints (installed)`, step `Lockfile Check`; T13840):
-- Runs on all PRs and pushes to `main`: the job's own `pnpm install --frozen-lockfile` is the check
-- Runs in parallel with the rest of CI; it does not gate other jobs from starting
-- Fails that job (and so the required `CI` aggregate) when the lockfile is inconsistent, so the PR cannot merge
-
-**Release workflow best practices**:
-- Always bump versions, run `pnpm install`, and commit both files before pushing the tag
-- Let GitHub Actions Release workflow handle publishing—never do `npm publish` locally
-- If CI is red, **never push a tag**—investigate and fix the CI issues first
-
----
-
-## Questions? (from `releasing`)
 
 Refer to `AGENTS.md` section "Release & Branching" for branch conventions, or run
 `cleo memory find "release"` for recent decisions.
