@@ -8,7 +8,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -388,21 +388,23 @@ if (process.argv[2] === 'api' && process.argv[3] === 'graphql') process.stdout.w
       : [];
   const attempts = () => Number(readFileSync(path.join(dir, 'attempts'), 'utf8'));
 
-  function run(vitest, issues = [], extraEnv = {}) {
+  function run(vitest, issues = [], extraEnv = {}, subcommand = 'run') {
     const out = path.join(dir, 'flaky.json');
     const r = spawnSync(
       process.execPath,
-      [
-        SCRIPT,
-        'run',
-        '--log',
-        path.join(dir, 'log'),
-        '--report',
-        out,
-        '--',
-        '--shard=1/4',
-        '--retry=2',
-      ],
+      subcommand === 'run'
+        ? [
+            SCRIPT,
+            'run',
+            '--log',
+            path.join(dir, 'log'),
+            '--report',
+            out,
+            '--',
+            '--shard=1/4',
+            '--retry=2',
+          ]
+        : [SCRIPT, subcommand],
       {
         cwd: dir,
         encoding: 'utf8',
@@ -534,7 +536,7 @@ if (process.argv[2] === 'api' && process.argv[3] === 'graphql') process.stdout.w
     expect(r.out).toContain('failed on the re-run too');
   });
 
-  it(`fails when more than ${MAX_QUARANTINE} tests are quarantined, even on a green run`, () => {
+  it(`over ${MAX_QUARANTINE} quarantined tests, a green shard passes and the budget subcommand fails on main (T14257)`, () => {
     const issues = Array.from({ length: MAX_QUARANTINE + 1 }, (_, i) => {
       const t = { file: `f${i}.test.ts`, test: 't' };
       const state = {
@@ -545,18 +547,24 @@ if (process.argv[2] === 'api' && process.argv[3] === 'graphql') process.stdout.w
       };
       return { number: i + 1, title: titleOf(t), body: bodyOf(state, 'x'), author: BOT };
     });
-    const r = run(fakeVitest([{ code: 0, report: rep([], [A]) }]), issues, {
+    // The shard reports test outcomes only, on main too.
+    const shard = run(fakeVitest([{ code: 0, report: rep([], [A]) }]), issues, {
       GITHUB_EVENT_NAME: 'push',
     });
-    expect(r.code).toBe(1);
-    expect(r.out).toContain('over budget');
-    // A pull request only warns, so one bad day on main does not block every PR.
-    rmSync(path.join(dir, 'attempts'));
-    const pr = run(fakeVitest([{ code: 0, report: rep([], [A]) }]), issues, {
-      GITHUB_EVENT_NAME: 'pull_request',
-    });
+    expect(shard.code).toBe(0);
+    expect(shard.out).not.toContain('over budget');
+    // The budget is its own check: it fails on main's own runs ...
+    const main = run('', issues, { GITHUB_EVENT_NAME: 'push' }, 'budget');
+    expect(main.code).toBe(1);
+    expect(main.out).toContain('over budget');
+    // ... and a pull request only warns, so one bad day on main never reads as its fault.
+    const pr = run('', issues, { GITHUB_EVENT_NAME: 'pull_request' }, 'budget');
     expect(pr.code).toBe(0);
     expect(pr.out).toContain('Warning only');
+    // Within budget it passes everywhere.
+    expect(
+      run('', issues.slice(0, MAX_QUARANTINE), { GITHUB_EVENT_NAME: 'push' }, 'budget').code,
+    ).toBe(0);
   });
 
   it('an error outside any test blocks, even when the failing test is a flake', () => {
@@ -686,6 +694,54 @@ describe('ci.yml wiring (T13145)', () => {
         s.uses?.startsWith('actions/upload-artifact') && s.with?.name?.startsWith('flaky-report-'),
     );
     expect(upload?.if).toBe('always()');
+  });
+
+  it('runs no budget step inside a Unit Tests or Build job (T14257)', () => {
+    const budgetStep = (s) =>
+      typeof s.run === 'string' &&
+      (s.run.includes('ci-flaky-quarantine.mjs budget') ||
+        s.run.includes('check-core-bundle-budget.mjs'));
+    for (const id of ['unit-tests', 'build', 'build-verify'])
+      expect(ci.jobs[id].steps.filter(budgetStep), id).toEqual([]);
+    expect(ci.jobs['flaky-quarantine-budget'].steps.some(budgetStep)).toBe(true);
+    expect(ci.jobs['core-bundle-budget'].steps.some(budgetStep)).toBe(true);
+  });
+
+  it.each([
+    ['failure', 0],
+    ['cancelled', 0],
+    ['success', 0],
+  ])('the CI aggregate does not gate on the budget jobs (%s), but does on unit tests', (result, expected) => {
+    const aggregate = ci.jobs.ci.steps.find((step) => step.env?.NEEDS_JSON);
+    for (const budget of ['flaky-quarantine-budget', 'core-bundle-budget'])
+      expect(ci.jobs.ci.needs).toContain(budget);
+    const execute = (overrides) => {
+      const needs = Object.fromEntries(
+        ci.jobs.ci.needs.map((name) => [name, { result: overrides[name] ?? 'success' }]),
+      );
+      return spawnSync('bash', ['-e', '-o', 'pipefail', '-c', aggregate.run], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: process.env.PATH,
+          RESULTS: Object.values(needs)
+            .map((entry) => entry.result)
+            .join(','),
+          NEEDS_JSON: JSON.stringify(needs),
+          ADVISORY_RESULT: 'success',
+          GITHUB_STEP_SUMMARY: devNull,
+        },
+      });
+    };
+    const budgets = execute({
+      'flaky-quarantine-budget': result,
+      'core-bundle-budget': result,
+    });
+    expect(budgets.status, budgets.stdout + budgets.stderr).toBe(expected);
+    if (result !== 'success') expect(budgets.stdout).toContain('Main health');
+    const tests = execute({ 'flaky-quarantine-budget': result, 'unit-tests': 'failure' });
+    expect(tests.status).toBe(1);
+    expect(tests.stdout).toContain('unit-tests');
   });
 
   it('files only from main, may write issues, and is gated by the CI aggregate', () => {

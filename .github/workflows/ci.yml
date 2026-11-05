@@ -1665,9 +1665,11 @@ jobs:
           fi
           # T13145: a failing test whose file passes on ONE re-run is a flake —
           # reported and filed, not blocking; a quarantined test's failure does
-          # not block; a test that fails twice, a crash, or a quarantine over
-          # budget blocks. The first run's output is still teed to the log the
-          # schema-warning gate below reads. See scripts/ci-flaky-quarantine.mjs.
+          # not block; a test that fails twice or a crash blocks. The shard
+          # reports test outcomes only: the quarantine budget is its own job
+          # (flaky-quarantine-budget, T14257). The first run's output is still
+          # teed to the log the schema-warning gate below reads. See
+          # scripts/ci-flaky-quarantine.mjs.
           # shellcheck disable=SC2086 # word splitting is intended: flag lists
           node scripts/ci-flaky-quarantine.mjs run \
             --log /tmp/vitest-shard${{ matrix.shard }}.log \
@@ -1724,6 +1726,71 @@ jobs:
             --run-url "$RUN_URL" \
             --sha "$GITHUB_SHA" \
             $EXPIRE
+
+  # T14257 (D11225): the quarantine budget is main health, not a test outcome.
+  # It fails on main's own runs (push, nightly) and warns on a pull request.
+  # Not a required check: the `ci` aggregate needs it (every sibling must be
+  # needed) but lists it in ADVISORY_JOBS, so a breach never reds `CI`.
+  flaky-quarantine-budget:
+    name: Flaky Quarantine Budget (T14257)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - name: Quarantined tests within budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-flaky-quarantine.mjs budget
+
+  # T14257 (D11225): the core bundle budget (T11582 · R10-L3), moved out of
+  # Build & Verify so a budget breach never reads as a failed build. Build-time
+  # companion to check-core-tarball-size.mjs (release-tag time): asserts the
+  # built dist/ stays within budget AND that importing one
+  # @cleocode/core/<submodule> tree-shakes (does NOT drag all of core into a
+  # consumer). esbuild output is platform-independent, so it measures the
+  # Linux `build` output once. Advisory like flaky-quarantine-budget above.
+  core-bundle-budget:
+    name: Core Bundle Budget (T14257)
+    needs: [ changes, build ]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        shell: bash
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
+      - run: pnpm install --frozen-lockfile
+      - name: Core bundle-budget + submodule tree-shake gate (T11582 · R10-L3)
+        shell: bash
+        run: node packages/core/scripts/check-core-bundle-budget.mjs
 
   build-verify:
     name: Build & Verify (${{ matrix.os }})
@@ -1912,16 +1979,6 @@ jobs:
         shell: bash
         run: |
           test -f packages/runtime/dist/gateway/mcp/index.js || (echo "packages/runtime/dist/gateway/mcp/index.js missing — build.mjs did not build @cleocode/runtime" && exit 1)
-      - name: Core bundle-budget + submodule tree-shake gate (T11582 · R10-L3)
-        # Build-time companion to check-core-tarball-size.mjs (which runs at
-        # release-tag time and needs the Rust supervisor fallback). Asserts the
-        # built dist/ stays within budget AND that importing one
-        # @cleocode/core/<submodule> tree-shakes (does NOT drag all of core into
-        # a consumer). Deterministic, esbuild byte output is platform-independent,
-        # so run it once on Linux. The full build above already produced dist/.
-        if: runner.os == 'Linux'
-        shell: bash
-        run: node packages/core/scripts/check-core-bundle-budget.mjs
 
   packed-artifact:
     name: Packed CLI and Studio Artifact
@@ -2415,6 +2472,8 @@ jobs:
       - build
       - unit-tests
       - flaky-quarantine
+      - flaky-quarantine-budget
+      - core-bundle-budget
       - scripts-tests
       - build-verify
       - packed-artifact
@@ -2458,7 +2517,11 @@ jobs:
           # what changes is that the reader is told WHICH, and which job.
           #
           # `jq` is preinstalled on GitHub-hosted runners.
-          ADVISORY_JOBS='forge-ts-check'
+          # T14257 (D11225): the two budget jobs are main health, never a
+          # required result: a breach warns here and stays red on its own job.
+          ADVISORY_JOBS='forge-ts-check
+          flaky-quarantine-budget
+          core-bundle-budget'
           names_with() {   # names_with <result>
             printf '%s' "${NEEDS_JSON}" \
               | jq -r --arg r "$1" 'to_entries[] | select(.value.result == $r) | .key' \
@@ -2470,6 +2533,12 @@ jobs:
           if printf '%s' "${ADVISORY_RESULT}" | grep -qE '^(failure|cancelled)$'; then
             echo "::warning::Advisory job forge-ts-check concluded '${ADVISORY_RESULT}' — not gating (T11967)."
           fi
+          for budget in flaky-quarantine-budget core-bundle-budget; do
+            result=$(printf '%s' "${NEEDS_JSON}" | jq -r --arg j "$budget" '.[$j].result // "absent"')
+            if [ "$result" = failure ] || [ "$result" = cancelled ]; then
+              echo "::warning title=Main health: ${budget}::${budget} concluded '${result}'. A budget is main health, not this change's tests (T14257) — not gating."
+            fi
+          done
 
           {
             echo "### CI aggregate"
