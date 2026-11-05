@@ -100,7 +100,14 @@ describe('T9686-D primary-worktree guard (real git)', () => {
     writeFileSync(join(secondaryPath, 'work.md'), 'merged work\n');
     run(secondaryPath, ['add', 'work.md']);
     run(secondaryPath, ['commit', '-q', '-m', 'work']);
-    run(repoRoot, ['merge', '-q', '--no-ff', '-m', 'merge feat/already-merged', 'feat/already-merged']);
+    run(repoRoot, [
+      'merge',
+      '-q',
+      '--no-ff',
+      '-m',
+      'merge feat/already-merged',
+      'feat/already-merged',
+    ]);
 
     try {
       const list = await listWorktrees({ projectRoot: repoRoot });
