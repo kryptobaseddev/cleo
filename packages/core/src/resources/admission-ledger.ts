@@ -120,6 +120,7 @@ import { classifyPressure, pressureScore, ResourceMonitor } from './monitor.js';
 import {
   checkMemoryGate,
   EXTERNAL_PRESSURE_AFTER_MS,
+  isCriticalMemory,
   MEMORY_GATE_RETRY_AFTER_MS,
   type MemoryGateReporter,
 } from './pressure-gate.js';
@@ -746,7 +747,7 @@ export interface LedgerEntry {
    * `idle` when the idle rule admitted it (T14088, T14098): CLEO held nothing
    * while pressure outside CLEO kept the budget closed.
    */
-  readonly admittedBy?: 'idle';
+  readonly admittedBy?: 'idle' | 'latch';
   /**
    * The class plan, when a measured peak lowered `footprintBytes` below it
    * (T14281). Absent when the run is charged its plan.
@@ -852,6 +853,8 @@ interface CachedPressure {
   readonly backoff?: boolean;
   /** The sample's available or reclaimable memory, in bytes (T14098). */
   readonly memAvailableBytes?: number | null;
+  /** Memory was critical ({@link isCriticalMemory}, T14206). Absent in caches written before it. */
+  readonly critical?: boolean;
 }
 
 /** The ledger file, read. */
@@ -878,6 +881,7 @@ function isCachedPressure(v: unknown): v is CachedPressure {
       (typeof c.lightShare === 'string' && SHARES.has(c.lightShare))) &&
     typeof c.sampledAtMs === 'number' &&
     (c.backoff === undefined || typeof c.backoff === 'boolean') &&
+    (c.critical === undefined || typeof c.critical === 'boolean') &&
     (c.memAvailableBytes === undefined ||
       c.memAvailableBytes === null ||
       typeof c.memAvailableBytes === 'number') &&
@@ -1338,6 +1342,11 @@ export interface PassContext {
    * pressure could not pause it later.
    */
   readonly backoff?: boolean;
+  /**
+   * Memory is critical ({@link isCriticalMemory}, T14206): while the gate
+   * refuses, not even a small run starts through the latch.
+   */
+  readonly criticalMemory?: boolean;
 }
 
 /**
@@ -1405,6 +1414,53 @@ function admitOneWhenIdle(
   const started = opened.find((e) => e.id === fitting.id && e.state === 'admitted');
   return entries.map((e) =>
     e.id === started?.id ? { ...started, admittedBy: 'idle' as const } : e,
+  );
+}
+
+/**
+ * The progress guarantee while the memory gate refuses (T14206): one small
+ * run at a time passes the latch, in queue order, when its charge fits the
+ * reclaimable memory.
+ *
+ * - A light run (charged {@link LIGHT_FOOTPRINT_BYTES} or less, not lowered
+ *   from a heavier plan: a git push with no heavy hook, a global install,
+ *   biome on named paths) passes whatever else CLEO runs.
+ * - A run whose measured charge (T14281) is under {@link LIGHT_FOOTPRINT_BYTES}
+ *   passes only while CLEO holds nothing: the pressure is someone else's.
+ *
+ * Larger waiters keep waiting, and get the external-pressure verdict (T14282).
+ * The caller leaves this out while memory is critical.
+ *
+ * @param entries - the ledger.
+ * @param ctx - the pass context (capacity, clock, reclaimable memory).
+ */
+function admitSmallThroughLatch(entries: readonly LedgerEntry[], ctx: PassContext): LedgerEntry[] {
+  if (entries.some((e) => e.state === 'admitted' && e.admittedBy === 'latch')) return [...entries];
+  const idle = (ctx.foreign?.count ?? 0) === 0 && !entries.some((e) => e.state === 'admitted');
+  const light = (e: LedgerEntry): boolean =>
+    e.planBytes === undefined && e.footprintBytes <= LIGHT_FOOTPRINT_BYTES;
+  const measuredSmall = (e: LedgerEntry): boolean =>
+    e.planBytes !== undefined && e.footprintBytes < LIGHT_FOOTPRINT_BYTES;
+  const candidates = entries.filter(
+    (e) => e.state === 'waiting' && (light(e) || (idle && measuredSmall(e))),
+  );
+  const fitting = firstFittingWaiter(
+    candidates,
+    ctx.reclaimableBytes,
+    ctx.capacityBytes,
+    ctx.nowMs,
+  );
+  if (fitting === null) return [...entries];
+  return entries.map((e) =>
+    e.id === fitting.id
+      ? {
+          ...e,
+          state: 'admitted' as const,
+          admittedAtMs: ctx.nowMs,
+          heartbeatAtMs: ctx.nowMs,
+          admittedBy: 'latch' as const,
+        }
+      : e,
   );
 }
 
@@ -1598,10 +1654,14 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const lightShare = ctx.lightShare ?? ctx.share;
   if (ctx.share === 'none' && lightShare === 'none') {
     // T14088: latched below the refuse line with nothing of CLEO's running: the
-    // pressure is someone else's, so the idle rule admits one run. Above the
-    // refuse line nothing starts.
-    if (ctx.latchedBelowRefuse !== true) return [...entries];
-    return admitOneWhenIdle(entries, ctx, entries);
+    // pressure is someone else's, so the idle rule admits one run.
+    if (ctx.latchedBelowRefuse === true) {
+      const idle = admitOneWhenIdle(entries, ctx, entries);
+      if (idle.some((e, i) => e !== entries[i])) return idle;
+    }
+    // T14206: a small run passes the latch, one at a time, unless memory is
+    // critical; above the refuse line that is all that starts.
+    return ctx.criticalMemory === true ? [...entries] : admitSmallThroughLatch(entries, ctx);
   }
   if (ctx.backoff === true) {
     // T14098: pressure cannot pause a never-paused run later, so at backoff it
@@ -2302,7 +2362,7 @@ export interface AdmissionGrant {
   /** Bytes charged. */
   readonly footprintBytes: number;
   /** `idle` when the idle rule admitted it (T14088, T14098). */
-  readonly admittedBy?: 'idle';
+  readonly admittedBy?: 'idle' | 'latch';
   /**
    * Report the run's tree RSS (T14116, T14281): a climb past the measured
    * charge the run was admitted with restores its plan; a charge never falls
@@ -2468,6 +2528,7 @@ async function sampleShare(
       sampledAtMs: nowMs,
       backoff,
       memAvailableBytes: sample.memAvailableBytes,
+      critical: isCriticalMemory(sample),
     },
   };
 }
@@ -2596,6 +2657,7 @@ function reapAndSchedule(
       latchedBelowRefuse,
       reclaimableBytes: reading?.memAvailableBytes ?? cached?.memAvailableBytes ?? null,
       backoff: cached?.backoff === true,
+      criticalMemory: cached?.critical === true,
     }),
     foreign,
     pressure: sampled ?? doc.pressure,

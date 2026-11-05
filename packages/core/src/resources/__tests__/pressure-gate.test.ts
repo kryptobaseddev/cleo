@@ -25,6 +25,7 @@ import {
   EXTERNAL_PRESSURE_AFTER_MS,
   evaluateMemoryGate,
   externalPressureFix,
+  isCriticalMemory,
   MEMORY_GATE_LATCH_TTL_MS,
   MEMORY_GATE_NOTICE_INTERVAL_MS,
   memoryGateReporter,
@@ -298,5 +299,31 @@ describe('memoryGateReporter', () => {
       memoryPressure: reading,
     });
     expect(unlisted).toContain('processes the memory probe could not list');
+  });
+
+  it('isCriticalMemory: a full stall, the macOS critical level or nearly full swap (T14206)', () => {
+    expect(isCriticalMemory(sampleAt(40))).toBe(false);
+    expect(isCriticalMemory(sampleAt(40, { full: 12 }))).toBe(true);
+    const darwin = (over: Partial<DarwinMemorySignals>): DarwinMemorySignals => ({
+      pressureLevel: 2,
+      availablePercent: 20,
+      compressorBytes: 0,
+      swapUsedBytes: 0,
+      swapTotalBytes: 0,
+      totalBytes: 64 * GIB,
+      ...over,
+    });
+    expect(isCriticalMemory(sampleAt(40, { darwin: darwin({}) }))).toBe(false);
+    expect(isCriticalMemory(sampleAt(40, { darwin: darwin({ pressureLevel: 4 }) }))).toBe(true);
+    expect(
+      isCriticalMemory(
+        sampleAt(40, { darwin: darwin({ swapUsedBytes: 17 * GIB, swapTotalBytes: 18 * GIB }) }),
+      ),
+    ).toBe(true);
+    expect(
+      isCriticalMemory(
+        sampleAt(40, { darwin: darwin({ swapUsedBytes: 8 * GIB, swapTotalBytes: 18 * GIB }) }),
+      ),
+    ).toBe(false);
   });
 });
