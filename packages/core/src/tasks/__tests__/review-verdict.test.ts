@@ -19,6 +19,7 @@ import {
   type TestDbEnv,
 } from '../../store/__tests__/test-db-helper.js';
 import {
+  acTextSha256,
   buildReviewPacket,
   checkPrReviews,
   judgeReviewVerdicts,
@@ -169,6 +170,8 @@ describe('recording a verdict (T14122)', () => {
     });
     expect(v.authors.sessionIds).toContain('ses_author');
     expect(v.authors.agentIds).toEqual(['agent-author']);
+    // T14259: the verdict binds the criterion text it judged.
+    expect(v.acTextSha256).toBe(acTextSha256('a negative limit is rejected with E_VALIDATION'));
     expect(await reviewVerdictsFor(env.tempDir, 'T001', 7)).toEqual([v]);
     expect(await reviewVerdictsFor(env.tempDir, 'T001', 8)).toEqual([]);
   });
@@ -314,6 +317,34 @@ describe('judgeReviewVerdicts (T14122)', () => {
         { ac: 'AC4', kind: 'missing', reason: 'AC4: no verdict on head aaaaaaa' },
       ],
     });
+  });
+
+  it('a verdict binds its criterion text: an edit after it invalidates it, whitespace does not, a legacy verdict is judged as before (T14259)', () => {
+    const bound = {
+      ...v('AC1', 'met', HEAD, '2026-10-28T11:00:00Z'),
+      acTextSha256: acTextSha256('list accepts a limit option'),
+    };
+    const legacy = v('AC2', 'met', HEAD, '2026-10-28T11:00:00Z');
+    const judge = (ac1: string) =>
+      judgeReviewVerdicts(
+        [bound, legacy],
+        ['AC1', 'AC2'],
+        HEAD,
+        new Map([
+          ['AC1', ac1],
+          ['AC2', 'edited, but this verdict predates the binding'],
+        ]),
+      );
+    expect(judge('list accepts a limit option').met).toEqual(['AC1', 'AC2']);
+    expect(judge('  list accepts   a limit\noption ').met).toEqual(['AC1', 'AC2']);
+    expect(judge('list accepts a limit option of at most 100').gaps).toEqual([
+      {
+        ac: 'AC1',
+        kind: 'edited',
+        reason:
+          'AC1: edited after verdict AC1-2026-10-28T11:00:00Z on head aaaaaaa; review it again',
+      },
+    ]);
   });
 
   it('a verdict whose reviewer is among its recorded authors counts for nothing', () => {

@@ -243,16 +243,27 @@ export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
  * @param verdicts - The task's verdicts on the PR.
  * @param acs - The criteria the line names.
  * @param headSha - The PR's final head.
+ * @param texts - The criteria's current texts by alias: a verdict on an edited criterion counts for nothing (T14259).
  * @returns The reasons.
  */
 export async function unverifiedCriteria(
   verdicts: readonly ReviewVerdict[],
   acs: readonly string[],
   headSha: string | null,
+  texts?: ReadonlyMap<string, string>,
 ): Promise<string[]> {
   if (headSha === null) return acs.map((ac) => `${ac}: the PR's head is unknown`);
   const { judgeReviewVerdicts } = await import('./review-verdict.js');
-  return judgeReviewVerdicts(verdicts, acs, headSha).gaps.map((gap) => gap.reason);
+  return judgeReviewVerdicts(verdicts, acs, headSha, texts).gaps.map((gap) => gap.reason);
+}
+
+/** A task's current criterion texts by alias, for the verdicts' text binding (T14259). */
+async function currentTexts(
+  storeRoot: string,
+  taskId: string,
+): Promise<ReadonlyMap<string, string>> {
+  const { currentAcTexts } = await import('./review-verdict.js');
+  return currentAcTexts(storeRoot, taskId);
 }
 
 const DIRECTIVE_LINE = /^[ \t>*-]*(Closes|Refs)[ \t]*:[ \t]*(.*)$/gim;
@@ -873,7 +884,12 @@ async function applyDirective(
   const verdicts = deps.reviewVerdicts
     ? await deps.reviewVerdicts(storeRoot, taskId, pr.number)
     : [];
-  const unverified = await unverifiedCriteria(verdicts, acs, pr.headRefOid);
+  const unverified = await unverifiedCriteria(
+    verdicts,
+    acs,
+    pr.headRefOid,
+    await currentTexts(storeRoot, taskId),
+  );
   if (unverified.length > 0)
     return {
       ...base,
@@ -1105,7 +1121,8 @@ async function checkOpenPrs(
       const verdicts = deps.reviewVerdicts
         ? await deps.reviewVerdicts(storeRoot, d.taskId, pr.number)
         : [];
-      for (const p of await unverifiedCriteria(verdicts, d.acs, pr.headRefOid))
+      const texts = await currentTexts(storeRoot, d.taskId);
+      for (const p of await unverifiedCriteria(verdicts, d.acs, pr.headRefOid, texts))
         problems.push(`${d.taskId} ${p}`);
       if (d.kind === 'closes') {
         const prior = await priorBindings(storeRoot, d.taskId, pr.number, null);
