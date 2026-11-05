@@ -14,8 +14,13 @@
  *   `pr-caused`, or `combination` when the PR head's own run passed that job.
  *   It is never excused;
  * - a job that failed in the same step as the parent's, with no test failing,
- *   is `disjoint`; a job that failed only on the flaky-quarantine budget while
- *   the parent passed is `budget-crossed`;
+ *   is `disjoint`; a budget tripwire step the parent passed (bundle size,
+ *   gate-39 module counts, `gen:sdk` drift) is `budget-crossed`, naming the
+ *   crossing PR;
+ * - a job that failed only on the flaky-quarantine budget is `main-health`
+ *   (D11225): the budget counts open quarantine issues across the repo, so it
+ *   is never attributed to the merging PR, whatever the parent's job
+ *   concluded (with no parent observation it stays `unknown`);
  * - a job that tested nothing (runner cancel, worker crash, setup step) and a
  *   merge whose runs were only cancelled or skipped are `superseded`;
  * - no parent observation (no parent run, a skipped matrix, a cancelled or
@@ -28,13 +33,17 @@
  *
  * ## Shadow mode
  *
- * The receipt is recorded beside the merge sweep's current outcome (a
- * `merge_attribution` audit row and the PR's `attribution` entry) and changes
- * no closure (D11224). The log readers are ci-evidence.ts's.
+ * Every merged PR's receipt is appended to `.cleo/audit/merge-attribution.jsonl`
+ * keyed by (PR, merge sha), whether or not the PR names a task (pre-ADR-099
+ * PRs name none); a PR that names a task also gets a `merge_attribution`
+ * audit row on it pointing at the receipt. It is listed beside the sweep's
+ * outcome and changes no closure (D11224). The log readers are ci-evidence.ts's.
  *
  * @task T14252
  */
 
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type {
   MergeAttributionFailure,
   MergeAttributionReceipt,
@@ -73,6 +82,7 @@ const RANK: readonly MergeAttributionVerdict[] = [
   'combination',
   'unknown',
   'budget-crossed',
+  'main-health',
   'disjoint',
   'superseded',
   'clean',
@@ -80,6 +90,15 @@ const RANK: readonly MergeAttributionVerdict[] = [
 
 /** The cause name of a quarantine-budget-only failure. */
 const QUARANTINE_BUDGET = 'flaky-quarantine-budget';
+
+/**
+ * Budget tripwire steps a PR crosses with its own change (D11225): the core
+ * bundle size, the gate-39 CLI startup module counts and generated-SDK drift.
+ */
+const BUDGET_TRIPWIRE_STEP = /check-core-bundle-budget|check-cli-startup-graph|gen:sdk:check/;
+
+/** Where every receipt is kept, keyed by (PR, merge sha). */
+export const MERGE_ATTRIBUTION_FILE = '.cleo/audit/merge-attribution.jsonl';
 
 /** What a receipt is computed from. */
 export interface MergeAttributionInput {
@@ -190,10 +209,13 @@ async function judgeJob(
   if (read.untested) return verdict('superseded', `the job tested nothing (${read.cause})`, read);
   const observed = observe(job, parentJobs);
   if ('missing' in observed) return verdict('unknown', observed.missing, read);
+  // D11225: the quarantine budget is main's health, never the merging PR's.
+  if (read.cause === QUARANTINE_BUDGET)
+    return verdict('main-health', 'only the flaky-quarantine budget failed: main health', read);
   const { parent } = observed;
   if (parent.conclusion === 'success') {
-    if (read.cause === QUARANTINE_BUDGET)
-      return verdict('budget-crossed', 'the parent job passed under the quarantine budget', read);
+    if (read.cause !== null && BUDGET_TRIPWIRE_STEP.test(read.cause))
+      return verdict('budget-crossed', `the parent job passed: ${read.cause} crossed here`, read);
     if (read.tests.length > 0 || read.cause !== null)
       return verdict(
         newAtMerge(job, headJobs),
@@ -223,10 +245,10 @@ async function judgeJob(
   }
   if (read.cause !== null && read.cause === before.cause)
     return verdict('disjoint', `the parent failed the same way (${read.cause})`, read);
-  if (read.cause === QUARANTINE_BUDGET)
+  if (read.cause !== null && BUDGET_TRIPWIRE_STEP.test(read.cause))
     return verdict(
       'budget-crossed',
-      'the parent failed differently, under the quarantine budget',
+      `the parent failed differently: ${read.cause} crossed here`,
       read,
     );
   if (read.cause !== null)
@@ -300,7 +322,7 @@ export async function computeMergeAttribution(
     failures,
     verdict,
     claim:
-      verdict === 'disjoint'
+      verdict === 'disjoint' || verdict === 'main-health'
         ? 'holds-on-main'
         : verdict === 'superseded'
           ? 'green-at-head'
@@ -317,15 +339,38 @@ export interface AttributedPr {
 }
 
 /**
+ * Every stored receipt (T14252), oldest first, from
+ * {@link MERGE_ATTRIBUTION_FILE}; malformed lines are skipped.
+ *
+ * @param storeRoot - The CLEO store.
+ * @returns The receipts.
+ * @task T14252
+ */
+export function readMergeAttributions(storeRoot: string): MergeAttributionReceipt[] {
+  let text: string;
+  try {
+    text = readFileSync(join(storeRoot, MERGE_ATTRIBUTION_FILE), 'utf-8');
+  } catch {
+    return [];
+  }
+  return text.split('\n').flatMap((line) => {
+    const receipt = parseReceipt(line.trim() === '' ? null : line);
+    return receipt === null ? [] : [receipt];
+  });
+}
+
+/**
  * The merge sweep's attribution hook (T14252, SHADOW): the stored receipt of
- * (PR, merge sha), else one computed from GitHub and stored as a
- * `merge_attribution` audit row on `taskId` (not under `dryRun`). Null when
- * the merge's CI has not finished or GitHub cannot be read.
+ * (PR, merge sha), else one computed from GitHub and appended to
+ * {@link MERGE_ATTRIBUTION_FILE} (not under `dryRun`). Every merged PR gets
+ * one, task or not; a PR naming a task also gets a `merge_attribution` audit
+ * row on it pointing at the receipt. Null when the merge's CI has not finished
+ * or GitHub cannot be read.
  *
  * @param storeRoot - The CLEO store.
  * @param root - The repository work tree for `git` and `gh`.
  * @param pr - The merged PR.
- * @param taskId - The task the receipt is filed on (the PR's first Closes/Refs task).
+ * @param taskId - The PR's first Closes/Refs task, or `null` when it names none.
  * @param dryRun - Compute, store nothing.
  * @returns The receipt, or `null`.
  * @task T14252
@@ -334,26 +379,18 @@ export async function attributeMergedPr(
   storeRoot: string,
   root: string,
   pr: AttributedPr,
-  taskId: string,
+  taskId: string | null,
   dryRun: boolean,
 ): Promise<MergeAttributionReceipt | null> {
   const mergeSha = pr.mergeCommitSha;
   if (!mergeSha) return null;
-  const { getTaskAccessor } = await import('../store/data-accessor.js');
-  const accessor = await getTaskAccessor(storeRoot);
-  const stored = await accessor.queryAuditLog({
-    taskIds: [taskId],
-    actions: [MERGE_ATTRIBUTION_ACTION],
-  });
-  for (const row of stored) {
-    const receipt = parseReceipt(row.detailsJson);
-    if (
-      receipt?.prNumber === pr.number &&
-      receipt.mergeSha === mergeSha &&
-      receipt.ruleVersion === MERGE_ATTRIBUTION_RULE_VERSION
-    )
-      return receipt;
-  }
+  const stored = readMergeAttributions(storeRoot).find(
+    (r) =>
+      r.prNumber === pr.number &&
+      r.mergeSha === mergeSha &&
+      r.ruleVersion === MERGE_ATTRIBUTION_RULE_VERSION,
+  );
+  if (stored !== undefined) return stored;
   const merge = await defaultFetchChecks(mergeSha, root);
   if (!merge.ok) return null;
   const parentSha = defaultFirstParentOf(mergeSha, root);
@@ -369,17 +406,43 @@ export async function attributeMergedPr(
     headChecks: head?.ok ? head.checks : null,
     log: (check) => defaultFetchJobLog(check.id, root),
   });
-  if (receipt !== null && !dryRun)
-    await accessor.appendLog({
-      action: MERGE_ATTRIBUTION_ACTION,
-      taskId,
-      actor: 'merge-sweep',
-      details: receipt,
-    });
+  if (receipt !== null && !dryRun) await storeMergeAttribution(storeRoot, receipt, taskId);
   return receipt;
 }
 
-/** Whether a parsed audit detail is a stored receipt. */
+/**
+ * Append a receipt to {@link MERGE_ATTRIBUTION_FILE} and, when the PR names a
+ * task, point a `merge_attribution` audit row on it at the receipt (T14252).
+ *
+ * @param storeRoot - The CLEO store.
+ * @param receipt - The computed receipt.
+ * @param taskId - The PR's first Closes/Refs task, or `null`.
+ * @task T14252
+ */
+export async function storeMergeAttribution(
+  storeRoot: string,
+  receipt: MergeAttributionReceipt,
+  taskId: string | null,
+): Promise<void> {
+  const file = join(storeRoot, MERGE_ATTRIBUTION_FILE);
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `${JSON.stringify(receipt)}\n`, 'utf-8');
+  if (taskId === null) return;
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  await (await getTaskAccessor(storeRoot)).appendLog({
+    action: MERGE_ATTRIBUTION_ACTION,
+    taskId,
+    actor: 'merge-sweep',
+    details: {
+      prNumber: receipt.prNumber,
+      mergeSha: receipt.mergeSha,
+      verdict: receipt.verdict,
+      receipt: MERGE_ATTRIBUTION_FILE,
+    },
+  });
+}
+
+/** Whether a parsed jsonl line is a stored receipt. */
 function isReceipt(value: unknown): value is MergeAttributionReceipt {
   return (
     typeof value === 'object' &&
@@ -397,7 +460,7 @@ function isReceipt(value: unknown): value is MergeAttributionReceipt {
   );
 }
 
-/** A stored receipt from its audit row's details, or `null`. */
+/** A stored receipt from one jsonl line, or `null`. */
 function parseReceipt(detailsJson: string | null): MergeAttributionReceipt | null {
   if (detailsJson === null) return null;
   try {

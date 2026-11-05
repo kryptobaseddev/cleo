@@ -186,14 +186,15 @@ export interface MergeCloseDeps {
   ): Promise<string[]>;
   /**
    * The merged PR's attribution receipt (T14252, SHADOW per D11224): stored
-   * once per (PR, merge sha) on `taskId` and listed beside the outcome; it
-   * never changes a closure. Null while the merge's CI runs.
+   * once per (PR, merge sha) for every merged PR, with a pointer on `taskId`
+   * when the PR names a task, and listed beside the outcome; it never changes
+   * a closure. Null while the merge's CI runs.
    */
   attribute?(
     storeRoot: string,
     root: string,
     pr: MergedPrRecord,
-    taskId: string,
+    taskId: string | null,
     dryRun: boolean,
   ): Promise<MergeAttributionReceipt | null>;
   /**
@@ -1008,6 +1009,25 @@ async function applyMergedPrs(
       result.prs.push(entry);
       continue;
     }
+    // T14252 (SHADOW, D11224): every merged PR's attribution receipt, keyed by
+    // (PR, merge sha), whether or not it names a task; listed beside the
+    // outcome, never read by it. At most MERGE_ATTRIBUTION_PER_SWEEP lookups,
+    // inside the deadline: a cold store's first sweep leaves the rest to the next.
+    if (
+      deps.attribute &&
+      pr.mergedAt !== '' &&
+      attributed < MERGE_ATTRIBUTION_PER_SWEEP &&
+      clock() <= deadline
+    ) {
+      attributed++;
+      const attribution = await deps
+        .attribute(storeRoot, root, pr, receipt.directives[0]?.taskId ?? null, dryRun)
+        .catch(() => null);
+      if (attribution !== null) {
+        const { verdict, claim, reason } = attribution;
+        entry.attribution = { verdict, claim, reason };
+      }
+    }
     if (receipt.directives.length === 0 || receipt.errors.length > 0) {
       // The CI job comments these; a PR naming no task is not this store's.
       if (receipt.closesNothing) entry.closesNothing = receipt.closesNothing;
@@ -1046,25 +1066,6 @@ async function applyMergedPrs(
           prNumber: pr.number,
           reason: outcome.reason ?? 'refused',
         });
-    }
-    // T14252 (SHADOW, D11224): the attribution receipt, beside the outcome above.
-    // At most MERGE_ATTRIBUTION_PER_SWEEP lookups, inside the deadline: a cold
-    // store's first sweep leaves the rest to the next one.
-    const fileOn = receipt.directives[0]?.taskId;
-    if (
-      deps.attribute &&
-      fileOn !== undefined &&
-      attributed < MERGE_ATTRIBUTION_PER_SWEEP &&
-      clock() <= deadline
-    ) {
-      attributed++;
-      const attribution = await deps
-        .attribute(storeRoot, root, pr, fileOn, dryRun)
-        .catch(() => null);
-      if (attribution !== null) {
-        const { verdict, claim, reason } = attribution;
-        entry.attribution = { verdict, claim, reason };
-      }
     }
     // A wait on the merge's own CI resolves itself: no comment (lead rule).
     const loud = entry.outcomes.filter((o) => !silent.has(o));

@@ -5,10 +5,11 @@ kind: feat
 summary: "the merge sweep records an attribution receipt per merged PR (shadow): a test-level first-parent differential of its merge-commit CI"
 ---
 
-Phase 1 of the durability program (D11224, Council change 1). For each
-merged PR it closes tasks for, the merge sweep now computes, once per (PR,
-merge sha), what the merge-commit CI shows about the PR itself and stores it
-as a `merge_attribution` audit row:
+Phase 1 of the durability program (D11224, Council change 1). For every
+merged PR, whether or not it names a task, the merge sweep now computes, once
+per (PR, merge sha), what the merge-commit CI shows about the PR itself and
+appends it to `.cleo/audit/merge-attribution.jsonl`; a PR that names a task
+also gets a `merge_attribution` audit row on it pointing at the receipt:
 
 - a failing test identity that also fails on the merge's first parent is
   `disjoint`; one new at the merge is `pr-caused` (`combination` when the

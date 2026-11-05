@@ -6,11 +6,19 @@
  * @task T14252
  */
 
-import { readFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { CommitCheck } from '../ci-evidence.js';
-import { computeMergeAttribution, type MergeAttributionInput } from '../merge-attribution.js';
+import {
+  computeMergeAttribution,
+  MERGE_ATTRIBUTION_FILE,
+  type MergeAttributionInput,
+  readMergeAttributions,
+  storeMergeAttribution,
+} from '../merge-attribution.js';
 
 /** A trimmed real job log from the dry run. */
 function fixture(name: string): string {
@@ -117,6 +125,29 @@ describe('merge attribution from the dry-run fixtures (T14252 AC5)', () => {
     expect(receipt?.verdict).toBe('unknown');
     expect(receipt?.failures[0]?.reason).toMatch(/parent has no such job/);
     expect(receipt?.claim).toBe('none');
+  });
+
+  it('a quarantine-only merge over a green parent is main-health, not attributed (D11225)', async () => {
+    const merge = '0e01cc34456b';
+    const parent = '511454c9c8dd';
+    const receipt = await computeMergeAttribution(
+      input(
+        {
+          prNumber: 2004,
+          mergeSha: merge,
+          parentSha: parent,
+          mergeChecks: [job(merge, SHARD1, 'failure', 114162981272)],
+          parentChecks: [job(parent, SHARD1, 'success', 7)],
+        },
+        { 114162981272: fixture('pr2004-merge-unit-shard1') },
+      ),
+    );
+    expect(receipt).toMatchObject({ verdict: 'main-health', claim: 'holds-on-main' });
+    expect(receipt?.failures[0]).toMatchObject({
+      verdict: 'main-health',
+      cause: 'flaky-quarantine-budget',
+      tests: [],
+    });
   });
 
   it('#1022 is superseded: its merge runs were only cancelled', async () => {
@@ -262,5 +293,23 @@ describe('the differential rule (T14252 AC2, AC3)', () => {
       }),
     );
     expect(receipt).toBeNull();
+  });
+});
+
+describe('merge attribution storage (T14252 AC1)', () => {
+  it('appends one jsonl line per (PR, merge sha) with no task, and reads it back', async () => {
+    const store = mkdtempSync(join(tmpdir(), 'merge-attribution-'));
+    try {
+      expect(readMergeAttributions(store)).toEqual([]);
+      const receipt = await computeMergeAttribution(
+        input({ prNumber: 7, mergeSha: 'm7', mergeChecks: [job('m7', SHARD1, 'success', 1)] }),
+      );
+      if (receipt === null) throw new Error('expected a receipt');
+      await storeMergeAttribution(store, receipt, null);
+      appendFileSync(join(store, MERGE_ATTRIBUTION_FILE), 'not json\n', 'utf-8');
+      expect(readMergeAttributions(store)).toEqual([receipt]);
+    } finally {
+      rmSync(store, { recursive: true, force: true });
+    }
   });
 });

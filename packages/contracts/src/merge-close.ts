@@ -80,7 +80,8 @@ export interface MergePrOutcome {
   closesNothing?: string;
   /**
    * The PR's attribution receipt, listed beside the outcome (T14252, SHADOW:
-   * it changes no outcome). Absent while the merge's CI is still running.
+   * it changes no outcome); every merged PR gets one, task or not. Absent
+   * while the merge's CI is still running.
    */
   attribution?: Pick<MergeAttributionReceipt, 'verdict' | 'claim' | 'reason'>;
 }
@@ -90,9 +91,11 @@ export interface MergePrOutcome {
  * a test-level first-parent differential: a failure the first parent's run
  * also shows is `disjoint`; one new at the merge is `pr-caused` (or
  * `combination` when the PR head's own run passed that job); a merge whose
- * runs were only cancelled or skipped is `superseded`; a job that failed only
- * on the flaky-quarantine budget while the parent passed is `budget-crossed`;
- * no parent observation is `unknown`, never a guess.
+ * runs were only cancelled or skipped is `superseded`; a budget tripwire the
+ * PR crossed (bundle size, gate-39 module counts, `gen:sdk` drift) over a
+ * passing parent is `budget-crossed`; a flaky-quarantine-budget-only failure
+ * is `main-health`, never attributed to the merging PR (D11225); no parent
+ * observation is `unknown`, never a guess.
  */
 export type MergeAttributionVerdict =
   | 'clean'
@@ -101,6 +104,7 @@ export type MergeAttributionVerdict =
   | 'pr-caused'
   | 'combination'
   | 'budget-crossed'
+  | 'main-health'
   | 'unknown';
 
 /** One failing merge-commit job and how it was attributed (T14252). */
@@ -119,7 +123,8 @@ export interface MergeAttributionFailure {
 
 /**
  * The attribution receipt of one merged PR (T14252): computed once per
- * (PR, resolved merge sha) and stored as a `merge_attribution` audit row. In
+ * (PR, resolved merge sha) and kept in `.cleo/audit/merge-attribution.jsonl`
+ * (a `merge_attribution` audit row on the PR's task points at it). In
  * SHADOW mode (D11224) it is recorded beside the sweep's outcome and changes
  * no closure.
  */
