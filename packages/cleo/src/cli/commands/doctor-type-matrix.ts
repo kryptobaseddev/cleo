@@ -88,7 +88,9 @@ export const doctorTypeMatrixCommand = defineCommand({
     const ops: TypeMatrixRepairOp[] = resolutions.value ?? [];
     const report =
       args.apply === true
-        ? await repair.applyTypeMatrixRepair(root, ops, plan.value ? { plan: plan.value } : {})
+        ? plan.value
+          ? await repair.applyTypeMatrixRepair(root, ops, { plan: plan.value })
+          : await repair.applyTypeMatrixRepair(root, ops)
         : await repair.planTypeMatrixRepair(root, ops);
     cliOutput(report, {
       command: 'doctor',
