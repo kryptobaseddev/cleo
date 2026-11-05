@@ -7,11 +7,14 @@
  * For each worktree returned by `git worktree list --porcelain`, the function
  * resolves:
  *  - `taskId` (the task adopt recorded in the sentinel index, else the branch
- *    name `task/T####[-slug]` or `feat/T####[-slug]`).
+ *    name `task|feat|fix|test|chore/T####[-slug]`, else a `T####[-slug]`
+ *    directory name; T14236).
  *  - `owningTaskStatus` (read from the project cleo.db tasks SSoT via `getDb`).
- *  - `lastActivity` (newest commit on the branch, falling back to dir mtime).
+ *  - `lastActivity` (the worktree's own HEAD commit, falling back to dir mtime).
  *  - `isLocked` (porcelain `locked` line).
- *  - `isMerged` (`git merge-base --is-ancestor <branch> main`, exit-0 ⇒ merged).
+ *  - `isMerged` (the worktree's own HEAD is reachable from main and is not a
+ *    commit on main's first-parent line, i.e. it carried commits of its own
+ *    that were merged; a fresh branch at a main commit is never merged; T14236).
  *  - `isStale`  (no commits in >N days AND (task done/cancelled OR merged)).
  *  - `owningAgent` (the sentinel index's `adoptedBy`, else null).
  *  - `statusCategory` — one of `locked|orphan|merged|stale|active`, resolved
@@ -54,7 +57,7 @@ import type {
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
-import { readSentinelIndex, taskIdFromBranch } from './sentinel-index.js';
+import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
 
 export { taskIdFromBranch } from './sentinel-index.js';
 
@@ -76,6 +79,13 @@ interface PorcelainEntry {
   path: string;
   branch: string;
   locked: boolean;
+  /** The worktree's own HEAD commit, or null when git did not report one (T14236). */
+  head: string | null;
+}
+
+/** The task a worktree names: its branch, else its directory (T14236). */
+function taskIdOf(branch: string, path: string): string | null {
+  return taskIdFromBranch(branch) ?? taskIdFromWorktreeDir(path);
 }
 
 /**
@@ -134,13 +144,13 @@ export async function listWorktrees(
   for (const entry of porcelainEntries) {
     taskIdByPath.set(
       entry.path,
-      sentinelByPath.get(entry.path)?.taskId ?? taskIdFromBranch(entry.branch),
+      sentinelByPath.get(entry.path)?.taskId ?? taskIdOf(entry.branch, entry.path),
     );
   }
   // Also seed task IDs for sentinel-only entries so they can be batch-loaded.
   for (const sentinel of sentinelEntries) {
     if (!porcelainPaths.has(sentinel.path)) {
-      taskIdByPath.set(sentinel.path, sentinel.taskId ?? taskIdFromBranch(sentinel.branch));
+      taskIdByPath.set(sentinel.path, sentinel.taskId ?? taskIdOf(sentinel.branch, sentinel.path));
     }
   }
   const taskIds = Array.from(taskIdByPath.values()).filter((id): id is string => id !== null);
@@ -149,6 +159,10 @@ export async function listWorktrees(
   // Pre-resolve the default upstream branch presence — if `main` is absent,
   // `branchIsMergedToMain` would otherwise spuriously throw for every entry.
   const mainBranch = resolveMainBranch(projectRoot);
+  // T14236: main's first-parent line, read once. A worktree whose own HEAD is
+  // ON it carries no commits of its own (a fresh branch, or a detached
+  // checkout of a main commit), so it is never "merged".
+  const mainLine = mainBranch ? readFirstParentLine(projectRoot, mainBranch) : new Set<string>();
 
   // Pre-resolve the primary worktree path. The primary worktree is the
   // canonical project checkout (NOT a `git worktree add` derivative) — it
@@ -171,13 +185,18 @@ export async function listWorktrees(
   // --- Build WorktreeInfo entries from git-native porcelain output ---
   const worktrees: WorktreeInfo[] = porcelainEntries.map((entry) => {
     const taskId = taskIdByPath.get(entry.path) ?? null;
+    // T14236: every git test uses the worktree's OWN HEAD. A detached entry's
+    // branch is the literal 'HEAD', which from projectRoot named the primary
+    // checkout's commit.
     const lastActivityMs =
-      getLastCommitTimestampMs(entry.branch, projectRoot) ?? mtimeMs(entry.path);
+      (entry.head ? getLastCommitTimestampMs(entry.head, projectRoot) : null) ??
+      mtimeMs(entry.path);
     const lastActivity = new Date(lastActivityMs).toISOString();
     const isPrimary = isPrimaryWorktree(entry.path, primaryWorktreePath);
-    const isMerged = mainBranch
-      ? branchIsMergedToMain(entry.branch, projectRoot, mainBranch)
-      : false;
+    const isMerged =
+      mainBranch !== null && entry.head !== null
+        ? headIsMergedWork(entry.head, projectRoot, mainBranch, mainLine)
+        : false;
     const owningTaskStatus = taskId ? (taskStatusByid.get(taskId) ?? null) : null;
     const owningAgent = sentinelByPath.get(entry.path)?.adoptedBy ?? null;
 
@@ -240,7 +259,7 @@ export async function listWorktrees(
   for (const sentinel of sentinelEntries) {
     if (porcelainPaths.has(sentinel.path)) continue; // Already in git output.
 
-    const taskId = sentinel.taskId ?? taskIdFromBranch(sentinel.branch);
+    const taskId = sentinel.taskId ?? taskIdOf(sentinel.branch, sentinel.path);
     const owningTaskStatus = taskId ? (taskStatusByid.get(taskId) ?? null) : null;
     const lastActivityMs = mtimeMs(sentinel.path);
     const lastActivity = new Date(lastActivityMs).toISOString();
@@ -315,7 +334,60 @@ function keptField(
 export function enumerateWorktrees(projectRoot: string): PorcelainEntry[] {
   return readWorktreePorcelain(projectRoot)
     .filter((entry) => entry.bare !== true)
-    .map((entry) => ({ path: entry.path, branch: entry.branch ?? 'HEAD', locked: entry.locked }));
+    .map((entry) => ({
+      path: entry.path,
+      branch: entry.branch ?? 'HEAD',
+      locked: entry.locked,
+      head: entry.head ?? null,
+    }));
+}
+
+/**
+ * The commits on `mainBranch`'s first-parent line (T14236). Empty when git
+ * fails, which makes {@link headIsMergedWork} answer "not merged".
+ *
+ * @param projectRoot - Project root for the git invocation.
+ * @param mainBranch - Upstream branch.
+ * @returns The set of full commit shas.
+ * @internal Exported for tests only.
+ */
+export function readFirstParentLine(projectRoot: string, mainBranch: string): Set<string> {
+  try {
+    const out = execFileSync('git', ['rev-list', '--first-parent', mainBranch], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      timeout: GIT_TIMEOUT_MS,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: 256 * 1024 * 1024,
+    });
+    return new Set(out.split('\n').filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Whether a worktree's HEAD is work that has been merged into main (T14236):
+ * reachable from main AND not itself a commit on main's first-parent line.
+ * A fresh branch, or a detached checkout of a main commit, has no commits of
+ * its own and is never merged; a HEAD not reachable from main never is.
+ * Fails closed: an unknown answer is "not merged".
+ *
+ * @param head - The worktree's own HEAD sha.
+ * @param projectRoot - Project root for the git invocation.
+ * @param mainBranch - Upstream branch.
+ * @param mainLine - {@link readFirstParentLine} of `mainBranch`.
+ * @returns true only for merged work.
+ * @internal Exported for tests only.
+ */
+export function headIsMergedWork(
+  head: string,
+  projectRoot: string,
+  mainBranch: string,
+  mainLine: ReadonlySet<string>,
+): boolean {
+  if (mainLine.size === 0 || mainLine.has(head)) return false;
+  return branchIsMergedToMain(head, projectRoot, mainBranch);
 }
 
 /**
