@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * render-invariants-docs.mjs — Auto-render `docs/registry/INVARIANTS.md` from
+ * render-invariants-docs.mjs — Auto-render `docs/reference/invariants.md` from
  * the central `INVARIANTS_REGISTRY` SSoT at
  * `packages/contracts/src/invariants/`.
  *
@@ -25,7 +25,7 @@
  *
  * Output
  * ------
- * Generates `docs/registry/INVARIANTS.md` (path relative to repo root):
+ * Generates `docs/reference/invariants.md` (path relative to repo root):
  *
  *   1. AUTO-GENERATED banner with a back-link to this script.
  *   2. Summary block (per-ADR count + total).
@@ -37,7 +37,7 @@
  *
  * Modes
  * -----
- *   - default (write): regenerate `docs/registry/INVARIANTS.md`.
+ *   - default (write): regenerate `docs/reference/invariants.md`.
  *   - `--check`: render to memory, compare against the committed file. Exits
  *     non-zero on mismatch — the CI gate (`.github/workflows/ci.yml` job
  *     `Invariants Docs Render Drift (T10342)`) runs this mode.
@@ -52,7 +52,7 @@
  *   - Does NOT inject a timestamp (the AUTO-GENERATED banner names the
  *     source script — readers know how to find the timestamp by `git log`).
  *
- * @task T10342 — R8: auto-render docs/registry/INVARIANTS.md from registry
+ * @task T10342 — R8: auto-render docs/reference/invariants.md from registry
  * @epic T10327 — E-INVARIANT-REGISTRY-SSOT
  * @saga T10326 — SG-SUBSTRATE-RECONCILIATION
  * @see packages/contracts/src/invariants/index.ts — SSoT
@@ -69,7 +69,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = resolve(__dirname, '..');
 const REPO_ROOT = resolve(PKG_ROOT, '..', '..');
-const OUTPUT_FILE = resolve(REPO_ROOT, 'docs', 'registry', 'INVARIANTS.md');
+const OUTPUT_FILE = resolve(REPO_ROOT, 'docs', 'reference', 'invariants.md');
 const REGISTRY_DIST = resolve(PKG_ROOT, 'dist', 'invariants', 'index.js');
 const SCRIPT_REL = toPosixRel(REPO_ROOT, fileURLToPath(import.meta.url));
 

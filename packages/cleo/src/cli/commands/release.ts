@@ -19,7 +19,7 @@
  *
  * The legacy `ship` deprecation shim was deleted in T10103 (post-T9540
  * cleanup). The replacement surface is the explicit `plan` + `open` flow
- * documented in `docs/release/verb-matrix.md`. The new
+ * documented in `docs/reference/verb-matrix.md`. The new
  * `ship-e2e-smoke` verb replaces `ship` for end-to-end validation use
  * cases (it actually waits for PR + tag + npm publish before returning).
  *
@@ -611,7 +611,7 @@ const reconcileCommand = defineCommand({
  * one-shot walker that validates the full plan → open → wait-PR →
  * wait-tag → verify-npm flow (dry-run by default; `--execute` to run for
  * real). The legacy `start`, `verify`, `publish`, and `ship` shim verbs
- * were deleted (T9540 + T10103); see `docs/release/verb-matrix.md` for
+ * were deleted (T9540 + T10103); see `docs/reference/verb-matrix.md` for
  * the post-cleanup state-transition map.
  *
  * Dispatches to `release.*` for the new verbs.
@@ -802,7 +802,7 @@ export const releaseCommand = defineCommand({
     open: openCommand,
     reconcile: reconcileCommand,
     rollback: rollbackCommand,
-    // End-to-end smoke walker — see docs/release/verb-matrix.md.
+    // End-to-end smoke walker — see docs/reference/verb-matrix.md.
     'ship-e2e-smoke': shipE2eSmokeCommand,
     // Read-only helpers — not deprecated.
     list: listCommand,

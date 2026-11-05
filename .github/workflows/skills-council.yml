@@ -20,7 +20,7 @@ name: Skills Council (Owner CI)
 #   - Writes: docs/skills/council-reports/<canonicalSkillName>.md per skill.
 #
 # See: .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
-# See: docs/owner-ci/skills-pipeline.md (T9679)
+# See: docs/guide/skills-pipeline.md (T9679)
 # See: docs/concept/skills-architecture.md §5
 
 on:

@@ -16,7 +16,7 @@
  * @task T11059
  * @epic T10520
  * @saga T10516
- * @see docs/examples/decision-store-memory-link-workflow.md
+ * @see docs/guide/decision-memory-links.md
  */
 
 import { describe } from 'vitest';

@@ -8,7 +8,7 @@
  *   2. Every ADR id in the array resolves to a real file under `.cleo/adrs/`.
  *
  * The mapping of (stage -> required adrRefs minimum) is the authoritative
- * source-of-truth defined in `docs/skills/loom-coverage-matrix.md` under
+ * source-of-truth defined in `docs/reference/loom-coverage-matrix.md` under
  * the "ADR Bindings Section". When that doc updates, this test updates.
  *
  * @task T9665

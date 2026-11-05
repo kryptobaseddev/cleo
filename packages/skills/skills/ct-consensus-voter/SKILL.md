@@ -6,14 +6,14 @@ adrRefs:
   - ADR-015
   - ADR-023
 metadata:
-  version: 1.0.2
+  version: 1.0.3
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/consensus.cant
     - packages/core/src/validation/protocols/protocols-markdown/consensus.md
   loomStage: consensus
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -177,4 +177,4 @@ This skill binds to the **consensus** LOOM lifecycle stage. Governing ADRs:
 - [ADR-015 — multi-contributor architecture](../../../../.cleo/adrs/ADR-015-multi-contributor-architecture.md) — defines the consensus framework that this skill implements.
 - [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines how consensus output is validated before downstream stages consume it.
 
-LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).

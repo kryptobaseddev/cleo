@@ -1,7 +1,7 @@
 name: Arch Boundary Check
 
 # @task T10072
-# Inventoried in docs/release/workflow-inventory.md (T10102).
+# Inventoried in docs/reference/job-inventory.md (T10102).
 
 on:
   # T13263: called by ci.yml (job `arch-gates`), which the required `CI` aggregate

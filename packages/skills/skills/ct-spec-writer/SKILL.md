@@ -1,7 +1,7 @@
 ---
 name: ct-spec-writer
 description: Technical specification writing using RFC 2119 language for clear, unambiguous requirements. Creates protocol specifications, technical requirements, API specifications, and architecture documents with testable requirements and compliance criteria. Use when writing specifications, defining protocols, documenting requirements, or creating API contracts. Triggers on specification tasks, protocol definition needs, or requirement documentation.
-version: 2.1.2
+version: 2.1.3
 protocol: specification
 adrRefs:
   - ADR-014
@@ -17,14 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.1.2
+  version: 2.1.3
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/specification.cant
     - packages/core/src/validation/protocols/protocols-markdown/specification.md
   loomStage: specification
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -277,7 +277,7 @@ This skill binds to the **specification** LOOM lifecycle stage. Governing ADRs:
 - [ADR-014 — RCASD rename and protocol validation](../../../../.cleo/adrs/ADR-014-rcasd-rename-and-protocol-validation.md) — defines the specification stage's role inside the RCASD-IVTR+C lifecycle.
 - [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines how specifications are validated before decomposition.
 
-LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).
 
 ## See references/
 

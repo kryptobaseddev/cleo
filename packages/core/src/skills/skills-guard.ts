@@ -25,7 +25,7 @@
  * @task T9730
  * @epic T9564
  * @saga T9560
- * @architecture docs/skills/federation.md
+ * @architecture docs/reference/federation.md
  */
 
 import { createHash } from 'node:crypto';

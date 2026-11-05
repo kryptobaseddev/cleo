@@ -1,7 +1,7 @@
 ---
 name: ct-validator
 description: Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.
-version: 2.0.4
+version: 2.0.5
 protocol: validation
 adrRefs:
   - ADR-051
@@ -17,14 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.0.4
+  version: 2.0.5
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/validation.cant
     - packages/core/src/validation/protocols/protocols-markdown/validation.md
   loomStage: validation
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -310,7 +310,7 @@ This skill binds to the **validation** LOOM lifecycle stage. Governing ADRs:
 - [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence-atom grammar that the validator emits and re-validates.
 - [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines the protocol-validation routing layer that dispatches to this skill.
 
-LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).
 
 ## See references/
 

@@ -797,7 +797,7 @@ jobs:
 
   invariants-docs-render-drift:
     # T10342 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3 R8 — keep
-    # `docs/registry/INVARIANTS.md` in lockstep with the central
+    # `docs/reference/invariants.md` in lockstep with the central
     # `INVARIANTS_REGISTRY` SSoT. The job:
     #   1. Builds @cleocode/contracts (TS-only target — schemas not needed).
     #   2. Re-renders the docs page from the compiled registry.
@@ -832,7 +832,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build @cleocode/contracts (TS only)
         run: pnpm --filter @cleocode/contracts run build:ts
-      - name: Verify docs/registry/INVARIANTS.md matches registry SSoT
+      - name: Verify docs/reference/invariants.md matches registry SSoT
         run: node packages/contracts/scripts/render-invariants-docs.mjs --check
       # T14064: the committed JSON Schemas are generated from the contracts
       # zod schemas; a schema change that skips `build:schemas` ships stale
