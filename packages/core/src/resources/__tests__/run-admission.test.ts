@@ -38,6 +38,7 @@ import {
   type RunJob,
   reapOrphans,
   redactCommand,
+  redactCommandLine,
   resolveRunClass,
   runnerState,
   runningEntries,
@@ -129,17 +130,36 @@ describe('isPausable / looksHeavy', () => {
 });
 
 describe('redactCommand', () => {
-  it('masks assignments, flag values, URL userinfo and bearer tokens', () => {
+  it('masks every assignment, flag values, URL userinfo and bearer tokens (T14208)', () => {
+    // Every NAME=value is an environment assignment, whatever the name (T14208):
+    // a name list let AXIOM_..._KEY_HEX=<hex> through.
     expect(redactCommand(['env', 'API_TOKEN=abc', 'MODE=fast', 'run'])).toBe(
-      'env API_TOKEN=*** MODE=fast run',
+      'env API_TOKEN=<redacted> MODE=<redacted> run',
     );
-    expect(redactCommand(['gh', '--token', 'ghp_x', 'pr', 'list'])).toBe('gh --token *** pr list');
+    expect(redactCommand(['env', 'X_PRIVATE_KEY_HEX=deadbeef', 'node', 'a.js'])).toBe(
+      'env X_PRIVATE_KEY_HEX=<redacted> node a.js',
+    );
+    expect(redactCommand(['env', 'FOO=a b', 'run'])).toBe('env FOO=<redacted> run');
+    expect(redactCommand(['gh', '--token', 'ghp_x', 'pr', 'list'])).toBe(
+      'gh --token <redacted> pr list',
+    );
+    expect(redactCommand(['x', '--api-key=zzz'])).toBe('x --api-key=<redacted>');
     expect(redactCommand(['git', 'clone', 'https://user:pw@host/r.git'])).toBe(
-      'git clone https://***@host/r.git',
+      'git clone https://<redacted>@host/r.git',
     );
     expect(redactCommand(['curl', '-H', 'Authorization: Bearer abc.def'])).toBe(
-      'curl -H Authorization: Bearer ***',
+      'curl -H Authorization: Bearer <redacted>',
     );
+    // Flags and dotted -c settings are not environment assignments.
+    expect(redactCommand(['node', '--max-old-space-size=4096', 'a.js'])).toBe(
+      'node --max-old-space-size=4096 a.js',
+    );
+  });
+
+  it('a stored line is redacted again on read without change (idempotent, T14208)', () => {
+    const once = redactCommandLine('env SECRET_KEY=abc FOO="a b" cmd --token t');
+    expect(once).toBe('env SECRET_KEY=<redacted> FOO=<redacted> cmd --token <redacted>');
+    expect(redactCommandLine(once)).toBe(once);
   });
 
   it('truncates long command lines', () => {

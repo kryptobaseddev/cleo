@@ -69,30 +69,62 @@ export {
 // ---------------------------------------------------------------------------
 
 const SECRET_NAME = '[A-Za-z0-9_-]*(?:token|secret|password|passwd|apikey|api-key|api_key|key)';
-const ASSIGNMENT = new RegExp(`\\b(${SECRET_NAME})=\\S+`, 'gi');
 const SECRET_FLAG = new RegExp(`^--?${SECRET_NAME}$`, 'i');
 
+/** What a redacted value is replaced with. */
+export const REDACTED = '<redacted>';
+
+/** An environment assignment token: `NAME=value`, the value quoted or not. */
+const ASSIGNMENT_TOKEN = /^([A-Za-z_][A-Za-z0-9_]*)=/;
+/** The same, inside a joined command line: at the start or after whitespace. */
+const ASSIGNMENT_IN_LINE = /(^|\s)([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"?|'[^']*'?|\S+)/g;
+/** A secret-looking flag and its value, `--token X` or `--token=X`. */
+const SECRET_FLAG_IN_LINE = new RegExp(
+  `(^|\\s)(--?${SECRET_NAME})(=|\\s+)(?!<redacted>)\\S+`,
+  'gi',
+);
+
 /**
- * The command line as recorded: secret-looking `name=value` pairs, the value
- * after a secret-looking flag (`--token X`), URL userinfo and bearer tokens
- * masked; truncated to 160 characters.
+ * A command line as CLEO records and shows it (T14208): every environment
+ * assignment (`NAME=value`, as a prefix or an `env NAME=value` argument,
+ * whatever the name) becomes `NAME=<redacted>`, as does the value after a
+ * secret-looking flag (`--token X`, `--api-key=X`); URL userinfo and bearer or
+ * basic credentials are masked; truncated to 160 characters. Idempotent, so a
+ * stored line can be redacted again on read.
+ *
+ * @param line - The command line.
+ * @returns The redacted line.
+ * @task T14208
+ */
+export function redactCommandLine(line: string): string {
+  const out = line
+    .replace(ASSIGNMENT_IN_LINE, `$1$2=${REDACTED}`)
+    .replace(SECRET_FLAG_IN_LINE, `$1$2$3${REDACTED}`)
+    .replace(/(\w+:\/\/)[^/\s@]+@/g, `$1${REDACTED}@`)
+    .replace(/\b(Bearer|Basic)\s+(?!<redacted>)\S+/gi, `$1 ${REDACTED}`);
+  return out.length > 160 ? `${out.slice(0, 157)}...` : out;
+}
+
+/**
+ * The command line of an argv as recorded: each `NAME=value` argument and the
+ * argument after a secret-looking flag are replaced whole, so a value holding
+ * spaces never survives the join; then {@link redactCommandLine}.
+ *
+ * @param argv - The command and its arguments.
+ * @returns The redacted line.
  */
 export function redactCommand(argv: readonly string[]): string {
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i] as string;
-    out.push(token);
+    const assignment = ASSIGNMENT_TOKEN.exec(token);
+    out.push(assignment ? `${assignment[1]}=${REDACTED}` : token);
     if (SECRET_FLAG.test(token) && i + 1 < argv.length) {
-      out.push('***');
+      out.push(REDACTED);
       i++;
     }
   }
-  const line = out
-    .join(' ')
-    .replace(ASSIGNMENT, '$1=***')
-    .replace(/(\w+:\/\/)[^/\s@]+@/g, '$1***@')
-    .replace(/\b(Bearer|Basic)\s+\S+/gi, '$1 ***');
-  return line.length > 160 ? `${line.slice(0, 157)}...` : line;
+  return redactCommandLine(out.join(' '));
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +423,9 @@ export function listRunJobs(
   const jobs: RunJob[] = [];
   for (const { job } of readRecords(dir)) {
     if (!job || heartbeatStale(job.heartbeatAtMs, p.now())) continue;
-    if (runnerState(job, p) === 'live') jobs.push(job);
+    // T14208: a record an older CLEO wrote is shown redacted.
+    if (runnerState(job, p) === 'live')
+      jobs.push({ ...job, command: redactCommandLine(job.command) });
   }
   return jobs.sort((a, b) => a.startedAtMs - b.startedAtMs || a.pid - b.pid);
 }

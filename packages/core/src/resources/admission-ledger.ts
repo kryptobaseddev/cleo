@@ -120,7 +120,12 @@ import {
   MEMORY_GATE_RETRY_AFTER_MS,
   type MemoryGateReporter,
 } from './pressure-gate.js';
-import { processAncestors, processGroupOf, processGroupsOf } from './run-admission.js';
+import {
+  processAncestors,
+  processGroupOf,
+  processGroupsOf,
+  redactCommandLine,
+} from './run-admission.js';
 import {
   canonicalForClass,
   gitHookFor,
@@ -709,7 +714,7 @@ export interface LedgerEntry {
   readonly startedAt: string | null;
   /** What is running: `tool:test`, `run:test-run`, `probe:vitest-projects`. */
   readonly label: string;
-  /** The command line, redacted, for status and reports. */
+  /** The command line, redacted on write and on read (T14208), for status and reports. */
   readonly command: string;
   /** Working directory, when known. */
   readonly cwd: string | null;
@@ -938,9 +943,11 @@ function readLedgerDoc(dir: string, strictRead = false): LedgerDoc {
   const entries: LedgerEntry[] = [];
   const foreign: ForeignEntry[] = [];
   for (const v of Array.isArray(o.entries) ? o.entries : []) {
-    if (isEntry(v)) entries.push(v);
+    // T14208: an entry an older CLEO stored unredacted is redacted on read, so
+    // it is never shown, and the next write persists the redacted form.
+    if (isEntry(v)) entries.push({ ...v, command: redactCommandLine(v.command) });
     else if (typeof v === 'object' && v !== null && !Array.isArray(v))
-      foreign.push(v as ForeignEntry);
+      foreign.push(redactForeignCommand(v as ForeignEntry));
     else if (strictRead) {
       // @sync-invariant none:local-only admission cleanup cannot discard malformed machine-local entries
       throw new SyntaxError('admission ledger contains an invalid entry');
@@ -975,6 +982,12 @@ export function readLedger(dir: string = admissionDir()): LedgerEntry[] {
  */
 export function readForeignEntries(dir: string = admissionDir()): ForeignEntry[] {
   return readLedgerDoc(dir).foreign;
+}
+
+/** A foreign entry kept verbatim except its `command`, which is redacted (T14208). */
+function redactForeignCommand(entry: ForeignEntry): ForeignEntry {
+  const command = entry.command;
+  return typeof command === 'string' ? { ...entry, command: redactCommandLine(command) } : entry;
 }
 
 function writeLedgerDoc(dir: string, doc: LedgerDoc): void {
@@ -2688,7 +2701,8 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     host: hostname(),
     startedAt: pid === process.pid ? ownProcessStartedAt() : probe.startedAt(pid),
     label: req.label,
-    command: req.command ?? process.argv.slice(1).join(' '),
+    // T14208: never persist an environment assignment or a secret.
+    command: redactCommandLine(req.command ?? process.argv.slice(1).join(' ')),
     cwd: req.cwd === undefined ? process.cwd() : req.cwd, // CWD-OK: display only — where the run was started, shown in status and reports
     footprintBytes: Math.max(0, req.footprintBytes),
     ...(parent !== null ? { parentId: parent.id } : {}),

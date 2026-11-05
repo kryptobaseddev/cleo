@@ -1331,6 +1331,46 @@ describe('admit (one ledger, real critical section)', () => {
   // No real `top`/`ps` probe in these tests: a refusal names an empty list.
   const base = { capacityBytes, sample: calm, env: {}, pollMs: 5, topMemory: () => [] };
 
+  it('a run started as env SECRET_KEY=abc cmd neither stores nor prints abc (T14208)', async () => {
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: 6 * GIB, command: 'env SECRET_KEY=abc cmd' },
+      { ...base, dir, wait: false },
+    );
+    expect(holder.admitted).toBe(true);
+    const waiting = await admit(
+      { label: 'tool:test', footprintBytes: 6 * GIB, command: 'env OTHER_TOKEN=xyz cmd' },
+      { ...base, dir, wait: false },
+    );
+    expect(waiting.admitted).toBe(false);
+    // Stored: the ledger file never holds the values.
+    const raw = readFileSync(join(dir, 'ledger.json'), 'utf-8');
+    expect(raw).not.toContain('abc');
+    expect(raw).toContain('SECRET_KEY=<redacted>');
+    // Printed: status rows and the refusal naming the holder.
+    expect(readLedger(dir).map((e) => e.command)).toContain('env SECRET_KEY=<redacted> cmd');
+    // The whole refusal (reason, holders, alternatives) names neither value.
+    const refusal = waiting.admitted ? '' : JSON.stringify(waiting.refusal);
+    expect(refusal).not.toBe('');
+    expect(refusal).not.toContain('abc');
+    expect(refusal).not.toContain('xyz');
+    if (holder.admitted) await holder.grant.release();
+  });
+
+  it('an entry an older CLEO stored unredacted is redacted on read and on the next write (T14208)', async () => {
+    const legacy = entry({ id: 'old', pid: 999_999, command: 'env LEGACY_KEY_HEX=feedface run' });
+    writeFileSync(
+      join(dir, 'ledger.json'),
+      JSON.stringify({ version: 1, entries: [legacy], pressure: null }),
+    );
+    expect(readLedger(dir)[0]?.command).toBe('env LEGACY_KEY_HEX=<redacted> run');
+    const next = await admit(
+      { label: 'tool:lint', footprintBytes: GIB, command: 'pnpm lint' },
+      { ...base, dir, wait: false },
+    );
+    expect(readFileSync(join(dir, 'ledger.json'), 'utf-8')).not.toContain('feedface');
+    if (next.admitted) await next.grant.release();
+  });
+
   it('a half-share ledger names the narrowed budget and its share in the refusal and status (T13572)', async () => {
     const halved = { ...base, sample: async () => sampleAt(15) };
     const a = await admit(
