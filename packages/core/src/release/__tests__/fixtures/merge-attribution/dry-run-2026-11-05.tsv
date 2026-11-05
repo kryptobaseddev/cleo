@@ -1,0 +1,17 @@
+pr	task	set	verdict	current
+1978	T13325	refused	budget-crossed	refused
+1980	T13309	refused	disjoint	refused
+1986	T12711	refused	disjoint	refused
+1991	T13330	refused	disjoint	refused
+1996	T13321	refused	disjoint	refused
+2000	T13377	refused	disjoint	refused
+2004	T13368	refused	unknown	refused
+2662	T14213	refused	unknown	refused
+1022	T11907	refused	superseded	refused
+1936	T13270	refused	superseded	refused
+2238	T13649	refused	disjoint	refused
+1729	T12756	refused	pr-caused	refused
+2045	T13440	refused	disjoint	refused
+2052	T13429	refused	disjoint	refused
+1910	T13224	refused	unknown	refused
+1161	T12079	refused	superseded	refused
