@@ -4,7 +4,7 @@
  *
  * `scripts/**` is deliberately outside `code` (gh#1403): a scripts-only change
  * runs Scripts Tests, not the package unit shards, and `ci:<pr>` may attest it
- * through `evidence.ciChecks.covering`. That is only sound when no package test
+ * through CI's own filter skip (T14260). That is only sound when no package test
  * imports or runs the changed script. Several do (store fingerprint gates,
  * nested-nexus migration, injection flags, ...), so each such script must be
  * listed under `code`, where a change to it runs the unit tests.

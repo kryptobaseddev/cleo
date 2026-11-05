@@ -763,6 +763,13 @@ export type EvidenceAtom =
       componentPrNumber?: number;
       /** Which configured checks attest each gate (`evidence.ciChecks`). */
       gateChecks?: { testsPassed?: string[]; qaPassed?: string[] };
+      /**
+       * Required jobs CI's own change filter skipped, per gate (T14260): the
+       * diff touched nothing under the package code roots and the required
+       * checks were green, so the skip is CI's verdict that the change
+       * touches nothing those jobs test.
+       */
+      filterSkippedJobs?: { testsPassed?: string[]; qaPassed?: string[] };
       /** Where the required-check list came from (env, project context, branch protection). */
       requiredSource: string;
     }
