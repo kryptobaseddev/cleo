@@ -14,7 +14,9 @@ pending or missing job never counts, and the atom records the skipped jobs as
 `filterSkippedJobs`. Scripts-only, workflow-only and `.cleo/`-only PRs (the
 #1568 and #1772 shapes) now close on merged CI with no per-path config.
 
-The `covering` table, its schema entry and `evaluateCoveringJobs` are
-deleted; a `covering` key left in a project context is ignored. CI's `code`
+The `covering` rules and `evaluateCoveringJobs` are deleted. A `covering`
+key left in a project context is ignored: the schema still accepts it
+(marked deprecated) and `cleo doctor` warns once, naming the key to remove.
+The schema drops it in Phase 3. CI's `code`
 filter now runs the unit shards for every file under `crates/` as well as
 `packages/`, and a test pins the filter to the shared `PACKAGE_CODE_ROOTS`.

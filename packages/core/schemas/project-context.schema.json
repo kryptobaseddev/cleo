@@ -335,6 +335,11 @@
                 "tests": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
                 "qa": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
               }
+            },
+            "covering": {
+              "type": "object",
+              "deprecated": true,
+              "description": "Deprecated and ignored since T14260: CI's own change-filter skip of a gate's jobs, on a diff outside packages/ and crates/ with the required checks green, replaces these per-path rules. cleo doctor warns while it is present; remove it. The key is dropped from the schema in Phase 3 of the durability plan."
             }
           },
           "description": "Required checks that attest testsPassed (tests) and qaPassed (qa) for ci:<pr>; each must be a subset of the required list."
