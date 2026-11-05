@@ -27,7 +27,7 @@
  * @task T9666
  * @epic T9572
  * @see .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
- * @see docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §5
+ * @see docs/concept/skills-architecture.md §5
  */
 
 import { randomUUID } from 'node:crypto';

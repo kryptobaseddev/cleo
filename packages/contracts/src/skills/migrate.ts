@@ -21,7 +21,7 @@
  * @task T9742
  * @epic T9740
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §1
+ * @architecture docs/concept/skills-architecture.md §1
  */
 
 // ---------------------------------------------------------------------------

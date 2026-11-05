@@ -7,7 +7,7 @@
  * and bridge status. Performs ZERO writes — never creates, removes, or renames
  * anything on disk.
  *
- * Locations inspected (per `docs/architecture/SG-CLEO-SKILLS-architecture-v3.md` §1):
+ * Locations inspected (per `docs/concept/skills-architecture.md` §1):
  *
  * 1. **Canonical SSoT** — `~/.cleo/skills/` (the preferred user-machine root).
  * 2. **Legacy XDG** — `~/.local/share/agents/skills/` (read-only fallback).
@@ -49,7 +49,7 @@
  * @task T9652
  * @epic T9571
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §1, §4
+ * @architecture docs/concept/skills-architecture.md §1, §4
  */
 
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';

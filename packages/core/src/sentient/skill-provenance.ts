@@ -29,7 +29,7 @@
  * @epic T9571
  * @saga T9560
  * @port-of tools/skill_provenance.py (Hermes Agent)
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §4-§6
+ * @architecture docs/concept/skills-architecture.md §4-§6
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';

@@ -55,7 +55,7 @@
  * Honors `cleo sentient kill` like every other sentient subsystem.
  *
  * @see {@link /mnt/projects/hermes-agent/agent/curator.py} lines 256-296 — original Hermes transitions
- * @see {@link docs/architecture/SG-CLEO-SKILLS-architecture-v3.md} §6 — is_canonical resolution
+ * @see {@link docs/concept/skills-architecture.md} §6 — is_canonical resolution
  * @task T9562, T9677
  * @epic T9562
  * @saga T9560

@@ -51,9 +51,9 @@ function readRequired(filePath: string): string {
 // ---------------------------------------------------------------------------
 
 describe("T325 — CLEOOS-VISION.md Wave 10 rewrite", () => {
-  const visionPath = join(MONOREPO_ROOT, "docs", "concepts", "CLEOOS-VISION.md");
+  const visionPath = join(MONOREPO_ROOT, "docs", "concept", "cleoos-vision.md");
 
-  it("docs/concepts/CLEOOS-VISION.md exists and is non-empty", () => {
+  it("docs/concept/cleoos-vision.md exists and is non-empty", () => {
     readRequired(visionPath);
   });
 

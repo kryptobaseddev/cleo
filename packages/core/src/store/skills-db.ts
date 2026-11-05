@@ -2,7 +2,7 @@
  * Per-user skills registry lifecycle module — opener, helpers.
  *
  * The per-user skills registry is a global-tier domain described in
- * `docs/architecture/SG-CLEO-SKILLS-architecture-v3.md` §4.
+ * `docs/concept/skills-architecture.md` §4.
  *
  * ## E6-L5 — thin-facade migration (T11525)
  *
@@ -38,7 +38,7 @@
  * @epic T11249
  * @saga T9560
  * @adr ADR-068, ADR-069
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §4
+ * @architecture docs/concept/skills-architecture.md §4
  */
 
 import { join } from 'node:path';

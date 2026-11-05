@@ -254,7 +254,7 @@ Schema definitions: `packages/playbooks/src/schema.ts` (playbook tables),
 | Command | Status | Description |
 |---------|--------|-------------|
 | `cleo orchestrate spawn <taskId>` | Shipped (T882) | Emit a `SpawnPayload` for a task. |
-| `cleo orchestrate ready <epicId>` | Shipped | Return parallel-safe wave. |
+| `cleo orchestrate ready --epic <id>` | Shipped | Return parallel-safe wave. |
 | `cleo orchestrate waves <epicId>` | Shipped | View epic wave plan. |
 | `cleo orchestrate start <epicId>` | Shipped | Initialize epic pipeline (auto-inits LOOM research). |
 | `cleo orchestrate plan <epicId>` | Shipped (T889) | Plan epic decomposition. |
@@ -296,3 +296,26 @@ structure.
 - `packages/playbooks/README.md` — DSL grammar + API reference
 - `packages/playbooks/src/runtime.ts` — state-machine executor
 - `packages/core/src/orchestration/spawn.ts` — canonical composer
+
+<!-- merged from `orchestration-flow` by cleo docs modernize -->
+
+## CLI Surface (from `orchestration-flow`)
+
+| Command | Status | Description |
+|---------|--------|-------------|
+| `cleo orchestrate spawn <taskId>` | Shipped (T882) | Emit a `SpawnPayload` for a task. |
+| `cleo orchestrate ready <epicId>` | Shipped | Return parallel-safe wave. |
+| `cleo orchestrate waves <epicId>` | Shipped | View epic wave plan. |
+| `cleo orchestrate start <epicId>` | Shipped | Initialize epic pipeline (auto-inits LOOM research). |
+| `cleo orchestrate plan <epicId>` | Shipped (T889) | Plan epic decomposition. |
+| `cleo orchestrate ivtr <taskId> --start` | Shipped | Multi-agent IVTR loop. |
+| `cleo playbook run <name>` | Planned (T935) | Execute a `.cantbook` playbook. |
+| `cleo playbook status <runId>` | Planned (T935) | Inspect run state. |
+| `cleo playbook resume <runId>` | Planned (T935) | Continue after HITL approval. |
+| `cleo orchestrate approve <resumeToken>` | Planned (T935) | Grant approval for a paused run. |
+| `cleo orchestrate reject <resumeToken> --reason <r>` | Planned (T935) | Deny with audit. |
+| `cleo orchestrate pending` | Planned (T935) | List awaiting approvals. |
+
+"Planned" entries are documented here because the runtime and contracts
+already exist. The CLI surface that exposes them lands in a follow-up release
+as part of T935.

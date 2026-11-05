@@ -130,8 +130,8 @@ cut from main with `cleo release cut`.
 
 CLEO began as one developer's refusal to keep losing the thread: powerful
 agents that forgot too easily, ambitious projects that died on the shelf.
-[The Founding Story](docs/concepts/CLEO-FOUNDING-STORY.md) tells it from the
-builder's side, and [The Awakening Story](docs/concepts/CLEO-AWAKENING-STORY.md)
+[The Founding Story](docs/concept/cleo-founding-story.md) tells it from the
+builder's side, and [The Awakening Story](docs/concept/cleo-awakening-story.md)
 from CLEO's.
 
 ## Support

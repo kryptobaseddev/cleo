@@ -14,7 +14,7 @@ Sticky Notes are **project-wide, session-agnostic ephemeral captures** that fill
 - **Tasks** (formal, structured work items)
 - **BRAIN Observations** (distilled knowledge)
 
-They map to CLEO's existing workshop vocabulary per [CLEO-SYSTEM-FLOW-ATLAS.md](../concepts/CLEO-SYSTEM-FLOW-ATLAS.md):
+They map to CLEO's existing workshop vocabulary per [CLEO-SYSTEM-FLOW-ATLAS.md](../concept/cleo-system-flow-atlas.md):
 
 > **Sticky Notes** | sticky domain | Quick project-wide capture before formal classification
 

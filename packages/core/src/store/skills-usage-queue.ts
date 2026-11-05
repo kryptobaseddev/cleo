@@ -26,7 +26,7 @@
  * @task T9694
  * @epic T9561
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §5
+ * @architecture docs/concept/skills-architecture.md §5
  */
 
 import {

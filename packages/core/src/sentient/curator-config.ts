@@ -31,7 +31,7 @@
  * @task T9683
  * @epic T9571
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §5/§6
+ * @architecture docs/concept/skills-architecture.md §5/§6
  */
 
 import { z } from 'zod';

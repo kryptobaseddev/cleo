@@ -24,6 +24,7 @@ import {
   OPERATION_CONSTITUTION_DOC,
   PORTABLE_BRAIN_SPEC_DOC,
   TEMPLATES_SUBDIR,
+  VISION_DOC,
 } from '../paths.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -372,7 +373,7 @@ export const detectDriftCommand = defineCommand({
 
     // Check 6: Canonical identity
     try {
-      const visionPath = join(projectRoot, 'docs', 'concepts', 'CLEO-VISION.md');
+      const visionPath = join(projectRoot, VISION_DOC);
       const specPath = join(projectRoot, PORTABLE_BRAIN_SPEC_DOC);
 
       const issues: DriftIssue[] = [];
@@ -383,7 +384,7 @@ export const detectDriftCommand = defineCommand({
           category: 'vision',
           message: 'Vision document missing',
           file: visionPath,
-          recommendation: 'Create docs/concepts/CLEO-VISION.md with project vision',
+          recommendation: `Create ${VISION_DOC} with project vision`,
         });
       }
 

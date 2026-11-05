@@ -46,7 +46,7 @@
  * @epic T9563
  * @saga T9560
  * @port-of agent/background_review.py (Hermes Agent)
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §6-§7
+ * @architecture docs/concept/skills-architecture.md §6-§7
  */
 
 import { Worker } from 'node:worker_threads';

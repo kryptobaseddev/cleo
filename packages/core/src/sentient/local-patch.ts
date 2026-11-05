@@ -34,7 +34,7 @@
  * @task T9715
  * @epic T9563
  * @saga T9560
- * @architecture docs/architecture/SG-CLEO-SKILLS-architecture-v3.md §6-§7
+ * @architecture docs/concept/skills-architecture.md §6-§7
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';

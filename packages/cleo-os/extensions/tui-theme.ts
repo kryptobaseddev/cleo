@@ -3,8 +3,8 @@
  *
  * CANONICAL LOCATION: `packages/cleo-os/extensions/tui-theme.ts`
  *
- * Maps the design tokens from `docs/design/CLEO-PI-AGENT-TUI-DESIGN.md`
- * and `docs/design/QUICK-REFERENCE.md` to ANSI 256-color escape sequences.
+ * Maps the design tokens from `docs/concept/cleo-pi-agent-tui-design.md`
+ * and `docs/concept/quick-reference.md` to ANSI 256-color escape sequences.
  *
  * All Pi extensions that render TUI elements MUST import from this module
  * rather than defining ad-hoc ANSI codes inline. This ensures visual

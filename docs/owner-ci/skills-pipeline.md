@@ -8,7 +8,7 @@ This doc is the **operator-facing** privacy summary for the skills owner-CI
 pipeline. It complements the technical contract in
 [ADR-074](../../.cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md)
 and the architecture in
-[`docs/architecture/SG-CLEO-SKILLS-architecture-v3.md`](../architecture/SG-CLEO-SKILLS-architecture-v3.md).
+[`docs/architecture/SG-CLEO-SKILLS-architecture-v3.md`](../concept/skills-architecture.md).
 
 ---
 

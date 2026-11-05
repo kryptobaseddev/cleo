@@ -523,9 +523,9 @@ export default spinners;
    first-class so the registry is purely additive.
 
    Canon vocabulary sources:
-     - docs/concepts/CLEO-VISION.md (six systems: TASKS LOOM BRAIN NEXUS CANT CONDUIT)
-     - docs/concepts/NEXUS-CORE-ASPECTS.md (workshop lexicon)
-     - docs/concepts/CLEO-MANIFESTO.md (mythic identity)
+     - docs/concept/cleo-vision.md (six systems: TASKS LOOM BRAIN NEXUS CANT CONDUIT)
+     - docs/concept/nexus-core-aspects.md (workshop lexicon)
+     - docs/concept/cleo-manifesto.md (mythic identity)
 
    Mapping rationale:
      looming      → helix       (twin strands weaving — task on the LOOM)

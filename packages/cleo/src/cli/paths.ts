@@ -163,3 +163,12 @@ export const OPERATION_CONSTITUTION_DOC = 'docs/spec/cleo-operation-constitution
 
 /** Project-relative path of the Portable Brain spec that `cleo detect-drift` reads (T14108). */
 export const PORTABLE_BRAIN_SPEC_DOC = 'docs/spec/cleo-portable-project-brain.md' as const;
+
+/** Project-relative path of the architecture guide that `cleo check canon` reads (T14108). */
+export const ARCHITECTURE_GUIDE_DOC = 'docs/concept/cleo-architecture-guide.md' as const;
+
+/**
+ * Project-relative path of the vision doc that `cleo check canon` and
+ * `cleo detect-drift` read (T14108).
+ */
+export const VISION_DOC = 'docs/concept/cleo-vision.md' as const;
