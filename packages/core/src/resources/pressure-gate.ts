@@ -183,6 +183,32 @@ export function evaluateMemoryGate(sample: ResourceSample, latched: boolean): Me
   };
 }
 
+/** Swap this full (used over allocated) counts as critical (T14206). */
+export const CRITICAL_SWAP_FRACTION = 0.9;
+
+/** `kern.memorystatus_vm_pressure_level` for critical (T14206). */
+const DARWIN_PRESSURE_CRITICAL = 4;
+
+/**
+ * Whether memory is critical, not merely short (T14206): tasks are stalled
+ * on memory (`full avg10` above {@link MEMORY_GATE_FULL_REFUSE_ABOVE}), macOS
+ * reports its critical pressure level, or swap is at least
+ * {@link CRITICAL_SWAP_FRACTION} full. While critical, nothing starts through
+ * the latch, not even a small run.
+ *
+ * @param sample - a backend sample.
+ * @returns `true` when even a small run must wait.
+ */
+export function isCriticalMemory(sample: ResourceSample): boolean {
+  const mem = sample.globalPressure ?? sample.slicePressure;
+  if (finite(mem?.full?.avg10) > MEMORY_GATE_FULL_REFUSE_ABOVE) return true;
+  const d = sample.darwinMemory;
+  if (d?.pressureLevel === DARWIN_PRESSURE_CRITICAL) return true;
+  const used = d?.swapUsedBytes ?? null;
+  const total = d?.swapTotalBytes ?? null;
+  return used !== null && total !== null && total > 0 && used / total >= CRITICAL_SWAP_FRACTION;
+}
+
 /** The machine-wide latch record. */
 interface GateLatch {
   readonly refusing: boolean;
