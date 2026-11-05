@@ -182,7 +182,7 @@ beforeEach(() => {
   for (const sha of [shas.fix, shas.head]) smokeReceipt(sha, true);
 });
 
-/** Write the release smoke receipt `scripts/release-mac-smoke.mjs` leaves for `sha` (T14250). */
+/** Write the receipt the release smoke (`release-mac-smoke`) leaves for `sha` (T14250). */
 function smokeReceipt(sha: string, passed: boolean, receiptSha = sha): string {
   const path = `.cleo/release-smoke/${sha.slice(0, 12)}/results.json`;
   write(work, path, JSON.stringify({ sha: receiptSha, cliVersion: 'test', passed }));

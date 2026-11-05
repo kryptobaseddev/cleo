@@ -181,7 +181,7 @@ async function seedReleaseRow(version: string): Promise<void> {
 /** The dispatch branch head the stub reports (T14250). */
 const SMOKE_HEAD = 'a'.repeat(40);
 
-/** Write the release smoke receipt `scripts/release-mac-smoke.mjs` leaves for `sha` (T14250). */
+/** Write the receipt the release smoke (`release-mac-smoke`) leaves for `sha` (T14250). */
 function writeSmokeReceipt(sha: string, passed: boolean): void {
   const dir = join(testDir, '.cleo', 'release-smoke', sha.slice(0, 12));
   mkdirSync(dir, { recursive: true });
