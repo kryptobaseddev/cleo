@@ -40,6 +40,7 @@ import { join } from 'node:path';
 import type {
   GhPrViewPayload,
   MacosRegressionSync,
+  MergeAttributionReceipt,
   MergeDirective,
   MergedCleanupResult,
   MergePrOutcome,
@@ -125,6 +126,9 @@ const ISSUE_LINK_PROVIDER = 'github-issue';
 /** The throttle and high-water file, under `.cleo/`. */
 const SWEEP_STATE_FILE = 'merge-sweep.json';
 
+/** Attribution receipts (T14252) one sweep looks up or computes, at most. */
+export const MERGE_ATTRIBUTION_PER_SWEEP = 20;
+
 /** A merged PR as the sweep reads it from `gh`. */
 export interface MergedPrRecord extends Pick<GhPrViewPayload, 'statusCheckRollup'> {
   /** PR number. */
@@ -180,6 +184,18 @@ export interface MergeCloseDeps {
     storeRoot: string,
     pr: { prNumber: number; mergeSha: string; taskIds: string[] },
   ): Promise<string[]>;
+  /**
+   * The merged PR's attribution receipt (T14252, SHADOW per D11224): stored
+   * once per (PR, merge sha) on `taskId` and listed beside the outcome; it
+   * never changes a closure. Null while the merge's CI runs.
+   */
+  attribute?(
+    storeRoot: string,
+    root: string,
+    pr: MergedPrRecord,
+    taskId: string,
+    dryRun: boolean,
+  ): Promise<MergeAttributionReceipt | null>;
   /**
    * Remove what a merged PR's tasks left behind (T14142): canonical worktrees,
    * `task/*` branches, nested repository copies. Runs only when
@@ -975,6 +991,7 @@ async function applyMergedPrs(
 ): Promise<MergeSweepHooks> {
   const hooks: MergeSweepHooks = {};
   const silent = new Set<MergeTaskOutcome>();
+  let attributed = 0;
   for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
     if (clock() > deadline) {
       carried.push(pr.number);
@@ -1029,6 +1046,25 @@ async function applyMergedPrs(
           prNumber: pr.number,
           reason: outcome.reason ?? 'refused',
         });
+    }
+    // T14252 (SHADOW, D11224): the attribution receipt, beside the outcome above.
+    // At most MERGE_ATTRIBUTION_PER_SWEEP lookups, inside the deadline: a cold
+    // store's first sweep leaves the rest to the next one.
+    const fileOn = receipt.directives[0]?.taskId;
+    if (
+      deps.attribute &&
+      fileOn !== undefined &&
+      attributed < MERGE_ATTRIBUTION_PER_SWEEP &&
+      clock() <= deadline
+    ) {
+      attributed++;
+      const attribution = await deps
+        .attribute(storeRoot, root, pr, fileOn, dryRun)
+        .catch(() => null);
+      if (attribution !== null) {
+        const { verdict, claim, reason } = attribution;
+        entry.attribution = { verdict, claim, reason };
+      }
     }
     // A wait on the merge's own CI resolves itself: no comment (lead rule).
     const loud = entry.outcomes.filter((o) => !silent.has(o));
@@ -1782,6 +1818,10 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     // Off until it has proven itself on a few releases; opt in with
     // CLEO_MERGE_SWEEP_CLEANUP=1, and never inside a CI job.
     return process.env['CLEO_MERGE_SWEEP_CLEANUP'] === '1' && process.env['CI'] !== 'true';
+  },
+  async attribute(storeRoot, root, pr, taskId, dryRun) {
+    const { attributeMergedPr } = await import('../release/merge-attribution.js');
+    return attributeMergedPr(storeRoot, root, pr, taskId, dryRun);
   },
   async docsRot(storeRoot, pr) {
     // T14111: flag the docs whose covers: globs match the merge's own changes.

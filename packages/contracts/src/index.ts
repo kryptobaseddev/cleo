@@ -1253,6 +1253,9 @@ export type {
 } from './memory.js';
 export type {
   MacosRegressionSync,
+  MergeAttributionFailure,
+  MergeAttributionReceipt,
+  MergeAttributionVerdict,
   MergeDirective,
   MergePrOutcome,
   MergeReceipt,

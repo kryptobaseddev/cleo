@@ -1596,15 +1596,55 @@ export async function untestedJobFailures(
  * @task T13809
  */
 export function isSetupStepFailureLog(log: string): boolean {
+  const text = log.replace(/\u001b\[[0-9;]*m/g, '');
+  if (text.split('\n').some((l) => /\bRUN\s+v\d|\bTest Files\s{2,}\d|\bFAIL\s{2,}/.test(l)))
+    return false;
+  const step = failedStepOf(text);
+  return step !== null && /^[\w.-]+\/[\w./-]+@\S+$/.test(step);
+}
+
+/**
+ * The step a job failed in (T14252): the `Run …` header of the group the
+ * log's first `##[error]` line belongs to, trimmed; `null` when the log names
+ * no error or no step. Two runs that fail in the same step failed the same way
+ * even when no test ran (a gate script, a bundle budget).
+ *
+ * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @returns The step's command line, or `null`.
+ * @task T14252
+ */
+export function failedStepOf(log: string): string | null {
   const lines = log.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
-  if (lines.some((l) => /\bRUN\s+v\d|\bTest Files\s{2,}\d|\bFAIL\s{2,}/.test(l))) return false;
   const error = lines.findIndex((l) => l.includes('##[error]'));
-  if (error < 0) return false;
   for (let i = error - 1; i >= 0; i--) {
     const step = /##\[group\]Run (.*)$/.exec(lines[i] ?? '');
-    if (step) return /^[\w.-]+\/[\w./-]+@\S+\s*$/.test(step[1] ?? '');
+    if (step) return (step[1] ?? '').trim();
   }
-  return false;
+  return null;
+}
+
+/** The marker the CI test step prints before it re-runs the files that failed (T13145). */
+const RERUN_MARKER = /Re-running \d+ file\(s\) with failing tests/;
+
+/**
+ * The test files that failed a job and decided it (T14252), as
+ * `<project>:<file>` from vitest's `FAIL  <project> <file>` lines. When the
+ * job re-ran its failing files once (T13145), only the files that failed
+ * again count; a first-run failure the re-run cleared never blocked the job.
+ *
+ * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @returns The blocking test identities, sorted.
+ * @task T14252
+ */
+export function blockingTestIds(log: string): string[] {
+  const text = log.replace(/\u001b\[[0-9;]*m/g, '');
+  const rerun = RERUN_MARKER.exec(text);
+  const decided = rerun ? text.slice(rerun.index) : text;
+  const ids = new Set<string>();
+  for (const m of decided.matchAll(/\bFAIL\s{2,}(\S+)\s+(\S+\.(?:test|spec)\.[cm]?[jt]sx?)\b/g)) {
+    ids.add(`${m[1]}:${m[2]}`);
+  }
+  return [...ids].sort();
 }
 
 /**
@@ -2546,7 +2586,8 @@ async function defaultWorkspaceWideReason(
   return need.kind === 'full' ? need.reason : null;
 }
 
-function defaultFirstParentOf(sha: string, cwd: string): string | null {
+/** The first parent of `sha` in `cwd`'s git, or `null` when unknown. */
+export function defaultFirstParentOf(sha: string, cwd: string): string | null {
   return gitRead(cwd, ['rev-parse', '--verify', '--quiet', `${sha}^1`]);
 }
 
@@ -2580,7 +2621,7 @@ function ghApi(path: string, cwd: string): unknown {
 }
 
 /** Default {@link ResolveCiEvidenceOptions.fetchJobLog}: the job's plain-text log via `gh` (T13809). */
-async function defaultFetchJobLog(jobId: number, cwd: string): Promise<string | null> {
+export async function defaultFetchJobLog(jobId: number, cwd: string): Promise<string | null> {
   if (!isGitWorkTree(cwd) || !isGhCliAvailable()) return null;
   try {
     // Job logs carry ANSI colour; gh refuses to print them without the flag.
@@ -2651,7 +2692,7 @@ export function withoutScheduledRuns(
  * runs for a SHA. Workflow runs carry their event and workflow file; a check
  * run inherits both from the workflow run of its check suite.
  */
-async function defaultFetchChecks(
+export async function defaultFetchChecks(
   sha: string,
   cwd: string,
 ): Promise<{ ok: true; checks: CommitCheck[] } | { ok: false; reason: string }> {
