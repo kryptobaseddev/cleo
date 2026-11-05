@@ -14,7 +14,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applyBackupByteCap,
   DEFAULT_BACKUP_MAX_BYTES_FACTOR,
+  EMPTY_COPY,
   enforceBackupByteCap,
+  resolveBackupMaxBytes,
 } from '../backup-sidecar.js';
 
 let root: string;
@@ -65,7 +67,9 @@ const rotationLog = () =>
   readFileSync(join(dir, 'rotation.jsonl'), 'utf-8')
     .trim()
     .split('\n')
-    .map((l) => JSON.parse(l) as { set: string; coveredBy: string; reason: string });
+    .map(
+      (l) => JSON.parse(l) as { set: string; coveredBy: Record<string, string>; reason: string },
+    );
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'backup-cap-'));
@@ -80,6 +84,8 @@ afterEach(() => {
 });
 
 describe('backup byte cap (T14278)', () => {
+  const NEWEST = 'tasks-20261104-100000.db';
+
   it('under the cap nothing is removed', () => {
     fakeDb(join(dir, 'tasks-20261101-100000.db'));
     snapshotSet('20261102-100000');
@@ -88,19 +94,18 @@ describe('backup byte cap (T14278)', () => {
     expect(r.overCap).toBe(false);
   });
 
-  it('over the cap removes oldest sets first, each covered by the newest verified snapshot, until under the cap', () => {
+  it('over the cap removes oldest sets first, each covered per role by a newer verified copy, until under the cap', () => {
     fakeDb(join(dir, 'tasks-20261101-100000.db'));
     migrationSet('20261102-100000');
     snapshotSet('20261103-100000');
-    fakeDb(join(dir, 'tasks-20261104-100000.db')); // newest
+    fakeDb(join(dir, NEWEST));
     fakeDb(join(dir, 'llmtxt-20261101-100000.db')); // another database: never touched
-    const newestBytes = readFileSync(join(dir, 'tasks-20261104-100000.db')).length;
+    const newestBytes = readFileSync(join(dir, NEWEST)).length;
     // Room for the newest and about one more set.
     const cap =
       newestBytes * 2 + readFileSync(join(dir, 'llmtxt-20261101-100000.db')).length + 4096;
     const r = enforceBackupByteCap(dir, cap);
 
-    expect(r.newestVerified).toBe('tasks-20261104-100000.db');
     expect(r.totalAfter).toBeLessThanOrEqual(cap);
     expect(r.overCap).toBe(false);
     // Oldest first: the session snapshot, then the migration snapshot (it joins the rotation).
@@ -108,36 +113,83 @@ describe('backup byte cap (T14278)', () => {
       'vacuum-20261101-100000',
       'migration-20261102-100000',
     ]);
-    for (const x of r.removed) expect(x.coveredBy).toBe('tasks-20261104-100000.db');
+    for (const x of r.removed) expect(x.coveredBy).toEqual({ 'cleo.db': NEWEST });
     expect(existsSync(join(dir, 'tasks-20261101-100000.db'))).toBe(false);
     expect(existsSync(join(dir, 'cleo.db.migration-20261102-100000'))).toBe(false);
     expect(existsSync(join(dir, 'migration-20261102-100000.meta.json'))).toBe(false);
-    // The newest and the set that fits stay; so does the unrelated database.
-    expect(existsSync(join(dir, 'tasks-20261104-100000.db'))).toBe(true);
+    expect(existsSync(join(dir, NEWEST))).toBe(true);
     expect(existsSync(join(dir, 'cleo.db.snapshot-20261103-100000'))).toBe(true);
     expect(existsSync(join(dir, 'llmtxt-20261101-100000.db'))).toBe(true);
-    // Each removal is recorded with what covers it.
+    // Each removal is recorded with its covering file per role.
     expect(rotationLog()).toEqual([
       expect.objectContaining({
         set: 'vacuum-20261101-100000',
-        coveredBy: 'tasks-20261104-100000.db',
+        coveredBy: { 'cleo.db': NEWEST },
         reason: 'byte-cap',
       }),
       expect.objectContaining({
         set: 'migration-20261102-100000',
-        coveredBy: 'tasks-20261104-100000.db',
+        coveredBy: { 'cleo.db': NEWEST },
       }),
     ]);
   });
 
-  it('never removes the newest verified snapshot, nor anything newer, even at a cap of one byte', () => {
+  it('a newer project snapshot never covers an older set holding the only copy of another role', () => {
+    // An older run with conduit in its own database file, and a backup add
+    // holding the only blob-manifest copy.
+    fakeDb(join(dir, 'tasks-20261101-100000.db'));
+    fakeDb(join(dir, 'conduit-20261101-100000.db'));
+    snapshotSet('20261102-100000');
+    fakeDb(join(dir, 'blobs.manifest.db.snapshot-20261102-100000'));
+    fakeDb(join(dir, NEWEST)); // the newer verified project store copy
+    const r = enforceBackupByteCap(dir, 1);
+    expect(r.removed).toEqual([]);
+    expect(r.kept).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          set: 'vacuum-20261101-100000',
+          reason: 'no newer verified snapshot of conduit.db',
+        }),
+        expect.objectContaining({
+          set: 'snapshot-20261102-100000',
+          reason: 'no newer verified snapshot of blobs.manifest.db',
+        }),
+      ]),
+    );
+    expect(existsSync(join(dir, 'conduit-20261101-100000.db'))).toBe(true);
+    expect(existsSync(join(dir, 'blobs.manifest.db.snapshot-20261102-100000'))).toBe(true);
+    // Once a newer conduit copy verifies, the older set is covered on every role.
+    fakeDb(join(dir, 'conduit-20261104-100000.db'));
+    const again = enforceBackupByteCap(dir, 1);
+    expect(again.removed.map((x) => x.set)).toContain('vacuum-20261101-100000');
+    expect(again.removed.find((x) => x.set === 'vacuum-20261101-100000')?.coveredBy).toEqual({
+      'cleo.db': NEWEST,
+      'conduit.db': 'conduit-20261104-100000.db',
+    });
+  });
+
+  it('an empty copy of a role holds nothing to lose; a non-empty one needs a newer verified copy', () => {
+    snapshotSet('20261101-100000');
+    // An empty store's copy: a database with no schema object.
+    new DatabaseSync(join(dir, 'attachments.index.db.snapshot-20261101-100000')).close();
+    snapshotSet('20261102-100000');
+    writeFileSync(join(dir, 'attachments.index.db.snapshot-20261102-100000'), '');
+    const r = enforceBackupByteCap(dir, 1);
+    expect(r.removed.map((x) => x.set)).toEqual(['snapshot-20261101-100000']);
+    expect(r.removed[0]?.coveredBy).toEqual({
+      'attachments.index.db': EMPTY_COPY,
+      'cleo.db': 'cleo.db.snapshot-20261102-100000',
+      'config.json': 'config.json.snapshot-20261102-100000',
+    });
+  });
+
+  it('never removes the newest verified copy of a role, nor anything newer, even at a cap of one byte', () => {
     fakeDb(join(dir, 'tasks-20261101-100000.db'));
     snapshotSet('20261102-100000');
     writeFileSync(join(dir, 'tasks-20261103-100000.db'), 'not a database'); // newest, corrupt
     const r = enforceBackupByteCap(dir, 1);
-    // The corrupt newest does not open, so the verified one is the snapshot set.
-    expect(r.newestVerified).toBe('cleo.db.snapshot-20261102-100000');
     expect(r.removed.map((x) => x.set)).toEqual(['vacuum-20261101-100000']);
+    expect(r.removed[0]?.coveredBy).toEqual({ 'cleo.db': 'cleo.db.snapshot-20261102-100000' });
     expect(existsSync(join(dir, 'cleo.db.snapshot-20261102-100000'))).toBe(true);
     expect(existsSync(join(dir, 'tasks-20261103-100000.db'))).toBe(true);
     expect(r.overCap).toBe(true);
@@ -147,7 +199,6 @@ describe('backup byte cap (T14278)', () => {
     writeFileSync(join(dir, 'tasks-20261101-100000.db'), 'x'.repeat(10_000));
     writeFileSync(join(dir, 'tasks-20261102-100000.db'), 'y'.repeat(10_000));
     const r = enforceBackupByteCap(dir, 1);
-    expect(r.newestVerified).toBeNull();
     expect(r.removed).toEqual([]);
     expect(existsSync(join(dir, 'tasks-20261101-100000.db'))).toBe(true);
   });
@@ -156,7 +207,7 @@ describe('backup byte cap (T14278)', () => {
     migrationSet('20261101-100000', { pinned: true, pinnedReason: 'pre-collapse' });
     migrationSet('20261102-100000'); // referenced by a marker
     snapshotSet('20261103-100000', { pinned: true });
-    fakeDb(join(dir, 'tasks-20261104-100000.db'));
+    fakeDb(join(dir, NEWEST));
     const store = new DatabaseSync(join(cleoDir, 'cleo.db'));
     store.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT)');
     store
@@ -169,20 +220,29 @@ describe('backup byte cap (T14278)', () => {
 
     const r = enforceBackupByteCap(dir, 1);
     expect(r.removed).toEqual([]);
-    for (const f of [
-      'cleo.db.migration-20261101-100000',
-      'cleo.db.migration-20261102-100000',
-      'cleo.db.snapshot-20261103-100000',
-    ]) {
-      expect(existsSync(join(dir, f)), f).toBe(true);
-    }
+    expect(r.kept.map((k) => k.reason)).toEqual([
+      'pinned',
+      'a twin-collapse marker references cleo.db.migration-20261102-100000',
+      'pinned',
+      'no newer verified snapshot of cleo.db',
+    ]);
+  });
+
+  it('a dry run plans the same removals and deletes nothing', () => {
+    fakeDb(join(dir, 'tasks-20261101-100000.db'));
+    fakeDb(join(dir, NEWEST));
+    const plan = enforceBackupByteCap(dir, 1, { dryRun: true });
+    expect(plan.dryRun).toBe(true);
+    expect(plan.removed.map((x) => x.set)).toEqual(['vacuum-20261101-100000']);
+    expect(existsSync(join(dir, 'tasks-20261101-100000.db'))).toBe(true);
+    expect(existsSync(join(dir, 'rotation.jsonl'))).toBe(false);
   });
 
   it('applyBackupByteCap defaults to a multiple of the store size and honours backup.maxBytes', () => {
     fakeDb(join(dir, 'tasks-20261101-100000.db'));
     fakeDb(join(dir, 'tasks-20261102-100000.db'));
     const storeBytes = readFileSync(join(cleoDir, 'cleo.db')).length;
-    expect(applyBackupByteCap(dir)?.maxBytes).toBe(DEFAULT_BACKUP_MAX_BYTES_FACTOR * storeBytes);
+    expect(resolveBackupMaxBytes(dir)).toBe(DEFAULT_BACKUP_MAX_BYTES_FACTOR * storeBytes);
     writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ backup: { maxBytes: 1 } }));
     const r = applyBackupByteCap(dir);
     expect(r?.maxBytes).toBe(1);
