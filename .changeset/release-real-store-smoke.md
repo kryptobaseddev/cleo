@@ -25,7 +25,8 @@ A real stable `cleo release cut` now reads the receipt for the commit it
 would tag (`.cleo/release-smoke/<sha12>/results.json` in the invoking or the
 project checkout) and refuses with `E_RELEASE_SMOKE_MISSING` when it is
 missing, failed, or names another commit. The dry run reports it as `smoke`;
-a prerelease only warns.
+a prerelease only warns. The fallback `cleo release open` applies the same
+gate to a stable version, against the head of the branch it dispatches.
 
 Ledger: adds a release checklist step and the `E_RELEASE_SMOKE_MISSING`
 refusal (its fix names the smoke command); deletes nothing.

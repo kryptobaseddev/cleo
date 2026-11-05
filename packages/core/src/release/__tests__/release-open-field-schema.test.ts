@@ -178,6 +178,16 @@ async function seedReleaseRow(version: string): Promise<void> {
     .run();
 }
 
+/** The dispatch branch head the stub reports (T14250). */
+const SMOKE_HEAD = 'a'.repeat(40);
+
+/** Write the release smoke receipt `scripts/release-mac-smoke.mjs` leaves for `sha` (T14250). */
+function writeSmokeReceipt(sha: string, passed: boolean): void {
+  const dir = join(testDir, '.cleo', 'release-smoke', sha.slice(0, 12));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'results.json'), JSON.stringify({ sha, cliVersion: 'test', passed }));
+}
+
 function makeStubRunner(): ReleaseOpenRunner & {
   calls: Array<{ cmd: string; args: readonly string[] }>;
 } {
@@ -191,6 +201,8 @@ function makeStubRunner(): ReleaseOpenRunner & {
     runGh: (args) => {
       calls.push({ cmd: 'gh', args });
       if (args[0] === 'workflow' && args[1] === 'run') return '';
+      // T14250: the head a stable release's smoke receipt must match.
+      if (args[0] === 'api' && String(args[1]).includes('/git/ref/heads/')) return SMOKE_HEAD;
       if (args[0] === 'repo' && args[1] === 'view') return 'main';
       if (args[0] === 'run' && args[1] === 'list') {
         return JSON.stringify([
@@ -237,6 +249,7 @@ beforeEach(async () => {
   execFileSync('git', ['-C', testDir, 'config', 'user.email', 'test@example.com']);
   execFileSync('git', ['-C', testDir, 'config', 'user.name', 'Test']);
   execFileSync('git', ['-C', testDir, 'config', 'commit.gpgsign', 'false']);
+  writeSmokeReceipt(SMOKE_HEAD, true);
   resetDbState();
 });
 
@@ -341,6 +354,7 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
         if (args[0] === 'api') {
           base.calls.push({ cmd: 'gh', args });
           if (endpoint.includes('/commits/main')) return sha;
+          if (endpoint.includes('/git/ref/heads/')) return SMOKE_HEAD;
           const run = (id: number, event: string) => ({
             id,
             head_sha: sha,

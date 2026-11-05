@@ -26,7 +26,6 @@
 import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -67,6 +66,7 @@ import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
 import { readRequiredCheckPins, resolveRequiredWorkflows } from './pr-evidence.js';
 import { githubReleaseState } from './release-published.js';
+import { type ReleaseSmokeCheck, releaseSmokeCheck, releaseSmokeFix } from './smoke-receipt.js';
 import { readTtyConfirmation } from './tty-confirm.js';
 import { normalizeVersion } from './version.js';
 
@@ -160,14 +160,6 @@ export interface ReleaseCutPackage {
   version: string;
 }
 
-/** The release smoke check of {@link releaseCut} (T14250). */
-export interface ReleaseCutSmoke {
-  /** The receipt read, or the first path looked at when none exists. */
-  receipt: string;
-  /** Why the receipt does not clear the cut, or null when it passed on this commit. */
-  problem: string | null;
-}
-
 /** Result of {@link releaseCut}. */
 export interface ReleaseCutResult {
   /** `v`-prefixed version. */
@@ -207,7 +199,7 @@ export interface ReleaseCutResult {
    * clear the cut, or `problem: null` when it passed on this commit. A real
    * stable cut refuses on a problem; a prerelease only reports it.
    */
-  smoke: ReleaseCutSmoke;
+  smoke: ReleaseSmokeCheck;
   /** Non-blocking findings, e.g. docs rot on a prerelease (it blocks only a stable cut). */
   warnings: string[];
   /** `release.yml` runs still in progress for a lower tag; a real cut refuses while any remain (T14184). */
@@ -577,51 +569,6 @@ function inFlightReleases(
       ? [{ tag: r.head_branch, runId: r.id, status: r.status }]
       : [],
   );
-}
-
-/** The fields of a `scripts/release-mac-smoke.mjs` receipt the cut reads. */
-interface ReleaseSmokeReceipt {
-  sha: string | null;
-  passed: boolean;
-  cliVersion: string | null;
-}
-
-/**
- * Read the release smoke receipt for `sha` (T14250). The smoke writes
- * `.cleo/release-smoke/<sha12>/results.json` in the checkout it ran from,
- * so the invoking checkout and the project checkout are both looked in.
- *
- * @param roots - Checkouts to look in, in order.
- * @param sha - The commit the cut would tag.
- * @returns The receipt path and why it does not clear the cut (null when it does).
- */
-export function releaseSmokeCheck(roots: readonly string[], sha: string): ReleaseCutSmoke {
-  const paths = [...new Set(roots)].map((root) =>
-    join(root, '.cleo', 'release-smoke', sha.slice(0, 12), 'results.json'),
-  );
-  const receipt = paths.find((p) => existsSync(p));
-  if (receipt === undefined) {
-    return { receipt: paths[0] ?? '', problem: `no release smoke receipt for ${sha}` };
-  }
-  let parsed: Partial<ReleaseSmokeReceipt>;
-  try {
-    parsed = JSON.parse(readFileSync(receipt, 'utf8'));
-  } catch (err) {
-    return { receipt, problem: `the smoke receipt is unreadable: ${String(err)}` };
-  }
-  if (parsed.sha !== sha) {
-    return {
-      receipt,
-      problem: `the smoke receipt is for ${parsed.sha ?? 'no commit'}, not ${sha}`,
-    };
-  }
-  if (parsed.passed !== true) {
-    return {
-      receipt,
-      problem: `the release smoke FAILED on ${sha} (CLI ${parsed.cliVersion ?? 'unknown'})`,
-    };
-  }
-  return { receipt, problem: null };
 }
 
 function channelOf(version: string): string {
@@ -997,7 +944,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     return refuse(
       E_RELEASE_SMOKE_MISSING,
       `The release smoke does not clear ${sha}: ${smoke.problem}`,
-      `On the owner's Mac, check out ${sha} and run node scripts/release-mac-smoke.mjs --sha ${sha}; fix forward if it fails, then re-run`,
+      releaseSmokeFix(sha),
       { smoke },
     );
   }
