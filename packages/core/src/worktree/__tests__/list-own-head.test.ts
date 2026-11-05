@@ -31,6 +31,8 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ),
 }));
 
+import { computeProjectHash } from '@cleocode/paths';
+import { acquireWorktreeTaskLock } from '@cleocode/worktree';
 import { listWorktrees } from '../list.js';
 import { pruneOrphanedWorktreesByStatus } from '../prune.js';
 import { taskIdFromWorktreeDir } from '../sentinel-index.js';
@@ -164,6 +166,38 @@ describe('worktree classification uses each worktree own HEAD (T14236)', () => {
     expect(pruned.data.outcomes.map((o) => o.path)).toEqual([at(redundant)?.path]);
     expect(existsSync(redundant)).toBe(false);
     for (const p of [active, unpushed, dirty, broken]) expect(existsSync(p)).toBe(true);
+  });
+
+  it('T14274: a git-locked done clean worktree is redundant and removed; a live task lock keeps one out', async () => {
+    const wts = join(base, 'wts');
+    const add = (id: string) => {
+      const p = join(wts, id);
+      git(repo, ['worktree', 'add', '-q', '-b', `task/${id}`, p, 'main']);
+      git(repo, ['worktree', 'lock', '--reason', `cleo-agent-${id}`, p]); // as spawn does
+      return p;
+    };
+    const lockedDone = add('T20');
+    const lockedHeld = add('T21');
+    TASKS.set('T20', 'done');
+    TASKS.set('T21', 'done');
+    acquireWorktreeTaskLock({ projectHash: computeProjectHash(repo), taskId: 'T21' });
+
+    const listed = await listWorktrees({ projectRoot: repo });
+    if (!listed.success) throw new Error(JSON.stringify(listed.error));
+    const at = (p: string) => listed.data.worktrees.find((w) => realpathSync(w.path) === p);
+    expect(at(lockedDone)).toMatchObject({ isLocked: true, statusCategory: 'redundant' });
+    // The in-use probe wins over the proof: never redundant while its task lock is held.
+    expect(at(lockedHeld)).toMatchObject({ isLocked: true, statusCategory: 'keep' });
+    expect(at(lockedHeld)?.keepReason).toContain('task lock held');
+
+    const pruned = await pruneOrphanedWorktreesByStatus({
+      projectRoot: repo,
+      auditLogPath: join(base, 'audit.jsonl'),
+    });
+    if (!pruned.success) throw new Error(JSON.stringify(pruned.error));
+    expect(existsSync(lockedDone)).toBe(false);
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(lockedDone);
+    expect(existsSync(lockedHeld)).toBe(true);
   });
 
   it('a T####[-slug] directory names its task when the branch does not', () => {
