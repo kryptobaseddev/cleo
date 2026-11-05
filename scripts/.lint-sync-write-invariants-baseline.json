@@ -46,14 +46,6 @@
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
       "count": 1
     },
-    "packages/core/src/tasks/cancel-ops.ts :: E_CANNOT_CANCEL": {
-      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
-      "count": 1
-    },
-    "packages/core/src/tasks/cancel-ops.ts :: E_NOT_FOUND": {
-      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
-      "count": 1
-    },
     "packages/core/src/tasks/sync-ops.ts :: E_INTERNAL": {
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
       "count": 3
@@ -1358,8 +1350,6 @@
     "packages/core/src/tasks/affected-packages.ts :: Error": 1,
     "packages/core/src/tasks/archive.ts :: E_INTERNAL": 1,
     "packages/core/src/tasks/axis-filters.ts :: ExitCode.VALIDATION_ERROR": 2,
-    "packages/core/src/tasks/cancel-ops.ts :: E_CANNOT_CANCEL": 1,
-    "packages/core/src/tasks/cancel-ops.ts :: E_NOT_FOUND": 1,
     "packages/core/src/tasks/child-disposition.ts :: ExitCode.HAS_CHILDREN": 1,
     "packages/core/src/tasks/command-line.ts :: Error": 4,
     "packages/core/src/tasks/complete.ts :: CleoError": 3,
