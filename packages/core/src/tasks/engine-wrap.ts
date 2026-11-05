@@ -6,7 +6,12 @@
  * @epic T9834
  */
 
-import type { Task, TaskStatus, WorktreeDisposalBlockers } from '@cleocode/contracts';
+import type {
+  ChildStrategy,
+  Task,
+  TaskStatus,
+  WorktreeDisposalBlockers,
+} from '@cleocode/contracts';
 import { isSettledChild } from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -15,7 +20,6 @@ import type { ImpactReport } from '../intelligence/types.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { canCancel } from './cancel-ops.js';
-import type { ChildStrategy } from './deletion-strategy.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
 import { discoverRelated, suggestRelated } from './relates.js';
 import { coreTaskAnalyze } from './task-analyze.js';

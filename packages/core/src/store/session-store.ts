@@ -492,34 +492,6 @@ export async function workHistory(
 
 // === SESSION LIFECYCLE ===
 
-/** Garbage collect old sessions (mark ended sessions as orphaned after threshold). */
-export async function gcSessions(maxAgeDays: number = 30, cwd?: string): Promise<number> {
-  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    const db = await getDb(scope.worktreeRoot);
-    const threshold = new Date();
-    threshold.setDate(threshold.getDate() - maxAgeDays);
-
-    // Count how many will be affected
-    const before = await db
-      .select({ id: schema.sessions.id })
-      .from(schema.sessions)
-      .where(and(eq(schema.sessions.status, 'ended')))
-      .all();
-
-    const toUpdate = before;
-
-    if (toUpdate.length > 0) {
-      db.update(schema.sessions)
-        .set({ status: 'orphaned' })
-        .where(eq(schema.sessions.status, 'ended'))
-        .run();
-    }
-
-    return toUpdate.length;
-  });
-}
-
 /**
  * Get the currently active session — the most-recent `status='active'` row.
  *
@@ -541,7 +513,7 @@ export async function gcSessions(maxAgeDays: number = 30, cwd?: string): Promise
  *
  * `getActiveSession` survives as that final tier-3 fallback and for genuine
  * SCAN-meaning callers (e.g. "is there any active session at all?",
- * `gcSessions`, the data-accessor pass-throughs). The
+ * the data-accessor pass-throughs). The
  * `lint-no-bare-get-active-session.mjs` gate bans NEW bare callsites so the
  * identity-vs-scan split cannot silently regress — annotate a justified scan
  * callsite with a trailing `// get-active-session-allowed: <reason>`.
