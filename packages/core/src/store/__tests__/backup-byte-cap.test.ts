@@ -6,7 +6,15 @@
  * @task T14278
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -226,6 +234,51 @@ describe('backup byte cap (T14278)', () => {
       'pinned',
       'no newer verified snapshot of cleo.db',
     ]);
+  });
+
+  it('keeps a rollback point a receipt field names; a prose note is not a reference', () => {
+    snapshotSet('20261101-100000'); // named by backupReceiptPath
+    snapshotSet('20261102-100000'); // named by backup id in a nested field
+    snapshotSet('20261103-100000'); // named in an unparsable line
+    snapshotSet('20261103-200000'); // named only in prose: rotates
+    snapshotSet('20261105-100000'); // the newest copy of each role
+    const audit = join(cleoDir, 'audit');
+    mkdirSync(join(audit, 'nested'), { recursive: true });
+    writeFileSync(
+      join(audit, 'docs-publications-prune.jsonl'),
+      `${JSON.stringify({ op: 'prune', backupReceiptPath: join(dir, 'cleo.db.snapshot-20261101-100000') })}\n`,
+    );
+    writeFileSync(
+      join(audit, 'nested', 'repair.json'),
+      JSON.stringify({ repair: { backups: ['snapshot-20261102-100000'] } }),
+    );
+    writeFileSync(
+      join(audit, 'gates.jsonl'),
+      `{"broken": "cleo.db.snapshot-20261103-100000"\n${JSON.stringify({ note: 'backups snapshot-20261103-200000 and more' })}\n`,
+    );
+
+    const r = enforceBackupByteCap(dir, 1, { dryRun: true });
+    expect(r.kept.map((k) => [k.set, k.reason])).toEqual([
+      [
+        'snapshot-20261101-100000',
+        'referenced by audit/docs-publications-prune.jsonl#1:backupReceiptPath',
+      ],
+      ['snapshot-20261102-100000', 'referenced by audit/nested/repair.json:repair.backups[0]'],
+      ['snapshot-20261103-100000', 'referenced by audit/gates.jsonl#1 (unparsed)'],
+      ['snapshot-20261105-100000', 'no newer verified snapshot of cleo.db'],
+    ]);
+    expect(r.removed.map((x) => x.set)).toEqual(['snapshot-20261103-200000']);
+  });
+
+  it('keeps every set while a receipt cannot be read', () => {
+    snapshotSet('20261101-100000');
+    fakeDb(join(dir, NEWEST));
+    // A receipt that cannot be read: a dangling link.
+    mkdirSync(join(cleoDir, 'audit'), { recursive: true });
+    symlinkSync(join(root, 'missing'), join(cleoDir, 'audit', 'bad.jsonl'));
+    const r = enforceBackupByteCap(dir, 1, { dryRun: true });
+    expect(r.removed).toEqual([]);
+    expect(r.kept[0]?.reason).toMatch(/^receipts unreadable/);
   });
 
   it('a dry run plans the same removals and deletes nothing', () => {

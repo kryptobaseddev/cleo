@@ -285,6 +285,88 @@ export function readMarkerSnapshots(backupDir: string): MarkerSnapshots {
   }
 }
 
+/**
+ * The directory under `.cleo/` whose JSON and JSONL receipts name rollback
+ * points (`backupReceiptPath` of a docs doctor prune or repair, …).
+ */
+const RECEIPT_DIR = 'audit';
+
+/** The backups the receipts under `.cleo/audit/` name, as rotation reads them. */
+export interface ReceiptReferences {
+  /** Backup file name or backup id → the `<receipt file>:<field>` that names it. */
+  readonly refs: ReadonlyMap<string, string>;
+  /** Why a receipt could not be read, or `null`. */
+  readonly error: string | null;
+}
+
+/**
+ * The rollback points the receipts under `<root>/.cleo/audit/` name (T14278):
+ * a receipt field whose value is one of `names` (a backup id) or a path whose
+ * file name is one of them. Such a snapshot holds the state before a repair,
+ * which no newer copy has, so the byte cap keeps it. A line that does not
+ * parse refers to every name it contains. Free text inside a parsed field
+ * (a note) is not a reference: a repair names its backup in a field.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @param names - The backup file names and backup ids to look for.
+ * @returns Each referenced name with the first receipt field naming it, and any read error.
+ * @task T14278
+ */
+export function readReceiptReferences(
+  backupDir: string,
+  names: ReadonlySet<string>,
+): ReceiptReferences {
+  const cleoDir = join(backupDir, '..', '..');
+  const refs = new Map<string, string>();
+  const note = (name: string, where: string) => {
+    if (!refs.has(name)) refs.set(name, where);
+  };
+  const visit = (value: unknown, field: string, where: string): void => {
+    if (typeof value === 'string') {
+      const hit = names.has(value) ? value : basename(value);
+      if (names.has(hit)) note(hit, `${where}:${field}`);
+    } else if (Array.isArray(value)) {
+      for (const [i, v] of value.entries()) visit(v, `${field}[${i}]`, where);
+    } else if (value !== null && typeof value === 'object') {
+      for (const [k, v] of Object.entries(value))
+        visit(v, field === '' ? k : `${field}.${k}`, where);
+    }
+  };
+  const record = (text: string, where: string): void => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      for (const name of names) if (text.includes(name)) note(name, `${where} (unparsed)`);
+      return;
+    }
+    visit(parsed, '', where);
+  };
+  const walk = (rel: string): void => {
+    const abs = join(cleoDir, rel);
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith('.jsonl')) {
+        readFileSync(join(cleoDir, child), 'utf-8')
+          .split('\n')
+          .forEach((line, i) => {
+            if (line.trim() !== '') record(line, `${child}#${i + 1}`);
+          });
+      } else if (entry.name.endsWith('.json')) {
+        record(readFileSync(join(cleoDir, child), 'utf-8'), child);
+      }
+    }
+  };
+  if (!existsSync(join(cleoDir, RECEIPT_DIR))) return { refs, error: null };
+  try {
+    walk(RECEIPT_DIR);
+    return { refs, error: null };
+  } catch (error) {
+    return { refs, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Contents of a `<backupId>.meta.json` sidecar, as `cleo backup list` reads it. */
 export interface BackupSidecar {
   /** `<type>-YYYYMMDD-HHmmss`. */
@@ -672,7 +754,9 @@ function backupSets(names: readonly string[]): Map<string, BackupSet> {
  * nothing to lose; recorded as {@link EMPTY_COPY}). So the newest
  * verified copy of every role is never removed. Also never removed: a pinned
  * backup (T12535), a pre-collapse snapshot a twin-collapse marker references,
- * and any migration set while the markers cannot be read. Oldest sets go
+ * any migration set while the markers cannot be read, a rollback point a
+ * receipt under `.cleo/audit/` names ({@link readReceiptReferences}), and
+ * every set while a receipt cannot be read. Oldest sets go
  * first, only while the directory is over the cap; each removal is appended
  * to `<backupDir>/rotation.jsonl` with its covering file per role.
  *
@@ -742,12 +826,29 @@ export function enforceBackupByteCap(
 
   const markers = readMarkerSnapshots(backupDir);
   const markersUnreadable = markers.error !== null || markers.unreadable.length > 0;
+  const lookFor = new Set<string>();
+  for (const set of sets.values()) {
+    if (set.kind !== 'vacuum') lookFor.add(set.key);
+    for (const f of set.files) lookFor.add(f.name);
+  }
+  const receipts = readReceiptReferences(backupDir, lookFor);
   const oldestFirst = [...sets.values()].sort((a, b) => (a.stamp < b.stamp ? -1 : 1));
   for (const set of oldestFirst) {
     if (total <= maxBytes) break;
     const keep = (reason: string) => kept.push({ set: set.key, bytes: set.bytes, reason });
     if (set.kind === PRE_COLLAPSE_BACKUP_TYPE && markersUnreadable) {
       keep('twin-collapse markers unreadable: every migration set is kept');
+      continue;
+    }
+    if (receipts.error !== null) {
+      keep(`receipts unreadable (${receipts.error}): every set is kept`);
+      continue;
+    }
+    const ref =
+      receipts.refs.get(set.key) ??
+      set.files.map((f) => receipts.refs.get(f.name)).find((r) => r !== undefined);
+    if (ref !== undefined) {
+      keep(`referenced by ${ref}`);
       continue;
     }
     const marked = set.files.find((f) => markers.names.has(f.name));

@@ -598,11 +598,21 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
     removeBlobMirror(content); // simulate a pre-mirror write
     expect(blobStoreHas(content)).toBe(false);
 
-    const res = await doctor({ repair: true, receipt: makeReceipt() });
+    const receipt = makeReceipt();
+    const res = await doctor({ repair: true, receipt });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.report.applied).toBe(true);
     expect(blobStoreHas(content)).toBe(true);
+    // The rollback point is named in a receipt field the backup byte cap reads (T14278).
+    const { DOCS_DOCTOR_REPAIR_AUDIT_FILE } = await import('../doctor.js');
+    const lines = readFileSync(join(tempDir, DOCS_DOCTOR_REPAIR_AUDIT_FILE), 'utf-8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { op: string; backupReceiptPath: string | null });
+    expect(lines).toEqual([
+      expect.objectContaining({ op: 'docs.doctor.repair', backupReceiptPath: receipt }),
+    ]);
     // Post-repair envelope: the coverage diagnostic is clean …
     expect(diagnostic(res.report, 'legacy-blob-coverage').count).toBe(0);
     // … and a follow-up dry run agrees.
