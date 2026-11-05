@@ -68,7 +68,10 @@ import type {
   SpawnResult,
   WorktreeHook,
 } from '@cleocode/contracts';
-import { RESOURCE_DEFERRED_CODE } from '@cleocode/contracts/resource-governor.js';
+import {
+  RESOURCE_DEFERRED_CODE,
+  RESOURCE_EXTERNAL_PRESSURE_CODE,
+} from '@cleocode/contracts/resource-governor.js';
 import {
   acquireWorktreeTaskLock,
   destroyWorktree,
@@ -99,6 +102,7 @@ import {
   governor,
   takeAgentSessionLease,
 } from '../resources/governor.js';
+import { externalPressureFix } from '../resources/pressure-gate.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
@@ -730,7 +734,7 @@ export async function orchestrateSpawnExecute(
   // ownership is the supervisor-mode backend's job, T11998).
   // Fail open (#1777 R8-1): a governor that can't write its state (sandboxed or
   // read-only CLEO home) spawns ungated instead of deferring forever.
-  // T14227: the project's resources.agentSession / resources.headroomMb settings.
+  // T14227, T14283: the project's resources.agentSession.maxSessions.
   const budgetConfig = await agentSessionBudgetConfig(cwd);
   const { admission: admit, ungoverned } = await admitFailOpen('agent-session', () =>
     governor.tryAcquire('agent-session', budgetConfig),
@@ -1479,6 +1483,14 @@ export async function orchestrateSpawn(
       taskClaimLeaseMs(),
       await agentSessionBudgetConfig(root),
     );
+    if ('deferral' in leased && leased.externalPressure !== undefined) {
+      // @sync-invariant none:local-only critical memory held outside CLEO; nothing is written
+      return engineError(RESOURCE_EXTERNAL_PRESSURE_CODE, leased.deferral.reason, {
+        exitCode: 75,
+        details: { ...leased.externalPressure, class: 'agent-session', taskId },
+        fix: externalPressureFix(leased.externalPressure),
+      });
+    }
     if ('deferral' in leased) {
       // @sync-invariant none:local-only the machine-wide agent-session budget is full; nothing is written
       return engineError(RESOURCE_DEFERRED_CODE, leased.deferral.reason, {

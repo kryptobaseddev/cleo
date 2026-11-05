@@ -29,7 +29,7 @@
         "headroomMb": {
           "type": "integer",
           "minimum": 0,
-          "description": "Free-memory headroom in MiB for the resource monitor's degraded mode (PSI absent). Default 256. The agent-session budget uses resources.agentSession.headroomMb."
+          "description": "Free-memory headroom in MiB for the resource monitor's degraded mode (PSI absent). Default 256."
         },
         "heavyCommandHook": {
           "type": "string",
@@ -44,17 +44,17 @@
             "maxSessions": {
               "type": "integer",
               "minimum": 1,
-              "description": "Fixed agent-session budget; replaces the free-memory and CPU formula as a floor and a ceiling."
+              "description": "The agent-session budget: how many spawned sessions hold a lease at once (default max(1, cpus - 2)). Only critical memory stops a spawn (T14283)."
             },
             "estRamMb": {
               "type": "integer",
               "minimum": 1,
-              "description": "RAM one spawned agent session is assumed to use, in MiB (default 4096)."
+              "description": "Deprecated and ignored since T14283 (the budget is a lease count); accepted with a deprecation note for one release."
             },
             "headroomMb": {
               "type": "integer",
               "minimum": 0,
-              "description": "RAM kept free for the OS when the agent-session budget is computed, in MiB (default 2048). Separate from resources.headroomMb."
+              "description": "Deprecated and ignored since T14283 (the budget is a lease count); accepted with a deprecation note for one release."
             }
           }
         }

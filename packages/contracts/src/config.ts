@@ -946,24 +946,22 @@ export interface ResourcesPsiConfig {
  */
 export interface ResourcesAgentSessionConfig {
   /**
-   * Fixed number of spawned agent sessions admitted machine-wide; replaces
-   * the memory and CPU formula as a floor and a ceiling.
+   * How many spawned agent sessions hold a lease at once, machine-wide
+   * (T14283: a lease count; only critical memory stops a spawn).
    *
-   * @defaultValue undefined (budget from free memory and CPU count)
+   * @defaultValue undefined (`max(1, cpus - 2)`)
    */
   maxSessions?: number;
   /**
-   * RAM one spawned agent session is assumed to use, in MiB.
+   * Ignored since T14283: the budget is a lease count, not memory.
    *
-   * @defaultValue 4096
+   * @deprecated Accepted with a deprecation note for one release; set `maxSessions`.
    */
   estRamMb?: number;
   /**
-   * RAM kept free for the OS when the agent-session budget is computed, in
-   * MiB. Separate from `resources.headroomMb` (the monitor's degraded-mode
-   * headroom).
+   * Ignored since T14283: the budget is a lease count, not memory.
    *
-   * @defaultValue 2048
+   * @deprecated Accepted with a deprecation note for one release; set `maxSessions`.
    */
   headroomMb?: number;
 }
