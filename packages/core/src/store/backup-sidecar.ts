@@ -16,7 +16,9 @@
  */
 
 import {
+  appendFileSync,
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -488,4 +490,255 @@ export function restoreBackupSidecar(
 export function readBackupSidecar(snapshotPath: string, backupType: string): BackupSidecar | null {
   const id = backupIdOf(basename(snapshotPath), backupType);
   return id === null ? null : readSidecar(dirname(snapshotPath), id);
+}
+
+// ---------------------------------------------------------------------------
+// The byte cap (T14278): one policy over every snapshot family in the dir
+// ---------------------------------------------------------------------------
+
+/** The default `backup.maxBytes`: this many times the live store's size. */
+export const DEFAULT_BACKUP_MAX_BYTES_FACTOR = 5;
+
+/** Vacuum-snapshot prefixes that are copies of the project `cleo.db`. */
+const STORE_COPY_PREFIXES = new Set(['tasks', 'brain', 'conduit']);
+
+/** Backup types whose sets hold a `cleo.db.<type>-<stamp>` copy of the store. */
+const STORE_SET_TYPES = new Set(['snapshot', 'migration']);
+
+/** One backup set: every file of one snapshot run (a store copy, sidecars, JSON copies). */
+interface BackupSet {
+  /** `vacuum-<stamp>` or `<type>-<stamp>`. */
+  readonly key: string;
+  /** `YYYYMMDD-HHmmss`. */
+  readonly stamp: string;
+  /** `vacuum`, `snapshot` or `migration`. */
+  readonly kind: string;
+  /** Every file name in the set. */
+  readonly files: string[];
+  /** The set's copy of the project store, when it has one. */
+  store: string | null;
+  /** Bytes of every file in the set. */
+  bytes: number;
+}
+
+/** One set the byte cap removed, with the newer verified snapshot that covers it. */
+export interface ByteCapRemoval {
+  readonly set: string;
+  readonly files: readonly string[];
+  readonly bytes: number;
+  /** File name of the newest verified store snapshot, which holds everything this set held and more. */
+  readonly coveredBy: string;
+}
+
+/** Outcome of {@link enforceBackupByteCap}. */
+export interface ByteCapResult {
+  readonly maxBytes: number;
+  readonly totalBefore: number;
+  readonly totalAfter: number;
+  /** File name of the newest store snapshot that opens, or `null` when none does. */
+  readonly newestVerified: string | null;
+  readonly removed: readonly ByteCapRemoval[];
+  /** Still over the cap: nothing more is provably redundant (pinned, marked or uncovered). */
+  readonly overCap: boolean;
+}
+
+/**
+ * Whether a store snapshot opens as a SQLite database with a schema.
+ *
+ * @param path - The snapshot file.
+ * @returns True when it opens read-only and has at least one schema object.
+ */
+export function snapshotOpens(path: string): boolean {
+  let db: DatabaseSync | undefined;
+  try {
+    const { DatabaseSync: Ctor } = createRequire(import.meta.url)('node:sqlite') as {
+      DatabaseSync: new (path: string, opts: { readOnly: boolean }) => DatabaseSync;
+    };
+    db = new Ctor(path, { readOnly: true }); // db-open-allowed: leaf module; read-only probe that a snapshot opens before older ones are pruned
+    const row = db.prepare('SELECT count(*) AS n FROM sqlite_master').get() as { n: number };
+    return row.n > 0;
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
+}
+
+/** Group a backup directory's files into sets; files of no set are returned too. */
+function backupSets(names: readonly string[]): { sets: Map<string, BackupSet>; loose: string[] } {
+  const sets = new Map<string, BackupSet>();
+  const loose: string[] = [];
+  const add = (key: string, stamp: string, kind: string, name: string): BackupSet => {
+    let set = sets.get(key);
+    if (set === undefined) {
+      set = { key, stamp, kind, files: [], store: null, bytes: 0 };
+      sets.set(key, set);
+    }
+    set.files.push(name);
+    return set;
+  };
+  for (const name of names) {
+    const vacuum = /^([a-z][a-z0-9_]*)-(\d{8}-\d{6})\.db$/.exec(name);
+    if (vacuum && STORE_COPY_PREFIXES.has(vacuum[1] ?? '')) {
+      const set = add(`vacuum-${vacuum[2]}`, vacuum[2] ?? '', 'vacuum', name);
+      if (vacuum[1] === 'tasks') set.store = name;
+      continue;
+    }
+    const typed = /^(.+)\.(snapshot|migration)-(\d{8}-\d{6})$/.exec(name);
+    if (typed && STORE_SET_TYPES.has(typed[2] ?? '')) {
+      const set = add(`${typed[2]}-${typed[3]}`, typed[3] ?? '', typed[2] ?? '', name);
+      if (typed[1] === 'cleo.db') set.store = name;
+      continue;
+    }
+    const meta = /^(snapshot|migration)-(\d{8}-\d{6})\.meta\.json$/.exec(name);
+    if (meta) {
+      add(`${meta[1]}-${meta[2]}`, meta[2] ?? '', meta[1] ?? '', name);
+      continue;
+    }
+    loose.push(name);
+  }
+  return { sets, loose };
+}
+
+/**
+ * Keep `.cleo/backups/sqlite` at or under `maxBytes` (T14278): one policy over
+ * every snapshot family in the directory (session-end `tasks-*`, `backup add`
+ * `*.snapshot-*`, and the store's own `*.migration-*` snapshots, which join
+ * the rotation here).
+ *
+ * Every removal is proven redundant first (the 2026-10-19 lesson): a set is
+ * removed only when it is strictly older than the newest store snapshot that
+ * opens, which holds everything the older set held. That newest verified
+ * snapshot is never removed, nor any set newer than or as new as it, a pinned
+ * backup (T12535), or a pre-collapse snapshot a twin-collapse marker
+ * references; when the markers cannot be read, no migration set is removed.
+ * With no snapshot that opens, nothing is removed. Oldest sets go first, only
+ * while the directory is over the cap, and each removal is appended to
+ * `<backupDir>/rotation.jsonl` with the snapshot that covers it.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @param maxBytes - The cap.
+ * @param opts - `opens` overrides the verification probe (tests).
+ * @returns What was removed and why the directory may still be over the cap.
+ * @task T14278
+ */
+export function enforceBackupByteCap(
+  backupDir: string,
+  maxBytes: number,
+  opts: { opens?: (path: string) => boolean } = {},
+): ByteCapResult {
+  const opens = opts.opens ?? snapshotOpens;
+  const names = readdirSync(backupDir).filter((n) => !n.endsWith('.tmp'));
+  const size = (name: string): number => {
+    try {
+      return lstatSync(join(backupDir, name)).size;
+    } catch {
+      return 0;
+    }
+  };
+  const { sets } = backupSets(names);
+  let total = 0;
+  for (const name of names) total += size(name);
+  for (const set of sets.values()) set.bytes = set.files.reduce((n, f) => n + size(f), 0);
+  const totalBefore = total;
+
+  const withStore = [...sets.values()]
+    .filter((s) => s.store !== null)
+    .sort((a, b) => (a.stamp < b.stamp ? 1 : a.stamp > b.stamp ? -1 : 0)); // newest first
+  const newest = withStore.find((s) => opens(join(backupDir, s.store as string))) ?? null;
+  const removed: ByteCapRemoval[] = [];
+  if (newest === null || total <= maxBytes) {
+    return {
+      maxBytes,
+      totalBefore,
+      totalAfter: total,
+      newestVerified: newest?.store ?? null,
+      removed,
+      overCap: total > maxBytes,
+    };
+  }
+
+  const markers = readMarkerSnapshots(backupDir);
+  const markersUnreadable = markers.error !== null || markers.unreadable.length > 0;
+  const candidates = [...sets.values()]
+    .filter((s) => s.stamp < newest.stamp)
+    .filter((s) => !(s.kind === PRE_COLLAPSE_BACKUP_TYPE && markersUnreadable))
+    .filter((s) => !s.files.some((f) => markers.names.has(f)))
+    .filter(
+      (s) => s.kind === 'vacuum' || !s.files.some((f) => isPinnedBackup(backupDir, f, s.kind)),
+    )
+    .sort((a, b) => (a.stamp < b.stamp ? -1 : a.stamp > b.stamp ? 1 : 0)); // oldest first
+  const coveredBy = newest.store as string;
+  for (const set of candidates) {
+    if (total <= maxBytes) break;
+    let freed = 0;
+    for (const file of set.files) {
+      const bytes = size(file);
+      try {
+        unlinkSync(join(backupDir, file));
+        freed += bytes;
+      } catch {
+        // vanished or locked: counted as kept
+      }
+    }
+    total -= freed;
+    const removal: ByteCapRemoval = { set: set.key, files: set.files, bytes: freed, coveredBy };
+    removed.push(removal);
+    try {
+      appendFileSync(
+        join(backupDir, 'rotation.jsonl'),
+        `${JSON.stringify({ at: new Date().toISOString(), reason: 'byte-cap', maxBytes, ...removal })}\n`,
+      );
+    } catch {
+      // the result still names it
+    }
+  }
+  if (total > maxBytes) {
+    getLogger('backup-rotation').warn(
+      { backupDir, total, maxBytes },
+      'backups over the byte cap: nothing more is provably redundant (pinned, marked or uncovered)',
+    );
+  }
+  return {
+    maxBytes,
+    totalBefore,
+    totalAfter: total,
+    newestVerified: coveredBy,
+    removed,
+    overCap: total > maxBytes,
+  };
+}
+
+/**
+ * Apply the byte cap after a snapshot (T14278): `backup.maxBytes` from the
+ * project's `.cleo/config.json`, else {@link DEFAULT_BACKUP_MAX_BYTES_FACTOR}
+ * times the live store's size. Synchronous, so every snapshot writer (the
+ * migration snapshot included) runs it right after writing. Non-fatal: any
+ * failure leaves every backup in place.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @returns The cap's outcome, or `null` when it could not run.
+ * @task T14278
+ */
+export function applyBackupByteCap(backupDir: string): ByteCapResult | null {
+  try {
+    const cleoDir = join(backupDir, '..', '..');
+    let configured: unknown;
+    try {
+      const config = JSON.parse(readFileSync(join(cleoDir, 'config.json'), 'utf-8')) as {
+        backup?: { maxBytes?: unknown };
+      };
+      configured = config.backup?.maxBytes;
+    } catch {
+      configured = undefined;
+    }
+    const maxBytes =
+      typeof configured === 'number' && configured > 0
+        ? configured
+        : DEFAULT_BACKUP_MAX_BYTES_FACTOR * statSync(join(cleoDir, 'cleo.db')).size;
+    if (!(maxBytes > 0)) return null;
+    return enforceBackupByteCap(backupDir, maxBytes);
+  } catch {
+    return null;
+  }
 }
