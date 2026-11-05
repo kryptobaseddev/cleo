@@ -10,6 +10,56 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "resources": {
+      "type": "object",
+      "description": "Resource governor and monitor settings (T11994). resources.agentSession sets the spawned agent-session budget (T14227).",
+      "additionalProperties": false,
+      "properties": {
+        "psi": {
+          "type": "object",
+          "description": "PSI pressure thresholds (percentage points).",
+          "additionalProperties": false,
+          "properties": {
+            "holdSomeAvg10": { "type": "number", "minimum": 0 },
+            "backoffSomeAvg10": { "type": "number", "minimum": 0 },
+            "holdFullAvg10": { "type": "number", "minimum": 0 },
+            "backoffFullAvg10": { "type": "number", "minimum": 0 }
+          }
+        },
+        "headroomMb": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Free-memory headroom in MiB for the resource monitor's degraded mode (PSI absent). Default 256. The agent-session budget uses resources.agentSession.headroomMb."
+        },
+        "heavyCommandHook": {
+          "type": "string",
+          "enum": ["rewrite", "warn", "off"],
+          "description": "The heavy-command provider hook mode (T12983)."
+        },
+        "agentSession": {
+          "type": "object",
+          "description": "The spawned agent-session budget (T14227).",
+          "additionalProperties": false,
+          "properties": {
+            "maxSessions": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Fixed agent-session budget; replaces the free-memory and CPU formula as a floor and a ceiling."
+            },
+            "estRamMb": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "RAM one spawned agent session is assumed to use, in MiB (default 4096)."
+            },
+            "headroomMb": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "RAM kept free for the OS when the agent-session budget is computed, in MiB (default 2048). Separate from resources.headroomMb."
+            }
+          }
+        }
+      }
+    },
     "$schema": {
       "type": "string",
       "description": "JSON Schema reference for validation."

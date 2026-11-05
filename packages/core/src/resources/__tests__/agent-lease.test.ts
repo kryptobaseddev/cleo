@@ -6,7 +6,7 @@
  * @task T14133
  */
 
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +23,8 @@ import {
 import type { ResourceSample } from '../backend.js';
 import {
   _resetGovernorStateForTest,
+  agentSessionBudgetConfig,
+  computeClassBudget,
   ResourceGovernor,
   takeAgentSessionLease,
 } from '../governor.js';
@@ -202,6 +204,58 @@ describe('agent-session leases (T14133)', () => {
     } finally {
       chmodSync(locked, 0o700);
       rmSync(locked, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('configurable agent-session budget (T14227)', () => {
+  /** Free memory for exactly one default (4 GiB) session above the default 2 GiB headroom. */
+  const LOW: ResourceSample = { ...SAMPLE, memAvailableBytes: 2048 * MB + 4096 * MB + 100 * MB };
+  const LOW_OPTS = { sample: LOW, cpuCount: 16, totalMemBytes: 64 * GB } as const;
+
+  it('a configured budget of 4 admits 4 leases while free memory alone would allow 1', async () => {
+    expect(computeClassBudget('agent-session', LOW, LOW_OPTS)).toBe(1);
+    const opts = { ...LOW_OPTS, agentMaxSessions: 4 };
+    for (const id of ['T1', 'T2', 'T3', 'T4']) {
+      const taken = await takeAgentSessionLease(id, home, 60_000, opts);
+      if (!('lease' in taken)) throw new Error(`refused ${id}: ${taken.deferral.reason}`);
+    }
+    expect(liveAgentLeases()).toHaveLength(4);
+    const fifth = await takeAgentSessionLease('T5', home, 60_000, opts);
+    if (!('deferral' in fifth)) throw new Error('a fifth lease was admitted');
+    // The refusal names the keys that raise the budget, with their current values.
+    expect(fifth.deferral.reason).toContain('resources.agentSession.maxSessions (now 4)');
+    expect(fifth.deferral.reason).toContain('resources.agentSession.estRamMb (now 4096 MB)');
+    expect(fifth.deferral.reason).toContain('resources.agentSession.headroomMb (now 2048 MB)');
+  });
+
+  it('unset keys keep the built-in budget; config keys are read and invalid values ignored', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'cleo-agent-budget-'));
+    try {
+      mkdirSync(join(project, '.cleo'), { recursive: true });
+      expect(await agentSessionBudgetConfig(project)).toEqual({});
+      expect(computeClassBudget('agent-session', SAMPLE, OPTS)).toBe(3);
+
+      const config = (resources: object) =>
+        writeFileSync(join(project, '.cleo', 'config.json'), JSON.stringify({ resources }));
+      config({ agentSession: { maxSessions: 6, estRamMb: 2048, headroomMb: 1024 } });
+      const configured = await agentSessionBudgetConfig(project);
+      expect(configured).toEqual({ agentMaxSessions: 6, agentEstRamMb: 2048, headroomMb: 1024 });
+      expect(computeClassBudget('agent-session', SAMPLE, { ...OPTS, ...configured })).toBe(6);
+
+      config({ agentSession: { estRamMb: 2048, headroomMb: 1024 } });
+      const formula = await agentSessionBudgetConfig(project);
+      // (2048 + 3*4096 - 1024) MiB free over 2 GiB sessions = 6, under cpus - 2 = 14.
+      expect(computeClassBudget('agent-session', SAMPLE, { ...OPTS, ...formula })).toBe(6);
+
+      // resources.headroomMb is the monitor's degraded-mode headroom, not this budget's.
+      config({ headroomMb: 256 });
+      expect(await agentSessionBudgetConfig(project)).toEqual({});
+
+      config({ agentSession: { maxSessions: 0, estRamMb: 'big', headroomMb: -1 } });
+      expect(await agentSessionBudgetConfig(project)).toEqual({});
+    } finally {
+      rmSync(project, { recursive: true, force: true });
     }
   });
 });

@@ -142,6 +142,11 @@ export interface BudgetOptions {
   readonly headroomMb?: number;
   /** Estimated RAM per agent session (incl. ~300 MB MCP suite), MiB. Default 4096. */
   readonly agentEstRamMb?: number;
+  /**
+   * Fixed `agent-session` budget (`resources.agentSession.maxSessions`, T14227):
+   * when set it replaces the memory and CPU formula, as a floor and a ceiling.
+   */
+  readonly agentMaxSessions?: number;
   /** `some avg10` (pp) above which background work is refused. Default 10. */
   readonly holdSomeAvg10?: number;
   /** `some avg10` (pp) above which db-heavy work is refused. Default 25. */
@@ -243,6 +248,7 @@ export function computeClassBudget(
 
   switch (cls) {
     case 'agent-session': {
+      if (opts.agentMaxSessions !== undefined) return opts.agentMaxSessions;
       const estRamBytes = (opts.agentEstRamMb ?? 4096) * MB;
       const byMem = Math.floor((availBytes - headroomBytes) / estRamBytes);
       return clamp(1, byMem, Math.max(1, cpus - 2));
@@ -256,6 +262,130 @@ export function computeClassBudget(
     default:
       return 1;
   }
+}
+
+/**
+ * The config keys that set the `agent-session` budget (T14227), at project
+ * and global scope: a fixed budget, the RAM one session is assumed to use, and
+ * the RAM kept free for the OS. Unset keys keep the built-in defaults. The
+ * headroom is its own key: `resources.headroomMb` stays the monitor's
+ * degraded-mode headroom only.
+ */
+export const AGENT_SESSION_CONFIG_KEYS = {
+  maxSessions: 'resources.agentSession.maxSessions',
+  estRamMb: 'resources.agentSession.estRamMb',
+  headroomMb: 'resources.agentSession.headroomMb',
+} as const;
+
+/**
+ * The `agent-session` budget inputs a project's config sets (T14227): only
+ * keys holding a valid integer (`maxSessions` and `estRamMb` at least 1,
+ * `headroomMb` at least 0) are returned; an unreadable config returns none,
+ * so the defaults apply.
+ *
+ * @param projectRoot - The project whose merged global + project config to read.
+ * @returns The configured budget options.
+ * @task T14227
+ */
+export async function agentSessionBudgetConfig(
+  projectRoot: string,
+): Promise<Pick<BudgetOptions, 'agentMaxSessions' | 'agentEstRamMb' | 'headroomMb'>> {
+  try {
+    const { getConfigValue } = await import('../config/registry.js');
+    const read = async (key: string, min: number): Promise<number | undefined> => {
+      const value = await getConfigValue<number>(key, { projectRoot });
+      return typeof value === 'number' && Number.isInteger(value) && value >= min
+        ? value
+        : undefined;
+    };
+    const [agentMaxSessions, agentEstRamMb, headroomMb] = await Promise.all([
+      read(AGENT_SESSION_CONFIG_KEYS.maxSessions, 1),
+      read(AGENT_SESSION_CONFIG_KEYS.estRamMb, 1),
+      read(AGENT_SESSION_CONFIG_KEYS.headroomMb, 0),
+    ]);
+    return {
+      ...(agentMaxSessions !== undefined ? { agentMaxSessions } : {}),
+      ...(agentEstRamMb !== undefined ? { agentEstRamMb } : {}),
+      ...(headroomMb !== undefined ? { headroomMb } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/** What `cleo doctor tool-locks` reports about the `agent-session` budget (T14227). */
+export interface AgentSessionBudgetStatus {
+  /** Spawned sessions the budget admits now. */
+  readonly budget: number;
+  /** Live agent-session leases, and the tasks holding them. */
+  readonly leases: number;
+  readonly leaseTasks: readonly string[];
+  /** The inputs in force; `configured` names those a config key set. */
+  readonly inputs: {
+    readonly maxSessions: number | null;
+    readonly estRamMb: number;
+    readonly headroomMb: number;
+    readonly memAvailableBytes: number | null;
+    readonly cpus: number;
+  };
+  readonly configured: {
+    readonly maxSessions: boolean;
+    readonly estRamMb: boolean;
+    readonly headroomMb: boolean;
+  };
+  /** The config keys that set it. */
+  readonly keys: typeof AGENT_SESSION_CONFIG_KEYS;
+}
+
+/**
+ * The `agent-session` budget for a project with its inputs and live leases
+ * (T14227), as `orchestrate spawn` computes it.
+ *
+ * @param projectRoot - The project whose config sets the budget.
+ * @param opts - A pressure sample to use (tests); sampled when absent.
+ * @returns The budget, its inputs and the leases holding it.
+ * @task T14227
+ */
+export async function agentSessionBudgetStatus(
+  projectRoot: string,
+  opts: { readonly sample?: ResourceSample } = {},
+): Promise<AgentSessionBudgetStatus> {
+  const config = await agentSessionBudgetConfig(projectRoot);
+  const sample = opts.sample ?? (await new ResourceMonitor().sample());
+  const { liveAgentLeases } = await import('./agent-lease.js');
+  const leases = liveAgentLeases();
+  return {
+    budget: computeClassBudget('agent-session', sample, config),
+    leases: leases.length,
+    leaseTasks: leases.map((l) => l.taskId),
+    inputs: {
+      maxSessions: config.agentMaxSessions ?? null,
+      estRamMb: config.agentEstRamMb ?? 4096,
+      headroomMb: config.headroomMb ?? 2048,
+      memAvailableBytes: sample.memAvailableBytes ?? null,
+      cpus: Math.max(1, availableParallelism()),
+    },
+    configured: {
+      maxSessions: config.agentMaxSessions !== undefined,
+      estRamMb: config.agentEstRamMb !== undefined,
+      headroomMb: config.headroomMb !== undefined,
+    },
+    keys: AGENT_SESSION_CONFIG_KEYS,
+  };
+}
+
+/**
+ * The config keys an at-capacity `agent-session` deferral names, with the
+ * values in force (T14227), so the operator raises the budget with a setting
+ * rather than `CLEO_RESOURCES_MODE=off`.
+ */
+function agentSessionKeysHint(opts: BudgetOptions): string {
+  const keys = AGENT_SESSION_CONFIG_KEYS;
+  return (
+    `; raise it with ${keys.maxSessions} (now ${opts.agentMaxSessions ?? 'unset'}), ` +
+    `${keys.estRamMb} (now ${opts.agentEstRamMb ?? 4096} MB) or ${keys.headroomMb} ` +
+    `(now ${opts.headroomMb ?? 2048} MB)`
+  );
 }
 
 function clamp(lo: number, v: number, hi: number): number {
@@ -402,7 +532,7 @@ export async function takeAgentSessionLease(
       return {
         deferral: deferral(
           'agent-session',
-          `class 'agent-session' is at capacity: ${leases} spawned session lease(s) hold the budget of ${budget}`,
+          `class 'agent-session' is at capacity: ${leases} spawned session lease(s) hold the budget of ${budget}${agentSessionKeysHint(opts)}`,
           DEFAULT_RESOURCE_RETRY_AFTER_MS,
         ),
       };
@@ -574,9 +704,10 @@ export class ResourceGovernor {
       // Name the signal the budget was computed from (T13158, T13170).
       return deferral(
         cls,
-        leases > 0
+        (leases > 0
           ? `class '${cls}' is at capacity: ${leases} spawned session lease(s) hold the budget of ${budget + leases} (${budgetSignal(cls, sample).label})`
-          : `class '${cls}' budget is 0 under current pressure (${budgetSignal(cls, sample).label})`,
+          : `class '${cls}' budget is 0 under current pressure (${budgetSignal(cls, sample).label})`) +
+          (cls === 'agent-session' ? agentSessionKeysHint(opts) : ''),
         DEFAULT_RESOURCE_RETRY_AFTER_MS,
       );
     }
