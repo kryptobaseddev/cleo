@@ -533,10 +533,33 @@ export function acquireMergeSweepLock(
   storeRoot: string,
   now: () => number = Date.now,
 ): (() => void) | null {
-  const lock = join(storeRoot, '.cleo', SWEEP_LOCK_FILE);
+  return acquireHeartbeatLock(
+    join(storeRoot, '.cleo', SWEEP_LOCK_FILE),
+    MERGE_SWEEP_LOCK_STALE_MS,
+    now,
+  );
+}
+
+/**
+ * Take an `O_EXCL` lock file held for a whole run, its mtime refreshed every
+ * 30 s while the run lasts (the lock behind {@link acquireMergeSweepLock};
+ * the worktree census uses it too, T14275). A lock whose heartbeat is older
+ * than `staleMs` is moved aside by `rename` (only one caller's rename
+ * succeeds) and taken. Null when another run holds it.
+ *
+ * @param lock - The lock file path.
+ * @param staleMs - Heartbeat age after which the lock is stale.
+ * @param now - Clock (ms).
+ * @returns The release function, or null.
+ */
+export function acquireHeartbeatLock(
+  lock: string,
+  staleMs: number,
+  now: () => number = Date.now,
+): (() => void) | null {
   let judged: string | null = null;
   try {
-    if (now() - statSync(lock).mtimeMs < MERGE_SWEEP_LOCK_STALE_MS) return null;
+    if (now() - statSync(lock).mtimeMs < staleMs) return null;
     judged = readFileSync(lock, 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return null;
@@ -646,9 +669,23 @@ export function stealStaleLock(lock: string, judged: string): boolean {
  * @returns True when this caller owns the sweep.
  */
 export function claimMergeSweep(storeRoot: string, now = Date.now()): boolean {
-  const claim = join(storeRoot, '.cleo', SWEEP_CLAIM_FILE);
+  return claimAtMostEvery(join(storeRoot, '.cleo', SWEEP_CLAIM_FILE), MERGE_SWEEP_INTERVAL_MS, now);
+}
+
+/**
+ * Claim a run that happens at most once per `intervalMs`, atomically (the
+ * claim behind {@link claimMergeSweep}; the daily worktree census uses it too,
+ * T14275): true for exactly one caller per interval. The claim file's mtime is
+ * the last claimed run.
+ *
+ * @param claim - The claim file path.
+ * @param intervalMs - Minimum time between claimed runs.
+ * @param now - Current time (ms).
+ * @returns True when this caller owns the run.
+ */
+export function claimAtMostEvery(claim: string, intervalMs: number, now = Date.now()): boolean {
   try {
-    if (now - statSync(claim).mtimeMs < MERGE_SWEEP_INTERVAL_MS) return false;
+    if (now - statSync(claim).mtimeMs < intervalMs) return false;
     const stale = `${claim}.${process.pid}.${now}`;
     renameSync(claim, stale);
     unlinkSync(stale);

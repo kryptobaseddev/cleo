@@ -663,6 +663,14 @@ export async function computeBriefing(
   } catch {
     // Advisory only; `cleo doctor` reports a broken delivery.
   }
+  // T14275: one line when the machine's last worktree census kept worktrees.
+  try {
+    const { censusBriefingLine } = await import('../hygiene/census.js');
+    const census = censusBriefingLine();
+    if (census !== null) warnings.push(census);
+  } catch {
+    // Advisory only; the census record may not exist yet.
+  }
   if (staleFocus) {
     const next = nextTasks[0] ? { id: nextTasks[0].id, title: nextTasks[0].title } : null;
     warnings.push(`W_STALE_FOCUS: ${staleFocusWarning(staleFocus, next)}`);
