@@ -682,7 +682,9 @@ export async function completeTask(
       const reloaded = await acc.loadSingleTask(options.taskId);
       if (!reloaded?.verification) {
         // @sync-invariant none:local-only re-read of the row this completion just verified; a vanished row is a local race
-        throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`);
+        throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
+          fix: 'cleo find "<title words>" --include-archive',
+        });
       }
       task = reloaded;
       verification = reloaded.verification;
@@ -1043,6 +1045,7 @@ export async function completeTask(
             throw new CleoError(
               ExitCode.CONCURRENT_MODIFICATION,
               'Typed completion task changed before acquiring the write transaction',
+              { fix: `cleo complete ${options.taskId}` },
             );
           await validateTypedCompletion(current, tx);
         }
