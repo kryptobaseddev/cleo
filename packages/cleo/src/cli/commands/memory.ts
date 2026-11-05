@@ -1135,16 +1135,22 @@ const consolidateCommand = defineCommand({
   },
 });
 
-/** cleo memory dream — manually trigger the full dream cycle including STDP plasticity (T628) */
+/**
+ * cleo memory dream — manually trigger the full dream cycle including STDP
+ * plasticity (T628). Destructive, so a bare run refuses: `--apply` runs it,
+ * `--status` only reads (T14237).
+ */
 const dreamCommand = defineCommand({
   meta: {
     name: 'dream',
     description:
-      'Manually trigger the full auto-dream cycle: consolidation pipeline including ' +
-      'R-STDP reward backfill (Step 9a), STDP plasticity (Step 9b), and homeostatic ' +
-      'decay (Step 9c). Equivalent to autonomous nightly consolidation but ' +
-      'triggered on demand. Idempotent — safe to run multiple times. ' +
-      'Use --status to check engine liveness without triggering consolidation.',
+      'DESTRUCTIVE: runs the full auto-dream consolidation cycle on the live BRAIN ' +
+      'store now, bypassing its thresholds and cooldown. It deduplicates and evicts ' +
+      'memory rows, hard-deleting some and syncing their deletions to other devices, ' +
+      'and rewrites quality scores, tiers and graph edge weights (R-STDP reward ' +
+      'backfill, STDP plasticity, homeostatic decay). Not undoable. A bare run refuses ' +
+      'and writes nothing: pass --apply to run it, or --status to check engine ' +
+      'liveness read-only. Take `cleo backup add` first.',
   },
   args: {
     status: {
@@ -1154,6 +1160,13 @@ const dreamCommand = defineCommand({
         'Fields: lastConsolidatedAt, observationsSinceLastConsolidation, ' +
         'idleMinutesSinceLastRetrieval, tickLoopAlive, lastTickAt, dreamInFlight, ' +
         'lastError, isOverdue. Exits with code 1 when isOverdue=true.',
+      default: false,
+    },
+    apply: {
+      type: 'boolean',
+      description:
+        'Run the destructive dream cycle (deletes and evicts memory rows, rewrites ' +
+        'scores and edges). Without --apply or --status the command refuses.',
       default: false,
     },
   },
@@ -1172,6 +1185,17 @@ const dreamCommand = defineCommand({
         cliError(`Dream status check failed: ${message}`, 'E_INTERNAL', { name: 'E_INTERNAL' });
         process.exit(1);
       }
+      return;
+    }
+
+    // T14237: the cycle deletes and rewrites live memory, so it never runs by default.
+    if (!args.apply) {
+      cliError(
+        'cleo memory dream is destructive: it deduplicates and evicts memory rows (some hard-deleted, the deletions synced) and rewrites scores, tiers and edges. Nothing was run. Pass --apply to run it (take `cleo backup add` first), or --status to check engine liveness.',
+        'E_VALIDATION',
+        { name: 'E_VALIDATION' },
+      );
+      process.exitCode = 1;
       return;
     }
 
