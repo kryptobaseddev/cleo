@@ -1744,7 +1744,12 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     const satisfies = acs;
     if (dryRun) {
       const { planTaskDone } = await import('./done-plan.js');
-      const plan = await planTaskDone(taskId, { projectRoot: storeRoot, prNumber, satisfies });
+      const plan = await planTaskDone(taskId, {
+        projectRoot: storeRoot,
+        prNumber,
+        satisfies,
+        reviewedLinkage: true,
+      });
       if (!plan.success) return stepOf(plan);
       const blocker = plan.data.blockers[0];
       return blocker ? { ok: false, reason: blocker.message } : { ok: true };
@@ -1754,6 +1759,8 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
       projectRoot: storeRoot,
       prNumber,
       satisfies,
+      // T14259: the line and the non-author verdicts are the linkage.
+      reviewedLinkage: true,
       agent: 'merge-close',
       // The sweep runs no tool: a gate it cannot take from merged CI stays an
       // agent's (evidence.ciSatisfies makes testsPassed/qaPassed ci:<pr>).
