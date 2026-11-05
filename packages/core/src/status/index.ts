@@ -8,7 +8,7 @@
  * is stored and bounded by a short timeout (T12712). Read-only; safe to
  * invoke on every CLI tick.
  *
- * Spec: `docs/plans/E-CONFIG-AUTH-UNIFY.md` §3.3.6 (`CleoStatus` interface)
+ * Spec: `cleo docs fetch e-config-auth-unify` §3.3.6 (`CleoStatus` interface)
  * and §5.3 T-E3-4 (acceptance criteria).
  *
  * Performance contract: `getCleoStatus()` MUST complete in under 2 seconds

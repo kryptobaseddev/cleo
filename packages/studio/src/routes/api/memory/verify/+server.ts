@@ -5,7 +5,7 @@
  * in the CORE public API (`packages/core/src/memory/public-api.ts`). The CLI
  * `cleo memory verify` command reaches into `memory/brain-retrieval.ts`
  * internally. Once a public `verifyMemoryEntry(id, projectRoot)` op is
- * promoted, this handler should be migrated. See docs/plans/E-CORE-FIRST-ARCH.md Task 2.
+ * promoted, this handler should be migrated. See `cleo docs fetch e-core-first-arch` Task 2.
  *
  * POST /api/memory/verify
  *   body: { id: string, agent?: string }

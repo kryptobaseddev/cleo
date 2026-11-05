@@ -1,5 +1,5 @@
 //! Round-trip integration tests for the Wave 1 render pipeline
-//! (`docs/plans/CLEO-ULTRAPLAN.md` §17).
+//! (`cleo docs fetch cleo-ultraplan` §17).
 //!
 //! These tests load hand-authored fixtures from
 //! `tests/fixtures/render-round-trip/`, parse them via

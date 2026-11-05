@@ -38,7 +38,7 @@
  *
  * @task T9622
  * @epic T9592
- * @see docs/plans/E-CORE-FIRST-ARCH.md Task 8
+ * @see `cleo docs fetch e-core-first-arch` Task 8
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -363,7 +363,7 @@ if (MODE_CHECK) {
 
     process.stderr.write(`\n`);
     process.stderr.write(`Fix: route DB access through @cleocode/core operations.\n`);
-    process.stderr.write(`     See docs/plans/E-CORE-FIRST-ARCH.md for migration patterns.\n`);
+    process.stderr.write(`     See 'cleo docs fetch e-core-first-arch' for migration patterns.\n`);
     process.stderr.write(
       `     Opt-out: append \`// core-first-allowed\` with a justification comment.\n`,
     );
@@ -396,7 +396,7 @@ if (violations.length > 0) {
     );
     process.stderr.write(`RULE-3: import from @cleocode/core (public barrel), not /internal.\n`);
     process.stderr.write(`\n`);
-    process.stderr.write(`See docs/plans/E-CORE-FIRST-ARCH.md for migration patterns.\n`);
+    process.stderr.write(`See 'cleo docs fetch e-core-first-arch' for migration patterns.\n`);
     process.stderr.write(
       `Opt-out: append \`// core-first-allowed\` with a justification comment.\n`,
     );

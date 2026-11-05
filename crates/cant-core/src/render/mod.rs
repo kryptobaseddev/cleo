@@ -2,7 +2,7 @@
 //! [`CantDocument`] suitable for round-tripping back through the parser.
 //!
 //! This is the forward half of the Wave 1 byte-identical round-trip contract
-//! described in `docs/plans/CLEO-ULTRAPLAN.md` §17. Given an AST produced by
+//! described in `cleo docs fetch cleo-ultraplan` §17. Given an AST produced by
 //! [`crate::parse_document`], [`render_document`] emits a deterministic
 //! `.cant` source string using the canonical formatting rules enforced by
 //! this module.

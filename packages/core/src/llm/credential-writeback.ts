@@ -15,7 +15,7 @@
  * against the same Anthropic account. Without cooperative write-back, the
  * first CLI to refresh wins and the other rejects subsequent requests with
  * `401 invalid_token` until the operator manually re-logs. The OQ-1
- * decision in `docs/plans/E-CONFIG-AUTH-UNIFY.md` resolves this by making
+ * decision in `cleo docs fetch e-config-auth-unify` resolves this by making
  * write-back ON by default — both CLIs see the freshest token at all
  * times — but never auto-creating Claude Code's file (consent-respecting).
  *

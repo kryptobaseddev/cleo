@@ -237,7 +237,7 @@ function asEv<H extends (...args: never[]) => unknown>(e: FakeEvent): Parameters
 // mismatch causes observe POSTs to fail. Marking these three observe-flow
 // tests as todo until the fixture is rewritten to either (a) run drizzle
 // migrations or (b) mock observeBrain at the test boundary. See
-// docs/plans/E-CORE-FIRST-ARCH.md Task 2 for the broader migration plan.
+// `cleo docs fetch e-core-first-arch` Task 2 for the broader migration plan.
 describe('POST /api/memory/observe', () => {
   it.todo('accepts a valid observation and returns a LAFS ok envelope', async () => {
     const { ctx, dir } = makeTmpCtx();

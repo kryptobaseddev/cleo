@@ -24,7 +24,7 @@
  * @task T969 — `@cleocode/brain` package extraction
  * @see packages/brain/src/types.ts (re-exports from here for backwards compat)
  * @see packages/contracts/src/operations/brain.ts (wire-format / ops contracts)
- * @see docs/plans/brain-synaptic-visualization-research.md §5.2
+ * @see docs/research/brain-synaptic-visualization.md §5.2
  */
 
 // ---------------------------------------------------------------------------

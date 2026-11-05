@@ -1128,7 +1128,7 @@ export interface AuthConfig {
    * (a) the Claude Code file already existing on disk, or
    * (b) `claudeCodeConsentGiven` being `true`.
    *
-   * This mirrors the OQ-1 decision in `docs/plans/E-CONFIG-AUTH-UNIFY.md`:
+   * This mirrors the OQ-1 decision in `cleo docs fetch e-config-auth-unify`:
    * cooperative write-back is enabled by default so two CLIs sharing one
    * machine stay token-coherent, but CLEO never creates Claude Code's file
    * unless the operator has explicitly opted in.
