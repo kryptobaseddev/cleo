@@ -152,6 +152,48 @@ describe('merge attribution from the dry-run fixtures (T14252 AC5)', () => {
     });
   });
 
+  it('#1978 is main-health, not budget-crossed: its parent shard was still under the quarantine limit (T14254)', async () => {
+    const merge = '683a0fd97a12';
+    const parent = '90296358f712';
+    const receipt = await computeMergeAttribution(
+      input(
+        {
+          prNumber: 1978,
+          mergeSha: merge,
+          parentSha: parent,
+          mergeChecks: [job(merge, SHARD1, 'failure', 114144784474)],
+          parentChecks: [job(parent, SHARD1, 'success', 114141428099)],
+        },
+        { 114144784474: fixture('pr1978-merge-unit-shard1') },
+      ),
+    );
+    expect(receipt).toMatchObject({ verdict: 'main-health', claim: 'holds-on-main' });
+    expect(receipt?.failures[0]?.cause).toBe('flaky-quarantine-budget');
+  });
+
+  it('#1726 is budget-crossed naming the PR: core dist 48.02 MB over 48 MB, under it on the parent (T14254)', async () => {
+    const merge = 'ea64b433ce92';
+    const parent = '948e5dc730ef';
+    const receipt = await computeMergeAttribution(
+      input(
+        {
+          prNumber: 1726,
+          mergeSha: merge,
+          parentSha: parent,
+          mergeChecks: [job(merge, BUILD, 'failure', 109710221195)],
+          parentChecks: [job(parent, BUILD, 'success', 109708934101)],
+        },
+        // The build log of #1726's merge is #1729's parent build fixture (same commit).
+        { 109710221195: fixture('pr1729-parent-build') },
+      ),
+    );
+    expect(receipt).toMatchObject({ verdict: 'budget-crossed', claim: 'none' });
+    expect(receipt?.failures[0]?.cause).toBe(
+      'step:node packages/core/scripts/check-core-bundle-budget.mjs',
+    );
+    expect(receipt?.reason).toMatch(/crossed here, by PR #1726$/);
+  });
+
   it('#1022 is superseded: its merge runs were only cancelled', async () => {
     const merge = '2da444f52891';
     const receipt = await computeMergeAttribution(
