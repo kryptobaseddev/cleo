@@ -31,10 +31,11 @@ export const doctorMalformedIdsCommand = defineCommand({
     name: 'malformed-ids',
     description:
       'Report task rows whose id is not a valid task identifier — rows that `cleo list` returns ' +
-      'but `show`/`update`/`delete` cannot address. Legacy T-RECONCILE-FOLLOWUP-* rows are listed ' +
-      'with the T#### each would take. Read-only unless --fix is given; --fix re-keys those (after ' +
-      'a snapshot, one receipt per row, the old id kept as an alias) and refuses any other row ' +
-      'other tables still reference, and reports them instead.',
+      'but `show`/`update`/`delete` cannot address. Rows that are tasks (a legacy ' +
+      'T-RECONCILE-FOLLOWUP-* id, or a title, description, criteria or relation) are listed with ' +
+      'the T#### each would take. Read-only unless --fix is given; --fix re-keys those (after a ' +
+      'snapshot, one receipt per row, the old id kept as an alias), never deleting them, and ' +
+      'deletes the remaining rows only when nothing references them.',
   },
   args: {
     fix: {
@@ -45,7 +46,7 @@ export const doctorMalformedIdsCommand = defineCommand({
     },
     'dry-run': {
       type: 'boolean',
-      description: 'List what --fix would do (each legacy follow-up and its new id); write nothing',
+      description: 'List what --fix would do (each task row and its new id); write nothing',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
@@ -65,7 +66,7 @@ export const doctorMalformedIdsCommand = defineCommand({
     // Refused rows are unresolved by definition — `--fix` ran and declined.
     const unresolved =
       (report.rows.length > 0 && !report.deleted) ||
-      (report.followUps.rows.length > 0 && !report.followUps.applied);
+      (report.rekeys.rows.length > 0 && !report.rekeys.applied);
     if (unresolved && (process.exitCode === undefined || process.exitCode === 0)) {
       process.exitCode = 1;
     }
