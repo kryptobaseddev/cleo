@@ -5287,11 +5287,31 @@ export type MutateTasksCancelData = {
 
 export type MutateTasksCancelResponses = {
     /**
-     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     * Mutate envelope: affected task IDs are bare strings under /data/created, /data/updated, or /data/deleted (e.g. /data/created/0 → "T11692"). /data/count is the total. Pass --full for the verbose post-mutation record.
      */
     200: {
         success: true;
         data: {
+            /**
+             * Number of records the mutation affected.
+             */
+            count: number;
+            /**
+             * Task IDs created (bare strings, e.g. "T11692"). Empty for update/delete-only.
+             */
+            created: Array<string>;
+            /**
+             * Task IDs updated (bare strings). Empty for create/delete-only.
+             */
+            updated: Array<string>;
+            /**
+             * Task IDs deleted (bare strings). Empty for create/update-only.
+             */
+            deleted: Array<string>;
+            /**
+             * Deprecated alias for the non-empty bucket. Prefer created/updated/deleted.
+             */
+            ids?: Array<string>;
             [key: string]: unknown;
         };
         /**
@@ -5495,11 +5515,31 @@ export type MutateTasksRestoreData = {
 
 export type MutateTasksRestoreResponses = {
     /**
-     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     * Mutate envelope: affected task IDs are bare strings under /data/created, /data/updated, or /data/deleted (e.g. /data/created/0 → "T11692"). /data/count is the total. Pass --full for the verbose post-mutation record.
      */
     200: {
         success: true;
         data: {
+            /**
+             * Number of records the mutation affected.
+             */
+            count: number;
+            /**
+             * Task IDs created (bare strings, e.g. "T11692"). Empty for update/delete-only.
+             */
+            created: Array<string>;
+            /**
+             * Task IDs updated (bare strings). Empty for create/delete-only.
+             */
+            updated: Array<string>;
+            /**
+             * Task IDs deleted (bare strings). Empty for create/update-only.
+             */
+            deleted: Array<string>;
+            /**
+             * Deprecated alias for the non-empty bucket. Prefer created/updated/deleted.
+             */
+            ids?: Array<string>;
             [key: string]: unknown;
         };
         /**
