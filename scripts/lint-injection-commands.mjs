@@ -837,6 +837,51 @@ export function extractInvocationsWithFlags(text) {
 }
 
 /**
+ * Flags a command module takes from a sibling command's exported args object
+ * (`args: { ...completeCommandArgs, … }`, T14299): each `...<name>CommandArgs`
+ * spread is resolved through the module's `import { <name>CommandArgs } from
+ * './<module>.js'` to that module's `export const <name>CommandArgs = { … }`.
+ * A spread that cannot be resolved contributes nothing.
+ *
+ * @param source - the command module source.
+ * @param repoRoot - absolute repo root.
+ * @returns accepted flag tokens from the resolved spreads.
+ * @task T14299
+ */
+export function spreadCommandArgFlags(source, repoRoot) {
+  const flags = new Set();
+  for (const [, name] of source.matchAll(/\.\.\.(\w+CommandArgs)\b/g)) {
+    const from = source.match(
+      new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'\\./([\\w-]+)\\.js'`),
+    );
+    if (!from) continue;
+    let sibling;
+    try {
+      sibling = readFileSync(
+        join(repoRoot, 'packages/cleo/src/cli/commands', `${from[1]}.ts`),
+        'utf-8',
+      );
+    } catch {
+      continue;
+    }
+    const at = sibling.indexOf(`export const ${name} = {`);
+    if (at === -1) continue;
+    const start = at + `export const ${name} = {`.length;
+    let depth = 1;
+    let i = start;
+    for (; i < sibling.length && depth > 0; i++) {
+      if (sibling[i] === '{') depth++;
+      else if (sibling[i] === '}') depth--;
+    }
+    const body = sibling.slice(start, i - 1);
+    // The same key rules as a command's own args block.
+    const synthetic = `defineCommand({ meta: { name: '__spread__' }, args: {${body}} })`;
+    for (const flag of extractAcceptedFlags(synthetic, '__spread__')) flags.add(flag);
+  }
+  return flags;
+}
+
+/**
  * Build the flag checker shared by gates 14 and 15.
  *
  * Everything it compares against is read from SOURCE at call time — the global
@@ -926,6 +971,9 @@ export function makeFlagChecker(repoRoot) {
 
     const accepted = extractAcceptedFlags(source, target, registrySource);
     if (accepted.size === 0) return null;
+    // T14299: `cleo done` spreads `...completeCommandArgs` from complete.ts;
+    // an imported sibling command's args object declares flags too.
+    for (const flag of spreadCommandArgFlags(source, repoRoot)) accepted.add(flag);
 
     const label = isGroup ? `${inv.verb} ${target}` : inv.verb;
     const retired = retiredFlags.get(target) ?? new Set();
