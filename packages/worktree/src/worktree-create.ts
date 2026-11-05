@@ -68,8 +68,9 @@ import { assertNoWorktreeConfigLeak, ensureWorktreeBuildReady } from './worktree
  * @throws Error with code `E_WT_LOCATION_FORBIDDEN` when outside canonical root.
  *
  * @task T9809
+ * @task T14300
  */
-function assertCanonicalWorktreeLocation(targetPath: string): void {
+export function assertCanonicalWorktreeLocation(targetPath: string): void {
   const canonicalRoot = getCleoWorktreesRoot();
   // Normalise both paths to use forward slashes and ensure the root ends with
   // a separator so we don't accidentally match a sibling path that shares a
@@ -82,11 +83,17 @@ function assertCanonicalWorktreeLocation(targetPath: string): void {
     throw Object.assign(
       new Error(
         `E_WT_LOCATION_FORBIDDEN: worktree path "${targetPath}" is outside the ` +
-          `canonical XDG location "${canonicalRoot}". ` +
-          `All worktrees MUST live under <cleoHome>/worktrees/<projectHash>/<taskId>/. ` +
+          `canonical worktree root "${canonicalRoot}" on this machine. ` +
+          `All worktrees MUST live under ${normalRoot}<projectHash>/<taskId>/. ` +
           `There is no override — see Saga T9800 SG-WORKTREE-CANON and ADR decision D009.`,
       ),
-      { code: 'E_WT_LOCATION_FORBIDDEN', targetPath, canonicalRoot },
+      {
+        code: 'E_WT_LOCATION_FORBIDDEN',
+        targetPath,
+        canonicalRoot,
+        // T14300: the computed root, so the caller can place the worktree.
+        fix: `Create the worktree under ${normalRoot}<projectHash>/<taskId>/ (the computed root on this machine), not at "${targetPath}".`,
+      },
     );
   }
 }
@@ -740,9 +747,15 @@ async function provisionUnderLock(
           new Error(
             `E_WT_IDENTITY_MISMATCH: worktree projectId "${worktreeProjectId}" ` +
               `does not match parent projectId "${parentProjectId}". ` +
-              `The worktree .cleo/project-info.json is corrupt or copied from a different project.`,
+              `The worktree .cleo/project-info.json is corrupt or copied from a different project. ` +
+              `In the parent project run cleo doctor project-identity --resolve --dry-run, then cleo doctor project-identity --resolve, and create the worktree again.`,
           ),
-          { code: 'E_WT_IDENTITY_MISMATCH', parentProjectId, worktreeProjectId },
+          {
+            code: 'E_WT_IDENTITY_MISMATCH',
+            parentProjectId,
+            worktreeProjectId,
+            fix: 'cleo doctor project-identity --resolve',
+          },
         );
       }
     } catch (err: unknown) {
