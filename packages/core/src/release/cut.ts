@@ -26,6 +26,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -44,6 +45,7 @@ import {
   E_RELEASE_IN_FLIGHT,
   E_RELEASE_NO_GREEN_COMMIT,
   E_RELEASE_NOT_AUTHORIZED,
+  E_RELEASE_SMOKE_MISSING,
   E_RELEASE_TAG_FAILED,
   E_RELEASE_UNMERGED_CHANGESET,
   ExitCode,
@@ -158,6 +160,14 @@ export interface ReleaseCutPackage {
   version: string;
 }
 
+/** The release smoke check of {@link releaseCut} (T14250). */
+export interface ReleaseCutSmoke {
+  /** The receipt read, or the first path looked at when none exists. */
+  receipt: string;
+  /** Why the receipt does not clear the cut, or null when it passed on this commit. */
+  problem: string | null;
+}
+
 /** Result of {@link releaseCut}. */
 export interface ReleaseCutResult {
   /** `v`-prefixed version. */
@@ -192,6 +202,12 @@ export interface ReleaseCutResult {
   sweep: MergeSweepResult;
   /** Docs rot of the project checkout (T14111); a real cut refuses when it has findings. */
   docsRot: DocsRotResult;
+  /**
+   * The release smoke receipt for `sha` (T14250): its path and why it does not
+   * clear the cut, or `problem: null` when it passed on this commit. A real
+   * stable cut refuses on a problem; a prerelease only reports it.
+   */
+  smoke: ReleaseCutSmoke;
   /** Non-blocking findings, e.g. docs rot on a prerelease (it blocks only a stable cut). */
   warnings: string[];
   /** `release.yml` runs still in progress for a lower tag; a real cut refuses while any remain (T14184). */
@@ -563,6 +579,51 @@ function inFlightReleases(
   );
 }
 
+/** The fields of a `scripts/release-mac-smoke.mjs` receipt the cut reads. */
+interface ReleaseSmokeReceipt {
+  sha: string | null;
+  passed: boolean;
+  cliVersion: string | null;
+}
+
+/**
+ * Read the release smoke receipt for `sha` (T14250). The smoke writes
+ * `.cleo/release-smoke/<sha12>/results.json` in the checkout it ran from,
+ * so the invoking checkout and the project checkout are both looked in.
+ *
+ * @param roots - Checkouts to look in, in order.
+ * @param sha - The commit the cut would tag.
+ * @returns The receipt path and why it does not clear the cut (null when it does).
+ */
+export function releaseSmokeCheck(roots: readonly string[], sha: string): ReleaseCutSmoke {
+  const paths = [...new Set(roots)].map((root) =>
+    join(root, '.cleo', 'release-smoke', sha.slice(0, 12), 'results.json'),
+  );
+  const receipt = paths.find((p) => existsSync(p));
+  if (receipt === undefined) {
+    return { receipt: paths[0] ?? '', problem: `no release smoke receipt for ${sha}` };
+  }
+  let parsed: Partial<ReleaseSmokeReceipt>;
+  try {
+    parsed = JSON.parse(readFileSync(receipt, 'utf8'));
+  } catch (err) {
+    return { receipt, problem: `the smoke receipt is unreadable: ${String(err)}` };
+  }
+  if (parsed.sha !== sha) {
+    return {
+      receipt,
+      problem: `the smoke receipt is for ${parsed.sha ?? 'no commit'}, not ${sha}`,
+    };
+  }
+  if (parsed.passed !== true) {
+    return {
+      receipt,
+      problem: `the release smoke FAILED on ${sha} (CLI ${parsed.cliVersion ?? 'unknown'})`,
+    };
+  }
+  return { receipt, problem: null };
+}
+
 function channelOf(version: string): string {
   return version.includes('-') ? 'prerelease' : 'latest';
 }
@@ -852,6 +913,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
   const inFlight = inFlightReleases(runner, cwd, version);
   const docsRot = scanDocsRot({ projectRoot: cwd });
   const rotFindings = docsRot.stale.length + docsRot.duplicates.length + docsRot.orphans.length;
+  const smoke = releaseSmokeCheck([cwd, storeRoot], sha);
   const checkoutAtMain =
     runner.runGit(['rev-parse', 'HEAD'], cwd).trim() ===
     runner.runGit(['rev-parse', `origin/${branch}`], cwd).trim();
@@ -870,7 +932,11 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     sweep,
     cleanup: dryRun ? await cleanupTasks(true) : null,
     docsRot,
+    smoke,
     warnings: [
+      ...(smoke.problem !== null && channelOf(version) !== 'latest'
+        ? [`Release smoke (does not block a prerelease): ${smoke.problem}`]
+        : []),
       ...(rotFindings > 0 && channelOf(version) !== 'latest'
         ? [`Docs rot (does not block a prerelease): ${docsRot.summary}`]
         : []),
@@ -924,6 +990,15 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       `Docs rot blocks the release: ${docsRot.summary}`,
       'cleo docs rot  (update the stale docs, merge the duplicates, fix or link the orphans), then re-run',
       { docsRot },
+    );
+  }
+  // T14250: a stable cut needs a passing real-store smoke of this exact commit.
+  if (smoke.problem !== null && channelOf(version) === 'latest') {
+    return refuse(
+      E_RELEASE_SMOKE_MISSING,
+      `The release smoke does not clear ${sha}: ${smoke.problem}`,
+      `On the owner's Mac, check out ${sha} and run node scripts/release-mac-smoke.mjs --sha ${sha}; fix forward if it fails, then re-run`,
+      { smoke },
     );
   }
   // ADR-099 §2.5: CI is judged again right before the tag, never from an old read.

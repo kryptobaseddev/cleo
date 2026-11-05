@@ -178,7 +178,16 @@ beforeEach(() => {
   git(work, 'commit', '--quiet', '-m', 'three');
   shas.head = git(work, 'rev-parse', 'HEAD');
   git(work, 'push', '--quiet', 'origin', 'main', '--tags');
+  // A stable cut needs a passing release smoke of its commit (T14250).
+  for (const sha of [shas.fix, shas.head]) smokeReceipt(sha, true);
 });
+
+/** Write the release smoke receipt `scripts/release-mac-smoke.mjs` leaves for `sha` (T14250). */
+function smokeReceipt(sha: string, passed: boolean, receiptSha = sha): string {
+  const path = `.cleo/release-smoke/${sha.slice(0, 12)}/results.json`;
+  write(work, path, JSON.stringify({ sha: receiptSha, cliVersion: 'test', passed }));
+  return join(work, path);
+}
 
 afterEach(() => {
   ttyAnswer = null;
@@ -405,6 +414,46 @@ describe('releaseCut (T14102)', () => {
     } finally {
       rotOrphans = [];
     }
+  });
+
+  it('refuses a stable cut without a passing release smoke of its commit (T14250)', async () => {
+    const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
+    ttyAnswer = NEXT;
+    const receipt = smokeReceipt(shas.head, true);
+
+    rmSync(receipt);
+    const missing = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
+    expect(errorOf(missing).code).toBe('E_RELEASE_SMOKE_MISSING');
+    expect(errorOf(missing).message).toContain('no release smoke receipt');
+
+    smokeReceipt(shas.head, false);
+    const failed = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
+    expect(errorOf(failed).code).toBe('E_RELEASE_SMOKE_MISSING');
+    expect(errorOf(failed).message).toContain('FAILED');
+
+    smokeReceipt(shas.head, true, shas.fix);
+    const other = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
+    expect(errorOf(other).message).toContain(`is for ${shas.fix}`);
+    expect(calls.some((c) => c.includes('POST'))).toBe(false);
+
+    smokeReceipt(shas.head, true);
+    const passed = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
+    expect(passed.success && passed.data.tagCreated).toBe(true);
+    expect(passed.success && passed.data.smoke).toEqual({ receipt, problem: null });
+  });
+
+  it('only reports a missing release smoke on a prerelease, and tags it', async () => {
+    rmSync(join(work, '.cleo', 'release-smoke'), { recursive: true });
+    const { runner } = fakeRunner({ [shas.head]: 'success' });
+    ttyAnswer = `v${NEXT}-canary.1`;
+    const canary = await releaseCut({
+      ...confirmed,
+      version: `${NEXT}-canary.1`,
+      projectRoot: work,
+      runner,
+    });
+    expect(canary.success && canary.data.tagCreated).toBe(true);
+    expect(canary.success && canary.data.warnings[0]).toContain('does not block a prerelease');
   });
 
   it('only warns about docs rot on a prerelease, and tags it', async () => {

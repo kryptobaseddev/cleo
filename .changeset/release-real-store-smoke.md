@@ -2,7 +2,7 @@
 id: release-real-store-smoke
 tasks: [T14250]
 kind: feat
-summary: "the release smoke now runs each durability phase's write paths on real-store copies and blocks the stable cut when one fails"
+summary: "the release smoke runs each durability phase's write paths on real-store copies, and a stable cut refuses without a passing smoke of its commit"
 ---
 
 `scripts/release-mac-smoke.mjs` (T14104) already ran the built CLI on a
@@ -21,5 +21,11 @@ its stable cut, and it covers what those phases change:
   result, and `--record <taskId>` attaches it to the release epic with the
   installed cleo.
 
-A non-zero exit blocks the stable cut. Ledger: adds a release checklist step;
-deletes nothing.
+A real stable `cleo release cut` now reads the receipt for the commit it
+would tag (`.cleo/release-smoke/<sha12>/results.json` in the invoking or the
+project checkout) and refuses with `E_RELEASE_SMOKE_MISSING` when it is
+missing, failed, or names another commit. The dry run reports it as `smoke`;
+a prerelease only warns.
+
+Ledger: adds a release checklist step and the `E_RELEASE_SMOKE_MISSING`
+refusal (its fix names the smoke command); deletes nothing.
