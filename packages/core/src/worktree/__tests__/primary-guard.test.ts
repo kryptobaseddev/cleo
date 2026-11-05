@@ -64,9 +64,10 @@ describe('T9686-D primary-worktree guard (real git)', () => {
     expect(result.data.worktrees).toHaveLength(1);
     const primary = result.data.worktrees[0];
     expect(primary?.branch).toBe('main');
-    // The branch IS reachable from itself — that part is reality.
-    expect(primary?.isMerged).toBe(true);
-    // The category overrides the merged status so prune candidacy is denied.
+    // T14236: its HEAD is main's own tip, not merged work of its own, so it is
+    // not merged; the primary guard keeps it `active` either way.
+    expect(primary?.isMerged).toBe(false);
+    // The category denies prune candidacy.
     expect(primary?.statusCategory).toBe('active');
   });
 
@@ -86,9 +87,9 @@ describe('T9686-D primary-worktree guard (real git)', () => {
   });
 
   it('secondary worktrees on merged branches are still pruneable', async () => {
-    // Create a fully-merged secondary worktree: branch off main, never diverge.
-    // `git worktree add` checks out a new ref pointing at the same commit, so
-    // `merge-base --is-ancestor <branch> main` returns exit 0.
+    // Create a truly merged secondary worktree: a branch with a commit of its
+    // own, merged into main with a merge commit. (T14236: a branch that never
+    // diverged is a fresh worktree, which stays `active` and is not pruneable.)
     //
     // We use a non-`task/` branch name so the classifier doesn't treat the
     // worktree as an orphan (taskId set, owningTaskStatus null → orphan in
@@ -96,6 +97,10 @@ describe('T9686-D primary-worktree guard (real git)', () => {
     // path, not orphan detection — those have separate coverage.
     const secondaryPath = join(repoRoot, 'wt-secondary');
     run(repoRoot, ['worktree', 'add', '-b', 'feat/already-merged', secondaryPath]);
+    writeFileSync(join(secondaryPath, 'work.md'), 'merged work\n');
+    run(secondaryPath, ['add', 'work.md']);
+    run(secondaryPath, ['commit', '-q', '-m', 'work']);
+    run(repoRoot, ['merge', '-q', '--no-ff', '-m', 'merge feat/already-merged', 'feat/already-merged']);
 
     try {
       const list = await listWorktrees({ projectRoot: repoRoot });

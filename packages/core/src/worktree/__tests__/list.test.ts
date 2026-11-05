@@ -486,9 +486,9 @@ describe('listWorktrees — status classification', () => {
     const wt = result.data.worktrees[0];
     expect(wt?.path).toBe('/repo');
     expect(wt?.statusCategory).toBe('active');
-    // isMerged still reflects reality (main IS an ancestor of main) — only the
-    // category is overridden so downstream code (prune) can't act on it.
-    expect(wt?.isMerged).toBe(true);
+    // T14236: a HEAD on main's own line carries no commits of its own, so it is
+    // not merged work; the category guard still keeps it out of prune.
+    expect(wt?.isMerged).toBe(false);
   });
 
   it('primary-guard does not affect secondary worktrees (T9686-D)', async () => {
