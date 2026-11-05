@@ -1,13 +1,13 @@
-2026-10-10T06:58:04.6552521Z      [33m[2m✓[22m[39m rejects an installed runner edited after pack, before loading or executing it [33m 1200[2mms[22m[39m
-2026-10-10T06:58:04.6554338Z      [33m[2m✓[22m[39m rejects a preview inventory and ambiguous package identities [33m 1200[2mms[22m[39m
-2026-10-10T06:58:04.6556195Z      [33m[2m✓[22m[39m preserves pre-existing project instruction bytes and refuses conflict [33m 1285[2mms[22m[39m
-2026-10-10T06:58:04.6558833Z      [33m[2m✓[22m[39m preserves original deadline/cancellation through preparation without launch or bootstrap writes [33m 1136[2mms[22m[39m
-2026-10-10T06:58:04.6560984Z      [33m[2m✓[22m[39m refuses package symlinks escaping the isolated installation [33m 1079[2mms[22m[39m
+2026-10-10T06:58:04.6552521Z      ✓ rejects an installed runner edited after pack, before loading or executing it  1200ms
+2026-10-10T06:58:04.6554338Z      ✓ rejects a preview inventory and ambiguous package identities  1200ms
+2026-10-10T06:58:04.6556195Z      ✓ preserves pre-existing project instruction bytes and refuses conflict  1285ms
+2026-10-10T06:58:04.6558833Z      ✓ preserves original deadline/cancellation through preparation without launch or bootstrap writes  1136ms
+2026-10-10T06:58:04.6560984Z      ✓ refuses package symlinks escaping the isolated installation  1079ms
 2026-10-10T06:58:04.6648769Z 
-2026-10-10T06:58:04.6664997Z [2m Test Files [22m [1m[32m260 passed[39m[22m[90m (260)[39m
-2026-10-10T06:58:04.6688574Z [2m      Tests [22m [1m[32m3333 passed[39m[22m[2m | [22m[33m3 skipped[39m[2m | [22m[90m1 todo[39m[90m (3337)[39m
-2026-10-10T06:58:04.6689850Z [2m   Start at [22m 06:51:57
-2026-10-10T06:58:04.6694440Z [2m   Duration [22m 366.76s[2m (transform 38.33s, setup 5.27s, import 136.21s, tests 551.38s, environment 30ms)[22m
+2026-10-10T06:58:04.6664997Z  Test Files  260 passed (260)
+2026-10-10T06:58:04.6688574Z       Tests  3333 passed | 3 skipped | 1 todo (3337)
+2026-10-10T06:58:04.6689850Z    Start at  06:51:57
+2026-10-10T06:58:04.6694440Z    Duration  366.76s (transform 38.33s, setup 5.27s, import 136.21s, tests 551.38s, environment 30ms)
 2026-10-10T06:58:04.6696762Z 
 2026-10-10T06:58:04.6875684Z JSON report written to /tmp/flaky-quarantine-PkBkVV/first.json
 2026-10-10T06:58:05.5072411Z ### Flaky quarantine over budget
