@@ -561,6 +561,73 @@ describe('the receipt pins the run attempt and judges the parent at that time (T
     ]);
   });
 
+  it('a green rerun counts only on the same sha within a day: never on another sha, never after 24h', async () => {
+    const red = [
+      '##[group]Run pnpm test',
+      ' FAIL   @cleocode/core  src/a.test.ts > s > c',
+      '##[error]Process completed with exit code 1.',
+    ].join('\n');
+    const judge = (rerun: CommitCheck) =>
+      computeMergeAttribution(
+        input(
+          {
+            mergeSha: 'm',
+            parentSha: 'p',
+            mergeChecks: [
+              attempt(
+                'm',
+                SHARD1,
+                'failure',
+                1,
+                10,
+                1,
+                '2026-10-10T06:51:00Z',
+                '2026-10-10T06:58:00Z',
+              ),
+              rerun,
+            ],
+            parentChecks: [
+              attempt(
+                'p',
+                SHARD1,
+                'success',
+                3,
+                20,
+                1,
+                '2026-10-10T06:43:00Z',
+                '2026-10-10T06:50:00Z',
+              ),
+            ],
+          },
+          { 1: red },
+        ),
+      );
+    // Same sha, two hours later: the tree can pass.
+    expect(
+      (
+        await judge(
+          attempt('m', SHARD1, 'success', 2, 10, 2, '2026-10-10T08:51:00Z', '2026-10-10T08:58:00Z'),
+        )
+      )?.verdict,
+    ).toBe('clean');
+    // Same sha, 25 hours later: main and its base moved on; attempt 1 stands.
+    const late = await judge(
+      attempt('m', SHARD1, 'success', 2, 10, 2, '2026-10-11T07:51:00Z', '2026-10-11T07:58:00Z'),
+    );
+    expect(late?.verdict).toBe('pr-caused');
+    expect(late?.mergeRuns).toEqual([
+      { runId: 10, attempt: 1, completedAt: '2026-10-10T06:58:00Z' },
+    ]);
+    // Another sha (a later commit's run), minutes later: never the merge's evidence.
+    const other = await judge(
+      attempt('other', SHARD1, 'success', 2, 11, 1, '2026-10-10T07:00:00Z', '2026-10-10T07:07:00Z'),
+    );
+    expect(other?.verdict).toBe('pr-caused');
+    expect(other?.mergeRuns).toEqual([
+      { runId: 10, attempt: 1, completedAt: '2026-10-10T06:58:00Z' },
+    ]);
+  });
+
   it('the parent is judged at the attempt that had started when the merge job ran, not its latest', async () => {
     const red = [
       '##[group]Run pnpm test',
