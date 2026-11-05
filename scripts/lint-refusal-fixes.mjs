@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Gate 41 — every refusal on the task close, cancel, verify, done, review and
+ * Gate 42 — every refusal on the task close, cancel, verify, done, review and
  * docs-link paths carries a runnable fix (T14299).
  *
  * A refusal is a `new CleoError(code, message, options)`, an

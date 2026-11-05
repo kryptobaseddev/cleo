@@ -1,5 +1,5 @@
 /**
- * Gate 41 (T14299): every refusal on the close, cancel, verify, done, review
+ * Gate 42 (T14299): every refusal on the close, cancel, verify, done, review
  * and docs-link paths carries a runnable fix, and the pinned count only falls.
  *
  * @task T14299
@@ -35,7 +35,7 @@ function judge(source, check = () => [], functions) {
   }
 }
 
-describe('lint-refusal-fixes (gate 41, T14299)', () => {
+describe('lint-refusal-fixes (gate 42, T14299)', () => {
   it('the repository is at its pins, and every pin is zero', () => {
     expect(judgeRefusalFixes(REPO_ROOT).failures).toEqual([]);
     expect(judgeRefusalFixes(REPO_ROOT, true).failures).toEqual([]);

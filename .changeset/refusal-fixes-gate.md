@@ -2,7 +2,7 @@
 id: refusal-fixes-gate
 tasks: [T14299]
 kind: fix
-summary: "every refusal on the close, cancel, verify, done, review and docs-link paths carries a runnable fix; gate 41 keeps it that way"
+summary: "every refusal on the close, cancel, verify, done, review and docs-link paths carries a runnable fix; gate 42 keeps it that way"
 ---
 
 Refusals on the paths agents use to close work now say what to run next:
@@ -19,7 +19,7 @@ Refusals on the paths agents use to close work now say what to run next:
   refusal (`cleo review packet <pr> --task <id>`), and `E_RESOURCE_DEFERRED`
   (`cleo run --wait -- <command>`).
 
-Gate 41 (`scripts/lint-refusal-fixes.mjs`, in `cleo check arch` and CI)
+Gate 42 (`scripts/lint-refusal-fixes.mjs`, in `cleo check arch` and CI)
 counts the `CleoError`, `engineError` and `lafsError` refusals on those paths
 that carry no fix, or a fix naming a command or flag the CLI rejects. It is
 pinned at zero per file and may only fall; there is no `--baseline` mode.

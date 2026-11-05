@@ -896,7 +896,7 @@ const checkArchCommand = defineCommand({
         // T14299: every refusal on the close, cancel, verify, done, review and
         // docs-link paths carries a fix that runs against the CLI manifest.
         // Pinned per file, may only fall; no --baseline mode.
-        id: 'gate-41',
+        id: 'gate-42',
         task: 'T14299',
         script: 'scripts/lint-refusal-fixes.mjs',
         description: 'Every refusal on the closure paths carries a runnable fix',
