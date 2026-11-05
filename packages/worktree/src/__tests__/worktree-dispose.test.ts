@@ -145,6 +145,19 @@ describe('disposeWorktree proof (T13924)', () => {
     expect(existsSync(wt)).toBe(true);
   });
 
+  it('a commit held only by a sibling task branch is kept; once on local main it may go', () => {
+    const wt = worktree('T17');
+    commitIn(wt, 'w.ts', 'w\n');
+    git(repo, 'branch', 'task/T18', 'task/T17'); // a sibling task branch holds it too
+    expect(unpreservedCommits(wt)).toContain('not on the default branch');
+    expect(disposeWorktree({ worktreePath: wt, taskId: 'T17', reason: 'test' }).removed).toBe(
+      false,
+    );
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'local integration', 'task/T17');
+    expect(unpreservedCommits(wt)).toBeNull();
+    expect(disposeWorktree({ worktreePath: wt, taskId: 'T17', reason: 'test' }).removed).toBe(true);
+  });
+
   it('a commit pushed to origin is preserved; the worktree goes', () => {
     const wt = worktree('T4');
     commitIn(wt, 'w.ts', 'w\n');

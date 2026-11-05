@@ -13,8 +13,8 @@
  * - **content**: no tracked change, and every untracked or ignored path is
  *   either `node_modules`, rebuildable output of a merged checkout, or the
  *   identical tree in the main checkout ({@link unprovenContent});
- * - **commits**: every commit HEAD reaches is also held by a remote ref or by
- *   another local branch ({@link unpreservedCommits}).
+ * - **commits**: every commit HEAD reaches is also held by a remote-tracking
+ *   ref or the project's local default branch ({@link unpreservedCommits}).
  *
  * Every probe fails closed: a git or read error is "not proven", never clean.
  * Without proof the worktree is kept with the failing clause named. With
@@ -269,12 +269,31 @@ function currentBranch(path: string): string | null | undefined {
 }
 
 /**
+ * The project's local default branch (`refs/heads/<name>`), or `null`: the
+ * name `origin/HEAD` points at, else `main` or `master`, whichever exists
+ * locally. The same order as core's `resolveOriginDefault`/`resolveBaseRef`
+ * (git/base-ref.ts), which this package cannot import.
+ */
+function localDefaultBranch(path: string): string | null {
+  const symbolic = git(path, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+  const fromOrigin = symbolic?.trim().replace(/^origin\//, '');
+  for (const name of [fromOrigin, 'main', 'master']) {
+    if (name && git(path, ['rev-parse', '--verify', '-q', `refs/heads/${name}`]) !== null) {
+      return `refs/heads/${name}`;
+    }
+  }
+  return null;
+}
+
+/**
  * Whether the checkout's commits survive its removal, or why not.
  *
  * Every commit HEAD reaches must also be reachable from a remote-tracking ref
- * or from a local branch other than the one checked out here (that branch is
- * the checkout's own and may be deleted with it). An unborn HEAD holds no
- * commits. Fail-closed: any git error is "commits not proven preserved".
+ * or from the project's local default branch (a local integration before any
+ * push). Another local branch does not count: it is often a task branch this
+ * engine, or `git branch -D`, removes later, which would chain the loss. An
+ * unborn HEAD holds no commits. Fail-closed: any git error is "commits not
+ * proven preserved".
  *
  * @param path - Checkout root.
  * @returns Why its commits are not preserved, or `null`.
@@ -283,13 +302,18 @@ function currentBranch(path: string): string | null | undefined {
 export function unpreservedCommits(path: string): string | null {
   if (git(path, ['rev-parse', '--git-dir']) === null) return 'git cannot read the checkout';
   if (git(path, ['rev-parse', '--verify', '-q', 'HEAD']) === null) return null; // unborn
-  const branch = currentBranch(path);
-  if (branch === undefined) return 'git cannot read the checked-out branch';
-  const not = branch === null ? ['--branches'] : [`--exclude=${branch}`, '--branches'];
-  const out = git(path, ['rev-list', '--count', 'HEAD', '--not', ...not, '--remotes']);
+  const base = localDefaultBranch(path);
+  const out = git(path, [
+    'rev-list',
+    '--count',
+    'HEAD',
+    '--not',
+    '--remotes',
+    ...(base ? [base] : []),
+  ]);
   const count = out === null ? Number.NaN : Number.parseInt(out.trim(), 10);
   if (Number.isNaN(count)) return 'git cannot count commits held elsewhere';
-  return count === 0 ? null : `${count} commit(s) held by no remote and no other branch`;
+  return count === 0 ? null : `${count} commit(s) on no remote and not on the default branch`;
 }
 
 // ---------------------------------------------------------------------------
