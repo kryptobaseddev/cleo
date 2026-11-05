@@ -73,6 +73,25 @@ export const TERMINAL_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set([
   'archived',
 ]);
 
+/** A child status that needs no more work: `done`, `cancelled` or `archived`. */
+export type SettledTaskStatus = 'done' | 'cancelled' | 'archived';
+
+/**
+ * Whether a child task is settled: it needs no more work (`done`, `cancelled`
+ * or `archived`, the {@link TERMINAL_TASK_STATUSES}). The one predicate every
+ * parent-terminal path uses (T14266): cancel and its cascade, archive and
+ * update to cancelled (via `countActiveChildren`, which filters on the same
+ * set in SQL), complete's premature-close guard and rollups, and the `done`
+ * epic plan. A settled `cancelled` child still needs a waiver before a parent
+ * can roll up over it; settled only means no work remains.
+ *
+ * @param status - The child's status.
+ * @returns True when the child needs no more work.
+ */
+export function isSettledChild(status: TaskStatus): status is SettledTaskStatus {
+  return TERMINAL_TASK_STATUSES.has(status);
+}
+
 export const TERMINAL_PIPELINE_STATUSES: ReadonlySet<PipelineStatus> = new Set([
   'completed',
   'failed',

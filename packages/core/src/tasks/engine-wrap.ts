@@ -6,7 +6,8 @@
  * @epic T9834
  */
 
-import type { WorktreeDisposalBlockers } from '@cleocode/contracts';
+import type { Task, TaskStatus, WorktreeDisposalBlockers } from '@cleocode/contracts';
+import { isSettledChild } from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
@@ -186,13 +187,18 @@ export async function coreTaskCancel(
   }
 
   const childStrategy = params?.children ?? 'block';
-  const children = await accessor.getChildren(taskId);
+  // T14266: only unsettled children (not done, cancelled or archived) need a
+  // disposition; a parent whose children are all settled cancels in block mode.
+  const children = (await accessor.getChildren(taskId)).filter(
+    (child: { status: TaskStatus }) => !isSettledChild(child.status),
+  );
   const affectedTasks: string[] = [];
+  let largeSubtreeWaiver: Record<string, unknown> | null = null;
 
   if (children.length > 0) {
     if (childStrategy === 'block') {
       throw new Error(
-        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} child task(s); pass children='cascade' (cancel the subtree) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
+        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); pass children='cascade' (cancel them) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
       );
     }
 
@@ -201,38 +207,31 @@ export async function coreTaskCancel(
         throw new Error('E_CASCADE_DISABLED: Cascade cancellation is disabled');
       }
 
+      // T14266: a cascade touches, and its threshold counts, only unsettled
+      // descendants; a done, cancelled or archived descendant is left as is.
       const descendants = (await accessor.getSubtree(taskId)).filter(
-        (candidate: { id: string }) => candidate.id !== taskId,
+        (candidate: { id: string; status: TaskStatus }) =>
+          candidate.id !== taskId && !isSettledChild(candidate.status),
       );
       const cascadeThreshold = params?.cascadeThreshold ?? 10;
       if (descendants.length > cascadeThreshold && !params?.force) {
         throw new Error(
-          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would affect ${descendants.length} tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
+          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
         );
       }
-
-      for (const descendant of descendants) {
-        if (descendant.status === 'cancelled') continue;
-        const descendantCheck = canCancel(descendant);
-        if (!descendantCheck.allowed) {
-          throw new Error(
-            `E_INVALID_STATE: Cannot cascade-cancel ${descendant.id}: ${descendantCheck.reason!}`,
-          );
-        }
-        affectedTasks.push(descendant.id);
-      }
+      affectedTasks.push(...descendants.map((descendant: { id: string }) => descendant.id));
 
       if (descendants.length > cascadeThreshold && params?.force) {
-        await accessor.appendLog({
+        largeSubtreeWaiver = {
           action: 'task_cancel_large_subtree_waiver',
           taskId,
           details: {
             affectedCount: descendants.length,
-            affectedTasks: descendants.map((descendant: { id: string }) => descendant.id),
+            affectedTasks: [...affectedTasks],
             reason: params.reason ?? null,
           },
           timestamp: new Date().toISOString(),
-        });
+        };
       }
     } else if (childStrategy === 'reparent') {
       // T11811: the direct children move under an existing parent so they stay
@@ -251,7 +250,7 @@ export async function coreTaskCancel(
   }
 
   const cancelledAt = new Date().toISOString();
-
+  const descendantsToCancel: Task[] = [];
   if (childStrategy === 'cascade') {
     for (const descendantId of affectedTasks) {
       const descendant = await accessor.loadSingleTask(descendantId);
@@ -261,21 +260,7 @@ export async function coreTaskCancel(
       descendant.cancellationReason = `Parent task ${taskId} cancelled (cascade)${params?.reason ? `: ${params.reason}` : ''}`;
       descendant.updatedAt = cancelledAt;
       descendant.pipelineStage = 'cancelled';
-      await accessor.upsertSingleTask(descendant);
-    }
-  } else if (childStrategy === 'reparent') {
-    // T11811: move each direct child under the target parent via
-    // coreTaskReparent so the PM-Core V2 type-matrix / depth / sibling
-    // invariants are enforced on the move. This keeps the children attached
-    // (no orphan) — the safe replacement for the deleted detach strategy.
-    const reparentTo = params?.reparentTo;
-    if (!reparentTo) {
-      throw new Error(
-        `E_REPARENT_TARGET_REQUIRED: children='reparent' requires reparentTo=<epicId> for ${taskId}`,
-      );
-    }
-    for (const childId of affectedTasks) {
-      await coreTaskReparent(projectRoot, childId, reparentTo);
+      descendantsToCancel.push(descendant);
     }
   }
 
@@ -288,7 +273,24 @@ export async function coreTaskCancel(
   // T871 carve-out (skip when already terminal) would leave 'contribution'
   // in place and trip the BEFORE-UPDATE trigger. T9838 repro.
   task.pipelineStage = 'cancelled';
-  await accessor.upsertSingleTask(task);
+
+  // T14217: the children and the parent commit together or not at all, so a
+  // failed parent write can never leave cancelled or moved children under a
+  // live parent.
+  await accessor.transaction(async (tx) => {
+    for (const descendant of descendantsToCancel) await tx.upsertSingleTask(descendant);
+    if (childStrategy === 'reparent' && params?.reparentTo) {
+      // T11811: move each direct child under the target parent via
+      // coreTaskReparent so the PM-Core V2 type-matrix / depth / sibling
+      // invariants are enforced on the move. This keeps the children attached
+      // (no orphan) — the safe replacement for the deleted detach strategy.
+      for (const childId of affectedTasks) {
+        await coreTaskReparent(projectRoot, childId, params.reparentTo, { tx });
+      }
+    }
+    if (largeSubtreeWaiver) await tx.appendLog(largeSubtreeWaiver);
+    await tx.upsertSingleTask(task);
+  });
 
   // Best-effort worktree cleanup when cancelling a task, awaited so a kept
   // worktree reaches the envelope (T13701). A failure never fails the cancel.
@@ -860,6 +862,49 @@ export async function taskCancel(
     if (message.includes(' not found')) {
       return engineError('E_NOT_FOUND', message);
     }
+    // T14217: a failed store write surfaces its SQLite cause, not a ~15 KB SQL echo.
+    const storeFailure = boundedStoreWriteError(err);
+    if (storeFailure) {
+      // @sync-invariant none:input-shape the cancel transaction already rolled back; this only re-words the failure
+      return engineError('E_INTERNAL', storeFailure.message, { details: storeFailure.details });
+    }
     return cleoErrorToEngineResult(err, 'E_INTERNAL', message);
   }
+}
+
+/** Longest store-write error message {@link boundedStoreWriteError} returns. */
+const STORE_WRITE_ERROR_MAX_CHARS = 600;
+
+/**
+ * Turn drizzle's `Failed query: <sql> params: <values>` error into a bounded
+ * message that leads with the underlying SQLite cause (T14217). Drizzle wraps
+ * the SQLite error in a `DrizzleQueryError` whose own message echoes the whole
+ * statement and every parameter, often kilobytes, with the cause only on
+ * `.cause`.
+ *
+ * @param err - The thrown value.
+ * @returns The bounded message and the cause, or null when `err` is not a failed query.
+ */
+function boundedStoreWriteError(
+  err: unknown,
+): { message: string; details: { cause: string; query: string } } | null {
+  if (!(err instanceof Error) || !err.message.startsWith('Failed query:')) return null;
+  let cause = 'no SQLite cause attached';
+  for (let e: unknown = err.cause, depth = 0; e instanceof Error && depth < 8; depth++) {
+    if (!e.message.startsWith('Failed query:')) {
+      cause = e.message;
+      break;
+    }
+    e = e.cause;
+  }
+  const query = err.message
+    .slice('Failed query:'.length)
+    .split(/\nparams:|\sparams:/)[0]
+    ?.trim()
+    .slice(0, 160);
+  const message = `Store write failed: ${cause} (query: ${query ?? ''}…)`.slice(
+    0,
+    STORE_WRITE_ERROR_MAX_CHARS,
+  );
+  return { message, details: { cause: cause.slice(0, 300), query: query ?? '' } };
 }
