@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
+import { GLOBAL_CONFIG_FILE_MODE } from '../llm/global-config-migration.js';
 import { pushWarning } from '../output.js';
 import {
   getCleoCantWorkflowsDir,
@@ -168,7 +169,8 @@ export async function ensureGlobalHome(): Promise<ScaffoldResult> {
     if (existsSync(templatePath)) {
       const template = readFileSync(templatePath, 'utf-8');
       const resolved = template.replace('{{SCHEMA_VERSION_GLOBAL_CONFIG}}', '1.0.0');
-      await writeFile(globalConfigPath, resolved);
+      // The global config can hold provider keys: owner-only (T14221).
+      await writeFile(globalConfigPath, resolved, { mode: GLOBAL_CONFIG_FILE_MODE });
     }
   }
 
