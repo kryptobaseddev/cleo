@@ -122,6 +122,22 @@ export interface MergeAttributionFailure {
 }
 
 /**
+ * The later main run that resolved an `unknown` receipt (T14255): every
+ * undecided job passed, without a rerun, on a main commit that contains the
+ * change.
+ */
+export interface MergeAttributionResolution {
+  /** What it proves. */
+  claim: 'holds-on-main';
+  /** The later main commit. */
+  sha: string;
+  /** How that commit contains the change: it descends from the merge, or carries the same patch. */
+  via: 'ancestry' | 'patch-id';
+  /** The run attempts judged on it. */
+  runs: MergeAttributionRunPin[];
+}
+
+/**
  * One workflow run attempt a receipt was judged on (T14253): GitHub keeps
  * only each job's latest attempt on a commit, so the receipt pins which
  * attempt it read and when it completed.
@@ -169,6 +185,14 @@ export interface MergeAttributionReceipt {
   budgetTasks?: string[];
   /** Why a crossed budget got no fix task (the PR names no task under an epic). */
   budgetTaskSkipped?: string;
+  /**
+   * How an `unknown` receipt was later resolved (T14255): a completed green
+   * run of its undecided jobs on a later main commit containing the change.
+   * The verdict stays `unknown`; it never closes a task by itself.
+   */
+  resolution?: MergeAttributionResolution;
+  /** The last later main commit inspected without such a run; the next look starts after it. */
+  unresolvedThrough?: string;
   /** The PR's verdict: the most serious of its jobs'. */
   verdict: MergeAttributionVerdict;
   /** What the verdict proves: the change holds on main, or only the head was tested, or nothing. */
