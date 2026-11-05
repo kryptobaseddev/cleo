@@ -55,13 +55,19 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { MigrationMeta } from 'drizzle-orm/migrator';
 import { CleoError } from '../errors.js';
 import { isGitLinkedCheckout } from '../project-scope.js';
-import { insideTestSandbox, TEST_SANDBOX_MARKER } from '../test-sandbox.js';
 
 /** Opt-in that lets a worktree build change the schema of a store outside its worktree. */
 export const ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV = 'CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS';
 
-/** The test harness's sandbox marker (moved to `test-sandbox.ts`, T14282). */
-export { TEST_SANDBOX_MARKER };
+/**
+ * File the test harness (`vitest.setup.ts`) writes at the root of each fork's
+ * sandbox. A store below it is a fixture — including one opened by a CLI child
+ * process the test spawned: such a child carries `VITEST` only when the test
+ * passes its own environment through, and many build an explicit `env`.
+ * A marker inside a git checkout is ignored: the sandbox is never in one, so a
+ * marker there was committed or planted in a real project.
+ */
+export const TEST_SANDBOX_MARKER = '.cleo-test-sandbox';
 
 /** Error code of {@link WorktreeBuildSchemaError}. */
 export const E_WORKTREE_BUILD_SCHEMA = 'E_WORKTREE_BUILD_SCHEMA';
@@ -123,6 +129,35 @@ function realOrResolved(path: string): string {
 function isWithin(root: string, path: string): boolean {
   const local = relative(root, path);
   return local === '' || (!isAbsolute(local) && local !== '..' && !local.startsWith(`..${sep}`));
+}
+
+/** Whether `dir` or an ancestor is a git checkout (has `.git`). */
+function insideGitCheckout(dir: string): boolean {
+  let current = dir;
+  for (;;) {
+    if (existsSync(join(current, '.git'))) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+/**
+ * Whether a {@link TEST_SANDBOX_MARKER} sits in `path` or an ancestor, outside
+ * any git checkout (a marker inside a checkout is refused). Also gates the
+ * test suite's resource-sample fixture (T14282).
+ *
+ * @param path - Any path; its directory and the ancestors are searched.
+ * @returns `true` when `path` is a test fixture.
+ */
+export function insideTestSandbox(path: string): boolean {
+  let dir = dirname(path);
+  for (;;) {
+    if (existsSync(join(dir, TEST_SANDBOX_MARKER))) return !insideGitCheckout(dir);
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
 }
 
 /**

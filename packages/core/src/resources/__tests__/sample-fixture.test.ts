@@ -10,8 +10,8 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TEST_SANDBOX_MARKER } from '../../test-sandbox.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TEST_SANDBOX_MARKER } from '../../store/worktree-build-guard.js';
 import { admit } from '../admission-ledger.js';
 import { DarwinResourceBackend } from '../darwin-backend.js';
 import { LinuxResourceBackend } from '../linux-backend.js';
@@ -95,7 +95,7 @@ describe('CLEO_RESOURCE_SAMPLE_FILE (T14282)', () => {
   it.each([
     ['hot', 40],
     ['calm', 0],
-  ])('outside the sandbox a %s file has no effect, with one stderr line', (_name, some) => {
+  ])('outside the sandbox a %s file has no effect, with one stderr line', async (_name, some) => {
     const path = join(outside, 'sample.json');
     writeFileSync(path, sampleJson(some));
     const lines: string[] = [];
@@ -105,13 +105,17 @@ describe('CLEO_RESOURCE_SAMPLE_FILE (T14282)', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(`${RESOURCE_SAMPLE_FILE_ENV} is ignored`);
     process.env[RESOURCE_SAMPLE_FILE_ENV] = path;
-    const backend = defaultResourceBackend();
-    expect(
-      backend instanceof DarwinResourceBackend || backend instanceof LinuxResourceBackend,
-    ).toBe(true);
+    // The backend reads this machine (the platform sampler, spied to a known value).
+    const HOST_SCORE = 7;
+    const host = JSON.parse(sampleJson(HOST_SCORE));
+    vi.spyOn(DarwinResourceBackend.prototype, 'sample').mockResolvedValue(host);
+    vi.spyOn(LinuxResourceBackend.prototype, 'sample').mockResolvedValue(host);
+    _resetSampleFixtureForTest();
+    expect(pressureScore(await defaultResourceBackend().sample())).toBe(HOST_SCORE);
+    vi.restoreAllMocks();
   });
 
-  it('a sandboxed sample used for a project outside the sandbox has no effect, with one stderr line', () => {
+  it('a sandboxed sample used for a project outside the sandbox has no effect, with one stderr line', async () => {
     const path = join(inside, 'calm.json');
     writeFileSync(path, sampleJson(0));
     // A real git project beside the sandbox: no marker in any ancestor.
@@ -130,10 +134,14 @@ describe('CLEO_RESOURCE_SAMPLE_FILE (T14282)', () => {
     process.env.CLEO_ROOT = repo;
     process.env[RESOURCE_SAMPLE_FILE_ENV] = path;
     try {
-      const backend = defaultResourceBackend();
-      expect(
-        backend instanceof DarwinResourceBackend || backend instanceof LinuxResourceBackend,
-      ).toBe(true);
+      // The backend reads this machine (the platform sampler, spied to a known value).
+      const HOST_SCORE = 7;
+      const host = JSON.parse(sampleJson(HOST_SCORE));
+      vi.spyOn(DarwinResourceBackend.prototype, 'sample').mockResolvedValue(host);
+      vi.spyOn(LinuxResourceBackend.prototype, 'sample').mockResolvedValue(host);
+      _resetSampleFixtureForTest();
+      expect(pressureScore(await defaultResourceBackend().sample())).toBe(HOST_SCORE);
+      vi.restoreAllMocks();
     } finally {
       if (savedRoot === undefined) delete process.env.CLEO_ROOT;
       else process.env.CLEO_ROOT = savedRoot;

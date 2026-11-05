@@ -50,7 +50,6 @@ import { EventEmitter } from 'node:events';
 import type { ResourceBackend, ResourceSample } from './backend.js';
 import { DarwinResourceBackend } from './darwin-backend.js';
 import { LinuxResourceBackend } from './linux-backend.js';
-import { sampleFixturePath, withSampleFixture } from './sample-fixture.js';
 
 /**
  * The backend for this platform: macOS gets {@link DarwinResourceBackend}
@@ -65,9 +64,14 @@ export function defaultResourceBackend(
   platform: NodeJS.Platform = process.platform,
 ): ResourceBackend {
   const base = platform === 'darwin' ? new DarwinResourceBackend() : new LinuxResourceBackend();
-  // T14282: the test suite's fixed sample, honoured only in the test sandbox.
-  const fixture = sampleFixturePath();
-  return fixture === null ? base : withSampleFixture(base, fixture);
+  // T14282: the test suite's fixed sample (`RESOURCE_SAMPLE_FILE_ENV` in
+  // sample-fixture.ts), honoured only in the test sandbox. Its module loads only
+  // when the variable is set, so it never joins the CLI's startup graph.
+  if (!process.env.CLEO_RESOURCE_SAMPLE_FILE) return base;
+  return {
+    sample: async () => (await import('./sample-fixture.js')).fixtureSample(base),
+    sweepChildRss: (pids) => base.sweepChildRss(pids),
+  };
 }
 
 // ---------------------------------------------------------------------------

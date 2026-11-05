@@ -18,8 +18,8 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getProjectRoot } from '../paths.js';
-import { insideTestSandbox, TEST_SANDBOX_MARKER } from '../test-sandbox.js';
-import type { ChildRssSweep, ResourceBackend, ResourceSample } from './backend.js';
+import { insideTestSandbox, TEST_SANDBOX_MARKER } from '../store/worktree-build-guard.js';
+import type { ResourceBackend, ResourceSample } from './backend.js';
 
 /** Names a JSON resource sample the default backend returns (test sandbox only). */
 export const RESOURCE_SAMPLE_FILE_ENV = 'CLEO_RESOURCE_SAMPLE_FILE';
@@ -73,21 +73,19 @@ export function _resetSampleFixtureForTest(): void {
 }
 
 /**
- * `base` with its samples read from `path` (a JSON {@link ResourceSample},
- * stamped with the current time). A file that cannot be read or parsed
- * throws, which every caller reads as "no signal".
+ * One sample for the default backend when {@link RESOURCE_SAMPLE_FILE_ENV} is
+ * set (T14282): the fixture's JSON {@link ResourceSample}, stamped with the
+ * current time, when {@link sampleFixturePath} honours it; otherwise `base`'s
+ * own sample of this machine. A fixture that cannot be read or parsed throws,
+ * which every caller reads as "no signal". Loaded only when the variable is
+ * set, so the CLI's startup graph never carries it.
  *
- * @param base - the platform backend (its RSS sweep is kept).
- * @param path - the sample file, already checked by {@link sampleFixturePath}.
+ * @param base - the platform backend.
+ * @returns the sample.
  */
-export function withSampleFixture(base: ResourceBackend, path: string): ResourceBackend {
-  return {
-    async sample(): Promise<ResourceSample> {
-      const parsed = JSON.parse(readFileSync(path, 'utf8')) as ResourceSample;
-      return { ...parsed, sampledAtMs: Date.now() };
-    },
-    sweepChildRss(pids: readonly number[]): Promise<ChildRssSweep> {
-      return base.sweepChildRss(pids);
-    },
-  };
+export async function fixtureSample(base: ResourceBackend): Promise<ResourceSample> {
+  const path = sampleFixturePath();
+  if (path === null) return base.sample();
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as ResourceSample;
+  return { ...parsed, sampledAtMs: Date.now() };
 }
