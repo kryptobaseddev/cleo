@@ -68,6 +68,17 @@ export const RESOURCE_CLASSES: readonly ResourceClass[] = Object.freeze([
 export const RESOURCE_DEFERRED_CODE = 'E_RESOURCE_DEFERRED' as const;
 
 /**
+ * `cleo run --wait` (and a queued evidence run): memory pressure held the
+ * queue above the refuse line while CLEO itself held nothing, for two notice
+ * intervals. The pressure is another program's, so waiting longer is not a
+ * plan: the verdict names those programs ({@link ExternalPressureDetails}).
+ * Nothing was started.
+ *
+ * @task T14282
+ */
+export const RESOURCE_EXTERNAL_PRESSURE_CODE = 'E_RESOURCE_EXTERNAL_PRESSURE' as const;
+
+/**
  * `cleo run`: the admitted command exited non-zero, was killed by a signal, or
  * could not be started. The envelope's `details` carry the exit code/signal.
  * @task T12979
@@ -177,6 +188,40 @@ export interface ResourceDeferral {
    * than a full budget: the readings behind it (T13127).
    */
   readonly memoryPressure?: MemoryPressureReading;
+}
+
+/**
+ * One process outside CLEO holding the memory behind an
+ * {@link RESOURCE_EXTERNAL_PRESSURE_CODE} verdict.
+ *
+ * @task T14282
+ */
+export interface ExternalPressureProcess {
+  /** Process id. */
+  readonly pid: number;
+  /** Command name, as the process table shows it. */
+  readonly command: string;
+  /** Memory it holds in bytes (macOS footprint, Linux RSS; see {@link MemoryConsumer}). */
+  readonly rssBytes: number;
+  /** The project it runs in, when known. */
+  readonly project?: string;
+}
+
+/**
+ * Why admission gave up on a wait: pressure from processes outside CLEO
+ * ({@link RESOURCE_EXTERNAL_PRESSURE_CODE}).
+ *
+ * @task T14282
+ */
+export interface ExternalPressureDetails {
+  /** The largest memory users outside CLEO, largest first; empty when none could be listed. */
+  readonly topProcesses: readonly ExternalPressureProcess[];
+  /** Always `null`: CLEO cannot say when another program frees its memory. */
+  readonly expectedAdmitAt: null;
+  /** How long the run waited before the verdict. */
+  readonly waitedMs: number;
+  /** The memory gate's readings at the verdict. */
+  readonly memoryPressure: MemoryPressureReading;
 }
 
 /**

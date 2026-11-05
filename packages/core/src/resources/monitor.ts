@@ -50,18 +50,24 @@ import { EventEmitter } from 'node:events';
 import type { ResourceBackend, ResourceSample } from './backend.js';
 import { DarwinResourceBackend } from './darwin-backend.js';
 import { LinuxResourceBackend } from './linux-backend.js';
+import { sampleFixturePath, withSampleFixture } from './sample-fixture.js';
 
 /**
  * The backend for this platform: macOS gets {@link DarwinResourceBackend}
  * (kernel pressure level + load), everything else {@link LinuxResourceBackend}
- * (which degrades to availability-only where `/proc` is absent).
+ * (which degrades to availability-only where `/proc` is absent). Inside the
+ * test sandbox, `CLEO_RESOURCE_SAMPLE_FILE` replaces the host's samples with a
+ * fixture (T14282).
  *
  * @task T12981
  */
 export function defaultResourceBackend(
   platform: NodeJS.Platform = process.platform,
 ): ResourceBackend {
-  return platform === 'darwin' ? new DarwinResourceBackend() : new LinuxResourceBackend();
+  const base = platform === 'darwin' ? new DarwinResourceBackend() : new LinuxResourceBackend();
+  // T14282: the test suite's fixed sample, honoured only in the test sandbox.
+  const fixture = sampleFixturePath();
+  return fixture === null ? base : withSampleFixture(base, fixture);
 }
 
 // ---------------------------------------------------------------------------

@@ -81,6 +81,7 @@ import {
 import { hostname, totalmem } from 'node:os';
 import { join, matchesGlob, relative, resolve } from 'node:path';
 import type {
+  ExternalPressureDetails,
   HeavyToolResourcePlan,
   MemoryConsumer,
   MemoryPressureReading,
@@ -118,6 +119,7 @@ import {
 import { classifyPressure, pressureScore, ResourceMonitor } from './monitor.js';
 import {
   checkMemoryGate,
+  EXTERNAL_PRESSURE_AFTER_MS,
   MEMORY_GATE_RETRY_AFTER_MS,
   type MemoryGateReporter,
 } from './pressure-gate.js';
@@ -196,14 +198,6 @@ export const LEDGER_VERSION = 1;
  * old slot locks had the same 10-minute takeover as a backstop.
  */
 export const LEDGER_ORPHAN_MS = 600_000;
-
-/**
- * `CLEO_ADMISSION_PRESSURE=off`: admission ignores memory and CPU pressure
- * and admits on the byte budget alone (a CI runner whose PSI is noisy, and
- * the test suite, which must never depend on the host's load). An explicit
- * sampler passed to {@link admit} is still used.
- */
-export const ADMISSION_PRESSURE_ENV = 'CLEO_ADMISSION_PRESSURE';
 
 /** One GiB in bytes. */
 export const GIB = 1024 ** 3;
@@ -2238,7 +2232,7 @@ export interface AdmitOptions {
    * One pressure sample; a throw counts as no signal. A sampler given here is
    * always called: it bypasses the verdict another process wrote to the
    * ledger in the last 2 s, which the default reuses.
-   * @defaultValue a ResourceMonitor sample, or none under `CLEO_ADMISSION_PRESSURE=off`
+   * @defaultValue a ResourceMonitor sample (in the test sandbox, `CLEO_RESOURCE_SAMPLE_FILE`'s fixture)
    */
   readonly sample?: () => Promise<ResourceSample>;
   /** The machine budget in bytes. @defaultValue {@link admissionCapacityBytes} */
@@ -2285,6 +2279,12 @@ export interface AdmitOptions {
    * {@link LEDGER_ORPHAN_MS} by a child nobody waits for. A throw is ignored.
    */
   readonly onPass?: () => void;
+  /**
+   * How long a waiter is held above the refuse line, with CLEO holding
+   * nothing, before it gets the external-pressure verdict (T14282).
+   * @defaultValue {@link EXTERNAL_PRESSURE_AFTER_MS}
+   */
+  readonly externalPressureAfterMs?: number;
 }
 
 /** An admission: the share is held until `release`. */
@@ -2331,6 +2331,12 @@ export interface AdmissionRefusal {
   readonly ahead: number;
   /** One line per admitted run. */
   readonly holders: readonly string[];
+  /**
+   * Set when a waiter gave up because the pressure is another program's: the
+   * memory gate refused above its refuse line while CLEO held nothing, for
+   * {@link AdmitOptions.externalPressureAfterMs} (T14282).
+   */
+  readonly externalPressure?: ExternalPressureDetails;
 }
 
 /** {@link admit}'s result. */
@@ -2427,9 +2433,6 @@ async function sampleShare(
   probeFor: readonly LedgerEntry[] | null = null,
 ): Promise<ShareVerdict> {
   if (!opts.sample) {
-    if (process.env[ADMISSION_PRESSURE_ENV] === 'off') {
-      return { share: 'full', lightShare: 'full', reading: null, sampled: null };
-    }
     if (cached !== null && isFresh(cached, nowMs)) {
       return {
         share: cached.share,
@@ -2851,7 +2854,26 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     let lastReportAt = t0;
     let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
     let reading = first.reading;
+    let seenDoc = first.doc;
+    // T14282: since when the gate has refused above its refuse line while CLEO
+    // held nothing. The pressure is then another program's: say so and stop.
+    let externalSince: number | null = null;
+    const externalAfterMs = opts.externalPressureAfterMs ?? EXTERNAL_PRESSURE_AFTER_MS;
     for (;;) {
+      externalSince = externallyHeld(reading, seenDoc) ? (externalSince ?? now()) : null;
+      if (reading !== null && externalSince !== null && now() - externalSince >= externalAfterMs) {
+        const raced = await leave();
+        checkQueue();
+        if (raced !== null)
+          return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
+        return {
+          admitted: false,
+          refusal: {
+            ...refusal(seenDoc, reading),
+            externalPressure: externalPressureDetails(reading, now() - t0),
+          },
+        };
+      }
       if (opts.keepAlive && now() - lastKeepAliveAt >= (opts.keepAliveMs ?? 300_000)) {
         lastKeepAliveAt = now();
         await opts.keepAlive().catch(() => undefined);
@@ -2873,6 +2895,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       await sleep(Math.min(opts.pollMs ?? READ_POLL_MS, remaining));
       checkQueue();
       const seen = readLedgerDoc(dir);
+      seenDoc = seen;
       const mine = seen.entries.find((e) => e.id === entry.id);
       if (mine?.state === 'admitted') {
         opts.memoryPressure?.admitted(now() - t0, null);
@@ -2900,6 +2923,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         first = await pass();
         checkQueue();
         reading = first.reading;
+        seenDoc = first.doc;
         if (first.mine?.state === 'admitted') {
           opts.memoryPressure?.admitted(now() - t0, null);
           checkQueue();
@@ -2946,6 +2970,40 @@ function passDue(
   if (sinceLastPassMs < PASS_EVERY_MS) return false;
   // An injected sampler never reads the cache, so it never waits on it either.
   return opts.sample !== undefined || pressure === null || !isFresh(pressure, nowMs);
+}
+
+/**
+ * Whether the memory gate holds the queue for a program outside CLEO
+ * (T14282): it refuses above its refuse line (not merely latched below it),
+ * and CLEO holds nothing — no admitted run, no entry of another CLEO version.
+ */
+function externallyHeld(reading: MemoryPressureReading | null, doc: LedgerDoc): boolean {
+  if (reading === null || isLatchedBelowRefuse(reading)) return false;
+  return doc.foreign.length === 0 && !doc.entries.some((e) => e.state === 'admitted');
+}
+
+/**
+ * The external-pressure verdict's details (T14282): the largest memory users
+ * outside CLEO (CLEO's own runs are already left out of the reading's list).
+ *
+ * @param reading - the gate's refusing reading.
+ * @param waitedMs - how long the run waited.
+ */
+export function externalPressureDetails(
+  reading: MemoryPressureReading,
+  waitedMs: number,
+): ExternalPressureDetails {
+  const top = reading.topConsumers?.processes;
+  return {
+    topProcesses: (Array.isArray(top) ? top : []).map((p) => ({
+      pid: p.pid,
+      command: p.command,
+      rssBytes: p.footprintBytes,
+    })),
+    expectedAdmitAt: null,
+    waitedMs,
+    memoryPressure: reading,
+  };
 }
 
 /** What the admitted runs and foreign entries take from the budget. */
