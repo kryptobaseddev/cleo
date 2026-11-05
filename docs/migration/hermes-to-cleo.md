@@ -149,7 +149,7 @@ cleo federation list --human
 cat ~/.cleo/federation.json
 ```
 
-See the [federation guide](../skills/federation.md) for the full federation
+See the [federation guide](../reference/federation.md) for the full federation
 model.
 
 ## Troubleshooting
@@ -193,10 +193,10 @@ for the security audit trail.
 
 ## Where to next
 
-- [Federation guide](../skills/federation.md) — opt-in to federation peers,
+- [Federation guide](../reference/federation.md) — opt-in to federation peers,
   manage the trust ladder, configure first-install prompts.
 - [ADR-075](../../.cleo/adrs/ADR-075-skills-federation-trust-ladder.md) —
   full rule-set documentation, the 120-pattern threat table, and the
   anti-patterns the scanner does NOT cover.
-- [Skills-guard reference](../skills/federation.md#trust-matrix) — quick
+- [Skills-guard reference](../reference/federation.md#trust-matrix) — quick
   lookup for the `INSTALL_POLICY` matrix.

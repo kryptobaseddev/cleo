@@ -1,7 +1,7 @@
 ---
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
-version: 3.0.4
+version: 3.0.5
 protocol: decomposition
 adrRefs:
   - ADR-066
@@ -17,14 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.0.4
+  version: 3.0.5
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/decomposition.cant
     - packages/core/src/validation/protocols/protocols-markdown/decomposition.md
   loomStage: decomposition
-  lastReviewed: 2026-09-30
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -351,4 +351,4 @@ This skill binds to the **decomposition** LOOM lifecycle stage. Governing ADRs:
 - [ADR-066 — task taxonomy consolidation](../../../../.cleo/adrs/ADR-066-task-taxonomy-consolidation.md) — defines the Type/Kind/Severity axes the decomposer must populate on every leaf task.
 - [ADR-073 — above-epic naming](../../../../.cleo/adrs/ADR-073-above-epic-naming.md) — defines the Saga/Epic/Task/Subtask hierarchy that decomposition produces.
 
-LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).

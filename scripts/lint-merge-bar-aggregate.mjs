@@ -62,7 +62,7 @@
  *
  * @task T11955
  * @epic T11679 (DHQ burn-down)
- * @see docs/release/branch-protection-setup.md § "Required Status Checks"
+ * @see docs/guide/branch-protection-setup.md § "Required Status Checks"
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -386,7 +386,7 @@ function main() {
   }
   process.stderr.write(
     '\nFix: ensure the aggregate job `needs:` every sibling, uses `if: always()`,\n' +
-      'and checks `needs.*.result`. See docs/release/branch-protection-setup.md.\n',
+      'and checks `needs.*.result`. See docs/guide/branch-protection-setup.md.\n',
   );
   return 1;
 }

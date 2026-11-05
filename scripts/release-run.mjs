@@ -25,7 +25,7 @@
  *  6. Asserts the PR is version-only against its merge-base with the default
  *     branch (`scripts/ci-detect-version-only.mjs`).
  *  7. Admin-merges with `--match-head-commit` (the one sanctioned `--admin`,
- *     docs/release/merge-queue-runbook.md) and appends the audit line to
+ *     docs/guide/merge-runbook.md) and appends the audit line to
  *     `.cleo/audit/force-bypass.jsonl`.
  *  8. Tags the merge commit explicitly (`git tag -a`) and pushes the tag.
  *

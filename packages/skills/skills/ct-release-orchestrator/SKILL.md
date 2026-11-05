@@ -1,13 +1,13 @@
 ---
 name: ct-release-orchestrator
-description: "Orchestrates CLEO releases. Default (T14102): cleo release cut {version} tags the newest main commit with green CI, and release.yml writes the CHANGELOG from changesets, publishes, and opens an auto-merging CHANGELOG + version PR; cleo release reconcile records provenance. The SPEC-T9345 4-verb pipeline (cleo release plan, cleo release open, PR + tag) stays one release as a fallback (T14114). The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status."
+description: "Orchestrates CLEO releases. Default (T14102): cleo release cut {version} tags the newest main commit with green CI, and release.yml writes the CHANGELOG from changesets, publishes, and opens an auto-merging CHANGELOG + version PR; cleo release reconcile records provenance. The SPEC-T9345 4-verb pipeline (cleo release plan, cleo release open, PR + tag) stays one release as a fallback (T14114). The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/reference/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status."
 protocol: release
 adrRefs:
   - ADR-053
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.7.0
+  version: 3.7.1
   tier: on-demand
   install: harness
   covers:
@@ -17,7 +17,7 @@ metadata:
     - packages/core/src/release/cut.ts
     - packages/core/src/release/authorization.ts
   loomStage: release
-  lastReviewed: 2026-11-03
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -47,7 +47,7 @@ The unified-hooks pilot must first supply hosted VidaPeps CI, read-only database
 verification and live harness evidence bound to the exact canary source digest.
 Source changes require fresh pilot evidence. Do not move npm tags manually.
 
-Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalised when T9540 deleted the legacy `start` / `verify` / `publish` verbs (and the 12-step `releaseShip` monolith) plus T10103 deleted the deprecated `ship` shim. The current verb surface is documented in `docs/release/verb-matrix.md` — that file is the SSoT for verb-to-state mapping. This skill is the agent-facing entry point and references the matrix instead of redefining it.
+Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalised when T9540 deleted the legacy `start` / `verify` / `publish` verbs (and the 12-step `releaseShip` monolith) plus T10103 deleted the deprecated `ship` shim. The current verb surface is documented in `docs/reference/verb-matrix.md` — that file is the SSoT for verb-to-state mapping. This skill is the agent-facing entry point and references the matrix instead of redefining it.
 
 ## Core Principle
 
@@ -96,7 +96,7 @@ The plan/open pipeline below stays for one release as a fallback; T14114 deletes
 | 3 | _(GHA)_ `release-prepare.yml` → PR merge | `pr-opened` → `pr-merged` | Owned by CI; verify via `cleo release pr-status <ver>` |
 | 4 | `git tag -a v<ver> -m "Release v<ver>" && git push origin v<ver>` | `pr-merged` → `tag-pushed` | Explicit tag after the release PR merges — `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087); the tag push triggers `release.yml` |
 | 5 | `cleo release reconcile <ver>` | `tag-pushed` → `published` | Backfills 11 provenance tables; idempotent |
-| 6 | _(GHA)_ `release.yml` Publish: release candidate gate | `<ver>-rc.ci.<n>` on `canary` → `<ver>` on `latest` | Automatic, OIDC only, no token (T13181). The candidate must install from npm and pass the sandbox soak (`scripts/release-canary-soak.mjs`) before the release publishes to `latest`; a failed gate leaves users on the previous release, and a re-run of the failed job continues. No dist-tag is ever moved by hand: a bad release is fixed forward with the next patch. Runbook: `docs/release/merge-queue-runbook.md`, "Release candidate gate" |
+| 6 | _(GHA)_ `release.yml` Publish: release candidate gate | `<ver>-rc.ci.<n>` on `canary` → `<ver>` on `latest` | Automatic, OIDC only, no token (T13181). The candidate must install from npm and pass the sandbox soak (`scripts/release-canary-soak.mjs`) before the release publishes to `latest`; a failed gate leaves users on the previous release, and a re-run of the failed job continues. No dist-tag is ever moved by hand: a bad release is fixed forward with the next patch. Runbook: `docs/guide/merge-runbook.md`, "Release candidate gate" |
 
 Optional validators (read-only / dry-run):
 
@@ -114,7 +114,7 @@ Optional validators (read-only / dry-run):
 | RLSE-002 | `CHANGELOG.md` MUST be updated before the tag — always-write is the default behaviour of `cleo release plan` (T9784 deleted the manual changelog verb). | Plan envelope refuses to advance to `pr-opened` if the changeset directory is unparseable (T10105). |
 | RLSE-003 | All per-task evidence gates MUST be recorded via `cleo verify <task> --gate <g> --evidence …` BEFORE `cleo complete`. The legacy `cleo release verify` batch verb was deleted in T9540. | ADR-051 per-task evidence ritual. | <!-- cleo-cmd: negative-example: release verify -->
 | RLSE-004 | The release MUST be tagged explicitly: by `cleo release cut` (API tag on the green sha), or on the fallback path with `git tag -a v<ver>` + `git push origin v<ver>` after the release PR merges. | Auto-tag was retired in T10434 / ADR-087: `GITHUB_TOKEN` tag pushes did not reliably trigger `release.yml`. |
-| RLSE-005 | Direct pushes to `main` are prohibited. A cut release reaches main's CHANGELOG and versions through `release.yml`'s auto-merging `release/v<ver>` PR; the fallback path through the PR `release-prepare.yml` cuts. | ADR-065 + branch protection (see `docs/release/branch-protection-setup.md`). |
+| RLSE-005 | Direct pushes to `main` are prohibited. A cut release reaches main's CHANGELOG and versions through `release.yml`'s auto-merging `release/v<ver>` PR; the fallback path through the PR `release-prepare.yml` cuts. | ADR-065 + branch protection (see `docs/guide/branch-protection-setup.md`). |
 | RLSE-006 | Version MUST be consistent across all workspace targets resolved by `resolveVersionBumpTargets` (root package.json + every workspace package + Cargo workspace). | Version-bump preflight in `release-prepare.yml`. |
 | RLSE-007 | Provenance reconcile runs automatically: the merge sweep calls `reconcileLatestRelease` once the GitHub release exists (ADR-099). Run `cleo release reconcile <ver>` only to recover. | T14101 merge sweep. |
 
@@ -200,7 +200,7 @@ Exit codes (canonical):
 
 The authoritative reference for every job that runs in this repo's GitHub Actions pipeline — including which jobs run on PR-to-main vs push-to-main vs tag-push, branch-protection cross-check, and documented divergences — lives at:
 
-- [docs/release/job-inventory.md](../../../../docs/release/job-inventory.md) (T10106 · Saga T10099)
+- [docs/reference/job-inventory.md](../../../../docs/reference/job-inventory.md) (T10106 · Saga T10099)
 
 Consult the inventory whenever:
 
@@ -216,6 +216,6 @@ This skill binds to the **release** LOOM lifecycle stage. Governing ADRs:
 - [ADR-063 — release pipeline](../../../../.cleo/adrs/ADR-063-release-pipeline.md) — original 12-step pipeline (historical; superseded by SPEC-T9345 §4).
 - [ADR-065 — PR-required release flow](../../../../.cleo/adrs/ADR-065-pr-required-release-flow.md) — direct pushes to `main` are prohibited.
 
-Live verb matrix: [docs/release/verb-matrix.md](../../../../docs/release/verb-matrix.md) — the single source of truth for verb-to-state mapping.
+Live verb matrix: [docs/reference/verb-matrix.md](../../../../docs/reference/verb-matrix.md) — the single source of truth for verb-to-state mapping.
 
-LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).

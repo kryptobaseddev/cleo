@@ -23,7 +23,7 @@ describe('detectInfrastructureTouch', () => {
     const result = detectInfrastructureTouch([
       'packages/cleo/src/cli/commands/show.ts',
       'packages/cleo/src/cli/commands/list.ts',
-      'docs/release/branch-protection-setup.md',
+      'docs/guide/branch-protection-setup.md',
     ]);
     expect(result.affected).toBe(false);
     expect(result.matchedPaths).toEqual([]);

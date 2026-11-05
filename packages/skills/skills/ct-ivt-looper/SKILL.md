@@ -6,14 +6,14 @@ adrRefs:
   - ADR-051
   - ADR-061
 metadata:
-  version: 1.0.3
+  version: 1.0.4
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/testing.cant
     - packages/core/src/validation/protocols/protocols-markdown/testing.md
   loomStage: testing
-  lastReviewed: 2026-10-01
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -217,4 +217,4 @@ This skill binds to the **testing** LOOM lifecycle stage. Governing ADRs:
 - [ADR-051 — programmatic gate integrity](../../../../.cleo/adrs/ADR-051-programmatic-gate-integrity.md) — defines the evidence atoms (`test-run:<json>`, `tool:test`, `tool:test-affected` with `testing.affectedCommand`, `ci:<pr>` after merge with `evidence.ciSatisfies`) that the IVT loop emits and that downstream `cleo verify --gate testsPassed` re-validates.
 - [ADR-061 — project-agnostic verify tools](../../../../.cleo/adrs/ADR-061-project-agnostic-verify-tools.md) — defines the canonical tool-resolution layer (`test`, `build`, `lint`, `typecheck`) that the loop walks for framework-agnostic execution.
 
-LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).

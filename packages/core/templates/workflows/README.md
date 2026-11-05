@@ -10,7 +10,7 @@ resolved at scaffold/upgrade time against the local project context,
 Contract boundary: these four templates are portable CLEO consumer tooling.
 The cleocode repository's own `.github/workflows/*.yml` files are dogfood-only
 owner CI unless a shipped CLEO installer renders them into a consumer project.
-See `docs/release/consumer-workflow-hook-contract.md` for the T10476 taxonomy.
+See `docs/spec/consumer-workflow-hook-contract.md` for the T10476 taxonomy.
 
 ## Template files
 

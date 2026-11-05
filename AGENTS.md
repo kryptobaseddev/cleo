@@ -255,7 +255,7 @@ gh api -X PUT repos/:owner/:repo/branches/main/protection \
   -f restrictions=null
 ```
 
-Runbooks: `docs/release/merge-queue-runbook.md`, `docs/release/verb-matrix.md`, `docs/release/branch-protection-setup.md`.
+Runbooks: `docs/guide/merge-runbook.md`, `docs/reference/verb-matrix.md`, `docs/guide/branch-protection-setup.md`.
 
 ## Runtime Data Safety (ADR-013 §9)
 

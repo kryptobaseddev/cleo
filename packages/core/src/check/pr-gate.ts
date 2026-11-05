@@ -23,7 +23,7 @@
  *
  * @task T11956
  * @epic T11679 (DHQ burn-down)
- * @see docs/release/branch-protection-setup.md § "Required Status Checks"
+ * @see docs/guide/branch-protection-setup.md § "Required Status Checks"
  */
 
 import { spawnSync } from 'node:child_process';

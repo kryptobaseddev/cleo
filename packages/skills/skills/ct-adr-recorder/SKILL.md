@@ -6,14 +6,14 @@ adrRefs:
   - ADR-053
   - ADR-070
 metadata:
-  version: 1.0.2
+  version: 1.0.3
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/architecture-decision.cant
     - packages/core/src/validation/protocols/protocols-markdown/architecture-decision.md
   loomStage: architecture_decision
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -289,4 +289,4 @@ This skill binds to the **architecture_decision** LOOM lifecycle stage (undersco
 
 The stage's canonical name is **`architecture_decision`** (underscored) because the `cleo lifecycle` CLI emits it that way. Historically `packages/skills/skills/manifest.json` `dispatch_matrix.by_protocol` used the dashed form `architecture-decision` — T9672 reconciled that key to the underscored form. The dashed form is retained only as a keyword alias under `dispatch_matrix.by_keyword` so legacy dispatch paths continue to resolve. Frontmatter on this skill (`protocol: architecture_decision`, `loomStage: architecture_decision`) uses the underscored form.
 
-LOOM coverage matrix: [docs/skills/loom-coverage-matrix.md](../../../../docs/skills/loom-coverage-matrix.md).
+LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).
