@@ -158,6 +158,25 @@ describe('disposeWorktree proof (T13924)', () => {
     expect(disposeWorktree({ worktreePath: wt, taskId: 'T17', reason: 'test' }).removed).toBe(true);
   });
 
+  it('a commit integrated into the named default branch (core getDefaultBranch) is preserved', () => {
+    const wt = worktree('T19');
+    commitIn(wt, 'w.ts', 'w\n');
+    git(repo, 'branch', 'trunk', 'main');
+    git(repo, 'checkout', '-q', 'trunk');
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'integrate', 'task/T19');
+    git(repo, 'checkout', '-q', 'main');
+    // Without the name, main is the default branch, and main lacks the commit.
+    expect(unpreservedCommits(wt)).toContain('not on the default branch');
+    expect(unpreservedCommits(wt, 'trunk')).toBeNull();
+    const r = disposeWorktree({
+      worktreePath: wt,
+      taskId: 'T19',
+      reason: 'test',
+      defaultBranch: 'trunk',
+    });
+    expect(r.removed).toBe(true);
+  });
+
   it('a commit pushed to origin is preserved; the worktree goes', () => {
     const wt = worktree('T4');
     commitIn(wt, 'w.ts', 'w\n');

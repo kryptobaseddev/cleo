@@ -274,10 +274,12 @@ function currentBranch(path: string): string | null | undefined {
  * locally. The same order as core's `resolveOriginDefault`/`resolveBaseRef`
  * (git/base-ref.ts), which this package cannot import.
  */
-function localDefaultBranch(path: string): string | null {
+function localDefaultBranch(path: string, named?: string): string | null {
   const symbolic = git(path, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
   const fromOrigin = symbolic?.trim().replace(/^origin\//, '');
-  for (const name of [fromOrigin, 'main', 'master']) {
+  // The probe order of core's getDefaultBranch (ADR-062).
+  const candidates = named ? [named] : [fromOrigin, 'main', 'master', 'develop', 'trunk'];
+  for (const name of candidates) {
     if (name && git(path, ['rev-parse', '--verify', '-q', `refs/heads/${name}`]) !== null) {
       return `refs/heads/${name}`;
     }
@@ -296,13 +298,15 @@ function localDefaultBranch(path: string): string | null {
  * proven preserved".
  *
  * @param path - Checkout root.
+ * @param defaultBranch - The project's default branch; resolved as in
+ *   {@link DisposeWorktreeOptions.defaultBranch} when omitted.
  * @returns Why its commits are not preserved, or `null`.
  * @task T13924
  */
-export function unpreservedCommits(path: string): string | null {
+export function unpreservedCommits(path: string, defaultBranch?: string): string | null {
   if (git(path, ['rev-parse', '--git-dir']) === null) return 'git cannot read the checkout';
   if (git(path, ['rev-parse', '--verify', '-q', 'HEAD']) === null) return null; // unborn
-  const base = localDefaultBranch(path);
+  const base = localDefaultBranch(path, defaultBranch);
   const out = git(path, [
     'rev-list',
     '--count',
@@ -526,7 +530,7 @@ export function disposeWorktree(opts: DisposeWorktreeOptions): DisposeWorktreeRe
 
   const unpreserved =
     unprovenContent(worktreePath, projectRoot, { exemptRegenerable: opts.exemptRegenerable }) ??
-    unpreservedCommits(worktreePath);
+    unpreservedCommits(worktreePath, opts.defaultBranch);
   if (unpreserved !== null && opts.force !== true) {
     return keep(`not proven preserved: ${unpreserved}`, { unpreserved });
   }

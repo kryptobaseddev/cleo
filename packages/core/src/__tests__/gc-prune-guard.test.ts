@@ -96,9 +96,10 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
         activeTaskIds: new Set(['PRESERVED']),
       });
 
-      expect(result.quarantinedPaths).toEqual([dirtyWt]);
+      // Kept and reported as not proven preserved: git cannot read the plain directory.
+      expect([...result.quarantinedPaths].sort()).toEqual([dirtyWt, plain]);
       expect(result.removedPaths).toEqual([cleanWt]);
-      expect(result.errors.map((e) => e.path)).toEqual([plain]);
+      expect(result.errors).toEqual([]);
       expect(existsSync(join(dirtyWt, 'dirty.txt'))).toBe(true);
       expect(existsSync(cleanWt)).toBe(false);
       expect(readFileSync(join(plain, 'data.txt'), 'utf-8')).toBe('only copy\n');

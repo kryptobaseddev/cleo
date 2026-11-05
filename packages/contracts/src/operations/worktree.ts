@@ -621,6 +621,12 @@ export interface DisposeWorktreeOptions {
   reason: string;
   /** The task's recorded evidence atoms (T13696). */
   evidence?: readonly EvidenceAtom[];
+  /**
+   * The project's default branch (core `getDefaultBranch`, which honours
+   * `git.defaultBranch`). When omitted: `origin/HEAD`, then `main`, `master`,
+   * `develop`, `trunk`.
+   */
+  defaultBranch?: string;
   /** Ignored build output counts as redundant: only for a checkout whose commits are merged. */
   exemptRegenerable?: boolean;
   /**

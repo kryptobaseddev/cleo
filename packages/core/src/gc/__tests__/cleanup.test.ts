@@ -261,8 +261,12 @@ describe('pruneOrphanWorktrees', () => {
     });
 
     expect(result.removedPaths).toEqual([join(projectDir, 'T1003')]);
-    expect(result.quarantinedPaths).toEqual([join(projectDir, 'T1002')]);
-    expect(result.errors.map((e) => e.path)).toEqual([join(projectDir, 'T1004')]);
+    // Kept and reported as not proven preserved: git cannot read T1004.
+    expect([...result.quarantinedPaths].sort()).toEqual([
+      join(projectDir, 'T1002'),
+      join(projectDir, 'T1004'),
+    ]);
+    expect(result.errors).toEqual([]);
     expect(existsSync(join(projectDir, 'T1002', 'wip.ts'))).toBe(true);
     expect(existsSync(join(projectDir, 'T1004'))).toBe(true);
   });

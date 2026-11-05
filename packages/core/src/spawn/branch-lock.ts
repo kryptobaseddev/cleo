@@ -343,6 +343,8 @@ export interface PruneWorktreeResult {
  * @param projectRoot - Absolute path to the project root.
  * @param opts.auditLogPath - Override path for the audit JSONL (testing).
  * @param opts.evidence - The task's recorded evidence atoms (T13696).
+ * @param opts.defaultBranch - The branch the task's commits were integrated
+ *   into; they count as preserved there (T13924).
  * @returns Prune outcome.
  *
  * @task T1462
@@ -351,7 +353,7 @@ export interface PruneWorktreeResult {
 export function pruneWorktree(
   taskId: string,
   projectRoot: string,
-  opts: { auditLogPath?: string; evidence?: readonly EvidenceAtom[] } = {},
+  opts: { auditLogPath?: string; evidence?: readonly EvidenceAtom[]; defaultBranch?: string } = {},
 ): PruneWorktreeResult {
   const branch = `task/${taskId}`;
   let gitRoot: string;
@@ -394,6 +396,7 @@ export function pruneWorktree(
     taskId,
     reason: 'complete',
     evidence: opts.evidence,
+    defaultBranch: opts.defaultBranch,
   });
   const wasDirty = disposal.unpreserved !== undefined;
   if (!disposal.removed) {

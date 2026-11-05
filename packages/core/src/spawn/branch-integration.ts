@@ -694,7 +694,10 @@ export function completeAgentWorktreeViaMerge(
     const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
     const pruneResult = dirty
       ? null
-      : pruneWorktree(taskId, projectRoot, { evidence: opts.evidence });
+      : pruneWorktree(taskId, projectRoot, {
+          evidence: opts.evidence,
+          defaultBranch: targetBranch,
+        });
     let branchDeleted = pruneResult?.branchDeleted ?? false;
     // pruneWorktree only deletes a branch with zero commits ahead of the
     // checkout HEAD, so a stale local default branch, a squash merge, or a
@@ -753,7 +756,10 @@ export function completeAgentWorktreeViaMerge(
       error: result.error,
     };
   }
-  const pruneResult = pruneWorktree(taskId, projectRoot, { evidence: opts.evidence });
+  const pruneResult = pruneWorktree(taskId, projectRoot, {
+    evidence: opts.evidence,
+    defaultBranch: targetBranch,
+  });
   return {
     ...noMerge,
     merged: true,
