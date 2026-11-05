@@ -123,7 +123,6 @@ export async function refreshProjectPresence(
     // costs at most one timeout at teardown (T13308). `currentBearer()` only, as
     // every other request: a pending rotation token may not be known to the
     // server yet, and falling back would cost a second request.
-    const fetchWith = fetchFor(opts);
     const sends = links.flatMap((link) => {
       const origin = new URL(link.apiUrl).origin;
       const device = devices.find(
@@ -145,7 +144,8 @@ export async function refreshProjectPresence(
           cliVersion: opts.cliVersion,
           timeoutMs: NEXUS_PRESENCE_REFRESH_TIMEOUT_MS,
           ...(opts.now ? { now: opts.now } : {}),
-          ...(fetchWith ? { fetch: fetchWith } : {}),
+          ...(opts.fetch ? { fetch: opts.fetch } : {}),
+          ...(opts.signal ? { signal: opts.signal } : {}),
         }),
       ];
     });
@@ -158,18 +158,6 @@ export async function refreshProjectPresence(
   } catch {
     return 'failed';
   }
-}
-
-/** The fetch to send with: the caller's, aborted with its `signal` too (T14284). */
-function fetchFor(opts: RefreshProjectPresenceOptions): FetchLike | undefined {
-  const { signal } = opts;
-  if (signal === undefined) return opts.fetch;
-  const base: FetchLike = opts.fetch ?? ((input, init) => globalThis.fetch(input, init));
-  return (input, init) =>
-    base(input, {
-      ...init,
-      signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
-    });
 }
 
 /**
