@@ -385,6 +385,44 @@ describe('doctor type-matrix (T14096)', () => {
     ).rejects.toMatchObject({ code: 23 });
   });
 
+  it('T14235: a parent re-type and its child re-type land together, and only together', async () => {
+    // As T9047/T9054: epic P (really a task) sits under epic R and holds the
+    // leaf task C. P -> task needs C -> subtask in the same batch.
+    await seedTasks(env.accessor, [row('R', 'saga'), row('P', 'epic', 'R'), row('C', 'task', 'P')]);
+    await env.accessor.updateTaskFields('R', { type: 'epic' });
+    const both = [
+      { kind: 'retype' as const, taskId: 'P', to: 'task' as const },
+      { kind: 'retype' as const, taskId: 'C', to: 'subtask' as const },
+    ];
+    // Either row alone leaves a misplaced row, and the refusal names it.
+    await expect(planTypeMatrixRepair(env.tempDir, [both[0]!])).rejects.toThrow(
+      /would leave C where/,
+    );
+    await expect(planTypeMatrixRepair(env.tempDir, [both[1]!])).rejects.toThrow(
+      /would leave C where/,
+    );
+    // Both rows, in either order, apply in one run.
+    expect((await planTypeMatrixRepair(env.tempDir, [both[1]!, both[0]!])).unresolved).toEqual([]);
+    const done = await applyTypeMatrixRepair(env.tempDir, both);
+    expect(done.unresolved).toEqual([]);
+    expect((await env.accessor.loadSingleTask('P'))?.type).toBe('task');
+    expect((await env.accessor.loadSingleTask('C'))?.type).toBe('subtask');
+    expect((await planTypeMatrixRepair(env.tempDir)).violations).toBe(0);
+  });
+
+  it('T14235: a batch that leaves several rows misplaced names every one', async () => {
+    await seedTasks(env.accessor, [
+      row('R', 'saga'),
+      row('P', 'epic', 'R'),
+      row('C', 'task', 'P'),
+      row('D', 'task', 'P'),
+    ]);
+    await env.accessor.updateTaskFields('R', { type: 'epic' });
+    await expect(
+      planTypeMatrixRepair(env.tempDir, [{ kind: 'retype', taskId: 'P', to: 'task' }]),
+    ).rejects.toThrow(/would leave C, D where/);
+  });
+
   it('parses a resolutions file and refuses a malformed one', () => {
     expect(
       parseTypeMatrixResolutions(
