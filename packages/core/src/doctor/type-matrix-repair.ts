@@ -45,6 +45,7 @@ import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { nextTaskVersion } from '../store/task-version.js';
 import { assertParentNotIrreversiblyTerminal } from '../tasks/child-disposition.js';
+import { exceedsMaxDepth } from '../tasks/hierarchy.js';
 import { getHierarchyLimits } from '../tasks/task-tree.js';
 
 /** Audit-log action of an applied repair (its row id is the receipt id). */
@@ -54,10 +55,14 @@ export const TYPE_MATRIX_ROLLBACK_ACTION = 'doctor.type-matrix.rollback';
 
 const TASK_TYPES: readonly TaskType[] = ['saga', 'epic', 'task', 'subtask'];
 
-/** One repair operation: re-type a task, or move it under another parent. */
+/**
+ * One repair operation: re-type a task, or move it under another parent
+ * (`toParentId: null` moves it to the root). A resolution may give one task
+ * both a re-type and a reparent; they are applied together as one write.
+ */
 export type TypeMatrixRepairOp =
   | { readonly kind: 'retype'; readonly taskId: string; readonly to: TaskType }
-  | { readonly kind: 'reparent'; readonly taskId: string; readonly toParentId: string };
+  | { readonly kind: 'reparent'; readonly taskId: string; readonly toParentId: string | null };
 
 /** A parent/child pair that breaks the matrix, and how it can be repaired. */
 export interface TypeMatrixViolationPlan {
@@ -250,12 +255,15 @@ export function parseTypeMatrixResolutions(
     }
     if (op['kind'] === 'retype' && isTaskType(op['to'])) {
       operations.push({ kind: 'retype', taskId, to: op['to'] });
-    } else if (op['kind'] === 'reparent' && typeof op['toParentId'] === 'string') {
+    } else if (
+      op['kind'] === 'reparent' &&
+      (typeof op['toParentId'] === 'string' || op['toParentId'] === null)
+    ) {
       operations.push({ kind: 'reparent', taskId, toParentId: op['toParentId'] });
     } else {
       return {
         ok: false,
-        reason: `operation ${i} must be {"kind":"retype","to":<saga|epic|task|subtask>} or {"kind":"reparent","toParentId":<id>}`,
+        reason: `operation ${i} must be {"kind":"retype","to":<saga|epic|task|subtask>} or {"kind":"reparent","toParentId":<id|null>}`,
       };
     }
   }
@@ -301,32 +309,39 @@ function decideOperations(
   const operations: TypeMatrixRepairOp[] = [];
   const seen = new Set<string>();
   let after = new Map(model);
-  for (const op of resolutions) {
-    if (!model.has(op.taskId)) {
+  for (const [taskId, ops] of groupByTask(resolutions)) {
+    if (!model.has(taskId)) {
       // @sync-invariant none:input-shape a resolution naming an unknown task is refused before anything is written
-      throw refuse(`Resolution names ${op.taskId}, which is not a task in this store.`);
+      throw refuse(`Resolution names ${taskId}, which is not a task in this store.`);
     }
-    if (op.kind === 'reparent' && !model.has(op.toParentId)) {
-      // @sync-invariant none:input-shape a resolution naming an unknown parent is refused before anything is written
-      throw refuse(`Resolution moves ${op.taskId} under ${op.toParentId}, which is not a task.`);
+    const kinds = ops.map((op) => op.kind);
+    if (new Set(kinds).size !== kinds.length) {
+      // @sync-invariant none:input-shape two resolutions of one kind for a task are refused before anything is written
+      throw refuse(
+        `Two ${kinds[0]} resolutions name ${taskId}; give at most one re-type and one reparent per task.`,
+      );
     }
-    if (seen.has(op.taskId)) {
-      // @sync-invariant none:input-shape two resolutions for one task are refused before anything is written
-      throw refuse(`Two resolutions name ${op.taskId}; give one per task.`);
-    }
-    if (op.kind === 'reparent') assertReparentAllowed(op, after, guards);
     const trial = new Map(after);
-    applyOp(trial, op);
-    const broken = newlyBroken(op.taskId, after, trial);
-    if (!placed(op.taskId, trial) || broken.length > 0) {
+    for (const op of ops) {
+      if (op.kind === 'reparent') {
+        if (op.toParentId !== null && !model.has(op.toParentId)) {
+          // @sync-invariant none:input-shape a resolution naming an unknown parent is refused before anything is written
+          throw refuse(`Resolution moves ${taskId} under ${op.toParentId}, which is not a task.`);
+        }
+        assertReparentAllowed(op, trial, guards);
+      }
+      applyOp(trial, op);
+    }
+    const broken = newlyBroken(taskId, after, trial);
+    if (!placed(taskId, trial) || broken.length > 0) {
       // @sync-invariant task.parent.type-matrix a resolution that leaves the matrix broken is refused before anything is written
       throw refuse(
-        `The resolution for ${op.taskId} would leave ${[op.taskId, ...broken].join(', ')} where the type matrix (saga→epic, epic→task, task→subtask) does not allow it.`,
+        `The resolution for ${taskId} would leave ${[taskId, ...broken].join(', ')} where the type matrix (saga→epic, epic→task, task→subtask) does not allow it.`,
         'Run cleo doctor type-matrix for the options, and resolve each ambiguous pair with one of them.',
       );
     }
-    seen.add(op.taskId);
-    operations.push(op);
+    seen.add(taskId);
+    operations.push(...ops);
     after = trial;
   }
   for (const plan of plans) {
@@ -345,14 +360,26 @@ function decideOperations(
   return { operations, unresolved };
 }
 
+/** Resolutions grouped by task, in the order each task first appears. */
+function groupByTask(ops: readonly TypeMatrixRepairOp[]): Map<string, TypeMatrixRepairOp[]> {
+  const groups = new Map<string, TypeMatrixRepairOp[]>();
+  for (const op of ops) {
+    const list = groups.get(op.taskId) ?? [];
+    list.push(op);
+    groups.set(op.taskId, list);
+  }
+  return groups;
+}
+
 /** What a reparent resolution is checked against, as `cleo update --parent` checks it. */
 interface ReparentGuards {
   readonly status: ReadonlyMap<string, string>;
   readonly limits: { readonly maxDepth: number; readonly maxSiblings: number };
 }
 
+/** Ancestor count of `id` (a root is 0), as `getTaskDepth` counts it. */
 function depthOf(id: string, model: ReadonlyMap<string, Node>): number {
-  let depth = 1;
+  let depth = 0;
   let parent = model.get(id)?.parentId ?? null;
   const seen = new Set([id]);
   while (parent !== null && !seen.has(parent)) {
@@ -379,16 +406,27 @@ function assertReparentAllowed(
   model: ReadonlyMap<string, Node>,
   guards: ReparentGuards,
 ): void {
-  if (op.toParentId === op.taskId) {
+  const target = op.toParentId;
+  const children = childIndex(model);
+  if (target === null) {
+    if (subtreeHeight(op.taskId, children) > guards.limits.maxDepth) {
+      // @sync-invariant none:input-shape a reparent past the depth limit is refused before anything is written
+      throw refuse(
+        `Moving ${op.taskId} to the root would exceed the max depth of ${guards.limits.maxDepth}.`,
+      );
+    }
+    return;
+  }
+  if (target === op.taskId) {
     // @sync-invariant none:input-shape a reparent under itself is refused before anything is written
     throw refuse(`Moving ${op.taskId} under itself would create a cycle.`);
   }
   assertParentNotIrreversiblyTerminal(
-    { id: op.toParentId, status: guards.status.get(op.toParentId) ?? 'pending' },
+    { id: target, status: guards.status.get(target) ?? 'pending' },
     op.taskId,
     'move',
   );
-  let cursor: string | null = op.toParentId;
+  let cursor: string | null = target;
   const seen = new Set<string>();
   while (cursor !== null && !seen.has(cursor)) {
     if (cursor === op.taskId) {
@@ -400,15 +438,15 @@ function assertReparentAllowed(
     seen.add(cursor);
     cursor = model.get(cursor)?.parentId ?? null;
   }
-  const children = childIndex(model);
-  const deepest = depthOf(op.toParentId, model) + 1 + subtreeHeight(op.taskId, children);
-  if (deepest > guards.limits.maxDepth) {
+  // The moved task sits at depth(target) + 1; its deepest descendant below that.
+  const deepest = depthOf(target, model) + 1 + subtreeHeight(op.taskId, children);
+  if (exceedsMaxDepth(deepest - 1, guards.limits.maxDepth)) {
     // @sync-invariant none:input-shape a reparent past the depth limit is refused before anything is written
     throw refuse(
       `Moving ${op.taskId} under ${op.toParentId} would exceed the max depth of ${guards.limits.maxDepth}.`,
     );
   }
-  const siblings = (children.get(op.toParentId) ?? []).filter((c) => c !== op.taskId).length;
+  const siblings = (children.get(target) ?? []).filter((c) => c !== op.taskId).length;
   if (guards.limits.maxSiblings > 0 && siblings >= guards.limits.maxSiblings) {
     // @sync-invariant none:input-shape a reparent past the sibling limit is refused before anything is written
     throw refuse(
@@ -488,7 +526,49 @@ export interface TypeMatrixApplyOptions {
    * each row is written only at the version the plan read, so a write made
    * after the review is `E_CONFLICT` with nothing changed.
    */
-  readonly plan?: TypeMatrixRepairReport;
+  readonly plan?: TypeMatrixReviewedPlan;
+}
+
+/** The part of a dry run an apply is held to. */
+export type TypeMatrixReviewedPlan = Pick<TypeMatrixRepairReport, 'operations' | 'rowVersions'>;
+
+/**
+ * Parse a reviewed dry run for `--plan <file>`: the `cleo doctor type-matrix`
+ * JSON output (the envelope or its `data`).
+ *
+ * @param text - The file's contents.
+ * @returns The operations and row versions, or why the file was refused.
+ * @example
+ * ```ts
+ * const reviewed = parseTypeMatrixPlan(readFileSync('plan.json', 'utf-8'));
+ * ```
+ */
+export function parseTypeMatrixPlan(
+  text: string,
+): { ok: true; value: TypeMatrixReviewedPlan } | { ok: false; reason: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    return { ok: false, reason: `not JSON (${err instanceof Error ? err.message : String(err)})` };
+  }
+  const outer =
+    typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  const inner = outer['data'];
+  const report =
+    typeof inner === 'object' && inner !== null ? (inner as Record<string, unknown>) : outer;
+  const ops = parseTypeMatrixResolutions(JSON.stringify(report['operations'] ?? null));
+  if (!ops.ok) return { ok: false, reason: `not a type-matrix dry run: operations ${ops.reason}` };
+  const versions = report['rowVersions'];
+  if (typeof versions !== 'object' || versions === null || Array.isArray(versions)) {
+    return { ok: false, reason: 'not a type-matrix dry run: rowVersions is missing' };
+  }
+  const rowVersions: Record<string, string> = {};
+  for (const [id, v] of Object.entries(versions)) {
+    if (typeof v !== 'string') return { ok: false, reason: `rowVersions.${id} is not a version` };
+    rowVersions[id] = v;
+  }
+  return { ok: true, value: { operations: ops.operations, rowVersions } };
 }
 
 /** Ancestors of `id` in the model, nearest first. */
@@ -561,12 +641,16 @@ export async function applyTypeMatrixRepair(
   const after = new Map(model);
   for (const op of operations) applyOp(after, op);
   const childrenAfter = childIndex(after);
-  const reopen = new Set<string>();
+  /** Done ancestor → the tasks whose reparent reopens it. */
+  const reopen = new Map<string, string[]>();
   for (const op of operations) {
     if (op.kind !== 'reparent') continue;
     const oldParent = model.get(op.taskId)?.parentId ?? null;
     for (const id of [...ancestorsOf(oldParent, model), ...ancestorsOf(op.toParentId, after)]) {
-      if (byId.get(id)?.status === 'done') reopen.add(id);
+      if (byId.get(id)?.status !== 'done') continue;
+      const by = reopen.get(id) ?? [];
+      if (!by.includes(op.taskId)) by.push(op.taskId);
+      reopen.set(id, by);
     }
   }
   const receiptId = `type-matrix-${randomUUID()}`;
@@ -586,22 +670,33 @@ export async function applyTypeMatrixRepair(
       return updatedAt;
     };
     const images: TypeMatrixRowImage[] = [];
-    for (const op of operations) {
-      const before = model.get(op.taskId);
-      if (before === undefined) continue;
-      const fields = op.kind === 'retype' ? { type: op.to } : { parentId: op.toParentId };
-      const was = { type: before.type, parentId: before.parentId };
-      const now =
-        op.kind === 'retype' ? { ...was, type: op.to } : { ...was, parentId: op.toParentId };
+    // One write per task: a re-type and a reparent of the same task land
+    // together, so the trigger checks the row only in its final shape.
+    for (const [taskId, ops] of groupByTask(operations)) {
+      const before = model.get(taskId);
+      const now = after.get(taskId);
+      if (before === undefined || now === undefined) continue;
+      const fields: TaskFieldUpdates = {};
+      for (const op of ops) {
+        if (op.kind === 'retype') fields.type = op.to;
+        else fields.parentId = op.toParentId;
+      }
       images.push({
-        id: op.taskId,
-        before: was,
-        after: now,
-        updatedAt: await write(op.taskId, fields),
-        children: childrenAfter.get(op.taskId) ?? [],
+        id: taskId,
+        before: { type: before.type, parentId: before.parentId },
+        after: { type: now.type, parentId: now.parentId },
+        updatedAt: await write(taskId, fields),
+        children: childrenAfter.get(taskId) ?? [],
       });
     }
-    for (const id of reopen) await write(id, { status: 'pending', completedAt: null });
+    // As coreTaskReparent does: reopen and note it on the ancestor.
+    for (const [id, by] of reopen) {
+      const notes = [
+        ...(byId.get(id)?.notes ?? []),
+        `[${stamp}] Reopened by reparent of ${by.join(', ')} (hierarchy changed)`,
+      ];
+      await write(id, { status: 'pending', completedAt: null, notesJson: JSON.stringify(notes) });
+    }
     // Each image carries the version this transaction last wrote.
     const final = images.map((r) => ({ ...r, updatedAt: current.get(r.id) ?? r.updatedAt }));
     await tx.appendLog({
@@ -609,7 +704,7 @@ export async function applyTypeMatrixRepair(
       action: TYPE_MATRIX_REPAIR_ACTION,
       taskId: final[0]?.id ?? 'doctor',
       actor: 'cleo doctor type-matrix',
-      details: { operations, unresolved, reopened: [...reopen] },
+      details: { operations, unresolved, reopened: [...reopen.keys()] },
       before: final.map((r) => ({ id: r.id, ...r.before })),
       after: final.map((r) => ({
         id: r.id,
@@ -625,7 +720,7 @@ export async function applyTypeMatrixRepair(
     receiptId,
     rollback: `cleo doctor type-matrix --rollback ${receiptId}`,
     rows,
-    reopened: [...reopen],
+    reopened: [...reopen.keys()],
   };
 }
 
@@ -639,6 +734,11 @@ export interface TypeMatrixRollbackResult {
   readonly restored: readonly string[];
   /** Rows left as the repair set them: the type-matrix trigger forbids their before image. */
   readonly refused: readonly { readonly id: string; readonly reason: string }[];
+  /**
+   * Ancestors the repair's reparents reopened. A rollback does not close them
+   * again: work may have started on them since, so closing stays a decision.
+   */
+  readonly stillReopened: readonly string[];
 }
 
 /**
@@ -729,6 +829,23 @@ interface AfterImageRow extends ImageRow {
   children?: string[];
 }
 
+/** The ancestors a repair receipt says its reparents reopened. */
+function reopenedOf(detailsJson: string | null): string[] {
+  if (detailsJson === null) return [];
+  try {
+    const details: unknown = JSON.parse(detailsJson);
+    const reopened =
+      typeof details === 'object' && details !== null
+        ? (details as Record<string, unknown>)['reopened']
+        : undefined;
+    return Array.isArray(reopened)
+      ? reopened.filter((x): x is string => typeof x === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function malformed(receiptId: string): CleoError {
   // @sync-invariant none:input-shape a malformed receipt is refused before anything is written
   return new CleoError(
@@ -775,7 +892,9 @@ function parseImages(json: string | null, receiptId: string): AfterImageRow[] {
  * receipt is unknown or already rolled back, or when any row no longer
  * matches the repair's after image (a later edit is never overwritten). Only
  * the rows the type-matrix trigger allows are restored; the rest are listed
- * in `refused` with the reason, and refused outright when none can be.
+ * in `refused` with the reason, and refused outright when none can be. Done
+ * ancestors a reparent reopened stay open (`stillReopened`): closing one again
+ * is a decision, not an undo.
  *
  * @param projectRoot - Project root.
  * @param receiptId - `receiptId` of {@link applyTypeMatrixRepair}.
@@ -876,5 +995,11 @@ export async function rollbackTypeMatrixRepair(
       after: restore,
     });
   });
-  return { receiptId, rollbackReceiptId, restored: restore.map((r) => r.id), refused };
+  return {
+    receiptId,
+    rollbackReceiptId,
+    restored: restore.map((r) => r.id),
+    refused,
+    stillReopened: reopenedOf(receipt.detailsJson),
+  };
 }

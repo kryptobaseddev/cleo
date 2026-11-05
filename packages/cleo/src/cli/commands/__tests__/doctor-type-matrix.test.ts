@@ -15,6 +15,7 @@ const repair = vi.hoisted(() => ({
   applyTypeMatrixRepair: vi.fn(),
   rollbackTypeMatrixRepair: vi.fn(),
   parseTypeMatrixResolutions: vi.fn(),
+  parseTypeMatrixPlan: vi.fn(),
 }));
 const lines = vi.hoisted(() => ({ cliOutput: vi.fn(), cliError: vi.fn() }));
 
