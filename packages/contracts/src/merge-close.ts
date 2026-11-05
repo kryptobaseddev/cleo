@@ -122,6 +122,36 @@ export interface MergeAttributionFailure {
 }
 
 /**
+ * The later main run that resolved an `unknown` receipt (T14255): every
+ * undecided job passed, without a rerun, on a main commit that contains the
+ * change.
+ */
+export interface MergeAttributionResolution {
+  /** What it proves. */
+  claim: 'holds-on-main';
+  /** The later main commit. */
+  sha: string;
+  /** How that commit contains the change: it descends from the merge, or carries the same patch. */
+  via: 'ancestry' | 'patch-id';
+  /** The run attempts judged on it. */
+  runs: MergeAttributionRunPin[];
+}
+
+/**
+ * One workflow run attempt a receipt was judged on (T14253): GitHub keeps
+ * only each job's latest attempt on a commit, so the receipt pins which
+ * attempt it read and when it completed.
+ */
+export interface MergeAttributionRunPin {
+  /** The workflow run id. */
+  runId: number;
+  /** Its attempt (1 = the first run, above 1 = a rerun). */
+  attempt: number;
+  /** When the attempt's last judged job completed, when known. */
+  completedAt: string | null;
+}
+
+/**
  * The attribution receipt of one merged PR (T14252): computed once per
  * (PR, resolved merge sha) and kept in `.cleo/audit/merge-attribution.jsonl`
  * (a `merge_attribution` audit row on the PR's task points at it). In
@@ -139,8 +169,30 @@ export interface MergeAttributionReceipt {
   resolvedFrom: 'merge-commit';
   /** The merge's first parent, the differential's baseline. */
   parentSha: string | null;
+  /**
+   * The merge run attempts judged (T14253): each job at its first attempt,
+   * unless a later attempt on the same sha passed it.
+   */
+  mergeRuns: MergeAttributionRunPin[];
+  /** The parent run attempts compared: those that had started when the merge job ran (T14253). */
+  parentRuns: MergeAttributionRunPin[];
   /** Failing merge-commit jobs, each attributed. */
   failures: MergeAttributionFailure[];
+  /**
+   * The open `main-over-budget` fix task per budget the PR crossed, filed or
+   * found (T14254); absent when it crossed none.
+   */
+  budgetTasks?: string[];
+  /** Why a crossed budget got no fix task (the PR names no task under an epic). */
+  budgetTaskSkipped?: string;
+  /**
+   * How an `unknown` receipt was later resolved (T14255): a completed green
+   * run of its undecided jobs on a later main commit containing the change.
+   * The verdict stays `unknown`; it never closes a task by itself.
+   */
+  resolution?: MergeAttributionResolution;
+  /** The last later main commit inspected without such a run; the next look starts after it. */
+  unresolvedThrough?: string;
   /** The PR's verdict: the most serious of its jobs'. */
   verdict: MergeAttributionVerdict;
   /** What the verdict proves: the change holds on main, or only the head was tested, or nothing. */
