@@ -215,6 +215,7 @@ describe('the differential rule (T14252 AC2, AC3)', () => {
       input(
         {
           mergeSha: merge,
+          parentSha: parent,
           mergeChecks: [job(merge, SHARD1, 'failure', 1)],
           parentChecks: [job(parent, SHARD1, 'failure', 2)],
         },
@@ -226,6 +227,7 @@ describe('the differential rule (T14252 AC2, AC3)', () => {
       input(
         {
           mergeSha: merge,
+          parentSha: parent,
           mergeChecks: [job(merge, SHARD1, 'failure', 1)],
           parentChecks: [job(parent, SHARD1, 'failure', 2)],
         },
@@ -241,6 +243,7 @@ describe('the differential rule (T14252 AC2, AC3)', () => {
       input(
         {
           mergeSha: merge,
+          parentSha: parent,
           mergeChecks: [job(merge, SHARD1, 'failure', 1)],
           parentChecks: [job(parent, SHARD1, 'success', 2)],
           headChecks: [job('head', SHARD1, 'success', 3, { event: 'pull_request' })],
@@ -254,7 +257,15 @@ describe('the differential rule (T14252 AC2, AC3)', () => {
   it('a missing parent observation is unknown with its reason, never a guess', async () => {
     const one = (over: Partial<MergeAttributionInput>, logs: Record<number, string>) =>
       computeMergeAttribution(
-        input({ mergeSha: merge, mergeChecks: [job(merge, SHARD1, 'failure', 1)], ...over }, logs),
+        input(
+          {
+            mergeSha: merge,
+            parentSha: parent,
+            mergeChecks: [job(merge, SHARD1, 'failure', 1)],
+            ...over,
+          },
+          logs,
+        ),
       );
     const log = { 1: failing('src/a.test.ts') };
     const reasons = await Promise.all([
