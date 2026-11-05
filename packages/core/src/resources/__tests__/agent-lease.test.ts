@@ -22,6 +22,7 @@ import {
 } from '../agent-lease.js';
 import type { ResourceSample } from '../backend.js';
 import {
+  _resetAgentSessionConfigNoteForTest,
   _resetGovernorStateForTest,
   agentSessionBudgetConfig,
   computeClassBudget,
@@ -32,7 +33,7 @@ import {
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
 
-/** A calm host with room for exactly three 4 GiB agent sessions above the 2 GiB headroom. */
+/** A calm host. */
 const SAMPLE: ResourceSample = {
   sampledAtMs: 1,
   pressureAvailable: true,
@@ -44,7 +45,8 @@ const SAMPLE: ResourceSample = {
   slicePressure: null,
   walObservations: [],
 };
-const OPTS = { sample: SAMPLE, cpuCount: 16, totalMemBytes: 64 * GB } as const;
+/** A budget of three spawned sessions (T14283: a lease count, set by maxSessions). */
+const OPTS = { sample: SAMPLE, cpuCount: 16, totalMemBytes: 64 * GB, agentMaxSessions: 3 } as const;
 
 let home: string;
 beforeEach(() => {
@@ -208,14 +210,21 @@ describe('agent-session leases (T14133)', () => {
   });
 });
 
-describe('configurable agent-session budget (T14227)', () => {
-  /** Free memory for exactly one default (4 GiB) session above the default 2 GiB headroom. */
-  const LOW: ResourceSample = { ...SAMPLE, memAvailableBytes: 2048 * MB + 4096 * MB + 100 * MB };
-  const LOW_OPTS = { sample: LOW, cpuCount: 16, totalMemBytes: 64 * GB } as const;
+describe('the agent-session budget is a lease count; only critical memory vetoes (T14227, T14283)', () => {
+  const GIB = GB;
+  /** 30 GB held by programs outside CLEO: little free memory, but no hard danger. */
+  const SQUEEZED: ResourceSample = { ...SAMPLE, memAvailableBytes: 2 * GIB };
+  const CRITICAL: ResourceSample = {
+    ...SAMPLE,
+    globalPressure: {
+      some: { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 },
+      full: { avg10: 12, avg60: 12, avg300: 12, totalUs: 0 },
+    },
+  };
 
-  it('a configured budget of 4 admits 4 leases while free memory alone would allow 1', async () => {
-    expect(computeClassBudget('agent-session', LOW, LOW_OPTS)).toBe(1);
-    const opts = { ...LOW_OPTS, agentMaxSessions: 4 };
+  it('with 30 GB held outside CLEO and no hard danger, 4 spawns succeed when maxSessions = 4', async () => {
+    const opts = { sample: SQUEEZED, cpuCount: 16, totalMemBytes: 64 * GB, agentMaxSessions: 4 };
+    expect(computeClassBudget('agent-session', SQUEEZED, opts)).toBe(4);
     for (const id of ['T1', 'T2', 'T3', 'T4']) {
       const taken = await takeAgentSessionLease(id, home, 60_000, opts);
       if (!('lease' in taken)) throw new Error(`refused ${id}: ${taken.deferral.reason}`);
@@ -223,38 +232,54 @@ describe('configurable agent-session budget (T14227)', () => {
     expect(liveAgentLeases()).toHaveLength(4);
     const fifth = await takeAgentSessionLease('T5', home, 60_000, opts);
     if (!('deferral' in fifth)) throw new Error('a fifth lease was admitted');
-    // The refusal names the keys that raise the budget, with their current values.
+    expect(fifth.externalPressure).toBeUndefined();
+    // The refusal names the one key that raises the budget.
     expect(fifth.deferral.reason).toContain('resources.agentSession.maxSessions (now 4)');
-    expect(fifth.deferral.reason).toContain('resources.agentSession.estRamMb (now 4096 MB)');
-    expect(fifth.deferral.reason).toContain('resources.agentSession.headroomMb (now 2048 MB)');
+    expect(fifth.deferral.reason).not.toContain('estRamMb');
   });
 
-  it('unset keys keep the built-in budget; config keys are read and invalid values ignored', async () => {
+  it('unset, the budget is cpus - 2 whatever the free memory', () => {
+    const opts = { sample: SQUEEZED, cpuCount: 16, totalMemBytes: 64 * GB };
+    expect(computeClassBudget('agent-session', SQUEEZED, opts)).toBe(14);
+    expect(computeClassBudget('agent-session', SAMPLE, { ...opts, cpuCount: 2 })).toBe(1);
+  });
+
+  it('under critical memory a spawn defers with the external-pressure details, nothing written', async () => {
+    const taken = await takeAgentSessionLease('T1', home, 60_000, {
+      ...OPTS,
+      sample: CRITICAL,
+      topMemory: () => [{ pid: 4242, command: 'codex', footprintBytes: 13 * GIB }],
+    });
+    if (!('deferral' in taken)) throw new Error('expected a deferral');
+    expect(taken.externalPressure?.topProcesses).toEqual([
+      { pid: 4242, command: 'codex', rssBytes: 13 * GIB },
+    ]);
+    expect(taken.externalPressure?.expectedAdmitAt).toBeNull();
+    expect(taken.deferral.reason).toContain('memory is critical');
+    expect(liveAgentLeases()).toEqual([]);
+  });
+
+  it('maxSessions is read from config; estRamMb and headroomMb are ignored with one deprecation note', async () => {
     const project = mkdtempSync(join(tmpdir(), 'cleo-agent-budget-'));
+    _resetAgentSessionConfigNoteForTest();
     try {
       mkdirSync(join(project, '.cleo'), { recursive: true });
-      expect(await agentSessionBudgetConfig(project)).toEqual({});
-      expect(computeClassBudget('agent-session', SAMPLE, OPTS)).toBe(3);
-
+      const notes: string[] = [];
+      const note = (l: string) => notes.push(l);
+      expect(await agentSessionBudgetConfig(project, note)).toEqual({});
       const config = (resources: object) =>
         writeFileSync(join(project, '.cleo', 'config.json'), JSON.stringify({ resources }));
       config({ agentSession: { maxSessions: 6, estRamMb: 2048, headroomMb: 1024 } });
-      const configured = await agentSessionBudgetConfig(project);
-      expect(configured).toEqual({ agentMaxSessions: 6, agentEstRamMb: 2048, headroomMb: 1024 });
-      expect(computeClassBudget('agent-session', SAMPLE, { ...OPTS, ...configured })).toBe(6);
-
-      config({ agentSession: { estRamMb: 2048, headroomMb: 1024 } });
-      const formula = await agentSessionBudgetConfig(project);
-      // (2048 + 3*4096 - 1024) MiB free over 2 GiB sessions = 6, under cpus - 2 = 14.
-      expect(computeClassBudget('agent-session', SAMPLE, { ...OPTS, ...formula })).toBe(6);
-
-      // resources.headroomMb is the monitor's degraded-mode headroom, not this budget's.
-      config({ headroomMb: 256 });
-      expect(await agentSessionBudgetConfig(project)).toEqual({});
-
-      config({ agentSession: { maxSessions: 0, estRamMb: 'big', headroomMb: -1 } });
-      expect(await agentSessionBudgetConfig(project)).toEqual({});
+      expect(await agentSessionBudgetConfig(project, note)).toEqual({ agentMaxSessions: 6 });
+      expect(await agentSessionBudgetConfig(project, note)).toEqual({ agentMaxSessions: 6 });
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toContain(
+        'resources.agentSession.estRamMb and resources.agentSession.headroomMb are ignored',
+      );
+      config({ agentSession: { maxSessions: 0 } });
+      expect(await agentSessionBudgetConfig(project, note)).toEqual({});
     } finally {
+      _resetAgentSessionConfigNoteForTest();
       rmSync(project, { recursive: true, force: true });
     }
   });

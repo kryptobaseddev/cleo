@@ -16,7 +16,7 @@
  * core-count independent.
  */
 
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -242,7 +242,7 @@ describe('orchestrateSpawnExecute — agent-session admission gate', () => {
 
 describe('a spawned task is in flight and its lease holds a slot (T14133)', () => {
   const MB = 1024 ** 2;
-  /** Room for exactly three 4 GiB agent sessions above the 2 GiB headroom. */
+  /** A budget of three spawned sessions (T14283: a lease count, set by maxSessions). */
   const OPTS = {
     sample: {
       sampledAtMs: 1,
@@ -257,9 +257,20 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
     },
     cpuCount: 16,
     totalMemBytes: 64 * 1024 ** 3,
+    agentMaxSessions: 3,
   } as const;
 
   beforeEach(async () => {
+    // The spawn path reads the budget from the project's config (T14283).
+    const configPath = join(TEST_ROOT, '.cleo', 'config.json');
+    const existing = existsSync(configPath)
+      ? (JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>)
+      : {};
+    mkdirSync(join(TEST_ROOT, '.cleo'), { recursive: true });
+    writeFileSync(
+      configPath,
+      JSON.stringify({ ...existing, resources: { agentSession: { maxSessions: 3 } } }),
+    );
     vi.stubEnv('CLEO_HOME', await mkdtemp(join(tmpdir(), 'cleo-admission-home-')));
     vi.stubEnv('CLEO_RESOURCES_MODE', 'local');
     governorModule._resetGovernorStateForTest();
