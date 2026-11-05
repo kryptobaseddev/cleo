@@ -12,8 +12,10 @@ import type {
   TaskStatus,
   WorktreeDisposalBlockers,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { isSettledChild } from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
