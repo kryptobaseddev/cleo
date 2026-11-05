@@ -1,8 +1,8 @@
 2026-10-10T06:02:27.6348791Z 
-2026-10-10T06:02:27.6357811Z [2m Test Files [22m [1m[32m260 passed[39m[22m[90m (260)[39m
-2026-10-10T06:02:27.6371432Z [2m      Tests [22m [1m[32m3338 passed[39m[22m[2m | [22m[33m3 skipped[39m[2m | [22m[90m1 todo[39m[90m (3342)[39m
-2026-10-10T06:02:27.6371910Z [2m   Start at [22m 05:58:39
-2026-10-10T06:02:27.6373937Z [2m   Duration [22m 227.89s[2m (transform 24.45s, setup 3.12s, import 85.35s, tests 342.48s, environment 15ms)[22m
+2026-10-10T06:02:27.6357811Z  Test Files  260 passed (260)
+2026-10-10T06:02:27.6371432Z       Tests  3338 passed | 3 skipped | 1 todo (3342)
+2026-10-10T06:02:27.6371910Z    Start at  05:58:39
+2026-10-10T06:02:27.6373937Z    Duration  227.89s (transform 24.45s, setup 3.12s, import 85.35s, tests 342.48s, environment 15ms)
 2026-10-10T06:02:27.6374975Z 
 2026-10-10T06:02:27.6480155Z JSON report written to /tmp/flaky-quarantine-UG33cx/first.json
 2026-10-10T06:02:28.3678025Z ### Flaky quarantine over budget
