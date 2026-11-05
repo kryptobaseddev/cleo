@@ -1044,19 +1044,6 @@ Quick reference for agents and code calling removed operations.
 - `.cleo/agent-outputs/CLEO-OPERATIONS-CONSOLIDATION-DECISION.md` -- Full decision matrix (T5609)
 - `.cleo/agent-outputs/T5608-tier-audit.md` -- Tier assignment audit
 
-<!-- merged from `cleo-operation-constitution` by cleo docs modernize -->
-
-## References (from `cleo-operation-constitution`)
-
-- `packages/cleo/src/dispatch/registry.ts` -- Executable SSoT
-- `packages/cleo/src/dispatch/types.ts` -- Type definitions
-- `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
-- `docs/specs/CLEO-OPERATIONS-REFERENCE.md` -- CLI operations reference
-- `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` -- Visual architecture guide
-- `.cleo/adrs/ADR-030-operation-model-rationalization.md` -- Rationalization ADR (T5611)
-- `.cleo/agent-outputs/CLEO-OPERATIONS-CONSOLIDATION-DECISION.md` -- Full decision matrix (T5609)
-- `.cleo/agent-outputs/T5608-tier-audit.md` -- Tier assignment audit
-
 <!-- merged from `cleo-api-authority-superseded` by cleo docs modernize -->
 
 ## From `cleo-api-authority-superseded`

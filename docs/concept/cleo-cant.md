@@ -8,17 +8,17 @@
 
 ## Canon Placement
 
-This document is the specification for CANT, the unified agent communication protocol in the CLEO ecosystem. It sits between the [CLEO Operation Constitution](../specs/CLEO-OPERATION-CONSTITUTION.md) (which defines what operations exist) and the [NEXUS Core Aspects](./NEXUS-CORE-ASPECTS.md) (which defines the workshop vocabulary). CANT defines how agents speak those operations to each other and to the system.
+This document is the specification for CANT, the unified agent communication protocol in the CLEO ecosystem. It sits between the [CLEO Operation Constitution](../spec/cleo-operation-constitution.md) (which defines what operations exist) and the [NEXUS Core Aspects](nexus-core-aspects.md) (which defines the workshop vocabulary). CANT defines how agents speak those operations to each other and to the system.
 
 ### Relationship to Existing Canon
 
 | Canon Document | What It Defines | Relationship to CANT |
 |---|---|---|
-| [CLEO-VISION.md](./CLEO-VISION.md) | Identity, six canonical systems, pillars | CANT serves the "Agent Communication Contract" pillar |
-| [CLEO-OPERATION-CONSTITUTION.md](../specs/CLEO-OPERATION-CONSTITUTION.md) | 11 domains, canonical verbs, CQRS gateways | CANT's directives map to these operations |
-| [CLEO-SYSTEM-FLOW-ATLAS.md](./CLEO-SYSTEM-FLOW-ATLAS.md) | Runtime flow, package boundaries | CANT flows through this system |
-| [NEXUS-CORE-ASPECTS.md](./NEXUS-CORE-ASPECTS.md) | Workshop vocabulary (Thread, Loom, Conduit) | CANT is spoken over the Conduit relay path |
-| [CLEO-MANIFESTO.md](./CLEO-MANIFESTO.md) | Mythic identity, the Circle | CANT is the language the Circle speaks when building together |
+| [CLEO-VISION.md](cleo-vision.md) | Identity, six canonical systems, pillars | CANT serves the "Agent Communication Contract" pillar |
+| [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md) | 11 domains, canonical verbs, CQRS gateways | CANT's directives map to these operations |
+| [CLEO-SYSTEM-FLOW-ATLAS.md](cleo-system-flow-atlas.md) | Runtime flow, package boundaries | CANT flows through this system |
+| [NEXUS-CORE-ASPECTS.md](nexus-core-aspects.md) | Workshop vocabulary (Thread, Loom, Conduit) | CANT is spoken over the Conduit relay path |
+| [CLEO-MANIFESTO.md](cleo-manifesto.md) | Mythic identity, the Circle | CANT is the language the Circle speaks when building together |
 
 ### Where LAFS Fits
 
@@ -84,8 +84,8 @@ LOOM is the lifecycle. Hooks are the event system. CANT is the language.
 > **Domain Events (2026-03-27)**: CAAMP has been extended beyond the original 16 provider
 > events with 15 CLEO domain events covering task, memory, pipeline, and session operations.
 > Both provider and domain events use the same `on Event:` syntax in CANT. See
-> [CANT-EXECUTION-SEMANTICS.md](../specs/CANT-EXECUTION-SEMANTICS.md) Sections 9-12 for
-> the Generic Domain Event Protocol and [CANT-DSL-SPEC.md](../specs/CANT-DSL-SPEC.md)
+> [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md) Sections 9-12 for
+> the Generic Domain Event Protocol and [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
 > Section 5 for the complete event table.
 
 ---
@@ -297,7 +297,7 @@ IDENTIFIER    ::= [a-zA-Z][a-zA-Z0-9_-]*
 DIGITS        ::= [0-9]+
 ```
 
-> **Implementation note**: This grammar will grow complex. The `cant-core` Rust crate uses a proper parser (not regex) to handle current and future grammar extensions. Both SignalDock (Rust, native import) and the TypeScript ecosystem (`@cleocode/cant` via napi-rs) consume `cant-core` as the single parsing SSoT. See [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) for the full crate architecture.
+> **Implementation note**: This grammar will grow complex. The `cant-core` Rust crate uses a proper parser (not regex) to handle current and future grammar extensions. Both SignalDock (Rust, native import) and the TypeScript ecosystem (`@cleocode/cant` via napi-rs) consume `cant-core` as the single parsing SSoT. See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full crate architecture.
 
 ---
 
@@ -461,7 +461,9 @@ SignalDock (the Rust backend at `api.signaldock.io`) is the first and currently 
 | Directive-to-CLEO mapping | NOT shipped | Awaiting NEXUS Phase B in `@cleocode/core` |
 | LAFS response envelopes | NOT shipped | **14 divergences** — `data` vs `result`, `meta` vs `_meta`, wrong pagination model. Requires `lafs-core` migration. |
 
-**Target**: SignalDock replaces `extract_from_content()` with `cant-core::parse()`, replaces `envelope.rs` with `lafs-core`, and replaces `conduit.rs` with `conduit-core`. All three are git deps from the `cleocode/` monorepo. See [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) Section 3.
+> **Removed (T13954, 2026-10-24):** the `conduit-core` crate (later renamed `cleo-conduit-core`) is no longer in the cleocode monorepo. Conduit messaging is retiring (epic T13933) and agents message each other over AgentMBX. External consumers that still need the types pin the crates.io release `=2026.5.105`. Mentions of `conduit-core` below are historical.
+
+**Target**: SignalDock replaces `extract_from_content()` with `cant-core::parse()`, replaces `envelope.rs` with `lafs-core`, and replaces `conduit.rs` with `conduit-core`. All three are git deps from the `cleocode/` monorepo. See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) Section 3.
 
 ### 5.2 Where SignalDock Fits
 
@@ -474,7 +476,7 @@ SignalDock remains a separate, closed-source service. It imports three crates fr
 - `conduit-core` — canonical Conduit wire types (replaces SignalDock's duplicated `conduit.rs`)
 - `cant-core` — canonical CANT grammar parser (replaces SignalDock's `extract_from_content()`)
 
-See [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) for the full integration architecture.
+See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full integration architecture.
 
 ---
 
@@ -649,10 +651,10 @@ A misbehaving agent could flood actionable directives.
 
 ## Canon Index Update
 
-This document should be added to the [CLEO Canon Index](./CLEO-CANON-INDEX.md) as entry 3.5 (after the Atlas, before the Core Package Spec):
+This document should be added to the [CLEO Canon Index](cleo-canon-index.md) as entry 3.5 (after the Atlas, before the Core Package Spec):
 
-> **3.5. [CLEO-CANT.md](./CLEO-CANT.md)**
-> The agent communication protocol. Read this to understand how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). Includes the formal grammar (with `cant-core` Rust crate as parsing SSoT), directive-to-operation mapping, and the relationship between CANT (protocol), Conduit (client interface), and SignalDock (backend service). See also [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) for the full crate and package architecture.
+> **3.5. [CLEO-CANT.md](cleo-cant.md)**
+> The agent communication protocol. Read this to understand how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). Includes the formal grammar (with `cant-core` Rust crate as parsing SSoT), directive-to-operation mapping, and the relationship between CANT (protocol), Conduit (client interface), and SignalDock (backend service). See also [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full crate and package architecture.
 
 ---
 
@@ -671,148 +673,3 @@ Together, they are CANT.
 ---
 
 *Specification authored by versionguard-opencode-13e7defc (The Wardens). Reviewed against existing canon: CLEO-VISION.md, CLEO-OPERATION-CONSTITUTION.md, CLEO-SYSTEM-FLOW-ATLAS.md, NEXUS-CORE-ASPECTS.md, and @cleocode/contracts source (conduit.ts, lafs.ts). Based on emergent patterns observed across 300+ messages in the CleoOS 9-agent orchestration group.*
-
-<!-- merged from `cleo-cant` by cleo docs modernize -->
-
-## Canon Placement (from `cleo-cant`)
-
-This document is the specification for CANT, the unified agent communication protocol in the CLEO ecosystem. It sits between the [CLEO Operation Constitution](../spec/cleo-operation-constitution.md) (which defines what operations exist) and the [NEXUS Core Aspects](./nexus-core-aspects.md) (which defines the workshop vocabulary). CANT defines how agents speak those operations to each other and to the system.
-
-### Relationship to Existing Canon
-
-| Canon Document | What It Defines | Relationship to CANT |
-|---|---|---|
-| [CLEO-VISION.md](./cleo-vision.md) | Identity, six canonical systems, pillars | CANT serves the "Agent Communication Contract" pillar |
-| [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md) | 11 domains, canonical verbs, CQRS gateways | CANT's directives map to these operations |
-| [CLEO-SYSTEM-FLOW-ATLAS.md](./cleo-system-flow-atlas.md) | Runtime flow, package boundaries | CANT flows through this system |
-| [NEXUS-CORE-ASPECTS.md](./nexus-core-aspects.md) | Workshop vocabulary (Thread, Loom, Conduit) | CANT is spoken over the Conduit relay path |
-| [CLEO-MANIFESTO.md](./cleo-manifesto.md) | Mythic identity, the Circle | CANT is the language the Circle speaks when building together |
-
-### Where LAFS Fits
-
-LAFS (LLM-Agent-First Schema) is the response protocol. It defines how the system answers. CANT absorbs LAFS as its **response syntax** and adds the missing half: the **conversation syntax** that defines how agents speak.
-
-```
-CANT (Collaborative Agent Notation Tongue)
-    ├── Conversation Syntax   ← NEW: directives, addressing, references
-    └── Response Syntax       ← LAFS: envelopes, MVI, errors, pagination
-```
-
-LAFS is not replaced. `@cleocode/lafs` continues to exist as the response format package. CANT is the umbrella protocol that encompasses both directions of communication.
-
----
-
-## The Five Layers of CLEO Communication (from `cleo-cant`)
-
-CANT is one layer in a clean five-layer stack. Each layer has a distinct responsibility and a name grounded in canon.
-
-```
-  CANT          what agents say (conversation + response protocol)
-    |
-  Conduit       how messages move (transport relay)
-    |
-  Dispatch      where operations route (11 domains, CQRS gateways)
-    |
-  LOOM          what stage work is in (RCASD-IVTR+C lifecycle)
-    |
-  Hooks/CAAMP   when events fire (16 provider + 15 domain events)
-```
-
-CANT does not replace any other layer. Conduit is the relay path. Dispatch is the router.
-LOOM is the lifecycle. Hooks are the event system. CANT is the language.
-
-> **Domain Events (2026-03-27)**: CAAMP has been extended beyond the original 16 provider
-> events with 15 CLEO domain events covering task, memory, pipeline, and session operations.
-> Both provider and domain events use the same `on Event:` syntax in CANT. See
-> [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md) Sections 9-12 for
-> the Generic Domain Event Protocol and [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
-> Section 5 for the complete event table.
-
----
-
-## NEXUS Router — Assignee Column Shipped (from `cleo-cant`)
-
-Added `assignee` field to tasks table with migration 0014.
-New facade methods: `tasks.claim(taskId, agentId)`, `tasks.unclaim(taskId)`.
-Atomic claim prevents double-assignment via SQLite UNIQUE constraint.
-
-@versionguard-opencode-13e7defc — Phase E can now execute.
-E.2 prerequisites are met: authorizedAgents ACL is enforced.
-```
-
-Parsed extraction:
-
-| Element | Value |
-|---------|-------|
-| Directive | `/done` (actionable → `tasks.complete`) |
-| Addresses | `@cleoos-opus-orchestrator`, `@all` |
-| Task refs | `T1234` |
-| Tags | `#shipped`, `#phase-B` |
-| Body mentions | `@versionguard-opencode-13e7defc` |
-
-### 1.6 Formal Grammar (BNF)
-
-The grammar below is the **v1 foundation**. The canonical parser lives in `cleocode/crates/cant-core/` (Rust) and is designed for significant future extension — structured payloads, nested directives, conditional syntax, typed metadata blocks, and grammar versioning. The BNF here defines the baseline; `cant-core` is the living SSoT.
-
-```bnf
-<message>     ::= <header> NEWLINE <body>
-<header>      ::= <directive>? <element>*
-<element>     ::= <address> | <task_ref> | <tag> | <text>
-<directive>   ::= "/" VERB
-<address>     ::= "@" IDENTIFIER
-<task_ref>    ::= "T" DIGITS
-<tag>         ::= "#" IDENTIFIER
-<body>        ::= <any text, may contain addresses, task_refs, tags>
-
-VERB          ::= [a-z][a-z0-9-]*
-IDENTIFIER    ::= [a-zA-Z][a-zA-Z0-9_-]*
-DIGITS        ::= [0-9]+
-```
-
-> **Implementation note**: This grammar will grow complex. The `cant-core` Rust crate uses a proper parser (not regex) to handle current and future grammar extensions. Both SignalDock (Rust, native import) and the TypeScript ecosystem (`@cleocode/cant` via napi-rs) consume `cant-core` as the single parsing SSoT. See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full crate architecture.
-
----
-
-## Part 5: Emerging Use — SignalDock Implementation (from `cleo-cant`)
-
-SignalDock (the Rust backend at `api.signaldock.io`) is the first and currently only production implementation of the Conduit protocol. Its CANT support is partial and evolving.
-
-### 5.1 What SignalDock Already Does
-
-| CANT Feature | SignalDock Status | Gap |
-|---|---|---|
-| Directive extraction | Shipped — `MessageMetadata::extract_from_content()` | **Only 5 of 12 directives whitelisted** (`action`, `info`, `review`, `decision`, `blocked`). Missing: `claim`, `done`, `complete`, `ack`, `proposal`, `response`, `status`, `checkin`. These are silently dropped. |
-| `@mention` extraction | Shipped | Working correctly |
-| `@all` broadcast | Shipped (bug fix) | Working correctly |
-| `#tag` extraction | Shipped | Working correctly |
-| Task ref extraction | Shipped (Phase A.5) | `T` + 3-6 digits only. Grammar may need extension. |
-| Directive-to-CLEO mapping | NOT shipped | Awaiting NEXUS Phase B in `@cleocode/core` |
-| LAFS response envelopes | NOT shipped | **14 divergences** — `data` vs `result`, `meta` vs `_meta`, wrong pagination model. Requires `lafs-core` migration. |
-
-> **Removed (T13954, 2026-10-24):** the `conduit-core` crate (later renamed `cleo-conduit-core`) is no longer in the cleocode monorepo. Conduit messaging is retiring (epic T13933) and agents message each other over AgentMBX. External consumers that still need the types pin the crates.io release `=2026.5.105`. Mentions of `conduit-core` below are historical.
-
-**Target**: SignalDock replaces `extract_from_content()` with `cant-core::parse()`, replaces `envelope.rs` with `lafs-core`, and replaces `conduit.rs` with `conduit-core`. All three are git deps from the `cleocode/` monorepo. See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) Section 3.
-
-### 5.2 Where SignalDock Fits
-
-SignalDock is the **backend service** that Conduit client implementations call. It is NOT a Conduit implementation — `Conduit` is a client-side TypeScript interface defined in `@cleocode/contracts`. Implementations like `HttpTransport` implement `Conduit` by making HTTP calls TO SignalDock.
-
-The analogy: HTTP is a protocol, nginx is a server. Conduit is a client interface, SignalDock is the server. CANT is the message grammar that both sides understand — SignalDock parses it server-side via `cant-core` (Rust, native), Conduit clients parse it client-side via `@cleocode/cant` (TypeScript, napi-rs native binding).
-
-SignalDock remains a separate, closed-source service. It imports three crates from the public `cleocode/` monorepo as git dependencies:
-- `lafs-core` — canonical LAFS envelope types (replaces SignalDock's hand-rolled `envelope.rs`)
-- `conduit-core` — canonical Conduit wire types (replaces SignalDock's duplicated `conduit.rs`)
-- `cant-core` — canonical CANT grammar parser (replaces SignalDock's `extract_from_content()`)
-
-See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full integration architecture.
-
----
-
-## Canon Index Update (from `cleo-cant`)
-
-This document should be added to the [CLEO Canon Index](./cleo-canon-index.md) as entry 3.5 (after the Atlas, before the Core Package Spec):
-
-> **3.5. [CLEO-CANT.md](./cleo-cant.md)**
-> The agent communication protocol. Read this to understand how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). Includes the formal grammar (with `cant-core` Rust crate as parsing SSoT), directive-to-operation mapping, and the relationship between CANT (protocol), Conduit (client interface), and SignalDock (backend service). See also [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full crate and package architecture.
-
----

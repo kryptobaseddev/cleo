@@ -118,7 +118,7 @@ Every log entry (both stores) MUST include the following correlation fields wher
 |-------|---------|-------------|---------|
 | `fatal` | 60 | Process-ending errors that require immediate termination | DB corruption, unrecoverable bootstrap failure, unsupported Node.js version |
 | `error` | 50 | Operation failures requiring attention but not process termination | Engine errors, unhandled exceptions caught at the top level, SQLite write failures in critical paths |
-| `warn` | 40 | Degraded behavior where a fallback was taken or optional config is missing | `projectHash` not provided to `initLogger()`, audit archive failure (continues with deletion), audit prune failure at startup, audit SQLite write failure (fire-and-forget) |
+| `warn` | 40 | Degraded behavior where a fallback was taken or optional config is missing | `projectHash` not provided to `initLogger()`, audit archive failure (continues with deletion), automatic audit prune failure, audit SQLite write failure (fire-and-forget) |
 | `info` | 30 | Normal operational events worth recording | Audit entries (dual-write), server startup/ready, dispatch layer initialized, audit prune completed with row counts, shutdown signals received |
 | `debug` | 20 | Detailed operation flow useful for troubleshooting | Tool call arguments, cache hit/miss decisions, budget enforcement details, tool call results |
 | `trace` | 10 | Fine-grained tracing for deep debugging | SQL queries, middleware chain execution steps |
@@ -137,7 +137,6 @@ The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook 
 2. **preAction hook -- Logger init** (first command invocation only):
    - Loads core config via `loadCoreConfig()`.
    - Calls `initCliLogger(cwd, config.logging)` which reads `projectHash` from `project-info.json` synchronously and calls `initLogger()`.
-   - Fires `pruneAuditLog()` as fire-and-forget (failures silently caught).
    - Best-effort: if config loading fails, commands still work with the stderr fallback logger.
 3. **preAction hook -- Output format resolution**: Resolves `--json`/`--human`/`--quiet` flags.
 4. **preAction hook -- Storage migration preflight**: Checks if JSON-to-SQLite migration is needed. Warnings written to `process.stderr` (not Pino) to avoid polluting stdout JSON output. Skipped for `version`, `init`, `self-update`, `upgrade`, and `help` commands.
@@ -196,147 +195,12 @@ Required events that MUST always be logged:
 ## 8. CLI Initialization Rules
 
 - CLI startup MUST call `initLogger()` before any operations. This is done in the `preAction` hook via `initCliLogger()` in `packages/cleo/src/cli/logger-bootstrap.ts`.
-- CLI `preAction` hook MUST fire `pruneAuditLog()` as fire-and-forget after logger initialization. Failures are silently caught to avoid blocking command execution.
 - All CLI commands route through the dispatch layer via `dispatchRaw()` in `packages/cleo/src/dispatch/adapters/cli.ts`, which applies the `createAudit()` middleware to produce `audit_log` entries with `source: 'cli'`.
 - The `initCliLogger()` function in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring every CLI log entry carries the correct correlation context.
 
 ---
 
 ## 9. Retention Policy
-
-### 9.1 Pino Log Files
-
-| Setting | Config Key | Default | Description |
-|---------|-----------|---------|-------------|
-| Log level | `logging.level` | `'info'` | Minimum level to record |
-| File path | `logging.filePath` | `'logs/cleo.log'` | Relative to `.cleo/` |
-| Max file size | `logging.maxFileSize` | 10,485,760 (10 MB) | Triggers size-based rotation |
-| Max files | `logging.maxFiles` | 5 | Number of rotated files to retain |
-| Rotation frequency | (hardcoded) | `'daily'` | Time-based rotation via pino-roll |
-| Date format | (hardcoded) | `'yyyy-MM-dd'` | Suffix for rotated files |
-
-Retention is enforced by pino-roll via `limit.count` with `removeOtherLogFiles: true`. CLEO does not manage log file deletion independently.
-
-### 9.2 SQLite audit_log
-
-| Setting | Config Key | Env Var | Default | Description |
-|---------|-----------|---------|---------|-------------|
-| Retention days | `logging.auditRetentionDays` | `CLEO_AUDIT_RETENTION_DAYS` | 90 | Days to retain rows before pruning |
-| Archive before prune | `logging.archiveBeforePrune` | (none) | `true` | Export rows to gzip JSONL before deletion |
-
-**Archive location**: `.cleo/backups/logs/audit-YYYY-MM-DD.jsonl.gz`
-
-**Archive format**: Gzip-compressed newline-delimited JSON. Each line is a JSON object representing one `audit_log` row with all columns.
-
-**Pruning behavior**:
-1. If `auditRetentionDays` is 0 or unset, pruning is skipped entirely.
-2. Compute cutoff: `new Date(Date.now() - auditRetentionDays * 86_400_000).toISOString()`.
-3. Select rows where `timestamp < cutoff`.
-4. If no old rows exist, return early.
-5. If `archiveBeforePrune` is true, write selected rows to archive file. Archive failure does NOT prevent deletion (logged at `warn`).
-6. Delete rows where `timestamp < cutoff`.
-7. Log result at `info` level with `rowsDeleted` and `cutoff`.
-
-**Idempotency**: `pruneAuditLog()` is safe to call multiple times. It never throws -- returns zero counts on any error.
-
----
-
-## 10. Audit Middleware Details
-
-### 10.1 What Is Audited
-
-The `createAudit()` middleware in `packages/cleo/src/dispatch/middleware/audit.ts` audits:
-
-- **All mutate operations**: Every `gateway === 'mutate'` request is audited.
-- **Query operations during grade sessions only**: When `CLEO_SESSION_GRADE === 'true'`, query operations are also audited for behavioral analysis.
-- **Audit toggle**: If `config.auditLog` is falsy, auditing is disabled entirely.
-
-### 10.2 Write Semantics
-
-- **Pino write**: Immediate, non-blocking `log.info()` call with structured fields.
-- **SQLite write (normal mode)**: Fire-and-forget -- `writeToSqlite()` is called without `await`. Failures are caught and logged at `error` level.
-- **SQLite write (grade mode)**: Awaited -- ensures the audit row is committed before the response is returned, preventing race conditions with grading queries.
-
-### 10.3 Deduplication Contract
-
-Per ADR-024 section 2.7, every mutation produces exactly one canonical audit record. When both `createAudit()` middleware and `appendLog()` data accessor write entries for the same operation:
-
-| Writer | Authority | Columns |
-|--------|-----------|---------|
-| `createAudit()` middleware | Dispatch-level events | All 18 columns |
-| `appendLog()` data accessor | Task CRUD state diff | Base 8 columns + `before_json` / `after_json` |
-
-The dispatch entry is authoritative. The `appendLog()` entry provides state diffs not captured by dispatch. `request_id` links them.
-
----
-
-## 11. References
-
-- [ADR-019: Canonical Logging Architecture](.cleo/adrs/ADR-019-canonical-logging-architecture.md) -- original dual-write decision
-- [ADR-024: Multi-Store Canonical Logging Architecture](.cleo/adrs/ADR-024-multi-store-canonical-logging.md) -- extensions for CLI init, retention, correlation, and brain.db
-- `packages/core/src/logger.ts` -- Pino logger factory (initLogger, getLogger, closeLogger)
-- `packages/core/src/audit-prune.ts` -- audit_log retention enforcement (pruneAuditLog)
-- `packages/core/src/project-info.ts` -- projectHash/projectId reader (getProjectInfo, getProjectInfoSync)
-- `packages/cleo/src/dispatch/adapters/cli.ts` -- CLI dispatch adapter (`dispatchRaw`, middleware pipeline)
-- `packages/cleo/src/dispatch/middleware/audit.ts` -- dual-write audit middleware (createAudit, writeToSqlite, queryAudit)
-- `packages/cleo/src/cli/logger-bootstrap.ts` -- CLI logger initialization (initCliLogger)
-- `packages/cleo/src/cli/index.ts` -- CLI entry point with preAction hooks
-- `packages/core/src/config.ts` -- configuration defaults including LoggingConfig
-- `src/types/config.ts` -- LoggingConfig type definition
-- `packages/core/src/store/schema.ts` -- audit_log Drizzle schema definition
-- T5318 -- implementation epic
-- T5309 -- this contract document
-
-<!-- merged from `cleo-logging-contract` by cleo docs modernize -->
-
-## 4. Level Policy (from `cleo-logging-contract`)
-
-| Level | Numeric | When to Use | Example |
-|-------|---------|-------------|---------|
-| `fatal` | 60 | Process-ending errors that require immediate termination | DB corruption, unrecoverable bootstrap failure, unsupported Node.js version |
-| `error` | 50 | Operation failures requiring attention but not process termination | Engine errors, unhandled exceptions caught at the top level, SQLite write failures in critical paths |
-| `warn` | 40 | Degraded behavior where a fallback was taken or optional config is missing | `projectHash` not provided to `initLogger()`, audit archive failure (continues with deletion), automatic audit prune failure, audit SQLite write failure (fire-and-forget) |
-| `info` | 30 | Normal operational events worth recording | Audit entries (dual-write), server startup/ready, dispatch layer initialized, audit prune completed with row counts, shutdown signals received |
-| `debug` | 20 | Detailed operation flow useful for troubleshooting | Tool call arguments, cache hit/miss decisions, budget enforcement details, tool call results |
-| `trace` | 10 | Fine-grained tracing for deep debugging | SQL queries, middleware chain execution steps |
-
-**Default level**: `info` (configurable via `logging.level` in config or `CLEO_LOG_LEVEL` env var).
-
----
-
-## 5. Startup / Install / Upgrade Coverage (from `cleo-logging-contract`)
-
-### 5.1 CLI Startup Sequence
-
-The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook for logger initialization:
-
-1. **Node.js version check** (synchronous, pre-citty): If below minimum, writes directly to `process.stderr` and exits with code 1. This runs before any logger is available.
-2. **preAction hook -- Logger init** (first command invocation only):
-   - Loads core config via `loadCoreConfig()`.
-   - Calls `initCliLogger(cwd, config.logging)` which reads `projectHash` from `project-info.json` synchronously and calls `initLogger()`.
-   - Best-effort: if config loading fails, commands still work with the stderr fallback logger.
-3. **preAction hook -- Output format resolution**: Resolves `--json`/`--human`/`--quiet` flags.
-4. **preAction hook -- Storage migration preflight**: Checks if JSON-to-SQLite migration is needed. Warnings written to `process.stderr` (not Pino) to avoid polluting stdout JSON output. Skipped for `version`, `init`, `self-update`, `upgrade`, and `help` commands.
-
-### 5.2 Install / Scaffold
-
-Scaffold operations in `packages/core/src/scaffold.ts` create the `.cleo/` directory structure including `project-info.json` with `projectHash` and `projectId`. Scaffold runs before the logger is typically initialized (it creates the infrastructure the logger depends on), so scaffold events are not logged to Pino. The `project-info.json` file is the source of truth for `projectHash` used by all subsequent logging.
-
-### 5.3 Upgrade / Migrate
-
-Migration events are logged via both `MigrationLogger` (a migration-specific logger) and Pino `getLogger('migration')` when available. Migration started, completed, and failed events are logged at `info`, `info`, and `error` levels respectively.
-
----
-
-## 8. CLI Initialization Rules (from `cleo-logging-contract`)
-
-- CLI startup MUST call `initLogger()` before any operations. This is done in the `preAction` hook via `initCliLogger()` in `packages/cleo/src/cli/logger-bootstrap.ts`.
-- All CLI commands route through the dispatch layer via `dispatchRaw()` in `packages/cleo/src/dispatch/adapters/cli.ts`, which applies the `createAudit()` middleware to produce `audit_log` entries with `source: 'cli'`.
-- The `initCliLogger()` function in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring every CLI log entry carries the correct correlation context.
-
----
-
-## 9. Retention Policy (from `cleo-logging-contract`)
 
 ### 9.1 Pino Log Files
 
@@ -381,10 +245,39 @@ Both apply the same retention days, the 30-day floor and the receipt exemptions.
 
 ---
 
-## 11. References (from `cleo-logging-contract`)
+## 10. Audit Middleware Details
 
-- [ADR-019: Canonical Logging Architecture](../specs/.cleo/adrs/ADR-019-canonical-logging-architecture.md) -- original dual-write decision
-- [ADR-024: Multi-Store Canonical Logging Architecture](../specs/.cleo/adrs/ADR-024-multi-store-canonical-logging.md) -- extensions for CLI init, retention, correlation, and brain.db
+### 10.1 What Is Audited
+
+The `createAudit()` middleware in `packages/cleo/src/dispatch/middleware/audit.ts` audits:
+
+- **All mutate operations**: Every `gateway === 'mutate'` request is audited.
+- **Query operations during grade sessions only**: When `CLEO_SESSION_GRADE === 'true'`, query operations are also audited for behavioral analysis.
+- **Audit toggle**: If `config.auditLog` is falsy, auditing is disabled entirely.
+
+### 10.2 Write Semantics
+
+- **Pino write**: Immediate, non-blocking `log.info()` call with structured fields.
+- **SQLite write (normal mode)**: Fire-and-forget -- `writeToSqlite()` is called without `await`. Failures are caught and logged at `error` level.
+- **SQLite write (grade mode)**: Awaited -- ensures the audit row is committed before the response is returned, preventing race conditions with grading queries.
+
+### 10.3 Deduplication Contract
+
+Per ADR-024 section 2.7, every mutation produces exactly one canonical audit record. When both `createAudit()` middleware and `appendLog()` data accessor write entries for the same operation:
+
+| Writer | Authority | Columns |
+|--------|-----------|---------|
+| `createAudit()` middleware | Dispatch-level events | All 18 columns |
+| `appendLog()` data accessor | Task CRUD state diff | Base 8 columns + `before_json` / `after_json` |
+
+The dispatch entry is authoritative. The `appendLog()` entry provides state diffs not captured by dispatch. `request_id` links them.
+
+---
+
+## 11. References
+
+- [ADR-019: Canonical Logging Architecture](.cleo/adrs/ADR-019-canonical-logging-architecture.md) -- original dual-write decision
+- [ADR-024: Multi-Store Canonical Logging Architecture](.cleo/adrs/ADR-024-multi-store-canonical-logging.md) -- extensions for CLI init, retention, correlation, and brain.db
 - `packages/core/src/logger.ts` -- Pino logger factory (initLogger, getLogger, closeLogger)
 - `packages/core/src/audit-prune.ts` -- audit_log retention enforcement (pruneAuditLog)
 - `packages/core/src/project-info.ts` -- projectHash/projectId reader (getProjectInfo, getProjectInfoSync)

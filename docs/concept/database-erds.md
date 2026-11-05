@@ -1069,22 +1069,6 @@ The status_registry table (tasks.db) stores all valid status values. The canonic
 - `packages/core/src/store/nexus-schema.ts` — nexus.db Drizzle ORM schema
 - `packages/core/src/telemetry/schema.ts` — telemetry.db Drizzle ORM schema
 
-<!-- merged from `database-erds` by cleo docs modernize -->
-
-## Related Documents (from `database-erds`)
-
-- `docs/specs/SCHEMA-AUTHORITY.md` — canonical source rules and migration authority
-- `docs/specs/CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md` — Portable Project BRAIN (brain.db capability model)
-- `docs/specs/CLEO-NEXUS-ARCHITECTURE.md` — nexus.db architecture
-- `docs/specs/CLEO-DATA-INTEGRITY-SPEC.md` — data integrity rules
-- `.cleo/agent-outputs/T030-soft-fk-audit.md` — soft FK audit and remediation plan
-- `.cleo/agent-outputs/T031-index-analysis.md` — index analysis and recommendations
-- `packages/contracts/src/status-registry.ts` — status enum canonical source
-- `packages/core/src/store/tasks-schema.ts` — tasks.db Drizzle ORM schema
-- `packages/core/src/store/memory-schema.ts` — brain.db Drizzle ORM schema
-- `packages/core/src/store/nexus-schema.ts` — nexus.db Drizzle ORM schema
-- `packages/core/src/telemetry/schema.ts` — telemetry.db Drizzle ORM schema
-
 <!-- merged from `erd-brain-db` by cleo docs modernize -->
 
 ## From `erd-brain-db`
