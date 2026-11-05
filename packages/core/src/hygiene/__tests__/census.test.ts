@@ -16,6 +16,8 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,11 +42,14 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
 
 import { acquireHeartbeatLock } from '../../tasks/merge-close.js';
 import {
+  apparentBytes,
   CENSUS_INTERVAL_MS,
   censusBriefingLine,
   censusSpawnAllowed,
   claimCensus,
+  registeredProjects,
   runWorktreeCensus,
+  startLazyCensus,
 } from '../census.js';
 
 const git = (cwd: string, ...args: string[]): string =>
@@ -187,5 +192,60 @@ describe('worktree census (T14275)', () => {
     for (const k of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_EXEC_PATH']) {
       expect(censusSpawnAllowed({ [k]: '/x' })).toBe(false);
     }
+  });
+
+  it('reads the registered projects from the registry listing; an unreadable registry is none', async () => {
+    expect(await registeredProjects(async () => [{ path: '/p/a' }, { path: '/p/b' }])).toEqual([
+      '/p/a',
+      '/p/b',
+    ]);
+    expect(
+      await registeredProjects(async () => {
+        throw new Error('no registry');
+      }),
+    ).toEqual([]);
+  });
+
+  it('the spawn guard refuses while the lock is held; a stale lock is reclaimed', async () => {
+    mkdirSync(recordDir, { recursive: true });
+    const spawned: string[][] = [];
+    const spawn = (cmd: string, args: string[]) => {
+      spawned.push([cmd, ...args]);
+      return { unref: () => undefined };
+    };
+    const release = acquireHeartbeatLock(join(recordDir, 'census.lock'), 60_000);
+    try {
+      expect(startLazyCensus({}, { spawn, dir: recordDir })).toBe('another census holds the lock');
+      expect(spawned).toEqual([]);
+    } finally {
+      release?.();
+    }
+    // A lock left by a dead census, heartbeat long past: reclaimed.
+    writeFileSync(join(recordDir, 'census.lock'), 'dead');
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    utimesSync(join(recordDir, 'census.lock'), old, old);
+    expect(startLazyCensus({}, { spawn, dir: recordDir })).toBeNull();
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.join(' ')).toContain('runLazyCensus');
+    const out = await runWorktreeCensus({ projects: [a], recordDir });
+    expect('skipped' in out).toBe(false);
+    expect(existsSync(join(recordDir, 'census.lock'))).toBe(false); // released
+  });
+
+  it('a spent wall-clock budget writes a partial record instead of hanging', async () => {
+    const out = await runWorktreeCensus({ projects: [a, b], recordDir, deadline: Date.now() - 1 });
+    if ('skipped' in out) throw new Error(out.skipped);
+    expect(out.record.partial).toBe(true);
+    expect(JSON.parse(readFileSync(out.recordPath, 'utf-8')).partial).toBe(true);
+  });
+
+  it('sizes with lstat only: a symlink to a large tree counts as the link', () => {
+    const big = join(base, 'big');
+    mkdirSync(big);
+    writeFileSync(join(big, 'f'), 'x'.repeat(100_000));
+    const holder = join(base, 'holder');
+    mkdirSync(holder);
+    symlinkSync(big, join(holder, 'node_modules'));
+    expect(apparentBytes(holder)).toBeLessThan(10_000);
   });
 });

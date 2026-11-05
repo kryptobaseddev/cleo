@@ -25,5 +25,10 @@ reason) under `<cleoHome>/hygiene/census/`.
 `briefing`, `next`, `current` and `show` start a report-only census in a
 detached child at most once per 24 h per machine: never in CI, under vitest,
 in a process git started, from a CLI built in a worktree, or while another
-census holds its lock. `cleo briefing` shows one line when the last census
+census holds its lock. The child is bounded: no stdin, output to
+`census.log`, background CPU and I/O priority where the platform has it
+(`taskpolicy -b`, `ionice -c 3`, nice 19), a 3-minute wall-clock budget past
+which it writes a record marked `partial` and exits, and a hard exit a minute
+later. Sizes are summed with `lstat` only, never following symlinks, and the
+lock is released on every exit path. `cleo briefing` shows one line when the last census
 kept worktrees.

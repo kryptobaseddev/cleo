@@ -786,7 +786,7 @@ async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> 
 /**
  * Lazy worktree census (T14275): when an agent runs briefing, next, current or
  * show, claim the machine's daily census (atomic, at most once per 24 h) and
- * run `cleo hygiene census --report` in a detached child. Report only: the
+ * run a report-only census in a bounded detached child. Report only: the
  * first release never removes anything from the lazy path. Never in CI, under
  * vitest, in a process git started (T14189), from a CLI built in a worktree
  * (T14168), or while another census holds its lock (the child skips). Never
@@ -800,20 +800,15 @@ async function maybeSpawnCensus(command: string | undefined): Promise<void> {
   // startup probes run with CI set, gate 39).
   if (process.env['CI'] === 'true' || process.env['VITEST'] !== undefined) return;
   try {
-    const { censusSpawnAllowed, claimCensus } = await import('@cleocode/core/hygiene/census');
+    const { censusSpawnAllowed, startLazyCensus } = await import('@cleocode/core/hygiene/census');
     if (!censusSpawnAllowed(process.env)) return;
     const { lazySweepBlockedReason, mergeSweepChildEnv } = await import(
       '@cleocode/core/tasks/merge-close.js'
     );
     if ((await lazySweepBlockedReason('', process.cwd())) !== null) return;
-    if (!claimCensus()) return;
-    const { spawn } = await import('node:child_process');
-    spawn(process.execPath, [process.argv[1] ?? '', 'hygiene', 'census', '--report', '--quiet'], {
-      detached: true,
-      stdio: 'ignore',
-      // T14189: never the calling git hook's GIT_DIR / GIT_INDEX_FILE.
-      env: mergeSweepChildEnv(process.env),
-    }).unref();
+    // Skips while a census holds its lock or today's run is claimed; the child
+    // is bounded (niced, a wall-clock budget, a partial record) and exits.
+    startLazyCensus(mergeSweepChildEnv(process.env));
   } catch {
     // Never break the command over a background census.
   }

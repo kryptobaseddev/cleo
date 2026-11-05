@@ -30,17 +30,22 @@
  * @task T14275
  */
 
+import { type SpawnOptions, spawn } from 'node:child_process';
 import {
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   statfsSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
+import { setPriority } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { WorktreeStatusCategory } from '@cleocode/contracts';
 import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
@@ -100,6 +105,8 @@ export interface CensusRecord {
   kept: Array<{ path: string; category: WorktreeStatusCategory; keepReason: string }>;
   /** Every worktree found. */
   rows: CensusRow[];
+  /** True when the wall-clock budget ran out: rows and bytes are a lower bound. */
+  partial: boolean;
 }
 
 /** Options of {@link runWorktreeCensus}. */
@@ -114,6 +121,8 @@ export interface WorktreeCensusOptions {
   recordDir?: string;
   /** The worktree root (default: the machine's). */
   machineRoot?: string;
+  /** Wall-clock deadline (ms epoch): past it the walk stops and the record is `partial`. */
+  deadline?: number;
 }
 
 /** Where the census keeps its record, claim and lock. */
@@ -121,11 +130,15 @@ function censusDir(): string {
   return join(getCleoHome(), 'hygiene', 'census');
 }
 
-/** Apparent size of a tree: the sum of sizes, symlinks not followed; 0 when unreadable. */
-export function apparentBytes(path: string): number {
+/**
+ * Apparent size of a tree: the sum of `lstat` sizes, symlinks never followed;
+ * 0 when unreadable. Stops early (an undercount) once `deadline` passes.
+ */
+export function apparentBytes(path: string, deadline = Number.POSITIVE_INFINITY): number {
   let total = 0;
   const stack = [path];
   while (stack.length > 0) {
+    if (Date.now() > deadline) return total; // the caller marks the record partial
     const current = stack.pop() as string;
     try {
       const st = lstatSync(current);
@@ -158,11 +171,19 @@ function canonical(path: string): string {
   }
 }
 
-/** Registered project roots from the nexus registry; `[]` when it cannot be read. */
-async function registeredProjects(): Promise<string[]> {
+/**
+ * Registered project roots from the nexus registry; `[]` when it cannot be read.
+ *
+ * @param load - The registry listing (default: `nexusList`; tests stub it).
+ * @returns Each registered project's path.
+ * @internal Exported for tests.
+ */
+export async function registeredProjects(
+  load?: () => Promise<ReadonlyArray<{ path: string }>>,
+): Promise<string[]> {
   try {
-    const { nexusList } = await import('../nexus/registry.js');
-    return (await nexusList()).map((p) => p.path);
+    const list = load ?? (await import('../nexus/registry.js')).nexusList;
+    return (await list()).map((p) => p.path);
   } catch {
     return [];
   }
@@ -182,9 +203,12 @@ export async function runWorktreeCensus(
   mkdirSync(dir, { recursive: true });
   const release = acquireHeartbeatLock(join(dir, 'census.lock'), CENSUS_LOCK_STALE_MS);
   if (release === null) return { skipped: 'another census holds the lock' };
+  // Every exit path releases the lock, a `process.exit` included.
+  process.once('exit', release);
   try {
     return writeRecord(dir, await census(opts));
   } finally {
+    process.removeListener('exit', release);
     release();
   }
 }
@@ -213,6 +237,12 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
   const applyProjects = new Set((opts.applyProjects ?? []).map(canonical));
+  const deadline = opts.deadline ?? Number.POSITIVE_INFINITY;
+  let partial = false;
+  const outOfTime = (): boolean => {
+    if (Date.now() > deadline) partial = true;
+    return partial;
+  };
   const projects = opts.projects ?? (await registeredProjects());
   const projectByHash = new Map<string, string>();
   for (const p of projects)
@@ -227,6 +257,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     hashes = [];
   }
   for (const projectHash of hashes.sort()) {
+    if (outOfTime()) break;
     const hashDir = join(machineRoot, projectHash);
     const project = projectByHash.get(projectHash) ?? null;
     const listed = new Map<
@@ -258,6 +289,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       children = [];
     }
     for (const name of children.sort()) {
+      if (outOfTime()) break;
       const path = join(hashDir, name);
       const hit = listed.get(canonical(path));
       const row: CensusRow = hit
@@ -268,7 +300,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
             taskId: hit.taskId,
             category: hit.category,
             ...(hit.keepReason !== undefined ? { keepReason: hit.keepReason } : {}),
-            apparentBytes: apparentBytes(path),
+            apparentBytes: apparentBytes(path, deadline),
           }
         : {
             project,
@@ -280,7 +312,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
               project === null
                 ? 'no registered project owns this hash directory (report only)'
                 : 'git does not list this directory as a worktree of its project (report only)',
-            apparentBytes: apparentBytes(path),
+            apparentBytes: apparentBytes(path, deadline),
           };
       rows.push(row);
       meta.set(row, { isMerged: hit?.isMerged ?? false });
@@ -292,6 +324,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   if (apply) {
     const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
     for (const row of rows) {
+      if (outOfTime()) break;
       if (row.category !== 'redundant' || row.project === null) continue;
       if (!applyProjects.has(row.project)) continue;
       // Re-proved here, with the task's evidence: the listing was a dry run.
@@ -322,6 +355,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     unknown: 0,
   };
   for (const row of rows) if (!row.removed) counts[row.category] += 1;
+  outOfTime();
   return {
     schemaVersion: 1,
     mode: apply ? 'apply' : 'report',
@@ -339,7 +373,111 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       .filter((r) => !r.removed && (r.category === 'keep' || r.category === 'unknown'))
       .map((r) => ({ path: r.path, category: r.category, keepReason: r.keepReason ?? '' })),
     rows,
+    partial,
   };
+}
+
+/** The lazy census child's wall-clock budget: past it, a partial record and exit. */
+export const LAZY_CENSUS_BUDGET_MS = 3 * 60 * 1000;
+
+/**
+ * Whether a live census holds the lock (its heartbeat is fresh).
+ *
+ * @param dir - The census directory (tests).
+ * @param now - Current time (ms).
+ * @returns True while another census runs.
+ */
+export function censusLockHeld(dir = censusDir(), now = Date.now()): boolean {
+  try {
+    return now - statSync(join(dir, 'census.lock')).mtimeMs < CENSUS_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The command prefix that runs a child at background CPU and I/O priority,
+ * where the platform has one: `taskpolicy -b` on macOS, `ionice -c 3` on
+ * Linux. Empty elsewhere (the child still lowers its CPU priority itself).
+ */
+function lowPriorityPrefix(): string[] {
+  if (process.platform === 'darwin' && existsSync('/usr/sbin/taskpolicy')) {
+    return ['/usr/sbin/taskpolicy', '-b'];
+  }
+  if (process.platform === 'linux') {
+    for (const dir of ['/usr/bin', '/bin']) {
+      if (existsSync(join(dir, 'ionice'))) return [join(dir, 'ionice'), '-c', '3'];
+    }
+  }
+  return [];
+}
+
+/**
+ * Start the daily report-only census in a detached child (T14275), unless a
+ * live census holds the lock or today's run is already claimed. The child has
+ * no stdin, writes stdout and stderr to `<dir>/census.log`, runs at background
+ * priority, stops at {@link LAZY_CENSUS_BUDGET_MS} with a partial record, and
+ * exits. Callers check {@link censusSpawnAllowed} first.
+ *
+ * @param env - The child's environment (git hook variables already stripped).
+ * @param deps - `spawn`, `dir` and `now` (tests).
+ * @returns Why nothing started, or `null` when the child started.
+ * @task T14275
+ */
+export function startLazyCensus(
+  env: NodeJS.ProcessEnv,
+  deps: {
+    spawn?: (command: string, args: string[], options: SpawnOptions) => { unref(): void };
+    dir?: string;
+    now?: number;
+  } = {},
+): string | null {
+  const dir = deps.dir ?? censusDir();
+  const now = deps.now ?? Date.now();
+  mkdirSync(dir, { recursive: true });
+  if (censusLockHeld(dir, now)) return 'another census holds the lock';
+  if (!claimCensus(now, dir)) return 'already claimed in the last 24 h';
+  const entry = import.meta.url;
+  const script = `import(${JSON.stringify(entry)}).then((m) => m.runLazyCensus(${JSON.stringify(dir)}))`;
+  const log = openSync(join(dir, 'census.log'), 'a');
+  try {
+    const [cmd, ...pre] = [...lowPriorityPrefix(), process.execPath];
+    const spawnFn = deps.spawn ?? spawn;
+    spawnFn(cmd as string, [...pre, '--input-type=module', '-e', script], {
+      detached: true,
+      stdio: ['ignore', log, log],
+      env,
+    }).unref();
+  } finally {
+    closeSync(log);
+  }
+  return null;
+}
+
+/**
+ * The lazy census child's body (T14275): background CPU priority, a
+ * {@link LAZY_CENSUS_BUDGET_MS} wall-clock budget (a partial record past it),
+ * and a hard exit shortly after the budget so a hung `git` can never keep the
+ * process alive. The lock is released on every exit path.
+ *
+ * @param dir - The census directory.
+ * @task T14275
+ */
+export async function runLazyCensus(dir = censusDir()): Promise<void> {
+  try {
+    setPriority(19);
+  } catch {
+    // Not permitted here: the budget still bounds the run.
+  }
+  setTimeout(() => process.exit(2), LAZY_CENSUS_BUDGET_MS + 60_000).unref();
+  const result = await runWorktreeCensus({
+    recordDir: dir,
+    deadline: Date.now() + LAZY_CENSUS_BUDGET_MS,
+  });
+  process.stdout.write(
+    `${new Date().toISOString()} census ${'skipped' in result ? `skipped: ${result.skipped}` : `${result.record.partial ? 'partial' : 'complete'}: ${result.recordPath}`}\n`,
+  );
+  process.exit(0);
 }
 
 /**
