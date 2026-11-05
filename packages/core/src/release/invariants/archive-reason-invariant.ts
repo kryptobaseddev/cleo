@@ -195,6 +195,21 @@ function appendReconcileAudit(repoRoot: string, row: ReconcileAuditRow): void {
 /** Label every reconcile follow-up carries, suffixed with the release tag (T14271). */
 export const RECONCILE_FOLLOWUP_LABEL_PREFIX = 'reconcile-followup:';
 
+/** The nearest epic at or above `task`'s parent, or null when it has none. */
+async function epicOf(
+  accessor: Awaited<ReturnType<typeof getTaskAccessor>>,
+  task: Task,
+): Promise<string | null> {
+  let id = task.parentId ?? null;
+  for (let depth = 0; id !== null && depth < 8; depth++) {
+    const parent = await accessor.loadSingleTask(id);
+    if (!parent) return null;
+    if (parent.type === 'epic') return parent.id;
+    id = parent.parentId ?? null;
+  }
+  return null;
+}
+
 /**
  * The follow-up this invariant already created for `taskId` under `label`, so
  * a re-run of the same tag never files a second one.
@@ -365,6 +380,9 @@ async function checkArchiveReasonInvariant(opts: InvariantRunOptions): Promise<I
           status: 'pending',
           priority: 'medium',
           labels: [label],
+          // T14324: one criterion, as `cleo add` requires, and the original's epic.
+          acceptance: [`Verification recorded for ${taskId}, or ${taskId} re-scoped`],
+          parentId: await epicOf(accessor, task),
           createdAt: new Date().toISOString(),
           provenance: {
             createdBy: 'release-invariants:archive-reason',
