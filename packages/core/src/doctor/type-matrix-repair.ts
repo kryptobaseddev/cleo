@@ -309,6 +309,10 @@ function decideOperations(
   const operations: TypeMatrixRepairOp[] = [];
   const seen = new Set<string>();
   let after = new Map(model);
+  // T14235: the resolutions are one batch. Each is applied in turn (a
+  // reparent checked against the batch so far), and the batch is judged once,
+  // in its final state, so a parent re-type and its child's re-type land
+  // together. Every row it leaves misplaced is named.
   for (const [taskId, ops] of groupByTask(resolutions)) {
     if (!model.has(taskId)) {
       // @sync-invariant none:input-shape a resolution naming an unknown task is refused before anything is written
@@ -321,28 +325,31 @@ function decideOperations(
         `Two ${kinds[0]} resolutions name ${taskId}; give at most one re-type and one reparent per task.`,
       );
     }
-    const trial = new Map(after);
     for (const op of ops) {
       if (op.kind === 'reparent') {
         if (op.toParentId !== null && !model.has(op.toParentId)) {
           // @sync-invariant none:input-shape a resolution naming an unknown parent is refused before anything is written
           throw refuse(`Resolution moves ${taskId} under ${op.toParentId}, which is not a task.`);
         }
-        assertReparentAllowed(op, trial, guards);
+        assertReparentAllowed(op, after, guards);
       }
-      applyOp(trial, op);
-    }
-    const broken = newlyBroken(taskId, after, trial);
-    if (!placed(taskId, trial) || broken.length > 0) {
-      // @sync-invariant task.parent.type-matrix a resolution that leaves the matrix broken is refused before anything is written
-      throw refuse(
-        `The resolution for ${taskId} would leave ${[taskId, ...broken].join(', ')} where the type matrix (saga→epic, epic→task, task→subtask) does not allow it.`,
-        'Run cleo doctor type-matrix for the options, and resolve each ambiguous pair with one of them.',
-      );
+      applyOp(after, op);
     }
     seen.add(taskId);
     operations.push(...ops);
-    after = trial;
+  }
+  const offending = new Set<string>();
+  const childrenAfter = childIndex(after);
+  for (const taskId of seen) {
+    if (!placed(taskId, after)) offending.add(taskId);
+    for (const id of newlyBroken(taskId, model, after, childrenAfter)) offending.add(id);
+  }
+  if (offending.size > 0) {
+    // @sync-invariant task.parent.type-matrix a resolutions batch that leaves the matrix broken is refused before anything is written
+    throw refuse(
+      `The resolutions would leave ${[...offending].sort().join(', ')} where the type matrix (saga→epic, epic→task, task→subtask) does not allow it.`,
+      'Run cleo doctor type-matrix for the options, and resolve each ambiguous pair with one of them.',
+    );
   }
   for (const plan of plans) {
     const proposal = plan.proposal;
@@ -672,7 +679,12 @@ export async function applyTypeMatrixRepair(
     const images: TypeMatrixRowImage[] = [];
     // One write per task: a re-type and a reparent of the same task land
     // together, so the trigger checks the row only in its final shape.
-    for (const [taskId, ops] of groupByTask(operations)) {
+    // Shallowest first, so the trigger checks a re-typed child against its
+    // parent's new type when both change in one batch (T14235).
+    const groups = [...groupByTask(operations)].sort(
+      ([a], [b]) => depthOf(a, after) - depthOf(b, after),
+    );
+    for (const [taskId, ops] of groups) {
       const before = model.get(taskId);
       const now = after.get(taskId);
       if (before === undefined || now === undefined) continue;
