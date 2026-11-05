@@ -27,9 +27,12 @@ export type {
   CreateWorktreeResult,
   DestroyWorktreeOptions,
   DestroyWorktreeResult,
+  DisposeWorktreeOptions,
+  DisposeWorktreeResult,
   ListWorktreesOptions,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeArchiveReceipt,
   WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
@@ -44,7 +47,6 @@ export {
   addTransientWorktree,
   countUnmergedCommits,
   DEFAULT_GIT_TIMEOUT_MS,
-  forceRemoveWorktreeDir,
   getGitRoot,
   gitSilent,
   gitSync,
@@ -52,10 +54,9 @@ export {
   removeTransientWorktree,
   unlockWorktree,
 } from './git.js';
-// NAPI bindings (sync, direct to Rust) — for callers that need raw
-// worktree lifecycle without the hooks/audit/dirty-detection wrapper.
+// NAPI bindings (sync, direct to Rust). The raw destroy is not exported:
+// every disposal goes through `disposeWorktree` (T13924, arch gate 41).
 export {
-  destroyWorktree as napiDestroyWorktree,
   integrateWorktree,
   provisionWorktree,
   provisionWorktree as napiProvisionWorktree,
@@ -86,6 +87,16 @@ export {
   readKeepMarker,
 } from './worktree-dependents.js';
 export { destroyWorktree } from './worktree-destroy.js';
+export {
+  archiveWorktree,
+  type CompareBudget,
+  disposeWorktree,
+  isRegenerable,
+  newCompareBudget,
+  type UnprovenContentOptions,
+  unpreservedCommits,
+  unprovenContent,
+} from './worktree-dispose.js';
 export { runProjectWorktreeHooks, runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
 export {

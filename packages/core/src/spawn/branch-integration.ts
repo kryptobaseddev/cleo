@@ -719,7 +719,7 @@ export function completeAgentWorktreeViaMerge(
       ...(upstream.syncCommand ? { syncCommand: upstream.syncCommand } : {}),
       hint: dirty
         ? `${upstream.hint} Worktree ${worktreePath} has uncommitted changes and was preserved.`
-        : pruneResult?.kept
+        : pruneResult?.error !== undefined && !pruneResult.worktreeRemoved
           ? `${upstream.hint} ${pruneResult.error}`
           : upstream.hint,
     };

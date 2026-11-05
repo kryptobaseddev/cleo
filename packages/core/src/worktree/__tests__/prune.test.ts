@@ -95,6 +95,13 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
+// The disposal engine stays real; one test replaces a single call with a failed removal.
+vi.mock('@cleocode/worktree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/worktree')>();
+  return { ...actual, disposeWorktree: vi.fn(actual.disposeWorktree) };
+});
+
+import { disposeWorktree } from '@cleocode/worktree';
 import { pruneOrphanedWorktreesByStatus, reasonForStatus } from '../prune.js';
 
 // ---------------------------------------------------------------------------
@@ -439,12 +446,8 @@ describe('pruneOrphanedWorktreesByStatus — edge cases', () => {
     expect(result.error.message).toContain('not a git repo');
   });
 
-  it('records error outcomes when git removal AND rmSync both fail', async () => {
-    // Create a real path inside the tmpdir so the fallback existsSync() check
-    // resolves to true and the function attempts rmSync (which we mock to throw).
-    const fs = await import('node:fs');
+  it('records error outcomes when the engine fails to remove the worktree', async () => {
     const targetPath = join(projectRoot, 'wt-error');
-    fs.mkdirSync(targetPath, { recursive: true });
 
     MOCK_LIST.value = [
       makeWorktreeInfo({
@@ -454,11 +457,13 @@ describe('pruneOrphanedWorktreesByStatus — edge cases', () => {
         statusCategory: 'orphan',
       }),
     ];
-    // Make `git worktree remove --force <path>` fail so we hit the rmSync fallback.
-    execShouldThrow.add(`worktree remove --force ${targetPath}`);
-    // Force rmSync to throw — primary failure path under test.
-    vi.mocked(fs.rmSync).mockImplementation(() => {
-      throw new Error('EACCES');
+    // T13924: the engine attempted the removal and the directory survived.
+    const failed = `removal failed: ${targetPath} is still on disk`;
+    vi.mocked(disposeWorktree).mockReturnValueOnce({
+      worktreePath: targetPath,
+      removed: false,
+      keptReason: failed,
+      failed,
     });
 
     const result = await pruneOrphanedWorktreesByStatus({

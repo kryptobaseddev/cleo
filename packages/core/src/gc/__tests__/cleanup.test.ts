@@ -19,7 +19,16 @@
  * @task T9043
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -205,22 +214,57 @@ describe('listOrphanTempDirs', () => {
 describe('pruneOrphanWorktrees', () => {
   let worktreesRoot: string;
   let projectDir: string;
+  let repo: string;
   const PROJECT_HASH = 'aabbccdd11223344';
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim();
 
+  // T13924: real linked worktrees whose commits are all on `main` — the
+  // disposal engine never removes a directory git cannot read.
   beforeEach(() => {
-    worktreesRoot = mkdtempSync(join(tmpdir(), 'cleo-wt-test-'));
+    worktreesRoot = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-wt-test-')));
     projectDir = join(worktreesRoot, PROJECT_HASH);
-    mkdirSync(join(projectDir, 'T1001'), { recursive: true });
-    mkdirSync(join(projectDir, 'T1002'), { recursive: true });
-    mkdirSync(join(projectDir, 'T1003'), { recursive: true });
+    repo = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-wt-repo-')));
+    git(repo, 'init', '-q', '-b', 'main');
+    git(
+      repo,
+      '-c',
+      'user.name=T',
+      '-c',
+      'user.email=t@e.x',
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'init',
+    );
+    for (const id of ['T1001', 'T1002', 'T1003']) {
+      git(repo, 'worktree', 'add', '-q', '-b', `task/${id}`, join(projectDir, id));
+    }
   });
 
   afterEach(() => {
     try {
       rmSync(worktreesRoot, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
     } catch {
       // best-effort
     }
+  });
+
+  it('keeps a dirty worktree and a directory git cannot read (T13924)', async () => {
+    writeFileSync(join(projectDir, 'T1002', 'wip.ts'), 'wip\n');
+    mkdirSync(join(projectDir, 'T1004'));
+    const result = await pruneOrphanWorktrees({
+      worktreesRoot,
+      activeTaskIds: new Set(['T1001']),
+    });
+
+    expect(result.removedPaths).toEqual([join(projectDir, 'T1003')]);
+    expect(result.quarantinedPaths).toEqual([join(projectDir, 'T1002')]);
+    expect(result.errors.map((e) => e.path)).toEqual([join(projectDir, 'T1004')]);
+    expect(existsSync(join(projectDir, 'T1002', 'wip.ts'))).toBe(true);
+    expect(existsSync(join(projectDir, 'T1004'))).toBe(true);
   });
 
   it('removes task dirs not in activeTaskIds', async () => {
