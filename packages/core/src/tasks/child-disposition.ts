@@ -42,7 +42,8 @@ export type TerminalDispositionVerb = 'cancel' | 'archive' | 'complete';
  *
  * Counts the parent's non-terminal children via
  * {@link DataAccessor.countActiveChildren} (the canonical "active" =
- * not-in-`TERMINAL_TASK_STATUSES` count). When that count is non-zero the
+ * not-in-`TERMINAL_TASK_STATUSES` count, the SQL form of `isSettledChild`,
+ * T14266). When that count is non-zero the
  * function throws {@link CleoError} with {@link ExitCode.HAS_CHILDREN}, a
  * `fix:` that routes the operator to `cleo cancel <id> --children …`, and a
  * structured `details` payload carrying the live child count. When the parent

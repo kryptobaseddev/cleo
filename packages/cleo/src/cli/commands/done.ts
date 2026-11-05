@@ -226,6 +226,10 @@ export const doneCommand = defineCommand({
       ...(args['shared-evidence'] === true ? { sharedEvidence: true } : {}),
       // T14053: the plan shows integration as skipped under --no-integrate.
       ...(negatedFlag(args, 'integrate') ? { noIntegrate: true } : {}),
+      // T14223: the plan applies the same cancelled-child waiver complete does.
+      ...(typeof args['waive-cancelled-children'] === 'string'
+        ? { cancelledChildWaiverReason: args['waive-cancelled-children'] }
+        : {}),
     };
     // T12628: `cleo done T1 T2 T3 [--pr N]` closes several tasks in one call.
     // Every id must be a task id — a silently dropped `t2` would report success.

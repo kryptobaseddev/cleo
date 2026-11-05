@@ -179,6 +179,11 @@ export interface DeriveTaskEvidenceOptions {
   runTyped?: boolean;
   /** `--no-integrate`: the plan shows the worktree integration as skipped (T14053). */
   noIntegrate?: boolean;
+  /**
+   * `--waive-cancelled-children "<reason>"`: an epic's cancelled children count
+   * as covered, through the same guard `cleo complete` applies (T14223, T14266).
+   */
+  cancelledChildWaiverReason?: string;
 }
 
 /**
@@ -620,10 +625,11 @@ function recordedCriteria(task: Task): Set<string> {
 async function completionCoverage(
   task: Pick<Task, 'id' | 'acceptance'>,
   accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  options: { coverCancelledChildren?: boolean } = {},
 ): Promise<AcCoverageResult> {
   const { computeAcCoverage } = await import('./ac-coverage-gate.js');
   const { completionCoverageAccessor } = await import('./ac-table.js');
-  return computeAcCoverage(task.id, completionCoverageAccessor(task, accessor));
+  return computeAcCoverage(task.id, completionCoverageAccessor(task, accessor), options);
 }
 
 /**
@@ -1162,36 +1168,60 @@ async function epicPlan(
   task: Task,
   storeRoot: string,
   accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  cancelledChildWaiverReason: string | undefined,
 ): Promise<DonePlan> {
-  const coverage = await completionCoverage(task, accessor);
+  // T14223 / T14266: the same cancelled-child guard `cleo complete` applies.
+  const { decideCancelledChildWaiver } = await import('./cancelled-child-waiver.js');
+  const waiver = decideCancelledChildWaiver(
+    task.id,
+    await accessor.getChildren(task.id),
+    cancelledChildWaiverReason,
+    'done',
+  );
+  const coverage = await completionCoverage(task, accessor, {
+    coverCancelledChildren: waiver.waiverReason !== undefined,
+  });
   const unbound = coverage.ok ? [] : coverage.unsatisfied;
-  const children = unbound.flatMap((u) => (u.childTaskId ? [u.childTaskId] : []));
+  const cancelled = new Set(waiver.cancelledChildIds);
+  const children = unbound.flatMap((u) =>
+    u.childTaskId && !cancelled.has(u.childTaskId) ? [u.childTaskId] : [],
+  );
   const criteria = unbound.filter((u) => u.childTaskId === undefined);
   const bind = criteria.map(
     (u) =>
       `cleo verify ${task.id} --gate implemented --evidence 'pr:<n>;files:<changed paths>;satisfies:${task.id}#${u.alias}'`,
   );
-  const blocker: DonePlanBlocker =
-    unbound.length === 0
-      ? {
-          code: 'epic-rollup',
-          message: `${task.id} is an epic; its children are done and every criterion is covered.`,
-          next: step(`cleo complete ${task.id}`, 'Epic completion uses the existing child rollup.'),
-        }
+  const waiverFlag =
+    waiver.waiverReason !== undefined
+      ? ` --waive-cancelled-children ${JSON.stringify(waiver.waiverReason)}`
+      : '';
+  const complete = `cleo complete ${task.id}${waiverFlag}`;
+  const blocker: DonePlanBlocker | null =
+    unbound.length === 0 && waiver.allowed
+      ? null
       : children.length > 0
         ? {
             code: 'epic-rollup',
             message: `${task.id} is an epic; it completes through its children, and ${children.join(', ')} ${children.length === 1 ? 'is' : 'are'} not done.`,
             next: step(`cleo show ${children[0]}`, 'Finish every child before the epic.'),
           }
-        : {
-            code: 'epic-rollup',
-            message: `${task.id} is an epic; its children cover their own criteria, but cleo complete needs evidence for ${criteria.map((u) => u.alias).join(', ')}.`,
-            next: step(
-              bind[0] ?? `cleo complete ${task.id}`,
-              'Bind each criterion to the merged work that proves it, then cleo complete.',
-            ),
-          };
+        : !waiver.allowed
+          ? {
+              code: 'epic-rollup',
+              message: `${task.id} is an epic; ${waiver.message ?? ''}`,
+              next: step(
+                `cleo done ${task.id} --waive-cancelled-children "<reason>"`,
+                'A cancelled child is settled but undelivered: waive it (audited) or replace it with a done child.',
+              ),
+            }
+          : {
+              code: 'epic-rollup',
+              message: `${task.id} is an epic; its children cover their own criteria, but cleo complete needs evidence for ${criteria.map((u) => u.alias).join(', ')}.`,
+              next: step(
+                bind[0] ?? complete,
+                'Bind each criterion to the merged work that proves it, then cleo complete.',
+              ),
+            };
   return {
     taskId: task.id,
     runFrom: storeRoot,
@@ -1213,10 +1243,13 @@ async function epicPlan(
     typedGates: [],
     acMapping: [],
     needsSatisfies: [],
-    blockers: [blocker],
-    commands: unbound.length === 0 ? [`cleo complete ${task.id}`] : bind,
-    ready: false,
-    next: blocker.next,
+    blockers: blocker ? [blocker] : [],
+    commands: blocker ? (criteria.length > 0 ? bind : []) : [complete],
+    // T14223: a covered epic (children done, cancelled ones waived) completes through done.
+    ready: blocker === null,
+    next: blocker
+      ? blocker.next
+      : step(complete, 'Every child is settled and every criterion is covered.'),
   };
 }
 
@@ -1273,7 +1306,11 @@ export async function deriveTaskEvidence(
   }
   // T14053: what completion will do with the worktree branch, from local refs.
   const integration = await planCompletionIntegration(taskId, storeRoot, opts.noIntegrate);
-  if (task.type === 'epic') return { ...(await epicPlan(task, storeRoot, accessor)), integration };
+  if (task.type === 'epic')
+    return {
+      ...(await epicPlan(task, storeRoot, accessor, opts.cancelledChildWaiverReason)),
+      integration,
+    };
   const rows = [...(await accessor.getAcRows(taskId))].sort((a, b) => a.ordinal - b.ordinal);
   const satisfies = normaliseSatisfies(taskId, opts.satisfies, rows);
   const policy = await loadVerificationGatePolicy(storeRoot);
