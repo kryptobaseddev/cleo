@@ -30,6 +30,7 @@ function withCovering(): Record<string, unknown> {
 
 afterEach(() => {
   vi.doUnmock('../schema-integrity.js');
+  vi.unstubAllEnvs();
 });
 
 describe('a deprecated evidence.ciChecks.covering block (T14260)', () => {
@@ -52,6 +53,8 @@ describe('a deprecated evidence.ciChecks.covering block (T14260)', () => {
     try {
       mkdirSync(join(root, '.cleo'), { recursive: true });
       writeFileSync(join(root, '.cleo', 'project-context.json'), JSON.stringify(withCovering()));
+      // The test environment's CLEO_DIR would win over the root's own .cleo/.
+      vi.stubEnv('CLEO_DIR', join(root, '.cleo'));
       const report = await checkSchemaIntegrity(root);
       const file = report.files.find((f) => f.label === 'project-context.json');
       expect(file?.status).toBe('ok');
