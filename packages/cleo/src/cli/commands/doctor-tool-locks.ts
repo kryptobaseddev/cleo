@@ -21,6 +21,7 @@
  * @task T13133
  * @task T13563
  * @task T14116
+ * @task T14227
  */
 
 import {
@@ -52,8 +53,10 @@ export const doctorToolLocksCommand = defineCommand({
     name: 'tool-locks',
     description:
       'Inspect the machine-wide admission ledger: which heavy runs hold the memory budget or ' +
-      'wait for it, by which pid, and whether that pid is still alive. Read-only; --reap drops ' +
-      'entries whose holder is provably gone; --remove <id> drops one entry.',
+      'wait for it, by which pid, and whether that pid is still alive; and the agent-session ' +
+      'budget with its inputs (resources.agentSession.maxSessions, resources.agentSession.estRamMb, ' +
+      'resources.headroomMb) and live leases. Read-only; --reap drops entries whose holder is ' +
+      'provably gone; --remove <id> drops one entry.',
   },
   args: {
     reap: {
@@ -146,6 +149,12 @@ export const doctorToolLocksCommand = defineCommand({
     const held = entries.filter((e) => e.state === 'admitted');
     // Entries a newer CLEO wrote: kept verbatim and charged, shown as found.
     const foreignEntries = requested === null ? readForeignEntries() : [];
+    // T14227: the spawned-session budget, its inputs (config or default) and its leases.
+    const [{ agentSessionBudgetStatus }, { getProjectRoot }] = await Promise.all([
+      import('@cleocode/core/resources/governor.js'),
+      import('@cleocode/core/paths.js'),
+    ]);
+    const agentSession = await agentSessionBudgetStatus(getProjectRoot());
 
     cliOutput(
       {
@@ -160,6 +169,7 @@ export const doctorToolLocksCommand = defineCommand({
         overdueCount: entries.filter((e) => e.run?.overdue === true).length,
         hungCount: entries.filter((e) => e.run?.hung === true).length,
         foreignEntries,
+        agentSession,
         reaped,
         reapApplied: args.reap === true,
         ...(removeId === null ? {} : { removeId, removed }),

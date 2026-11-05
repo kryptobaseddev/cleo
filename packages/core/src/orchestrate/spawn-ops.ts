@@ -93,7 +93,12 @@ import {
   releaseAgentLease,
   writeAgentLease,
 } from '../resources/agent-lease.js';
-import { admitFailOpen, governor, takeAgentSessionLease } from '../resources/governor.js';
+import {
+  admitFailOpen,
+  agentSessionBudgetConfig,
+  governor,
+  takeAgentSessionLease,
+} from '../resources/governor.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
@@ -725,8 +730,10 @@ export async function orchestrateSpawnExecute(
   // ownership is the supervisor-mode backend's job, T11998).
   // Fail open (#1777 R8-1): a governor that can't write its state (sandboxed or
   // read-only CLEO home) spawns ungated instead of deferring forever.
+  // T14227: the project's resources.agentSession / resources.headroomMb settings.
+  const budgetConfig = await agentSessionBudgetConfig(cwd);
   const { admission: admit, ungoverned } = await admitFailOpen('agent-session', () =>
-    governor.tryAcquire('agent-session'),
+    governor.tryAcquire('agent-session', budgetConfig),
   );
   if (ungoverned !== null) {
     getLogger('engine:orchestrate').warn(
@@ -1466,7 +1473,12 @@ export async function orchestrateSpawn(
     // life, through a lease: taken before any claim or worktree, so a full
     // budget refuses the spawn as retryable with nothing left behind.
     const { taskClaimLeaseMs } = await import('../store/task-claim.js');
-    const leased = await takeAgentSessionLease(taskId, root, taskClaimLeaseMs());
+    const leased = await takeAgentSessionLease(
+      taskId,
+      root,
+      taskClaimLeaseMs(),
+      await agentSessionBudgetConfig(root),
+    );
     if ('deferral' in leased) {
       // @sync-invariant none:local-only the machine-wide agent-session budget is full; nothing is written
       return engineError(RESOURCE_DEFERRED_CODE, leased.deferral.reason, {

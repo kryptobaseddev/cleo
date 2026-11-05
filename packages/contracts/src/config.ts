@@ -934,6 +934,27 @@ export interface ResourcesPsiConfig {
 }
 
 /**
+ * The spawned agent-session budget (`resources.agentSession.*`, T14227).
+ *
+ * @task T14227
+ */
+export interface ResourcesAgentSessionConfig {
+  /**
+   * Fixed number of spawned agent sessions admitted machine-wide; replaces
+   * the memory and CPU formula as a floor and a ceiling.
+   *
+   * @defaultValue undefined (budget from free memory and CPU count)
+   */
+  maxSessions?: number;
+  /**
+   * RAM one spawned agent session is assumed to use, in MiB.
+   *
+   * @defaultValue 4096
+   */
+  estRamMb?: number;
+}
+
+/**
  * Resource monitor configuration.
  *
  * Optional block — all fields have safe defaults. Maps to the
@@ -951,11 +972,19 @@ export interface ResourcesConfig {
   /**
    * Minimum free memory headroom in MiB.
    *
-   * Used in degraded mode (PSI absent) as the sole availability signal.
+   * Used in degraded mode (PSI absent) as the sole availability signal, and
+   * as the RAM kept free when the agent-session budget is computed (T14227;
+   * that budget's own default is 2048 MiB while the key is unset).
    *
    * @defaultValue 256
    */
   headroomMb?: number;
+  /**
+   * The spawned agent-session budget (T14227).
+   *
+   * @defaultValue undefined (built-in budget)
+   */
+  agentSession?: ResourcesAgentSessionConfig;
   /**
    * The heavy-command provider hook: `rewrite` wraps heavy shell commands in
    * `cleo run` (in harness sessions that run in `bypassPermissions` or `auto`
