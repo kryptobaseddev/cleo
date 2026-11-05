@@ -149,7 +149,7 @@ const listCommand = defineCommand({
       const [{ getProjectRoot }, { resolveStoreCleoDir }, { applyBackupByteCap }] =
         await Promise.all([
           import('@cleocode/core/project-scope'),
-          import('@cleocode/core/paths'),
+          import('@cleocode/core/paths.js'),
           import('@cleocode/core/store/backup-sidecar'),
         ]);
       const backupDir = path.join(resolveStoreCleoDir(getProjectRoot()), 'backups', 'sqlite');
