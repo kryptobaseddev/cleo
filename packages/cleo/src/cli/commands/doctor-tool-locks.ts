@@ -55,7 +55,7 @@ export const doctorToolLocksCommand = defineCommand({
       'Inspect the machine-wide admission ledger: which heavy runs hold the memory budget or ' +
       'wait for it, by which pid, and whether that pid is still alive; and the agent-session ' +
       'budget with its inputs (resources.agentSession.maxSessions, resources.agentSession.estRamMb, ' +
-      'resources.headroomMb) and live leases. Read-only; --reap drops entries whose holder is ' +
+      'resources.agentSession.headroomMb) and live leases. Read-only; --reap drops entries whose holder is ' +
       'provably gone; --remove <id> drops one entry.',
   },
   args: {

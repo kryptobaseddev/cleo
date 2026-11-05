@@ -952,6 +952,14 @@ export interface ResourcesAgentSessionConfig {
    * @defaultValue 4096
    */
   estRamMb?: number;
+  /**
+   * RAM kept free for the OS when the agent-session budget is computed, in
+   * MiB. Separate from `resources.headroomMb` (the monitor's degraded-mode
+   * headroom).
+   *
+   * @defaultValue 2048
+   */
+  headroomMb?: number;
 }
 
 /**
@@ -972,9 +980,8 @@ export interface ResourcesConfig {
   /**
    * Minimum free memory headroom in MiB.
    *
-   * Used in degraded mode (PSI absent) as the sole availability signal, and
-   * as the RAM kept free when the agent-session budget is computed (T14227;
-   * that budget's own default is 2048 MiB while the key is unset).
+   * Used in degraded mode (PSI absent) as the sole availability signal. The
+   * agent-session budget has its own `agentSession.headroomMb` (T14227).
    *
    * @defaultValue 256
    */

@@ -267,12 +267,14 @@ export function computeClassBudget(
 /**
  * The config keys that set the `agent-session` budget (T14227), at project
  * and global scope: a fixed budget, the RAM one session is assumed to use, and
- * the RAM kept free for the OS. Unset keys keep the built-in defaults.
+ * the RAM kept free for the OS. Unset keys keep the built-in defaults. The
+ * headroom is its own key: `resources.headroomMb` stays the monitor's
+ * degraded-mode headroom only.
  */
 export const AGENT_SESSION_CONFIG_KEYS = {
   maxSessions: 'resources.agentSession.maxSessions',
   estRamMb: 'resources.agentSession.estRamMb',
-  headroomMb: 'resources.headroomMb',
+  headroomMb: 'resources.agentSession.headroomMb',
 } as const;
 
 /**

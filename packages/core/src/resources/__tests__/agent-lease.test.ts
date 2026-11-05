@@ -226,7 +226,7 @@ describe('configurable agent-session budget (T14227)', () => {
     // The refusal names the keys that raise the budget, with their current values.
     expect(fifth.deferral.reason).toContain('resources.agentSession.maxSessions (now 4)');
     expect(fifth.deferral.reason).toContain('resources.agentSession.estRamMb (now 4096 MB)');
-    expect(fifth.deferral.reason).toContain('resources.headroomMb (now 2048 MB)');
+    expect(fifth.deferral.reason).toContain('resources.agentSession.headroomMb (now 2048 MB)');
   });
 
   it('unset keys keep the built-in budget; config keys are read and invalid values ignored', async () => {
@@ -238,17 +238,21 @@ describe('configurable agent-session budget (T14227)', () => {
 
       const config = (resources: object) =>
         writeFileSync(join(project, '.cleo', 'config.json'), JSON.stringify({ resources }));
-      config({ headroomMb: 1024, agentSession: { maxSessions: 6, estRamMb: 2048 } });
+      config({ agentSession: { maxSessions: 6, estRamMb: 2048, headroomMb: 1024 } });
       const configured = await agentSessionBudgetConfig(project);
       expect(configured).toEqual({ agentMaxSessions: 6, agentEstRamMb: 2048, headroomMb: 1024 });
       expect(computeClassBudget('agent-session', SAMPLE, { ...OPTS, ...configured })).toBe(6);
 
-      config({ headroomMb: 1024, agentSession: { estRamMb: 2048 } });
+      config({ agentSession: { estRamMb: 2048, headroomMb: 1024 } });
       const formula = await agentSessionBudgetConfig(project);
       // (2048 + 3*4096 - 1024) MiB free over 2 GiB sessions = 6, under cpus - 2 = 14.
       expect(computeClassBudget('agent-session', SAMPLE, { ...OPTS, ...formula })).toBe(6);
 
-      config({ headroomMb: -1, agentSession: { maxSessions: 0, estRamMb: 'big' } });
+      // resources.headroomMb is the monitor's degraded-mode headroom, not this budget's.
+      config({ headroomMb: 256 });
+      expect(await agentSessionBudgetConfig(project)).toEqual({});
+
+      config({ agentSession: { maxSessions: 0, estRamMb: 'big', headroomMb: -1 } });
       expect(await agentSessionBudgetConfig(project)).toEqual({});
     } finally {
       rmSync(project, { recursive: true, force: true });

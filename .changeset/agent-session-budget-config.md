@@ -2,7 +2,7 @@
 id: agent-session-budget-config
 tasks: [T14227]
 kind: feat
-summary: "the agent-session budget is configurable with resources.agentSession.maxSessions, resources.agentSession.estRamMb and resources.headroomMb, shown in cleo doctor tool-locks"
+summary: "the agent-session budget is configurable with resources.agentSession.maxSessions, resources.agentSession.estRamMb and resources.agentSession.headroomMb, shown in cleo doctor tool-locks"
 ---
 
 The spawned agent-session budget was clamp(1, (MemAvailable - 2048 MiB) /
@@ -18,7 +18,9 @@ config.schema.json, now feed it:
   memory and CPU formula (floor and ceiling);
 - `resources.agentSession.estRamMb`: RAM one session is assumed to use
   (default 4096);
-- `resources.headroomMb`: RAM kept free (default 2048 for this budget).
+- `resources.agentSession.headroomMb`: RAM kept free (default 2048).
+  `resources.headroomMb` keeps its one meaning, the monitor's degraded-mode
+  headroom.
 
 `cleo doctor tool-locks` reports the budget, each input with whether config
 set it, and the live leases. The at-capacity refusal names the three keys

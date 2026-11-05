@@ -29,7 +29,7 @@
         "headroomMb": {
           "type": "integer",
           "minimum": 0,
-          "description": "RAM kept free, in MiB: the monitor's degraded-mode headroom (default 256) and the agent-session budget's headroom (default 2048 while unset)."
+          "description": "Free-memory headroom in MiB for the resource monitor's degraded mode (PSI absent). Default 256. The agent-session budget uses resources.agentSession.headroomMb."
         },
         "heavyCommandHook": {
           "type": "string",
@@ -50,6 +50,11 @@
               "type": "integer",
               "minimum": 1,
               "description": "RAM one spawned agent session is assumed to use, in MiB (default 4096)."
+            },
+            "headroomMb": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "RAM kept free for the OS when the agent-session budget is computed, in MiB (default 2048). Separate from resources.headroomMb."
             }
           }
         }
