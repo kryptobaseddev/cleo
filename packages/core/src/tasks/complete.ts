@@ -888,6 +888,7 @@ export async function completeTask(
     children,
     options.cancelledChildWaiverReason,
     cwd,
+    (id) => acc.loadSingleTask(id),
   );
 
   const now = new Date().toISOString();

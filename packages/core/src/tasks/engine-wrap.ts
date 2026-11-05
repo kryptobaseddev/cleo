@@ -7,12 +7,17 @@
  */
 
 import type {
+  CancellationKind,
   ChildStrategy,
   Task,
   TaskStatus,
   WorktreeDisposalBlockers,
 } from '@cleocode/contracts';
-import { isSettledChild } from '@cleocode/contracts/status-registry.js';
+import {
+  CANCELLATION_KINDS,
+  isSettledChild,
+  REPLACED_CANCELLATION_KINDS,
+} from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
@@ -153,6 +158,10 @@ export async function coreTaskCancel(
     cascadeThreshold?: number;
     /** Config-level escape hatch for installations that forbid cascade cancellation. */
     allowCascade?: boolean;
+    /** Why the task is cancelled (T14267): abandoned, superseded, duplicate or obsolete. */
+    kind?: string;
+    /** The task that replaced this one; only with kind `superseded` or `duplicate` (T14267). */
+    replacedBy?: string;
   },
 ): Promise<{
   task: string;
@@ -160,6 +169,10 @@ export async function coreTaskCancel(
   reason?: string;
   cancelledAt: string;
   alreadyCancelled?: boolean;
+  /** The recorded cancel kind (T14267). */
+  kind?: CancellationKind;
+  /** The recorded replacement (T14267). */
+  replacedBy?: string;
   childStrategy?: ChildStrategy;
   affectedTasks?: string[];
   affectedCount?: number;
@@ -172,15 +185,54 @@ export async function coreTaskCancel(
     throw new Error(`Task ${taskId} not found`);
   }
 
+  // T14267 (D11229): the kind, and the replacement a superseded or duplicate
+  // cancel names, are checked before anything is written.
+  const kind = params?.kind;
+  if (kind !== undefined && !(CANCELLATION_KINDS as readonly string[]).includes(kind)) {
+    // @sync-invariant none:input-shape an unknown cancel kind is refused before any write
+    throw new Error(
+      `E_INVALID_INPUT: Unknown cancel kind '${kind}'; use one of ${CANCELLATION_KINDS.join(', ')}`,
+    );
+  }
+  const replacedBy = params?.replacedBy;
+  if (replacedBy !== undefined) {
+    if (kind === undefined || !REPLACED_CANCELLATION_KINDS.has(kind as CancellationKind)) {
+      // @sync-invariant none:input-shape a replacement without a superseded or duplicate kind is refused before any write
+      throw new Error(
+        `E_INVALID_INPUT: --replaced-by needs --kind superseded or --kind duplicate (got ${kind ?? 'no kind'})`,
+      );
+    }
+    if (replacedBy === taskId || !(await accessor.loadSingleTask(replacedBy))) {
+      // @sync-invariant none:input-shape a replacement that is the task itself or does not exist is refused before any write
+      throw new Error(
+        `E_INVALID_INPUT: Replacement ${replacedBy} must be another existing task (cleo find "${replacedBy}")`,
+      );
+    }
+  }
+
   // Idempotent: re-cancelling an already-cancelled task returns success with
   // `alreadyCancelled: true` and echoes the existing cancelledAt. T9838.
+  // T14267: a re-cancel that names a kind records it (and its replacement) on
+  // the cancelled task, so work cancelled before kinds existed can be marked
+  // superseded or duplicate without a restore.
   if (task.status === 'cancelled') {
+    if (kind !== undefined) {
+      await accessor.transaction((tx) =>
+        tx.updateTaskFields(taskId, {
+          cancellationKind: kind,
+          replacedBy: replacedBy ?? null,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    }
     return {
       task: taskId,
       cancelled: true,
       reason: task.cancellationReason ?? undefined,
       cancelledAt: task.cancelledAt ?? task.updatedAt ?? new Date().toISOString(),
       alreadyCancelled: true,
+      ...(kind !== undefined ? { kind: kind as CancellationKind } : {}),
+      ...(replacedBy !== undefined ? { replacedBy } : {}),
     };
   }
 
@@ -272,6 +324,8 @@ export async function coreTaskCancel(
   task.status = 'cancelled';
   task.cancelledAt = cancelledAt;
   task.cancellationReason = params?.reason ?? undefined;
+  task.cancellationKind = kind as CancellationKind | undefined;
+  task.replacedBy = replacedBy;
   task.updatedAt = cancelledAt;
   // T877: DB invariant requires status='cancelled' ↔ pipeline_stage='cancelled'.
   // ALWAYS force the stage to 'cancelled' on a successful cancel — the prior
@@ -320,6 +374,8 @@ export async function coreTaskCancel(
     cancelled: true,
     reason: params?.reason,
     cancelledAt,
+    ...(kind !== undefined ? { kind: kind as CancellationKind } : {}),
+    ...(replacedBy !== undefined ? { replacedBy } : {}),
     childStrategy,
     affectedTasks,
     affectedCount: affectedTasks.length,
@@ -813,6 +869,8 @@ export async function taskCancel(
         force?: boolean;
         cascadeThreshold?: number;
         allowCascade?: boolean;
+        kind?: string;
+        replacedBy?: string;
       },
 ): Promise<
   EngineResult<{
@@ -821,6 +879,8 @@ export async function taskCancel(
     reason?: string;
     cancelledAt: string;
     alreadyCancelled?: boolean;
+    kind?: CancellationKind;
+    replacedBy?: string;
     childStrategy?: ChildStrategy;
     affectedTasks?: string[];
     affectedCount?: number;
@@ -842,6 +902,10 @@ export async function taskCancel(
     const message = e?.message ?? 'Failed to cancel task';
     if (message.startsWith('E_INVALID_STATE:')) {
       return engineError('E_INVALID_STATE', message.replace(/^E_INVALID_STATE:\s*/, ''));
+    }
+    if (message.startsWith('E_INVALID_INPUT:')) {
+      // @sync-invariant none:input-shape a bad cancel kind or replacement was refused before any write
+      return engineError('E_INVALID_INPUT', message.replace(/^E_INVALID_INPUT:\s*/, ''));
     }
     if (message.startsWith('E_HAS_CHILDREN:')) {
       return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''));

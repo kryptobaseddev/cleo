@@ -71,6 +71,7 @@ import {
   TASK_SEVERITIES,
   TASK_SIZES,
 } from '@cleocode/contracts/enums';
+import { CANCELLATION_KINDS } from '@cleocode/contracts/status-registry.js';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,
@@ -161,6 +162,13 @@ export const tasksTasks = sqliteTable(
     cancelledAt: text('cancelled_at'),
     /** Cancellation reason. */
     cancellationReason: text('cancellation_reason'),
+    /** Why the task was cancelled (T14267) — CHECK-backed via {@link CANCELLATION_KINDS}. */
+    cancellationKind: text('cancellation_kind', { enum: CANCELLATION_KINDS }),
+    /**
+     * The task that replaced this cancelled one (T14267). Plain TEXT, no FK; a
+     * declared `ROW_IDENTITY` ref, so it follows a display-id re-mint.
+     */
+    replacedBy: text('replaced_by'),
     /** ISO-8601 UTC archive instant (canonical TEXT, §4). */
     archivedAt: text('archived_at'),
     /** Archive reason — CHECK-backed via {@link ARCHIVE_REASONS}. */

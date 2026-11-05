@@ -144,6 +144,8 @@ export interface TaskFieldUpdates {
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
+  cancellationKind?: string | null;
+  replacedBy?: string | null;
   verificationJson?: string | null;
   createdBy?: string | null;
   modifiedBy?: string | null;

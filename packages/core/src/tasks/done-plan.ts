@@ -648,7 +648,7 @@ function recordedCriteria(task: Task): Set<string> {
  */
 async function completionCoverage(
   task: Pick<Task, 'id' | 'acceptance'>,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
   options: { coverCancelledChildren?: boolean } = {},
 ): Promise<AcCoverageResult> {
   const { computeAcCoverage } = await import('./ac-coverage-gate.js');
@@ -665,7 +665,7 @@ async function completionCoverage(
 async function boundCriteria(
   task: Task,
   rows: readonly AcRow[],
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
 ): Promise<Set<string>> {
   const coverage = await completionCoverage(task, accessor);
   const unbound = new Set(coverage.ok ? [] : coverage.unsatisfied.map((u) => u.acId));
@@ -1063,7 +1063,7 @@ function acMappingBlocker(
  */
 async function unboundCriteriaBlocker(
   task: Pick<Task, 'id' | 'acceptance'>,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
   implementedEvidence: string | null,
 ): Promise<DonePlanBlocker | null> {
   const taskId = task.id;
@@ -1191,16 +1191,21 @@ function withSatisfies(
 async function epicPlan(
   task: Task,
   storeRoot: string,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
   cancelledChildWaiverReason: string | undefined,
 ): Promise<DonePlan> {
   // T14223 / T14266: the same cancelled-child guard `cleo complete` applies.
-  const { decideCancelledChildWaiver } = await import('./cancelled-child-waiver.js');
+  const { decideCancelledChildWaiver, replacedCancelledChildIds } = await import(
+    './cancelled-child-waiver.js'
+  );
+  const epicChildren = await accessor.getChildren(task.id);
+  // T14267 (D11229): a superseded or duplicate child whose replacement is done.
   const waiver = decideCancelledChildWaiver(
     task.id,
-    await accessor.getChildren(task.id),
+    epicChildren,
     cancelledChildWaiverReason,
     'done',
+    await replacedCancelledChildIds(epicChildren, (id) => accessor.loadSingleTask(id)),
   );
   const coverage = await completionCoverage(task, accessor, {
     coverCancelledChildren: waiver.waiverReason !== undefined,

@@ -935,7 +935,10 @@ function acRowDiffers(current: AcRow, next: AcInsertRow): boolean {
 }
 
 /** The reads AC coverage takes: criteria, their bindings and the task's children. */
-export type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>;
+export type AcCoverageAccessor = Pick<
+  DataAccessor,
+  'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'
+>;
 
 /**
  * The criteria AC coverage counts for `task`, as `cleo complete` checks them:
@@ -965,5 +968,6 @@ export function completionCoverageAccessor(
         .filter((row, index) => optional.get(index) !== row.text),
     getAcBindings: (ids) => accessor.getAcBindings(ids),
     getChildren: (parentId) => accessor.getChildren(parentId),
+    loadSingleTask: (taskId) => accessor.loadSingleTask(taskId),
   };
 }
