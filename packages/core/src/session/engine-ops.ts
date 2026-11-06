@@ -1511,6 +1511,26 @@ async function refreshGlobalInstructionDelivery(): Promise<GlobalInstructionRefr
 }
 
 /**
+ * Record on `sessionId` the installed CLEO-INJECTION version (T14327).
+ * Best-effort: no template, or a failed write, records nothing.
+ *
+ * @param projectRoot - Project root.
+ * @param sessionId - The bound session that ran the briefing.
+ */
+async function recordInjectionVersion(projectRoot: string, sessionId: string): Promise<void> {
+  try {
+    // Loaded lazily: this module is on the startup path of `cleo show` (gate 39).
+    const { readInstalledInjectionVersion } = await import('../templates/registry.js');
+    const version = readInstalledInjectionVersion();
+    if (version === null) return;
+    const { setSessionInjectionVersion } = await import('../store/session-store.js');
+    await setSessionInjectionVersion(sessionId, version, projectRoot);
+  } catch {
+    // Best-effort — the briefing never fails on this record.
+  }
+}
+
+/**
  * Compute session briefing — composite view for session start.
  *
  * Aggregates data from handoff, current focus, next tasks, bugs, blockers, and epics.
@@ -1567,6 +1587,9 @@ export async function sessionBriefing(
         ),
       });
     }
+    // T14327: a bound session records the protocol version its briefing
+    // delivered (best-effort; a failed write never fails the briefing).
+    if (resolvedSessionId && !unbound) await recordInjectionVersion(projectRoot, resolvedSessionId);
     // T12500 — read-only: the briefing may describe the newest active session
     // for an unbound caller, but says so.
     return engineSuccess({

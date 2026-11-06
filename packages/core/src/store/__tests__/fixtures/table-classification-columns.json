@@ -2022,6 +2022,7 @@
       "handoff_consumed_by",
       "handoff_json",
       "id",
+      "injection_version",
       "last_activity",
       "name",
       "next_session_id",
