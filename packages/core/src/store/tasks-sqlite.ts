@@ -71,7 +71,7 @@ async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
       ExitCode.INVALID_INPUT,
       `Refusing to insert a task with a malformed id: ${JSON.stringify(task.id)}`,
       {
-        fix: 'A task id must be a non-empty identifier under 64 characters, starting with a letter, containing no whitespace, path separators or control characters (e.g. "T1234"). This is a bug in the caller — the id should come from the id generator, not from user input or a path.',
+        fix: 'A task id is T followed by digits (e.g. "T1234"). This is a bug in the caller — the id should come from the id generator, not from user input or a path.',
         details: { field: 'id', value: String(task.id) },
       },
     );

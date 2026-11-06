@@ -325,7 +325,10 @@ async function canAutoCompleteParent(
     return false;
   }
   return (
-    await computeAcCoverage(parent.id, { ...accessor, ...completionCoverageAccessor(parent, tx) })
+    await computeAcCoverage(
+      parent.id,
+      completionCoverageAccessor(parent, tx, (id) => accessor.loadSingleTask(id)),
+    )
   ).ok;
 }
 
@@ -888,6 +891,7 @@ export async function completeTask(
     children,
     options.cancelledChildWaiverReason,
     cwd,
+    (id) => acc.loadSingleTask(id),
   );
 
   const now = new Date().toISOString();
@@ -1049,7 +1053,7 @@ export async function completeTask(
         await enforceAcCoverageGate(
           options,
           completionRoot,
-          completionCoverageAccessor(task, tx, currentCriteria),
+          completionCoverageAccessor(task, tx, (id) => acc.loadSingleTask(id), currentCriteria),
         );
 
         // Auto-advance pipelineStage: IVTR execution stages → release (T719)

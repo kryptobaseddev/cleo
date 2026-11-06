@@ -16,7 +16,9 @@
  */
 
 import {
+  appendFileSync,
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -283,6 +285,88 @@ export function readMarkerSnapshots(backupDir: string): MarkerSnapshots {
   }
 }
 
+/**
+ * The directory under `.cleo/` whose JSON and JSONL receipts name rollback
+ * points (`backupReceiptPath` of a docs doctor prune or repair, …).
+ */
+const RECEIPT_DIR = 'audit';
+
+/** The backups the receipts under `.cleo/audit/` name, as rotation reads them. */
+export interface ReceiptReferences {
+  /** Backup file name or backup id → the `<receipt file>:<field>` that names it. */
+  readonly refs: ReadonlyMap<string, string>;
+  /** Why a receipt could not be read, or `null`. */
+  readonly error: string | null;
+}
+
+/**
+ * The rollback points the receipts under `<root>/.cleo/audit/` name (T14278):
+ * a receipt field whose value is one of `names` (a backup id) or a path whose
+ * file name is one of them. Such a snapshot holds the state before a repair,
+ * which no newer copy has, so the byte cap keeps it. A line that does not
+ * parse refers to every name it contains. Free text inside a parsed field
+ * (a note) is not a reference: a repair names its backup in a field.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @param names - The backup file names and backup ids to look for.
+ * @returns Each referenced name with the first receipt field naming it, and any read error.
+ * @task T14278
+ */
+export function readReceiptReferences(
+  backupDir: string,
+  names: ReadonlySet<string>,
+): ReceiptReferences {
+  const cleoDir = join(backupDir, '..', '..');
+  const refs = new Map<string, string>();
+  const note = (name: string, where: string) => {
+    if (!refs.has(name)) refs.set(name, where);
+  };
+  const visit = (value: unknown, field: string, where: string): void => {
+    if (typeof value === 'string') {
+      const hit = names.has(value) ? value : basename(value);
+      if (names.has(hit)) note(hit, `${where}:${field}`);
+    } else if (Array.isArray(value)) {
+      for (const [i, v] of value.entries()) visit(v, `${field}[${i}]`, where);
+    } else if (value !== null && typeof value === 'object') {
+      for (const [k, v] of Object.entries(value))
+        visit(v, field === '' ? k : `${field}.${k}`, where);
+    }
+  };
+  const record = (text: string, where: string): void => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      for (const name of names) if (text.includes(name)) note(name, `${where} (unparsed)`);
+      return;
+    }
+    visit(parsed, '', where);
+  };
+  const walk = (rel: string): void => {
+    const abs = join(cleoDir, rel);
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith('.jsonl')) {
+        readFileSync(join(cleoDir, child), 'utf-8')
+          .split('\n')
+          .forEach((line, i) => {
+            if (line.trim() !== '') record(line, `${child}#${i + 1}`);
+          });
+      } else if (entry.name.endsWith('.json')) {
+        record(readFileSync(join(cleoDir, child), 'utf-8'), child);
+      }
+    }
+  };
+  if (!existsSync(join(cleoDir, RECEIPT_DIR))) return { refs, error: null };
+  try {
+    walk(RECEIPT_DIR);
+    return { refs, error: null };
+  } catch (error) {
+    return { refs, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Contents of a `<backupId>.meta.json` sidecar, as `cleo backup list` reads it. */
 export interface BackupSidecar {
   /** `<type>-YYYYMMDD-HHmmss`. */
@@ -488,4 +572,412 @@ export function restoreBackupSidecar(
 export function readBackupSidecar(snapshotPath: string, backupType: string): BackupSidecar | null {
   const id = backupIdOf(basename(snapshotPath), backupType);
   return id === null ? null : readSidecar(dirname(snapshotPath), id);
+}
+
+// ---------------------------------------------------------------------------
+// The byte cap (T14278): one policy over every snapshot family in the dir
+// ---------------------------------------------------------------------------
+
+/** The default `backup.maxBytes`: this many times the live store's size. */
+export const DEFAULT_BACKUP_MAX_BYTES_FACTOR = 5;
+
+/** Vacuum-snapshot prefixes managed by the cap (one snapshot run each). */
+const VACUUM_PREFIXES = new Set(['tasks', 'brain', 'conduit']);
+
+/** Backup types whose sets the cap manages. */
+const CAPPED_TYPES = new Set(['snapshot', 'migration']);
+
+/**
+ * The store role a file copies, or `null` for a sidecar. `tasks-*.db` and
+ * `cleo.db.<type>-*` are both copies of the project `cleo.db`; every other
+ * file is its own role (`brain-*` and `conduit-*` included, whether or not a
+ * run hard-linked them to the project store).
+ */
+function roleOf(kind: string, base: string): string | null {
+  if (kind === 'meta') return null;
+  if (kind === 'vacuum') return base === 'tasks' ? 'cleo.db' : `${base}.db`;
+  return base;
+}
+
+/** The `coveredBy` entry of a role whose copy in the set is empty: nothing is lost. */
+export const EMPTY_COPY = '(empty copy: nothing to lose)';
+
+/** One file of a backup set. */
+interface SetFile {
+  readonly name: string;
+  /** The store role it copies, or `null` for a sidecar. */
+  readonly role: string | null;
+}
+
+/** One backup set: every file of one snapshot run. */
+interface BackupSet {
+  /** `vacuum-<stamp>` or `<type>-<stamp>`. */
+  readonly key: string;
+  /** `YYYYMMDD-HHmmss`. */
+  readonly stamp: string;
+  /** `vacuum`, `snapshot` or `migration`. */
+  readonly kind: string;
+  readonly files: SetFile[];
+  bytes: number;
+}
+
+/** One set the cap removes (or would), with the newer verified copy of each role it held. */
+export interface ByteCapRemoval {
+  readonly set: string;
+  readonly files: readonly string[];
+  readonly bytes: number;
+  /** Per store role in the set: the newer snapshot of that same role that verifies. */
+  readonly coveredBy: Readonly<Record<string, string>>;
+}
+
+/** A set the cap keeps although it is over the cap, and why. */
+export interface ByteCapKept {
+  readonly set: string;
+  readonly bytes: number;
+  readonly reason: string;
+}
+
+/** The cap's plan, or what it did. */
+export interface ByteCapResult {
+  readonly maxBytes: number;
+  readonly totalBefore: number;
+  readonly totalAfter: number;
+  readonly removed: readonly ByteCapRemoval[];
+  /** Older sets kept while the directory is still over the cap, with the reason. */
+  readonly kept: readonly ByteCapKept[];
+  /** Still over the cap: nothing more is provably redundant. */
+  readonly overCap: boolean;
+  /** True for a plan (nothing deleted). */
+  readonly dryRun: boolean;
+}
+
+/**
+ * What a snapshot file holds (T14278): `ok` when it is a usable copy of its
+ * role (a database opens read-only with at least one schema object; a JSON
+ * file parses; any other file is non-empty), `empty` when it holds nothing
+ * (zero bytes, or a database with no schema object: the copy of an empty
+ * store), `bad` when it cannot be read.
+ *
+ * @param path - The snapshot file.
+ * @returns `ok`, `empty` or `bad`.
+ */
+export function probeSnapshot(path: string): 'ok' | 'empty' | 'bad' {
+  const name = basename(path);
+  let bytes: number;
+  try {
+    bytes = statSync(path).size;
+  } catch {
+    return 'bad';
+  }
+  if (bytes === 0) return 'empty';
+  const isDb = /\.db(\.|-|$)/.test(name);
+  if (!isDb && /\.json(\.|$)/.test(name)) {
+    try {
+      JSON.parse(readFileSync(path, 'utf-8'));
+      return 'ok';
+    } catch {
+      return 'bad';
+    }
+  }
+  if (!isDb) return 'ok';
+  let db: DatabaseSync | undefined;
+  try {
+    const { DatabaseSync: Ctor } = createRequire(import.meta.url)('node:sqlite') as {
+      DatabaseSync: new (path: string, opts: { readOnly: boolean }) => DatabaseSync;
+    };
+    db = new Ctor(path, { readOnly: true }); // db-open-allowed: leaf module; read-only probe that a snapshot opens before older ones are pruned
+    const row = db.prepare('SELECT count(*) AS n FROM sqlite_master').get() as { n: number };
+    return row.n > 0 ? 'ok' : 'empty';
+  } catch {
+    return 'bad';
+  } finally {
+    db?.close();
+  }
+}
+
+/**
+ * Whether a snapshot file is a usable copy of its role ({@link probeSnapshot} `ok`).
+ *
+ * @param path - The snapshot file.
+ * @returns True when it verifies.
+ */
+export function snapshotOpens(path: string): boolean {
+  return probeSnapshot(path) === 'ok';
+}
+
+/** Group a backup directory's files into capped sets; other files belong to none. */
+function backupSets(names: readonly string[]): Map<string, BackupSet> {
+  const sets = new Map<string, BackupSet>();
+  const add = (key: string, stamp: string, kind: string, file: SetFile): void => {
+    let set = sets.get(key);
+    if (set === undefined) {
+      set = { key, stamp, kind, files: [], bytes: 0 };
+      sets.set(key, set);
+    }
+    set.files.push(file);
+  };
+  for (const name of names) {
+    const vacuum = /^([a-z][a-z0-9_]*)-(\d{8}-\d{6})\.db$/.exec(name);
+    if (vacuum && VACUUM_PREFIXES.has(vacuum[1] ?? '')) {
+      add(`vacuum-${vacuum[2]}`, vacuum[2] ?? '', 'vacuum', {
+        name,
+        role: roleOf('vacuum', vacuum[1] ?? ''),
+      });
+      continue;
+    }
+    const typed = /^(.+)\.(snapshot|migration)-(\d{8}-\d{6})$/.exec(name);
+    if (typed && CAPPED_TYPES.has(typed[2] ?? '')) {
+      add(`${typed[2]}-${typed[3]}`, typed[3] ?? '', typed[2] ?? '', {
+        name,
+        role: roleOf(typed[2] ?? '', typed[1] ?? ''),
+      });
+      continue;
+    }
+    const meta = /^(snapshot|migration)-(\d{8}-\d{6})\.meta\.json$/.exec(name);
+    if (meta) add(`${meta[1]}-${meta[2]}`, meta[2] ?? '', meta[1] ?? '', { name, role: null });
+  }
+  return sets;
+}
+
+/**
+ * Plan, and unless `dryRun` apply, the byte cap on `.cleo/backups/sqlite`
+ * (T14278): one policy over every snapshot family in the directory
+ * (session-end `tasks-*`, `backup add` `*.snapshot-*`, and the store's own
+ * `*.migration-*` snapshots, which join the rotation here).
+ *
+ * Coverage is proven per store role (the 2026-10-19 lesson: a newer snapshot
+ * of one store never covers another store's only copy). A set may go only
+ * when, for EVERY store role it holds (the project `cleo.db`, `brain`,
+ * `conduit`, the blob manifest, the attachments index, each JSON copy …), a
+ * strictly newer copy of that same role exists and verifies, or the set's
+ * copy of it is empty (zero bytes, or a database with no schema object:
+ * nothing to lose; recorded as {@link EMPTY_COPY}). So the newest
+ * verified copy of every role is never removed. Also never removed: a pinned
+ * backup (T12535), a pre-collapse snapshot a twin-collapse marker references,
+ * any migration set while the markers cannot be read, a rollback point a
+ * receipt under `.cleo/audit/` names ({@link readReceiptReferences}), and
+ * every set while a receipt cannot be read. Oldest sets go
+ * first, only while the directory is over the cap; each removal is appended
+ * to `<backupDir>/rotation.jsonl` with its covering file per role.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @param maxBytes - The cap.
+ * @param opts - `dryRun` plans only; `probe` overrides {@link probeSnapshot} (tests).
+ * @returns The removals (planned or done) and the sets kept over the cap, with reasons.
+ * @task T14278
+ */
+export function enforceBackupByteCap(
+  backupDir: string,
+  maxBytes: number,
+  opts: { dryRun?: boolean; probe?: (path: string) => 'ok' | 'empty' | 'bad' } = {},
+): ByteCapResult {
+  const dryRun = opts.dryRun === true;
+  const probe = opts.probe ?? probeSnapshot;
+  const probed = new Map<string, 'ok' | 'empty' | 'bad'>();
+  const state = (name: string): 'ok' | 'empty' | 'bad' => {
+    let result = probed.get(name);
+    if (result === undefined) {
+      result = probe(join(backupDir, name));
+      probed.set(name, result);
+    }
+    return result;
+  };
+  const opens = (name: string): boolean => state(name) === 'ok';
+  // Sorted: readdir order differs by filesystem, and the plan must not.
+  const names = readdirSync(backupDir)
+    .filter((n) => !n.endsWith('.tmp'))
+    .sort();
+  const size = (name: string): number => {
+    try {
+      return lstatSync(join(backupDir, name)).size;
+    } catch {
+      return 0;
+    }
+  };
+  const sets = backupSets(names);
+  let total = 0;
+  for (const name of names) total += size(name);
+  for (const set of sets.values()) set.bytes = set.files.reduce((n, f) => n + size(f.name), 0);
+  const totalBefore = total;
+  const removed: ByteCapRemoval[] = [];
+  const kept: ByteCapKept[] = [];
+  const finish = (): ByteCapResult => ({
+    maxBytes,
+    totalBefore,
+    totalAfter: total,
+    removed,
+    kept,
+    overCap: total > maxBytes,
+    dryRun,
+  });
+  if (total <= maxBytes) return finish();
+
+  // Every copy of each role, newest first.
+  const copiesOf = new Map<string, Array<{ name: string; stamp: string }>>();
+  for (const set of sets.values()) {
+    for (const f of set.files) {
+      if (f.role === null) continue;
+      const list = copiesOf.get(f.role) ?? [];
+      list.push({ name: f.name, stamp: set.stamp });
+      copiesOf.set(f.role, list);
+    }
+  }
+  for (const list of copiesOf.values()) list.sort((a, b) => (a.stamp < b.stamp ? 1 : -1));
+
+  const markers = readMarkerSnapshots(backupDir);
+  const markersUnreadable = markers.error !== null || markers.unreadable.length > 0;
+  const lookFor = new Set<string>();
+  for (const set of sets.values()) {
+    if (set.kind !== 'vacuum') lookFor.add(set.key);
+    for (const f of set.files) lookFor.add(f.name);
+  }
+  const receipts = readReceiptReferences(backupDir, lookFor);
+  const oldestFirst = [...sets.values()].sort((a, b) => (a.stamp < b.stamp ? -1 : 1));
+  for (const set of oldestFirst) {
+    if (total <= maxBytes) break;
+    const keep = (reason: string) => kept.push({ set: set.key, bytes: set.bytes, reason });
+    if (set.kind === PRE_COLLAPSE_BACKUP_TYPE && markersUnreadable) {
+      keep('twin-collapse markers unreadable: every migration set is kept');
+      continue;
+    }
+    if (receipts.error !== null) {
+      keep(`receipts unreadable (${receipts.error}): every set is kept`);
+      continue;
+    }
+    const ref =
+      receipts.refs.get(set.key) ??
+      set.files.map((f) => receipts.refs.get(f.name)).find((r) => r !== undefined);
+    if (ref !== undefined) {
+      keep(`referenced by ${ref}`);
+      continue;
+    }
+    const marked = set.files.find((f) => markers.names.has(f.name));
+    if (marked) {
+      keep(`a twin-collapse marker references ${marked.name}`);
+      continue;
+    }
+    if (
+      set.kind !== 'vacuum' &&
+      set.files.some((f) => isPinnedBackup(backupDir, f.name, set.kind))
+    ) {
+      keep('pinned');
+      continue;
+    }
+    const coveredBy: Record<string, string> = {};
+    let uncovered: string | null = null;
+    for (const f of set.files) {
+      if (f.role === null) continue;
+      // An empty copy (a run whose source was empty) holds nothing to lose.
+      if (state(f.name) === 'empty') {
+        coveredBy[f.role] = EMPTY_COPY;
+        continue;
+      }
+      const cover = (copiesOf.get(f.role) ?? []).find((c) => c.stamp > set.stamp && opens(c.name));
+      if (cover === undefined) {
+        uncovered = f.role;
+        break;
+      }
+      coveredBy[f.role] = cover.name;
+    }
+    if (uncovered !== null) {
+      keep(`no newer verified snapshot of ${uncovered}`);
+      continue;
+    }
+    if (Object.keys(coveredBy).length === 0) {
+      keep('holds no store copy (sidecars only)');
+      continue;
+    }
+    let freed = 0;
+    for (const f of set.files) {
+      const bytes = size(f.name);
+      if (dryRun) {
+        freed += bytes;
+        continue;
+      }
+      try {
+        unlinkSync(join(backupDir, f.name));
+        freed += bytes;
+      } catch {
+        // vanished or locked: counted as kept
+      }
+    }
+    total -= freed;
+    const removal: ByteCapRemoval = {
+      set: set.key,
+      files: set.files.map((f) => f.name),
+      bytes: freed,
+      coveredBy,
+    };
+    removed.push(removal);
+    if (!dryRun) {
+      try {
+        appendFileSync(
+          join(backupDir, 'rotation.jsonl'),
+          `${JSON.stringify({ at: new Date().toISOString(), reason: 'byte-cap', maxBytes, ...removal })}\n`,
+        );
+      } catch {
+        // the result still names it
+      }
+    }
+  }
+  if (total > maxBytes && !dryRun) {
+    getLogger('backup-rotation').warn(
+      { backupDir, total, maxBytes, kept: kept.length },
+      'backups over the byte cap: nothing more is provably redundant',
+    );
+  }
+  return finish();
+}
+
+/**
+ * The byte cap for a backup directory (T14278): `backup.maxBytes` from the
+ * project's `.cleo/config.json`, else {@link DEFAULT_BACKUP_MAX_BYTES_FACTOR}
+ * times the live store's size; `null` when neither can be read.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @returns The cap in bytes, or `null`.
+ * @task T14278
+ */
+export function resolveBackupMaxBytes(backupDir: string): number | null {
+  const cleoDir = join(backupDir, '..', '..');
+  let configured: unknown;
+  try {
+    const config = JSON.parse(readFileSync(join(cleoDir, 'config.json'), 'utf-8')) as {
+      backup?: { maxBytes?: unknown };
+    };
+    configured = config.backup?.maxBytes;
+  } catch {
+    configured = undefined;
+  }
+  if (typeof configured === 'number' && configured > 0) return configured;
+  try {
+    const maxBytes = DEFAULT_BACKUP_MAX_BYTES_FACTOR * statSync(join(cleoDir, 'cleo.db')).size;
+    return maxBytes > 0 ? maxBytes : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Apply the byte cap after a snapshot (T14278), or plan it (`dryRun`, what
+ * `cleo backup list --rotation` prints). Synchronous, so every snapshot writer
+ * (the migration snapshot included) runs it right after writing. Non-fatal:
+ * any failure leaves every backup in place.
+ *
+ * @param backupDir - `<root>/.cleo/backups/sqlite`.
+ * @param opts - `dryRun` plans only.
+ * @returns The cap's outcome, or `null` when it could not run.
+ * @task T14278
+ */
+export function applyBackupByteCap(
+  backupDir: string,
+  opts: { dryRun?: boolean } = {},
+): ByteCapResult | null {
+  try {
+    const maxBytes = resolveBackupMaxBytes(backupDir);
+    if (maxBytes === null) return null;
+    return enforceBackupByteCap(backupDir, maxBytes, { dryRun: opts.dryRun === true });
+  } catch {
+    return null;
+  }
 }

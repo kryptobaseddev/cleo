@@ -20,7 +20,7 @@ import {
 const ROOT = '/project';
 
 describe('isManifestTaskId', () => {
-  it.each(['T1', 'T12829', 'T-RECONCILE-FOLLOWUP-v2026.5.63-6', 'T932EP'])('accepts %s', (id) => {
+  it.each(['T1', 'T12829'])('accepts %s', (id) => {
     expect(isManifestTaskId(id)).toBe(true);
   });
 
@@ -33,6 +33,9 @@ describe('isManifestTaskId', () => {
     ['no T prefix', '12829'],
     ['empty', ''],
     ['a non-string', 42],
+    // T14324: the task grammar only; legacy structured ids are re-keyed.
+    ['a legacy reconcile follow-up id', 'T-RECONCILE-FOLLOWUP-v2026.5.63-6'],
+    ['letters after the digits', 'T932EP'],
   ])('rejects %s', (_label, id) => {
     expect(isManifestTaskId(id)).toBe(false);
   });

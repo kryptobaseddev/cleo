@@ -422,6 +422,7 @@ describe('archive-reason invariant — end-to-end', () => {
     expect(followUp?.status).toBe('pending');
     expect(followUp?.labels).toContain('reconcile-followup:v-test-2');
     expect(followUp?.relates?.[0]?.taskId).toBe('T8002');
+    expect(followUp?.acceptance).toEqual(['Verification recorded for T8002, or T8002 re-scoped']);
 
     // A re-run of the same tag finds that follow-up instead of filing another.
     await runInvariants('v-test-2', { dryRun: false, cwd: workspace });

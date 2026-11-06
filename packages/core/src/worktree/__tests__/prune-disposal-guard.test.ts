@@ -27,22 +27,11 @@ import { keepMarkerPath, readKeepMarker } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listed = vi.hoisted(() => ({ worktrees: [] as WorktreeInfo[] }));
-const destroyed = vi.hoisted(() => ({ paths: [] as string[] }));
 
 vi.mock('../list.js', () => ({
   listWorktrees: async () => ({ success: true, data: { worktrees: listed.worktrees } }),
   resolvePrimaryWorktreePath: () => null,
   isPrimaryWorktree: () => false,
-}));
-
-// The NAPI addon is not built in every checkout; stand in with a plain removal.
-vi.mock('@cleocode/worktree', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@cleocode/worktree')>()),
-  napiDestroyWorktree: ({ worktreePath }: { worktreePath: string }) => {
-    destroyed.paths.push(worktreePath);
-    rmSync(worktreePath, { recursive: true, force: true });
-    return { removed: true, branchDeleted: false };
-  },
 }));
 
 import { pruneOrphanWorktrees } from '../../gc/cleanup.js';
@@ -97,7 +86,6 @@ beforeEach(() => {
   git(repo, ['add', '.']);
   git(repo, ['commit', '-q', '-m', 'init']);
   listed.worktrees = [];
-  destroyed.paths = [];
 });
 
 afterEach(() => {
@@ -120,14 +108,13 @@ describe('pruneOrphanedWorktreesByStatus disposal guard (T13700)', () => {
     const outcome = first.success ? first.data.outcomes[0] : undefined;
     expect(outcome?.pruned).toBe(false);
     expect(outcome?.kept?.dependents).toEqual([link]);
-    expect(destroyed.paths).toEqual([]);
     expect(existsSync(owner)).toBe(true);
     expect(readKeepMarker(owner)?.dependents).toEqual([link]);
 
     unlinkSync(link);
     const second = await prune();
     expect(second.success && second.data.prunedCount).toBe(1);
-    expect(destroyed.paths).toEqual([owner]);
+    expect(existsSync(owner)).toBe(false);
     expect(existsSync(keepMarkerPath(owner))).toBe(false);
   });
 
@@ -155,7 +142,6 @@ describe('pruneOrphanedWorktreesByStatus disposal guard (T13700)', () => {
     const first = await prune();
     expect(first.success && first.data.outcomes[0]?.kept?.evidence).toEqual([receipt]);
     expect(existsSync(receipt)).toBe(true);
-    expect(destroyed.paths).toEqual([]);
 
     mkdirSync(join(repo, 'tmp'));
     writeFileSync(join(repo, 'tmp', 'vitest.json'), readFileSync(receipt));

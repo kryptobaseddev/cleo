@@ -34,6 +34,7 @@ import { createTask, getDb, taskShow } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
+import { leaseTestTasks } from '../../store/__tests__/test-db-helper.js';
 import { reconcileSaga } from '../reconcile.js';
 
 let TEST_ROOT: string;
@@ -81,6 +82,7 @@ async function seedSagaWithDoneMembers(
     } as Parameters<typeof createTask>[0],
     testRoot,
   );
+  leaseTestTasks([sagaId], testRoot);
 
   for (const memberId of memberIds) {
     await createTask(

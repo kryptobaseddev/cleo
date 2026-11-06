@@ -21,17 +21,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import {
-  accessSync,
-  appendFileSync,
-  chmodSync,
-  constants,
-  existsSync,
-  mkdirSync,
-  realpathSync,
-} from 'node:fs';
+import { accessSync, appendFileSync, chmodSync, constants, existsSync, mkdirSync } from 'node:fs';
 import { platform } from 'node:os';
-import { dirname, isAbsolute, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import type {
   AgentWorktreeState,
@@ -58,16 +50,12 @@ import {
 
 import {
   createWorktree,
-  describeDisposalBlockers,
-  forceRemoveWorktreeDir,
+  disposeWorktree,
   getGitRoot,
   gitSync,
-  guardWorktreeDisposal,
   locateTaskWorktree,
-  napiDestroyWorktree,
   pruneWorktrees,
   readWorktreeProvisioning,
-  releaseWorktreeTaskLock,
 } from '@cleocode/worktree';
 import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
@@ -319,34 +307,12 @@ export interface PruneWorktreeResult {
   worktreeRemoved: boolean;
   /** Whether the task branch was deleted. */
   branchDeleted: boolean;
-  /** Whether the worktree was dirty (had uncommitted changes) when pruned. */
+  /** Whether the worktree's content or commits were not proven preserved (T13924: it is then kept). */
   wasDirty: boolean;
   /** Error message if any step failed. */
   error?: string;
   /** Set (with `status: 'skipped'`) when the worktree was kept because something still needs its files (T13696). */
   kept?: WorktreeDisposalBlockers;
-}
-
-/**
- * Move this process out of `dir` before it is deleted (T12671). `cleo done`
- * run inside a task worktree completes the task, which prunes that worktree;
- * a process whose cwd no longer exists then fails every later resolution from
- * it (the audit write logged "No CLEO project found" beside `success: true`).
- *
- * @param dir - Directory about to be removed.
- * @param to - Directory to move to (the repository root).
- */
-function leaveDirectoryBeforeRemoval(dir: string, to: string): void {
-  let cwd: string;
-  let target: string;
-  try {
-    cwd = realpathSync(process.cwd()); // CWD-OK: the process's own cwd is the subject
-    target = realpathSync(dir);
-  } catch {
-    return;
-  }
-  const rel = relative(target, cwd);
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) process.chdir(to);
 }
 
 /**
@@ -360,22 +326,25 @@ function leaveDirectoryBeforeRemoval(dir: string, to: string): void {
  *
  * Behaviour:
  * - Returns `{ status: 'skipped' }` when no worktree exists for the task.
- * - Unlocks the worktree before removing (handles locked worktrees created by spawn).
- * - Falls back to `rmSync` if `git worktree remove` fails.
+ * - Disposes of the worktree through the worktree package's `disposeWorktree`
+ *   engine (T13924): it is removed only with proof nothing in it is lost, and
+ *   otherwise kept (`{ status: 'skipped', error }`, `wasDirty` when its
+ *   content or commits are unpreserved) with a `kept` audit entry in
+ *   `.cleo/audit/worktree-prune.jsonl`. A dirty worktree is never force-removed.
+ * - Keeps the worktree (`{ status: 'skipped', kept }`) while another checkout
+ *   symlinks into it or it holds evidence found nowhere else (T13696).
  * - Deletes `task/<taskId>` branch only when it has 0 commits ahead of the
  *   current HEAD (i.e. the branch has already been merged or is empty).
  *   When commits are still present the branch is left in place and reported in
  *   the result — callers should use `completeAgentWorktreeViaMerge` first.
- * - Always writes a `--force` remove with an audit log entry (`.cleo/audit/worktree-prune.jsonl`)
- *   when the worktree is detected as dirty.
- * - Keeps the worktree (`{ status: 'skipped', kept }`) while another checkout
- *   symlinks into it or it holds evidence found nowhere else (T13696).
  * - Never throws — failures are returned in `{ status: 'error', error }`.
  *
  * @param taskId     - The CLEO task ID (e.g. "T1462").
  * @param projectRoot - Absolute path to the project root.
  * @param opts.auditLogPath - Override path for the audit JSONL (testing).
  * @param opts.evidence - The task's recorded evidence atoms (T13696).
+ * @param opts.defaultBranch - The branch the task's commits were integrated
+ *   into; they count as preserved there (T13924).
  * @returns Prune outcome.
  *
  * @task T1462
@@ -384,7 +353,7 @@ function leaveDirectoryBeforeRemoval(dir: string, to: string): void {
 export function pruneWorktree(
   taskId: string,
   projectRoot: string,
-  opts: { auditLogPath?: string; evidence?: readonly EvidenceAtom[] } = {},
+  opts: { auditLogPath?: string; evidence?: readonly EvidenceAtom[]; defaultBranch?: string } = {},
 ): PruneWorktreeResult {
   const branch = `task/${taskId}`;
   let gitRoot: string;
@@ -406,33 +375,34 @@ export function pruneWorktree(
 
   // Fast-path: nothing to do if the worktree directory doesn't exist.
   if (!existsSync(worktreePath)) {
-    // Still attempt to remove a stale branch if it exists.
-    let branchDeleted = false;
-    try {
-      const branchExists = gitSync(['branch', '--list', branch], gitRoot);
-      if (branchExists) {
-        gitSync(['branch', '-D', branch], gitRoot);
-        branchDeleted = true;
-      } else {
-        branchDeleted = true; // nothing to delete
-      }
-    } catch {
-      /* best-effort */
-    }
-    return { taskId, status: 'skipped', worktreeRemoved: false, branchDeleted, wasDirty: false };
+    // Still remove a stale branch, but only one holding no commits beyond HEAD.
+    return {
+      taskId,
+      status: 'skipped',
+      worktreeRemoved: false,
+      branchDeleted: deleteBranchWithoutNewCommits(gitRoot, branch),
+      wasDirty: false,
+    };
   }
 
-  // T13696: removal deletes the whole directory, so refuse while another
-  // checkout links into it or it holds the only copy of the task's evidence.
-  const kept = guardWorktreeDisposal(worktreePath, {
-    taskId,
-    reason: 'complete',
+  // T13924: the one disposal engine. It keeps the worktree while another
+  // checkout links into it, evidence lives only there (T13696), or anything
+  // in it (changes, untracked or ignored files, commits on no remote and no
+  // other branch) is not proven preserved. Nothing is force-removed here.
+  const disposal = disposeWorktree({
+    worktreePath,
     gitRoot,
     projectRoot,
+    taskId,
+    reason: 'complete',
     evidence: opts.evidence,
+    defaultBranch: opts.defaultBranch,
   });
-  if (kept !== null) {
-    const error = describeDisposalBlockers(worktreePath, kept);
+  const wasDirty = disposal.unpreserved !== undefined;
+  if (!disposal.removed) {
+    const error = disposal.kept
+      ? (disposal.keptReason ?? '')
+      : `Worktree ${worktreePath} kept: ${disposal.keptReason ?? 'not proven preserved'}. Commit and push the work, then run \`cleo worktree destroy ${taskId}\` (or \`--force\` to archive it and remove it).`;
     try {
       const logPath =
         opts.auditLogPath ?? join(projectRoot, '.cleo', 'audit', 'worktree-prune.jsonl');
@@ -442,7 +412,8 @@ export function pruneWorktree(
         taskId,
         worktreePath,
         action: 'kept',
-        ...kept,
+        ...(disposal.kept ?? {}),
+        ...(disposal.unpreserved !== undefined ? { unpreserved: disposal.unpreserved } : {}),
         agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
       });
       appendFileSync(logPath, entry + '\n', 'utf-8');
@@ -451,121 +422,51 @@ export function pruneWorktree(
     }
     return {
       taskId,
-      status: 'skipped',
+      status: disposal.failed !== undefined ? 'error' : 'skipped',
       worktreeRemoved: false,
       branchDeleted: false,
-      wasDirty: false,
+      wasDirty,
       error,
-      kept,
+      ...(disposal.kept ? { kept: disposal.kept } : {}),
     };
   }
 
-  // Detect dirty state: uncommitted changes in the worktree.
-  let wasDirty = false;
-  try {
-    const statusOut = gitSync(['status', '--porcelain'], worktreePath);
-    wasDirty = statusOut.length > 0;
-  } catch {
-    // If we can't check status assume clean.
-  }
+  return {
+    taskId,
+    status: 'pruned',
+    worktreeRemoved: true,
+    branchDeleted: deleteBranchWithoutNewCommits(gitRoot, branch),
+    wasDirty,
+  };
+}
 
-  // If dirty, write an audit log entry before force-removing.
-  if (wasDirty) {
+/**
+ * Delete `branch` only when it holds no commit beyond the repository's current
+ * HEAD (merged or empty); a missing branch counts as deleted. Never throws.
+ *
+ * @param gitRoot - Repository root.
+ * @param branch - Local branch name.
+ * @returns Whether the branch is gone.
+ */
+function deleteBranchWithoutNewCommits(gitRoot: string, branch: string): boolean {
+  try {
+    if (!gitSync(['branch', '--list', branch], gitRoot)) return true; // already gone
+    let baseRef: string;
     try {
-      const auditDir = opts.auditLogPath
-        ? dirname(opts.auditLogPath)
-        : join(projectRoot, '.cleo', 'audit');
-      mkdirSync(auditDir, { recursive: true });
-      const logPath = opts.auditLogPath ?? join(auditDir, 'worktree-prune.jsonl');
-      const entry = JSON.stringify({
-        timestamp: new Date().toISOString(),
-        taskId,
-        worktreePath,
-        action: 'force-remove-dirty',
-        agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
-      });
-      appendFileSync(logPath, entry + '\n', 'utf-8');
+      baseRef = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
     } catch {
-      /* audit is best-effort */
+      baseRef = 'main';
     }
-  }
-
-  // T11123: Unlock and remove the worktree via NAPI destroyWorktree
-  // (Rust worktrunk-core) instead of raw git worktree unlock + remove
-  // shell-outs. Keeps filesystem rmSync fallback for stale/corrupted
-  // directories that NAPI cannot resolve.
-  let worktreeRemoved = false;
-  leaveDirectoryBeforeRemoval(worktreePath, gitRoot);
-  try {
-    const napiResult = napiDestroyWorktree({
-      repoRoot: gitRoot,
-      worktreePath,
-      force: true,
-    });
-    worktreeRemoved = napiResult.removed;
-    // T11033 — NAPI may report success even when untracked directories
-    // survive. Verify on-disk reality.
-    if (worktreeRemoved && existsSync(worktreePath)) {
-      worktreeRemoved = false;
-    }
+    const ahead = gitSync(['log', '--format=%H', `${baseRef}..${branch}`], gitRoot)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (ahead.length > 0) return false; // commits ahead — leave the branch
+    gitSync(['branch', '-D', branch], gitRoot);
+    return true;
   } catch {
-    // napi failed — fall through to filesystem removal
+    return false;
   }
-
-  if (!worktreeRemoved) {
-    // Filesystem fallback (T10858: owned by the worktree facade).
-    try {
-      forceRemoveWorktreeDir(gitRoot, worktreePath);
-      worktreeRemoved = true;
-    } catch (err) {
-      return {
-        taskId,
-        status: 'error',
-        worktreeRemoved: false,
-        branchDeleted: false,
-        wasDirty,
-        error: `Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-  }
-
-  // T12506: the worktree is gone (e.g. integrated by completeAgentWorktreeViaMerge),
-  // so its per-task lock guards nothing. Leaving it held made the next spawn
-  // of the task fail E_WORKTREE_LOCKED for the rest of the owner's lifetime.
-  releaseWorktreeTaskLock(computeProjectHash(projectRoot), taskId);
-
-  // Delete the branch only when it has no commits ahead of current HEAD.
-  let branchDeleted = false;
-  try {
-    const branchExists = gitSync(['branch', '--list', branch], gitRoot);
-    if (branchExists) {
-      // Check for unmerged commits.
-      let baseRef: string;
-      try {
-        baseRef = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
-      } catch {
-        baseRef = 'main';
-      }
-      const aheadLog = gitSync(['log', '--format=%H', `${baseRef}..${branch}`], gitRoot);
-      const aheadCommits = aheadLog
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (aheadCommits.length === 0) {
-        gitSync(['branch', '-D', branch], gitRoot);
-        branchDeleted = true;
-      } else {
-        // Commits ahead — leave branch, surface in result.
-        branchDeleted = false;
-      }
-    } else {
-      branchDeleted = true; // already gone
-    }
-  } catch {
-    /* best-effort */
-  }
-
-  return { taskId, status: 'pruned', worktreeRemoved, branchDeleted, wasDirty };
 }
 
 // ---------------------------------------------------------------------------

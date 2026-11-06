@@ -22,7 +22,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerOp } from '@cleocode/contracts/ledger';
-import { recordDisplayIdAlias, rekeyRowUid, taskReferenceColumns } from '../display-id-alias.js';
+import {
+  type DisplayIdAliasReason,
+  recordDisplayIdAlias,
+  rekeyRowUid,
+  taskReferenceColumns,
+} from '../display-id-alias.js';
 import { mintRowUid } from '../row-identity.js';
 import { BIRTH_FP_COLUMN, rowIdentitySpec, UID_COLUMN } from '../row-identity-registry.js';
 import {
@@ -443,7 +448,7 @@ function counterOf(spec: DisplayKeyTable, key: OpValue | string | null | undefin
  * staged transaction would write, so the re-mint never lands on a row that is
  * still held in the inbox.
  */
-function allocateDisplayKey(db: DatabaseSync, table: string, stream: string): string {
+function allocateDisplayKey(db: DatabaseSync, table: string, stream: string | null): string {
   const spec = DISPLAY_KEYS[table];
   // @sync-invariant none:input-shape callers pass only tables from DISPLAY_KEYS
   if (!spec) throw new Error(`display key: ${table} has no counter key`);
@@ -454,9 +459,20 @@ function allocateDisplayKey(db: DatabaseSync, table: string, stream: string): st
     .all(spec.prefix.length, spec.prefix) as Array<{ k: string | null }>) {
     floor = Math.max(floor, counterOf(spec, r.k));
   }
-  for (const st of stagedTxns(db, stream)) {
-    for (const op of st.txn.ops) {
-      if (op.t === table && op.a) floor = Math.max(floor, counterOf(spec, op.a[spec.column]));
+  // Keys staged for this stream (every stream when `stream` is null: a local
+  // re-key, T14324) are taken too; a store without the inbox has none.
+  const streams = !hasTable(db, '_sync_inbox')
+    ? []
+    : stream !== null
+      ? [stream]
+      : (
+          db.prepare('SELECT DISTINCT stream FROM _sync_inbox').all() as Array<{ stream: string }>
+        ).map((r) => r.stream);
+  for (const name of streams) {
+    for (const st of stagedTxns(db, name)) {
+      for (const op of st.txn.ops) {
+        if (op.t === table && op.a) floor = Math.max(floor, counterOf(spec, op.a[spec.column]));
+      }
     }
   }
   const next =
@@ -500,7 +516,9 @@ export interface DisplayRemint {
  * @param table - A table with a counter key ({@link displayKeyColumn}).
  * @param uid - The losing row's (new) uid.
  * @param birthFp - Its birth fingerprint.
- * @param opts - The stream (for staged keys) and this replica (the alias origin).
+ * @param opts - The stream (for staged keys; null takes every staged stream),
+ *   this replica (the alias origin, null when the store has none), and why the
+ *   key moved (default `collision-remint`; a legacy re-key passes `manual`).
  * @returns The re-mint, or null when the row is gone.
  */
 export function remintDisplayKey(
@@ -509,7 +527,11 @@ export function remintDisplayKey(
   table: string,
   uid: string,
   birthFp: string,
-  opts: { readonly stream: string; readonly origin: string },
+  opts: {
+    readonly stream: string | null;
+    readonly origin: string | null;
+    readonly reason?: DisplayIdAliasReason;
+  },
 ): DisplayRemint | null {
   const spec = DISPLAY_KEYS[table];
   if (!spec) return null;
@@ -536,7 +558,8 @@ export function remintDisplayKey(
     );
     if (table === 'brain_decisions') {
       for (const [k, n] of Object.entries(
-        repointDecisionReferencesNative(db, fromKey, toKey, opts.origin, true),
+        // A store with no replica (null origin) wrote every reference itself.
+        repointDecisionReferencesNative(db, fromKey, toKey, opts.origin ?? undefined, true),
       )) {
         rewritten[k] = (rewritten[k] ?? 0) + n;
       }
@@ -549,7 +572,7 @@ export function remintDisplayKey(
       displayId: fromKey,
       entityUid: uid,
       entityBirthFp: birthFp,
-      reason: 'collision-remint',
+      reason: opts.reason ?? 'collision-remint',
       origin: opts.origin,
     });
   }

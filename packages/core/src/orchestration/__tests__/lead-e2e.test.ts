@@ -22,8 +22,8 @@ import { rollupEpicStatus, rollupWaveStatus } from '../lead-rollup.js';
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const EPIC_ID = 'T-E2E-EPIC';
-const WORKER_IDS = ['T-E2E-1', 'T-E2E-2', 'T-E2E-3'];
+const EPIC_ID = 'T97200';
+const WORKER_IDS = ['T97201', 'T97202', 'T97203'];
 
 function makeManifestEntry(taskId: string): {
   id: string;

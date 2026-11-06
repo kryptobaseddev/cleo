@@ -48,6 +48,11 @@ export interface UidAlias {
   /** The row's birth fingerprint before the re-key (the K's `obfp`). */
   readonly oldBfp: string;
   readonly newUid: string;
+  /**
+   * The row's birth fingerprint after the re-key (the K's `bfp`), when the K
+   * moved it (T14335). Omitted or null: the fingerprint did not change.
+   */
+  readonly newBfp?: string | null;
   /** The replica that wrote the K. */
   readonly origin: string;
   /** The K's HLC. */
@@ -64,11 +69,34 @@ export interface UidAlias {
  */
 export function recordUidAlias(db: DatabaseSync, alias: UidAlias, nowIso: string): void {
   if (!hasTable(db, UID_ALIAS_JOURNAL_TABLE)) return;
-  db.prepare(
-    `INSERT INTO ${UID_ALIAS_JOURNAL_TABLE} (tbl, old_uid, old_bfp, new_uid, origin, hlc, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (tbl, old_uid, old_bfp) DO NOTHING`,
-  ).run(alias.table, alias.oldUid, alias.oldBfp, alias.newUid, alias.origin, alias.hlc, nowIso);
+  // T14335: the new fingerprint, when the K moved it (a journal from before
+  // the column records the uid only, as it always did).
+  const newBfp =
+    alias.newBfp != null && alias.newBfp !== alias.oldBfp && hasNewBfpColumn(db)
+      ? alias.newBfp
+      : null;
+  if (newBfp !== null) {
+    db.prepare(
+      `INSERT INTO ${UID_ALIAS_JOURNAL_TABLE} (tbl, old_uid, old_bfp, new_uid, new_bfp, origin, hlc, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (tbl, old_uid, old_bfp) DO NOTHING`,
+    ).run(
+      alias.table,
+      alias.oldUid,
+      alias.oldBfp,
+      alias.newUid,
+      newBfp,
+      alias.origin,
+      alias.hlc,
+      nowIso,
+    );
+  } else {
+    db.prepare(
+      `INSERT INTO ${UID_ALIAS_JOURNAL_TABLE} (tbl, old_uid, old_bfp, new_uid, origin, hlc, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (tbl, old_uid, old_bfp) DO NOTHING`,
+    ).run(alias.table, alias.oldUid, alias.oldBfp, alias.newUid, alias.origin, alias.hlc, nowIso);
+  }
   // Every K, the origin's and each announcement, draws its writer's boundary.
   if (hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) {
     db.prepare(
@@ -99,6 +127,55 @@ export function markAliasPlaced(
   db.prepare(
     `UPDATE ${UID_ALIAS_JOURNAL_TABLE} SET placed = 1 WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
   ).run(table, oldUid, oldBfp);
+}
+
+/**
+ * Whether the alias of (table, uid, fingerprint) is recorded.
+ *
+ * @param db - The store.
+ * @param table - The re-keyed row's table.
+ * @param uid - The old uid.
+ * @param bfp - The old fingerprint.
+ */
+export function hasUidAlias(db: DatabaseSync, table: string, uid: string, bfp: string): boolean {
+  return (
+    hasTable(db, UID_ALIAS_JOURNAL_TABLE) &&
+    db
+      .prepare(
+        `SELECT 1 FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
+      )
+      .get(table, uid, bfp) !== undefined
+  );
+}
+
+/**
+ * Drop the aliases `ops`' K ops recorded for `origin` (T14336): the applier
+ * records the alias of a waiting K before its transaction applies, and a
+ * transaction refused afterwards must leave none behind. Only rows carrying
+ * the K's own origin, HLC and target match, so an alias another K recorded
+ * is never touched.
+ *
+ * @param db - The store, inside the apply frame's transaction.
+ * @param origin - The replica that wrote the refused transaction.
+ * @param ops - Its ops.
+ */
+export function dropUidAliasesOf(db: DatabaseSync, origin: string, ops: readonly LedgerOp[]): void {
+  if (!hasTable(db, UID_ALIAS_JOURNAL_TABLE)) return;
+  const refs = hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE);
+  for (const op of ops) {
+    const oldBfp = op.obfp ?? op.bfp;
+    if (op.o !== 'K' || !op.nu || !oldBfp) continue;
+    db.prepare(
+      `DELETE FROM ${UID_ALIAS_JOURNAL_TABLE}
+        WHERE tbl = ? AND old_uid = ? AND old_bfp = ? AND new_uid = ? AND origin = ? AND hlc = ?`,
+    ).run(op.t, op.u, oldBfp, op.nu, origin, op.h);
+    if (refs) {
+      db.prepare(
+        `DELETE FROM ${UID_REF_ALIAS_JOURNAL_TABLE}
+          WHERE tbl = ? AND old_uid = ? AND origin = ? AND new_uid = ? AND hlc = ?`,
+      ).run(op.t, op.u, origin, op.nu, op.h);
+    }
+  }
 }
 
 /** One announcement this replica owes ({@link markAliasPlaced}). */
@@ -138,20 +215,52 @@ export function markAliasAnnounced(db: DatabaseSync, a: OwedAnnouncement, nowIso
 }
 
 /**
- * Where the row (table, uid, fingerprint) lives now, following re-keys, or
- * null when it was never re-keyed here.
+ * Per handle: whether the alias journal has the `new_bfp` column. The sync
+ * journal migrations run before apply, so the answer holds for the handle;
+ * it is cached only once the journal exists (capture may be enabled later).
  */
-function rowAlias(db: DatabaseSync, table: string, uid: string, bfp: string): string | null {
+const newBfpColumn = new WeakMap<DatabaseSync, boolean>();
+
+/** Whether the alias journal has the T14335 `new_bfp` column, read once per handle. */
+function hasNewBfpColumn(db: DatabaseSync): boolean {
+  const cached = newBfpColumn.get(db);
+  if (cached !== undefined) return cached;
+  const has =
+    db
+      .prepare(
+        `SELECT 1 FROM pragma_table_info('${UID_ALIAS_JOURNAL_TABLE}') WHERE name = 'new_bfp'`,
+      )
+      .get() !== undefined;
+  if (has || hasTable(db, UID_ALIAS_JOURNAL_TABLE)) newBfpColumn.set(db, has);
+  return has;
+}
+
+/**
+ * Where the row (table, uid, fingerprint) lives now, following re-keys, or
+ * null when it was never re-keyed here. Each hop is matched on the row's
+ * fingerprint at that hop: a re-key that moved the fingerprint (T14335)
+ * carries it into the next lookup and into the result.
+ */
+function rowAlias(
+  db: DatabaseSync,
+  table: string,
+  uid: string,
+  bfp: string,
+): { readonly uid: string; readonly bfp: string } | null {
   const next = db.prepare(
-    `SELECT new_uid AS uid FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
+    hasNewBfpColumn(db)
+      ? `SELECT new_uid AS uid, new_bfp AS bfp FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`
+      : `SELECT new_uid AS uid, NULL AS bfp FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
   );
   let cur = uid;
+  let curBfp = bfp;
   for (let hop = 0; hop < MAX_ALIAS_HOPS; hop++) {
-    const row = next.get(table, cur, bfp) as { uid: string } | undefined;
-    if (!row || row.uid === cur) break;
+    const row = next.get(table, cur, curBfp) as { uid: string; bfp: string | null } | undefined;
+    if (!row || (row.uid === cur && (row.bfp ?? curBfp) === curBfp)) break;
     cur = row.uid;
+    curBfp = row.bfp ?? curBfp;
   }
-  return cur === uid ? null : cur;
+  return cur === uid && curBfp === bfp ? null : { uid: cur, bfp: curBfp };
 }
 
 /**
@@ -198,15 +307,25 @@ export function followUidAliases(
     let out = op;
     const fp = op.o === 'K' ? op.obfp : op.bfp;
     const moved = fp ? rowAlias(db, op.t, op.u, fp) : null;
-    if (moved !== null) out = { ...out, u: moved };
+    // T14335: the op takes the row's identity now, its fingerprint included,
+    // so a held loser arrives as the row it was re-keyed onto and is placed
+    // as that row, never as a collision with it.
+    // A K is never moved by its own alias (recorded before it applies, T14336).
+    if (moved !== null && !(op.o === 'K' && moved.uid === op.nu)) {
+      out =
+        op.o === 'K'
+          ? { ...out, u: moved.uid, obfp: moved.bfp }
+          : { ...out, u: moved.uid, ...(op.bfp !== undefined ? { bfp: moved.bfp } : {}) };
+    }
     const def = defs(op.t);
     if (def && op.a) {
       const a: NonNullable<LedgerOp['a']> = { ...op.a };
       let refsMoved = false;
       for (const [col, v] of Object.entries(op.a)) {
-        const target = def.refs.get(col);
-        if (!target || typeof v !== 'string') continue;
-        const to = refAlias(db, target.table, v, st.replicaId, st.txn.hlc);
+        // A reference column, or (T14335) a column holding the target's uid.
+        const targetTable = def.refs.get(col)?.table ?? def.uidRefs?.get(col);
+        if (!targetTable || typeof v !== 'string') continue;
+        const to = refAlias(db, targetTable, v, st.replicaId, st.txn.hlc);
         if (to === null) continue;
         a[col] = to;
         refsMoved = true;

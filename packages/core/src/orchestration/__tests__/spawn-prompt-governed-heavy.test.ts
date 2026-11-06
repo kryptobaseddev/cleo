@@ -18,8 +18,9 @@
  * @task T13134
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
@@ -92,10 +93,24 @@ describe('the governed heavy-work recipe reaches every agent surface (T13134)', 
     expect(p).toContain(GOVERNED_HEAVY_WORK_LINE);
   });
 
-  it('the spawn prompt runs its own heavy quality gates through cleo run', () => {
-    const p = prompt('implementation', 1);
-    expect(p).toContain('cleo run --wait --class build -- pnpm biome ci .');
-    expect(p).toContain('cleo run --wait --class full-build -- pnpm run build');
-    expect(p).not.toMatch(/^pnpm (biome ci|run build)\b/m);
+  it("the spawn prompt runs the project's own build through cleo run (T14303)", () => {
+    const root = mkdtempSync(join(tmpdir(), 'governed-heavy-'));
+    try {
+      mkdirSync(join(root, '.cleo'), { recursive: true });
+      writeFileSync(
+        join(root, '.cleo', 'project-context.json'),
+        JSON.stringify({ schemaVersion: '1.0.0', build: { command: 'make build' } }),
+      );
+      const p = buildSpawnPrompt({
+        task: TASK,
+        protocol: 'implementation',
+        tier: 1,
+        projectRoot: root,
+      }).prompt;
+      expect(p).toContain('cleo run --wait --class full-build -- make build');
+      expect(p).not.toMatch(/^make build\b/m);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

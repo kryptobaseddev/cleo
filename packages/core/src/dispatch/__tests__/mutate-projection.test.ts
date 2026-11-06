@@ -399,6 +399,48 @@ describe('applyMutateProjection — tasks.delete', () => {
   });
 });
 
+describe('applyMutateProjection — tasks.cancel and tasks.restore (T14220)', () => {
+  it('puts the cancelled task, then its cascaded children, in updated[]', () => {
+    const data = {
+      task: 'T9931',
+      cancelled: true,
+      reason: 'dup',
+      cancelledAt: '2026-11-05T00:00:00.000Z',
+      childStrategy: 'cascade',
+      affectedTasks: ['T9932', 'T9933'],
+      affectedCount: 2,
+    };
+    const out = applyMutateProjection(data, 'tasks.cancel', 'mvi') as Record<string, unknown>;
+    expect(out['count']).toBe(3);
+    expect(out['updated']).toEqual(['T9931', 'T9932', 'T9933']);
+    expect(out['created']).toEqual([]);
+    expect(out['deleted']).toEqual([]);
+    // The scalar fields scripts already read stay.
+    expect(out['task']).toBe('T9931');
+    expect(out['cancelled']).toBe(true);
+    expect(out['childStrategy']).toBe('cascade');
+  });
+
+  it('puts every restored task in updated[], falling back to the task id', () => {
+    const cascade = applyMutateProjection(
+      { task: 'T9931', restored: ['T9931', 'T9932'], count: 2 },
+      'tasks.restore',
+      'mvi',
+    ) as Record<string, unknown>;
+    expect(cascade['updated']).toEqual(['T9931', 'T9932']);
+    expect(cascade['count']).toBe(2);
+
+    const reopened = applyMutateProjection(
+      { task: 'T9931', previousStatus: 'done', newStatus: 'pending' },
+      'tasks.restore',
+      'mvi',
+    ) as Record<string, unknown>;
+    expect(reopened['updated']).toEqual(['T9931']);
+    expect(reopened['previousStatus']).toBe('done');
+    expect(reopened['newStatus']).toBe('pending');
+  });
+});
+
 describe('applyMutateProjection — tasks.saga.create (T11482 · DHQ-036)', () => {
   it('declares a projection plan so saga.create surfaces a created ID', () => {
     expect(MUTATE_PROJECTION_PLANS['tasks.saga.create']).toBeDefined();
