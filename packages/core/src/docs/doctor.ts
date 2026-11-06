@@ -498,9 +498,10 @@ function isWorktreeOrTmpPath(absPath: string): 'worktree' | 'tmp' | null {
 }
 
 /**
- * Sum the audit-log revisions per slug. Mirrors the
- * `countVersionsForSlug` semantics in `docs-update.ts`: the expected
- * `docVersion` for a slug is `1 + total revisions`.
+ * Sum the audit-log revisions per slug: the expected `docVersion` for a
+ * slug is `1 + total revisions`. (The `version` a docs update reports comes
+ * from the version DAG since T14288; this audit-log reading only checks the
+ * registry row's counter.)
  *
  * @internal
  */

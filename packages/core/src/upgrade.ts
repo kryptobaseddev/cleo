@@ -624,6 +624,55 @@ export async function runUpgrade(
     }
   }
 
+  // ── Step 2c: Docs identity migration (T14288) ────────────────────
+  // Every legacy doc without a conduit identity gets its uid, its exact bytes
+  // as the head version and a receipt (`cleo docs migrate`, default all: one
+  // run, one backup). Upgrade is the owner-run convergence point; reads never
+  // migrate. A store with nothing left runs no step and writes no snapshot.
+  if (existsSync(dbPath)) {
+    try {
+      const docsRoot = getProjectRoot(options.cwd);
+      const { getDb, getNativeDb } = await import('./store/sqlite.js');
+      await getDb(docsRoot);
+      const native = getNativeDb(docsRoot);
+      if (native) {
+        const { runLegacyDocMigration } = await import('./docs/legacy-doc-migration.js');
+        const run = await runLegacyDocMigration({
+          projectRoot: docsRoot,
+          db: native,
+          cwd: options.cwd ?? docsRoot,
+          dryRun: isDryRun,
+        });
+        const touched = run.counts.toCapture + run.counts.toMarkDangling;
+        if (run.report.status !== 'completed') {
+          actions.push({
+            action: 'docs_migrate',
+            status: 'error',
+            details: `docs identity migration ${run.report.status}: ${run.report.failure ?? 'step failed'}`,
+            fix: 'Run `cleo docs migrate --dry-run`, then `cleo docs migrate`, and read its failure.',
+          });
+          errors.push(`docs migrate: ${run.report.failure ?? run.report.status}`);
+        } else if (touched > 0) {
+          actions.push({
+            action: 'docs_migrate',
+            status: isDryRun ? 'preview' : 'applied',
+            details:
+              `${isDryRun ? 'Would give' : 'Gave'} ${run.counts.toCapture} legacy doc(s) their identity and head ` +
+              `(${run.counts.versions} history rows, ${run.counts.toMarkDangling} recorded dangling)`,
+          });
+        }
+      }
+    } catch (err) {
+      actions.push({
+        action: 'docs_migrate',
+        status: 'error',
+        details: `docs identity migration failed: ${String(err)}`,
+        fix: 'Run `cleo docs migrate --dry-run` to inspect the plan.',
+      });
+      errors.push(`docs migrate: ${String(err)}`);
+    }
+  }
+
   // ── Step 3: Global ~/.cleo check ──────────────────────────────────
   if (options.includeGlobal) {
     try {

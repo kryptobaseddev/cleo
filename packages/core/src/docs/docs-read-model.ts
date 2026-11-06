@@ -104,6 +104,14 @@ export interface ResolvedDoc {
   readonly publicationDrift: 'in-sync' | 'modified' | 'deleted' | 'unpublished';
   /** Which backing store this doc was resolved from. */
   readonly source: 'tasks-db' | 'manifest-db' | 'merged';
+  /**
+   * How a slug lookup resolved (T14288): `uid` through the doc's immutable
+   * conduit identity to its head, `legacy` through the registry row of a doc
+   * with no version history yet. Absent for non-slug lookups.
+   */
+  readonly identity?: 'uid' | 'legacy';
+  /** The immutable doc uid when {@link identity} is `uid`. */
+  readonly docUid?: string;
 }
 
 /**
@@ -199,23 +207,28 @@ export class DocsReadModel {
    * @returns A resolved doc, or `null` if no attachment carries this slug.
    */
   async resolveBySlug(slug: string): Promise<ResolvedDoc | null> {
-    const store = createAttachmentStore();
-    let row = await store.findBySlug(slug, this.projectRoot);
-    if (!row) {
-      // T14118: an old slug kept as an alias after a rename resolves to the doc.
-      const { resolveDocSlug } = await import('./slug-rename.js');
-      const live = await resolveDocSlug(this.projectRoot, slug).catch(() => null);
-      row = live ? await store.findBySlug(live, this.projectRoot) : null;
-    }
-    if (!row) return null;
-
-    return this.enrichFromTasksDb(row.metadata, {
-      slug: row.slug,
-      type: row.type,
-      summary: row.summary,
-      lifecycleStatus: row.lifecycleStatus,
-      displayAlias: row.displayAlias,
+    // T14288: slug (live or alias) → doc uid → head → content; a doc with no
+    // version history yet resolves through its registry row (`legacy`).
+    const { resolveDocRef } = await import('./slug-rename.js');
+    const ref = await resolveDocRef(this.projectRoot, slug);
+    if (!ref) return null;
+    const meta = await createAttachmentStore().getMetadata(ref.row.id, this.projectRoot);
+    if (!meta) return null;
+    const doc = await this.enrichFromTasksDb(meta, {
+      slug: ref.slug,
+      type: ref.row.type ?? null,
+      summary: ref.row.summary ?? null,
+      lifecycleStatus: ref.row.lifecycleStatus,
+      displayAlias: ref.row.displayAlias ?? null,
     });
+    return {
+      ...doc,
+      // The head's bytes, even when its content has no registry row of its own.
+      sha256: ref.sha256,
+      slug: ref.slug,
+      identity: ref.identity,
+      ...(ref.docUid !== null ? { docUid: ref.docUid } : {}),
+    };
   }
 
   /**

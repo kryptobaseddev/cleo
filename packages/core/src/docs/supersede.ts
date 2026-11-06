@@ -124,8 +124,12 @@ export async function supersedeDoc(
   projectRoot: string,
   params: SupersedeDocParams,
 ): Promise<SupersedeDocResult> {
-  const { oldSlug, newSlug, reason } = params;
+  const { reason } = params;
   const cwd = projectRoot;
+  // T14288: either slug may be an old alias; resolve each to its doc's live slug.
+  const { resolveDocRef } = await import('./slug-rename.js');
+  const oldSlug = (await resolveDocRef(cwd, params.oldSlug))?.slug ?? params.oldSlug;
+  const newSlug = (await resolveDocRef(cwd, params.newSlug))?.slug ?? params.newSlug;
 
   if (oldSlug === newSlug) {
     throw new CleoError(
