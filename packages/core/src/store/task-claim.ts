@@ -174,14 +174,30 @@ export function isLiveClaim(claim: TaskClaim | undefined, now: string = claimClo
  * SQL form of {@link isLiveClaim} over `tasks_tasks` columns; bind one
  * parameter, the ISO-8601 UTC `now` (T14268).
  */
-export const LIVE_CLAIM_SQL = '(claimed_by_session IS NOT NULL AND lease_expires_at > ?)';
+export const LIVE_CLAIM_SQL = liveClaimSql((name) => name, '?');
+
+/**
+ * The one builder of the live-lease predicate and the derived status
+ * (T14268, T14330), so the bound and the inlined forms cannot drift.
+ *
+ * @param col - Qualifies a `tasks_tasks` column name.
+ * @param now - SQL for the instant: `?` (bound) or a quoted literal.
+ */
+function liveClaimSql(col: (name: string) => string, now: string): string {
+  return `(${col('claimed_by_session')} IS NOT NULL AND ${col('lease_expires_at')} > ${now})`;
+}
+
+/** See {@link liveClaimSql}: the derived-status CASE over the same parts. */
+function derivedStatusExpr(col: (name: string) => string, now: string): string {
+  return `(CASE WHEN ${col('status')} IN ('pending', 'active') THEN CASE WHEN ${liveClaimSql(col, now)} THEN 'active' ELSE 'pending' END ELSE ${col('status')} END)`;
+}
 
 /**
  * SQL for the status a `tasks_tasks` row reads with (T14268): `pending` and
  * `active` derived from {@link LIVE_CLAIM_SQL}, every other status as stored.
  * Bind one parameter, the ISO-8601 UTC `now`. The mirror of `rowToTask`.
  */
-export const DERIVED_STATUS_SQL = `(CASE WHEN status IN ('pending', 'active') THEN CASE WHEN ${LIVE_CLAIM_SQL} THEN 'active' ELSE 'pending' END ELSE status END)`;
+export const DERIVED_STATUS_SQL = derivedStatusExpr((name) => name, '?');
 
 /** An ISO-8601 UTC instant as `toISOString()` writes it (safe to inline in SQL). */
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -206,8 +222,7 @@ export function derivedStatusSqlAt(alias?: string, now: string = claimClockNow()
     // @sync-invariant none:input-shape a malformed clock value is a programming error, never a stored rule
     throw new Error(`derivedStatusSqlAt: not an ISO-8601 UTC instant: ${now}`);
   }
-  const col = (name: string): string => (alias ? `${alias}.${name}` : name);
-  return `(CASE WHEN ${col('status')} IN ('pending', 'active') THEN CASE WHEN ${col('claimed_by_session')} IS NOT NULL AND ${col('lease_expires_at')} > '${now}' THEN 'active' ELSE 'pending' END ELSE ${col('status')} END)`;
+  return derivedStatusExpr((name) => (alias ? `${alias}.${name}` : name), `'${now}'`);
 }
 
 /**
