@@ -130,46 +130,50 @@ export function markAliasPlaced(
 }
 
 /**
- * Record, before planning, the alias of every staged K whose row is not
- * placed here (T14336). Applying such a K records its alias and nothing else
- * ({@link recordUidAlias} is its first write), so recording it first is the
- * same write, earlier. Without it a K published after the insert it re-keys
- * deadlocks where that insert is held: the held transaction waits for the K
- * to follow it, and the K's transaction waits behind the held one.
+ * Whether the alias of (table, uid, fingerprint) is recorded.
  *
  * @param db - The store.
- * @param staged - The staged transactions of this pass.
- * @param defs - Capture definitions by table (unknown tables are skipped).
- * @param nowIso - The time.
+ * @param table - The re-keyed row's table.
+ * @param uid - The old uid.
+ * @param bfp - The old fingerprint.
  */
-export function recordStagedRekeyAliases(
-  db: DatabaseSync,
-  staged: readonly StagedTxn[],
-  defs: (table: string) => CaptureTableDef | null,
-  nowIso: string,
-): void {
+export function hasUidAlias(db: DatabaseSync, table: string, uid: string, bfp: string): boolean {
+  return (
+    hasTable(db, UID_ALIAS_JOURNAL_TABLE) &&
+    db
+      .prepare(
+        `SELECT 1 FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
+      )
+      .get(table, uid, bfp) !== undefined
+  );
+}
+
+/**
+ * Drop the aliases `ops`' K ops recorded for `origin` (T14336): the applier
+ * records the alias of a waiting K before its transaction applies, and a
+ * transaction refused afterwards must leave none behind. Only rows carrying
+ * the K's own origin, HLC and target match, so an alias another K recorded
+ * is never touched.
+ *
+ * @param db - The store, inside the apply frame's transaction.
+ * @param origin - The replica that wrote the refused transaction.
+ * @param ops - Its ops.
+ */
+export function dropUidAliasesOf(db: DatabaseSync, origin: string, ops: readonly LedgerOp[]): void {
   if (!hasTable(db, UID_ALIAS_JOURNAL_TABLE)) return;
-  for (const st of staged) {
-    for (const op of st.txn.ops) {
-      const oldBfp = op.obfp ?? op.bfp;
-      if (op.o !== 'K' || !op.nu || op.nu === op.u || !oldBfp || !defs(op.t)) continue;
-      const placed = db
-        .prepare(`SELECT 1 FROM main."${op.t.replaceAll('"', '""')}" WHERE uid = ?`)
-        .get(op.u);
-      if (placed !== undefined) continue;
-      recordUidAlias(
-        db,
-        {
-          table: op.t,
-          oldUid: op.u,
-          oldBfp,
-          newUid: op.nu,
-          newBfp: op.bfp ?? null,
-          origin: st.replicaId,
-          hlc: op.h,
-        },
-        nowIso,
-      );
+  const refs = hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE);
+  for (const op of ops) {
+    const oldBfp = op.obfp ?? op.bfp;
+    if (op.o !== 'K' || !op.nu || !oldBfp) continue;
+    db.prepare(
+      `DELETE FROM ${UID_ALIAS_JOURNAL_TABLE}
+        WHERE tbl = ? AND old_uid = ? AND old_bfp = ? AND new_uid = ? AND origin = ? AND hlc = ?`,
+    ).run(op.t, op.u, oldBfp, op.nu, origin, op.h);
+    if (refs) {
+      db.prepare(
+        `DELETE FROM ${UID_REF_ALIAS_JOURNAL_TABLE}
+          WHERE tbl = ? AND old_uid = ? AND origin = ? AND new_uid = ? AND hlc = ?`,
+      ).run(op.t, op.u, origin, op.nu, op.h);
     }
   }
 }

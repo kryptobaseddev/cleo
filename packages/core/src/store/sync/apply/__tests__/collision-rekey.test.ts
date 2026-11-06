@@ -940,6 +940,55 @@ describe('a re-key that moves the birth fingerprint is followed with it (T14335)
     ).toBe(false);
   });
 
+  it('a K whose transaction the receiver refuses leaves no alias and redirects nothing', async () => {
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const task = (at: string) =>
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+         VALUES ('T1', 'shared', 'task', 'pending', 'medium', '${at}')`;
+    write(a, task('2026-09-01T09:00:00.000Z'));
+    write(b, task('2026-09-01T10:00:00.000Z'));
+    const ia = identityOf(a, 'tasks_tasks', "id = 'T1'");
+    const ib = identityOf(b, 'tasks_tasks', "id = 'T1'");
+    push(a);
+    push(b);
+    pull(b);
+    rekey(a, `UPDATE tasks_tasks SET uid = '${ib.uid}', birth_fp = '${ib.fp}' WHERE id = 'T1'`);
+    const [kTxn] = push(a);
+    const k = kTxn?.ops.find((o) => o.o === 'K');
+    if (!kTxn || !k) throw new Error('expected the K transaction');
+    // The receiver refuses the K's transaction: it carries an op on a table B does not know.
+    kTxn.ops.push({ ...k, o: 'I', t: 'no_such_table', u: mintRowUid(), nu: undefined, a: {} });
+    const aliases = () => rows(b.db, 'SELECT tbl, old_uid FROM _sync_uid_alias');
+
+    // The K's transaction would be refused, so its alias is never recorded
+    // early: A's insert stays held and nothing is redirected onto B's row.
+    pull(b);
+    expect(aliases()).toEqual([]);
+    expect(statuses(b.db).filter((x) => x === 'pending')).toHaveLength(2);
+    expect(rows(b.db, 'SELECT uid FROM tasks_tasks')).toEqual([{ uid: ib.uid }]);
+
+    // An alias that was recorded for that K anyway (by a pass that accepted it)
+    // is dropped when its transaction is refused.
+    recordUidAlias(
+      b.db,
+      {
+        table: 'tasks_tasks',
+        oldUid: ia.uid,
+        oldBfp: ia.fp,
+        newUid: ib.uid,
+        newBfp: ib.fp,
+        origin: RA,
+        hlc: k.h,
+      },
+      new Date().toISOString(),
+    );
+    expect(aliases()).toHaveLength(1);
+    pull(b);
+    expect(statuses(b.db)).toContain('refused-schema');
+    expect(aliases()).toEqual([]);
+  });
+
   it('conduit docs: the re-keyed doc and its version follow onto the other identity (uidRefs)', async () => {
     const a = await replica(RA);
     const b = await replica(RB);
