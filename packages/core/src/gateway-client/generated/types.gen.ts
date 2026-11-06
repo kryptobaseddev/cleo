@@ -14506,7 +14506,12 @@ export type MutateDocsDoctorResponses = {
 export type MutateDocsDoctorResponse = MutateDocsDoctorResponses[keyof MutateDocsDoctorResponses];
 
 export type MutateDocsMigrateData = {
-    body?: never;
+    body?: {
+        /**
+         * At most this many docs per run, oldest first (T14329); default all. Run again to continue
+         */
+        limit?: number;
+    };
     path?: never;
     query?: never;
     url: '/v1/docs/migrate';
