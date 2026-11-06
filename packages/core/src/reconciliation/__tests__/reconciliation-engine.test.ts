@@ -10,7 +10,7 @@
  *   - create action (new external task → new CLEO task + link)
  *   - update action (external title change → CLEO title update)
  *   - complete action (external completed → CLEO task completed)
- *   - activate action (external active + CLEO pending → activate)
+ *   - activate action (external active + CLEO blocked → unblocked to pending; T14268)
  *   - skip action (already done / no change)
  *   - skip action (linked CLEO task deleted)
  *
@@ -271,15 +271,24 @@ describe('reconcile — complete action', () => {
 // ---------------------------------------------------------------------------
 
 describe('reconcile — activate action', () => {
-  it('activates CLEO pending task when external becomes active', async () => {
-    // Create task via reconcile (pending)
+  // T14268 (D11230): in progress is a claim lease a CLEO session holds, which an
+  // external system cannot take. An external `active` unblocks a blocked task
+  // and leaves a pending one alone.
+  it('unblocks a blocked CLEO task when external becomes active, and leaves a pending one', async () => {
     await reconcile(
       [makeExternalTask({ externalId: 'ext-001', title: 'Sprint Task', status: 'pending' })],
       { providerId: 'linear', dryRun: false, cwd: env.tempDir },
       env.accessor,
     );
+    const pendingRun = await reconcile(
+      [makeExternalTask({ externalId: 'ext-001', title: 'Sprint Task', status: 'active' })],
+      { providerId: 'linear', dryRun: false, cwd: env.tempDir },
+      env.accessor,
+    );
+    expect(pendingRun.summary.activated).toBe(0);
 
-    // External activates it
+    const { tasks: before } = await env.accessor.queryTasks({});
+    await env.accessor.updateTaskFields(before[0]!.id, { status: 'blocked' });
     const result = await reconcile(
       [makeExternalTask({ externalId: 'ext-001', title: 'Sprint Task', status: 'active' })],
       { providerId: 'linear', dryRun: false, cwd: env.tempDir },
@@ -287,9 +296,8 @@ describe('reconcile — activate action', () => {
     );
 
     expect(result.summary.activated).toBe(1);
-
     const { tasks } = await env.accessor.queryTasks({});
-    expect(tasks[0]!.status).toBe('active');
+    expect(tasks[0]!.status).toBe('pending');
   });
 });
 

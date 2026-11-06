@@ -17,3 +17,5 @@ Owner decision D11230 retires stored `active`. This change is the read side.
   read the derived status.
 - Worktree protection (`inProgressTaskIds`) counts a task as in progress when
   it holds a live lease or is an active session's focus.
+- Reconciliation: an external tracker reporting `active` only unblocks a
+  blocked task to `pending`; it never claims work for a session.
