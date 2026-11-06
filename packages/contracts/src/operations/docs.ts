@@ -1482,6 +1482,8 @@ export interface DocsMigrateParams {
    * run is one harness transaction with its own backup; run again to continue.
    */
   readonly limit?: number;
+  /** Report the plan's counts and write nothing (T14331). */
+  readonly dryRun?: boolean;
 }
 
 /**
@@ -1510,6 +1512,8 @@ export interface DocsMigrateResult {
   readonly versionsImported: number;
   /** Docs left for a later run by the `limit` bound (T14329). */
   readonly remaining: number;
+  /** True for a dry run: the counts are the plan, nothing was written (T14331). */
+  readonly dryRun: boolean;
   /** First failure when halted/refused. */
   readonly failure: string | null;
   /** The harness pre-step backup id (null only when the backup itself failed). */
