@@ -886,7 +886,8 @@ async function assertProviderUnambiguous(
     `Several agents share this harness session (${live.join(', ')}) and this caller names none, so CLEO cannot tell which one is acting`,
     {
       fix: `export CLEO_AGENT_ID=<your agent name> (one of ${live.join(', ')}, or a new name), then retry; or export CLEO_SESSION_ID=<your session id>.`,
-      details: { agents: live },
+      // The missing input is the caller's CLEO_AGENT_ID; `agents` names the live candidates.
+      details: { field: 'CLEO_AGENT_ID', expected: 'the calling agent name', agents: live },
     },
   );
 }
