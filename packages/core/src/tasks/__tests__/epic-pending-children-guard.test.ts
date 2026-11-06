@@ -347,7 +347,9 @@ describe('T1632: epic pending-children guard', () => {
   // -------------------------------------------------------------------------
 
   describe('(d) re-open after auto-close', () => {
-    it('allows status to be set back to active after auto-close', async () => {
+    // T14268 (D11230): `active` is a live claim lease, never stored, so a
+    // re-open writes `pending`; the epic reads `pending` until someone starts it.
+    it('allows the epic to be re-opened after auto-close', async () => {
       await seedTasks(accessor, [makeEpic('E001'), makeChild('T002', 'E001', 'active')]);
 
       // Complete last child → triggers auto-close of E001
@@ -366,7 +368,7 @@ describe('T1632: epic pending-children guard', () => {
       });
 
       const epicAfter = await accessor.loadSingleTask('E001');
-      expect(epicAfter?.status).toBe('active');
+      expect(epicAfter?.status).toBe('pending');
       expect(epicAfter?.completedAt).toBeUndefined();
     });
   });

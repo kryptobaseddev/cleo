@@ -57,6 +57,7 @@ import type {
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
+import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
 import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
 
 export { taskIdFromBranch } from './sentinel-index.js';
@@ -517,8 +518,11 @@ export async function loadOwningTaskStatuses(
   if (!db) return out;
 
   const placeholders = taskIds.map(() => '?').join(', ');
-  const sql = `SELECT id, status FROM tasks_tasks WHERE id IN (${placeholders})`;
-  const rows = db.prepare(sql).all(...taskIds) as Array<{ id: string; status: string }>;
+  const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+  const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+    id: string;
+    status: string;
+  }>;
   for (const row of rows) {
     out.set(row.id, row.status);
   }

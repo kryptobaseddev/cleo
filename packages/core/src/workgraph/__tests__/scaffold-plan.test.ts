@@ -97,7 +97,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['SG-TEST']);
+      leaseTestTasks(['T96012']);
 
       // Epic 1 — done
       await createTask(
@@ -138,7 +138,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['EP-2']);
+      leaseTestTasks(['T96001']);
       await createTask(
         makeTask({
           id: 'T97024',
@@ -148,7 +148,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['T-2A']);
+      leaseTestTasks(['T97024']);
       await createTask(
         makeTask({
           id: 'T97025',
@@ -222,7 +222,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['SG-EMPTY']);
+      leaseTestTasks(['T96007']);
 
       const result = await generatePlanningDoc(tempDir, { sagaId: 'T96007' });
 
@@ -253,7 +253,7 @@ describe('WorkGraph planning doc generator', () => {
       await createTask(
         makeTask({ id: 'T96011', title: 'SSoT Saga', type: 'saga', status: 'active' }),
       );
-      leaseTestTasks(['SG-SSOT']);
+      leaseTestTasks(['T96011']);
       await createTask(
         makeTask({
           id: 'T96005',
@@ -300,7 +300,7 @@ describe('WorkGraph planning doc generator', () => {
       await createTask(
         makeTask({ id: 'T96008', title: 'Index Saga', type: 'saga', status: 'active' }),
       );
-      leaseTestTasks(['SG-IDX']);
+      leaseTestTasks(['T96008']);
 
       const result = await generatePlanningDoc(tempDir, { sagaId: 'T96008' });
 
@@ -333,7 +333,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['SG-MODE']);
+      leaseTestTasks(['T96009']);
       await createTask(
         makeTask({
           id: 'T96003',
@@ -343,7 +343,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['EP-M1']);
+      leaseTestTasks(['T96003']);
       await createTask(
         makeTask({
           id: 'T97029',
@@ -391,7 +391,7 @@ describe('WorkGraph planning doc generator', () => {
       await createTask(
         makeTask({ id: 'T96006', title: 'Agent Saga', type: 'saga', status: 'active' }),
       );
-      leaseTestTasks(['SG-AG']);
+      leaseTestTasks(['T96006']);
       await createTask(
         makeTask({
           id: 'T96002',
@@ -401,7 +401,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['EP-AG']);
+      leaseTestTasks(['T96002']);
       await createTask(
         makeTask({
           id: 'T97028',
@@ -457,7 +457,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['SG-REC']);
+      leaseTestTasks(['T96010']);
       await createTask(
         makeTask({
           id: 'T96004',
@@ -467,7 +467,7 @@ describe('WorkGraph planning doc generator', () => {
           status: 'active',
         }),
       );
-      leaseTestTasks(['EP-REC']);
+      leaseTestTasks(['T96004']);
       // Multiple ready tasks to trigger parallelization recommendation
       await createTask(
         makeTask({
