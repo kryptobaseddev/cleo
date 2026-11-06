@@ -196,6 +196,17 @@ export interface Session {
    * @defaultValue undefined
    */
   lastActivity?: string | null;
+  /**
+   * CLEO-INJECTION protocol version this session acknowledged (T14327).
+   *
+   * Recorded when the session runs `cleo briefing`: the `Version:` of the
+   * installed global `CLEO-INJECTION.md` template. NULL until then, so a
+   * session that never read the briefing shows none. Written only by
+   * `setSessionInjectionVersion`; a whole-session upsert never touches it.
+   *
+   * @defaultValue undefined
+   */
+  injectionVersion?: string | null;
 }
 
 /**

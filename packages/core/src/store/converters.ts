@@ -220,5 +220,7 @@ export function rowToSession(row: SessionRow): Session {
     scopeKind: row.scopeKind ?? null,
     scopeId: row.scopeId ?? null,
     lastActivity: row.lastActivity ?? null,
+    // T14327 — read-only here: written only by setSessionInjectionVersion.
+    injectionVersion: row.injectionVersion ?? null,
   };
 }

@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs';
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, desc, eq, inArray, isNotNull, isNull, lte, notLike, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notLike, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
@@ -282,6 +282,54 @@ export async function setSessionSpawnedBy(
       .limit(1)
       .all();
     return row?.spawnedBy === spawnerSessionId;
+  });
+}
+
+/**
+ * Record the CLEO-INJECTION version `sessionId` acknowledged (T14327).
+ *
+ * The only writer of `tasks_sessions.injection_version`: `cleo briefing`
+ * calls it for the bound session. Writes only when the value changes, so a
+ * repeated briefing at the same version leaves the row untouched.
+ *
+ * @param sessionId - The session that ran the briefing.
+ * @param version - The installed template's version (e.g. `2.25.5`).
+ * @param cwd - Project root.
+ * @returns `true` when the row now holds `version`.
+ * @example
+ * ```ts
+ * await setSessionInjectionVersion(session.id, '2.25.5', projectRoot);
+ * ```
+ * @task T14327
+ */
+export async function setSessionInjectionVersion(
+  sessionId: string,
+  version: string,
+  cwd?: string,
+): Promise<boolean> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    await db
+      .update(schema.sessions)
+      .set({ injectionVersion: version })
+      .where(
+        and(
+          eq(schema.sessions.id, sessionId),
+          or(
+            isNull(schema.sessions.injectionVersion),
+            ne(schema.sessions.injectionVersion, version),
+          ),
+        ),
+      )
+      .run();
+    const [row] = await db
+      .select({ version: schema.sessions.injectionVersion })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1)
+      .all();
+    return row?.version === version;
   });
 }
 
