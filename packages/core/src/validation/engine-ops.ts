@@ -349,6 +349,11 @@ export interface GateVerifyParams {
    */
   sharedEvidence?: boolean;
   /**
+   * Set only by the merge sweep (T14259): see
+   * {@link EvidenceValidationContext.reviewedLinkage}. Not a CLI flag.
+   */
+  reviewedLinkage?: boolean;
+  /**
    * `--no-run` (T12621). Since T13521 (owner decision) every write is
    * cache-only unless {@link GateVerifyParams.runTyped} is set, so this flag
    * only states that default explicitly; it refuses alongside `runTyped`.
@@ -779,6 +784,7 @@ export async function validateGateVerify(
         task,
         gates: targets,
         criteria: acRows,
+        ...(params.reviewedLinkage === true ? { reviewedLinkage: true } : {}),
       };
 
       if (!all && !multiTargets && !VALID_GATES.includes(gate as VerificationGate)) {

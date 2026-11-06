@@ -1,7 +1,8 @@
 /**
  * Stage artifact scaffolding for RCASD lifecycle stages.
  *
- * Ensures each stage has a canonical markdown artifact under:
+ * Writes a stage's canonical markdown artifact, when a caller has real
+ * content for it (T14277: never a placeholder), under:
  *   .cleo/rcasd/{epicId}/{stage-subdir}/{epicId}-{stage}.md
  *
  * Frontmatter is maintained with related links so backlinks can be
@@ -11,14 +12,14 @@
  */
 
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { WriterRegistry } from '../docs/writer-registry.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
 import { addFrontmatter, buildFrontmatter, type RelatedLink } from './frontmatter.js';
 import { ensureStagePath, getStagePath } from './rcasd-paths.js';
-import { STAGE_DEFINITIONS, STAGE_PREREQUISITES, type Stage } from './stages.js';
+import { STAGE_PREREQUISITES, type Stage } from './stages.js';
 
 const log = getLogger('lifecycle:stage-artifacts');
 
@@ -45,20 +46,6 @@ function toRelatedLinkType(stage: string): RelatedLink['type'] {
     default:
       return 'file';
   }
-}
-
-function buildDefaultBody(epicId: string, stage: Stage): string {
-  const stageLabel = STAGE_DEFINITIONS[stage].name;
-  return [
-    `# ${stageLabel} (${epicId})`,
-    '',
-    '## Summary',
-    '',
-    `Lifecycle artifact for stage \`${stage}\` on epic \`${epicId}\`.`,
-    '',
-    '## Notes',
-    '',
-  ].join('\n');
 }
 
 function toWorkspaceRelative(path: string, cwd?: string): string {
@@ -93,21 +80,28 @@ function buildRelatedLinks(
 }
 
 /**
- * Ensure stage artifact exists and frontmatter/backlinks are up to date.
+ * Write a stage artifact with real content, its frontmatter and backlinks up
+ * to date (T14277). There is no placeholder: a stage transition alone writes
+ * no file (the store records the stage), so callers write only when they
+ * hold the artifact's content.
+ *
+ * @param epicId - The epic.
+ * @param stage - The stage.
+ * @param content - The artifact body (markdown, frontmatter optional).
+ * @param cwd - Project root override.
+ * @returns Where it was written and its related links.
  */
 export async function ensureStageArtifact(
   epicId: string,
   stage: Stage,
+  content: string,
   cwd?: string,
 ): Promise<StageArtifactResult> {
   const stageDir = ensureStagePath(epicId, stage, cwd);
   const fileName = `${epicId}-${stageSlug(stage)}.md`;
   const absolutePath = join(stageDir, fileName);
   const outputFile = toWorkspaceRelative(absolutePath, cwd);
-
-  const currentContent = existsSync(absolutePath)
-    ? await readFile(absolutePath, 'utf-8')
-    : buildDefaultBody(epicId, stage);
+  const currentContent = content;
 
   const related = buildRelatedLinks(epicId, stage, absolutePath, cwd);
   const metadata = buildFrontmatter(epicId, stage, {

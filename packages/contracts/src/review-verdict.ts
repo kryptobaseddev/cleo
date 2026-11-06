@@ -60,6 +60,12 @@ export interface ReviewVerdict {
   ac: string;
   /** The criterion's stable id (`task_acceptance_criteria.id`). */
   acId: string;
+  /**
+   * sha256 of the criterion's normalised text as the packet showed it
+   * (T14259). An edit after the verdict invalidates it; a verdict recorded
+   * before this field existed has none.
+   */
+  acTextSha256?: string;
   /** The PR. */
   prNumber: number;
   /** The PR head the reviewer judged (`headRefOid`), never the merge sha. */
@@ -91,9 +97,10 @@ export interface ReviewGap {
   /**
    * `missing`: none recorded; `unmet`: the latest says unmet; `stale`: only
    * older heads have one; `author`: the latest on the head came from one of
-   * the task's own authors (a re-check of the record-time refusal).
+   * the task's own authors (a re-check of the record-time refusal); `edited`:
+   * the criterion's text changed after the latest verdict on the head (T14259).
    */
-  kind: 'missing' | 'unmet' | 'stale' | 'author';
+  kind: 'missing' | 'unmet' | 'stale' | 'author' | 'edited';
   /** A one-line reason, e.g. `AC2: no verdict on head abc1234 (latest is for 9f00e12)`. */
   reason: string;
 }

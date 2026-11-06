@@ -71,8 +71,6 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 !adrs/
 !adrs/**
-!rcasd/
-!rcasd/**
 !agent-outputs/
 !agent-outputs/**
 
