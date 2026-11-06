@@ -17,7 +17,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notLike, or } from 
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
 import { rowToSession } from './converters.js';
 import { noteSessionStatusWritten } from './db-helpers.js';
@@ -590,6 +590,11 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
 
 /** The calling terminal's identity keys split by what they identify (T12500). */
 interface TerminalKeyTiers {
+  /**
+   * One agent inside a shared harness session: the provider key qualified by
+   * `CLEO_AGENT_ID` (T14269).
+   */
+  readonly agent: TerminalKey | undefined;
   /** Agent-harness process (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, …). */
   readonly provider: TerminalKey | undefined;
   /**
@@ -612,6 +617,7 @@ interface TerminalKeyTiers {
  */
 function splitTerminalKeys(keys: readonly TerminalKey[]): TerminalKeyTiers {
   return {
+    agent: keys.find((k) => k.kind === 'agent'),
     provider: keys.find((k) => k.kind === 'provider'),
     // A harness / CLEO_AGENT_ID agent (T12864) is more specific than a pane.
     pane: keys.find((k) => k.kind === 'harness') ?? keys.find((k) => k.kind === 'multiplexer'),
@@ -709,8 +715,11 @@ export async function bindTerminalToSession(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<TerminalKey[]> {
-  const { provider, pane, tab } = splitTerminalKeys(keys);
-  const candidates = [provider, pane, pane ? undefined : tab].filter(
+  const { agent, provider, pane, tab } = splitTerminalKeys(keys);
+  // T14269: an agent inside a shared harness session binds only its own
+  // agent key; the shared provider key and the coarse keys stay with the
+  // session they name (the lead's, or the human's).
+  const candidates = (agent ? [agent] : [provider, pane, pane ? undefined : tab]).filter(
     (k): k is TerminalKey => k !== undefined,
   );
   if (candidates.length === 0) return [];
@@ -725,7 +734,7 @@ export async function bindTerminalToSession(
       // When a provider key is present, a coarse row that a human wrote
       // (`bound_by_provider = 0`) and that still names a live session stays
       // put — only the agent's own provider key moves to the new session.
-      if (provider && key !== provider) {
+      if (provider && key !== provider && key !== agent) {
         const existing = await readBinding(db, key);
         if (existing && !existing.boundByProvider && existing.sessionId !== sessionId) {
           const held = await getSession(existing.sessionId, scope.worktreeRoot);
@@ -814,8 +823,8 @@ export async function resolveTerminalBinding(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<TerminalBinding | null> {
-  const { provider, pane, tab } = splitTerminalKeys(keys);
-  if (!provider && !pane && !tab) return null;
+  const { agent, provider, pane, tab } = splitTerminalKeys(keys);
+  if (!agent && !provider && !pane && !tab) return null;
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
@@ -840,6 +849,14 @@ export async function resolveTerminalBinding(
     };
 
     try {
+      if (agent) {
+        // T14269: an agent resolves only its own binding. It never falls
+        // through to the shared harness session (the bug: teammates acting in,
+        // and releasing claims of, one session).
+        const own = await readBinding(db, agent);
+        const session = own ? await activeSession(own.sessionId) : null;
+        return session ? { session, adopted: false } : null;
+      }
       if (provider) {
         const own = await readBinding(db, provider);
         if (own) {
@@ -870,6 +887,101 @@ export async function resolveTerminalBinding(
       // column: the binding tier is advisory, so resolution continues.
       return null;
     }
+  });
+}
+
+/**
+ * Give an agent inside a shared harness session its own CLEO session, once
+ * (T14269 · decision D11234).
+ *
+ * Runs for a MUTATION only (reads never create a session). When the caller
+ * carries an agent key ({@link resolveTerminalKeys}: a provider key qualified
+ * by `CLEO_AGENT_ID`), is not governed by a connection or an env-named
+ * session, and the agent key is unbound, this creates an active session for
+ * the agent and binds the agent key to it. The new session's
+ * `parentSessionId` is the shared harness session (the one the plain
+ * provider key names), when there is one, and it inherits that scope.
+ *
+ * Two processes of the same agent racing: the binding insert keeps the
+ * first row, and the loser's unused session is ended.
+ *
+ * @param cwd - Project root.
+ * @param keys - Identity keys, most specific first (defaults to the live terminal's).
+ * @param env - Environment naming the caller (defaults to `process.env`).
+ * @returns The agent's session id, or `null` when the caller has no agent key or is governed elsewhere.
+ * @task T14269
+ */
+export async function ensureAgentSession(
+  cwd?: string,
+  keys: readonly TerminalKey[] = resolveTerminalKeys(),
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<string | null> {
+  const { agent, provider } = splitTerminalKeys(keys);
+  const agentId = env['CLEO_AGENT_ID'];
+  if (!agent || !agentId) return null;
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    if (!existsSync(getDbPath(scope.worktreeRoot))) return null;
+    if (getCurrentConnectionSessionId()) return null;
+    const envId = resolveSessionIdFromEnv(env);
+    if (envId && (await getSession(envId, scope.worktreeRoot))?.status === 'active') return null;
+    const db = await getDb(scope.worktreeRoot);
+    const existing = await readBinding(db, agent);
+    if (
+      existing &&
+      (await getSession(existing.sessionId, scope.worktreeRoot))?.status === 'active'
+    ) {
+      return existing.sessionId;
+    }
+    const sharedRow = provider ? await readBinding(db, provider) : undefined;
+    const shared = sharedRow ? await getSession(sharedRow.sessionId, scope.worktreeRoot) : null;
+    const parent = shared?.status === 'active' ? shared : null;
+    const now = new Date().toISOString();
+    const id = generateSessionId();
+    await createSession(
+      {
+        id,
+        name: `agent ${agentId}`,
+        status: 'active',
+        scope: parent?.scope ?? { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: now,
+        agent: agentId,
+        parentSessionId: parent?.id ?? null,
+      },
+      scope.worktreeRoot,
+    );
+    await db
+      .update(schema.sessions)
+      .set({ agentIdentifier: agentId, agentHandle: agentId, lastActivity: now })
+      .where(eq(schema.sessions.id, id))
+      .run();
+    // A stale binding (to an ended session) is replaced; a live one a racing
+    // process wrote first is kept.
+    if (existing) upsertBinding(db, agent, id, true);
+    else {
+      db.insert(sessionTerminalBindings)
+        .values({
+          bindingKey: agent.key,
+          keySource: agent.source,
+          keyKind: agent.kind,
+          sessionId: id,
+          boundByProvider: true,
+          boundAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+    }
+    const winner = await readBinding(db, agent);
+    if (winner && winner.sessionId !== id) {
+      await db
+        .update(schema.sessions)
+        .set({ status: 'ended', endedAt: now })
+        .where(eq(schema.sessions.id, id))
+        .run();
+      return winner.sessionId;
+    }
+    return id;
   });
 }
 
@@ -1429,6 +1541,8 @@ export async function requireBoundSession(
 ): Promise<Session | null> {
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
+    // T14269: a mutation from an agent in a shared harness session acts in its own session.
+    await ensureAgentSession(scope.worktreeRoot);
     const bound = await resolveBoundSession(scope.worktreeRoot);
     if (bound) return bound.session;
     if (!(await hasActiveSession(scope.worktreeRoot))) return null;

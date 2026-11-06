@@ -233,6 +233,17 @@ export interface GlobalInstructionFileStatus {
    * copy. Reported only; user content is never removed automatically.
    */
   duplicateLines: number;
+  /**
+   * sha256 of the managed block's body as it is on disk, or null when the file
+   * has no block (T14304).
+   */
+  blockSha256: string | null;
+  /**
+   * sha256 of the body a sync would write now, or null when the hub does not
+   * resolve. A block whose hash differs is `stale` even when its source stamps
+   * still match (an edited or hand-copied block, T14304).
+   */
+  expectedSha256: string | null;
 }
 
 /**

@@ -1346,7 +1346,7 @@ function buildFilePathsBlock(outputDir: string, testRunsDir: string): string {
 }
 
 /** Build the session-linkage block — thread orchestrator session id to subagent. */
-function buildSessionBlock(sessionId: string | null | undefined): string {
+function buildSessionBlock(sessionId: string | null | undefined, agentId: string): string {
   if (!sessionId) {
     return [
       '## Session Linkage',
@@ -1363,6 +1363,7 @@ function buildSessionBlock(sessionId: string | null | undefined): string {
     '',
     `- **Orchestrator Session**: \`${sessionId}\``,
     '- Log every mutation (task start/complete, memory observe, verify) against THIS session. Do not start a new one unless explicitly told.',
+    `- **Agent identity**: begin every Bash call with \`export CLEO_AGENT_ID=${agentId}\`. Agents sharing one harness session keep separate claims and focus only when each names itself (T14269); without it your \`cleo start\` acts as the orchestrator.`,
     '- If the session has ended by the time you run, the orchestrator will hand you a new one via `cleo orchestrate handoff`.',
   ].join('\n');
 }
@@ -1695,7 +1696,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     input.askProviderId ?? (input.harnessHint === 'claude-code' ? 'claude-code' : undefined);
   authoredSections.push(buildReturnFormatBlock(protocol, askProviderId));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
-  authoredSections.push(buildSessionBlock(input.sessionId));
+  authoredSections.push(
+    buildSessionBlock(input.sessionId, input.agentId ?? `agent-${taskId.toLowerCase()}`),
+  );
   // Worktree Setup (T1140) — only emitted when the engine provisioned one.
   // Omitted when --no-worktree was passed or worktree creation failed.
   if (worktreePath) {

@@ -703,6 +703,12 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['id'],
       birth: 'created_at',
       birthFacts: ['author_agent_id', 'content_hash'],
+      // T14335: the doc uid follows the doc's re-key; T14336: the parent
+      // follows a re-keyed version.
+      uidRefs: [
+        { column: 'attachment_uid', table: 'conduit_attachments' },
+        { column: 'parent_version_uid', table: 'conduit_attachment_versions' },
+      ],
       task: 'T13354',
     },
     {
@@ -713,6 +719,12 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['id'],
       birth: 'created_at',
       birthFacts: ['reviewer_agent_id'],
+      // T14335: the doc uid follows the doc's re-key; T14336: the reviewed
+      // version follows a re-keyed version.
+      uidRefs: [
+        { column: 'attachment_uid', table: 'conduit_attachments' },
+        { column: 'version_uid', table: 'conduit_attachment_versions' },
+      ],
       task: 'T13354',
     },
     {

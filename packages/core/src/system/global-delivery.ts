@@ -36,6 +36,11 @@ import {
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { basename, dirname, join, resolve } from 'node:path';
+import type { GlobalInstructionOptions } from '@cleocode/caamp';
+import type {
+  GlobalInstructionStalenessReport,
+  GlobalInstructionSyncResult,
+} from '@cleocode/contracts/caamp-markers';
 import { getAgentsHome, getCleoHome } from '../paths.js';
 import { resolveSkillsRoot } from '../skills/skill-root.js';
 import {
@@ -117,7 +122,15 @@ export interface GlobalDeliveryAudit {
   skills: SkillInstallEntry[];
   /** Per-state counts over {@link GlobalDeliveryAudit.skills}. */
   skillCounts: Record<SkillInstallState, number>;
-  /** True when the link, hub and every skill entry resolve. */
+  /**
+   * The managed block of every global provider instruction file against the
+   * current template: source stamps and the body hash (T14304). Null when the
+   * scan could not run ({@link GlobalDeliveryAudit.instructionsError}).
+   */
+  instructions: GlobalInstructionStalenessReport | null;
+  /** Why the instruction scan could not run, or null. */
+  instructionsError: string | null;
+  /** True when the link, hub, every skill entry and every managed block are current. */
   healthy: boolean;
   /** Exact repair command, or null when healthy. */
   remedy: string | null;
@@ -159,6 +172,11 @@ export interface GlobalDeliveryReceipt {
   link: CleoLinkRepairReceipt;
   /** Skill entry outcomes. */
   skills: SkillRepairOutcome[];
+  /**
+   * The managed-block refresh (T14304): only the CAAMP block of each provider
+   * file is rewritten, every byte outside it kept. Null when no block was stale.
+   */
+  instructions: GlobalInstructionSyncResult | null;
   /** JSONL file the receipt was appended to, or null on a dry run. */
   receiptLog: string | null;
 }
@@ -175,6 +193,23 @@ export interface GlobalDeliveryOptions extends CleoLinkOptions {
   skillDirs?: string[];
   /** Receipt log dir. Defaults to `<cleoHome>/audit`. */
   auditDir?: string;
+  /** Instruction scan targets (tests). Defaults to every installed provider and the home hub. */
+  instructionTargets?: InstructionTargets;
+}
+
+/** CAAMP's global instruction targets, as {@link GlobalDeliveryOptions.instructionTargets}. */
+type InstructionTargets = GlobalInstructionOptions;
+
+/** Scan the global provider instruction files (T14304); never throws. */
+async function scanInstructions(
+  targets: InstructionTargets | undefined,
+): Promise<{ report: GlobalInstructionStalenessReport | null; error: string | null }> {
+  try {
+    const { checkGlobalInstructionStaleness } = await import('@cleocode/caamp');
+    return { report: await checkGlobalInstructionStaleness(targets), error: null };
+  } catch (err) {
+    return { report: null, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**
@@ -320,17 +355,21 @@ export async function auditGlobalDelivery(
   };
   for (const s of skills) skillCounts[s.state] += 1;
   const hub = readHub(opts.hubPath ?? join(getAgentsHome(), 'AGENTS.md'), link);
+  const instructions = await scanInstructions(opts.instructionTargets);
   const healthy =
     link.state === 'canonical' &&
     (hub.state === 'reference' || hub.state === 'embedded') &&
     skillCounts.dangling === 0 &&
-    skillCounts['legacy-route'] === 0;
+    skillCounts['legacy-route'] === 0 &&
+    (instructions.report?.needsSync.length ?? 0) === 0;
   return {
     link,
     hub,
     skillsRoot,
     skills,
     skillCounts,
+    instructions: instructions.report,
+    instructionsError: instructions.error,
     healthy,
     remedy: healthy ? null : GLOBAL_DELIVERY_REPAIR_COMMAND,
   };
@@ -412,6 +451,7 @@ export async function repairGlobalDelivery(
       .filter((s) => s.state !== 'ok')
       .map((s) => ({ path: s.path, previousTarget: s.target, state: s.state })),
     skills: [],
+    instructions: null,
     receiptLog: null,
     error: null,
   };
@@ -447,6 +487,18 @@ export async function repairGlobalDelivery(
         outcome.action = relinkEntry(entry.path, canonicalPath, entry.target);
       }
       outcomes.push(outcome);
+    }
+    // T14304: refresh only the stale CAAMP blocks. This is the explicit user
+    // command T13409 allows to write user-global files; legacy blocks and all
+    // other text outside the block are kept byte for byte.
+    if ((before.instructions?.needsSync.length ?? 0) > 0) {
+      const { syncGlobalInstructions } = await import('@cleocode/caamp');
+      receipt.instructions = await syncGlobalInstructions({
+        ...opts.instructionTargets,
+        dryRun,
+        userRequested: true,
+        keepLegacyBlocks: true,
+      });
     }
   } catch (err) {
     receipt.error = err instanceof Error ? err.message : String(err);

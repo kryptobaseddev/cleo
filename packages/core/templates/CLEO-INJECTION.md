@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.25.5 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.25.6 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -90,7 +90,7 @@ Sessions are terminal-bound: to the agent harness, pane, tab, CI job or ssh logi
 
 **READ/MUTATE nesting differs:** mutations are FLAT; reads nest: `cleo show` uses `/data/task/status`, NEVER `/data/status`. Unresolvable pointers fail with `E_FIELD_NOT_FOUND` and list valid pointers; use those instead of guessing. `cleo verify` returns the full `verification` object at `--field /data/verification`.
 
-Mutations (`add`, `add-batch`, `update`, `complete`, `delete`) return `{count, created[], updated[], deleted[], ids[]}`: use `/data/created/0`, `/data/updated/0`, `/data/deleted/0`, `/data/count` (`ids[]` is deprecated). Deletion is a soft archive: `cleo delete <id> --cascade` includes descendants; `--force` alone orphans children and permits dependents; without either, parents with children are rejected.
+Mutations (`add`, `add-batch`, `update`, `complete`, `delete`, `cancel`, `restore`) return `{count, created[], updated[], deleted[], ids[]}`: use `/data/created/0`, `/data/updated/0`, `/data/deleted/0`, `/data/count` (`ids[]` is deprecated). Deletion is a soft archive: `cleo delete <id> --cascade` includes descendants; `--force` alone orphans children and permits dependents; without either, parents with children are rejected.
 <!-- /CLEO-INJECTION:section=output-contract -->
 
 <!-- CLEO-INJECTION:section=error-handling -->
