@@ -104,11 +104,12 @@ describe('deriveOutputContract — per-op output contract derivation (T11762 ST-
     });
 
     it('derives the minimal-mutate envelope ONLY for the planned mutate ops', () => {
-      // Exactly the 6 ops in MUTATE_PROJECTION_PLANS are rewritten into the
+      // Exactly the 8 ops in MUTATE_PROJECTION_PLANS (T14220 added cancel and
+      // restore) are rewritten into the
       // {count, created[], updated[], deleted[]} envelope by the dispatch
       // middleware. Each MUST advertise the /data/created/0 pointer.
       const plannedMutateKeys = Object.keys(MUTATE_PROJECTION_PLANS);
-      expect(plannedMutateKeys.length).toBe(6);
+      expect(plannedMutateKeys.length).toBe(8);
       for (const key of plannedMutateKeys) {
         const contract = deriveOutputContract(key);
         expect(contract, `expected a planned-mutate contract for ${key}`).not.toBeNull();

@@ -216,6 +216,20 @@ export async function currentAcTexts(
   return new Map(rows.map((r) => [`AC${r.ordinal}`, normalizeAcText(r.text)]));
 }
 
+/**
+ * A diff with the blob ids dropped from its `index <a>..<b>` lines (T14325):
+ * `gh pr diff` abbreviates them to a length that varies between calls, which
+ * made the packet sha flap for an unchanged head. The mode stays; the ids say
+ * nothing a reviewer judges.
+ *
+ * @param diff - A `git diff` / `gh pr diff` unified diff.
+ * @returns The same diff, deterministic for one head.
+ * @task T14325
+ */
+export function canonicalDiff(diff: string): string {
+  return diff.replace(/^index [0-9a-f]+\.\.[0-9a-f]+(?= |$)/gm, 'index');
+}
+
 function packetHash(
   headSha: string,
   taskId: string,
@@ -267,7 +281,7 @@ export async function buildReviewPacket(
       { fix: `Run \`cleo review packet ${prNumber} --task ${taskId}\` again.` },
     );
   }
-  const { diff, withheldPaths } = withholdDiffPaths(visibleEscapes(raw));
+  const { diff, withheldPaths } = withholdDiffPaths(canonicalDiff(visibleEscapes(raw)));
   return {
     prNumber,
     headSha: after,
@@ -363,7 +377,10 @@ export async function recordReviewVerdict(
       fix: 'Say what in the diff does or does not implement the criterion.',
     });
   }
-  const { resolveBoundSession } = await import('../store/session-store.js');
+  const { ensureAgentSession, resolveBoundSession } = await import('../store/session-store.js');
+  // T14269: an agent in a shared harness session reviews as its own session.
+  const { resolveTerminalKeys } = await import('../sessions/terminal-identity.js');
+  await ensureAgentSession(projectRoot, resolveTerminalKeys({ env }), env);
   const bound = await resolveBoundSession(projectRoot, env);
   if (bound === null) {
     // @sync-invariant none:local-only the reviewer's own session binding is local; nothing is written without it
