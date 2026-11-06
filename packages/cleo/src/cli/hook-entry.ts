@@ -195,6 +195,7 @@ export function parseHookInput(text: string): PreToolUseHookInput | null {
     ...(str(raw.permission_mode) === undefined
       ? {}
       : { permission_mode: str(raw.permission_mode) }),
+    ...(str(raw.agent_id) === undefined ? {} : { agent_id: str(raw.agent_id) }),
   };
 }
 
@@ -874,6 +875,109 @@ function providerProjectDir(
   return provider === 'claude-code' ? env.CLAUDE_PROJECT_DIR || undefined : undefined;
 }
 
+/** An `agent_id` safe to name in a shell command (Claude Code ids are short tokens). */
+const AGENT_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
+
+/** A command line that runs `cleo` as a command word. */
+const NAMES_CLEO = /(^|[\s;&|(])cleo(\s|$)/;
+
+/** A command line that already names its CLEO identity. */
+const SETS_IDENTITY = /\bCLEO_(AGENT|SESSION)_ID=/;
+
+/**
+ * The subagent a Claude Code call needs a CLEO identity for (T14341): its
+ * `agent_id`, when the call runs `cleo` and names no identity itself. Claude
+ * Code exports no per-subagent variable, and Agent-tool teammates inherit the
+ * lead's `CLAUDE_CODE_SESSION_ID`, so without `CLEO_AGENT_ID` they all act as
+ * one CLEO identity (T14269). The main thread (no `agent_id`) gets `null`.
+ *
+ * @param provider - the harness.
+ * @param input - the parsed call.
+ * @returns the agent id to export, or `null`.
+ */
+export function subagentIdentity(
+  provider: HeavyCommandHookProvider,
+  input: PreToolUseHookInput,
+): string | null {
+  const id = input.agent_id;
+  const command = input.tool_input?.command ?? '';
+  if (provider !== 'claude-code' || id === undefined || !AGENT_ID_SHAPE.test(id)) return null;
+  if (!NAMES_CLEO.test(command) || SETS_IDENTITY.test(command)) return null;
+  return id;
+}
+
+/** The line that gives a command its subagent's identity. */
+function identityPrefix(agentId: string): string {
+  return `export CLEO_AGENT_ID='${agentId}'; `;
+}
+
+/**
+ * Whether the hook may add `export CLEO_AGENT_ID=<id>;` to a subagent's `cleo`
+ * command (T14341), under the same rules as a heavy rewrite: Claude Code
+ * evaluates permission rules against the input a hook returns, so the hook
+ * never rewrites past a deny or ask rule that could name the command, and in
+ * a prompting mode it rewrites only a command the user's allow rules already
+ * approve as written (then answering `allow`). Anything else gets a hint the
+ * agent can act on, and the command runs as written.
+ *
+ * @returns `prefix` (with `preApproved` when the answer may carry `allow`), or `hint` with why not.
+ */
+function subagentIdentityDecision(
+  command: string,
+  permissionMode: string,
+  cwd: string,
+  projectRoot: string,
+  env: Readonly<Record<string, string | undefined>>,
+  core: PreApprovalCore & { readonly claudeBashRuleMatches: (p: string, t: string) => boolean },
+  deps: HeavyHookDeps,
+):
+  | { readonly action: 'prefix'; readonly preApproved: boolean }
+  | { readonly action: 'hint'; readonly reason: string } {
+  const segment: HeavyCommandSegment = {
+    text: command,
+    runClass: '',
+    governed: command,
+    argv: ['cleo'],
+  };
+  const hit = guardedHeavyCommand(
+    'claude-code',
+    [segment],
+    projectRoot,
+    env,
+    claudeRuleFiles(projectRoot, env),
+    core.claudeBashRuleMatches,
+  );
+  if (hit?.kind === 'unreadable') {
+    return { action: 'hint', reason: `${hit.file} could not be read or parsed` };
+  }
+  if (hit !== null) {
+    return {
+      action: 'hint',
+      reason:
+        'a deny or ask rule in your Claude Code settings could match it, and a rewrite would hide it',
+    };
+  }
+  if (PRE_APPROVE_MODES.has(permissionMode)) {
+    const projectDir = env.CLAUDE_PROJECT_DIR;
+    const verdict = claudePreApprovalVerdict(
+      command,
+      cwd,
+      env,
+      core,
+      projectDir && deps.allowContext ? deps.allowContext(projectDir, env) : undefined,
+    );
+    if (verdict.approved) return { action: 'prefix', preApproved: true };
+    if (!REWRITE_MODES.has(permissionMode)) {
+      return { action: 'hint', reason: `in ${permissionMode} mode ${verdict.reason}` };
+    }
+  }
+  if (REWRITE_MODES.has(permissionMode)) return { action: 'prefix', preApproved: false };
+  return {
+    action: 'hint',
+    reason: `the hook does not rewrite in ${permissionMode || 'this'} mode`,
+  };
+}
+
 /** Seams of {@link heavyCommandHook} (tests). */
 export interface HeavyHookDeps {
   /** Replaces {@link claudeAllowContext}: where Claude Code allow rules are read from. */
@@ -909,7 +1013,9 @@ export async function heavyCommandHook(
     cwd,
     ...(budget.waitTimeoutSec === undefined ? {} : { waitTimeoutSec: budget.waitTimeoutSec }),
   });
-  if (plan.action === 'none') return '';
+  // T14341: a subagent's cleo command may also need its CLEO identity.
+  const agentId = subagentIdentity(provider, input);
+  if (plan.action === 'none' && agentId === null) return '';
 
   const projectRoot = providerProjectDir(provider, io.env) ?? core.heavyHookProjectRoot(cwd);
   const mode = core.resolveHeavyHookMode(
@@ -992,14 +1098,58 @@ export async function heavyCommandHook(
       );
     }
   }
-  const context = heavyHookContext(plan, await core.heavyPressureNotice(), provider);
+  let context = heavyHookContext(plan, await core.heavyPressureNotice(), provider);
+  if (agentId === null) {
+    return renderHeavyHookAnswer(
+      provider,
+      input.tool_input,
+      plan,
+      context,
+      budget.timeoutMs,
+      preApproved && plan.action === 'rewrite',
+    );
+  }
+  // T14341: export the subagent's CLEO identity in front of the command, or
+  // say how, never past a permission rule (subagentIdentityDecision).
+  const original = input.tool_input.command;
+  const decision =
+    mode === 'warn'
+      ? ({ action: 'hint', reason: 'the hook is in warn mode' } as const)
+      : subagentIdentityDecision(original, permissionMode, cwd, projectRoot, io.env, core, deps);
+  if (decision.action === 'hint') {
+    const hint =
+      `[cleo] You are a Claude Code subagent (agent_id ${agentId}). Run cleo commands as ` +
+      `\`${identityPrefix(agentId)}<command>\` so your claims and focus stay yours, not your ` +
+      `teammates' (T14269); the hook did not add it because ${decision.reason}.`;
+    context = context === '' ? hint : `${context}\n${hint}`;
+    return renderHeavyHookAnswer(
+      provider,
+      input.tool_input,
+      plan,
+      context,
+      budget.timeoutMs,
+      preApproved && plan.action === 'rewrite',
+    );
+  }
+  const note = `[cleo] Ran as subagent ${agentId}: CLEO_AGENT_ID is exported for this command (T14341).`;
+  context = context === '' ? note : `${context}\n${note}`;
+  if (plan.action === 'rewrite') {
+    return renderHeavyHookAnswer(
+      provider,
+      input.tool_input,
+      { ...plan, command: identityPrefix(agentId) + plan.command },
+      context,
+      budget.timeoutMs,
+      preApproved && decision.preApproved,
+    );
+  }
   return renderHeavyHookAnswer(
     provider,
     input.tool_input,
-    plan,
+    { action: 'rewrite', command: identityPrefix(agentId) + original, segments: [] },
     context,
-    budget.timeoutMs,
-    preApproved && plan.action === 'rewrite',
+    undefined,
+    decision.preApproved,
   );
 }
 
