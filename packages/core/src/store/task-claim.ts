@@ -177,6 +177,13 @@ export function isLiveClaim(claim: TaskClaim | undefined, now: string = claimClo
 export const LIVE_CLAIM_SQL = '(claimed_by_session IS NOT NULL AND lease_expires_at > ?)';
 
 /**
+ * SQL for the status a `tasks_tasks` row reads with (T14268): `pending` and
+ * `active` derived from {@link LIVE_CLAIM_SQL}, every other status as stored.
+ * Bind one parameter, the ISO-8601 UTC `now`. The mirror of `rowToTask`.
+ */
+export const DERIVED_STATUS_SQL = `(CASE WHEN status IN ('pending', 'active') THEN CASE WHEN ${LIVE_CLAIM_SQL} THEN 'active' ELSE 'pending' END ELSE status END)`;
+
+/**
  * Whether a lease has lapsed at `now`. A lease with no recorded expiry
  * counts as lapsed (it can never be renewed into validity by its holder
  * anyway, and must not block forever).
