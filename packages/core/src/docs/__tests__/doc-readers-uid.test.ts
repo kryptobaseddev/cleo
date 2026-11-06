@@ -19,7 +19,8 @@ import {
 } from '../../store/conduit-doc-history.js';
 import { conduitAttachments } from '../../store/schema/cleo-project/conduit.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
-import { docsAttachments } from '../../store/tasks-schema.js';
+import { attachmentRefs, docsAttachments } from '../../store/tasks-schema.js';
+import { createDocsReadModel } from '../docs-read-model.js';
 import { runLegacyDocMigration } from '../legacy-doc-migration.js';
 import { readDocLineage } from '../lineage.js';
 import { readDoc } from '../read-doc.js';
@@ -175,5 +176,52 @@ describe('readers go through the doc identity (T14288 3b-1)', () => {
       .where(eq(conduitAttachments.uid, uid ?? ''))
       .get();
     expect(row?.docType).toBe('guide');
+  });
+});
+
+describe('no behaviour change on a plain doc (T14288 3b-1)', () => {
+  it('readDoc and the project list are byte-identical before and after the doc gains its identity', async () => {
+    await seedDoc('reader-plain', {
+      type: 'research',
+      summary: 'A plain doc.',
+      topics: '["sync"]',
+      relatedTasks: '["T14288"]',
+      lifecycleStatus: 'accepted',
+    });
+    const db = await getDb(env.tempDir);
+    await db
+      .insert(attachmentRefs)
+      .values({
+        attachmentId: 'att-reader-plain',
+        ownerType: 'task',
+        ownerId: 'T14288',
+        attachedAt: '2026-09-01T00:00:00.000Z',
+        attachedBy: 'tester',
+      })
+      .run();
+    await db
+      .update(docsAttachments)
+      .set({ refCount: 1 })
+      .where(eq(docsAttachments.id, 'att-reader-plain'))
+      .run();
+    const model = createDocsReadModel(env.tempDir);
+    const snapshot = async () =>
+      JSON.stringify({
+        read: await readDoc('reader-plain', { projectRoot: env.tempDir }),
+        list: (await model.listProjectDocs()).map((d) => ({
+          ...d,
+          identity: undefined,
+          docUid: undefined,
+        })),
+      });
+
+    // Before: no identity, so every surface reads the registry row (the pre-PR path).
+    const before = await snapshot();
+    expect((await resolveDocRef(env.tempDir, 'reader-plain'))?.identity).toBe('legacy');
+
+    await migrate();
+    expect((await resolveDocRef(env.tempDir, 'reader-plain'))?.identity).toBe('uid');
+    // After: through the identity, head and identity metadata — the same bytes.
+    expect(await snapshot()).toBe(before);
   });
 });
