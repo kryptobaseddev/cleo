@@ -70,7 +70,8 @@ beforeEach(async () => {
       id: 'T001',
       title: 'list --limit',
       type: 'task',
-      status: 'active',
+      // T14268: not in progress until an author starts it (a seeded `active` carries a lease).
+      status: 'pending',
       priority: 'medium',
       createdAt: new Date().toISOString(),
     },
