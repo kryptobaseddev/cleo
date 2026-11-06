@@ -53,12 +53,15 @@ import { execFileSync } from 'node:child_process';
 import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
 
 /**
- * Where a terminal key comes from. `process` is a long-lived ancestor shell
+ * Where a terminal key comes from. `agent` is a provider key qualified by
+ * `CLEO_AGENT_ID` (T14269): one agent inside a harness session its teammates
+ * share. `process` is a long-lived ancestor shell
  * (tab tier) and `harness` one agent below it or anywhere (pane tier) — both
  * T12864; `ppid` is the pre-T12864 per-call fallback, never produced any more
  * and kept only so rows written before it still type-check.
  */
 export type TerminalKeyKind =
+  | 'agent'
   | 'provider'
   | 'multiplexer'
   | 'terminal'
@@ -74,7 +77,7 @@ export interface TerminalKeySource {
   /** Environment variable carrying the identity value. */
   readonly envVar: string;
   /** Category of identity (drives precedence documentation only). */
-  readonly kind: Exclude<TerminalKeyKind, 'ppid' | 'process' | 'harness'>;
+  readonly kind: Exclude<TerminalKeyKind, 'agent' | 'ppid' | 'process' | 'harness'>;
   /** Harness / terminal that exports the variable. */
   readonly origin: string;
   /**
@@ -656,9 +659,18 @@ export function resolveTerminalKeys(options: ResolveTerminalKeysOptions = {}): T
       kind: source.kind,
     });
   }
-  // A provider key already names one agent session: nothing is more specific.
-  if (keys.some((k) => k.kind === 'provider')) return keys;
   const agentId = envValue(env, 'CLEO_AGENT_ID');
+  const provider = keys.find((k) => k.kind === 'provider');
+  if (provider) {
+    // T14269: Agent-tool teammates inherit their harness's provider id, so the
+    // provider key names the SHARED harness session. `CLEO_AGENT_ID` names one
+    // agent inside it, as a more specific key ahead of the shared one.
+    if (agentId === null) return keys;
+    return [
+      { key: `${provider.key}|agent:${agentId}`, source: provider.source, kind: 'agent' },
+      ...keys,
+    ];
+  }
   const live =
     options.ppid === undefined &&
     options.lookupProcess === undefined &&

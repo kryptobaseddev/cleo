@@ -1581,7 +1581,18 @@ function assertClaimAllowed(
   allowedHolders: readonly string[],
 ): void {
   const stored = claimFromColumns(row);
-  if (claimAllows(stored, guard.mode, guard.sessionId, guard.now, allowedHolders)) return;
+  if (
+    claimAllows(
+      stored,
+      guard.mode,
+      guard.sessionId,
+      guard.now,
+      allowedHolders,
+      guard.agentId ?? null,
+    )
+  ) {
+    return;
+  }
   if (!stored) {
     throw new CleoError(
       ExitCode.NOT_FOUND,
@@ -1589,7 +1600,12 @@ function assertClaimAllowed(
       { fix: `Take the claim first: cleo claim ${taskId}` },
     );
   }
-  throw taskClaimedError(taskId, stored, { sessionId: guard.sessionId, agentId: null }, guard.now);
+  throw taskClaimedError(
+    taskId,
+    stored,
+    { sessionId: guard.sessionId, agentId: guard.agentId ?? null },
+    guard.now,
+  );
 }
 
 /**
@@ -3213,6 +3229,7 @@ async function createOwnedSqliteDataAccessor(
         mode: request.mode,
         now,
         handoffFrom: request.handoffFrom ?? null,
+        agentId: request.agentId,
       };
       return accessor.transaction(async () => {
         const task = await accessor.loadSingleTask(taskId);
