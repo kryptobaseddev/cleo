@@ -174,7 +174,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
         expect(result.error?.message).toContain(stage);
         expect((result.error?.details as Record<string, unknown>)?.['epicStage']).toBe(stage);
         // No unfinished child sits at the epic's stage, so the advance runs (T14300).
-        expect(result.error?.fix).toBe(
+        expect(result.error?.fix).toContain(
           `Advance the epic, then complete ${CHILD_ID} again: cleo update ${EPIC_ID} --pipeline-stage implementation`,
         );
       });

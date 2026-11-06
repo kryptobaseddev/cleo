@@ -364,12 +364,11 @@ export function stageGateRemedy(
   epicStage: string,
   blockers: readonly string[],
 ): string {
+  // T13970: a hit means someone chose strict; never tell the agent to undo it.
+  const escalate = `report the epic to your lead or the owner with cleo show ${epicId}; they decide on lifecycle.stageGate, so do not change that setting yourself.`;
   if (blockers.length === 0)
-    return `Advance the epic, then complete ${taskId} again: cleo update ${epicId} --pipeline-stage implementation`;
-  return (
-    `Epic ${epicId} cannot advance either: its children ${blockers.join(', ')} are still at '${epicStage}', and lifecycle.stageGate=strict blocks them until it does. ` +
-    `Only the owner's lifecycle.stageGate decision clears this. Report it to your lead with cleo show ${epicId}; do not change that setting yourself.`
-  );
+    return `Advance the epic, then complete ${taskId} again: cleo update ${epicId} --pipeline-stage implementation. If advancing it is not yours to do, ${escalate}`;
+  return `Epic ${epicId} cannot advance either: its children ${blockers.join(', ')} are still at '${epicStage}', and lifecycle.stageGate=strict blocks them until it does. Only the owner clears this: ${escalate}`;
 }
 
 /**
