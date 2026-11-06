@@ -366,6 +366,18 @@ export interface TaskReferenceColumn {
 }
 
 /**
+ * SQL for the status a task reads with (T14268): `pending` / `active` from the
+ * claim lease, every other status as stored. The drizzle form of
+ * `DERIVED_STATUS_SQL`, for a `GROUP BY` or a select.
+ *
+ * @param now - ISO-8601 UTC instant for the lease comparison.
+ * @returns The expression.
+ */
+export function derivedStatusSql(now: string): SQL<string> {
+  return sql<string>`(CASE WHEN ${schema.tasks.status} IN ('pending', 'active') THEN CASE WHEN ${schema.tasks.claimedBySession} IS NOT NULL AND ${schema.tasks.leaseExpiresAt} > ${now} THEN 'active' ELSE 'pending' END ELSE ${schema.tasks.status} END)`;
+}
+
+/**
  * SQL for "the task reads with one of `statuses`" (T14268, owner decision
  * D11230): `active` and `pending` are derived from the claim lease, the mirror
  * of `rowToTask`; every other status is the stored one.
@@ -374,7 +386,7 @@ export interface TaskReferenceColumn {
  * @param now - ISO-8601 UTC instant for the lease comparison.
  * @returns The condition.
  */
-function derivedStatusIn(statuses: readonly TaskStatus[], now: string): SQL {
+export function derivedStatusIn(statuses: readonly TaskStatus[], now: string): SQL {
   const open = inArray(schema.tasks.status, ['pending', 'active']);
   const live = and(isNotNull(schema.tasks.claimedBySession), gt(schema.tasks.leaseExpiresAt, now));
   const parts: SQL[] = [];

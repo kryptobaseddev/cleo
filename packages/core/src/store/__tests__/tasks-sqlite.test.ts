@@ -429,8 +429,18 @@ describe('SQLite tasks-sqlite', () => {
       const { createTask, updateTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
 
-      const updated = await updateTask('T001', { status: 'active' });
-      expect(updated!.status).toBe('active');
+      const updated = await updateTask('T001', { status: 'blocked' });
+      expect(updated!.status).toBe('blocked');
+    });
+
+    it('stores a written active as pending: in progress is a live claim lease (T14268)', async () => {
+      const { createTask, updateTask, getTask } = await import('../tasks-sqlite.js');
+      await createTask(makeTask({ id: 'T001' }));
+
+      expect((await updateTask('T001', { status: 'active' }))!.status).toBe('pending');
+      expect((await getTask('T001'))!.status).toBe('pending');
+      leaseTestTasks(['T001']);
+      expect((await getTask('T001'))!.status).toBe('active');
     });
 
     it('updates priority', async () => {
