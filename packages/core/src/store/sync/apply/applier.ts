@@ -850,7 +850,16 @@ function applyRekey(
   if (oldFp && nu !== op.u) {
     recordUidAlias(
       c.db,
-      { table: op.t, oldUid: op.u, oldBfp: oldFp, newUid: nu, origin: c.st.replicaId, hlc: op.h },
+      {
+        table: op.t,
+        oldUid: op.u,
+        oldBfp: oldFp,
+        newUid: nu,
+        // T14335: the K's bfp is the fingerprint after the re-key.
+        newBfp: op.bfp ?? null,
+        origin: c.st.replicaId,
+        hlc: op.h,
+      },
       c.nowIso,
     );
   }
