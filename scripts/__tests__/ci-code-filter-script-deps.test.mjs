@@ -49,7 +49,7 @@ const USING_CALL =
  * @param index - Offset of the string's opening quote.
  * @returns True when a using call encloses it.
  */
-export function insideUsingCall(src, index) {
+function insideUsingCall(src, index) {
   const before = src.slice(Math.max(0, index - 300), index);
   let depth = 0;
   for (let i = before.length - 1; i >= 0; i--) {
@@ -72,7 +72,7 @@ export function insideUsingCall(src, index) {
  * @param file - Its repo-relative path.
  * @returns Repo-relative script paths (not yet checked for existence).
  */
-export function scriptMentions(src, file) {
+function scriptMentions(src, file) {
   const isTest = /(__tests__\/|\.test\.|\.spec\.)/.test(file);
   const resolveRel = (spec) =>
     path.relative(REPO_ROOT, path.resolve(path.dirname(path.join(REPO_ROOT, file)), spec));
