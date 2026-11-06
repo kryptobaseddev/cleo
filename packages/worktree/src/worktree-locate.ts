@@ -48,6 +48,8 @@ export interface LocatedWorktree {
   readonly branch: string | null;
   /** Whether git holds a lock on this entry. */
   readonly locked: boolean;
+  /** The worktree's own HEAD commit (porcelain `HEAD <sha>`), when git reports one (T14236). */
+  readonly head?: string;
   /** Present (true) only for a bare repository entry: no working tree, no branch (T10866). */
   readonly bare?: true;
 }
@@ -70,14 +72,23 @@ export function parseWorktreePorcelain(raw: string): LocatedWorktree[] {
   let branch: string | null = null;
   let locked = false;
   let bare = false;
+  let head: string | null = null;
 
   /** Flush the record under construction, if any. */
   const flush = (): void => {
-    if (path !== null) out.push({ path, branch, locked, ...(bare ? { bare: true as const } : {}) });
+    if (path !== null)
+      out.push({
+        path,
+        branch,
+        locked,
+        ...(head ? { head } : {}),
+        ...(bare ? { bare: true as const } : {}),
+      });
     path = null;
     branch = null;
     locked = false;
     bare = false;
+    head = null;
   };
 
   for (const line of raw.split('\n')) {
@@ -89,6 +100,8 @@ export function parseWorktreePorcelain(raw: string): LocatedWorktree[] {
     if (trimmed.startsWith('worktree ')) {
       flush();
       path = trimmed.slice('worktree '.length);
+    } else if (trimmed.startsWith('HEAD ')) {
+      head = trimmed.slice('HEAD '.length);
     } else if (trimmed.startsWith('branch ')) {
       branch = trimmed.slice('branch '.length).replace(/^refs\/heads\//, '');
     } else if (trimmed === 'locked' || trimmed.startsWith('locked ')) {

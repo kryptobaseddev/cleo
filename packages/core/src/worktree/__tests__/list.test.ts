@@ -76,7 +76,9 @@ function porcelain(
   entries: Array<{ path: string; branch: string; locked?: boolean; detached?: boolean }>,
 ): string {
   const blocks = entries.map((e) => {
-    const lines: string[] = [`worktree ${e.path}`, 'HEAD abc123'];
+    // T14236: each entry reports its own HEAD; the git mock maps `sha-<branch>`
+    // back to the branch so per-branch fixtures keep working.
+    const lines: string[] = [`worktree ${e.path}`, `HEAD sha-${e.branch || 'detached'}`];
     if (e.detached) {
       lines.push('detached');
     } else {
@@ -117,13 +119,16 @@ function installGitMock(opts: {
     if (argv[0] === 'worktree' && argv[1] === 'list') {
       return opts.porcelainOutput as never;
     }
+    if (argv[0] === 'rev-list' && argv[1] === '--first-parent') {
+      return 'sha-main\n' as never;
+    }
     if (argv[0] === 'log' && argv[1] === '-1') {
-      const branch = argv[3];
+      const branch = argv[3]?.replace(/^sha-/, '');
       if (branch && timestamps[branch]) return `${timestamps[branch]}\n` as never;
       throw new Error('no log for branch');
     }
     if (argv[0] === 'merge-base' && argv[1] === '--is-ancestor') {
-      const branch = argv[2];
+      const branch = argv[2]?.replace(/^sha-/, '');
       if (branch && merged.has(branch)) return '' as never;
       const err = new Error('not an ancestor');
       throw err;
@@ -157,6 +162,12 @@ describe('taskIdFromBranch', () => {
   it('extracts task ID from canonical branch names', () => {
     expect(taskIdFromBranch('task/T9546')).toBe('T9546');
     expect(taskIdFromBranch('task/T1')).toBe('T1');
+  });
+
+  it('T14236: also fix/, test/ and chore/ branches', () => {
+    expect(taskIdFromBranch('fix/T13098-x')).toBe('T13098');
+    expect(taskIdFromBranch('test/T12895')).toBe('T12895');
+    expect(taskIdFromBranch('chore/T1-y')).toBe('T1');
   });
 
   it('returns null for non-task branches', () => {
@@ -283,7 +294,9 @@ describe('enumerateWorktrees', () => {
   it('parses a single worktree entry', () => {
     mockExec.mockReturnValue(porcelain([{ path: '/tmp/wt/T1', branch: 'task/T1' }]) as never);
     const out = enumerateWorktrees('/tmp/project');
-    expect(out).toEqual([{ path: '/tmp/wt/T1', branch: 'task/T1', locked: false }]);
+    expect(out).toEqual([
+      { path: '/tmp/wt/T1', branch: 'task/T1', locked: false, head: 'sha-task/T1' },
+    ]);
   });
 
   it('parses multiple worktree entries separated by blank lines', () => {
@@ -473,9 +486,9 @@ describe('listWorktrees — status classification', () => {
     const wt = result.data.worktrees[0];
     expect(wt?.path).toBe('/repo');
     expect(wt?.statusCategory).toBe('active');
-    // isMerged still reflects reality (main IS an ancestor of main) — only the
-    // category is overridden so downstream code (prune) can't act on it.
-    expect(wt?.isMerged).toBe(true);
+    // T14236: a HEAD on main's own line carries no commits of its own, so it is
+    // not merged work; the category guard still keeps it out of prune.
+    expect(wt?.isMerged).toBe(false);
   });
 
   it('primary-guard does not affect secondary worktrees (T9686-D)', async () => {
