@@ -214,22 +214,23 @@ describe('buildSpawnPrompt — stage-specific guidance', () => {
     expect(result.prompt).toContain('RFC-2119');
   });
 
-  it('implementation stage explicitly forbids any/unknown', () => {
+  it("implementation stage holds the work to the project's own code-quality rules (T14303)", () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('`any`');
+    // The any/unknown rule is cleocode's; another project's rules come from its AGENTS.md.
+    expect(result.prompt).toContain("The project's code-quality rules (its AGENTS.md) hold");
   });
 
-  it('release stage mentions CalVer + CI green gating', () => {
+  it("release stage gates on green CI and the project's own version scheme (T14303)", () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'release',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('CalVer');
+    expect(result.prompt).toContain("the project's own scheme");
     expect(result.prompt).toContain('CI must be GREEN');
   });
 

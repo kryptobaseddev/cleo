@@ -43,7 +43,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getProviderAskTool } from '@cleocode/caamp';
 import type { LeanLevel, Task } from '@cleocode/contracts';
-import { loadProjectContext } from '../agents/variable-substitution.js';
 import { subjectSlug } from '../docs/doc-name-rule.js';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
@@ -1142,7 +1141,17 @@ export interface ProjectCommands {
  * @task T14303
  */
 export function readProjectCommands(projectRoot: string): ProjectCommands {
-  const ctx = loadProjectContext(projectRoot).context;
+  // The spawned project's own file; an ambient CLEO_DIR names another project.
+  let ctx: Record<string, unknown> | null = null;
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(join(projectRoot, '.cleo', 'project-context.json'), 'utf-8'),
+    );
+    ctx =
+      typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    ctx = null;
+  }
   const pick = (section: string, key: string): string | undefined => {
     const block = ctx?.[section];
     const value =
@@ -1183,7 +1192,7 @@ function buildQualityGateBlock(taskId: string, commands: ProjectCommands): strin
     '',
     GOVERNED_HEAVY_WORK_LINE,
     '',
-    `Tests (zero new failures vs the default branch): ${testLine} While iterating, run only the failing or changed test files. Record evidence once (\`cleo done ${taskId} --plan\` picks for you): \`ci:<pr>\` when the PR merged and the project sets \`evidence.ciSatisfies\`; otherwise \`tool:test-affected\` when \`testing.affectedCommand\` is configured, else a targeted \`test-run:<json>\` or \`tool:test\`. Never run the full suite manually.`,
+    `Tests (zero new failures vs the default branch): ${testLine} While iterating, run only the failing or changed test files. Record evidence once (\`cleo done ${taskId} --plan\` picks for you): \`ci:<pr>\` when the PR merged and the project sets \`evidence.ciSatisfies\`; otherwise \`tool:test-affected\` when \`testing.affectedCommand\` is configured, else a targeted \`test-run:<json>\` or \`tool:test\`. Never run the full suite manually; with \`testing.affectedCommand\` configured, a full \`tool:test\` is only for root-config changes.`,
     '',
     'If ANY gate fails, fix it before completing. Do not bypass. Do not `--no-verify`. Do not amend published commits.',
   ].join('\n');
