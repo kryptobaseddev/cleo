@@ -107,6 +107,9 @@ export interface RowIdentitySpec {
    * verbatim, as before; what the declaration adds is that a re-key of the
    * target is followed: an op written by the target's origin before its K is
    * re-pointed at the new uid (`followUidAliases`), as a `refs` column is.
+   * Never on a `natural` table: its uid is a hash of its key, so a key column
+   * holding the target's uid cannot be re-pointed under the same uid; the
+   * writer that re-keys the target deletes and re-inserts those rows.
    */
   readonly uidRefs?: readonly RowIdentityRef[];
   /**

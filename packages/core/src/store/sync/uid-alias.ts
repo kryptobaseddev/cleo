@@ -210,15 +210,25 @@ export function markAliasAnnounced(db: DatabaseSync, a: OwedAnnouncement, nowIso
   ).run(nowIso, a.table, a.oldUid, a.oldBfp);
 }
 
-/** Whether the alias journal has the T14335 `new_bfp` column. */
+/**
+ * Per handle: whether the alias journal has the `new_bfp` column. The sync
+ * journal migrations run before apply, so the answer holds for the handle;
+ * it is cached only once the journal exists (capture may be enabled later).
+ */
+const newBfpColumn = new WeakMap<DatabaseSync, boolean>();
+
+/** Whether the alias journal has the T14335 `new_bfp` column, read once per handle. */
 function hasNewBfpColumn(db: DatabaseSync): boolean {
-  return (
+  const cached = newBfpColumn.get(db);
+  if (cached !== undefined) return cached;
+  const has =
     db
       .prepare(
         `SELECT 1 FROM pragma_table_info('${UID_ALIAS_JOURNAL_TABLE}') WHERE name = 'new_bfp'`,
       )
-      .get() !== undefined
-  );
+      .get() !== undefined;
+  if (has || hasTable(db, UID_ALIAS_JOURNAL_TABLE)) newBfpColumn.set(db, has);
+  return has;
 }
 
 /**

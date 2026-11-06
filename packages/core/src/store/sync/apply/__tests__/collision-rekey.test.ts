@@ -988,4 +988,61 @@ describe('a re-key that moves the birth fingerprint is followed with it (T14335)
     expect(pull(a)).toMatchObject({ pending: 0 });
     expect(rows(a.db, 'SELECT uid FROM conduit_attachments')).toEqual([{ uid: ib.uid }]);
   });
+
+  it('conduit docs: natural children keyed by the doc uid (slug alias, head) are recreated under it, once', async () => {
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const doc = (createdAt: string) =>
+      `INSERT INTO conduit_attachments
+         (slug, conversation_id, from_agent_id, content, original_size, compressed_size, content_hash, created_at)
+         VALUES ('shared-doc', 'cleodocs', 'cleodocs', x'', 0, 0, 'h0', '${createdAt}')`;
+    const docUid = "(SELECT uid FROM conduit_attachments WHERE slug = 'shared-doc')";
+    // A: the doc, its version, its head and an old-slug alias; B: the same slug, born later.
+    write(
+      a,
+      `${doc('2026-09-01T09:00:00.000Z')};
+       INSERT INTO conduit_attachment_versions
+         (id, attachment_uid, version_number, author_agent_id, storage_key, content_hash,
+          original_size, compressed_size, tokens, created_at)
+         VALUES ('v-a', ${docUid}, 1, 'agent-a', 'sha256:h1', 'h1', 3, 3, 1, '2026-09-01T09:00:01.000Z');
+       INSERT INTO conduit_doc_heads (attachment_uid, head_version_uid, head_hlc)
+         VALUES (${docUid}, (SELECT uid FROM conduit_attachment_versions WHERE id = 'v-a'), 'h-1');
+       INSERT INTO conduit_doc_slug_aliases (slug, doc_uid, reason, created_at)
+         VALUES ('shared-doc-old', ${docUid}, 'rename', '2026-09-01T09:00:02.000Z')`,
+    );
+    write(b, doc('2026-09-01T10:00:00.000Z'));
+    const ia = identityOf(a, 'conduit_attachments', "slug = 'shared-doc'");
+    const ib = identityOf(b, 'conduit_attachments', "slug = 'shared-doc'");
+    push(a);
+    push(b);
+    pull(b);
+
+    // A re-keys the doc. A natural row's uid is a function of its key, so the
+    // doc's head and alias are deleted and inserted again under the new uid.
+    rekey(
+      a,
+      `UPDATE conduit_attachments SET uid = '${ib.uid}', birth_fp = '${ib.fp}' WHERE slug = 'shared-doc';
+       UPDATE conduit_attachment_versions SET attachment_uid = '${ib.uid}' WHERE attachment_uid = '${ia.uid}';
+       DELETE FROM conduit_doc_heads WHERE attachment_uid = '${ia.uid}';
+       INSERT INTO conduit_doc_heads (attachment_uid, head_version_uid, head_hlc)
+         VALUES ('${ib.uid}', (SELECT uid FROM conduit_attachment_versions WHERE id = 'v-a'), 'h-1');
+       DELETE FROM conduit_doc_slug_aliases WHERE doc_uid = '${ia.uid}';
+       INSERT INTO conduit_doc_slug_aliases (slug, doc_uid, reason, created_at)
+         VALUES ('shared-doc-old', '${ib.uid}', 'rename', '2026-09-01T09:00:02.000Z')`,
+    );
+    push(a);
+    expect(pull(b)).toMatchObject({ pending: 0 });
+    expect(statuses(b.db)).not.toContain('pending');
+    expect(pull(a)).toMatchObject({ pending: 0 });
+    for (const r of [a, b]) {
+      expect(rows(r.db, 'SELECT uid FROM conduit_attachments')).toEqual([{ uid: ib.uid }]);
+      expect(rows(r.db, 'SELECT slug, doc_uid FROM conduit_doc_slug_aliases')).toEqual([
+        { slug: 'shared-doc-old', doc_uid: ib.uid },
+      ]);
+      expect(rows(r.db, 'SELECT attachment_uid FROM conduit_doc_heads')).toEqual([
+        { attachment_uid: ib.uid },
+      ]);
+      expect(rows(r.db, 'PRAGMA foreign_key_check')).toEqual([]);
+    }
+  });
 });
