@@ -30,7 +30,7 @@ import {
   statSync,
 } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import { isStorableTaskId, isTaskId } from '@cleocode/contracts/task-id.js';
+import { isTaskId } from '@cleocode/contracts/task-id.js';
 
 /** Longest accepted manifest entry id. */
 export const MANIFEST_ENTRY_ID_MAX_LENGTH = 200;
@@ -62,24 +62,15 @@ const UNC_REFERENCE = /^[\\/]{2}/;
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
 
 /**
- * Structured task ids CLEO mints on purpose alongside the canonical `T<digits>`
- * (`T-RECONCILE-FOLLOWUP-v2026.5.63-6`, see `isStorableTaskId`): a `T`, then
- * letters, digits, `.`, `_` and `-` only.
- */
-const STRUCTURED_TASK_ID = /^T[A-Za-z0-9._-]+$/;
-
-/**
- * Whether `value` is acceptable as a manifest linked task id: the canonical
- * `T<digits>` shape, or a structured `T…` id CLEO mints and stores
- * (`isStorableTaskId`, at most 64 characters, no whitespace or separators).
+ * Whether `value` is acceptable as a manifest linked task id: the task grammar
+ * `T<digits>` (T14324: the structured `T-RECONCILE-FOLLOWUP-…` ids are re-keyed).
  * A JSON blob, a path, or an over-long value is never accepted.
  *
  * @param value - Candidate task id.
  * @returns `true` when the value can name a task.
  */
 export function isManifestTaskId(value: unknown): value is string {
-  if (isTaskId(value)) return true;
-  return typeof value === 'string' && isStorableTaskId(value) && STRUCTURED_TASK_ID.test(value);
+  return isTaskId(value);
 }
 
 /** One identity problem found in a manifest entry. */

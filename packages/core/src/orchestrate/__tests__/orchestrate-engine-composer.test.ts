@@ -64,7 +64,7 @@ async function seedTasks(testRoot: string, tasks: SeededTask[]): Promise<void> {
 let TEST_ROOT: string;
 
 const PARENT_EPIC: SeededTask = {
-  id: 'T932E',
+  id: 'T9320',
   title: 'T932 integration epic',
   description: 'Parent epic for composer integration test',
   status: 'active',
@@ -74,12 +74,12 @@ const PARENT_EPIC: SeededTask = {
 };
 
 const READY_WORKER: SeededTask = {
-  id: 'T932W',
+  id: 'T9321',
   title: 'T932 worker with explicit files',
   description: 'Ready worker task with declared AC.files',
   status: 'pending',
   priority: 'medium',
-  parentId: 'T932E',
+  parentId: 'T9320',
   // Atomicity gate permits ≤ MAX_WORKER_FILES (3) files.
   files: ['packages/cleo/src/sample.ts', 'packages/cleo/src/sample.test.ts'],
   createdAt: '2026-04-17T00:00:00Z',
@@ -87,12 +87,12 @@ const READY_WORKER: SeededTask = {
 };
 
 const READY_WORKER_NO_SCOPE: SeededTask = {
-  id: 'T932WX',
+  id: 'T9322',
   title: 'T932 worker without files',
   description: 'Ready worker task with NO declared AC.files',
   status: 'pending',
   priority: 'medium',
-  parentId: 'T932E',
+  parentId: 'T9320',
   createdAt: '2026-04-17T00:00:00Z',
   updatedAt: null,
 };
@@ -102,7 +102,7 @@ const READY_WORKER_NO_SCOPE: SeededTask = {
  * gate is bypassed (leads have broad scope by design).
  */
 const EPIC_NO_FILES: SeededTask = {
-  id: 'T932EP',
+  id: 'T9323',
   title: 'T932 standalone epic with no files',
   description: 'Epic for T1014 role auto-promotion test',
   type: 'epic',
@@ -145,7 +145,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   });
 
   it('emits payload with composerVersion 3.0.0 meta', async () => {
-    const result = await orchestrateSpawn('T932W', undefined, TEST_ROOT, undefined, true);
+    const result = await orchestrateSpawn('T9321', undefined, TEST_ROOT, undefined, true);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -174,15 +174,15 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(data.meta.dedupSavedChars).toBeGreaterThanOrEqual(0);
 
     // The prompt is fully-rendered and contains the task id.
-    expect(data.prompt).toContain('T932W');
-    expect(data.taskId).toBe('T932W');
+    expect(data.prompt).toContain('T9321');
+    expect(data.taskId).toBe('T9321');
     // Role surfaces the composer's derivation (worker by default).
     expect(data.role).toBeDefined();
     expect(typeof data.tier).toBe('number');
   });
 
   it('T13494 — names the agent identity, persona and role separately and consistently', async () => {
-    const result = await orchestrateSpawn('T932W', undefined, TEST_ROOT, undefined, true);
+    const result = await orchestrateSpawn('T9321', undefined, TEST_ROOT, undefined, true);
     expect(result.success).toBe(true);
     const data = result.data as {
       agentId: string;
@@ -193,7 +193,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
       meta: { classify: { agentId: string } };
     };
     // The identity is the per-agent session's handle, the same id the worktree env exports.
-    expect(data.agentId).toBe('agent-t932w');
+    expect(data.agentId).toBe('agent-t9321');
     if (data.worktreeEnv) expect(data.worktreeEnv.CLEO_AGENT_ID).toBe(data.agentId);
     // The persona is the classifier's routing decision, reported once, consistently.
     expect(data.persona).toBe(data.meta.classify.agentId);
@@ -201,7 +201,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   });
 
   it('rejects worker spawn when AC.files is missing (E_ATOMICITY_NO_SCOPE)', async () => {
-    const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT, undefined, true);
+    const result = await orchestrateSpawn('T9322', undefined, TEST_ROOT, undefined, true);
 
     // Composer rejects; engine surfaces the atomicity code as a first-class
     // LAFS envelope.
@@ -215,24 +215,24 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   it('T13510 — refuses before any session, claim or worktree when the worker has no file scope', async () => {
     // With a worktree requested (noWorktree=false). TEST_ROOT's .git is an empty
     // dir, so reaching provisioning would fail with a worktree error instead.
-    const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT, undefined, false);
+    const result = await orchestrateSpawn('T9322', undefined, TEST_ROOT, undefined, false);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
     const { getTaskAccessor } = await import('@cleocode/core/internal');
     const acc = await getTaskAccessor(TEST_ROOT);
-    expect((await acc.loadSingleTask('T932WX'))?.claim).toBeUndefined();
+    expect((await acc.loadSingleTask('T9322'))?.claim).toBeUndefined();
     const sessions = await acc.loadSessions();
-    expect(sessions.filter((x) => x.agentHandle === 'agent-t932wx')).toHaveLength(0);
+    expect(sessions.filter((x) => x.agentHandle === 'agent-t9322')).toHaveLength(0);
   });
 
   it('T10430 — atomicityScope=orchestrator-defer waives E_ATOMICITY_NO_SCOPE for worker without files', async () => {
-    // Re-uses READY_WORKER_NO_SCOPE (T932WX) — a worker task with no AC.files.
+    // Re-uses READY_WORKER_NO_SCOPE (T9322) — a worker task with no AC.files.
     // Without the waiver this spawn returns E_ATOMICITY_NO_SCOPE (verified by
     // the test above). Passing atomicityScope='orchestrator-defer' through
     // the seventh positional arg routes the waiver into composeSpawnPayload
     // → checkAtomicity so the spawn is granted with an audit-trail waiver.
     const result = await orchestrateSpawn(
-      'T932WX',
+      'T9322',
       undefined,
       TEST_ROOT,
       undefined,
@@ -257,12 +257,12 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   });
 
   it('T1014 — epic spawn auto-promotes to role=lead, bypassing atomicity file-scope gate', async () => {
-    // T932EP is type=epic with no files declared. Without the T1014 fix this
+    // T9323 is type=epic with no files declared. Without the T1014 fix this
     // would return E_ATOMICITY_NO_SCOPE because the default resolved role is
     // worker (cleo-subagent.orchLevel = 2). With the fix the engine detects
     // task.type === 'epic' and forces role=lead before entering the atomicity
     // gate (leads pass through unconditionally).
-    const result = await orchestrateSpawn('T932EP', undefined, TEST_ROOT, undefined, true);
+    const result = await orchestrateSpawn('T9323', undefined, TEST_ROOT, undefined, true);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -273,6 +273,6 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(data.role).toBe('lead');
     expect(data.atomicity.allowed).toBe(true);
     // Prompt contains the task id so we know the right task was rendered.
-    expect(data.prompt).toContain('T932EP');
+    expect(data.prompt).toContain('T9323');
   });
 });
