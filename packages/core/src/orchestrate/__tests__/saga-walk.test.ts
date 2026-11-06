@@ -37,7 +37,11 @@ import { join } from 'node:path';
 import { createTask, orchestrateReady, orchestrateWaves, sagas } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
-import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import {
+  createTestDb,
+  leaseTestTasks,
+  type TestDbEnv,
+} from '../../store/__tests__/test-db-helper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { getNativeTasksDb } from '../../store/sqlite.js';
@@ -183,6 +187,7 @@ async function seedSagaFixture(testRoot: string): Promise<void> {
 
   for (const task of tasks) {
     await createTask(task as Parameters<typeof createTask>[0], testRoot);
+    if (task.status === 'active') leaseTestTasks([task.id], testRoot);
   }
 }
 

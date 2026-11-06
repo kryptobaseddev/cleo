@@ -12,6 +12,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { leaseTestTasks } from './test-db-helper.js';
 
 let tempDir: string;
 let cleoDir: string;
@@ -572,6 +573,7 @@ describe('JSON to SQLite migration', () => {
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
+      leaseTestTasks(['T001']);
 
       const { getTask } = await import('../tasks-sqlite.js');
       const task = await getTask('T001');

@@ -17,7 +17,7 @@ import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
 import { awaitBackgroundOps } from '../background-ops.js';
 import type { DataAccessor } from '../data-accessor.js';
-import { resetDbState } from '../sqlite.js';
+import { getNativeTasksDb, resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
 import { TEST_FOREIGN_KEYS_OFF_ENV } from '../sqlite-pragmas.js';
 
@@ -288,6 +288,27 @@ export async function leaseTestTask(accessor: DataAccessor, taskId: string): Pro
     },
     { keepVersion: true },
   );
+}
+
+/**
+ * Give seeded tasks a live claim lease held by the bound test session
+ * (T14268), for tests that seed through `createTask` or a migration rather
+ * than {@link seedTasks}: call it with the ids the test seeds `active`, once
+ * the rows exist. Holds under both models, like {@link leaseTestTask}.
+ *
+ * @param ids - The tasks to lease.
+ * @param cwd - Project root of the test database (default: the resolved one).
+ */
+export function leaseTestTasks(ids: readonly string[], cwd?: string): void {
+  const db = getNativeTasksDb(cwd);
+  if (!db) throw new Error('leaseTestTasks: the test tasks database is not open');
+  const lease = db.prepare(
+    `UPDATE tasks_tasks SET claimed_by_session = ?, claimed_at = ?, lease_expires_at = ?
+      WHERE id = ?`,
+  );
+  for (const id of ids) {
+    lease.run(BOUND_TEST_SESSION_ID, '2026-01-01T00:00:00.000Z', TEST_LEASE_EXPIRES_AT, id);
+  }
 }
 
 /** Session id {@link bindTestSession} binds by default (T12501). */

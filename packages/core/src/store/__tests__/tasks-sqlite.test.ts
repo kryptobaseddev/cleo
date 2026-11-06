@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { leaseTestTasks } from './test-db-helper.js';
 
 let tempDir: string;
 
@@ -373,6 +374,7 @@ describe('SQLite tasks-sqlite', () => {
       });
 
       await createTask(task);
+      leaseTestTasks(['T004']);
       const retrieved = await getTask('T004');
 
       expect(retrieved!.title).toBe('Full task');
@@ -529,6 +531,7 @@ describe('SQLite tasks-sqlite', () => {
       await createTask(makeTask({ id: 'T001', status: 'pending' }));
       await createTask(makeTask({ id: 'T002', status: 'active' }));
       await createTask(makeTask({ id: 'T003', status: 'pending' }));
+      leaseTestTasks(['T002']);
 
       const pending = await listTasks({ status: 'pending' });
       expect(pending).toHaveLength(2);
@@ -841,6 +844,7 @@ describe('SQLite tasks-sqlite', () => {
       await createTask(makeTask({ id: 'T002', status: 'pending' }));
       await createTask(makeTask({ id: 'T003', status: 'active' }));
       await createTask(makeTask({ id: 'T004', status: 'done' }));
+      leaseTestTasks(['T003']);
 
       const counts = await countByStatus();
       expect(counts['pending']).toBe(2);
