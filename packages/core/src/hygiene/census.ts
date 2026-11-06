@@ -231,7 +231,8 @@ function writeRecord(
 /** The census proper: classify, optionally apply, and build the record. */
 async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   // Lazy: the CLI imports this module on read commands to claim the daily run.
-  const { listWorktrees, worktreeInUseProbe } = await import('../worktree/list.js');
+  const { listWorktrees } = await import('../worktree/list.js');
+  const { worktreeInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
