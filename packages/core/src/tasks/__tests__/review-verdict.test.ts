@@ -22,6 +22,7 @@ import { checkPrTaskLinkage, reviewedDirectiveLinkage } from '../evidence.js';
 import {
   acTextSha256,
   buildReviewPacket,
+  canonicalDiff,
   checkPrReviews,
   ghReviewDeps,
   judgeReviewVerdicts,
@@ -163,6 +164,27 @@ describe('the review packet (T14122)', () => {
     );
   });
 
+  it('two diffs differing only in index-line abbreviation length hash to the same packet (T14325)', async () => {
+    const abbreviated = (len: number): string =>
+      DIFF.replace(
+        '--- a/src/list.ts',
+        `index ${'1a2b3c4d5e6f'.slice(0, len)}..${'6f5e4d3c2b1a'.slice(0, len)} 100644\n--- a/src/list.ts`,
+      );
+    const ten = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], abbreviated(10)));
+    const nine = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], abbreviated(9)));
+    expect(nine.packetSha256).toBe(ten.packetSha256);
+    expect(ten.diff).toContain('index 100644\n--- a/src/list.ts');
+    expect(canonicalDiff('index 1a2b3c4..6f5e4d3\n')).toBe('index\n');
+    // A real change still moves the packet.
+    const changed = await buildReviewPacket(
+      env.tempDir,
+      7,
+      'T001',
+      stubGh([HEAD], abbreviated(10).replace('items.slice(0, opts.limit)', 'items')),
+    );
+    expect(changed.packetSha256).not.toBe(ten.packetSha256);
+  });
+
   it('withholdDiffPaths keeps every other file whole', () => {
     const { diff, withheldPaths } = withholdDiffPaths(DIFF);
     expect(withheldPaths).toEqual(['.changeset/list-limit.md']);
@@ -191,6 +213,37 @@ describe('recording a verdict (T14122)', () => {
       { deps: stubGh(heads) },
     );
   };
+
+  it('a verdict on a packet fetched seconds earlier is not stale when only the index abbreviation changed (T14325)', async () => {
+    await env.accessor.claimTask('T001', {
+      sessionId: 'ses_author',
+      agentId: 'agent-author',
+      mode: 'acquire',
+    });
+    await bindTestSession(env);
+    vi.stubEnv('CLEO_AGENT_ID', 'agent-reviewer');
+    const withIndex = (ids: string): string =>
+      DIFF.replace('--- a/src/list.ts', `index ${ids} 100644\n--- a/src/list.ts`);
+    const packet = await buildReviewPacket(
+      env.tempDir,
+      7,
+      'T001',
+      stubGh([HEAD], withIndex('1a2b3c4d5e..6f5e4d3c2b')),
+    );
+    const v = await recordReviewVerdict(
+      env.tempDir,
+      {
+        prNumber: 7,
+        taskId: 'T001',
+        ac: 'AC2',
+        verdict: 'unmet',
+        reason: 'The diff never checks for a negative limit.',
+        packetSha256: packet.packetSha256,
+      },
+      { deps: stubGh([HEAD], withIndex('1a2b3c4d5..6f5e4d3c2')) },
+    );
+    expect(v).toMatchObject({ headSha: HEAD, verdict: 'unmet' });
+  });
 
   it('records an unmet verdict under the reviewer’s session, bound to the head, with the authors', async () => {
     await env.accessor.claimTask('T001', {
