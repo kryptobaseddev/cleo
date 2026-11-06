@@ -293,7 +293,7 @@ export function renderStopAnswer(
 
 /** Ask-tool lookup the hook needs (CAAMP in production; injectable for tests). */
 export interface AskToolLookup {
-  /** The provider's own ask tool, or `null` (use the `hitl.request` fallback). */
+  /** The provider's own ask tool, or `null` (park the task with `cleo ask`). */
   readonly toolFor: (provider: AskEnforceProvider) => string | null;
   /** Every ask-tool name any harness uses (a misidentified provider never blocks a real ask). */
   readonly allNames: () => readonly string[];

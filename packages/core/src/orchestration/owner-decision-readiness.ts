@@ -1,23 +1,20 @@
 /**
  * System One needs-human-decision check for the readiness grill gate (T12494).
  *
- * `classifyReadiness` flags `OWNER_DECISION_REQUIRED` when `blockedBy`
- * contains "owner" or "decision" as a substring, so "blocked on T12 (decision
- * store refactor)" grills and "waiting on legal to choose a vendor" does not.
- * This module asks ONE `noul` question — "does this block need a human
- * owner's decision, approval or choice?" — and hands the answer to the pure
- * predicate as {@link ReadinessSignals.ownerDecision}.
+ * `classifyReadiness` flags `OWNER_DECISION_REQUIRED` from the `owner-decision`
+ * label, which `cleo ask` sets and `cleo ask answer` removes (T14302); the
+ * free-text `blockedBy` substring rule is gone. This module asks ONE `noul`
+ * question — "does this block need a human owner's decision, approval or
+ * choice?" — and hands the answer to the pure predicate as {@link ReadinessSignals.ownerDecision}.
  *
- * Escalate-only: the answer can ADD the flag the substring rule missed, never
- * clear one the rule or the label raised (a false positive stays a grill).
+ * Escalate-only: the answer can ADD the flag the label did not raise, never
+ * clear one the label raised.
  * Silently removing a flag would route around the owner. A flagged task
  * grills, and the grill is routed to the owner through the orchestrator's ask
  * tool (the HITL rule); System One never answers the owner's question itself.
  *
  * - Asked only when the task has a non-blank `blockedBy` and no
- *   `owner-decision` label (the label is authoritative). In `on` mode it is
- *   also skipped when the substring rule already flags: an answer could not
- *   change the verdict. `shadow` still asks, so the audit measures agreement.
+ *   `owner-decision` label (the label is authoritative).
  * - Title, `blockedBy` and description are redacted, then clipped, before they
  *   leave the machine.
  * - Provider wait is bounded by {@link OWNER_DECISION_BUDGET_MS}; the budget
@@ -25,7 +22,7 @@
  *
  * Mode comes from `decide.sites.ownerDecision` (`off | shadow | on`): `shadow`
  * (the default once a provider is configured) audits the answer next to the
- * substring rule and returns no signal, so the verdict is unchanged; `on`
+ * no-flag heuristic and returns no signal, so the verdict is unchanged; `on`
  * returns the signal, which the predicate uses to add a flag when its
  * confidence is at least {@link OWNER_DECISION_MIN_CONFIDENCE}. No provider configured → `off`, no
  * network call.
@@ -39,7 +36,6 @@ import type { DecideOptions } from '../decide/client.js';
 import { type DecisionSiteMode, redactThenClip } from '../decide/site.js';
 import { OWNER_DECISION_DECISION_SITE } from '../decide/sites/registry.js';
 import {
-  blockedByMentionsOwnerDecision,
   classifyReadiness,
   OWNER_DECISION_MIN_CONFIDENCE,
   type OwnerDecisionSignal,
@@ -113,7 +109,7 @@ export interface OwnerDecisionOptions {
  * @param task - The task being classified.
  * @param opts - Mode, wiring and project root.
  * @returns The signal in `on` mode when a valid answer arrived; otherwise `null`
- *   (not asked, `shadow`, or fallback) — and the substring rule decides.
+ *   (not asked, `shadow`, or fallback) — and only the label decides.
  */
 export async function resolveOwnerDecisionSignal(
   task: Task,
@@ -131,13 +127,11 @@ export async function resolveOwnerDecisionSignal(
     });
     if (mode === 'off') return null;
 
-    const substring = blockedByMentionsOwnerDecision(task);
-    // Escalate-only: once the rule flags, no answer can change the verdict.
-    if (mode === 'on' && substring) return null;
+    // Without the label nothing flags, so the heuristic answer is "no".
     const heuristicAnswer: DecisionAnswer = {
       type: 'noul',
-      value: substring,
-      probability: substring ? 1 : 0,
+      value: false,
+      probability: 0,
       confidence: 0.5,
     };
     const decision = await askSiteDecision({
@@ -145,10 +139,10 @@ export async function resolveOwnerDecisionSignal(
       budgetMs: OWNER_DECISION_BUDGET_MS,
       minConfidence: OWNER_DECISION_MIN_CONFIDENCE,
       mode,
-      heuristicVerdict: substring ? 'owner-decision' : 'none',
+      heuristicVerdict: 'none',
       buildRequest: (redact) => buildOwnerDecisionRequest(task, redact),
       heuristicAnswers: { [QUESTION]: heuristicAnswer },
-      agree: (answers) => answers[QUESTION]?.value === substring,
+      agree: (answers) => answers[QUESTION]?.value === false,
       shadowExtras: { subjects: { [QUESTION]: task.id } },
       wiring: opts.decide,
       projectRoot: opts.projectRoot,

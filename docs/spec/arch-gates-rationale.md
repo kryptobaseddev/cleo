@@ -221,7 +221,7 @@ No `args['no-<flag>']`, `args.noFoo`, or `reader(args, 'no-…')` read under `pa
 - **Script:** `scripts/lint-hitl-rule-delivery.mjs`
 - **Baseline:** none (zero-tolerance)
 
-The owner rule — every owner answer, decision, approval or choice goes through the harness ask tool with concrete options, never prose; subagents return the question to their orchestrator; `hitl.request` envelope when no ask tool exists — must be present on every surface an agent reads: `packages/core/templates/CLEO-INJECTION.md` (universal protocol step 7), the `ct-cleo` and `ct-orchestrator` skills, and the spawn-prompt Return Format Contract (`buildHitlLine`, emitted at tiers 0-2). Each surface is checked for short stable marker phrases, so wording can be tightened but the rule cannot be deleted from one surface unnoticed.
+The owner rule — every owner answer, decision, approval or choice goes through the harness ask tool with concrete options, never prose; subagents return the question to their orchestrator; with no ask tool (or no answer yet) the task is parked with `cleo ask` and work continues (T14302, D11233; the retired emit-`hitl.request`-and-stop fallback must not reappear) — must be present on every surface an agent reads: `packages/core/templates/CLEO-INJECTION.md` (universal protocol step 7), the `ct-cleo` and `ct-orchestrator` skills, and the spawn-prompt Return Format Contract (`buildHitlLine`, emitted at tiers 0-2). Each surface is checked for short stable marker phrases, so wording can be tightened but the rule cannot be deleted from one surface unnoticed.
 
 ## Gate 28 — Raw table writers — Gate A ratchet (T12332) — `scripts/lint-no-raw-table-writes.mjs`
 

@@ -290,7 +290,7 @@ export interface BuildSpawnPromptInput {
    * the ask tool named in the HITL line of the Return Format Contract via
    * `getProviderAskTool`. Defaults to `'claude-code'` when
    * {@link BuildSpawnPromptInput.harnessHint} is `'claude-code'`; otherwise
-   * the line names the `hitl.request` envelope fallback.
+   * the line says the orchestrator parks the task with `cleo ask` (T14302).
    *
    * @task T12482
    */
@@ -1205,14 +1205,15 @@ function buildQualityGateBlock(taskId: string, commands: ProjectCommands): strin
  * subagents (Claude Code's `AskUserQuestion` included), and the owner
  * directive routes every decision through the orchestrator. The subagent
  * returns `blocked` with the question + options in the manifest; the line
- * names the tool the ORCHESTRATOR asks with, or the `hitl.request` fallback.
+ * names the tool the ORCHESTRATOR asks with, or, without one, that it parks
+ * the task with `cleo ask` and continues (T14302).
  *
  * @param type - Return-contract type word (e.g. `Implementation`).
  * @param askProviderId - Orchestrator's CAAMP provider id, if known.
  */
 function buildHitlLine(type: string, askProviderId: string | undefined): string {
   const tool = askProviderId ? getProviderAskTool(askProviderId).toolName : null;
-  const how = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
+  const how = tool ? `asks via \`${tool}\`` : 'parks it with `cleo ask` and continues';
   return `HITL: never ask the human. Return \`${type} blocked. manifest:<entryId>\` + blocker: with {question, options[{label,description}], recommended} (2-4, each: what happens and its trade-off) in the manifest; the orchestrator ${how}.`;
 }
 

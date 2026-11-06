@@ -3,7 +3,7 @@
  *
  * Spawn prompts go to SUBAGENTS, which never ask the human directly: they
  * return `blocked` with the question + options, and the orchestrator asks via
- * its harness ask tool (or emits a `hitl.request` envelope when it has none).
+ * its harness ask tool (or, with none, parks the task with `cleo ask`, T14302).
  */
 import { getAllProviders, getProviderAskTool } from '@cleocode/caamp';
 import type { Task } from '@cleocode/contracts';
@@ -61,7 +61,7 @@ describe('spawn prompt HITL line (T12482)', () => {
   it('names the right tool (or the fallback) for every CAAMP provider', () => {
     for (const { id } of getAllProviders()) {
       const tool = getProviderAskTool(id).toolName;
-      const expected = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
+      const expected = tool ? `asks via \`${tool}\`` : 'parks it with `cleo ask` and continues';
       expect(hitlLine({ askProviderId: id }), id).toContain(expected);
     }
   });
@@ -70,9 +70,9 @@ describe('spawn prompt HITL line (T12482)', () => {
     expect(hitlLine({ harnessHint: 'claude-code' })).toContain('`AskUserQuestion`');
   });
 
-  it('uses the hitl.request fallback when the provider is unknown or unset', () => {
-    expect(hitlLine({})).toContain('emits one `hitl.request` LAFS envelope');
-    expect(hitlLine({ harnessHint: 'generic' })).toContain('`hitl.request`');
-    expect(hitlLine({ askProviderId: 'pi' })).toContain('`hitl.request`');
+  it('parks with cleo ask when the provider is unknown or unset (T14302)', () => {
+    expect(hitlLine({})).toContain('parks it with `cleo ask` and continues');
+    expect(hitlLine({ harnessHint: 'generic' })).toContain('`cleo ask`');
+    expect(hitlLine({ askProviderId: 'pi' })).toContain('`cleo ask`');
   });
 });

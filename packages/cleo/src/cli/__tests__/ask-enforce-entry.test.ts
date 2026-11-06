@@ -112,12 +112,12 @@ describe('askEnforceHook per provider (T13420)', () => {
     expect(kimi.stderr).toContain('`AskUserQuestion`');
   });
 
-  it('names the provider ask tool, or the hitl.request fallback', async () => {
+  it('names the provider ask tool, or parking with cleo ask (T14302)', async () => {
     const msg = { last_assistant_message: QUESTION };
     expect(JSON.parse((await run('claude-code', msg)).stdout).reason).toContain(
       '`AskUserQuestion`',
     );
-    expect(JSON.parse((await run('codex', msg)).stdout).reason).toContain('hitl.request');
+    expect(JSON.parse((await run('codex', msg)).stdout).reason).toContain('`cleo ask');
   });
 
   it('allows when the turn called an ask tool, on the second stop, and for cursor errors', async () => {

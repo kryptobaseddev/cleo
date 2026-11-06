@@ -84,10 +84,11 @@ describe('classifyOwnerAsk rules (T13420)', () => {
     expect(v.excerpt?.length).toBeLessThanOrEqual(160);
   });
 
-  it('names the ask tool, or the hitl.request fallback, in the reason', () => {
+  it('names the ask tool, or parking with cleo ask (T14302), in the reason', () => {
     const v = classifyOwnerAsk({ ...base, lastAssistantText: 'Should I merge it?' });
     expect(askEnforceReason(v, 'AskUserQuestion')).toContain('`AskUserQuestion`');
     expect(askEnforceReason(v, 'AskUserQuestion')).toContain('2-4 options');
-    expect(askEnforceReason(v, null)).toContain('`hitl.request`');
+    expect(askEnforceReason(v, null)).toContain('`cleo ask <taskId> --request');
+    expect(askEnforceReason(v, null)).not.toContain('hitl.request');
   });
 });

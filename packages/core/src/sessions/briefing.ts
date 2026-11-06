@@ -44,6 +44,7 @@ import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import type { AnsweredOwnerQuestion, OpenOwnerQuestion } from '../tasks/owner-ask.js';
 import { rankReadyTasks, resolveRankingPhase } from '../tasks/task-next.js';
 import {
   readLiveFocus,
@@ -255,6 +256,10 @@ export interface SessionBriefing {
   /** Receipt-backed corrections presented separately from immutable historical handoffs. */
   corrections?: KnowledgeReplacement[];
   lastSession: LastSessionInfo | null;
+  /** Owner questions still open, each parking its task (`cleo ask`, T14302). */
+  openQuestions?: OpenOwnerQuestion[];
+  /** Owner answers recorded since the last session ended (T14302). */
+  answeredQuestions?: AnsweredOwnerQuestion[];
   currentTask: CurrentTaskInfo | null;
   nextTasks: BriefingTask[];
   openBugs: BriefingBug[];
@@ -477,6 +482,19 @@ export async function computeBriefing(
 
   // 1. Last session handoff
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
+
+  // T14302: open owner questions, and answers that arrived since the last session.
+  let openQuestions: OpenOwnerQuestion[] = [];
+  let answeredQuestions: AnsweredOwnerQuestion[] = [];
+  try {
+    const { listOpenOwnerQuestions, listOwnerAnswersSince } = await import('../tasks/owner-ask.js');
+    openQuestions = await listOpenOwnerQuestions(projectRoot);
+    answeredQuestions = await listOwnerAnswersSince(projectRoot, lastSession?.endedAt ?? null);
+  } catch (error) {
+    knowledgeWarnings.push(
+      `Owner questions unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   // 2. Current active task (a stale pointer is reported as a warning below)
   const { current: currentTaskInfo } = computeCurrentTask(focus, taskMap);
@@ -709,6 +727,8 @@ export async function computeBriefing(
     corrections: compactKnowledgeCorrections(corrections),
     nextTasks,
     lastSession: cleanedLastSession,
+    ...(openQuestions.length > 0 && { openQuestions }),
+    ...(answeredQuestions.length > 0 && { answeredQuestions }),
     knowledgeHealth: compactKnowledgeHealth(knowledgeHealth, '/knowledgeCoverage'),
     openBugs,
     blockedTasks,

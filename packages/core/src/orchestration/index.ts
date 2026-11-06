@@ -51,7 +51,6 @@ export type {
   ReadinessVerdict,
 } from './classify-readiness.js';
 export {
-  blockedByMentionsOwnerDecision,
   classifyReadiness,
   OWNER_DECISION_MIN_CONFIDENCE,
 } from './classify-readiness.js';

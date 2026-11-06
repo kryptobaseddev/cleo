@@ -94,6 +94,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/archive.js')).archiveCommand as CommandDef,
   },
   {
+    exportName: 'askCommand',
+    name: 'ask',
+    description:
+      'Park a task on an owner question and continue with other work (ask <taskId> --request), ',
+    load: async () => (await import('../commands/ask.js')).askCommand as CommandDef,
+  },
+  {
     exportName: 'attentionCommand',
     name: 'attention',
     description: 'Tier-2 scope-keyed working memory — quick decaying jots (alias: jot)',

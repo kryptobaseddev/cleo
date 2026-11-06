@@ -3,7 +3,7 @@
  *
  * Verifies:
  *  - MISSING_AC trigger: fires when no acceptance criteria present.
- *  - OWNER_DECISION_REQUIRED trigger: fires on label or blockedBy text.
+ *  - OWNER_DECISION_REQUIRED trigger: fires on the label, never on blockedBy text (T14302).
  *  - IVTR_MAX_RETRIES trigger: fires when any phase hits MAX_LOOP_BACKS_PER_PHASE.
  *  - RELEASE_GATE trigger: fires on release/publish stage without hitlApproved.
  *  - AMBIGUOUS_SCOPE trigger: fires on bare epic with no children and no spec blob.
@@ -124,16 +124,14 @@ describe('classifyReadiness — OWNER_DECISION_REQUIRED', () => {
     expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
   });
 
-  it('grills when blockedBy mentions "owner"', () => {
-    const task = makeTask({ blockedBy: 'Waiting on owner to pick approach.' });
-    const result = classifyReadiness(task);
-    expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
-  });
-
-  it('grills when blockedBy mentions "decision"', () => {
-    const task = makeTask({ blockedBy: 'Pending architectural decision by Keaton.' });
-    const result = classifyReadiness(task);
-    expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
+  it('blockedBy text mentioning "owner" or "decision" does not flag without the label', () => {
+    for (const blockedBy of [
+      'Waiting on owner to pick approach.',
+      'Pending architectural decision.',
+    ]) {
+      const result = classifyReadiness(makeTask({ blockedBy }));
+      expect(result.triggers).not.toContain('OWNER_DECISION_REQUIRED');
+    }
   });
 
   it('proceeds when labels do not contain owner-decision and blockedBy is unrelated', () => {
