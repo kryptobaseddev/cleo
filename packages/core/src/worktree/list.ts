@@ -59,10 +59,10 @@ import type {
   WorktreeSource,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
-import { computeProjectHash } from '@cleocode/paths';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
+import { worktreeInUseProbe } from './in-use-probe.js';
 import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
 
 export { taskIdFromBranch } from './sentinel-index.js';
@@ -506,25 +506,6 @@ export function classifyStatus(
     statusCategory: proof.indeterminate === true ? 'unknown' : 'keep',
     keepReason: proof.keptReason,
   };
-}
-
-/**
- * The in-use probe core hands the disposal engine (T13924): a CLEO task lock
- * record for the worktree's task means an agent may still be working in it.
- *
- * @param readLock - The worktree package's lock reader (callers load it statically or lazily).
- * @param projectRoot - Project whose lock records are read.
- * @param taskId - The worktree's task, or `null`.
- * @returns The probe, or `undefined` when no task owns the worktree.
- */
-export function worktreeInUseProbe(
-  readLock: typeof import('@cleocode/worktree').readWorktreeTaskLock,
-  projectRoot: string,
-  taskId: string | null,
-): (() => string | null) | undefined {
-  if (taskId === null) return undefined;
-  return () =>
-    readLock(computeProjectHash(projectRoot), taskId) !== null ? 'task lock held' : null;
 }
 
 /**

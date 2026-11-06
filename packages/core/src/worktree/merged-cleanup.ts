@@ -45,7 +45,8 @@ import {
 } from '@cleocode/worktree';
 import { discoveryEnv } from '../git/work-tree.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
-import { enumerateWorktrees, worktreeInUseProbe } from './list.js';
+import { worktreeInUseProbe } from './in-use-probe.js';
+import { enumerateWorktrees } from './list.js';
 import { loadTaskEvidence } from './prune.js';
 
 /** `task/T123` or `task/T123-slug`: the task id a branch belongs to. */

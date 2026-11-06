@@ -34,12 +34,8 @@ import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js
 import { disposeWorktree, gitSilent, readWorktreeTaskLock } from '@cleocode/worktree';
 import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
-import {
-  isPrimaryWorktree,
-  listWorktrees,
-  resolvePrimaryWorktreePath,
-  worktreeInUseProbe,
-} from './list.js';
+import { worktreeInUseProbe } from './in-use-probe.js';
+import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
 
 /**
  * Drive the orphan / merged worktree prune flow used by
