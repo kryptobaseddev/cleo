@@ -624,7 +624,7 @@ describe('content-derived version uids (T13638)', () => {
 
 describe('blob-store-only legacy docs gain a head (T14329)', () => {
   const BODY = Buffer.from('# Pending matrix\n\nOnly copy lives in the blob store.\n');
-  const SLUG = 't14329-legacy';
+  const SLUG = 'pending-matrix-legacy';
 
   /** Seed a legacy doc whose bytes live ONLY in `.cleo/blobs/blobs/<sha>` (no legacy tree). */
   async function seedBlobStoreOnlyDoc(target: TestDbEnv): Promise<string> {
@@ -691,13 +691,10 @@ describe('blob-store-only legacy docs gain a head (T14329)', () => {
     expect(moved?.headVersionUid).not.toBe(head);
   });
 
-  it('--limit bounds a run to the oldest docs; the next run continues; then nothing is left', async () => {
+  /** Seed legacy docs whose bytes live only in the blob store. */
+  async function seedDocs(docs: ReadonlyArray<readonly [string, string]>): Promise<void> {
     const store = await getDb(env.tempDir);
-    for (const [slug, createdAt] of [
-      ['t14329-newest', '2026-09-03T00:00:00.000Z'],
-      ['t14329-oldest', '2026-09-01T00:00:00.000Z'],
-      ['t14329-middle', '2026-09-02T00:00:00.000Z'],
-    ] as const) {
+    for (const [slug, createdAt] of docs) {
       const body = Buffer.from(`# ${slug}\n`);
       const hash = sha(body);
       const path = join(env.cleoDir, 'blobs', 'blobs', hash);
@@ -714,19 +711,38 @@ describe('blob-store-only legacy docs gain a head (T14329)', () => {
         })
         .run();
     }
+  }
+
+  it('without --limit one run migrates every doc', async () => {
+    await seedDocs([
+      ['all-first', '2026-09-01T00:00:00.000Z'],
+      ['all-second', '2026-09-02T00:00:00.000Z'],
+      ['all-third', '2026-09-03T00:00:00.000Z'],
+    ]);
+    const result = await runLegacyDocMigration({ projectRoot: env.tempDir, db, cwd: env.tempDir });
+    expect(result.report.status).toBe('completed');
+    expect(result.counts).toMatchObject({ toCapture: 3, remaining: 0 });
+  });
+
+  it('--limit bounds a run to the oldest docs; the next run continues; then nothing is left', async () => {
+    await seedDocs([
+      ['limit-newest', '2026-09-03T00:00:00.000Z'],
+      ['limit-oldest', '2026-09-01T00:00:00.000Z'],
+      ['limit-middle', '2026-09-02T00:00:00.000Z'],
+    ]);
     const run = (limit: number) =>
       runLegacyDocMigration({ projectRoot: env.tempDir, db, cwd: env.tempDir, limit });
 
     const first = await run(2);
     expect(first.report.status).toBe('completed');
     expect(first.counts).toMatchObject({ toCapture: 2, remaining: 1 });
-    expect(await resolveConduitDocUid(env.tempDir, 't14329-oldest')).not.toBeNull();
-    expect(await resolveConduitDocUid(env.tempDir, 't14329-middle')).not.toBeNull();
-    expect(await resolveConduitDocUid(env.tempDir, 't14329-newest')).toBeNull();
+    expect(await resolveConduitDocUid(env.tempDir, 'limit-oldest')).not.toBeNull();
+    expect(await resolveConduitDocUid(env.tempDir, 'limit-middle')).not.toBeNull();
+    expect(await resolveConduitDocUid(env.tempDir, 'limit-newest')).toBeNull();
 
     const second = await run(2);
     expect(second.counts).toMatchObject({ toCapture: 1, toSkip: 2, remaining: 0 });
-    expect(await resolveConduitDocUid(env.tempDir, 't14329-newest')).not.toBeNull();
+    expect(await resolveConduitDocUid(env.tempDir, 'limit-newest')).not.toBeNull();
 
     const third = await run(2);
     expect(third.counts).toMatchObject({ toCapture: 0, toSkip: 3, remaining: 0 });

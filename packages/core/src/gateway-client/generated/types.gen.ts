@@ -14508,7 +14508,7 @@ export type MutateDocsDoctorResponse = MutateDocsDoctorResponses[keyof MutateDoc
 export type MutateDocsMigrateData = {
     body?: {
         /**
-         * At most this many docs per run, oldest first (default 50, T14329); run again to continue
+         * At most this many docs per run, oldest first (T14329); default all. Run again to continue
          */
         limit?: number;
     };

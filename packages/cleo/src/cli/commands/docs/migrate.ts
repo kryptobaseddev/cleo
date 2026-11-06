@@ -37,7 +37,7 @@ export const migrateCommand = defineCommand({
     limit: {
       type: 'string',
       description:
-        'At most this many docs per run, oldest first (default 50, T14329). Each run is one ' +
+        'At most this many docs per run, oldest first (default: all, T14329). Each run is one ' +
         'transaction with its own backup; run again to continue until nothing is left.',
     },
   },

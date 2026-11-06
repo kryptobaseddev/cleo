@@ -162,13 +162,6 @@ export interface LegacyMigrationPlan {
   };
 }
 
-/**
- * Docs one `cleo docs migrate` run imports by default (T14329): each run is
- * one harness transaction with its own pre-step backup, so a store with
- * thousands of legacy docs migrates in bounded, receipted steps.
- */
-export const DOCS_MIGRATE_DEFAULT_LIMIT = 50;
-
 /** True when `absPath` is ephemeral — inside a CLEO/Claude worktree or tmp. */
 function isEphemeralPath(absPath: string): 'worktree' | 'tmp' | null {
   const worktreesRoot = getCleoWorktreesRoot();

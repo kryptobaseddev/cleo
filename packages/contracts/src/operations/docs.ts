@@ -1478,7 +1478,7 @@ export interface DocsModernizeResult {
  */
 export interface DocsMigrateParams {
   /**
-   * At most this many docs per run, oldest first (T14329); default 50. Each
+   * At most this many docs per run, oldest first (T14329); default all. Each
    * run is one harness transaction with its own backup; run again to continue.
    */
   readonly limit?: number;

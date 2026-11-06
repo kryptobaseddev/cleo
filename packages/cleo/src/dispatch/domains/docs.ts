@@ -974,9 +974,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
   migrate: async (params) => {
     const projectRoot = getProjectRoot();
-    const { DOCS_MIGRATE_DEFAULT_LIMIT } = await import('@cleocode/core/docs/legacy-doc-migration');
-    const limit = params.limit ?? DOCS_MIGRATE_DEFAULT_LIMIT;
-    if (!Number.isInteger(limit) || limit < 1) {
+    // T14329: every un-migrated doc by default (one run, one backup); --limit batches.
+    const limit = params.limit;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
       return lafsError(
         'E_INVALID_INPUT', // @sync-invariant none:input-shape a non-positive or fractional --limit is refused before the store is opened
         `--limit must be a positive integer (got ${String(params.limit)})`,
@@ -999,7 +999,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       projectRoot,
       db: native,
       cwd: projectRoot,
-      limit,
+      ...(limit !== undefined ? { limit } : {}),
     });
     const step = result.report.steps[0];
     const summary =
