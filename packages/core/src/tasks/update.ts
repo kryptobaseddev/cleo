@@ -315,6 +315,23 @@ export async function updateTask(
   if (options.acceptance !== undefined) {
     options = { ...options, acceptance: normalizeAcceptance(options.acceptance) };
   }
+  // T14268 (owner decision D11230): `active` is a live claim lease, never a
+  // stored status, so `--status active` means `cleo start`: the other fields
+  // are written as usual, then the caller's session takes the lease.
+  if (options.status === 'active') {
+    const { status: _active, ...rest } = options;
+    const others = Object.entries(rest).some(
+      ([key, value]) => key !== 'taskId' && value !== undefined,
+    );
+    const acc = accessor ?? (await getTaskAccessor(cwd));
+    const written = others ? await updateTask(rest, cwd, acc) : null;
+    const { startTask } = await import('../task-work/index.js');
+    await startTask(options.taskId, cwd, acc);
+    const task = await acc.loadSingleTask(options.taskId);
+    // @sync-invariant none:input-shape the task was read a moment earlier in this call; a vanished row is a not-found, not a rule
+    if (!task) throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`);
+    return { task, changes: [...(written?.changes ?? []), 'status'] };
+  }
   const acc = accessor ?? (await getTaskAccessor(cwd));
   const task = await acc.loadSingleTask(options.taskId);
   if (!task) {
