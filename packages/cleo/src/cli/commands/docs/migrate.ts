@@ -2,7 +2,7 @@
  * `cleo docs migrate` CLI command — the T13360 honest legacy docs migration
  * (spec `cleodocs-rearch-design` §5).
  *
- *   cleo docs migrate          — import legacy docs + history into the
+ *   cleo docs migrate [--limit <n>] — import legacy docs + history into the
  *                                re-keyed conduit store, inside the T13448
  *                                safety harness (pre-step VACUUM INTO backup,
  *                                before/after fingerprints, COMMIT only on
@@ -33,8 +33,16 @@ export const migrateCommand = defineCommand({
       'labels imported rows origin:migrated, content-captures or records dangling ' +
       'docs, and is idempotent (re-runs are verified no-ops).',
   },
-  args: {} as const,
-  async run() {
-    await dispatchFromCli('mutate', 'docs', 'migrate', {}, { command: 'docs migrate' });
+  args: {
+    limit: {
+      type: 'string',
+      description:
+        'At most this many docs per run, oldest first (default 50, T14329). Each run is one ' +
+        'transaction with its own backup; run again to continue until nothing is left.',
+    },
+  },
+  async run({ args }) {
+    const params = args.limit !== undefined ? { limit: Number(args.limit) } : {};
+    await dispatchFromCli('mutate', 'docs', 'migrate', params, { command: 'docs migrate' });
   },
 });

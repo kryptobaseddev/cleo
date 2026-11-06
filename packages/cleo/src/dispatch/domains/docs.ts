@@ -972,8 +972,17 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
   // ── docs.migrate (T13360 — spec §5 honest legacy docs import) ─────────────
 
-  migrate: async (_params) => {
+  migrate: async (params) => {
     const projectRoot = getProjectRoot();
+    const { DOCS_MIGRATE_DEFAULT_LIMIT } = await import('@cleocode/core/docs/legacy-doc-migration');
+    const limit = params.limit ?? DOCS_MIGRATE_DEFAULT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1) {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape a non-positive or fractional --limit is refused before the store is opened
+        `--limit must be a positive integer (got ${String(params.limit)})`,
+        'migrate',
+      );
+    }
     // The T13448 harness needs the live native handle; opening through the
     // chokepoint also ensures migrations are reconciled before we read.
     const { getDb, getNativeDb } = await sqliteForMigration();
@@ -990,6 +999,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       projectRoot,
       db: native,
       cwd: projectRoot,
+      limit,
     });
     const step = result.report.steps[0];
     const summary =
@@ -997,7 +1007,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
           `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
           `${result.counts.nativeConflicts} native-conflict skips ` +
-          `(${result.counts.versions} history rows)`
+          `(${result.counts.versions} history rows)` +
+          (result.counts.remaining > 0
+            ? `; ${result.counts.remaining} left (limit ${limit}): run cleo docs migrate again`
+            : '')
         : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
     return lafsSuccess<DocsMigrateResult>(
       {
@@ -1007,6 +1020,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         skipped: result.counts.toSkip,
         nativeConflicts: result.counts.nativeConflicts,
         versionsImported: result.counts.versions,
+        remaining: result.counts.remaining,
         failure: result.report.failure,
         backupId: step?.backup?.backupId ?? null,
         transaction: step?.transaction ?? 'none',

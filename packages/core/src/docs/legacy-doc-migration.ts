@@ -67,7 +67,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
-import { eq, isNotNull } from 'drizzle-orm';
+import { asc, eq, isNotNull } from 'drizzle-orm';
 import { getCleoDir } from '../paths.js';
 import { readVerifiedBlobBytes } from '../store/blob-keep.js';
 import {
@@ -156,9 +156,18 @@ export interface LegacyMigrationPlan {
      * reconcile them by hand (T13633).
      */
     readonly nativeConflicts: number;
+    /** Docs left for a later run by the `limit` bound (T14329); 0 when unbounded. */
+    readonly remaining: number;
     readonly versions: number;
   };
 }
+
+/**
+ * Docs one `cleo docs migrate` run imports by default (T14329): each run is
+ * one harness transaction with its own pre-step backup, so a store with
+ * thousands of legacy docs migrates in bounded, receipted steps.
+ */
+export const DOCS_MIGRATE_DEFAULT_LIMIT = 50;
 
 /** True when `absPath` is ephemeral — inside a CLEO/Claude worktree or tmp. */
 function isEphemeralPath(absPath: string): 'worktree' | 'tmp' | null {
@@ -214,24 +223,37 @@ function formatFromMime(mime: string | undefined, slug: string): string {
  * construction and any divergence fails verification and rolls back.
  *
  * Read-only: never writes; reads the store, the blob files and the audit
- * log.
+ * log. With `opts.limit` it plans at most that many docs, oldest first, and
+ * counts the rest in `remaining` (T14329).
  *
  * @internal Exported for tests.
  */
-export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise<{
+export async function deriveLegacyDocMigrationPlan(
+  projectRoot: string,
+  opts: { limit?: number } = {},
+): Promise<{
   docs: PlannedDoc[];
   skipped: number;
   nativeConflicts: number;
+  remaining: number;
   expectedDelta: Record<string, number>;
 }> {
   const cleoDir = getCleoDir(projectRoot);
   const db = await getDb(projectRoot);
-  const rows = await db.select().from(docsAttachments).where(isNotNull(docsAttachments.slug)).all();
+  // Oldest first, deterministically: a bounded run (T14329) always takes the
+  // same docs, and the next run continues where it stopped.
+  const rows = await db
+    .select()
+    .from(docsAttachments)
+    .where(isNotNull(docsAttachments.slug))
+    .orderBy(asc(docsAttachments.createdAt), asc(docsAttachments.id))
+    .all();
   const audit = readAuditLog(projectRoot);
 
   const docs: PlannedDoc[] = [];
   let skipped = 0;
   let nativeConflicts = 0;
+  let remaining = 0;
   for (const row of rows) {
     const slug = row.slug as string;
     // Idempotency: a doc already receipted (captured or dangling) is done.
@@ -248,6 +270,11 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
       .get();
     if (existing !== undefined && existing !== null) {
       nativeConflicts += 1;
+      continue;
+    }
+    // T14329: a bounded run plans at most `limit` docs; the rest wait for the next run.
+    if (opts.limit !== undefined && docs.length >= opts.limit) {
+      remaining += 1;
       continue;
     }
 
@@ -410,7 +437,7 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
       expectedDelta['conduit_doc_heads'] += 1;
     }
   }
-  return { docs, skipped, nativeConflicts, expectedDelta };
+  return { docs, skipped, nativeConflicts, remaining, expectedDelta };
 }
 
 /**
@@ -420,14 +447,17 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
  * same state, and the harness fails verification (rolling back) if a
  * concurrent write lands in between.
  *
- * @param projectRoot - Absolute path to the CLEO project root.
+ * @param opts.projectRoot - Absolute path to the CLEO project root.
+ * @param opts.limit - At most this many docs, oldest first (T14329); unbounded when omitted.
  * @returns The plan (step + declared deltas + per-doc decisions).
  * @task T13360
  */
 export async function planLegacyDocMigration(opts: {
   projectRoot: string;
+  limit?: number;
 }): Promise<LegacyMigrationPlan> {
-  const derived = await deriveLegacyDocMigrationPlan(opts.projectRoot);
+  const bound = opts.limit !== undefined ? { limit: opts.limit } : {};
+  const derived = await deriveLegacyDocMigrationPlan(opts.projectRoot, bound);
   const verify: MigrationStepVerificationSpec = {
     expectedDelta: derived.expectedDelta,
   };
@@ -436,7 +466,7 @@ export async function planLegacyDocMigration(opts: {
     description: 'import legacy docs + history into the re-keyed conduit store (T13360, spec §5)',
     verify,
     run: async ({ db: _db, projectRoot, log }) => {
-      const plan = await deriveLegacyDocMigrationPlan(projectRoot);
+      const plan = await deriveLegacyDocMigrationPlan(projectRoot, bound);
       for (const doc of plan.docs) {
         if (doc.status === 'dangling') {
           await recordConduitDocMigration(projectRoot, {
@@ -527,6 +557,7 @@ export async function planLegacyDocMigration(opts: {
       toMarkDangling: derived.docs.filter((d) => d.status === 'dangling').length,
       toSkip: derived.skipped,
       nativeConflicts: derived.nativeConflicts,
+      remaining: derived.remaining,
       versions: derived.docs.reduce((n, d) => n + d.versions.length, 0),
     },
   };
@@ -549,6 +580,8 @@ export interface LegacyMigrationRunResult {
  * @param opts.projectRoot - Absolute path to the CLEO project root.
  * @param opts.db - Live native handle on the project store (chokepoint-opened).
  * @param opts.cwd - Invocation directory (the restore path's worktree guard).
+ * @param opts.limit - At most this many docs per run, oldest first (T14329);
+ *   unbounded when omitted. `counts.remaining` says how many are left.
  * @param opts.onStepReport - Optional per-step report sink.
  * @returns The harness report plus plan counts.
  * @task T13360
@@ -557,9 +590,13 @@ export async function runLegacyDocMigration(opts: {
   projectRoot: string;
   db: DatabaseSync;
   cwd: string;
+  limit?: number;
   onStepReport?: (report: MigrationStepReport) => void;
 }): Promise<LegacyMigrationRunResult> {
-  const plan = await planLegacyDocMigration({ projectRoot: opts.projectRoot });
+  const plan = await planLegacyDocMigration({
+    projectRoot: opts.projectRoot,
+    ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+  });
   const report = await runMigrationSteps([plan.step], {
     db: opts.db,
     projectRoot: opts.projectRoot,

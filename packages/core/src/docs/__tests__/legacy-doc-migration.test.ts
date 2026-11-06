@@ -691,6 +691,48 @@ describe('blob-store-only legacy docs gain a head (T14329)', () => {
     expect(moved?.headVersionUid).not.toBe(head);
   });
 
+  it('--limit bounds a run to the oldest docs; the next run continues; then nothing is left', async () => {
+    const store = await getDb(env.tempDir);
+    for (const [slug, createdAt] of [
+      ['t14329-newest', '2026-09-03T00:00:00.000Z'],
+      ['t14329-oldest', '2026-09-01T00:00:00.000Z'],
+      ['t14329-middle', '2026-09-02T00:00:00.000Z'],
+    ] as const) {
+      const body = Buffer.from(`# ${slug}\n`);
+      const hash = sha(body);
+      const path = join(env.cleoDir, 'blobs', 'blobs', hash);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, body);
+      await store
+        .insert(docsAttachments)
+        .values({
+          id: `att-${slug}`,
+          sha256: hash,
+          attachmentJson: JSON.stringify({ kind: 'blob', mime: MIME, sha256: hash }),
+          slug,
+          createdAt,
+        })
+        .run();
+    }
+    const run = (limit: number) =>
+      runLegacyDocMigration({ projectRoot: env.tempDir, db, cwd: env.tempDir, limit });
+
+    const first = await run(2);
+    expect(first.report.status).toBe('completed');
+    expect(first.counts).toMatchObject({ toCapture: 2, remaining: 1 });
+    expect(await resolveConduitDocUid(env.tempDir, 't14329-oldest')).not.toBeNull();
+    expect(await resolveConduitDocUid(env.tempDir, 't14329-middle')).not.toBeNull();
+    expect(await resolveConduitDocUid(env.tempDir, 't14329-newest')).toBeNull();
+
+    const second = await run(2);
+    expect(second.counts).toMatchObject({ toCapture: 1, toSkip: 2, remaining: 0 });
+    expect(await resolveConduitDocUid(env.tempDir, 't14329-newest')).not.toBeNull();
+
+    const third = await run(2);
+    expect(third.counts).toMatchObject({ toCapture: 0, toSkip: 3, remaining: 0 });
+    expect(await listConduitDocMigrations(env.tempDir)).toHaveLength(3);
+  });
+
   it('two devices seeding the same synced doc converge on one doc uid and one head version', async () => {
     const seeded: Array<{ docUid: string; head: string }> = [];
     for (let device = 0; device < 2; device++) {

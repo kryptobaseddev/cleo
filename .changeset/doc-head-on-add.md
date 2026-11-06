@@ -16,3 +16,6 @@ attachment tree. A doc imported by `cleo docs migrate` (or on a store without
 the legacy tree) could not be used as a declared base before; it can now. A
 legacy doc with no head is seeded by running `cleo docs migrate` once, and the
 base-unknown error says so.
+`cleo docs migrate` now takes `--limit <n>` (default 50, oldest first). A run
+imports at most that many docs, reports how many are left, and the next run
+continues.
