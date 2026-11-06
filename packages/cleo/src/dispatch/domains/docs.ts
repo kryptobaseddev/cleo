@@ -279,6 +279,34 @@ function registeredKindValues(): readonly string[] {
     .map((d) => d.kind);
 }
 
+/**
+ * Record a just-added doc's identity, first version and head (T14329) and
+ * return its head version uid. The doc is already stored, so a failure is a
+ * warning, never a failed add: the projection is one transaction, so nothing
+ * half-written stays, and `cleo docs migrate` records the head later.
+ */
+async function recordAddedDocHead(
+  projectRoot: string,
+  slug: string,
+  attachedBy: string,
+  bytes: Buffer,
+): Promise<string | undefined> {
+  try {
+    const { recordNewDocIdentity } = await import('@cleocode/core/docs/docs-update');
+    return (await recordNewDocIdentity(projectRoot, { slug, authorAgentId: attachedBy, bytes }))
+      .headVersionUid;
+  } catch (err) {
+    pushWarning({
+      // @sync-invariant none:input-shape the warning only reports that the head was not recorded; the add already committed and nothing is rejected
+      code: 'W_DOC_HEAD_DEFERRED',
+      message:
+        `doc '${slug}' was added, but its version head could not be recorded ` +
+        `(${err instanceof Error ? err.message : String(err)}); run \`cleo docs migrate\` to record it.`,
+    });
+    return undefined;
+  }
+}
+
 async function currentAttachmentBackend(): Promise<AttachmentBackend> {
   return resolveAttachmentBackend();
 }
@@ -1603,6 +1631,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             // the auto-allocated slug would otherwise leak in the in-process
             // reservedSlugs set indefinitely. Consume defensively here.
             if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+            const headVersionUid =
+              slug !== undefined
+                ? await recordAddedDocHead(projectRoot, slug, attachedBy, bytes)
+                : undefined;
 
             // T947 Wave C — llmtxt mirror is now the canonical blob storage path.
             // The legacy store write above remains for slug/refcount/lifecycle
@@ -1661,6 +1693,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 ...(slug !== undefined ? { slug } : {}),
                 ...(type !== undefined ? { type } : {}),
                 ...(adrNumber !== undefined ? { adrNumber } : {}),
+                ...(headVersionUid !== undefined ? { headVersionUid } : {}),
               },
               'add',
             );
@@ -1747,6 +1780,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             }
 
             if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+            const headVersionUid =
+              slug !== undefined
+                ? await recordAddedDocHead(projectRoot, slug, attachedBy, bytes)
+                : undefined;
 
             // T947 Wave C — manifest.db blob mirror. Use the slug (or sha prefix)
             // as the blob name so `blobList`/`publishDocs` see a stable handle.
@@ -1804,6 +1841,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 ...(slug !== undefined ? { slug } : {}),
                 ...(type !== undefined ? { type } : {}),
                 ...(adrNumber !== undefined ? { adrNumber } : {}),
+                ...(headVersionUid !== undefined ? { headVersionUid } : {}),
               },
               'add',
             );
@@ -1857,6 +1895,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
             // T10360 — consume the auto-allocated reservation (see file-path branch).
             if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+            const headVersionUid =
+              slug !== undefined
+                ? await recordAddedDocHead(projectRoot, slug, attachedBy, urlBytes)
+                : undefined;
 
             const backend: AttachmentBackend = await currentAttachmentBackend();
             const projection =
@@ -1900,6 +1942,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 ...(slug !== undefined ? { slug } : {}),
                 ...(type !== undefined ? { type } : {}),
                 ...(adrNumber !== undefined ? { adrNumber } : {}),
+                ...(headVersionUid !== undefined ? { headVersionUid } : {}),
               },
               'add',
             );

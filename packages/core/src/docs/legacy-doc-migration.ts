@@ -69,7 +69,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq, isNotNull } from 'drizzle-orm';
 import { getCleoDir } from '../paths.js';
-import { blobContentExists, blobFilePath } from '../store/blob-keep.js';
+import { readVerifiedBlobBytes } from '../store/blob-keep.js';
 import {
   findConduitDocMigration,
   importMigratedConduitDoc,
@@ -170,16 +170,6 @@ function isEphemeralPath(absPath: string): 'worktree' | 'tmp' | null {
   const tmp = tmpdir();
   if (absPath.startsWith(`${tmp}${sep}`) || absPath.startsWith(`${sep}tmp${sep}`)) return 'tmp';
   return null;
-}
-
-/** Read the content-addressed blob bytes for a sha/mime, or null. */
-function readBlobBytes(cleoDir: string, sha256: string, mime: string): Buffer | null {
-  const primary = blobFilePath(cleoDir, sha256, mime);
-  try {
-    return readFileSync(primary);
-  } catch {
-    return null;
-  }
 }
 
 /** Cheap whitespace token count — a measurement, never an invention. */
@@ -297,7 +287,8 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
           danglingReason = 'path-unreadable';
         }
       } else {
-        content = readBlobBytes(cleoDir, row.sha256, mime ?? 'application/octet-stream');
+        // T14329: blob store first, then the legacy tree; verified.
+        content = readVerifiedBlobBytes(cleoDir, row.sha256);
         if (content === null) danglingReason = 'blob-bytes-missing';
       }
       if (content !== null && danglingReason !== null) {
@@ -307,12 +298,10 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
       }
     } else if (danglingReason !== 'unparseable-payload' && payload?.kind !== undefined) {
       // Dangling pointer — try to recover the bytes by sha from the blob store.
-      if (blobContentExists(cleoDir, row.sha256, mime ?? 'application/octet-stream')) {
-        content = readBlobBytes(cleoDir, row.sha256, mime ?? 'application/octet-stream');
-        if (content !== null) {
-          capturedReason = `recovered:${danglingReason}`;
-          danglingReason = null;
-        }
+      content = readVerifiedBlobBytes(cleoDir, row.sha256);
+      if (content !== null) {
+        capturedReason = `recovered:${danglingReason}`;
+        danglingReason = null;
       }
     }
 
@@ -347,9 +336,8 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
     const collapsedDuplicates = new Map<string, number>();
     for (const event of events) {
       if (event.sha256 === undefined) continue;
-      const eventMime = mime ?? 'application/octet-stream';
-      if (!blobContentExists(cleoDir, event.sha256, eventMime)) continue; // bytes gone — honest omission
-      const bytes = readBlobBytes(cleoDir, event.sha256, eventMime);
+      // T14329: blob store first, then the legacy tree; verified, or an honest omission.
+      const bytes = readVerifiedBlobBytes(cleoDir, event.sha256);
       if (bytes === null) continue;
       const versionKey = `${event.sha256}|${event.ts}`;
       const prior = seenVersionKeys.get(versionKey);

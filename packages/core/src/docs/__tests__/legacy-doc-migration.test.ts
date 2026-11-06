@@ -19,13 +19,14 @@
  */
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { blobFilePath } from '../../store/blob-keep.js';
 import {
+  getConduitDocHead,
   listConduitAttachmentVersions,
   listConduitDocMigrations,
   recordConduitDocMigration,
@@ -40,6 +41,8 @@ import {
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import { docsAttachments } from '../../store/tasks-schema.js';
 import { DOCS_AUDIT_FILE, writeAuditEntry } from '../docs-audit.js';
+import { updateDocBySlug } from '../docs-update.js';
+import { readDocHeadVersionUid } from '../fetch-result.js';
 import {
   deriveLegacyDocMigrationPlan,
   MIGRATION_SYSTEM_AUTHOR,
@@ -616,5 +619,89 @@ describe('content-derived version uids (T13638)', () => {
     } finally {
       await target.cleanup();
     }
+  });
+});
+
+describe('blob-store-only legacy docs gain a head (T14329)', () => {
+  const BODY = Buffer.from('# Pending matrix\n\nOnly copy lives in the blob store.\n');
+  const SLUG = 't14329-legacy';
+
+  /** Seed a legacy doc whose bytes live ONLY in `.cleo/blobs/blobs/<sha>` (no legacy tree). */
+  async function seedBlobStoreOnlyDoc(target: TestDbEnv): Promise<string> {
+    const hash = sha(BODY);
+    const path = join(target.cleoDir, 'blobs', 'blobs', hash);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, BODY);
+    const store = await getDb(target.tempDir);
+    await store
+      .insert(docsAttachments)
+      .values({
+        id: `att-${SLUG}`,
+        sha256: hash,
+        attachmentJson: JSON.stringify({ kind: 'blob', mime: MIME, sha256: hash }),
+        slug: SLUG,
+        createdAt: '2026-09-01T00:00:00.000Z',
+      })
+      .run();
+    return hash;
+  }
+
+  /** Run `docs migrate` in `target` and return the doc uid and its head version uid. */
+  async function migrate(target: TestDbEnv): Promise<{ docUid: string; head: string }> {
+    const native = getNativeDb(target.tempDir);
+    if (!native) throw new Error('expected a native handle');
+    const result = await runLegacyDocMigration({
+      projectRoot: target.tempDir,
+      db: native,
+      cwd: target.tempDir,
+    });
+    expect(result.report.status).toBe('completed');
+    const docUid = await resolveConduitDocUid(target.tempDir, SLUG);
+    if (docUid === null) throw new Error('migrate recorded no doc identity');
+    const head = await getConduitDocHead(target.tempDir, docUid);
+    if (head === null) throw new Error('migrate recorded no head');
+    return { docUid, head: head.headVersionUid };
+  }
+
+  it('migrate records the exact bytes as the head; fetch shows it; the base fence works; a re-run is a no-op', async () => {
+    const hash = await seedBlobStoreOnlyDoc(env);
+    expect(await readDocHeadVersionUid(env.tempDir, SLUG)).toBeUndefined();
+
+    const { docUid, head } = await migrate(env);
+    const versions = await listConduitAttachmentVersions(env.tempDir, docUid);
+    expect(versions).toHaveLength(1);
+    expect(versions[0]?.contentHash).toBe(hash);
+    expect(await readDocHeadVersionUid(env.tempDir, SLUG)).toBe(head);
+    // Byte-preserving: the stored copy is untouched.
+    expect(readFileSync(join(env.cleoDir, 'blobs', 'blobs', hash)).equals(BODY)).toBe(true);
+
+    // Idempotent: a second run writes nothing new.
+    const again = await migrate(env);
+    expect(again).toEqual({ docUid, head });
+    expect(await listConduitAttachmentVersions(env.tempDir, docUid)).toHaveLength(1);
+
+    // The expected-base fence: an update declaring the seeded head lands.
+    const updated = await updateDocBySlug(env.tempDir, {
+      slug: SLUG,
+      content: `${BODY.toString('utf-8')}\n## Added\n\nAfter seeding.\n`,
+      baseVersionUid: head,
+    });
+    expect(updated.ok).toBe(true);
+    const moved = await getConduitDocHead(env.tempDir, docUid);
+    expect(moved?.headVersionUid).not.toBe(head);
+  });
+
+  it('two devices seeding the same synced doc converge on one doc uid and one head version', async () => {
+    const seeded: Array<{ docUid: string; head: string }> = [];
+    for (let device = 0; device < 2; device++) {
+      const target = await createTestDb();
+      try {
+        await seedBlobStoreOnlyDoc(target);
+        seeded.push(await migrate(target));
+      } finally {
+        await target.cleanup();
+      }
+    }
+    expect(seeded[0]).toEqual(seeded[1]);
   });
 });

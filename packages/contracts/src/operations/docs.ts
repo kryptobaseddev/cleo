@@ -800,6 +800,12 @@ export interface DocsAddResult {
    * @task T10360
    */
   adrNumber?: number;
+  /**
+   * The doc's head version uid (T14329): recorded by the add itself, so the
+   * expected-base fence (`docs update --base-version-uid`) works from the
+   * first edit. Absent for a slug-less attachment.
+   */
+  headVersionUid?: string;
 }
 
 // --------------------------------------------------------------------------
