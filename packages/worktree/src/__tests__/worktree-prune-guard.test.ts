@@ -1,18 +1,22 @@
 /**
- * Tests for T11996: worktree auto-prune data-loss guard.
+ * Tests for T11996: worktree auto-prune data-loss guard, now enforced by the
+ * one disposal engine (T13924).
  *
- * Validates the dirty/unpushed guard, quarantine, non-terminal preservation,
- * fail-closed, and idempotency requirements added in T11996.
+ * Validates the dirty/unpushed guard, non-terminal preservation, fail-closed,
+ * and idempotency requirements added in T11996.
  *
  * Test strategy:
- *  - "clean orphan" = plain directory with no git repo. git commands fail
- *    gracefully → isWorktreeDirty=false, hasUnpushedCommits=false → removable.
- *  - "dirty orphan" = git repo with uncommitted changes.
- *  - "unpushed orphan" = git repo with commits but no remote → quarantined.
+ *  - "clean orphan" = a linked worktree of the project on a branch at main's
+ *    commit, with no changes: every commit is on `main` → removable.
+ *  - "dirty orphan" = a linked worktree with an untracked file → kept on disk
+ *    untouched and reported in `quarantined` (no tar archive any more).
+ *  - "unpushed orphan" = a linked worktree with a commit only on its branch → kept.
+ *  - A plain directory git cannot read is kept: a failed probe is not proof.
  *  - Real git repos in temp dirs only — never touching
  *    ~/.local/share/cleo/worktrees.
  *
  * @task T11996
+ * @task T13924
  */
 
 import { execFileSync } from 'node:child_process';
@@ -20,7 +24,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -91,30 +94,24 @@ function makeFixture(): Fixture {
 }
 
 /**
- * Add a plain directory (no git repo) to the worktreeRoot.
- * isWorktreeDirty → false, hasUnpushedCommits → false → clean orphan.
+ * Add a clean linked worktree of the project under worktreeRoot, on a
+ * `task/<id>` branch at main's commit: every commit it holds is on `main`.
  */
 function addCleanOrphan(fixture: Fixture, taskId: string): string {
   const path = join(fixture.worktreeRoot, taskId);
-  mkdirSync(path, { recursive: true });
-  writeFileSync(join(path, 'placeholder.txt'), 'placeholder\n');
+  execFileSync(
+    'git',
+    ['-C', fixture.projectRoot, 'worktree', 'add', '-q', '-b', `task/${taskId}`, path],
+    {
+      stdio: 'pipe',
+    },
+  );
   return path;
 }
 
-/**
- * Add a git repo under worktreeRoot with uncommitted changes.
- * isWorktreeDirty → true → quarantine candidate.
- */
+/** Add a linked worktree with an untracked file: not proven preserved. */
 function addDirtyOrphan(fixture: Fixture, taskId: string): string {
-  const path = join(fixture.worktreeRoot, taskId);
-  mkdirSync(path, { recursive: true });
-  execFileSync('git', ['init', '-b', `task/${taskId}`, path], { stdio: 'pipe' });
-  execFileSync('git', ['-C', path, 'config', 'user.email', 'test@test.invalid'], { stdio: 'pipe' });
-  execFileSync('git', ['-C', path, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
-  writeFileSync(join(path, 'base.txt'), 'base\n');
-  execFileSync('git', ['-C', path, 'add', 'base.txt'], { stdio: 'pipe' });
-  execFileSync('git', ['-C', path, 'commit', '-q', '-m', 'base'], { stdio: 'pipe' });
-  // Now make it dirty.
+  const path = addCleanOrphan(fixture, taskId);
   writeFileSync(join(path, 'dirty.txt'), 'uncommitted change\n');
   return path;
 }
@@ -133,7 +130,7 @@ afterEach(() => {
 // Core acceptance criteria (T11996)
 // ---------------------------------------------------------------------------
 
-describe('pruneWorktrees — T11996 dirty guard + quarantine', () => {
+describe('pruneWorktrees — T11996 dirty guard (kept, T13924)', () => {
   it('AC1: fail-closed blocks removal when preserve set is empty', () => {
     // Empty preserve set with existing worktrees → fail-closed.
     addCleanOrphan(fixture, 'T9001');
@@ -164,7 +161,7 @@ describe('pruneWorktrees — T11996 dirty guard + quarantine', () => {
     expect(existsSync(join(fixture.worktreeRoot, 'T9002'))).toBe(false);
   });
 
-  it('AC1: dirty orphaned worktree is quarantined, not deleted', () => {
+  it('AC1: dirty orphaned worktree is kept, not deleted', () => {
     const wt = addDirtyOrphan(fixture, 'T9010');
 
     const result = pruneWorktrees({
@@ -173,34 +170,20 @@ describe('pruneWorktrees — T11996 dirty guard + quarantine', () => {
       gitPrune: false,
     });
 
-    // Dirty T9010 should be quarantined (not removed).
+    // Dirty T9010 is kept (not removed) and reported in `quarantined`.
     expect(result.removed).toBe(0);
     expect(result.quarantined).toBe(1);
     expect(result.quarantinedPaths).toHaveLength(1);
     expect(result.quarantinedPaths[0]).toContain('T9010');
 
-    // The original directory must still exist (quarantine preserves it).
-    expect(existsSync(wt)).toBe(true);
-
-    // A quarantine archive must have been created.
-    const quarantineDir = join(fixture.projectRoot, '.cleo', 'quarantine', 'worktrees');
-    expect(existsSync(quarantineDir)).toBe(true);
-    const archives = readdirSync(quarantineDir);
-    expect(archives.filter((f) => f.startsWith('T9010') && f.endsWith('.tar.gz'))).toHaveLength(1);
+    // The original directory must still exist, its change intact.
+    expect(existsSync(join(wt, 'dirty.txt'))).toBe(true);
   });
 
-  it('AC1: worktree with uncommitted staged changes is quarantined', () => {
+  it('AC1: worktree with uncommitted staged changes is kept', () => {
     const wt = addCleanOrphan(fixture, 'T9012');
-    // Turn the dir into a git repo with staged changes.
-    execFileSync('git', ['init', '-b', 'main', wt], { stdio: 'pipe' });
-    execFileSync('git', ['-C', wt, 'config', 'user.email', 'test@test.invalid'], { stdio: 'pipe' });
-    execFileSync('git', ['-C', wt, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
-    writeFileSync(join(wt, 'base.ts'), 'export const x = 1;\n');
-    execFileSync('git', ['-C', wt, 'add', 'base.ts'], { stdio: 'pipe' });
-    execFileSync('git', ['-C', wt, 'commit', '-q', '-m', 'base'], { stdio: 'pipe' });
     writeFileSync(join(wt, 'staged.ts'), 'export const y = 2;\n');
     execFileSync('git', ['-C', wt, 'add', 'staged.ts'], { stdio: 'pipe' });
-    // staged.ts is staged but not committed.
 
     const result = pruneWorktrees({
       projectRoot: fixture.projectRoot,
@@ -209,12 +192,43 @@ describe('pruneWorktrees — T11996 dirty guard + quarantine', () => {
     });
 
     expect(result.quarantined).toBe(1);
-    expect(existsSync(wt)).toBe(true);
+    expect(existsSync(join(wt, 'staged.ts'))).toBe(true);
   });
 
-  it('AC1: quarantine archive captures untracked files including .env', () => {
+  it('AC1: a commit held only by the worktree branch keeps it', () => {
+    const wt = addCleanOrphan(fixture, 'T9013');
+    writeFileSync(join(wt, 'work.ts'), 'export const z = 3;\n');
+    execFileSync('git', ['-C', wt, 'add', 'work.ts'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', wt, 'commit', '-q', '-m', 'unpushed'], { stdio: 'pipe' });
+
+    const result = pruneWorktrees({
+      projectRoot: fixture.projectRoot,
+      preserveTaskIds: new Set(['NON-EXISTENT-PRESERVED']),
+      gitPrune: false,
+    });
+
+    expect(result.removed).toBe(0);
+    expect(result.quarantinedPaths).toEqual([wt]);
+    expect(existsSync(join(wt, 'work.ts'))).toBe(true);
+  });
+
+  it('T13924: a directory git cannot read is kept, never treated as clean', () => {
+    const path = join(fixture.worktreeRoot, 'T9015');
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, 'notes.txt'), 'not in any repository\n');
+
+    const result = pruneWorktrees({
+      projectRoot: fixture.projectRoot,
+      preserveTaskIds: new Set(['NON-EXISTENT-PRESERVED']),
+      gitPrune: false,
+    });
+
+    expect(result.removed).toBe(0);
+    expect(existsSync(join(path, 'notes.txt'))).toBe(true);
+  });
+
+  it('AC1: a kept worktree is left untouched, .env included, and nothing is written to quarantine', () => {
     const wt = addDirtyOrphan(fixture, 'T9014');
-    // Add untracked .env file on top of the dirty state.
     writeFileSync(join(wt, '.env'), 'SECRET=topsecret\n');
 
     pruneWorktrees({
@@ -223,18 +237,9 @@ describe('pruneWorktrees — T11996 dirty guard + quarantine', () => {
       gitPrune: false,
     });
 
-    const quarantineDir = join(fixture.projectRoot, '.cleo', 'quarantine', 'worktrees');
-    const archives = readdirSync(quarantineDir).filter(
-      (f) => f.startsWith('T9014') && f.endsWith('.tar.gz'),
-    );
-    expect(archives).toHaveLength(1);
-
-    const archivePath = join(quarantineDir, archives[0]!);
-    const tarList = execFileSync('tar', ['-tzf', archivePath], { encoding: 'utf-8' });
-    // .env must be captured (not excluded).
-    expect(tarList).toContain('.env');
-    // dirty.txt (untracked from addDirtyOrphan) must also be captured.
-    expect(tarList).toContain('dirty.txt');
+    expect(readFileSync(join(wt, '.env'), 'utf-8')).toBe('SECRET=topsecret\n');
+    expect(readFileSync(join(wt, 'dirty.txt'), 'utf-8')).toBe('uncommitted change\n');
+    expect(existsSync(join(fixture.projectRoot, '.cleo', 'quarantine'))).toBe(false);
   });
 });
 
@@ -266,7 +271,7 @@ describe('pruneWorktrees — T11996 PREDICATE BLOCKER (non-terminal preserve)', 
       gitPrune: false,
     });
 
-    // T9022 is not in preserve set → orphan → removed (plain dir = clean).
+    // T9022 is not in preserve set → orphan → removed (clean, commits on main).
     expect(result.removed).toBe(1);
     expect(existsSync(join(fixture.worktreeRoot, 'T9021'))).toBe(true);
     expect(existsSync(join(fixture.worktreeRoot, 'T9022'))).toBe(false);
@@ -321,7 +326,7 @@ describe('pruneWorktrees — T11996 fail-closed guard', () => {
 
 describe('pruneWorktrees — T11996 idempotency', () => {
   it('Amendment 5: second run against converged state performs zero actions', () => {
-    // Clean plain-dir orphans (no git repos → clean → removable).
+    // A clean orphan (commits on main → removable).
     addCleanOrphan(fixture, 'T9040');
 
     const opts = {

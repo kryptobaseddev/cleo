@@ -22,7 +22,7 @@ vi.mock('@cleocode/worktree', () => ({
   gitSilent: vi.fn(),
   gitSync: vi.fn(),
   integrateWorktree: vi.fn(),
-  napiDestroyWorktree: vi.fn(),
+  disposeWorktree: vi.fn(),
   pruneWorktrees: vi.fn(),
 }));
 

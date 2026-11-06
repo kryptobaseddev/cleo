@@ -119,6 +119,8 @@ export function taskToRecord(task: Task): TaskRecord {
     verification: task.verification ? { ...task.verification } : null,
     origin: task.origin ?? null,
     cancellationReason: task.cancellationReason,
+    ...(task.cancellationKind ? { cancellationKind: task.cancellationKind } : {}),
+    ...(task.replacedBy ? { replacedBy: task.replacedBy } : {}),
     blockedBy: task.blockedBy ? [task.blockedBy] : undefined,
     ...(relationCounts ? { relationCounts } : {}),
     pipelineStage: task.pipelineStage ?? null,

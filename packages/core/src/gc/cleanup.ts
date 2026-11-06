@@ -23,12 +23,10 @@
  * @task T9043
  */
 
-import { execFileSync } from 'node:child_process';
 import type { Dirent } from 'node:fs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { create as tarCreate } from 'tar';
 
 // ---------------------------------------------------------------------------
 // Shared CLEO temp-dir prefix registry
@@ -111,9 +109,9 @@ export interface CleanupResult {
   removed: number;
   /** Absolute paths that were removed (or would be removed). */
   removedPaths: string[];
-  /** Number of worktrees quarantined (dirty/unpushed — preserved, not deleted). */
+  /** Number of worktrees kept because their content or commits are not proven preserved (T13924). */
   quarantined: number;
-  /** Absolute paths that were quarantined (tar archives placed in quarantine dir). */
+  /** Absolute paths of those kept worktrees, left on disk untouched. */
   quarantinedPaths: string[];
   /** Entries that were skipped (dry-run or preserved). */
   skipped: number;
@@ -227,205 +225,21 @@ function formatAge(ms: number): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Check whether a worktree has uncommitted changes (dirty state).
- *
- * Runs `git status --porcelain` inside the worktree. A non-empty output means
- * there are staged or unstaged changes (including untracked files via `-uall`).
- * Returns `false` when git is unavailable or the directory is not a valid git
- * worktree — treat as clean so we never block cleanup due to a git error.
- *
- * @param worktreePath - Absolute path to the worktree directory.
- * @returns `true` when uncommitted changes are present; `false` otherwise.
- *
- * @task T11996
- * @internal
- */
-function isWorktreeDirty(worktreePath: string): boolean {
-  try {
-    const out = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain', '-uall'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10_000,
-    });
-    return out.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check whether a worktree has commits that have not been pushed to any remote.
- *
- * Two cases are detected:
- * (a) Branches with a configured upstream: commits ahead of `@{upstream}`.
- * (b) Branches with NO upstream (never pushed): any commits on the branch that
- *     are not reachable from any remote-tracking ref.
- * (c) Detached HEAD: commits not reachable from any remote-tracking ref.
- *
- * Returns `false` when git is unavailable or the worktree has no commits.
- *
- * @param worktreePath - Absolute path to the worktree directory.
- * @returns `true` when unpushed commits exist; `false` otherwise.
- *
- * @task T11996
- * @internal
- */
-function hasUnpushedCommits(worktreePath: string): boolean {
-  // Case (a): branch has a tracking upstream — check ahead count
-  try {
-    const aheadStr = execFileSync(
-      'git',
-      ['-C', worktreePath, 'rev-list', '--count', '@{upstream}..HEAD'],
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 10_000,
-      },
-    ).trim();
-    const aheadCount = Number.parseInt(aheadStr, 10);
-    if (!Number.isNaN(aheadCount) && aheadCount > 0) return true;
-    // Upstream exists and no unpushed commits
-    return false;
-  } catch {
-    // No upstream configured — fall through to case (b)/(c)
-  }
-
-  // Case (b)/(c): no upstream — check if HEAD is reachable from any remote ref
-  try {
-    // List all remote-tracking refs
-    const remoteRefsOut = execFileSync(
-      'git',
-      ['-C', worktreePath, 'for-each-ref', '--format=%(refname)', 'refs/remotes/'],
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 10_000,
-      },
-    ).trim();
-    const remoteRefs = remoteRefsOut.split('\n').filter(Boolean);
-    if (remoteRefs.length === 0) {
-      // No remotes at all — any commit is effectively "unpushed"
-      try {
-        const headOut = execFileSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: 5_000,
-        }).trim();
-        return headOut.length > 0;
-      } catch {
-        return false;
-      }
-    }
-    // Check whether HEAD is reachable from the union of all remote refs
-    const args = ['-C', worktreePath, 'rev-list', '--count', 'HEAD', '--not', ...remoteRefs];
-    const countOut = execFileSync('git', args, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 15_000,
-    }).trim();
-    const count = Number.parseInt(countOut, 10);
-    return !Number.isNaN(count) && count > 0;
-  } catch {
-    return false;
-  }
-}
-
-/** Time bound for one quarantine archive, matching the old `tar` child's timeout. */
-const QUARANTINE_TAR_TIMEOUT_MS = 120_000;
-
-/**
- * Quarantine a dirty or unpushed worktree by packing it into a `.tar.gz`
- * archive under `<worktreesRoot>/../quarantine/worktrees/`. The original
- * directory is left intact.
- *
- * Writes an audit JSONL entry to `<worktreesRoot>/../quarantine/audit.jsonl`.
- *
- * @param worktreePath - Absolute path to the worktree directory to archive.
- * @param taskId - Task ID for the entry name.
- * @param quarantineDir - Absolute path to the quarantine root directory.
- * @param reason - Human-readable reason (e.g. `'dirty'`, `'unpushed'`).
- * @param timeoutMs - Archive time bound; exceeding it fails the quarantine.
- * @returns Absolute path to the created archive, or `null` on failure (no partial archive is left).
- *
- * @task T11996
- * @internal
- */
-function quarantineWorktreeDir(
-  worktreePath: string,
-  taskId: string,
-  quarantineDir: string,
-  reason: string,
-  timeoutMs: number = QUARANTINE_TAR_TIMEOUT_MS,
-): string | null {
-  let archivePath: string | null = null;
-  try {
-    mkdirSync(quarantineDir, { recursive: true });
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    archivePath = join(quarantineDir, `${taskId}-${ts}.tar.gz`);
-    const deadline = Date.now() + timeoutMs;
-
-    // Capture untracked AND ignored files: we deliberately do NOT exclude
-    // anything here — the quarantine must be a complete snapshot including
-    // .env, build artifacts, etc. (T11996 AC). In-process `tar` library, not
-    // the system binary, so quarantine works on every OS (T12604).
-    tarCreate(
-      {
-        sync: true,
-        gzip: true,
-        file: archivePath,
-        // Symlinks are archived AS links. Following them threw ELOOP on a
-        // cycle and would pull whole link targets (pnpm node_modules) in.
-        follow: false,
-        // Use the parent directory as CWD so the archive root is `<taskId>/`.
-        cwd: join(worktreePath, '..'),
-        // Same bound as the old `tar` child's 120s timeout: a throw here
-        // aborts the synchronous walk.
-        filter: () => {
-          if (Date.now() > deadline)
-            throw new Error(`E_QUARANTINE_TIMEOUT: archive exceeded ${timeoutMs}ms`);
-          return true;
-        },
-      },
-      [taskId],
-    );
-
-    // Write audit entry
-    const auditPath = join(quarantineDir, 'audit.jsonl');
-    const entry = JSON.stringify({
-      ts: new Date().toISOString(),
-      action: 'quarantine',
-      worktreePath,
-      taskId,
-      archivePath,
-      reason,
-      agentId: process.env['CLEO_AGENT_ID'] ?? 'cleo',
-    });
-    appendFileSync(auditPath, `${entry}\n`, { encoding: 'utf-8' });
-
-    return archivePath;
-  } catch {
-    // Never leave a truncated archive that looks like a valid quarantine.
-    if (archivePath) rmSync(archivePath, { force: true });
-    return null;
-  }
-}
-
-/**
  * Prune orphaned agent worktree directories.
  *
  * Scans `worktreesRoot` (or `worktreesRoot/<projectHash>`) for directories
  * whose names are NOT in `activeTaskIds` and removes them.
  *
- * Safety invariants (T11996):
+ * Safety invariants (T11996, T13924):
  * - Fail-closed: if `activeTaskIds` is empty AND worktrees exist, skip pruning
  *   entirely and return `skippedFailClosed: true`. This prevents mass-deletion
  *   when the task store is unavailable or freshly initialised.
- * - Dirty guard: worktrees with uncommitted changes are quarantined (packed
- *   into `.tar.gz` in `<worktreesRoot>/../quarantine/worktrees/`) instead of
- *   deleted. The original directory is left on disk.
- * - Unpushed guard: worktrees whose branch has commits not reachable from any
- *   remote ref are quarantined, not deleted.
- * - A worktree that is both dirty AND has unpushed commits is quarantined once.
+ * - Each candidate goes through the worktree package's `disposeWorktree`
+ *   engine: a worktree whose content or commits are not proven preserved
+ *   (dirty, untracked or ignored files, commits on no remote and no other
+ *   branch, or a failed probe) is kept on disk and reported in `quarantined`;
+ *   one the dependents/evidence guard keeps, or whose removal failed, is
+ *   reported in `errors`.
  *
  * @param options - See `PruneOrphanWorktreesOptions`.
  * @returns Cleanup result.
@@ -438,7 +252,7 @@ export async function pruneOrphanWorktrees(
 ): Promise<CleanupResult> {
   const { worktreesRoot, projectHash, activeTaskIds, dryRun = false } = options;
   // Lazy: setup-global imports this module, and gate jobs run without worktree's dist (T13696).
-  const { describeDisposalBlockers, guardWorktreeDisposal } = await import('@cleocode/worktree');
+  const { disposeWorktree } = await import('@cleocode/worktree');
 
   const removed: string[] = [];
   const quarantined: string[] = [];
@@ -550,56 +364,19 @@ export async function pruneOrphanWorktrees(
         continue;
       }
 
-      // T13700: the shared disposal guard — no task store here, so it relies on
-      // the dependents scan and on any keep marker an earlier disposal wrote.
-      const kept = guardWorktreeDisposal(worktreePath, { taskId, reason: 'gc-orphan', dryRun });
-      if (kept !== null) {
-        errors.push({ path: worktreePath, reason: describeDisposalBlockers(worktreePath, kept) });
-        continue;
-      }
-
-      // T11996: Check dirty/unpushed state before any destructive action.
-      // Evaluate dirty first; only run unpushed check if clean (short-circuit).
-      const dirty = isWorktreeDirty(worktreePath);
-      const unpushed = dirty ? false : hasUnpushedCommits(worktreePath);
-      const shouldQuarantine = dirty || unpushed;
-      const quarantineReason = dirty ? 'dirty' : 'unpushed';
-
-      if (shouldQuarantine) {
-        if (dryRun) {
-          quarantined.push(worktreePath);
-        } else {
-          const quarantineBase = join(worktreesRoot, '..', 'quarantine', 'worktrees');
-          const archivePath = quarantineWorktreeDir(
-            worktreePath,
-            taskId,
-            quarantineBase,
-            quarantineReason,
-          );
-          if (archivePath !== null) {
-            quarantined.push(worktreePath);
-          } else {
-            errors.push({
-              path: worktreePath,
-              reason: 'quarantine tar failed — worktree preserved (T11996)',
-            });
-          }
-        }
-      } else {
-        if (dryRun) {
-          removed.push(worktreePath);
-        } else {
-          try {
-            rmSync(worktreePath, { recursive: true, force: true });
-            removed.push(worktreePath);
-          } catch (err) {
-            errors.push({
-              path: worktreePath,
-              reason: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-      }
+      // T13924: the one disposal engine. No task store here, so the guard
+      // relies on the dependents scan and on any keep marker an earlier
+      // disposal wrote; the repository is read from the worktree itself.
+      const disposal = disposeWorktree({ worktreePath, taskId, reason: 'gc-orphan', dryRun });
+      if (dryRun && disposal.keptReason === undefined) removed.push(worktreePath);
+      else if (disposal.removed) removed.push(worktreePath);
+      else if (
+        disposal.unpreserved !== undefined &&
+        disposal.kept === undefined &&
+        disposal.failed === undefined
+      )
+        quarantined.push(worktreePath);
+      else errors.push({ path: worktreePath, reason: disposal.keptReason ?? 'kept' });
     }
   }
 

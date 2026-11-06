@@ -1,17 +1,21 @@
 /**
- * Tests for T11996: pruneOrphanWorktrees dirty/unpushed guard + quarantine.
+ * Tests for T11996: pruneOrphanWorktrees dirty/unpushed guard, now enforced by
+ * the worktree package's `disposeWorktree` engine (T13924).
  *
- * Validates the gc/cleanup path guards — dirty detection, quarantine archive
- * creation, fail-closed on empty preserve set, and idempotency.
+ * Validates the gc/cleanup path: a worktree whose content or commits are not
+ * proven preserved is kept on disk untouched (reported in `quarantined`; no
+ * tar archive any more), a directory git cannot read is kept (a failed probe
+ * is not proof), fail-closed on an empty preserve set, and idempotency.
  *
  * Test strategy:
- *  - "clean orphan" = plain directory (no git repo).
- *    git commands fail gracefully → isWorktreeDirty=false → removable.
- *  - "dirty orphan" = git repo with uncommitted changes → quarantined.
+ *  - "clean orphan" = a linked worktree of a project repository at main's
+ *    commit: every commit it holds is on `main` → removable.
+ *  - "dirty orphan" = a linked worktree with an untracked file → kept.
  *
  * All git repos created in /tmp — never touching ~/.local/share/cleo/worktrees.
  *
  * @task T11996
+ * @task T13924
  */
 
 import { execFileSync } from 'node:child_process';
@@ -19,7 +23,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -27,130 +31,113 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { pruneOrphanWorktrees } from '../gc/cleanup.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a real git repo at path with one initial commit. */
-function initGitRepo(path: string): void {
-  mkdirSync(path, { recursive: true });
-  execFileSync('git', ['init', '-b', 'main', path], { stdio: 'pipe' });
-  execFileSync('git', ['-C', path, 'config', 'user.email', 'test@test.invalid'], {
-    stdio: 'pipe',
-  });
-  execFileSync('git', ['-C', path, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
-  writeFileSync(join(path, 'base.md'), '# base\n');
-  execFileSync('git', ['-C', path, 'add', 'base.md'], { stdio: 'pipe' });
-  execFileSync('git', ['-C', path, 'commit', '-q', '-m', 'base'], { stdio: 'pipe' });
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim();
 }
 
-/** Create a tmp worktrees tree: <tmp>/worktrees/<hash>/<taskId>/ */
+/** A tmp project repository plus worktrees tree: <tmp>/worktrees/<hash>/<taskId>/ */
 function makeLayout(hash: string): {
   tmp: string;
   worktreesRoot: string;
   projectDir: string;
+  addWorktree: (taskId: string) => string;
   cleanup: () => void;
 } {
   const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-worktree-test-')));
   const worktreesRoot = join(tmp, 'worktrees');
   const projectDir = join(worktreesRoot, hash);
   mkdirSync(projectDir, { recursive: true });
+  const repo = join(tmp, 'project');
+  mkdirSync(repo);
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'config', 'user.email', 'test@test.invalid');
+  git(repo, 'config', 'user.name', 'Test');
+  writeFileSync(join(repo, '.gitignore'), '.env\n');
+  git(repo, 'add', '.gitignore');
+  git(repo, 'commit', '-q', '-m', 'base');
   return {
     tmp,
     worktreesRoot,
     projectDir,
+    addWorktree: (taskId) => {
+      const path = join(projectDir, taskId);
+      git(repo, 'worktree', 'add', '-q', '-b', `task/${taskId}`, path);
+      return path;
+    },
     cleanup: () => rmSync(tmp, { recursive: true, force: true }),
   };
 }
 
 // ---------------------------------------------------------------------------
-// Dirty guard + quarantine
+// Dirty guard (T11996, enforced by the engine since T13924)
 // ---------------------------------------------------------------------------
 
 describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
-  it('dirty worktree is quarantined, not deleted; clean plain dir is removed', async () => {
-    const { worktreesRoot, projectDir, cleanup } = makeLayout('abc123');
+  it('a dirty worktree and an unreadable directory are kept; a clean one is removed', async () => {
+    const { tmp, worktreesRoot, projectDir, addWorktree, cleanup } = makeLayout('abc123');
     try {
-      // Dirty worktree (git repo with uncommitted changes).
-      const dirtyWt = join(projectDir, 'T9050');
-      initGitRepo(dirtyWt);
+      const dirtyWt = addWorktree('T9050');
       writeFileSync(join(dirtyWt, 'dirty.txt'), 'uncommitted\n');
-
-      // Clean orphan: plain directory, no git.
-      const cleanWt = join(projectDir, 'T9051');
-      mkdirSync(cleanWt, { recursive: true });
-      writeFileSync(join(cleanWt, 'data.txt'), 'content\n');
+      const cleanWt = addWorktree('T9051');
+      const plain = join(projectDir, 'T9052');
+      mkdirSync(plain);
+      writeFileSync(join(plain, 'data.txt'), 'only copy\n');
 
       const result = await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash: 'abc123',
-        // Non-empty so fail-closed doesn't trigger.
         activeTaskIds: new Set(['PRESERVED']),
       });
 
-      // T9050 dirty → quarantined; T9051 plain dir → removed.
-      expect(result.quarantined).toBe(1);
-      expect(result.quarantinedPaths).toHaveLength(1);
-      expect(result.quarantinedPaths[0]).toContain('T9050');
-      expect(result.removed).toBe(1);
-      expect(result.removedPaths[0]).toContain('T9051');
-
-      // T9050 directory must still exist.
-      expect(existsSync(dirtyWt)).toBe(true);
-      // T9051 must be gone.
+      // Kept and reported as not proven preserved: git cannot read the plain directory.
+      expect([...result.quarantinedPaths].sort()).toEqual([dirtyWt, plain]);
+      expect(result.removedPaths).toEqual([cleanWt]);
+      expect(result.errors).toEqual([]);
+      expect(existsSync(join(dirtyWt, 'dirty.txt'))).toBe(true);
       expect(existsSync(cleanWt)).toBe(false);
-
-      // Quarantine archive must exist.
-      const quarantineDir = join(worktreesRoot, '..', 'quarantine', 'worktrees');
-      expect(existsSync(quarantineDir)).toBe(true);
-      const archives = readdirSync(quarantineDir).filter(
-        (f) => f.startsWith('T9050') && f.endsWith('.tar.gz'),
-      );
-      expect(archives).toHaveLength(1);
+      expect(readFileSync(join(plain, 'data.txt'), 'utf-8')).toBe('only copy\n');
+      // Nothing is archived or written to a quarantine directory.
+      expect(existsSync(join(tmp, 'quarantine', 'worktrees'))).toBe(false);
     } finally {
       cleanup();
     }
   });
 
-  it('quarantine archive captures untracked AND ignored files (.env)', async () => {
-    const { worktreesRoot, projectDir, cleanup } = makeLayout('abc456');
+  it('a commit held only by the worktree branch keeps it; untracked and ignored files stay intact', async () => {
+    const { worktreesRoot, addWorktree, cleanup } = makeLayout('abc456');
     try {
-      const wt = join(projectDir, 'T9055');
-      initGitRepo(wt);
-      // Make dirty and add .env.
-      writeFileSync(join(wt, '.env'), 'SECRET=topsecret\n');
-      writeFileSync(join(wt, 'notes.txt'), 'local notes\n');
+      const wt = addWorktree('T9053');
+      writeFileSync(join(wt, 'work.ts'), 'export const w = 1;\n');
+      git(wt, 'add', 'work.ts');
+      git(wt, 'commit', '-q', '-m', 'unpushed');
+      const ignoredWt = addWorktree('T9054');
+      writeFileSync(join(ignoredWt, '.env'), 'SECRET=1\n');
 
-      await pruneOrphanWorktrees({
+      const result = await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash: 'abc456',
         activeTaskIds: new Set(['PRESERVED']),
       });
 
-      const quarantineDir = join(worktreesRoot, '..', 'quarantine', 'worktrees');
-      const archives = readdirSync(quarantineDir).filter(
-        (f) => f.startsWith('T9055') && f.endsWith('.tar.gz'),
-      );
-      expect(archives).toHaveLength(1);
-
-      const archivePath = join(quarantineDir, archives[0]!);
-      const tarList = execFileSync('tar', ['-tzf', archivePath], { encoding: 'utf-8' });
-      // Both files must be captured.
-      expect(tarList).toContain('.env');
-      expect(tarList).toContain('notes.txt');
+      expect(result.removed).toBe(0);
+      expect(result.quarantinedPaths.sort()).toEqual([ignoredWt, wt].sort());
+      expect(readFileSync(join(ignoredWt, '.env'), 'utf-8')).toBe('SECRET=1\n');
     } finally {
       cleanup();
     }
   });
 
-  it('a symlink cycle is archived as a link, not ELOOP + a partial archive (T12604)', async () => {
-    const { worktreesRoot, projectDir, cleanup } = makeLayout('abc789');
+  it('a symlink cycle in a dirty worktree is kept without an error (T12604)', async () => {
+    const { worktreesRoot, addWorktree, cleanup } = makeLayout('abc789');
     try {
-      const wt = join(projectDir, 'T9056');
-      initGitRepo(wt);
+      const wt = addWorktree('T9056');
       writeFileSync(join(wt, 'dirty.txt'), 'uncommitted\n');
       mkdirSync(join(wt, 'nested'));
       symlinkSync('..', join(wt, 'nested', 'loop'));
@@ -162,53 +149,8 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
       });
 
       expect(result.errors).toEqual([]);
-      const quarantineDir = join(worktreesRoot, '..', 'quarantine', 'worktrees');
-      const archives = readdirSync(quarantineDir).filter((f) => f.startsWith('T9056'));
-      expect(archives).toHaveLength(1);
-      const tarList = execFileSync('tar', ['-tzf', join(quarantineDir, archives[0]!)], {
-        encoding: 'utf-8',
-      });
-      expect(tarList).toContain('dirty.txt');
-      expect(tarList).toContain('nested/loop');
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('an archive that overruns the 120s bound fails closed with no partial archive (T12604)', async () => {
-    const { worktreesRoot, projectDir, cleanup } = makeLayout('abcdef');
-    try {
-      const wt = join(projectDir, 'T9057');
-      initGitRepo(wt);
-      writeFileSync(join(wt, 'dirty.txt'), 'uncommitted\n');
-
-      // Every clock read advances 61s, so the walk crosses the deadline on
-      // its second entry — the path a huge or hung filesystem would take.
-      let now = Date.now();
-      const clock = vi.spyOn(Date, 'now').mockImplementation(() => {
-        now += 61_000;
-        return now;
-      });
-      let result: Awaited<ReturnType<typeof pruneOrphanWorktrees>>;
-      try {
-        result = await pruneOrphanWorktrees({
-          worktreesRoot,
-          projectHash: 'abcdef',
-          activeTaskIds: new Set(['PRESERVED']),
-        });
-      } finally {
-        clock.mockRestore();
-      }
-
-      expect(result.errors.map((e) => e.reason)).toEqual([
-        'quarantine tar failed — worktree preserved (T11996)',
-      ]);
-      expect(existsSync(wt)).toBe(true);
-      const quarantineDir = join(worktreesRoot, '..', 'quarantine', 'worktrees');
-      const leftovers = existsSync(quarantineDir)
-        ? readdirSync(quarantineDir).filter((f) => f.endsWith('.tar.gz'))
-        : [];
-      expect(leftovers).toEqual([]);
+      expect(result.quarantinedPaths).toEqual([wt]);
+      expect(existsSync(join(wt, 'nested'))).toBe(true);
     } finally {
       cleanup();
     }
@@ -265,12 +207,9 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 fail-closed', () => {
 
 describe('pruneOrphanWorktrees (gc/cleanup) — T11996 idempotency', () => {
   it('second run against converged state performs zero actions', async () => {
-    const { worktreesRoot, projectDir, cleanup } = makeLayout('ghi789');
+    const { worktreesRoot, addWorktree, cleanup } = makeLayout('ghi789');
     try {
-      // Clean plain-dir orphan.
-      const cleanWt = join(projectDir, 'T9070');
-      mkdirSync(cleanWt, { recursive: true });
-      writeFileSync(join(cleanWt, 'data.txt'), 'content\n');
+      const cleanWt = addWorktree('T9070');
 
       const opts = {
         worktreesRoot,
