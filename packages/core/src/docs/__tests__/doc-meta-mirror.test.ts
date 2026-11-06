@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import {
   conduitDocMetaOfRow,
+  mirrorConduitDocMeta,
   resolveConduitDocUid,
   setConduitDocMeta,
 } from '../../store/conduit-doc-history.js';
@@ -23,6 +24,7 @@ import { getDb, getNativeDb } from '../../store/sqlite.js';
 import { docsAttachments } from '../../store/tasks-schema.js';
 import { updateDocBySlug } from '../docs-update.js';
 import { runLegacyDocMigration } from '../legacy-doc-migration.js';
+import { restoreSupersession } from '../modernize/restore.js';
 import { setDocKind } from '../slug-rename.js';
 import { supersedeDoc } from '../supersede.js';
 
@@ -120,6 +122,33 @@ describe('doc metadata on the identity row (T14288)', () => {
     expect(older.lifecycleStatus).toBe('superseded');
     expect(older.supersededByUid).toBe(newer.uid);
     expect(newer.supersedesUid).toBe(older.uid);
+  });
+
+  it('a superseded identity stays superseded when its registry row is restored (absorbing rule)', async () => {
+    await seedDoc('meta-was', { summary: 'before' });
+    await seedDoc('meta-now');
+    await migrate();
+    await supersedeDoc(env.tempDir, { oldSlug: 'meta-was', newSlug: 'meta-now' });
+    const successor = (await identityRow('meta-now')).uid;
+
+    // A modernize undo puts the registry row back; the identity row keeps the
+    // absorbing state every receiver keeps, and the other columns still mirror.
+    await restoreSupersession(env.tempDir, 'meta-was', 'meta-now', {
+      lifecycleStatus: 'draft',
+      supersededBy: null,
+      supersedes: null,
+    });
+    const db = await getDb(env.tempDir);
+    await db
+      .update(docsAttachments)
+      .set({ summary: 'after' })
+      .where(eq(docsAttachments.id, 'att-meta-was'))
+      .run();
+    await mirrorConduitDocMeta(env.tempDir, { rowId: 'att-meta-was' });
+    const row = await identityRow('meta-was');
+    expect(row.lifecycleStatus).toBe('superseded');
+    expect(row.supersededByUid).toBe(successor);
+    expect(row.summary).toBe('after');
   });
 
   it('a content update mirrors the new registry row', async () => {

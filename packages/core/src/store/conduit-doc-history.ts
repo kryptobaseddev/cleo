@@ -374,7 +374,10 @@ export async function conduitDocMetaOfRow(
 /**
  * Write a doc's metadata onto its identity row (T14288), changed columns only,
  * so an unchanged mirror records nothing in the change journal. The lifecycle
- * and its successor travel together (one merge group).
+ * and its successor travel together (one merge group), and a superseded row
+ * stays superseded (the absorbing `docs.lifecycle.transitions` rule). This is
+ * the only UPDATE of these columns; the inserts are the adopt and migrate
+ * paths, which create the row.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param uid - The doc's `conduit_attachments.uid`.
@@ -395,7 +398,17 @@ export async function setConduitDocMeta(
     .where(eq(conduitAttachments.uid, uid))
     .get();
   if (!row) return false;
-  const differs = CONDUIT_DOC_META_KEYS.filter((key) => row[key] !== meta[key]);
+  // superseded is absorbing (docs.lifecycle.transitions, no leave op): every
+  // receiver refuses a write that leaves it, so the identity row never does
+  // either, even when its registry row was restored (a modernize undo). The
+  // group stays as stored; the other columns still mirror.
+  // @sync-invariant docs.lifecycle.transitions a mirror never moves the identity row out of superseded; receivers would refuse it and diverge
+  const keepGroup = row.lifecycleStatus === 'superseded' && meta.lifecycleStatus !== 'superseded';
+  const differs = CONDUIT_DOC_META_KEYS.filter(
+    (key) =>
+      row[key] !== meta[key] &&
+      !(keepGroup && (key === 'lifecycleStatus' || key === 'supersededByUid')),
+  );
   if (differs.length === 0) return false;
   const changed: Partial<typeof conduitAttachments.$inferInsert> = {};
   for (const key of differs) Object.assign(changed, { [key]: meta[key] });
