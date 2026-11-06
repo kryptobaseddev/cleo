@@ -94,7 +94,7 @@ function createGitHubIssue(status: DreamStatus, repo: string, token: string): vo
     '```',
     '',
     '### Actions',
-    '- Run `cleo memory dream` manually to trigger consolidation',
+    '- Run `cleo memory dream --apply` manually to trigger consolidation (destructive; back up first)',
     '- Check that the sentient daemon is running (`cleo sentient status`)',
     '- Review the brain.db consolidation events log',
     '',

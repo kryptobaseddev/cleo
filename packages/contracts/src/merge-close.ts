@@ -78,6 +78,77 @@ export interface MergePrOutcome {
   outcomes: MergeTaskOutcome[];
   /** Why nothing was attempted for this PR (no lines, malformed lines, CI not green). */
   closesNothing?: string;
+  /**
+   * The PR's attribution receipt, listed beside the outcome (T14252, SHADOW:
+   * it changes no outcome); every merged PR gets one, task or not. Absent
+   * while the merge's CI is still running.
+   */
+  attribution?: Pick<MergeAttributionReceipt, 'verdict' | 'claim' | 'reason'>;
+}
+
+/**
+ * What a merged PR's merge-commit CI shows about the PR itself (T14252), from
+ * a test-level first-parent differential: a failure the first parent's run
+ * also shows is `disjoint`; one new at the merge is `pr-caused` (or
+ * `combination` when the PR head's own run passed that job); a merge whose
+ * runs were only cancelled or skipped is `superseded`; a budget tripwire the
+ * PR crossed (bundle size, gate-39 module counts, `gen:sdk` drift) over a
+ * passing parent is `budget-crossed`; a flaky-quarantine-budget-only failure
+ * is `main-health`, never attributed to the merging PR (D11225); no parent
+ * observation is `unknown`, never a guess.
+ */
+export type MergeAttributionVerdict =
+  | 'clean'
+  | 'superseded'
+  | 'disjoint'
+  | 'pr-caused'
+  | 'combination'
+  | 'budget-crossed'
+  | 'main-health'
+  | 'unknown';
+
+/** One failing merge-commit job and how it was attributed (T14252). */
+export interface MergeAttributionFailure {
+  /** Job (check run) name. */
+  job: string;
+  /** Test identities (`<project>:<file>`) that failed it and decided it. */
+  tests: string[];
+  /** Non-test cause: `flaky-quarantine-budget`, `runner-cancel`, `worker-crash`, `setup`, or `step:<command>`. */
+  cause: string | null;
+  /** This job's verdict. */
+  verdict: MergeAttributionVerdict;
+  /** Why, naming the parent observation. */
+  reason: string;
+}
+
+/**
+ * The attribution receipt of one merged PR (T14252): computed once per
+ * (PR, resolved merge sha) and kept in `.cleo/audit/merge-attribution.jsonl`
+ * (a `merge_attribution` audit row on the PR's task points at it). In
+ * SHADOW mode (D11224) it is recorded beside the sweep's outcome and changes
+ * no closure.
+ */
+export interface MergeAttributionReceipt {
+  /** PR number. */
+  prNumber: number;
+  /** The PR head the receipt judged. */
+  headSha: string | null;
+  /** The merge commit. */
+  mergeSha: string;
+  /** How the merge sha was resolved. */
+  resolvedFrom: 'merge-commit';
+  /** The merge's first parent, the differential's baseline. */
+  parentSha: string | null;
+  /** Failing merge-commit jobs, each attributed. */
+  failures: MergeAttributionFailure[];
+  /** The PR's verdict: the most serious of its jobs'. */
+  verdict: MergeAttributionVerdict;
+  /** What the verdict proves: the change holds on main, or only the head was tested, or nothing. */
+  claim: 'holds-on-main' | 'green-at-head' | 'none';
+  /** One line naming the deciding job and observation. */
+  reason: string;
+  /** The rule's version, so a later rule never reads an older receipt as its own. */
+  ruleVersion: number;
 }
 
 /** Options of `sweepMergedClosures`. */

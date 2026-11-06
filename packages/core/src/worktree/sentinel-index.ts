@@ -79,9 +79,11 @@ export interface SentinelWorktreeEntry {
 }
 
 /**
- * The task a worktree branch names: `task/T####` or `feat/T####`, optionally
- * followed by `-<slug>` (the `task/T####-<slug>` convention). One rule for
- * `worktree list` and `worktree adopt`, which used to disagree (T14165).
+ * The task a worktree branch names: `task/`, `feat/`, `fix/`, `test/` or
+ * `chore/` then `T####`, optionally followed by `-<slug>` (the
+ * `task/T####-<slug>` convention). One rule for `worktree list` and
+ * `worktree adopt`, which used to disagree (T14165). `fix/` and `test/`
+ * branches named no task before T14236, so they could never be classified.
  *
  * @param branch - Git branch name.
  * @returns The task ID, or null when the branch names none.
@@ -92,7 +94,29 @@ export interface SentinelWorktreeEntry {
  * ```
  */
 export function taskIdFromBranch(branch: string): string | null {
-  const match = branch.match(/^(?:task|feat)\/(T\d+)(?:-|$)/);
+  const match = branch.match(/^(?:task|feat|fix|test|chore)\/(T\d+)(?:-|$)/);
+  return match ? (match[1] ?? null) : null;
+}
+
+/**
+ * The task a worktree directory names: `T####` optionally followed by
+ * `-<slug>`, the canonical `<cleoHome>/worktrees/<hash>/<taskId>` layout
+ * (T14236). Used when the branch names no task (a detached worktree).
+ *
+ * @param path - Worktree directory path.
+ * @returns The task ID, or null when the directory names none.
+ * @example
+ * ```ts
+ * taskIdFromWorktreeDir('/x/worktrees/abc/T14236'); // 'T14236'
+ * ```
+ */
+export function taskIdFromWorktreeDir(path: string): string | null {
+  const name =
+    path
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() ?? '';
+  const match = name.match(/^(T\d+)(?:-|$)/);
   return match ? (match[1] ?? null) : null;
 }
 

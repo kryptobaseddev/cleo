@@ -81,6 +81,7 @@ import {
   loadRelationsForTasks,
   noteSessionStatusWritten,
   parseLabels,
+  taskWriteError,
   updateDependencies,
   updateTaskLabels,
   upsertSession,
@@ -2650,9 +2651,15 @@ async function createOwnedSqliteDataAccessor(
         // gh#391: this is the chokepoint for `cleo update <id> --add-labels`.
         // Parallel invocations from a single shell used to lose ~50% of writes
         // to SQLITE_BUSY; withWriteRetry recovers them.
-        const result = await withWriteRetry(() =>
-          db.update(schema.tasks).set(updateRow).where(where).run(),
-        );
+        // T14218: a refused write reports its SQLite cause, not a bare E_INTERNAL.
+        const runUpdate = () => db.update(schema.tasks).set(updateRow).where(where).run();
+        let result: Awaited<ReturnType<typeof runUpdate>>;
+        try {
+          result = await withWriteRetry(runUpdate);
+        } catch (err) {
+          // @sync-invariant task.parent.type-matrix the guard triggers' refusal (matrix, parent cycle, T877 status/pipeline) reported with its SQLite cause
+          throw taskWriteError(err, taskId);
+        }
         if (Number(result.changes) !== 1) {
           const stored = await accessor.loadSingleTask(taskId);
           if (!stored) throw new Error(`Task not found: ${taskId}`);

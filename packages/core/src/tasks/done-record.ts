@@ -418,6 +418,7 @@ export async function recordTaskDone(
       // off, the gates must execute in the write (nothing was cached above).
       ...(opts.runTyped === true && !readAllowCachedGates(storeRoot) ? { runTyped: true } : {}),
       ...(opts.sharedEvidence === true ? { sharedEvidence: true } : {}),
+      ...(opts.reviewedLinkage === true ? { reviewedLinkage: true } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(opts.agent ? { agent: opts.agent } : {}),
     });

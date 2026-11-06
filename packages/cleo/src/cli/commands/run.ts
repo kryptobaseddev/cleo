@@ -316,7 +316,8 @@ export const runCommand = defineCommand({
       undefined,
       { explicitClass: args.class !== undefined, ...projectRootOption() },
     );
-    const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } = plan;
+    const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey, planBytes } =
+      plan;
     if (resources !== null) {
       notice(
         `planned resources: ${resources.summary}`,
@@ -354,6 +355,7 @@ export const runCommand = defineCommand({
         foreground: passthrough && process.stdin.isTTY === true,
         notice,
         ...(footprintBytes !== undefined ? { footprintBytes } : {}),
+        ...(planBytes !== undefined ? { planBytes } : {}),
         footprintReason,
         ...(namedFiles !== null ? { scope: 'narrowed' as const } : {}),
       });

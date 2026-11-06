@@ -65,7 +65,7 @@ jobs:
           done
           # A fresh store that never dreamed is overdue by definition; the
           # check is that one cycle consolidates the seeded observations.
-          cleo memory dream
+          cleo memory dream --apply
         env:
           CLEO_PROJECT_ROOT: /tmp/cleo-canary
 

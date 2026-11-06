@@ -43,7 +43,7 @@ import {
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
-import { HOOK_MIN_RUNS, readHookPeak, readMeasuredPeak } from '../hook-footprint.js';
+import { MEASURED_MIN_RUNS, readCountedPeak, readMeasuredPeak } from '../hook-footprint.js';
 import { type RunJob, writeRunJob } from '../run-admission.js';
 import {
   type GovernedChild,
@@ -303,7 +303,7 @@ function harness(opts: {
     groupOf: opts.groupOf ?? (() => null),
     ancestorsOf: opts.ancestorsOf ?? (() => []),
     treeUsage: opts.treeUsage ?? (() => null),
-    hookFootprintsDir: join(dir, 'hooks'),
+    chargesDir: join(dir, 'hooks'),
   };
   return h;
 }
@@ -368,11 +368,26 @@ describe('a hooked run records its measured peak (T13921)', () => {
     await push(9000, 1, 4); // a failed push: not a measurement
     await push(100, 0, 1); // "Everything up-to-date": one sample at most, not counted
     await push(100, 0, 8, false); // the hook never ran in the tree (HUSKY=0, a slow network)
-    expect(readHookPeak('pre-push:k', hooks())).toBeNull();
-    for (let i = 0; i < HOOK_MIN_RUNS - 1; i++) await push(3000, 0, 4);
-    expect(readHookPeak('pre-push:k', hooks())).toBeNull(); // not enough counted runs yet
+    expect(readCountedPeak('pre-push:k', hooks())).toBeNull();
+    for (let i = 0; i < MEASURED_MIN_RUNS - 1; i++) await push(3000, 0, 4);
+    expect(readCountedPeak('pre-push:k', hooks())).toBeNull(); // not enough counted runs yet
     await push(500, 0, 4); // a light counted run never lowers the peak
-    expect(readHookPeak('pre-push:k', hooks())).toBe(3000 * MIB);
+    expect(readCountedPeak('pre-push:k', hooks())).toBe(3000 * MIB);
+  });
+
+  it('a plain command key counts every tree sample, whatever the tree runs (T14281)', async () => {
+    const key = 'cmd:abc';
+    for (let i = 0; i < MEASURED_MIN_RUNS; i++) {
+      const h = harness({
+        // No process in the tree is named after the key.
+        treeUsage: () => ({ cpuMs: 1, rssBytes: 800 * MIB, processes: 2, commands: ['node tsc'] }),
+        onSleep: (n, hh) => {
+          if (n === 4) hh.exit(0);
+        },
+      });
+      await runGoverned(base(h, { ...BUILD, hookKey: key }));
+    }
+    expect(readCountedPeak(key, hooks())).toBe(800 * MIB);
   });
 });
 
