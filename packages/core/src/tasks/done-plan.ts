@@ -157,6 +157,11 @@ export interface DeriveTaskEvidenceOptions {
   /** Explicit PR (`--pr <n>`). */
   prNumber?: number;
   /**
+   * The merge sweep records from the PR's `Closes:`/`Refs:` line with
+   * non-author verdicts (T14259, {@link EvidenceValidationContext.reviewedLinkage}).
+   */
+  reviewedLinkage?: boolean;
+  /**
    * Explicit commit (`--commit <sha>`, T13799): work already on the default
    * branch that no PR or branch cites; verified by the change-set derivation.
    */
@@ -195,6 +200,25 @@ export type DoneEvidencePreview = (
   taskId: string,
   gateEvidence: Partial<Record<VerificationGate, string | string[]>>,
 ) => Promise<{ ok: true } | { ok: false; code: string; message: string; fix?: string }>;
+
+/** The merge sweep's preview: the default one with the reviewed linkage (T14259). */
+const reviewedPreviewEvidence: DoneEvidencePreview = async (storeRoot, taskId, gateEvidence) => {
+  const { validateGateVerify } = await import('../validation/engine-ops.js');
+  const r = await validateGateVerify(storeRoot, {
+    taskId,
+    gateEvidence,
+    preview: true,
+    reviewedLinkage: true,
+  });
+  return r.success
+    ? { ok: true }
+    : {
+        ok: false,
+        code: r.error.code,
+        message: r.error.message,
+        ...(r.error.fix ? { fix: r.error.fix } : {}),
+      };
+};
 
 /** Default preview: `validateGateVerify` in preview mode (no tool runs, no write). */
 const defaultPreviewEvidence: DoneEvidencePreview = async (storeRoot, taskId, gateEvidence) => {
@@ -1592,7 +1616,9 @@ export async function deriveTaskEvidence(
           gates,
           additionalImplemented,
           blocked: derivedBlockers.length > 0,
-          preview: opts.previewEvidence ?? defaultPreviewEvidence,
+          preview:
+            opts.previewEvidence ??
+            (opts.reviewedLinkage === true ? reviewedPreviewEvidence : defaultPreviewEvidence),
         })),
   ]);
   const commands = additionalImplemented.map(

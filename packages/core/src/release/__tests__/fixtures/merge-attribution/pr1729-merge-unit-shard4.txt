@@ -1,0 +1,39 @@
+2026-09-30T02:44:03.9921584Z ##[group]Run set -o pipefail
+2026-09-30T02:44:03.9922104Z set -o pipefail
+2026-09-30T02:44:03.9922719Z # BOTH macOS shards get retry=2 to absorb Darwin vitest+pnpm+timing
+2026-09-30T02:54:09.7874917Z      ✓ exits 1 and surfaces the failing entry for a single kind drift  1104ms
+2026-09-30T02:54:09.7880333Z      ✓ exits 1 and lists EVERY failure when multiple entries drift (T9936 regression guard)  1065ms
+2026-09-30T02:54:09.7881529Z      ✓ names the double-quote fix for a summary starting with a backtick (T12351)  1923ms
+2026-09-30T02:54:09.7882327Z      ✓ exits 1 and reports valid + invalid counts when mixed  964ms
+2026-09-30T02:54:09.7992329Z 
+2026-09-30T02:54:09.7993323Z ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+2026-09-30T02:54:09.7993620Z 
+2026-09-30T02:54:09.7996269Z  FAIL   @cleocode/cleo-os  src/harnesses/__tests__/provider-verification.test.ts > bounded external provider observations > kills inherited process-group descendants without claiming complete lifecycle containment
+2026-09-30T02:54:09.8001694Z Error: ESRCH: no such process, read
+2026-09-30T02:54:09.8003310Z  ❯ src/harnesses/__tests__/provider-verification.test.ts:259:26
+2026-09-30T02:54:09.8070439Z     257|         expect(result.certification).toBe('unverified');
+2026-09-30T02:54:09.8071701Z     258|         try {
+2026-09-30T02:54:09.8073454Z     259|           const status = await readFile(`/proc/${pid}/stat`, 'utf8');
+2026-09-30T02:54:09.8074868Z        |                          ^
+2026-09-30T02:54:09.8075925Z     260|           expect(status.slice(status.lastIndexOf(')') + 2).split(' ')[…
+2026-09-30T02:54:09.8076837Z     261|         } catch (error) {
+2026-09-30T02:54:09.8077408Z 
+2026-09-30T02:54:09.8077841Z ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+2026-09-30T02:54:09.8078148Z 
+2026-09-30T02:54:09.8078162Z 
+2026-09-30T02:54:09.8103055Z  Test Files  1 failed | 464 passed | 4 skipped (469)
+2026-09-30T02:54:09.8143705Z       Tests  1 failed | 6521 passed | 33 skipped | 3 todo (6558)
+2026-09-30T02:54:09.8147540Z    Start at  02:44:05
+2026-09-30T02:54:09.8152368Z    Duration  604.57s (transform 86.83s, setup 8.21s, import 391.93s, tests 741.04s, environment 47ms)
+2026-09-30T02:54:09.8154199Z 
+2026-09-30T02:54:09.8226824Z 
+2026-09-30T02:54:09.8260680Z ##[error]Error: ESRCH: no such process, read
+ ❯ src/harnesses/__tests__/provider-verification.test.ts:259:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -3, code: 'ESRCH', syscall: 'read' }
+
+2026-09-30T02:54:10.3182240Z ##[error]Process completed with exit code 1.
+2026-09-30T02:54:10.3274174Z Post job cleanup.
+2026-09-30T02:54:10.4693375Z Pruning is unnecessary.
+2026-09-30T02:54:10.4826245Z Post job cleanup.
