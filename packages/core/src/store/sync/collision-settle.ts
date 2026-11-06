@@ -558,7 +558,8 @@ export function remintDisplayKey(
     );
     if (table === 'brain_decisions') {
       for (const [k, n] of Object.entries(
-        repointDecisionReferencesNative(db, fromKey, toKey, opts.origin, true),
+        // A store with no replica (null origin) wrote every reference itself.
+        repointDecisionReferencesNative(db, fromKey, toKey, opts.origin ?? undefined, true),
       )) {
         rewritten[k] = (rewritten[k] ?? 0) + n;
       }
