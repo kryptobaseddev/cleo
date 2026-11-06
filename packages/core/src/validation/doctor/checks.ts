@@ -1835,8 +1835,15 @@ export async function checkJsonSchemaIntegrity(projectDir: string): Promise<Chec
     (f) => f.status === 'version_mismatch' || f.status === 'schema_not_found',
   );
 
+  // T14260: a deprecated key is still valid; it warns once, naming the key.
+  const deprecations = report.files.flatMap((f) => f.deprecations ?? []);
   const details: Record<string, unknown> = {
-    files: report.files.map((f) => ({ label: f.label, status: f.status, errors: f.errors })),
+    files: report.files.map((f) => ({
+      label: f.label,
+      status: f.status,
+      errors: f.errors,
+      ...(f.deprecations ? { deprecations: f.deprecations } : {}),
+    })),
     sqliteVersion: report.sqliteVersion,
   };
 
@@ -1858,9 +1865,20 @@ export async function checkJsonSchemaIntegrity(projectDir: string): Promise<Chec
       id: 'json_schema_integrity',
       category: 'data',
       status: 'warning',
-      message: `JSON schema integrity warnings: ${messages.join('; ')}`,
+      message: `JSON schema integrity warnings: ${[...messages, ...deprecations].join('; ')}`,
       details,
       fix: 'cleo upgrade',
+    };
+  }
+
+  if (deprecations.length > 0) {
+    return {
+      id: 'json_schema_integrity',
+      category: 'data',
+      status: 'warning',
+      message: `Deprecated config keys: ${deprecations.join('; ')}`,
+      details,
+      fix: 'Remove the named keys from the file; they are ignored.',
     };
   }
 
