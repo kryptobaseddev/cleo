@@ -24,7 +24,7 @@
 import type { AcceptanceGate, AcceptanceGateResult } from './acceptance-gate.js';
 import type { AcRow } from './data-accessor.js';
 import type { HeavyToolResourcePlan } from './resource-governor.js';
-import type { TaskStatus } from './status-registry.js';
+import type { CancellationKind, TaskStatus } from './status-registry.js';
 
 export type { TaskStatus };
 
@@ -1128,6 +1128,23 @@ export interface Task {
    * @defaultValue undefined
    */
   cancellationReason?: string;
+
+  /**
+   * Why the task was cancelled (T14267). `superseded` / `duplicate` name a
+   * {@link Task.replacedBy}; a done replacement covers the child in a parent
+   * rollup with no waiver.
+   *
+   * @defaultValue undefined
+   */
+  cancellationKind?: CancellationKind;
+
+  /**
+   * The task that replaced this cancelled one (T14267). A task reference: it
+   * follows a display-id re-mint like `parentId`.
+   *
+   * @defaultValue undefined
+   */
+  replacedBy?: string;
 
   /** Verification pipeline state. @defaultValue undefined */
   verification?: TaskVerification | null;

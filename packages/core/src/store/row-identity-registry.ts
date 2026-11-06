@@ -565,6 +565,8 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       refs: [
         { column: 'parent_id', table: TASKS },
         { column: 'session_id', table: SESSIONS },
+        // T14267: a cancelled task's replacement follows a display-id re-mint.
+        { column: 'replaced_by', table: TASKS },
       ],
       task: 'T12341',
     },

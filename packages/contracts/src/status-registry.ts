@@ -92,6 +92,24 @@ export function isSettledChild(status: TaskStatus): status is SettledTaskStatus 
   return TERMINAL_TASK_STATUSES.has(status);
 }
 
+/**
+ * Why a task was cancelled (T14267, owner decision D11229). `superseded` and
+ * `duplicate` name a replacement (`replacedBy`); once it is done the cancelled
+ * child counts as covered in a parent rollup with no waiver. `abandoned` and
+ * `obsolete` work was not delivered, so a parent still needs the audited
+ * `--waive-cancelled-children` waiver.
+ */
+export const CANCELLATION_KINDS = ['abandoned', 'superseded', 'duplicate', 'obsolete'] as const;
+
+/** One of {@link CANCELLATION_KINDS}. */
+export type CancellationKind = (typeof CANCELLATION_KINDS)[number];
+
+/** The cancellation kinds a done replacement covers (T14267, D11229). */
+export const REPLACED_CANCELLATION_KINDS: ReadonlySet<CancellationKind> = new Set([
+  'superseded',
+  'duplicate',
+]);
+
 export const TERMINAL_PIPELINE_STATUSES: ReadonlySet<PipelineStatus> = new Set([
   'completed',
   'failed',

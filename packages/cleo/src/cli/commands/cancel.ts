@@ -51,6 +51,16 @@ export const cancelCommand = defineCommand({
       type: 'string',
       description: 'Maximum descendant count allowed for cascade without --force (default: 10)',
     },
+    kind: {
+      type: 'string',
+      description:
+        'Why (T14267): abandoned, superseded, duplicate or obsolete. A superseded or duplicate ' +
+        'child whose --replaced-by task is done needs no --waive-cancelled-children on its parent',
+    },
+    'replaced-by': {
+      type: 'string',
+      description: 'The task that replaced this one (with --kind superseded or duplicate)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -66,6 +76,11 @@ export const cancelCommand = defineCommand({
         cascadeThreshold:
           typeof args.cascadeThreshold === 'string' && args.cascadeThreshold.length > 0
             ? Number.parseInt(args.cascadeThreshold, 10)
+            : undefined,
+        kind: typeof args.kind === 'string' && args.kind.length > 0 ? args.kind : undefined,
+        replacedBy:
+          typeof args['replaced-by'] === 'string' && args['replaced-by'].length > 0
+            ? args['replaced-by']
             : undefined,
       },
       { command: 'cancel', operation: 'tasks.cancel' },

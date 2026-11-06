@@ -77,6 +77,8 @@ export function rowToTask(row: TaskRow): Task {
     completedAt: row.completedAt ?? undefined,
     cancelledAt: row.cancelledAt ?? undefined,
     cancellationReason: row.cancellationReason ?? undefined,
+    cancellationKind: row.cancellationKind ?? undefined,
+    replacedBy: row.replacedBy ?? undefined,
     verification: row.verificationJson ? safeParseJson(row.verificationJson) : undefined,
     provenance:
       row.createdBy || row.modifiedBy || row.sessionId
@@ -141,6 +143,8 @@ export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
     completedAt: task.completedAt ?? null,
     cancelledAt: task.cancelledAt ?? null,
     cancellationReason: task.cancellationReason ?? null,
+    cancellationKind: task.cancellationKind ?? null,
+    replacedBy: task.replacedBy ?? null,
     verificationJson: task.verification ? JSON.stringify(task.verification) : null,
     createdBy: task.provenance?.createdBy ?? null,
     modifiedBy: task.provenance?.modifiedBy ?? null,

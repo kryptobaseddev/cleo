@@ -400,6 +400,8 @@ async function applyAutoClose(
         getAcRows: (id) => accessor.getAcRows(id),
         getAcBindings: (ids) => accessor.getAcBindings(ids),
         getChildren: (id) => tx.getChildren(id),
+        // T14267: a superseded or duplicate member is covered by a done replacement.
+        loadSingleTask: (id) => accessor.loadSingleTask(id),
       });
       const statusBefore = sagaTask.status;
       const gateResults = sagaTask.verification?.gateResults;
