@@ -107,8 +107,13 @@ const DIST_DIR = join(PKG_ROOT, 'dist');
  * modules. The tree measured 38.20 MB (5917 files) with that change; the
  * largest emitted file is now gateway-client/generated/types.gen.d.ts at
  * 0.40 MB. The same 8 MB of headroom is kept.
+ *
+ * Raised 46 MB -> 47 MB (T14340, 2026-11-06), a stopgap the owner approved
+ * through the ask tool: main's Build & Verify measured the tree at 46.02 MB,
+ * 19.9 KB over the cap, and every PR went red. Shrink task T14339 brings the
+ * tree back under 46 MB and lowers this budget to 46 MB in the same PR.
  */
-export const MAX_CORE_DIST_MB = 46;
+export const MAX_CORE_DIST_MB = 47;
 
 /** The uncompressed dist budget expressed in bytes. */
 export const MAX_CORE_DIST_BYTES = MAX_CORE_DIST_MB * 1024 * 1024;
