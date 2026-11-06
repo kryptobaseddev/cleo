@@ -50,24 +50,41 @@ export async function readSupersessionPrior(
 }
 
 /**
- * Put back the pointers and status a supersede replaced.
+ * Put back the pointers and status a supersede replaced, unless that would
+ * leave `superseded` (T14333).
+ *
+ * `superseded` is absorbing (`docs.lifecycle.transitions`, no leave op): every
+ * replica refuses a write that moves a row out of it, on the registry and on
+ * the identity row alike. An undo that rewrote the older doc back to its prior
+ * status would therefore hold here and nowhere else: a permanent divergence.
+ * So a supersession that landed is kept on the older doc: it stays superseded
+ * with its successor, and the caller reports it. The newer doc's back pointer
+ * (plain LWW, no absorbing state) is still restored, so a rollback that then
+ * removes the older doc leaves no dangling pointer. A supersession that never landed (the older doc is not
+ * superseded) is restored as before, and so is one whose prior state was
+ * superseded already (the successor pointer moves within the state).
  *
  * @param projectRoot - Project root.
  * @param oldSlug - The superseded doc.
  * @param newSlug - The superseding doc.
  * @param prior - Values recorded by {@link readSupersessionPrior}.
+ * @returns `kept` when the landed supersession was left in place.
+ * @task T14333
  */
 export async function restoreSupersession(
   projectRoot: string,
   oldSlug: string,
   newSlug: string,
   prior: DocsModernizeOpPrior,
-): Promise<void> {
+): Promise<'restored' | 'kept'> {
   const db = await getDb(projectRoot);
   const older = await db.select().from(attachments).where(eq(attachments.slug, oldSlug)).get();
   const newer = await db.select().from(attachments).where(eq(attachments.slug, newSlug)).get();
+  // @sync-invariant docs.lifecycle.transitions an undo never moves a row out of superseded; every replica would refuse it
+  const kept =
+    older?.lifecycleStatus === 'superseded' && asStatus(prior.lifecycleStatus) !== 'superseded';
   db.transaction((tx) => {
-    if (older) {
+    if (older && !kept) {
       tx.update(attachments)
         .set({
           supersededBy: prior.supersededBy ?? null,
@@ -85,8 +102,9 @@ export async function restoreSupersession(
   });
   // T14288: both docs' identity rows carry the restored supersession.
   const { mirrorConduitDocMeta } = await import('../../store/conduit-doc-history.js');
-  if (older) await mirrorConduitDocMeta(projectRoot, { rowId: older.id });
+  if (older && !kept) await mirrorConduitDocMeta(projectRoot, { rowId: older.id });
   if (newer) await mirrorConduitDocMeta(projectRoot, { rowId: newer.id });
+  return kept ? 'kept' : 'restored';
 }
 
 /**
