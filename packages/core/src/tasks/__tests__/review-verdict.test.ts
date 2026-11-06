@@ -23,6 +23,7 @@ import {
   acTextSha256,
   buildReviewPacket,
   checkPrReviews,
+  ghReviewDeps,
   judgeReviewVerdicts,
   type ReviewDeps,
   recordReviewVerdict,
@@ -120,6 +121,44 @@ describe('the review packet (T14122)', () => {
   it('refuses a head that moved while the diff was read', async () => {
     await expect(buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD, NEXT]))).rejects.toThrow(
       /moved from aaaaaaa to bbbbbbb/,
+    );
+  });
+
+  it('a diff carrying terminal escapes builds a stable packet with no raw escape byte (T14328)', async () => {
+    const escaped = DIFF.replace(
+      '+  return opts.limit',
+      '+  // \u001b[31mred\u001b[0m in a CI log fixture\n+  return opts.limit',
+    );
+    const first = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], escaped));
+    const again = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], escaped));
+    expect(first.diff).not.toContain('\u001b');
+    expect(first.diff).toContain('\\x1b[31mred\\x1b[0m');
+    expect(again.packetSha256).toBe(first.packetSha256);
+  });
+
+  it("gh is asked for the diff verbatim, and a gh failure reports gh's own error (T14328)", async () => {
+    const calls: string[][] = [];
+    const ok = ghReviewDeps((args) => {
+      calls.push(args);
+      return args[1] === 'view' ? `${HEAD}\n` : DIFF;
+    });
+    await buildReviewPacket(env.tempDir, 7, 'T001', ok);
+    expect(calls.find((a) => a[1] === 'diff')).toEqual([
+      'pr',
+      'diff',
+      '7',
+      '--color',
+      'never',
+      '--allow-escape-sequences',
+    ]);
+    const failing = ghReviewDeps(() => {
+      throw Object.assign(new Error('Command failed: gh pr view 7'), {
+        stderr:
+          'GraphQL: Could not resolve to a PullRequest with the number of 7. (repository.pullRequest)\n',
+      });
+    });
+    await expect(buildReviewPacket(env.tempDir, 7, 'T001', failing)).rejects.toThrow(
+      /gh pr view 7 failed: GraphQL: Could not resolve to a PullRequest/,
     );
   });
 

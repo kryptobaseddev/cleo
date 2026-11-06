@@ -18,6 +18,7 @@ import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { boundedStoreWriteFailure } from '../store/db-helpers.js';
 import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { canCancel } from './cancel-ops.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
@@ -867,48 +868,11 @@ export async function taskCancel(
       return engineError('E_NOT_FOUND', message);
     }
     // T14217: a failed store write surfaces its SQLite cause, not a ~15 KB SQL echo.
-    const storeFailure = boundedStoreWriteError(err);
+    const storeFailure = boundedStoreWriteFailure(err);
     if (storeFailure) {
       // @sync-invariant none:input-shape the cancel transaction already rolled back; this only re-words the failure
       return engineError('E_INTERNAL', storeFailure.message, { details: storeFailure.details });
     }
     return cleoErrorToEngineResult(err, 'E_INTERNAL', message);
   }
-}
-
-/** Longest store-write error message {@link boundedStoreWriteError} returns. */
-const STORE_WRITE_ERROR_MAX_CHARS = 600;
-
-/**
- * Turn drizzle's `Failed query: <sql> params: <values>` error into a bounded
- * message that leads with the underlying SQLite cause (T14217). Drizzle wraps
- * the SQLite error in a `DrizzleQueryError` whose own message echoes the whole
- * statement and every parameter, often kilobytes, with the cause only on
- * `.cause`.
- *
- * @param err - The thrown value.
- * @returns The bounded message and the cause, or null when `err` is not a failed query.
- */
-function boundedStoreWriteError(
-  err: unknown,
-): { message: string; details: { cause: string; query: string } } | null {
-  if (!(err instanceof Error) || !err.message.startsWith('Failed query:')) return null;
-  let cause = 'no SQLite cause attached';
-  for (let e: unknown = err.cause, depth = 0; e instanceof Error && depth < 8; depth++) {
-    if (!e.message.startsWith('Failed query:')) {
-      cause = e.message;
-      break;
-    }
-    e = e.cause;
-  }
-  const query = err.message
-    .slice('Failed query:'.length)
-    .split(/\nparams:|\sparams:/)[0]
-    ?.trim()
-    .slice(0, 160);
-  const message = `Store write failed: ${cause} (query: ${query ?? ''}…)`.slice(
-    0,
-    STORE_WRITE_ERROR_MAX_CHARS,
-  );
-  return { message, details: { cause: cause.slice(0, 300), query: query ?? '' } };
 }

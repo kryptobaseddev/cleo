@@ -428,4 +428,9 @@ export interface ShutdownStepOutcome {
    * @defaultValue undefined — the registry was not counted for this receipt.
    */
   readonly pendingOperations?: number;
+  /** Best-effort producers (a presence ping, hook dispatch) still pending at
+   * their grace and aborted instead of awaited (T14284). Not a failure.
+   * @defaultValue undefined — no best-effort work was abandoned.
+   */
+  readonly abandonedBestEffort?: number;
 }
