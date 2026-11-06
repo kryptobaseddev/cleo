@@ -377,7 +377,10 @@ export async function recordReviewVerdict(
       fix: 'Say what in the diff does or does not implement the criterion.',
     });
   }
-  const { resolveBoundSession } = await import('../store/session-store.js');
+  const { ensureAgentSession, resolveBoundSession } = await import('../store/session-store.js');
+  // T14269: an agent in a shared harness session reviews as its own session.
+  const { resolveTerminalKeys } = await import('../sessions/terminal-identity.js');
+  await ensureAgentSession(projectRoot, resolveTerminalKeys({ env }), env);
   const bound = await resolveBoundSession(projectRoot, env);
   if (bound === null) {
     // @sync-invariant none:local-only the reviewer's own session binding is local; nothing is written without it

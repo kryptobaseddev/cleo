@@ -152,6 +152,8 @@ export function isClaimExpired(claim: TaskClaim, now: string): boolean {
  * @param allowedHolders - Sessions whose lease `acquire` / `take-over` may take
  *   even while live: the spawn hand-off source and the caller's spawn-edge
  *   parent and children (`tasks_sessions.parent_session_id`).
+ * @param agentId - The caller's agent (T14269): within one session, a lease
+ *   recorded for a different named agent is not the caller's own.
  * @returns `true` when the write is allowed.
  * @example
  * ```ts
@@ -164,15 +166,44 @@ export function claimAllows(
   sessionId: string | null,
   now: string,
   allowedHolders: readonly string[] = [],
+  agentId: string | null = null,
 ): boolean {
   if (mode === 'force') return true;
   if (mode === 'renew' || mode === 'release') {
     return stored !== undefined && sessionId !== null && stored.sessionId === sessionId;
   }
   if (!stored) return true;
-  if (sessionId !== null && stored.sessionId === sessionId) return true;
+  if (
+    sessionId !== null &&
+    stored.sessionId === sessionId &&
+    sameClaimAgent(stored.agentId, agentId)
+  ) {
+    return true;
+  }
   if (allowedHolders.includes(stored.sessionId)) return true;
   return mode === 'take-over' && isClaimExpired(stored, now);
+}
+
+/**
+ * Whether a lease's agent and a requester's agent are the same claimant
+ * (T14269). Identity is (session, agent): within one session, two named
+ * agents differ. An unnamed side (a lease or caller with no agent id) matches
+ * any agent, as before.
+ *
+ * @param stored - The lease's agent id.
+ * @param requester - The caller's agent id.
+ * @returns `false` only when both are named and differ.
+ * @example
+ * ```ts
+ * sameClaimAgent('lane-a', 'lane-b'); // false
+ * sameClaimAgent('lane-a', null); // true
+ * ```
+ */
+export function sameClaimAgent(
+  stored: string | null | undefined,
+  requester: string | null | undefined,
+): boolean {
+  return !stored || !requester || stored === requester;
 }
 
 /**
