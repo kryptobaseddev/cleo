@@ -1,279 +1,155 @@
 /**
  * Tests for pruneWorktree — single-task worktree cleanup (T1462 / P1-6).
  *
- * Strategy: mock `execFileSync` and the `node:fs` functions so the tests
- * do NOT need a real git repository or real filesystem worktree directories.
- * All assertions are on the returned PruneWorktreeResult.
+ * Since T13924 the removal goes through the worktree package's
+ * `disposeWorktree` engine, so these run against a real repository and real
+ * worktrees under a sandboxed CLEO_HOME: a dirty worktree is kept (never
+ * force-removed), a clean one whose commits are on `main` is removed.
+ *
+ * @task T1462
+ * @task T13924
  */
-
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-// ---------------------------------------------------------------------------
-// Module-level mocks (hoisted before all imports)
-// ---------------------------------------------------------------------------
-
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
-  // execFile is consumed by the worktree status-enrichment path (list.ts) that
-  // prune transitively imports; provide it so the mock is shape-complete.
-  execFile: vi.fn(),
-}));
-
-// Spy on fs — we'll mock existsSync / rmSync / appendFileSync selectively.
-vi.mock('node:fs', async (importOriginal) => {
-  const original = await importOriginal<typeof import('node:fs')>();
-  return {
-    ...original,
-    appendFileSync: vi.fn(),
-    existsSync: vi.fn(),
-    mkdirSync: vi.fn(),
-    readdirSync: vi.fn(() => []),
-    rmSync: vi.fn(),
-  };
-});
-
-// ---------------------------------------------------------------------------
-// Imports (must come after vi.mock declarations)
-// ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, rmSync } from 'node:fs';
-import { pruneWorktree } from '../branch-lock.js';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { pruneWorktree, resolveAgentWorktreeRoot } from '../branch-lock.js';
 
-// ---------------------------------------------------------------------------
-// Typed mocks
-// ---------------------------------------------------------------------------
-
-const mockExecFileSync = vi.mocked(execFileSync);
-const mockExistsSync = vi.mocked(existsSync);
-const mockRmSync = vi.mocked(rmSync);
-const mockAppendFileSync = vi.mocked(appendFileSync);
-
-const PROJECT_ROOT = '/fake/project';
-
-// ---------------------------------------------------------------------------
-// Git mock helper
-// ---------------------------------------------------------------------------
-
-/**
- * Configure execFileSync to respond to git sub-commands with predictable
- * outputs. Each option controls the return value for a specific git call.
- */
-function setupGitMock(options: {
-  revParseTopLevel?: string | null;
-  statusOutput?: string;
-  branchListOutput?: string;
-  aheadLogOutput?: string;
-  worktreeRemoveFails?: boolean;
-}) {
-  mockExecFileSync.mockImplementation((...args: Parameters<typeof execFileSync>) => {
-    const [cmd, argv] = args as [string, string[]];
-    if (cmd !== 'git') return '' as unknown as ReturnType<typeof execFileSync>;
-
-    const sub = argv[0];
-
-    if (sub === 'rev-parse' && argv.includes('--show-toplevel')) {
-      if (options.revParseTopLevel === null) throw new Error('not a git repo');
-      return (options.revParseTopLevel ?? PROJECT_ROOT) as unknown as ReturnType<
-        typeof execFileSync
-      >;
-    }
-    if (sub === 'rev-parse' && argv.includes('--abbrev-ref')) {
-      return 'main' as unknown as ReturnType<typeof execFileSync>;
-    }
-    if (sub === 'status') {
-      return (options.statusOutput ?? '') as unknown as ReturnType<typeof execFileSync>;
-    }
-    if (sub === 'branch' && argv.includes('--list')) {
-      return (options.branchListOutput ?? '') as unknown as ReturnType<typeof execFileSync>;
-    }
-    if (sub === 'log') {
-      return (options.aheadLogOutput ?? '') as unknown as ReturnType<typeof execFileSync>;
-    }
-    if (sub === 'worktree' && argv[1] === 'remove') {
-      if (options.worktreeRemoveFails) throw new Error('worktree remove failed');
-      return '' as unknown as ReturnType<typeof execFileSync>;
-    }
-    // All other git calls succeed silently
-    return '' as unknown as ReturnType<typeof execFileSync>;
-  });
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim();
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+const prevCleoHome = process.env['CLEO_HOME'];
+let base: string;
+let repo: string;
+let audit: string;
+
+/** A worktree for `taskId` on `task/<taskId>` at main's commit. */
+function addWorktree(taskId: string): string {
+  const wt = join(resolveAgentWorktreeRoot(repo), taskId);
+  git(repo, 'worktree', 'add', '-q', '-b', `task/${taskId}`, wt);
+  return wt;
+}
+
+/** Commit a file on the worktree's own branch. */
+function commitIn(wt: string, file: string): void {
+  writeFileSync(join(wt, file), `${file}\n`);
+  git(wt, 'add', file);
+  git(wt, 'commit', '-q', '-m', `add ${file}`);
+}
+
+beforeEach(() => {
+  base = realpathSync(mkdtempSync(join(tmpdir(), 'prune-worktree-')));
+  process.env['CLEO_HOME'] = join(base, 'cleo-home');
+  repo = join(base, 'repo');
+  audit = join(base, 'audit.jsonl');
+  mkdirSync(repo);
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'config', 'user.name', 'T');
+  git(repo, 'config', 'user.email', 't@e.x');
+  writeFileSync(join(repo, 'a.ts'), 'export const a = 1;\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-q', '-m', 'init');
+});
+
+afterEach(() => {
+  if (prevCleoHome === undefined) delete process.env['CLEO_HOME'];
+  else process.env['CLEO_HOME'] = prevCleoHome;
+  rmSync(base, { recursive: true, force: true });
+});
 
 describe('pruneWorktree', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // -------------------------------------------------------------------------
-  // No worktree present
-  // -------------------------------------------------------------------------
-
   describe('when worktree directory does not exist', () => {
-    it('returns status=skipped and skips rmSync', () => {
-      mockExistsSync.mockReturnValue(false);
-      setupGitMock({ branchListOutput: '' });
-
-      const result = pruneWorktree('T9001', PROJECT_ROOT);
-
-      expect(result.status).toBe('skipped');
-      expect(result.taskId).toBe('T9001');
-      expect(result.worktreeRemoved).toBe(false);
-      expect(mockRmSync).not.toHaveBeenCalled();
+    it('returns status=skipped and deletes a stale branch holding no new commits', () => {
+      git(repo, 'branch', 'task/T9001');
+      const result = pruneWorktree('T9001', repo);
+      expect(result).toMatchObject({
+        status: 'skipped',
+        worktreeRemoved: false,
+        branchDeleted: true,
+      });
+      expect(git(repo, 'branch', '--list', 'task/T9001')).toBe('');
     });
 
-    it('still deletes a stale branch when the directory is already gone', () => {
-      mockExistsSync.mockReturnValue(false);
-      // branch --list returns non-empty → branch exists
-      setupGitMock({ branchListOutput: 'task/T9001' });
-
-      const result = pruneWorktree('T9001', PROJECT_ROOT);
-
+    it('keeps a stale branch that holds commits main does not (T13924)', () => {
+      const wt = addWorktree('T9002');
+      commitIn(wt, 'w.ts');
+      git(repo, 'worktree', 'remove', '--force', wt);
+      const result = pruneWorktree('T9002', repo);
       expect(result.status).toBe('skipped');
-      expect(result.branchDeleted).toBe(true);
+      expect(result.branchDeleted).toBe(false);
+      expect(git(repo, 'branch', '--list', 'task/T9002')).toContain('task/T9002');
     });
 
-    it('marks branchDeleted=true even when there is no branch to delete', () => {
-      mockExistsSync.mockReturnValue(false);
-      setupGitMock({ branchListOutput: '' });
-
-      const result = pruneWorktree('T9001', PROJECT_ROOT);
-
-      expect(result.branchDeleted).toBe(true);
+    it('marks branchDeleted=true when there is no branch to delete', () => {
+      expect(pruneWorktree('T9003', repo).branchDeleted).toBe(true);
     });
   });
-
-  // -------------------------------------------------------------------------
-  // Happy path — worktree exists and is clean
-  // -------------------------------------------------------------------------
 
   describe('when worktree exists and is clean', () => {
-    beforeEach(() => {
-      mockExistsSync.mockReturnValue(true);
-    });
-
-    it('returns status=pruned after successful removal', () => {
-      setupGitMock({ statusOutput: '', branchListOutput: '', aheadLogOutput: '' });
-
-      const result = pruneWorktree('T9002', PROJECT_ROOT);
-
-      expect(result.status).toBe('pruned');
-      expect(result.taskId).toBe('T9002');
-      expect(result.worktreeRemoved).toBe(true);
-      expect(result.wasDirty).toBe(false);
-    });
-
-    it('deletes the branch when it has 0 commits ahead of HEAD', () => {
-      setupGitMock({
-        statusOutput: '',
-        branchListOutput: 'task/T9002',
-        aheadLogOutput: '',
+    it('removes it and its branch when every commit is on main', () => {
+      const wt = addWorktree('T9004');
+      const result = pruneWorktree('T9004', repo, { auditLogPath: audit });
+      expect(result).toMatchObject({
+        status: 'pruned',
+        worktreeRemoved: true,
+        branchDeleted: true,
+        wasDirty: false,
       });
-
-      const result = pruneWorktree('T9002', PROJECT_ROOT);
-
-      expect(result.branchDeleted).toBe(true);
+      expect(existsSync(wt)).toBe(false);
+      expect(existsSync(audit)).toBe(false);
     });
 
-    it('leaves the branch when it has commits ahead of HEAD', () => {
-      setupGitMock({
-        statusOutput: '',
-        branchListOutput: 'task/T9003',
-        aheadLogOutput: 'abc123\ndef456',
-      });
-
-      const result = pruneWorktree('T9003', PROJECT_ROOT);
-
-      expect(result.branchDeleted).toBe(false);
-      // The worktree itself is still removed
-      expect(result.worktreeRemoved).toBe(true);
-    });
-
-    it('falls back to rmSync when git worktree remove fails', () => {
-      setupGitMock({
-        statusOutput: '',
-        branchListOutput: '',
-        aheadLogOutput: '',
-        worktreeRemoveFails: true,
-      });
-
-      const result = pruneWorktree('T9004', PROJECT_ROOT);
-
-      expect(mockRmSync).toHaveBeenCalled();
-      expect(result.status).toBe('pruned');
-      expect(result.worktreeRemoved).toBe(true);
+    it('removes a git-locked worktree once merged, and leaves no registration', () => {
+      const wt = addWorktree('T9005');
+      commitIn(wt, 'm.ts');
+      git(repo, 'merge', '-q', 'task/T9005');
+      git(repo, 'worktree', 'lock', wt);
+      expect(pruneWorktree('T9005', repo).worktreeRemoved).toBe(true);
+      expect(git(repo, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1);
     });
   });
 
-  // -------------------------------------------------------------------------
-  // Dirty worktree — audit log
-  // -------------------------------------------------------------------------
-
-  describe('when worktree is dirty', () => {
-    beforeEach(() => {
-      mockExistsSync.mockReturnValue(true);
-    });
-
-    it('marks wasDirty=true', () => {
-      setupGitMock({ statusOutput: 'M  src/foo.ts', branchListOutput: '' });
-
-      const result = pruneWorktree('T9005', PROJECT_ROOT);
-
-      expect(result.wasDirty).toBe(true);
-      expect(result.status).toBe('pruned');
-    });
-
-    it('writes an audit log entry when dirty', () => {
-      setupGitMock({ statusOutput: 'M  src/foo.ts', branchListOutput: '' });
-
-      pruneWorktree('T9006', PROJECT_ROOT, { auditLogPath: '/tmp/test-audit.jsonl' });
-
-      expect(mockAppendFileSync).toHaveBeenCalledWith(
-        '/tmp/test-audit.jsonl',
-        expect.stringContaining('"action":"force-remove-dirty"'),
-        'utf-8',
-      );
-    });
-
-    it('does NOT write an audit log entry when clean', () => {
-      setupGitMock({ statusOutput: '', branchListOutput: '' });
-
-      pruneWorktree('T9007', PROJECT_ROOT, { auditLogPath: '/tmp/test-audit.jsonl' });
-
-      expect(mockAppendFileSync).not.toHaveBeenCalled();
+  describe('when worktree content or commits are not preserved (T13924)', () => {
+    it.each([
+      ['a tracked change', (wt: string) => writeFileSync(join(wt, 'a.ts'), 'changed\n')],
+      ['an untracked file', (wt: string) => writeFileSync(join(wt, 'new.ts'), 'new\n')],
+      ['a commit only on its branch', (wt: string) => commitIn(wt, 'w.ts')],
+    ])('keeps a worktree with %s, wasDirty, and records a kept audit entry', (_label, change) => {
+      const wt = addWorktree('T9006');
+      change(wt);
+      const result = pruneWorktree('T9006', repo, { auditLogPath: audit });
+      expect(result).toMatchObject({
+        status: 'skipped',
+        worktreeRemoved: false,
+        branchDeleted: false,
+        wasDirty: true,
+      });
+      expect(result.error).toContain('not proven preserved');
+      expect(existsSync(wt)).toBe(true);
+      const entry = JSON.parse(readFileSync(audit, 'utf-8').trim());
+      expect(entry).toMatchObject({ taskId: 'T9006', action: 'kept' });
+      expect(entry.unpreserved).toBeTruthy();
     });
   });
-
-  // -------------------------------------------------------------------------
-  // Error handling
-  // -------------------------------------------------------------------------
 
   describe('error handling', () => {
     it('returns status=error when the directory is not a git repo', () => {
-      mockExistsSync.mockReturnValue(false);
-      setupGitMock({ revParseTopLevel: null });
-
-      const result = pruneWorktree('T9008', '/not-a-repo');
-
+      const plain = join(base, 'plain');
+      mkdirSync(plain);
+      const result = pruneWorktree('T9008', plain);
       expect(result.status).toBe('error');
       expect(result.error).toMatch(/Not a git repo/);
-    });
-
-    it('returns status=error when both git remove and rmSync fail', () => {
-      mockExistsSync.mockReturnValue(true);
-      setupGitMock({ statusOutput: '', branchListOutput: '', worktreeRemoveFails: true });
-      mockRmSync.mockImplementation(() => {
-        throw new Error('rmSync also failed');
-      });
-
-      const result = pruneWorktree('T9009', PROJECT_ROOT);
-
-      expect(result.status).toBe('error');
-      expect(result.error).toMatch(/Failed to remove worktree/);
-      expect(result.worktreeRemoved).toBe(false);
     });
   });
 });

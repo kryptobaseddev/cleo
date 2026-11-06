@@ -6,8 +6,6 @@
  *
  * - Git-aware prune-plan construction (`napi.pruneWorktrees`) — read-only
  *   discovery of merged-in worktrees + orphan branches.
- * - Recursive directory removal (`napi.removeDir`) — replaces the
- *   `rmSync` + `git worktree remove` fallback that previously lived here.
  *
  * The TypeScript layer keeps three concerns that are explicitly outside the
  * SDK boundary per ADR-061:
@@ -25,19 +23,14 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PruneWorktreesOptions, PruneWorktreesResult } from '@cleocode/contracts';
 import { getGitRoot, gitSilent } from './git.js';
-import {
-  destroyWorktree as napiDestroyWorktree,
-  pruneWorktrees as napiPrune,
-  removeDir as napiRemoveDir,
-} from './napi-binding.js';
+import { pruneWorktrees as napiPrune } from './napi-binding.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
-import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
-import { releaseWorktreeTaskLock } from './worktree-lock.js';
+import { disposeWorktree } from './worktree-dispose.js';
 
 /**
  * Prune orphaned agent worktrees for a project.
@@ -49,7 +42,7 @@ import { releaseWorktreeTaskLock } from './worktree-lock.js';
  *    — the SDK plan is currently advisory; the TS layer drives the actual
  *    removal because audit + sentinel concerns are TS-owned per ADR-061.
  * 3. Scan the XDG worktree root, filtering by `preserveTaskIds`/`idleDays`.
- * 4. For each eligible entry: unlock via git → remove via napi → audit-log →
+ * 4. For each eligible entry: {@link disposeWorktree} (T13924) → audit-log →
  *    sentinel-index cleanup.
  *
  * @param options - Prune options with project root and optional preserve list.
@@ -220,174 +213,12 @@ function classifyPruneCandidate(
 }
 
 /**
- * Check whether a worktree has uncommitted changes (dirty state).
+ * Dispose of a single worktree entry through {@link disposeWorktree} (T13924),
+ * then write audit + sentinel-index entries.
  *
- * Runs `git status --porcelain -uall` inside the worktree. `-uall` expands
- * untracked directories so no file (including .env, local artifacts, etc.) is
- * missed. Returns `false` when git is unavailable so we never block cleanup
- * on a git error.
- *
- * @param worktreePath - Absolute path to the worktree directory.
- * @returns `true` when uncommitted changes are present; `false` otherwise.
- *
- * @task T11996
- * @internal
- */
-function isWorktreeDirty(worktreePath: string): boolean {
-  try {
-    const out = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain', '-uall'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10_000,
-    });
-    return out.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check whether a worktree has commits not pushed to any remote ref.
- *
- * Two cases (T11996 Amendment 3):
- * (a) Branch with a configured upstream: commits ahead of `@{upstream}`.
- * (b) Branch with no upstream (never pushed): commits not reachable from any
- *     remote-tracking ref.
- * (c) Detached HEAD: commits not reachable from any remote-tracking ref.
- *
- * Returns `false` when git is unavailable or the worktree has no commits.
- *
- * @param worktreePath - Absolute path to the worktree directory.
- * @returns `true` when unpushed commits exist; `false` otherwise.
- *
- * @task T11996
- * @internal
- */
-function hasUnpushedCommits(worktreePath: string): boolean {
-  // Case (a): branch has a tracking upstream — check ahead count.
-  try {
-    const aheadStr = execFileSync(
-      'git',
-      ['-C', worktreePath, 'rev-list', '--count', '@{upstream}..HEAD'],
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 10_000,
-      },
-    ).trim();
-    const aheadCount = Number.parseInt(aheadStr, 10);
-    if (!Number.isNaN(aheadCount) && aheadCount > 0) return true;
-    // Upstream exists and ahead count is 0 — no unpushed commits.
-    return false;
-  } catch {
-    // No upstream configured — fall through to case (b)/(c).
-  }
-
-  // Case (b)/(c): no upstream configured — check whether HEAD is reachable
-  // from the union of all remote-tracking refs.
-  try {
-    const remoteRefsOut = execFileSync(
-      'git',
-      ['-C', worktreePath, 'for-each-ref', '--format=%(refname)', 'refs/remotes/'],
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 10_000,
-      },
-    ).trim();
-    const remoteRefs = remoteRefsOut.split('\n').filter(Boolean);
-    if (remoteRefs.length === 0) {
-      // No remotes configured — any local commit is "unpushed".
-      try {
-        const headOut = execFileSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: 5_000,
-        }).trim();
-        return headOut.length > 0;
-      } catch {
-        return false;
-      }
-    }
-    // Count commits reachable from HEAD but not from any remote ref.
-    const args = ['-C', worktreePath, 'rev-list', '--count', 'HEAD', '--not', ...remoteRefs];
-    const countOut = execFileSync('git', args, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 15_000,
-    }).trim();
-    const count = Number.parseInt(countOut, 10);
-    return !Number.isNaN(count) && count > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Quarantine a dirty/unpushed worktree by packing it into a `.tar.gz` archive
- * in `<projectRoot>/.cleo/quarantine/worktrees/`. The original directory is
- * LEFT INTACT (never deleted). An audit JSONL entry is written.
- *
- * The archive is created with `tar -czf ... -C <parent> <taskId>` so the
- * archive root is `<taskId>/`. `--dereference` captures symlink targets.
- * No exclusions are applied — the archive captures ALL files including
- * `.env`, ignored artifacts, etc. (T11996 AC: untracked + ignored files).
- *
- * @returns Absolute path to the created archive, or `null` on failure.
- *
- * @task T11996
- * @internal
- */
-function quarantineWorktreeDir(
-  worktreePath: string,
-  taskId: string,
-  projectRoot: string,
-  reason: string,
-): string | null {
-  try {
-    const quarantineDir = join(projectRoot, '.cleo', 'quarantine', 'worktrees');
-    mkdirSync(quarantineDir, { recursive: true });
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const archiveName = `${taskId}-${ts}.tar.gz`;
-    const archivePath = join(quarantineDir, archiveName);
-
-    // Capture untracked AND ignored files by not excluding anything.
-    execFileSync(
-      'tar',
-      ['-czf', archivePath, '--dereference', '-C', join(worktreePath, '..'), taskId],
-      {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 120_000,
-      },
-    );
-
-    // Write audit entry — ZERO desktop output (T11996 Amendment 6).
-    const auditPath = join(quarantineDir, 'audit.jsonl');
-    const entry = JSON.stringify({
-      ts: new Date().toISOString(),
-      action: 'quarantine',
-      worktreePath,
-      taskId,
-      archivePath,
-      reason,
-      agentId: process.env['CLEO_AGENT_ID'] ?? 'cleo',
-    });
-    appendFileSync(auditPath, `${entry}\n`, { encoding: 'utf-8' });
-
-    return archivePath;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Remove a single worktree entry: check dirty/unpushed state first, then
- * either quarantine (if unsafe) or unlock+remove via napi-backed directory
- * removal, then write audit + sentinel-index entries.
- *
- * T11996: dirty or unpushed worktrees are QUARANTINED (tar archive in
- * `<projectRoot>/.cleo/quarantine/worktrees/`), never deleted. The original
- * directory is left on disk after quarantine.
+ * A worktree whose content or commits are not proven preserved is kept on
+ * disk untouched and reported in `quarantined`; one the dependents/evidence
+ * guard keeps, or whose removal failed, is reported in `errors`.
  *
  * Mutates `removed`, `quarantined`, and `errors` in place.
  *
@@ -402,87 +233,8 @@ function pruneSingleEntry(
   errors: Array<{ path: string; reason: string }>,
 ): void {
   const { taskId, path, reason } = decision;
-
-  // T13696/T13700: never delete a worktree another checkout links into, or
-  // one an earlier disposal kept (its marker's evidence is re-checked here).
-  const kept = guardWorktreeDisposal(path, { taskId, reason, gitRoot, projectRoot });
-  if (kept !== null) {
-    errors.push({ path, reason: describeDisposalBlockers(path, kept) });
-    return;
-  }
-
-  // T11996: Dirty/unpushed guard — quarantine instead of deleting.
-  const dirty = isWorktreeDirty(path);
-  const unpushed = dirty ? false : hasUnpushedCommits(path);
-  const shouldQuarantine = dirty || unpushed;
-  const quarantineReason = dirty ? 'dirty' : 'unpushed';
-
-  if (shouldQuarantine) {
-    const archivePath = quarantineWorktreeDir(path, taskId, projectRoot, quarantineReason);
-    if (archivePath !== null) {
-      quarantined.push(path);
-      appendWorktreeAuditLog(projectRoot, {
-        action: 'quarantine',
-        xdgPath: path,
-        taskId,
-        reason: `${reason}+${quarantineReason}`,
-        success: true,
-      });
-    } else {
-      errors.push({
-        path,
-        reason: `quarantine tar failed — worktree preserved (T11996, was ${quarantineReason})`,
-      });
-      appendWorktreeAuditLog(projectRoot, {
-        action: 'quarantine',
-        xdgPath: path,
-        taskId,
-        reason: `${reason}+${quarantineReason}`,
-        success: false,
-        error: 'tar archive creation failed',
-      });
-    }
-    return;
-  }
-
-  // T11123: Use NAPI destroyWorktree (Rust worktrunk-core) instead of raw
-  // git worktree unlock + remove shell-outs. The NAPI binding handles
-  // unlock + force-remove atomically in Rust.
-  let pruneSuccess = false;
-  let errorMessage: string | null = null;
-  try {
-    const result = napiDestroyWorktree({
-      repoRoot: gitRoot,
-      worktreePath: path,
-      force: true,
-    });
-    pruneSuccess = result.removed;
-    // T11033 — NAPI may report success even when untracked directories
-    // survive inside the worktree. Verify on-disk reality.
-    if (pruneSuccess && existsSync(path)) {
-      pruneSuccess = false;
-    }
-  } catch (err) {
-    errorMessage = err instanceof Error ? err.message : String(err);
-  }
-
-  if (!pruneSuccess) {
-    try {
-      // Delegate the recursive directory removal to worktrunk-core via napi
-      // (T10203). The SDK is best-effort: read/unlink/rmdir errors are
-      // silently skipped, so a non-zero file count signals success.
-      napiRemoveDir({ path });
-      pruneSuccess = true;
-      // Also run git worktree prune to clean stale admin entries
-      // left behind by the failed NAPI destroy.
-      gitSilent(['worktree', 'prune'], gitRoot);
-    } catch (err) {
-      if (!errorMessage) {
-        errorMessage = err instanceof Error ? err.message : String(err);
-      }
-    }
-  }
-  if (pruneSuccess) {
+  const disposal = disposeWorktree({ worktreePath: path, gitRoot, projectRoot, taskId, reason });
+  if (disposal.removed) {
     removed.push(path);
     appendWorktreeAuditLog(projectRoot, {
       action: 'prune',
@@ -492,19 +244,21 @@ function pruneSingleEntry(
       success: true,
     });
     removeWorktreeFromSentinelIndex(gitRoot, taskId);
-    // T12506: a pruned worktree's per-task lock guards nothing — free it.
-    releaseWorktreeTaskLock(computeProjectHash(projectRoot), taskId);
     return;
   }
-  const finalError = errorMessage ?? 'napi removeDir failed';
-  errors.push({ path, reason: finalError });
+  const why = disposal.keptReason ?? 'kept';
+  if (disposal.unpreserved !== undefined && !disposal.kept && disposal.failed === undefined) {
+    quarantined.push(path);
+  } else {
+    errors.push({ path, reason: why });
+  }
   appendWorktreeAuditLog(projectRoot, {
     action: 'prune',
     xdgPath: path,
     taskId,
-    reason,
+    reason: `${reason}+kept`,
     success: false,
-    error: finalError,
+    error: why,
   });
 }
 
