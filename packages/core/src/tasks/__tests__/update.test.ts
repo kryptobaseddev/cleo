@@ -690,8 +690,21 @@ describe('updateTask', () => {
       updateTask({ taskId: 'T001', status: 'active' }, env.tempDir, accessor),
     ).rejects.toMatchObject({ code: ExitCode.SESSION_UNBOUND });
     expect((await accessor.loadSingleTask('T001'))?.claim).toBeUndefined();
+    // A refused call writes nothing: the other fields stay as they were.
+    await expect(
+      updateTask({ taskId: 'T001', status: 'active', priority: 'high' }, env.tempDir, accessor),
+    ).rejects.toMatchObject({ code: ExitCode.SESSION_UNBOUND });
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
 
     const sessionId = await bindTestSession(env);
+    // Another session's live lease is refused before anything is written too.
+    await accessor.claimTask('T001', { sessionId: 'ses_other', agentId: null, mode: 'acquire' });
+    await expect(
+      updateTask({ taskId: 'T001', status: 'active', priority: 'high' }, env.tempDir, accessor),
+    ).rejects.toMatchObject({ code: ExitCode.TASK_CLAIMED });
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
+    await accessor.unclaimTask('T001', { sessionId: 'ses_other' });
+
     const result = await updateTask(
       { taskId: 'T001', status: 'active', priority: 'high' },
       env.tempDir,

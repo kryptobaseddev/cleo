@@ -316,16 +316,36 @@ export async function updateTask(
     options = { ...options, acceptance: normalizeAcceptance(options.acceptance) };
   }
   // T14268 (owner decision D11230): `active` is a live claim lease, never a
-  // stored status, so `--status active` means `cleo start`: the other fields
-  // are written as usual, then the caller's session takes the lease.
+  // stored status, so `--status active` means `cleo start`. Every refusal
+  // the start can raise comes first (an unbound caller, unresolved
+  // dependencies, another holder's live lease), so a refused call writes
+  // nothing; then the other fields are written, then the lease is taken.
   if (options.status === 'active') {
     const { status: _active, ...rest } = options;
     const others = Object.entries(rest).some(
       ([key, value]) => key !== 'taskId' && value !== undefined,
     );
     const acc = accessor ?? (await getTaskAccessor(cwd));
+    const { assertTaskStartable, resolveClaimant, startTask } = await import(
+      '../task-work/index.js'
+    );
+    const { requireFocusSessionId } = await import('../sessions/focus-state-store.js');
+    await requireFocusSessionId(`start work on ${options.taskId}`, cwd);
+    const current = await acc.loadSingleTask(options.taskId);
+    // @sync-invariant none:input-shape an unknown task id is refused before anything is written
+    if (!current) throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`);
+    await assertTaskStartable(acc, options.taskId);
+    const claimant = await resolveClaimant(cwd);
+    const { claimAllows, claimClockNow, taskClaimedError } = await import('../store/task-claim.js');
+    const now = claimClockNow();
+    // The start's own compare-and-set also accepts a spawn-family hand-off;
+    // through `update` a live lease another session holds is refused here.
+    const held = current.claim;
+    if (held && !claimAllows(held, 'acquire', claimant.sessionId, now, [], claimant.agentId)) {
+      // @sync-invariant none:input-shape another holder's live lease is refused before anything is written
+      throw taskClaimedError(options.taskId, held, claimant, now, 'start');
+    }
     const written = others ? await updateTask(rest, cwd, acc) : null;
-    const { startTask } = await import('../task-work/index.js');
     await startTask(options.taskId, cwd, acc);
     const task = await acc.loadSingleTask(options.taskId);
     // @sync-invariant none:input-shape the task was read a moment earlier in this call; a vanished row is a not-found, not a rule
