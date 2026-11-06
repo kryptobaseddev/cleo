@@ -17,7 +17,7 @@
  * |------------------------|--------------------------|----------------------------------------------------------|
  * | {@link OPERATION_RESULT_SCHEMAS} | `@cleocode/contracts`  | precise top-level data keys for the 5 workgraph reads     |
  * | {@link PROJECTION_PLANS}         | `./mvi-projection.js`  | the data PATH (`tasks.show→task`, `docs.list→attachments`) for projected reads |
- * | {@link MUTATE_PROJECTION_PLANS}  | `./mutate-projection.js` | the shared `{count, created, updated, deleted}` shape — but ONLY for the 6 ops that actually project it |
+ * | {@link MUTATE_PROJECTION_PLANS}  | `./mutate-projection.js` | the shared `{count, created, updated, deleted}` shape — but ONLY for the ops that actually project it |
  *
  * Resolution precedence inside {@link deriveOutputContract} (most-precise first):
  *
@@ -256,9 +256,9 @@ const MINIMAL_MUTATE_DATA_SCHEMA = {
  * Derive the shared minimal-mutate-envelope contract for a mutate op that
  * actually projects the `{count, created[], updated[], deleted[]}` shape.
  *
- * IMPORTANT: only the 6 ops with a {@link MUTATE_PROJECTION_PLANS} entry
+ * IMPORTANT: only the ops with a {@link MUTATE_PROJECTION_PLANS} entry
  * (`tasks.add`, `tasks.add-batch`, `tasks.saga.create`, `tasks.update`,
- * `tasks.complete`, `tasks.delete`) are rewritten into the minimal envelope by
+ * `tasks.complete`, `tasks.delete`, `tasks.cancel`, `tasks.restore`) are rewritten into the minimal envelope by
  * the dispatch middleware — `applyMutateProjection` / `mutate-minimal-envelope`
  * return the RAW domain payload untouched for every unplanned mutate op. The
  * caller ({@link deriveOutputContract}) therefore gates this on plan presence;

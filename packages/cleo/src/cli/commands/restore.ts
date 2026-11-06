@@ -369,6 +369,8 @@ const taskSubCommand = defineCommand({
           const resultData = response.data as Record<string, unknown>;
           cliOutput(
             {
+              // T14220: the standard mutation buckets (`/data/updated/0`) come first.
+              ...resultData,
               restored: true,
               taskId: resultData?.task,
               count: resultData?.count,
@@ -412,6 +414,8 @@ const taskSubCommand = defineCommand({
           const resultData = response.data as Record<string, unknown>;
           cliOutput(
             {
+              // T14220: the standard mutation buckets (`/data/updated/0`) come first.
+              ...resultData,
               restored: true,
               taskId: resultData?.task,
               previousStatus: resultData?.previousStatus,
@@ -484,6 +488,8 @@ const taskSubCommand = defineCommand({
         const resultData = response.data as Record<string, unknown>;
         cliOutput(
           {
+            // T14220: the standard mutation buckets (`/data/updated/0`) come first.
+            ...resultData,
             restored: true,
             taskId: resultData?.task,
             title: resultData?.title,
