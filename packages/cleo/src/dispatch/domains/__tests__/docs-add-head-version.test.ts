@@ -69,18 +69,18 @@ describe('docs.add records a head version for every doc it adds (T14329)', () =>
 
   it('inline content: add returns the head, fetch shows it, and an update on that base lands', async () => {
     const body = '# Research note\n\nFirst findings.\n';
-    const added = await add({ content: body, slug: 't14329-inline' });
+    const added = await add({ content: body, slug: 'inline-research-note' });
     expect(added.headVersionUid).toMatch(/^[0-9a-f-]{36}$/);
-    expect(await fetchedHead('t14329-inline')).toBe(added.headVersionUid);
+    expect(await fetchedHead('inline-research-note')).toBe(added.headVersionUid);
 
     const updated = await new DocsHandler().mutate('update', {
-      slug: 't14329-inline',
+      slug: 'inline-research-note',
       content: `${body}\n## More\n\nSecond pass.\n`,
       baseVersionUid: added.headVersionUid,
     });
     expect(updated.error).toBeUndefined();
     expect(updated.success).toBe(true);
-    const nextHead = await fetchedHead('t14329-inline');
+    const nextHead = await fetchedHead('inline-research-note');
     expect(nextHead).toBeDefined();
     expect(nextHead).not.toBe(added.headVersionUid);
   });
@@ -91,14 +91,14 @@ describe('docs.add records a head version for every doc it adds (T14329)', () =>
     const binaryPath = join(tempDir, 'diagram.png');
     await writeFile(binaryPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0xff, 0x00]));
 
-    const text = await add({ file: textPath, slug: 't14329-text-file' });
-    const binary = await add({ file: binaryPath, slug: 't14329-binary-file' });
-    const url = await add({ url: 'https://example.com/t14329', slug: 't14329-url' });
+    const text = await add({ file: textPath, slug: 'text-file-spec' });
+    const binary = await add({ file: binaryPath, slug: 'binary-file-diagram' });
+    const url = await add({ url: 'https://example.com/t14329', slug: 'external-reference' });
 
     for (const [slug, result] of [
-      ['t14329-text-file', text],
-      ['t14329-binary-file', binary],
-      ['t14329-url', url],
+      ['text-file-spec', text],
+      ['binary-file-diagram', binary],
+      ['external-reference', url],
     ] as const) {
       expect(result.headVersionUid, slug).toBeDefined();
       expect(await fetchedHead(slug), slug).toBe(result.headVersionUid);
