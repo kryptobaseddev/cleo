@@ -242,6 +242,24 @@ describe('recording a verdict (T14122)', () => {
     await expect(record()).rejects.toThrow(/reviewer’s own CLEO session/);
   });
 
+  it('the no-author fix runs as written: the delivering session claims a BLOCKED task, then the reviewer records (T14300)', async () => {
+    await bindTestSession(env);
+    vi.stubEnv('CLEO_AGENT_ID', 'agent-reviewer');
+    await env.accessor.updateTaskFields('T001', { status: 'blocked' });
+    const refused = await record().catch((err: unknown) => err);
+    expect(refused).toMatchObject({ fix: expect.stringContaining('`cleo claim T001`') });
+    expect(String((refused as { fix?: string }).fix)).toMatch(/never the reviewer/);
+    // `cleo claim T001` from the delivering session (tasks.claim → claimTask).
+    await env.accessor.claimTask('T001', {
+      sessionId: 'ses_author',
+      agentId: 'agent-author',
+      mode: 'acquire',
+    });
+    const v = await record();
+    expect(v.authors.sessionIds).toContain('ses_author');
+    expect(v.reviewer.sessionId).toBe(BOUND_TEST_SESSION_ID);
+  });
+
   it('a claim released by a refocus still names its author: the author is refused, another reviewer accepted (T14213)', async () => {
     // Session A (the bound test session) claims T001, then refocuses onto
     // other work, which releases the claim.

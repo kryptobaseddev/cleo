@@ -320,6 +320,58 @@ export async function findEpicAncestor(
 // =============================================================================
 
 /**
+ * The epic's unfinished children that sit at `stage` (T14300): while any
+ * does, the epic cannot advance past `stage` under `lifecycle.stageGate`.
+ *
+ * @param epicId - The epic.
+ * @param stage - Its current pipeline stage.
+ * @param accessor - DataAccessor for task lookups.
+ * @returns Their ids.
+ * @task T14300
+ */
+export async function epicStageBlockers(
+  epicId: string,
+  stage: string,
+  accessor: DataAccessor,
+): Promise<string[]> {
+  return (await accessor.getChildren(epicId))
+    .filter(
+      (child) =>
+        child.status !== 'done' &&
+        child.status !== 'cancelled' &&
+        child.status !== 'archived' &&
+        child.pipelineStage === stage,
+    )
+    .map((child) => child.id);
+}
+
+/**
+ * The remedy for a child refused by the strict stage gate (T14300): when no
+ * unfinished child sits at the epic's stage, advancing the epic works, so
+ * name that command; otherwise the gate and the epic's own advance refuse each
+ * other, and only the owner's `lifecycle.stageGate` decision clears it.
+ *
+ * @param taskId - The child that could not complete.
+ * @param epicId - Its epic.
+ * @param epicStage - The epic's stage.
+ * @param blockers - {@link epicStageBlockers} of the epic at that stage.
+ * @returns A remedy that runs as written.
+ * @task T14300
+ */
+export function stageGateRemedy(
+  taskId: string,
+  epicId: string,
+  epicStage: string,
+  blockers: readonly string[],
+): string {
+  // T13970: a hit means someone chose strict; never tell the agent to undo it.
+  const escalate = `report the epic to your lead or the owner with cleo show ${epicId}; they decide on lifecycle.stageGate, so do not change that setting yourself.`;
+  if (blockers.length === 0)
+    return `Advance the epic, then complete ${taskId} again: cleo update ${epicId} --pipeline-stage implementation. If advancing it is not yours to do, ${escalate}`;
+  return `Epic ${epicId} cannot advance either: its children ${blockers.join(', ')} are still at '${epicStage}', and lifecycle.stageGate=strict blocks them until it does. Only the owner clears this: ${escalate}`;
+}
+
+/**
  * Validate that an epic can advance its pipeline stage.
  *
  * An epic is **blocked** from advancing to a later stage when it has at least
@@ -383,18 +435,10 @@ export async function validateEpicStageAdvancement(
     return { valid: true };
   }
 
-  // Find all children whose stage equals the current epic stage and are not done
-  const children = await accessor.getChildren(epicId);
-  const blockers = children.filter((child) => {
-    if (child.status === 'done' || child.status === 'cancelled' || child.status === 'archived') {
-      return false;
-    }
-    return child.pipelineStage === currentStage;
-  });
-
+  const blockers = await epicStageBlockers(epicId, currentStage, accessor);
   if (blockers.length === 0) return { valid: true };
 
-  const blockerIds = blockers.map((t) => t.id).join(', ');
+  const blockerIds = blockers.join(', ');
   const message =
     `Epic ${epicId} cannot advance from "${currentStage}" to "${newStage}" — ` +
     `${blockers.length} child task(s) are still in-flight at stage "${currentStage}": ${blockerIds}. ` +

@@ -36,7 +36,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createWorktree } from '../worktree-create.js';
+import { assertCanonicalWorktreeLocation, createWorktree } from '../worktree-create.js';
 
 /** Initialise a bare-minimum git repository in a temp directory. */
 function initTempRepo(): string {
@@ -155,22 +155,24 @@ describe('createWorktree — location guard (T9809)', () => {
     expect(result.path).toContain('worktrees');
   });
 
-  it('guard error message includes the forbidden path and canonical root', async () => {
-    // Validate the error message contract by testing the guard logic directly.
+  it('the guard error names the forbidden path and the computed root, in its message and its fix (T14300)', async () => {
     const { getCleoWorktreesRoot } = await import('@cleocode/paths');
     const canonicalRoot = getCleoWorktreesRoot();
-    const normalRoot = canonicalRoot.endsWith('/') ? canonicalRoot : `${canonicalRoot}/`;
     const roguePath = '/mnt/projects/cleocode/T_ROGUE_TEST';
-
-    // Verify the rogue path would be caught.
-    expect(roguePath.startsWith(normalRoot)).toBe(false);
-
-    // Confirm the expected error message includes the key strings.
-    const expectedError =
-      `E_WT_LOCATION_FORBIDDEN: worktree path "${roguePath}" is outside the ` +
-      `canonical XDG location "${canonicalRoot}".`;
-    expect(expectedError).toContain('E_WT_LOCATION_FORBIDDEN');
-    expect(expectedError).toContain(roguePath);
-    expect(expectedError).toContain(canonicalRoot);
+    let thrown: { code?: string; fix?: string; message?: string } | undefined;
+    try {
+      assertCanonicalWorktreeLocation(roguePath);
+    } catch (err) {
+      thrown = err as { code?: string; fix?: string; message?: string };
+    }
+    expect(thrown?.code).toBe('E_WT_LOCATION_FORBIDDEN');
+    expect(thrown?.message).toContain(roguePath);
+    expect(thrown?.message).toContain(canonicalRoot);
+    expect(thrown?.fix).toContain(canonicalRoot);
+    expect(thrown?.fix).not.toContain('<cleoHome>');
+    // The fix's location is accepted by the same guard.
+    expect(() =>
+      assertCanonicalWorktreeLocation(join(canonicalRoot, 'abc123', 'T_ROGUE_TEST')),
+    ).not.toThrow();
   });
 });

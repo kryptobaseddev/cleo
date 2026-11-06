@@ -203,7 +203,7 @@ export async function coreTaskCancel(
   if (children.length > 0) {
     if (childStrategy === 'block') {
       throw new Error(
-        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); pass children='cascade' (cancel them) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
+        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); choose explicitly: --children cascade (cancel them) or --children reparent --to <epicId> (move them)`,
       );
     }
 
@@ -221,7 +221,7 @@ export async function coreTaskCancel(
       const cascadeThreshold = params?.cascadeThreshold ?? 10;
       if (descendants.length > cascadeThreshold && !params?.force) {
         throw new Error(
-          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
+          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; --force waives it (audited)`,
         );
       }
       affectedTasks.push(...descendants.map((descendant: { id: string }) => descendant.id));
@@ -245,7 +245,7 @@ export async function coreTaskCancel(
       // parent is mandatory.
       if (!params?.reparentTo) {
         throw new Error(
-          `E_REPARENT_TARGET_REQUIRED: children='reparent' requires reparentTo=<epicId> to name the new parent for ${taskId}'s ${children.length} child task(s)`,
+          `E_REPARENT_TARGET_REQUIRED: --children reparent needs --to <epicId> to name the new parent for ${taskId}'s ${children.length} child task(s)`,
         );
       }
       affectedTasks.push(...children.map((child: { id: string }) => child.id));
@@ -841,37 +841,72 @@ export async function taskCancel(
     const e = err as { message?: string };
     const message = e?.message ?? 'Failed to cancel task';
     if (message.startsWith('E_INVALID_STATE:')) {
-      return engineError('E_INVALID_STATE', message.replace(/^E_INVALID_STATE:\s*/, ''));
+      return engineError('E_INVALID_STATE', message.replace(/^E_INVALID_STATE:\s*/, ''), {
+        fix: `cleo show ${taskId} --full`,
+      });
     }
+    // T14300: the re-wrap carries a runnable CLI fix and the alternatives.
     if (message.startsWith('E_HAS_CHILDREN:')) {
-      return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''));
+      return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''), {
+        fix: `cleo cancel ${taskId} --children cascade`,
+        alternatives: [
+          { action: 'cancel the subtree', command: `cleo cancel ${taskId} --children cascade` },
+          {
+            action: 'move the children under another epic first',
+            command: `cleo cancel ${taskId} --children reparent --to <epicId>`,
+          },
+        ],
+      });
     }
     if (message.startsWith('E_CASCADE_THRESHOLD_EXCEEDED:')) {
       return engineError(
         'E_CASCADE_THRESHOLD_EXCEEDED',
         message.replace(/^E_CASCADE_THRESHOLD_EXCEEDED:\s*/, ''),
+        {
+          fix: `cleo cancel ${taskId} --children cascade --force`,
+          alternatives: [
+            {
+              action: 'waive the threshold (audited)',
+              command: `cleo cancel ${taskId} --children cascade --force`,
+            },
+            {
+              action: 'move the children under another epic instead',
+              command: `cleo cancel ${taskId} --children reparent --to <epicId>`,
+            },
+          ],
+        },
       );
     }
     if (message.startsWith('E_CASCADE_DISABLED:')) {
-      return engineError('E_CASCADE_DISABLED', message.replace(/^E_CASCADE_DISABLED:\s*/, ''));
+      return engineError('E_CASCADE_DISABLED', message.replace(/^E_CASCADE_DISABLED:\s*/, ''), {
+        fix: `cleo cancel ${taskId} --children reparent --to <epicId>`,
+      });
     }
     if (message.startsWith('E_INVALID_STRATEGY:')) {
-      return engineError('E_INVALID_STRATEGY', message.replace(/^E_INVALID_STRATEGY:\s*/, ''));
+      return engineError('E_INVALID_STRATEGY', message.replace(/^E_INVALID_STRATEGY:\s*/, ''), {
+        fix: `cleo cancel ${taskId} --children cascade`,
+      });
     }
     if (message.startsWith('E_REPARENT_TARGET_REQUIRED:')) {
       return engineError(
         'E_REPARENT_TARGET_REQUIRED',
         message.replace(/^E_REPARENT_TARGET_REQUIRED:\s*/, ''),
+        { fix: `cleo cancel ${taskId} --children reparent --to <epicId>` },
       );
     }
     if (message.includes(' not found')) {
-      return engineError('E_NOT_FOUND', message);
+      return engineError('E_NOT_FOUND', message, {
+        fix: 'cleo find "<title words>" --include-archive',
+      });
     }
     // T14217: a failed store write surfaces its SQLite cause, not a ~15 KB SQL echo.
     const storeFailure = boundedStoreWriteFailure(err);
     if (storeFailure) {
       // @sync-invariant none:input-shape the cancel transaction already rolled back; this only re-words the failure
-      return engineError('E_INTERNAL', storeFailure.message, { details: storeFailure.details });
+      return engineError('E_INTERNAL', storeFailure.message, {
+        fix: 'cleo doctor type-matrix',
+        details: storeFailure.details,
+      });
     }
     return cleoErrorToEngineResult(err, 'E_INTERNAL', message);
   }

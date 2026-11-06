@@ -816,7 +816,12 @@ async function mergeCiWait(
   if (run.status !== 'completed')
     return { reason: `${workflow} on merge commit ${short} is ${run.status}`, reran: false };
   if (run.conclusion === 'failure' || run.conclusion === 'timed_out')
-    return { reason: `${workflow} failed on merge commit ${short}`, reran: false, final: true };
+    // T14299: a failed run is never rerun; name the route that still closes it.
+    return {
+      reason: `${workflow} failed on merge commit ${short}; \`cleo done ${taskId} --plan\` names the evidence that still closes it`,
+      reran: false,
+      final: true,
+    };
   if (run.conclusion !== 'cancelled' && run.conclusion !== 'skipped') return null;
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(storeRoot);

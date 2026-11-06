@@ -494,13 +494,17 @@ export async function validateGateVerify(
     // Validate task ID format
     const idPattern = /^T\d{3,}$/;
     if (!idPattern.test(taskId)) {
-      return engineError('E_INVALID_INPUT', `Invalid task ID format: ${taskId}`);
+      return engineError('E_INVALID_INPUT', `Invalid task ID format: ${taskId}`, {
+        fix: 'cleo find "<title words>" --include-archive',
+      });
     }
 
     const accessor = await getTaskAccessor(projectRoot);
     const task = await accessor.loadSingleTask(taskId);
     if (!task) {
-      return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
+      return engineError('E_NOT_FOUND', `Task ${taskId} not found`, {
+        fix: 'cleo find "<title words>" --include-archive',
+      });
     }
 
     // Completed tasks are immutable w.r.t. verification (ADR-051 §11.1).
@@ -509,6 +513,7 @@ export async function validateGateVerify(
       return engineError(
         'E_ALREADY_DONE',
         `Task ${taskId} is already done — verification evidence cannot be added to completed tasks (ADR-051 §11.1)`,
+        { fix: `cleo show ${taskId} --full` },
       );
     }
 
@@ -529,6 +534,7 @@ export async function validateGateVerify(
         // @sync-invariant none:input-shape contradictory flags are refused before any read; nothing is written
         'E_INVALID_INPUT',
         '--no-run and --run-typed contradict each other: --run-typed executes typed gates on this write, --no-run forbids it',
+        { fix: `cleo verify ${taskId} --gate <gate> --evidence '<atoms>' --run-typed` },
       );
     const executeTyped = params.runTyped === true;
     // T12621: `evidence.allowCachedGates: false` disables reuse, so a
@@ -538,6 +544,7 @@ export async function validateGateVerify(
       return engineError(
         'E_GATE_CACHE_DISABLED',
         `this project sets evidence.allowCachedGates to false, so typed gates cannot be read from the cache; re-run the same command with --run-typed to execute them on this write`,
+        { fix: `cleo verify ${taskId} --gate <gate> --evidence '<atoms>' --run-typed` },
       );
     const initialAcRows = typedWrite ? await accessor.getAcRows(taskId) : [];
     let typedExecution: OperationExecutionContext | undefined;
@@ -612,6 +619,7 @@ export async function validateGateVerify(
           unknown.length > 0
             ? `Invalid gate(s) in gateEvidence: ${unknown.join(', ')}. Valid: ${VALID_GATES.join(', ')}`
             : 'gateEvidence needs at least one gate and excludes gate, all, reset and evidence',
+          { fix: `cleo done ${taskId} --plan` },
         );
     }
 
@@ -648,6 +656,7 @@ export async function validateGateVerify(
         return engineError(
           spawnCheck.code ?? 'E_LEAD_AUTHORSHIP_BYPASS',
           spawnCheck.message ?? 'Lead authorship bypass detected',
+          { fix: `cleo orchestrate spawn ${taskId}` },
         );
       }
     }
@@ -664,6 +673,7 @@ export async function validateGateVerify(
         'E_OVERRIDE_NOT_ACCEPTED',
         'CLEO_OWNER_OVERRIDE is not accepted by a derived multi-gate write (cleo done / verify --auto). ' +
           'Unset it, or record the gate with `cleo verify <id> --gate <gate> --evidence …`, which keeps the audited override path.',
+        { fix: `cleo verify ${taskId} --gate <gate> --evidence '<atoms>'` },
       );
     // T13790 (owner decision 2026-10-16): only the owner — an owner-marked
     // session on the owner's own terminal — may override; an agent without a
@@ -673,7 +683,7 @@ export async function validateGateVerify(
       : { requested: false as const };
     if (authority.requested && !authority.allowed) {
       // @sync-invariant none:local-only a non-owner override is refused before any write; only the local audit log is appended
-      return engineError(authority.code, authority.message);
+      return engineError(authority.code, authority.message, { fix: `cleo done ${taskId} --plan` });
     }
     const override = authority.requested
       ? { override: true, reason: authority.reason }
@@ -729,6 +739,7 @@ export async function validateGateVerify(
         return engineError(
           capResult.errorCode ?? 'E_OVERRIDE_CAP_EXCEEDED',
           capResult.errorMessage ?? 'Per-session override cap exceeded.',
+          { fix: `cleo done ${taskId} --plan` },
         );
       }
       sessionOverrideOrdinal = capResult.sessionOverrideOrdinal;
@@ -756,6 +767,7 @@ export async function validateGateVerify(
         return engineError(
           seResult.errorCode ?? 'E_SHARED_EVIDENCE_FLAG_REQUIRED',
           seResult.errorMessage ?? 'Shared evidence flag required.',
+          { fix: `cleo verify ${taskId} --gate <gate> --evidence '<atoms>' --shared-evidence` },
         );
       }
       sharedEvidenceAcknowledged ||= seResult.acknowledged === true;
@@ -791,6 +803,7 @@ export async function validateGateVerify(
         return engineError(
           'E_INVALID_INPUT',
           `Invalid gate: ${gate}. Valid: ${VALID_GATES.join(', ')}`,
+          { fix: `cleo verify ${taskId}` },
         );
       }
 
@@ -808,7 +821,7 @@ export async function validateGateVerify(
           parsed = parseEvidence(evidence);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          return engineError('E_EVIDENCE_INVALID', message);
+          return engineError('E_EVIDENCE_INVALID', message, { fix: `cleo done ${taskId} --plan` });
         }
 
         // T12107 (gh#1195): a sibling `commit:` atom anchors `files:` paths —
@@ -839,7 +852,7 @@ export async function validateGateVerify(
             ...(params.preview ? { readOnly: true } : {}),
           });
           if (!check.ok) {
-            return engineError(check.codeName, check.reason);
+            return engineError(check.codeName, check.reason, { fix: `cleo done ${taskId} --plan` });
           }
           atoms.push(check.atom);
         }
@@ -884,7 +897,9 @@ export async function validateGateVerify(
         if (isImplementedTarget && hasEngineMigrationLabel(task.labels ?? [])) {
           const locDropError = checkEngineMigrationLocDrop(atoms);
           if (locDropError) {
-            return engineError('E_EVIDENCE_INSUFFICIENT', locDropError);
+            return engineError('E_EVIDENCE_INSUFFICIENT', locDropError, {
+              fix: `cleo done ${taskId} --plan`,
+            });
           }
         }
 
@@ -897,7 +912,9 @@ export async function validateGateVerify(
         if (isImplementedTarget && hasCallsiteCoverageLabel(task.labels ?? [])) {
           const callsiteError = checkCallsiteCoverageAtom(atoms);
           if (callsiteError) {
-            return engineError('E_EVIDENCE_INSUFFICIENT', callsiteError);
+            return engineError('E_EVIDENCE_INSUFFICIENT', callsiteError, {
+              fix: `cleo done ${taskId} --plan`,
+            });
           }
         }
         return atoms;
@@ -931,7 +948,9 @@ export async function validateGateVerify(
             parsed = parseEvidence(params.evidence);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            return engineError('E_EVIDENCE_INVALID', message);
+            return engineError('E_EVIDENCE_INVALID', message, {
+              fix: `cleo done ${taskId} --plan`,
+            });
           }
           // T12107 (gh#1195): a sibling `commit:` atom anchors `files:` paths —
           // thread its sha so files are resolved against that commit's tree first.
@@ -947,7 +966,9 @@ export async function validateGateVerify(
               testRunPaths: testRunPathsOf(parsed.atoms),
             });
             if (!check.ok) {
-              return engineError(check.codeName, check.reason);
+              return engineError(check.codeName, check.reason, {
+                fix: `cleo done ${taskId} --plan`,
+              });
             }
             overrideAtoms.push(check.atom);
           }
@@ -1003,6 +1024,7 @@ export async function validateGateVerify(
               `Evidence is required. See ADR-051.\n` +
                 `Example: cleo verify ${taskId} --gate implemented --evidence commit:<sha>;files:<path>\n` +
                 `Or set CLEO_OWNER_OVERRIDE=1 with CLEO_OWNER_OVERRIDE_REASON=<reason> for emergency bypass (audited).`,
+              { fix: `cleo done ${taskId} --plan` },
             );
           }
           const checked = await validateEvidenceFor(params.evidence, targets);
@@ -1029,12 +1051,17 @@ export async function validateGateVerify(
             checkTaskEvidenceContext(evidenceContext, targetGate, atoms) ??
             (await boundHeadGapReason(task, atoms, projectRoot));
           if (contextualFailure)
-            return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
+            return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure, {
+              fix: `cleo done ${taskId} --plan`,
+            });
           evidenceStored.push(...atoms);
           attempts.push(atoms);
         }
         const last = attempts[attempts.length - 1];
-        if (!last) return engineError('E_INVALID_INPUT', `gateEvidence.${targetGate} is empty`);
+        if (!last)
+          return engineError('E_INVALID_INPUT', `gateEvidence.${targetGate} is empty`, {
+            fix: `cleo done ${taskId} --plan`,
+          });
         perGateAtoms.set(targetGate, attempts);
         verification.gates[targetGate] = true;
         verification.evidence![targetGate] = composeGateEvidence(
@@ -1054,7 +1081,10 @@ export async function validateGateVerify(
             ? null
             : (checkTaskEvidenceContext(evidenceContext, targetGate, validatedAtoms) ??
               (await boundHeadGapReason(task, validatedAtoms, projectRoot)));
-        if (contextualFailure) return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
+        if (contextualFailure)
+          return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure, {
+            fix: `cleo done ${taskId} --plan`,
+          });
         verification.gates[targetGate] = true;
         verification.evidence![targetGate] = composeGateEvidence(
           validatedAtoms,
@@ -1091,6 +1121,7 @@ export async function validateGateVerify(
         return engineError(
           'E_INVALID_INPUT',
           `Invalid gate: ${gate}. Valid: ${VALID_GATES.join(', ')}`,
+          { fix: `cleo verify ${taskId}` },
         );
       }
 
@@ -1132,7 +1163,10 @@ export async function validateGateVerify(
           .filter((result) => result.errorMessage?.startsWith(prefix))
           .map((result) => result.errorMessage!.replace('<taskId>', taskId));
       const invalid = refusedFrom(GATE_CACHE_INVALID_PREFIX);
-      if (invalid.length > 0) return engineError('E_GATE_CACHE_INVALID', invalid.join('\n'));
+      if (invalid.length > 0)
+        return engineError('E_GATE_CACHE_INVALID', invalid.join('\n'), {
+          fix: `cleo verify ${taskId} --run`,
+        });
       // T13512: a cache-only write (the default since T13521) needs a cached
       // pass only for the typed gates whose
       // criteria this write links (`satisfies:`). A gate it does not link is
@@ -1153,7 +1187,10 @@ export async function validateGateVerify(
             linked.has(result.binding.criterionId),
         )
         .map((result) => result.errorMessage!.replace('<taskId>', taskId));
-      if (notCached.length > 0) return engineError('E_GATE_NOT_CACHED', notCached.join('\n'));
+      if (notCached.length > 0)
+        return engineError('E_GATE_NOT_CACHED', notCached.join('\n'), {
+          fix: `cleo verify ${taskId} --run`,
+        });
       // T14056: the gates just run may have rewritten a report this write
       // validated; recording its old hash would point at bytes that are gone.
       const rewritten = executeTyped ? await rewrittenReports(evidenceStored) : [];
@@ -1165,6 +1202,7 @@ export async function validateGateVerify(
             'it was validated, so its recorded hash would name bytes that no longer exist. Run the ' +
             `typed gates first (cleo verify ${taskId} --run), then record this write without ` +
             '--run-typed: it reads their cached passes and validates the report they wrote.',
+          { fix: `cleo verify ${taskId} --run` },
         );
       typedExecution.assertActive();
       typedPhase = 'persisting the verification';
@@ -1210,6 +1248,7 @@ export async function validateGateVerify(
             throw new CleoError(
               ExitCode.CONCURRENT_MODIFICATION,
               'Typed verification task, criteria or prior results changed during execution; rerun against the current record',
+              { fix: `cleo verify ${taskId}` },
             );
           await revalidateTaskGateResults(
             current,
@@ -1431,14 +1470,18 @@ export async function validateGateVerify(
     // T12621: a bare "Shared operation deadline reached" named neither the
     // phase that ran out nor the remedy, so agents grepped the dist bundle.
     if (err instanceof OperationExecutionError && err.code === 'E_OPERATION_DEADLINE')
-      return engineError('E_OPERATION_DEADLINE', typedDeadlineMessage(params.taskId, typedPhase));
+      return engineError('E_OPERATION_DEADLINE', typedDeadlineMessage(params.taskId, typedPhase), {
+        fix: `cleo verify ${params.taskId} --run`,
+      });
     const message =
       err instanceof Error
         ? [err.message, err.cause instanceof Error ? err.cause.message : undefined]
             .filter(Boolean)
             .join(': ')
         : String(err);
-    return engineError(err instanceof CleoError ? err.toLAFSError().code : 'E_GENERAL', message);
+    return engineError(err instanceof CleoError ? err.toLAFSError().code : 'E_GENERAL', message, {
+      fix: `cleo verify ${params.taskId} --explain`,
+    });
   } finally {
     ownedVerificationExecution?.close();
   }

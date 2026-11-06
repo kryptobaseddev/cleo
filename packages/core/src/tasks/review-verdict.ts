@@ -244,8 +244,11 @@ export async function buildReviewPacket(
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
-  // @sync-invariant none:input-shape an unknown task is refused before anything is read or written
-  if (task === null) throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
+  if (task === null)
+    // @sync-invariant none:input-shape an unknown task is refused before anything is read or written
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`, {
+      fix: 'cleo find "<title words>" --include-archive',
+    });
   const acs = [...(await accessor.getAcRows(taskId))]
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((r) => ({ alias: `AC${r.ordinal}`, text: normalizeAcText(r.text) }));
@@ -384,6 +387,7 @@ export async function recordReviewVerdict(
     throw new CleoError(
       ExitCode.NOT_FOUND,
       `${input.taskId} has no criterion ${input.ac} (it has ${packet.acs.map((a) => a.alias).join(', ') || 'none'})`,
+      { fix: `cleo review packet ${input.prNumber} --task ${input.taskId}` },
     );
   }
   if (packet.packetSha256 !== input.packetSha256) {
@@ -400,8 +404,11 @@ export async function recordReviewVerdict(
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(input.taskId);
-  // @sync-invariant none:input-shape an unknown task is refused before anything is written
-  if (task === null) throw new CleoError(ExitCode.NOT_FOUND, `Task ${input.taskId} not found`);
+  if (task === null)
+    // @sync-invariant none:input-shape an unknown task is refused before anything is written
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${input.taskId} not found`, {
+      fix: 'cleo find "<title words>" --include-archive',
+    });
   const claimRows = await accessor.queryAuditLog({
     taskIds: [input.taskId],
     actions: CLAIM_AUTHOR_ACTIONS,
@@ -412,7 +419,13 @@ export async function recordReviewVerdict(
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `${input.taskId} has no recorded author, so an independent review cannot be proven`,
-      { fix: `The author claims the task first: \`cleo start ${input.taskId}\`.` },
+      // T14300: `cleo claim` records the author without starting the task, so it
+      // works while the task is blocked on a dependency (where `cleo start`
+      // refuses). It must run in the author's session: the reviewer who ran it
+      // would become an author and be refused.
+      {
+        fix: `The session that delivers ${input.taskId} (never the reviewer) runs \`cleo claim ${input.taskId}\`, which records it as the author even while the task is blocked; then record the verdict again from the reviewer's own session.`,
+      },
     );
   }
   if (

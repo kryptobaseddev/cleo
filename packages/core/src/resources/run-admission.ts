@@ -1108,10 +1108,11 @@ function deferralFix(
       `The machine is short of memory (${memoryPressureCause(memory)}); nothing was started. ` +
       `Heavy work starts again once memory pressure falls to ${memory.resumeAtOrBelow} or below ` +
       `(now ${memory.score}): continue other work, close memory-heavy apps, or re-run with --wait to start automatically ` +
+      `(cleo run --wait -- <command>) ` +
       '(CLEO_RESOURCES_MODE=off turns admission off).'
     );
   }
   return state === 'ok'
-    ? `The ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`
-    : `The machine is under pressure (${state}) and the ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`;
+    ? `The ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue: cleo run --wait -- <command>`
+    : `The machine is under pressure (${state}) and the ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue: cleo run --wait -- <command>`;
 }

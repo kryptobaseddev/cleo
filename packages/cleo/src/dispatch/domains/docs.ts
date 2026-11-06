@@ -502,6 +502,7 @@ async function decisionLinkResponse(
       err.toLAFSError().code, // @sync-invariant docs.decision-adr-links.revoke-monotonic the accessor's refusal (re-link of a revoked pair, revoke of an unknown link) is surfaced unchanged
       err.message,
       op,
+      err.fix ?? 'cleo docs list --type adr',
     );
   }
 }
@@ -2176,6 +2177,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing ADR slug or decision id is refused before any write
         '<adrSlug> and <decisionId> are required',
         'link-decision',
+        'cleo docs link-decision <adrSlug> <decisionId>',
       );
     }
     return decisionLinkResponse('link-decision', async () => {
@@ -2183,11 +2185,15 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       // ends must exist before the write (T13598 review).
       if ((await createDocsReadModel().resolveLatest(adrSlug)) === null)
         // @sync-invariant none:input-shape a link to an unknown doc slug is refused before any write
-        throw new CleoError(ExitCode.NOT_FOUND, `no doc has the slug '${adrSlug}'`);
+        throw new CleoError(ExitCode.NOT_FOUND, `no doc has the slug '${adrSlug}'`, {
+          fix: 'cleo docs list --type adr',
+        });
       const { recallDecision } = await import('@cleocode/core/memory/decisions');
       if ((await recallDecision(getProjectRoot(), decisionId)) === null)
         // @sync-invariant none:input-shape a link to a decision missing from the ledger is refused before any write
-        throw new CleoError(ExitCode.NOT_FOUND, `no stored decision has the id '${decisionId}'`);
+        throw new CleoError(ExitCode.NOT_FOUND, `no stored decision has the id '${decisionId}'`, {
+          fix: 'cleo memory decision-find "<words>"',
+        });
       const { inserted } = await linkDecisionToAdr(getProjectRoot(), {
         decisionId,
         adrSlug,
@@ -2205,6 +2211,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing ADR slug or decision id is refused before any write
         '<adrSlug> and <decisionId> are required',
         'unlink-decision',
+        'cleo docs unlink-decision <adrSlug> <decisionId>',
       );
     }
     return decisionLinkResponse('unlink-decision', async () => {
