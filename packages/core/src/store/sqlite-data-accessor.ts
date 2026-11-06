@@ -30,11 +30,14 @@ import {
   and,
   eq,
   getTableColumns,
+  gt,
   inArray,
+  isNotNull,
   isNull,
   like,
   lte,
   ne,
+  not,
   notInArray,
   or,
   type SQL,
@@ -104,6 +107,7 @@ import { clearCaptureFrame, finishCaptureFrame, openCaptureFrame } from './sync/
 import { currentWriteActorJson } from './sync/write-actor.js';
 import {
   claimAllows,
+  claimClockNow,
   claimColumnsOf,
   claimFromColumns,
   isClaimExpired,
@@ -359,6 +363,26 @@ export interface TaskReferenceColumn {
   readonly table: string;
   readonly column: string;
   readonly jsonArray: boolean;
+}
+
+/**
+ * SQL for "the task reads with one of `statuses`" (T14268, owner decision
+ * D11230): `active` and `pending` are derived from the claim lease, the mirror
+ * of `rowToTask`; every other status is the stored one.
+ *
+ * @param statuses - Statuses as a task reads them.
+ * @param now - ISO-8601 UTC instant for the lease comparison.
+ * @returns The condition.
+ */
+function derivedStatusIn(statuses: readonly TaskStatus[], now: string): SQL {
+  const open = inArray(schema.tasks.status, ['pending', 'active']);
+  const live = and(isNotNull(schema.tasks.claimedBySession), gt(schema.tasks.leaseExpiresAt, now));
+  const parts: SQL[] = [];
+  const stored = statuses.filter((s) => s !== 'pending' && s !== 'active');
+  if (stored.length > 0) parts.push(inArray(schema.tasks.status, stored));
+  if (statuses.includes('active')) parts.push(and(open, live) as SQL);
+  if (statuses.includes('pending')) parts.push(and(open, not(live as SQL)) as SQL);
+  return parts.length === 0 ? sql`0` : (or(...parts) as SQL);
 }
 
 /**
@@ -2183,14 +2207,12 @@ async function createOwnedSqliteDataAccessor(
         if (!statuses.includes('archived')) {
           conditions.push(ne(schema.tasks.status, 'archived'));
         }
-        conditions.push(inArray(schema.tasks.status, statuses));
+        conditions.push(derivedStatusIn(statuses, claimClockNow()));
       } else if (filters.excludeStatus) {
         const excluded = Array.isArray(filters.excludeStatus)
           ? filters.excludeStatus
           : [filters.excludeStatus];
-        for (const s of excluded) {
-          conditions.push(ne(schema.tasks.status, s));
-        }
+        conditions.push(not(derivedStatusIn(excluded, claimClockNow())));
       } else {
         conditions.push(ne(schema.tasks.status, 'archived'));
       }
@@ -2629,6 +2651,8 @@ async function createOwnedSqliteDataAccessor(
         }
         const updateRow = {
           ...fields,
+          // T14268: `active` is derived from the lease on read and never stored.
+          ...(fields.status === 'active' ? { status: 'pending' as const } : {}),
           updatedAt:
             fields.updatedAt ?? (guard?.keepVersion ? current.updatedAt : nextTaskVersion(current)),
         };
