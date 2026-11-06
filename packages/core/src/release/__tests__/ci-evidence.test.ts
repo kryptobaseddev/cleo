@@ -18,9 +18,10 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   type EvidenceAtom,
   type EvidenceValidationContext,
@@ -28,6 +29,7 @@ import {
   validateEvidenceForGate,
 } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js';
 import {
   type CommitCheck,
@@ -43,9 +45,8 @@ import {
   listMainDescendants,
   listPathTouchingMainCommits,
   missingPrHunk,
-  pathGlobToRegExp,
+  PACKAGE_CODE_ROOTS,
   type ResolveCiEvidenceOptions,
-  readCiChecks,
   readCiSatisfies,
   recheckCiDescendantAtom,
   resolveCiEvidenceAtom,
@@ -486,7 +487,7 @@ describe('resolveCiEvidenceAtom', () => {
     beforeEach(() => writeContext(optedIn));
     const editing: PrAtomResolution = {
       ...merged,
-      changedPaths: ['a.ts', '.github/workflows/ci.yml'],
+      changedPaths: ['packages/core/src/a.ts', '.github/workflows/ci.yml'],
       changedFileCount: 2,
     };
     const DESC = '1'.repeat(40);
@@ -559,21 +560,11 @@ describe('resolveCiEvidenceAtom', () => {
     });
   });
 
-  describe('jobs covering the changed paths (T13175)', () => {
+  describe("CI's own change-filter skip outside the package code roots (T14260)", () => {
     /** A GitHub Actions expression, as an unexpanded matrix job name carries it. */
     const gha = (expression: string): string => `\${{ ${expression} }}`;
-    const covering = {
-      ...optedIn,
-      ciChecks: {
-        ...optedIn.ciChecks,
-        covering: {
-          tests: [{ paths: ['scripts/**'], jobs: ['Scripts Tests'] }],
-          qa: [{ paths: ['scripts/**'], jobs: ['Lint & Format'] }],
-        },
-      },
-    };
-    beforeEach(() => writeContext(covering));
-    // Detect Changes skipped the package jobs; Scripts Tests ran.
+    beforeEach(() => writeContext(optedIn));
+    // Detect Changes skipped the package jobs; Scripts Tests ran; CI is green.
     const scriptsRun = [
       ...allGreen.map((c) =>
         c.name.startsWith('Unit Tests') || c.name === 'Type Check'
@@ -588,22 +579,39 @@ describe('resolveCiEvidenceAtom', () => {
       changedFileCount: paths.length,
     });
 
-    it('a scripts-only PR with the unit shards skipped by their filter: accepted via Scripts Tests', async () => {
+    it('a scripts-only PR with the unit shards filter-skipped and CI green: accepted for both gates, the skip recorded', async () => {
       const r = await resolve({
         context: context('T1', ['testsPassed', 'qaPassed']),
         resolvePr: pr(['scripts/__tests__/x.test.mjs']),
         fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
       });
       expect(r.ok, JSON.stringify(r)).toBe(true);
-      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.testsPassed).toContain(
-        'Scripts Tests',
-      );
-      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.qaPassed).toContain(
-        'Lint & Format',
-      );
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.filterSkippedJobs?.testsPassed).toContain('Unit Tests (ubuntu-latest, shard 1)');
+      expect(atom?.filterSkippedJobs?.qaPassed).toEqual(['Type Check']);
+      expect(atom?.gateChecks?.qaPassed).toContain('Lint & Format');
     });
 
-    it('a scripts-only PR whose matrix Type Check was skipped under its templated name: accepted (T14148)', async () => {
+    it('the #1568 shape (.cleo/project-id only) and the #1772 shape (workflow, AGENTS.md, scripts): accepted with no covering config', async () => {
+      for (const paths of [
+        ['.cleo/project-id'],
+        [
+          '.github/workflows/arch-boundary-check.yml',
+          'AGENTS.md',
+          'scripts/__tests__/lint-sync-write-invariants.test.mjs',
+          'scripts/lint-sync-write-invariants.mjs',
+        ],
+      ]) {
+        const r = await resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          resolvePr: pr(paths),
+          fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+        });
+        expect(r.ok, `${paths.join(', ')}: ${JSON.stringify(r)}`).toBe(true);
+      }
+    });
+
+    it('a matrix Type Check skipped under its templated name counts as skipped (T14148)', async () => {
       // A matrix job skipped before expansion reports its raw `name:` template.
       const template = `Type Check${gha("matrix.node != '24.16.0' && format(' (Node {0})', matrix.node) || ''")}`;
       const templated = scriptsRun.map((c) =>
@@ -615,9 +623,6 @@ describe('resolveCiEvidenceAtom', () => {
         fetchChecks: async () => ({ ok: true, checks: templated }),
       });
       expect(r.ok, JSON.stringify(r)).toBe(true);
-      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.qaPassed).toContain(
-        'Lint & Format',
-      );
     });
 
     it('a templated job name matches its glob by the static prefix only (T14148)', () => {
@@ -630,21 +635,19 @@ describe('resolveCiEvidenceAtom', () => {
       expect(jobNameMatches(re, gha('matrix.name'))).toBe(false);
     });
 
-    it('a package PR whose unit shards were skipped: refused, no rule covers its path', async () => {
-      const r = await resolve({
-        resolvePr: pr(['packages/core/src/a.ts']),
-        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
-      });
-      expect(r.ok).toBe(false);
-      expect(!r.ok && r.reason).toMatch(/packages\/core\/src\/a\.ts is covered by no evidence/);
-    });
-
-    it('a mixed PR (scripts plus a package): refused', async () => {
-      const r = await resolve({
-        resolvePr: pr(['scripts/a.mjs', 'packages/core/src/a.ts']),
-        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
-      });
-      expect(r.ok).toBe(false);
+    it('a package PR, a crate PR or a template .md whose shards were skipped: refused, never a filter skip', async () => {
+      for (const path of [
+        'packages/core/src/a.ts',
+        'crates/cant-core/src/lib.rs',
+        'packages/core/templates/CLEO-INJECTION.md',
+      ]) {
+        const r = await resolve({
+          resolvePr: pr(['scripts/a.mjs', path]),
+          fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+        });
+        expect(r.ok, path).toBe(false);
+        expect(!r.ok && r.reason).toContain(`${path} is package code`);
+      }
     });
 
     it('a CANCELLED unit shard is not a filter skip: refused even for a scripts-only PR', async () => {
@@ -659,6 +662,18 @@ describe('resolveCiEvidenceAtom', () => {
       expect(!r.ok && r.reason).toMatch(/cancelled, not skipped by its filter/);
     });
 
+    it('a gate job that ran and FAILED is not accepted by this rule', async () => {
+      const failed = scriptsRun.map((c) =>
+        c.name === 'Unit Tests (ubuntu-latest, shard 1)' ? { ...c, conclusion: 'failure' } : c,
+      );
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: failed }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/failure, not skipped by its filter/);
+    });
+
     it('a required job missing entirely is not a filter skip: refused', async () => {
       const r = await resolve({
         resolvePr: pr(['scripts/a.mjs']),
@@ -671,51 +686,22 @@ describe('resolveCiEvidenceAtom', () => {
       expect(!r.ok && r.reason).toMatch(/missing, not skipped/);
     });
 
-    it('the covering job itself failed: refused', async () => {
-      const r = await resolve({
-        resolvePr: pr(['scripts/a.mjs']),
-        fetchChecks: async () => ({
-          ok: true,
-          checks: scriptsRun.map((c) =>
-            c.name === 'Scripts Tests' ? { ...c, conclusion: 'failure' } : c,
-          ),
-        }),
-      });
-      expect(r.ok).toBe(false);
-      expect(!r.ok && r.reason).toMatch(/job Scripts Tests: failure/);
-    });
-
-    it('without a covering rule configured, the skip is refused as before', async () => {
-      writeContext(optedIn);
-      const r = await resolve({
-        resolvePr: pr(['scripts/a.mjs']),
-        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
-      });
-      expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
-    });
-
-    it('path globs: **/ is whole directories, * stays in a segment, ? is one character', () => {
-      expect(pathGlobToRegExp('scripts/**').test('scripts/lib/a.mjs')).toBe(true);
-      expect(pathGlobToRegExp('**/x.md').test('x.md')).toBe(true);
-      expect(pathGlobToRegExp('**/x.md').test('docs/a/x.md')).toBe(true);
-      expect(pathGlobToRegExp('**/x.md').test('ax.md')).toBe(false);
-      expect(pathGlobToRegExp('scripts/*.mjs').test('scripts/lib/a.mjs')).toBe(false);
-      expect(pathGlobToRegExp('a?.ts').test('ab.ts')).toBe(true);
-      expect(pathGlobToRegExp('a?.ts').test('a/.ts')).toBe(false);
-      expect(pathGlobToRegExp('a.ts').test('aXts')).toBe(false);
-    });
-
-    it('a malformed covering rule voids the whole list', () => {
-      writeContext({
-        ...optedIn,
-        ciChecks: {
-          ...optedIn.ciChecks,
-          covering: {
-            tests: [{ paths: ['scripts/**'], jobs: ['Scripts Tests'] }, { paths: ['x/**'] }],
-          },
-        },
-      });
-      expect(readCiChecks(root).covering).toBeUndefined();
+    it("ci.yml's code filter runs the unit shards for every file under each package code root", () => {
+      const ci = parseYaml(
+        readFileSync(
+          fileURLToPath(new URL('../../../../../.github/workflows/ci.yml', import.meta.url)),
+          'utf-8',
+        ),
+      ) as {
+        jobs: Record<string, { steps?: Array<{ id?: string; with?: { filters?: string } }> }>;
+      };
+      const filters = Object.values(ci.jobs)
+        .flatMap((j) => j.steps ?? [])
+        .find((s) => s.id === 'filter')?.with?.filters;
+      const code = (parseYaml(filters ?? '') as { code?: string[] }).code ?? [];
+      for (const root of PACKAGE_CODE_ROOTS) expect(code).toContain(`${root}**`);
+      // No exclusion inside the code roots (a template .md is code).
+      expect(code.filter((p) => p.startsWith('!'))).toEqual([]);
     });
   });
 
@@ -725,8 +711,18 @@ describe('resolveCiEvidenceAtom', () => {
       c.name.startsWith('Unit Tests') ? { ...c, conclusion: 'skipped' } : c,
     );
 
+    /** Package code: a filter skip never stands in for its tests (T14260). */
+    const packageCode = async () => ({
+      ...merged,
+      changedPaths: ['packages/core/src/a.ts'],
+      changedFileCount: 1,
+    });
+
     it('code task with Unit Tests skipped: refused, naming the job', async () => {
-      const r = await resolve({ fetchChecks: async () => ({ ok: true, checks: unitSkipped }) });
+      const r = await resolve({
+        resolvePr: packageCode,
+        fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
+      });
       expect(r.ok).toBe(false);
       expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
     });
@@ -749,6 +745,7 @@ describe('resolveCiEvidenceAtom', () => {
       };
       const r = await resolve({
         context: labelled,
+        resolvePr: packageCode,
         fetchChecks: async () => ({ ok: true, checks: unitSkipped }),
       });
       expect(r.ok).toBe(false);
@@ -789,7 +786,7 @@ describe('resolveCiEvidenceAtom', () => {
       const r = await resolve({
         resolvePr: async () => ({
           ...merged,
-          changedPaths: ['README.md', 'a.ts'],
+          changedPaths: ['README.md', 'packages/core/src/a.ts'],
           changedFileCount: 2,
         }),
         fetchChecks: async () => ({ ok: true, checks: unitSkipped }),

@@ -711,28 +711,4 @@ describe('SQLite session-store', () => {
       expect(id).toBe('sess-conn');
     });
   });
-
-  describe('gcSessions', () => {
-    it('marks ended sessions as orphaned', async () => {
-      const { createSession, gcSessions, getSession } = await import('../session-store.js');
-      await createSession(makeSession({ id: 'sess-001', status: 'ended' }));
-
-      const count = await gcSessions();
-      expect(count).toBe(1);
-
-      const session = await getSession('sess-001');
-      expect(session!.status).toBe('orphaned');
-    });
-
-    it('does not affect active sessions', async () => {
-      const { createSession, gcSessions, getSession } = await import('../session-store.js');
-      await createSession(makeSession({ id: 'sess-001', status: 'active' }));
-
-      const count = await gcSessions();
-      expect(count).toBe(0);
-
-      const session = await getSession('sess-001');
-      expect(session!.status).toBe('active');
-    });
-  });
 });

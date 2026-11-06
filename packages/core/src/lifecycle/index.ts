@@ -734,11 +734,11 @@ async function ensureLifecycleContext(
  */
 export interface RecordStageProgressOptions {
   /**
-   * Write the stage's `.cleo/rcasd/<epic>/<stage>/` artifact file. Defaults
-   * to true. Automatic initialization (`initLoomForEpic`) passes false:
-   * it records the stage row only, so no stub file appears on disk.
+   * The stage artifact's real content: when given, it is written to
+   * `.cleo/rcasd/<epic>/<stage>/`. Without it the stage row alone records
+   * the transition and no file is written (T14277: no placeholder stubs).
    */
-  writeArtifact?: boolean;
+  artifactContent?: string;
 }
 
 /**
@@ -747,7 +747,7 @@ export interface RecordStageProgressOptions {
  * @task T4785
  * @task T4801
  * @task T1455 - normalized to (projectRoot, params) shape
- * @task T13944 - `options.writeArtifact`
+ * @task T14277 - `options.artifactContent`: a file only with real content
  */
 export async function recordStageProgress(
   projectRoot: string,
@@ -784,9 +784,9 @@ export async function recordStageProgress(
   });
 
   const artifact =
-    options.writeArtifact === false
+    options.artifactContent === undefined
       ? null
-      : await ensureStageArtifact(epicId, stageName, projectRoot);
+      : await ensureStageArtifact(epicId, stageName, options.artifactContent, projectRoot);
   const outputFile = artifact?.outputFile ?? null;
   const provenanceChain = {
     recordedAt: now,

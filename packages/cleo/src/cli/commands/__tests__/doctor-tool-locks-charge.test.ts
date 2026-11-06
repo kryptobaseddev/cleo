@@ -1,6 +1,6 @@
 /**
- * T14116 — `cleo doctor tool-locks` reports what a `cleo run` holder is
- * charged now (`chargedBytes`, lowered to its measured peak after a warm-up)
+ * T14116, T14281 — `cleo doctor tool-locks` reports what a `cleo run` holder
+ * is charged now (`chargedBytes`: the measured charge it was admitted with)
  * next to its plan (`plannedBytes`), and sums the current charges as
  * `usedBytes`.
  *
@@ -25,9 +25,9 @@ const { GIB, NOW, ENTRY, JOB } = vi.hoisted(() => {
     label: 'run:scoped-build',
     command: 'git push',
     cwd: '/p',
-    footprintBytes: 12 * GIB,
-    footprintReason: 'scoped-build plan: runs the pre-push hook',
-    chargedBytes: 0.7 * GIB,
+    footprintBytes: 0.7 * GIB,
+    planBytes: 12 * GIB,
+    footprintReason: 'scoped-build plan: runs the pre-push hook, measured peak 0.5 GiB + 25%',
     measuredPeakBytes: 0.17 * GIB,
     state: 'admitted',
     enqueuedAtMs: NOW,
@@ -93,7 +93,7 @@ afterEach(() => {
 });
 
 describe('doctor tool-locks charge fields (T14116)', () => {
-  it('reports the lowered charge as chargedBytes and the plan as plannedBytes', async () => {
+  it('reports the measured charge as chargedBytes and the plan as plannedBytes', async () => {
     const run = doctorToolLocksCommand.run as (ctx: {
       args: Record<string, unknown>;
     }) => Promise<void>;

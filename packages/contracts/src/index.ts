@@ -1938,6 +1938,7 @@ export type {
 } from './operations/session.js';
 // === Task Operation Types (T1425 — typed-dispatch migration) ===
 export type {
+  ChildStrategy,
   DepGraphIssue,
   DepsTreeEdge,
   DepsTreeNode,
@@ -2133,6 +2134,8 @@ export type {
   CreateWorktreeResult,
   DestroyWorktreeOptions,
   DestroyWorktreeResult,
+  DisposeWorktreeOptions,
+  DisposeWorktreeResult,
   ForceUnlockWorktreeOpts,
   ForceUnlockWorktreeResult,
   ListWorktreesOptions,
@@ -2146,6 +2149,7 @@ export type {
   PruneOrphanedWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeArchiveReceipt,
   WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,

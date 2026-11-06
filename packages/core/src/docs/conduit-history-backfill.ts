@@ -52,13 +52,11 @@
  * @saga T13339
  */
 
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, asc, eq, isNotNull } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
-import { resolveLegacyByteSource } from '../store/blob-keep.js';
+import { readVerifiedBlobBytes } from '../store/blob-keep.js';
 import {
   importMigratedConduitVersion,
   listConduitAttachmentVersions,
@@ -87,9 +85,6 @@ export const CONDUIT_BACKFILL_AUTHOR = 'cleo:backfill-t13727';
  * @task T13727
  */
 export const CONDUIT_BACKFILL_ORIGIN = 'backfill-t13727';
-
-/** MIME used to probe the legacy attachment tree for historical doc bytes. */
-const DOC_PROBE_MIME = 'text/markdown';
 
 /** One revision of the docs-versioning audit log (narrow, defensive parse). */
 interface AuditRevision {
@@ -251,33 +246,6 @@ function readAuditRevisionsBySlug(projectRoot: string): Map<string, AuditRevisio
     bySlug.set(entry.slug, list);
   }
   return bySlug;
-}
-
-/**
- * Read the bytes for `sha256` from the blob store or the legacy attachment
- * tree, verifying the SHA-256 before returning. Read-only: unlike
- * `blobReadBySha` this never heals/mirrors — planning and dry runs must stay
- * side-effect free. A candidate whose hash does not verify is skipped (a
- * corrupt file at the address is a gap, not content).
- *
- * @internal
- */
-async function readVerifiedVersionBytes(cleoDir: string, sha256: string): Promise<Buffer | null> {
-  const candidates: Array<string | null> = [
-    join(cleoDir, 'blobs', 'blobs', sha256),
-    resolveLegacyByteSource(cleoDir, sha256, DOC_PROBE_MIME),
-  ];
-  for (const candidate of candidates) {
-    if (candidate === null) continue;
-    let bytes: Buffer;
-    try {
-      bytes = await readFile(candidate);
-    } catch {
-      continue;
-    }
-    if (createHash('sha256').update(bytes).digest('hex') === sha256) return bytes;
-  }
-  return null;
 }
 
 /**
@@ -509,7 +477,7 @@ export async function planConduitHistoryBackfill(
         if (uid !== undefined) lastRowUid = uid;
         continue;
       }
-      const bytes = await readVerifiedVersionBytes(cleoDir, state.sha256);
+      const bytes = readVerifiedBlobBytes(cleoDir, state.sha256);
       if (bytes === null) {
         gaps.push({ position: state.position, sha256: state.sha256 });
         continue;

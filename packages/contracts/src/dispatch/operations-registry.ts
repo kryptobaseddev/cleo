@@ -8913,7 +8913,15 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
-    params: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description:
+          'At most this many docs per run, oldest first (T14329); default all. Run again to continue',
+      },
+    ],
   },
   // ── docs.modernize (T14113 — Epic T14106) ─────────────────────────────────
   {

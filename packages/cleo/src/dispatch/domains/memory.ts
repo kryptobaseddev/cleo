@@ -164,6 +164,7 @@ export class MemoryHandler implements DomainHandler {
                 dateStart: paramString(params, 'dateStart'),
                 dateEnd: paramString(params, 'dateEnd'),
                 agent: paramString(params, 'agent'),
+                lessons: paramBool(params, 'lessons'),
               },
               projectRoot,
             ),
