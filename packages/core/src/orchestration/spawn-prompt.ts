@@ -1019,16 +1019,13 @@ function buildStageGuidance(protocol: string, outputDir: string): string {
       '**Objective**: Write code that satisfies every acceptance criterion.',
       '',
       'Deliverables:',
-      '- Source changes under `packages/<pkg>/src/`',
-      '- Tests under `packages/<pkg>/src/**/__tests__/*.test.ts` (vitest)',
-      '- TSDoc comments on every exported function/class/type',
+      "- Source and test changes in the project's own layout, following its conventions (read the project's AGENTS.md)",
+      '- Documentation on every exported symbol, in the language the project uses',
       '- Commit atomically (one feature/fix per commit) with conventional commit messages',
       '',
       'Quality Bar:',
-      '- NEVER `any` or `unknown` shortcuts — see `@~/.agents/AGENTS.md` code-quality rules',
-      '- Import types from `@cleocode/contracts` — never inline/mock',
-      '- `pnpm biome check --write .` must show no warnings',
-      '- `pnpm run build` must succeed (full dep graph)',
+      "- The project's code-quality rules (its AGENTS.md) hold for every line you write",
+      "- The project's lint, typecheck and build pass (see Quality Gates)",
       '- Zero new test failures — prove it with affected or targeted runs, never a manual full suite (see Quality Gates)',
       '',
       '**FISE-2 (T9231 / ADR-070)**: If `CLEO_AGENT_ROLE=lead`, you MUST use `delegate_task`',
@@ -1053,9 +1050,9 @@ function buildStageGuidance(protocol: string, outputDir: string): string {
       '**Objective**: Prove behavior via tests. Zero-regression mandate.',
       '',
       'Deliverables:',
-      '- Unit tests for every new code path (vitest `describe`/`it` blocks)',
-      '- Integration tests under `packages/<pkg>/src/**/__tests__/*.test.ts`',
-      `- Vitest JSON output captured at \`${outputDir}/<taskId>-vitest.json\``,
+      "- Unit tests for every new code path, in the project's test framework and layout",
+      '- Integration tests where the project keeps them',
+      `- The test runner's JSON report captured at \`${outputDir}/<taskId>-tests.json\``,
       '- Evidence atom: `ci:<pr>` once the PR merged (with `evidence.ciSatisfies`); otherwise `tool:test-affected` (affected packages; needs `testing.affectedCommand`), `test-run:<json>` (pre-recorded structured output of a targeted run), or `tool:test` (executes resolved testing.command; with an affected command configured, only for root-config changes)',
     ].join('\n'),
     release: [
@@ -1064,10 +1061,9 @@ function buildStageGuidance(protocol: string, outputDir: string): string {
       '**Objective**: Version, changelog, tag, publish. No partial releases.',
       '',
       'Deliverables:',
-      '- Bump monorepo + package versions (CalVer YYYY.MM.patch)',
-      '- CHANGELOG.md entry under the new version',
-      '- Tag via `git tag v<version>` and push with `--tags`',
-      '- CI must be GREEN before `npm publish` — use `cleo release plan` + `cleo release open` (the canonical 4-verb pipeline)',
+      "- Bump versions in the project's own scheme",
+      '- Changelog entry under the new version, where the project keeps one',
+      '- CI must be GREEN before anything publishes — use `cleo release plan` + `cleo release open` (the canonical pipeline)',
       '- Do NOT force-push or bypass hooks',
     ].join('\n'),
     contribution: [
@@ -1084,52 +1080,29 @@ function buildStageGuidance(protocol: string, outputDir: string): string {
   return guidance[protocol] ?? guidance['implementation'] ?? '';
 }
 
-/** Build the evidence-based gate block (T832 / ADR-051). */
+/**
+ * Build the closure block (T14303): PR work closes through the PR's
+ * `Closes:`/`Refs:` line, a non-author verdict per criterion and the merge
+ * sweep (ADR-099); only no-PR work records gates by hand, following
+ * `cleo done <id> --plan` (ADR-051).
+ */
 function buildEvidenceGateBlock(taskId: string): string {
   return [
-    '## Evidence-Based Gate Ritual (MANDATORY · ADR-051 · T832)',
+    '## Closing the Task (ADR-099 · evidence ADR-051)',
     '',
-    'Every gate write MUST carry programmatic evidence. CLEO validates evidence against git, the filesystem, and the toolchain. `cleo verify --all` without `--evidence` is REJECTED with `E_EVIDENCE_MISSING`.',
+    '### PR work (the normal path)',
     '',
-    '### Step 1 — capture evidence per gate',
+    `1. Commit on your branch, push it, and open a PR whose body has \`Closes: ${taskId} AC1,AC2\` naming every criterion it delivers (\`Refs: ${taskId} AC…\` for a partial delivery).`,
+    `2. A reviewer who is not an author records a verdict per criterion on the PR head (\`cleo review packet <pr> --task ${taskId}\`, then \`cleo review verdict\`). Never review your own work.`,
+    '3. When the PR merges on green CI, the merge sweep records the evidence and closes the task. No step follows the merge.',
     '',
-    '```bash',
-    '# implemented — commit + file list',
-    `cleo verify ${taskId} --gate implemented \\`,
-    '  --evidence "commit:$(git rev-parse HEAD);files:<comma-separated-paths>"',
-    '',
-    '# Plan first: picks affected → ci → full and shows each tool cache state',
-    `cleo done ${taskId} --plan`,
-    '',
-    '# testsPassed — PR merged AND project sets evidence.ciSatisfies: CI on the merge commit, no local run',
-    `cleo verify ${taskId} --gate testsPassed --evidence "ci:<pr>"`,
-    '#  otherwise, with testing.affectedCommand configured: affected packages',
-    `cleo verify ${taskId} --gate testsPassed --evidence "tool:test-affected"`,
-    '#  without it: a targeted vitest json of the changed test files (or tool:test)',
-    `cleo verify ${taskId} --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"`,
-    '',
-    '// `tool:<name>` executes the resolved command (from project-context.json or language defaults); `test-run:<json>` records a pre-existing scoped run. Never run the suite by hand and then again via `tool:test`; with `testing.affectedCommand` configured, a full `tool:test` is only for root-config changes.',
-    '',
-    '# qaPassed — `ci:<pr>` under the same conditions; otherwise biome + tsc exit 0',
-    `cleo verify ${taskId} --gate qaPassed --evidence "tool:biome;tool:tsc"`,
-    '',
-    '# documented — docs path',
-    `cleo verify ${taskId} --gate documented --evidence "files:docs/<path>.md"`,
-    '',
-    '# cleanupDone — summary note',
-    `cleo verify ${taskId} --gate cleanupDone --evidence "note:<summary>"`,
-    '',
-    '# securityPassed — scan or waiver',
-    `cleo verify ${taskId} --gate securityPassed --evidence "tool:security-scan"`,
-    '#  OR',
-    `cleo verify ${taskId} --gate securityPassed --evidence "note:no network surface"`,
-    '```',
-    '',
-    '### Step 2 — then complete',
+    '### No-PR work',
     '',
     '```bash',
-    `cleo memory observe "<concise learning>" --title "<title>"`,
+    `cleo done ${taskId} --plan   # names the evidence each gate needs`,
+    `cleo verify ${taskId} --gate <gate> --evidence "<atoms>;satisfies:${taskId}#AC1"   # each gate it names`,
     `cleo complete ${taskId}`,
+    'cleo memory observe "<concise learning>" --title "<title>"',
     '```',
     '',
     'On `complete`, CLEO re-validates every hard atom (commit reachable, file sha256, test-run hash). Tampering → `E_EVIDENCE_STALE` — re-run verify with updated evidence.',
@@ -1137,13 +1110,6 @@ function buildEvidenceGateBlock(taskId: string): string {
     '**Forbidden**: `cleo complete --force` (REMOVED per ADR-051). `cleo verify --all` without `--evidence` (REJECTED). `note:` as the only atom on `implemented` or `testsPassed` (INSUFFICIENT).',
   ].join('\n');
 }
-
-// T10485 closure: buildChangesetLintGateBlock removed.
-// Original T10448 standalone section was deprecated by T10452 which inlined
-// the check into buildQualityGateBlock (see `node scripts/lint-changesets.mjs`
-// line in the Quality Gates block). A subsequent merge collision in T9937
-// briefly restored this function as an orphan unused declaration. Removed
-// here per T10452's design intent — the single inlined version is the SSoT.
 
 /**
  * The one governed path for heavy work (T13134), in every spawn prompt and on
@@ -1156,21 +1122,77 @@ function buildEvidenceGateBlock(taskId: string): string {
 export const GOVERNED_HEAVY_WORK_LINE =
   'Heavy work (tests, typechecks, builds): one command at a time through `cleo run --wait --class <test|build|full-build> -- <command>` (the heavy-command hook rewrites it for you where installed; exit 75 means it was not admitted before the wait ran out: wait and retry). Never wrap `cleo run` or `cleo verify` in another queue or wrapper script, never put one inside them (the two lock systems deadlock), and never raise heap or worker counts (`NODE_OPTIONS=--max-old-space-size=…`, `--maxWorkers`): CLEO sizes them.';
 
-/** Build the quality-gate block — biome + build + scoped test evidence + changeset hygiene. */
-function buildQualityGateBlock(): string {
+/** The commands a project declares in `.cleo/project-context.json` (T14303). */
+export interface ProjectCommands {
+  /** `testing.command`: the full test command. */
+  test?: string;
+  /** `testing.affectedCommand`: the affected-only test command. */
+  affectedTest?: string;
+  /** `build.command`. */
+  build?: string;
+}
+
+/**
+ * Read a project's own commands from `.cleo/project-context.json` (T14303):
+ * the spawn prompt names them, never another project's.
+ *
+ * @param projectRoot - The project root.
+ * @returns The declared commands; absent ones are left out.
+ * @task T14303
+ */
+export function readProjectCommands(projectRoot: string): ProjectCommands {
+  // The spawned project's own file; an ambient CLEO_DIR names another project.
+  let ctx: Record<string, unknown> | null = null;
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(join(projectRoot, '.cleo', 'project-context.json'), 'utf-8'),
+    );
+    ctx =
+      typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    ctx = null;
+  }
+  const pick = (section: string, key: string): string | undefined => {
+    const block = ctx?.[section];
+    const value =
+      typeof block === 'object' && block !== null
+        ? (block as Record<string, unknown>)[key]
+        : undefined;
+    return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+  };
+  const test = pick('testing', 'command');
+  const affectedTest = pick('testing', 'affectedCommand');
+  const build = pick('build', 'command');
+  return {
+    ...(test ? { test } : {}),
+    ...(affectedTest ? { affectedTest } : {}),
+    ...(build ? { build } : {}),
+  };
+}
+
+/**
+ * Build the quality-gate block from the project's own commands (T14303):
+ * its build, its lint and typecheck through `tool:` atoms, and its test
+ * command; nothing another project declares.
+ */
+function buildQualityGateBlock(taskId: string, commands: ProjectCommands): string {
+  const testLine = commands.test
+    ? `This project's test command is \`${commands.test}\`${commands.affectedTest ? ` and its affected-only command is \`${commands.affectedTest}\`` : ''} (\`.cleo/project-context.json\`).`
+    : `This project declares no \`testing.command\` in \`.cleo/project-context.json\`; \`cleo done ${taskId} --plan\` names what to run.`;
   return [
-    '## Quality Gates (run before every `cleo complete`)',
+    '## Quality Gates (before you open the PR, or before `cleo complete` for no-PR work)',
     '',
     '```bash',
-    'cleo run --wait --class build -- pnpm biome ci .       # full repo, strict — same as CI',
-    'cleo run --wait --class full-build -- pnpm run build   # full dep graph build',
-    'node scripts/lint-changesets.mjs  # validate .changeset/*.md entries (T10448)',
+    ...(commands.build
+      ? [`cleo run --wait --class full-build -- ${commands.build}   # the project's build`]
+      : []),
+    `cleo verify ${taskId} --gate qaPassed --evidence "tool:lint;tool:typecheck"   # the project's own lint and typecheck`,
     'git diff --stat HEAD   # verify the diff matches the story',
     '```',
     '',
     GOVERNED_HEAVY_WORK_LINE,
     '',
-    'Tests (zero new failures vs main): while iterating, run only the failing or changed test files. Record evidence once (`cleo done <id> --plan` picks for you): `ci:<pr>` when the PR merged and the project sets `evidence.ciSatisfies`; otherwise `tool:test-affected` when `testing.affectedCommand` is configured, else a targeted `test-run:<json>` or `tool:test`. Never run the full suite manually; with `testing.affectedCommand` configured, a full `tool:test` is only for root-config changes.',
+    `Tests (zero new failures vs the default branch): ${testLine} While iterating, run only the failing or changed test files. Record evidence once (\`cleo done ${taskId} --plan\` picks for you): \`ci:<pr>\` when the PR merged and the project sets \`evidence.ciSatisfies\`; otherwise \`tool:test-affected\` when \`testing.affectedCommand\` is configured, else a targeted \`test-run:<json>\` or \`tool:test\`. Never run the full suite manually; with \`testing.affectedCommand\` configured, a full \`tool:test\` is only for root-config changes.`,
     '',
     'If ANY gate fails, fix it before completing. Do not bypass. Do not `--no-verify`. Do not amend published commits.',
   ].join('\n');
@@ -1419,7 +1441,7 @@ function buildTier1InjectionPointer(): string {
   return [
     '## CLEO Protocol (tier 1 — dedup pointer)',
     '',
-    '> Protocol: CLEO-INJECTION.md already loaded via AGENTS.md harness (v2.6.0). See https://github.com/kryptobaseddev/cleocode/blob/main/packages/cleo/AGENTS.md',
+    '> Protocol: CLEO-INJECTION.md already loaded via the AGENTS.md harness. Details: the `ct-cleo` skill, or `cleo briefing inject --section <name>`.',
   ].join('\n');
 }
 
@@ -1733,10 +1755,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   }
   authoredSections.push(buildStageGuidance(protocol, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
-  // T10448 partial — buildChangesetLintGateBlock() was referenced but never
-  // implemented/exported. Restored as a follow-up; for now skip cleanly so the
-  // tsc build does not block releases. Tracked: T10448.
-  authoredSections.push(buildQualityGateBlock());
+  authoredSections.push(buildQualityGateBlock(taskId, readProjectCommands(input.projectRoot)));
   const leanBlock = buildLeanChangeBlock(input.leanLevel ?? 'full');
   if (leanBlock !== null) authoredSections.push(leanBlock);
 

@@ -10,7 +10,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
@@ -81,14 +81,14 @@ describe('buildSpawnPrompt — core contract', () => {
     expect(result.prompt).toContain('**Tier**: 2');
   });
 
-  it('includes lint-changesets in quality gates (T10448)', () => {
+  it("quality gates carry no other project's commands (T14303)", () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('lint-changesets');
-    expect(result.prompt).toContain('T10448');
+    expect(result.prompt).not.toMatch(/lint-changesets|pnpm biome|pnpm run build/);
+    expect(result.prompt).toContain('tool:lint;tool:typecheck');
   });
 
   it('includes every required section in tier 1 prompts', () => {
@@ -104,7 +104,7 @@ describe('buildSpawnPrompt — core contract', () => {
     expect(p).toContain('## File Paths');
     expect(p).toContain('## Session Linkage');
     expect(p).toContain('## Stage-Specific Guidance');
-    expect(p).toContain('## Evidence-Based Gate Ritual');
+    expect(p).toContain('## Closing the Task');
     expect(p).toContain('## Quality Gates');
     expect(p).toContain('## Return Format Contract');
   });
@@ -185,8 +185,8 @@ describe('buildSpawnPrompt — protocol phase matrix', () => {
         expect(result.prompt).toContain('T9000');
         expect(result.prompt).toContain('Stage-Specific Guidance');
         expect(result.prompt).toContain('Return Format Contract');
-        // Evidence gate always present
-        expect(result.prompt).toContain('Evidence-Based Gate Ritual');
+        // The closure block is always present
+        expect(result.prompt).toContain('Closing the Task');
         expect(result.prompt).toMatch(/cleo verify T9000/);
       });
     }
@@ -214,22 +214,23 @@ describe('buildSpawnPrompt — stage-specific guidance', () => {
     expect(result.prompt).toContain('RFC-2119');
   });
 
-  it('implementation stage explicitly forbids any/unknown', () => {
+  it("implementation stage holds the work to the project's own code-quality rules (T14303)", () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('`any`');
+    // The any/unknown rule is cleocode's; another project's rules come from its AGENTS.md.
+    expect(result.prompt).toContain("The project's code-quality rules (its AGENTS.md) hold");
   });
 
-  it('release stage mentions CalVer + CI green gating', () => {
+  it("release stage gates on green CI and the project's own version scheme (T14303)", () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'release',
       projectRoot: PROJECT_ROOT,
     });
-    expect(result.prompt).toContain('CalVer');
+    expect(result.prompt).toContain("the project's own scheme");
     expect(result.prompt).toContain('CI must be GREEN');
   });
 
@@ -1055,43 +1056,70 @@ describe('buildSpawnPrompt — task documents section (T1614)', () => {
   });
 });
 
-describe('buildSpawnPrompt — changeset lint inline in Quality Gates (T10448 → T10452 → T10485)', () => {
-  it('includes the inlined lint-changesets.mjs check in all tiers Quality Gates', () => {
-    for (const tier of [0, 1, 2] as SpawnTier[]) {
-      const result = buildSpawnPrompt({
-        task: BASE_TASK,
-        protocol: 'implementation',
-        tier,
-        projectRoot: PROJECT_ROOT,
-      });
-      expect(result.prompt).toContain('## Quality Gates');
-      expect(result.prompt).toContain('lint-changesets.mjs');
+describe("buildSpawnPrompt — the project's own commands and ADR-099 closure (T14303)", () => {
+  /** A non-cleocode project: npm, its own build, no changesets. */
+  function fixtureProject(): string {
+    const root = mkdtempSync(join(tmpdir(), 'spawn-prompt-npm-'));
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        testing: { framework: 'jest', command: 'npm test' },
+        build: { command: 'npm run build' },
+      }),
+    );
+    return root;
+  }
+
+  it('a fixture project gets its own test and build commands, branch and Closes: grammar, and no cleocode constants', () => {
+    const root = fixtureProject();
+    try {
+      for (const tier of [0, 1, 2] as SpawnTier[]) {
+        const p = buildSpawnPrompt({
+          task: BASE_TASK,
+          protocol: 'implementation',
+          tier,
+          projectRoot: root,
+          worktreePath: join(root, 'wt'),
+          worktreeBranch: 'feature/T9000-example',
+        }).prompt;
+        expect(p).toContain('`npm test`');
+        expect(p).toContain('cleo run --wait --class full-build -- npm run build');
+        expect(p).toContain('feature/T9000-example');
+        expect(p).toContain('`Closes: T9000 AC1,AC2`');
+        expect(p).toContain('`Refs: T9000 AC…`');
+        expect(p).not.toMatch(
+          /pnpm biome|pnpm run build|lint-changesets|kryptobaseddev\/cleocode|packages\/<pkg>|CalVer|npm publish/,
+        );
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('places the inlined lint check inside Quality Gates (after Evidence Gate)', () => {
-    const result = buildSpawnPrompt({
+  it('the PR path (Closes: and the merge sweep) comes before the no-PR gate path', () => {
+    const p = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
-    });
-    const evidenceIdx = result.prompt.indexOf('## Evidence-Based Gate Ritual');
-    const qualityIdx = result.prompt.indexOf('## Quality Gates');
-    const lintIdx = result.prompt.indexOf('lint-changesets.mjs');
-    expect(evidenceIdx).toBeGreaterThan(-1);
-    expect(qualityIdx).toBeGreaterThan(-1);
-    expect(lintIdx).toBeGreaterThan(-1);
-    expect(evidenceIdx).toBeLessThan(qualityIdx);
-    expect(qualityIdx).toBeLessThan(lintIdx);
+    }).prompt;
+    const closes = p.indexOf('Closes: T9000');
+    const sweep = p.indexOf('merge sweep');
+    const plan = p.indexOf('cleo done T9000 --plan');
+    expect(closes).toBeGreaterThan(-1);
+    expect(sweep).toBeGreaterThan(closes);
+    expect(plan).toBeGreaterThan(sweep);
+    expect(p).not.toMatch(/--gate implemented[^\n]*commit:/);
   });
 
-  it('produces zero unresolved tokens', () => {
-    const result = buildSpawnPrompt({
+  it('a project with no testing.command is told cleo done --plan names what to run', () => {
+    const p = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'implementation',
       projectRoot: PROJECT_ROOT,
-    });
-    expect(result.unresolvedTokens).toHaveLength(0);
+    }).prompt;
+    expect(p).toMatch(/declares no `testing\.command`|This project's test command is/);
   });
 });
 

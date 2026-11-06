@@ -41,8 +41,9 @@ describe('spawn prompt test-evidence guidance (T12957)', () => {
   ] as SpawnTier[])('tier %s recommends cleo done --plan, ci:<pr> and tool:test-affected', (tier) => {
     const p = prompt('implementation', tier);
     expect(p).toContain('cleo done T9000 --plan');
-    expect(p).toContain('--evidence "ci:<pr>"');
-    expect(p).toContain('--evidence "tool:test-affected"');
+    // T14303: named in the tests guidance; the PR path records ci:<pr> itself.
+    expect(p).toContain('`ci:<pr>`');
+    expect(p).toContain('`tool:test-affected`');
   });
 
   it.each([
