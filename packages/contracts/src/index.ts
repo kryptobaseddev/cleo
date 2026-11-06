@@ -1255,6 +1255,7 @@ export type {
   MacosRegressionSync,
   MergeAttributionFailure,
   MergeAttributionReceipt,
+  MergeAttributionRunPin,
   MergeAttributionVerdict,
   MergeDirective,
   MergePrOutcome,
@@ -2133,6 +2134,8 @@ export type {
   CreateWorktreeResult,
   DestroyWorktreeOptions,
   DestroyWorktreeResult,
+  DisposeWorktreeOptions,
+  DisposeWorktreeResult,
   ForceUnlockWorktreeOpts,
   ForceUnlockWorktreeResult,
   ListWorktreesOptions,
@@ -2146,6 +2149,7 @@ export type {
   PruneOrphanedWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeArchiveReceipt,
   WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
@@ -2583,6 +2587,8 @@ export type {
 export {
   ADR_STATUSES,
   type AdrStatus,
+  CANCELLATION_KINDS,
+  type CancellationKind,
   // Registry
   type EntityType,
   GATE_STATUSES,
@@ -2596,6 +2602,7 @@ export {
   // Display icons
   PIPELINE_STATUS_ICONS,
   type PipelineStatus,
+  REPLACED_CANCELLATION_KINDS,
   SESSION_STATUSES,
   type SessionStatus,
   type SettledTaskStatus,

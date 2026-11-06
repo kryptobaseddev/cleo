@@ -800,6 +800,12 @@ export interface DocsAddResult {
    * @task T10360
    */
   adrNumber?: number;
+  /**
+   * The doc's head version uid (T14329): recorded by the add itself, so the
+   * expected-base fence (`docs update --base-version-uid`) works from the
+   * first edit. Absent for a slug-less attachment.
+   */
+  headVersionUid?: string;
 }
 
 // --------------------------------------------------------------------------
@@ -1471,8 +1477,11 @@ export interface DocsModernizeResult {
  * @task T13360 (Epic T13340 / Saga T13339)
  */
 export interface DocsMigrateParams {
-  /** Reserved for future options; currently unused. */
-  readonly _future?: never;
+  /**
+   * At most this many docs per run, oldest first (T14329); default all. Each
+   * run is one harness transaction with its own backup; run again to continue.
+   */
+  readonly limit?: number;
 }
 
 /**
@@ -1499,6 +1508,8 @@ export interface DocsMigrateResult {
   readonly nativeConflicts: number;
   /** History rows imported across all captured docs. */
   readonly versionsImported: number;
+  /** Docs left for a later run by the `limit` bound (T14329). */
+  readonly remaining: number;
   /** First failure when halted/refused. */
   readonly failure: string | null;
   /** The harness pre-step backup id (null only when the backup itself failed). */

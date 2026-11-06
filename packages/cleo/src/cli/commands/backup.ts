@@ -136,8 +136,44 @@ const listCommand = defineCommand({
       description: 'Filter by backup scope: project, global, or all (default: all)',
       default: 'all',
     },
+    rotation: {
+      type: 'boolean',
+      description:
+        'Preview the backup byte cap: every snapshot set it would remove, with its covering snapshot per store role. Read-only (T14278)',
+      default: false,
+    },
   },
   async run({ args }) {
+    if (args.rotation === true) {
+      // T14278: a read-only plan of the byte cap the next snapshot applies.
+      const [{ getProjectRoot }, { resolveStoreCleoDir }, { applyBackupByteCap }] =
+        await Promise.all([
+          import('@cleocode/core/project-scope'),
+          import('@cleocode/core/paths.js'),
+          import('@cleocode/core/store/backup-sidecar'),
+        ]);
+      const backupDir = path.join(resolveStoreCleoDir(getProjectRoot()), 'backups', 'sqlite');
+      const plan = fs.existsSync(backupDir)
+        ? applyBackupByteCap(backupDir, { dryRun: true })
+        : null;
+      if (plan === null) {
+        cliError(`No byte cap could be computed for ${backupDir} (no store or no backups).`, 1);
+        process.exit(1);
+        return;
+      }
+      cliOutput(
+        { backupDir, ...plan },
+        {
+          command: 'backup',
+          operation: 'backup.rotation',
+          message:
+            `Byte cap ${plan.maxBytes} bytes; ${plan.totalBefore} now. Would remove ` +
+            `${plan.removed.length} set(s) (${plan.totalBefore - plan.totalAfter} bytes)` +
+            (plan.kept.length > 0 ? `; ${plan.kept.length} older set(s) kept with a reason.` : '.'),
+        },
+      );
+      return;
+    }
     const scope = args.scope || 'all';
     await dispatchFromCli(
       'query',

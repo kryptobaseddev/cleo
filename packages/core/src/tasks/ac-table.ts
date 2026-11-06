@@ -935,7 +935,10 @@ function acRowDiffers(current: AcRow, next: AcInsertRow): boolean {
 }
 
 /** The reads AC coverage takes: criteria, their bindings and the task's children. */
-export type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>;
+export type AcCoverageAccessor = Pick<
+  DataAccessor,
+  'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'
+>;
 
 /**
  * The criteria AC coverage counts for `task`, as `cleo complete` checks them:
@@ -944,13 +947,17 @@ export type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings
  * plan and complete agree on which criteria owe a binding (T14198).
  *
  * @param task - The task whose acceptance marks advisory gates.
- * @param accessor - Where rows, bindings and children are read.
+ * @param accessor - Where rows, bindings and children are read (a transaction
+ *   accessor in `cleo complete`).
+ * @param loadTask - Reads a replacement task by id (T14267): a superseded or
+ *   duplicate child is covered once its replacement is done.
  * @param capturedRows - Rows already read in the completing transaction.
  * @returns A coverage accessor for `computeAcCoverage`.
  */
 export function completionCoverageAccessor(
   task: Pick<Task, 'acceptance'>,
-  accessor: AcCoverageAccessor,
+  accessor: Omit<AcCoverageAccessor, 'loadSingleTask'>,
+  loadTask: AcCoverageAccessor['loadSingleTask'],
   capturedRows?: readonly AcRow[],
 ): AcCoverageAccessor {
   const optional = new Map(
@@ -965,5 +972,6 @@ export function completionCoverageAccessor(
         .filter((row, index) => optional.get(index) !== row.text),
     getAcBindings: (ids) => accessor.getAcBindings(ids),
     getChildren: (parentId) => accessor.getChildren(parentId),
+    loadSingleTask: loadTask,
   };
 }

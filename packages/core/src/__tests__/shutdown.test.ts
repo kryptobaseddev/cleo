@@ -42,7 +42,7 @@ vi.mock('../telemetry/index.js', () => ({
   flushTelemetryBuffer: flushTelemetryBufferMock,
 }));
 
-import { settleBeforeExit, shutdownCliRuntime } from '../shutdown.js';
+import { BEST_EFFORT_GRACE_MS, settleBeforeExit, shutdownCliRuntime } from '../shutdown.js';
 import { formatShutdownOutcomes, STEP_DEADLINE_MS } from '../shutdown-deadline.js';
 import {
   awaitBackgroundOps,
@@ -427,6 +427,84 @@ describe('shutdown producer result disclosure', () => {
       expect(closeAllDatabasesMock).not.toHaveBeenCalled();
     } finally {
       release.resolve();
+    }
+  });
+});
+
+describe('two teardown classes: local writes drain, best-effort work is aborted (T14284)', () => {
+  it('a never-settling best-effort producer is aborted at its grace; every resource closes, silently', async () => {
+    let aborted: unknown;
+    trackBackgroundOp(
+      (signal) =>
+        new Promise<void>(() => {
+          signal.addEventListener('abort', () => {
+            aborted = signal.reason;
+          });
+        }),
+      undefined,
+      { kind: 'best-effort' },
+    );
+    const startedAt = Date.now();
+    const shutdown = shutdownCliRuntime();
+    await vi.advanceTimersByTimeAsync(BEST_EFFORT_GRACE_MS);
+    const outcomes = await shutdown;
+    expect(Date.now() - startedAt).toBe(BEST_EFFORT_GRACE_MS);
+    expect(BEST_EFFORT_GRACE_MS).toBeLessThan(2_500);
+    expect(aborted).toBeDefined();
+    expect(outcomes.every((o) => o.settled && !o.threw)).toBe(true);
+    expect(outcomes[0]).toMatchObject({ label: 'background-operations', abandonedBestEffort: 1 });
+    for (const closer of resourceClosers) expect(closer).toHaveBeenCalledOnce();
+    expect(formatShutdownOutcomes(outcomes)).toBe('');
+    expect(pendingBackgroundOpCount()).toBe(0);
+    // AC3: teardown never sets an exit code; the command's own result stands.
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('a best-effort producer that finishes within its grace is awaited, not aborted', async () => {
+    let aborted = false;
+    trackBackgroundOp(
+      (signal) =>
+        new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => {
+            aborted = true;
+          });
+          setTimeout(resolve, 200);
+        }),
+      undefined,
+      { kind: 'best-effort' },
+    );
+    const shutdown = shutdownCliRuntime();
+    await vi.advanceTimersByTimeAsync(200);
+    const outcomes = await shutdown;
+    expect(aborted).toBe(false);
+    expect(outcomes[0]?.abandonedBestEffort).toBeUndefined();
+    for (const closer of resourceClosers) expect(closer).toHaveBeenCalledOnce();
+  });
+
+  it('a never-settling local-write producer still holds closure and prints the warning, beside an aborted best-effort one', async () => {
+    const release = Promise.withResolvers<void>();
+    trackBackgroundOp(release.promise);
+    trackBackgroundOp(() => new Promise<void>(() => {}), undefined, { kind: 'best-effort' });
+    const shutdown = shutdownCliRuntime();
+    try {
+      await vi.advanceTimersByTimeAsync(STEP_DEADLINE_MS);
+      const outcomes = await shutdown;
+      expect(outcomes[0]).toMatchObject({
+        status: 'timed-out',
+        pendingOperations: 1,
+        abandonedBestEffort: 1,
+      });
+      for (const closer of resourceClosers) expect(closer).not.toHaveBeenCalled();
+      expect(formatShutdownOutcomes(outcomes)).toContain(
+        'teardown did not establish complete resource closure',
+      );
+      expect(pendingBackgroundOpCount('local-write')).toBe(1);
+      expect(pendingBackgroundOpCount('best-effort')).toBe(0);
+      // AC3: a warning on stderr, never a failure code.
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      release.resolve();
+      await shutdown;
     }
   });
 });

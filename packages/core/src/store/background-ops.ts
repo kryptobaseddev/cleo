@@ -44,10 +44,34 @@ import type {
 } from '@cleocode/contracts/jobs';
 import { registerTeardownAbort } from '../teardown-signal.js';
 
-/** Completion promises for best-effort background work that has not yet settled.
+/**
+ * The two teardown classes of tracked background work (T14284).
+ *
+ * - `local-write`: writes this process owes the store (post-commit graph
+ *   rows, backups, projections). Teardown drains them before it closes any
+ *   database, and says so when one misses the deadline.
+ * - `best-effort`: work whose loss costs nothing (a presence ping, hook
+ *   dispatch, network telemetry). Teardown gives it a short grace, then aborts
+ *   its {@link AbortSignal} and closes the databases anyway, silently.
+ */
+export type BackgroundOpKind = 'local-write' | 'best-effort';
+
+/** Options for {@link trackBackgroundOp}. */
+export interface TrackBackgroundOpOptions {
+  /** The teardown class. @defaultValue `'local-write'` */
+  readonly kind?: BackgroundOpKind;
+}
+
+/** Completion promises for local-write background work that has not yet settled.
  *  Each resolves with its producer's settled result and never rejects, so the
  *  drain barrier can assess producers instead of only observing settlement. */
 const inFlight = new Set<Promise<PromiseSettledResult<void>>>();
+
+/** Completion promises for best-effort background work (T14284). */
+const bestEffortInFlight = new Set<Promise<PromiseSettledResult<void>>>();
+
+/** Aborted at teardown: every best-effort producer receives this signal (T14284). */
+let bestEffortAbort = new AbortController();
 
 /** How one tracked producer ended, recorded when it settles (T12310). */
 type ProducerDisposition = 'fulfilled' | 'failed' | 'cancelled' | 'discarded';
@@ -138,8 +162,10 @@ export async function withBackgroundOpCommitBoundary<T>(
 
 /**
  * Track an eager legacy promise or defer a lazy effect until outer transaction commit.
- * @param op - Existing promise, or lazy operation that must not run before commit.
+ * @param op - Existing promise, or lazy operation that must not run before commit;
+ *   a lazy one receives the signal teardown aborts for best-effort work (T14284).
  * @param execution - Optional original budget, otherwise inherited from the transaction.
+ * @param options - The teardown class ({@link BackgroundOpKind}). @defaultValue local-write
  * @returns An inspectable settled result, including rollback, cancellation and failures.
  * @remarks Lazy work retains captured async context and the original execution budget.
  * The registry counts staged work as pending. Eager promises have already started
@@ -151,13 +177,16 @@ export async function withBackgroundOpCommitBoundary<T>(
  * ```
  */
 export function trackBackgroundOp(
-  op: Promise<unknown> | (() => Promise<unknown>),
+  op: Promise<unknown> | ((signal: AbortSignal) => Promise<unknown>),
   execution?: OperationExecutionContext,
+  options: TrackBackgroundOpOptions = {},
 ): Promise<PromiseSettledResult<void>> {
   const completion = Promise.withResolvers<PromiseSettledResult<void>>();
   const tracked = completion.promise;
-  inFlight.add(tracked);
-  void tracked.then(() => inFlight.delete(tracked));
+  const registry = options.kind === 'best-effort' ? bestEffortInFlight : inFlight;
+  const signal = bestEffortAbort.signal;
+  registry.add(tracked);
+  void tracked.then(() => registry.delete(tracked));
   const settle = (work: Promise<unknown>): void => {
     void work.then(
       () => {
@@ -191,7 +220,7 @@ export function trackBackgroundOp(
             capturedExecution?.assertActive();
             const invoke = async (): Promise<unknown> => {
               capturedExecution?.assertActive();
-              return op();
+              return op(signal);
             };
             return schedule ? schedule(invoke) : invoke();
           }),
@@ -291,9 +320,15 @@ export async function awaitBackgroundOps(): Promise<BackgroundDrainReport> {
     throw new Error('Cannot drain background work before its transaction commits');
   }
   // Bound rescheduling rounds only; a round itself can wait indefinitely.
-  for (let i = 0; i < 100 && inFlight.size > 0; i++) {
-    await Promise.allSettled(Array.from(inFlight));
+  // Both classes: a test boundary or an explicit barrier waits for everything.
+  for (let i = 0; i < 100 && inFlight.size + bestEffortInFlight.size > 0; i++) {
+    await Promise.allSettled([...inFlight, ...bestEffortInFlight]);
   }
+  return consumeDrainReport();
+}
+
+/** Report and reset the producer ledger (one drain's account). */
+function consumeDrainReport(): BackgroundDrainReport {
   const ledger = producerLedger;
   producerLedger = { fulfilled: 0, failed: 0, cancelled: 0, discarded: 0 };
   return {
@@ -331,15 +366,15 @@ export async function awaitBackgroundOps(): Promise<BackgroundDrainReport> {
  * @task T13164
  */
 export async function settleBackgroundOps(budgetMs: number): Promise<number> {
-  if (inFlight.size === 0) return 0;
+  if (inFlight.size + bestEffortInFlight.size === 0) return 0;
   let timer: NodeJS.Timeout | undefined;
   const budget = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, budgetMs);
   });
   const drain = (async () => {
     // Same bounded rescheduling rounds as the shutdown barrier.
-    for (let i = 0; i < 100 && inFlight.size > 0; i++) {
-      await Promise.allSettled(Array.from(inFlight));
+    for (let i = 0; i < 100 && inFlight.size + bestEffortInFlight.size > 0; i++) {
+      await Promise.allSettled([...inFlight, ...bestEffortInFlight]);
     }
   })();
   try {
@@ -347,12 +382,76 @@ export async function settleBackgroundOps(budgetMs: number): Promise<number> {
   } finally {
     clearTimeout(timer);
   }
-  return inFlight.size;
+  return inFlight.size + bestEffortInFlight.size;
+}
+
+/**
+ * The teardown drain of local-write work only (T14284): await every tracked
+ * local-write producer, then report. Best-effort work is left to
+ * {@link abandonBestEffortOps}; it never holds the databases open.
+ *
+ * @returns Counts for every tracked producer assessed since the previous drain.
+ * @remarks Like {@link awaitBackgroundOps}, a round can wait indefinitely;
+ * the caller bounds it with its deadline.
+ * @example
+ * ```ts
+ * const report = await awaitLocalWriteOps();
+ * ```
+ * @task T14284
+ */
+export async function awaitLocalWriteOps(): Promise<BackgroundDrainReport> {
+  if (backgroundCommitBoundary.getStore()?.active) {
+    // @sync-invariant none:local-only teardown barrier misuse inside a transaction; no store write
+    throw new Error('Cannot drain background work before its transaction commits');
+  }
+  for (let i = 0; i < 100 && inFlight.size > 0; i++) {
+    await Promise.allSettled(Array.from(inFlight));
+  }
+  return consumeDrainReport();
+}
+
+/**
+ * Give tracked best-effort work up to `graceMs` to settle, then abort its
+ * signal and stop waiting for it (T14284). An abandoned best-effort producer
+ * is not a failure and is not reported as one.
+ *
+ * @param graceMs - How long it may still finish.
+ * @returns How many best-effort producers were still pending and were aborted.
+ * @example
+ * ```ts
+ * const aborted = await abandonBestEffortOps(BEST_EFFORT_GRACE_MS);
+ * ```
+ * @task T14284
+ */
+export async function abandonBestEffortOps(graceMs: number): Promise<number> {
+  if (bestEffortInFlight.size > 0 && graceMs > 0) {
+    let timer: NodeJS.Timeout | undefined;
+    const budget = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, graceMs);
+      timer.unref();
+    });
+    try {
+      await Promise.race([Promise.allSettled([...bestEffortInFlight]), budget]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const pending = bestEffortInFlight.size;
+  if (pending > 0) {
+    // @sync-invariant none:local-only best-effort work abandoned at teardown; no store write
+    const reason = new OperationExecutionError('E_OPERATION_CANCELLED', 'abandoned at teardown');
+    bestEffortAbort.abort(reason);
+    // Stop holding them: their settlement no longer matters to anyone.
+    bestEffortInFlight.clear();
+    bestEffortAbort = new AbortController();
+  }
+  return pending;
 }
 
 /**
  * Number of background ops currently in flight. Diagnostic/test use — assert it
  * is `0` after a flush to account for the tracked subset at a test boundary.
+ * @param kind - Count only this teardown class (T14284). @defaultValue both
  * @returns Number of registered, unsettled promises.
  * @remarks Unregistered work is not included in this count.
  * @example
@@ -360,8 +459,10 @@ export async function settleBackgroundOps(budgetMs: number): Promise<number> {
  * const pending = pendingBackgroundOpCount();
  * ```
  */
-export function pendingBackgroundOpCount(): number {
-  return inFlight.size;
+export function pendingBackgroundOpCount(kind?: BackgroundOpKind): number {
+  if (kind === 'local-write') return inFlight.size;
+  if (kind === 'best-effort') return bestEffortInFlight.size;
+  return inFlight.size + bestEffortInFlight.size;
 }
 
 /**

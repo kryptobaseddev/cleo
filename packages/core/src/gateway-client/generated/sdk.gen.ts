@@ -3796,7 +3796,14 @@ export const mutateDocsDoctor = <ThrowOnError extends boolean = false>(options?:
 /**
  * docs.migrate (mutate) — the T13360 legacy docs migration (spec §5): import legacy docs + history into the re-keyed conduit store inside the T13448 safety harness (pre-step VACUUM INTO backup, before/after fingerprints, COMMIT only on full verification). Imported rows are labeled origin:migrated; dangling-pointer docs are content-captured or recorded dangling in conduit_doc_migration_ledger. Idempotent — a re-run is a verified no-op.
  */
-export const mutateDocsMigrate = <ThrowOnError extends boolean = false>(options?: Options<MutateDocsMigrateData, ThrowOnError>): RequestResult<MutateDocsMigrateResponses, unknown, ThrowOnError> => (options?.client ?? client).post<MutateDocsMigrateResponses, unknown, ThrowOnError>({ url: '/v1/docs/migrate', ...options });
+export const mutateDocsMigrate = <ThrowOnError extends boolean = false>(options?: Options<MutateDocsMigrateData, ThrowOnError>): RequestResult<MutateDocsMigrateResponses, unknown, ThrowOnError> => (options?.client ?? client).post<MutateDocsMigrateResponses, unknown, ThrowOnError>({
+    url: '/v1/docs/migrate',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers
+    }
+});
 
 /**
  * docs.modernize (mutate) — turn a messy docs folder into clean, linked CleoDocs. Dry run by default: proposes per file a kind, a stable slug (no task, session or date tokens) and keep/rename/merge-into/delete with reasons and any System One judgment. --apply stores, merges, supersedes, moves files and writes wikilink edges with a receipt; --rollback <runId> reverses a run.

@@ -195,6 +195,7 @@ export interface MergeCloseDeps {
     root: string,
     pr: MergedPrRecord,
     taskId: string | null,
+    required: readonly string[],
     dryRun: boolean,
   ): Promise<MergeAttributionReceipt | null>;
   /**
@@ -1037,7 +1038,7 @@ async function applyMergedPrs(
     ) {
       attributed++;
       const attribution = await deps
-        .attribute(storeRoot, root, pr, receipt.directives[0]?.taskId ?? null, dryRun)
+        .attribute(storeRoot, root, pr, receipt.directives[0]?.taskId ?? null, required, dryRun)
         .catch(() => null);
       if (attribution !== null) {
         const { verdict, claim, reason } = attribution;
@@ -1844,9 +1845,9 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     // CLEO_MERGE_SWEEP_CLEANUP=1, and never inside a CI job.
     return process.env['CLEO_MERGE_SWEEP_CLEANUP'] === '1' && process.env['CI'] !== 'true';
   },
-  async attribute(storeRoot, root, pr, taskId, dryRun) {
+  async attribute(storeRoot, root, pr, taskId, required, dryRun) {
     const { attributeMergedPr } = await import('../release/merge-attribution.js');
-    return attributeMergedPr(storeRoot, root, pr, taskId, dryRun);
+    return attributeMergedPr(storeRoot, root, pr, taskId, required, dryRun);
   },
   async docsRot(storeRoot, pr) {
     // T14111: flag the docs whose covers: globs match the merge's own changes.

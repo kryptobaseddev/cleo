@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { leaseTestTasks } from './test-db-helper.js';
 
 let tempDir: string;
 
@@ -260,6 +261,9 @@ describe('SQLite tasks-sqlite', () => {
       ['see T1234 for details', 'prose containing a valid id — whitespace is disqualifying'],
       ['T\nX', 'embedded control character'],
       ['T'.repeat(65), 'absurd length'],
+      // T14324: the guard is the task grammar; reconcile follow-ups are T#### now.
+      ['T-RECONCILE-FOLLOWUP-v2026.5.63-6', 'a legacy structured follow-up id'],
+      ['T932EP', 'letters after the digits'],
     ])('refuses to insert a task whose id is %j (%s)', async (badId) => {
       const { createTask } = await import('../tasks-sqlite.js');
       const task = makeTask({ id: badId, title: 'should never be stored' });
@@ -267,14 +271,7 @@ describe('SQLite tasks-sqlite', () => {
       await expect(createTask(task)).rejects.toThrow(/malformed id/i);
     });
 
-    it.each([
-      ['T4242', 'the canonical generated shape'],
-      // CLEO mints this itself in `archive-reason-invariant.ts`. A guard that
-      // rejected it would break `cleo release reconcile`, and the doctor's
-      // --fix would DELETE working release follow-up tasks.
-      ['T-RECONCILE-FOLLOWUP-v2026.5.63-6', 'a structured id CLEO generates on purpose'],
-      ['T932EP', 'a pre-existing shape found in a live store'],
-    ])('accepts %j (%s)', async (goodId) => {
+    it.each([['T4242', 'the canonical generated shape']])('accepts %j (%s)', async (goodId) => {
       const { createTask, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: goodId, title: 'legitimate' }));
 
@@ -373,6 +370,7 @@ describe('SQLite tasks-sqlite', () => {
       });
 
       await createTask(task);
+      leaseTestTasks(['T004']);
       const retrieved = await getTask('T004');
 
       expect(retrieved!.title).toBe('Full task');
@@ -529,6 +527,7 @@ describe('SQLite tasks-sqlite', () => {
       await createTask(makeTask({ id: 'T001', status: 'pending' }));
       await createTask(makeTask({ id: 'T002', status: 'active' }));
       await createTask(makeTask({ id: 'T003', status: 'pending' }));
+      leaseTestTasks(['T002']);
 
       const pending = await listTasks({ status: 'pending' });
       expect(pending).toHaveLength(2);
@@ -841,6 +840,7 @@ describe('SQLite tasks-sqlite', () => {
       await createTask(makeTask({ id: 'T002', status: 'pending' }));
       await createTask(makeTask({ id: 'T003', status: 'active' }));
       await createTask(makeTask({ id: 'T004', status: 'done' }));
+      leaseTestTasks(['T003']);
 
       const counts = await countByStatus();
       expect(counts['pending']).toBe(2);

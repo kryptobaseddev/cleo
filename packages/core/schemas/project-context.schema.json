@@ -338,12 +338,8 @@
             },
             "covering": {
               "type": "object",
-              "additionalProperties": false,
-              "description": "T13175: when every required job of a gate was skipped by its change filter, jobs covering each changed path (e.g. scripts/** -> Scripts Tests) attest it instead, if they ran and succeeded. Path globs: **/ any number of whole directories, a trailing /** everything below, * within one segment, ? one character; everything else literal. A script a package test imports belongs in the CI code filter, never under a covering rule.",
-              "properties": {
-                "tests": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["paths", "jobs"], "properties": { "paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }, "jobs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 } } }, "minItems": 1 },
-                "qa": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["paths", "jobs"], "properties": { "paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }, "jobs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 } } }, "minItems": 1 }
-              }
+              "deprecated": true,
+              "description": "Deprecated and ignored since T14260: CI's own change-filter skip of a gate's jobs, on a diff outside packages/ and crates/ with the required checks green, replaces these per-path rules. cleo doctor warns while it is present; remove it. The key is dropped from the schema in Phase 3 of the durability plan."
             }
           },
           "description": "Required checks that attest testsPassed (tests) and qaPassed (qa) for ci:<pr>; each must be a subset of the required list."
