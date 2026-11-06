@@ -321,6 +321,9 @@ export async function setDocKind(
 ): Promise<void> {
   const db = await getDb(projectRoot);
   await db.update(attachments).set({ type: kind }).where(eq(attachments.id, attachmentId)).run();
+  // T14288: the doc's identity row carries its kind too.
+  const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+  await mirrorConduitDocMeta(projectRoot, { rowId: attachmentId });
 }
 
 /**

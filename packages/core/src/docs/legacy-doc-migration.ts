@@ -74,6 +74,7 @@ import {
   findConduitDocMigration,
   importMigratedConduitDoc,
   importMigratedConduitVersion,
+  mirrorConduitDocMeta,
   recordConduitDocMigration,
   upsertConduitDocHead,
 } from '../store/conduit-doc-history.js';
@@ -533,6 +534,11 @@ export async function planLegacyDocMigration(opts: {
           versionsImported: doc.versions.length,
         });
         log(`captured: ${doc.slug} (${doc.versions.length} version(s))`);
+      }
+      // T14288: supersession pointers name other docs' uids, so a doc imported
+      // before its successor is mirrored again once every identity exists.
+      for (const doc of plan.docs) {
+        if (doc.status === 'captured') await mirrorConduitDocMeta(projectRoot, { slug: doc.slug });
       }
       log(
         `legacy docs migration applied: ${plan.docs.filter((d) => d.status === 'captured').length} captured, ` +

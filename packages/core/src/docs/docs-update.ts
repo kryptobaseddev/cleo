@@ -753,6 +753,9 @@ export async function updateDocBySlug(
         .set({ lifecycleStatus: status })
         .where(eq(docsAttachments.id, oldRow.id))
         .run();
+      // T14288: the doc's identity row carries its lifecycle too.
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(projectRoot, { rowId: oldRow.id });
     }
     const { readDocHeadVersionUid } = await import('./fetch-result.js');
     const noopHead = await readDocHeadVersionUid(projectRoot, slug);
@@ -1006,6 +1009,12 @@ export async function updateDocBySlug(
         .where(eq(docsAttachments.id, newAttachmentId))
         .run();
     }
+
+    // T14288: the doc's identity row carries the new row's metadata, in the
+    // same transaction (a first update adopts the doc later, in the
+    // projection, with this metadata).
+    const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+    await mirrorConduitDocMeta(projectRoot, { rowId: newAttachmentId });
 
     nativeDb.prepare('COMMIT').run();
   } catch (err) {
