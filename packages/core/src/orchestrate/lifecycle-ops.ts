@@ -66,12 +66,12 @@ export async function initLoomForEpic(
       if (lifecycleStatus.initialized) {
         return { initialized: false, alreadyInitialized: true };
       }
-      // T13944: record the stage row only — no `.cleo/rcasd` stub file.
-      await recordStageProgress(
-        scope.worktreeRoot,
-        { taskId: epicId, stage: 'research', status: 'in_progress' },
-        { writeArtifact: false },
-      );
+      // T13944/T14277: the stage row only — a stage transition writes no file.
+      await recordStageProgress(scope.worktreeRoot, {
+        taskId: epicId,
+        stage: 'research',
+        status: 'in_progress',
+      });
       return { initialized: true, alreadyInitialized: false };
     });
   } catch (err: unknown) {

@@ -38,6 +38,7 @@ import {
   compactKnowledgeCoverage,
   compactKnowledgeHealth,
 } from '../doctor/knowledge-summary.js';
+import type { LessonEntry } from '../memory/lessons.js';
 import type { SessionMemoryContext } from '../memory/session-memory.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { truncateString } from '../render/helpers.js';
@@ -404,17 +405,24 @@ export async function computeBriefing(
       `Current guidance unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  // T13949 (D11181): the curated lessons index, newest first, project and global.
+  // T13949 (D11181): the curated lessons index, project and global. T14305:
+  // the lessons most relevant to this work lead it (see rankBriefingLessons).
   let lessons: BriefingLesson[] = [];
   try {
     const { listLessons } = await import('../memory/lessons.js');
-    const listed = await listLessons(projectRoot, {
+    const focusId = focus?.currentTask ?? null;
+    const focusParent = focusId ? (taskMap.get(focusId)?.parentId ?? null) : null;
+    const pool = await listLessons(projectRoot, {
       scope: 'all',
-      limit: MAX_BRIEFING_LESSONS,
+      limit: BRIEFING_LESSON_POOL,
       // A broken store never hides the other store's lessons.
       onStoreError: (store, error) =>
         knowledgeWarnings.push(`Lessons unavailable from the ${store} brain: ${error.message}`),
     });
+    const listed = rankBriefingLessons(
+      pool,
+      [focusId, focusParent].filter((id): id is string => id !== null),
+    ).slice(0, MAX_BRIEFING_LESSONS);
     lessons = listed.map((lesson) => ({
       id: lesson.id,
       // Imported rules can be long; the full text is one fetch away.
@@ -1353,6 +1361,25 @@ const MAX_URGENT_TASKS_DIET = 5;
 
 /** Lessons listed in a briefing (T13949); `cleo memory lessons` lists the rest. */
 const MAX_BRIEFING_LESSONS = 8;
+/** Newest lessons the briefing ranks before it keeps {@link MAX_BRIEFING_LESSONS} (T14305). */
+const BRIEFING_LESSON_POOL = 50;
+
+/**
+ * Order lessons for the briefing (T14305): a lesson that names the focused
+ * task or its parent comes first, then this project's lessons, then the
+ * main brain's; newest first within each. The pool is already newest first
+ * and the sort is stable, so equal ranks keep that order.
+ *
+ * @param pool - Current lessons, newest first.
+ * @param focusIds - The focused task id and its parent id, when there are any.
+ * @returns The same lessons, most relevant first.
+ */
+export function rankBriefingLessons(pool: LessonEntry[], focusIds: string[]): LessonEntry[] {
+  const mentions = (lesson: LessonEntry) =>
+    focusIds.some((id) => new RegExp(`\\b${id}\\b`).test(`${lesson.rule}\n${lesson.why}`));
+  const rank = (lesson: LessonEntry) => (mentions(lesson) ? 0 : lesson.scope === 'project' ? 1 : 2);
+  return [...pool].sort((a, b) => rank(a) - rank(b));
+}
 /** Maximum title length (chars) for blockedTasks/activeEpics entries in diet mode. */
 const MAX_TITLE_LEN_DIET = 60;
 /** Maximum memoryContext title length (chars) in diet mode. */

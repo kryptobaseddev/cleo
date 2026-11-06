@@ -174,7 +174,7 @@ const findCommand = defineCommand({
   meta: {
     name: 'find',
     description:
-      'Search BRAIN memory (all tables, or filter by --type decision|pattern|learning|observation|doc); --docs adds current docs ranked with the BRAIN hits',
+      'Search BRAIN memory (all tables, or filter by --type decision|pattern|learning|observation|lesson|doc); --docs adds current docs ranked with the BRAIN hits',
   },
   args: {
     query: {
@@ -185,7 +185,7 @@ const findCommand = defineCommand({
     type: {
       type: 'string',
       description:
-        'Filter by memory type: decision, pattern, learning, observation, or doc (default: all BRAIN tables)',
+        'Filter by memory type: decision, pattern, learning, observation, lesson (both brains), or doc (default: all BRAIN tables)',
     },
     docs: {
       type: 'boolean',
@@ -210,7 +210,7 @@ const findCommand = defineCommand({
     },
     limit: {
       type: 'string',
-      description: 'Maximum results',
+      description: 'Maximum results (0 = every match)',
     },
     // T418: agent filter for per-agent mental model retrieval
     agent: {
@@ -228,10 +228,10 @@ const findCommand = defineCommand({
 
     if (
       memType !== undefined &&
-      !['decision', 'pattern', 'learning', 'observation', 'doc'].includes(memType)
+      !['decision', 'pattern', 'learning', 'observation', 'lesson', 'doc'].includes(memType)
     ) {
       cliError(
-        `Unknown memory type: ${memType}. Use decision, pattern, learning, observation, or doc.`,
+        `Unknown memory type: ${memType}. Use decision, pattern, learning, observation, lesson, or doc.`,
         'E_VALIDATION',
         { name: 'E_VALIDATION' },
       );
@@ -246,7 +246,20 @@ const findCommand = defineCommand({
       return;
     }
 
-    if (memType === 'pattern' && !args.history && !args.docs) {
+    if (memType === 'lesson') {
+      // T14321: lessons are observations in either brain, matched on rule and why.
+      await dispatchFromCli(
+        'query',
+        'memory',
+        'find',
+        {
+          query,
+          limit: args.limit !== undefined ? parseInt(args.limit, 10) : undefined,
+          lessons: true,
+        },
+        { command: 'memory', operation: 'memory.find' },
+      );
+    } else if (memType === 'pattern' && !args.history && !args.docs) {
       await dispatchFromCli(
         'query',
         'memory',

@@ -36,7 +36,7 @@ import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js'
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
-import { fileBytesMatchSha256 } from '../store/blob-keep.js';
+import { fileBytesMatchSha256, readVerifiedBlobBytes } from '../store/blob-keep.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
@@ -546,30 +546,16 @@ export async function updateDocBySlug(
             `base version '${params.baseVersionUid}' does not resolve to slug '${slug}'s version history — ` +
             're-fetch the doc (`cleo docs fetch ' +
             slug +
-            '`) and retry with its metadata.headVersionUid',
+            '`) and retry with its metadata.headVersionUid' +
+            (docUid === null
+              ? '; the doc has no version history yet: run `cleo docs migrate` to record its current bytes as the head (T14329)'
+              : ''),
         },
       };
     }
-    if (!version.storageKey) {
-      return {
-        ok: false,
-        error: {
-          // @sync-invariant none:input-shape a base without resolvable bytes cannot anchor a merge; nothing was written
-          code: 'E_DOC_BASE_UNKNOWN',
-          message:
-            `base version '${params.baseVersionUid}' has no stored bytes for slug '${slug}' — ` +
-            're-fetch the doc and retry with its current metadata.headVersionUid',
-        },
-      };
-    }
-    const { readFile } = await import('node:fs/promises');
-    try {
-      const text = await readFile(
-        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
-        'utf-8',
-      );
-      baseSections = splitDocIntoSections(text);
-    } catch (cause) {
+    // T14329: by content hash (blob store, then the legacy tree), whatever the key layout.
+    const baseBytes = readVerifiedBlobBytes(resolveCleoDir(projectRoot), version.contentHash);
+    if (baseBytes === null) {
       return {
         ok: false,
         error: {
@@ -577,10 +563,11 @@ export async function updateDocBySlug(
           code: 'E_DOC_BASE_UNKNOWN',
           message:
             `base version '${params.baseVersionUid}' bytes for slug '${slug}' cannot be read ` +
-            `(${cause instanceof Error ? cause.message : String(cause)}) — re-fetch the doc and retry`,
+            '(no verified copy in the blob store or the legacy tree) — re-fetch the doc and retry',
         },
       };
     }
+    baseSections = splitDocIntoSections(baseBytes.toString('utf-8'));
   }
 
   // T12945: superseded is absorbing (docs.lifecycle.transitions). Leaving it —
@@ -1197,12 +1184,11 @@ const PREVIEW_SETTLE_BUDGET_MS = 5_000;
 async function readVersionText(projectRoot: string, versionUid: string): Promise<string | null> {
   const { getConduitAttachmentVersion } = await import('../store/conduit-doc-history.js');
   const version = await getConduitAttachmentVersion(projectRoot, versionUid);
-  if (!version?.storageKey) return null;
-  const { readFile } = await import('node:fs/promises');
-  return readFile(
-    join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
-    'utf-8',
-  ).catch(() => null);
+  if (!version) return null;
+  return (
+    readVerifiedBlobBytes(resolveCleoDir(projectRoot), version.contentHash)?.toString('utf-8') ??
+    null
+  );
 }
 
 /** The current conduit head's text for a slug (T13842), or `null` when it has none or it is unreadable. */
@@ -1220,6 +1206,27 @@ function utf8TextOf(buf: Buffer): string | null {
   if (buf.includes(0)) return null;
   const text = buf.toString('utf-8');
   return Buffer.from(text, 'utf-8').equals(buf) ? text : null;
+}
+
+/**
+ * Give a doc that `docs add` just stored its identity, first version and head
+ * (T14329): the conduit uid, a root version holding exactly the stored bytes,
+ * and the head projection, so `docs fetch` carries `metadata.headVersionUid`
+ * and the expected-base fence works from the first edit. Text bodies are
+ * projected through the section CRDT layer (as an update is); binary bodies
+ * get a direct root version. Idempotent.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The new doc's slug, author and stored bytes.
+ * @returns The doc uid and its head version uid.
+ * @task T14329
+ */
+export async function recordNewDocIdentity(
+  projectRoot: string,
+  input: { slug: string; authorAgentId: string; bytes: Buffer },
+): Promise<{ docUid: string; headVersionUid: string }> {
+  const { projectDocCreate } = await import('./section-write-path.js');
+  return projectDocCreate(projectRoot, { ...input, text: utf8TextOf(input.bytes) });
 }
 
 /**
@@ -1290,19 +1297,16 @@ async function recordPriorVersionOnAdopt(
     '../store/conduit-doc-history.js'
   );
   if ((await resolveConduitDocUid(projectRoot, slug)) !== null) return null;
-  let storageKey: string | undefined;
-  let bytes: Buffer | undefined;
+  // T14329: the prior bytes by content hash (blob store, then the legacy
+  // tree); the legacy key layout when the row has one, else the content address.
+  let storageKey = `sha256:${oldRow.sha256}`;
   try {
     const prior = blobAttachmentSchema.safeParse(JSON.parse(oldRow.attachmentJson));
-    if (prior.success && prior.data.storageKey) {
-      storageKey = prior.data.storageKey;
-      bytes = readFileSync(
-        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey),
-      );
-    }
+    if (prior.success && prior.data.storageKey) storageKey = prior.data.storageKey;
   } catch {
-    bytes = undefined; // shortcut: no parseable row or local bytes, no root row; the T13727 backfill covers these docs
+    // an unparseable row keeps the content-address key
   }
+  const bytes = readVerifiedBlobBytes(resolveCleoDir(projectRoot), oldRow.sha256) ?? undefined;
   // T13586: adopt with the PRE-update row's birth even without local bytes —
   // the slug already points at this device's new row, so letting the
   // projection adopt would stamp a per-device birth and mint a per-device uid.
@@ -1312,7 +1316,7 @@ async function recordPriorVersionOnAdopt(
     content: bytes ?? Buffer.alloc(0),
     legacyBirth: oldRow.createdAt,
   });
-  if (bytes === undefined || storageKey === undefined) return null;
+  if (bytes === undefined) return null;
   const tokens = bytes
     .toString('utf-8')
     .split(/\s+/)

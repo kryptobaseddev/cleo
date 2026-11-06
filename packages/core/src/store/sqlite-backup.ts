@@ -66,6 +66,7 @@ import {
   ensureGlobalAgentRegistryDb,
   getGlobalAgentRegistryNativeDb,
 } from './agent-registry-store.js';
+import { applyBackupByteCap } from './backup-sidecar.js';
 import { ensureConduitDb, getConduitNativeDb } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
 import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
@@ -763,6 +764,8 @@ async function snapshotProjectTargetsGated(
     },
   );
   if (coveredByUnified.size > 0) pruneLegacyProjectSnapshots(backupDir, coveredByUnified);
+  // T14278: one byte cap over every snapshot family in the directory.
+  applyBackupByteCap(backupDir);
   return result;
 }
 

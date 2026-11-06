@@ -4,23 +4,35 @@
  * @task T1161
  */
 
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { computeProjectHash } from '../paths.js';
 import { pruneWorktrees } from '../worktree-prune.js';
 
-/** Creates a fake project root (just a dir, no git) with some fake worktrees. */
+/**
+ * Creates a one-commit project repository with three clean linked worktrees
+ * (T13924: a directory git cannot read is never removed, so the fixtures are
+ * real worktrees whose commits are all on `main`).
+ */
 function setupFakeProject(): {
   projectRoot: string;
   worktreeRoot: string;
   taskDirs: string[];
   cleanup: () => void;
 } {
-  const base = join(tmpdir(), `prune-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const base = join(
+    realpathSync(tmpdir()),
+    `prune-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   const projectRoot = join(base, 'project');
   mkdirSync(projectRoot, { recursive: true });
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', projectRoot, ...args], { stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('-c', 'user.name=T', '-c', 'user.email=t@e.x', 'commit', '-q', '--allow-empty', '-m', 'init');
 
   const hash = computeProjectHash(projectRoot);
   const cleo = process.env['CLEO_HOME'];
@@ -31,9 +43,13 @@ function setupFakeProject(): {
   const t1 = join(worktreeRoot, 'T1001');
   const t2 = join(worktreeRoot, 'T1002');
   const t3 = join(worktreeRoot, 'T1003');
-  mkdirSync(t1, { recursive: true });
-  mkdirSync(t2, { recursive: true });
-  mkdirSync(t3, { recursive: true });
+  for (const [id, path] of [
+    ['T1001', t1],
+    ['T1002', t2],
+    ['T1003', t3],
+  ] as const) {
+    git('worktree', 'add', '-q', '-b', `task/${id}`, path);
+  }
 
   return {
     projectRoot,
@@ -58,7 +74,7 @@ describe('pruneWorktrees', () => {
       const result = pruneWorktrees({
         projectRoot,
         preserveTaskIds: new Set(['T1001']), // preserve only T1001
-        gitPrune: false, // skip git commands since this isn't a real repo
+        gitPrune: false,
       });
 
       // T1002 and T1003 should be removed

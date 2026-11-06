@@ -1,6 +1,6 @@
 /**
  * T13279 — the tracked `.cleo/project-context.json` is validated against its
- * schema in Lint & Format, and evidence credits that job for the file.
+ * schema in Lint & Format.
  *
  * Biome ignores `.cleo/`, so without this step a change to the evidence,
  * release and testing rules ran no check at all and could not be attested
@@ -30,12 +30,7 @@ describe('project-context schema check (T13279)', () => {
     expect(step.run).toContain('-d .cleo/project-context.json');
   });
 
-  it('evidence credits Lint & Format for the file, for both gates', () => {
-    for (const gate of ['tests', 'qa']) {
-      const rule = context.evidence.ciChecks.covering[gate].find((r) =>
-        r.paths.includes('.cleo/project-context.json'),
-      );
-      expect(rule?.jobs, gate).toEqual(['Lint & Format']);
-    }
+  it('the covering table is gone: a filter skip outside the package code roots stands in (T14260)', () => {
+    expect(context.evidence.ciChecks.covering).toBeUndefined();
   });
 });

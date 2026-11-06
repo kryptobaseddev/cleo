@@ -329,6 +329,35 @@ const TASK_TRIGGER_CODES: ReadonlyArray<readonly [string, ExitCode, string]> = [
  */
 export function taskWriteError(err: unknown, taskId: string): unknown {
   if (err instanceof CleoError || !(err instanceof Error)) return err;
+  const failure = storeWriteCause(err);
+  if (failure === null) return err;
+  const known = TASK_TRIGGER_CODES.find(([code]) => failure.cause.includes(code));
+  // @sync-invariant none:input-shape rethrows the guard triggers' refusal (task.parent.type-matrix, task.parent.no-cycle, task.status.pipeline-consistency) with its SQLite cause; the rule lives in the trigger
+  return new CleoError(
+    known?.[1] ?? ExitCode.GENERAL_ERROR,
+    `Writing task ${taskId} failed: ${failure.cause}`,
+    {
+      details: {
+        field: known?.[2] ?? 'task',
+        ...(known ? { code: known[0] } : { storeWrite: true }),
+        sql: failure.sql,
+      },
+      cause: err,
+    },
+  );
+}
+
+/**
+ * The SQLite cause and the start of the statement of a failed store write
+ * (T14218, T14217). Drizzle wraps the SQLite error in a `DrizzleQueryError`
+ * whose message is the whole statement with every parameter (kilobytes for a
+ * task row); the SQLite message is on `.cause`.
+ *
+ * @param err - The caught error.
+ * @returns The innermost cause and at most 200 characters of SQL, or null when
+ *   `err` is not a failed database statement.
+ */
+export function storeWriteCause(err: Error): { cause: string; sql: string } | null {
   let cause: unknown = err.cause;
   let sqliteMessage: string | null = null;
   for (let depth = 0; cause instanceof Error && depth < 8; depth++) {
@@ -336,25 +365,54 @@ export function taskWriteError(err: unknown, taskId: string): unknown {
     cause = cause.cause;
   }
   if (sqliteMessage === null) {
-    if (!err.message.startsWith('Failed query:')) return err;
+    if (!err.message.startsWith('Failed query:')) return null;
     sqliteMessage = 'the database refused the statement';
   }
-  const known = TASK_TRIGGER_CODES.find(([code]) => sqliteMessage?.includes(code));
-  const statement = err.message.replace(/^Failed query:\s*/, '').replace(/\s+/g, ' ');
-  const shortSql = statement.length > 200 ? `${statement.slice(0, 200)}…` : statement;
-  // @sync-invariant none:input-shape rethrows the guard triggers' refusal (task.parent.type-matrix, task.parent.no-cycle, task.status.pipeline-consistency) with its SQLite cause; the rule lives in the trigger
-  return new CleoError(
-    known?.[1] ?? ExitCode.GENERAL_ERROR,
-    `Writing task ${taskId} failed: ${sqliteMessage}`,
-    {
-      details: {
-        field: known?.[2] ?? 'task',
-        ...(known ? { code: known[0] } : {}),
-        sql: shortSql,
-      },
-      cause: err,
-    },
+  const statement = err.message
+    .replace(/^Failed query:\s*/, '')
+    .split(/\nparams:|\sparams:/)[0]
+    ?.replace(/\s+/g, ' ')
+    .trim();
+  const sqlText = statement ?? '';
+  return {
+    cause: sqliteMessage,
+    sql: sqlText.length > 200 ? `${sqlText.slice(0, 200)}…` : sqlText,
+  };
+}
+
+/** Longest message {@link boundedStoreWriteFailure} returns. */
+export const STORE_WRITE_ERROR_MAX_CHARS = 600;
+
+/**
+ * A store write that failed for no known rule, as a bounded internal error
+ * (T14217): either drizzle's raw failed statement or the {@link taskWriteError}
+ * wrap of one. Engine results report it as `E_INTERNAL` with the SQLite cause
+ * first; a refusal with a known trigger code is not one and returns null.
+ *
+ * @param err - The caught error.
+ * @returns The bounded message and its parts, or null.
+ */
+export function boundedStoreWriteFailure(
+  err: unknown,
+): { message: string; details: { cause: string; query: string } } | null {
+  let failure: { cause: string; sql: string } | null = null;
+  if (err instanceof CleoError) {
+    const sqlText = err.details?.['sql'];
+    if (err.details?.['storeWrite'] === true && typeof sqlText === 'string') {
+      failure = { cause: err.message.replace(/^Writing task \S+ failed:\s*/, ''), sql: sqlText };
+    }
+  } else if (err instanceof Error && err.message.startsWith('Failed query:')) {
+    failure = storeWriteCause(err);
+  }
+  if (failure === null) return null;
+  const message = `Store write failed: ${failure.cause} (query: ${failure.sql})`.slice(
+    0,
+    STORE_WRITE_ERROR_MAX_CHARS,
   );
+  return {
+    message,
+    details: { cause: failure.cause.slice(0, 300), query: failure.sql },
+  };
 }
 
 /**
