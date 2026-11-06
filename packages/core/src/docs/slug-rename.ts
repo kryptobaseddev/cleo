@@ -277,6 +277,10 @@ export async function resolveDocRef(
             headVersionUid: head.headVersionUid,
             sha256: slugRow.sha256,
             row: slugRow,
+            meta:
+              live?.lifecycleStatus != null
+                ? conduitDocMetaOf(live)
+                : await conduitDocMetaOfRow(projectRoot, slugRow),
           };
         }
       }
@@ -311,7 +315,7 @@ export async function resolveDocRef(
  * Every doc in the project, resolved as {@link resolveDocRef} resolves one
  * (T14288 PR 3b): each doc identity with a head (its head content's registry
  * row, its identity metadata) and each legacy registry row whose slug has no
- * identity yet. Three set reads, no per-doc query, so listing and indexing
+ * identity yet. Four set reads, no per-doc query, so listing and indexing
  * surfaces can use it on every call. No warning is pushed.
  *
  * @param projectRoot - Absolute project root.
@@ -359,8 +363,26 @@ export async function listDocRefs(projectRoot: string): Promise<DocRef[]> {
   });
   const out: DocRef[] = [];
   const listed = new Set<string>();
+  // A live slug row whose content no version of its doc records is a write
+  // the projection did not land, served over the head (as resolveDocRef does).
+  const recorded = new Set(
+    (
+      await db
+        .select({
+          doc: conduitAttachmentVersions.attachmentUid,
+          hash: conduitAttachmentVersions.contentHash,
+        })
+        .from(conduitAttachmentVersions)
+        .all()
+    ).map((v) => `${v.doc}|${v.hash}`),
+  );
   for (const { doc, headVersionUid, contentHash } of heads) {
-    const row = bySha.get(contentHash) ?? bySlug.get(doc.slug);
+    const live = bySlug.get(doc.slug);
+    const unlanded =
+      live !== undefined &&
+      live.sha256 !== contentHash &&
+      !recorded.has(`${doc.uid}|${live.sha256}`);
+    const row = unlanded ? live : (bySha.get(contentHash) ?? live);
     if (!row || !doc.uid || listed.has(doc.slug)) continue;
     listed.add(doc.slug);
     out.push({
@@ -368,7 +390,7 @@ export async function listDocRefs(projectRoot: string): Promise<DocRef[]> {
       slug: doc.slug,
       docUid: doc.uid,
       headVersionUid,
-      sha256: contentHash,
+      sha256: unlanded ? row.sha256 : contentHash,
       row,
       meta: doc.lifecycleStatus != null ? conduitDocMetaOf(doc) : metaOfRow(row),
     });
