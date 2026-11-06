@@ -74,7 +74,11 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { resolveStoreCleoDir } from '../paths.js';
-import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
+import {
+  applyBackupByteCap,
+  formatBackupTimestamp,
+  rotateBackupDir,
+} from '../store/backup-sidecar.js';
 import {
   backupDocsBytes,
   type DocsBytesMeta,
@@ -507,6 +511,8 @@ export async function createBackup(
   if (!opts?.destination) {
     const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
     rotateBackupDir(backupDir, maxSnapshots, btype);
+    // T14278: the directory-wide byte cap over every snapshot family.
+    applyBackupByteCap(backupDir);
     // T13710: pool bytes no surviving backup references go with the rotation.
     try {
       sweepDocsBytePool(backupDir);

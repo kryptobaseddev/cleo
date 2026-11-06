@@ -24,7 +24,12 @@
 import { existsSync, mkdirSync, statfsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { formatBackupTimestamp, rotateBackupDir, writeBackupSidecar } from './backup-sidecar.js';
+import {
+  applyBackupByteCap,
+  formatBackupTimestamp,
+  rotateBackupDir,
+  writeBackupSidecar,
+} from './backup-sidecar.js';
 
 /**
  * Write a `VACUUM INTO` snapshot of the whole database next to it, under
@@ -155,5 +160,7 @@ export function writeMigrationSnapshot(
       : {}),
   });
   rotateBackupDir(plan.backupDir, 10, 'migration');
+  // T14278: the directory-wide byte cap; this snapshot is the newest and stays.
+  applyBackupByteCap(plan.backupDir);
   return plan.snapshotPath;
 }
