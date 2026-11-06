@@ -918,8 +918,10 @@ describe('a re-key that moves the birth fingerprint is followed with it (T14335)
       .find((o) => o.o === 'K');
     expect(k).toMatchObject({ u: ia.uid, nu: ib.uid, obfp: ia.fp, bfp: ib.fp });
 
-    // B follows the K with the fingerprint: A's held insert is B's own row.
-    pull(b);
+    // B follows the K with the fingerprint: A's held insert is B's own row,
+    // and nothing is left waiting (T14336: the K is not stuck behind it).
+    expect(pull(b)).toMatchObject({ pending: 0 });
+    expect(statuses(b.db)).not.toContain('pending');
     expect(rows(b.db, 'SELECT uid, birth_fp FROM tasks_tasks')).toEqual([
       { uid: ib.uid, birth_fp: ib.fp },
     ]);
@@ -927,7 +929,7 @@ describe('a re-key that moves the birth fingerprint is followed with it (T14335)
       [],
     );
     // A places B's row as its own; nothing is re-keyed to a random uid.
-    pull(a);
+    expect(pull(a)).toMatchObject({ pending: 0 });
     expect(rows(a.db, 'SELECT uid, birth_fp FROM tasks_tasks')).toEqual([
       { uid: ib.uid, birth_fp: ib.fp },
     ]);
@@ -970,7 +972,8 @@ describe('a re-key that moves the birth fingerprint is followed with it (T14335)
        UPDATE conduit_attachment_versions SET attachment_uid = '${ib.uid}' WHERE attachment_uid = '${ia.uid}'`,
     );
     push(a);
-    pull(b);
+    expect(pull(b)).toMatchObject({ pending: 0 });
+    expect(statuses(b.db)).not.toContain('pending');
 
     // One doc on B, under B's identity, and A's version is placed under it.
     expect(rows(b.db, 'SELECT uid, birth_fp FROM conduit_attachments')).toEqual([
@@ -982,7 +985,7 @@ describe('a re-key that moves the birth fingerprint is followed with it (T14335)
     expect(listConflicts(b.db, { open: true }).filter((c) => c.kind === 'uid-collision')).toEqual(
       [],
     );
-    pull(a);
+    expect(pull(a)).toMatchObject({ pending: 0 });
     expect(rows(a.db, 'SELECT uid FROM conduit_attachments')).toEqual([{ uid: ib.uid }]);
   });
 });

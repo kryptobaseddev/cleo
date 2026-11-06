@@ -129,6 +129,51 @@ export function markAliasPlaced(
   ).run(table, oldUid, oldBfp);
 }
 
+/**
+ * Record, before planning, the alias of every staged K whose row is not
+ * placed here (T14336). Applying such a K records its alias and nothing else
+ * ({@link recordUidAlias} is its first write), so recording it first is the
+ * same write, earlier. Without it a K published after the insert it re-keys
+ * deadlocks where that insert is held: the held transaction waits for the K
+ * to follow it, and the K's transaction waits behind the held one.
+ *
+ * @param db - The store.
+ * @param staged - The staged transactions of this pass.
+ * @param defs - Capture definitions by table (unknown tables are skipped).
+ * @param nowIso - The time.
+ */
+export function recordStagedRekeyAliases(
+  db: DatabaseSync,
+  staged: readonly StagedTxn[],
+  defs: (table: string) => CaptureTableDef | null,
+  nowIso: string,
+): void {
+  if (!hasTable(db, UID_ALIAS_JOURNAL_TABLE)) return;
+  for (const st of staged) {
+    for (const op of st.txn.ops) {
+      const oldBfp = op.obfp ?? op.bfp;
+      if (op.o !== 'K' || !op.nu || op.nu === op.u || !oldBfp || !defs(op.t)) continue;
+      const placed = db
+        .prepare(`SELECT 1 FROM main."${op.t.replaceAll('"', '""')}" WHERE uid = ?`)
+        .get(op.u);
+      if (placed !== undefined) continue;
+      recordUidAlias(
+        db,
+        {
+          table: op.t,
+          oldUid: op.u,
+          oldBfp,
+          newUid: op.nu,
+          newBfp: op.bfp ?? null,
+          origin: st.replicaId,
+          hlc: op.h,
+        },
+        nowIso,
+      );
+    }
+  }
+}
+
 /** One announcement this replica owes ({@link markAliasPlaced}). */
 export interface OwedAnnouncement {
   readonly table: string;
@@ -251,7 +296,8 @@ export function followUidAliases(
     // T14335: the op takes the row's identity now, its fingerprint included,
     // so a held loser arrives as the row it was re-keyed onto and is placed
     // as that row, never as a collision with it.
-    if (moved !== null) {
+    // A K is never moved by its own alias (recorded before it applies, T14336).
+    if (moved !== null && !(op.o === 'K' && moved.uid === op.nu)) {
       out =
         op.o === 'K'
           ? { ...out, u: moved.uid, obfp: moved.bfp }

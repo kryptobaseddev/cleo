@@ -130,7 +130,12 @@ import {
 } from '../sequencing.js';
 import { canonicalStoreTimestamp } from '../timestamp-canon.js';
 import { withTriggersSuspended } from '../trigger-classes.js';
-import { followUidAliases, markAliasPlaced, recordUidAlias } from '../uid-alias.js';
+import {
+  followUidAliases,
+  markAliasPlaced,
+  recordStagedRekeyAliases,
+  recordUidAlias,
+} from '../uid-alias.js';
 import { widenFootprint } from './footprints.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
@@ -1878,10 +1883,13 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       passes += 1;
       const heldReplicas = new Set<string>();
       const held = new Set<string>(); // rows written by a pending transaction
+      const raw = stagedTxns(db, opts.stream);
+      // T14336: a staged K of a row not placed here is followed this pass.
+      recordStagedRekeyAliases(db, raw, defs, new Date(now()).toISOString());
       // An origin's display-key re-mint folds into the insert it held (T13405).
       const staged = foldDisplayRemints(
         db,
-        stagedTxns(db, opts.stream).map((st) =>
+        raw.map((st) =>
           followUidAliases(
             db,
             withOpenedSecrets(withoutLocalColumns(st, defs), defs, opts.secrets),
