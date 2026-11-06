@@ -10,7 +10,7 @@
  *   2. Insert real brain_retrieval_log rows with timestamps within the STDP
  *      pairing window so that STDP has pairs to process.
  *   3. Close the in-process DB connection (to avoid WAL conflicts with CLI).
- *   4. Spawn `cleo memory dream --json` via `execFile`, passing CLEO_DIR as an
+ *   4. Spawn `cleo memory dream --apply --json` via `execFile`, passing CLEO_DIR as an
  *      absolute path — this triggers the full runConsolidation pipeline
  *      (Steps 9a/9b/9c) inside the real installed cleo binary.
  *   5. Re-open the DB and assert:
@@ -268,7 +268,7 @@ describe.skipIf(!CLEO_BIN_AVAILABLE)(
 
       // Step 3: Spawn `cleo memory dream --json` — triggers runConsolidation
       // Steps 9a (R-STDP reward backfill) and 9b (STDP plasticity).
-      const dreamResult = await runCleo(['memory', 'dream', '--json'], cleoDirAbsolute);
+      const dreamResult = await runCleo(['memory', 'dream', '--apply', '--json'], cleoDirAbsolute);
 
       // CLI must exit successfully
       expect(
@@ -363,7 +363,7 @@ describe.skipIf(!CLEO_BIN_AVAILABLE)(
       delete process.env['CLEO_DIR'];
 
       // Run dream cycle to populate plasticity events
-      const dreamResult = await runCleo(['memory', 'dream', '--json'], cleoDirAbsolute);
+      const dreamResult = await runCleo(['memory', 'dream', '--apply', '--json'], cleoDirAbsolute);
       expect(
         dreamResult.exitCode,
         `cleo memory dream failed.\nstdout: ${dreamResult.stdout}\nstderr: ${dreamResult.stderr}`,
@@ -436,7 +436,7 @@ describe.skipIf(!CLEO_BIN_AVAILABLE)(
       closeBrainDb();
       delete process.env['CLEO_DIR'];
 
-      const dreamResult = await runCleo(['memory', 'dream', '--json'], cleoDirAbsolute);
+      const dreamResult = await runCleo(['memory', 'dream', '--apply', '--json'], cleoDirAbsolute);
       expect(
         dreamResult.exitCode,
         `cleo memory dream failed.\nstdout: ${dreamResult.stdout}\nstderr: ${dreamResult.stderr}`,

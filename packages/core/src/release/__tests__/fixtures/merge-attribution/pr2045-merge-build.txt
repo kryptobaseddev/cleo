@@ -1,0 +1,49 @@
+2026-10-10T19:45:59.4759231Z ##[group]Run node scripts/check-cli-startup-graph.mjs
+2026-10-10T19:45:59.4759467Z node scripts/check-cli-startup-graph.mjs
+2026-10-10T19:45:59.4813921Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-10T19:45:59.4814114Z env:
+2026-10-10T19:45:59.4814256Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-10-10T19:45:59.4814433Z   CACHE_ON_FAILURE: false
+2026-10-10T19:45:59.4814563Z   CARGO_INCREMENTAL: 0
+2026-10-10T19:45:59.4814690Z ##[endgroup]
+2026-10-10T19:46:12.5911231Z static graph: 6 files, 113120 bytes, 3 external specifiers
+2026-10-10T19:46:12.5912546Z   version     64 modules (budget 80), 59 MB peak RSS (ceiling 120), exit 0
+2026-10-10T19:46:12.5912990Z   help        75 modules (budget 85), 63 MB peak RSS (ceiling 120), exit 0
+2026-10-10T19:46:12.5913821Z   show       501 modules (budget 500), 150 MB peak RSS (ceiling 200), exit 4
+2026-10-10T19:46:12.5914289Z   find       494 modules (budget 500), 150 MB peak RSS (ceiling 200), exit 100
+2026-10-10T19:46:12.5914768Z   list-human   557 modules (budget 565), 149 MB peak RSS (ceiling 200), exit 100
+2026-10-10T19:46:12.5915244Z   field-miss   503 modules (budget 505), 151 MB peak RSS (ceiling 200), exit 4
+2026-10-10T19:46:12.5915719Z   current    491 modules (budget 500), 150 MB peak RSS (ceiling 200), exit 0
+2026-10-10T19:46:12.5916215Z   session-status   586 modules (budget 600), 188 MB peak RSS (ceiling 240), exit 0
+2026-10-10T19:46:12.5916762Z   briefing   757 modules (budget 785), 185 MB peak RSS (ceiling 260), exit 0
+2026-10-10T19:46:12.5917194Z   next       706 modules (budget 735), 178 MB peak RSS (ceiling 200), exit 0
+2026-10-10T19:46:12.5917622Z   add        863 modules (budget 900), 196 MB peak RSS (ceiling 240), exit 0
+2026-10-10T19:46:12.5918044Z   dash       675 modules (budget 700), 161 MB peak RSS (ceiling 200), exit 0
+2026-10-10T19:46:12.5918463Z   config-get   456 modules (budget 465), 132 MB peak RSS (ceiling 170), exit 0
+2026-10-10T19:46:12.5918899Z   describe   460 modules (budget 465), 140 MB peak RSS (ceiling 200), exit 0
+2026-10-10T19:46:12.5919335Z   show-existing   485 modules (budget 500), 150 MB peak RSS (ceiling 200), exit 0
+2026-10-10T19:46:12.5919828Z   show-fill-first   485 modules (budget 500), 149 MB peak RSS (ceiling 200), exit 0
+2026-10-10T19:46:12.5920277Z   show-filled   485 modules (budget 500), 150 MB peak RSS (ceiling 200), exit 0
+2026-10-10T19:46:12.5920559Z 
+2026-10-10T19:46:12.5920732Z check-cli-startup-graph: FAILED
+2026-10-10T19:46:12.5921049Z   show: loads 501 modules, over its budget of 500
+2026-10-10T19:46:12.5921310Z          210 core
+2026-10-10T19:46:12.5921538Z           78 drizzle-orm
+2026-10-10T19:46:12.5921772Z           76 zod
+2026-10-10T19:46:12.5921982Z           33 contracts
+2026-10-10T19:46:12.5922175Z           26 lafs
+2026-10-10T19:46:12.5922351Z           20 cleo
+2026-10-10T19:46:12.5922522Z           12 pino
+2026-10-10T19:46:12.5922699Z            8 paths
+2026-10-10T19:46:12.5922911Z            7 pino-std-serializers
+2026-10-10T19:46:12.5923150Z            4 proper-lockfile
+2026-10-10T19:46:12.5923363Z            4 thread-stream
+2026-10-10T19:46:12.5923566Z            4 signal-exit
+2026-10-10T19:46:12.5923886Z   verify     961 modules (budget 1000), 227 MB peak RSS (ceiling 280), exit 0
+2026-10-10T19:46:12.5924319Z   deps-show   685 modules (budget 710), 161 MB peak RSS (ceiling 210), exit 0
+2026-10-10T19:46:12.5924781Z   orchestrate-status   886 modules (budget 920), 190 MB peak RSS (ceiling 250), exit 0
+2026-10-10T19:46:12.5925252Z   memory-find   709 modules (budget 735), 182 MB peak RSS (ceiling 210), exit 0
+2026-10-10T19:46:12.5925568Z   docs-list   872 modules (budget 915), 203 MB peak RSS (ceiling 260), exit 0
+2026-10-10T19:46:12.5925847Z   nexus-status   680 modules (budget 705), 195 MB peak RSS (ceiling 250), exit 0
+2026-10-10T19:46:12.5926130Z   doctor     966 modules (budget 1015), 206 MB peak RSS (ceiling 260), exit 0
+2026-10-10T19:46:12.5981893Z ##[error]Process completed with exit code 1.

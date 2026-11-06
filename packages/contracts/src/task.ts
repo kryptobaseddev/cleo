@@ -221,6 +221,14 @@ export interface EvidenceValidationContext {
     Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }
   >;
   /**
+   * The merge sweep records this write from a PR's `Closes:`/`Refs:` line
+   * (T14259). A `pr:` atom then links to the task when that PR's body names
+   * it on such a line and a non-author `met` verdict covers every criterion
+   * the line names on the PR head, whatever the PR's title or declared files
+   * say. Only the sweep sets it; `cleo done --pr` keeps the older checks.
+   */
+  reviewedLinkage?: boolean;
+  /**
    * Validate without persisting anything: `pr:`/`ci:` lookups write neither
    * the PR-result cache nor the branch-protection cache (T12671 review — the
    * `cleo done --plan` preview must leave `.cleo/` untouched).
@@ -755,6 +763,13 @@ export type EvidenceAtom =
       componentPrNumber?: number;
       /** Which configured checks attest each gate (`evidence.ciChecks`). */
       gateChecks?: { testsPassed?: string[]; qaPassed?: string[] };
+      /**
+       * Required jobs CI's own change filter skipped, per gate (T14260): the
+       * diff touched nothing under the package code roots and the required
+       * checks were green, so the skip is CI's verdict that the change
+       * touches nothing those jobs test.
+       */
+      filterSkippedJobs?: { testsPassed?: string[]; qaPassed?: string[] };
       /** Where the required-check list came from (env, project context, branch protection). */
       requiredSource: string;
     }

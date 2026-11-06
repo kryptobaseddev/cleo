@@ -15,15 +15,21 @@
  * command that re-registers the key, and `--fix` flags them
  * `requires_reauth = 1`.
  *
+ * It also checks the global `config.json` files, which can hold flat provider
+ * keys (T14221): one that group or others can read is reported, and `--fix`
+ * tightens it to 0600.
+ *
  * Read-only by default. `--fix` is idempotent and never deletes: a credential no
  * candidate key opens is left untouched and listed with the one command that
  * re-enters it.
  *
  * @task T12326
  * @task T12352
+ * @task T14221
  */
 
 import { join } from 'node:path';
+import { auditGlobalConfigModes } from '@cleocode/core/llm/global-config-migration.js';
 import { getCleoHome, getProjectRoot } from '@cleocode/core/paths.js';
 import {
   auditAgentRegistryKeys,
@@ -44,12 +50,13 @@ export const doctorCredentialsCommand = defineCommand({
   meta: {
     name: 'credentials',
     description:
-      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them) and agent registry keys that are not recoverable. --fix re-keys project credentials to the project's identity in place and flags unrecoverable agent keys requires_reauth. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
+      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them), agent registry keys that are not recoverable, and a global config.json that group or others can read (it can hold provider keys). --fix re-keys project credentials to the project's identity in place, flags unrecoverable agent keys requires_reauth, and tightens the global config to 0600. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
   },
   args: {
     fix: {
       type: 'boolean',
-      description: 'Re-key path-bound credentials in place (default: report only).',
+      description:
+        'Re-key path-bound credentials in place and chmod an exposed global config.json to 0600 (default: report only).',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
@@ -59,6 +66,7 @@ export const doctorCredentialsCommand = defineCommand({
     const dryRun = args.fix !== true;
     const result = await migrateProjectCredentialsAtRoot(getProjectRoot(), { dryRun });
     const agents = await auditAgentRegistryKeys(join(getCleoHome(), 'cleo.db'), { dryRun });
+    const globalConfig = auditGlobalConfigModes({ fix: !dryRun });
 
     cliOutput(
       {
@@ -74,11 +82,18 @@ export const doctorCredentialsCommand = defineCommand({
           requiresReentry: agents.reentry,
           flaggedRequiresReauth: agents.flagged,
         },
+        globalConfig: globalConfig.map((f) => ({
+          path: f.path,
+          mode: `0${f.mode.toString(8)}`,
+          readableByOthers: f.exposed,
+          fixed: f.fixed,
+        })),
       },
       { command: 'doctor', operation: 'doctor.credentials.run' },
     );
 
-    const pending = result.dryRun && result.migrated.length > 0;
+    const exposedConfig = globalConfig.some((f) => f.exposed && !f.fixed);
+    const pending = (result.dryRun && result.migrated.length > 0) || exposedConfig;
     const unrecoverable = result.reentry.length + agents.reentry.length;
     if ((pending || unrecoverable > 0) && (process.exitCode ?? 0) === 0) {
       process.exitCode = 1;

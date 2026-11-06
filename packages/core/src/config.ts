@@ -16,6 +16,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 // chain and hit a temporal-dead-zone ReferenceError. See llm/fallback-model.ts.
 import { CleoError } from './errors.js';
 import { IMPLICIT_FALLBACK_MODEL } from './llm/fallback-model.js';
+import { GLOBAL_CONFIG_FILE_MODE } from './llm/global-config-migration.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
 import { atomicWriteJson } from './store/atomic.js';
 import { readJson, saveJson } from './store/json.js';
@@ -418,9 +419,12 @@ export async function setConfigValue(
   }
   const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
+  // The global config can hold provider keys: owner-only (T14221).
+  const mode = opts?.global ? GLOBAL_CONFIG_FILE_MODE : undefined;
+
   // Ensure file exists atomically (crash-safe bootstrap, T11997)
   if (!existsSync(configPath)) {
-    await atomicWriteJson(configPath, {});
+    await atomicWriteJson(configPath, {}, { mode });
   }
 
   const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
@@ -429,7 +433,7 @@ export async function setConfigValue(
 
   setNestedValue(config, key, parsedValue);
 
-  await saveJson(configPath, config);
+  await saveJson(configPath, config, { mode });
 
   return { key, value: parsedValue, scope: opts?.global ? 'global' : 'project' };
 }
@@ -517,9 +521,12 @@ export async function applyStrictnessPreset(
   const definition = STRICTNESS_PRESETS[preset];
   const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
+  // The global config can hold provider keys: owner-only (T14221).
+  const mode = opts?.global ? GLOBAL_CONFIG_FILE_MODE : undefined;
+
   // Ensure config file exists atomically (crash-safe bootstrap, T11997)
   if (!existsSync(configPath)) {
-    await atomicWriteJson(configPath, {});
+    await atomicWriteJson(configPath, {}, { mode });
   }
 
   const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
@@ -529,7 +536,7 @@ export async function applyStrictnessPreset(
     setNestedValue(config, key, value);
   }
 
-  await saveJson(configPath, config);
+  await saveJson(configPath, config, { mode });
 
   return {
     preset,

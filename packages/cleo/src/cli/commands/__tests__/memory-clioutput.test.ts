@@ -160,7 +160,7 @@ describe('cleo memory dream — cliOutput migration (T1721)', () => {
     mockTriggerManualDream.mockResolvedValueOnce(mockResult);
 
     const subs = await getMemorySubs();
-    await runSub(subs['dream']!, {});
+    await runSub(subs['dream']!, { apply: true });
 
     expect(mockCliOutput).toHaveBeenCalledOnce();
     const [data, opts] = mockCliOutput.mock.calls[0]!;
@@ -175,7 +175,7 @@ describe('cleo memory dream — cliOutput migration (T1721)', () => {
     const subs = await getMemorySubs();
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
 
-    await runSub(subs['dream']!, {});
+    await runSub(subs['dream']!, { apply: true });
 
     expect(mockCliError).toHaveBeenCalledOnce();
     const [msg] = mockCliError.mock.calls[0]!;

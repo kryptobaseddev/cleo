@@ -43,7 +43,22 @@ describe('parseWorktreePorcelain (T12086)', () => {
     const entries = parseWorktreePorcelain(PORCELAIN);
 
     expect(entries).toHaveLength(4);
-    expect(entries[0]).toEqual({ path: '/mnt/projects/cleocode', branch: 'main', locked: false });
+    expect(entries[0]).toEqual({
+      path: '/mnt/projects/cleocode',
+      branch: 'main',
+      locked: false,
+      head: '21336e5a9f0e6cb2fb2a3f4e5d6c7b8a9f0e1d2c',
+    });
+  });
+
+  it("reports each worktree's own HEAD, detached ones included (T14236)", () => {
+    const entries = parseWorktreePorcelain(PORCELAIN);
+    expect(entries.find((e) => e.path.endsWith('/T9999'))?.head).toBe(
+      'cccc111122223333444455556666777788889999',
+    );
+    expect(entries.find((e) => e.path.endsWith('/T12029'))?.head).toBe(
+      'bbbb111122223333444455556666777788889999',
+    );
   });
 
   it('strips refs/heads/ and PRESERVES the branch slug', () => {
@@ -87,7 +102,7 @@ describe('parseWorktreePorcelain (T12086)', () => {
   it('handles a final record with no trailing blank line', () => {
     const raw = 'worktree /a/b\nHEAD 1234\nbranch refs/heads/feat/x';
     expect(parseWorktreePorcelain(raw)).toEqual([
-      { path: '/a/b', branch: 'feat/x', locked: false },
+      { path: '/a/b', branch: 'feat/x', locked: false, head: '1234' },
     ]);
   });
 
@@ -105,7 +120,7 @@ describe('T10866: bare entries and the throwing reader', () => {
     const raw = 'worktree /repo.git\nbare\n\nworktree /wt\nHEAD 1\ndetached\n';
     expect(parseWorktreePorcelain(raw)).toEqual([
       { path: '/repo.git', branch: null, locked: false, bare: true },
-      { path: '/wt', branch: null, locked: false },
+      { path: '/wt', branch: null, locked: false, head: '1' },
     ]);
   });
 

@@ -104,7 +104,8 @@ export async function computeBrainHealthDashboard(
         lastConsolidationDays === null
           ? 'No consolidation events recorded'
           : `Last consolidation: ${lastConsolidationDays}d ago`,
-      remediationHint: 'Run `cleo memory dream` to consolidate (BBTT-W2-3, T1904)',
+      remediationHint:
+        'Run `cleo backup add`, then `cleo memory dream --apply` to consolidate (BBTT-W2-3, T1904)',
       isP0: false,
     });
 
