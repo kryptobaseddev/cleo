@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
 import { readProjectInfoAtDirectorySync, worktreeScope } from '../../project-scope.js';
+import { leaseTestTasks } from '../../store/__tests__/test-db-helper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { acquireLock } from '../../store/lock.js';
@@ -90,6 +91,7 @@ async function seedSagaWithMembers(
     } as Parameters<typeof createTask>[0],
     testRoot,
   );
+  leaseTestTasks([sagaId], testRoot);
 
   const memberIds: string[] = [];
   for (let i = 0; i < memberStatuses.length; i++) {
@@ -109,6 +111,7 @@ async function seedSagaWithMembers(
       } as Parameters<typeof createTask>[0],
       testRoot,
     );
+    if ((memberStatuses[i] ?? 'active') === 'active') leaseTestTasks([memberId], testRoot);
   }
   return memberIds;
 }
@@ -237,6 +240,7 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
       } as Parameters<typeof createTask>[0],
       TEST_ROOT,
     );
+    leaseTestTasks(['T9002'], TEST_ROOT);
     await createTask(
       {
         id: 'T9013',
@@ -250,6 +254,7 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
       } as Parameters<typeof createTask>[0],
       TEST_ROOT,
     );
+    leaseTestTasks(['T9013'], TEST_ROOT);
 
     const result = await reconcileSaga(TEST_ROOT);
     expect(result.success).toBe(true);
@@ -445,6 +450,7 @@ describe('reconcileSaga — zero-member sagas', () => {
       } as Parameters<typeof createTask>[0],
       TEST_ROOT,
     );
+    leaseTestTasks(['T9000'], TEST_ROOT);
 
     const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
     expect(result.success).toBe(true);
@@ -561,6 +567,7 @@ describe('typed reconciliation authority', () => {
       } as Parameters<typeof createTask>[0],
       TEST_ROOT,
     );
+    leaseTestTasks(['T9100'], TEST_ROOT);
     await createTask(
       {
         id: 'T9101',
