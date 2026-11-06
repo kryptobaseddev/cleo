@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.25.5
+  version: 2.26.0
   tier: core
   install: harness
   covers:
@@ -44,8 +44,8 @@ status chatter: report only when done or when a decision is needed.
 - **Subagents never ask the human.** Return the question with its options to your
   orchestrator (`blocked` plus `{question, options[{label, description}], recommended}`
   in the manifest); the orchestrator asks via its ask tool.
-- **No ask tool in the harness:** emit one LAFS `hitl.request` envelope
-  `{question, options[{label, description}], recommended}` and stop.
+- **No ask tool, or no answer yet:** park it with `cleo ask <taskId> --request '<that JSON>'` and
+  continue with `cleo next`; `cleo ask answer <decisionId> --option <label>` resumes the task.
 
 ## Project identity and moving between devices
 

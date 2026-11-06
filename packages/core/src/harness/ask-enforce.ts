@@ -169,13 +169,13 @@ export function classifyOwnerAsk(input: AskEnforceInput): AskEnforceVerdict {
  * The block reason the agent reads: re-ask with the harness ask tool.
  *
  * @param verdict - A `block` verdict from {@link classifyOwnerAsk}.
- * @param askToolName - The provider's ask tool, or `null` for the `hitl.request` fallback.
+ * @param askToolName - The provider's ask tool, or `null` to park it with `cleo ask` (T14302).
  * @returns One paragraph telling the agent how to re-ask.
  */
 export function askEnforceReason(verdict: AskEnforceVerdict, askToolName: string | null): string {
   const quoted = verdict.excerpt ? ` ("${verdict.excerpt}")` : '';
   const how = askToolName
     ? `Re-ask it with the \`${askToolName}\` tool`
-    : 'Re-ask it as one LAFS `hitl.request` envelope `{question, options[{label, description}], recommended}`';
+    : "Park it with `cleo ask <taskId> --request '{question, options[{label, description}], recommended}'` and continue with `cleo next`";
   return `CLEO ask-enforce: your reply ends with an owner question or decision in prose${quoted}. ${how}: 2-4 options, recommended first, each with a label and a description of what happens and its trade-offs. Keep the rest of your reply. If the question was rhetorical, restate it without asking.`;
 }

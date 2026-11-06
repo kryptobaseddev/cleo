@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.2.2
+  version: 4.3.0
   tier: core
   install: harness
   covers:
@@ -314,8 +314,11 @@ subagent question with thin options gets filled in before you ask, never passed 
   `{question, options[{label, description}], recommended}` in its manifest entry;
   you, the orchestrator, put that question to the owner via your ask tool, then
   re-spawn or continue with the answer.
-- **Fallback.** When your harness has no ask tool, emit one LAFS `hitl.request`
-  envelope `{question, options[{label, description}], recommended}` and stop.
+- **No ask tool, or no answer yet.** Park it with `cleo ask <taskId> --request
+  '{question, options[{label, description}], recommended}'` and continue the wave
+  with `cleo next`. When the owner answers through your ask tool, record it with
+  `cleo ask answer <decisionId> --option <label> --via ask-tool`; the task returns
+  to pending.
 
 ## Handoff Chain Protocol
 

@@ -66,6 +66,16 @@ describe('lint-hitl-rule-delivery goes red per surface', () => {
     expect(findMissing(root)[0]?.missing).toEqual([surface.markers[0]]);
   });
 
+  it('fails when the retired hitl.request-and-stop fallback comes back (T14302)', () => {
+    const surface = SURFACES[1];
+    const file = join(root, surface.path);
+    writeFileSync(
+      file,
+      `${readFileSync(file, 'utf8')}\nNo ask tool: emit one \`hitl.request\` and stop.\n`,
+    );
+    expect(findMissing(root)[0]?.missing).toEqual(['retired: `hitl.request`']);
+  });
+
   it('fails when a surface file is missing', () => {
     rmSync(join(root, SURFACES[1].path));
     expect(findMissing(root)[0]?.missing).toEqual(['<file unreadable>']);

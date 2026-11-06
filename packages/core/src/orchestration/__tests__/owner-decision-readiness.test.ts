@@ -114,9 +114,9 @@ function task(blockedBy: string | undefined, labels: string[] = []): Task {
   } as Task;
 }
 
-/** No "owner"/"decision" substring — the rule proceeds; a human must still choose. */
+/** A human must choose, but nothing in the text flags it without the label. */
 const HUMAN_BLOCK = 'waiting on legal to choose a vendor';
-/** Contains "decision" — the rule grills; it is only waiting on another task. */
+/** Mentions "decision" yet only waits on another task; the deleted substring rule grilled it. */
 const TASK_BLOCK = 'blocked on T12 (decision-store refactor) landing';
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ const TASK_BLOCK = 'blocked on T12 (decision-store refactor) landing';
 // ---------------------------------------------------------------------------
 
 describe('classifyReadiness — ownerDecision signal', () => {
-  it('a confident yes ADDS the flag the substring rule missed', () => {
+  it('a confident yes ADDS the flag the label did not raise', () => {
     const flag = { required: true, probability: 0.9, confidence: 0.9 };
     expect(classifyReadiness(task(HUMAN_BLOCK)).verdict).toBe('proceed');
     expect(classifyReadiness(task(HUMAN_BLOCK), { ownerDecision: flag }).triggers).toContain(
@@ -132,13 +132,9 @@ describe('classifyReadiness — ownerDecision signal', () => {
     );
   });
 
-  it('escalate-only: a confident no NEVER clears a flag the substring rule raised', () => {
-    const clear = { required: false, probability: 0.01, confidence: 0.99 };
-    const result = classifyReadiness(task(TASK_BLOCK), { ownerDecision: clear });
-    expect(result.verdict).toBe('grill');
-    expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
-    // The reason names the substring rule, not System One.
-    expect(result.reason).not.toContain('System One');
+  it('T14302: blockedBy text that mentions "decision" no longer flags by itself', () => {
+    expect(classifyReadiness(task(TASK_BLOCK)).verdict).toBe('proceed');
+    expect(classifyReadiness(task('Waiting on owner to pick approach.')).verdict).toBe('proceed');
   });
 
   it('below the 0.6 floor a yes adds nothing', () => {
@@ -148,9 +144,12 @@ describe('classifyReadiness — ownerDecision signal', () => {
 
   it('the owner-decision label always wins', () => {
     const clear = { required: false, probability: 0.1, confidence: 0.9 };
-    expect(
-      classifyReadiness(task(TASK_BLOCK, ['owner-decision']), { ownerDecision: clear }).triggers,
-    ).toContain('OWNER_DECISION_REQUIRED');
+    const result = classifyReadiness(task(TASK_BLOCK, ['owner-decision']), {
+      ownerDecision: clear,
+    });
+    expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
+    // The reason names the label, not System One.
+    expect(result.reason).not.toContain('System One');
   });
 });
 
@@ -215,7 +214,7 @@ describe('resolveOwnerDecisionSignal', () => {
     });
   });
 
-  it('on + confident yes: flags a block the substring rule missed, and says to use the ask tool', async () => {
+  it('on + confident yes: flags an unlabelled block, and says to use the ask tool', async () => {
     const result = await classifyReadinessWithDecision(
       task(HUMAN_BLOCK),
       {},
@@ -227,28 +226,18 @@ describe('resolveOwnerDecisionSignal', () => {
     expect(result.reason).toContain('ask tool');
   });
 
-  it('on + confident no: a substring flag stays (escalate-only), and nothing is asked', async () => {
+  it('on + confident no: a task-only block proceeds, after one question', async () => {
     stub = { p: 0.05, confidence: 0.9 };
     const result = await classifyReadinessWithDecision(
       task(TASK_BLOCK),
       {},
       { mode: 'on', decide: stubWiring(memoryAudit()), projectRoot: projectDir },
     );
-    expect(result.verdict).toBe('grill');
-    expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
-    expect(received).toHaveLength(0);
+    expect(result.verdict).toBe('proceed');
+    expect(received).toHaveLength(1);
   });
 
-  it('on + an explicit confident-no signal cannot clear a substring flag either', async () => {
-    const result = await classifyReadinessWithDecision(
-      task(TASK_BLOCK),
-      { ownerDecision: { required: false, probability: 0.01, confidence: 0.99 } },
-      { mode: 'on', decide: stubWiring(memoryAudit()), projectRoot: projectDir },
-    );
-    expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
-  });
-
-  it('shadow still asks when the substring rule flags, so agreement is measured', async () => {
+  it('shadow: a "no" answer agrees with the no-flag heuristic', async () => {
     stub = { p: 0.05, confidence: 0.9 };
     const audit = memoryAudit();
     const result = await classifyReadinessWithDecision(
@@ -256,12 +245,9 @@ describe('resolveOwnerDecisionSignal', () => {
       {},
       { mode: 'shadow', decide: stubWiring(audit), projectRoot: projectDir },
     );
-    expect(result.verdict).toBe('grill');
+    expect(result.verdict).toBe('proceed');
     expect(received).toHaveLength(1);
-    expect(audit.entries[0]?.shadow).toMatchObject({
-      heuristicVerdict: 'owner-decision',
-      agree: false,
-    });
+    expect(audit.entries[0]?.shadow).toMatchObject({ heuristicVerdict: 'none', agree: true });
   });
 
   it('on + below the floor: a yes adds nothing', async () => {
@@ -274,7 +260,7 @@ describe('resolveOwnerDecisionSignal', () => {
     expect(result.verdict).toBe('proceed');
   });
 
-  it('a hanging provider costs at most the budget and the substring rule decides', async () => {
+  it('a hanging provider costs at most the budget and the label decides', async () => {
     stub = { p: 0.95, confidence: 0.9, slow: true };
     const audit = memoryAudit();
     const started = performance.now();

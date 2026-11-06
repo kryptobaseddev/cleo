@@ -26,6 +26,10 @@
  * Since T13421 the same surfaces also carry the answer-first brevity rule
  * ("Reply lean" / "Answer first") and the populated-options requirement.
  *
+ * Since T14302 (D11233) the no-ask-tool fallback is park-and-continue: every
+ * surface names `cleo ask`, and none may carry the retired emit-a-`hitl.request`
+ * -and-stop fallback ({@link RETIRED}).
+ *
  * Each surface must contain every marker in its list (case-sensitive
  * substrings). Markers are short, stable phrases, not whole sentences, so
  * wording can be tightened without tripping the gate while deleting the rule
@@ -52,19 +56,30 @@ export const SURFACES = [
       '**Ask the owner.**',
       'ask tool',
       'Never ask in prose',
-      'hitl.request',
+      'park it with `cleo ask',
       '**Reply lean.** Answer first',
     ],
   },
   {
     path: 'packages/skills/skills/ct-cleo/SKILL.md',
     label: 'ct-cleo skill',
-    markers: ['HITL ask tool', 'Subagents never ask the human', 'hitl.request', 'Answer first'],
+    markers: [
+      'HITL ask tool',
+      'Subagents never ask the human',
+      'park it with `cleo ask',
+      'Answer first',
+    ],
   },
   {
     path: 'packages/skills/skills/ct-orchestrator/SKILL.md',
     label: 'ct-orchestrator skill',
-    markers: ['HITL ask tool', 'Subagent relay', 'Subagents never ask the human', 'Answer first'],
+    markers: [
+      'HITL ask tool',
+      'Subagent relay',
+      'Subagents never ask the human',
+      'Park it with `cleo ask',
+      'Answer first',
+    ],
   },
   {
     path: 'packages/core/src/orchestration/spawn-prompt.ts',
@@ -73,9 +88,17 @@ export const SURFACES = [
       'HITL: never ask the human',
       'buildHitlLine(type, askProviderId)',
       'what happens and its trade-off',
+      'parks it with `cleo ask`',
     ],
   },
 ];
+
+/**
+ * Phrases no surface may carry: the emit-a-`hitl.request`-and-stop fallback
+ * that `cleo ask` replaced (T14302, D11233).
+ * @type {readonly string[]}
+ */
+export const RETIRED = ['`hitl.request`'];
 
 /**
  * Check every surface under `root`.
@@ -83,7 +106,8 @@ export const SURFACES = [
  * @param {string} root - Repository root.
  * @param {typeof SURFACES} [surfaces] - Surfaces to check (tests inject their own).
  * @returns {{ path: string, label: string, missing: string[] }[]} One entry per
- *   surface that is unreadable or lacks a marker.
+ *   surface that is unreadable, lacks a marker or carries a {@link RETIRED}
+ *   phrase (listed as `retired: <phrase>`).
  */
 export function findMissing(root, surfaces = SURFACES) {
   const problems = [];
@@ -95,7 +119,10 @@ export function findMissing(root, surfaces = SURFACES) {
       problems.push({ path: surface.path, label: surface.label, missing: ['<file unreadable>'] });
       continue;
     }
-    const missing = surface.markers.filter((m) => !text.includes(m));
+    const missing = [
+      ...surface.markers.filter((m) => !text.includes(m)),
+      ...RETIRED.filter((m) => text.includes(m)).map((m) => `retired: ${m}`),
+    ];
     if (missing.length > 0) problems.push({ path: surface.path, label: surface.label, missing });
   }
   return problems;

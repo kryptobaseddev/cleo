@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.25.5 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.26.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -11,7 +11,7 @@ Version: 2.25.5 | CLI-only dispatch | `cleo <command> [args]`
 4. **Act.** Use the repair matrix: scope, evidence, repair class, proposed operation, prerequisites, verification, and recovery. Automatic repairs must be bounded and reversible. The calling agent supplies sourced resolutions for ambiguous findings; owner decisions stay explicit. No background LLM is required for repair.
 5. **Verify.** Run relevant checks, record validated evidence, then complete. Report unresolved and failed findings and missing coverage rather than claiming success.
 6. **Learn.** Log incidents (source, project, revision, observation, correction, verification) via `cleo memory observe`; rules as `--type lesson`. Preserve historical handoffs; present corrections separately. Avoid empty completion traces.
-7. **Ask the owner.** Every owner answer, decision, approval or choice goes through the ask tool (`AskUserQuestion` or the provider equivalent) with concrete selectable options, recommended first, each stating what happens and its trade-offs. Never ask in prose or bury a question in a response. Subagents never ask the human; they return the question and options to their orchestrator, which asks. No ask tool: emit one LAFS `hitl.request` envelope `{question, options[{label, description}], recommended}` and stop.
+7. **Ask the owner.** Every owner answer, decision, approval or choice goes through the ask tool (`AskUserQuestion` or the provider equivalent) with concrete selectable options, recommended first, each stating what happens and its trade-offs. Never ask in prose or bury a question in a response. Subagents never ask the human; they return the question and options to their orchestrator, which asks. No ask tool, or no answer yet: park it with `cleo ask <taskId> --request '{question, options[{label, description}], recommended}'` and continue with `cleo next`; `cleo ask answer <decisionId> --option <label>` (add `--via ask-tool` when you relay the owner's choice) returns the task to pending.
 8. **Reply lean.** Answer first: line one is the result, answer or decision; then only the evidence the reader needs and what was skipped or unverified. No preamble, recap or routine status chatter: report when done or when a decision is needed. Owner questions go only through the ask tool (step 7), with 2-4 populated options.
 
 Use `cleo <command> --help` (no top-level help) and the `ct-cleo` skill for command details. Bare `cleo show <id>` withholds description and verification and lists them in `_withheld`; use `cleo show <id> --full`. A record without `_withheld` is complete; absence is not emptiness.
