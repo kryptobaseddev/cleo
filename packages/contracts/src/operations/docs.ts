@@ -1511,6 +1511,11 @@ export interface DocsMigrateResult {
   readonly versionsImported: number;
   /** Docs left for a later run by the `limit` bound (T14329). */
   readonly remaining: number;
+  /**
+   * Docs moved off the pre-T14332 recipe onto the shared identity, children
+   * included (T14336); on a dry run, the docs that would move.
+   */
+  readonly rekeyed: number;
   /** True for a dry run: the counts are the plan, nothing was written (T14331). */
   readonly dryRun: boolean;
   /** First failure when halted/refused. */

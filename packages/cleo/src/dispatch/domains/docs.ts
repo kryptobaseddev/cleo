@@ -1003,6 +1003,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       dryRun: params.dryRun === true,
     });
     const step = result.report.steps[0];
+    const moved =
+      result.counts.toRekey > 0
+        ? `; ${params.dryRun ? 'would move' : 'moved'} ${result.counts.toRekey} doc(s) onto the shared identity`
+        : '';
     const left =
       result.counts.remaining > 0
         ? `; ${result.counts.remaining} left (limit ${limit}): run cleo docs migrate again`
@@ -1010,7 +1014,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const summary = params.dryRun
       ? `legacy docs migration dry run: would capture ${result.counts.toCapture}, mark ` +
         `${result.counts.toMarkDangling} dangling (${result.counts.versions} history rows); ` +
-        `${result.counts.toSkip} already migrated, ${result.counts.nativeConflicts} native-conflict skips${left}; nothing written`
+        `${result.counts.toSkip} already migrated, ${result.counts.nativeConflicts} native-conflict skips${moved}${left}; nothing written`
       : result.skippedStep
         ? `legacy docs migration: nothing to migrate (${result.counts.toSkip} already migrated, ` +
           `${result.counts.nativeConflicts} native-conflict skips); no snapshot written`
@@ -1018,7 +1022,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
             `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
             `${result.counts.nativeConflicts} native-conflict skips ` +
-            `(${result.counts.versions} history rows)${left}`
+            `(${result.counts.versions} history rows)${moved}${left}`
           : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
     return lafsSuccess<DocsMigrateResult>(
       {
@@ -1029,6 +1033,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         nativeConflicts: result.counts.nativeConflicts,
         versionsImported: result.counts.versions,
         remaining: result.counts.remaining,
+        rekeyed: params.dryRun === true ? result.counts.toRekey : result.rekeyed.length,
         dryRun: params.dryRun === true,
         failure: result.report.failure,
         backupId: step?.backup?.backupId ?? null,

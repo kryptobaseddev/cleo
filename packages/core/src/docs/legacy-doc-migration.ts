@@ -73,7 +73,10 @@ import {
   findConduitDocMigration,
   importMigratedConduitDoc,
   importMigratedConduitVersion,
+  listOldMigrateConduitDocs,
+  type OldMigrateRekeyReceipt,
   recordConduitDocMigration,
+  rekeyOldMigrateConduitDoc,
   upsertConduitDocHead,
 } from '../store/conduit-doc-history.js';
 import {
@@ -85,6 +88,7 @@ import {
 } from '../store/migration-safety.js';
 import { conduitAttachments } from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
+import { finishCaptureFrame, openCaptureFrame } from '../store/sync/capture.js';
 import { encodeHlc, PRE_HLC_REPLICA } from '../store/sync/hlc.js';
 import { docsAttachments } from '../store/tasks-schema.js';
 import { readAuditLog } from './docs-audit.js';
@@ -143,7 +147,11 @@ export interface LegacyMigrationPlan {
   readonly expectedDelta: Readonly<Record<string, number>>;
   /** Planned doc imports (for reporting/tests). */
   readonly docs: readonly PlannedDoc[];
+  /** Slugs of docs still on the pre-T14332 recipe, re-keyed first (T14336). */
+  readonly rekeys: readonly string[];
   readonly counts: {
+    /** Docs moved off the pre-T14332 recipe onto the shared identity (T14336). */
+    readonly toRekey: number;
     readonly toCapture: number;
     readonly toMarkDangling: number;
     /** Docs already receipted by an earlier run (idempotency skips). */
@@ -160,6 +168,18 @@ export interface LegacyMigrationPlan {
     readonly versions: number;
   };
 }
+
+/** Tables a re-key rewrites in place (T14336): counted, never hash-checked. */
+const REKEYED_TABLES: readonly string[] = [
+  'conduit_attachments',
+  'conduit_attachment_versions',
+  'conduit_attachment_approvals',
+  'conduit_attachment_contributors',
+  'conduit_doc_heads',
+  'conduit_doc_slug_aliases',
+  'conduit_doc_migration_ledger',
+  'section_crdt_states',
+];
 
 /** True when `absPath` is ephemeral — inside a CLEO/Claude worktree or tmp. */
 function isEphemeralPath(absPath: string): 'worktree' | 'tmp' | null {
@@ -437,23 +457,46 @@ export async function deriveLegacyDocMigrationPlan(
  *
  * @param opts.projectRoot - Absolute path to the CLEO project root.
  * @param opts.limit - At most this many docs, oldest first (T14329); unbounded when omitted.
+ * @param opts.onRekey - Receives one receipt per doc the step re-keys (T14336).
  * @returns The plan (step + declared deltas + per-doc decisions).
  * @task T13360
  */
 export async function planLegacyDocMigration(opts: {
   projectRoot: string;
   limit?: number;
+  onRekey?: (receipt: OldMigrateRekeyReceipt) => void;
 }): Promise<LegacyMigrationPlan> {
   const bound = opts.limit !== undefined ? { limit: opts.limit } : {};
   const derived = await deriveLegacyDocMigrationPlan(opts.projectRoot, bound);
+  const rekeys = await listOldMigrateConduitDocs(opts.projectRoot);
+  // A re-key moves rows without adding any: the counts hold, the bytes do not.
   const verify: MigrationStepVerificationSpec = {
     expectedDelta: derived.expectedDelta,
+    ...(rekeys.length > 0 ? { skipHash: REKEYED_TABLES } : {}),
   };
   const step: MigrationStep = {
     name: 'migrate-legacy-docs',
-    description: 'import legacy docs + history into the re-keyed conduit store (T13360, spec §5)',
+    description:
+      'move pre-T14332 migrated docs onto the shared identity (T14336), then import legacy docs + history into the re-keyed conduit store (T13360, spec §5)',
     verify,
-    run: async ({ db: _db, projectRoot, log }) => {
+    run: async ({ db, projectRoot, log }) => {
+      // T14336: docs the pre-T14332 recipe imported move onto the shared
+      // identity first, in one frame, so their K ops travel as one txn.
+      const slugs = await listOldMigrateConduitDocs(projectRoot);
+      if (slugs.length > 0) {
+        db.exec('PRAGMA defer_foreign_keys = ON');
+        const frame = openCaptureFrame(db, 'rekey', null);
+        for (const slug of slugs) {
+          const receipt = await rekeyOldMigrateConduitDoc(projectRoot, slug);
+          if (receipt === null) continue;
+          opts.onRekey?.(receipt);
+          log(
+            `re-keyed: ${slug} ${receipt.oldUid} -> ${receipt.newUid} ` +
+              `(${receipt.versionsRepointed} version(s), ${receipt.versionsRekeyed} re-keyed)`,
+          );
+        }
+        finishCaptureFrame(db, frame);
+      }
       const plan = await deriveLegacyDocMigrationPlan(projectRoot, bound);
       for (const doc of plan.docs) {
         if (doc.status === 'dangling') {
@@ -532,7 +575,9 @@ export async function planLegacyDocMigration(opts: {
     step,
     expectedDelta: derived.expectedDelta,
     docs: derived.docs,
+    rekeys,
     counts: {
+      toRekey: rekeys.length,
       toCapture: derived.docs.filter((d) => d.status === 'captured').length,
       toMarkDangling: derived.docs.filter((d) => d.status === 'dangling').length,
       toSkip: derived.skipped,
@@ -555,6 +600,8 @@ export interface LegacyMigrationRunResult {
   readonly counts: LegacyMigrationPlan['counts'];
   /** True when the harness step did not run (a dry run, or nothing to migrate). */
   readonly skippedStep: boolean;
+  /** One receipt per doc moved onto the shared identity (T14336); empty when none. */
+  readonly rekeyed: readonly OldMigrateRekeyReceipt[];
 }
 
 /**
@@ -581,17 +628,20 @@ export async function runLegacyDocMigration(opts: {
   dryRun?: boolean;
   onStepReport?: (report: MigrationStepReport) => void;
 }): Promise<LegacyMigrationRunResult> {
+  const rekeyed: OldMigrateRekeyReceipt[] = [];
   const plan = await planLegacyDocMigration({
     projectRoot: opts.projectRoot,
     ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+    onRekey: (receipt) => rekeyed.push(receipt),
   });
   // T14331: a dry run, or a plan that touches nothing, runs no step, so no
   // pre-step snapshot (a full copy of the store) is written for a no-op.
-  if (opts.dryRun === true || plan.docs.length === 0) {
+  if (opts.dryRun === true || (plan.docs.length === 0 && plan.rekeys.length === 0)) {
     return {
       report: { status: 'completed', steps: [], haltedStep: null, failure: null },
       counts: plan.counts,
       skippedStep: true,
+      rekeyed,
     };
   }
   const report = await runMigrationSteps([plan.step], {
@@ -600,5 +650,11 @@ export async function runLegacyDocMigration(opts: {
     cwd: opts.cwd,
     onStepReport: opts.onStepReport,
   });
-  return { report, counts: plan.counts, skippedStep: false };
+  // A rolled-back step re-keyed nothing.
+  return {
+    report,
+    counts: plan.counts,
+    skippedStep: false,
+    rekeyed: report.status === 'completed' ? rekeyed : [],
+  };
 }

@@ -37,6 +37,7 @@ import { CleoError } from '../errors.js';
 import { birthFingerprint, mintedRowUid, naturalRowUid } from './row-identity.js';
 import {
   conduitAttachmentApprovals,
+  conduitAttachmentContributors,
   conduitAttachments,
   conduitAttachmentVersions,
   conduitDocHeads,
@@ -45,7 +46,7 @@ import {
 } from './schema/cleo-project/conduit.js';
 import type { ConduitDocMigrationLedgerRow } from './schema/cleo-project/docs.js';
 import { conduitDocMigrationLedger, docsAttachments } from './schema/cleo-project/docs.js';
-import { getDb, getNativeDb } from './sqlite.js';
+import { getDb, getNativeDb, type NodeSQLiteDatabase } from './sqlite.js';
 
 /**
  * Run one docs-projection write batch atomically (T13583).
@@ -985,6 +986,248 @@ export async function importMigratedConduitDoc(
   const db = await getDb(projectRoot);
   const result = await db.insert(conduitAttachments).values(identity).onConflictDoNothing().run();
   return { uid, inserted: (result.changes ?? 0) > 0 };
+}
+
+/**
+ * The `conversation_id` the pre-T14332 docs migration wrote. Its rows carry
+ * the natural uid over the slug, so they never meet the identity an adopting
+ * device mints for the same doc ({@link legacyDocIdentity}).
+ */
+export const OLD_MIGRATE_CONVERSATION = 'docs:migration';
+
+/** One doc moved onto the shared identity by {@link rekeyOldMigrateConduitDoc}. */
+export interface OldMigrateRekeyReceipt {
+  /** The doc's slug. */
+  readonly slug: string;
+  /** The old-recipe uid (the natural uid over the slug). */
+  readonly oldUid: string;
+  /** The shared uid ({@link legacyDocIdentity}). */
+  readonly newUid: string;
+  /** Imported versions moved onto their natural uid under the new doc uid. */
+  readonly versionsRekeyed: number;
+  /** Version rows re-pointed at the new doc uid. */
+  readonly versionsRepointed: number;
+  /** Approval rows re-pointed. */
+  readonly approvalsRepointed: number;
+  /** Head and slug-alias rows recreated under the new doc uid. */
+  readonly naturalRowsRecreated: number;
+}
+
+/**
+ * Slugs of every doc still on the pre-T14332 migrate recipe (T14336), oldest first.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns The slugs to re-key; empty once every doc is on the shared identity.
+ */
+export async function listOldMigrateConduitDocs(projectRoot: string): Promise<string[]> {
+  const db = await getDb(projectRoot);
+  const rows = await db
+    .select({ slug: conduitAttachments.slug })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.conversationId, OLD_MIGRATE_CONVERSATION))
+    .orderBy(asc(conduitAttachments.createdAt), asc(conduitAttachments.slug))
+    .all();
+  return rows.map((r) => r.slug);
+}
+
+/**
+ * Move one pre-T14332 migrated doc onto the shared identity (T14336).
+ *
+ * The doc row is re-keyed to {@link legacyDocIdentity} (uid, birth
+ * fingerprint and the shared shell), which the capture triggers journal as a
+ * K carrying the new fingerprint, so a peer holding this doc behind its own
+ * adopted row places it as that row (T14335). Its children follow:
+ *
+ *   - versions are re-pointed, and an imported version whose uid is the
+ *     natural uid under the old doc uid moves to the natural uid under the
+ *     new one (a K: the uid a device migrating today derives);
+ *   - approvals, the migration ledger, the local section state and the
+ *     derived contributors rollup are re-pointed;
+ *   - heads and slug aliases, natural over the doc uid, are deleted and
+ *     inserted again under it (a K cannot carry a natural key change).
+ *
+ * The caller owns the transaction and the capture frame, and defers foreign
+ * keys: mid-call the children point at a uid that no row holds yet.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param slug - The doc's slug.
+ * @returns The receipt, or `null` when the doc is not on the old recipe or a
+ *   row already holds the shared uid (nothing is written).
+ * @task T14336
+ */
+export async function rekeyOldMigrateConduitDoc(
+  projectRoot: string,
+  slug: string,
+): Promise<OldMigrateRekeyReceipt | null> {
+  return rekeyOldMigrateConduitDocOn(await getDb(projectRoot), slug);
+}
+
+/**
+ * {@link rekeyOldMigrateConduitDoc} on an open store handle.
+ *
+ * @param db - Drizzle handle on the project store.
+ * @param slug - The doc's slug.
+ * @returns The receipt, or `null` when nothing was written.
+ * @task T14336
+ */
+// @sync-invariant docs.doc.adopt-once the re-key moves an old-recipe doc onto the identity adopt mints, so every replica converges on one (uid, birth_fp); a re-run finds no old-recipe row and writes nothing
+export async function rekeyOldMigrateConduitDocOn(
+  db: NodeSQLiteDatabase,
+  slug: string,
+): Promise<OldMigrateRekeyReceipt | null> {
+  requireNonEmpty('slug', slug);
+  const doc = await db
+    .select()
+    .from(conduitAttachments)
+    .where(
+      and(
+        eq(conduitAttachments.slug, slug),
+        eq(conduitAttachments.conversationId, OLD_MIGRATE_CONVERSATION),
+      ),
+    )
+    .get();
+  if (!doc?.uid) return null;
+  const oldUid = doc.uid;
+  const ledger = await db
+    .select()
+    .from(conduitDocMigrationLedger)
+    .where(eq(conduitDocMigrationLedger.slug, slug))
+    .get();
+  const {
+    uid: newUid,
+    birthFp,
+    slug: _slug,
+    ...shell
+  } = legacyDocIdentity(slug, doc.createdAt, ledger?.legacySha256 ?? doc.contentHash);
+  const taken = await db
+    .select({ slug: conduitAttachments.slug })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.uid, newUid))
+    .get();
+  if (taken) return null;
+
+  const versionUid = (doc: string, v: { contentHash: string; createdAt: string }): string =>
+    naturalRowUid('project', 'conduit_attachment_versions', [doc, v.contentHash, v.createdAt]);
+  const versions = await db
+    .select()
+    .from(conduitAttachmentVersions)
+    .where(eq(conduitAttachmentVersions.attachmentUid, oldUid))
+    .all();
+  const moved = new Map<string, string>();
+  for (const v of versions) {
+    if (v.uid && v.uid === versionUid(oldUid, v)) moved.set(v.uid, versionUid(newUid, v));
+  }
+  const follow = (uid: string | null): string | null =>
+    uid === null ? null : (moved.get(uid) ?? uid);
+
+  // Natural rows first out: their key is the old doc uid.
+  const heads = await db
+    .select()
+    .from(conduitDocHeads)
+    .where(eq(conduitDocHeads.attachmentUid, oldUid))
+    .all();
+  const aliases = await db
+    .select()
+    .from(conduitDocSlugAliases)
+    .where(eq(conduitDocSlugAliases.docUid, oldUid))
+    .all();
+  await db.delete(conduitDocHeads).where(eq(conduitDocHeads.attachmentUid, oldUid)).run();
+  await db.delete(conduitDocSlugAliases).where(eq(conduitDocSlugAliases.docUid, oldUid)).run();
+
+  // The doc: the K (uid and fingerprint) alone, then the shared shell.
+  await db
+    .update(conduitAttachments)
+    .set({ uid: newUid, birthFp })
+    .where(eq(conduitAttachments.uid, oldUid))
+    .run();
+  await db.update(conduitAttachments).set(shell).where(eq(conduitAttachments.uid, newUid)).run();
+
+  for (const v of versions) {
+    if (!v.uid) continue;
+    await db
+      .update(conduitAttachmentVersions)
+      .set({ attachmentUid: newUid, parentVersionUid: follow(v.parentVersionUid) })
+      .where(eq(conduitAttachmentVersions.uid, v.uid))
+      .run();
+    const to = moved.get(v.uid);
+    if (to !== undefined) {
+      await db
+        .update(conduitAttachmentVersions)
+        .set({ uid: to })
+        .where(eq(conduitAttachmentVersions.uid, v.uid))
+        .run();
+    }
+  }
+  const approvals = await db
+    .select()
+    .from(conduitAttachmentApprovals)
+    .where(eq(conduitAttachmentApprovals.attachmentUid, oldUid))
+    .all();
+  for (const a of approvals) {
+    await db
+      .update(conduitAttachmentApprovals)
+      .set({ attachmentUid: newUid, versionUid: follow(a.versionUid) })
+      .where(eq(conduitAttachmentApprovals.id, a.id))
+      .run();
+  }
+  for (const h of heads) {
+    await db
+      .insert(conduitDocHeads)
+      .values({
+        ...h,
+        attachmentUid: newUid,
+        headVersionUid: follow(h.headVersionUid) ?? h.headVersionUid,
+        uid: naturalRowUid('project', 'conduit_doc_heads', [newUid]),
+      })
+      .run();
+  }
+  for (const a of aliases) {
+    await db
+      .insert(conduitDocSlugAliases)
+      .values({
+        ...conduitDocAliasRow({ slug: a.slug, docUid: newUid, reason: a.reason }),
+        createdAt: a.createdAt,
+      })
+      .run();
+  }
+  if (ledger) {
+    await db
+      .update(conduitDocMigrationLedger)
+      .set({ docUid: newUid })
+      .where(eq(conduitDocMigrationLedger.slug, slug))
+      .run();
+  }
+  await db
+    .update(conduitAttachmentContributors)
+    .set({ attachmentUid: newUid })
+    .where(eq(conduitAttachmentContributors.attachmentUid, oldUid))
+    .run();
+  const states = await db
+    .select()
+    .from(sectionCrdtStates)
+    .where(eq(sectionCrdtStates.attachmentUid, oldUid))
+    .all();
+  for (const st of states) {
+    await db
+      .update(sectionCrdtStates)
+      .set({ attachmentUid: newUid, baseVersionUid: follow(st.baseVersionUid) })
+      .where(
+        and(
+          eq(sectionCrdtStates.attachmentUid, oldUid),
+          eq(sectionCrdtStates.sectionId, st.sectionId),
+        ),
+      )
+      .run();
+  }
+  return {
+    slug,
+    oldUid,
+    newUid,
+    versionsRekeyed: moved.size,
+    versionsRepointed: versions.length,
+    approvalsRepointed: approvals.length,
+    naturalRowsRecreated: heads.length + aliases.length,
+  };
 }
 
 /** Input for {@link importMigratedConduitVersion}. */

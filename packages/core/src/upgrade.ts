@@ -646,7 +646,7 @@ export async function runUpgrade(
           cwd: options.cwd ?? docsRoot,
           dryRun: isDryRun,
         });
-        const touched = run.counts.toCapture + run.counts.toMarkDangling;
+        const touched = run.counts.toCapture + run.counts.toMarkDangling + run.counts.toRekey;
         if (run.report.status !== 'completed') {
           actions.push({
             action: 'docs_migrate',
@@ -661,7 +661,8 @@ export async function runUpgrade(
             status: isDryRun ? 'preview' : 'applied',
             details:
               `${isDryRun ? 'Would give' : 'Gave'} ${run.counts.toCapture} legacy doc(s) their identity and head ` +
-              `(${run.counts.versions} history rows, ${run.counts.toMarkDangling} recorded dangling)`,
+              `(${run.counts.versions} history rows, ${run.counts.toMarkDangling} recorded dangling); ` +
+              `${isDryRun ? 'would move' : 'moved'} ${run.counts.toRekey} doc(s) onto the shared identity`,
           });
         }
       }
