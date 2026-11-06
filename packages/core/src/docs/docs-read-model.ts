@@ -215,14 +215,16 @@ export class DocsReadModel {
     const { resolveDocRef } = await import('./slug-rename.js');
     const ref = await resolveDocRef(this.projectRoot, slug);
     if (!ref) return null;
-    const meta = await createAttachmentStore().getMetadata(ref.row.id, this.projectRoot);
+    const meta = await createAttachmentStore().getMetadata(ref.ownRow.id, this.projectRoot);
     if (!meta) return null;
     const doc = await this.enrichFromTasksDb(meta, {
       slug: ref.slug,
-      type: ref.row.type ?? null,
-      summary: ref.row.summary ?? null,
-      lifecycleStatus: ref.row.lifecycleStatus,
-      displayAlias: ref.row.displayAlias ?? null,
+      type: ref.meta.docType,
+      summary: ref.meta.summary,
+      lifecycleStatus: isAttachmentLifecycleStatus(ref.meta.lifecycleStatus)
+        ? ref.meta.lifecycleStatus
+        : ref.ownRow.lifecycleStatus,
+      displayAlias: ref.meta.displayAlias,
     });
     return {
       ...doc,
@@ -536,7 +538,7 @@ export class DocsReadModel {
     // live slug and identity metadata; any other row its own extras.
     const { listDocRefs } = await import('./slug-rename.js');
     const refByRowId = new Map(
-      (metas.length > 0 ? await listDocRefs(this.projectRoot) : []).map((r) => [r.row.id, r]),
+      (metas.length > 0 ? await listDocRefs(this.projectRoot) : []).map((r) => [r.ownRow.id, r]),
     );
     const results: ResolvedDoc[] = [];
     for (const meta of metas) {
@@ -565,10 +567,12 @@ export class DocsReadModel {
     // metadata. Slug-less attachments are listed as their rows.
     const { listDocRefs } = await import('./slug-rename.js');
     const refs = await listDocRefs(this.projectRoot);
-    const headRowIds = new Set(refs.map((r) => r.row.id));
+    const headRowIds = new Set(refs.flatMap((r) => [r.row.id, r.ownRow.id]));
     const rows: typeof all = [];
     for (const ref of refs) {
-      const owned = all.find((row) => row.metadata.id === ref.row.id);
+      const owned =
+        all.find((row) => row.metadata.id === ref.ownRow.id) ??
+        all.find((row) => row.metadata.id === ref.row.id);
       if (!owned) continue;
       rows.push({
         ...owned,

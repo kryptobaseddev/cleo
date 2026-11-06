@@ -193,13 +193,13 @@ export async function checkDocsConsistency(
     const { listDocRefs } = await import('./slug-rename.js');
     publishedAttachments = (await listDocRefs(root))
       .map((r) => ({
-        id: r.row.id,
+        id: r.ownRow.id,
         sha256: r.sha256,
         slug: r.slug,
         type: r.meta.docType,
         lifecycleStatus: isAttachmentLifecycleStatus(r.meta.lifecycleStatus)
           ? r.meta.lifecycleStatus
-          : r.row.lifecycleStatus,
+          : r.ownRow.lifecycleStatus,
         refCount: r.row.refCount,
       }))
       .filter((r) => PUBLISHED_LIFECYCLE_STATES.has(r.lifecycleStatus));

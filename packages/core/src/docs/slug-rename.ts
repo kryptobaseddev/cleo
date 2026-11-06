@@ -184,6 +184,13 @@ export interface DocRef {
    */
   readonly row: typeof attachments.$inferSelect;
   /**
+   * The doc's own registry row (T14288 PR 3b-2): the one carrying its live
+   * slug, with its owners, creation time and version counter. It differs from
+   * {@link row} when the doc's head is content another doc also holds (the
+   * shared content row stays that doc's); otherwise it is the same row.
+   */
+  readonly ownRow: typeof attachments.$inferSelect;
+  /**
    * The doc's metadata (T14288 PR 3b): from its identity row on the uid path,
    * from the registry row on the legacy path (supersession pointers are then
    * doc uids when the other doc has one). An identity row created before the
@@ -240,6 +247,7 @@ export async function resolveDocRef(
       headVersionUid: null,
       sha256: row.sha256,
       row,
+      ownRow: row,
       meta: await conduitDocMetaOfRow(projectRoot, row),
     };
   };
@@ -256,16 +264,16 @@ export async function resolveDocRef(
       ? await getConduitAttachmentVersion(projectRoot, head.headVersionUid)
       : null;
     if (head && version) {
+      const own = await bySlug(liveSlug);
       // A write the projection did not land is newer than the head (above).
-      const slugRow = await bySlug(liveSlug);
-      if (slugRow && slugRow.sha256 !== version.contentHash) {
+      if (own && own.sha256 !== version.contentHash) {
         const recorded = await db
           .select({ uid: conduitAttachmentVersions.uid })
           .from(conduitAttachmentVersions)
           .where(
             and(
               eq(conduitAttachmentVersions.attachmentUid, uid),
-              eq(conduitAttachmentVersions.contentHash, slugRow.sha256),
+              eq(conduitAttachmentVersions.contentHash, own.sha256),
             ),
           )
           .get();
@@ -275,21 +283,24 @@ export async function resolveDocRef(
             slug: liveSlug,
             docUid: uid,
             headVersionUid: head.headVersionUid,
-            sha256: slugRow.sha256,
-            row: slugRow,
+            sha256: own.sha256,
+            row: own,
+            ownRow: own,
             meta:
               live?.lifecycleStatus != null
                 ? conduitDocMetaOf(live)
-                : await conduitDocMetaOfRow(projectRoot, slugRow),
+                : await conduitDocMetaOfRow(projectRoot, own),
           };
         }
       }
       const row =
+        (own?.sha256 === version.contentHash ? own : undefined) ??
         (await db
           .select()
           .from(attachments)
           .where(eq(attachments.sha256, version.contentHash))
-          .get()) ?? (await bySlug(liveSlug));
+          .get()) ??
+        own;
       if (row) {
         return {
           identity: 'uid',
@@ -298,11 +309,12 @@ export async function resolveDocRef(
           headVersionUid: head.headVersionUid,
           sha256: version.contentHash,
           row,
+          ownRow: own ?? row,
           // Mirrored identity rows always hold a lifecycle; NULL means none yet.
           meta:
             live?.lifecycleStatus != null
               ? conduitDocMetaOf(live)
-              : await conduitDocMetaOfRow(projectRoot, row),
+              : await conduitDocMetaOfRow(projectRoot, own ?? row),
         };
       }
     }
@@ -377,12 +389,12 @@ export async function listDocRefs(projectRoot: string): Promise<DocRef[]> {
     ).map((v) => `${v.doc}|${v.hash}`),
   );
   for (const { doc, headVersionUid, contentHash } of heads) {
-    const live = bySlug.get(doc.slug);
+    const own = bySlug.get(doc.slug);
     const unlanded =
-      live !== undefined &&
-      live.sha256 !== contentHash &&
-      !recorded.has(`${doc.uid}|${live.sha256}`);
-    const row = unlanded ? live : (bySha.get(contentHash) ?? live);
+      own !== undefined && own.sha256 !== contentHash && !recorded.has(`${doc.uid}|${own.sha256}`);
+    const row = unlanded
+      ? own
+      : ((own?.sha256 === contentHash ? own : undefined) ?? bySha.get(contentHash) ?? own);
     if (!row || !doc.uid || listed.has(doc.slug)) continue;
     listed.add(doc.slug);
     out.push({
@@ -392,7 +404,8 @@ export async function listDocRefs(projectRoot: string): Promise<DocRef[]> {
       headVersionUid,
       sha256: unlanded ? row.sha256 : contentHash,
       row,
-      meta: doc.lifecycleStatus != null ? conduitDocMetaOf(doc) : metaOfRow(row),
+      ownRow: own ?? row,
+      meta: doc.lifecycleStatus != null ? conduitDocMetaOf(doc) : metaOfRow(own ?? row),
     });
   }
   for (const [slug, row] of bySlug) {
@@ -405,6 +418,7 @@ export async function listDocRefs(projectRoot: string): Promise<DocRef[]> {
       headVersionUid: null,
       sha256: row.sha256,
       row,
+      ownRow: row,
       meta: metaOfRow(row),
     });
   }
@@ -446,10 +460,10 @@ export async function supersessionSlugs(
   };
   return {
     supersedes:
-      (await slugOfUid(ref.meta.supersedesUid)) ?? (await slugOfRow(ref.row.supersedes ?? null)),
+      (await slugOfUid(ref.meta.supersedesUid)) ?? (await slugOfRow(ref.ownRow.supersedes ?? null)),
     supersededBy:
       (await slugOfUid(ref.meta.supersededByUid)) ??
-      (await slugOfRow(ref.row.supersededBy ?? null)),
+      (await slugOfRow(ref.ownRow.supersededBy ?? null)),
   };
 }
 

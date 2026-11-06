@@ -232,8 +232,8 @@ export async function listTriageCandidates(
   // filtered by its lifecycle, oldest first; the owner is its first ref.
   const { listDocRefs } = await import('./slug-rename.js');
   const refs = (await listDocRefs(projectRoot))
-    .filter((r) => (r.meta.lifecycleStatus ?? r.row.lifecycleStatus) === status)
-    .sort((a, b) => a.row.createdAt.localeCompare(b.row.createdAt));
+    .filter((r) => (r.meta.lifecycleStatus ?? r.ownRow.lifecycleStatus) === status)
+    .sort((a, b) => a.ownRow.createdAt.localeCompare(b.ownRow.createdAt));
   const owners = new Map<string, string>();
   for (const ref of await db
     .select({ attachmentId: attachmentRefs.attachmentId, ownerId: attachmentRefs.ownerId })
@@ -245,16 +245,16 @@ export async function listTriageCandidates(
   const out: DocTriageCandidate[] = [];
   for (const ref of refs) {
     out.push({
-      attachmentId: ref.row.id,
+      attachmentId: ref.ownRow.id,
       sha256: ref.sha256,
       slug: ref.slug,
       kind: ref.meta.docType,
-      status: ref.meta.lifecycleStatus ?? ref.row.lifecycleStatus,
+      status: ref.meta.lifecycleStatus ?? ref.ownRow.lifecycleStatus,
       topics: parseStringArray(ref.meta.topics),
       relatedTasks: parseStringArray(ref.meta.relatedTasks),
       summary: ref.meta.summary,
-      createdAt: ref.row.createdAt,
-      ownerId: owners.get(ref.row.id) ?? null,
+      createdAt: ref.ownRow.createdAt,
+      ownerId: owners.get(ref.ownRow.id) ?? null,
     });
     if (out.length >= limit) break;
   }

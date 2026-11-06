@@ -53,7 +53,7 @@ export async function readDocLineage(
   const { resolveDocRef, supersessionSlugs } = await import('./slug-rename.js');
   const ref = await resolveDocRef(projectRoot, slug);
   if (!ref) return null;
-  const row = ref.row;
+  const row = ref.ownRow;
   const links = await supersessionSlugs(projectRoot, ref);
 
   // Walk superseded_by to the doc that is current now.
@@ -241,13 +241,13 @@ export async function findCurrentDocs(
     // T14288: the current doc's metadata through its identity.
     const { resolveDocRef } = await import('./slug-rename.js');
     const ref = await resolveDocRef(projectRoot, current);
-    const status = ref ? (ref.meta.lifecycleStatus ?? ref.row.lifecycleStatus) : null;
+    const status = ref ? (ref.meta.lifecycleStatus ?? ref.ownRow.lifecycleStatus) : null;
     if (!ref || status === 'superseded') continue;
     out.push({
       id: current,
       type: 'doc',
       title: ref.meta.summary ?? current,
-      date: ref.row.createdAt,
+      date: ref.ownRow.createdAt,
       rrfScore: 1 / (out.length + 1 + DOC_RRF_K),
       ...(current !== slug ? { replaces: slug } : {}),
       _next: { fetch: `cleo docs fetch ${current}` },
