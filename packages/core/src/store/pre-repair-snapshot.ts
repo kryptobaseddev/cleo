@@ -19,17 +19,25 @@
  * @module
  * @task T12346
  * @task T12535
+ * @task T14268
  */
 
 import { existsSync, mkdirSync, statfsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { MigrationMeta } from 'drizzle-orm/migrator';
+import { getLogger } from '../logger.js';
 import {
   applyBackupByteCap,
   formatBackupTimestamp,
   rotateBackupDir,
   writeBackupSidecar,
 } from './backup-sidecar.js';
+import {
+  MIGRATIONS_TABLE,
+  MigrationSnapshotRequiredError,
+  pendingHasDataDml,
+} from './migration-runner.js';
 
 /**
  * Write a `VACUUM INTO` snapshot of the whole database next to it, under
@@ -163,4 +171,62 @@ export function writeMigrationSnapshot(
   // T14278: the directory-wide byte cap; this snapshot is the newest and stays.
   applyBackupByteCap(plan.backupDir);
   return plan.snapshotPath;
+}
+
+/** What {@link snapshotBeforePendingMigrations} did. */
+export type PreMigrationSnapshotOutcome =
+  | { readonly kind: 'snapshot'; readonly path: string }
+  | { readonly kind: 'skipped'; readonly reason: string };
+
+/**
+ * The pre-migration snapshot of a project `cleo.db` (T14268): one `migration`
+ * system backup (`cleo.db.migration-<stamp>` plus its sidecar) before the
+ * first pending migration runs. It runs from the runner's
+ * `beforePendingMigrations` hook, inside the cold-open lease, so concurrent
+ * opens of a store mid-upgrade take one snapshot: the second process finds
+ * the lineage at head and runs no hook.
+ *
+ * When the snapshot cannot be written, a pending set with data DML
+ * ({@link pendingHasDataDml}) is refused with
+ * {@link MigrationSnapshotRequiredError}; a schema-only set proceeds with a
+ * warning. An in-memory store, and a new store no migration has run on
+ * yet, hold nothing to keep and are skipped.
+ *
+ * @param nativeDb - Connection on the store, outside any transaction.
+ * @param dbPath - Path of the store file.
+ * @param pending - The pending migration files.
+ * @returns What was done.
+ * @task T14268
+ */
+export function snapshotBeforePendingMigrations(
+  nativeDb: DatabaseSync,
+  dbPath: string,
+  pending: readonly MigrationMeta[],
+): PreMigrationSnapshotOutcome {
+  if (dbPath === '' || dbPath === ':memory:' || !isAbsolute(dbPath)) {
+    return { kind: 'skipped', reason: 'in-memory store' };
+  }
+  const journaled = nativeDb
+    .prepare("SELECT 1 AS found FROM main.sqlite_master WHERE type = 'table' AND name = ?")
+    .get(MIGRATIONS_TABLE)
+    ? nativeDb.prepare(`SELECT count(*) AS n FROM main."${MIGRATIONS_TABLE}"`).get()
+    : undefined;
+  if (Number((journaled as { n?: number } | undefined)?.n ?? 0) === 0) {
+    return { kind: 'skipped', reason: 'new store: no migration has run, so no data to keep' };
+  }
+  const names = pending.map((m) => m.name ?? m.hash);
+  try {
+    const plan = planMigrationSnapshot(nativeDb, dbPath);
+    const path = writeMigrationSnapshot(nativeDb, plan, `before migrations: ${names.join(', ')}`);
+    return { kind: 'snapshot', path };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    // @sync-invariant none:local-only a schema upgrade with data DML is refused locally without its snapshot; nothing is written
+    if (pendingHasDataDml(pending)) throw new MigrationSnapshotRequiredError(names, reason);
+    getLogger('migration-snapshot').warn(
+      { dbPath, migrations: names, reason },
+      'pre-migration snapshot failed; schema-only migrations proceed without it (T14268)',
+    );
+    return { kind: 'skipped', reason };
+  }
 }
