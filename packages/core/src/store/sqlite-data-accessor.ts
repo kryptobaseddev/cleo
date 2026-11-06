@@ -2357,7 +2357,7 @@ async function createOwnedSqliteDataAccessor(
 
       if (filters?.status) {
         const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
-        conditions.push(inArray(schema.tasks.status, statuses));
+        conditions.push(derivedStatusIn(statuses, claimClockNow()));
       } else {
         conditions.push(ne(schema.tasks.status, 'archived'));
       }
