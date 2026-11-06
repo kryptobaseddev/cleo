@@ -58,7 +58,8 @@ import { shutdownBrainWriter } from './memory/brain-writer-thread.js';
 import { resetEmbeddingQueue } from './memory/embedding-queue.js';
 import { STEP_DEADLINE_MS, type StepOutcome, withDeadline } from './shutdown-deadline.js';
 import {
-  awaitBackgroundOps,
+  abandonBestEffortOps,
+  awaitLocalWriteOps,
   type BackgroundDrainReport,
   pendingBackgroundOpCount,
   settleBackgroundOps,
@@ -66,6 +67,13 @@ import {
 import { closeAllDatabases } from './store/sqlite.js';
 import { markShuttingDown } from './teardown-signal.js';
 import { flushTelemetryBuffer } from './telemetry/index.js';
+
+/**
+ * How long best-effort background work (a presence ping, hook dispatch) may
+ * still finish at teardown before its signal is aborted (T14284). It runs
+ * alongside the local-write drain and never holds the databases open.
+ */
+export const BEST_EFFORT_GRACE_MS = 1_000;
 
 /** Run only within the original shutdown deadline; never refresh a step's budget. */
 async function safely(
@@ -108,7 +116,11 @@ async function safely(
  *      native handles (releases file locks; required on Windows).
  *   4. {@link closeLogger} — flush + terminate the pino-roll transport worker.
  *
- * @remarks All steps share one {@link STEP_DEADLINE_MS} budget captured at entry.
+ * @remarks Two teardown classes (T14284): local-write producers are drained
+ * before any database closes; best-effort producers get
+ * {@link BEST_EFFORT_GRACE_MS} beside that drain, then their signal is aborted
+ * and they are left behind without a warning. The local drain and the closers
+ * share one {@link STEP_DEADLINE_MS} budget captured at entry.
  * Cancellation preserves producers' original contexts; waiting grants no new
  * write budget. If tracked producers do not settle, resource closers are not
  * started. A timed-out drain cannot later resume closing resources. Untracked
@@ -139,20 +151,24 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
   const deadlineAt = Date.now() + STEP_DEADLINE_MS;
   markShuttingDown();
 
+  // T14284: best-effort work gets a short grace beside the local-write drain,
+  // then its signal is aborted; it never holds the databases open.
+  const bestEffort = abandonBestEffortOps(BEST_EFFORT_GRACE_MS);
   let report: BackgroundDrainReport | undefined;
   const drain = await safely(
     'background-operations',
     async () => {
-      report = await awaitBackgroundOps();
+      report = await awaitLocalWriteOps();
       // The legacy barrier caps rescheduling rounds; a return alone does not
       // establish that every registered producer has actually settled.
-      if (pendingBackgroundOpCount() !== 0) {
+      if (pendingBackgroundOpCount('local-write') !== 0) {
         throw new Error('Registered background producers remain after the shutdown barrier');
       }
     },
     deadlineAt,
   );
-  const pendingAfterDrain = pendingBackgroundOpCount();
+  const abandoned = await bestEffort;
+  const pendingAfterDrain = pendingBackgroundOpCount('local-write');
   // An abandoned drain produced no report, so its producers stay genuinely
   // unassessed. A completed one assessed every producer it observed, and the
   // count of real failures is disclosed instead of a standing caveat (T12310).
@@ -166,6 +182,7 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
       ...(drain.threw && pendingAfterDrain > 0 ? { reason: 'drain-incomplete' as const } : {}),
       ...assessment,
       pendingOperations: pendingAfterDrain,
+      ...(abandoned > 0 ? { abandonedBestEffort: abandoned } : {}),
     },
   ];
   let mayClose = drain.settled && !drain.threw;
@@ -177,8 +194,8 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
     ['logger', closeLogger],
   ] as const;
   for (const [label, close] of steps) {
-    // Recheck at each boundary: a closer may itself register more work.
-    const pendingOperations = pendingBackgroundOpCount();
+    // Recheck at each boundary: a closer may itself register more local writes.
+    const pendingOperations = pendingBackgroundOpCount('local-write');
     if (pendingOperations > 0) {
       mayClose = false;
       blockedReason = 'background-pending';

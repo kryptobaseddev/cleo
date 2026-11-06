@@ -62,6 +62,8 @@ export interface RefreshProjectPresenceOptions {
   deviceStore?: Pick<NexusDeviceStore, 'list'>;
   /** Environment. @defaultValue process.env */
   env?: NodeJS.ProcessEnv;
+  /** Aborted at teardown: the request is dropped, never awaited (T14284). */
+  signal?: AbortSignal;
 }
 
 /** The throttle stamp of a project root under the CLEO home. */
@@ -143,6 +145,7 @@ export async function refreshProjectPresence(
           timeoutMs: NEXUS_PRESENCE_REFRESH_TIMEOUT_MS,
           ...(opts.now ? { now: opts.now } : {}),
           ...(opts.fetch ? { fetch: opts.fetch } : {}),
+          ...(opts.signal ? { signal: opts.signal } : {}),
         }),
       ];
     });
@@ -159,12 +162,14 @@ export async function refreshProjectPresence(
 
 /**
  * Start {@link refreshProjectPresence} in the background, alongside the
- * command, without awaiting it: registered with the background-op registry
- * so the CLI's teardown can drain it within its deadline instead of
- * abandoning a half-sent request.
+ * command, without awaiting it. It is best-effort work (T14284): teardown
+ * gives it a short grace, then aborts the request and closes the databases
+ * without waiting, so a slow network never holds a command up.
  *
  * @param opts - As for {@link refreshProjectPresence}.
  */
 export function startProjectPresenceRefresh(opts: RefreshProjectPresenceOptions): void {
-  void trackBackgroundOp(() => refreshProjectPresence(opts));
+  void trackBackgroundOp((signal) => refreshProjectPresence({ ...opts, signal }), undefined, {
+    kind: 'best-effort',
+  });
 }
