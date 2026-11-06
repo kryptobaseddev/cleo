@@ -173,6 +173,30 @@ describe('main brain (global store) memory (T13720)', () => {
     );
   });
 
+  it('briefing delivers seeded lessons to any harness: project first, with a fetch pointer (T14305)', async () => {
+    const global = await memoryObserve(
+      { text: 'why: a main-brain incident', title: 'Main brain rule', type: 'lesson' },
+      project,
+    );
+    const local = await memoryObserve(
+      { text: 'why: a project incident', title: 'Project rule', type: 'lesson', scope: 'project' },
+      project,
+    );
+    const globalId = (global.data as { id: string }).id;
+    const localId = (local.data as { id: string }).id;
+
+    const briefing = await computeBriefing(project, {});
+
+    expect(briefing.lessons?.map((l) => [l.id, l.scope])).toEqual([
+      [localId, 'project'],
+      [globalId, 'global'],
+    ]);
+    expect(briefing.lessons?.[0]).toMatchObject({
+      rule: 'Project rule',
+      _next: { fetch: `cleo memory fetch ${localId}` },
+    });
+  });
+
   it('rejects an unknown scope and project-only links with --scope global', async () => {
     const bad = await memoryObserve({ text: 'x', scope: 'galaxy' });
     expect(bad.error?.code).toBe('E_INVALID_INPUT');

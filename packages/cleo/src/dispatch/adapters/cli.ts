@@ -467,8 +467,9 @@ export async function dispatchFromCli(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so teardown and
-  // the settle before an error exit wait for it (T13164).
+  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so the
+  // settle before an error exit waits for it (T13164) and teardown gives it a
+  // short grace (T14284).
   void trackBackgroundOp(
     hooks
       .dispatch('PromptSubmit', projectRoot, {
@@ -481,6 +482,9 @@ export async function dispatchFromCli(
       .catch(() => {
         /* hook errors are non-fatal */
       }),
+    undefined,
+    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
+    { kind: 'best-effort' },
   );
 
   // Spinner is silent on --json/--quiet/non-TTY/NO_COLOR — no branching needed.
@@ -502,8 +506,9 @@ export async function dispatchFromCli(
     spinner.stop();
   }
 
-  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so teardown and
-  // the settle before an error exit wait for it (T13164).
+  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so the
+  // settle before an error exit waits for it (T13164) and teardown gives it a
+  // short grace (T14284).
   void trackBackgroundOp(
     hooks
       .dispatch('ResponseComplete', projectRoot, {
@@ -518,6 +523,9 @@ export async function dispatchFromCli(
       .catch(() => {
         /* hook errors are non-fatal */
       }),
+    undefined,
+    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
+    { kind: 'best-effort' },
   );
 
   if (response.success) {
@@ -671,8 +679,9 @@ export async function dispatchRaw(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so teardown and
-  // the settle before an error exit wait for it (T13164).
+  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so the
+  // settle before an error exit waits for it (T13164) and teardown gives it a
+  // short grace (T14284).
   void trackBackgroundOp(
     hooks
       .dispatch('PromptSubmit', projectRoot, {
@@ -685,6 +694,9 @@ export async function dispatchRaw(
       .catch(() => {
         /* hook errors are non-fatal */
       }),
+    undefined,
+    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
+    { kind: 'best-effort' },
   );
 
   const spinner = createDispatchSpinner(domain, operation);
@@ -705,8 +717,9 @@ export async function dispatchRaw(
     spinner.stop();
   }
 
-  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so teardown and
-  // the settle before an error exit wait for it (T13164).
+  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so the
+  // settle before an error exit waits for it (T13164) and teardown gives it a
+  // short grace (T14284).
   void trackBackgroundOp(
     hooks
       .dispatch('ResponseComplete', projectRoot, {
@@ -721,6 +734,9 @@ export async function dispatchRaw(
       .catch(() => {
         /* hook errors are non-fatal */
       }),
+    undefined,
+    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
+    { kind: 'best-effort' },
   );
 
   // T13164: a caller may hand a failure to handleRawError, which exits at once;

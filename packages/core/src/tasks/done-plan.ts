@@ -979,9 +979,9 @@ function wholeSuiteRefusedBlocker(
         (ciUsable
           ? ", or ci:<pr> once the merged PR's CI is green"
           : // T13745: a change outside every package (root config) has no targeted
-            // run; merged CI with covering rules is its honest route.
-            ', or ci:<pr> once the PR merges if you set evidence.ciSatisfies and evidence.ciChecks ' +
-            '(evidence.ciChecks.covering maps root config paths to the CI jobs that check them)') +
+            // run; merged CI is its honest route (T14260: a filter skip of the
+            // gate jobs stands in outside the package code roots).
+            ', or ci:<pr> once the PR merges if you set evidence.ciSatisfies and evidence.ciChecks') +
         ', or declare testing.affectedCommand in .cleo/project-context.json so cleo done can plan a ' +
         'scoped tool:test-affected. A full run is your explicit choice: cleo verify --gate testsPassed --evidence tool:test.',
     ),

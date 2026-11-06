@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Session } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Cleo } from '../../cleo.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import {
   getSession,
@@ -139,6 +140,20 @@ describe('session activity heartbeat (T12540)', () => {
 
     // Once the working session also goes quiet for a full TTL, it is not live.
     expect(await hasActiveSession(env.tempDir, now + SESSION_LIVE_TTL_MS + 60_000)).toBe(false);
+  });
+
+  it('SDK sessions.gc takes hours: gc(24) orphans a 2-day-idle session and keeps a 2-hour one (T14273)', async () => {
+    await env.accessor.upsertSingleSession(
+      session(SES_IDLE, new Date(now - 48 * HOUR_MS).toISOString()),
+    );
+    await env.accessor.upsertSingleSession(
+      session(SES_WORKING, new Date(now - 2 * HOUR_MS).toISOString()),
+    );
+
+    await Cleo.forProject(env.tempDir).sessions.gc(24);
+
+    expect((await getSession(SES_IDLE, env.tempDir))?.status).toBe('orphaned');
+    expect((await getSession(SES_WORKING, env.tempDir))?.status).toBe('active');
   });
 
   it('heartbeatProjectSession reports the activity beat and renewed leases', async () => {

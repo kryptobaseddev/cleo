@@ -64,40 +64,93 @@ const WITHHELD_PATH = /^\.changeset\//;
 
 /** How a packet reads a PR from GitHub. Injected by tests. */
 export interface ReviewDeps {
-  /** The PR's current head sha, or null when `gh` cannot read it. */
+  /** The PR's current head sha, or null when it cannot be read; may throw gh's own error (T14328). */
   prHead(cwd: string, prNumber: number): Promise<string | null>;
-  /** The PR's diff at its current head, or null when `gh` cannot read it. */
+  /** The PR's diff at its current head, or null when it cannot be read; may throw gh's own error (T14328). */
   prDiff(cwd: string, prNumber: number): Promise<string | null>;
 }
 
-function gh(args: string[], cwd: string): string | null {
+/** Runs `gh` with arguments in a work tree and returns its stdout; throws on failure. */
+export type GhRunner = (args: string[], cwd: string) => string;
+
+const runGh: GhRunner = (args, cwd) =>
+  execFileSync('gh', args, {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 60_000,
+  });
+
+/**
+ * One `gh` call; a failure throws gh's own stderr (T14328), never a bare
+ * "could not be read".
+ */
+function gh(run: GhRunner, args: string[], cwd: string): string {
   try {
-    return execFileSync('gh', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 60_000,
+    return run(args, cwd);
+  } catch (err) {
+    const stderr = (err as { stderr?: unknown }).stderr;
+    const said =
+      (typeof stderr === 'string'
+        ? stderr
+        : Buffer.isBuffer(stderr)
+          ? stderr.toString('utf-8')
+          : ''
+      ).trim() || (err instanceof Error ? err.message : String(err));
+    // @sync-invariant none:input-shape a PR gh cannot read is refused before anything is written
+    throw new CleoError(ExitCode.NOT_FOUND, `gh ${args.slice(0, 3).join(' ')} failed: ${said}`, {
+      fix: 'Check `gh auth status` and that the PR number belongs to this repository.',
     });
-  } catch {
-    return null;
   }
 }
 
+/**
+ * {@link ReviewDeps} over a `gh` runner (T14328): `gh pr view` and
+ * `gh pr diff`, the diff verbatim (`--allow-escape-sequences`, no colour), so
+ * a diff carrying terminal escapes in its content is read, not refused.
+ *
+ * @param run - The `gh` runner (tests inject one).
+ * @returns The deps.
+ * @task T14328
+ */
+export function ghReviewDeps(run: GhRunner = runGh): ReviewDeps {
+  return {
+    async prHead(cwd, prNumber) {
+      const out = gh(
+        run,
+        ['pr', 'view', String(prNumber), '--json', 'headRefOid', '-q', '.headRefOid'],
+        cwd,
+      );
+      const sha = out.trim();
+      return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+    },
+    async prDiff(cwd, prNumber) {
+      return gh(
+        run,
+        ['pr', 'diff', String(prNumber), '--color', 'never', '--allow-escape-sequences'],
+        cwd,
+      );
+    },
+  };
+}
+
 /** The default {@link ReviewDeps}: `gh pr view` and `gh pr diff`. */
-export const defaultReviewDeps: ReviewDeps = {
-  async prHead(cwd, prNumber) {
-    const out = gh(
-      ['pr', 'view', String(prNumber), '--json', 'headRefOid', '-q', '.headRefOid'],
-      cwd,
-    );
-    const sha = out?.trim() ?? '';
-    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
-  },
-  async prDiff(cwd, prNumber) {
-    return gh(['pr', 'diff', String(prNumber)], cwd);
-  },
-};
+export const defaultReviewDeps: ReviewDeps = ghReviewDeps();
+
+/**
+ * A diff with each raw ESC byte written as the visible text `\x1b` (T14328):
+ * a CI log or fixture in the diff can carry terminal escapes, and the packet
+ * is printed to a reviewer's terminal. The packet hashes this form, so one
+ * head still yields one packet.
+ *
+ * @param diff - The diff verbatim.
+ * @returns The same diff with no raw escape byte.
+ * @task T14328
+ */
+export function visibleEscapes(diff: string): string {
+  return diff.replaceAll('\u001b', '\\x1b');
+}
 
 /**
  * A unified diff without the files whose path matches `withheld`, and the
@@ -214,7 +267,7 @@ export async function buildReviewPacket(
       { fix: `Run \`cleo review packet ${prNumber} --task ${taskId}\` again.` },
     );
   }
-  const { diff, withheldPaths } = withholdDiffPaths(raw);
+  const { diff, withheldPaths } = withholdDiffPaths(visibleEscapes(raw));
   return {
     prNumber,
     headSha: after,
