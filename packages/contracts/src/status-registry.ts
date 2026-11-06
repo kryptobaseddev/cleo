@@ -73,6 +73,43 @@ export const TERMINAL_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set([
   'archived',
 ]);
 
+/** A child status that needs no more work: `done`, `cancelled` or `archived`. */
+export type SettledTaskStatus = 'done' | 'cancelled' | 'archived';
+
+/**
+ * Whether a child task is settled: it needs no more work (`done`, `cancelled`
+ * or `archived`, the {@link TERMINAL_TASK_STATUSES}). The one predicate every
+ * parent-terminal path uses (T14266): cancel and its cascade, archive and
+ * update to cancelled (via `countActiveChildren`, which filters on the same
+ * set in SQL), complete's premature-close guard and rollups, and the `done`
+ * epic plan. A settled `cancelled` child still needs a waiver before a parent
+ * can roll up over it; settled only means no work remains.
+ *
+ * @param status - The child's status.
+ * @returns True when the child needs no more work.
+ */
+export function isSettledChild(status: TaskStatus): status is SettledTaskStatus {
+  return TERMINAL_TASK_STATUSES.has(status);
+}
+
+/**
+ * Why a task was cancelled (T14267, owner decision D11229). `superseded` and
+ * `duplicate` name a replacement (`replacedBy`); once it is done the cancelled
+ * child counts as covered in a parent rollup with no waiver. `abandoned` and
+ * `obsolete` work was not delivered, so a parent still needs the audited
+ * `--waive-cancelled-children` waiver.
+ */
+export const CANCELLATION_KINDS = ['abandoned', 'superseded', 'duplicate', 'obsolete'] as const;
+
+/** One of {@link CANCELLATION_KINDS}. */
+export type CancellationKind = (typeof CANCELLATION_KINDS)[number];
+
+/** The cancellation kinds a done replacement covers (T14267, D11229). */
+export const REPLACED_CANCELLATION_KINDS: ReadonlySet<CancellationKind> = new Set([
+  'superseded',
+  'duplicate',
+]);
+
 export const TERMINAL_PIPELINE_STATUSES: ReadonlySet<PipelineStatus> = new Set([
   'completed',
   'failed',

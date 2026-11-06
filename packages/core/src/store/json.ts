@@ -59,6 +59,8 @@ export interface SaveJsonOptions {
   indent?: number;
   /** Validation function. Called before write; throw to abort. */
   validate?: (data: unknown) => void | Promise<void>;
+  /** File mode for the written file; also tightens an existing file's mode (T14221). */
+  mode?: number;
 }
 
 /**
@@ -99,7 +101,7 @@ export async function saveJson(
     }
 
     // Atomic write
-    await atomicWriteJson(filePath, data, { indent: options?.indent });
+    await atomicWriteJson(filePath, data, { indent: options?.indent, mode: options?.mode });
 
     // Dispatch Notification hook (best-effort, never awaited). The cwd
     // arg is a tagged label for the hook payload, NOT a path used to write

@@ -48,9 +48,10 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getCleoDirAbsolute } from '../paths.js';
+import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
+import { readVerifiedBlobBytes, writeBlobStoreBytesSync } from '../store/blob-keep.js';
 import {
   appendConduitAttachmentVersion,
   type ConduitAttachmentVersionRow,
@@ -274,13 +275,10 @@ async function readHeadSectionTexts(
   head: ConduitDocHeadRow,
 ): Promise<string[] | null> {
   const version = await getConduitAttachmentVersion(projectRoot, head.headVersionUid);
-  if (!version?.storageKey) return null;
-  try {
-    const text = readFileSync(versionBlobPath(projectRoot, version.storageKey), 'utf-8');
-    return splitDocIntoSections(text);
-  } catch {
-    return null;
-  }
+  if (!version) return null;
+  // T14329: by content hash (blob store, then the legacy tree), whatever the key layout.
+  const bytes = readVerifiedBlobBytes(resolveCleoDir(projectRoot), version.contentHash);
+  return bytes === null ? null : splitDocIntoSections(bytes.toString('utf-8'));
 }
 
 /**
@@ -291,9 +289,17 @@ async function readHeadSectionTexts(
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param storageKey - The version's `storage_key`.
+ * @param contentHash - SHA-256 of `text` (its blob-store address).
  * @param text - The merged text the key addresses.
  */
-function writeMergedBlob(projectRoot: string, storageKey: string, text: string): void {
+function writeMergedBlob(
+  projectRoot: string,
+  storageKey: string,
+  contentHash: string,
+  text: string,
+): void {
+  // T14329: the blob store is where readers resolve a version (by its hash).
+  writeBlobStoreBytesSync(resolveCleoDir(projectRoot), contentHash, Buffer.from(text, 'utf-8'));
   const path = versionBlobPath(projectRoot, storageKey);
   if (existsSync(path)) return;
   mkdirSync(dirname(path), { recursive: true });
@@ -327,6 +333,87 @@ export async function projectDocUpdateThroughSections(
   input: ProjectDocUpdateInput,
 ): Promise<ProjectDocUpdateResult> {
   return projectDocUpdate(projectRoot, input, false);
+}
+
+/** Input for {@link projectDocCreate}. */
+export interface ProjectDocCreateInput {
+  /** The new doc's slug (its `docs_attachments` row is already written). */
+  readonly slug: string;
+  /** Author of the first version. */
+  readonly authorAgentId: string;
+  /** The stored bytes. */
+  readonly bytes: Buffer;
+  /** The bytes as text, or `null` for a binary body. */
+  readonly text: string | null;
+  /** Optional change summary for the first version. */
+  readonly changeSummary?: string;
+}
+
+/**
+ * Record a new doc's identity, first version and head (T14329), so a doc is
+ * addressable by its immutable uid and its fetch carries `headVersionUid` from
+ * the moment it is added, not only after a first update.
+ *
+ * A text body goes through {@link projectDocUpdateThroughSections} as a root
+ * version (the same projection every update uses, so section state exists for
+ * the next edit). A binary body has no sections: the identity, a root version
+ * addressing its bytes, and the head are written directly, in one
+ * transaction. The identity is adopted from the doc's registry row
+ * (`ensureConduitDoc`), so two devices converge on one uid (T13586).
+ * Idempotent: a doc that already has a head is returned as it is.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The doc's slug, author, bytes and text.
+ * @returns The doc uid and its head version uid.
+ * @task T14329
+ */
+export async function projectDocCreate(
+  projectRoot: string,
+  input: ProjectDocCreateInput,
+): Promise<{ docUid: string; headVersionUid: string }> {
+  const known = await resolveConduitDocUid(projectRoot, input.slug);
+  const knownHead = known !== null ? await getConduitDocHead(projectRoot, known) : null;
+  if (known !== null && knownHead !== null) {
+    return { docUid: known, headVersionUid: knownHead.headVersionUid };
+  }
+  const changeSummary = input.changeSummary ?? `created '${input.slug}' (docs add)`;
+  if (input.text !== null) {
+    const projected = await projectDocUpdateThroughSections(projectRoot, {
+      slug: input.slug,
+      authorAgentId: input.authorAgentId,
+      content: input.text,
+      parentVersionUid: null,
+      changeSummary,
+    });
+    return { docUid: projected.docUid, headVersionUid: projected.head.head.headVersionUid };
+  }
+  return withConduitDocWriteTransaction(projectRoot, async () => {
+    const { uid } = await ensureConduitDoc(projectRoot, {
+      slug: input.slug,
+      authorAgentId: input.authorAgentId,
+      content: input.bytes,
+    });
+    const contentHash = createHash('sha256').update(input.bytes).digest('hex');
+    writeBlobStoreBytesSync(resolveCleoDir(projectRoot), contentHash, input.bytes);
+    const version = await appendConduitAttachmentVersion(projectRoot, {
+      attachmentUid: uid,
+      parentVersionUid: null,
+      authorAgentId: input.authorAgentId,
+      storageKey: `sha256:${contentHash}`,
+      contentHash,
+      originalSize: input.bytes.length,
+      compressedSize: input.bytes.length,
+      tokens: 0,
+      changeType: 'create',
+      changeSummary,
+    });
+    const head = await upsertConduitDocHead(projectRoot, {
+      attachmentUid: uid,
+      headVersionUid: version.uid ?? '',
+      headHlc: mintHeadHlc(null),
+    });
+    return { docUid: uid, headVersionUid: head.head.headVersionUid };
+  });
 }
 
 /** Outcome of {@link previewDocUpdateThroughSections}. */
@@ -525,7 +612,7 @@ async function projectDocUpdate(
       // Write the blob BEFORE the insert so a committed row never references
       // missing bytes; a rollback only leaves a harmless content-addressed
       // orphan (reused by a later identical projection).
-      writeMergedBlob(projectRoot, storageKey, mergedText);
+      writeMergedBlob(projectRoot, storageKey, contentHash, mergedText);
       const parentVersionUid =
         input.parentVersionUid !== undefined
           ? input.parentVersionUid
@@ -569,7 +656,7 @@ async function projectDocUpdate(
       if (conflictedSections.length > 0) {
         const incomingHash = createHash('sha256').update(input.content, 'utf-8').digest('hex');
         const incomingKey = `${incomingHash.slice(0, 2)}/${incomingHash.slice(2)}.md`;
-        writeMergedBlob(projectRoot, incomingKey, input.content);
+        writeMergedBlob(projectRoot, incomingKey, incomingHash, input.content);
         const incoming = await appendConduitAttachmentVersion(projectRoot, {
           attachmentUid: docUid,
           parentVersionUid,

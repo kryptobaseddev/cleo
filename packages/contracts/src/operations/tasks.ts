@@ -25,7 +25,7 @@ import type { TaskAnalysisResult, TaskRef } from '../results.js';
 /**
  * Common task types (API contract — matches CLI src/types/task.ts)
  */
-import type { TaskStatus } from '../status-registry.js';
+import type { CancellationKind, TaskStatus } from '../status-registry.js';
 import type { TaskClaim, TaskKind, TaskPriority, TaskSeverity, TaskType } from '../task.js';
 import type {
   MinimalTaskRecord,
@@ -1042,6 +1042,13 @@ export interface TasksSyncLinksRemoveResult {
 }
 
 // tasks.cancel
+/**
+ * Child handling mode for `tasks.cancel`: `block` refuses while unsettled
+ * children remain, `cascade` cancels the subtree, `reparent` moves the
+ * children under `reparentTo` (T11811 · moved from core in T14273).
+ */
+export type ChildStrategy = 'block' | 'cascade' | 'reparent';
+
 export interface TasksCancelParams {
   taskId: string;
   reason?: string;
@@ -1051,7 +1058,7 @@ export interface TasksCancelParams {
    * legacy `orphan`/detach mode was removed by T11811 (it manufactured the
    * exact orphan the containment guard rejects).
    */
-  children?: 'block' | 'cascade' | 'reparent';
+  children?: ChildStrategy;
   /**
    * Target parent ID for the `reparent` strategy (T11811). REQUIRED when
    * `children='reparent'`.
@@ -1063,6 +1070,10 @@ export interface TasksCancelParams {
   cascadeThreshold?: number;
   /** Config-level cascade permission. Defaults to true. */
   allowCascade?: boolean;
+  /** Why the task is cancelled (T14267): abandoned, superseded, duplicate or obsolete. */
+  kind?: CancellationKind;
+  /** The task that replaced this one; only with kind `superseded` or `duplicate` (T14267). */
+  replacedBy?: string;
 }
 /**
  * Result of `tasks.cancel` — cancellation confirmation.
@@ -1087,8 +1098,12 @@ export interface TasksCancelResult {
    * @defaultValue undefined
    */
   alreadyCancelled?: boolean;
+  /** The recorded cancel kind (T14267). @defaultValue undefined */
+  kind?: CancellationKind;
+  /** The recorded replacement (T14267). @defaultValue undefined */
+  replacedBy?: string;
   /** Explicit child handling mode applied by the operation. */
-  childStrategy?: 'block' | 'cascade' | 'reparent';
+  childStrategy?: ChildStrategy;
   /** Child or descendant tasks affected by cascade/reparent handling. */
   affectedTasks?: string[];
   /** Count of affected child/descendant tasks. */

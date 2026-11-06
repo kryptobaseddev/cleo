@@ -210,8 +210,12 @@ jobs:
           # batch is proposing.
           base: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && github.event.repository.default_branch || '' }}
           filters: |
+            # T14260: every file under the package code roots is code, a
+            # template `.md` included; ci-evidence.ts PACKAGE_CODE_ROOTS (pinned
+            # by its test) lets a filter skip stand in only outside them.
             code:
               - 'packages/**'
+              - 'crates/**'
               - 'pnpm-workspace.yaml'
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -348,7 +352,7 @@ jobs:
       - run: biome ci .
       # T13279: biome ignores .cleo/, so the tracked project context (it
       # drives evidence, release and testing rules) is validated against its
-      # schema here; evidence.ciChecks.covering credits this job for it.
+      # schema here.
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'

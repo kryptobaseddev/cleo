@@ -325,7 +325,7 @@ const tasksFindOutputContract: OperationOutputContract = {
 
 // ---------------------------------------------------------------------------
 // Mutation envelope shape (T9931 / T10608) — shared by add / add-batch /
-// update / complete / delete.
+// update / complete / delete / cancel / restore (T14220).
 //
 // DEFAULT (minimal) shape — what `--field` resolves against — is
 // `MinimalMutateEnvelope` from `mutate-projection.ts`:

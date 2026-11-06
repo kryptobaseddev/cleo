@@ -53,7 +53,7 @@ describe('orchestrateReport', () => {
   it('classifies ready tasks correctly', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1',
+        id: 'T95014',
         title: 'Epic',
         type: 'epic',
         status: 'active',
@@ -67,7 +67,7 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'high',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
@@ -78,14 +78,14 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'medium',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
       },
     ]);
 
-    const result = await orchestrateReport('E1', TEST_ROOT);
+    const result = await orchestrateReport('T95014', TEST_ROOT);
     expect(result.success).toBe(true);
     const groups = (result.data as any).groups;
     const readyGroup = groups.find((g: any) => g.group === 'ready');
@@ -97,7 +97,7 @@ describe('orchestrateReport', () => {
   it('classifies blockedBy tasks with unmet dependencies', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1',
+        id: 'T95014',
         title: 'Epic',
         type: 'epic',
         status: 'active',
@@ -111,7 +111,7 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'high',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: ['T2'],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
@@ -122,14 +122,14 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'medium',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
       },
     ]);
 
-    const result = await orchestrateReport('E1', TEST_ROOT);
+    const result = await orchestrateReport('T95014', TEST_ROOT);
     expect(result.success).toBe(true);
     const groups = (result.data as any).groups;
     const blockedByGroup = groups.find((g: any) => g.group === 'blockedBy');
@@ -142,7 +142,7 @@ describe('orchestrateReport', () => {
   it('gate-blocked group exists with count 0 when no gates persisted', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1',
+        id: 'T95014',
         title: 'Epic',
         type: 'epic',
         status: 'active',
@@ -156,14 +156,14 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'high',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
       },
     ]);
 
-    const result = await orchestrateReport('E1', TEST_ROOT);
+    const result = await orchestrateReport('T95014', TEST_ROOT);
     expect(result.success).toBe(true);
     const groups = (result.data as any).groups;
     const gateGroup = groups.find((g: any) => g.group === 'gateBlocked');
@@ -175,7 +175,7 @@ describe('orchestrateReport', () => {
   it('skips done and cancelled tasks', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1',
+        id: 'T95014',
         title: 'Epic',
         type: 'epic',
         status: 'active',
@@ -189,7 +189,7 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'done',
         priority: 'high',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
@@ -200,7 +200,7 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'cancelled',
         priority: 'low',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
@@ -211,14 +211,14 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'medium',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
       },
     ]);
 
-    const result = await orchestrateReport('E1', TEST_ROOT);
+    const result = await orchestrateReport('T95014', TEST_ROOT);
     expect(result.success).toBe(true);
     const groups = (result.data as any).groups;
     const readyGroup = groups.find((g: any) => g.group === 'ready');
@@ -229,7 +229,7 @@ describe('orchestrateReport', () => {
   it('handles pagination', async () => {
     const tasks: any[] = [
       {
-        id: 'E1',
+        id: 'T95014',
         title: 'Epic',
         type: 'epic',
         status: 'active',
@@ -245,7 +245,7 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'medium',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
@@ -253,7 +253,7 @@ describe('orchestrateReport', () => {
     }
     await seedTasks(TEST_ROOT, tasks);
 
-    const result = await orchestrateReport('E1', TEST_ROOT, { page: 1, pageSize: 2 });
+    const result = await orchestrateReport('T95014', TEST_ROOT, { page: 1, pageSize: 2 });
     expect(result.success).toBe(true);
     const data = result.data as any;
     expect(data.pagination.page).toBe(1);
@@ -275,7 +275,7 @@ describe('orchestrateReport', () => {
   it('all groups have correct labels and shapes', async () => {
     await seedTasks(TEST_ROOT, [
       {
-        id: 'E1',
+        id: 'T95014',
         title: 'Epic',
         type: 'epic',
         status: 'active',
@@ -289,7 +289,7 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'high',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: [],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
@@ -300,14 +300,14 @@ describe('orchestrateReport', () => {
         type: 'task',
         status: 'pending',
         priority: 'medium',
-        parentId: 'E1',
+        parentId: 'T95014',
         depends: ['T99'],
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: null,
       },
     ]);
 
-    const result = await orchestrateReport('E1', TEST_ROOT);
+    const result = await orchestrateReport('T95014', TEST_ROOT);
     expect(result.success).toBe(true);
     const groups = (result.data as any).groups;
 

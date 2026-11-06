@@ -17,8 +17,9 @@
  *   checkout linking into it and no evidence living only there
  *   (`guardWorktreeDisposal`, the guard every disposal path shares).
  *
- * Nothing new deletes: worktrees go through `removeWorktreeFromDisk`, nested
- * copies through the worktree package's `removeDir`, branches through git.
+ * Nothing new deletes: worktrees go through the worktree package's
+ * `disposeWorktree` engine (T13924), nested copies through its `removeDir`,
+ * branches through git.
  * A dry run (the default) reports the same items without touching them.
  *
  * @task T14142
@@ -35,21 +36,17 @@ import type {
 } from '@cleocode/contracts';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 import {
-  describeDisposalBlockers,
-  guardWorktreeDisposal,
+  disposeWorktree,
   napiRemoveDir,
+  newCompareBudget,
   pruneWorktreeRegistry,
   readWorktreeTaskLock,
+  unprovenContent,
 } from '@cleocode/worktree';
 import { discoveryEnv } from '../git/work-tree.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { enumerateWorktrees } from './list.js';
-import {
-  loadTaskEvidence,
-  newCompareBudget,
-  removeWorktreeFromDisk,
-  unprovenContent,
-} from './prune.js';
+import { loadTaskEvidence, worktreeInUseProbe } from './prune.js';
 
 /** `task/T123` or `task/T123-slug`: the task id a branch belongs to. */
 const TASK_BRANCH = /^task\/(T\d+)(?:[-/]|$)/;
@@ -260,11 +257,9 @@ export async function cleanupMergedWork(
   const projectHash = computeProjectHash(root);
   const worktreeRoot = resolveWorktreeRootForHash(projectHash);
   const actor = resolveWorktreeAuditActor();
-  // One comparison budget for the whole run (T14146).
+  // One comparison budget for the run's nested copies (T14146); a repository
+  // copy never drops `node_modules` or build output.
   const budget = newCompareBudget();
-  // A merged, clean worktree may drop rebuildable output; a repository copy never.
-  const worktreeContent = (path: string) =>
-    unprovenContent(path, root, { budget, exemptRegenerable: true });
   const copyContent = (path: string) =>
     unprovenContent(path, root, { budget, exemptNodeModules: false });
   const keep = (list: MergedCleanupItem[], target: string, taskId: string | null, reason: string) =>
@@ -300,25 +295,29 @@ export async function cleanupMergedWork(
       keep(result.worktrees, wt.path, taskId, `unmerged: not in ${base}`);
       continue;
     }
-    const blockers = guardWorktreeDisposal(wt.path, {
-      taskId,
-      reason: 'merged-cleanup',
-      gitRoot: root,
-      projectRoot: root,
-      evidence: await loadTaskEvidence(root, taskId),
-      dryRun,
-    });
-    if (blockers !== null) {
-      keep(result.worktrees, wt.path, taskId, describeDisposalBlockers(wt.path, blockers));
-      continue;
-    }
     if (!insideRoot(wt.path, worktreeRoot)) {
       keep(result.worktrees, wt.path, taskId, 'not a real directory inside the worktree root');
       continue;
     }
-    const unproven = worktreeContent(wt.path);
-    if (unproven !== null) {
-      keep(result.worktrees, wt.path, taskId, unproven);
+    // T13924: the one disposal engine proves it (guard, in use, content, commits).
+    const evidence = await loadTaskEvidence(root, taskId);
+    const dispose = (probe: boolean) =>
+      disposeWorktree({
+        worktreePath: wt.path,
+        gitRoot: root,
+        projectRoot: root,
+        taskId,
+        reason: 'merged-cleanup',
+        evidence,
+        // A merged, clean worktree may drop rebuildable output.
+        exemptRegenerable: true,
+        inUse: worktreeInUseProbe(root, taskId),
+        dryRun,
+        probe,
+      });
+    const plan = dispose(true);
+    if (plan.keptReason !== undefined) {
+      keep(result.worktrees, wt.path, taskId, plan.unpreserved ?? plan.keptReason);
       continue;
     }
     if (findNestedRepos(wt.path).length > 0) {
@@ -329,18 +328,26 @@ export async function cleanupMergedWork(
     if (!dryRun) {
       // Re-prove right before removing: anything written since the first check keeps it.
       deps.beforeRemove?.(wt.path);
-      const late =
-        worktreeContent(wt.path) ??
-        (findNestedRepos(wt.path).length > 0 ? 'holds a nested repository or worktree' : null);
-      if (late !== null) {
-        keep(result.worktrees, wt.path, taskId, `changed during cleanup: ${late}`);
+      if (findNestedRepos(wt.path).length > 0) {
+        keep(
+          result.worktrees,
+          wt.path,
+          taskId,
+          'changed during cleanup: holds a nested repository or worktree',
+        );
         continue;
       }
-      const removal = removeWorktreeFromDisk(
-        // The branch is deleted below, leased to the sha proven merged.
-        { path: wt.path, branch: wt.branch, isMerged: false },
-        root,
-      );
+      // The engine re-proves and removes; the branch is deleted below, leased to the sha proven merged.
+      const disposal = dispose(false);
+      if (disposal.failed === undefined && !disposal.removed) {
+        keep(
+          result.worktrees,
+          wt.path,
+          taskId,
+          `changed during cleanup: ${disposal.unpreserved ?? disposal.keptReason ?? 'kept'}`,
+        );
+        continue;
+      }
       appendWorktreeAuditEntry(root, {
         actor,
         action: 'prune',
@@ -348,11 +355,11 @@ export async function cleanupMergedWork(
         branch: wt.branch,
         taskId,
         reason: 'merged-cleanup',
-        success: removal.success,
-        ...(removal.success ? {} : { error: removal.error }),
+        success: disposal.removed,
+        ...(disposal.failed !== undefined ? { error: disposal.failed } : {}),
       });
-      if (!removal.success) {
-        keep(result.worktrees, wt.path, taskId, removal.error);
+      if (!disposal.removed) {
+        keep(result.worktrees, wt.path, taskId, disposal.failed ?? 'removal failed');
         continue;
       }
     }

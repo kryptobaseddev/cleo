@@ -176,7 +176,7 @@ describe('WorkGraph scaffold apply engine', () => {
       [
         '--input-type=module',
         '-e',
-        "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify(db.prepare(\"SELECT id FROM tasks_tasks WHERE id LIKE 'SCOPE%' ORDER BY id\").all()));db.close();",
+        "import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true});process.stdout.write(JSON.stringify(db.prepare(\"SELECT id FROM tasks_tasks WHERE id IN ('T95044', 'T95046') ORDER BY id\").all()));db.close();",
         join(root, '.cleo/cleo.db'),
       ],
       { encoding: 'utf8', timeout: 5000 },
@@ -189,11 +189,9 @@ describe('WorkGraph scaffold apply engine', () => {
     await getTask('T991', tempDir);
     const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
     vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
-    const result = await applyWorkGraphScaffold(
-      applyParams('SCOPE-PARENT', [epicNode('SCOPE-PARENT')]),
-    );
+    const result = await applyWorkGraphScaffold(applyParams('T95044', [epicNode('T95044')]));
     expect(result.applied).toBe(true);
-    expect(JSON.parse(persistedScopeRows(tempDir))).toEqual([{ id: 'SCOPE-PARENT' }]);
+    expect(JSON.parse(persistedScopeRows(tempDir))).toEqual([{ id: 'T95044' }]);
     expect(JSON.parse(persistedScopeRows(other))).toEqual([]);
   });
 
@@ -204,7 +202,7 @@ describe('WorkGraph scaffold apply engine', () => {
     const native = sqlite.getNativeDb(tempDir);
     if (!native) throw new Error('Synthetic mutation handle missing');
     native.exec(
-      "CREATE TRIGGER fail_scaffold BEFORE INSERT ON tasks_tasks WHEN NEW.id='SCOPE-CHILD' BEGIN SELECT RAISE(ABORT,'synthetic scaffold fault'); END",
+      "CREATE TRIGGER fail_scaffold BEFORE INSERT ON tasks_tasks WHEN NEW.id='T95046' BEGIN SELECT RAISE(ABORT,'synthetic scaffold fault'); END",
     );
     const originalGetDb = sqlite.getDb;
     let acquired = () => {};
@@ -223,10 +221,7 @@ describe('WorkGraph scaffold apply engine', () => {
     });
     const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
     const applying = applyWorkGraphScaffold(
-      applyParams('SCOPE-PARENT', [
-        epicNode('SCOPE-PARENT'),
-        taskNode('SCOPE-CHILD', 'SCOPE-PARENT'),
-      ]),
+      applyParams('T95044', [epicNode('T95044'), taskNode('T95046', 'T95044')]),
     );
     await ready;
     vi.stubEnv('CLEO_ROOT', other);
@@ -250,7 +245,7 @@ describe('WorkGraph scaffold apply engine', () => {
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
       const result = await applyWorkGraphScaffold(
-        applyParams('ROOT', [{ id: 'X', type: 'invalid' as any }]),
+        applyParams('ROOT', [{ id: 'T95045', type: 'invalid' as any }]),
       );
 
       expect(result.valid).toBe(false);
@@ -312,10 +307,10 @@ describe('WorkGraph scaffold apply engine', () => {
       const { createTask } = await import('../../store/tasks-sqlite.js');
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
-      await createTask(makeTask({ id: 'AC2-A', type: 'epic' }));
+      await createTask(makeTask({ id: 'T95025', type: 'epic' }));
 
-      const nodes = [epicNode('AC2-A'), taskNode('AC2-A1', 'AC2-A')];
-      const result = await applyWorkGraphScaffold(applyParams('AC2-A', nodes));
+      const nodes = [epicNode('T95025'), taskNode('AC2-A1', 'T95025')];
+      const result = await applyWorkGraphScaffold(applyParams('T95025', nodes));
 
       expect(result.valid).toBe(true);
       expect(result.applied).toBe(true);
@@ -326,21 +321,21 @@ describe('WorkGraph scaffold apply engine', () => {
       const { createTask, getTask } = await import('../../store/tasks-sqlite.js');
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
-      await createTask(makeTask({ id: 'AC2-B', type: 'epic' }));
-      await createTask(makeTask({ id: 'AC2-B1', type: 'task', parentId: 'AC2-B' }));
+      await createTask(makeTask({ id: 'T95026', type: 'epic' }));
+      await createTask(makeTask({ id: 'T95027', type: 'task', parentId: 'T95026' }));
 
-      const nodes = [epicNode('AC2-B'), taskNode('AC2-B1', 'AC2-B')];
-      const edges = [depEdge('AC2-B1', 'AC2-B')];
+      const nodes = [epicNode('T95026'), taskNode('T95027', 'T95026')];
+      const edges = [depEdge('T95027', 'T95026')];
 
-      await applyWorkGraphScaffold(applyParams('AC2-B', nodes, edges));
-      const r2 = await applyWorkGraphScaffold(applyParams('AC2-B', nodes, edges));
+      await applyWorkGraphScaffold(applyParams('T95026', nodes, edges));
+      const r2 = await applyWorkGraphScaffold(applyParams('T95026', nodes, edges));
 
       expect(r2.valid).toBe(true);
       expect(r2.applied).toBe(true);
 
-      const task = await getTask('AC2-B1');
+      const task = await getTask('T95027');
       const deps = task?.depends ?? [];
-      expect(deps.filter((d) => d === 'AC2-B')).toHaveLength(1);
+      expect(deps.filter((d) => d === 'T95026')).toHaveLength(1);
     });
 
     it('relation edges are idempotent — duplicate blocks does not throw', async () => {
@@ -348,15 +343,19 @@ describe('WorkGraph scaffold apply engine', () => {
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
       // Use sibling tasks — task_relations rejects parent-child containment edges
-      await createTask(makeTask({ id: 'AC2-C', type: 'epic' }));
-      await createTask(makeTask({ id: 'AC2-C1', type: 'task', parentId: 'AC2-C' }));
-      await createTask(makeTask({ id: 'AC2-C2', type: 'task', parentId: 'AC2-C' }));
+      await createTask(makeTask({ id: 'T95028', type: 'epic' }));
+      await createTask(makeTask({ id: 'T95029', type: 'task', parentId: 'T95028' }));
+      await createTask(makeTask({ id: 'T95030', type: 'task', parentId: 'T95028' }));
 
-      const nodes = [epicNode('AC2-C'), taskNode('AC2-C1', 'AC2-C'), taskNode('AC2-C2', 'AC2-C')];
-      const edges = [blockEdge('AC2-C1', 'AC2-C2')]; // sibling→sibling, not child→parent
+      const nodes = [
+        epicNode('T95028'),
+        taskNode('T95029', 'T95028'),
+        taskNode('T95030', 'T95028'),
+      ];
+      const edges = [blockEdge('T95029', 'T95030')]; // sibling→sibling, not child→parent
 
-      await applyWorkGraphScaffold(applyParams('AC2-C', nodes, edges));
-      const r2 = await applyWorkGraphScaffold(applyParams('AC2-C', nodes, edges));
+      await applyWorkGraphScaffold(applyParams('T95028', nodes, edges));
+      const r2 = await applyWorkGraphScaffold(applyParams('T95028', nodes, edges));
 
       expect(r2.valid).toBe(true);
       expect(r2.applied).toBe(true);
@@ -372,17 +371,17 @@ describe('WorkGraph scaffold apply engine', () => {
       const { createTask, getTask } = await import('../../store/tasks-sqlite.js');
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
-      await createTask(makeTask({ id: 'AC3-A', type: 'epic' }));
-      await createTask(makeTask({ id: 'AC3-A1', type: 'task', parentId: 'AC3-A' }));
+      await createTask(makeTask({ id: 'T95031', type: 'epic' }));
+      await createTask(makeTask({ id: 'T95032', type: 'task', parentId: 'T95031' }));
 
-      const nodes = [epicNode('AC3-A'), taskNode('AC3-A1', 'AC3-A')];
+      const nodes = [epicNode('T95031'), taskNode('T95032', 'T95031')];
       const result = await applyWorkGraphScaffold(
-        applyParams('AC3-A', nodes, [depEdge('AC3-A1', 'AC3-A')]),
+        applyParams('T95031', nodes, [depEdge('T95032', 'T95031')]),
       );
 
       expect(result.edgesChanged).toBe(1);
-      const task = await getTask('AC3-A1');
-      expect(task!.depends).toContain('AC3-A');
+      const task = await getTask('T95032');
+      expect(task!.depends).toContain('T95031');
     });
 
     it('blocks edge creates a task_relations row', async () => {
@@ -390,13 +389,17 @@ describe('WorkGraph scaffold apply engine', () => {
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
       // Sibling tasks under the same epic — relation edges between them are valid
-      await createTask(makeTask({ id: 'AC3-B', type: 'epic' }));
-      await createTask(makeTask({ id: 'AC3-B1', type: 'task', parentId: 'AC3-B' }));
-      await createTask(makeTask({ id: 'AC3-B2', type: 'task', parentId: 'AC3-B' }));
+      await createTask(makeTask({ id: 'T95033', type: 'epic' }));
+      await createTask(makeTask({ id: 'T95034', type: 'task', parentId: 'T95033' }));
+      await createTask(makeTask({ id: 'T95035', type: 'task', parentId: 'T95033' }));
 
-      const nodes = [epicNode('AC3-B'), taskNode('AC3-B1', 'AC3-B'), taskNode('AC3-B2', 'AC3-B')];
+      const nodes = [
+        epicNode('T95033'),
+        taskNode('T95034', 'T95033'),
+        taskNode('T95035', 'T95033'),
+      ];
       const result = await applyWorkGraphScaffold(
-        applyParams('AC3-B', nodes, [blockEdge('AC3-B1', 'AC3-B2')]),
+        applyParams('T95033', nodes, [blockEdge('T95034', 'T95035')]),
       );
 
       expect(result.edgesChanged).toBe(1);
@@ -406,13 +409,17 @@ describe('WorkGraph scaffold apply engine', () => {
       const { createTask } = await import('../../store/tasks-sqlite.js');
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
-      await createTask(makeTask({ id: 'AC3-C', type: 'epic' }));
-      await createTask(makeTask({ id: 'AC3-C1', type: 'task', parentId: 'AC3-C' }));
-      await createTask(makeTask({ id: 'AC3-C2', type: 'task', parentId: 'AC3-C' }));
+      await createTask(makeTask({ id: 'T95036', type: 'epic' }));
+      await createTask(makeTask({ id: 'T95037', type: 'task', parentId: 'T95036' }));
+      await createTask(makeTask({ id: 'T95038', type: 'task', parentId: 'T95036' }));
 
-      const nodes = [epicNode('AC3-C'), taskNode('AC3-C1', 'AC3-C'), taskNode('AC3-C2', 'AC3-C')];
+      const nodes = [
+        epicNode('T95036'),
+        taskNode('T95037', 'T95036'),
+        taskNode('T95038', 'T95036'),
+      ];
       const result = await applyWorkGraphScaffold(
-        applyParams('AC3-C', nodes, [relEdge('AC3-C1', 'AC3-C2')]),
+        applyParams('T95036', nodes, [relEdge('T95037', 'T95038')]),
       );
 
       expect(result.edgesChanged).toBe(1);
@@ -422,13 +429,17 @@ describe('WorkGraph scaffold apply engine', () => {
       const { createTask } = await import('../../store/tasks-sqlite.js');
       const { applyWorkGraphScaffold } = await import('../scaffold-apply.js');
 
-      await createTask(makeTask({ id: 'AC3-D', type: 'epic' }));
-      await createTask(makeTask({ id: 'AC3-D1', type: 'task', parentId: 'AC3-D' }));
-      await createTask(makeTask({ id: 'AC3-D2', type: 'task', parentId: 'AC3-D' }));
+      await createTask(makeTask({ id: 'T95039', type: 'epic' }));
+      await createTask(makeTask({ id: 'T95040', type: 'task', parentId: 'T95039' }));
+      await createTask(makeTask({ id: 'T95041', type: 'task', parentId: 'T95039' }));
 
-      const nodes = [epicNode('AC3-D'), taskNode('AC3-D1', 'AC3-D'), taskNode('AC3-D2', 'AC3-D')];
+      const nodes = [
+        epicNode('T95039'),
+        taskNode('T95040', 'T95039'),
+        taskNode('T95041', 'T95039'),
+      ];
       const result = await applyWorkGraphScaffold(
-        applyParams('AC3-D', nodes, [groupEdge('AC3-D1', 'AC3-D2')]),
+        applyParams('T95039', nodes, [groupEdge('T95040', 'T95041')]),
       );
 
       expect(result.edgesChanged).toBe(1);
@@ -454,10 +465,10 @@ describe('WorkGraph scaffold apply engine', () => {
 
       // Saga owns epics via groups relations
       const nodes: WorkGraphHierarchyInputNode[] = [
-        { id: 'SAGA', type: 'saga' },
-        { id: 'EPIC', type: 'epic' },
-        { id: 'T1', type: 'task', parentId: 'EPIC' },
-        { id: 'T2', type: 'task', parentId: 'EPIC' },
+        { id: 'T95043', type: 'saga' },
+        { id: 'T95042', type: 'epic' },
+        { id: 'T1', type: 'task', parentId: 'T95042' },
+        { id: 'T2', type: 'task', parentId: 'T95042' },
         { id: 'T3', type: 'subtask', parentId: 'T1' },
       ];
 
@@ -467,11 +478,11 @@ describe('WorkGraph scaffold apply engine', () => {
         depEdge('T3', 'T2'), // subtask depends on sibling task
         blockEdge('T1', 'T2'), // sibling blocks sibling
         relEdge('T2', 'T3'), // sibling relates to subtask
-        groupEdge('EPIC', 'SAGA'), // epic grouped under saga
+        groupEdge('T95042', 'T95043'), // epic grouped under saga
       ];
 
       // First apply
-      const r1 = await applyWorkGraphScaffold(applyParams('SAGA', nodes, edges));
+      const r1 = await applyWorkGraphScaffold(applyParams('T95043', nodes, edges));
       expect(r1.valid).toBe(true);
       expect(r1.applied).toBe(true);
       expect(r1.nodesChanged).toBe(5);
@@ -481,7 +492,7 @@ describe('WorkGraph scaffold apply engine', () => {
       expect(t3!.depends).toContain('T2');
 
       // Re-apply — idempotent (AC2)
-      const r2 = await applyWorkGraphScaffold(applyParams('SAGA', nodes, edges));
+      const r2 = await applyWorkGraphScaffold(applyParams('T95043', nodes, edges));
       expect(r2.valid).toBe(true);
       expect(r2.applied).toBe(true);
       expect(r2.nodesChanged).toBe(0);

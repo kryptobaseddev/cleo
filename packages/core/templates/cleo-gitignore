@@ -58,10 +58,9 @@
 !adrs/
 !adrs/**
 
-# Step 5: Allow RCASD lifecycle provenance directory
-# Structure: rcasd/{epic#}/research/, consensus/, architecture/, specs/, contributions/
-!rcasd/
-!rcasd/**
+# Step 5 (T14277): .cleo/rcasd/ is NOT allowed. A lifecycle stage is recorded
+# in the store; new files under rcasd/ stay ignored, and the legacy files git
+# already tracks stay tracked (ignore rules never untrack a file).
 
 # Step 6: Allow agent-outputs directory
 !agent-outputs/

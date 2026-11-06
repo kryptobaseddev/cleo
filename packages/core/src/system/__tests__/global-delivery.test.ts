@@ -228,3 +228,50 @@ describe('Linux layout: healthy ~/.cleo, skills routed through it', () => {
     );
   });
 });
+
+describe('managed instruction blocks are hashed against the current template (T14304)', () => {
+  it('reports a 2.24.8 block, and --repair rewrites only the block until the hashes match', async () => {
+    const { getProvider, resetRegistry } = await import('@cleocode/caamp');
+    resetRegistry();
+    const paths = layout({ linkState: 'canonical' });
+    writeFileSync(
+      join(cleoHome, 'templates', 'CLEO-INJECTION.md'),
+      '# CLEO Protocol\n\nVersion: 2.25.5 | CLI-only dispatch\n',
+    );
+    const claudeMd = join(home, '.claude', 'CLAUDE.md');
+    const before = '# My own notes\nKeep me exactly.\n\n';
+    const after = '\n## Trailing user rule\nAlso mine.\n';
+    // An inlined copy of an older template: stamps and body both from 2.24.8.
+    const stale = [
+      '<!-- CAAMP:START -->',
+      `<!-- CAAMP:SOURCE ${encodeURIComponent(join(cleoHome, 'templates', 'CLEO-INJECTION.md'))} ${'0'.repeat(64)} -->`,
+      '# CLEO Protocol',
+      '',
+      'Version: 2.24.8 | CLI-only dispatch',
+      '<!-- CAAMP:END -->',
+    ].join('\n');
+    writeFileSync(claudeMd, `${before}${stale}${after}`);
+    const claude = getProvider('claude-code');
+    if (!claude) throw new Error('claude-code provider missing');
+    const opts = { ...paths, instructionTargets: { providers: [claude], baseDir: home } };
+
+    const audit = await auditGlobalDelivery(opts);
+    const file = audit.instructions?.files.find((f) => f.path === claudeMd);
+    expect(file?.state).toBe('stale');
+    expect(file?.blockSha256).not.toBe(file?.expectedSha256);
+    expect(audit.healthy).toBe(false);
+
+    const { audit: repaired, receipt } = await repairGlobalDelivery(opts);
+    expect(receipt.instructions?.status).toBe('synced');
+    const fixed = repaired.instructions?.files.find((f) => f.path === claudeMd);
+    expect(fixed?.state).toBe('current');
+    expect(fixed?.blockSha256).toBe(fixed?.expectedSha256);
+    const content = readFileSync(claudeMd, 'utf8');
+    expect(content).toContain('Version: 2.25.5');
+    expect(content).not.toContain('Version: 2.24.8');
+    // Every byte outside the managed block is unchanged.
+    expect(content.startsWith(before)).toBe(true);
+    expect(content.endsWith(after)).toBe(true);
+    resetRegistry();
+  });
+});

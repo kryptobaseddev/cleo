@@ -3295,9 +3295,13 @@ async function validateDecision(decisionId: string, roots: EvidenceRoots): Promi
  * @param pr - The verified PR (title, body, head branch, changed files).
  * @param context - The task the evidence is being recorded for.
  * @param mergedAt - When the PR merged, for the credited-criteria edit check.
+ * @param reviewed - The merge sweep proved the linkage from the PR's
+ *   `Closes:`/`Refs:` line and non-author verdicts (T14259,
+ *   {@link reviewedDirectiveLinkage}); only the file-inventory check remains.
  * @returns The refusal, or null when the PR is linked to the task.
  * @task T12634
  * @task T14094
+ * @task T14259
  */
 export function checkPrTaskLinkage(
   prNumber: number,
@@ -3311,6 +3315,7 @@ export function checkPrTaskLinkage(
   },
   context: EvidenceValidationContext,
   mergedAt?: string,
+  reviewed = false,
 ): { ok: false; reason: string; codeName: string } | null {
   if (pr.changedFileCount !== pr.changedPaths.length || pr.changedPaths.length === 0) {
     return {
@@ -3319,6 +3324,7 @@ export function checkPrTaskLinkage(
       reason: `PR #${prNumber} changed-file coverage is incomplete or empty (${pr.changedPaths.length}/${pr.changedFileCount})${pr.changedFilesError ? ` — ${pr.changedFilesError}` : ''}; inspect the full diff before recording evidence.`,
     };
   }
+  if (reviewed) return null;
   const declaredFiles = context.task.files ?? [];
   const taskMention = new RegExp(`(^|[^A-Za-z0-9])${context.task.id}([^A-Za-z0-9]|$)`);
   const explicitlyLinked = taskMention.test(`${pr.title}\n${pr.body}\n${pr.headRefName}`);
@@ -3336,6 +3342,44 @@ export function checkPrTaskLinkage(
   return refusal === null
     ? null
     : { ok: false, codeName: 'E_EVIDENCE_CONTENT_MISMATCH', reason: refusal };
+}
+
+/**
+ * Whether the merge sweep's linkage holds for a PR and a task (T14259): the
+ * PR's body names the task on a `Closes:`/`Refs:` line, and a non-author
+ * `met` verdict covers every criterion that line names on the PR head, each
+ * bound to the criterion's current text. A child task named on its parent's
+ * PR links this way whatever its declared files or its criteria's paths.
+ *
+ * @param prNumber - The PR.
+ * @param body - Its body.
+ * @param headSha - Its head (`headRefOid`), or undefined when unknown.
+ * @param storeRoot - The CLEO store (verdicts and criteria).
+ * @param taskId - The task.
+ * @returns True when the line and the verdicts link the PR to the task.
+ * @task T14259
+ */
+export async function reviewedDirectiveLinkage(
+  prNumber: number,
+  body: string,
+  headSha: string | undefined,
+  storeRoot: string,
+  taskId: string,
+): Promise<boolean> {
+  if (!headSha) return false;
+  const { parseMergeDirectives } = await import('./merge-close.js');
+  const line = parseMergeDirectives(body).directives.find((d) => d.taskId === taskId);
+  if (line === undefined) return false;
+  const { currentAcTexts, judgeReviewVerdicts, reviewVerdictsFor } = await import(
+    './review-verdict.js'
+  );
+  const judged = judgeReviewVerdicts(
+    await reviewVerdictsFor(storeRoot, taskId, prNumber),
+    line.acs,
+    headSha,
+    await currentAcTexts(storeRoot, taskId),
+  );
+  return judged.gaps.length === 0 && judged.met.length === line.acs.length;
 }
 
 /**
@@ -3457,7 +3501,24 @@ async function validatePrAtom(
     context.task.id,
   );
   if (!linked.ok) return linked;
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, result.mergedAt);
+  // T14259: on the merge sweep's path, the PR's Closes:/Refs: line and the
+  // non-author verdicts are the whole linkage rule.
+  const reviewed =
+    context.reviewedLinkage === true &&
+    (await reviewedDirectiveLinkage(
+      prNumber,
+      result.body,
+      result.headRefOid,
+      roots.storeRoot,
+      context.task.id,
+    ));
+  const unlinked = checkPrTaskLinkage(
+    linked.prNumber,
+    linked.pr,
+    context,
+    result.mergedAt,
+    reviewed,
+  );
   if (unlinked) return unlinked;
   const changedPaths = linked.pr.changedPaths;
   // T14024: a PR merged straight into its base records its deletions too, so

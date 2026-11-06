@@ -397,7 +397,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorCredentialsCommand',
     name: 'credentials',
     description:
-      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them) and agent registry keys that are not recoverable. --fix re-keys project credentials to the project's identity in place and flags unrecoverable agent keys requires_reauth. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
+      "Report project credentials still encrypted under the legacy path-bound key (moving the project would strand them), agent registry keys that are not recoverable, and a global config.json that group or others can read (it can hold provider keys). --fix re-keys project credentials to the project's identity in place, flags unrecoverable agent keys requires_reauth, and tightens the global config to 0600. Idempotent; never deletes. Unrecoverable credentials are listed with their re-entry command.",
     load: async () =>
       (await import('../commands/doctor-credentials.js')).doctorCredentialsCommand as CommandDef,
   },

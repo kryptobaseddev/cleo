@@ -58,7 +58,7 @@ describe('buildSpawnPrompt — hoist contract (W3-4)', () => {
     });
     const rfcIdx = result.prompt.indexOf('## Return Format Contract');
     const stageIdx = result.prompt.indexOf('## Stage-Specific Guidance');
-    const evidenceIdx = result.prompt.indexOf('## Evidence-Based Gate Ritual');
+    const evidenceIdx = result.prompt.indexOf('## Closing the Task');
     expect(rfcIdx).toBeGreaterThanOrEqual(0);
     expect(stageIdx).toBeGreaterThan(rfcIdx);
     expect(evidenceIdx).toBeGreaterThan(rfcIdx);

@@ -14,14 +14,14 @@ name: Core Tarball Size Gate
 #   dist/.js files (runtime):         ~16.3 MB uncompressed / ~5.2 MB packed
 #   dist/.d.ts files (type decls):     ~7.5 MB uncompressed / ~2.1 MB packed
 #   dist/.js.map (source maps):        ~9.2 MB uncompressed / ~2.6 MB packed (optional trim)
-#   dist/.d.ts.map (decl maps):        ~1.9 MB uncompressed / ~0.5 MB packed (optional trim)
+#   dist/.d.ts.map (decl maps):        no longer emitted (T14339: they pointed at unpublished src/)
 #   migrations + schemas + templates:  ~1.9 MB uncompressed / ~0.4 MB packed
 #   cleo-supervisor binary (est.):     ~8-12 MB binary       / ~7-10 MB packed
 #   worktree-napi .node (measured):    ~3.1 MB binary        / ~2.8 MB packed
 #   ─────────────────────────────────────────────────────────────────────────
 #   Total estimate (today):           ~18-22 MB packed → 30 MB budget leaves ~8-12 MB headroom
 #   T11979 Studio assets (planned):   +3-5 MB packed (Svelte/JS bundles)
-#   → 30 MB accommodates today's content + Studio; maps are the first trim lever.
+#   → 30 MB accommodates today's content + Studio; .js maps are the next trim lever.
 #
 # Runs at RELEASE-TAG time (and on-demand), NOT on PRs/main: the assertion is only
 # meaningful once the cross-compiled linux-x64-gnu fallback binaries have been

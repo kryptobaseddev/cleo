@@ -293,7 +293,8 @@ export class Cleo {
       briefing: (p) => computeBriefing(root, { maxNextTasks: p?.maxNextTasks, scope: p?.scope }),
       handoff: (id, opts) =>
         computeHandoff(root, { sessionId: id, note: opts?.note, nextAction: opts?.nextAction }),
-      gc: (hours) => gcSessions(root, { maxAgeDays: hours }),
+      // T14273: the facade takes hours; gcSessions takes days.
+      gc: (hours) => gcSessions(root, { maxAgeDays: (hours ?? 24) / 24 }),
       recordDecision: (p) => recordDecision(root, p),
       recordAssumption: (p) => recordAssumption(root, p),
       contextDrift: (p) => getContextDrift(root, p ?? {}),

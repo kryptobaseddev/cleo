@@ -1253,6 +1253,10 @@ export type {
 } from './memory.js';
 export type {
   MacosRegressionSync,
+  MergeAttributionFailure,
+  MergeAttributionReceipt,
+  MergeAttributionRunPin,
+  MergeAttributionVerdict,
   MergeDirective,
   MergePrOutcome,
   MergeReceipt,
@@ -1934,6 +1938,7 @@ export type {
 } from './operations/session.js';
 // === Task Operation Types (T1425 — typed-dispatch migration) ===
 export type {
+  ChildStrategy,
   DepGraphIssue,
   DepsTreeEdge,
   DepsTreeNode,
@@ -2129,6 +2134,8 @@ export type {
   CreateWorktreeResult,
   DestroyWorktreeOptions,
   DestroyWorktreeResult,
+  DisposeWorktreeOptions,
+  DisposeWorktreeResult,
   ForceUnlockWorktreeOpts,
   ForceUnlockWorktreeResult,
   ListWorktreesOptions,
@@ -2142,6 +2149,7 @@ export type {
   PruneOrphanedWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeArchiveReceipt,
   WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
@@ -2576,10 +2584,13 @@ export type {
 export {
   ADR_STATUSES,
   type AdrStatus,
+  CANCELLATION_KINDS,
+  type CancellationKind,
   // Registry
   type EntityType,
   GATE_STATUSES,
   type GateStatus,
+  isSettledChild,
   isValidStatus,
   LIFECYCLE_PIPELINE_STATUSES,
   LIFECYCLE_STAGE_STATUSES,
@@ -2588,8 +2599,10 @@ export {
   // Display icons
   PIPELINE_STATUS_ICONS,
   type PipelineStatus,
+  REPLACED_CANCELLATION_KINDS,
   SESSION_STATUSES,
   type SessionStatus,
+  type SettledTaskStatus,
   STAGE_STATUS_ICONS,
   STATUS_REGISTRY,
   type StageStatus,

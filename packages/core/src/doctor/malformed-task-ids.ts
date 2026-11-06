@@ -34,7 +34,8 @@
 
 import { isStorableTaskId } from '@cleocode/contracts/task-id.js';
 import { sql } from 'drizzle-orm';
-import { openDualScopeDb } from '../store/dual-scope-db.js';
+import { getDualScopeNativeDb, openDualScopeDb } from '../store/dual-scope-db.js';
+import { rekeyMalformedTaskRows, type TaskIdRekeyReport } from './malformed-id-rekey.js';
 
 /**
  * Columns that hold a task id, by convention across the prefixed schema.
@@ -106,20 +107,27 @@ export interface MalformedTaskIdReport {
    * so the repair reports them and stops.
    */
   readonly refused: readonly string[];
+  /**
+   * Rows whose id is outside the task grammar but which are tasks (a legacy
+   * `T-RECONCILE-FOLLOWUP-*` id, or task content such as a real title, a
+   * description, acceptance criteria or a relation), T14324: listed with the
+   * id each would take, or re-keyed by `--fix`. They are not in {@link rows}:
+   * they get a `T####` through the journal re-mint path, never a delete.
+   */
+  readonly rekeys: TaskIdRekeyReport;
 }
 
 /**
  * Find task rows whose id could not be an identifier at all.
  *
- * Uses {@link isStorableTaskId}, NOT the canonical {@link isTaskId}. That
- * distinction is load-bearing: CLEO deliberately mints structured ids such as
- * `T-RECONCILE-FOLLOWUP-v2026.5.63-6` (see `archive-reason-invariant.ts`) which
- * the canonical pattern rejects. Reporting those here would be wrong, and
- * `--fix` would DELETE working release follow-up tasks.
+ * Uses {@link isStorableTaskId}. A row outside the task grammar that is a task
+ * (a legacy follow-up id, or task content) is never a malformed row here: it
+ * is re-keyed ({@link rekeyMalformedTaskRows}), never deleted (T14324). Only
+ * rows with no task content (the T12128 path row) reach the delete below.
  *
  * @param cwd - project root.
- * @param opts - `fix: true` deletes rows that nothing references; default is
- *               read-only. Rows WITH references are never deleted — see
+ * @param opts - `fix: true` re-keys the rows that are tasks and deletes rows that
+ *               nothing references; `dryRun` (or no `fix`) is read-only. Rows WITH references are never deleted — see
  *               {@link MalformedTaskIdReport.refused}.
  * @returns the rows found, their references, and what was deleted or refused.
  *
@@ -133,9 +141,16 @@ export interface MalformedTaskIdReport {
  */
 export async function scanMalformedTaskIds(
   cwd: string,
-  opts: { fix?: boolean } = {},
+  opts: { fix?: boolean; dryRun?: boolean } = {},
 ): Promise<MalformedTaskIdReport> {
-  const { db } = await openDualScopeDb('project', cwd);
+  const handle = await openDualScopeDb('project', cwd);
+  const { db } = handle;
+  const fix = opts.fix === true && opts.dryRun !== true;
+
+  // T14324: re-key the rows that are tasks first, so the scan below never
+  // deletes or refuses them.
+  const rekeys = await rekeyMalformedTaskRows(getDualScopeNativeDb(handle), cwd, { apply: fix });
+  const rekeyed = new Set(rekeys.rows.map((r) => r.oldId));
 
   // Every prefixed table holding a task-id-shaped column. Discovered from the
   // live schema rather than hardcoded, so a table added later is covered
@@ -165,6 +180,7 @@ export async function scanMalformedTaskIds(
   for (const raw of all) {
     if (isStorableTaskId(raw.id)) continue;
     const id = String(raw.id);
+    if (rekeyed.has(id)) continue;
 
     const dependents: DependentRows[] = [];
     for (const { table, column } of refs) {
@@ -195,7 +211,7 @@ export async function scanMalformedTaskIds(
   let deleted = false;
   const refused = rows.filter((r) => r.dependents.length > 0);
 
-  if (opts.fix && rows.length > 0 && refused.length === 0) {
+  if (fix && rows.length > 0 && refused.length === 0) {
     // One transaction: a partially-repaired store is worse than an unrepaired
     // one, because the operator would then have to re-derive which rows were
     // left behind — and these are the rows no query can name.
@@ -212,5 +228,5 @@ export async function scanMalformedTaskIds(
     }
   }
 
-  return { rows, deleted, refused: refused.map((r) => r.id) };
+  return { rows, deleted, refused: refused.map((r) => r.id), rekeys };
 }

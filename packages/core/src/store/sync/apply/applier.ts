@@ -130,7 +130,13 @@ import {
 } from '../sequencing.js';
 import { canonicalStoreTimestamp } from '../timestamp-canon.js';
 import { withTriggersSuspended } from '../trigger-classes.js';
-import { followUidAliases, markAliasPlaced, recordUidAlias } from '../uid-alias.js';
+import {
+  dropUidAliasesOf,
+  followUidAliases,
+  hasUidAlias,
+  markAliasPlaced,
+  recordUidAlias,
+} from '../uid-alias.js';
 import { widenFootprint } from './footprints.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
@@ -850,7 +856,16 @@ function applyRekey(
   if (oldFp && nu !== op.u) {
     recordUidAlias(
       c.db,
-      { table: op.t, oldUid: op.u, oldBfp: oldFp, newUid: nu, origin: c.st.replicaId, hlc: op.h },
+      {
+        table: op.t,
+        oldUid: op.u,
+        oldBfp: oldFp,
+        newUid: nu,
+        // T14335: the K's bfp is the fingerprint after the re-key.
+        newBfp: op.bfp ?? null,
+        origin: c.st.replicaId,
+        hlc: op.h,
+      },
       c.nowIso,
     );
   }
@@ -1665,6 +1680,56 @@ interface InPageResult {
   readonly decided: string | null;
   /** Local transactions a rebase it ran left held (Rule 5). */
   readonly heldTxns?: readonly string[];
+  /** It waits, but recorded the alias of a K it carries (T14336): pass again. */
+  readonly aliased?: boolean;
+}
+
+/**
+ * Record the aliases of the K ops a waiting transaction carries for rows not
+ * placed here (T14336). Such a K, applied, records its alias and nothing else
+ * ({@link applyRekey}); but its transaction waits behind the one holding the
+ * row it re-keys, which in turn waits for the alias to follow the K: a
+ * deadlock. So the alias is recorded now, in this page's frame, once the
+ * transaction passes what its apply would check first: every table known,
+ * every column known, and a plan that is not refused. A transaction refused
+ * later drops it again ({@link dropUidAliasesOf}, in `stop`).
+ *
+ * @returns Whether a new alias was recorded (the caller passes again).
+ */
+function aliasWaitingRekeys(x: PageContext, st: StagedTxn): boolean {
+  const { db, api, defs } = x;
+  const ks: Array<{ readonly op: LedgerOp; readonly nu: string; readonly oldBfp: string }> = [];
+  for (const op of st.txn.ops) {
+    const oldBfp = op.obfp ?? op.bfp;
+    if (op.o !== 'K' || !op.nu || op.nu === op.u || !oldBfp || !defs(op.t)) continue;
+    if (!rowExists(api, op.t, op.u)) ks.push({ op, nu: op.nu, oldBfp });
+  }
+  if (ks.length === 0) return false;
+  for (const op of st.txn.ops) {
+    const def = defs(op.t);
+    if (!def) return false;
+    if (Object.keys(op.a ?? {}).some((c) => !def.columns.includes(c))) return false;
+  }
+  if (planTxn(db, api, st, defs, x.opts.replica).kind === 'refused-schema') return false;
+  let added = false;
+  for (const { op, nu, oldBfp } of ks) {
+    if (hasUidAlias(db, op.t, op.u, oldBfp)) continue;
+    recordUidAlias(
+      db,
+      {
+        table: op.t,
+        oldUid: op.u,
+        oldBfp,
+        newUid: nu,
+        newBfp: op.bfp ?? null,
+        origin: st.replicaId,
+        hlc: op.h,
+      },
+      x.nowIso,
+    );
+    added = true;
+  }
+  return added;
 }
 
 /**
@@ -1676,6 +1741,8 @@ interface InPageResult {
 function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
   const { db, api, defs, opts, nowIso } = x;
   const stop = (status: InboxStatus, reason: string | null, holds: readonly string[] = []) => {
+    // A refused transaction leaves no alias its waiting K recorded (T14336).
+    if (status === 'refused-schema') dropUidAliasesOf(db, st.replicaId, st.txn.ops);
     markTxns(db, st.parts, status, { reason, nowIso });
     return { status, holds, n: 0, applied: false, decided: null };
   };
@@ -1689,11 +1756,15 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
   }
   const waits = st.txn.ops.find((o) => x.held.has(rowKey(o.t, o.u)));
   if (waits) {
-    return stop(
-      'pending',
-      `waits on a pending transaction writing ${waits.t}/${waits.u}`,
-      st.txn.ops.map((o) => rowKey(o.t, o.u)),
-    );
+    const aliased = aliasWaitingRekeys(x, st);
+    return {
+      ...stop(
+        'pending',
+        `waits on a pending transaction writing ${waits.t}/${waits.u}`,
+        st.txn.ops.map((o) => rowKey(o.t, o.u)),
+      ),
+      aliased,
+    };
   }
   const plan = planTxn(db, api, st, defs, opts.replica);
   if (plan.kind !== 'apply') {
@@ -1949,7 +2020,8 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
             if (
               result.status === 'applied' ||
               result.status === 'conflict' ||
-              result.status === 'void'
+              result.status === 'void' ||
+              result.aliased === true
             ) {
               progress = true;
             }

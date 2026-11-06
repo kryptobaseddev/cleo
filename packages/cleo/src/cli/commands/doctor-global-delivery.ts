@@ -36,14 +36,17 @@ export const doctorGlobalDeliveryCommand = defineCommand({
     name: 'global-delivery',
     description:
       'Check that ~/.cleo, the global hub reference and every harness CLEO skill install ' +
-      'resolve. Read-only; --repair relinks them with a receipt (--dry-run to preview).',
+      'resolve, and that every managed instruction block hashes to the current template. ' +
+      'Read-only; --repair relinks them and refreshes only stale managed blocks, with a receipt ' +
+      '(--dry-run to preview).',
   },
   args: {
     repair: {
       type: 'boolean',
       description:
         'Relink ~/.cleo to the OS data dir and every dangling or ~/.cleo-routed skill entry ' +
-        'to the physical skills dir (verified symlink, else copy). Appends a receipt.',
+        'to the physical skills dir (verified symlink, else copy), and rewrite only the stale ' +
+        'CAAMP block of each provider instruction file. Appends a receipt.',
     },
     'dry-run': {
       type: 'boolean',

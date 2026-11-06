@@ -892,6 +892,15 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-no-contracts-barrel-value-imports.mjs',
         description: 'No runtime value import from the @cleocode/contracts barrel',
       },
+      {
+        // T14276 / T13924: every worktree removal goes through `disposeWorktree`
+        // (proof that nothing is lost, else keep; `destroy --force` archives
+        // first). No other source names the raw removals. Zero tolerance.
+        id: 'gate-41',
+        task: 'T14276',
+        script: 'scripts/lint-no-raw-worktree-removal.mjs',
+        description: 'No raw worktree removal outside the disposeWorktree engine',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

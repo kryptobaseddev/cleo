@@ -6,15 +6,26 @@
  * @epic T9834
  */
 
-import type { WorktreeDisposalBlockers } from '@cleocode/contracts';
+import type {
+  CancellationKind,
+  ChildStrategy,
+  Task,
+  TaskStatus,
+  WorktreeDisposalBlockers,
+} from '@cleocode/contracts';
+import {
+  CANCELLATION_KINDS,
+  isSettledChild,
+  REPLACED_CANCELLATION_KINDS,
+} from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { boundedStoreWriteFailure } from '../store/db-helpers.js';
 import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { canCancel } from './cancel-ops.js';
-import type { ChildStrategy } from './deletion-strategy.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
 import { discoverRelated, suggestRelated } from './relates.js';
 import { coreTaskAnalyze } from './task-analyze.js';
@@ -147,6 +158,10 @@ export async function coreTaskCancel(
     cascadeThreshold?: number;
     /** Config-level escape hatch for installations that forbid cascade cancellation. */
     allowCascade?: boolean;
+    /** Why the task is cancelled (T14267): abandoned, superseded, duplicate or obsolete. */
+    kind?: string;
+    /** The task that replaced this one; only with kind `superseded` or `duplicate` (T14267). */
+    replacedBy?: string;
   },
 ): Promise<{
   task: string;
@@ -154,6 +169,10 @@ export async function coreTaskCancel(
   reason?: string;
   cancelledAt: string;
   alreadyCancelled?: boolean;
+  /** The recorded cancel kind (T14267). */
+  kind?: CancellationKind;
+  /** The recorded replacement (T14267). */
+  replacedBy?: string;
   childStrategy?: ChildStrategy;
   affectedTasks?: string[];
   affectedCount?: number;
@@ -166,15 +185,54 @@ export async function coreTaskCancel(
     throw new Error(`Task ${taskId} not found`);
   }
 
+  // T14267 (D11229): the kind, and the replacement a superseded or duplicate
+  // cancel names, are checked before anything is written.
+  const kind = params?.kind;
+  if (kind !== undefined && !(CANCELLATION_KINDS as readonly string[]).includes(kind)) {
+    // @sync-invariant none:input-shape an unknown cancel kind is refused before any write
+    throw new Error(
+      `E_INVALID_INPUT: Unknown cancel kind '${kind}'; use one of ${CANCELLATION_KINDS.join(', ')}`,
+    );
+  }
+  const replacedBy = params?.replacedBy;
+  if (replacedBy !== undefined) {
+    if (kind === undefined || !REPLACED_CANCELLATION_KINDS.has(kind as CancellationKind)) {
+      // @sync-invariant none:input-shape a replacement without a superseded or duplicate kind is refused before any write
+      throw new Error(
+        `E_INVALID_INPUT: --replaced-by needs --kind superseded or --kind duplicate (got ${kind ?? 'no kind'})`,
+      );
+    }
+    if (replacedBy === taskId || !(await accessor.loadSingleTask(replacedBy))) {
+      // @sync-invariant none:input-shape a replacement that is the task itself or does not exist is refused before any write
+      throw new Error(
+        `E_INVALID_INPUT: Replacement ${replacedBy} must be another existing task (cleo find "${replacedBy}")`,
+      );
+    }
+  }
+
   // Idempotent: re-cancelling an already-cancelled task returns success with
   // `alreadyCancelled: true` and echoes the existing cancelledAt. T9838.
+  // T14267: a re-cancel that names a kind records it (and its replacement) on
+  // the cancelled task, so work cancelled before kinds existed can be marked
+  // superseded or duplicate without a restore.
   if (task.status === 'cancelled') {
+    if (kind !== undefined) {
+      await accessor.transaction((tx) =>
+        tx.updateTaskFields(taskId, {
+          cancellationKind: kind as CancellationKind,
+          replacedBy: replacedBy ?? null,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    }
     return {
       task: taskId,
       cancelled: true,
       reason: task.cancellationReason ?? undefined,
       cancelledAt: task.cancelledAt ?? task.updatedAt ?? new Date().toISOString(),
       alreadyCancelled: true,
+      ...(kind !== undefined ? { kind: kind as CancellationKind } : {}),
+      ...(replacedBy !== undefined ? { replacedBy } : {}),
     };
   }
 
@@ -186,13 +244,18 @@ export async function coreTaskCancel(
   }
 
   const childStrategy = params?.children ?? 'block';
-  const children = await accessor.getChildren(taskId);
+  // T14266: only unsettled children (not done, cancelled or archived) need a
+  // disposition; a parent whose children are all settled cancels in block mode.
+  const children = (await accessor.getChildren(taskId)).filter(
+    (child: { status: TaskStatus }) => !isSettledChild(child.status),
+  );
   const affectedTasks: string[] = [];
+  let largeSubtreeWaiver: Record<string, unknown> | null = null;
 
   if (children.length > 0) {
     if (childStrategy === 'block') {
       throw new Error(
-        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} child task(s); pass children='cascade' (cancel the subtree) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
+        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); pass children='cascade' (cancel them) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
       );
     }
 
@@ -201,38 +264,31 @@ export async function coreTaskCancel(
         throw new Error('E_CASCADE_DISABLED: Cascade cancellation is disabled');
       }
 
+      // T14266: a cascade touches, and its threshold counts, only unsettled
+      // descendants; a done, cancelled or archived descendant is left as is.
       const descendants = (await accessor.getSubtree(taskId)).filter(
-        (candidate: { id: string }) => candidate.id !== taskId,
+        (candidate: { id: string; status: TaskStatus }) =>
+          candidate.id !== taskId && !isSettledChild(candidate.status),
       );
       const cascadeThreshold = params?.cascadeThreshold ?? 10;
       if (descendants.length > cascadeThreshold && !params?.force) {
         throw new Error(
-          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would affect ${descendants.length} tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
+          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
         );
       }
-
-      for (const descendant of descendants) {
-        if (descendant.status === 'cancelled') continue;
-        const descendantCheck = canCancel(descendant);
-        if (!descendantCheck.allowed) {
-          throw new Error(
-            `E_INVALID_STATE: Cannot cascade-cancel ${descendant.id}: ${descendantCheck.reason!}`,
-          );
-        }
-        affectedTasks.push(descendant.id);
-      }
+      affectedTasks.push(...descendants.map((descendant: { id: string }) => descendant.id));
 
       if (descendants.length > cascadeThreshold && params?.force) {
-        await accessor.appendLog({
+        largeSubtreeWaiver = {
           action: 'task_cancel_large_subtree_waiver',
           taskId,
           details: {
             affectedCount: descendants.length,
-            affectedTasks: descendants.map((descendant: { id: string }) => descendant.id),
+            affectedTasks: [...affectedTasks],
             reason: params.reason ?? null,
           },
           timestamp: new Date().toISOString(),
-        });
+        };
       }
     } else if (childStrategy === 'reparent') {
       // T11811: the direct children move under an existing parent so they stay
@@ -251,7 +307,7 @@ export async function coreTaskCancel(
   }
 
   const cancelledAt = new Date().toISOString();
-
+  const descendantsToCancel: Task[] = [];
   if (childStrategy === 'cascade') {
     for (const descendantId of affectedTasks) {
       const descendant = await accessor.loadSingleTask(descendantId);
@@ -261,34 +317,39 @@ export async function coreTaskCancel(
       descendant.cancellationReason = `Parent task ${taskId} cancelled (cascade)${params?.reason ? `: ${params.reason}` : ''}`;
       descendant.updatedAt = cancelledAt;
       descendant.pipelineStage = 'cancelled';
-      await accessor.upsertSingleTask(descendant);
-    }
-  } else if (childStrategy === 'reparent') {
-    // T11811: move each direct child under the target parent via
-    // coreTaskReparent so the PM-Core V2 type-matrix / depth / sibling
-    // invariants are enforced on the move. This keeps the children attached
-    // (no orphan) — the safe replacement for the deleted detach strategy.
-    const reparentTo = params?.reparentTo;
-    if (!reparentTo) {
-      throw new Error(
-        `E_REPARENT_TARGET_REQUIRED: children='reparent' requires reparentTo=<epicId> for ${taskId}`,
-      );
-    }
-    for (const childId of affectedTasks) {
-      await coreTaskReparent(projectRoot, childId, reparentTo);
+      descendantsToCancel.push(descendant);
     }
   }
 
   task.status = 'cancelled';
   task.cancelledAt = cancelledAt;
   task.cancellationReason = params?.reason ?? undefined;
+  task.cancellationKind = kind as CancellationKind | undefined;
+  task.replacedBy = replacedBy;
   task.updatedAt = cancelledAt;
   // T877: DB invariant requires status='cancelled' ↔ pipeline_stage='cancelled'.
   // ALWAYS force the stage to 'cancelled' on a successful cancel — the prior
   // T871 carve-out (skip when already terminal) would leave 'contribution'
   // in place and trip the BEFORE-UPDATE trigger. T9838 repro.
   task.pipelineStage = 'cancelled';
-  await accessor.upsertSingleTask(task);
+
+  // T14217: the children and the parent commit together or not at all, so a
+  // failed parent write can never leave cancelled or moved children under a
+  // live parent.
+  await accessor.transaction(async (tx) => {
+    for (const descendant of descendantsToCancel) await tx.upsertSingleTask(descendant);
+    if (childStrategy === 'reparent' && params?.reparentTo) {
+      // T11811: move each direct child under the target parent via
+      // coreTaskReparent so the PM-Core V2 type-matrix / depth / sibling
+      // invariants are enforced on the move. This keeps the children attached
+      // (no orphan) — the safe replacement for the deleted detach strategy.
+      for (const childId of affectedTasks) {
+        await coreTaskReparent(projectRoot, childId, params.reparentTo, { tx });
+      }
+    }
+    if (largeSubtreeWaiver) await tx.appendLog(largeSubtreeWaiver);
+    await tx.upsertSingleTask(task);
+  });
 
   // Best-effort worktree cleanup when cancelling a task, awaited so a kept
   // worktree reaches the envelope (T13701). A failure never fails the cancel.
@@ -313,6 +374,8 @@ export async function coreTaskCancel(
     cancelled: true,
     reason: params?.reason,
     cancelledAt,
+    ...(kind !== undefined ? { kind: kind as CancellationKind } : {}),
+    ...(replacedBy !== undefined ? { replacedBy } : {}),
     childStrategy,
     affectedTasks,
     affectedCount: affectedTasks.length,
@@ -806,6 +869,8 @@ export async function taskCancel(
         force?: boolean;
         cascadeThreshold?: number;
         allowCascade?: boolean;
+        kind?: string;
+        replacedBy?: string;
       },
 ): Promise<
   EngineResult<{
@@ -814,6 +879,8 @@ export async function taskCancel(
     reason?: string;
     cancelledAt: string;
     alreadyCancelled?: boolean;
+    kind?: CancellationKind;
+    replacedBy?: string;
     childStrategy?: ChildStrategy;
     affectedTasks?: string[];
     affectedCount?: number;
@@ -835,6 +902,10 @@ export async function taskCancel(
     const message = e?.message ?? 'Failed to cancel task';
     if (message.startsWith('E_INVALID_STATE:')) {
       return engineError('E_INVALID_STATE', message.replace(/^E_INVALID_STATE:\s*/, ''));
+    }
+    if (message.startsWith('E_INVALID_INPUT:')) {
+      // @sync-invariant none:input-shape a bad cancel kind or replacement was refused before any write
+      return engineError('E_INVALID_INPUT', message.replace(/^E_INVALID_INPUT:\s*/, ''));
     }
     if (message.startsWith('E_HAS_CHILDREN:')) {
       return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''));
@@ -859,6 +930,12 @@ export async function taskCancel(
     }
     if (message.includes(' not found')) {
       return engineError('E_NOT_FOUND', message);
+    }
+    // T14217: a failed store write surfaces its SQLite cause, not a ~15 KB SQL echo.
+    const storeFailure = boundedStoreWriteFailure(err);
+    if (storeFailure) {
+      // @sync-invariant none:input-shape the cancel transaction already rolled back; this only re-words the failure
+      return engineError('E_INTERNAL', storeFailure.message, { details: storeFailure.details });
     }
     return cleoErrorToEngineResult(err, 'E_INTERNAL', message);
   }

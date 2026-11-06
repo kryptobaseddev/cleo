@@ -19,6 +19,7 @@ import type {
   SearchBrainCompactResult,
 } from '@cleocode/contracts/memory/search.js';
 import type { EngineResult } from '../engine-result.js';
+import { memoryFindHitNext } from '../mvi-helpers.js';
 import { pushWarning } from '../output.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -48,7 +49,7 @@ import {
   searchLearnings,
   storeLearning,
 } from './learnings.js';
-import { lessonRuleError } from './lessons.js';
+import { lessonRuleError, listLessons } from './lessons.js';
 // T419: async reinforcement queue for mental-model writes (ULTRAPLAN L5)
 import { isMentalModelObservation, mentalModelQueue } from './mental-model-queue.js';
 // BRAIN memory imports (T4770)
@@ -572,6 +573,73 @@ function rankDocHitsWithBrain(
 }
 
 /**
+ * The most hits `memory find --limit 0` returns (T14320): `0` means every
+ * match, the same promise `list` and `find` make, bounded only by this
+ * ceiling so the vector recall stays within its own limits.
+ *
+ * @task T14320
+ */
+export const MEMORY_FIND_ALL_LIMIT = 1000;
+
+/**
+ * A find limit as the searches take it (T14320): `0` asks for every match,
+ * which they would otherwise read as none.
+ *
+ * @param limit - The caller's `--limit`.
+ * @returns The limit to search with.
+ * @task T14320
+ */
+export function memoryFindLimit(limit: number | undefined): number | undefined {
+  return limit === 0 ? MEMORY_FIND_ALL_LIMIT : limit;
+}
+
+/** A query word naming the lesson type itself (`lesson`, `lessons`). */
+const LESSON_WORD = /^lessons?$/i;
+
+/**
+ * Lessons a find matches (T14321): lessons are observations whose rule and
+ * why rarely contain the word "lesson", so a query naming the type (or
+ * `--type lesson`) lists them, filtered by the query's other words over the
+ * rule and the why. Both brains are read; a store that fails is skipped.
+ *
+ * @param root - The project root.
+ * @param query - The find query.
+ * @param only - `--type lesson`: lessons are the whole result.
+ * @param limit - The most to return.
+ * @returns The lesson hits, newest first.
+ * @task T14321
+ */
+async function lessonHits(
+  root: string,
+  query: string,
+  only: boolean,
+  limit: number,
+): Promise<BrainCompactHit[]> {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!only && !words.some((w) => LESSON_WORD.test(w))) return [];
+  const terms = words.filter((w) => !LESSON_WORD.test(w));
+  const lessons = await listLessons(root, {
+    scope: 'all',
+    limit: MEMORY_FIND_ALL_LIMIT,
+    onStoreError: () => undefined,
+  }).catch(() => []);
+  return lessons
+    .filter((l) => {
+      const text = `${l.rule} ${l.why}`.toLowerCase();
+      return terms.every((t) => text.includes(t));
+    })
+    .slice(0, limit)
+    .map((l) => ({
+      id: l.id,
+      type: 'observation' as const,
+      title: l.rule.slice(0, 80),
+      date: l.createdAt,
+      _next: memoryFindHitNext(l.id),
+      ...(l.scope === 'global' ? { scope: 'global' as const } : {}),
+    }));
+}
+
+/**
  * Token-efficient brain search returning compact results.
  *
  * @param params - Search parameters including query string and limit
@@ -598,10 +666,26 @@ export async function memoryFind(
     dateEnd?: string;
     /** T418: filter results to observations produced by a specific agent. */
     agent?: string;
+    /** T14321: `--type lesson` — lessons only. */
+    lessons?: boolean;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
+  // T14320: `--limit 0` is every match, never none.
+  params = { ...params, limit: memoryFindLimit(params.limit) };
   try {
+    if (params.lessons === true) {
+      const hits = await lessonHits(
+        resolveRoot(projectRoot),
+        params.query,
+        true,
+        params.limit ?? 10,
+      );
+      return {
+        success: true,
+        data: { results: hits, total: hits.length, tokensEstimated: hits.length * 50 },
+      };
+    }
     if (
       params.tables?.some(
         (table) => !['decisions', 'patterns', 'learnings', 'observations', 'docs'].includes(table),
@@ -658,6 +742,16 @@ export async function memoryFind(
       result.results.push(...global);
       result.total += global.length;
       result.tokensEstimated += global.length * 50;
+    }
+    // T14321: a query naming the lesson type lists the lessons it matches.
+    if (!docsOnly && params.agent === undefined) {
+      const seen = new Set(result.results.map((h) => h.id));
+      const lessons = (await lessonHits(root, params.query, false, params.limit ?? 10)).filter(
+        (h) => !seen.has(h.id),
+      );
+      result.results.push(...lessons);
+      result.total += lessons.length;
+      result.tokensEstimated += lessons.length * 50;
     }
     // T14110: surface each decision's and task's CURRENT docs, never superseded
     // ones. Loaded only when there is something to enrich (startup graph, gate 39).
@@ -908,7 +1002,7 @@ export async function memoryPatternFind(
 ): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
-    const results = await searchPatterns(root, params);
+    const results = await searchPatterns(root, { ...params, limit: memoryFindLimit(params.limit) });
     return { success: true, data: { patterns: results, total: results.length } };
   } catch (error) {
     return {
@@ -1010,7 +1104,10 @@ export async function memoryLearningFind(
 ): Promise<EngineResult> {
   try {
     const root = resolveRoot(projectRoot);
-    const results = await searchLearnings(root, params);
+    const results = await searchLearnings(root, {
+      ...params,
+      limit: memoryFindLimit(params.limit),
+    });
     return { success: true, data: { learnings: results, total: results.length } };
   } catch (error) {
     return {

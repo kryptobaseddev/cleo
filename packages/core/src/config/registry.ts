@@ -33,6 +33,7 @@ import {
   PROJECT_INFO_MANIFEST,
 } from '@cleocode/contracts/config/manifest.js';
 import { getCleoHome } from '@cleocode/paths';
+import { GLOBAL_CONFIG_FILE_MODE } from '../llm/global-config-migration.js';
 import { atomicWriteJson } from '../store/atomic.js';
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -426,7 +427,9 @@ export async function unsetConfigValue(
     return { key, scope, removed: false };
   }
 
-  await atomicWriteJson(configPath, existing);
+  await atomicWriteJson(configPath, existing, {
+    mode: opts.global ? GLOBAL_CONFIG_FILE_MODE : undefined,
+  });
   return { key, scope, removed: true };
 }
 

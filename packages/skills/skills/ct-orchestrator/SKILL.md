@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.2.1
+  version: 4.2.3
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-10-28
+  lastReviewed: 2026-11-06
   stability: stable
 ---
 
@@ -184,7 +184,9 @@ spawn with `E_TASK_CLAIMED`; a failed spawn hands the lease back to you. The
 prompt tells the worker to begin every Bash call with
 `cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… CLEO_AGENT_ROLE=… || exit 1`,
 since harness shells keep neither cwd nor env between calls (the git shim reads
-`CLEO_AGENT_ROLE`). Do not strip that line.
+`CLEO_AGENT_ROLE`). Do not strip that line. A spawn without a worktree gets the
+same identity line in its Session Linkage block: `export CLEO_AGENT_ID=<agent>`,
+so teammates sharing one harness session keep separate claims and focus (T14269).
 
 **Other harnesses**: Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through pipeline_manifest (via `cleo manifest append`) — the universal handoff medium.
 
@@ -408,6 +410,12 @@ not admitted yet, wait and retry). Never wrap `cleo run` or `cleo verify` in
 another queue or wrapper, never put one inside them (the lock systems
 deadlock), and never raise heap or worker counts (`NODE_OPTIONS`,
 `--maxWorkers`).
+
+A spawn prompt names the spawned project's own commands, read from its
+`.cleo/project-context.json` (`build.command`, `testing.command`), never
+another project's; lint and typecheck go through `tool:lint;tool:typecheck`.
+Its closure block leads with PR work (`Closes: <id> AC…`, a non-author verdict,
+the merge sweep) and gives `cleo done <id> --plan` for no-PR work (T14303).
 
 Emergency: set `CLEO_OWNER_OVERRIDE=1` and `CLEO_OWNER_OVERRIDE_REASON="<reason>"`
 before the verify call — audited to `.cleo/audit/force-bypass.jsonl`.

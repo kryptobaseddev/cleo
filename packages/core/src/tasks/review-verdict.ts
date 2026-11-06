@@ -64,40 +64,93 @@ const WITHHELD_PATH = /^\.changeset\//;
 
 /** How a packet reads a PR from GitHub. Injected by tests. */
 export interface ReviewDeps {
-  /** The PR's current head sha, or null when `gh` cannot read it. */
+  /** The PR's current head sha, or null when it cannot be read; may throw gh's own error (T14328). */
   prHead(cwd: string, prNumber: number): Promise<string | null>;
-  /** The PR's diff at its current head, or null when `gh` cannot read it. */
+  /** The PR's diff at its current head, or null when it cannot be read; may throw gh's own error (T14328). */
   prDiff(cwd: string, prNumber: number): Promise<string | null>;
 }
 
-function gh(args: string[], cwd: string): string | null {
+/** Runs `gh` with arguments in a work tree and returns its stdout; throws on failure. */
+export type GhRunner = (args: string[], cwd: string) => string;
+
+const runGh: GhRunner = (args, cwd) =>
+  execFileSync('gh', args, {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 60_000,
+  });
+
+/**
+ * One `gh` call; a failure throws gh's own stderr (T14328), never a bare
+ * "could not be read".
+ */
+function gh(run: GhRunner, args: string[], cwd: string): string {
   try {
-    return execFileSync('gh', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 60_000,
+    return run(args, cwd);
+  } catch (err) {
+    const stderr = (err as { stderr?: unknown }).stderr;
+    const said =
+      (typeof stderr === 'string'
+        ? stderr
+        : Buffer.isBuffer(stderr)
+          ? stderr.toString('utf-8')
+          : ''
+      ).trim() || (err instanceof Error ? err.message : String(err));
+    // @sync-invariant none:input-shape a PR gh cannot read is refused before anything is written
+    throw new CleoError(ExitCode.NOT_FOUND, `gh ${args.slice(0, 3).join(' ')} failed: ${said}`, {
+      fix: 'Check `gh auth status` and that the PR number belongs to this repository.',
     });
-  } catch {
-    return null;
   }
 }
 
+/**
+ * {@link ReviewDeps} over a `gh` runner (T14328): `gh pr view` and
+ * `gh pr diff`, the diff verbatim (`--allow-escape-sequences`, no colour), so
+ * a diff carrying terminal escapes in its content is read, not refused.
+ *
+ * @param run - The `gh` runner (tests inject one).
+ * @returns The deps.
+ * @task T14328
+ */
+export function ghReviewDeps(run: GhRunner = runGh): ReviewDeps {
+  return {
+    async prHead(cwd, prNumber) {
+      const out = gh(
+        run,
+        ['pr', 'view', String(prNumber), '--json', 'headRefOid', '-q', '.headRefOid'],
+        cwd,
+      );
+      const sha = out.trim();
+      return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+    },
+    async prDiff(cwd, prNumber) {
+      return gh(
+        run,
+        ['pr', 'diff', String(prNumber), '--color', 'never', '--allow-escape-sequences'],
+        cwd,
+      );
+    },
+  };
+}
+
 /** The default {@link ReviewDeps}: `gh pr view` and `gh pr diff`. */
-export const defaultReviewDeps: ReviewDeps = {
-  async prHead(cwd, prNumber) {
-    const out = gh(
-      ['pr', 'view', String(prNumber), '--json', 'headRefOid', '-q', '.headRefOid'],
-      cwd,
-    );
-    const sha = out?.trim() ?? '';
-    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
-  },
-  async prDiff(cwd, prNumber) {
-    return gh(['pr', 'diff', String(prNumber)], cwd);
-  },
-};
+export const defaultReviewDeps: ReviewDeps = ghReviewDeps();
+
+/**
+ * A diff with each raw ESC byte written as the visible text `\x1b` (T14328):
+ * a CI log or fixture in the diff can carry terminal escapes, and the packet
+ * is printed to a reviewer's terminal. The packet hashes this form, so one
+ * head still yields one packet.
+ *
+ * @param diff - The diff verbatim.
+ * @returns The same diff with no raw escape byte.
+ * @task T14328
+ */
+export function visibleEscapes(diff: string): string {
+  return diff.replaceAll('\u001b', '\\x1b');
+}
 
 /**
  * A unified diff without the files whose path matches `withheld`, and the
@@ -119,6 +172,62 @@ export function withholdDiffPaths(
     else kept.push(part);
   }
   return { diff: kept.join(''), withheldPaths };
+}
+
+/**
+ * A criterion's text as a packet shows it (T14259): whitespace runs collapsed
+ * and the ends trimmed, so a whitespace-only rewrite of the criteria changes
+ * neither the packet nor a verdict's {@link acTextSha256}.
+ *
+ * @param text - The criterion text as stored.
+ * @returns The normalised text.
+ * @task T14259
+ */
+export function normalizeAcText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The sha256 of a criterion's normalised text (T14259): a verdict binds the
+ * text it judged, so an edit after the verdict invalidates it.
+ *
+ * @param text - The criterion text, normalised or not.
+ * @returns The hex digest.
+ * @task T14259
+ */
+export function acTextSha256(text: string): string {
+  return createHash('sha256').update(normalizeAcText(text)).digest('hex');
+}
+
+/**
+ * The current normalised text of each of a task's criteria, by alias (T14259).
+ *
+ * @param projectRoot - Project root.
+ * @param taskId - The task.
+ * @returns Alias (`AC2`) to normalised text.
+ * @task T14259
+ */
+export async function currentAcTexts(
+  projectRoot: string,
+  taskId: string,
+): Promise<ReadonlyMap<string, string>> {
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const rows = await (await getTaskAccessor(projectRoot)).getAcRows(taskId);
+  return new Map(rows.map((r) => [`AC${r.ordinal}`, normalizeAcText(r.text)]));
+}
+
+/**
+ * A diff with the blob ids dropped from its `index <a>..<b>` lines (T14325):
+ * `gh pr diff` abbreviates them to a length that varies between calls, which
+ * made the packet sha flap for an unchanged head. The mode stays; the ids say
+ * nothing a reviewer judges.
+ *
+ * @param diff - A `git diff` / `gh pr diff` unified diff.
+ * @returns The same diff, deterministic for one head.
+ * @task T14325
+ */
+export function canonicalDiff(diff: string): string {
+  return diff.replace(/^index [0-9a-f]+\.\.[0-9a-f]+(?= |$)/gm, 'index');
 }
 
 function packetHash(
@@ -153,7 +262,7 @@ export async function buildReviewPacket(
   if (task === null) throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
   const acs = [...(await accessor.getAcRows(taskId))]
     .sort((a, b) => a.ordinal - b.ordinal)
-    .map((r) => ({ alias: `AC${r.ordinal}`, text: r.text }));
+    .map((r) => ({ alias: `AC${r.ordinal}`, text: normalizeAcText(r.text) }));
   const unreadable = (): CleoError =>
     // @sync-invariant none:input-shape a PR gh cannot read is refused before anything is written
     new CleoError(ExitCode.NOT_FOUND, `PR #${prNumber} could not be read with gh`, {
@@ -172,7 +281,7 @@ export async function buildReviewPacket(
       { fix: `Run \`cleo review packet ${prNumber} --task ${taskId}\` again.` },
     );
   }
-  const { diff, withheldPaths } = withholdDiffPaths(raw);
+  const { diff, withheldPaths } = withholdDiffPaths(canonicalDiff(visibleEscapes(raw)));
   return {
     prNumber,
     headSha: after,
@@ -268,7 +377,10 @@ export async function recordReviewVerdict(
       fix: 'Say what in the diff does or does not implement the criterion.',
     });
   }
-  const { resolveBoundSession } = await import('../store/session-store.js');
+  const { ensureAgentSession, resolveBoundSession } = await import('../store/session-store.js');
+  // T14269: an agent in a shared harness session reviews as its own session.
+  const { resolveTerminalKeys } = await import('../sessions/terminal-identity.js');
+  await ensureAgentSession(projectRoot, resolveTerminalKeys({ env }), env);
   const bound = await resolveBoundSession(projectRoot, env);
   if (bound === null) {
     // @sync-invariant none:local-only the reviewer's own session binding is local; nothing is written without it
@@ -361,6 +473,7 @@ export async function recordReviewVerdict(
     taskId: input.taskId,
     ac: input.ac,
     acId: acRow?.id ?? '',
+    ...(acRow ? { acTextSha256: acTextSha256(acRow.text) } : {}),
     prNumber: input.prNumber,
     headSha: packet.headSha,
     verdict: input.verdict,
@@ -439,14 +552,21 @@ export async function reviewVerdictsFor(
  * that was not answered. The merge sweep and `cleo review check` share it,
  * so both report the same reasons.
  *
+ * A verdict binds the criterion text it judged (T14259): given the current
+ * texts, one whose {@link ReviewVerdict.acTextSha256} no longer matches is
+ * `edited`. A verdict recorded before that binding carries no hash and is
+ * judged as before.
+ *
  * @param verdicts - The task's verdicts on the PR ({@link reviewVerdictsFor}).
  * @param acs - The criteria to judge (`AC1`, …).
  * @param headSha - The PR head (`headRefOid`).
+ * @param texts - Each criterion's current text by alias ({@link currentAcTexts}); omitted, no edit check.
  */
 export function judgeReviewVerdicts(
   verdicts: readonly ReviewVerdict[],
   acs: readonly string[],
   headSha: string,
+  texts?: ReadonlyMap<string, string>,
 ): ReviewJudgement {
   const short = (sha: string): string => sha.slice(0, 7);
   const byAuthor = (v: ReviewVerdict): boolean =>
@@ -475,7 +595,18 @@ export function judgeReviewVerdicts(
               ),
           )
         : undefined;
-    if (onHead !== undefined && byAuthor(onHead)) {
+    const current = texts?.get(ac);
+    const edited =
+      onHead?.acTextSha256 !== undefined &&
+      current !== undefined &&
+      onHead.acTextSha256 !== acTextSha256(current);
+    if (onHead !== undefined && edited) {
+      gaps.push({
+        ac,
+        kind: 'edited',
+        reason: `${ac}: edited after verdict ${onHead.id} on head ${short(headSha)}; review it again`,
+      });
+    } else if (onHead !== undefined && byAuthor(onHead)) {
       gaps.push({
         ac,
         kind: 'author',
@@ -579,7 +710,7 @@ export async function checkPrReviews(
     const verdicts = await reviewVerdictsFor(projectRoot, taskId, prNumber);
     checks.push({
       taskId,
-      ...judgeReviewVerdicts(verdicts, acs, headSha),
+      ...judgeReviewVerdicts(verdicts, acs, headSha, await currentAcTexts(projectRoot, taskId)),
       answered: reviewAnswers(verdicts, headSha).filter((a) => acs.includes(a.ac)),
     });
   }

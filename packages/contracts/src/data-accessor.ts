@@ -15,6 +15,7 @@
 
 import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
+import type { CancellationKind } from './status-registry.js';
 import type {
   Task,
   TaskClaim,
@@ -144,6 +145,8 @@ export interface TaskFieldUpdates {
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
+  cancellationKind?: CancellationKind | null;
+  replacedBy?: string | null;
   verificationJson?: string | null;
   createdBy?: string | null;
   modifiedBy?: string | null;
@@ -368,6 +371,11 @@ export interface TaskClaimGuard {
   now: string;
   /** A session whose live lease `acquire` may take over (spawn hand-off). */
   handoffFrom?: string | null;
+  /**
+   * The caller's agent (T14269): within one session, a lease recorded for a
+   * different named agent is not the caller's own.
+   */
+  agentId?: string | null;
 }
 
 /**

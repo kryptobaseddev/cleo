@@ -177,6 +177,15 @@ export const DOCS_DOCTOR_MAX_DETAIL_ITEMS = 50;
 export const DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE = '.cleo/audit/docs-publications-prune.jsonl';
 
 /**
+ * Project-relative audit log each mutating run (`--apply`/`--repair`)
+ * appends one line to, naming its pre-repair backup in `backupReceiptPath`,
+ * so the backup byte cap keeps that rollback point (T14278).
+ *
+ * @task T14278
+ */
+export const DOCS_DOCTOR_REPAIR_AUDIT_FILE = '.cleo/audit/docs-doctor-repairs.jsonl';
+
+/**
  * The nine diagnostic classes {@link runDocsDoctor} checks for.
  *
  * @task T13447
@@ -1525,6 +1534,15 @@ export async function runDocsDoctor(
     entry.planned += 1;
     if (r.applied) entry.applied += 1;
     repairCounts[kind] = entry;
+  }
+  if (mutate) {
+    const auditPath = join(projectRoot, DOCS_DOCTOR_REPAIR_AUDIT_FILE);
+    mkdirSync(dirname(auditPath), { recursive: true });
+    appendFileSync(
+      auditPath,
+      `${JSON.stringify({ op: repair ? 'docs.doctor.repair' : 'docs.doctor.apply', at: new Date().toISOString(), backupReceiptPath: opts.backupReceiptPath ?? null, only, repairCounts })}\n`,
+      'utf-8',
+    );
   }
   const scopeNote = only === null ? '' : ` (only: ${only.join(', ')})`;
   const summary = repair

@@ -62,6 +62,7 @@ import { join } from 'node:path';
 // contract surface so a downstream re-export stays type-safe.
 import type { AcBindingRow as _AcBindingRow, AcRow, DataAccessor } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { isSettledChild } from '@cleocode/contracts/status-registry.js';
 import { CleoError } from '../errors.js';
 
 /**
@@ -178,14 +179,21 @@ export function uncoveredAcRows(
  * A parent's `child_task` projection ("Complete child T123: …") is covered by
  * the child itself once that direct child is `done` (T14073): it is the child
  * rollup an epic completes through, so it needs no evidence row of its own.
+ * A settled child covers it (`isSettledChild`), except that a `cancelled`
+ * child covers it only under the audited `--waive-cancelled-children` waiver
+ * `cleo complete` and `cleo done` share (`cancelled-child-waiver.ts`, T14266),
+ * or when it was cancelled as superseded or duplicate and its replacement is
+ * done (T14267, D11229).
  *
  * @param taskId - The task being completed.
  * @param accessor - DataAccessor used for the AC, binding and child reads.
+ * @param options - `coverCancelledChildren` when a cancelled-child waiver was given.
  * @returns Coverage outcome.
  */
 export async function computeAcCoverage(
   taskId: string,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
+  options: { coverCancelledChildren?: boolean } = {},
 ): Promise<AcCoverageResult> {
   const acRows = await accessor.getAcRows(taskId);
   if (acRows.length === 0) {
@@ -199,21 +207,38 @@ export async function computeAcCoverage(
   const needsChildren = uncoveredAcRows(acRows, bindings, new Set()).some(
     (r) => childProjectionTarget(r) !== null,
   );
-  const doneChildren = needsChildren
-    ? new Set(
-        (await accessor.getChildren(taskId)).filter((c) => c.status === 'done').map((c) => c.id),
-      )
-    : new Set<string>();
+  let coveringChildren = new Set<string>();
+  if (needsChildren) {
+    const children = await accessor.getChildren(taskId);
+    // T14267 (D11229): a superseded or duplicate child whose replacement is done.
+    const { replacedCancelledChildIds } = await import('./cancelled-child-waiver.js');
+    const replaced = await replacedCancelledChildIds(children, (id) => accessor.loadSingleTask(id));
+    coveringChildren = new Set(
+      children
+        // T14266: a settled child covers its projection; a cancelled one only
+        // under a waiver or, T14267, when a done replacement delivered it.
+        .filter(
+          (c) =>
+            isSettledChild(c.status) &&
+            (c.status !== 'cancelled' ||
+              options.coverCancelledChildren === true ||
+              replaced.has(c.id)),
+        )
+        .map((c) => c.id),
+    );
+  }
 
-  const unsatisfied = uncoveredAcRows(acRows, bindings, doneChildren).map<UnsatisfiedAc>((r) => {
-    const childTaskId = childProjectionTarget(r);
-    return {
-      acId: r.id,
-      alias: `AC${r.ordinal}`,
-      text: r.text,
-      ...(childTaskId !== null ? { childTaskId } : {}),
-    };
-  });
+  const unsatisfied = uncoveredAcRows(acRows, bindings, coveringChildren).map<UnsatisfiedAc>(
+    (r) => {
+      const childTaskId = childProjectionTarget(r);
+      return {
+        acId: r.id,
+        alias: `AC${r.ordinal}`,
+        text: r.text,
+        ...(childTaskId !== null ? { childTaskId } : {}),
+      };
+    },
+  );
 
   if (unsatisfied.length === 0) return { ok: true };
   return { ok: false, unsatisfied };
@@ -428,7 +453,7 @@ export function readOwnerOverride(env: NodeJS.ProcessEnv = process.env): string 
  */
 export async function assertAcCoveredForDone(
   taskId: string,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
 ): Promise<void> {
   const coverage = await computeAcCoverage(taskId, accessor);
   if (coverage.ok) return;

@@ -55,10 +55,10 @@ export async function safeReadFile(filePath: string): Promise<string | null> {
 export async function atomicWriteJson(
   filePath: string,
   data: unknown,
-  options?: { indent?: number },
+  options?: { indent?: number; mode?: number },
 ): Promise<void> {
   const json = JSON.stringify(data, null, options?.indent ?? 2) + '\n';
-  await atomicWrite(filePath, json);
+  await atomicWrite(filePath, json, { mode: options?.mode });
 }
 
 /**

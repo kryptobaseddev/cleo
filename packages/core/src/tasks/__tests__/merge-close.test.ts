@@ -282,6 +282,49 @@ describe('sweep closes the tasks a merged PR names (T14101)', () => {
     expect(existsSync(join(root, '.cleo', 'merge-sweep.json'))).toBe(true);
   });
 
+  it('SHADOW (T14252 AC1, AC4): every merged PR gets a receipt, task or not, and it changes nothing', async () => {
+    const id = await seedTask(['first criterion', 'second criterion']);
+    const { deps, calls } = fakeDeps([pr(13, `Closes: ${id} AC1,AC2`), pr(14, 'no task here')]);
+    const asked: Array<{ pr: number; taskId: string | null }> = [];
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        // Even a pr-caused verdict closes nothing differently in shadow mode.
+        attribute: async (_store, _root, merged, taskId) => {
+          asked.push({ pr: merged.number, taskId });
+          return {
+            prNumber: merged.number,
+            headSha: merged.headRefOid,
+            mergeSha: merged.mergeCommitSha ?? '',
+            resolvedFrom: 'merge-commit',
+            parentSha: 'parent',
+            mergeRuns: [],
+            parentRuns: [],
+            failures: [],
+            verdict: 'pr-caused',
+            claim: 'none',
+            reason: 'Unit Tests: new at the merge',
+            ruleVersion: 2,
+          };
+        },
+      },
+    );
+    expect(result.closed).toEqual([id]);
+    expect(calls.complete).toEqual([id]);
+    expect(asked).toEqual([
+      { pr: 13, taskId: id },
+      { pr: 14, taskId: null },
+    ]);
+    for (const n of [13, 14])
+      expect(result.prs.find((p) => p.prNumber === n)?.attribution).toEqual({
+        verdict: 'pr-caused',
+        claim: 'none',
+        reason: 'Unit Tests: new at the merge',
+      });
+  });
+
   it('red CI closes nothing and comments why, once', async () => {
     const id = await seedTask(['only criterion']);
     const { deps, calls } = fakeDeps([pr(11, `Closes: ${id} AC1`, red)]);

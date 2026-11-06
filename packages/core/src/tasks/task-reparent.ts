@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { Task, TaskStatus } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { isAllowedWorkGraphParentType } from '@cleocode/contracts/workgraph.js';
+import type { TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   assertNoActiveChildrenForTerminal,
@@ -49,6 +50,14 @@ export async function coreTaskReparent(
   projectRoot: string,
   taskId: string,
   newParentId: string | null,
+  options: {
+    /**
+     * Write through this caller-owned transaction instead of committing on its
+     * own, so a multi-task change (a cancel that reparents its children)
+     * commits as one unit (T14217).
+     */
+    tx?: TransactionAccessor;
+  } = {},
 ): Promise<{
   task: string;
   reparented: boolean;
@@ -199,14 +208,15 @@ export async function coreTaskReparent(
     }
   }
 
+  const writer = options.tx ?? accessor;
   for (const node of tasksToPersist) {
-    await accessor.upsertSingleTask(node);
+    await writer.upsertSingleTask(node);
   }
   for (const ancestor of affectedAncestors.values()) {
-    await accessor.upsertSingleTask(ancestor);
+    await writer.upsertSingleTask(ancestor);
   }
 
-  await accessor.appendLog({
+  await writer.appendLog({
     id: taskLogId(),
     timestamp: now,
     action: 'task_reparented',
@@ -772,6 +782,8 @@ export async function coreTaskRestore(
     t.status = 'pending';
     t.cancelledAt = undefined;
     t.cancellationReason = undefined;
+    t.cancellationKind = undefined;
+    t.replacedBy = undefined;
     t.updatedAt = now;
     // T871: when a task was cancelled, pipelineStage was advanced to the
     // terminal `cancelled` marker. On restore we re-enter the active chain
