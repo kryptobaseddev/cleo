@@ -360,6 +360,20 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
       ),
     ],
     [
+      ExitCode.SESSION_AMBIGUOUS,
+      def(
+        ExitCode.SESSION_AMBIGUOUS,
+        'SESSION_AMBIGUOUS',
+        'CONTRACT',
+        'Several agents share this harness session; the caller names none',
+        428,
+        true,
+        // @sync-invariant none:input-shape catalog entry for a refusal decided from the caller's identity before any write
+        'E_SESSION_AMBIGUOUS',
+        'Name the calling agent: export CLEO_AGENT_ID=<your agent name> (or CLEO_SESSION_ID=<your session id>), then retry.',
+      ),
+    ],
+    [
       ExitCode.TASK_RENAMED,
       def(
         ExitCode.TASK_RENAMED,

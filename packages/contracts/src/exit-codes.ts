@@ -77,6 +77,15 @@ export enum ExitCode {
    * (`details.expected`). @task T12800
    */
   TASK_RENAMED = 26,
+  /**
+   * A MUTATION came from an unqualified caller (no `CLEO_AGENT_ID`, no
+   * `CLEO_SESSION_ID`) inside a harness session whose provider key has no
+   * binding of its own while two or more agents of that harness hold live
+   * sessions: which agent is calling cannot be told, so the operation refuses
+   * rather than act as one of them. LAFS code `E_SESSION_AMBIGUOUS`; the
+   * details name the live agents. @task T14269
+   */
+  SESSION_AMBIGUOUS = 27,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,

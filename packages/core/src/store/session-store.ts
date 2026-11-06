@@ -843,8 +843,58 @@ export async function resolveTerminalBinding(
 }
 
 /**
+ * Refuse an unqualified mutation that cannot tell which agent is calling
+ * (T14269 · decision D11234): the caller carries the shared provider key with
+ * no `CLEO_AGENT_ID`, that key has no live binding of its own, and two or more
+ * agents of the harness hold live sessions under it. When the plain key IS
+ * bound (the lead started its session there), the caller is the lead and
+ * nothing is ambiguous.
+ *
+ * @param db - Project DB handle.
+ * @param provider - The caller's provider key.
+ * @param cwd - Project root.
+ * @throws CleoError `SESSION_AMBIGUOUS` naming the live agents.
+ */
+async function assertProviderUnambiguous(
+  db: Awaited<ReturnType<typeof getDb>>,
+  provider: TerminalKey,
+  cwd: string,
+): Promise<void> {
+  const own = await readBinding(db, provider);
+  if (own && (await getSession(own.sessionId, cwd))?.status === 'active') return;
+  const prefix = `${provider.key}|agent:`;
+  const rows = await db
+    .select({
+      key: sessionTerminalBindings.bindingKey,
+      sessionId: sessionTerminalBindings.sessionId,
+    })
+    .from(sessionTerminalBindings)
+    .where(eq(sessionTerminalBindings.keyKind, 'agent'))
+    .all();
+  const live: string[] = [];
+  for (const row of rows) {
+    if (!row.key.startsWith(prefix)) continue;
+    if ((await getSession(row.sessionId, cwd))?.status === 'active') {
+      live.push(row.key.slice(prefix.length));
+    }
+  }
+  if (live.length < 2) return;
+  live.sort();
+  // @sync-invariant none:input-shape an unqualified caller in a shared harness is refused before anything is written
+  throw new CleoError(
+    ExitCode.SESSION_AMBIGUOUS,
+    `Several agents share this harness session (${live.join(', ')}) and this caller names none, so CLEO cannot tell which one is acting`,
+    {
+      fix: `export CLEO_AGENT_ID=<your agent name> (one of ${live.join(', ')}, or a new name), then retry; or export CLEO_SESSION_ID=<your session id>.`,
+      details: { agents: live },
+    },
+  );
+}
+
+/**
  * Give an agent inside a shared harness session its own CLEO session, once
- * (T14269 · decision D11234).
+ * (T14269 · decision D11234), or refuse an unqualified caller that is
+ * ambiguous ({@link assertProviderUnambiguous}).
  *
  * Runs for a MUTATION only (reads never create a session). When the caller
  * carries an agent key ({@link resolveTerminalKeys}: a provider key qualified
@@ -870,7 +920,7 @@ export async function ensureAgentSession(
 ): Promise<string | null> {
   const { agent, provider } = splitTerminalKeys(keys);
   const agentId = env['CLEO_AGENT_ID'];
-  if (!agent || !agentId) return null;
+  if (!provider) return null;
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     if (!existsSync(getDbPath(scope.worktreeRoot))) return null;
@@ -878,6 +928,16 @@ export async function ensureAgentSession(
     const envId = resolveSessionIdFromEnv(env);
     if (envId && (await getSession(envId, scope.worktreeRoot))?.status === 'active') return null;
     const db = await getDb(scope.worktreeRoot);
+    if (!agent || !agentId) {
+      try {
+        await assertProviderUnambiguous(db, provider, scope.worktreeRoot);
+      } catch (err) {
+        // A store predating the binding table cannot be ambiguous; only the
+        // refusal itself propagates.
+        if (err instanceof CleoError) throw err;
+      }
+      return null;
+    }
     const existing = await readBinding(db, agent);
     if (
       existing &&
