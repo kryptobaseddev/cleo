@@ -578,6 +578,12 @@
           "default": ".claude/backups",
           "description": "Directory for storing all backup types (snapshot, safety, incremental, archive, migration)."
         },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Byte cap on .cleo/backups/sqlite (T14278). After every snapshot the oldest provably redundant snapshot sets (each covered by a newer snapshot that opens) are removed until the directory fits. 0 means five times the live store's size."
+        },
         "maxSnapshots": {
           "type": "integer",
           "minimum": 0,

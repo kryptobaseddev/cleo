@@ -4,7 +4,7 @@
  * @task T5217
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -54,18 +54,22 @@ describe('stage.record provenance integration', () => {
     vi.restoreAllMocks();
   });
 
-  it('scaffolds stage markdown and persists provenance to SQLite', async () => {
+  it('writes a stage artifact given real content and persists provenance to SQLite', async () => {
     const { recordStageProgress } = await import('../index.js');
     const { getDb } = await import('../../store/sqlite.js');
     const schema = await import('../../store/tasks-schema.js');
     const { eq } = await import('drizzle-orm');
 
-    await recordStageProgress(testDir, {
-      taskId: 'T9001',
-      stage: 'research',
-      status: 'completed',
-      notes: 'Initial research complete',
-    });
+    await recordStageProgress(
+      testDir,
+      {
+        taskId: 'T9001',
+        stage: 'research',
+        status: 'completed',
+        notes: 'Initial research complete',
+      },
+      { artifactContent: '# Research (T9001)\n\nFindings.\n' },
+    );
 
     const artifactPath = join(cleoDir, 'rcasd', 'T9001', 'research', 'T9001-research.md');
     expect(existsSync(artifactPath)).toBe(true);
@@ -75,6 +79,7 @@ describe('stage.record provenance integration', () => {
     expect(content).toContain('stage: research');
     expect(content).toContain('- type: task');
     expect(content).toContain('id: T9001');
+    expect(content).toContain('Findings.');
 
     const db = await getDb(testDir);
     const stageRows = await db
@@ -109,24 +114,49 @@ describe('stage.record provenance integration', () => {
   it('writes frontmatter backlinks to prerequisite stage artifacts', async () => {
     const { recordStageProgress } = await import('../index.js');
 
-    await recordStageProgress(testDir, {
-      taskId: 'T9002',
-      stage: 'research',
-      status: 'completed',
-      notes: 'Research done',
-    });
-    await recordStageProgress(testDir, {
-      taskId: 'T9002',
-      stage: 'consensus',
-      status: 'completed',
-      notes: 'Consensus done',
-    });
+    await recordStageProgress(
+      testDir,
+      { taskId: 'T9002', stage: 'research', status: 'completed', notes: 'Research done' },
+      { artifactContent: '# Research\n' },
+    );
+    await recordStageProgress(
+      testDir,
+      { taskId: 'T9002', stage: 'consensus', status: 'completed', notes: 'Consensus done' },
+      { artifactContent: '# Consensus\n' },
+    );
 
     const consensusPath = join(cleoDir, 'rcasd', 'T9002', 'consensus', 'T9002-consensus.md');
     const consensusContent = await readFile(consensusPath, 'utf-8');
 
     expect(consensusContent).toContain('- type: research');
     expect(consensusContent).toContain('path: ../research/T9002-research.md');
+  });
+
+  it('T14277: a stage transition without content writes no file and leaves git status clean', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const { readdirSync } = await import('node:fs');
+    const git = (...args: string[]) =>
+      execFileSync('git', args, { cwd: testDir, encoding: 'utf-8', stdio: 'pipe' });
+    git('init', '-q', '-b', 'main');
+    // The project's own .cleo/.gitignore, as `cleo init` installs it.
+    const { readFileSync, writeFileSync } = await import('node:fs');
+    writeFileSync(
+      join(cleoDir, '.gitignore'),
+      readFileSync(new URL('../../../templates/cleo-gitignore', import.meta.url), 'utf-8'),
+    );
+    git('add', '.cleo/.gitignore');
+    git('-c', 'user.name=T', '-c', 'user.email=t@e.x', 'commit', '-q', '-m', 'init');
+    const { recordStageProgress } = await import('../index.js');
+
+    for (const stage of ['research', 'consensus', 'architecture_decision'] as const) {
+      await recordStageProgress(testDir, { taskId: 'T9004', stage, status: 'completed' });
+    }
+
+    expect(readdirSync(join(cleoDir, 'rcasd'))).toEqual([]);
+    // A file someone does write under rcasd/ stays ignored (no `!rcasd/**`).
+    mkdirSync(join(cleoDir, 'rcasd', 'T9004'), { recursive: true });
+    writeFileSync(join(cleoDir, 'rcasd', 'T9004', 'stray.md'), 'x');
+    expect(git('status', '--porcelain', '--untracked-files=all', '--', '.cleo/rcasd')).toBe('');
   });
 
   it('auto-triggers ADR sync and linking on architecture_decision completion', async () => {

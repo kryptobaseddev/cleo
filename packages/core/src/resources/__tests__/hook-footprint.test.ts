@@ -11,11 +11,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  HOOK_MIN_RUNS,
-  HOOK_MIN_SAMPLES,
+  COMMAND_KEY_PREFIX,
+  commandChargeKey,
   hookFootprintKey,
-  readHookPeak,
-  recordHookPeak,
+  MEASURED_MIN_RUNS,
+  MEASURED_MIN_SAMPLES,
+  MEASURED_WINDOW,
+  readCountedPeak,
+  readMeasuredPeak,
+  recordRunPeak,
   scriptFootprint,
 } from '../hook-footprint.js';
 
@@ -43,7 +47,7 @@ function repo(name: string, hook?: string): string {
 
 /** Record `n` counted runs. */
 async function runs(key: string, peak: number, n: number, dir: string): Promise<void> {
-  for (let i = 0; i < n; i++) await recordHookPeak(key, peak, HOOK_MIN_SAMPLES, dir, i);
+  for (let i = 0; i < n; i++) await recordRunPeak(key, peak, MEASURED_MIN_SAMPLES, dir, i);
 }
 
 describe('hook keys (T13921)', () => {
@@ -102,34 +106,34 @@ describe('hook switches and provisional charges (T13972)', () => {
 
   it('one run above the charge restores the plan until enough runs again', async () => {
     const dir = join(root, 'admission');
-    await runs('k', GIB, HOOK_MIN_RUNS, dir);
-    expect(readHookPeak('k', dir)).toBe(GIB);
+    await runs('k', GIB, MEASURED_MIN_RUNS, dir);
+    expect(readCountedPeak('k', dir)).toBe(GIB);
     await runs('k', 4 * GIB, 1, dir); // above GIB * margin: provisional charge revoked
-    expect(readHookPeak('k', dir)).toBeNull();
-    await runs('k', GIB, HOOK_MIN_RUNS - 1, dir);
-    expect(readHookPeak('k', dir)).toBe(4 * GIB);
+    expect(readCountedPeak('k', dir)).toBeNull();
+    await runs('k', GIB, MEASURED_MIN_RUNS - 1, dir);
+    expect(readCountedPeak('k', dir)).toBe(4 * GIB);
   });
 });
 
 describe('hook measurements (T13921)', () => {
   it('charge after enough counted runs, keep the largest peak, skip short runs', async () => {
     const dir = join(root, 'admission');
-    await recordHookPeak('k', 9 * GIB, HOOK_MIN_SAMPLES - 1, dir); // too short to count
-    await runs('k', 3 * GIB, HOOK_MIN_RUNS - 1, dir);
-    expect(readHookPeak('k', dir)).toBeNull();
+    await recordRunPeak('k', 9 * GIB, MEASURED_MIN_SAMPLES - 1, dir); // too short to count
+    await runs('k', 3 * GIB, MEASURED_MIN_RUNS - 1, dir);
+    expect(readCountedPeak('k', dir)).toBeNull();
     await runs('k', GIB, 1, dir); // a light run never lowers it
-    expect(readHookPeak('k', dir)).toBe(3 * GIB);
-    await recordHookPeak('k', 0, HOOK_MIN_SAMPLES, dir);
-    expect(readHookPeak('k', dir)).toBe(3 * GIB);
+    expect(readCountedPeak('k', dir)).toBe(3 * GIB);
+    await recordRunPeak('k', 0, MEASURED_MIN_SAMPLES, dir);
+    expect(readCountedPeak('k', dir)).toBe(3 * GIB);
   });
 
   it('a corrupt file reads as not measured', async () => {
     const dir = join(root, 'admission');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'hook-footprints.json'), '{not json');
-    expect(readHookPeak('k', dir)).toBeNull();
-    await runs('k', GIB, HOOK_MIN_RUNS, dir);
-    expect(readHookPeak('k', dir)).toBe(GIB);
+    writeFileSync(join(dir, 'charges.json'), '{not json');
+    expect(readCountedPeak('k', dir)).toBeNull();
+    await runs('k', GIB, MEASURED_MIN_RUNS, dir);
+    expect(readCountedPeak('k', dir)).toBe(GIB);
   });
 
   it('concurrent writers lose no run and no peak', async () => {
@@ -137,10 +141,10 @@ describe('hook measurements (T13921)', () => {
     // Peaks within the 25% margin of each other, so no run resets the count
     // (a run above the charge does, T13972).
     const peaks = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => GIB + i * 32 * 1024 ** 2);
-    await Promise.all(peaks.map((p) => recordHookPeak('k', p, HOOK_MIN_SAMPLES, dir)));
-    expect(readHookPeak('k', dir)).toBe(GIB + 7 * 32 * 1024 ** 2);
+    await Promise.all(peaks.map((p) => recordRunPeak('k', p, MEASURED_MIN_SAMPLES, dir)));
+    expect(readCountedPeak('k', dir)).toBe(GIB + 7 * 32 * 1024 ** 2);
     const { readFileSync } = await import('node:fs');
-    const doc = JSON.parse(readFileSync(join(dir, 'hook-footprints.json'), 'utf8'));
+    const doc = JSON.parse(readFileSync(join(dir, 'charges.json'), 'utf8'));
     expect(doc.k.runs).toBe(peaks.length);
   });
 });
@@ -164,5 +168,48 @@ describe('a node script is keyed by its path and content, and names the heavy to
     writeFileSync(join(root, program), "require('typescript');\n");
     expect(scriptFootprint(root, program)?.key).not.toBe(heavy?.key);
     expect(scriptFootprint(root, 'missing.mjs')).toBeNull();
+  });
+});
+
+describe('one measured-charge store for every command (T14281)', () => {
+  it('the charge is the largest of the last 10 counted peaks', async () => {
+    const dir = join(root, 'run');
+    await recordRunPeak('k', 3 * GIB, MEASURED_MIN_SAMPLES, dir, 0);
+    for (let i = 1; i <= MEASURED_WINDOW; i++) {
+      await recordRunPeak('k', 2.5 * GIB, MEASURED_MIN_SAMPLES, dir, i);
+    }
+    // The 3 GiB run left the window: ten 2.5 GiB runs remain.
+    expect(readCountedPeak('k', dir)).toBe(2.5 * GIB);
+  });
+
+  it('a failed run above the charge resets the count; its excess raises the next charge', async () => {
+    const dir = join(root, 'run');
+    await runs('k', GIB, MEASURED_MIN_RUNS, dir);
+    expect(readCountedPeak('k', dir)).toBe(GIB);
+    await recordRunPeak('k', 4 * GIB, MEASURED_MIN_SAMPLES, dir, 10, false);
+    expect(readCountedPeak('k', dir)).toBeNull();
+    expect(readMeasuredPeak('k', dir)).toBe(4 * GIB);
+  });
+
+  it('the pre-T14281 hook store is read until the first write of the new one', async () => {
+    const dir = join(root, 'run');
+    mkdirSync(join(root, 'admission'), { recursive: true });
+    writeFileSync(
+      join(root, 'admission', 'hook-footprints.json'),
+      JSON.stringify({ 'pre-push:abc': { peakBytes: 2 * GIB, runs: 3, measuredAtMs: 1 } }),
+    );
+    expect(readCountedPeak('pre-push:abc', dir)).toBe(2 * GIB);
+    await recordRunPeak('other', GIB, MEASURED_MIN_SAMPLES, dir, 2);
+    // Carried into charges.json by that write; the old file is no longer read.
+    writeFileSync(join(root, 'admission', 'hook-footprints.json'), '{}');
+    expect(readCountedPeak('pre-push:abc', dir)).toBe(2 * GIB);
+  });
+
+  it('a plain command is keyed by project and argv, leading assignments and padding ignored', () => {
+    const key = commandChargeKey('/repo', ['pnpm', 'exec', 'tsc', '-b']);
+    expect(key.startsWith(`${COMMAND_KEY_PREFIX}:`)).toBe(true);
+    expect(commandChargeKey('/repo', ['FOO=1', 'pnpm', 'exec', ' tsc ', '-b'])).toBe(key);
+    expect(commandChargeKey('/other', ['pnpm', 'exec', 'tsc', '-b'])).not.toBe(key);
+    expect(commandChargeKey('/repo', ['pnpm', 'exec', 'tsc', '-p', 'a'])).not.toBe(key);
   });
 });

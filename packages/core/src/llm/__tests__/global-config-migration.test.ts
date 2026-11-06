@@ -19,7 +19,7 @@
  * @epic T9398
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _resetCleoPlatformPathsCache } from '@cleocode/paths';
@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveCredentials } from '../credentials.js';
 import {
   _resetGlobalConfigMigrationLatch,
+  auditGlobalConfigModes,
   configDirGlobalConfigPath,
   legacyGlobalConfigPath,
   migrateGlobalConfigToConfigDir,
@@ -286,5 +287,62 @@ describe('resolveCredentials() + migration', () => {
 
     expect(result.apiKey).toBe('sk-legacy-fallback');
     expect(result.source).toBe('global-config');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T14221 — the global config is owner-only (0600)
+// ---------------------------------------------------------------------------
+
+const modeOf = (path: string): number => statSync(path).mode & 0o777;
+
+describe.skipIf(process.platform === 'win32')('global config file mode (T14221)', () => {
+  it('migration writes the config-dir copy 0600, even from a 0644 source and a stale 0644 temp', () => {
+    const { configDir } = stageTempHome();
+    const source = legacyGlobalConfigPath();
+    writeFileSync(source, JSON.stringify({ llm: { providers: { openai: { apiKey: 'sk-x' } } } }), {
+      mode: 0o644,
+    });
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(`${configDirGlobalConfigPath()}.tmp`, 'stale', { mode: 0o644 });
+
+    expect(migrateGlobalConfigToConfigDir()).toBe(true);
+    expect(modeOf(configDirGlobalConfigPath())).toBe(0o600);
+  });
+
+  it('a pre-existing 0644 global config becomes 0600 on the next write', async () => {
+    stageTempHome();
+    const path = legacyGlobalConfigPath();
+    writeFileSync(path, '{}\n', { mode: 0o644 });
+    chmodSync(path, 0o644);
+
+    const { setConfigValue } = await import('../../config.js');
+    await setConfigValue('daemon.curator.enabled', 'true', undefined, { global: true });
+    expect(modeOf(path)).toBe(0o600);
+
+    chmodSync(path, 0o644);
+    const { unsetConfigValue } = await import('../../config/registry.js');
+    await unsetConfigValue('daemon.curator.enabled', { projectRoot: tmpdir(), global: true });
+    expect(modeOf(path)).toBe(0o600);
+  });
+
+  it('auditGlobalConfigModes reports a group/other-readable file and fixes it only with fix', () => {
+    stageTempHome();
+    const path = legacyGlobalConfigPath();
+    writeFileSync(path, '{}\n', { mode: 0o644 });
+    chmodSync(path, 0o644);
+
+    expect(auditGlobalConfigModes({ fix: false })).toEqual([
+      { path, mode: 0o644, exposed: true, fixed: false },
+    ]);
+    expect(modeOf(path)).toBe(0o644);
+
+    expect(auditGlobalConfigModes({ fix: true })).toEqual([
+      { path, mode: 0o644, exposed: true, fixed: true },
+    ]);
+    expect(modeOf(path)).toBe(0o600);
+    expect(auditGlobalConfigModes({ fix: false })).toEqual([
+      { path, mode: 0o600, exposed: false, fixed: false },
+    ]);
   });
 });

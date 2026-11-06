@@ -1,0 +1,45 @@
+2026-09-30T02:37:06.3997131Z ##[group]Run node packages/core/scripts/check-core-bundle-budget.mjs
+2026-09-30T02:37:06.3997570Z node packages/core/scripts/check-core-bundle-budget.mjs
+2026-09-30T02:37:06.4025831Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-30T02:37:06.4026131Z env:
+2026-09-30T02:37:06.4026356Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+2026-09-30T02:37:06.4026845Z   CACHE_ON_FAILURE: false
+2026-09-30T02:37:06.4027064Z   CARGO_INCREMENTAL: 0
+2026-09-30T02:37:06.4027255Z ##[endgroup]
+2026-09-30T02:37:06.4655733Z @cleocode/core dist/: 48.02 MB / budget 48 MB (5669 files)
+2026-09-30T02:37:06.4671001Z Largest dist files:
+2026-09-30T02:37:06.4671368Z      3.18 MB  llm/plugin-facade.js
+2026-09-30T02:37:06.4671746Z      3.16 MB  selfimprove/fix-gen.js
+2026-09-30T02:37:06.4672112Z      1.92 MB  docs/export-document.js
+2026-09-30T02:37:06.4672500Z      1.68 MB  llm/plugin-facade.js.map
+2026-09-30T02:37:06.4672875Z      1.68 MB  selfimprove/fix-gen.js.map
+2026-09-30T02:37:06.4673294Z    1003.9 KB  docs/export-document.js.map
+2026-09-30T02:37:06.4673736Z     412.0 KB  gateway-client/generated/types.gen.d.ts
+2026-09-30T02:37:06.4674184Z     315.1 KB  store/validation-schemas.d.ts
+2026-09-30T02:37:06.4674643Z     254.7 KB  gateway-client/generated/types.gen.d.ts.map
+2026-09-30T02:37:06.4675090Z     195.0 KB  store/schema/memory-schema.d.ts
+2026-09-30T02:37:06.4675350Z 
+2026-09-30T02:37:06.4675837Z AC1 Pass A — submodule entry-point inlining check:
+2026-09-30T02:37:06.4678783Z   .              imports: @cleocode/contracts
+2026-09-30T02:37:06.4679384Z   ./paths        imports: @cleocode/paths
+2026-09-30T02:37:06.4679823Z   ./lafs         imports: @cleocode/lafs
+2026-09-30T02:37:06.4680198Z   ./skills-lib   imports: @cleocode/skills
+2026-09-30T02:37:06.4680575Z   ./caamp        imports: @cleocode/caamp
+2026-09-30T02:37:06.4680942Z   ./worktree     imports: @cleocode/worktree
+2026-09-30T02:37:06.4681360Z   ./git-shim     imports: @cleocode/git-shim
+2026-09-30T02:37:06.4681628Z 
+2026-09-30T02:37:06.4682075Z AC1 Pass B — full dist tree sweep for undeclared @cleocode/* imports:
+2026-09-30T02:37:06.6242875Z   OK — no undeclared @cleocode/* bare imports found in any of the 266 top-level dist entries
+2026-09-30T02:37:06.6243274Z 
+2026-09-30T02:37:06.6243539Z Tree-shake probe — single submodule bundle vs full core:
+2026-09-30T02:37:07.7427282Z   (full @cleocode/core)   26.63 MB
+2026-09-30T02:37:07.7484799Z   ./paths             29.8 KB  (0.1% of full, budget 256 KB) OK
+2026-09-30T02:37:07.7555723Z   ./lafs              90.1 KB  (0.3% of full, budget 256 KB) OK
+2026-09-30T02:37:07.7586812Z   ./skills-lib        11.4 KB  (0.0% of full, budget 128 KB) OK
+2026-09-30T02:37:08.3820138Z   ./caamp             2.05 MB  (7.7% of full, budget 3072 KB) OK
+2026-09-30T02:37:08.4737951Z   ./worktree          1.10 MB  (4.1% of full, budget 2048 KB) OK
+2026-09-30T02:37:08.5370938Z   ./git-shim          1.04 MB  (3.9% of full, budget 2048 KB) OK
+2026-09-30T02:37:08.5371698Z 
+2026-09-30T02:37:08.5392944Z ##[error]@cleocode/core bundle-budget gate FAILED (T11582):
+2026-09-30T02:37:08.5400149Z   - built dist/ is 48.02 MB — exceeds the 48 MB build-time budget by 21.4 KB
+2026-09-30T02:37:08.5478160Z ##[error]Process completed with exit code 1.

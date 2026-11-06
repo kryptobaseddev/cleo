@@ -244,28 +244,175 @@ async function writeTaskRow(
     return;
   }
   // The canonical converter defines the write surface for both INSERT and
-  // conflict UPDATE. Destructuring identity prevents an upsert from moving a
-  // row; spreading the remaining fields prevents newly accepted fields from
-  // disappearing on conflict (GH #401 / T12198).
+  // UPDATE. Destructuring identity prevents an upsert from moving a row;
+  // spreading the remaining fields prevents newly accepted fields from
+  // disappearing (GH #401 / T12198).
   const { id: _identity, ...mutableRow } = row;
-  const set = {
+  const set: Record<string, unknown> = {
     ...mutableRow,
     status: archiveFields ? ('archived' as const) : row.status,
     archivedAt: archiveFields?.archivedAt ?? null,
     archiveReason: archiveFields?.archiveReason ?? null,
     cycleTimeDays: archiveFields?.cycleTimeDays ?? null,
   };
-  await db
-    .insert(schema.tasks)
-    .values(values)
-    .onConflictDoUpdate({ target: schema.tasks.id, set })
-    .run();
+  // T14265 (B-RC1, S5): an existing row is UPDATEd with only the columns whose
+  // value changed. A full-row SET fired every `BEFORE UPDATE OF col` guard on
+  // unchanged values, so a row that predates a guard refused every write.
+  const [stored] = await db
+    .select()
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, row.id))
+    .limit(1)
+    .all();
+  try {
+    if (!stored) {
+      await db.insert(schema.tasks).values(values).run();
+    } else {
+      const changed = changedColumns(stored as Record<string, unknown>, set);
+      if (Object.keys(changed).length > 0) {
+        await db.update(schema.tasks).set(changed).where(eq(schema.tasks.id, row.id)).run();
+      }
+    }
+  } catch (err) {
+    // @sync-invariant none:input-shape rethrows the guard triggers' refusal (task.parent.type-matrix, task.parent.no-cycle, task.status.pipeline-consistency) with its SQLite cause; the rule lives in the trigger
+    throw taskWriteError(err, row.id);
+  }
 
   // T11356: keep the task_labels junction in sync with the labels_json column.
   // The junction is the index-backed membership SSoT for label filters; reads
   // join it instead of running `labels_json LIKE '%label%'` (which matched
   // across JSON array boundaries and could not use an index).
   await updateTaskLabels(db, row.id, parseLabels(row.labelsJson));
+}
+
+/**
+ * The entries of `next` whose value differs from the stored row (T14265). An
+ * `undefined` entry means "not supplied" and is skipped, as drizzle skips it
+ * in a SET. Values compare by their JSON form, so `null` and a missing value
+ * are equal and booleans, numbers and text compare as stored.
+ *
+ * @param stored - The row as read inside the transaction.
+ * @param next - The column values the caller wants.
+ * @returns Only the columns to write.
+ */
+export function changedColumns(
+  stored: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next)) {
+    if (value === undefined) continue;
+    if (JSON.stringify(stored[key] ?? null) !== JSON.stringify(value ?? null)) out[key] = value;
+  }
+  return out;
+}
+
+/** Trigger codes a task write can abort with, and the exit code each maps to (T14218, F4). */
+const TASK_TRIGGER_CODES: ReadonlyArray<readonly [string, ExitCode, string]> = [
+  ['E_TASK_PARENT_TYPE_MATRIX', ExitCode.INVALID_PARENT_TYPE, 'parentId'],
+  ['E_TASK_PARENT_CYCLE', ExitCode.CIRCULAR_REFERENCE, 'parentId'],
+  ['T877_INVARIANT_VIOLATION', ExitCode.VALIDATION_ERROR, 'status'],
+];
+
+/**
+ * A task-write failure as a bounded {@link CleoError} (T14218, durability F4).
+ * Drizzle wraps the SQLite error in a `DrizzleQueryError` whose own message is
+ * the whole failed statement (about 15 KB for a task row) and whose `cause`
+ * holds the SQLite message. This reports that message, maps a known trigger
+ * code to its exit code, and keeps only the first 200 characters of the SQL,
+ * so a task write never surfaces as a bare internal error. A CleoError, or an
+ * error with no database cause, passes through unchanged.
+ *
+ * @param err - The caught error.
+ * @param taskId - The task being written.
+ * @returns The error to throw.
+ */
+export function taskWriteError(err: unknown, taskId: string): unknown {
+  if (err instanceof CleoError || !(err instanceof Error)) return err;
+  const failure = storeWriteCause(err);
+  if (failure === null) return err;
+  const known = TASK_TRIGGER_CODES.find(([code]) => failure.cause.includes(code));
+  // @sync-invariant none:input-shape rethrows the guard triggers' refusal (task.parent.type-matrix, task.parent.no-cycle, task.status.pipeline-consistency) with its SQLite cause; the rule lives in the trigger
+  return new CleoError(
+    known?.[1] ?? ExitCode.GENERAL_ERROR,
+    `Writing task ${taskId} failed: ${failure.cause}`,
+    {
+      details: {
+        field: known?.[2] ?? 'task',
+        ...(known ? { code: known[0] } : { storeWrite: true }),
+        sql: failure.sql,
+      },
+      cause: err,
+    },
+  );
+}
+
+/**
+ * The SQLite cause and the start of the statement of a failed store write
+ * (T14218, T14217). Drizzle wraps the SQLite error in a `DrizzleQueryError`
+ * whose message is the whole statement with every parameter (kilobytes for a
+ * task row); the SQLite message is on `.cause`.
+ *
+ * @param err - The caught error.
+ * @returns The innermost cause and at most 200 characters of SQL, or null when
+ *   `err` is not a failed database statement.
+ */
+export function storeWriteCause(err: Error): { cause: string; sql: string } | null {
+  let cause: unknown = err.cause;
+  let sqliteMessage: string | null = null;
+  for (let depth = 0; cause instanceof Error && depth < 8; depth++) {
+    sqliteMessage = cause.message;
+    cause = cause.cause;
+  }
+  if (sqliteMessage === null) {
+    if (!err.message.startsWith('Failed query:')) return null;
+    sqliteMessage = 'the database refused the statement';
+  }
+  const statement = err.message
+    .replace(/^Failed query:\s*/, '')
+    .split(/\nparams:|\sparams:/)[0]
+    ?.replace(/\s+/g, ' ')
+    .trim();
+  const sqlText = statement ?? '';
+  return {
+    cause: sqliteMessage,
+    sql: sqlText.length > 200 ? `${sqlText.slice(0, 200)}…` : sqlText,
+  };
+}
+
+/** Longest message {@link boundedStoreWriteFailure} returns. */
+export const STORE_WRITE_ERROR_MAX_CHARS = 600;
+
+/**
+ * A store write that failed for no known rule, as a bounded internal error
+ * (T14217): either drizzle's raw failed statement or the {@link taskWriteError}
+ * wrap of one. Engine results report it as `E_INTERNAL` with the SQLite cause
+ * first; a refusal with a known trigger code is not one and returns null.
+ *
+ * @param err - The caught error.
+ * @returns The bounded message and its parts, or null.
+ */
+export function boundedStoreWriteFailure(
+  err: unknown,
+): { message: string; details: { cause: string; query: string } } | null {
+  let failure: { cause: string; sql: string } | null = null;
+  if (err instanceof CleoError) {
+    const sqlText = err.details?.['sql'];
+    if (err.details?.['storeWrite'] === true && typeof sqlText === 'string') {
+      failure = { cause: err.message.replace(/^Writing task \S+ failed:\s*/, ''), sql: sqlText };
+    }
+  } else if (err instanceof Error && err.message.startsWith('Failed query:')) {
+    failure = storeWriteCause(err);
+  }
+  if (failure === null) return null;
+  const message = `Store write failed: ${failure.cause} (query: ${failure.sql})`.slice(
+    0,
+    STORE_WRITE_ERROR_MAX_CHARS,
+  );
+  return {
+    message,
+    details: { cause: failure.cause.slice(0, 300), query: failure.sql },
+  };
 }
 
 /**

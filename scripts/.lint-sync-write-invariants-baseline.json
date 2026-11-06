@@ -46,14 +46,6 @@
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
       "count": 1
     },
-    "packages/core/src/tasks/cancel-ops.ts :: E_CANNOT_CANCEL": {
-      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
-      "count": 1
-    },
-    "packages/core/src/tasks/cancel-ops.ts :: E_NOT_FOUND": {
-      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
-      "count": 1
-    },
     "packages/core/src/tasks/sync-ops.ts :: E_INTERNAL": {
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
       "count": 3
@@ -663,7 +655,6 @@
     "packages/core/src/error-catalog.ts :: E_WORKTREE_LOCKED": 1,
     "packages/core/src/errors-to-engine.ts :: engineError": 2,
     "packages/core/src/errors.ts :: this.code": 1,
-    "packages/core/src/gc/cleanup.ts :: Error": 1,
     "packages/core/src/gc/transcript.ts :: Error": 1,
     "packages/core/src/git/hooks-install.ts :: Error": 3,
     "packages/core/src/goal/store.ts :: Error": 1,
@@ -1358,8 +1349,6 @@
     "packages/core/src/tasks/affected-packages.ts :: Error": 1,
     "packages/core/src/tasks/archive.ts :: E_INTERNAL": 1,
     "packages/core/src/tasks/axis-filters.ts :: ExitCode.VALIDATION_ERROR": 2,
-    "packages/core/src/tasks/cancel-ops.ts :: E_CANNOT_CANCEL": 1,
-    "packages/core/src/tasks/cancel-ops.ts :: E_NOT_FOUND": 1,
     "packages/core/src/tasks/child-disposition.ts :: ExitCode.HAS_CHILDREN": 1,
     "packages/core/src/tasks/command-line.ts :: Error": 4,
     "packages/core/src/tasks/complete.ts :: CleoError": 3,
@@ -1501,7 +1490,6 @@
     "packages/core/src/worktree/force-unlock.ts :: success:false": 1,
     "packages/core/src/worktree/list.ts :: E_GIT_FAILED": 1,
     "packages/core/src/worktree/prune.ts :: engineError": 1,
-    "packages/core/src/worktree/prune.ts :: success:false": 2,
     "packages/core/src/worktree/worktree-adopt.ts :: E_WORKTREE_NOT_FOUND": 2,
     "packages/core/src/worktree/worktree-adopt.ts :: success:false": 4,
     "packages/playbooks/src/approval.ts :: Error": 8,
