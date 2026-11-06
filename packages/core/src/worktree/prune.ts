@@ -31,10 +31,10 @@ import type {
   WorktreeInfo,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
-import { computeProjectHash } from '@cleocode/paths';
 import { disposeWorktree, gitSilent, readWorktreeTaskLock } from '@cleocode/worktree';
 import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
+import { worktreeInUseProbe } from './in-use-probe.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
 
 /**
@@ -44,9 +44,9 @@ import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './
  * Steps:
  *  1. Re-use {@link listWorktrees} to enumerate every worktree with full
  *     status classification (T9546). No raw porcelain re-parsing here.
- *  2. Filter to entries whose `statusCategory` is `orphan` or `merged`. The
- *     lifecycle command intentionally excludes `stale` and `locked` — those
- *     are handled by future T9515 follow-ups (T9548 auto-invoke, force-unlock).
+ *  2. Filter to entries whose `statusCategory` is `redundant` (T14274): the
+ *     disposal proof held when listed. `active`, `keep` and `unknown` rows are
+ *     never touched.
  *  3. When the caller passes `opts.paths`, intersect the candidate set with
  *     it so the CLI can render per-orphan Y/N prompts and then call this
  *     primitive with the user-confirmed subset.
@@ -82,12 +82,10 @@ export async function pruneOrphanedWorktreesByStatus(
     );
   }
 
-  // Candidates: any worktree the T9546 classifier labelled `orphan` or `merged`.
+  // Candidates: only rows the classifier proved `redundant` (T14274).
   const primaryWorktreePath = resolvePrimaryWorktreePath(opts.projectRoot);
   const allCandidates = listResult.data.worktrees.filter(
-    (w) =>
-      (w.statusCategory === 'orphan' || w.statusCategory === 'merged') &&
-      !isPrimaryWorktree(w.path, primaryWorktreePath),
+    (w) => w.statusCategory === 'redundant' && !isPrimaryWorktree(w.path, primaryWorktreePath),
   );
 
   const allowedPaths =
@@ -109,7 +107,7 @@ export async function pruneOrphanedWorktreesByStatus(
       reason,
       evidence: await loadTaskEvidence(opts.projectRoot, wt.taskId),
       exemptRegenerable: wt.isMerged,
-      inUse: worktreeInUseProbe(opts.projectRoot, wt.taskId),
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, opts.projectRoot, wt.taskId),
       dryRun,
     });
     if (dryRun && disposal.keptReason === undefined) {
@@ -203,25 +201,6 @@ export async function pruneOrphanedWorktreesByStatus(
 // ---------------------------------------------------------------------------
 
 /**
- * The in-use probe core hands the disposal engine (T13924): a CLEO task lock
- * record for the worktree's task means an agent may still be working in it.
- *
- * @param projectRoot - Project whose lock records are read.
- * @param taskId - The worktree's task, or `null`.
- * @returns The probe, or `undefined` when no task owns the worktree.
- */
-export function worktreeInUseProbe(
-  projectRoot: string,
-  taskId: string | null,
-): (() => string | null) | undefined {
-  if (taskId === null) return undefined;
-  return () =>
-    readWorktreeTaskLock(computeProjectHash(projectRoot), taskId) !== null
-      ? 'task lock held'
-      : null;
-}
-
-/**
  * The owning task's recorded evidence, or `[]` when there is no task or the store is unreadable.
  *
  * @param projectRoot - Project root whose task store is read.
@@ -244,24 +223,13 @@ export async function loadTaskEvidence(
 }
 
 /**
- * Map a {@link WorktreeInfo} entry's `statusCategory` to a short human-readable
- * reason string used in audit logs + envelope outcomes.
+ * The audit and outcome reason for pruning a `redundant` worktree (T14274):
+ * `redundant-done`, `redundant-cancelled`, or `redundant-taskless` (no stored
+ * task, idle past the stale window). Any other category maps to itself.
  */
 export function reasonForStatus(wt: WorktreeInfo): string {
-  switch (wt.statusCategory) {
-    case 'orphan':
-      if (wt.owningTaskStatus === 'cancelled') return 'orphan-cancelled';
-      if (wt.taskId !== null && wt.owningTaskStatus === null) return 'orphan-missing-task';
-      return 'orphan';
-    case 'merged':
-      return 'orphaned-merged';
-    case 'stale':
-      return 'stale';
-    case 'locked':
-      return 'locked';
-    case 'active':
-      return 'active';
-    default:
-      return wt.statusCategory;
-  }
+  if (wt.statusCategory !== 'redundant') return wt.statusCategory;
+  return wt.owningTaskStatus === 'done' || wt.owningTaskStatus === 'cancelled'
+    ? `redundant-${wt.owningTaskStatus}`
+    : 'redundant-taskless';
 }
