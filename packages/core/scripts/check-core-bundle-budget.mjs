@@ -112,8 +112,16 @@ const DIST_DIR = join(PKG_ROOT, 'dist');
  * through the ask tool: main's Build & Verify measured the tree at 46.02 MB,
  * 19.9 KB over the cap, and every PR went red. Shrink task T14339 brings the
  * tree back under 46 MB and lowers this budget to 46 MB in the same PR.
+ *
+ * Lowered 47 MB -> 46 MB (T14339, 2026-11-06). Core no longer emits
+ * declaration maps (`declarationMap: false` in packages/core/tsconfig.json):
+ * every dist/*.d.ts.map pointed at ../src/*.ts, which the published `files`
+ * list does not ship, so the maps resolved nothing for an npm consumer, while
+ * in the monorepo tsserver follows the project references to the sources.
+ * They were about 2.8 MB of the tree (2.80 MB of a 45.87 MB local dist), so
+ * the tree should measure about 43.3 MB, under this restored 46 MB cap.
  */
-export const MAX_CORE_DIST_MB = 47;
+export const MAX_CORE_DIST_MB = 46;
 
 /** The uncompressed dist budget expressed in bytes. */
 export const MAX_CORE_DIST_BYTES = MAX_CORE_DIST_MB * 1024 * 1024;
