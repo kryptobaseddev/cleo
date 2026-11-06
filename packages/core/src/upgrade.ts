@@ -629,7 +629,10 @@ export async function runUpgrade(
   // as the head version and a receipt (`cleo docs migrate`, default all: one
   // run, one backup). Upgrade is the owner-run convergence point; reads never
   // migrate. A store with nothing left runs no step and writes no snapshot.
-  if (existsSync(dbPath)) {
+  // The live store is `cleo.db` (the chokepoint's own path rule), never the
+  // `tasks.db` decoy, which a store that never ran the JSON migration lacks.
+  const { resolveDualScopeDbPath } = await import('./store/dual-scope-db.js');
+  if (existsSync(resolveDualScopeDbPath('project', options.cwd))) {
     try {
       const docsRoot = getProjectRoot(options.cwd);
       const { getDb, getNativeDb } = await import('./store/sqlite.js');

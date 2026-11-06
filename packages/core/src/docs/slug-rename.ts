@@ -34,7 +34,11 @@ import {
   resolveConduitDocUid,
 } from '../store/conduit-doc-history.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
-import { conduitAttachments, conduitDocSlugAliases } from '../store/schema/cleo-project/conduit.js';
+import {
+  conduitAttachments,
+  conduitAttachmentVersions,
+  conduitDocSlugAliases,
+} from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
 import { attachments } from '../store/tasks-schema.js';
 
@@ -162,7 +166,11 @@ export interface DocRef {
   readonly docUid: string | null;
   /** The head version uid, or null on the legacy path. */
   readonly headVersionUid: string | null;
-  /** SHA-256 of the bytes the doc resolves to (the head version's content hash on the uid path). */
+  /**
+   * SHA-256 of the bytes the doc resolves to: on the uid path the head
+   * version's content hash, or the live row's when its write never landed as
+   * a version.
+   */
   readonly sha256: string;
   /**
    * The registry row carrying the doc's metadata: the head content's row, or
@@ -175,8 +183,13 @@ export interface DocRef {
 /**
  * Resolve a slug, live or an old alias, to its doc (T14288): slug → conduit
  * uid (live slug, then `conduit_doc_slug_aliases`) → head version → content
- * hash → the registry row of that content. A doc with no conduit identity or
- * no head resolves through its registry row's slug, marked
+ * hash → the registry row of that content. One exception on the uid path:
+ * a live slug row whose content no version of the doc records is a write
+ * whose section projection did not land (`docs update` writes the row and
+ * leaves the head when the merge preview or the projection commit fails,
+ * T13842), so that row is served; a head moved by sync still wins, since the
+ * local row then holds the old head's content, which is a recorded version.
+ * A doc with no conduit identity or no head resolves through its registry row's slug, marked
  * `identity: 'legacy'`, with a `W_DOC_NOT_MIGRATED` warning naming
  * `cleo docs migrate`.
  *
@@ -223,6 +236,30 @@ export async function resolveDocRef(projectRoot: string, slug: string): Promise<
       ? await getConduitAttachmentVersion(projectRoot, head.headVersionUid)
       : null;
     if (head && version) {
+      // A write the projection did not land is newer than the head (above).
+      const slugRow = await bySlug(liveSlug);
+      if (slugRow && slugRow.sha256 !== version.contentHash) {
+        const recorded = await db
+          .select({ uid: conduitAttachmentVersions.uid })
+          .from(conduitAttachmentVersions)
+          .where(
+            and(
+              eq(conduitAttachmentVersions.attachmentUid, uid),
+              eq(conduitAttachmentVersions.contentHash, slugRow.sha256),
+            ),
+          )
+          .get();
+        if (!recorded) {
+          return {
+            identity: 'uid',
+            slug: liveSlug,
+            docUid: uid,
+            headVersionUid: head.headVersionUid,
+            sha256: slugRow.sha256,
+            row: slugRow,
+          };
+        }
+      }
       const row =
         (await db
           .select()
