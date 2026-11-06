@@ -23,6 +23,7 @@
  */
 
 import type { BrainNode, BrainStreamEvent } from '@cleocode/brain';
+import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
 import { createSseStream, encodeSseFrame, SSE_HEADERS } from '@cleocode/runtime/gateway/http';
 import { getBrainDb, getConduitDb, getTasksDb } from '$lib/server/db/connections.js';
 import type { ProjectContext } from '$lib/server/project-context.js';
@@ -163,12 +164,14 @@ function initWatermarks(ctx: ProjectContext): WatermarkState {
     if (tasksDb) {
       // Highest rowid in tasks
       const taskMax = tasksDb
-        .prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM tasks')
+        .prepare('SELECT COALESCE(MAX(rowid), 0) AS max_rowid FROM tasks_tasks')
         .get() as { max_rowid: number } | undefined;
       state.lastTaskRowid = taskMax?.max_rowid ?? 0;
 
       // Snapshot current statuses for rowids we've already seen
-      const rows = tasksDb.prepare('SELECT id, status FROM tasks').all() as Array<{
+      const rows = tasksDb
+        .prepare(`SELECT id, ${derivedStatusSqlAt()} AS status FROM tasks_tasks`)
+        .all() as Array<{
         id: string;
         status: string;
       }>;
@@ -310,8 +313,8 @@ function detectTaskStatusChanges(state: WatermarkState, ctx: ProjectContext): Br
     // Check for new tasks inserted after our watermark
     const newRows = db
       .prepare(
-        `SELECT rowid, id, status, updated_at
-         FROM tasks
+        `SELECT rowid, id, ${derivedStatusSqlAt()} AS status, updated_at
+         FROM tasks_tasks
          WHERE rowid > ?
          ORDER BY rowid ASC`,
       )
@@ -333,7 +336,9 @@ function detectTaskStatusChanges(state: WatermarkState, ctx: ProjectContext): Br
       const ids = [...state.taskStatuses.keys()];
       const placeholders = ids.map(() => '?').join(',');
       const existingRows = db
-        .prepare(`SELECT id, status FROM tasks WHERE id IN (${placeholders})`)
+        .prepare(
+          `SELECT id, ${derivedStatusSqlAt()} AS status FROM tasks_tasks WHERE id IN (${placeholders})`,
+        )
         .all(...ids) as Array<{ id: string; status: string }>;
 
       for (const row of existingRows) {

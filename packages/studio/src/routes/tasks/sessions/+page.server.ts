@@ -2,6 +2,7 @@
  * Sessions page server load — session history with task completions timeline.
  */
 
+import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
 
@@ -42,7 +43,7 @@ export const load: PageServerLoad = ({ locals }) => {
       .prepare(
         `SELECT id, name, status, agent, started_at, ended_at,
                 current_task, tasks_completed_json, tasks_created_json
-         FROM sessions
+         FROM tasks_sessions
          ORDER BY started_at DESC
          LIMIT 100`,
       )
@@ -65,9 +66,9 @@ export const load: PageServerLoad = ({ locals }) => {
         ? (db
             .prepare(
               `SELECT twh.session_id, twh.task_id, twh.set_at, twh.cleared_at,
-                      t.title, t.status
-               FROM task_work_history twh
-               JOIN tasks t ON t.id = twh.task_id
+                      t.title, ${derivedStatusSqlAt('t')} AS status
+               FROM tasks_task_work_history twh
+               JOIN tasks_tasks t ON t.id = twh.task_id
                WHERE twh.session_id IN (${sessionIds.map(() => '?').join(',')})
                ORDER BY twh.set_at ASC`,
             )
@@ -113,9 +114,11 @@ export const load: PageServerLoad = ({ locals }) => {
 
       const completedTasks: Array<{ id: string; title: string; status: string }> = [];
       for (const tid of completedIds.slice(0, 20)) {
-        const t = db.prepare('SELECT id, title, status FROM tasks WHERE id = ?').get(tid) as
-          | { id: string; title: string; status: string }
-          | undefined;
+        const t = db
+          .prepare(
+            `SELECT id, title, ${derivedStatusSqlAt()} AS status FROM tasks_tasks WHERE id = ?`,
+          )
+          .get(tid) as { id: string; title: string; status: string } | undefined;
         if (t) completedTasks.push(t);
       }
 
@@ -123,7 +126,9 @@ export const load: PageServerLoad = ({ locals }) => {
       let currentTask: { id: string; title: string; status: string } | null = null;
       if (s.current_task) {
         const ct = db
-          .prepare('SELECT id, title, status FROM tasks WHERE id = ?')
+          .prepare(
+            `SELECT id, title, ${derivedStatusSqlAt()} AS status FROM tasks_tasks WHERE id = ?`,
+          )
           .get(s.current_task) as { id: string; title: string; status: string } | undefined;
         if (ct) currentTask = ct;
       }
