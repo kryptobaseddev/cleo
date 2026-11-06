@@ -219,7 +219,7 @@ export async function coreTaskCancel(
     if (kind !== undefined) {
       await accessor.transaction((tx) =>
         tx.updateTaskFields(taskId, {
-          cancellationKind: kind,
+          cancellationKind: kind as CancellationKind,
           replacedBy: replacedBy ?? null,
           updatedAt: new Date().toISOString(),
         }),

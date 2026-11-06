@@ -15,6 +15,7 @@
 
 import type { ArchivedTask } from './archive.js';
 import type { Session } from './session.js';
+import type { CancellationKind } from './status-registry.js';
 import type {
   Task,
   TaskClaim,
@@ -144,7 +145,7 @@ export interface TaskFieldUpdates {
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
-  cancellationKind?: string | null;
+  cancellationKind?: CancellationKind | null;
   replacedBy?: string | null;
   verificationJson?: string | null;
   createdBy?: string | null;

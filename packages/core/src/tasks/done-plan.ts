@@ -653,7 +653,11 @@ async function completionCoverage(
 ): Promise<AcCoverageResult> {
   const { computeAcCoverage } = await import('./ac-coverage-gate.js');
   const { completionCoverageAccessor } = await import('./ac-table.js');
-  return computeAcCoverage(task.id, completionCoverageAccessor(task, accessor), options);
+  return computeAcCoverage(
+    task.id,
+    completionCoverageAccessor(task, accessor, (id) => accessor.loadSingleTask(id)),
+    options,
+  );
 }
 
 /**
