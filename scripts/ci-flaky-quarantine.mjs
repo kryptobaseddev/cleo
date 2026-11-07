@@ -19,11 +19,18 @@
  *       reported, not blocking. A test that fails twice blocks.
  *     - vitest failed without a readable report, or with no failing test in
  *       it (a crash, a heap kill, an unhandled error): blocks, not retried.
- *     - More than {@link MAX_QUARANTINE} quarantined tests: blocks, so the
- *       quarantine cannot grow without someone fixing tests.
+ *     It reports test outcomes only: the quarantine's size never fails a
+ *     shard (T14257, D11225); `budget` checks it in a job of its own.
  *     The first run's output is teed to --log, so a later step can scan it. The
  *     flakes and quarantined failures go to --report as JSON (no file when
  *     there are none).
+ *
+ *   budget
+ *     More than {@link MAX_QUARANTINE} quarantined tests fails on main's own
+ *     runs (push, nightly) and warns on any other, so the quarantine cannot
+ *     grow without someone fixing tests. It runs as the `Flaky Quarantine
+ *     Budget` job, which is not a required check: a breach is main health,
+ *     never a pull request's failed tests (T14257, D11225).
  *
  *   file --reports <dir> --run-url <url> --sha <sha> [--expire]
  *     On main (push or nightly) only. Each reported test gets an open issue
@@ -561,16 +568,6 @@ async function runCommand(/** @type {string[]} */ argv) {
     console.warn(
       '::warning::The flaky quarantine could not be read; no failure is quarantined in this run.',
     );
-  if (open !== null && quarantine.length > MAX_QUARANTINE) {
-    const text = `### Flaky quarantine over budget\n\n${quarantine.length} tests are quarantined (most ${MAX_QUARANTINE}). Fix flaky tests and close their \`${LABEL}\` issues.\n\n${list(quarantine)}`;
-    // Enforced on main (push, nightly), where the quarantine grows; a pull
-    // request only warns, so one bad day on main does not block every PR.
-    if (BUDGET_EVENTS.has(process.env.GITHUB_EVENT_NAME ?? '')) {
-      summary(text);
-      return 1;
-    }
-    summary(`${text}\n\n(Warning only on a ${process.env.GITHUB_EVENT_NAME || 'local'} run.)`);
-  }
   if (firstRun.unhandled) {
     // An error outside any test is unattributable even when some failures are
     // attributable: a re-run of the failing files would hide it.
@@ -647,6 +644,29 @@ async function runCommand(/** @type {string[]} */ argv) {
     summary(`### Failing tests (failed on the re-run too)\n\n${list(outcome.blocking)}`);
     return 1;
   }
+  return 0;
+}
+
+/** The `budget` subcommand: the quarantine's size, apart from any test outcome (T14257). */
+function budgetCommand() {
+  const open = readOpenIssues();
+  if (open === null) {
+    console.warn('::warning::The flaky quarantine could not be read; its budget is unchecked.');
+    return 0;
+  }
+  const quarantine = open.issues.flatMap((i) => (i.state ? [i.state] : []));
+  if (quarantine.length <= MAX_QUARANTINE) {
+    console.log(`Flaky quarantine: ${quarantine.length} of at most ${MAX_QUARANTINE}.`);
+    return 0;
+  }
+  const text = `### Flaky quarantine over budget\n\n${quarantine.length} tests are quarantined (most ${MAX_QUARANTINE}). Fix flaky tests and close their \`${LABEL}\` issues.\n\n${list(quarantine)}`;
+  // Fails on main (push, nightly), where the quarantine grows; any other run
+  // only warns, so one bad day on main never reads as a pull request's fault.
+  if (BUDGET_EVENTS.has(process.env.GITHUB_EVENT_NAME ?? '')) {
+    summary(text);
+    return 1;
+  }
+  summary(`${text}\n\n(Warning only on a ${process.env.GITHUB_EVENT_NAME || 'local'} run.)`);
   return 0;
 }
 
@@ -727,9 +747,10 @@ function fileCommand(/** @type {string[]} */ argv) {
 async function main() {
   const [sub, ...rest] = process.argv.slice(2);
   if (sub === 'run') return runCommand(rest);
+  if (sub === 'budget') return budgetCommand();
   if (sub === 'file') return fileCommand(rest);
   console.error(
-    'usage: ci-flaky-quarantine.mjs run --log <f> --report <f> -- <vitest args> | file --reports <dir> --run-url <u> --sha <s> [--expire]',
+    'usage: ci-flaky-quarantine.mjs run --log <f> --report <f> -- <vitest args> | budget | file --reports <dir> --run-url <u> --sha <s> [--expire]',
   );
   return 2;
 }
