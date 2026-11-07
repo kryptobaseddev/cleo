@@ -326,6 +326,7 @@ async function startCli(): Promise<void> {
     showUpdateNotice({ version: CLI_VERSION, argv, quiet: rawOpts['quiet'] === true });
     await runStartupMaintenance();
     await maybeSpawnMergeSweep(argv[0]);
+    await maybeSpawnCensus(argv[0]);
   }
 
   // ---------------------------------------------------------------------------
@@ -779,6 +780,37 @@ async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> 
     }).unref();
   } catch {
     // Never break the command over a background sweep.
+  }
+}
+
+/**
+ * Lazy worktree census (T14275): when an agent runs briefing, next, current or
+ * show, claim the machine's daily census (atomic, at most once per 24 h) and
+ * run a report-only census in a bounded detached child. Report only: the
+ * first release never removes anything from the lazy path. Never in CI, under
+ * vitest, in a process git started (T14189), from a CLI built in a worktree
+ * (T14168), or while another census holds its lock (the child skips). Never
+ * throws.
+ *
+ * @param command - The command being run.
+ */
+async function maybeSpawnCensus(command: string | undefined): Promise<void> {
+  if (!MERGE_SWEEP_COMMANDS.has(command ?? '') || command === 'release') return;
+  // Cheap first: CI and vitest never load the census module (the built-CLI
+  // startup probes run with CI set, gate 39).
+  if (process.env['CI'] === 'true' || process.env['VITEST'] !== undefined) return;
+  try {
+    const { censusSpawnAllowed, startLazyCensus } = await import('@cleocode/core/hygiene/census');
+    if (!censusSpawnAllowed(process.env)) return;
+    const { lazySweepBlockedReason, mergeSweepChildEnv } = await import(
+      '@cleocode/core/tasks/merge-close.js'
+    );
+    if ((await lazySweepBlockedReason('', process.cwd())) !== null) return;
+    // Skips while a census holds its lock or today's run is claimed; the child
+    // is bounded (niced, a wall-clock budget, a partial record) and exits.
+    startLazyCensus(mergeSweepChildEnv(process.env));
+  } catch {
+    // Never break the command over a background census.
   }
 }
 

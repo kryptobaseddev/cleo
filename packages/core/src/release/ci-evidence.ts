@@ -61,6 +61,7 @@ import {
   type EvidenceRoots,
   isDocumentArtifact,
   linkedPrChange,
+  reviewedDirectiveLinkage,
 } from '../tasks/evidence.js';
 import { ghQueryTimeoutMs, isGhCliAvailable } from './github-pr.js';
 import {
@@ -405,11 +406,10 @@ export function readCiChecks(projectRoot: string): CiChecksConfig {
     Array.isArray(v) && v.every((x) => typeof x === 'string' && x.trim() !== '')
       ? (v as string[]).map((x) => x.trim())
       : undefined;
-  const { tests, qa, jobs, covering } = raw as {
+  const { tests, qa, jobs } = raw as {
     tests?: unknown;
     qa?: unknown;
     jobs?: unknown;
-    covering?: unknown;
   };
   const jobLists =
     typeof jobs === 'object' && jobs !== null
@@ -417,50 +417,13 @@ export function readCiChecks(projectRoot: string): CiChecksConfig {
       : undefined;
   const jobTests = list(jobLists?.tests);
   const jobQa = list(jobLists?.qa);
-  const coverRules = (v: unknown): CoveringJobRule[] | undefined => {
-    if (!Array.isArray(v)) return undefined;
-    const rules = v.flatMap((r): CoveringJobRule[] => {
-      if (typeof r !== 'object' || r === null) return [];
-      const { paths, jobs: ruleJobs } = r as { paths?: unknown; jobs?: unknown };
-      const p = list(paths);
-      const j = list(ruleJobs);
-      return p && j ? [{ paths: p, jobs: j }] : [];
-    });
-    // A malformed rule voids the whole list: a half-read mapping must not widen coverage.
-    return rules.length === v.length && rules.length > 0 ? rules : undefined;
-  };
-  const coverLists =
-    typeof covering === 'object' && covering !== null
-      ? (covering as { tests?: unknown; qa?: unknown })
-      : undefined;
-  const coverTests = coverRules(coverLists?.tests);
-  const coverQa = coverRules(coverLists?.qa);
   return {
     ...(list(tests) ? { tests: list(tests) } : {}),
     ...(list(qa) ? { qa: list(qa) } : {}),
     ...(jobTests || jobQa
       ? { jobs: { ...(jobTests ? { tests: jobTests } : {}), ...(jobQa ? { qa: jobQa } : {}) } }
       : {}),
-    ...(coverTests || coverQa
-      ? {
-          covering: {
-            ...(coverTests ? { tests: coverTests } : {}),
-            ...(coverQa ? { qa: coverQa } : {}),
-          },
-        }
-      : {}),
   };
-}
-
-/**
- * One `evidence.ciChecks.covering` rule (T13175): changed paths matching
- * `paths` are covered by the jobs matching `jobs`.
- */
-export interface CoveringJobRule {
-  /** Repo-relative path globs (`**` any depth, `*` within one segment). */
-  paths: string[];
-  /** Job-name globs (`*` wildcard) that must each have run and succeeded. */
-  jobs: string[];
 }
 
 /** `evidence.ciChecks` as read from project context (T12634). */
@@ -476,15 +439,17 @@ export interface CiChecksConfig {
    * is not enough.
    */
   jobs?: { tests?: string[]; qa?: string[] };
-  /**
-   * T13175: jobs that cover changed paths a change-detection filter keeps out
-   * of the `jobs` globs (e.g. `scripts/**` → `Scripts Tests`). When every
-   * required job of a gate was SKIPPED (by its `if:` filter; a failure upstream
-   * already turns the required check red) and every changed path matches a
-   * rule whose jobs ran and succeeded, those jobs attest the gate instead.
-   */
-  covering?: { tests?: CoveringJobRule[]; qa?: CoveringJobRule[] };
 }
+
+/**
+ * The package code roots (T14260): every path under them is code for CI's
+ * `code` change filter (so a template `.md` runs the unit shards) and for
+ * evidence (so a filter skip never stands in for their tests). The CI filter
+ * is pinned to this list by a test in `__tests__/ci-evidence.test.ts`.
+ *
+ * @task T14260
+ */
+export const PACKAGE_CODE_ROOTS: readonly string[] = ['packages/', 'crates/'];
 
 /**
  * Top-level directories whose files are code for the `ci:` skip decision even
@@ -492,7 +457,7 @@ export interface CiChecksConfig {
  * template (CLEO-INJECTION.md is injected into every agent), and the CI `code`
  * path filter plus the scripts, crates and workflow filters cover these roots.
  */
-const CI_CODE_ROOTS: readonly string[] = ['packages/', 'crates/', 'scripts/', '.github/'];
+const CI_CODE_ROOTS: readonly string[] = [...PACKAGE_CODE_ROOTS, 'scripts/', '.github/'];
 
 /**
  * Stricter than `pr:`'s {@link isDocumentArtifact}: a documentation artifact
@@ -536,57 +501,36 @@ export function jobNameMatches(re: RegExp, name: string): boolean {
 }
 
 /**
- * Path glob to an anchored regular expression (T13175): `**` followed by `/` is
- * any number of whole directories (including none), a trailing `/` followed by
- * `**` is everything below, `*` any run of characters within one segment, `?`
- * one character within a segment. Everything else is literal.
- *
- * @param glob - Repo-relative path glob.
- * @returns The anchored expression.
- */
-export function pathGlobToRegExp(glob: string): RegExp {
-  let out = '';
-  for (let i = 0; i < glob.length; i++) {
-    const ch = glob[i] as string;
-    if (ch === '*' && glob[i + 1] === '*') {
-      if (glob[i + 2] === '/') {
-        out += '(?:.*/)?';
-        i += 2;
-      } else {
-        out += '.*';
-        i++;
-      }
-    } else if (ch === '*') out += '[^/]*';
-    else if (ch === '?') out += '[^/]';
-    else out += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${out}$`);
-}
-
-/**
- * Judge a gate's required jobs with the covering rules (T13175): accepted only
+ * Judge a gate's required jobs as skipped by CI's own change filter (T14260):
+ * accepted only for a diff entirely outside the {@link PACKAGE_CODE_ROOTS},
  * when each required glob either succeeded or had every latest run completed
- * `skipped` (never cancelled, failed, pending or missing), at least one was
- * skipped, every changed path matches a rule, and every job glob of each rule
- * used has run and succeeded on `sha`.
+ * `skipped` (never cancelled, failed, pending or missing) and at least one
+ * was skipped. The caller has already found the required checks (the `CI`
+ * aggregate) green, so the skip is CI's verdict that the change touches
+ * nothing those jobs test.
  *
  * @param globs - The gate's required job globs (`evidence.ciChecks.jobs`).
- * @param rules - The gate's covering rules.
  * @param changedPaths - The PR's changed paths.
  * @param checks - Every check reported for the commit.
  * @param sha - Commit being judged.
  * @param scope - The app and workflow files the jobs must come from.
- * @returns The covering job names, or why coverage does not apply.
- * @task T13175
+ * @returns The jobs that ran and the ones the filter skipped, or why the skip does not count.
+ * @task T14260
  */
-export function evaluateCoveringJobs(
+export function evaluateFilterSkippedJobs(
   globs: readonly string[],
-  rules: readonly CoveringJobRule[],
   changedPaths: readonly string[],
   checks: readonly CommitCheck[],
   sha: string,
   scope: { app?: string | number; workflows: readonly string[] },
-): { ok: true; jobs: string[] } | { ok: false; reason: string } {
+): { ok: true; jobs: string[]; skipped: string[] } | { ok: false; reason: string } {
+  if (changedPaths.length === 0) return { ok: false, reason: 'the PR has no known changed paths' };
+  const code = changedPaths.find((p) => PACKAGE_CODE_ROOTS.some((root) => p.startsWith(root)));
+  if (code !== undefined)
+    return {
+      ok: false,
+      reason: `${code} is package code, so a filter skip never stands in for its tests`,
+    };
   const inScope = checks.filter(
     (c) =>
       c.source === 'check-run' &&
@@ -596,10 +540,8 @@ export function evaluateCoveringJobs(
       (scope.app === undefined ||
         (typeof scope.app === 'number' ? c.appId === scope.app : c.appSlug === scope.app)),
   );
-  // Each required glob either succeeded (kept) or was SKIPPED by its filter
-  // on every run (covered below); anything else refuses.
   const ran: string[] = [];
-  let skipped = false;
+  const skipped: string[] = [];
   for (const glob of globs) {
     const re = globToRegExp(glob);
     const latest = new Map<string, CommitCheck>();
@@ -621,21 +563,10 @@ export function evaluateCoveringJobs(
         reason: `job ${notSkipped.name} is ${notSkipped.status !== 'completed' ? notSkipped.status : notSkipped.conclusion}, not skipped by its filter`,
       };
     }
-    skipped = true;
+    skipped.push(...new Set(runs.map((c) => c.name)));
   }
-  if (!skipped) return { ok: false, reason: 'no required job was skipped' };
-  if (changedPaths.length === 0) return { ok: false, reason: 'the PR has no known changed paths' };
-  const used = new Set<CoveringJobRule>();
-  for (const path of changedPaths) {
-    const rule = rules.find((r) => r.paths.some((g) => pathGlobToRegExp(g).test(path)));
-    if (!rule)
-      return { ok: false, reason: `${path} is covered by no evidence.ciChecks.covering rule` };
-    used.add(rule);
-  }
-  const jobs = evaluateJobs([...new Set([...used].flatMap((r) => r.jobs))], checks, sha, scope);
-  return jobs.ok
-    ? { ok: true, jobs: [...new Set([...ran, ...jobs.jobs])] }
-    : { ok: false, reason: jobs.reasons.join('; ') };
+  if (skipped.length === 0) return { ok: false, reason: 'no required job was skipped' };
+  return { ok: true, jobs: ran, skipped };
 }
 
 /**
@@ -3013,7 +2944,18 @@ export async function resolveCiEvidenceAtom(
           : 'E_EVIDENCE_INSUFFICIENT',
     };
   }
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, pr.mergedAt);
+  // T14259: on the merge sweep's path, the Closes:/Refs: line and the
+  // non-author verdicts are the linkage.
+  const reviewed =
+    context.reviewedLinkage === true &&
+    (await reviewedDirectiveLinkage(
+      prNumber,
+      pr.body,
+      pr.headRefOid,
+      roots.storeRoot,
+      context.task.id,
+    ));
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, pr.mergedAt, reviewed);
   if (unlinked) {
     return {
       ok: false,
@@ -3308,6 +3250,7 @@ export async function resolveCiEvidenceAtom(
   // (`cleo update --labels docs`) and must never excuse skipped jobs.
   const isCode = !docsOnlyDiff;
   const jobsByGate: Record<string, string[]> = {};
+  const filterSkipped: { testsPassed?: string[]; qaPassed?: string[] } = {};
   const fetchJobLog = opts.fetchJobLog ?? defaultFetchJobLog;
   let mergeNonTest: NonTestFailuresResult | undefined;
   if (isCode) {
@@ -3371,21 +3314,21 @@ export async function resolveCiEvidenceAtom(
           else if (!onPrHead.ok) judgedJobs = onPrHead;
         }
       }
-      // T13175: required jobs skipped by their change filter, with every
-      // changed path covered by a declared job that ran and succeeded.
-      const rules = readCiChecks(roots.storeRoot).covering?.[g.key];
-      let coverNote = '';
-      if (!judgedJobs.ok && rules && rules.length > 0) {
-        const covered = evaluateCoveringJobs(
+      // T14260: required jobs CI's own change filter skipped, on a diff
+      // outside the package code roots, with the required checks green.
+      let skipNote = '';
+      if (!judgedJobs.ok) {
+        const skip = evaluateFilterSkippedJobs(
           globs,
-          rules,
           pr.changedPaths,
           checks,
           descendant?.sha ?? pr.mergeCommitSha,
           scope,
         );
-        if (covered.ok) judgedJobs = covered;
-        else coverNote = `\n  Covering jobs do not apply: ${covered.reason}`;
+        if (skip.ok) {
+          judgedJobs = { ok: true, jobs: skip.jobs };
+          filterSkipped[g.gate] = skip.skipped;
+        } else skipNote = `\n  A filter skip does not stand in: ${skip.reason}`;
       }
       if (!judgedJobs.ok) {
         return {
@@ -3394,7 +3337,7 @@ export async function resolveCiEvidenceAtom(
           reason:
             `${g.gate} for code task ${context.task.id} needs its jobs to have run on PR #${prNumber}:\n  - ` +
             judgedJobs.reasons.join('\n  - ') +
-            coverNote,
+            skipNote,
         };
       }
       jobsByGate[g.gate] = judgedJobs.jobs;
@@ -3424,6 +3367,7 @@ export async function resolveCiEvidenceAtom(
         : {}),
       ...(workspaceWide ? { workspaceWide } : {}),
       ...(mainOnly ? { mainOnly: true } : {}),
+      ...(Object.keys(filterSkipped).length > 0 ? { filterSkippedJobs: filterSkipped } : {}),
       requiredSource: required.source.tier,
       taskId: context.task.id,
       gateChecks,

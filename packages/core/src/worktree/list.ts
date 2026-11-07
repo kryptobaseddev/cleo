@@ -7,15 +7,22 @@
  * For each worktree returned by `git worktree list --porcelain`, the function
  * resolves:
  *  - `taskId` (the task adopt recorded in the sentinel index, else the branch
- *    name `task/T####[-slug]` or `feat/T####[-slug]`).
+ *    name `task|feat|fix|test|chore/T####[-slug]`, else a `T####[-slug]`
+ *    directory name; T14236).
  *  - `owningTaskStatus` (read from the project cleo.db tasks SSoT via `getDb`).
- *  - `lastActivity` (newest commit on the branch, falling back to dir mtime).
+ *  - `lastActivity` (the worktree's own HEAD commit, falling back to dir mtime).
  *  - `isLocked` (porcelain `locked` line).
- *  - `isMerged` (`git merge-base --is-ancestor <branch> main`, exit-0 ⇒ merged).
- *  - `isStale`  (no commits in >N days AND (task done/cancelled OR merged)).
+ *  - `isMerged` (the worktree's own HEAD is reachable from main and is not a
+ *    commit on main's first-parent line, i.e. it carried commits of its own
+ *    that were merged; a fresh branch at a main commit is never merged; T14236).
+ *  - `isStale`  (annotation: no commits in >N days AND (task done/cancelled OR merged)).
  *  - `owningAgent` (the sentinel index's `adoptedBy`, else null).
- *  - `statusCategory` — one of `locked|orphan|merged|stale|active`, resolved
- *    by precedence in {@link classifyStatus}.
+ *  - `statusCategory` — `active|redundant|keep|unknown` (T14274): a worktree
+ *    whose task is done or cancelled, or that has no stored task and has been
+ *    idle past the stale window, is classified by the one disposal proof
+ *    (`disposeWorktree`, dry run): `redundant` when nothing in it would be
+ *    lost, `keep` naming the failing clause, `unknown` when a probe could not
+ *    answer. Everything else is `active` ({@link classifyStatus}).
  *  - `source` — origin of the worktree: `cleo-spawn`, `claude-agent`, `manual`,
  *                or `adopted`. Set by consulting the sentinel index at
  *                `<projectRoot>/.cleo/worktrees.json` (T9804).
@@ -44,17 +51,19 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  DisposeWorktreeResult,
   EngineResult,
   ListWorktreesOpts,
   ListWorktreesResult,
   WorktreeInfo,
   WorktreeSource,
-  WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
-import { readSentinelIndex, taskIdFromBranch } from './sentinel-index.js';
+import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
+import { worktreeInUseProbe } from './in-use-probe.js';
+import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
 
 export { taskIdFromBranch } from './sentinel-index.js';
 
@@ -76,6 +85,13 @@ interface PorcelainEntry {
   path: string;
   branch: string;
   locked: boolean;
+  /** The worktree's own HEAD commit, or null when git did not report one (T14236). */
+  head: string | null;
+}
+
+/** The task a worktree names: its branch, else its directory (T14236). */
+function taskIdOf(branch: string, path: string): string | null {
+  return taskIdFromBranch(branch) ?? taskIdFromWorktreeDir(path);
 }
 
 /**
@@ -103,7 +119,24 @@ export async function listWorktrees(
   const staleThresholdMs = staleDays * 24 * 60 * 60 * 1000;
   const nowMs = Date.now();
   // Lazy: keeps @cleocode/worktree out of this module's static graph (T13696).
-  const { readKeepMarker } = await import('@cleocode/worktree');
+  const { disposeWorktree, readKeepMarker, readWorktreeTaskLock } = await import(
+    '@cleocode/worktree'
+  );
+  /**
+   * T14274: what the one disposal proof says, for a disposal candidate. A dry
+   * run: nothing is written, archived or removed (prune re-proves with the
+   * task's evidence before it acts).
+   */
+  const proveRedundant = (path: string, taskId: string | null, isMerged: boolean) =>
+    disposeWorktree({
+      worktreePath: path,
+      projectRoot,
+      taskId,
+      reason: 'list',
+      exemptRegenerable: isMerged,
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
+      dryRun: true,
+    });
 
   let porcelainEntries: PorcelainEntry[];
   try {
@@ -134,13 +167,13 @@ export async function listWorktrees(
   for (const entry of porcelainEntries) {
     taskIdByPath.set(
       entry.path,
-      sentinelByPath.get(entry.path)?.taskId ?? taskIdFromBranch(entry.branch),
+      sentinelByPath.get(entry.path)?.taskId ?? taskIdOf(entry.branch, entry.path),
     );
   }
   // Also seed task IDs for sentinel-only entries so they can be batch-loaded.
   for (const sentinel of sentinelEntries) {
     if (!porcelainPaths.has(sentinel.path)) {
-      taskIdByPath.set(sentinel.path, sentinel.taskId ?? taskIdFromBranch(sentinel.branch));
+      taskIdByPath.set(sentinel.path, sentinel.taskId ?? taskIdOf(sentinel.branch, sentinel.path));
     }
   }
   const taskIds = Array.from(taskIdByPath.values()).filter((id): id is string => id !== null);
@@ -149,6 +182,10 @@ export async function listWorktrees(
   // Pre-resolve the default upstream branch presence — if `main` is absent,
   // `branchIsMergedToMain` would otherwise spuriously throw for every entry.
   const mainBranch = resolveMainBranch(projectRoot);
+  // T14236: main's first-parent line, read once. A worktree whose own HEAD is
+  // ON it carries no commits of its own (a fresh branch, or a detached
+  // checkout of a main commit), so it is never "merged".
+  const mainLine = mainBranch ? readFirstParentLine(projectRoot, mainBranch) : new Set<string>();
 
   // Pre-resolve the primary worktree path. The primary worktree is the
   // canonical project checkout (NOT a `git worktree add` derivative) — it
@@ -171,31 +208,36 @@ export async function listWorktrees(
   // --- Build WorktreeInfo entries from git-native porcelain output ---
   const worktrees: WorktreeInfo[] = porcelainEntries.map((entry) => {
     const taskId = taskIdByPath.get(entry.path) ?? null;
+    // T14236: every git test uses the worktree's OWN HEAD. A detached entry's
+    // branch is the literal 'HEAD', which from projectRoot named the primary
+    // checkout's commit.
     const lastActivityMs =
-      getLastCommitTimestampMs(entry.branch, projectRoot) ?? mtimeMs(entry.path);
+      (entry.head ? getLastCommitTimestampMs(entry.head, projectRoot) : null) ??
+      mtimeMs(entry.path);
     const lastActivity = new Date(lastActivityMs).toISOString();
     const isPrimary = isPrimaryWorktree(entry.path, primaryWorktreePath);
-    const isMerged = mainBranch
-      ? branchIsMergedToMain(entry.branch, projectRoot, mainBranch)
-      : false;
+    const isMerged =
+      mainBranch !== null && entry.head !== null
+        ? headIsMergedWork(entry.head, projectRoot, mainBranch, mainLine)
+        : false;
     const owningTaskStatus = taskId ? (taskStatusByid.get(taskId) ?? null) : null;
     const owningAgent = sentinelByPath.get(entry.path)?.adoptedBy ?? null;
 
     const idleMs = nowMs - lastActivityMs;
     const idleOlderThanThreshold = idleMs > staleThresholdMs;
     const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
-    const isOrphan =
-      owningTaskStatus === 'cancelled' || (taskId !== null && owningTaskStatus === null);
-    // Stale = idle longer than threshold AND (owner is terminal OR branch already integrated).
+    // Stale (an annotation) = idle longer than threshold AND (owner is terminal OR branch already integrated).
     const isStale = idleOlderThanThreshold && (ownerTerminal || isMerged);
 
-    const statusCategory = classifyStatus({
+    const candidate = isDisposalCandidate({
       isPrimary,
-      isLocked: entry.locked,
-      isOrphan,
-      isMerged,
-      isStale,
+      owningTaskStatus,
+      // At or past the window: a zero-day window makes every taskless worktree a candidate.
+      idlePastWindow: idleMs >= staleThresholdMs,
     });
+    const classified = classifyStatus(
+      candidate ? proveRedundant(entry.path, taskId, isMerged) : null,
+    );
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -226,7 +268,7 @@ export async function listWorktrees(
       isStale,
       isMerged,
       owningTaskStatus,
-      statusCategory,
+      ...classified,
       source,
       ...keptField(entry.path, readKeepMarker),
     };
@@ -240,23 +282,20 @@ export async function listWorktrees(
   for (const sentinel of sentinelEntries) {
     if (porcelainPaths.has(sentinel.path)) continue; // Already in git output.
 
-    const taskId = sentinel.taskId ?? taskIdFromBranch(sentinel.branch);
+    const taskId = sentinel.taskId ?? taskIdOf(sentinel.branch, sentinel.path);
     const owningTaskStatus = taskId ? (taskStatusByid.get(taskId) ?? null) : null;
     const lastActivityMs = mtimeMs(sentinel.path);
     const lastActivity = new Date(lastActivityMs).toISOString();
-    const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
     const idleMs = nowMs - lastActivityMs;
-    const isStale = idleMs > staleThresholdMs && (ownerTerminal || true);
-    const isOrphan =
-      owningTaskStatus === 'cancelled' || (taskId !== null && owningTaskStatus === null);
-
-    const statusCategory = classifyStatus({
+    const isStale = idleMs > staleThresholdMs;
+    const candidate = isDisposalCandidate({
       isPrimary: false,
-      isLocked: false,
-      isOrphan,
-      isMerged: false,
-      isStale,
+      owningTaskStatus,
+      idlePastWindow: idleMs >= staleThresholdMs,
     });
+    const classified = classifyStatus(
+      candidate ? proveRedundant(sentinel.path, taskId, false) : null,
+    );
 
     worktrees.push({
       path: sentinel.path,
@@ -273,7 +312,7 @@ export async function listWorktrees(
       isStale,
       isMerged: false,
       owningTaskStatus,
-      statusCategory,
+      ...classified,
       source: sentinel.source,
       ...keptField(sentinel.path, readKeepMarker),
     });
@@ -315,7 +354,60 @@ function keptField(
 export function enumerateWorktrees(projectRoot: string): PorcelainEntry[] {
   return readWorktreePorcelain(projectRoot)
     .filter((entry) => entry.bare !== true)
-    .map((entry) => ({ path: entry.path, branch: entry.branch ?? 'HEAD', locked: entry.locked }));
+    .map((entry) => ({
+      path: entry.path,
+      branch: entry.branch ?? 'HEAD',
+      locked: entry.locked,
+      head: entry.head ?? null,
+    }));
+}
+
+/**
+ * The commits on `mainBranch`'s first-parent line (T14236). Empty when git
+ * fails, which makes {@link headIsMergedWork} answer "not merged".
+ *
+ * @param projectRoot - Project root for the git invocation.
+ * @param mainBranch - Upstream branch.
+ * @returns The set of full commit shas.
+ * @internal Exported for tests only.
+ */
+export function readFirstParentLine(projectRoot: string, mainBranch: string): Set<string> {
+  try {
+    const out = execFileSync('git', ['rev-list', '--first-parent', mainBranch], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      timeout: GIT_TIMEOUT_MS,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: 256 * 1024 * 1024,
+    });
+    return new Set(out.split('\n').filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Whether a worktree's HEAD is work that has been merged into main (T14236):
+ * reachable from main AND not itself a commit on main's first-parent line.
+ * A fresh branch, or a detached checkout of a main commit, has no commits of
+ * its own and is never merged; a HEAD not reachable from main never is.
+ * Fails closed: an unknown answer is "not merged".
+ *
+ * @param head - The worktree's own HEAD sha.
+ * @param projectRoot - Project root for the git invocation.
+ * @param mainBranch - Upstream branch.
+ * @param mainLine - {@link readFirstParentLine} of `mainBranch`.
+ * @returns true only for merged work.
+ * @internal Exported for tests only.
+ */
+export function headIsMergedWork(
+  head: string,
+  projectRoot: string,
+  mainBranch: string,
+  mainLine: ReadonlySet<string>,
+): boolean {
+  if (mainLine.size === 0 || mainLine.has(head)) return false;
+  return branchIsMergedToMain(head, projectRoot, mainBranch);
 }
 
 /**
@@ -376,32 +468,44 @@ export function branchIsMergedToMain(
 }
 
 /**
- * Apply orphan/merged/stale/locked precedence to produce the single
- * mutually-exclusive `statusCategory` field. See the {@link WorktreeStatusCategory}
- * docstring for the resolution order.
+ * Whether a worktree is a disposal candidate at all (T14274): not the primary
+ * checkout (T9686-D), and its task is done or cancelled, or it has no stored
+ * task and has been idle past the stale window. Everything else is `active`.
  *
- * Primary-worktree guard: the canonical project checkout is always classified
- * as `active`, regardless of merge state. The primary worktree's branch is
- * trivially an ancestor of itself (`main` is reachable from `main`), so the
- * naive ancestry check would label it `merged` and make it a prune candidate.
- *
- * @param flags - The set of pre-computed boolean classifiers.
- * @returns The resolved status category.
+ * @param flags - The primary guard, the owning task's status and idleness.
+ * @returns Whether the disposal proof decides its category.
  * @internal Exported for tests only.
  */
-export function classifyStatus(flags: {
-  isPrimary?: boolean;
-  isLocked: boolean;
-  isOrphan: boolean;
-  isMerged: boolean;
-  isStale: boolean;
-}): WorktreeStatusCategory {
-  if (flags.isPrimary === true) return 'active';
-  if (flags.isLocked) return 'locked';
-  if (flags.isOrphan) return 'orphan';
-  if (flags.isMerged) return 'merged';
-  if (flags.isStale) return 'stale';
-  return 'active';
+export function isDisposalCandidate(flags: {
+  isPrimary: boolean;
+  owningTaskStatus: string | null;
+  idlePastWindow: boolean;
+}): boolean {
+  if (flags.isPrimary) return false;
+  if (flags.owningTaskStatus === 'done' || flags.owningTaskStatus === 'cancelled') return true;
+  if (flags.owningTaskStatus !== null) return false; // an open task
+  return flags.idlePastWindow;
+}
+
+/**
+ * The status category from the disposal proof (T14274): `active` for a
+ * non-candidate (`proof === null`), `redundant` when the proof holds,
+ * `unknown` when a probe could not answer, else `keep` with the failing
+ * clause as `keepReason`.
+ *
+ * @param proof - The dry-run `disposeWorktree` result, or `null` for a non-candidate.
+ * @returns The category, and the reason for `keep` / `unknown`.
+ * @internal Exported for tests only.
+ */
+export function classifyStatus(
+  proof: DisposeWorktreeResult | null,
+): Pick<WorktreeInfo, 'statusCategory' | 'keepReason'> {
+  if (proof === null) return { statusCategory: 'active' };
+  if (proof.keptReason === undefined) return { statusCategory: 'redundant' };
+  return {
+    statusCategory: proof.indeterminate === true ? 'unknown' : 'keep',
+    keepReason: proof.keptReason,
+  };
 }
 
 /**
@@ -445,8 +549,11 @@ export async function loadOwningTaskStatuses(
   if (!db) return out;
 
   const placeholders = taskIds.map(() => '?').join(', ');
-  const sql = `SELECT id, status FROM tasks_tasks WHERE id IN (${placeholders})`;
-  const rows = db.prepare(sql).all(...taskIds) as Array<{ id: string; status: string }>;
+  const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+  const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+    id: string;
+    status: string;
+  }>;
   for (const row of rows) {
     out.set(row.id, row.status);
   }

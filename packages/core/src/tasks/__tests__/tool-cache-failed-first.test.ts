@@ -349,16 +349,9 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     setState('red');
     await run();
     edit('attempted fix');
-    // Through the real ledger (sandboxed CLEO_HOME, no pressure sampling).
-    const prev = process.env.CLEO_ADMISSION_PRESSURE;
-    process.env.CLEO_ADMISSION_PRESSURE = 'off';
-    try {
-      const r = await runToolCached(cmd, repo, { spawnTimeoutMs: 30_000 });
-      expect(r.failedFirst?.outcome).toBe('failed');
-    } finally {
-      if (prev === undefined) delete process.env.CLEO_ADMISSION_PRESSURE;
-      else process.env.CLEO_ADMISSION_PRESSURE = prev;
-    }
+    // Through the real ledger (sandboxed CLEO_HOME, the suite's calm sample).
+    const r = await runToolCached(cmd, repo, { spawnTimeoutMs: 30_000 });
+    expect(r.failedFirst?.outcome).toBe('failed');
     expect(lines(admissionLog)).toHaveLength(1);
     expect(lines(admissionLog)[0]).toMatch(/^adm=\d+-\d+-[0-9a-f]+\.[0-9a-f]+$/);
   });

@@ -1,44 +1,64 @@
 /**
- * What a git hook actually used (T13921), so a hooked `git push` or `git
- * commit` is charged by its measured peak, not assumed to be a scoped build
- * (a pre-push typecheck was charged 12 GiB and four routine pushes held a
- * one-file fix for 35 minutes).
+ * What a governed run actually used, so the next run of the same command is
+ * charged by its measured peak, not its class plan (T13921 for git hooks,
+ * T14050 for scripts, T14281 for every command: a one-package `tsc -b` was
+ * planned at 12 GiB and measured 0.8 GB). One store, one rule.
  *
- * Safety rules (review of #2386):
+ * Keys:
  *
- * - The key covers the repository root, the hook name, the file git calls AND
- *   the hook manager's real script or config (husky's `.husky/<hook>`,
- *   lefthook's config, pre-commit's config). A manager whose real script
- *   cannot be found is never measured, so a shared shim never pools the
- *   peaks of different repositories.
+ * - A hook: the repository root, the hook name, the file git calls AND the
+ *   hook manager's real script or config (husky's `.husky/<hook>`, lefthook's
+ *   config, pre-commit's config). A manager whose real script cannot be found
+ *   is never measured, so a shared shim never pools the peaks of different
+ *   repositories.
+ * - A script: its path and content ({@link scriptFootprint}).
+ * - Any other command: the project root and its normalized argv
+ *   ({@link commandChargeKey}).
+ *
+ * The rule (conservative, T14281):
+ *
  * - A run counts only when its tree was sampled at least
- *   {@link HOOK_MIN_SAMPLES} times (it ran long enough for the hook to have
- *   done work: an "Everything up-to-date" push or a skipped hook is not a
- *   measurement), and the charge is lowered only after
- *   {@link HOOK_MIN_RUNS} counted runs. The recorded peak is the maximum of
- *   every counted run, so one light run never lowers it.
- * - Writes take a lock and keep the maximum, so concurrent runs never lose
- *   a peak.
+ *   {@link MEASURED_MIN_SAMPLES} times (it ran long enough to have done work:
+ *   an "Everything up-to-date" push or a skipped hook is not a measurement).
+ * - The charge is the largest of the last {@link MEASURED_WINDOW} counted
+ *   peaks times {@link MEASURED_PEAK_MARGIN}, never above the plan, once
+ *   {@link MEASURED_MIN_RUNS} runs are counted.
+ * - A run whose peak exceeds that charge resets the count, so the plan applies
+ *   again until enough runs are counted (T13972).
+ * - Writes take a lock, re-read inside it and replace the file tmp-then-rename,
+ *   so concurrent runs never lose a peak.
+ *
+ * The store is `<cleoHome>/run/charges.json` ({@link chargesDir}). An existing
+ * `<cleoHome>/admission/hook-footprints.json` is read once, until the first
+ * write of the new file (T14281; that reader goes in Phase 3).
  *
  * Every failure reads as "not measured", which keeps the class plan.
  *
  * @task T13921
+ * @task T14281
  */
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import lockfile from 'proper-lockfile';
+import { getCleoHome } from '../paths.js';
 
 /** The measured peak is charged with this margin. */
-export const HOOK_PEAK_MARGIN = 1.25;
+export const MEASURED_PEAK_MARGIN = 1.25;
 
 /** Tree samples a run needs before it counts as a measurement of its hook. */
-export const HOOK_MIN_SAMPLES = 2;
+export const MEASURED_MIN_SAMPLES = 2;
 
 /** Counted runs before the charge may fall below the class plan. */
-export const HOOK_MIN_RUNS = 3;
+export const MEASURED_MIN_RUNS = 3;
+
+/** The charge is the largest of this many most recent counted peaks (T14281). */
+export const MEASURED_WINDOW = 10;
+
+/** The key prefix of a plain command's charge ({@link commandChargeKey}). */
+export const COMMAND_KEY_PREFIX = 'cmd';
 
 /**
  * Environment variables that switch a hook manager off or narrow what it runs
@@ -55,49 +75,91 @@ export const HOOK_ENV_KEYS = [
   'PRE_COMMIT_ALLOW_NO_CONFIG',
 ] as const;
 
-/** Hooks kept in the file; the least recently measured are dropped. */
-const MAX_HOOKS = 200;
+/** Keys kept in the file; the least recently measured are dropped. */
+const MAX_KEYS = 500;
 
-/** One hook's measurement. */
-interface HookMeasurement {
-  /** The largest peak of every counted run. */
-  readonly peakBytes: number;
-  /** Counted runs. */
+/** One key's measurements. */
+interface Measurement {
+  /** The last {@link MEASURED_WINDOW} counted peaks, oldest first. */
+  readonly peaks: readonly number[];
+  /** Counted runs since the count was last reset. */
   readonly runs: number;
   readonly measuredAtMs: number;
   /**
    * The largest peak of an uncounted run that exceeded its charge (a failed
    * run, T14162): it raises the next charge ({@link readMeasuredPeak}) but
-   * never counts toward lowering one ({@link readHookPeak}).
+   * never counts toward lowering one ({@link readCountedPeak}).
    */
   readonly exceededPeakBytes?: number;
 }
 
+/**
+ * The directory of the measured-charge store (T14281).
+ *
+ * @param cleoHome - The CLEO home. @defaultValue {@link getCleoHome}
+ */
+export function chargesDir(cleoHome: string = getCleoHome()): string {
+  return join(cleoHome, 'run');
+}
+
 function file(dir: string): string {
-  return join(dir, 'hook-footprints.json');
+  return join(dir, 'charges.json');
 }
 
-function isMeasurement(v: unknown): v is HookMeasurement {
-  if (typeof v !== 'object' || v === null) return false;
+/** The store before T14281, beside the admission ledger: read once. */
+function legacyFile(dir: string): string {
+  return join(dirname(dir), 'admission', 'hook-footprints.json');
+}
+
+function isPeakList(v: unknown): v is number[] {
+  return Array.isArray(v) && v.every((p) => typeof p === 'number' && Number.isFinite(p));
+}
+
+/** A stored measurement, or a pre-T14281 one (`peakBytes`) read as a one-peak window. */
+function asMeasurement(v: unknown): Measurement | null {
+  if (typeof v !== 'object' || v === null) return null;
   const m = v as Record<string, unknown>;
-  return (
-    typeof m.peakBytes === 'number' &&
-    typeof m.runs === 'number' &&
-    typeof m.measuredAtMs === 'number'
-  );
+  if (typeof m.runs !== 'number' || typeof m.measuredAtMs !== 'number') return null;
+  const peaks = isPeakList(m.peaks)
+    ? m.peaks.slice(-MEASURED_WINDOW)
+    : typeof m.peakBytes === 'number'
+      ? m.peakBytes > 0
+        ? [m.peakBytes]
+        : []
+      : null;
+  if (peaks === null) return null;
+  return {
+    peaks,
+    runs: m.runs,
+    measuredAtMs: m.measuredAtMs,
+    ...(typeof m.exceededPeakBytes === 'number' ? { exceededPeakBytes: m.exceededPeakBytes } : {}),
+  };
 }
 
-function readAll(dir: string): Record<string, HookMeasurement> {
+function parse(path: string): Record<string, Measurement> | null {
   let doc: unknown;
   try {
-    doc = JSON.parse(readFileSync(file(dir), 'utf8'));
+    doc = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
-    return {};
+    return null;
   }
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return {};
-  const out: Record<string, HookMeasurement> = {};
-  for (const [key, m] of Object.entries(doc)) if (isMeasurement(m)) out[key] = m;
+  const out: Record<string, Measurement> = {};
+  for (const [key, v] of Object.entries(doc)) {
+    const m = asMeasurement(v);
+    if (m !== null) out[key] = m;
+  }
   return out;
+}
+
+function readAll(dir: string): Record<string, Measurement> {
+  if (existsSync(file(dir))) return parse(file(dir)) ?? {};
+  // T14281: the hook store's measurements carry over until the first write.
+  return parse(legacyFile(dir)) ?? {};
+}
+
+function largest(peaks: readonly number[]): number {
+  return peaks.reduce((a, b) => Math.max(a, b), 0);
 }
 
 function git(cwd: string, globals: readonly string[], args: readonly string[]): string {
@@ -272,59 +334,66 @@ export function scriptFootprint(cwd: string, script: string): ScriptFootprint | 
 }
 
 /**
- * The measured peak for a hook key, or `null` until it has
- * {@link HOOK_MIN_RUNS} counted runs.
+ * The measured peak a charge is lowered to (before the margin): the largest of
+ * the last {@link MEASURED_WINDOW} counted peaks, or `null` until
+ * {@link MEASURED_MIN_RUNS} runs are counted since the last reset.
  *
- * @param key - From {@link hookFootprintKey}.
- * @param dir - The admission directory.
+ * @param key - From {@link hookFootprintKey}, {@link scriptFootprint} or
+ *   {@link commandChargeKey}.
+ * @param dir - The store directory. @defaultValue {@link chargesDir}
  */
-export function readHookPeak(key: string, dir: string): number | null {
+export function readCountedPeak(key: string, dir: string = chargesDir()): number | null {
   const m = readAll(dir)[key];
-  return m !== undefined && m.runs >= HOOK_MIN_RUNS && m.peakBytes > 0 ? m.peakBytes : null;
+  if (m === undefined || m.runs < MEASURED_MIN_RUNS) return null;
+  const peak = largest(m.peaks);
+  return peak > 0 ? peak : null;
 }
 
 /**
  * The largest peak recorded for a key after any number of counted runs, or
  * `null` when none was (T14162). Raising a charge needs one measurement;
- * only lowering one waits for {@link HOOK_MIN_RUNS} ({@link readHookPeak}).
+ * only lowering one waits for {@link MEASURED_MIN_RUNS} ({@link readCountedPeak}).
  *
- * @param key - From {@link hookFootprintKey} or {@link scriptFootprint}.
- * @param dir - The admission directory.
+ * @param key - From {@link hookFootprintKey}, {@link scriptFootprint} or
+ *   {@link commandChargeKey}.
+ * @param dir - The store directory. @defaultValue {@link chargesDir}
  */
-export function readMeasuredPeak(key: string, dir: string): number | null {
+export function readMeasuredPeak(key: string, dir: string = chargesDir()): number | null {
   const m = readAll(dir)[key];
-  const peak = Math.max(m?.peakBytes ?? 0, m?.exceededPeakBytes ?? 0);
+  const peak = Math.max(largest(m?.peaks ?? []), m?.exceededPeakBytes ?? 0);
   return peak > 0 ? peak : null;
 }
 
 /**
- * Record one run of a hook: counted only with at least
- * {@link HOOK_MIN_SAMPLES} samples that saw the hook running; the stored peak
- * is the maximum of every counted run. A lowered charge is provisional: a run
- * whose peak exceeds what the hook was charged ({@link HOOK_PEAK_MARGIN} over
- * the stored peak) resets the count to that one run, so the class plan
- * applies again until it has {@link HOOK_MIN_RUNS} counted runs (T13972).
- * Taken under a lock, re-read
- * inside it; a failure is ignored (the next run keeps the class plan).
+ * Record one run: counted only with at least {@link MEASURED_MIN_SAMPLES}
+ * samples of its tree; the store keeps the last {@link MEASURED_WINDOW}
+ * counted peaks. A lowered charge is provisional: a run whose peak exceeds
+ * what the command was charged ({@link MEASURED_PEAK_MARGIN} over the largest
+ * stored peak) resets the count, so the class plan applies again until
+ * {@link MEASURED_MIN_RUNS} runs are counted (T13972, T14281). Taken under a
+ * lock, re-read inside it, written tmp-then-rename; a failure is ignored (the
+ * next run keeps the class plan).
  *
- * @param key - From {@link hookFootprintKey}.
+ * @param key - From {@link hookFootprintKey}, {@link scriptFootprint} or
+ *   {@link commandChargeKey}.
  * @param peakBytes - The run's largest sampled tree RSS.
  * @param samples - How many times the tree was sampled.
- * @param dir - The admission directory.
+ * @param dir - The store directory. @defaultValue {@link chargesDir}
  * @param nowMs - The clock.
  * @param counted - `false` for a run that exceeded its charge but is no
- *   measurement (it exited non-zero, T14162): only its excess is kept, apart
- *   from the counted peak and runs. @defaultValue true
+ *   measurement (it exited non-zero, T14162): its excess is kept apart (it
+ *   raises the next charge), and an excess over the charge still resets the
+ *   count. @defaultValue true
  */
-export async function recordHookPeak(
+export async function recordRunPeak(
   key: string,
   peakBytes: number,
   samples: number,
-  dir: string,
+  dir: string = chargesDir(),
   nowMs: number = Date.now(),
   counted = true,
 ): Promise<void> {
-  if (!(peakBytes > 0) || samples < HOOK_MIN_SAMPLES) return;
+  if (!(peakBytes > 0) || samples < MEASURED_MIN_SAMPLES) return;
   let unlock: (() => Promise<void>) | null = null;
   try {
     mkdirSync(dir, { recursive: true });
@@ -339,32 +408,47 @@ export async function recordHookPeak(
     });
     const all = readAll(dir);
     const last = all[key];
-    // An entry holding only a failed run's excess has no counted peak to exceed.
-    const exceeded =
-      last !== undefined && last.peakBytes > 0 && peakBytes > last.peakBytes * HOOK_PEAK_MARGIN;
+    const stored = largest(last?.peaks ?? []);
+    // A key holding only a failed run's excess has no counted peak to exceed.
+    const exceeded = stored > 0 && peakBytes > stored * MEASURED_PEAK_MARGIN;
     const excess = Math.max(counted ? 0 : peakBytes, last?.exceededPeakBytes ?? 0);
-    const next: HookMeasurement = counted
-      ? {
-          peakBytes: Math.max(peakBytes, last?.peakBytes ?? 0),
-          runs: exceeded ? 1 : (last?.runs ?? 0) + 1,
-          measuredAtMs: nowMs,
-          ...(excess > 0 ? { exceededPeakBytes: excess } : {}),
-        }
-      : {
-          peakBytes: last?.peakBytes ?? 0,
-          runs: last?.runs ?? 0,
-          measuredAtMs: nowMs,
-          exceededPeakBytes: excess,
-        };
-    const kept = Object.entries({ ...all, [key]: next })
+    const kept = exceeded ? [] : (last?.peaks ?? []);
+    const next: Measurement = {
+      peaks: counted ? [...kept, peakBytes].slice(-MEASURED_WINDOW) : kept,
+      runs: counted ? (exceeded ? 1 : (last?.runs ?? 0) + 1) : exceeded ? 0 : (last?.runs ?? 0),
+      measuredAtMs: nowMs,
+      ...(excess > 0 ? { exceededPeakBytes: excess } : {}),
+    };
+    const entries = Object.entries({ ...all, [key]: next })
       .sort(([, a], [, b]) => b.measuredAtMs - a.measuredAtMs)
-      .slice(0, MAX_HOOKS);
+      .slice(0, MAX_KEYS);
     const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(Object.fromEntries(kept)), 'utf8');
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(entries)), 'utf8');
     renameSync(tmp, path);
   } catch {
     // Not recorded: the next run keeps the class plan.
   } finally {
     await unlock?.().catch(() => undefined);
   }
+}
+
+/**
+ * The charge key of a plain command (T14281): `cmd:<sha256>` over the project
+ * root and the argv with leading `NAME=value` assignments dropped and each
+ * argument trimmed. A hook or script run keeps its own key.
+ *
+ * @param projectRoot - The project the command runs for.
+ * @param argv - The command.
+ *
+ * @example
+ * ```ts
+ * commandChargeKey('/repo', ['pnpm', 'exec', 'tsc', '-b']); // 'cmd:9c1…'
+ * ```
+ */
+export function commandChargeKey(projectRoot: string, argv: readonly string[]): string {
+  let start = 0;
+  while (start < argv.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[start] ?? '')) start++;
+  const hash = createHash('sha256').update(resolve(projectRoot));
+  for (const arg of argv.slice(start)) hash.update('\0').update(arg.trim());
+  return `${COMMAND_KEY_PREFIX}:${hash.digest('hex')}`;
 }

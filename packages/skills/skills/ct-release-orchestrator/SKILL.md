@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.7.1
+  version: 3.8.0
   tier: on-demand
   install: harness
   covers:
@@ -75,6 +75,7 @@ cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed co
 - **Commit:** the newest first-parent commit of `origin/main` whose `CI` check run concluded `success`; `--sha` pins one, which must itself be green. Nothing reruns the test suites: CI already passed that tree.
 - **Notes:** the changesets added since the previous release tag, led by `--lead` (stored as the tag annotation). A changeset no merged PR brought in is refused (`E_RELEASE_UNMERGED_CHANGESET`); no green commit is `E_RELEASE_NO_GREEN_COMMIT`.
 - **Docs rot (T14111):** the dry run shows `cleo docs rot` findings; a real stable cut refuses with `E_DOCS_ROT` before tagging while any stale, duplicate or orphaned doc remains; on a prerelease (canary) it is a warning only.
+- **Real-store smoke (T14250):** before a stable cut, check out the commit to cut and run `node scripts/release-mac-smoke.mjs --record <releaseEpicId>` (add `--project <dir>` once per extra project; each durability phase smokes this project and one other). It builds that commit and runs the built CLI on read-only copies of each real store in a sandboxed HOME: reads, a cancel cascade, `done --plan` on an epic with settled children, a docs fetch, an admission report and a session end, with the copy's test commands replaced so nothing starts a suite. `results.json` (commands, stores, CLI version, result) goes to `.cleo/release-smoke/<sha12>/` and is attached to the epic. A real stable cut reads that receipt and refuses with `E_RELEASE_SMOKE_MISSING` when it is missing, failed, or names another commit (the dry run shows it as `smoke`; a prerelease only warns). The fallback `cleo release open` applies the same gate to a stable version, against the dispatch branch head: fix forward and smoke the new commit.
 - **Provenance:** the merge sweep reconciles the newest stable tag automatically once its GitHub release exists (ADR-099); there is no manual reconcile step.
 - **Cleanup (T14142):** the report shows the plan for the release tasks' worktrees and `task/*` branches, plus nested repository copies proven redundant (clean, every ref on origin) only inside the worktrees of the release's done or cancelled tasks; a confirmed cut applies it after the tag. A cleanup failure never fails the cut, and changesets naming no task skip it.
 - **Which checkout (T14160):** `cut` runs every git and gh call, the docs-rot scan and `checkoutAtMain` in the checkout it is started from (a CLEO worktree, or the project root); it never runs git in another checkout. From a worktree the merge sweep and the cleanup, which work on the project checkout, are skipped and named in the report.
@@ -140,7 +141,10 @@ cleo release pr-status v2026.6.0
 node scripts/release-mac-smoke.mjs
 #    Builds it, snapshots the real stores into a sandbox (outside the backup
 #    rotation), runs the built CLI in a sandboxed HOME and writes evidence +
-#    SHA256SUMS to .cleo/release-smoke/<sha>/. Exit 0 = every command passed.
+#    SHA256SUMS to .cleo/release-smoke/<sha>/. Exit 0 = every step passed;
+#    non-zero blocks the tag. A stable `open` (step 2) also refuses without a
+#    passing receipt for the dispatch branch head, so for a stable version
+#    smoke that head before step 2 as well (T14250).
 
 # 5. After the release PR merges, tag explicitly (auto-tag is retired).
 git tag -a v2026.6.0 -m "Release v2026.6.0"

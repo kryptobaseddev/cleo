@@ -30,7 +30,6 @@ import { and, count, eq, getTableColumns, ne, or } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { type DocsWikilinkRelation, docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
-import { attachments } from '../store/tasks-schema.js';
 
 /**
  * A single slug-addressed wikilink edge.
@@ -105,36 +104,22 @@ export async function rebuildDocsWikilinks(
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const db = await getDb(projectRoot);
 
-  // Read every attachment's id, slug and provenance columns in one pass, then
-  // resolve the supersession FK ids → slugs in JS via an id→slug map. (A
-  // correlated SQL subquery aliasing the same table is fragile across SQLite
-  // versions, so the resolution is done in memory.)
-  const allRows = await db
-    .select({
-      id: attachments.id,
-      slug: attachments.slug,
-      supersedes: attachments.supersedes,
-      supersededBy: attachments.supersededBy,
-      relatedTasks: attachments.relatedTasks,
-      topics: attachments.topics,
-    })
-    .from(attachments)
-    .all();
-
-  const slugById = new Map<string, string>();
-  for (const r of allRows) {
-    if (r.slug) slugById.set(r.id, r.slug);
-  }
-
-  const slugged: DerivationRow[] = allRows
-    .filter((r): r is typeof r & { slug: string } => typeof r.slug === 'string')
-    .map((r) => ({
-      slug: r.slug,
-      supersedesSlug: r.supersedes ? (slugById.get(r.supersedes) ?? null) : null,
-      supersededBySlug: r.supersededBy ? (slugById.get(r.supersededBy) ?? null) : null,
-      relatedTasks: r.relatedTasks,
-      topics: r.topics,
-    }));
+  // T14288: every doc through its identity (a legacy doc through its row);
+  // supersession uids resolve to live slugs in memory, as do a legacy row's
+  // pointers (registry ids).
+  const { listDocRefs } = await import('./slug-rename.js');
+  const refs = await listDocRefs(projectRoot);
+  const slugByUid = new Map(refs.flatMap((r) => (r.docUid ? [[r.docUid, r.slug] as const] : [])));
+  const slugByRowId = new Map(refs.map((r) => [r.ownRow.id, r.slug] as const));
+  const linked = (uid: string | null, rowId: string | null | undefined): string | null =>
+    (uid ? slugByUid.get(uid) : undefined) ?? (rowId ? (slugByRowId.get(rowId) ?? null) : null);
+  const slugged: DerivationRow[] = refs.map((r) => ({
+    slug: r.slug,
+    supersedesSlug: linked(r.meta.supersedesUid, r.ownRow.supersedes),
+    supersededBySlug: linked(r.meta.supersededByUid, r.ownRow.supersededBy),
+    relatedTasks: r.meta.relatedTasks,
+    topics: r.meta.topics,
+  }));
 
   const edges = deriveWikilinkEdges(slugged);
 

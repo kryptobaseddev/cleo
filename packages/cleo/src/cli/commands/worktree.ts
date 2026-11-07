@@ -47,7 +47,7 @@ import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 /** Recognised `--status` filter values. */
-const VALID_STATUS_VALUES = ['active', 'stale', 'merged', 'orphan', 'locked'] as const;
+const VALID_STATUS_VALUES = ['active', 'redundant', 'keep', 'unknown'] as const;
 
 /**
  * `cleo worktree list` — emit a structured listing of every worktree.
@@ -58,15 +58,15 @@ const VALID_STATUS_VALUES = ['active', 'stale', 'merged', 'orphan', 'locked'] as
  *  - default (human): a compact table rendered by the generic renderer.
  *
  * Filter `--status` accepts a single category or a comma-separated list
- * (e.g. `--status stale,orphan`). Unknown categories are silently dropped
+ * (e.g. `--status keep,unknown`). Unknown categories are silently dropped
  * by the dispatch layer to keep the surface forward-compatible.
  *
  * @example
  * ```sh
  * cleo worktree list
- * cleo worktree list --status stale,orphan
+ * cleo worktree list --status keep,unknown
  * cleo worktree list --json
- * cleo worktree list --days 14 --status stale
+ * cleo worktree list --days 14 --status redundant
  * ```
  */
 const listCommand = defineCommand({
@@ -74,7 +74,7 @@ const listCommand = defineCommand({
     name: 'list',
     description:
       'List worktrees attached to this project with status classification ' +
-      '(active|stale|merged|orphan|locked).',
+      '(active|redundant|keep|unknown).',
   },
   args: {
     status: {
@@ -134,7 +134,7 @@ async function promptYesNo(question: string): Promise<boolean> {
  */
 function renderOrphanPreamble(wt: WorktreeInfo): string {
   return [
-    'Orphaned worktree found:',
+    'Redundant worktree found:',
     `  Path: ${wt.path}`,
     `  Branch: ${wt.branch}${wt.isMerged ? ' (merged to main)' : ''}`,
     `  Task status: ${wt.owningTaskStatus ?? '(missing)'}`,
@@ -144,11 +144,11 @@ function renderOrphanPreamble(wt: WorktreeInfo): string {
 }
 
 /**
- * `cleo worktree prune --orphaned` — detect + remove orphan/merged worktrees.
+ * `cleo worktree prune --orphaned` — detect + remove redundant worktrees.
  *
  * Behaviour:
- *  - `--orphaned` (required today, future-proofs the surface for stale-only
- *    pruning) filters to the orphan + merged categories.
+ *  - `--orphaned` (required) filters to the `redundant` category (T14274):
+ *    worktrees the disposal proof shows hold nothing that would be lost.
  *  - `--idle-days <N>` (T9805 AC2) additionally prunes worktrees whose last
  *    commit is older than N days and have no open PR associated.
  *  - When stdin is a TTY and `--yes` is NOT set, the command prints a
@@ -174,12 +174,12 @@ function renderOrphanPreamble(wt: WorktreeInfo): string {
 const pruneCommand = defineCommand({
   meta: {
     name: 'prune',
-    description: 'Remove orphan/merged worktrees with per-orphan Y/N confirmation.',
+    description: 'Remove redundant worktrees with per-worktree Y/N confirmation.',
   },
   args: {
     orphaned: {
       type: 'boolean',
-      description: 'Prune worktrees classified as orphan or merged (required).',
+      description: 'Prune worktrees classified as redundant (required).',
       default: false,
     },
     yes: {
@@ -233,9 +233,8 @@ const pruneCommand = defineCommand({
       return;
     }
 
-    const candidates = listResult.data.worktrees.filter(
-      (w) => w.statusCategory === 'orphan' || w.statusCategory === 'merged',
-    );
+    // T14274: only worktrees the disposal proof shows redundant.
+    const candidates = listResult.data.worktrees.filter((w) => w.statusCategory === 'redundant');
 
     if (candidates.length === 0) {
       cliOutput(
@@ -245,7 +244,7 @@ const pruneCommand = defineCommand({
           outcomes: [],
           errors: [],
           dryRun,
-          message: 'No orphan or merged worktrees found.',
+          message: 'No redundant worktrees found.',
         },
         { command: 'worktree-prune', operation: 'worktree.prune' },
       );

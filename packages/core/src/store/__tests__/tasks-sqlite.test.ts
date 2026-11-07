@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { leaseTestTasks } from './test-db-helper.js';
 
 let tempDir: string;
 
@@ -260,6 +261,9 @@ describe('SQLite tasks-sqlite', () => {
       ['see T1234 for details', 'prose containing a valid id — whitespace is disqualifying'],
       ['T\nX', 'embedded control character'],
       ['T'.repeat(65), 'absurd length'],
+      // T14324: the guard is the task grammar; reconcile follow-ups are T#### now.
+      ['T-RECONCILE-FOLLOWUP-v2026.5.63-6', 'a legacy structured follow-up id'],
+      ['T932EP', 'letters after the digits'],
     ])('refuses to insert a task whose id is %j (%s)', async (badId) => {
       const { createTask } = await import('../tasks-sqlite.js');
       const task = makeTask({ id: badId, title: 'should never be stored' });
@@ -267,14 +271,7 @@ describe('SQLite tasks-sqlite', () => {
       await expect(createTask(task)).rejects.toThrow(/malformed id/i);
     });
 
-    it.each([
-      ['T4242', 'the canonical generated shape'],
-      // CLEO mints this itself in `archive-reason-invariant.ts`. A guard that
-      // rejected it would break `cleo release reconcile`, and the doctor's
-      // --fix would DELETE working release follow-up tasks.
-      ['T-RECONCILE-FOLLOWUP-v2026.5.63-6', 'a structured id CLEO generates on purpose'],
-      ['T932EP', 'a pre-existing shape found in a live store'],
-    ])('accepts %j (%s)', async (goodId) => {
+    it.each([['T4242', 'the canonical generated shape']])('accepts %j (%s)', async (goodId) => {
       const { createTask, getTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: goodId, title: 'legitimate' }));
 
@@ -373,6 +370,7 @@ describe('SQLite tasks-sqlite', () => {
       });
 
       await createTask(task);
+      leaseTestTasks(['T004']);
       const retrieved = await getTask('T004');
 
       expect(retrieved!.title).toBe('Full task');
@@ -431,8 +429,45 @@ describe('SQLite tasks-sqlite', () => {
       const { createTask, updateTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
 
-      const updated = await updateTask('T001', { status: 'active' });
-      expect(updated!.status).toBe('active');
+      const updated = await updateTask('T001', { status: 'blocked' });
+      expect(updated!.status).toBe('blocked');
+    });
+
+    it('stores a written active as pending: in progress is a live claim lease (T14268)', async () => {
+      const { createTask, updateTask, getTask } = await import('../tasks-sqlite.js');
+      await createTask(makeTask({ id: 'T001' }));
+
+      expect((await updateTask('T001', { status: 'active' }))!.status).toBe('pending');
+      expect((await getTask('T001'))!.status).toBe('pending');
+      leaseTestTasks(['T001']);
+      expect((await getTask('T001'))!.status).toBe('active');
+    });
+
+    it('lists and counts by the derived status; a lapsed lease reads pending with no write (T14268)', async () => {
+      const { createTask, listTasks, countByStatus } = await import('../tasks-sqlite.js');
+      const { getTaskAccessor } = await import('../data-accessor.js');
+      const { setClaimClock } = await import('../task-claim.js');
+      await createTask(makeTask({ id: 'T001' }));
+      await createTask(makeTask({ id: 'T002' }));
+      leaseTestTasks(['T001']);
+      const accessor = await getTaskAccessor(tempDir);
+
+      expect((await listTasks({ status: 'active' })).map((t) => t.id)).toEqual(['T001']);
+      expect((await accessor.queryTasks({ status: 'active' })).tasks.map((t) => t.id)).toEqual([
+        'T001',
+      ]);
+      expect(await accessor.countTasks({ status: 'active' })).toBe(1);
+      expect(await countByStatus()).toMatchObject({ active: 1, pending: 1 });
+
+      setClaimClock(() => Date.parse('3000-01-01T00:00:00.000Z'));
+      try {
+        expect(await listTasks({ status: 'active' })).toEqual([]);
+        expect(await accessor.countTasks({ status: 'pending' })).toBe(2);
+        expect(await countByStatus()).toMatchObject({ pending: 2 });
+        expect(await countByStatus()).not.toHaveProperty('active');
+      } finally {
+        setClaimClock(null);
+      }
     });
 
     it('updates priority', async () => {
@@ -529,6 +564,7 @@ describe('SQLite tasks-sqlite', () => {
       await createTask(makeTask({ id: 'T001', status: 'pending' }));
       await createTask(makeTask({ id: 'T002', status: 'active' }));
       await createTask(makeTask({ id: 'T003', status: 'pending' }));
+      leaseTestTasks(['T002']);
 
       const pending = await listTasks({ status: 'pending' });
       expect(pending).toHaveLength(2);
@@ -841,6 +877,7 @@ describe('SQLite tasks-sqlite', () => {
       await createTask(makeTask({ id: 'T002', status: 'pending' }));
       await createTask(makeTask({ id: 'T003', status: 'active' }));
       await createTask(makeTask({ id: 'T004', status: 'done' }));
+      leaseTestTasks(['T003']);
 
       const counts = await countByStatus();
       expect(counts['pending']).toBe(2);

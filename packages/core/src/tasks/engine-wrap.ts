@@ -6,16 +6,26 @@
  * @epic T9834
  */
 
-import type { Task, TaskStatus, WorktreeDisposalBlockers } from '@cleocode/contracts';
-import { isSettledChild } from '@cleocode/contracts/status-registry.js';
+import type {
+  CancellationKind,
+  ChildStrategy,
+  Task,
+  TaskStatus,
+  WorktreeDisposalBlockers,
+} from '@cleocode/contracts';
+import {
+  CANCELLATION_KINDS,
+  isSettledChild,
+  REPLACED_CANCELLATION_KINDS,
+} from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { boundedStoreWriteFailure } from '../store/db-helpers.js';
 import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { canCancel } from './cancel-ops.js';
-import type { ChildStrategy } from './deletion-strategy.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
 import { discoverRelated, suggestRelated } from './relates.js';
 import { coreTaskAnalyze } from './task-analyze.js';
@@ -148,6 +158,10 @@ export async function coreTaskCancel(
     cascadeThreshold?: number;
     /** Config-level escape hatch for installations that forbid cascade cancellation. */
     allowCascade?: boolean;
+    /** Why the task is cancelled (T14267): abandoned, superseded, duplicate or obsolete. */
+    kind?: string;
+    /** The task that replaced this one; only with kind `superseded` or `duplicate` (T14267). */
+    replacedBy?: string;
   },
 ): Promise<{
   task: string;
@@ -155,6 +169,10 @@ export async function coreTaskCancel(
   reason?: string;
   cancelledAt: string;
   alreadyCancelled?: boolean;
+  /** The recorded cancel kind (T14267). */
+  kind?: CancellationKind;
+  /** The recorded replacement (T14267). */
+  replacedBy?: string;
   childStrategy?: ChildStrategy;
   affectedTasks?: string[];
   affectedCount?: number;
@@ -167,15 +185,54 @@ export async function coreTaskCancel(
     throw new Error(`Task ${taskId} not found`);
   }
 
+  // T14267 (D11229): the kind, and the replacement a superseded or duplicate
+  // cancel names, are checked before anything is written.
+  const kind = params?.kind;
+  if (kind !== undefined && !(CANCELLATION_KINDS as readonly string[]).includes(kind)) {
+    // @sync-invariant none:input-shape an unknown cancel kind is refused before any write
+    throw new Error(
+      `E_INVALID_INPUT: Unknown cancel kind '${kind}'; use one of ${CANCELLATION_KINDS.join(', ')}`,
+    );
+  }
+  const replacedBy = params?.replacedBy;
+  if (replacedBy !== undefined) {
+    if (kind === undefined || !REPLACED_CANCELLATION_KINDS.has(kind as CancellationKind)) {
+      // @sync-invariant none:input-shape a replacement without a superseded or duplicate kind is refused before any write
+      throw new Error(
+        `E_INVALID_INPUT: --replaced-by needs --kind superseded or --kind duplicate (got ${kind ?? 'no kind'})`,
+      );
+    }
+    if (replacedBy === taskId || !(await accessor.loadSingleTask(replacedBy))) {
+      // @sync-invariant none:input-shape a replacement that is the task itself or does not exist is refused before any write
+      throw new Error(
+        `E_INVALID_INPUT: Replacement ${replacedBy} must be another existing task (cleo find "${replacedBy}")`,
+      );
+    }
+  }
+
   // Idempotent: re-cancelling an already-cancelled task returns success with
   // `alreadyCancelled: true` and echoes the existing cancelledAt. T9838.
+  // T14267: a re-cancel that names a kind records it (and its replacement) on
+  // the cancelled task, so work cancelled before kinds existed can be marked
+  // superseded or duplicate without a restore.
   if (task.status === 'cancelled') {
+    if (kind !== undefined) {
+      await accessor.transaction((tx) =>
+        tx.updateTaskFields(taskId, {
+          cancellationKind: kind as CancellationKind,
+          replacedBy: replacedBy ?? null,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    }
     return {
       task: taskId,
       cancelled: true,
       reason: task.cancellationReason ?? undefined,
       cancelledAt: task.cancelledAt ?? task.updatedAt ?? new Date().toISOString(),
       alreadyCancelled: true,
+      ...(kind !== undefined ? { kind: kind as CancellationKind } : {}),
+      ...(replacedBy !== undefined ? { replacedBy } : {}),
     };
   }
 
@@ -198,7 +255,7 @@ export async function coreTaskCancel(
   if (children.length > 0) {
     if (childStrategy === 'block') {
       throw new Error(
-        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); pass children='cascade' (cancel them) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
+        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); choose explicitly: --children cascade (cancel them) or --children reparent --to <epicId> (move them)`,
       );
     }
 
@@ -216,7 +273,7 @@ export async function coreTaskCancel(
       const cascadeThreshold = params?.cascadeThreshold ?? 10;
       if (descendants.length > cascadeThreshold && !params?.force) {
         throw new Error(
-          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
+          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; --force waives it (audited)`,
         );
       }
       affectedTasks.push(...descendants.map((descendant: { id: string }) => descendant.id));
@@ -267,6 +324,8 @@ export async function coreTaskCancel(
   task.status = 'cancelled';
   task.cancelledAt = cancelledAt;
   task.cancellationReason = params?.reason ?? undefined;
+  task.cancellationKind = kind as CancellationKind | undefined;
+  task.replacedBy = replacedBy;
   task.updatedAt = cancelledAt;
   // T877: DB invariant requires status='cancelled' ↔ pipeline_stage='cancelled'.
   // ALWAYS force the stage to 'cancelled' on a successful cancel — the prior
@@ -315,6 +374,8 @@ export async function coreTaskCancel(
     cancelled: true,
     reason: params?.reason,
     cancelledAt,
+    ...(kind !== undefined ? { kind: kind as CancellationKind } : {}),
+    ...(replacedBy !== undefined ? { replacedBy } : {}),
     childStrategy,
     affectedTasks,
     affectedCount: affectedTasks.length,
@@ -808,6 +869,8 @@ export async function taskCancel(
         force?: boolean;
         cascadeThreshold?: number;
         allowCascade?: boolean;
+        kind?: string;
+        replacedBy?: string;
       },
 ): Promise<
   EngineResult<{
@@ -816,6 +879,8 @@ export async function taskCancel(
     reason?: string;
     cancelledAt: string;
     alreadyCancelled?: boolean;
+    kind?: CancellationKind;
+    replacedBy?: string;
     childStrategy?: ChildStrategy;
     affectedTasks?: string[];
     affectedCount?: number;
@@ -838,13 +903,40 @@ export async function taskCancel(
     if (message.startsWith('E_INVALID_STATE:')) {
       return engineError('E_INVALID_STATE', message.replace(/^E_INVALID_STATE:\s*/, ''));
     }
+    if (message.startsWith('E_INVALID_INPUT:')) {
+      // @sync-invariant none:input-shape a bad cancel kind or replacement was refused before any write
+      return engineError('E_INVALID_INPUT', message.replace(/^E_INVALID_INPUT:\s*/, ''));
+    }
+    // T14300: the re-wrap carries a runnable CLI fix and the alternatives.
     if (message.startsWith('E_HAS_CHILDREN:')) {
-      return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''));
+      return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''), {
+        fix: `cleo cancel ${taskId} --children cascade`,
+        alternatives: [
+          { action: 'cancel the subtree', command: `cleo cancel ${taskId} --children cascade` },
+          {
+            action: 'move the children under another epic first',
+            command: `cleo cancel ${taskId} --children reparent --to <epicId>`,
+          },
+        ],
+      });
     }
     if (message.startsWith('E_CASCADE_THRESHOLD_EXCEEDED:')) {
       return engineError(
         'E_CASCADE_THRESHOLD_EXCEEDED',
         message.replace(/^E_CASCADE_THRESHOLD_EXCEEDED:\s*/, ''),
+        {
+          fix: `cleo cancel ${taskId} --children cascade --force`,
+          alternatives: [
+            {
+              action: 'waive the threshold (audited)',
+              command: `cleo cancel ${taskId} --children cascade --force`,
+            },
+            {
+              action: 'move the children under another epic instead',
+              command: `cleo cancel ${taskId} --children reparent --to <epicId>`,
+            },
+          ],
+        },
       );
     }
     if (message.startsWith('E_CASCADE_DISABLED:')) {
@@ -863,48 +955,11 @@ export async function taskCancel(
       return engineError('E_NOT_FOUND', message);
     }
     // T14217: a failed store write surfaces its SQLite cause, not a ~15 KB SQL echo.
-    const storeFailure = boundedStoreWriteError(err);
+    const storeFailure = boundedStoreWriteFailure(err);
     if (storeFailure) {
       // @sync-invariant none:input-shape the cancel transaction already rolled back; this only re-words the failure
       return engineError('E_INTERNAL', storeFailure.message, { details: storeFailure.details });
     }
     return cleoErrorToEngineResult(err, 'E_INTERNAL', message);
   }
-}
-
-/** Longest store-write error message {@link boundedStoreWriteError} returns. */
-const STORE_WRITE_ERROR_MAX_CHARS = 600;
-
-/**
- * Turn drizzle's `Failed query: <sql> params: <values>` error into a bounded
- * message that leads with the underlying SQLite cause (T14217). Drizzle wraps
- * the SQLite error in a `DrizzleQueryError` whose own message echoes the whole
- * statement and every parameter, often kilobytes, with the cause only on
- * `.cause`.
- *
- * @param err - The thrown value.
- * @returns The bounded message and the cause, or null when `err` is not a failed query.
- */
-function boundedStoreWriteError(
-  err: unknown,
-): { message: string; details: { cause: string; query: string } } | null {
-  if (!(err instanceof Error) || !err.message.startsWith('Failed query:')) return null;
-  let cause = 'no SQLite cause attached';
-  for (let e: unknown = err.cause, depth = 0; e instanceof Error && depth < 8; depth++) {
-    if (!e.message.startsWith('Failed query:')) {
-      cause = e.message;
-      break;
-    }
-    e = e.cause;
-  }
-  const query = err.message
-    .slice('Failed query:'.length)
-    .split(/\nparams:|\sparams:/)[0]
-    ?.trim()
-    .slice(0, 160);
-  const message = `Store write failed: ${cause} (query: ${query ?? ''}…)`.slice(
-    0,
-    STORE_WRITE_ERROR_MAX_CHARS,
-  );
-  return { message, details: { cause: cause.slice(0, 300), query: query ?? '' } };
 }

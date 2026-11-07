@@ -11,16 +11,11 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_GIT_TIMEOUT_MS,
-  forceRemoveWorktreeDir,
-  pruneWorktreeRegistry,
-  unlockWorktree,
-} from '../git.js';
+import { DEFAULT_GIT_TIMEOUT_MS, pruneWorktreeRegistry, unlockWorktree } from '../git.js';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -49,22 +44,7 @@ describe('DEFAULT_GIT_TIMEOUT_MS (T9823 regression lock)', () => {
   });
 });
 
-describe('forceRemoveWorktreeDir (T10858)', () => {
-  it('T10858: forceRemoveWorktreeDir removes a locked worktree and its git admin entry', () => {
-    const root = repo();
-    const path = join(root, '..', `${root.split('/').pop()}-locked`);
-    try {
-      git(root, 'worktree', 'add', '-q', '--detach', path);
-      git(root, 'worktree', 'lock', path);
-      forceRemoveWorktreeDir(root, path);
-      expect(existsSync(path)).toBe(false);
-      expect(git(root, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1);
-    } finally {
-      rmSync(path, { recursive: true, force: true });
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
+describe('unlockWorktree / pruneWorktreeRegistry (T10867)', () => {
   it('T10867: unlockWorktree reports whether git unlocked it; pruneWorktreeRegistry drops a vanished entry', () => {
     const root = repo();
     const path = join(root, '..', `${root.split('/').pop()}-gone`);

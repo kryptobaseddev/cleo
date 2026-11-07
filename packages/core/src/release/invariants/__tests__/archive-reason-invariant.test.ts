@@ -27,6 +27,7 @@ import {
   ARCHIVE_REASON_TOMBSTONE_ENV,
   ArchiveReasonTombstoneError,
   assertArchiveReason,
+  isTaskId,
 } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../../store/__tests__/test-db-helper.js';
@@ -403,21 +404,29 @@ describe('archive-reason invariant — end-to-end', () => {
     const original = await env.accessor.loadSingleTask('T8002');
     expect(original?.status).toBe('pending');
 
-    // Follow-up task was created.
-    const followUp = await env.accessor.loadSingleTask('T-RECONCILE-FOLLOWUP-v-test-2-0');
-    expect(followUp).not.toBeNull();
-    expect(followUp?.status).toBe('pending');
-    expect(followUp?.relates?.[0]?.taskId).toBe('T8002');
-
     // Audit log records exactly one followup-created row for T8002.
     const auditPath = join(workspace, RECONCILE_AUDIT_FILE);
-    const rows = readFileSync(auditPath, 'utf-8')
-      .trim()
-      .split('\n')
-      .map((l) => JSON.parse(l) as { taskId: string; action: string });
-    expect(
-      rows.filter((r) => r.taskId === 'T8002' && r.action === 'followup-created'),
-    ).toHaveLength(1);
+    const auditRows = () =>
+      readFileSync(auditPath, 'utf-8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as { taskId: string; action: string; followUpTaskId?: string })
+        .filter((r) => r.taskId === 'T8002' && r.action === 'followup-created');
+    expect(auditRows()).toHaveLength(1);
+
+    // T14271: the follow-up is a readable T#### task with the tag label and a
+    // relates edge, not a structured id the CLI cannot show.
+    const followUpId = auditRows()[0]?.followUpTaskId ?? '';
+    expect(isTaskId(followUpId)).toBe(true);
+    const followUp = await env.accessor.loadSingleTask(followUpId);
+    expect(followUp?.status).toBe('pending');
+    expect(followUp?.labels).toContain('reconcile-followup:v-test-2');
+    expect(followUp?.relates?.[0]?.taskId).toBe('T8002');
+    expect(followUp?.acceptance).toEqual(['Verification recorded for T8002, or T8002 re-scoped']);
+
+    // A re-run of the same tag finds that follow-up instead of filing another.
+    await runInvariants('v-test-2', { dryRun: false, cwd: workspace });
+    expect(auditRows().map((r) => r.followUpTaskId)).toEqual([followUpId, followUpId]);
   });
 
   it('is a no-op when the tag has no T-IDs in commits or annotation', async () => {

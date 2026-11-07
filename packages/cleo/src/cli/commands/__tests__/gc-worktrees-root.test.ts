@@ -38,6 +38,7 @@ interface GcWorktreesOutput {
   removedPaths: string[];
   quarantined: number;
   quarantinedPaths: string[];
+  errors: Array<{ path: string; reason: string }>;
 }
 
 describe('cleo gc worktrees — default root (T12602)', () => {
@@ -69,6 +70,11 @@ describe('cleo gc worktrees — default root (T12602)', () => {
 
     expect(outputs).toHaveLength(1);
     const result = outputs[0] as GcWorktreesOutput;
-    expect([...result.removedPaths, ...result.quarantinedPaths]).toEqual([orphan]);
+    // T13924: a directory git cannot read is reported and kept, never removed.
+    expect([
+      ...result.removedPaths,
+      ...result.quarantinedPaths,
+      ...result.errors.map((e) => e.path),
+    ]).toEqual([orphan]);
   });
 });

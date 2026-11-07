@@ -22,8 +22,11 @@ import type { DarwinMemorySignals, ResourceSample } from '../backend.js';
 import {
   checkMemoryGate,
   describeMemoryPressure,
+  EXTERNAL_PRESSURE_AFTER_MS,
   evaluateMemoryGate,
+  externalPressureFix,
   MEMORY_GATE_LATCH_TTL_MS,
+  MEMORY_GATE_NOTICE_INTERVAL_MS,
   memoryGateReporter,
 } from '../pressure-gate.js';
 
@@ -253,7 +256,8 @@ describe('memoryGateReporter', () => {
       /^waiting: memory pressure 30 \(refused above 25, resumes at 15 or below\): /,
     );
     expect(lines[0]).toContain('The test run starts when pressure falls; waited 0s.');
-    expect(lines[0]).toContain('(CLEO_RESOURCES_MODE=off turns admission off.)');
+    // T14282: a wait never advertises a switch that turns admission off.
+    expect(lines[0]).not.toContain('CLEO_RESOURCES_MODE');
     expect(lines[1]).toContain('waited 1m 00s');
     expect(lines[2]).toBe(
       'memory pressure fell (now 12) after waiting 1m 05s: admitting the test run.',
@@ -267,5 +271,32 @@ describe('memoryGateReporter', () => {
     if (reading === null) throw new Error('expected a reading');
     r.waiting(reading, 0, 1_800_000);
     expect(lines[0]).toContain('waited 0s, gives up in 30m 00s.');
+  });
+
+  it('the external-pressure remedy names the programs and offers no off switch (T14282)', () => {
+    const reading = evaluateMemoryGate(sampleAt(38), false).reading;
+    if (reading === null) throw new Error('expected a reading');
+    expect(EXTERNAL_PRESSURE_AFTER_MS).toBe(2 * MEMORY_GATE_NOTICE_INTERVAL_MS);
+    const fix = externalPressureFix({
+      topProcesses: [
+        { pid: 4242, command: 'codex', rssBytes: 13 * 1024 ** 3, project: 'axiom-app' },
+        { pid: 77, command: 'Google Chrome', rssBytes: 9 * 1024 ** 3 },
+      ],
+      expectedAdmitAt: null,
+      waitedMs: 120_000,
+      memoryPressure: reading,
+    });
+    expect(fix).toContain(
+      'memory pressure 38 stayed above 25 for 2m 00s while CLEO held nothing: the memory is held outside CLEO by codex pid 4242 13.0 GiB (axiom-app), Google Chrome pid 77 9.0 GiB.',
+    );
+    expect(fix).toContain('Nothing was started');
+    expect(fix).not.toContain('CLEO_RESOURCES_MODE');
+    const unlisted = externalPressureFix({
+      topProcesses: [],
+      expectedAdmitAt: null,
+      waitedMs: 120_000,
+      memoryPressure: reading,
+    });
+    expect(unlisted).toContain('processes the memory probe could not list');
   });
 });

@@ -17,7 +17,7 @@ import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
 import { awaitBackgroundOps } from '../background-ops.js';
 import type { DataAccessor } from '../data-accessor.js';
-import { resetDbState } from '../sqlite.js';
+import { getNativeTasksDb, resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
 import { TEST_FOREIGN_KEYS_OFF_ENV } from '../sqlite-pragmas.js';
 
@@ -246,6 +246,12 @@ export async function seedTasks(
     await accessor.upsertSingleTask({ ...task, depends: undefined });
   }
 
+  // T14268: a task seeded `active` also carries a live claim lease, the
+  // derived in-progress signal once stored `active` is retired (D11230).
+  for (const task of fullTasks) {
+    if (task.status === 'active') await leaseTestTask(accessor, task.id);
+  }
+
   // Pass 2: Upsert tasks again with dependencies (all FK targets now exist)
   const hasDeps = tasks.some((t) => t.depends && t.depends.length > 0);
   if (hasDeps) {
@@ -254,6 +260,54 @@ export async function seedTasks(
         await accessor.upsertSingleTask(task);
       }
     }
+  }
+}
+
+/** Expiry of a {@link leaseTestTask} lease: far enough that no test outlives it. */
+export const TEST_LEASE_EXPIRES_AT = '2999-01-01T00:00:00.000Z';
+
+/**
+ * Give a seeded task a live claim lease held by the bound test session
+ * (T14268). A test that means "this task is in progress" seeds it `active`
+ * through {@link seedTasks}, which calls this; a test seeding by another path
+ * calls it directly. Once stored `active` is retired (owner decision D11230),
+ * the lease is what makes the task read `active`, so the test holds under both
+ * models. The task's version is kept, so no `updatedAt` assertion moves.
+ *
+ * @param accessor - The test database accessor.
+ * @param taskId - The seeded task.
+ */
+export async function leaseTestTask(accessor: DataAccessor, taskId: string): Promise<void> {
+  await accessor.updateTaskFields(
+    taskId,
+    {
+      claimedBySession: BOUND_TEST_SESSION_ID,
+      claimedByAgent: null,
+      claimedAt: '2026-01-01T00:00:00.000Z',
+      leaseExpiresAt: TEST_LEASE_EXPIRES_AT,
+    },
+    { keepVersion: true },
+  );
+}
+
+/**
+ * Give seeded tasks a live claim lease held by the bound test session
+ * (T14268), for tests that seed through `createTask` or a migration rather
+ * than {@link seedTasks}: call it with the ids the test seeds `active`, once
+ * the rows exist. Holds under both models, like {@link leaseTestTask}.
+ *
+ * @param ids - The tasks to lease.
+ * @param cwd - Project root of the test database (default: the resolved one).
+ */
+export function leaseTestTasks(ids: readonly string[], cwd?: string): void {
+  const db = getNativeTasksDb(cwd);
+  if (!db) throw new Error('leaseTestTasks: the test tasks database is not open');
+  const lease = db.prepare(
+    `UPDATE tasks_tasks SET claimed_by_session = ?, claimed_at = ?, lease_expires_at = ?
+      WHERE id = ?`,
+  );
+  for (const id of ids) {
+    lease.run(BOUND_TEST_SESSION_ID, '2026-01-01T00:00:00.000Z', TEST_LEASE_EXPIRES_AT, id);
   }
 }
 

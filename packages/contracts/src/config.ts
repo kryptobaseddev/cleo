@@ -41,6 +41,12 @@ export interface BackupConfig {
   maxSafetyBackups: number;
   /** Whether to compress backup files to reduce disk usage. */
   compressionEnabled: boolean;
+  /**
+   * Byte cap on `.cleo/backups/sqlite` (T14278). After every snapshot the
+   * oldest provably redundant sets are removed until the directory fits;
+   * unset or 0: five times the live store's size.
+   */
+  maxBytes?: number;
 }
 
 /** Hierarchy enforcement profile preset. */

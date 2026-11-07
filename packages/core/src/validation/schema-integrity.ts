@@ -32,6 +32,8 @@ interface IntegrityTarget {
   required: boolean;
   /** Field in the data file that holds the schema version. */
   versionKey: 'schemaVersion' | 'version';
+  /** Deprecated keys the file still carries: still valid, each named once (T14260). */
+  deprecations?: (data: Record<string, unknown>) => string[];
 }
 
 /** Result for a single file check. */
@@ -43,6 +45,8 @@ export interface JsonFileIntegrityResult {
   dataVersion?: string;
   /** Version declared in the schema file. */
   expectedVersion?: string;
+  /** Deprecated keys the file still carries, each with what to do (T14260). */
+  deprecations?: string[];
 }
 
 /** Full integrity report for all JSON files. */
@@ -56,6 +60,32 @@ export interface SchemaIntegrityReport {
 // ============================================================================
 // Table of files to check
 // ============================================================================
+
+/**
+ * Deprecated keys a project context still carries (T14260): each stays valid
+ * and is ignored, and the doctor names it once so it can be removed.
+ *
+ * @param data - The parsed `project-context.json`.
+ * @returns One message per deprecated key present.
+ * @task T14260
+ */
+export function projectContextDeprecations(data: Record<string, unknown>): string[] {
+  const evidence = data['evidence'];
+  const ciChecks =
+    typeof evidence === 'object' && evidence !== null
+      ? (evidence as Record<string, unknown>)['ciChecks']
+      : undefined;
+  const covering =
+    typeof ciChecks === 'object' && ciChecks !== null
+      ? (ciChecks as Record<string, unknown>)['covering']
+      : undefined;
+  return covering === undefined
+    ? []
+    : [
+        'project-context.json: evidence.ciChecks.covering is ignored since T14260 ' +
+          "(CI's own change-filter skip outside packages/ and crates/ replaces it); remove it",
+      ];
+}
 
 const INTEGRITY_TARGETS: IntegrityTarget[] = [
   {
@@ -78,6 +108,7 @@ const INTEGRITY_TARGETS: IntegrityTarget[] = [
     schemaName: 'project-context.schema.json',
     required: false,
     versionKey: 'schemaVersion',
+    deprecations: projectContextDeprecations,
   },
   {
     label: '.context-state.json',
@@ -176,6 +207,9 @@ function checkFile(target: IntegrityTarget, cleoDir: string): JsonFileIntegrityR
     dataVersion: dataVersionStr,
     expectedVersion: expectedVersion ?? undefined,
   };
+
+  const deprecations = target.deprecations?.(data) ?? [];
+  if (deprecations.length > 0) result.deprecations = deprecations;
 
   if (dataVersionStr && expectedVersion && dataVersionStr !== expectedVersion) {
     result.status = 'version_mismatch';

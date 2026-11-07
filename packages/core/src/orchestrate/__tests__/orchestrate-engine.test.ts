@@ -270,7 +270,7 @@ describe('Orchestrate Engine', () => {
       // the exact reproduce scenario from the T929 task description.
       const epicTasks = [
         {
-          id: 'E001',
+          id: 'T95002',
           title: 'Fresh Epic',
           description: 'Top-level epic for T929 regression',
           status: 'pending',
@@ -280,12 +280,12 @@ describe('Orchestrate Engine', () => {
           updatedAt: null,
         },
         ...([1, 2, 3, 4, 5, 6] as const).map((i) => ({
-          id: `C00${i}`,
+          id: `T9600${i}`,
           title: `child ${i}`,
           description: `child task ${i}`,
           status: 'pending',
           priority: 'high',
-          parentId: 'E001',
+          parentId: 'T95002',
           createdAt: '2026-01-01T00:00:00Z',
           updatedAt: null,
         })),
@@ -299,14 +299,14 @@ describe('Orchestrate Engine', () => {
       try {
         await seedTasks(isolatedRoot, epicTasks);
 
-        const startResult = await orchestrateStartup('E001', isolatedRoot);
+        const startResult = await orchestrateStartup('T95002', isolatedRoot);
         expect(startResult.success).toBe(true);
         const startData = startResult.data as any;
         // start must report 6 ready tasks and all 6 in firstWave
         expect(startData.summary.readyTasks).toBe(6);
         expect(startData.firstWave.tasks).toHaveLength(6);
 
-        const readyResult = await orchestrateReady('E001', isolatedRoot);
+        const readyResult = await orchestrateReady('T95002', isolatedRoot);
         expect(readyResult.success).toBe(true);
         const readyData = readyResult.data as any;
         // ready must return the same 6 task IDs that start reported
@@ -336,7 +336,7 @@ describe('Orchestrate Engine', () => {
       // must be a real task that exists but is NOT done.
       const blockedTasks = [
         {
-          id: 'EP01',
+          id: 'T95003',
           title: 'Blocked Epic',
           description: 'Epic where all children have unmet deps',
           status: 'pending',
@@ -346,23 +346,23 @@ describe('Orchestrate Engine', () => {
           updatedAt: null,
         },
         {
-          // Standalone pending task used as an unmet blocker — NOT a child of EP01.
-          id: 'BT_BLOCKER',
+          // Standalone pending task used as an unmet blocker — NOT a child of T95003.
+          id: 'T95001',
           title: 'blocker task',
-          description: 'pending task that is a dep of BT01',
+          description: 'pending task that is a dep of T95000',
           status: 'pending',
           priority: 'high',
           createdAt: '2026-01-01T00:00:00Z',
           updatedAt: null,
         },
         {
-          id: 'BT01',
+          id: 'T95000',
           title: 'blocked child',
           description: 'child with unmet dep',
           status: 'pending',
           priority: 'high',
-          parentId: 'EP01',
-          depends: ['BT_BLOCKER'],
+          parentId: 'T95003',
+          depends: ['T95001'],
           createdAt: '2026-01-01T00:00:00Z',
           updatedAt: null,
         },
@@ -374,7 +374,7 @@ describe('Orchestrate Engine', () => {
       try {
         await seedTasks(isolatedRoot2, blockedTasks);
 
-        const result = await orchestrateReady('EP01', isolatedRoot2);
+        const result = await orchestrateReady('T95003', isolatedRoot2);
         expect(result.success).toBe(true);
         const data = result.data as any;
         expect(data.total).toBe(0);

@@ -96,6 +96,10 @@ export interface TaskRecord extends RecordProjectionDisclosure {
   /** Compact counts for relationships and docs, kept in default MVI projection. */
   relationCounts?: TaskRecordRelationCounts;
   cancellationReason?: string;
+  /** Why the task was cancelled (T14267). */
+  cancellationKind?: string;
+  /** The task that replaced this cancelled one (T14267). */
+  replacedBy?: string;
   /** RCASD-IVTR+C pipeline stage. @task T060 */
   pipelineStage?: string | null;
   /**

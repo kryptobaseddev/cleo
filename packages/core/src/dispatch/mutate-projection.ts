@@ -2,7 +2,7 @@
  * Minimal-by-default mutate envelope projection (T9931 / Saga T9855 / E9.4).
  *
  * For state-modifying ops (`tasks.add`, `tasks.add-batch`, `tasks.update`,
- * `tasks.complete`, `tasks.delete`) the dispatcher used to return the full
+ * `tasks.complete`, `tasks.delete`, `tasks.cancel`, `tasks.restore`) the dispatcher used to return the full
  * post-mutation task record — title, description, acceptance, verification,
  * createdAt, updatedAt, labels, the entire row. Agents almost never need any
  * of that to keep working; they only need enough information to confirm the
@@ -352,6 +352,48 @@ export const MUTATE_PROJECTION_PLANS: Readonly<Record<string, MutateProjectionPl
         envelope['count'] = envelope['count'] + cascadeIds.length;
         envelope['ids'] = [...envelope['ids'], ...cascadeIds];
         envelope['deleted'] = [...envelope['deleted'], ...cascadeIds];
+      }
+      return envelope;
+    },
+  },
+  // T14220: cancel and restore change task status like update and complete,
+  // so they report the affected IDs in `updated`; the scalar fields scripts
+  // already read (`/data/task`, `/data/cancelled`, …) stay alongside.
+  'tasks.cancel': {
+    operation: 'tasks.cancel',
+    extract: (data) => {
+      const id = readString(data, 'task');
+      const affected = data['affectedTasks'];
+      const affectedIds = Array.isArray(affected)
+        ? affected.filter((x): x is string => typeof x === 'string' && x !== id)
+        : [];
+      const envelope = makeEnvelope('updated', id ? [id, ...affectedIds] : []);
+      for (const key of [
+        'task',
+        'cancelled',
+        'reason',
+        'cancelledAt',
+        'childStrategy',
+        'affectedTasks',
+        'affectedCount',
+      ]) {
+        if (data[key] !== undefined) envelope[key] = data[key];
+      }
+      return envelope;
+    },
+  },
+  'tasks.restore': {
+    operation: 'tasks.restore',
+    extract: (data) => {
+      const id = readString(data, 'task');
+      const restored = data['restored'];
+      const restoredIds = Array.isArray(restored)
+        ? restored.filter((x): x is string => typeof x === 'string')
+        : [];
+      const ids = restoredIds.length > 0 ? restoredIds : id ? [id] : [];
+      const envelope = makeEnvelope('updated', ids);
+      for (const key of ['task', 'previousStatus', 'newStatus', 'status', 'unarchived']) {
+        if (data[key] !== undefined) envelope[key] = data[key];
       }
       return envelope;
     },

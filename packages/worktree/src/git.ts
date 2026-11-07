@@ -13,7 +13,6 @@
  */
 
 import { execFile, execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -231,24 +230,6 @@ export async function removeTransientWorktree(
   worktreePath: string,
 ): Promise<void> {
   await gitAsync(['worktree', 'remove', '--force', worktreePath], projectRoot);
-}
-
-/**
- * Last-resort removal of a worktree directory the NAPI destroy could not
- * remove: unlock it, delete the directory, then prune git's stale admin
- * entry. Core's prune path uses this instead of shelling out to
- * `git worktree` itself (T10858).
- *
- * @param gitRoot - Repository root the worktree belongs to.
- * @param worktreePath - Absolute path to the worktree directory.
- * @throws Error when the directory cannot be deleted.
- *
- * @task T10858
- */
-export function forceRemoveWorktreeDir(gitRoot: string, worktreePath: string): void {
-  unlockWorktree(gitRoot, worktreePath);
-  rmSync(worktreePath, { recursive: true, force: true });
-  pruneWorktreeRegistry(gitRoot);
 }
 
 /**

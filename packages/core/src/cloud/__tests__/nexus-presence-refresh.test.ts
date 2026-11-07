@@ -13,7 +13,11 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { awaitBackgroundOps } from '../../store/background-ops.js';
+import {
+  abandonBestEffortOps,
+  awaitBackgroundOps,
+  pendingBackgroundOpCount,
+} from '../../store/background-ops.js';
 import { SealedNexusDevice } from '../nexus-device.js';
 import {
   NEXUS_PRESENCE_REFRESH_ENV,
@@ -279,5 +283,32 @@ describe('refreshProjectPresence (T13289)', () => {
     expect(returned).toBeUndefined();
     await awaitBackgroundOps();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('is best-effort: teardown aborts its request and stops waiting for it (T14284)', async () => {
+    writeLink();
+    let seen: AbortSignal | null | undefined;
+    const hung = vi.fn(
+      (_input: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          seen = init?.signal;
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        }),
+    );
+    startProjectPresenceRefresh({
+      projectRoot,
+      cliVersion: '2026.10.5',
+      cleoHome: home,
+      now: () => T0,
+      deviceStore: { list: async () => [device()] },
+      env: {},
+      fetch: hung,
+    });
+    await vi.waitFor(() => expect(hung).toHaveBeenCalledTimes(1));
+    expect(pendingBackgroundOpCount('best-effort')).toBe(1);
+    expect(pendingBackgroundOpCount('local-write')).toBe(0);
+    expect(await abandonBestEffortOps(10)).toBe(1);
+    expect(seen?.aborted).toBe(true);
+    expect(pendingBackgroundOpCount()).toBe(0);
   });
 });

@@ -21,8 +21,8 @@
  * smallest charge among a class's command lines (`planRunFootprint`). A
  * named-file `vitest` or a `tsc -p` is charged far less than its class plan on
  * a large-RAM host, so the class budget alone was too low there (T13517). Host
- * pressure is off (`CLEO_ADMISSION_PRESSURE=off`, as for the rest of the
- * suite): sampled live, it moved the budget mid-run. Each class gets one more
+ * pressure is the suite's calm fixture (`CLEO_RESOURCE_SAMPLE_FILE`, T14282):
+ * sampled live, it moved the budget mid-run. Each class gets one more
  * concurrent run than its budget (at least three), so admission has to hold
  * some back; a `cleo run` that admitted everything fails the test.
  *
@@ -117,9 +117,9 @@ function env(): NodeJS.ProcessEnv {
     CLEO_HOME: join(dir, 'cleo-home'),
     TMPDIR: dir,
     CLAUDE_PROJECT_DIR: project,
-    // T13517: admission must not follow the host's load (vitest.setup.ts sets
-    // this for the test process; these children get a fresh env).
-    CLEO_ADMISSION_PRESSURE: 'off',
+    // T13517, T14282: admission must not follow the host's load: the suite's
+    // calm fixture (vitest.setup.ts), since these children get a fresh env.
+    CLEO_RESOURCE_SAMPLE_FILE: process.env.CLEO_RESOURCE_SAMPLE_FILE,
     RUNNING_TEST: join(dir, 'running-test'),
     RUNNING_BUILD: join(dir, 'running-build'),
   };

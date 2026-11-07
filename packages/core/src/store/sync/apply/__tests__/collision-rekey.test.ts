@@ -870,3 +870,228 @@ describe('the loser of a uid collision is re-keyed by its origin, and everyone f
     expect(tagsOf(winner)).toEqual(tagsOf(loser));
   });
 });
+
+/** One local re-key through a `rekey` capture frame (foreign keys deferred), sealed. */
+function rekey(r: Replica, sql: string): void {
+  r.db.exec('BEGIN IMMEDIATE');
+  r.db.exec('PRAGMA defer_foreign_keys = ON');
+  const frame = openCaptureFrame(r.db, 'rekey', null);
+  r.db.exec(sql);
+  finishCaptureFrame(r.db, frame);
+  r.db.exec('COMMIT');
+  seal(r);
+}
+
+const identityOf = (r: Replica, table: string, where: string) =>
+  r.db.prepare(`SELECT uid, birth_fp AS fp FROM main."${table}" WHERE ${where}`).get() as {
+    uid: string;
+    fp: string;
+  };
+
+describe('a re-key that moves the birth fingerprint is followed with it (T14335)', () => {
+  it('tasks_tasks: a held loser re-keyed onto the other row’s identity is placed as that row, never forked', async () => {
+    const a = await replica(RA);
+    const b = await replica(RB);
+    // One display id, two births: two uids, so B holds A's row behind the key.
+    write(
+      a,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+         VALUES ('T1', 'shared', 'task', 'pending', 'medium', '2026-09-01T09:00:00.000Z')`,
+    );
+    write(
+      b,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+         VALUES ('T1', 'shared', 'task', 'pending', 'medium', '2026-09-01T10:00:00.000Z')`,
+    );
+    const ia = identityOf(a, 'tasks_tasks', "id = 'T1'");
+    const ib = identityOf(b, 'tasks_tasks', "id = 'T1'");
+    expect(ia.uid).not.toBe(ib.uid);
+    expect(ia.fp).not.toBe(ib.fp);
+    push(a);
+    push(b);
+    pull(b);
+
+    // A repairs its row onto B's identity, the fingerprint included.
+    rekey(a, `UPDATE tasks_tasks SET uid = '${ib.uid}', birth_fp = '${ib.fp}' WHERE id = 'T1'`);
+    const k = push(a)
+      .flatMap((t) => t.ops)
+      .find((o) => o.o === 'K');
+    expect(k).toMatchObject({ u: ia.uid, nu: ib.uid, obfp: ia.fp, bfp: ib.fp });
+
+    // B follows the K with the fingerprint: A's held insert is B's own row,
+    // and nothing is left waiting (T14336: the K is not stuck behind it).
+    expect(pull(b)).toMatchObject({ pending: 0 });
+    expect(statuses(b.db)).not.toContain('pending');
+    expect(rows(b.db, 'SELECT uid, birth_fp FROM tasks_tasks')).toEqual([
+      { uid: ib.uid, birth_fp: ib.fp },
+    ]);
+    expect(listConflicts(b.db, { open: true }).filter((c) => c.kind === 'uid-collision')).toEqual(
+      [],
+    );
+    // A places B's row as its own; nothing is re-keyed to a random uid.
+    expect(pull(a)).toMatchObject({ pending: 0 });
+    expect(rows(a.db, 'SELECT uid, birth_fp FROM tasks_tasks')).toEqual([
+      { uid: ib.uid, birth_fp: ib.fp },
+    ]);
+    expect(
+      push(a)
+        .flatMap((t) => t.ops)
+        .some((o) => o.o === 'K'),
+    ).toBe(false);
+  });
+
+  it('a K whose transaction the receiver refuses leaves no alias and redirects nothing', async () => {
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const task = (at: string) =>
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+         VALUES ('T1', 'shared', 'task', 'pending', 'medium', '${at}')`;
+    write(a, task('2026-09-01T09:00:00.000Z'));
+    write(b, task('2026-09-01T10:00:00.000Z'));
+    const ia = identityOf(a, 'tasks_tasks', "id = 'T1'");
+    const ib = identityOf(b, 'tasks_tasks', "id = 'T1'");
+    push(a);
+    push(b);
+    pull(b);
+    rekey(a, `UPDATE tasks_tasks SET uid = '${ib.uid}', birth_fp = '${ib.fp}' WHERE id = 'T1'`);
+    const [kTxn] = push(a);
+    const k = kTxn?.ops.find((o) => o.o === 'K');
+    if (!kTxn || !k) throw new Error('expected the K transaction');
+    // The receiver refuses the K's transaction: it carries an op on a table B does not know.
+    kTxn.ops.push({ ...k, o: 'I', t: 'no_such_table', u: mintRowUid(), nu: undefined, a: {} });
+    const aliases = () => rows(b.db, 'SELECT tbl, old_uid FROM _sync_uid_alias');
+
+    // The K's transaction would be refused, so its alias is never recorded
+    // early: A's insert stays held and nothing is redirected onto B's row.
+    pull(b);
+    expect(aliases()).toEqual([]);
+    expect(statuses(b.db).filter((x) => x === 'pending')).toHaveLength(2);
+    expect(rows(b.db, 'SELECT uid FROM tasks_tasks')).toEqual([{ uid: ib.uid }]);
+
+    // An alias that was recorded for that K anyway (by a pass that accepted it)
+    // is dropped when its transaction is refused.
+    recordUidAlias(
+      b.db,
+      {
+        table: 'tasks_tasks',
+        oldUid: ia.uid,
+        oldBfp: ia.fp,
+        newUid: ib.uid,
+        newBfp: ib.fp,
+        origin: RA,
+        hlc: k.h,
+      },
+      new Date().toISOString(),
+    );
+    expect(aliases()).toHaveLength(1);
+    pull(b);
+    expect(statuses(b.db)).toContain('refused-schema');
+    expect(aliases()).toEqual([]);
+  });
+
+  it('conduit docs: the re-keyed doc and its version follow onto the other identity (uidRefs)', async () => {
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const doc = (createdAt: string) =>
+      `INSERT INTO conduit_attachments
+         (slug, conversation_id, from_agent_id, content, original_size, compressed_size, content_hash, created_at)
+         VALUES ('shared-doc', 'cleodocs', 'cleodocs', x'', 0, 0, 'h0', '${createdAt}')`;
+    // A: the doc and its first version in one transaction; B: the same slug, born later.
+    write(
+      a,
+      `${doc('2026-09-01T09:00:00.000Z')};
+       INSERT INTO conduit_attachment_versions
+         (id, attachment_uid, version_number, author_agent_id, storage_key, content_hash,
+          original_size, compressed_size, tokens, created_at)
+         VALUES ('v-a', (SELECT uid FROM conduit_attachments WHERE slug = 'shared-doc'), 1, 'agent-a',
+                 'sha256:h1', 'h1', 3, 3, 1, '2026-09-01T09:00:01.000Z')`,
+    );
+    write(b, doc('2026-09-01T10:00:00.000Z'));
+    const ia = identityOf(a, 'conduit_attachments', "slug = 'shared-doc'");
+    const ib = identityOf(b, 'conduit_attachments', "slug = 'shared-doc'");
+    expect(ia.uid).not.toBe(ib.uid);
+    push(a);
+    push(b);
+    pull(b);
+
+    // A repairs its doc onto B's identity and re-points its version.
+    rekey(
+      a,
+      `UPDATE conduit_attachments SET uid = '${ib.uid}', birth_fp = '${ib.fp}' WHERE slug = 'shared-doc';
+       UPDATE conduit_attachment_versions SET attachment_uid = '${ib.uid}' WHERE attachment_uid = '${ia.uid}'`,
+    );
+    push(a);
+    expect(pull(b)).toMatchObject({ pending: 0 });
+    expect(statuses(b.db)).not.toContain('pending');
+
+    // One doc on B, under B's identity, and A's version is placed under it.
+    expect(rows(b.db, 'SELECT uid, birth_fp FROM conduit_attachments')).toEqual([
+      { uid: ib.uid, birth_fp: ib.fp },
+    ]);
+    expect(
+      rows(b.db, 'SELECT attachment_uid, content_hash FROM conduit_attachment_versions'),
+    ).toEqual([{ attachment_uid: ib.uid, content_hash: 'h1' }]);
+    expect(listConflicts(b.db, { open: true }).filter((c) => c.kind === 'uid-collision')).toEqual(
+      [],
+    );
+    expect(pull(a)).toMatchObject({ pending: 0 });
+    expect(rows(a.db, 'SELECT uid FROM conduit_attachments')).toEqual([{ uid: ib.uid }]);
+  });
+
+  it('conduit docs: natural children keyed by the doc uid (slug alias, head) are recreated under it, once', async () => {
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const doc = (createdAt: string) =>
+      `INSERT INTO conduit_attachments
+         (slug, conversation_id, from_agent_id, content, original_size, compressed_size, content_hash, created_at)
+         VALUES ('shared-doc', 'cleodocs', 'cleodocs', x'', 0, 0, 'h0', '${createdAt}')`;
+    const docUid = "(SELECT uid FROM conduit_attachments WHERE slug = 'shared-doc')";
+    // A: the doc, its version, its head and an old-slug alias; B: the same slug, born later.
+    write(
+      a,
+      `${doc('2026-09-01T09:00:00.000Z')};
+       INSERT INTO conduit_attachment_versions
+         (id, attachment_uid, version_number, author_agent_id, storage_key, content_hash,
+          original_size, compressed_size, tokens, created_at)
+         VALUES ('v-a', ${docUid}, 1, 'agent-a', 'sha256:h1', 'h1', 3, 3, 1, '2026-09-01T09:00:01.000Z');
+       INSERT INTO conduit_doc_heads (attachment_uid, head_version_uid, head_hlc)
+         VALUES (${docUid}, (SELECT uid FROM conduit_attachment_versions WHERE id = 'v-a'), 'h-1');
+       INSERT INTO conduit_doc_slug_aliases (slug, doc_uid, reason, created_at)
+         VALUES ('shared-doc-old', ${docUid}, 'rename', '2026-09-01T09:00:02.000Z')`,
+    );
+    write(b, doc('2026-09-01T10:00:00.000Z'));
+    const ia = identityOf(a, 'conduit_attachments', "slug = 'shared-doc'");
+    const ib = identityOf(b, 'conduit_attachments', "slug = 'shared-doc'");
+    push(a);
+    push(b);
+    pull(b);
+
+    // A re-keys the doc. A natural row's uid is a function of its key, so the
+    // doc's head and alias are deleted and inserted again under the new uid.
+    rekey(
+      a,
+      `UPDATE conduit_attachments SET uid = '${ib.uid}', birth_fp = '${ib.fp}' WHERE slug = 'shared-doc';
+       UPDATE conduit_attachment_versions SET attachment_uid = '${ib.uid}' WHERE attachment_uid = '${ia.uid}';
+       DELETE FROM conduit_doc_heads WHERE attachment_uid = '${ia.uid}';
+       INSERT INTO conduit_doc_heads (attachment_uid, head_version_uid, head_hlc)
+         VALUES ('${ib.uid}', (SELECT uid FROM conduit_attachment_versions WHERE id = 'v-a'), 'h-1');
+       DELETE FROM conduit_doc_slug_aliases WHERE doc_uid = '${ia.uid}';
+       INSERT INTO conduit_doc_slug_aliases (slug, doc_uid, reason, created_at)
+         VALUES ('shared-doc-old', '${ib.uid}', 'rename', '2026-09-01T09:00:02.000Z')`,
+    );
+    push(a);
+    expect(pull(b)).toMatchObject({ pending: 0 });
+    expect(statuses(b.db)).not.toContain('pending');
+    expect(pull(a)).toMatchObject({ pending: 0 });
+    for (const r of [a, b]) {
+      expect(rows(r.db, 'SELECT uid FROM conduit_attachments')).toEqual([{ uid: ib.uid }]);
+      expect(rows(r.db, 'SELECT slug, doc_uid FROM conduit_doc_slug_aliases')).toEqual([
+        { slug: 'shared-doc-old', doc_uid: ib.uid },
+      ]);
+      expect(rows(r.db, 'SELECT attachment_uid FROM conduit_doc_heads')).toEqual([
+        { attachment_uid: ib.uid },
+      ]);
+      expect(rows(r.db, 'PRAGMA foreign_key_check')).toEqual([]);
+    }
+  });
+});

@@ -42,7 +42,7 @@ vi.mock('@cleocode/worktree', async (importOriginal) => {
 });
 
 const { cleanupMergedWork } = await import('../merged-cleanup.js');
-const { isRegenerable, unprovenContent } = await import('../prune.js');
+const { isRegenerable, unprovenContent } = await import('@cleocode/worktree');
 const { computeProjectHash, resolveWorktreeRootForHash } = await import('@cleocode/paths');
 
 let tmp: string;

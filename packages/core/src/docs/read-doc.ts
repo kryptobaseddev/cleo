@@ -21,11 +21,8 @@
 
 import { Buffer } from 'node:buffer';
 import type { DocBody, DocFrontmatter, DocReadResponse } from '@cleocode/contracts';
-import { eq } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
-import { getDb } from '../store/sqlite.js';
-import { attachments } from '../store/tasks-schema.js';
 
 /**
  * Options for {@link readDoc}.
@@ -88,36 +85,30 @@ interface FrontmatterRow {
  */
 export async function readDoc(slug: string, opts: ReadDocOptions = {}): Promise<DocReadResponse> {
   const projectRoot = opts.projectRoot ?? getProjectRoot();
-  const db = await getDb(projectRoot);
-
-  const row = await db
-    .select({
-      id: attachments.id,
-      sha256: attachments.sha256,
-      slug: attachments.slug,
-      type: attachments.type,
-      summary: attachments.summary,
-      lifecycleStatus: attachments.lifecycleStatus,
-      supersedes: attachments.supersedes,
-      supersededBy: attachments.supersededBy,
-      topics: attachments.topics,
-      relatedTasks: attachments.relatedTasks,
-      ownerVersion: attachments.ownerVersion,
-      docVersion: attachments.docVersion,
-      createdAt: attachments.createdAt,
-    })
-    .from(attachments)
-    .where(eq(attachments.slug, slug))
-    .get();
-
-  if (!row) throw new DocNotFoundError(slug);
-  const frontmatterRow = row as FrontmatterRow;
-
-  // Resolve supersession FK ids → slugs for external addressing.
-  const [supersedesSlug, supersededBySlug] = await Promise.all([
-    resolveSlugById(db, frontmatterRow.supersedes),
-    resolveSlugById(db, frontmatterRow.supersededBy),
-  ]);
+  // T14288: slug (live or an alias) → the doc's identity → its head; the
+  // metadata comes from the identity (the registry row for a legacy doc).
+  const { resolveDocRef, supersessionSlugs } = await import('./slug-rename.js');
+  const ref = await resolveDocRef(projectRoot, slug);
+  if (!ref) throw new DocNotFoundError(slug);
+  const frontmatterRow: FrontmatterRow = {
+    id: ref.ownRow.id,
+    sha256: ref.sha256,
+    slug: ref.slug,
+    type: ref.meta.docType,
+    summary: ref.meta.summary,
+    lifecycleStatus: ref.meta.lifecycleStatus ?? ref.ownRow.lifecycleStatus,
+    supersedes: null,
+    supersededBy: null,
+    topics: ref.meta.topics,
+    relatedTasks: ref.meta.relatedTasks,
+    ownerVersion: ref.meta.ownerVersion,
+    docVersion: ref.ownRow.docVersion,
+    createdAt: ref.ownRow.createdAt,
+  };
+  const { supersedes: supersedesSlug, supersededBy: supersededBySlug } = await supersessionSlugs(
+    projectRoot,
+    ref,
+  );
 
   // Fetch the RAW body bytes (not a decoded string) so binary blobs survive the
   // base64 path with full fidelity — `TextDecoder` would lossily replace
@@ -166,25 +157,6 @@ async function fetchRawBody(
     // Attachment store unavailable or blob purged — fall through to empty body.
   }
   return { bytes: Buffer.alloc(0), mimeType: null };
-}
-
-/**
- * Resolve an attachment id to its slug, or null when the id is absent /
- * unresolved / slug-less.
- *
- * @internal
- */
-async function resolveSlugById(
-  db: Awaited<ReturnType<typeof getDb>>,
-  id: string | null,
-): Promise<string | null> {
-  if (!id) return null;
-  const row = await db
-    .select({ slug: attachments.slug })
-    .from(attachments)
-    .where(eq(attachments.id, id))
-    .get();
-  return row?.slug ?? null;
 }
 
 /**

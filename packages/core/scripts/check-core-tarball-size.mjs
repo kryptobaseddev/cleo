@@ -27,7 +27,7 @@
  * | dist/.js runtime                  | ~16.3 MB  | ~5.2 MB       |
  * | dist/.d.ts type declarations      |  ~7.5 MB  | ~2.1 MB       |
  * | dist/.js.map source maps          |  ~9.2 MB  | ~2.6 MB       |
- * | dist/.d.ts.map declaration maps   |  ~1.9 MB  | ~0.5 MB       |
+ * | dist/.d.ts.map declaration maps   |  not emitted since T14339  |
  * | migrations + schemas + templates  |  ~1.9 MB  | ~0.4 MB       |
  * | cleo-supervisor binary (est.)     |  ~8-12 MB | ~7-10 MB      |
  * | worktree-napi .node (measured)    |  ~3.1 MB  | ~2.8 MB       |
@@ -36,7 +36,8 @@
  * | **Total with Studio**             |           | **~21-27 MB** |
  *
  * 30 MB gives ~3-9 MB headroom above the Studio-inclusive estimate.
- * Source maps (.js.map + .d.ts.map, ~3.1 MB packed) are the first trim lever
+ * Source maps (.js.map, ~2.6 MB packed) are the next trim lever (T14339 already
+ * dropped the .d.ts.map declaration maps, which pointed at unpublished src/)
  * if a future change pushes past 30 MB. Do NOT trim selfimprove scenario
  * fixtures (dist/selfimprove/scenarios/) — they are loaded at runtime (DHQ-078).
  *

@@ -261,16 +261,27 @@ export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
  * @param verdicts - The task's verdicts on the PR.
  * @param acs - The criteria the line names.
  * @param headSha - The PR's final head.
+ * @param texts - The criteria's current texts by alias: a verdict on an edited criterion counts for nothing (T14259).
  * @returns The reasons.
  */
 export async function unverifiedCriteria(
   verdicts: readonly ReviewVerdict[],
   acs: readonly string[],
   headSha: string | null,
+  texts?: ReadonlyMap<string, string>,
 ): Promise<string[]> {
   if (headSha === null) return acs.map((ac) => `${ac}: the PR's head is unknown`);
   const { judgeReviewVerdicts } = await import('./review-verdict.js');
-  return judgeReviewVerdicts(verdicts, acs, headSha).gaps.map((gap) => gap.reason);
+  return judgeReviewVerdicts(verdicts, acs, headSha, texts).gaps.map((gap) => gap.reason);
+}
+
+/** A task's current criterion texts by alias, for the verdicts' text binding (T14259). */
+async function currentTexts(
+  storeRoot: string,
+  taskId: string,
+): Promise<ReadonlyMap<string, string>> {
+  const { currentAcTexts } = await import('./review-verdict.js');
+  return currentAcTexts(storeRoot, taskId);
 }
 
 const DIRECTIVE_LINE = /^[ \t>*-]*(Closes|Refs)[ \t]*:[ \t]*(.*)$/gim;
@@ -522,10 +533,33 @@ export function acquireMergeSweepLock(
   storeRoot: string,
   now: () => number = Date.now,
 ): (() => void) | null {
-  const lock = join(storeRoot, '.cleo', SWEEP_LOCK_FILE);
+  return acquireHeartbeatLock(
+    join(storeRoot, '.cleo', SWEEP_LOCK_FILE),
+    MERGE_SWEEP_LOCK_STALE_MS,
+    now,
+  );
+}
+
+/**
+ * Take an `O_EXCL` lock file held for a whole run, its mtime refreshed every
+ * 30 s while the run lasts (the lock behind {@link acquireMergeSweepLock};
+ * the worktree census uses it too, T14275). A lock whose heartbeat is older
+ * than `staleMs` is moved aside by `rename` (only one caller's rename
+ * succeeds) and taken. Null when another run holds it.
+ *
+ * @param lock - The lock file path.
+ * @param staleMs - Heartbeat age after which the lock is stale.
+ * @param now - Clock (ms).
+ * @returns The release function, or null.
+ */
+export function acquireHeartbeatLock(
+  lock: string,
+  staleMs: number,
+  now: () => number = Date.now,
+): (() => void) | null {
   let judged: string | null = null;
   try {
-    if (now() - statSync(lock).mtimeMs < MERGE_SWEEP_LOCK_STALE_MS) return null;
+    if (now() - statSync(lock).mtimeMs < staleMs) return null;
     judged = readFileSync(lock, 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return null;
@@ -635,9 +669,23 @@ export function stealStaleLock(lock: string, judged: string): boolean {
  * @returns True when this caller owns the sweep.
  */
 export function claimMergeSweep(storeRoot: string, now = Date.now()): boolean {
-  const claim = join(storeRoot, '.cleo', SWEEP_CLAIM_FILE);
+  return claimAtMostEvery(join(storeRoot, '.cleo', SWEEP_CLAIM_FILE), MERGE_SWEEP_INTERVAL_MS, now);
+}
+
+/**
+ * Claim a run that happens at most once per `intervalMs`, atomically (the
+ * claim behind {@link claimMergeSweep}; the daily worktree census uses it too,
+ * T14275): true for exactly one caller per interval. The claim file's mtime is
+ * the last claimed run.
+ *
+ * @param claim - The claim file path.
+ * @param intervalMs - Minimum time between claimed runs.
+ * @param now - Current time (ms).
+ * @returns True when this caller owns the run.
+ */
+export function claimAtMostEvery(claim: string, intervalMs: number, now = Date.now()): boolean {
   try {
-    if (now - statSync(claim).mtimeMs < MERGE_SWEEP_INTERVAL_MS) return false;
+    if (now - statSync(claim).mtimeMs < intervalMs) return false;
     const stale = `${claim}.${process.pid}.${now}`;
     renameSync(claim, stale);
     unlinkSync(stale);
@@ -891,7 +939,12 @@ async function applyDirective(
   const verdicts = deps.reviewVerdicts
     ? await deps.reviewVerdicts(storeRoot, taskId, pr.number)
     : [];
-  const unverified = await unverifiedCriteria(verdicts, acs, pr.headRefOid);
+  const unverified = await unverifiedCriteria(
+    verdicts,
+    acs,
+    pr.headRefOid,
+    await currentTexts(storeRoot, taskId),
+  );
   if (unverified.length > 0)
     return {
       ...base,
@@ -1143,7 +1196,8 @@ async function checkOpenPrs(
       const verdicts = deps.reviewVerdicts
         ? await deps.reviewVerdicts(storeRoot, d.taskId, pr.number)
         : [];
-      for (const p of await unverifiedCriteria(verdicts, d.acs, pr.headRefOid))
+      const texts = await currentTexts(storeRoot, d.taskId);
+      for (const p of await unverifiedCriteria(verdicts, d.acs, pr.headRefOid, texts))
         problems.push(`${d.taskId} ${p}`);
       if (d.kind === 'closes') {
         const prior = await priorBindings(storeRoot, d.taskId, pr.number, null);
@@ -1765,7 +1819,12 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     const satisfies = acs;
     if (dryRun) {
       const { planTaskDone } = await import('./done-plan.js');
-      const plan = await planTaskDone(taskId, { projectRoot: storeRoot, prNumber, satisfies });
+      const plan = await planTaskDone(taskId, {
+        projectRoot: storeRoot,
+        prNumber,
+        satisfies,
+        reviewedLinkage: true,
+      });
       if (!plan.success) return stepOf(plan);
       const blocker = plan.data.blockers[0];
       return blocker ? { ok: false, reason: blocker.message } : { ok: true };
@@ -1775,6 +1834,8 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
       projectRoot: storeRoot,
       prNumber,
       satisfies,
+      // T14259: the line and the non-author verdicts are the linkage.
+      reviewedLinkage: true,
       agent: 'merge-close',
       // The sweep runs no tool: a gate it cannot take from merged CI stays an
       // agent's (evidence.ciSatisfies makes testsPassed/qaPassed ci:<pr>).

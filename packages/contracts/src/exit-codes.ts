@@ -77,6 +77,15 @@ export enum ExitCode {
    * (`details.expected`). @task T12800
    */
   TASK_RENAMED = 26,
+  /**
+   * A MUTATION came from an unqualified caller (no `CLEO_AGENT_ID`, no
+   * `CLEO_SESSION_ID`) inside a harness session whose provider key has no
+   * binding of its own while two or more agents of that harness hold live
+   * sessions: which agent is calling cannot be told, so the operation refuses
+   * rather than act as one of them. LAFS code `E_SESSION_AMBIGUOUS`; the
+   * details name the live agents. @task T14269
+   */
+  SESSION_AMBIGUOUS = 27,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,
@@ -443,6 +452,15 @@ export const E_RELEASE_IN_FLIGHT = 'E_RELEASE_IN_FLIGHT' as const;
  * @task T14111
  */
 export const E_DOCS_ROT = 'E_DOCS_ROT' as const;
+/**
+ * A stable `cleo release cut` found no passing release smoke for the commit it
+ * would tag: `scripts/release-mac-smoke.mjs` writes
+ * `.cleo/release-smoke/<sha12>/results.json`, and a missing, failing or
+ * other-commit receipt refuses the cut (prereleases are not gated).
+ *
+ * @task T14250
+ */
+export const E_RELEASE_SMOKE_MISSING = 'E_RELEASE_SMOKE_MISSING' as const;
 /**
  * `cleo release plan` (or the lint script) encountered a `.changeset/*.md`
  * file whose YAML frontmatter cannot be parsed. Exit code 6 (VALIDATION_ERROR).

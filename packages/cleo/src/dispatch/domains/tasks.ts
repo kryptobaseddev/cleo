@@ -555,6 +555,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
         force: params.force,
         cascadeThreshold: params.cascadeThreshold,
         allowCascade: params.allowCascade,
+        kind: params.kind,
+        replacedBy: params.replacedBy,
       }),
       'cancel',
     );

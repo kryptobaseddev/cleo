@@ -258,7 +258,9 @@ export function buildViewerHandler(
       const apiDocMatch = pathname.match(/^\/api\/docs\/([^/]+)$/);
       if (apiDocMatch) {
         const slug = decodeURIComponent(apiDocMatch[1]);
-        const bySlug = await store.findBySlug(slug, projectRoot);
+        // T14288: a slug (live or an alias) resolves to the doc's head.
+        const { resolveDocRef } = await import('@cleocode/core/docs/slug-rename');
+        const bySlug = await resolveDocRef(projectRoot, slug);
         if (!bySlug) {
           send(
             res,
@@ -268,7 +270,7 @@ export function buildViewerHandler(
           );
           return;
         }
-        const fetched = await store.get(bySlug.metadata.sha256, projectRoot);
+        const fetched = await store.get(bySlug.sha256, projectRoot);
         if (!fetched) {
           send(
             res,
@@ -297,7 +299,7 @@ export function buildViewerHandler(
           lafsSuccessJson({
             id: fetched.metadata.id,
             slug: bySlug.slug,
-            type: bySlug.type,
+            type: bySlug.meta.docType,
             title,
             mime,
             sha256: fetched.metadata.sha256,

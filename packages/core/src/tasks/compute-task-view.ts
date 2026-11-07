@@ -36,6 +36,7 @@ import type {
   TaskViewNextAction,
 } from '@cleocode/contracts';
 import { getNativeTasksDb } from '../store/sqlite.js';
+import { claimClockNow, LIVE_CLAIM_SQL } from '../store/task-claim.js';
 import { describeGateNotes, profileGateNotes } from './gate-notes.js';
 
 // =============================================================================
@@ -76,14 +77,16 @@ function fetchChildAggregates(
       COUNT(*)                                                        AS children_total,
       SUM(CASE WHEN status = 'done'    THEN 1 ELSE 0 END)            AS children_done,
       SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END)            AS children_blocked,
-      SUM(CASE WHEN status = 'active'  THEN 1 ELSE 0 END)            AS children_active
+      SUM(CASE WHEN ${LIVE_CLAIM_SQL} AND status IN ('pending', 'active') THEN 1 ELSE 0 END)
+                                                                      AS children_active
     FROM tasks_tasks
     WHERE parent_id IN (${placeholders})
       AND status != 'archived'
     GROUP BY parent_id
   `;
 
-  const rows = native.prepare(sqlText).all(...taskIds) as AggRow[];
+  // T14268: an in-progress child is one with a live claim lease, never a stored status.
+  const rows = native.prepare(sqlText).all(claimClockNow(), ...taskIds) as AggRow[];
   const map = new Map<string, { total: number; done: number; blocked: number; active: number }>();
 
   for (const row of rows) {

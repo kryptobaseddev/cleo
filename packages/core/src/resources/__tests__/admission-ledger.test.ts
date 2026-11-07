@@ -23,18 +23,16 @@ import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMISSION_ENV,
-  ADMISSION_PRESSURE_ENV,
   admissionCapacityBytes,
   admissionToken,
   admit,
   budgetShare,
-  CHARGE_MARGIN_MIN_BYTES,
-  CHARGE_WARMUP_MS,
   describeAdmissionIoError,
   describeCharge,
   describeHolders,
   describeScope,
   enclosingGrant,
+  entryCharge,
   entryLiveness,
   entryVerdict,
   footprintForTool,
@@ -51,6 +49,7 @@ import {
   type ProcessFacts,
   planFootprintBytes,
   planRunFootprint,
+  type RunFootprintPlan,
   readForeignEntries,
   readLedger,
   readLedgerBudget,
@@ -64,9 +63,13 @@ import {
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import {
-  readHookPeak,
+  commandChargeKey,
+  MEASURED_MIN_RUNS,
+  MEASURED_MIN_SAMPLES,
+  MEASURED_PEAK_MARGIN,
+  readCountedPeak,
   readMeasuredPeak,
-  recordHookPeak,
+  recordRunPeak,
   scriptFootprint,
 } from '../hook-footprint.js';
 import { ResourceMonitor } from '../monitor.js';
@@ -1166,141 +1169,120 @@ describe('a never-paused run at backoff starts by the idle rule (T14098)', () =>
   });
 });
 
-describe("an admitted run's charge follows its measured peak (T14116)", () => {
+describe('a run is admitted at its measured charge; a climb past it restores the plan (T14116, T14281)', () => {
   const MIB = 1024 ** 2;
-  const obs = (over: Partial<Parameters<typeof nextCharge>[0]> = {}) => ({
-    planBytes: 12 * GIB,
-    chargedBytes: 12 * GIB,
-    peakBytes: 170 * MIB,
-    rssBytes: 120 * MIB,
-    samples: 12,
-    admittedForMs: CHARGE_WARMUP_MS,
-    ...over,
+
+  it('nextCharge only ever raises: a climb past a measured charge restores the plan', () => {
+    const plan = 12 * GIB;
+    // Admitted at its measured charge; the tree stays under it.
+    expect(nextCharge({ planBytes: plan, chargedBytes: GIB, rssBytes: 800 * MIB })).toBeNull();
+    // The tree climbs past it: back to the plan.
+    expect(nextCharge({ planBytes: plan, chargedBytes: GIB, rssBytes: 3 * GIB })).toBe(plan);
+    // At the plan already, or charged the plan: nothing to raise, and never lowered.
+    expect(nextCharge({ planBytes: plan, chargedBytes: plan, rssBytes: 13 * GIB })).toBeNull();
+    expect(nextCharge({ planBytes: plan, chargedBytes: plan, rssBytes: 170 * MIB })).toBeNull();
   });
 
-  it('after the warm-up the charge falls to the peak plus the margin, never above the plan', () => {
-    expect(nextCharge(obs())).toBe(170 * MIB + CHARGE_MARGIN_MIN_BYTES);
-    // A 4.1 GiB typecheck keeps a quarter of its peak as the margin.
-    expect(nextCharge(obs({ peakBytes: 4.1 * GIB, rssBytes: 4 * GIB }))).toBe(
-      Math.ceil(4.1 * GIB * 1.25),
-    );
-    // A peak near the plan never charges more than the plan, so nothing changes.
-    expect(nextCharge(obs({ peakBytes: 11 * GIB, rssBytes: 11 * GIB }))).toBeNull();
-  });
-
-  it('nothing changes during the warm-up or before enough measurements', () => {
-    expect(nextCharge(obs({ admittedForMs: CHARGE_WARMUP_MS - 1 }))).toBeNull();
-    expect(nextCharge(obs({ samples: 1 }))).toBeNull();
-  });
-
-  it('a lowered charge never falls again without a new peak, and a climb past it restores the plan', () => {
-    const lowered = 170 * MIB + CHARGE_MARGIN_MIN_BYTES;
-    expect(nextCharge(obs({ chargedBytes: lowered }))).toBeNull();
-    expect(nextCharge(obs({ chargedBytes: lowered, peakBytes: 3 * GIB, rssBytes: 3 * GIB }))).toBe(
-      12 * GIB,
-    );
-    // Even during the warm-up: a climb is never left over-budget.
-    expect(nextCharge(obs({ chargedBytes: lowered, rssBytes: 3 * GIB, admittedForMs: 1 }))).toBe(
-      12 * GIB,
-    );
-    // At the plan already: nothing to restore.
-    expect(nextCharge(obs({ rssBytes: 13 * GIB, peakBytes: 13 * GIB }))).toBeNull();
-  });
-
-  it('a climb measured while the lowering is still being written restores the plan (no race)', async () => {
-    // #2562's merge ref: the climb was judged against the stale plan-sized
-    // charge while the lowering write was in flight, so it lowered again to
-    // 3.75 GiB instead of restoring the plan. Decisions now apply at once and
-    // writes land in order.
-    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-recharge-race-'));
+  it('admit(): a measured charge leaves room for a waiter; a climb restores the plan; status shows both', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-measured-'));
     _resetMemoryGateForTest();
-    let t = Date.now();
     const opts = {
       capacityBytes: 16 * GIB,
       sample: async () => sampleAt(0),
       env: {},
       pollMs: 5,
       topMemory: () => [],
-      now: () => t,
       dir,
     };
     try {
-      const push = await admit(
-        { label: 'run:scoped-build', footprintBytes: 12 * GIB },
+      const tsc = await admit(
+        {
+          label: 'run:scoped-build',
+          footprintBytes: GIB,
+          planBytes: 12 * GIB,
+          footprintReason: 'scoped-build plan, measured peak 0.8 GiB + 25%',
+        },
         { ...opts, wait: false },
       );
-      if (!push.admitted) throw new Error('expected an admission');
-      push.grant.observeRss?.(170 * MIB);
-      t += CHARGE_WARMUP_MS;
-      push.grant.observeRss?.(150 * MIB); // lowers; its write is still in flight
-      push.grant.observeRss?.(3 * GIB); // climbs past the lowered charge, at once
-      await vi.waitFor(() => {
-        const e = readLedger(dir)[0];
-        expect(e?.measuredPeakBytes).toBe(3 * GIB);
-        expect(e?.chargedBytes).toBeUndefined();
+      if (!tsc.admitted) throw new Error('expected an admission');
+      // 1 GiB held of 16: an 8 GiB run starts beside it (12 GiB would not have fit).
+      const beside = await admit(
+        { label: 'run:scoped-build', footprintBytes: 8 * GIB },
+        { ...opts, wait: false },
+      );
+      expect(beside.admitted).toBe(true);
+      if (beside.admitted) await beside.grant.release();
+      const [held] = readLedger(dir);
+      expect(held?.planBytes).toBe(12 * GIB);
+      expect(entryCharge(held as LedgerEntry)).toEqual({
+        chargedBytes: GIB,
+        plannedBytes: 12 * GIB,
+        measuredPeakBytes: null,
       });
-      await push.grant.release();
+      expect(describeHolders(readLedger(dir), Date.now())[0]).toMatch(
+        /charged 1\.0 GiB \(planned 12 GiB \(scoped-build plan, measured peak 0\.8 GiB \+ 25%\)\)/,
+      );
+      // The tree climbs past its measured charge: back to the plan.
+      tsc.grant.observeRss?.(3 * GIB);
+      await vi.waitFor(() => expect(readLedger(dir)[0]?.chargedBytes).toBe(12 * GIB));
+      expect(entryCharge(readLedger(dir)[0] as LedgerEntry).chargedBytes).toBe(12 * GIB);
+      await tsc.grant.release();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it('admit(): a hook push measuring far under plan frees its budget for a waiter; growing restores the plan', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-recharge-'));
-    _resetMemoryGateForTest();
-    let t = Date.now();
-    const opts = {
-      capacityBytes: 16 * GIB,
-      sample: async () => sampleAt(0),
-      env: {},
-      pollMs: 5,
-      topMemory: () => [],
-      now: () => t,
-      dir,
-    };
+  it('a 12 GiB plan measured at 0.8 GiB is charged about 1 GiB after 3 runs; one over-charge run resets it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-measured-charge-'));
+    const store = join(root, 'run');
+    const argv = ['pnpm', 'exec', 'tsc', '-b'];
+    const key = commandChargeKey(root, argv);
+    const plan = (): RunFootprintPlan =>
+      planRunFootprint('scoped-build', argv, {}, 48, () => false, undefined, root, undefined, {
+        projectRoot: root,
+        commandPeak: (k) => readCountedPeak(k, store),
+      });
     try {
-      const push = await admit(
-        {
-          label: 'run:scoped-build',
-          footprintBytes: 12 * GIB,
-          footprintReason: 'scoped-build plan: runs the pre-push hook',
-        },
-        { ...opts, wait: false },
-      );
-      expect(push.admitted).toBe(true);
-      if (!push.admitted) return;
-      const waiter = admit(
-        { label: 'run:scoped-build', footprintBytes: 8 * GIB },
-        { ...opts, wait: true, timeoutMs: 10 * CHARGE_WARMUP_MS }, // outlasts the fake clock's warm-up step,
-      );
-      await vi.waitFor(() => expect(readLedger(dir)).toHaveLength(2));
-      expect(readLedger(dir).find((e) => e.state === 'waiting')).toBeDefined();
-      // Warm-up passes with two measurements of 0.17 GiB.
-      push.grant.observeRss?.(170 * MIB);
-      t += CHARGE_WARMUP_MS;
-      push.grant.observeRss?.(150 * MIB);
-      const admitted = await waiter;
-      expect(admitted.admitted).toBe(true);
-      const held = readLedger(dir).find(
-        (e) => e.label === 'run:scoped-build' && e.footprintBytes === 12 * GIB,
-      );
-      expect(held?.chargedBytes).toBe(170 * MIB + CHARGE_MARGIN_MIN_BYTES);
-      const [line] = describeHolders(
-        readLedger(dir).filter((e) => e.id === held?.id),
-        t,
-      );
-      expect(line).toMatch(
-        /charged 0\.7 GiB \(planned 12 GiB \(scoped-build plan: runs the pre-push hook\); measured peak 0\.2 GiB\)/,
-      );
-      // The hook starts a test run: the tree climbs past its charge, back to the plan.
-      push.grant.observeRss?.(3 * GIB);
-      await vi.waitFor(() =>
-        expect(readLedger(dir).find((e) => e.id === held?.id)?.chargedBytes).toBeUndefined(),
-      );
-      if (admitted.admitted) await admitted.grant.release();
-      await push.grant.release();
+      const planned = plan().footprintBytes ?? 0;
+      expect(planned).toBeGreaterThan(4 * GIB);
+      expect(plan().hookKey).toBe(key);
+      for (let i = 0; i < MEASURED_MIN_RUNS - 1; i++) {
+        await recordRunPeak(key, 0.8 * GIB, MEASURED_MIN_SAMPLES, store, i);
+      }
+      expect(plan().footprintBytes).toBe(planned); // two runs: still the plan
+      await recordRunPeak(key, 0.8 * GIB, MEASURED_MIN_SAMPLES, store, 3);
+      const measured = plan();
+      expect(measured.footprintBytes).toBe(Math.ceil(0.8 * GIB * MEASURED_PEAK_MARGIN));
+      expect(measured.footprintBytes).toBeLessThan(2 * GIB);
+      expect(measured.planBytes).toBe(planned);
+      // One run above the charge resets the count: the plan again.
+      await recordRunPeak(key, 3 * GIB, MEASURED_MIN_SAMPLES, store, 4);
+      expect(plan().footprintBytes).toBe(planned);
+      expect(plan().planBytes).toBeUndefined();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('an unseen command is charged its plan', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-unseen-charge-'));
+    try {
+      const unseen = planRunFootprint(
+        'scoped-build',
+        ['pnpm', 'exec', 'tsc', '-b'],
+        {},
+        48,
+        () => false,
+        undefined,
+        root,
+        undefined,
+        { projectRoot: root, commandPeak: () => null },
+      );
+      expect(unseen.planBytes).toBeUndefined();
+      expect(unseen.hookKey).toMatch(/^cmd:[0-9a-f]{64}$/);
+      expect(unseen.footprintReason).toBe('scoped-build plan');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
@@ -1625,6 +1607,69 @@ describe('admit (one ledger, real critical section)', () => {
     expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
   });
 
+  it('held above the refuse line with CLEO idle, a waiter gets the external-pressure verdict naming the programs (T14282)', async () => {
+    const agy = { pid: 4242, command: 'agy', footprintBytes: 17 * GIB };
+    const node = { pid: 77, command: 'node', footprintBytes: 2 * GIB };
+    let t = Date.now();
+    const t0 = t;
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 600_000,
+        sample: async () => sampleAt(40),
+        topMemory: () => [agy, node],
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+      },
+    );
+    expect(out.admitted).toBe(false);
+    if (out.admitted) return;
+    const ext = out.refusal.externalPressure;
+    expect(ext?.expectedAdmitAt).toBeNull();
+    expect(ext?.topProcesses).toEqual([
+      { pid: 4242, command: 'agy', rssBytes: 17 * GIB },
+      { pid: 77, command: 'node', rssBytes: 2 * GIB },
+    ]);
+    expect(ext?.memoryPressure.score).toBe(40);
+    // Two notice intervals, not the 10-minute deadline.
+    expect(ext?.waitedMs).toBeGreaterThanOrEqual(120_000);
+    expect(t - t0).toBeLessThan(600_000);
+    // The waiter left the queue.
+    expect(readLedger(dir).filter((e) => e.state === 'waiting')).toEqual([]);
+  });
+
+  it('a CLEO run holding the budget is not external pressure: the waiter times out as before (T14282)', async () => {
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(holder.admitted).toBe(true);
+    let t = Date.now();
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 300_000,
+        sample: async () => sampleAt(40),
+        topMemory: () => [{ pid: 4242, command: 'agy', footprintBytes: 17 * GIB }],
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+      },
+    );
+    expect(out.admitted).toBe(false);
+    if (!out.admitted) expect(out.refusal.externalPressure).toBeUndefined();
+    if (holder.admitted) await holder.grant.release();
+  });
+
   it('the memory users named leave out the runs CLEO holds (T13965)', async () => {
     const holder = await admit(
       { label: 'tool:test', footprintBytes: GIB },
@@ -1921,43 +1966,6 @@ describe('admit (one ledger, real critical section)', () => {
     await parent.grant.release();
   });
 
-  it('CLEO_ADMISSION_PRESSURE=off ignores host pressure; an explicit sampler still counts', async () => {
-    const line = { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 };
-    const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue({
-      ...sampleAt(0),
-      globalPressure: { some: line, full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 } },
-    });
-    const saved = process.env[ADMISSION_PRESSURE_ENV];
-    try {
-      const { sample: _ignored, ...noSampler } = base;
-      process.env[ADMISSION_PRESSURE_ENV] = 'off';
-      const off = await admit(
-        { label: 'tool:test', footprintBytes: GIB },
-        { ...noSampler, dir, wait: false },
-      );
-      expect(off.admitted).toBe(true);
-      if (off.admitted) await off.grant.release();
-      delete process.env[ADMISSION_PRESSURE_ENV];
-      _resetMemoryGateForTest();
-      const on = await admit(
-        { label: 'tool:test', footprintBytes: GIB },
-        { ...noSampler, dir, wait: false },
-      );
-      expect(on.admitted).toBe(false);
-      _resetMemoryGateForTest();
-      process.env[ADMISSION_PRESSURE_ENV] = 'off';
-      const explicit = await admit(
-        { label: 'tool:test', footprintBytes: GIB },
-        { ...noSampler, dir, wait: false, sample: async () => sampleAt(40) },
-      );
-      expect(explicit.admitted).toBe(false);
-    } finally {
-      spy.mockRestore();
-      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
-      else process.env[ADMISSION_PRESSURE_ENV] = saved;
-    }
-  });
-
   it('CLEO_RESOURCES_MODE=off admits everything without touching the ledger', async () => {
     process.env.CLEO_RESOURCES_MODE = 'off';
     const out = await admit(
@@ -2172,8 +2180,6 @@ describe('admit (one ledger, real critical section)', () => {
 
   it('waiters reuse a pressure verdict under 2 s old instead of sampling again (LOW-6)', async () => {
     const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(sampleAt(0));
-    const saved = process.env[ADMISSION_PRESSURE_ENV];
-    delete process.env[ADMISSION_PRESSURE_ENV];
     try {
       const { sample: _ignored, ...live } = base;
       let t = 1_000_000;
@@ -2196,8 +2202,6 @@ describe('admit (one ledger, real critical section)', () => {
       expect(spy).toHaveBeenCalledTimes(2);
     } finally {
       spy.mockRestore();
-      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
-      else process.env[ADMISSION_PRESSURE_ENV] = saved;
     }
   });
 
@@ -2209,8 +2213,6 @@ describe('admit (one ledger, real critical section)', () => {
     if (!holder.admitted) throw new Error('expected an admission');
     const sampled = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(sampleAt(0));
     const locks = vi.spyOn(lockfile, 'lock');
-    const saved = process.env[ADMISSION_PRESSURE_ENV];
-    delete process.env[ADMISSION_PRESSURE_ENV];
     try {
       const { sample: _ignored, ...live } = base;
       let t = Date.now();
@@ -2243,8 +2245,6 @@ describe('admit (one ledger, real critical section)', () => {
     } finally {
       sampled.mockRestore();
       locks.mockRestore();
-      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
-      else process.env[ADMISSION_PRESSURE_ENV] = saved;
       await holder.grant.release();
     }
   });
@@ -3164,12 +3164,12 @@ describe('an explicit class is charged its plan until a measurement lowers it (T
     );
   });
 
-  it('readMeasuredPeak returns the largest recorded peak after one run; readHookPeak waits for three', async () => {
+  it('readMeasuredPeak returns the largest recorded peak after one run; readCountedPeak waits for three', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cleo-measured-peak-'));
     try {
-      await recordHookPeak('emit-route-guards.cjs:abc', 6 * GIB, 4, dir);
+      await recordRunPeak('emit-route-guards.cjs:abc', 6 * GIB, 4, dir);
       expect(readMeasuredPeak('emit-route-guards.cjs:abc', dir)).toBe(6 * GIB);
-      expect(readHookPeak('emit-route-guards.cjs:abc', dir)).toBeNull();
+      expect(readCountedPeak('emit-route-guards.cjs:abc', dir)).toBeNull();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

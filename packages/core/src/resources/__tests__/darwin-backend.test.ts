@@ -42,6 +42,7 @@ import {
   pressureScore,
 } from '../monitor.js';
 import { evaluateMemoryGate, MEMORY_GATE_RESUME_AT_OR_BELOW } from '../pressure-gate.js';
+import { RESOURCE_SAMPLE_FILE_ENV } from '../sample-fixture.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
@@ -472,9 +473,16 @@ describe('evaluateState with cpuPressure', () => {
 
 describe('defaultResourceBackend', () => {
   it('picks the backend by platform', () => {
-    expect(defaultResourceBackend('darwin')).toBeInstanceOf(DarwinResourceBackend);
-    expect(defaultResourceBackend('linux')).toBeInstanceOf(LinuxResourceBackend);
-    expect(defaultResourceBackend('win32')).toBeInstanceOf(LinuxResourceBackend);
+    // The suite's calm fixture (vitest.setup.ts) would wrap the platform backend.
+    const saved = process.env[RESOURCE_SAMPLE_FILE_ENV];
+    delete process.env[RESOURCE_SAMPLE_FILE_ENV];
+    try {
+      expect(defaultResourceBackend('darwin')).toBeInstanceOf(DarwinResourceBackend);
+      expect(defaultResourceBackend('linux')).toBeInstanceOf(LinuxResourceBackend);
+      expect(defaultResourceBackend('win32')).toBeInstanceOf(LinuxResourceBackend);
+    } finally {
+      if (saved !== undefined) process.env[RESOURCE_SAMPLE_FILE_ENV] = saved;
+    }
   });
 });
 

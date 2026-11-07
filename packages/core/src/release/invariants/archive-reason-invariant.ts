@@ -16,8 +16,9 @@
  *          stamp `status='done'`, `archive_reason='verified'`,
  *          `release='<tag>'` in one transaction.
  *        - If `status='pending'` AND verification is null/incomplete:
- *          create a follow-up task `T-RECONCILE-FOLLOWUP-<tag>-<idx>` linked
- *          to the unreconciled task ID.
+ *          create a follow-up task (an allocated `T####`, label
+ *          `reconcile-followup:<tag>`) related to the unreconciled task ID
+ *          (T14271).
  *        - Otherwise (already done / cancelled / not found): no-op.
  *   4. Append every mutation to `.cleo/audit/reconcile.jsonl`.
  *
@@ -38,6 +39,7 @@ import { dirname, join } from 'node:path';
 import type { ArchiveReasonValue, Task } from '@cleocode/contracts';
 import { ArchiveReason, assertArchiveReason } from '@cleocode/contracts/tasks/archive.js';
 import { getLogger } from '../../logger.js';
+import { allocateNextTaskId } from '../../sequence/index.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { type InvariantResult, type InvariantRunOptions, registerInvariant } from './registry.js';
 
@@ -71,7 +73,7 @@ export interface ReconcileAuditRow {
  * The four mutation outcomes recorded in `.cleo/audit/reconcile.jsonl`.
  *
  * - `reconciled`           — task stamped done + archive_reason=verified + release=<tag>.
- * - `followup-created`     — follow-up `T-RECONCILE-FOLLOWUP-…` task created.
+ * - `followup-created`     — follow-up task created (or found on a re-run).
  * - `noop-already-closed`  — task was already done / cancelled / archived.
  * - `noop-not-found`       — task ID referenced in commits but not in the DB.
  */
@@ -153,7 +155,7 @@ function commitMessagesInTagRange(repoRoot: string, tag: string): string {
  * Extract every unique `T<digits>` task ID from a corpus of text.
  *
  * Matches `T1411`, `T-1411` is intentionally NOT matched (the dash form is
- * reserved for follow-up tasks like `T-RECONCILE-FOLLOWUP-…`). Order is
+ * not a task id). Order is
  * preserved by first-occurrence so audit rows render predictably.
  */
 export function extractTaskIds(text: string): string[] {
@@ -188,6 +190,46 @@ function appendReconcileAudit(repoRoot: string, row: ReconcileAuditRow): void {
   } catch (err) {
     log.warn({ err, taskId: row.taskId }, 'failed to append reconcile audit row');
   }
+}
+
+/** Label every reconcile follow-up carries, suffixed with the release tag (T14271). */
+export const RECONCILE_FOLLOWUP_LABEL_PREFIX = 'reconcile-followup:';
+
+/** The nearest epic at or above `task`'s parent, or null when it has none. */
+async function epicOf(
+  accessor: Awaited<ReturnType<typeof getTaskAccessor>>,
+  task: Task,
+): Promise<string | null> {
+  let id = task.parentId ?? null;
+  for (let depth = 0; id !== null && depth < 8; depth++) {
+    const parent = await accessor.loadSingleTask(id);
+    if (!parent) return null;
+    if (parent.type === 'epic') return parent.id;
+    id = parent.parentId ?? null;
+  }
+  return null;
+}
+
+/**
+ * The follow-up this invariant already created for `taskId` under `label`, so
+ * a re-run of the same tag never files a second one.
+ *
+ * @param accessor - The project task accessor.
+ * @param label - `reconcile-followup:<tag>`.
+ * @param taskId - The unreconciled task.
+ * @returns The follow-up's id, or null when there is none.
+ */
+async function findReconcileFollowUp(
+  accessor: Awaited<ReturnType<typeof getTaskAccessor>>,
+  label: string,
+  taskId: string,
+): Promise<string | null> {
+  const { tasks } = await accessor.queryTasks({ label });
+  for (const candidate of tasks) {
+    const full = await accessor.loadSingleTask(candidate.id);
+    if (full?.relates?.some((r) => r.taskId === taskId)) return candidate.id;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,19 +362,27 @@ async function checkArchiveReasonInvariant(opts: InvariantRunOptions): Promise<I
         continue;
       }
 
-      // Unreconciled — verification null, incomplete, or failed.
-      // Create a follow-up task linked to the original.
-      const followUpId = `T-RECONCILE-FOLLOWUP-${tag}-${idx}`;
+      // Unreconciled — verification null, incomplete, or failed. Create a
+      // follow-up task (T14271): an allocated `T####` the CLI can read, with
+      // a relates edge and the `reconcile-followup:<tag>` label. A re-run
+      // finds the follow-up it already created by that label and edge.
       unreconciledIds.push(taskId);
+      if (dryRun) continue;
+      const label = `${RECONCILE_FOLLOWUP_LABEL_PREFIX}${tag}`;
+      const existing = await findReconcileFollowUp(accessor, label, taskId);
+      const followUpId = existing ?? (await allocateNextTaskId(cwd ?? repoRoot));
       followUpIds.push(followUpId);
-
-      if (!dryRun) {
-        await accessor.upsertSingleTask({
+      if (existing === null) {
+        await accessor.insertNewTask({
           id: followUpId,
           title: `Reconcile ${taskId} for ${tag} (verification absent)`,
           description: `Auto-generated by archive-reason invariant after release ${tag}.\n\nThe parent task ${taskId} was referenced in a release commit but its verification record was null or incomplete. An operator should:\n  1. Inspect ${taskId} (\`cleo show ${taskId}\`)\n  2. Capture missing evidence with \`cleo verify\`\n  3. Re-run \`cleo reconcile release --tag ${tag}\` if applicable\n\nReference: ADR-056 D5 (post-release reconciliation).`,
           status: 'pending',
           priority: 'medium',
+          labels: [label],
+          // T14324: one criterion, as `cleo add` requires, and the original's epic.
+          acceptance: [`Verification recorded for ${taskId}, or ${taskId} re-scoped`],
+          parentId: await epicOf(accessor, task),
           createdAt: new Date().toISOString(),
           provenance: {
             createdBy: 'release-invariants:archive-reason',
@@ -345,16 +395,17 @@ async function checkArchiveReasonInvariant(opts: InvariantRunOptions): Promise<I
         await accessor.addRelation(followUpId, taskId, 'related', `reconcile follow-up for ${tag}`);
       }
 
-      if (!dryRun) {
-        appendReconcileAudit(repoRoot, {
-          timestamp: new Date().toISOString(),
-          tag,
-          taskId,
-          action: 'followup-created',
-          followUpTaskId: followUpId,
-          note: 'verification null/incomplete; follow-up task created',
-        });
-      }
+      appendReconcileAudit(repoRoot, {
+        timestamp: new Date().toISOString(),
+        tag,
+        taskId,
+        action: 'followup-created',
+        followUpTaskId: followUpId,
+        note:
+          existing === null
+            ? 'verification null/incomplete; follow-up task created'
+            : 'verification null/incomplete; follow-up task already exists',
+      });
     } catch (err) {
       errors++;
       log.error({ err, tag, taskId }, 'archive-reason invariant raised on task');

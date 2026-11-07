@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.4.2
+version: 3.5.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.4.2
+  version: 3.5.0
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-11-02
+  lastReviewed: 2026-11-05
   stability: stable
 ---
 
@@ -380,6 +380,17 @@ task to PR to release (spec: `cleo docs fetch pr-cadence`):
   malformed line. A change no task owns takes the `no-task` label.
 - **Changeset** with the same `tasks:` for user-facing changes; release notes
   are built from them.
+- **Durability ledger** (SG-CLEO-DURABILITY PRs, T14247). The body carries a
+  `Ledger:` line pairing every exception it adds with the rule it deletes.
+  Items follow on the line (`;`-separated) or as bullets below it:
+  `adds <kind> <name> -> deletes <rule>`, `adds model <name>`,
+  `adds part <name>`, `deletes <rule>`, or `adds nothing`. Exception kinds
+  (`verdict`, `code`, `key`, `flag`, `registry`, `gate`) need the
+  `-> deletes` pairing; `model` (a receipt, a census, measured charges) and
+  `part` (a helper, predicate, job, report, verb or field that adds no rule)
+  do not. The `PR Task Lines` workflow flags a PR with a `Ledger:` or
+  `Durability:` line whose ledger is missing, malformed or unpaired
+  (`scripts/lint-pr-ledger.mjs`).
 - **Batch at release time, not in PRs.** PRs merge one at a time on green
   `CI`; `cleo release cut` ships everything merged since the last tag.
 

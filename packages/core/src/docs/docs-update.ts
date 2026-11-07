@@ -36,7 +36,7 @@ import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js'
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
-import { fileBytesMatchSha256 } from '../store/blob-keep.js';
+import { fileBytesMatchSha256, readVerifiedBlobBytes } from '../store/blob-keep.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
@@ -418,8 +418,8 @@ export async function updateDocBySlug(
   projectRoot: string,
   params: DocsUpdateParams,
 ): Promise<UpdateDocBySlugResult> {
-  const slug = params.slug;
-  if (typeof slug !== 'string' || slug.length === 0) {
+  const requestedSlug = params.slug;
+  if (typeof requestedSlug !== 'string' || requestedSlug.length === 0) {
     return { ok: false, error: { code: 'E_INVALID_INPUT', message: 'slug is required' } };
   }
 
@@ -504,21 +504,23 @@ export async function updateDocBySlug(
   // run only reads, so it is still served).
   if (params.dryRun !== true) assertTwinCollapseWritable(db, 'attachments');
 
-  // Look up the existing row by slug.
-  const oldRow = await db
-    .select()
-    .from(docsAttachments)
-    .where(eq(docsAttachments.slug, slug))
-    .get();
-  if (!oldRow) {
+  // T14288: resolve the slug (live or an alias) to the doc's identity and
+  // head; a doc with no version history yet resolves through its row (legacy).
+  const { resolveDocRef } = await import('./slug-rename.js');
+  const ref = await resolveDocRef(projectRoot, requestedSlug);
+  if (!ref) {
     return {
       ok: false,
       error: {
         code: 'E_NOT_FOUND',
-        message: `no attachment found with slug '${slug}' — the slug does not exist in the store and cannot be updated`,
+        message: `no attachment found with slug '${requestedSlug}' — the slug does not exist in the store and cannot be updated`,
       },
     };
   }
+  const slug = ref.slug;
+  // The row the update re-homes: the live slug's row. Its content is the head's
+  // (T13842) unless sync moved the head, when the metadata still lives there.
+  const oldRow = ref.ownRow;
 
   // T13674: resolve the declared base BEFORE any write. The base is the
   // conduit version the edit was authored against (the fetch envelope's
@@ -546,30 +548,16 @@ export async function updateDocBySlug(
             `base version '${params.baseVersionUid}' does not resolve to slug '${slug}'s version history — ` +
             're-fetch the doc (`cleo docs fetch ' +
             slug +
-            '`) and retry with its metadata.headVersionUid',
+            '`) and retry with its metadata.headVersionUid' +
+            (docUid === null
+              ? '; the doc has no version history yet: run `cleo docs migrate` to record its current bytes as the head (T14329)'
+              : ''),
         },
       };
     }
-    if (!version.storageKey) {
-      return {
-        ok: false,
-        error: {
-          // @sync-invariant none:input-shape a base without resolvable bytes cannot anchor a merge; nothing was written
-          code: 'E_DOC_BASE_UNKNOWN',
-          message:
-            `base version '${params.baseVersionUid}' has no stored bytes for slug '${slug}' — ` +
-            're-fetch the doc and retry with its current metadata.headVersionUid',
-        },
-      };
-    }
-    const { readFile } = await import('node:fs/promises');
-    try {
-      const text = await readFile(
-        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
-        'utf-8',
-      );
-      baseSections = splitDocIntoSections(text);
-    } catch (cause) {
+    // T14329: by content hash (blob store, then the legacy tree), whatever the key layout.
+    const baseBytes = readVerifiedBlobBytes(resolveCleoDir(projectRoot), version.contentHash);
+    if (baseBytes === null) {
       return {
         ok: false,
         error: {
@@ -577,10 +565,11 @@ export async function updateDocBySlug(
           code: 'E_DOC_BASE_UNKNOWN',
           message:
             `base version '${params.baseVersionUid}' bytes for slug '${slug}' cannot be read ` +
-            `(${cause instanceof Error ? cause.message : String(cause)}) — re-fetch the doc and retry`,
+            '(no verified copy in the blob store or the legacy tree) — re-fetch the doc and retry',
         },
       };
     }
+    baseSections = splitDocIntoSections(baseBytes.toString('utf-8'));
   }
 
   // T12945: superseded is absorbing (docs.lifecycle.transitions). Leaving it —
@@ -736,7 +725,7 @@ export async function updateDocBySlug(
         changed: false,
         lifecycleStatus: status,
         updatedAt: nowIso,
-        version: countVersionsForSlug(projectRoot, slug),
+        version: await countDocVersions(projectRoot, slug, oldRow.docVersion),
         squashed: false,
         summary,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
@@ -760,6 +749,9 @@ export async function updateDocBySlug(
         .set({ lifecycleStatus: status })
         .where(eq(docsAttachments.id, oldRow.id))
         .run();
+      // T14288: the doc's identity row carries its lifecycle too.
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(projectRoot, { rowId: oldRow.id });
     }
     const { readDocHeadVersionUid } = await import('./fetch-result.js');
     const noopHead = await readDocHeadVersionUid(projectRoot, slug);
@@ -790,7 +782,7 @@ export async function updateDocBySlug(
         changed: false,
         lifecycleStatus: status,
         updatedAt: nowIso,
-        version: countVersionsForSlug(projectRoot, slug),
+        version: await countDocVersions(projectRoot, slug, oldRow.docVersion),
         squashed,
         summary:
           status === oldRow.lifecycleStatus
@@ -920,101 +912,144 @@ export async function updateDocBySlug(
     .where(eq(attachmentRefs.attachmentId, oldRow.id))
     .all();
 
+  // T14288 AC2: the new bytes may already be ANOTHER doc's content (two docs
+  // whose heads are identical). Moving this slug onto that row would take it
+  // from the other doc. A text doc resolves through its identity and head
+  // (the projection below lands the head on these bytes), so it keeps its own
+  // registry row and slug, and the shared content row stays the other doc's.
+  // A binary doc (no projection) keeps the move: it has no identity to
+  // resolve through yet.
+  const sharedRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.sha256, newSha256))
+    .get();
+  const keepsOwnRow =
+    projectionInput !== null &&
+    sharedRow !== undefined &&
+    sharedRow.slug !== null &&
+    sharedRow.slug !== slug;
+
   let newAttachmentId: string;
   try {
     nativeDb.prepare('BEGIN IMMEDIATE').run();
 
-    // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
-    await db
-      .update(docsAttachments)
-      .set({ slug: null })
-      .where(eq(docsAttachments.id, oldRow.id))
-      .run();
-
-    // 2. Insert OR update the new-sha256 row. If a row already exists
-    //    for this sha256 (rare — same bytes already stored under a
-    //    different slug), reuse it and just transfer the slug onto it.
-    const existingNewRow = await db
-      .select()
-      .from(docsAttachments)
-      .where(eq(docsAttachments.sha256, newSha256))
-      .get();
-
-    if (existingNewRow) {
-      newAttachmentId = existingNewRow.id;
+    if (keepsOwnRow && sharedRow) {
+      newAttachmentId = sharedRow.id;
+      // The doc's own row keeps its slug and owners and takes the update's
+      // metadata; the shared content row is left exactly as it was.
       await db
         .update(docsAttachments)
         .set({
-          slug,
-          type: oldRow.type ?? null,
           lifecycleStatus: status,
           docVersion: oldRow.docVersion + 1,
-          topics: oldRow.topics ?? null,
           relatedTasks: derivedRelatedTasks,
-        })
-        .where(eq(docsAttachments.id, existingNewRow.id))
-        .run();
-    } else {
-      newAttachmentId = randomUUID();
-      await db
-        .insert(docsAttachments)
-        .values({
-          id: newAttachmentId,
-          sha256: newSha256,
-          attachmentJson: newAttachmentJson,
-          createdAt: nowIso,
-          refCount: 0,
-          slug,
-          ...(oldRow.type ? { type: oldRow.type } : {}),
-          lifecycleStatus: status,
           ownerVersion: getCanonicalCleoVersion(projectRoot),
-          docVersion: oldRow.docVersion + 1,
-          topics: oldRow.topics ?? null,
-          relatedTasks: derivedRelatedTasks,
         })
+        .where(eq(docsAttachments.id, oldRow.id))
         .run();
-    }
-
-    // 3. Carry every existing ref over to the new row so the slug stays
-    //    reachable from the same owners. We skip rows that already exist
-    //    on the new row (idempotent re-runs).
-    let refsAdded = 0;
-    for (const ref of oldRefs) {
-      const dup = await db
-        .select()
-        .from(attachmentRefs)
-        .where(
-          and(
-            eq(attachmentRefs.attachmentId, newAttachmentId),
-            eq(attachmentRefs.ownerType, ref.ownerType),
-            eq(attachmentRefs.ownerId, ref.ownerId),
-          ),
-        )
-        .get();
-      if (dup) continue;
-      await db
-        .insert(attachmentRefs)
-        .values({
-          attachmentId: newAttachmentId,
-          ownerType: ref.ownerType,
-          ownerId: ref.ownerId,
-          attachedAt: nowIso,
-          attachedBy,
-        })
-        .run();
-      refsAdded += 1;
-    }
-    if (refsAdded > 0) {
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(projectRoot, { rowId: oldRow.id });
+      nativeDb.prepare('COMMIT').run();
+    } else {
+      // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
       await db
         .update(docsAttachments)
-        .set({
-          refCount: (existingNewRow?.refCount ?? 0) + refsAdded,
-        })
-        .where(eq(docsAttachments.id, newAttachmentId))
+        .set({ slug: null })
+        .where(eq(docsAttachments.id, oldRow.id))
         .run();
-    }
 
-    nativeDb.prepare('COMMIT').run();
+      // 2. Insert OR update the new-sha256 row. If a row already exists
+      //    for this sha256 (rare — same bytes already stored under a
+      //    different slug), reuse it and just transfer the slug onto it.
+      const existingNewRow = await db
+        .select()
+        .from(docsAttachments)
+        .where(eq(docsAttachments.sha256, newSha256))
+        .get();
+
+      if (existingNewRow) {
+        newAttachmentId = existingNewRow.id;
+        await db
+          .update(docsAttachments)
+          .set({
+            slug,
+            type: oldRow.type ?? null,
+            lifecycleStatus: status,
+            docVersion: oldRow.docVersion + 1,
+            topics: oldRow.topics ?? null,
+            relatedTasks: derivedRelatedTasks,
+          })
+          .where(eq(docsAttachments.id, existingNewRow.id))
+          .run();
+      } else {
+        newAttachmentId = randomUUID();
+        await db
+          .insert(docsAttachments)
+          .values({
+            id: newAttachmentId,
+            sha256: newSha256,
+            attachmentJson: newAttachmentJson,
+            createdAt: nowIso,
+            refCount: 0,
+            slug,
+            ...(oldRow.type ? { type: oldRow.type } : {}),
+            lifecycleStatus: status,
+            ownerVersion: getCanonicalCleoVersion(projectRoot),
+            docVersion: oldRow.docVersion + 1,
+            topics: oldRow.topics ?? null,
+            relatedTasks: derivedRelatedTasks,
+          })
+          .run();
+      }
+
+      // 3. Carry every existing ref over to the new row so the slug stays
+      //    reachable from the same owners. We skip rows that already exist
+      //    on the new row (idempotent re-runs).
+      let refsAdded = 0;
+      for (const ref of oldRefs) {
+        const dup = await db
+          .select()
+          .from(attachmentRefs)
+          .where(
+            and(
+              eq(attachmentRefs.attachmentId, newAttachmentId),
+              eq(attachmentRefs.ownerType, ref.ownerType),
+              eq(attachmentRefs.ownerId, ref.ownerId),
+            ),
+          )
+          .get();
+        if (dup) continue;
+        await db
+          .insert(attachmentRefs)
+          .values({
+            attachmentId: newAttachmentId,
+            ownerType: ref.ownerType,
+            ownerId: ref.ownerId,
+            attachedAt: nowIso,
+            attachedBy,
+          })
+          .run();
+        refsAdded += 1;
+      }
+      if (refsAdded > 0) {
+        await db
+          .update(docsAttachments)
+          .set({
+            refCount: (existingNewRow?.refCount ?? 0) + refsAdded,
+          })
+          .where(eq(docsAttachments.id, newAttachmentId))
+          .run();
+      }
+
+      // T14288: the doc's identity row carries the new row's metadata, in the
+      // same transaction (a first update adopts the doc later, in the
+      // projection, with this metadata).
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(projectRoot, { rowId: newAttachmentId });
+
+      nativeDb.prepare('COMMIT').run();
+    }
   } catch (err) {
     try {
       nativeDb.prepare('ROLLBACK').run();
@@ -1169,7 +1204,7 @@ export async function updateDocBySlug(
       changed: true,
       lifecycleStatus: status,
       updatedAt: nowIso,
-      version: countVersionsForSlug(projectRoot, slug),
+      version: await countDocVersions(projectRoot, slug, oldRow.docVersion + 1),
       squashed,
       summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
       ownerVersion: getCanonicalCleoVersion(projectRoot),
@@ -1197,12 +1232,11 @@ const PREVIEW_SETTLE_BUDGET_MS = 5_000;
 async function readVersionText(projectRoot: string, versionUid: string): Promise<string | null> {
   const { getConduitAttachmentVersion } = await import('../store/conduit-doc-history.js');
   const version = await getConduitAttachmentVersion(projectRoot, versionUid);
-  if (!version?.storageKey) return null;
-  const { readFile } = await import('node:fs/promises');
-  return readFile(
-    join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
-    'utf-8',
-  ).catch(() => null);
+  if (!version) return null;
+  return (
+    readVerifiedBlobBytes(resolveCleoDir(projectRoot), version.contentHash)?.toString('utf-8') ??
+    null
+  );
 }
 
 /** The current conduit head's text for a slug (T13842), or `null` when it has none or it is unreadable. */
@@ -1223,39 +1257,46 @@ function utf8TextOf(buf: Buffer): string | null {
 }
 
 /**
- * Count how many revisions for `slug` exist in the audit log, plus 1 for
- * the current row. Returns 2 as a floor for the first update so callers
- * always see a monotone counter even when the audit file is missing.
+ * Give a doc that `docs add` just stored its identity, first version and head
+ * (T14329): the conduit uid, a root version holding exactly the stored bytes,
+ * and the head projection, so `docs fetch` carries `metadata.headVersionUid`
+ * and the expected-base fence works from the first edit. Text bodies are
+ * projected through the section CRDT layer (as an update is); binary bodies
+ * get a direct root version. Idempotent.
  *
- * Synchronous (reads a small audit JSONL file) so callers can compose
- * the value into the LAFS result without an extra await round-trip.
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The new doc's slug, author and stored bytes.
+ * @returns The doc uid and its head version uid.
+ * @task T14329
+ */
+export async function recordNewDocIdentity(
+  projectRoot: string,
+  input: { slug: string; authorAgentId: string; bytes: Buffer },
+): Promise<{ docUid: string; headVersionUid: string }> {
+  const { projectDocCreate } = await import('./section-write-path.js');
+  return projectDocCreate(projectRoot, { ...input, text: utf8TextOf(input.bytes) });
+}
+
+/**
+ * The doc's version count from its version DAG (T14288): every
+ * `conduit_attachment_versions` row of the doc's uid. The docs-versioning
+ * audit log is audit-only and is never read for it. A doc with no history
+ * yet reports `fallback` (its registry row's counter).
  *
  * @internal
  */
-function countVersionsForSlug(projectRoot: string, slug: string): number {
-  // The attachments table only carries the CURRENT slug-bearing row.
-  // History lives in the audit log; we derive `version` from it so the
-  // counter is meaningful across the entire update sequence.
-  const auditPath = join(projectRoot, DOCS_VERSIONING_AUDIT_FILE);
-  let raw: string;
-  try {
-    raw = readFileSync(auditPath, 'utf-8');
-  } catch {
-    return 2;
-  }
-  let total = 1; // initial create (no audit entry for the original add)
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let entry: AuditLine;
-    try {
-      entry = JSON.parse(line) as AuditLine;
-    } catch {
-      continue;
-    }
-    if (entry.op !== 'docs.update' || entry.slug !== slug) continue;
-    total += entry.revisions.length;
-  }
-  return total;
+async function countDocVersions(
+  projectRoot: string,
+  slug: string,
+  fallback: number,
+): Promise<number> {
+  const { listConduitAttachmentVersions, resolveConduitDocUid } = await import(
+    '../store/conduit-doc-history.js'
+  );
+  const uid = await resolveConduitDocUid(projectRoot, slug);
+  if (uid === null) return fallback;
+  const count = (await listConduitAttachmentVersions(projectRoot, uid)).length;
+  return count > 0 ? count : fallback;
 }
 
 /**
@@ -1290,19 +1331,16 @@ async function recordPriorVersionOnAdopt(
     '../store/conduit-doc-history.js'
   );
   if ((await resolveConduitDocUid(projectRoot, slug)) !== null) return null;
-  let storageKey: string | undefined;
-  let bytes: Buffer | undefined;
+  // T14329: the prior bytes by content hash (blob store, then the legacy
+  // tree); the legacy key layout when the row has one, else the content address.
+  let storageKey = `sha256:${oldRow.sha256}`;
   try {
     const prior = blobAttachmentSchema.safeParse(JSON.parse(oldRow.attachmentJson));
-    if (prior.success && prior.data.storageKey) {
-      storageKey = prior.data.storageKey;
-      bytes = readFileSync(
-        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey),
-      );
-    }
+    if (prior.success && prior.data.storageKey) storageKey = prior.data.storageKey;
   } catch {
-    bytes = undefined; // shortcut: no parseable row or local bytes, no root row; the T13727 backfill covers these docs
+    // an unparseable row keeps the content-address key
   }
+  const bytes = readVerifiedBlobBytes(resolveCleoDir(projectRoot), oldRow.sha256) ?? undefined;
   // T13586: adopt with the PRE-update row's birth even without local bytes —
   // the slug already points at this device's new row, so letting the
   // projection adopt would stamp a per-device birth and mint a per-device uid.
@@ -1311,8 +1349,9 @@ async function recordPriorVersionOnAdopt(
     authorAgentId,
     content: bytes ?? Buffer.alloc(0),
     legacyBirth: oldRow.createdAt,
+    legacySha256: oldRow.sha256,
   });
-  if (bytes === undefined || storageKey === undefined) return null;
+  if (bytes === undefined) return null;
   const tokens = bytes
     .toString('utf-8')
     .split(/\s+/)

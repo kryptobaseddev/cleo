@@ -34,10 +34,10 @@ const { DatabaseSync } = _require('node:sqlite') as {
 let db: DatabaseSync;
 
 const CREATE_TASKS = `
-  CREATE TABLE tasks (
+  CREATE TABLE tasks_tasks (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL,    claimed_by_session TEXT,    lease_expires_at TEXT,
     priority TEXT NOT NULL DEFAULT 'medium',
     type TEXT,
     parent_id TEXT,
@@ -55,8 +55,8 @@ function insertTask(row: {
   pipeline_stage?: string | null;
 }): void {
   db.prepare(
-    `INSERT INTO tasks (id, title, status, type, parent_id, pipeline_stage)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tasks_tasks (id, title, status, type, parent_id, pipeline_stage, claimed_by_session, lease_expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.title ?? `Task ${row.id}`,
@@ -64,6 +64,8 @@ function insertTask(row: {
     row.type ?? 'task',
     row.parent_id ?? null,
     row.pipeline_stage ?? null,
+    row.status === 'active' ? 'ses_20261106000000_aaaaaa' : null,
+    row.status === 'active' ? '2999-01-01T00:00:00.000Z' : null,
   );
 }
 

@@ -13,11 +13,11 @@
 import { existsSync } from 'node:fs';
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, desc, eq, inArray, isNotNull, isNull, lte, notLike, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notLike, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
-import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
+import { generateSessionId, resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
 import { rowToSession } from './converters.js';
 import { noteSessionStatusWritten } from './db-helpers.js';
@@ -286,6 +286,54 @@ export async function setSessionSpawnedBy(
 }
 
 /**
+ * Record the CLEO-INJECTION version `sessionId` acknowledged (T14327).
+ *
+ * The only writer of `tasks_sessions.injection_version`: `cleo briefing`
+ * calls it for the bound session. Writes only when the value changes, so a
+ * repeated briefing at the same version leaves the row untouched.
+ *
+ * @param sessionId - The session that ran the briefing.
+ * @param version - The installed template's version (e.g. `2.25.5`).
+ * @param cwd - Project root.
+ * @returns `true` when the row now holds `version`.
+ * @example
+ * ```ts
+ * await setSessionInjectionVersion(session.id, '2.25.5', projectRoot);
+ * ```
+ * @task T14327
+ */
+export async function setSessionInjectionVersion(
+  sessionId: string,
+  version: string,
+  cwd?: string,
+): Promise<boolean> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    await db
+      .update(schema.sessions)
+      .set({ injectionVersion: version })
+      .where(
+        and(
+          eq(schema.sessions.id, sessionId),
+          or(
+            isNull(schema.sessions.injectionVersion),
+            ne(schema.sessions.injectionVersion, version),
+          ),
+        ),
+      )
+      .run();
+    const [row] = await db
+      .select({ version: schema.sessions.injectionVersion })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1)
+      .all();
+    return row?.version === version;
+  });
+}
+
+/**
  * Insert a handoff entry for a session (write-once, append-only).
  *
  * The underlying `session_handoff_entries` table enforces:
@@ -492,34 +540,6 @@ export async function workHistory(
 
 // === SESSION LIFECYCLE ===
 
-/** Garbage collect old sessions (mark ended sessions as orphaned after threshold). */
-export async function gcSessions(maxAgeDays: number = 30, cwd?: string): Promise<number> {
-  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
-  return worktreeScope.run(scope, async () => {
-    const db = await getDb(scope.worktreeRoot);
-    const threshold = new Date();
-    threshold.setDate(threshold.getDate() - maxAgeDays);
-
-    // Count how many will be affected
-    const before = await db
-      .select({ id: schema.sessions.id })
-      .from(schema.sessions)
-      .where(and(eq(schema.sessions.status, 'ended')))
-      .all();
-
-    const toUpdate = before;
-
-    if (toUpdate.length > 0) {
-      db.update(schema.sessions)
-        .set({ status: 'orphaned' })
-        .where(eq(schema.sessions.status, 'ended'))
-        .run();
-    }
-
-    return toUpdate.length;
-  });
-}
-
 /**
  * Get the currently active session — the most-recent `status='active'` row.
  *
@@ -541,7 +561,7 @@ export async function gcSessions(maxAgeDays: number = 30, cwd?: string): Promise
  *
  * `getActiveSession` survives as that final tier-3 fallback and for genuine
  * SCAN-meaning callers (e.g. "is there any active session at all?",
- * `gcSessions`, the data-accessor pass-throughs). The
+ * the data-accessor pass-throughs). The
  * `lint-no-bare-get-active-session.mjs` gate bans NEW bare callsites so the
  * identity-vs-scan split cannot silently regress — annotate a justified scan
  * callsite with a trailing `// get-active-session-allowed: <reason>`.
@@ -570,6 +590,11 @@ export async function getActiveSession(cwd?: string): Promise<Session | null> {
 
 /** The calling terminal's identity keys split by what they identify (T12500). */
 interface TerminalKeyTiers {
+  /**
+   * One agent inside a shared harness session: the provider key qualified by
+   * `CLEO_AGENT_ID` (T14269).
+   */
+  readonly agent: TerminalKey | undefined;
   /** Agent-harness process (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, …). */
   readonly provider: TerminalKey | undefined;
   /**
@@ -592,6 +617,7 @@ interface TerminalKeyTiers {
  */
 function splitTerminalKeys(keys: readonly TerminalKey[]): TerminalKeyTiers {
   return {
+    agent: keys.find((k) => k.kind === 'agent'),
     provider: keys.find((k) => k.kind === 'provider'),
     // A harness / CLEO_AGENT_ID agent (T12864) is more specific than a pane.
     pane: keys.find((k) => k.kind === 'harness') ?? keys.find((k) => k.kind === 'multiplexer'),
@@ -689,8 +715,11 @@ export async function bindTerminalToSession(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<TerminalKey[]> {
-  const { provider, pane, tab } = splitTerminalKeys(keys);
-  const candidates = [provider, pane, pane ? undefined : tab].filter(
+  const { agent, provider, pane, tab } = splitTerminalKeys(keys);
+  // T14269: an agent inside a shared harness session binds only its own
+  // agent key; the shared provider key and the coarse keys stay with the
+  // session they name (the lead's, or the human's).
+  const candidates = (agent ? [agent] : [provider, pane, pane ? undefined : tab]).filter(
     (k): k is TerminalKey => k !== undefined,
   );
   if (candidates.length === 0) return [];
@@ -705,7 +734,7 @@ export async function bindTerminalToSession(
       // When a provider key is present, a coarse row that a human wrote
       // (`bound_by_provider = 0`) and that still names a live session stays
       // put — only the agent's own provider key moves to the new session.
-      if (provider && key !== provider) {
+      if (provider && key !== provider && key !== agent) {
         const existing = await readBinding(db, key);
         if (existing && !existing.boundByProvider && existing.sessionId !== sessionId) {
           const held = await getSession(existing.sessionId, scope.worktreeRoot);
@@ -794,8 +823,8 @@ export async function resolveTerminalBinding(
   cwd?: string,
   keys: readonly TerminalKey[] = resolveTerminalKeys(),
 ): Promise<TerminalBinding | null> {
-  const { provider, pane, tab } = splitTerminalKeys(keys);
-  if (!provider && !pane && !tab) return null;
+  const { agent, provider, pane, tab } = splitTerminalKeys(keys);
+  if (!agent && !provider && !pane && !tab) return null;
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
@@ -820,6 +849,14 @@ export async function resolveTerminalBinding(
     };
 
     try {
+      if (agent) {
+        // T14269: an agent resolves only its own binding. It never falls
+        // through to the shared harness session (the bug: teammates acting in,
+        // and releasing claims of, one session).
+        const own = await readBinding(db, agent);
+        const session = own ? await activeSession(own.sessionId) : null;
+        return session ? { session, adopted: false } : null;
+      }
       if (provider) {
         const own = await readBinding(db, provider);
         if (own) {
@@ -850,6 +887,162 @@ export async function resolveTerminalBinding(
       // column: the binding tier is advisory, so resolution continues.
       return null;
     }
+  });
+}
+
+/**
+ * Refuse an unqualified mutation that cannot tell which agent is calling
+ * (T14269 · decision D11234): the caller carries the shared provider key with
+ * no `CLEO_AGENT_ID`, that key has no live binding of its own, and two or more
+ * agents of the harness hold live sessions under it. When the plain key IS
+ * bound (the lead started its session there), the caller is the lead and
+ * nothing is ambiguous.
+ *
+ * @param db - Project DB handle.
+ * @param provider - The caller's provider key.
+ * @param cwd - Project root.
+ * @throws CleoError `SESSION_AMBIGUOUS` naming the live agents.
+ */
+async function assertProviderUnambiguous(
+  db: Awaited<ReturnType<typeof getDb>>,
+  provider: TerminalKey,
+  cwd: string,
+): Promise<void> {
+  const own = await readBinding(db, provider);
+  if (own && (await getSession(own.sessionId, cwd))?.status === 'active') return;
+  const prefix = `${provider.key}|agent:`;
+  const rows = await db
+    .select({
+      key: sessionTerminalBindings.bindingKey,
+      sessionId: sessionTerminalBindings.sessionId,
+    })
+    .from(sessionTerminalBindings)
+    .where(eq(sessionTerminalBindings.keyKind, 'agent'))
+    .all();
+  const live: string[] = [];
+  for (const row of rows) {
+    if (!row.key.startsWith(prefix)) continue;
+    if ((await getSession(row.sessionId, cwd))?.status === 'active') {
+      live.push(row.key.slice(prefix.length));
+    }
+  }
+  if (live.length < 2) return;
+  live.sort();
+  // @sync-invariant none:input-shape an unqualified caller in a shared harness is refused before anything is written
+  throw new CleoError(
+    ExitCode.SESSION_AMBIGUOUS,
+    `Several agents share this harness session (${live.join(', ')}) and this caller names none, so CLEO cannot tell which one is acting`,
+    {
+      fix: `export CLEO_AGENT_ID=<your agent name> (one of ${live.join(', ')}, or a new name), then retry; or export CLEO_SESSION_ID=<your session id>.`,
+      // The missing input is the caller's CLEO_AGENT_ID; `agents` names the live candidates.
+      details: { field: 'CLEO_AGENT_ID', expected: 'the calling agent name', agents: live },
+    },
+  );
+}
+
+/**
+ * Give an agent inside a shared harness session its own CLEO session, once
+ * (T14269 · decision D11234), or refuse an unqualified caller that is
+ * ambiguous ({@link assertProviderUnambiguous}).
+ *
+ * Runs for a MUTATION only (reads never create a session). When the caller
+ * carries an agent key ({@link resolveTerminalKeys}: a provider key qualified
+ * by `CLEO_AGENT_ID`), is not governed by a connection or an env-named
+ * session, and the agent key is unbound, this creates an active session for
+ * the agent and binds the agent key to it. The new session's
+ * `parentSessionId` is the shared harness session (the one the plain
+ * provider key names), when there is one, and it inherits that scope.
+ *
+ * Two processes of the same agent racing: the binding insert keeps the
+ * first row, and the loser's unused session is ended.
+ *
+ * @param cwd - Project root.
+ * @param keys - Identity keys, most specific first (defaults to the live terminal's).
+ * @param env - Environment naming the caller (defaults to `process.env`).
+ * @returns The agent's session id, or `null` when the caller has no agent key or is governed elsewhere.
+ * @task T14269
+ */
+export async function ensureAgentSession(
+  cwd?: string,
+  keys: readonly TerminalKey[] = resolveTerminalKeys(),
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<string | null> {
+  const { agent, provider } = splitTerminalKeys(keys);
+  const agentId = env['CLEO_AGENT_ID'];
+  if (!provider) return null;
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    if (!existsSync(getDbPath(scope.worktreeRoot))) return null;
+    if (getCurrentConnectionSessionId()) return null;
+    const envId = resolveSessionIdFromEnv(env);
+    if (envId && (await getSession(envId, scope.worktreeRoot))?.status === 'active') return null;
+    const db = await getDb(scope.worktreeRoot);
+    if (!agent || !agentId) {
+      try {
+        await assertProviderUnambiguous(db, provider, scope.worktreeRoot);
+      } catch (err) {
+        // A store predating the binding table cannot be ambiguous; only the
+        // refusal itself propagates.
+        if (err instanceof CleoError) throw err;
+      }
+      return null;
+    }
+    const existing = await readBinding(db, agent);
+    if (
+      existing &&
+      (await getSession(existing.sessionId, scope.worktreeRoot))?.status === 'active'
+    ) {
+      return existing.sessionId;
+    }
+    const sharedRow = provider ? await readBinding(db, provider) : undefined;
+    const shared = sharedRow ? await getSession(sharedRow.sessionId, scope.worktreeRoot) : null;
+    const parent = shared?.status === 'active' ? shared : null;
+    const now = new Date().toISOString();
+    const id = generateSessionId();
+    await createSession(
+      {
+        id,
+        name: `agent ${agentId}`,
+        status: 'active',
+        scope: parent?.scope ?? { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: now,
+        agent: agentId,
+        parentSessionId: parent?.id ?? null,
+      },
+      scope.worktreeRoot,
+    );
+    await db
+      .update(schema.sessions)
+      .set({ agentIdentifier: agentId, agentHandle: agentId, lastActivity: now })
+      .where(eq(schema.sessions.id, id))
+      .run();
+    // A stale binding (to an ended session) is replaced; a live one a racing
+    // process wrote first is kept.
+    if (existing) upsertBinding(db, agent, id, true);
+    else {
+      db.insert(sessionTerminalBindings)
+        .values({
+          bindingKey: agent.key,
+          keySource: agent.source,
+          keyKind: agent.kind,
+          sessionId: id,
+          boundByProvider: true,
+          boundAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+    }
+    const winner = await readBinding(db, agent);
+    if (winner && winner.sessionId !== id) {
+      await db
+        .update(schema.sessions)
+        .set({ status: 'ended', endedAt: now })
+        .where(eq(schema.sessions.id, id))
+        .run();
+      return winner.sessionId;
+    }
+    return id;
   });
 }
 
@@ -1409,6 +1602,8 @@ export async function requireBoundSession(
 ): Promise<Session | null> {
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
+    // T14269: a mutation from an agent in a shared harness session acts in its own session.
+    await ensureAgentSession(scope.worktreeRoot);
     const bound = await resolveBoundSession(scope.worktreeRoot);
     if (bound) return bound.session;
     if (!(await hasActiveSession(scope.worktreeRoot))) return null;

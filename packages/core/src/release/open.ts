@@ -39,6 +39,7 @@ import {
   E_INVALID_STATE,
   E_PLAN_NOT_FOUND,
   E_RELEASE_PLAN_INVALID,
+  E_RELEASE_SMOKE_MISSING,
   E_WORKFLOW_NOT_FOUND,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
@@ -58,6 +59,7 @@ import {
   type PreflightSkipDecision,
   retargetPreflightSkips,
 } from './preflight-skip.js';
+import { releaseSmokeCheck, releaseSmokeFix } from './smoke-receipt.js';
 
 const log = getLogger('release:open');
 
@@ -809,6 +811,44 @@ export async function releaseOpen(
         details: { hostname: 'github.com' },
       },
     );
+  }
+
+  // ── T14250: a stable release needs a passing real-store smoke of the head
+  // the workflow checks out; this fallback path is no bypass of `cut`'s gate.
+  if (!opts.version.includes('-')) {
+    const branch = ref ?? dispatchBranch ?? resolveDispatchBranch(runner, projectRoot);
+    let head = '';
+    try {
+      head =
+        branch === null
+          ? ''
+          : runner
+              .runGh(
+                ['api', `repos/{owner}/{repo}/git/ref/heads/${branch}`, '--jq', '.object.sha'],
+                projectRoot,
+                15_000,
+              )
+              .trim();
+    } catch {
+      // handled below: an unresolved head cannot be matched to a receipt
+    }
+    const smoke = /^[0-9a-f]{40}$/.test(head)
+      ? releaseSmokeCheck([projectRoot], head)
+      : {
+          receipt: '',
+          problem: `could not resolve the head of ${branch ?? 'the dispatch branch'}`,
+        };
+    if (smoke.problem !== null) {
+      return engineError<ReleaseOpenResult>(
+        E_RELEASE_SMOKE_MISSING,
+        `The release smoke does not clear ${opts.version}: ${smoke.problem}`,
+        {
+          exitCode: ExitCode.VALIDATION_ERROR,
+          fix: head === '' ? 'gh auth status; then re-run' : releaseSmokeFix(head),
+          details: { version: opts.version, branch, head, smoke },
+        },
+      );
+    }
   }
 
   // ── R-062 (optional): commit the plan file to the active branch ───────
