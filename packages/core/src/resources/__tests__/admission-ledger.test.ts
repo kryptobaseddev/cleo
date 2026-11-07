@@ -19,6 +19,7 @@ import {
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { formatProjectManifest } from '@cleocode/paths';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -73,7 +74,11 @@ import {
   scriptFootprint,
 } from '../hook-footprint.js';
 import { ResourceMonitor } from '../monitor.js';
-import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
+import {
+  _resetMemoryGateForTest,
+  externalPressureFix,
+  memoryGateReporter,
+} from '../pressure-gate.js';
 import { lightCommandReason } from '../run-class.js';
 import type { PidProbe } from '../slot-holder.js';
 import { _resetToolGroupsForTest, trackToolGroup } from '../tool-groups.js';
@@ -1725,6 +1730,60 @@ describe('admit (one ledger, real critical section)', () => {
     expect(t - t0).toBeLessThan(600_000);
     // The waiter left the queue.
     expect(readLedger(dir).filter((e) => e.state === 'waiting')).toEqual([]);
+  });
+
+  /** The external-pressure verdict for a 4 GiB waiter, the memory users' cwds from `cwdOf`. */
+  async function externalVerdict(cwdOf: (pids: readonly number[]) => ReadonlyMap<number, string>) {
+    let t = Date.now();
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: 4 * GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 600_000,
+        sample: async () => sampleAt(40),
+        topMemory: () => [
+          { pid: 4242, command: 'agy', footprintBytes: 17 * GIB },
+          { pid: 77, command: 'node', footprintBytes: 2 * GIB },
+        ],
+        cwdOf,
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+      },
+    );
+    expect(out.admitted).toBe(false);
+    const ext = out.admitted ? undefined : out.refusal.externalPressure;
+    expect(ext).toBeDefined();
+    return ext as NonNullable<typeof ext>;
+  }
+
+  it('the verdict names the project a memory user runs in, from its working directory (T14206 AC2)', async () => {
+    const acme = join(dir, 'acme');
+    mkdirSync(join(acme, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(acme, '.cleo', 'project.json'),
+      formatProjectManifest({ schemaVersion: 1, id: 'c0ffee000001', name: 'acme-lab' }),
+    );
+    mkdirSync(join(acme, 'src'));
+    const ext = await externalVerdict(() => new Map([[4242, join(acme, 'src')]]));
+    expect(ext.topProcesses).toEqual([
+      { pid: 4242, command: 'agy', rssBytes: 17 * GIB, project: 'acme-lab' },
+      { pid: 77, command: 'node', rssBytes: 2 * GIB },
+    ]);
+    expect(externalPressureFix(ext)).toContain(
+      'agy pid 4242 17.0 GiB (acme-lab), node pid 77 2.0 GiB',
+    );
+  });
+
+  it('a failed working-directory lookup omits the project, and the verdict still names the process (T14206 AC2)', async () => {
+    const ext = await externalVerdict(() => {
+      throw new Error('lsof timed out');
+    });
+    expect(ext.topProcesses.every((p) => !('project' in p))).toBe(true);
+    expect(externalPressureFix(ext)).toContain('agy pid 4242 17.0 GiB, node pid 77 2.0 GiB.');
   });
 
   it('a CLEO run holding the budget is not external pressure: the waiter times out as before (T14282)', async () => {

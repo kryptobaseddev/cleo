@@ -4,14 +4,22 @@
  * @task T13914
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { MemoryPressureReading } from '@cleocode/contracts';
+import { formatProjectManifest } from '@cleocode/paths';
 import { describe, expect, it } from 'vitest';
 import {
   _resetTopMemoryForTest,
   memoryPressureCause,
+  parseLsofCwd,
   parsePsMemory,
   parseTopMemory,
+  processCwds,
+  projectOfDir,
   topMemoryConsumers,
+  withProjects,
 } from '../top-memory.js';
 
 const GIB = 1024 ** 3;
@@ -94,5 +102,90 @@ describe('top memory users (T13914)', () => {
       'swap 8.6 GiB used; largest memory users: agy pid 4242 17.0 GiB ' +
         '(quit or restart them to free memory; check with top -o mem)',
     );
+  });
+});
+
+describe('the project each memory user runs in (T14206)', () => {
+  /** A temp tree: `acme/` with a project manifest, `bare/` a plain git checkout. */
+  function tree(): { root: string; acme: string; bare: string } {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-top-memory-project-'));
+    const acme = join(root, 'acme');
+    mkdirSync(join(acme, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(acme, '.cleo', 'project.json'),
+      formatProjectManifest({ schemaVersion: 1, id: 'c0ffee000001', name: 'Acme Lab' }),
+    );
+    mkdirSync(join(acme, 'packages', 'api'), { recursive: true });
+    const bare = join(root, 'bare-repo');
+    mkdirSync(join(bare, '.git'), { recursive: true });
+    mkdirSync(join(bare, 'src'));
+    return { root, acme, bare };
+  }
+
+  it('names the nearest .cleo/project.json, else the git toplevel', () => {
+    const t = tree();
+    try {
+      expect(projectOfDir(join(t.acme, 'packages', 'api'))).toBe('Acme Lab');
+      expect(projectOfDir(join(t.bare, 'src'))).toBe('bare-repo');
+      expect(projectOfDir(t.root)).toBeUndefined();
+    } finally {
+      rmSync(t.root, { recursive: true, force: true });
+    }
+  });
+
+  it('parses lsof cwd records, one pid per p line', () => {
+    expect(parseLsofCwd('p4242\nfcwd\nn/Users/k/acme\np77\nfcwd\nn/tmp\n')).toEqual(
+      new Map([
+        [4242, '/Users/k/acme'],
+        [77, '/tmp'],
+      ]),
+    );
+  });
+
+  it('macOS asks lsof once for every pid; a failed lsof names no project', () => {
+    const calls: string[][] = [];
+    const cwds = processCwds([4242, 77], 'darwin', (cmd, args) => {
+      calls.push([cmd, ...args]);
+      return 'p4242\nn/w\n';
+    });
+    expect(calls).toEqual([['/usr/sbin/lsof', '-w', '-a', '-p', '4242,77', '-d', 'cwd', '-Fn']]);
+    expect(cwds.get(4242)).toBe('/w');
+    // lsof exits 1 when one pid is unreadable but still prints the others.
+    const partial = processCwds([4242, 1], 'darwin', () => {
+      throw Object.assign(new Error('Command failed: lsof'), { status: 1, stdout: 'p4242\nn/w\n' });
+    });
+    expect(partial.get(4242)).toBe('/w');
+    expect(
+      processCwds([4242], 'darwin', () => {
+        throw new Error('timed out');
+      }).size,
+    ).toBe(0);
+  });
+
+  it('sets project where the cwd is known and omits it where the lookup fails', () => {
+    const t = tree();
+    try {
+      const out = withProjects(
+        [
+          { pid: 4242, command: 'agy', footprintBytes: 17 * GIB },
+          { pid: 77, command: 'node', footprintBytes: 2 * GIB },
+        ],
+        () => new Map([[4242, join(t.acme, 'packages', 'api')]]),
+      );
+      expect(out[0]).toEqual({
+        pid: 4242,
+        command: 'agy',
+        footprintBytes: 17 * GIB,
+        project: 'Acme Lab',
+      });
+      expect(out[1]).toEqual({ pid: 77, command: 'node', footprintBytes: 2 * GIB });
+      expect(
+        withProjects([{ pid: 1, command: 'x', footprintBytes: GIB }], () => {
+          throw new Error('EPERM');
+        }),
+      ).toEqual([{ pid: 1, command: 'x', footprintBytes: GIB }]);
+    } finally {
+      rmSync(t.root, { recursive: true, force: true });
+    }
   });
 });

@@ -157,6 +157,8 @@ export interface MemoryConsumer {
    * compressed and swapped pages, which `ps` RSS leaves out), on Linux its RSS.
    */
   readonly footprintBytes: number;
+  /** The project it runs in (its working directory's), when known (T14206). */
+  readonly project?: string;
 }
 
 /** The largest memory users at one moment (T13914). */

@@ -142,11 +142,14 @@ import {
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
 import {
+  type CwdLookup,
   memoryPressureCause,
+  processCwds,
   TOP_MEMORY_COUNT,
   TOP_MEMORY_FAILED_REUSE_MS,
   TOP_MEMORY_REUSE_MS,
   topMemoryConsumers,
+  withProjects,
 } from './top-memory.js';
 
 let _log: ReturnType<typeof getLogger> | null = null;
@@ -2308,6 +2311,12 @@ export interface AdmitOptions {
    * (T13914). @defaultValue {@link topMemoryConsumers}
    */
   readonly topMemory?: () => readonly MemoryConsumer[] | null;
+  /**
+   * Working directories of the memory users named, to give each its project
+   * (T14206). @defaultValue {@link processCwds} for the default probe; none for
+   * an injected {@link topMemory}, whose pids are not real processes
+   */
+  readonly cwdOf?: CwdLookup;
   /** The ledger directory. @defaultValue {@link admissionDir} */
   readonly dir?: string;
   /** Process probes for re-entrancy (tests). */
@@ -2561,7 +2570,10 @@ function withTopConsumers(
   }
   // Ask for more than are named: CLEO's own runs are left out (T13965).
   const probed = (opts.topMemory ?? (() => topMemoryConsumers(TOP_MEMORY_COUNT * 3)))();
-  const processes = probed === null ? null : outsideCleo(probed, cleoEntries, opts);
+  const outside = probed === null ? null : outsideCleo(probed, cleoEntries, opts);
+  const cwdOf = opts.cwdOf ?? (opts.topMemory === undefined ? processCwds : undefined);
+  const processes =
+    outside === null || cwdOf === undefined ? outside : withProjects(outside, cwdOf);
   return {
     ...reading,
     topConsumers:
@@ -3061,6 +3073,8 @@ export function externalPressureDetails(
       pid: p.pid,
       command: p.command,
       rssBytes: p.footprintBytes,
+      // Read back from the shared ledger file: only a string is a project.
+      ...(typeof p.project === 'string' && p.project !== '' ? { project: p.project } : {}),
     })),
     expectedAdmitAt: null,
     waitedMs,
