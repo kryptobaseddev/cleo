@@ -41,6 +41,7 @@ import type { Task, TaskPriority, TaskRollupPayload, TaskStatus } from '@cleocod
 import { TASK_STATUSES } from '@cleocode/contracts';
 import { computeTaskRollups } from '@cleocode/core/lifecycle/rollup';
 import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
+import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
 import { listTasks } from '@cleocode/core/tasks/list';
 import type { RecentTaskRow } from '$lib/components/tasks';
 import { getTasksDb } from '$lib/server/db/connections.js';
@@ -243,18 +244,18 @@ export function _computeEpicProgress(
 
   const epics = db
     .prepare(
-      `SELECT id, title, status FROM tasks WHERE type = 'epic' AND ${epicFilter} ORDER BY id`,
+      `SELECT id, title, ${derivedStatusSqlAt()} AS status FROM tasks_tasks WHERE type = 'epic' AND ${epicFilter} ORDER BY id`,
     )
     .all() as Array<{ id: string; title: string; status: string }>;
 
   return epics.map((epic) => {
     const children = db
       .prepare(
-        `SELECT status, COUNT(*) as cnt
-           FROM tasks
+        `SELECT ${derivedStatusSqlAt()} AS status, COUNT(*) as cnt
+           FROM tasks_tasks
           WHERE parent_id = ?
             AND status != 'archived'
-          GROUP BY status`,
+          GROUP BY 1`,
       )
       .all(epic.id) as Array<{ status: string; cnt: number }>;
 
@@ -469,6 +470,60 @@ async function loadExplorerSafe(
   }
 }
 
+/**
+ * Dashboard counts from `tasks_tasks` (T14330: never the empty legacy
+ * `tasks` table). `active` and `pending` are counted as tasks read: from the
+ * claim lease (T14268).
+ *
+ * Exported for tests (T14330).
+ *
+ * @param db - The project store connection.
+ * @returns The dashboard stats.
+ */
+export function _computeDashboardStats(db: EpicProgressDbLike): DashboardStats {
+  const countByStatus = db
+    .prepare(
+      `SELECT ${derivedStatusSqlAt()} AS status, COUNT(*) as cnt FROM tasks_tasks GROUP BY 1`,
+    )
+    .all() as Array<{ status: string; cnt: number }>;
+
+  const countByPriority = db
+    .prepare(
+      `SELECT priority, COUNT(*) as cnt FROM tasks_tasks WHERE status != 'archived' GROUP BY priority`,
+    )
+    .all() as Array<{ priority: string; cnt: number }>;
+
+  const countByType = db
+    .prepare(
+      `SELECT type, COUNT(*) as cnt FROM tasks_tasks WHERE status != 'archived' GROUP BY type`,
+    )
+    .all() as Array<{ type: string; cnt: number }>;
+
+  const statusMap = Object.fromEntries(countByStatus.map((r) => [r.status, r.cnt]));
+  const priorityMap = Object.fromEntries(countByPriority.map((r) => [r.priority, r.cnt]));
+  const typeMap = Object.fromEntries(countByType.map((r) => [r.type, r.cnt]));
+
+  return {
+    total:
+      (statusMap['pending'] ?? 0) +
+      (statusMap['active'] ?? 0) +
+      (statusMap['done'] ?? 0) +
+      (statusMap['cancelled'] ?? 0),
+    pending: statusMap['pending'] ?? 0,
+    active: statusMap['active'] ?? 0,
+    done: statusMap['done'] ?? 0,
+    cancelled: statusMap['cancelled'] ?? 0,
+    archived: statusMap['archived'] ?? 0,
+    critical: priorityMap['critical'] ?? 0,
+    high: priorityMap['high'] ?? 0,
+    medium: priorityMap['medium'] ?? 0,
+    low: priorityMap['low'] ?? 0,
+    epics: typeMap['epic'] ?? 0,
+    tasks: typeMap['task'] ?? 0,
+    subtasks: typeMap['subtask'] ?? 0,
+  };
+}
+
 export const load: PageServerLoad = async ({ locals, url }) => {
   const db = getTasksDb(locals.projectCtx);
 
@@ -495,43 +550,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   }
 
   try {
-    const countByStatus = db
-      .prepare('SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status')
-      .all() as Array<{ status: string; cnt: number }>;
-
-    const countByPriority = db
-      .prepare(
-        `SELECT priority, COUNT(*) as cnt FROM tasks WHERE status != 'archived' GROUP BY priority`,
-      )
-      .all() as Array<{ priority: string; cnt: number }>;
-
-    const countByType = db
-      .prepare(`SELECT type, COUNT(*) as cnt FROM tasks WHERE status != 'archived' GROUP BY type`)
-      .all() as Array<{ type: string; cnt: number }>;
-
-    const statusMap = Object.fromEntries(countByStatus.map((r) => [r.status, r.cnt]));
-    const priorityMap = Object.fromEntries(countByPriority.map((r) => [r.priority, r.cnt]));
-    const typeMap = Object.fromEntries(countByType.map((r) => [r.type, r.cnt]));
-
-    const stats: DashboardStats = {
-      total:
-        (statusMap['pending'] ?? 0) +
-        (statusMap['active'] ?? 0) +
-        (statusMap['done'] ?? 0) +
-        (statusMap['cancelled'] ?? 0),
-      pending: statusMap['pending'] ?? 0,
-      active: statusMap['active'] ?? 0,
-      done: statusMap['done'] ?? 0,
-      cancelled: statusMap['cancelled'] ?? 0,
-      archived: statusMap['archived'] ?? 0,
-      critical: priorityMap['critical'] ?? 0,
-      high: priorityMap['high'] ?? 0,
-      medium: priorityMap['medium'] ?? 0,
-      low: priorityMap['low'] ?? 0,
-      epics: typeMap['epic'] ?? 0,
-      tasks: typeMap['task'] ?? 0,
-      subtasks: typeMap['subtask'] ?? 0,
-    };
+    const stats = _computeDashboardStats(db);
 
     // T878: Recent Activity respects the archived toggle. When archived is
     // on, include 'archived' rows alongside active/pending/done. When off,
@@ -541,8 +560,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
       : `status IN ('active', 'pending', 'done')`;
     const recentRaw = db
       .prepare(
-        `SELECT id, title, status, priority, type, pipeline_stage, updated_at
-         FROM tasks
+        `SELECT id, title, ${derivedStatusSqlAt()} AS status, priority, type, pipeline_stage, updated_at
+         FROM tasks_tasks
          WHERE ${recentStatusFilter}
          ORDER BY updated_at DESC
          LIMIT 20`,

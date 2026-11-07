@@ -16,6 +16,7 @@
  * @epic T870
  */
 
+import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
 
@@ -120,9 +121,9 @@ export const load: PageServerLoad = ({ locals }) => {
   try {
     const rows = db
       .prepare(
-        `SELECT id, title, status, priority, type, parent_id, size,
+        `SELECT id, title, ${derivedStatusSqlAt()} AS status, priority, type, parent_id, size,
                 pipeline_stage, verification_json
-         FROM tasks
+         FROM tasks_tasks
          WHERE status != 'archived'
          ORDER BY
            CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
