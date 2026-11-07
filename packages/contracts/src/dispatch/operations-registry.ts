@@ -10497,7 +10497,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'worktree',
     operation: 'list',
     description:
-      'worktree.list (query) — enumerate git worktrees with 5 status categories (active|stale|merged|orphan|locked). Reads tasks.db for owning-task status. 60s git timeout (T9546).',
+      'worktree.list (query) — enumerate git worktrees with 4 status categories (active|redundant|keep|unknown) from the disposal proof (T14274). Reads tasks.db for owning-task status. 60s git timeout (T9546).',
     tier: 1,
     idempotent: true,
     sessionRequired: false,

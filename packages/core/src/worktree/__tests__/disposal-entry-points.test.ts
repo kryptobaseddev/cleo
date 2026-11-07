@@ -98,7 +98,7 @@ function info(path: string, taskId: string): WorktreeInfo {
     isStale: false,
     isMerged: false,
     owningTaskStatus: 'cancelled',
-    statusCategory: 'orphan',
+    statusCategory: 'redundant',
     source: 'cleo-spawn',
   };
 }

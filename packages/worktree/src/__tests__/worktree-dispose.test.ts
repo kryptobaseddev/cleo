@@ -142,6 +142,7 @@ describe('disposeWorktree proof (T13924)', () => {
     expect(r.removed).toBe(false);
     expect(r.unpreserved).toContain(clause);
     expect(r.keptReason).toContain('not proven preserved');
+    expect(r.indeterminate).toBeUndefined();
     expect(existsSync(wt)).toBe(true);
   });
 
@@ -192,6 +193,8 @@ describe('disposeWorktree proof (T13924)', () => {
     writeFileSync(join(dir, 'notes.txt'), 'only copy\n');
     const r = disposeWorktree({ worktreePath: dir, taskId: 'T5', reason: 'test' });
     expect(r.removed).toBe(false);
+    // T14274: a probe that could not answer is marked, so listing says `unknown`.
+    expect(r.indeterminate).toBe(true);
     expect(readFileSync(join(dir, 'notes.txt'), 'utf-8')).toBe('only copy\n');
     // With force too: nothing can be archived, so nothing is removed.
     expect(
