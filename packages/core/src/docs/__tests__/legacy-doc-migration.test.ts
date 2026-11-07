@@ -909,3 +909,194 @@ describe('one legacy identity for migrate, adopt and add (T14332)', () => {
     }
   });
 });
+
+describe('docs migrate moves pre-T14332 docs onto the shared identity (T14336)', () => {
+  const BIRTH = '2026-09-01T00:00:00.000Z';
+  const V1_AT = '2026-09-01T00:00:01.000Z';
+
+  /** What the pre-T14332 migrate left behind for one doc: natural uid over the slug. */
+  async function seedOldRecipeDoc(slug: string, bytes: Buffer): Promise<string> {
+    const { naturalRowUid } = await import('../../store/row-identity.js');
+    const hash = seedBlob(bytes);
+    await seedLegacyDoc({ slug, payload: { kind: 'blob', mime: MIME }, sha256: hash });
+    const oldUid = naturalRowUid('project', 'conduit_attachments', [slug]);
+    const v1 = naturalRowUid('project', 'conduit_attachment_versions', [oldUid, hash, V1_AT]);
+    const store = await getDb(env.tempDir);
+    await store
+      .insert(conduitAttachments)
+      .values({
+        slug,
+        uid: oldUid,
+        conversationId: 'docs:migration',
+        fromAgentId: MIGRATION_SYSTEM_AUTHOR,
+        content: bytes,
+        originalSize: bytes.length,
+        compressedSize: bytes.length,
+        contentHash: hash,
+        format: 'markdown',
+        tokens: 1,
+        createdAt: BIRTH,
+      })
+      .run();
+    await store
+      .insert(conduitAttachmentVersions)
+      .values({
+        id: `v-${slug}`,
+        uid: v1,
+        attachmentUid: oldUid,
+        slug,
+        versionNumber: 1,
+        authorAgentId: MIGRATION_SYSTEM_AUTHOR,
+        changeType: 'migrated',
+        storageKey: `sha256:${hash}`,
+        contentHash: hash,
+        originalSize: bytes.length,
+        compressedSize: bytes.length,
+        tokens: 1,
+        createdAt: V1_AT,
+        origin: 'migrated',
+      })
+      .run();
+    await store
+      .insert(conduitDocHeads)
+      .values({
+        attachmentUid: oldUid,
+        headVersionUid: v1,
+        headHlc: '0000000000001-0001-pre',
+        uid: naturalRowUid('project', 'conduit_doc_heads', [oldUid]),
+      })
+      .run();
+    await recordConduitDocMigration(env.tempDir, {
+      slug,
+      docUid: oldUid,
+      status: 'captured',
+      reason: 'captured',
+      legacySha256: hash,
+      versionsImported: 1,
+    });
+    return oldUid;
+  }
+
+  it('re-keys every old-recipe doc with its children in the backed-up step, with a receipt; a re-run writes nothing', async () => {
+    const oldUid = await seedOldRecipeDoc('old-recipe-doc', Buffer.from('# old\nbody'));
+    const hash = sha(Buffer.from('# old\nbody'));
+    const shared = legacyDocIdentity('old-recipe-doc', BIRTH, hash);
+    // A newer doc supersedes the old-recipe one, naming it by uid (T14288 3a).
+    const newer = legacyDocIdentity('newer-doc', '2026-09-02T00:00:00.000Z', 'b'.repeat(64));
+    await (await getDb(env.tempDir))
+      .insert(conduitAttachments)
+      .values({ ...newer, supersedesUid: oldUid })
+      .run();
+    // And it supersedes an older doc, which names it as its successor.
+    const older = legacyDocIdentity('older-doc', '2026-08-01T00:00:00.000Z', 'c'.repeat(64));
+    await (await getDb(env.tempDir))
+      .insert(conduitAttachments)
+      .values({ ...older, supersededByUid: oldUid })
+      .run();
+
+    const dry = await runLegacyDocMigration({
+      projectRoot: env.tempDir,
+      db,
+      cwd: env.tempDir,
+      dryRun: true,
+    });
+    expect(dry).toMatchObject({ skippedStep: true, counts: { toRekey: 1 }, rekeyed: [] });
+    expect(await resolveConduitDocUid(env.tempDir, 'old-recipe-doc')).toBe(oldUid);
+
+    const run = await runLegacyDocMigration({ projectRoot: env.tempDir, db, cwd: env.tempDir });
+    expect(run.report.status).toBe('completed');
+    expect(run.report.steps[0]?.backup).not.toBeNull();
+    expect(run.rekeyed).toEqual([
+      {
+        slug: 'old-recipe-doc',
+        oldUid,
+        newUid: shared.uid,
+        versionsRekeyed: 1,
+        versionsRepointed: 1,
+        approvalsRepointed: 0,
+        naturalRowsRecreated: 1,
+        supersessionRepointed: 2,
+      },
+    ]);
+    // The superseding doc now names the doc by its new uid.
+    const superseding = await (await getDb(env.tempDir))
+      .select({ supersedesUid: conduitAttachments.supersedesUid })
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.slug, 'newer-doc'))
+      .get();
+    expect(superseding?.supersedesUid).toBe(shared.uid);
+    // The superseded doc names it as its successor by its new uid.
+    const superseded = await (await getDb(env.tempDir))
+      .select({ supersededByUid: conduitAttachments.supersededByUid })
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.slug, 'older-doc'))
+      .get();
+    expect(superseded?.supersededByUid).toBe(shared.uid);
+    const store = await getDb(env.tempDir);
+    const row = await store
+      .select()
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.slug, 'old-recipe-doc'))
+      .get();
+    expect(row).toMatchObject({
+      uid: shared.uid,
+      birthFp: shared.birthFp,
+      conversationId: 'cleodocs',
+      fromAgentId: 'cleodocs',
+    });
+    const versions = await listConduitAttachmentVersions(env.tempDir, shared.uid);
+    expect(versions.map((v) => v.contentHash)).toEqual([hash]);
+    expect((await getConduitDocHead(env.tempDir, shared.uid))?.headVersionUid).toBe(
+      versions[0]?.uid,
+    );
+    expect(await getConduitDocHead(env.tempDir, oldUid)).toBeNull();
+    expect((await listConduitDocMigrations(env.tempDir))[0]?.docUid).toBe(shared.uid);
+
+    const again = await runLegacyDocMigration({ projectRoot: env.tempDir, db, cwd: env.tempDir });
+    expect(again).toMatchObject({ skippedStep: true, counts: { toRekey: 0 }, rekeyed: [] });
+  });
+
+  it('a doc whose shared uid is already held is reported with its reason, and runs write no snapshot', async () => {
+    const oldUid = await seedOldRecipeDoc('stuck-doc', Buffer.from('# stuck\nbody'));
+    const hash = sha(Buffer.from('# stuck\nbody'));
+    const shared = legacyDocIdentity('stuck-doc', BIRTH, hash);
+    // Another doc row already holds the identity stuck-doc would move onto.
+    const store = await getDb(env.tempDir);
+    await store
+      .insert(conduitAttachments)
+      .values({ ...shared, slug: 'holder-doc', title: 'holder-doc' })
+      .run();
+    const snapshots = (): string[] => {
+      const dir = join(env.cleoDir, 'backups', 'sqlite');
+      return existsSync(dir) ? readdirSync(dir).filter((n) => n.includes('.migration-')) : [];
+    };
+    const before = snapshots();
+    const stuck = [{ slug: 'stuck-doc', reason: 'shared-uid-taken', holder: 'holder-doc' }];
+
+    for (let run = 0; run < 2; run++) {
+      const result = await runLegacyDocMigration({
+        projectRoot: env.tempDir,
+        db,
+        cwd: env.tempDir,
+      });
+      expect(result).toMatchObject({
+        skippedStep: true,
+        counts: { toRekey: 0 },
+        rekeyed: [],
+        rekeySkipped: stuck,
+      });
+    }
+    expect(snapshots()).toEqual(before);
+    // Nothing moved: the stuck doc keeps its old identity.
+    expect(await resolveConduitDocUid(env.tempDir, 'stuck-doc')).toBe(oldUid);
+    // The owner sees it: docs doctor names it.
+    const { runDocsDoctor } = await import('../doctor.js');
+    const doctor = await runDocsDoctor(env.tempDir);
+    if (!doctor.ok) throw new Error(doctor.error.message);
+    expect(doctor.report.diagnostics.find((d) => d.kind === 'old-identity-stuck')).toMatchObject({
+      severity: 'warn',
+      count: 1,
+      items: stuck,
+    });
+  });
+});

@@ -646,7 +646,9 @@ export async function runUpgrade(
           cwd: options.cwd ?? docsRoot,
           dryRun: isDryRun,
         });
-        const touched = run.counts.toCapture + run.counts.toMarkDangling;
+        // Moved docs come from the receipts (a dry run reports the plan).
+        const moved = isDryRun ? run.counts.toRekey : run.rekeyed.length;
+        const touched = run.counts.toCapture + run.counts.toMarkDangling + moved;
         if (run.report.status !== 'completed') {
           actions.push({
             action: 'docs_migrate',
@@ -661,7 +663,21 @@ export async function runUpgrade(
             status: isDryRun ? 'preview' : 'applied',
             details:
               `${isDryRun ? 'Would give' : 'Gave'} ${run.counts.toCapture} legacy doc(s) their identity and head ` +
-              `(${run.counts.versions} history rows, ${run.counts.toMarkDangling} recorded dangling)`,
+              `(${run.counts.versions} history rows, ${run.counts.toMarkDangling} recorded dangling); ` +
+              `${isDryRun ? 'would move' : 'moved'} ${moved} doc(s) onto the shared identity`,
+          });
+        }
+        // T14336: an old-recipe doc that cannot move is named, never left silent.
+        if (run.rekeySkipped.length > 0) {
+          actions.push({
+            action: 'docs_migrate_stuck',
+            status: 'skipped',
+            details:
+              `${run.rekeySkipped.length} doc(s) stay on the pre-T14332 identity: ` +
+              run.rekeySkipped
+                .map((d) => `${d.slug} (${d.reason}, held by ${d.holder})`)
+                .join('; '),
+            fix: 'Rename or retire the doc holding the shared identity, then run `cleo docs migrate`.',
           });
         }
         // T14288: identity rows adopted before the metadata columns existed get

@@ -1095,3 +1095,111 @@ describe('a re-key that moves the birth fingerprint is followed with it (T14335)
     }
   });
 });
+
+describe('docs migrate moves an old-recipe doc onto the shared identity (T14336)', () => {
+  const BIRTH = '2026-09-01T09:00:00.000Z';
+  const SHA = 'a'.repeat(64);
+  const V1_AT = '2026-09-01T09:00:01.000Z';
+
+  it('an old-migrate store and an adopting peer settle to one doc with every version', async () => {
+    const { legacyDocIdentity, rekeyOldMigrateConduitDocOn } = await import(
+      '../../../conduit-doc-history.js'
+    );
+    const { naturalRowUid } = await import('../../../row-identity.js');
+    const { drizzle } = await import('drizzle-orm/node-sqlite');
+    const a = await replica(RA);
+    const b = await replica(RB);
+    // A: what the pre-T14332 docs migrate wrote — the natural uid over the
+    // slug, 'docs:migration', one imported version, its head and receipt.
+    const oldUid = naturalRowUid('project', 'conduit_attachments', ['shared-doc']);
+    const oldV1 = naturalRowUid('project', 'conduit_attachment_versions', [oldUid, SHA, V1_AT]);
+    write(
+      a,
+      `INSERT INTO conduit_attachments
+         (slug, conversation_id, from_agent_id, content, original_size, compressed_size,
+          content_hash, format, tokens, created_at, uid)
+         VALUES ('shared-doc', 'docs:migration', 'system:migration', x'2368690a', 4, 4,
+                 '${SHA}', 'markdown', 1, '${BIRTH}', '${oldUid}');
+       INSERT INTO conduit_attachment_versions
+         (id, uid, attachment_uid, version_number, author_agent_id, change_type, storage_key,
+          content_hash, original_size, compressed_size, tokens, created_at, origin)
+         VALUES ('v-a', '${oldV1}', '${oldUid}', 1, 'system:migration', 'migrated',
+                 'sha256:${SHA}', '${SHA}', 4, 4, 1, '${V1_AT}', 'migrated');
+       INSERT INTO conduit_doc_heads (attachment_uid, head_version_uid, head_hlc, uid)
+         VALUES ('${oldUid}', '${oldV1}', '0000000000001-0001-pre',
+                 '${naturalRowUid('project', 'conduit_doc_heads', [oldUid])}');
+       INSERT INTO conduit_doc_migration_ledger
+         (slug, doc_uid, status, reason, legacy_sha256, versions_imported, migrated_at, uid)
+         VALUES ('shared-doc', '${oldUid}', 'captured', 'captured', '${SHA}', 1, '${BIRTH}',
+                 '${naturalRowUid('project', 'conduit_doc_migration_ledger', ['shared-doc'])}')`,
+    );
+    // B: the same synced registry doc adopted today, with its own first version.
+    const shared = legacyDocIdentity('shared-doc', BIRTH, SHA);
+    write(
+      b,
+      `INSERT INTO conduit_attachments
+         (slug, conversation_id, from_agent_id, content, original_size, compressed_size,
+          content_hash, format, title, tokens, created_at, uid, birth_fp)
+         VALUES ('shared-doc', 'cleodocs', 'cleodocs', x'', 0, 0, '${SHA}', 'text', 'shared-doc',
+                 0, '${BIRTH}', '${shared.uid}', '${shared.birthFp}');
+       INSERT INTO conduit_attachment_versions
+         (id, attachment_uid, version_number, author_agent_id, storage_key, content_hash,
+          original_size, compressed_size, tokens, created_at)
+         VALUES ('v-b', '${shared.uid}', 1, 'agent-b', 'sha256:${'b'.repeat(64)}', '${'b'.repeat(64)}',
+                 5, 5, 1, '2026-09-02T09:00:00.000Z')`,
+    );
+    expect(identityOf(a, 'conduit_attachments', "slug = 'shared-doc'").uid).toBe(oldUid);
+    // Both publish; each holds the other's doc behind its own slug.
+    push(a);
+    push(b);
+    pull(a);
+    pull(b);
+
+    // A upgrades: docs migrate re-keys its doc and children in one rekey frame.
+    a.db.exec('BEGIN IMMEDIATE');
+    a.db.exec('PRAGMA defer_foreign_keys = ON');
+    const frame = openCaptureFrame(a.db, 'rekey', null);
+    const receipt = await rekeyOldMigrateConduitDocOn(drizzle({ client: a.db }), 'shared-doc');
+    finishCaptureFrame(a.db, frame);
+    a.db.exec('COMMIT');
+    seal(a);
+    expect(receipt).toMatchObject({ oldUid, newUid: shared.uid, versionsRekeyed: 1 });
+    const k = push(a)
+      .flatMap((t) => t.ops)
+      .find((o) => o.o === 'K' && o.t === 'conduit_attachments');
+    expect(k).toMatchObject({ u: oldUid, nu: shared.uid, bfp: shared.birthFp });
+    // A re-run finds nothing on the old recipe.
+    expect(await rekeyOldMigrateConduitDocOn(drizzle({ client: a.db }), 'shared-doc')).toBeNull();
+
+    pull(b);
+    pull(a);
+    push(b);
+    pull(a);
+    const newV1 = naturalRowUid('project', 'conduit_attachment_versions', [shared.uid, SHA, V1_AT]);
+    for (const r of [a, b]) {
+      expect(rows(r.db, 'SELECT uid, birth_fp, conversation_id FROM conduit_attachments')).toEqual([
+        { uid: shared.uid, birth_fp: shared.birthFp, conversation_id: 'cleodocs' },
+      ]);
+      // No version lost: A's import, under the uid a device migrating today
+      // derives, and B's native version, both under the one doc.
+      expect(
+        rows(
+          r.db,
+          'SELECT uid, attachment_uid, author_agent_id FROM conduit_attachment_versions ORDER BY author_agent_id',
+        ),
+      ).toEqual([
+        { uid: expect.any(String), attachment_uid: shared.uid, author_agent_id: 'agent-b' },
+        { uid: newV1, attachment_uid: shared.uid, author_agent_id: 'system:migration' },
+      ]);
+      expect(rows(r.db, 'SELECT attachment_uid FROM conduit_doc_heads')).toEqual([
+        { attachment_uid: shared.uid },
+      ]);
+      expect(listConflicts(r.db, { open: true }).filter((c) => c.kind === 'uid-collision')).toEqual(
+        [],
+      );
+    }
+    expect(rows(a.db, 'SELECT doc_uid FROM conduit_doc_migration_ledger')).toEqual([
+      { doc_uid: shared.uid },
+    ]);
+  });
+});
