@@ -1000,18 +1000,26 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       db: native,
       cwd: projectRoot,
       ...(limit !== undefined ? { limit } : {}),
+      dryRun: params.dryRun === true,
     });
     const step = result.report.steps[0];
-    const summary =
-      result.report.status === 'completed'
-        ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
-          `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
-          `${result.counts.nativeConflicts} native-conflict skips ` +
-          `(${result.counts.versions} history rows)` +
-          (result.counts.remaining > 0
-            ? `; ${result.counts.remaining} left (limit ${limit}): run cleo docs migrate again`
-            : '')
-        : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
+    const left =
+      result.counts.remaining > 0
+        ? `; ${result.counts.remaining} left (limit ${limit}): run cleo docs migrate again`
+        : '';
+    const summary = params.dryRun
+      ? `legacy docs migration dry run: would capture ${result.counts.toCapture}, mark ` +
+        `${result.counts.toMarkDangling} dangling (${result.counts.versions} history rows); ` +
+        `${result.counts.toSkip} already migrated, ${result.counts.nativeConflicts} native-conflict skips${left}; nothing written`
+      : result.skippedStep
+        ? `legacy docs migration: nothing to migrate (${result.counts.toSkip} already migrated, ` +
+          `${result.counts.nativeConflicts} native-conflict skips); no snapshot written`
+        : result.report.status === 'completed'
+          ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
+            `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
+            `${result.counts.nativeConflicts} native-conflict skips ` +
+            `(${result.counts.versions} history rows)${left}`
+          : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
     return lafsSuccess<DocsMigrateResult>(
       {
         status: result.report.status,
@@ -1021,6 +1029,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         nativeConflicts: result.counts.nativeConflicts,
         versionsImported: result.counts.versions,
         remaining: result.counts.remaining,
+        dryRun: params.dryRun === true,
         failure: result.report.failure,
         backupId: step?.backup?.backupId ?? null,
         transaction: step?.transaction ?? 'none',

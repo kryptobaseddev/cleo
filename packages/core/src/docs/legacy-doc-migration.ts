@@ -558,10 +558,16 @@ export async function planLegacyDocMigration(opts: {
 
 /** Result wrapper around the harness run report. */
 export interface LegacyMigrationRunResult {
-  /** The harness report (backup receipt, per-table verification, transaction). */
+  /**
+   * The harness report (backup receipt, per-table verification, transaction).
+   * A dry run, or a run whose plan touches no doc, runs no step: the report
+   * is `completed` with no steps, so no snapshot is written (T14331).
+   */
   readonly report: MigrationRunReport;
   /** Counts from the plan that built the step. */
   readonly counts: LegacyMigrationPlan['counts'];
+  /** True when the harness step did not run (a dry run, or nothing to migrate). */
+  readonly skippedStep: boolean;
 }
 
 /**
@@ -575,6 +581,7 @@ export interface LegacyMigrationRunResult {
  * @param opts.cwd - Invocation directory (the restore path's worktree guard).
  * @param opts.limit - At most this many docs per run, oldest first (T14329);
  *   unbounded when omitted. `counts.remaining` says how many are left.
+ * @param opts.dryRun - Plan only (T14331): report the counts, write nothing.
  * @param opts.onStepReport - Optional per-step report sink.
  * @returns The harness report plus plan counts.
  * @task T13360
@@ -584,17 +591,27 @@ export async function runLegacyDocMigration(opts: {
   db: DatabaseSync;
   cwd: string;
   limit?: number;
+  dryRun?: boolean;
   onStepReport?: (report: MigrationStepReport) => void;
 }): Promise<LegacyMigrationRunResult> {
   const plan = await planLegacyDocMigration({
     projectRoot: opts.projectRoot,
     ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
   });
+  // T14331: a dry run, or a plan that touches nothing, runs no step, so no
+  // pre-step snapshot (a full copy of the store) is written for a no-op.
+  if (opts.dryRun === true || plan.docs.length === 0) {
+    return {
+      report: { status: 'completed', steps: [], haltedStep: null, failure: null },
+      counts: plan.counts,
+      skippedStep: true,
+    };
+  }
   const report = await runMigrationSteps([plan.step], {
     db: opts.db,
     projectRoot: opts.projectRoot,
     cwd: opts.cwd,
     onStepReport: opts.onStepReport,
   });
-  return { report, counts: plan.counts };
+  return { report, counts: plan.counts, skippedStep: false };
 }

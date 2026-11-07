@@ -19,7 +19,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -335,8 +343,9 @@ describe('legacy docs migration (T13360)', () => {
     expect(rerun.counts.toMarkDangling).toBe(0);
     expect(rerun.counts.toSkip).toBe(6);
     expect(rerun.counts.nativeConflicts).toBe(1); // g is a native skip on every run
-    const rerunStep = rerun.report.steps[0];
-    expect(rerunStep?.transaction).toBe('committed');
+    // T14331: nothing to migrate runs no harness step (and writes no snapshot).
+    expect(rerun.skippedStep).toBe(true);
+    expect(rerun.report.steps).toEqual([]);
     expect(fingerprintTable(db, 'conduit_attachments')).toEqual(before.docs);
     expect(fingerprintTable(db, 'conduit_attachment_versions')).toEqual(before.versions);
     expect(fingerprintTable(db, 'conduit_doc_heads')).toEqual(before.heads);
@@ -761,5 +770,61 @@ describe('blob-store-only legacy docs gain a head (T14329)', () => {
       }
     }
     expect(seeded[0]).toEqual(seeded[1]);
+  });
+});
+
+describe('a no-op or dry-run migrate writes no snapshot (T14331)', () => {
+  /** The store's migration snapshots (`cleo.db.migration-<stamp>`). */
+  function migrationSnapshots(): string[] {
+    const dir = join(env.cleoDir, 'backups', 'sqlite');
+    return existsSync(dir) ? readdirSync(dir).filter((n) => n.includes('.migration-')) : [];
+  }
+
+  async function seedOneDoc(): Promise<void> {
+    const body = Buffer.from('# Snapshot probe\n');
+    const hash = sha(body);
+    const path = join(env.cleoDir, 'blobs', 'blobs', hash);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, body);
+    await seedLegacyDoc({
+      slug: 'snapshot-probe',
+      sha256: hash,
+      payload: { kind: 'blob', mime: MIME, sha256: hash },
+    });
+  }
+
+  const run = (dryRun?: boolean) =>
+    runLegacyDocMigration({
+      projectRoot: env.tempDir,
+      db,
+      cwd: env.tempDir,
+      ...(dryRun !== undefined ? { dryRun } : {}),
+    });
+
+  it('a dry run reports the plan and writes nothing', async () => {
+    await seedOneDoc();
+    const before = migrationSnapshots();
+    const plan = await run(true);
+    expect(plan.skippedStep).toBe(true);
+    expect(plan.report.status).toBe('completed');
+    expect(plan.counts.toCapture).toBe(1);
+    expect(migrationSnapshots()).toEqual(before);
+    expect(await listConduitDocMigrations(env.tempDir)).toHaveLength(0);
+    expect(await resolveConduitDocUid(env.tempDir, 'snapshot-probe')).toBeNull();
+  });
+
+  it('a second run on a migrated store creates no new migration snapshot', async () => {
+    await seedOneDoc();
+    const first = await run();
+    expect(first.skippedStep).toBe(false);
+    expect(first.counts.toCapture).toBe(1);
+    const afterFirst = migrationSnapshots();
+    expect(afterFirst.length).toBeGreaterThan(0);
+
+    const second = await run();
+    expect(second.skippedStep).toBe(true);
+    expect(second.report.status).toBe('completed');
+    expect(second.counts).toMatchObject({ toCapture: 0, toSkip: 1 });
+    expect(migrationSnapshots()).toEqual(afterFirst);
   });
 });
