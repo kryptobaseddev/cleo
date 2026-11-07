@@ -720,7 +720,12 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     // is inside an XDG secondary worktree/subdir.
     const projectRoot = resolveWorktreeRouting().canonicalRoot;
     if (!params.taskId) {
-      return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.set');
+      return lafsError(
+        'E_INVALID_INPUT',
+        'taskId is required',
+        'gate.set',
+        'cleo verify <taskId> --gate <gate> --evidence <atoms>',
+      );
     }
     // T14199: a per-criterion receipt binds one criterion and sets no gate.
     if (params.criterion === true) {
@@ -731,6 +736,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
           'E_INVALID_INPUT',
           '--criterion records a receipt for one criterion: it takes --evidence and excludes --gate/--all/--reset',
           'gate.set',
+          `cleo verify ${params.taskId} --criterion --evidence 'decision:<id>;satisfies:${params.taskId}#AC<n>'`,
         );
       const receipt = await recordCriterionReceipt(projectRoot, {
         taskId: params.taskId,
@@ -769,6 +775,8 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         String(result.error?.code ?? 'E_INTERNAL'),
         result.error?.message ?? 'Unknown error',
         'gate.set',
+        // T14299: keep the verify refusal's own fix through the re-wrap.
+        result.error?.fix,
       );
     }
     return lafsSuccess(

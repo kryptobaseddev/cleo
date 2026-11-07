@@ -3431,7 +3431,9 @@ function creditRefusal(
       return `${id}#${criterion.alias} was written or edited at ${written}, after PR #${prNumber} merged at ${mergedAt}; a criterion changed after the merge cannot be credited by it.`;
     const paths = extractTaskAcFilesWithProvenance({ acceptance: [criterion.text] }).files ?? [];
     if (paths.length === 0)
-      return `${id}#${criterion.alias} names no file, so PR #${prNumber} cannot be shown to deliver it; credit only criteria that name the files the PR changed.`;
+      // T14299: name the supported route (T14259): the PR's Closes: line plus a
+      // non-author verdict links a criterion that names no file.
+      return `${id}#${criterion.alias} names no file, so PR #${prNumber} cannot be shown to deliver it. List ${id} ${criterion.alias} on the PR's Closes: line and have another session review it: \`cleo review packet ${prNumber} --task ${id}\`, then the merge sweep closes it.`;
     const missing = paths.filter((path) => !changed.has(normalizeEvidencePath(path)));
     if (missing.length > 0)
       return `PR #${prNumber} did not change ${missing.join(', ')}, which ${id}#${criterion.alias} names, so it cannot be credited with ${criterion.alias}.`;
@@ -4756,7 +4758,10 @@ export async function revalidateEvidence(
     const { getTaskAccessor } = await import('../store/data-accessor.js');
     const accessor = await getTaskAccessor(resolveCanonicalProjectRoot(projectRoot));
     const task = await accessor.loadSingleTask(taskId);
-    if (!task) throw new CleoError(ExitCode.NOT_FOUND, `Evidence task ${taskId} is missing`);
+    if (!task)
+      throw new CleoError(ExitCode.NOT_FOUND, `Evidence task ${taskId} is missing`, {
+        fix: `cleo find "${taskId}"`,
+      });
     const context: EvidenceValidationContext = {
       task,
       gates: [gate],

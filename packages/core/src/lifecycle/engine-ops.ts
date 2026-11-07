@@ -393,7 +393,18 @@ export async function lifecycleProgress(
       // Enforce lifecycle gates for stage transitions (T5698)
       const gateResult = await checkGate(taskId, stage, projectRoot);
       if (!gateResult.allowed) {
-        return engineError('E_LIFECYCLE_GATE_FAILED', gateResult.message);
+        // T14299: name the stage that blocks, and the verb that clears it.
+        const blocking = gateResult.missingPrerequisites[0] ?? '<stage>';
+        return engineError('E_LIFECYCLE_GATE_FAILED', gateResult.message, {
+          fix: `cleo lifecycle complete ${taskId} ${blocking}`,
+          alternatives: [
+            { action: 'inspect the stages', command: `cleo lifecycle show ${taskId}` },
+            {
+              action: 'skip the stage',
+              command: `cleo lifecycle skip ${taskId} ${blocking} --reason "<why>"`,
+            },
+          ],
+        });
       }
     }
 

@@ -258,8 +258,11 @@ export async function buildReviewPacket(
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
-  // @sync-invariant none:input-shape an unknown task is refused before anything is read or written
-  if (task === null) throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`);
+  if (task === null)
+    // @sync-invariant none:input-shape an unknown task is refused before anything is read or written
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`, {
+      fix: 'cleo find "<title words>" --include-archive',
+    });
   const acs = [...(await accessor.getAcRows(taskId))]
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((r) => ({ alias: `AC${r.ordinal}`, text: normalizeAcText(r.text) }));
@@ -401,6 +404,7 @@ export async function recordReviewVerdict(
     throw new CleoError(
       ExitCode.NOT_FOUND,
       `${input.taskId} has no criterion ${input.ac} (it has ${packet.acs.map((a) => a.alias).join(', ') || 'none'})`,
+      { fix: `cleo review packet ${input.prNumber} --task ${input.taskId}` },
     );
   }
   if (packet.packetSha256 !== input.packetSha256) {
@@ -417,8 +421,11 @@ export async function recordReviewVerdict(
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(input.taskId);
-  // @sync-invariant none:input-shape an unknown task is refused before anything is written
-  if (task === null) throw new CleoError(ExitCode.NOT_FOUND, `Task ${input.taskId} not found`);
+  if (task === null)
+    // @sync-invariant none:input-shape an unknown task is refused before anything is written
+    throw new CleoError(ExitCode.NOT_FOUND, `Task ${input.taskId} not found`, {
+      fix: 'cleo find "<title words>" --include-archive',
+    });
   const claimRows = await accessor.queryAuditLog({
     taskIds: [input.taskId],
     actions: CLAIM_AUTHOR_ACTIONS,
