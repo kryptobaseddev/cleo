@@ -397,7 +397,7 @@ describe('GET /api/brain/stream', () => {
         }
         // Status snapshot at init (no rowid filter)
         if (
-          sql.includes('SELECT id, status FROM tasks') &&
+          sql.includes('AS status FROM tasks_tasks') &&
           !sql.includes('rowid >') &&
           !sql.includes('WHERE id IN')
         ) {
