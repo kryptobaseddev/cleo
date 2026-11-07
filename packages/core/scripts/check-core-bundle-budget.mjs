@@ -107,6 +107,19 @@ const DIST_DIR = join(PKG_ROOT, 'dist');
  * modules. The tree measured 38.20 MB (5917 files) with that change; the
  * largest emitted file is now gateway-client/generated/types.gen.d.ts at
  * 0.40 MB. The same 8 MB of headroom is kept.
+ *
+ * Raised 46 MB -> 47 MB (T14340, 2026-11-06), a stopgap the owner approved
+ * through the ask tool: main's Build & Verify measured the tree at 46.02 MB,
+ * 19.9 KB over the cap, and every PR went red. Shrink task T14339 brings the
+ * tree back under 46 MB and lowers this budget to 46 MB in the same PR.
+ *
+ * Lowered 47 MB -> 46 MB (T14339, 2026-11-06). Core no longer emits
+ * declaration maps (`declarationMap: false` in packages/core/tsconfig.json):
+ * every dist/*.d.ts.map pointed at ../src/*.ts, which the published `files`
+ * list does not ship, so the maps resolved nothing for an npm consumer, while
+ * in the monorepo tsserver follows the project references to the sources.
+ * They were about 2.8 MB of the tree (2.80 MB of a 45.87 MB local dist), so
+ * the tree should measure about 43.3 MB, under this restored 46 MB cap.
  */
 export const MAX_CORE_DIST_MB = 46;
 

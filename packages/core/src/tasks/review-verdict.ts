@@ -377,7 +377,10 @@ export async function recordReviewVerdict(
       fix: 'Say what in the diff does or does not implement the criterion.',
     });
   }
-  const { resolveBoundSession } = await import('../store/session-store.js');
+  const { ensureAgentSession, resolveBoundSession } = await import('../store/session-store.js');
+  // T14269: an agent in a shared harness session reviews as its own session.
+  const { resolveTerminalKeys } = await import('../sessions/terminal-identity.js');
+  await ensureAgentSession(projectRoot, resolveTerminalKeys({ env }), env);
   const bound = await resolveBoundSession(projectRoot, env);
   if (bound === null) {
     // @sync-invariant none:local-only the reviewer's own session binding is local; nothing is written without it
@@ -426,7 +429,13 @@ export async function recordReviewVerdict(
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `${input.taskId} has no recorded author, so an independent review cannot be proven`,
-      { fix: `The author claims the task first: \`cleo start ${input.taskId}\`.` },
+      // T14300: `cleo claim` records the author without starting the task, so it
+      // works while the task is blocked on a dependency (where `cleo start`
+      // refuses). It must run in the author's session: the reviewer who ran it
+      // would become an author and be refused.
+      {
+        fix: `The session that delivers ${input.taskId} (never the reviewer) runs \`cleo claim ${input.taskId}\`, which records it as the author even while the task is blocked; then record the verdict again from the reviewer's own session.`,
+      },
     );
   }
   if (

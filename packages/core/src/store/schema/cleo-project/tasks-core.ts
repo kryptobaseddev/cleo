@@ -526,6 +526,8 @@ export const tasksSessions = sqliteTable(
     scopeId: text('scope_id'),
     /** ISO-8601 UTC last-activity instant (canonical TEXT, §4). */
     lastActivity: text('last_activity'),
+    /** CLEO-INJECTION version the session acknowledged in `cleo briefing` (T14327). */
+    injectionVersion: text('injection_version'),
     /**
      * Row uid (T12341): the merge key. A new row gets a random UUIDv7; a row
      * written without one gets a deterministic uid at the next open

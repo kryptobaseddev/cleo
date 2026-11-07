@@ -255,7 +255,7 @@ export async function coreTaskCancel(
   if (children.length > 0) {
     if (childStrategy === 'block') {
       throw new Error(
-        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); pass children='cascade' (cancel them) or children='reparent' with reparentTo=<epicId> (move them) explicitly`,
+        `E_HAS_CHILDREN: Task ${taskId} has ${children.length} unsettled child task(s) (${children.map((c: { id: string }) => c.id).join(', ')}); choose explicitly: --children cascade (cancel them) or --children reparent --to <epicId> (move them)`,
       );
     }
 
@@ -273,7 +273,7 @@ export async function coreTaskCancel(
       const cascadeThreshold = params?.cascadeThreshold ?? 10;
       if (descendants.length > cascadeThreshold && !params?.force) {
         throw new Error(
-          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; pass force=true with an operator waiver`,
+          `E_CASCADE_THRESHOLD_EXCEEDED: Cascade would cancel ${descendants.length} unsettled tasks, exceeding threshold ${cascadeThreshold}; --force waives it (audited)`,
         );
       }
       affectedTasks.push(...descendants.map((descendant: { id: string }) => descendant.id));
@@ -907,13 +907,36 @@ export async function taskCancel(
       // @sync-invariant none:input-shape a bad cancel kind or replacement was refused before any write
       return engineError('E_INVALID_INPUT', message.replace(/^E_INVALID_INPUT:\s*/, ''));
     }
+    // T14300: the re-wrap carries a runnable CLI fix and the alternatives.
     if (message.startsWith('E_HAS_CHILDREN:')) {
-      return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''));
+      return engineError('E_HAS_CHILDREN', message.replace(/^E_HAS_CHILDREN:\s*/, ''), {
+        fix: `cleo cancel ${taskId} --children cascade`,
+        alternatives: [
+          { action: 'cancel the subtree', command: `cleo cancel ${taskId} --children cascade` },
+          {
+            action: 'move the children under another epic first',
+            command: `cleo cancel ${taskId} --children reparent --to <epicId>`,
+          },
+        ],
+      });
     }
     if (message.startsWith('E_CASCADE_THRESHOLD_EXCEEDED:')) {
       return engineError(
         'E_CASCADE_THRESHOLD_EXCEEDED',
         message.replace(/^E_CASCADE_THRESHOLD_EXCEEDED:\s*/, ''),
+        {
+          fix: `cleo cancel ${taskId} --children cascade --force`,
+          alternatives: [
+            {
+              action: 'waive the threshold (audited)',
+              command: `cleo cancel ${taskId} --children cascade --force`,
+            },
+            {
+              action: 'move the children under another epic instead',
+              command: `cleo cancel ${taskId} --children reparent --to <epicId>`,
+            },
+          ],
+        },
       );
     }
     if (message.startsWith('E_CASCADE_DISABLED:')) {

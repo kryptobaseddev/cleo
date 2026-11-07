@@ -429,8 +429,45 @@ describe('SQLite tasks-sqlite', () => {
       const { createTask, updateTask } = await import('../tasks-sqlite.js');
       await createTask(makeTask({ id: 'T001' }));
 
-      const updated = await updateTask('T001', { status: 'active' });
-      expect(updated!.status).toBe('active');
+      const updated = await updateTask('T001', { status: 'blocked' });
+      expect(updated!.status).toBe('blocked');
+    });
+
+    it('stores a written active as pending: in progress is a live claim lease (T14268)', async () => {
+      const { createTask, updateTask, getTask } = await import('../tasks-sqlite.js');
+      await createTask(makeTask({ id: 'T001' }));
+
+      expect((await updateTask('T001', { status: 'active' }))!.status).toBe('pending');
+      expect((await getTask('T001'))!.status).toBe('pending');
+      leaseTestTasks(['T001']);
+      expect((await getTask('T001'))!.status).toBe('active');
+    });
+
+    it('lists and counts by the derived status; a lapsed lease reads pending with no write (T14268)', async () => {
+      const { createTask, listTasks, countByStatus } = await import('../tasks-sqlite.js');
+      const { getTaskAccessor } = await import('../data-accessor.js');
+      const { setClaimClock } = await import('../task-claim.js');
+      await createTask(makeTask({ id: 'T001' }));
+      await createTask(makeTask({ id: 'T002' }));
+      leaseTestTasks(['T001']);
+      const accessor = await getTaskAccessor(tempDir);
+
+      expect((await listTasks({ status: 'active' })).map((t) => t.id)).toEqual(['T001']);
+      expect((await accessor.queryTasks({ status: 'active' })).tasks.map((t) => t.id)).toEqual([
+        'T001',
+      ]);
+      expect(await accessor.countTasks({ status: 'active' })).toBe(1);
+      expect(await countByStatus()).toMatchObject({ active: 1, pending: 1 });
+
+      setClaimClock(() => Date.parse('3000-01-01T00:00:00.000Z'));
+      try {
+        expect(await listTasks({ status: 'active' })).toEqual([]);
+        expect(await accessor.countTasks({ status: 'pending' })).toBe(2);
+        expect(await countByStatus()).toMatchObject({ pending: 2 });
+        expect(await countByStatus()).not.toHaveProperty('active');
+      } finally {
+        setClaimClock(null);
+      }
     });
 
     it('updates priority', async () => {

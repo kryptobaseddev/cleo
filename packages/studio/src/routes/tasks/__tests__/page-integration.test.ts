@@ -60,11 +60,11 @@ const { DatabaseSync } = _require('node:sqlite') as {
  * remains self-contained.
  */
 const CREATE_SCHEMA = `
-  CREATE TABLE tasks (
+  CREATE TABLE tasks_tasks (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
+    status TEXT NOT NULL DEFAULT 'pending',    claimed_by_session TEXT,    lease_expires_at TEXT,
     priority TEXT NOT NULL DEFAULT 'medium',
     type TEXT,
     parent_id TEXT,
@@ -100,12 +100,12 @@ const CREATE_SCHEMA = `
     severity TEXT
   );
 
-  CREATE TABLE task_dependencies (
+  CREATE TABLE tasks_task_dependencies (
     task_id TEXT NOT NULL,
     depends_on TEXT NOT NULL,
     PRIMARY KEY (task_id, depends_on),
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    FOREIGN KEY (depends_on) REFERENCES tasks(id) ON DELETE CASCADE
+    FOREIGN KEY (task_id) REFERENCES tasks_tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (depends_on) REFERENCES tasks_tasks(id) ON DELETE CASCADE
   );
 `;
 
@@ -124,7 +124,7 @@ function insertTask(db: DatabaseSync, t: SeedTask): void {
   if (status === 'done') pipelineStage = 'contribution';
   else if (status === 'cancelled') pipelineStage = 'cancelled';
   db.prepare(
-    `INSERT INTO tasks
+    `INSERT INTO tasks_tasks
        (id, title, status, priority, type, parent_id, pipeline_stage, labels_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(

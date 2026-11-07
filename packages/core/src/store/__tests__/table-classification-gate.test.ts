@@ -128,6 +128,8 @@ const NOT_A_CREDENTIAL: Readonly<Record<string, string>> = Object.fromEntries(
         [
           'architecture_decisions.keywords',
           'attachments.keywords',
+          // T14288: the conduit identity row mirrors docs_attachments.keywords.
+          'conduit_attachments.keywords',
           'docs_attachments.keywords',
           'tasks_architecture_decisions.keywords',
         ],

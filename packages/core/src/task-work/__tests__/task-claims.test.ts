@@ -31,6 +31,7 @@ import { abandonSpawnSession, requireSpawnSession } from '../../spawn/agent-iden
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { endSession } from '../../store/session-store.js';
 import { getNativeTasksDb } from '../../store/sqlite.js';
+import { setClaimClock } from '../../store/task-claim.js';
 import { taskVersion } from '../../store/task-version.js';
 import { claimSpawnedTask, renewClaimsForSession, startTask, stopTask } from '../index.js';
 
@@ -129,6 +130,26 @@ describe('leased task claims (T12502)', () => {
     expect(task?.assignee).toBe('keaton');
     expect(task?.claim?.sessionId).toBe(SES_A);
     expect(Date.parse(task?.claim?.leaseExpiresAt ?? '')).toBeGreaterThan(Date.now());
+  });
+
+  it('a one-minute claim reads active, then pending once the fake clock passes its lease, with no write (T14268 AC5)', async () => {
+    process.env['CLEO_CLAIM_LEASE_MINUTES'] = '1';
+    await start(SES_A);
+    const leased = await env.accessor.loadSingleTask('T001');
+    expect(leased?.status).toBe('active');
+    const activeIds = async () =>
+      (await env.accessor.queryTasks({ status: 'active' })).tasks.map((t) => t.id);
+    expect(await activeIds()).toEqual(['T001']);
+
+    setClaimClock(() => Date.parse(leased?.claim?.leaseExpiresAt ?? '') + 1000);
+    try {
+      const lapsed = await env.accessor.loadSingleTask('T001');
+      expect(lapsed?.status).toBe('pending');
+      expect(await activeIds()).toEqual([]);
+      expect(taskVersion(lapsed)).toBe(taskVersion(leased));
+    } finally {
+      setClaimClock(null);
+    }
   });
 
   it('a second session is refused with E_TASK_CLAIMED naming the holder; nothing is written (AC1)', async () => {

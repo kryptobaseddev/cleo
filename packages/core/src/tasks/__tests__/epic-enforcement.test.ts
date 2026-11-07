@@ -31,9 +31,11 @@ import type { DataAccessor } from '../../store/data-accessor.js';
 import { addTask } from '../add.js';
 import {
   EPIC_MIN_AC,
+  epicStageBlockers,
   findEpicAncestor,
   getLifecycleMode,
   getStageGateMode,
+  stageGateRemedy,
   validateChildStageCeiling,
   validateEpicCreation,
   validateEpicStageAdvancement,
@@ -464,6 +466,56 @@ describe('validateEpicStageAdvancement (strict)', () => {
       env.tempDir,
     );
     expect(result.valid).toBe(true);
+  });
+
+  it('the strict-gate remedy names the advance only when it runs, else escalates (T14300)', async () => {
+    const now = new Date().toISOString();
+    const seed = (id: string, stage: string) =>
+      accessor.upsertSingleTask({
+        id,
+        title: id,
+        description: id,
+        status: 'active',
+        priority: 'medium',
+        type: 'task',
+        parentId: 'T001',
+        pipelineStage: stage,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await accessor.upsertSingleTask({
+      id: 'T001',
+      title: 'Epic',
+      description: 'Epic',
+      status: 'pending',
+      priority: 'medium',
+      type: 'epic',
+      pipelineStage: 'research',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await seed('T002', 'consensus');
+    const advance = () =>
+      validateEpicStageAdvancement(
+        { epicId: 'T001', currentStage: 'research', newStage: 'implementation' },
+        accessor,
+        env.tempDir,
+      );
+    // No child at the epic's stage: the named `cleo update` advance is not refused.
+    expect(await epicStageBlockers('T001', 'research', accessor)).toEqual([]);
+    expect(stageGateRemedy('T002', 'T001', 'research', [])).toContain(
+      'cleo update T001 --pipeline-stage implementation',
+    );
+    expect((await advance()).valid).toBe(true);
+    // A child at the epic's stage: the advance is refused, so the remedy escalates.
+    await seed('T003', 'research');
+    const blockers = await epicStageBlockers('T001', 'research', accessor);
+    expect(blockers).toEqual(['T003']);
+    const remedy = stageGateRemedy('T002', 'T001', 'research', blockers);
+    expect(remedy).not.toContain('cleo update');
+    expect(remedy).toContain('cleo show T001');
+    expect(remedy).toContain('T003');
+    await expect(advance()).rejects.toThrow(/cannot advance/);
   });
 
   it('throws when child is in-flight at current stage', async () => {

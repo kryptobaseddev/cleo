@@ -117,6 +117,22 @@ vi.mock('../plan.js', () => ({
   openAgentRegistryDbForComposer: vi.fn(async () => ({ close: () => undefined })),
 }));
 
+// T14338: the agent-session lease samples the host before it admits. On macOS
+// that sample runs `sysctl` through `execFile`, which the child_process mock
+// above never calls back, so every spawn hung to the 180 s test timeout; and
+// the mocked `existsSync` (true in the --resume cases) sent the lease reader
+// to `readdir` a lease directory that only an earlier Linux spawn had made.
+// Admission is not under test here: the lease takes its ungoverned outcome.
+vi.mock('../../resources/governor.js', async () => {
+  const actual = await vi.importActual<typeof import('../../resources/governor.js')>(
+    '../../resources/governor.js',
+  );
+  return {
+    ...actual,
+    takeAgentSessionLease: async () => ({ lease: null, reused: false }),
+  };
+});
+
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.
 const { orchestrateSpawn, runLintChangesets, shouldCleanUpFailedProvision } = await import(
   '../spawn-ops.js'

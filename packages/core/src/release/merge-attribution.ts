@@ -110,6 +110,9 @@ const QUARANTINE_BUDGET = 'flaky-quarantine-budget';
  */
 const BUDGET_TRIPWIRE_STEP = /check-core-bundle-budget|check-cli-startup-graph|gen:sdk:check/;
 
+/** The label of the one open fix task per budget main is over (T14254). */
+export const MAIN_OVER_BUDGET_LABEL = 'main-over-budget';
+
 /** Where every receipt is kept, keyed by (PR, merge sha). */
 export const MERGE_ATTRIBUTION_FILE = '.cleo/audit/merge-attribution.jsonl';
 
@@ -297,7 +300,11 @@ async function judgeJob(
   const { parent } = observed;
   if (parent.conclusion === 'success') {
     if (read.cause !== null && BUDGET_TRIPWIRE_STEP.test(read.cause))
-      return verdict('budget-crossed', `the parent job passed: ${read.cause} crossed here`, read);
+      return verdict(
+        'budget-crossed',
+        `the parent job passed: ${read.cause} crossed here, by PR #${input.prNumber}`,
+        read,
+      );
     if (read.tests.length > 0 || read.cause !== null)
       return verdict(
         newAtMerge(job, headJobs),
@@ -330,7 +337,7 @@ async function judgeJob(
   if (read.cause !== null && BUDGET_TRIPWIRE_STEP.test(read.cause))
     return verdict(
       'budget-crossed',
-      `the parent failed differently: ${read.cause} crossed here`,
+      `the parent failed differently: ${read.cause} crossed here, by PR #${input.prNumber}`,
       read,
     );
   if (read.cause !== null)
@@ -534,8 +541,87 @@ export async function attributeMergedPr(
     aggregates: required,
     log: (check) => io.fetchJobLog(check.id, root),
   });
-  if (receipt !== null && !dryRun) await storeMergeAttribution(storeRoot, receipt, taskId);
-  return receipt;
+  if (receipt === null || dryRun) return receipt;
+  const filed = await fileMainBudgetTasks(storeRoot, receipt, taskId);
+  const final: MergeAttributionReceipt = {
+    ...receipt,
+    ...(filed.tasks.length > 0 ? { budgetTasks: filed.tasks } : {}),
+    ...(filed.skipped ? { budgetTaskSkipped: filed.skipped } : {}),
+  };
+  await storeMergeAttribution(storeRoot, final, taskId);
+  return final;
+}
+
+/**
+ * File the fix task for each budget a merge crossed (T14254, D11225): one open
+ * `main-over-budget` task per budget (bundle size, gate-39 module counts,
+ * `gen:sdk` drift), under the epic of the crossing PR's task, naming the PR.
+ * A budget that already has an open task gets none: that task is returned.
+ * The PR's own task is untouched and closes as it would.
+ *
+ * @param storeRoot - The CLEO store.
+ * @param receipt - The computed receipt.
+ * @param taskId - The PR's first Closes/Refs task, or `null`.
+ * @returns The fix tasks, or why none could be filed.
+ * @task T14254
+ */
+export async function fileMainBudgetTasks(
+  storeRoot: string,
+  receipt: MergeAttributionReceipt,
+  taskId: string | null,
+): Promise<{ tasks: string[]; skipped?: string }> {
+  const budgets = [
+    ...new Set(
+      receipt.failures.flatMap((f) => {
+        const budget =
+          f.verdict === 'budget-crossed' ? BUDGET_TRIPWIRE_STEP.exec(f.cause ?? '') : null;
+        return budget === null ? [] : [budget[0]];
+      }),
+    ),
+  ];
+  if (budgets.length === 0) return { tasks: [] };
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(storeRoot);
+  const open = (
+    await accessor.queryTasks({
+      label: MAIN_OVER_BUDGET_LABEL,
+      excludeStatus: ['done', 'cancelled', 'archived'],
+    })
+  ).tasks;
+  const tasks: string[] = [];
+  const unfiled: string[] = [];
+  for (const budget of budgets) {
+    const title = `Main over budget: ${budget}`;
+    const existing = open.find((t) => t.title.startsWith(title));
+    if (existing) tasks.push(existing.id);
+    else unfiled.push(budget);
+  }
+  if (unfiled.length === 0) return { tasks };
+  const parentId =
+    taskId === null ? null : ((await accessor.loadSingleTask(taskId))?.parentId ?? null);
+  if (!parentId)
+    return {
+      tasks,
+      skipped: `${unfiled.join(', ')}: PR #${receipt.prNumber} names no task under an epic to file the fix task in`,
+    };
+  const { addTask } = await import('../tasks/add.js');
+  for (const budget of unfiled) {
+    const added = await addTask(
+      {
+        title: `Main over budget: ${budget} (crossed by PR #${receipt.prNumber})`,
+        description: `PR #${receipt.prNumber}'s merge ${receipt.mergeSha} crossed ${budget}, which passed on its first parent ${receipt.parentSha ?? '(unknown)'} (merge attribution receipt, T14254, D11225).`,
+        acceptance: [`${budget} passes on main again`],
+        parentId,
+        labels: [MAIN_OVER_BUDGET_LABEL],
+        // One open task per budget is the identity (checked above by label and title).
+        forceDuplicate: true,
+      },
+      storeRoot,
+      accessor,
+    );
+    tasks.push(added.task.id);
+  }
+  return { tasks };
 }
 
 /**

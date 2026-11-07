@@ -670,7 +670,7 @@ function bridgeAgentRegistryTasksViaAssignee(db: DatabaseSync, nodeIds: Set<stri
     const rows = allTyped<TaskAssigneeRow>(
       db.prepare(
         `SELECT id, assignee
-         FROM tasks
+         FROM tasks_tasks
          WHERE assignee IS NOT NULL
            AND status NOT IN ('archived', 'cancelled')
          LIMIT 1000`,

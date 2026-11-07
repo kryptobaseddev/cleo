@@ -83,6 +83,10 @@ export async function restoreSupersession(
         .run();
     }
   });
+  // T14288: both docs' identity rows carry the restored supersession.
+  const { mirrorConduitDocMeta } = await import('../../store/conduit-doc-history.js');
+  if (older) await mirrorConduitDocMeta(projectRoot, { rowId: older.id });
+  if (newer) await mirrorConduitDocMeta(projectRoot, { rowId: newer.id });
 }
 
 /**
@@ -112,6 +116,9 @@ export async function revertDocUpdate(
       .run();
     tx.update(attachments).set({ slug }).where(eq(attachments.id, previous)).run();
   });
+  // T14288: the doc's identity row carries the restored row's metadata.
+  const { mirrorConduitDocMeta } = await import('../../store/conduit-doc-history.js');
+  await mirrorConduitDocMeta(projectRoot, { rowId: previous });
   for (const ref of refs) await store.deref(created, ref.ownerType, ref.ownerId, projectRoot);
   // The update re-derived the slug's body links from the merged text; put
   // back the edges the old body had.

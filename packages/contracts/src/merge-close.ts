@@ -162,6 +162,13 @@ export interface MergeAttributionReceipt {
   parentRuns: MergeAttributionRunPin[];
   /** Failing merge-commit jobs, each attributed. */
   failures: MergeAttributionFailure[];
+  /**
+   * The open `main-over-budget` fix task per budget the PR crossed, filed or
+   * found (T14254); absent when it crossed none.
+   */
+  budgetTasks?: string[];
+  /** Why a crossed budget got no fix task (the PR names no task under an epic). */
+  budgetTaskSkipped?: string;
   /** The PR's verdict: the most serious of its jobs'. */
   verdict: MergeAttributionVerdict;
   /** What the verdict proves: the change holds on main, or only the head was tested, or nothing. */
