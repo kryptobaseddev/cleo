@@ -30,11 +30,13 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { blobFilePath } from '../../store/blob-keep.js';
 import {
   getConduitDocHead,
+  legacyDocIdentity,
   listConduitAttachmentVersions,
   listConduitDocMigrations,
   recordConduitDocMigration,
@@ -266,17 +268,16 @@ describe('legacy docs migration (T13360)', () => {
     expect(docBVersions[0]?.authorAgentId).toBe(MIGRATION_SYSTEM_AUTHOR);
     expect(docBVersions[0]?.changeSummary).toContain('no audit provenance');
 
-    // ── doc rows: content captured, uid resolvable ──
+    // ── doc rows: the one legacy identity (T14332), uid resolvable ──
+    // The identity row is the same thin shell adopt mints (its content lives in
+    // the version rows), so a peer that adopted the doc places it as a duplicate.
     const docs = await store.select().from(conduitAttachments).all();
     expect(docs.map((d) => d.slug).sort()).toEqual(['doc-a', 'doc-b', 'doc-c', 'doc-e', 'doc-g']);
     const docA = docs.find((d) => d.slug === 'doc-a');
-    expect(docA?.content?.toString('utf-8')).toBe(v2Bytes.toString('utf-8'));
-    expect(docA?.versionCount).toBe(2);
-    expect(docA?.fromAgentId).toBe('agent-editor');
+    expect(docA).toMatchObject(legacyDocIdentity('doc-a', '2026-09-01T00:00:00.000Z', v2Sha));
     expect(await resolveConduitDocUid(env.tempDir, 'doc-a')).toBe(docA?.uid);
-    // The captured bytes are the recovered (identical) content.
     const docB = docs.find((d) => d.slug === 'doc-b');
-    expect(docB?.content?.toString('utf-8')).toBe(localBytes.toString('utf-8'));
+    expect(docB?.contentHash).toBe(localSha);
 
     // Heads point at each doc's last version.
     const heads = await store.select().from(conduitDocHeads).all();
@@ -826,5 +827,85 @@ describe('a no-op or dry-run migrate writes no snapshot (T14331)', () => {
     expect(second.report.status).toBe('completed');
     expect(second.counts).toMatchObject({ toCapture: 0, toSkip: 1 });
     expect(migrationSnapshots()).toEqual(afterFirst);
+  });
+});
+
+describe('one legacy identity for migrate, adopt and add (T14332)', () => {
+  const BODY = Buffer.from('# Shared doc\n\nsynced before either device touched it.\n');
+  const SLUG = 'shared-legacy-doc';
+
+  /** The same synced legacy doc on a device: registry row plus blob-store bytes. */
+  async function seedShared(target: TestDbEnv): Promise<void> {
+    const hash = sha(BODY);
+    const path = join(target.cleoDir, 'blobs', 'blobs', hash);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, BODY);
+    const store = await getDb(target.tempDir);
+    await store
+      .insert(docsAttachments)
+      .values({
+        id: `att-${SLUG}`,
+        sha256: hash,
+        attachmentJson: JSON.stringify({ kind: 'blob', mime: MIME, sha256: hash }),
+        slug: SLUG,
+        createdAt: '2026-09-01T00:00:00.000Z',
+      })
+      .run();
+  }
+
+  it('a doc migrated on one device and adopted by an update on another converges to one row and one head', async () => {
+    const { receiveRow, wireRowOf } = await import('../../store/display-id-alias.js');
+    const headUid = async (target: TestDbEnv, docUid: string) =>
+      (await getDb(target.tempDir))
+        .select({ uid: conduitDocHeads.uid })
+        .from(conduitDocHeads)
+        .where(eq(conduitDocHeads.attachmentUid, docUid))
+        .get();
+
+    // Device A migrates the doc.
+    const deviceA = await createTestDb();
+    let wire: ReturnType<typeof wireRowOf>;
+    let uidA: string | null;
+    let headA: { uid: string | null } | undefined;
+    try {
+      await seedShared(deviceA);
+      const native = getNativeDb(deviceA.tempDir);
+      if (!native) throw new Error('expected a native handle');
+      const result = await runLegacyDocMigration({
+        projectRoot: deviceA.tempDir,
+        db: native,
+        cwd: deviceA.tempDir,
+      });
+      expect(result.report.status).toBe('completed');
+      uidA = await resolveConduitDocUid(deviceA.tempDir, SLUG);
+      if (uidA === null) throw new Error('device A has no identity');
+      wire = wireRowOf(native, 'conduit_attachments', uidA);
+      headA = await headUid(deviceA, uidA);
+    } finally {
+      await deviceA.cleanup();
+    }
+
+    // Device B, before any sync, adopts the same doc through an update.
+    const deviceB = await createTestDb();
+    try {
+      await seedShared(deviceB);
+      const updated = await updateDocBySlug(deviceB.tempDir, {
+        slug: SLUG,
+        content: `${BODY.toString('utf-8')}\nedited on device B.\n`,
+      });
+      expect(updated.ok).toBe(true);
+      const uidB = await resolveConduitDocUid(deviceB.tempDir, SLUG);
+      expect(uidB).toBe(uidA);
+      // The same head row identity (natural over the doc uid): one head, merged by HLC.
+      expect((await headUid(deviceB, uidB ?? ''))?.uid).toBe(headA?.uid);
+      // A's identity row arriving at B is a duplicate, never a second doc or a held collision.
+      const native = getNativeDb(deviceB.tempDir);
+      if (!native) throw new Error('expected a native handle');
+      expect(receiveRow(native, wire).status).toBe('duplicate');
+      const rows = await (await getDb(deviceB.tempDir)).select().from(conduitAttachments).all();
+      expect(rows.filter((r) => r.slug === SLUG)).toHaveLength(1);
+    } finally {
+      await deviceB.cleanup();
+    }
   });
 });

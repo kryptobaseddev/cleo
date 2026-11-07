@@ -14,9 +14,9 @@
  *
  * Four prepared statements execute per load:
  *
- * 1. `SELECT … FROM tasks WHERE status != 'archived'` (or unfiltered when
+ * 1. `SELECT … FROM tasks_tasks WHERE status != 'archived'` (or unfiltered when
  *    `includeArchived`) — the node set.
- * 2. `SELECT task_id, depends_on FROM task_dependencies` — the edge set.
+ * 2. `SELECT task_id, depends_on FROM tasks_task_dependencies` — the edge set.
  * 3. Epic rollup is computed **in-memory** from the already-loaded task set
  *    (walk `parentId` pointers once to build a `parent -> children[]`
  *    adjacency, then sum per epic). This adds zero SQL round-trips.
@@ -43,6 +43,7 @@
  */
 
 import type { Task, TaskPriority, TaskStatus, TaskType } from '@cleocode/contracts';
+import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
 import { getTasksDb } from '../db/connections.js';
 import type { ProjectContext } from '../project-context.js';
 
@@ -366,8 +367,9 @@ export function _collectDistinctLabels(tasks: Task[]): string[] {
 // ---------------------------------------------------------------------------
 
 /** SELECT list that maps 1:1 to {@link TaskRowSqlite}. Hoisted for reuse. */
-const TASKS_SELECT_COLUMNS = `
-  id, title, description, status, priority, type, parent_id, pipeline_stage,
+/** Columns of a `tasks_tasks` row; `status` derived from the claim lease (T14268). */
+const tasksSelectColumns = (): string => `
+  id, title, description, ${derivedStatusSqlAt()} AS status, priority, type, parent_id, pipeline_stage,
   size, phase, position, position_version, labels_json, acceptance_json,
   files_json, notes_json, verification_json, origin, blocked_by,
   epic_lifecycle, no_auto_complete, created_at, updated_at, completed_at,
@@ -423,8 +425,8 @@ export async function loadExplorerBundle(opts: LoadExplorerOptions): Promise<Exp
     const whereClause = includeArchived ? '' : `WHERE status != 'archived'`;
     const taskRows = db
       .prepare(
-        `SELECT ${TASKS_SELECT_COLUMNS}
-         FROM tasks
+        `SELECT ${tasksSelectColumns()}
+         FROM tasks_tasks
          ${whereClause}
          ORDER BY id ASC
          LIMIT ?`,
@@ -436,7 +438,7 @@ export async function loadExplorerBundle(opts: LoadExplorerOptions): Promise<Exp
     // Dependency edges are loaded in full; filtering by the loaded id-set
     // below keeps the Explorer's graph view consistent with its node set.
     const depRows = db
-      .prepare('SELECT task_id, depends_on FROM task_dependencies')
+      .prepare('SELECT task_id, depends_on FROM tasks_task_dependencies')
       .all() as DependencyRowSqlite[];
 
     const loadedIds = new Set(tasks.map((t) => t.id));
