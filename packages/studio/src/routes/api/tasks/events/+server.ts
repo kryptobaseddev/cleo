@@ -43,7 +43,7 @@ export const GET: RequestHandler = ({ locals, request }) => {
 
         const row = db
           .prepare(
-            `SELECT MAX(updated_at) as latest, COUNT(*) as cnt FROM tasks WHERE status != 'archived'`,
+            `SELECT MAX(updated_at) as latest, COUNT(*) as cnt FROM tasks_tasks WHERE status != 'archived'`,
           )
           .get() as { latest: string | null; cnt: number };
 
