@@ -453,6 +453,15 @@ export const E_RELEASE_IN_FLIGHT = 'E_RELEASE_IN_FLIGHT' as const;
  */
 export const E_DOCS_ROT = 'E_DOCS_ROT' as const;
 /**
+ * A stable `cleo release cut` found no passing release smoke for the commit it
+ * would tag: `scripts/release-mac-smoke.mjs` writes
+ * `.cleo/release-smoke/<sha12>/results.json`, and a missing, failing or
+ * other-commit receipt refuses the cut (prereleases are not gated).
+ *
+ * @task T14250
+ */
+export const E_RELEASE_SMOKE_MISSING = 'E_RELEASE_SMOKE_MISSING' as const;
+/**
  * `cleo release plan` (or the lint script) encountered a `.changeset/*.md`
  * file whose YAML frontmatter cannot be parsed. Exit code 6 (VALIDATION_ERROR).
  *
