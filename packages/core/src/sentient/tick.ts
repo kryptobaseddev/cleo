@@ -1416,18 +1416,14 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
       .then(async () => {
         try {
           const { pruneWorktreesForProject } = await import('./worktree-dispatch.js');
-          // Query the task database for active task IDs so we don't prune
-          // worktrees that belong to in-flight tasks. An empty set would
-          // delete ALL worktrees — catastrophic for active agents.
-          const { Cleo } = await import('@cleocode/core/sdk');
-          const cleo = await Cleo.init(options.projectRoot);
-          const activeResult = (await cleo.tasks.find({ status: 'active', limit: 500 })) as {
-            success?: boolean;
-            data?: { tasks?: Array<{ id: string }> };
-          };
-          const activeTasks = activeResult?.data?.tasks ?? [];
-          const activeTaskIds = new Set(activeTasks.map((t) => t.id));
-          pruneWorktreesForProject(options.projectRoot, activeTaskIds);
+          // T14268: keep the worktree of every task in progress: a live claim
+          // lease, or a session's focus (a lease that lapsed mid-run). An empty
+          // set would delete ALL worktrees — catastrophic for active agents.
+          const { inProgressTaskIds } = await import('../task-work/claims.js');
+          pruneWorktreesForProject(
+            options.projectRoot,
+            await inProgressTaskIds(options.projectRoot),
+          );
         } catch {
           // Prune is best-effort: log nothing, never block.
         }

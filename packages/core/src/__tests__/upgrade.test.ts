@@ -5,6 +5,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -15,7 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCleoHome } from '../paths.js';
 import { acquireLock } from '../store/lock.js';
@@ -626,5 +627,72 @@ describe('runUpgrade storage migration from a linked worktree (T12708)', () => {
       /^E_WT_STORE_REWRITE_REFUSED: storage migration run from git worktree/,
     );
     expect(existsSync(join(wt, '.cleo', 'tasks.db'))).toBe(false);
+  });
+});
+
+describe('runUpgrade gives legacy docs their identity (T14288)', () => {
+  let tmpDir: string;
+  let cleoDir: string;
+
+  beforeEach(() => {
+    tmpDir = join(
+      tmpdir(),
+      `cleo-upgrade-docs-identity-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    cleoDir = join(tmpDir, '.cleo');
+    mkdirSync(cleoDir, { recursive: true });
+    mkdirSync(join(tmpDir, '.git'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    const { closeAllDatabases } = await import('../store/sqlite.js');
+    await closeAllDatabases();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('an unmigrated doc resolves as legacy with a warning; after upgrade it resolves by uid without one', async () => {
+    const { getDb } = await import('../store/sqlite.js');
+    const { docsAttachments } = await import('../store/tasks-schema.js');
+    const { drainWarnings } = await import('../output.js');
+    const { resolveDocRef } = await import('../docs/slug-rename.js');
+
+    const body = Buffer.from('# Legacy research\n\nwritten before doc identity.\n');
+    const hash = createHash('sha256').update(body).digest('hex');
+    const blob = join(cleoDir, 'blobs', 'blobs', hash);
+    mkdirSync(dirname(blob), { recursive: true });
+    writeFileSync(blob, body);
+    const db = await getDb(tmpDir);
+    await db
+      .insert(docsAttachments)
+      .values({
+        id: 'att-legacy-research',
+        sha256: hash,
+        attachmentJson: JSON.stringify({ kind: 'blob', mime: 'text/markdown', sha256: hash }),
+        slug: 'legacy-research',
+        createdAt: '2026-09-01T00:00:00.000Z',
+      })
+      .run();
+
+    drainWarnings();
+    const before = await resolveDocRef(tmpDir, 'legacy-research');
+    expect(before?.identity).toBe('legacy');
+    expect(drainWarnings()?.map((w) => w.code)).toContain('W_DOC_NOT_MIGRATED');
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false });
+    expect(
+      result.actions.find((a) => a.action === 'docs_migrate')?.status,
+      JSON.stringify(result.actions.filter((a) => a.action === 'docs_migrate')),
+    ).toBe('applied');
+
+    drainWarnings();
+    const after = await resolveDocRef(tmpDir, 'legacy-research');
+    expect(after?.identity).toBe('uid');
+    expect(after?.sha256).toBe(hash);
+    expect(after?.headVersionUid).toBeTruthy();
+    expect(drainWarnings()?.map((w) => w.code) ?? []).not.toContain('W_DOC_NOT_MIGRATED');
+
+    // A second upgrade has nothing to migrate: no action, no snapshot.
+    const again = await runUpgrade({ cwd: tmpDir, dryRun: false });
+    expect(again.actions.some((a) => a.action === 'docs_migrate')).toBe(false);
   });
 });

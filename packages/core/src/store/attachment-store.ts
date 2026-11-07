@@ -754,6 +754,12 @@ export function createAttachmentStore(): AttachmentStore {
               .where(eq(attachments.id, attachmentId))
               .run();
           }
+          // T14288: the doc's identity row carries the re-put row's metadata.
+          if (existing && (type !== undefined || derivedLinks !== undefined)) {
+            const { mirrorConduitDocMeta } = await import('./conduit-doc-history.js');
+            const { getProjectRoot } = await import('../paths.js');
+            await mirrorConduitDocMeta(cwd ?? getProjectRoot(), { rowId: attachmentId });
+          }
 
           // Insert ref. The (attachment_id, owner_type, owner_id) tuple is the
           // composite PK on `attachment_refs`, so a re-put of the same blob

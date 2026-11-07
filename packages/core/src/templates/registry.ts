@@ -21,11 +21,12 @@
  * @saga T9855
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TemplateKind, TemplateManifestEntry } from '@cleocode/contracts';
+import { getCleoHome } from '../paths.js';
 import { TEMPLATE_MANIFEST_ENTRIES } from './manifest-data.js';
 
 /**
@@ -229,6 +230,36 @@ function resolveFromOwningPackage(sourcePath: string): string | null {
     const req = createRequire(import.meta.url);
     const pkgJson = req.resolve(`${pkgName}/package.json`);
     return join(dirname(pkgJson), tail);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The protocol version a `CLEO-INJECTION.md` text declares: the first token of
+ * its `Version:` line (`Version: 2.25.5 | CLI-only dispatch` → `2.25.5`).
+ *
+ * @param content - Template text.
+ * @returns The version, or `null` when the text declares none.
+ * @task T14327
+ */
+export function parseInjectionVersion(content: string): string | null {
+  return content.match(/^Version:\s*([^\s|]+)/m)?.[1] ?? null;
+}
+
+/**
+ * The version of the installed global `CLEO-INJECTION.md` template (the copy
+ * the instruction files reference), or `null` when it is missing or
+ * declares none. Never throws.
+ *
+ * @returns The installed template version.
+ * @task T14327
+ */
+export function readInstalledInjectionVersion(): string | null {
+  const entry = getTemplateById('cleo-injection');
+  if (entry === undefined) return null;
+  try {
+    return parseInjectionVersion(readFileSync(join(getCleoHome(), entry.installPath), 'utf-8'));
   } catch {
     return null;
   }

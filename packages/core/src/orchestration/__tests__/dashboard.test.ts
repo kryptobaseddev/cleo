@@ -36,7 +36,7 @@ function worktreeState(
   const isDirty = overrides.isDirty ?? false;
   const hasUnpushedCommits = overrides.hasUnpushedCommits ?? false;
   const reasons = [
-    ...(statusCategory === 'stale' ? ['stale'] : []),
+    ...(overrides.reasons ?? []),
     ...(isDirty ? ['dirty'] : []),
     ...(hasUnpushedCommits ? ['unpushed'] : []),
   ];
@@ -98,8 +98,8 @@ describe('collectOrchestrateDashboard', () => {
       worktreeStates: [
         worktreeState('active'),
         worktreeState('active'),
-        worktreeState('locked'),
-        worktreeState('merged'),
+        worktreeState('redundant'),
+        worktreeState('keep'),
       ],
     });
 
@@ -109,6 +109,7 @@ describe('collectOrchestrateDashboard', () => {
     expect(metrics.forceBypassRate).toEqual({ count: 2, perHour: 0.08, windowHours: 24 });
     expect(metrics.activeWorktreeCount).toBe(2);
     expect(metrics.worktrees.total).toBe(4);
+    expect(metrics.worktrees).toMatchObject({ active: 2, redundant: 1, keep: 1, unknown: 0 });
     expect(metrics.worktrees.stalled).toBe(0);
   });
 
@@ -133,10 +134,12 @@ describe('collectOrchestrateDashboard', () => {
           isStalled: true,
           reasons: ['unpushed'],
         }),
-        worktreeState('stale', {
+        // T14274: stale is an annotation (a reason), not a category.
+        worktreeState('keep', {
           path: '/worker/stale',
           branch: 'task/T12',
           taskId: 'T12',
+          reasons: ['stale'],
         }),
       ],
     });

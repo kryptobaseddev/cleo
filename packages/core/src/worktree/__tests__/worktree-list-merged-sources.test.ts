@@ -205,12 +205,12 @@ describe('listWorktrees — multi-source union (T9804)', () => {
     // Filter to only stale entries — sentinel-only with old adoptedAt should be stale
     const result = await listWorktrees({
       projectRoot: tmpDir,
-      statusFilter: ['stale', 'orphan', 'active', 'merged', 'locked'],
+      statusFilter: ['active', 'redundant', 'keep', 'unknown'],
     });
     expect(result.success).toBe(true);
     if (!result.success) return;
 
-    // Adopted entry should appear (stale or orphan since task status is unknown)
+    // Adopted entry should appear whatever the disposal proof says about it (T14274)
     const adoptedEntry = result.data.worktrees.find((w) => w.path === adoptedPath);
     expect(adoptedEntry).toBeDefined();
   });

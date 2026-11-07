@@ -250,6 +250,20 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
       },
     },
   },
+  conduit_attachments: {
+    // T14288: the doc's metadata on its uid, mirrored from the registry row.
+    // A supersession writes the status and its successor together, as on
+    // docs_attachments, and superseded stays sticky under the same rule.
+    groups: [['lifecycle_status', 'superseded_by_uid']],
+    rules: {
+      lifecycle_status: {
+        kind: 'absorbing',
+        id: 'docs.lifecycle.transitions',
+        states: ['superseded'],
+        leaveOps: [],
+      },
+    },
+  },
   decision_adr_links: {
     // The revoke and its author move together, taken from the winning op.
     groups: [['status', 'revoked_by']],
