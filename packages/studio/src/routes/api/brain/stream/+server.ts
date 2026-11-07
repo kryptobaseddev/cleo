@@ -169,9 +169,8 @@ function initWatermarks(ctx: ProjectContext): WatermarkState {
       state.lastTaskRowid = taskMax?.max_rowid ?? 0;
 
       // Snapshot current statuses for rowids we've already seen
-      const rows = tasksDb
-        .prepare(`SELECT id, ${derivedStatusSqlAt()} AS status FROM tasks_tasks`)
-        .all() as Array<{
+      const statusSql = `SELECT id, ${derivedStatusSqlAt()} AS status FROM tasks_tasks`;
+      const rows = tasksDb.prepare(statusSql).all() as Array<{
         id: string;
         status: string;
       }>;
