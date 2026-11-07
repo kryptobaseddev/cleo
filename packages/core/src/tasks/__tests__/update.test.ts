@@ -10,7 +10,12 @@ import { join } from 'node:path';
 import type { Task, TasksUpdateQueryParams } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import {
+  bindTestSession,
+  createTestDb,
+  seedTasks,
+  type TestDbEnv,
+} from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import * as taskAccessors from '../../store/data-accessor.js';
 import * as taskSqlite from '../../store/sqlite.js';
@@ -667,8 +672,48 @@ describe('updateTask', () => {
       },
     ]);
 
-    const result = await updateTask({ taskId: 'T001', status: 'active' }, env.tempDir, accessor);
+    const result = await updateTask({ taskId: 'T001', status: 'blocked' }, env.tempDir, accessor);
+    expect(result.task.status).toBe('blocked');
+  });
+
+  it("--status active takes the bound session's claim lease, as cleo start does (T14268)", async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Task',
+        status: 'pending',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    await expect(
+      updateTask({ taskId: 'T001', status: 'active' }, env.tempDir, accessor),
+    ).rejects.toMatchObject({ code: ExitCode.SESSION_UNBOUND });
+    expect((await accessor.loadSingleTask('T001'))?.claim).toBeUndefined();
+    // A refused call writes nothing: the other fields stay as they were.
+    await expect(
+      updateTask({ taskId: 'T001', status: 'active', priority: 'high' }, env.tempDir, accessor),
+    ).rejects.toMatchObject({ code: ExitCode.SESSION_UNBOUND });
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
+
+    const sessionId = await bindTestSession(env);
+    // Another session's live lease is refused before anything is written too.
+    await accessor.claimTask('T001', { sessionId: 'ses_other', agentId: null, mode: 'acquire' });
+    await expect(
+      updateTask({ taskId: 'T001', status: 'active', priority: 'high' }, env.tempDir, accessor),
+    ).rejects.toMatchObject({ code: ExitCode.TASK_CLAIMED });
+    expect((await accessor.loadSingleTask('T001'))?.priority).toBe('medium');
+    await accessor.unclaimTask('T001', { sessionId: 'ses_other' });
+
+    const result = await updateTask(
+      { taskId: 'T001', status: 'active', priority: 'high' },
+      env.tempDir,
+      accessor,
+    );
     expect(result.task.status).toBe('active');
+    expect(result.task.priority).toBe('high');
+    expect(result.task.claim?.sessionId).toBe(sessionId);
+    expect(result.changes).toEqual(expect.arrayContaining(['priority', 'status']));
   });
 
   it('adds labels', async () => {

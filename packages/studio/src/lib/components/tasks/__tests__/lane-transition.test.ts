@@ -31,14 +31,14 @@ function expectPlan(
 }
 
 describe('planLaneTransition — valid drags map to a tasks.update status (T11928)', () => {
-  it('backlog → running sets status active', () => {
-    const plan = expectPlan('backlog', 'running');
-    expect(plan.status).toBe('active');
+  it('backlog → blocked sets status blocked and names both lanes', () => {
+    const plan = expectPlan('backlog', 'blocked');
+    expect(plan.status).toBe('blocked');
     expect(plan.fromLane).toBe('backlog');
-    expect(plan.toLane).toBe('running');
+    expect(plan.toLane).toBe('blocked');
     expect(plan.taskId).toBe('T1');
     expect(plan.summary).toContain('Backlog');
-    expect(plan.summary).toContain('Running');
+    expect(plan.summary).toContain('Blocked');
   });
 
   it('running → backlog sets status pending (defer)', () => {
@@ -57,8 +57,8 @@ describe('planLaneTransition — valid drags map to a tasks.update status (T1192
     expect(expectPlan('cancelled', 'backlog').status).toBe('pending');
   });
 
-  it('blocked → running clears the block (active)', () => {
-    expect(expectPlan('blocked', 'running').status).toBe('active');
+  it('blocked → backlog clears the block (pending)', () => {
+    expect(expectPlan('blocked', 'backlog').status).toBe('pending');
   });
 });
 
@@ -92,6 +92,16 @@ describe('planLaneTransition — invalid drags are rejected with a typed reason 
     expect(res.reason).toBe('resolved-target');
   });
 
+  it('rejects dropping into Running: a task runs while an agent holds its claim (T14268)', () => {
+    for (const from of ['backlog', 'blocked'] as const) {
+      const res = planLaneTransition('T1', from, 'running');
+      expect(res.ok).toBe(false);
+      if (res.ok) throw new Error('unreachable');
+      expect(res.reason).toBe('resolved-target');
+      expect(res.message).toContain('cleo start T1');
+    }
+  });
+
   it('rejects dropping into Review (resolved lane)', () => {
     const res = planLaneTransition('T1', 'running', 'review');
     expect(res.ok).toBe(false);
@@ -101,14 +111,14 @@ describe('planLaneTransition — invalid drags are rejected with a typed reason 
 });
 
 describe('isDraggableTargetLane (T11928)', () => {
-  it('accepts backlog / running / blocked / cancelled', () => {
-    for (const lane of ['backlog', 'running', 'blocked', 'cancelled'] as const) {
+  it('accepts backlog / blocked / cancelled', () => {
+    for (const lane of ['backlog', 'blocked', 'cancelled'] as const) {
       expect(isDraggableTargetLane(lane)).toBe(true);
     }
   });
 
-  it('rejects ready / review / done', () => {
-    for (const lane of ['ready', 'review', 'done'] as const) {
+  it('rejects ready / review / done / running', () => {
+    for (const lane of ['ready', 'review', 'done', 'running'] as const) {
       expect(isDraggableTargetLane(lane)).toBe(false);
     }
   });
