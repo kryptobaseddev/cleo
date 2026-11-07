@@ -5,7 +5,8 @@
  * lead's `CLAUDE_CODE_SESSION_ID`, so the provider key names ONE shared
  * harness session. Each teammate names itself with `CLEO_AGENT_ID`; its
  * first mutation gets it its own CLEO session, so one teammate's `cleo start`
- * never releases another's claim, and teammates can review each other.
+ * never releases another's claim, and teammates can review each other. An
+ * unnamed mutation that cannot tell the agents apart is refused.
  *
  * @task T14269
  */
@@ -20,6 +21,7 @@ import {
   createSession,
   getSession,
   resolveBoundSession,
+  unbindSessionTerminals,
 } from '../../store/session-store.js';
 import { claimAllows, sameClaimAgent } from '../../store/task-claim.js';
 import { startTask } from '../../task-work/index.js';
@@ -134,6 +136,27 @@ describe('per-agent claim identity in one shared harness session (T14269)', () =
     await startTask('T004', env.tempDir, env.accessor);
     expect((await claimOf('T004'))?.sessionId).toBe(LEAD);
     expect((await claimOf('T001'))?.agentId).toBe('lane-a');
+  });
+
+  it('an unnamed mutation is refused with E_SESSION_AMBIGUOUS while two agents are live and the shared key has no session of its own', async () => {
+    as('lane-a');
+    await startTask('T001', env.tempDir, env.accessor);
+    as('lane-b');
+    await startTask('T002', env.tempDir, env.accessor);
+    // The lead's binding goes away: the shared provider key now names nobody.
+    await unbindSessionTerminals(LEAD, env.tempDir);
+    as('');
+    const refused = await startTask('T004', env.tempDir, env.accessor).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(CleoError);
+    expect((refused as CleoError).code).toBe(ExitCode.SESSION_AMBIGUOUS);
+    expect((refused as CleoError).toLAFSError().code).toBe('E_SESSION_AMBIGUOUS');
+    expect((refused as CleoError).fix).toContain('CLEO_AGENT_ID');
+    expect((refused as CleoError).details).toMatchObject({ agents: ['lane-a', 'lane-b'] });
+    expect(await claimOf('T004')).toBeUndefined();
+    // Naming itself, the same caller proceeds.
+    as('lane-c');
+    await startTask('T004', env.tempDir, env.accessor);
+    expect((await claimOf('T004'))?.agentId).toBe('lane-c');
   });
 
   it('an agent key never falls through to the shared session, and a read creates none', async () => {

@@ -171,6 +171,9 @@ describe('pruneOrphanedWorktreesByStatus — integration (real git)', () => {
       projectRoot: fixture.projectRoot,
       auditLogPath: fixture.auditLogPath,
       actor: 'integration-test',
+      // T14274: no task store here, so a worktree is a candidate only once
+      // idle past the stale window; a zero-day window makes it one now.
+      staleDays: 0,
     });
 
     expect(result.success).toBe(true);
@@ -178,12 +181,8 @@ describe('pruneOrphanedWorktreesByStatus — integration (real git)', () => {
     expect(result.data.prunedCount).toBe(1);
     expect(result.data.outcomes).toHaveLength(1);
     expect(result.data.outcomes[0]?.path).toBe(join(fixture.worktreesRoot, 'T1001'));
-    // The classifier's precedence is orphan > merged (when both apply): a
-    // missing tasks-DB row on a `task/T####` branch produces `orphan` even
-    // though the branch is also merged into main. We assert on the union of
-    // valid reasons so the test stays robust against precedence tweaks while
-    // still proving the worktree was identified for prune.
-    expect(['orphaned-merged', 'orphan-missing-task']).toContain(result.data.outcomes[0]?.reason);
+    // No stored task: the disposal proof held, so it is redundant (T14274).
+    expect(result.data.outcomes[0]?.reason).toBe('redundant-taskless');
     // Branch deletion runs whenever `isMerged` was true (T1001 was merged into
     // main before the prune sweep), regardless of the surfacing reason.
     expect(result.data.outcomes[0]?.branchDeleted).toBe(true);
@@ -214,6 +213,9 @@ describe('pruneOrphanedWorktreesByStatus — integration (real git)', () => {
       projectRoot: fixture.projectRoot,
       auditLogPath: fixture.auditLogPath,
       actor: 'integration-test',
+      // T14274: no task store here, so a worktree is a candidate only once
+      // idle past the stale window; a zero-day window makes it one now.
+      staleDays: 0,
     });
     expect(first.success).toBe(true);
     if (!first.success) throw new Error('first sweep should succeed');
@@ -224,6 +226,9 @@ describe('pruneOrphanedWorktreesByStatus — integration (real git)', () => {
       projectRoot: fixture.projectRoot,
       auditLogPath: fixture.auditLogPath,
       actor: 'integration-test',
+      // T14274: no task store here, so a worktree is a candidate only once
+      // idle past the stale window; a zero-day window makes it one now.
+      staleDays: 0,
     });
     expect(second.success).toBe(true);
     if (!second.success) throw new Error('second sweep should succeed');
@@ -246,6 +251,7 @@ describe('pruneOrphanedWorktreesByStatus — integration (real git)', () => {
       auditLogPath: fixture.auditLogPath,
       actor: 'integration-test',
       dryRun: true,
+      staleDays: 0,
     });
 
     expect(result.success).toBe(true);
