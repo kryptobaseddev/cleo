@@ -690,6 +690,11 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['slug'],
       birth: 'created_at',
       birthFacts: ['conversation_id', 'from_agent_id'],
+      // T14336: a doc's supersession names another doc by uid, and follows its re-key.
+      uidRefs: [
+        { column: 'supersedes_uid', table: 'conduit_attachments' },
+        { column: 'superseded_by_uid', table: 'conduit_attachments' },
+      ],
       task: 'T13354',
     },
     {
