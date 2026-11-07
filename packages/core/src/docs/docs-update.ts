@@ -1307,6 +1307,7 @@ async function recordPriorVersionOnAdopt(
     authorAgentId,
     content: bytes ?? Buffer.alloc(0),
     legacyBirth: oldRow.createdAt,
+    legacySha256: oldRow.sha256,
   });
   if (bytes === undefined) return null;
   const tokens = bytes
