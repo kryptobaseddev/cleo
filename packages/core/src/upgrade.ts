@@ -680,6 +680,19 @@ export async function runUpgrade(
             fix: 'Rename or retire the doc holding the shared identity, then run `cleo docs migrate`.',
           });
         }
+        // T14288: identity rows adopted before the metadata columns existed get
+        // their doc's metadata (deterministic, so every device writes the same).
+        if (!isDryRun && run.report.status === 'completed') {
+          const { mirrorUnmirroredConduitDocs } = await import('./store/conduit-doc-history.js');
+          const mirrored = await mirrorUnmirroredConduitDocs(docsRoot);
+          if (mirrored > 0) {
+            actions.push({
+              action: 'docs_identity_metadata',
+              status: 'applied',
+              details: `Mirrored the metadata of ${mirrored} doc(s) onto their identity`,
+            });
+          }
+        }
       }
     } catch (err) {
       actions.push({

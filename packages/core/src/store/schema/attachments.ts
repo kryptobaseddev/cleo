@@ -56,6 +56,20 @@ export const ATTACHMENT_LIFECYCLE_STATUSES = [
 export type AttachmentLifecycleStatus = (typeof ATTACHMENT_LIFECYCLE_STATUSES)[number];
 
 /**
+ * Whether a value is a doc lifecycle status (T14288: the identity row stores
+ * it as plain TEXT).
+ *
+ * @param value - The candidate.
+ * @returns True for a member of {@link ATTACHMENT_LIFECYCLE_STATUSES}.
+ */
+export function isAttachmentLifecycleStatus(value: unknown): value is AttachmentLifecycleStatus {
+  return (
+    typeof value === 'string' &&
+    (ATTACHMENT_LIFECYCLE_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+/**
  * Registry of stored attachments (blob content).
  *
  * Storage path: `.cleo/attachments/sha256/<sha256[0..2]>/<sha256[2..]>.<ext>`

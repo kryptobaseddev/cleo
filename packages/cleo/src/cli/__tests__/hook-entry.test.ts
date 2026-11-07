@@ -742,3 +742,82 @@ describe('heavyCommandHook in Claude Code prompting modes (T13124)', () => {
     ]);
   });
 });
+
+describe('subagent CLEO identity (T14341)', () => {
+  const managedDir = () => join(dir, 'managed');
+  const context =
+    () =>
+    (
+      projectDir: string,
+      env: Readonly<Record<string, string | undefined>>,
+    ): ClaudeAllowContext => ({
+      managedFiles: claudeManagedFiles(env, managedDir()),
+      profiles: [],
+      settingsFiles: claudeSettingsFiles(projectDir, env),
+      ancestors: 'claude --model x',
+      platform: 'darwin',
+    });
+  const settings = (file: 'settings.json' | 'settings.local.json', body: object) => {
+    mkdirSync(join(dir, '.claude'), { recursive: true });
+    writeFileSync(join(dir, '.claude', file), JSON.stringify(body));
+  };
+  const call = async (command: string, permission_mode: string, agent_id?: string) =>
+    heavyCommandHook(
+      'claude-code',
+      JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command, description: 'run it' },
+        cwd: dir,
+        permission_mode,
+        ...(agent_id === undefined ? {} : { agent_id }),
+      }),
+      { cwd: dir, env: { PATH: pathWithCleo, CLAUDE_PROJECT_DIR: dir, HOME: join(dir, 'home') } },
+      { allowContext: context() },
+    );
+  const out = async (command: string, mode: string, agent?: string) =>
+    JSON.parse(await call(command, mode, agent)).hookSpecificOutput;
+
+  it('exports CLEO_AGENT_ID for a subagent’s cleo command; the main thread is unchanged', async () => {
+    const sub = await out('cleo start T1', 'bypassPermissions', 'a1b2c3');
+    expect(sub.updatedInput.command).toBe("export CLEO_AGENT_ID='a1b2c3'; cleo start T1");
+    expect(sub.updatedInput.description).toBe('run it');
+    expect(sub.permissionDecision).toBeUndefined();
+    expect(sub.additionalContext).toMatch(/Ran as subagent a1b2c3/);
+    // Main thread, non-cleo commands and commands that name their identity: silent.
+    expect(await call('cleo start T1', 'bypassPermissions')).toBe('');
+    expect(await call('ls -la', 'bypassPermissions', 'a1b2c3')).toBe('');
+    expect(await call('CLEO_AGENT_ID=me cleo start T1', 'bypassPermissions', 'a1b2c3')).toBe('');
+    expect(await call('cleo start T1', 'bypassPermissions', 'bad id; rm -rf /')).toBe('');
+  });
+
+  it('in a prompting mode, rewrites only what the allow rules approve, with allow', async () => {
+    settings('settings.local.json', { permissions: { allow: ['Bash(cleo show:*)'] } });
+    const approved = await out('cleo show T1', 'default', 'a1b2c3');
+    expect(approved.permissionDecision).toBe('allow');
+    expect(approved.updatedInput.command).toBe("export CLEO_AGENT_ID='a1b2c3'; cleo show T1");
+    const unapproved = await out('cleo start T1', 'default', 'a1b2c3');
+    expect(unapproved.updatedInput).toBeUndefined();
+    expect(unapproved.permissionDecision).toBeUndefined();
+    expect(unapproved.additionalContext).toMatch(
+      /Run cleo commands as `export CLEO_AGENT_ID='a1b2c3'; <command>`/,
+    );
+  });
+
+  it('a denied command stays denied: never rewritten past a deny or ask rule', async () => {
+    settings('settings.json', { permissions: { deny: ['Bash(cleo delete:*)'] } });
+    for (const mode of ['bypassPermissions', 'auto', 'default']) {
+      const denied = await out('cleo delete T1', mode, 'a1b2c3');
+      expect(denied.updatedInput, mode).toBeUndefined();
+      expect(denied.permissionDecision, mode).toBeUndefined();
+      expect(denied.additionalContext).toMatch(/deny or ask rule/);
+    }
+  });
+
+  it('adds the identity in front of a heavy rewrite', async () => {
+    const both = await out('pnpm test && cleo show T1', 'bypassPermissions', 'a1b2c3');
+    expect(both.updatedInput.command).toMatch(
+      /^export CLEO_AGENT_ID='a1b2c3'; cleo run --wait --passthrough .* -- pnpm test && cleo show T1$/,
+    );
+  });
+});

@@ -31,6 +31,7 @@ import {
   tombstoneBlob,
 } from './blob-keep.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
+import { isAttachmentLifecycleStatus } from './schema/attachments.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
 import { assertTwinCollapseWritable } from './twin-collapse.js';
@@ -501,7 +502,9 @@ async function deriveSlugSuggestions(db: DrizzleDb, base: string): Promise<strin
         .from(attachments)
         .where(eq(attachments.slug, candidate))
         .get();
-      if (!conflict) {
+      // T14288: a doc identity's live slug or an old alias is taken too.
+      const { isConduitDocSlug } = await import('./conduit-doc-history.js');
+      if (!conflict && !(await isConduitDocSlug(db, candidate))) {
         out.push(candidate);
         taken.add(candidate);
         break;
@@ -681,7 +684,13 @@ export function createAttachmentStore(): AttachmentStore {
             .from(attachments)
             .where(eq(attachments.slug, slug))
             .get();
-          if (conflict && conflict.sha256 !== hash) {
+          // T14288: with no registry row, a doc identity answering to the slug
+          // (an old slug kept as an alias) holds it as well.
+          const { isConduitDocSlug } = await import('./conduit-doc-history.js');
+          if (
+            (conflict && conflict.sha256 !== hash) ||
+            (!conflict && (await isConduitDocSlug(db, slug)))
+          ) {
             const suggestions = await deriveSlugSuggestions(db, slug);
             throw new SlugCollisionError(slug, suggestions);
           }
@@ -946,16 +955,21 @@ export function createAttachmentStore(): AttachmentStore {
     },
 
     async findBySlug(slug, cwd) {
-      const db = await getDb(cwd);
-      const row = await db.select().from(attachments).where(eq(attachments.slug, slug)).get();
-      if (!row) return null;
+      // T14288: slug (live or an alias) → the doc's identity → its head content
+      // and metadata; a doc with no identity yet resolves through its row.
+      const { resolveDocRef } = await import('../docs/slug-rename.js');
+      const { getProjectRoot } = await import('../paths.js');
+      const ref = await resolveDocRef(cwd ?? getProjectRoot(), slug, { quiet: true });
+      if (!ref) return null;
       return {
-        metadata: rowToMetadata(row),
-        slug: row.slug ?? slug,
-        type: row.type ?? null,
-        summary: row.summary ?? null,
-        lifecycleStatus: row.lifecycleStatus,
-        displayAlias: row.displayAlias ?? null,
+        metadata: { ...rowToMetadata(ref.ownRow), sha256: ref.sha256 },
+        slug: ref.slug,
+        type: ref.meta.docType,
+        summary: ref.meta.summary,
+        lifecycleStatus: isAttachmentLifecycleStatus(ref.meta.lifecycleStatus)
+          ? ref.meta.lifecycleStatus
+          : ref.ownRow.lifecycleStatus,
+        displayAlias: ref.meta.displayAlias,
       };
     },
 

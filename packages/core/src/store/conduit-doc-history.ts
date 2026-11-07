@@ -33,7 +33,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { DocsMigrateRekeySkip } from '@cleocode/contracts/operations/docs.js';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { birthFingerprint, mintedRowUid, naturalRowUid } from './row-identity.js';
 import {
@@ -174,6 +174,35 @@ export async function resolveConduitDocUid(
 
 /** Transport owner and author of an adopted identity shell (`conversation_id`, `from_agent_id`). */
 const ADOPT_SENTINEL = 'cleodocs';
+
+/**
+ * Whether a doc identity answers to a slug (T14288 PR 3b): a live slug on
+ * `conduit_attachments` or an old slug in `conduit_doc_slug_aliases`. Slug
+ * allocators check it beside the registry, so a new doc never takes a slug a
+ * renamed doc's old links still reach.
+ *
+ * @param db - The project store's drizzle handle.
+ * @param slug - The candidate slug.
+ * @returns True when a doc identity answers to the slug.
+ * @task T14288
+ */
+export async function isConduitDocSlug(
+  db: Awaited<ReturnType<typeof getDb>>,
+  slug: string,
+): Promise<boolean> {
+  const live = await db
+    .select({ uid: conduitAttachments.uid })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.slug, slug))
+    .get();
+  if (live) return true;
+  const alias = await db
+    .select({ uid: conduitDocSlugAliases.docUid })
+    .from(conduitDocSlugAliases)
+    .where(eq(conduitDocSlugAliases.slug, slug))
+    .get();
+  return alias !== undefined;
+}
 
 /**
  * The ONE identity recipe of a doc born in the registry (T14332): its uid,
@@ -375,6 +404,52 @@ const CONDUIT_DOC_META_KEYS = [
   'displayAlias',
   'ownerVersion',
 ] as const satisfies readonly (keyof ConduitDocMeta)[];
+
+/**
+ * The doc metadata an identity row holds (T14288), in {@link ConduitDocMeta} form.
+ *
+ * @param row - A `conduit_attachments` row.
+ * @returns Its metadata columns.
+ * @task T14288
+ */
+export function conduitDocMetaOf(row: typeof conduitAttachments.$inferSelect): ConduitDocMeta {
+  return {
+    docType: row.docType ?? null,
+    lifecycleStatus: row.lifecycleStatus ?? null,
+    supersedesUid: row.supersedesUid ?? null,
+    supersededByUid: row.supersededByUid ?? null,
+    summary: row.summary ?? null,
+    keywords: row.keywords ?? null,
+    topics: row.topics ?? null,
+    relatedTasks: row.relatedTasks ?? null,
+    displayAlias: row.displayAlias ?? null,
+    ownerVersion: row.ownerVersion ?? null,
+  };
+}
+
+/**
+ * Mirror every identity row that holds no metadata yet (T14288): rows adopted
+ * before the metadata columns existed. Deterministic (each row's values come
+ * from its synced registry row), so every device writes the same values;
+ * idempotent (a mirrored row always holds a lifecycle). Run by `cleo upgrade`.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns How many identity rows were mirrored.
+ * @task T14288
+ */
+export async function mirrorUnmirroredConduitDocs(projectRoot: string): Promise<number> {
+  const db = await getDb(projectRoot);
+  const rows = await db
+    .select({ slug: conduitAttachments.slug })
+    .from(conduitAttachments)
+    .where(isNull(conduitAttachments.lifecycleStatus))
+    .all();
+  let mirrored = 0;
+  for (const { slug } of rows) {
+    if (await mirrorConduitDocMeta(projectRoot, { slug })) mirrored += 1;
+  }
+  return mirrored;
+}
 
 /**
  * A registry row's doc metadata in identity-row form (T14288): supersession
