@@ -212,11 +212,31 @@ export const DERIVED_STATUS_SQL = derivedStatusExpr((name) => name, '?');
  * ```
  */
 export function derivedStatusSqlParts(table: string): readonly [string, string] {
+  return splitAtNow(derivedStatusExpr, table);
+}
+
+/**
+ * {@link LIVE_CLAIM_SQL} with each column qualified by `table`, split at its
+ * one `now` placeholder (T14346), for a query builder's own bound parameter.
+ *
+ * @param table - Table name (or alias) the columns belong to.
+ * @returns The SQL before and after the `now` placeholder.
+ * @example
+ * ```ts
+ * const [before, after] = liveClaimSqlParts('tasks_tasks');
+ * ```
+ */
+export function liveClaimSqlParts(table: string): readonly [string, string] {
+  return splitAtNow(liveClaimSql, table);
+}
+
+/** Build `expr` over `table`'s columns and split it at its `now` placeholder. */
+function splitAtNow(
+  expr: (col: (name: string) => string, now: string) => string,
+  table: string,
+): readonly [string, string] {
   const marker = '\u0000now\u0000';
-  const [before = '', after = ''] = derivedStatusExpr(
-    (name) => `"${table}"."${name}"`,
-    marker,
-  ).split(marker);
+  const [before = '', after = ''] = expr((name) => `"${table}"."${name}"`, marker).split(marker);
   return [before, after];
 }
 
