@@ -55,6 +55,7 @@ vi.mock('../slug-rename.js', async (importOriginal) => ({
         headVersionUid: null,
         sha256: r.sha256,
         row: r,
+        ownRow: r,
         meta: {
           docType: r.type ?? null,
           lifecycleStatus: r.lifecycleStatus,
