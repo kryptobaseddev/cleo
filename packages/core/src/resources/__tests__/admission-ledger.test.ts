@@ -19,6 +19,7 @@ import {
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { formatProjectManifest } from '@cleocode/paths';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -73,7 +74,11 @@ import {
   scriptFootprint,
 } from '../hook-footprint.js';
 import { ResourceMonitor } from '../monitor.js';
-import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
+import {
+  _resetMemoryGateForTest,
+  externalPressureFix,
+  memoryGateReporter,
+} from '../pressure-gate.js';
 import { lightCommandReason } from '../run-class.js';
 import type { PidProbe } from '../slot-holder.js';
 import { _resetToolGroupsForTest, trackToolGroup } from '../tool-groups.js';
@@ -422,6 +427,87 @@ describe('schedulePass', () => {
   });
 });
 
+describe('progress guarantee: one small run at a time passes the latch unless memory is critical (T14206)', () => {
+  const ctx = (over: Record<string, unknown> = {}) => ({
+    capacityBytes: 16 * GIB,
+    share: 'none' as const,
+    lightShare: 'none' as const,
+    nowMs: 1_000,
+    latchedBelowRefuse: false, // above the refuse line
+    reclaimableBytes: 4 * GIB,
+    ...over,
+  });
+  const MIB = 1024 ** 2;
+  const heavy = entry({ id: 'suite', enqueuedAtMs: 1, footprintBytes: 12 * GIB });
+  const push = entry({ id: 'push', enqueuedAtMs: 2, footprintBytes: GIB });
+  const tsc = entry({
+    id: 'tsc',
+    enqueuedAtMs: 3,
+    footprintBytes: 820 * MIB,
+    planBytes: 12 * GIB,
+  });
+
+  it('above the refuse line with CLEO idle, the smallest waiters start one at a time; the large one waits', () => {
+    const first = schedulePass([heavy, push, tsc], ctx());
+    expect(admittedIds(first)).toEqual(['push']);
+    expect(first.find((e) => e.id === 'push')?.admittedBy).toBe('latch');
+    // One at a time: nothing else passes while it holds the latch lane.
+    expect(admittedIds(schedulePass(first, ctx()))).toEqual(['push']);
+    // It released: the measured-small run is next (CLEO holds nothing again).
+    const next = schedulePass(
+      first.filter((e) => e.id !== 'push'),
+      ctx(),
+    );
+    expect(admittedIds(next)).toEqual(['tsc']);
+    expect(next.find((e) => e.id === 'suite')?.state).toBe('waiting');
+  });
+
+  it('a light run passes while CLEO runs other work; a measured-small one waits for CLEO to be idle', () => {
+    const holder = entry({ id: 'h', state: 'admitted', admittedAtMs: 0, footprintBytes: 4 * GIB });
+    expect(admittedIds(schedulePass([holder, tsc], ctx()))).toEqual(['h']);
+    expect(admittedIds(schedulePass([holder, push], ctx()))).toEqual(['h', 'push']);
+  });
+
+  it('critical memory: nothing starts, not even a small run', () => {
+    expect(admittedIds(schedulePass([push, tsc], ctx({ criticalMemory: true })))).toEqual([]);
+  });
+
+  it('a small run starts only when it fits the reclaimable memory', () => {
+    expect(admittedIds(schedulePass([push], ctx({ reclaimableBytes: 512 * MIB })))).toEqual([]);
+    expect(admittedIds(schedulePass([push], ctx({ reclaimableBytes: null })))).toEqual([]);
+  });
+
+  it('admit(): a latched machine above the refuse line with an empty ledger admits the smallest run (AC4)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-latch-small-'));
+    _resetMemoryGateForTest();
+    const opts = {
+      capacityBytes: 16 * GIB,
+      sample: async () => sampleAt(40),
+      env: {},
+      pollMs: 5,
+      topMemory: () => [],
+      dir,
+      wait: false,
+    };
+    try {
+      const big = await admit({ label: 'run:test-run', footprintBytes: 12 * GIB }, opts);
+      expect(big.admitted).toBe(false);
+      const small = await admit(
+        { label: 'run:scoped-build', footprintBytes: 820 * MIB, planBytes: 12 * GIB },
+        opts,
+      );
+      expect(small.admitted).toBe(true);
+      if (small.admitted) {
+        expect(small.grant.admittedBy).toBe('latch');
+        await small.grant.release();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      _resetMemoryGateForTest();
+    }
+  });
+});
+
 describe('a latch held by memory outside CLEO admits one run at a time (T14088)', () => {
   const ctx = (latchedBelowRefuse: boolean, reclaimableBytes: number | null = 8 * GIB) => ({
     capacityBytes: 10 * GIB,
@@ -441,13 +527,13 @@ describe('a latch held by memory outside CLEO admits one run at a time (T14088)'
     expect(admittedIds(schedulePass(queue, ctx(true)))).toEqual(['a']);
   });
 
-  it('latched with a CLEO holder: nothing more starts until it releases', () => {
+  it('latched with a CLEO holder: no heavy run starts until it releases; the light one passes (T14206)', () => {
     const held = [...queue, entry({ id: 'h', state: 'admitted', admittedAtMs: 0 })];
-    expect(admittedIds(schedulePass(held, ctx(true)))).toEqual(['h']);
+    expect(admittedIds(schedulePass(held, ctx(true)))).toEqual(['c', 'h']);
   });
 
-  it('above the refuse line: nothing starts', () => {
-    expect(admittedIds(schedulePass(queue, ctx(false)))).toEqual([]);
+  it('above the refuse line: no heavy run starts; the light one passes (T14206)', () => {
+    expect(admittedIds(schedulePass(queue, ctx(false)))).toEqual(['c']);
   });
 
   it('a run larger than the reclaimable memory never starts while latched; a smaller later run does', () => {
@@ -1528,8 +1614,9 @@ describe('admit (one ledger, real critical section)', () => {
   });
 
   it('the memory gate refuses with the readings; a waiter says so and starts when pressure falls', async () => {
+    // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const refused = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       { ...base, dir, wait: false, sample: async () => sampleAt(40) },
     );
     expect(refused.admitted).toBe(false);
@@ -1541,7 +1628,7 @@ describe('admit (one ledger, real critical section)', () => {
     let n = 0;
     const lines: string[] = [];
     const out = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       {
         ...base,
         dir,
@@ -1558,12 +1645,13 @@ describe('admit (one ledger, real critical section)', () => {
   });
 
   it('external pressure with zero CLEO usage: the refusal, the wait and the status name the cause (T13914)', async () => {
+    // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const agy = { pid: 4242, command: 'agy', footprintBytes: 17 * GIB };
     const node = { pid: 77, command: 'node', footprintBytes: 2 * GIB };
     const topMemory = vi.fn(() => [agy, node]);
     const pressed = { ...base, sample: async () => sampleAt(40), topMemory };
     const refused = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       {
         ...pressed,
         dir,
@@ -1586,7 +1674,7 @@ describe('admit (one ledger, real critical section)', () => {
     let t = Date.now();
     const notices: string[] = [];
     const out = await admit(
-      { label: 'tool:build', footprintBytes: GIB },
+      { label: 'tool:build', footprintBytes: 4 * GIB },
       {
         ...pressed,
         dir,
@@ -1608,12 +1696,13 @@ describe('admit (one ledger, real critical section)', () => {
   });
 
   it('held above the refuse line with CLEO idle, a waiter gets the external-pressure verdict naming the programs (T14282)', async () => {
+    // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const agy = { pid: 4242, command: 'agy', footprintBytes: 17 * GIB };
     const node = { pid: 77, command: 'node', footprintBytes: 2 * GIB };
     let t = Date.now();
     const t0 = t;
     const out = await admit(
-      { label: 'tool:build', footprintBytes: GIB },
+      { label: 'tool:build', footprintBytes: 4 * GIB },
       {
         ...base,
         dir,
@@ -1643,15 +1732,70 @@ describe('admit (one ledger, real critical section)', () => {
     expect(readLedger(dir).filter((e) => e.state === 'waiting')).toEqual([]);
   });
 
+  /** The external-pressure verdict for a 4 GiB waiter, the memory users' cwds from `cwdOf`. */
+  async function externalVerdict(cwdOf: (pids: readonly number[]) => ReadonlyMap<number, string>) {
+    let t = Date.now();
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: 4 * GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 600_000,
+        sample: async () => sampleAt(40),
+        topMemory: () => [
+          { pid: 4242, command: 'agy', footprintBytes: 17 * GIB },
+          { pid: 77, command: 'node', footprintBytes: 2 * GIB },
+        ],
+        cwdOf,
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+      },
+    );
+    expect(out.admitted).toBe(false);
+    const ext = out.admitted ? undefined : out.refusal.externalPressure;
+    expect(ext).toBeDefined();
+    return ext as NonNullable<typeof ext>;
+  }
+
+  it('the verdict names the project a memory user runs in, from its working directory (T14206 AC2)', async () => {
+    const acme = join(dir, 'acme');
+    mkdirSync(join(acme, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(acme, '.cleo', 'project.json'),
+      formatProjectManifest({ schemaVersion: 1, id: 'c0ffee000001', name: 'acme-lab' }),
+    );
+    mkdirSync(join(acme, 'src'));
+    const ext = await externalVerdict(() => new Map([[4242, join(acme, 'src')]]));
+    expect(ext.topProcesses).toEqual([
+      { pid: 4242, command: 'agy', rssBytes: 17 * GIB, project: 'acme-lab' },
+      { pid: 77, command: 'node', rssBytes: 2 * GIB },
+    ]);
+    expect(externalPressureFix(ext)).toContain(
+      'agy pid 4242 17.0 GiB (acme-lab), node pid 77 2.0 GiB',
+    );
+  });
+
+  it('a failed working-directory lookup omits the project, and the verdict still names the process (T14206 AC2)', async () => {
+    const ext = await externalVerdict(() => {
+      throw new Error('lsof timed out');
+    });
+    expect(ext.topProcesses.every((p) => !('project' in p))).toBe(true);
+    expect(externalPressureFix(ext)).toContain('agy pid 4242 17.0 GiB, node pid 77 2.0 GiB.');
+  });
+
   it('a CLEO run holding the budget is not external pressure: the waiter times out as before (T14282)', async () => {
+    // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const holder = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       { ...base, dir, wait: false },
     );
     expect(holder.admitted).toBe(true);
     let t = Date.now();
     const out = await admit(
-      { label: 'tool:build', footprintBytes: GIB },
+      { label: 'tool:build', footprintBytes: 4 * GIB },
       {
         ...base,
         dir,
@@ -1671,8 +1815,9 @@ describe('admit (one ledger, real critical section)', () => {
   });
 
   it('the memory users named leave out the runs CLEO holds (T13965)', async () => {
+    // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const holder = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       {
         ...base,
         dir,
@@ -1687,7 +1832,7 @@ describe('admit (one ledger, real critical section)', () => {
       { pid: 4242, command: 'agy', footprintBytes: 17 * GIB },
     ]);
     const refused = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       { ...base, dir, wait: false, sample: async () => sampleAt(40), topMemory },
     );
     expect(refused.admitted).toBe(false);
@@ -1699,6 +1844,7 @@ describe('admit (one ledger, real critical section)', () => {
   });
 
   it('a failed probe reads UNKNOWN, is retried after a backoff; reap never probes', async () => {
+    // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const failing = vi.fn((): null => null);
     let t = Date.now();
     const pressed = {
@@ -1708,7 +1854,7 @@ describe('admit (one ledger, real critical section)', () => {
       now: () => t,
     };
     const first = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       {
         ...pressed,
         dir,
@@ -1717,10 +1863,10 @@ describe('admit (one ledger, real critical section)', () => {
     );
     expect(first.admitted).toBe(false);
     if (!first.admitted) expect(first.refusal.reason).toContain('largest memory users: UNKNOWN');
-    await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
+    await admit({ label: 'tool:test', footprintBytes: 4 * GIB }, { ...pressed, dir, wait: false });
     expect(failing).toHaveBeenCalledTimes(1); // a failure is reused, not re-run every pass
     t += TOP_MEMORY_FAILED_REUSE_MS;
-    await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
+    await admit({ label: 'tool:test', footprintBytes: 4 * GIB }, { ...pressed, dir, wait: false });
     expect(failing).toHaveBeenCalledTimes(2); // ...but only for the shorter failure window
     // Reaping a dead holder under the same pressure never runs the probe.
     const spy = vi.fn(() => []);

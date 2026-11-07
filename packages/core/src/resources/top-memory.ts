@@ -11,7 +11,10 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync, readlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import type { MemoryConsumer, MemoryPressureReading } from '@cleocode/contracts';
+import { readProjectManifest } from '@cleocode/paths';
 
 /** How many processes a wait names. */
 export const TOP_MEMORY_COUNT = 3;
@@ -128,6 +131,127 @@ export function topMemoryConsumers(
   return platform === 'darwin' || platform === 'linux' ? ps() : null;
 }
 
+/** Longest the working-directory probe may take; it is then SIGKILLed (T14206). */
+export const PROCESS_CWD_TIMEOUT_MS = 1_000;
+
+/** Reads the working directory of each pid it can; a pid it cannot read is left out. */
+export type CwdLookup = (pids: readonly number[]) => ReadonlyMap<number, string>;
+
+/**
+ * Parse `lsof -a -p <pids> -d cwd -Fn` output (macOS): a `p<pid>` line, then
+ * the cwd as an `n<path>` line.
+ *
+ * @param text - `lsof` stdout.
+ * @returns pid to working directory.
+ */
+export function parseLsofCwd(text: string): Map<number, string> {
+  const out = new Map<number, string>();
+  let pid: number | null = null;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1));
+    else if (line.startsWith('n') && pid !== null && Number.isInteger(pid)) {
+      out.set(pid, line.slice(1));
+    }
+  }
+  return out;
+}
+
+/**
+ * The working directories of a few processes (T14206), best effort: Linux
+ * reads `/proc/<pid>/cwd`; macOS runs one bounded `lsof` for all of them.
+ * Any failure leaves the pid out, never throws.
+ *
+ * @param pids - The processes, at most {@link TOP_MEMORY_COUNT} in practice.
+ * @param platform - @defaultValue process.platform
+ * @param run - Runs one probe command (tests). @defaultValue a bounded execFileSync
+ * @returns pid to working directory.
+ */
+export function processCwds(
+  pids: readonly number[],
+  platform: NodeJS.Platform = process.platform,
+  run: ProbeRunner = (cmd, args) =>
+    execFileSync(cmd, [...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: PROCESS_CWD_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+    }),
+): ReadonlyMap<number, string> {
+  if (pids.length === 0) return new Map();
+  if (platform === 'linux') {
+    const out = new Map<number, string>();
+    for (const pid of pids) {
+      try {
+        out.set(pid, readlinkSync(`/proc/${pid}/cwd`));
+      } catch {
+        // Gone, or not ours to read: no project for it.
+      }
+    }
+    return out;
+  }
+  if (platform !== 'darwin') return new Map();
+  try {
+    return parseLsofCwd(
+      run('/usr/sbin/lsof', ['-w', '-a', '-p', pids.join(','), '-d', 'cwd', '-Fn']),
+    );
+  } catch (err) {
+    // lsof exits 1 when any pid is gone or not ours, yet prints the rest.
+    const stdout = (err as { stdout?: unknown }).stdout;
+    return typeof stdout === 'string' ? parseLsofCwd(stdout) : new Map();
+  }
+}
+
+/**
+ * The project a directory belongs to (T14206): the nearest ancestor holding a
+ * valid `.cleo/project.json` gives its name, else the git toplevel's basename.
+ *
+ * @param dir - An absolute directory.
+ * @returns The project name, or `undefined` when neither is found.
+ */
+export function projectOfDir(dir: string): string | undefined {
+  const chain: string[] = [];
+  for (let d = dir; ; d = dirname(d)) {
+    chain.push(d);
+    if (dirname(d) === d) break;
+  }
+  for (const d of chain) {
+    try {
+      const read = readProjectManifest(d);
+      if (read.status === 'valid') return read.manifest.name;
+    } catch {
+      // Unreadable: keep looking.
+    }
+  }
+  const top = chain.find((d) => existsSync(join(d, '.git')));
+  return top !== undefined && dirname(top) !== top ? basename(top) : undefined;
+}
+
+/**
+ * Name the project each memory user runs in, when its working directory can be
+ * read (T14206). A process whose directory or project cannot be found keeps no
+ * `project`.
+ *
+ * @param consumers - The memory users to name.
+ * @param cwdOf - The working-directory lookup. @defaultValue {@link processCwds}
+ * @returns The same list, with `project` set where known.
+ */
+export function withProjects(
+  consumers: readonly MemoryConsumer[],
+  cwdOf: CwdLookup = processCwds,
+): MemoryConsumer[] {
+  let cwds: ReadonlyMap<number, string>;
+  try {
+    cwds = cwdOf(consumers.map((c) => c.pid));
+  } catch {
+    return [...consumers];
+  }
+  return consumers.map((c) => {
+    const cwd = cwds.get(c.pid);
+    const project = cwd === undefined ? undefined : projectOfDir(cwd);
+    return project === undefined ? c : { ...c, project };
+  });
+}
+
 function gib(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }
@@ -152,7 +276,13 @@ export function memoryPressureCause(reading: MemoryPressureReading): string {
   // The reading is read back from the shared ledger file: trust only a list.
   const top = reading.topConsumers?.processes;
   if (!Array.isArray(top) || top.length === 0) return reading.summary;
-  const named = top.map((p) => `${p.command} pid ${p.pid} ${gib(p.footprintBytes)}`).join(', ');
+  const named = top
+    .map(
+      (p) =>
+        `${p.command} pid ${p.pid} ${gib(p.footprintBytes)}` +
+        (typeof p.project === 'string' && p.project !== '' ? ` (${p.project})` : ''),
+    )
+    .join(', ');
   return (
     `${reading.summary}; largest memory users: ${named} ` +
     '(quit or restart them to free memory; check with top -o mem)'

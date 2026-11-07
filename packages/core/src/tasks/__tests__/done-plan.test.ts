@@ -1504,18 +1504,19 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     }
   }, 30_000);
 
-  it('T13133: under memory pressure --plan reports pressure, not a busy budget', async () => {
+  /** The testsPassed run --plan derives while the host sample reads `some`/`full` avg10. */
+  async function planUnderPressure(some: number, full: number) {
     workspaceWithPackages();
     const id = await seedTask(['Change pkgs/a/i.ts']);
     git(root, ['switch', '-q', '-c', `task/${id}`]);
     writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 4;\n');
     git(root, ['commit', '-q', '-am', `${id}: a`]);
-    const line = { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 };
+    const line = (avg10: number) => ({ avg10, avg60: avg10, avg300: avg10, totalUs: 0 });
     const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue({
       sampledAtMs: 1,
       pressureAvailable: true,
       memAvailableBytes: 1024 ** 3,
-      globalPressure: { some: line, full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 } },
+      globalPressure: { some: line(some), full: line(full) },
       slicePressure: null,
       walObservations: [],
     });
@@ -1526,15 +1527,28 @@ describe('affected-scope test runs (T12635, D11150)', () => {
         satisfies: 'all',
         deps,
       });
-      expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')).toMatchObject({
-        tool: 'test-affected',
-        command: null,
-        reason: 'scope pending: memory pressure',
-      });
+      return plan.toolRuns.find((r) => r.gate === 'testsPassed');
     } finally {
       spy.mockRestore();
       _resetMemoryGateForTest();
     }
+  }
+
+  it('T13133: under critical memory pressure --plan reports pressure, not a busy budget', async () => {
+    // Full stall above 10 is critical (T14206): nothing passes the memory latch.
+    expect(await planUnderPressure(40, 20)).toMatchObject({
+      tool: 'test-affected',
+      command: null,
+      reason: 'scope pending: memory pressure',
+    });
+  }, 30_000);
+
+  it('T14206: under non-critical memory pressure the light scope probe passes the latch, so --plan names the command', async () => {
+    // Above the refuse line but no full stall: the one-process vitest config
+    // load is a light run, which the latch admits (T14206 AC3).
+    const run = await planUnderPressure(40, 0);
+    expect(run).toMatchObject({ tool: 'test-affected' });
+    expect(run?.command).toContain('--project @w/a');
   }, 30_000);
 
   it('T13647: a workspace-wide change would mean the full tool:test, so the plan refuses it', async () => {

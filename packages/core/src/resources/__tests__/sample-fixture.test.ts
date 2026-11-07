@@ -78,8 +78,9 @@ describe('CLEO_RESOURCE_SAMPLE_FILE (T14282)', () => {
     const path = join(inside, 'hot.json');
     writeFileSync(path, sampleJson(40));
     process.env[RESOURCE_SAMPLE_FILE_ENV] = path;
+    // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const out = await admit(
-      { label: 'tool:test', footprintBytes: GIB },
+      { label: 'tool:test', footprintBytes: 4 * GIB },
       {
         dir: join(inside, 'admission'),
         capacityBytes: 32 * GIB,
