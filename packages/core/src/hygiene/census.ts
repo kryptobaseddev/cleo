@@ -32,6 +32,7 @@
 
 import { type SpawnOptions, spawn } from 'node:child_process';
 import {
+  appendFileSync,
   closeSync,
   existsSync,
   lstatSync,
@@ -475,7 +476,10 @@ export async function runLazyCensus(dir = censusDir()): Promise<void> {
     recordDir: dir,
     deadline: Date.now() + LAZY_CENSUS_BUDGET_MS,
   });
-  process.stdout.write(
+  // The run's line goes to the census's own log file (core never writes
+  // stdout; the child's logger is uninitialized and would drop an info line).
+  appendFileSync(
+    join(dir, 'census.log'),
     `${new Date().toISOString()} census ${'skipped' in result ? `skipped: ${result.skipped}` : `${result.record.partial ? 'partial' : 'complete'}: ${result.recordPath}`}\n`,
   );
   process.exit(0);
