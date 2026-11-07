@@ -52,12 +52,21 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * The CLI child gets a fresh environment, so without the suite's calm fixture
+ * (`CLEO_RESOURCE_SAMPLE_FILE`, vitest.setup.ts, T14282) it would sample the
+ * host: on a loaded macOS runner `--wait` then held the passthrough case until
+ * `spawnSync`'s 60 s timeout killed it (exit 143, T14347). The subject here
+ * is the hook's stdio and CLEO_HOME contract, not admission; the deferral case
+ * still fills the one full-build slot.
+ */
 function env(): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH,
     HOME: join(dir, 'home'),
     CLEO_HOME: cleoHome,
     TMPDIR: dir,
+    CLEO_RESOURCE_SAMPLE_FILE: process.env.CLEO_RESOURCE_SAMPLE_FILE,
     // A developer host's per-run share (T13237): with half the budget per run
     // two full builds fit by bytes, so only the exclusive slot defers one.
     // Pinned so a CI runner (whole budget per run) tests the same thing.
