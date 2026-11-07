@@ -184,7 +184,10 @@ export const LIVE_CLAIM_SQL = liveClaimSql((name) => name, '?');
  * @param now - SQL for the instant: `?` (bound) or a quoted literal.
  */
 function liveClaimSql(col: (name: string) => string, now: string): string {
-  return `(${col('claimed_by_session')} IS NOT NULL AND ${col('lease_expires_at')} > ${now})`;
+  // The explicit `IS NOT NULL` on the lease keeps the predicate two-valued: a
+  // claim with no recorded expiry is lapsed (isClaimExpired) and reads FALSE,
+  // never NULL, so `NOT(live)` matches it too (T14346).
+  return `(${col('claimed_by_session')} IS NOT NULL AND ${col('lease_expires_at')} IS NOT NULL AND ${col('lease_expires_at')} > ${now})`;
 }
 
 /** See {@link liveClaimSql}: the derived-status CASE over the same parts. */

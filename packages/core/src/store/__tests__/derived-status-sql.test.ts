@@ -31,6 +31,9 @@ describe('derived-status SQL forms (T14330)', () => {
       ['T6', 'active', 'ses_a', NOW],
       ['T7', 'done', 'ses_a', '2999-01-01T00:00:00.000Z'],
       ['T8', 'blocked', null, null],
+      // A claim with no recorded expiry is lapsed: it reads pending (T14346).
+      ['T9', 'pending', 'ses_a', null],
+      ['TA', 'active', 'ses_a', null],
     ];
     const insert = db.prepare('INSERT INTO tasks_tasks VALUES (?, ?, ?, ?)');
     for (const row of rows) insert.run(...row);
@@ -72,6 +75,8 @@ describe('derived-status SQL forms (T14330)', () => {
       'pending',
       'done',
       'blocked',
+      'pending',
+      'pending',
     ]);
     db.close();
   });
