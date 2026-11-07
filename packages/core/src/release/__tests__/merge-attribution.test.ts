@@ -19,6 +19,7 @@ import {
   type MergeAttributionInput,
   type MergeAttributionIo,
   readMergeAttributions,
+  resolveUnknownReceipt,
   storeMergeAttribution,
 } from '../merge-attribution.js';
 
@@ -745,6 +746,7 @@ describe('the receipt pins the run attempt and judges the parent at that time (T
       fetchHeadChecks: async () => ({ ok: true, checks: [] }),
       firstParentOf: () => 'p',
       fetchJobLog: async (id) => (id === 1 ? red : null),
+      laterMainCommits: () => ({ via: 'ancestry', shas: [] }),
     };
     const pr = { number: 5, headRefOid: 'h', mergeCommitSha: 'm' };
     try {
@@ -761,5 +763,162 @@ describe('the receipt pins the run attempt and judges the parent at that time (T
     } finally {
       rmSync(store, { recursive: true, force: true });
     }
+  });
+});
+
+describe('an unknown receipt resolves only on a later green main run containing the change (T14255)', () => {
+  const merge = '0e01cc34456b';
+  /** An #2004-shaped unknown: shard 1 failed on the merge; the parent matrix was skipped. */
+  const unknown = async () => {
+    const receipt = await computeMergeAttribution(
+      input(
+        {
+          prNumber: 2004,
+          mergeSha: merge,
+          parentSha: '511454c9c8dd',
+          aggregates: ['CI'],
+          mergeChecks: [job(merge, SHARD1, 'failure', 114162981272)],
+          parentChecks: [job('511454c9c8dd', 'Type Check', 'success', 9)],
+        },
+        { 114162981272: fixture('pr2004-merge-unit-shard1') },
+      ),
+    );
+    if (receipt === null) throw new Error('expected a receipt');
+    return receipt;
+  };
+  /** Shard 1 on a later main commit, attempt 1, with the CI aggregate beside it. */
+  const later = (sha: string, conclusion: string, id: number): CommitCheck[] => [
+    job(sha, SHARD1, conclusion, id, {
+      runId: id * 10,
+      runAttempt: 1,
+      completedAt: '2026-10-10T09:00:00Z',
+    }),
+    job(sha, 'CI', conclusion, id + 1),
+  ];
+  const io = (
+    runs: Record<string, CommitCheck[]>,
+    shas: string[] | null,
+    fetched: string[] = [],
+  ): MergeAttributionIo => ({
+    fetchRunJobs: async (sha) => {
+      fetched.push(sha);
+      return { ok: true, checks: runs[sha] ?? [] };
+    },
+    fetchHeadChecks: async () => ({ ok: true, checks: [] }),
+    firstParentOf: () => null,
+    fetchJobLog: async () => null,
+    laterMainCommits: () => (shas === null ? null : { via: 'ancestry', shas }),
+  });
+
+  it('resolves on the first later main commit whose undecided job passed, recording its sha and attempt', async () => {
+    const receipt = await unknown();
+    expect(receipt.verdict).toBe('unknown');
+    const resolved = await resolveUnknownReceipt(
+      receipt,
+      '/repo',
+      ['CI'],
+      io({ l1: later('l1', 'failure', 100), l2: later('l2', 'success', 200) }, ['l1', 'l2']),
+    );
+    expect(resolved.resolution).toEqual({
+      claim: 'holds-on-main',
+      sha: 'l2',
+      via: 'ancestry',
+      runs: [{ runId: 2000, attempt: 1, completedAt: '2026-10-10T09:00:00Z' }],
+    });
+    // An unknown never closes anything by itself: its verdict and claim stand.
+    expect(resolved).toMatchObject({ verdict: 'unknown', claim: 'none' });
+  });
+
+  it('stays unknown when the later runs are red, and the next look starts after the last commit read', async () => {
+    const receipt = await unknown();
+    const red = await resolveUnknownReceipt(
+      receipt,
+      '/repo',
+      ['CI'],
+      io({ l1: later('l1', 'failure', 100), l2: later('l2', 'failure', 200) }, ['l1', 'l2']),
+    );
+    expect(red.resolution).toBeUndefined();
+    expect(red.unresolvedThrough).toBe('l2');
+    const fetched: string[] = [];
+    const next = await resolveUnknownReceipt(
+      red,
+      '/repo',
+      ['CI'],
+      io(
+        {
+          l1: later('l1', 'failure', 100),
+          l2: later('l2', 'failure', 200),
+          l3: later('l3', 'success', 300),
+        },
+        ['l1', 'l2', 'l3'],
+        fetched,
+      ),
+    );
+    expect(fetched).toEqual(['l3']);
+    expect(next.resolution?.sha).toBe('l3');
+  });
+
+  it('stays unknown when no later main commit contains the change, or the job is still running', async () => {
+    const receipt = await unknown();
+    expect(await resolveUnknownReceipt(receipt, '/repo', ['CI'], io({}, []))).toBe(receipt);
+    expect(await resolveUnknownReceipt(receipt, '/repo', ['CI'], io({}, null))).toBe(receipt);
+    const running = later('l1', 'success', 100).map((c) => ({
+      ...c,
+      status: 'in_progress',
+      conclusion: null,
+    }));
+    expect(await resolveUnknownReceipt(receipt, '/repo', ['CI'], io({ l1: running }, ['l1']))).toBe(
+      receipt,
+    );
+    // A later commit whose matrix skipped the job does not cover it.
+    const skipped = { l1: [job('l1', 'Type Check', 'success', 5)] };
+    const moved = await resolveUnknownReceipt(receipt, '/repo', ['CI'], io(skipped, ['l1']));
+    expect(moved.resolution).toBeUndefined();
+    expect(moved.unresolvedThrough).toBe('l1');
+  });
+
+  it('a stored unknown gains its resolution as a newer line; the verdict line is kept', async () => {
+    const store = mkdtempSync(join(tmpdir(), 'merge-attribution-'));
+    try {
+      const receipt = await unknown();
+      await storeMergeAttribution(store, receipt, null);
+      const pr = { number: 2004, headRefOid: null, mergeCommitSha: merge };
+      const resolved = await attributeMergedPr(
+        store,
+        store,
+        pr,
+        null,
+        ['CI'],
+        false,
+        io({ l1: later('l1', 'success', 100) }, ['l1']),
+      );
+      expect(resolved?.resolution?.sha).toBe('l1');
+      const lines = readMergeAttributions(store);
+      expect(lines).toHaveLength(2);
+      expect(lines[0]?.resolution).toBeUndefined();
+      // Resolved once; the next sweep reads it back without a GitHub read.
+      const fetched: string[] = [];
+      const again = await attributeMergedPr(
+        store,
+        store,
+        pr,
+        null,
+        ['CI'],
+        false,
+        io({}, ['l1'], fetched),
+      );
+      expect(again).toEqual(resolved);
+      expect(fetched).toEqual([]);
+    } finally {
+      rmSync(store, { recursive: true, force: true });
+    }
+  });
+
+  it('no receipt code path triggers a workflow rerun', () => {
+    const source = readFileSync(
+      fileURLToPath(new URL('../merge-attribution.ts', import.meta.url)),
+      'utf-8',
+    );
+    expect(source).not.toMatch(/\/rerun|'rerun'|run rerun|rerun-failed-jobs/);
   });
 });

@@ -1255,6 +1255,7 @@ export type {
   MacosRegressionSync,
   MergeAttributionFailure,
   MergeAttributionReceipt,
+  MergeAttributionResolution,
   MergeAttributionRunPin,
   MergeAttributionVerdict,
   MergeDirective,

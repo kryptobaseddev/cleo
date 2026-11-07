@@ -53,6 +53,7 @@
  * @task T14252
  */
 
+import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type {
@@ -451,6 +452,81 @@ export interface MergeAttributionIo {
   firstParentOf: typeof defaultFirstParentOf;
   /** One job's plain-text log. */
   fetchJobLog: typeof defaultFetchJobLog;
+  /** The main commits after the merge that contain its change, oldest first (T14255). */
+  laterMainCommits: typeof defaultLaterMainCommits;
+}
+
+/** Run git; its trimmed stdout, or `null` when it fails. */
+function git(args: readonly string[], cwd: string, input?: string): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      input,
+      stdio: ['pipe', 'pipe', 'ignore'],
+      maxBuffer: 256 * 1024 * 1024,
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** A patch's stable id (`git patch-id --stable`), or `null`. */
+function patchIdOf(patch: string, cwd: string): string | null {
+  return git(['patch-id', '--stable'], cwd, patch)?.split(/\s+/)[0] || null;
+}
+
+/**
+ * The main commits after `mergeSha` that contain its change, oldest first
+ * (T14255): its first-parent descendants on main, or, when the merge is not
+ * on main (history rewritten), the main commit carrying the same patch (by
+ * `git patch-id`) and its descendants. `null` when git cannot tell.
+ *
+ * @param mergeSha - The merge commit.
+ * @param cwd - The repository work tree.
+ * @returns The commits and how they contain the change, or `null`.
+ * @task T14255
+ */
+export function defaultLaterMainCommits(
+  mergeSha: string,
+  cwd: string,
+): { via: 'ancestry' | 'patch-id'; shas: string[] } | null {
+  const main = git(['rev-parse', '--verify', '--quiet', 'origin/main'], cwd)
+    ? 'origin/main'
+    : 'main';
+  const after = (sha: string): string[] =>
+    (
+      git(['rev-list', '--reverse', '--first-parent', '--ancestry-path', `${sha}..${main}`], cwd) ??
+      ''
+    )
+      .split('\n')
+      .filter((line) => line !== '');
+  if (git(['merge-base', '--is-ancestor', mergeSha, main], cwd) !== null)
+    return { via: 'ancestry', shas: after(mergeSha) };
+  const diff = git(['diff', `${mergeSha}^1`, mergeSha], cwd);
+  const since = git(['show', '-s', '--format=%cI', mergeSha], cwd);
+  if (!diff || !since) return null;
+  const id = patchIdOf(`${diff}\n`, cwd);
+  const log = git(
+    [
+      'log',
+      '--first-parent',
+      '--diff-merges=first-parent',
+      '--reverse',
+      '-p',
+      `--since=${since}`,
+      main,
+    ],
+    cwd,
+  );
+  if (id === null || log === null) return null;
+  const match = (git(['patch-id', '--stable'], cwd, `${log}\n`) ?? '')
+    .split('\n')
+    .map((line) => line.split(/\s+/))
+    .find(([pid]) => pid === id)?.[1];
+  return match
+    ? { via: 'patch-id', shas: [match, ...after(match)] }
+    : { via: 'patch-id', shas: [] };
 }
 
 const DEFAULT_IO: MergeAttributionIo = {
@@ -458,7 +534,61 @@ const DEFAULT_IO: MergeAttributionIo = {
   fetchHeadChecks: defaultFetchChecks,
   firstParentOf: defaultFirstParentOf,
   fetchJobLog: defaultFetchJobLog,
+  laterMainCommits: defaultLaterMainCommits,
 };
+
+/** Later main commits read per resolution look; the next look continues after the last (T14255). */
+export const MERGE_ATTRIBUTION_RESOLUTION_READS = 20;
+
+/**
+ * Resolve an `unknown` receipt (T14255): it holds on main once a later main
+ * commit containing the change has a completed green run of every job the
+ * receipt left undecided (each at its first attempt, as on the merge). It
+ * reads runs that exist and never triggers one. A red or partial run moves
+ * on to the next commit; a running one waits. The verdict stays `unknown`
+ * and closes nothing by itself: the resolution is recorded beside it.
+ *
+ * @param receipt - The stored receipt.
+ * @param root - The repository work tree.
+ * @param required - The required check names (aggregates).
+ * @param io - The GitHub and git readers.
+ * @returns The receipt with its resolution or cursor, or the same receipt when nothing changed.
+ * @task T14255
+ */
+export async function resolveUnknownReceipt(
+  receipt: MergeAttributionReceipt,
+  root: string,
+  required: readonly string[],
+  io: MergeAttributionIo = DEFAULT_IO,
+): Promise<MergeAttributionReceipt> {
+  if (receipt.verdict !== 'unknown' || receipt.resolution) return receipt;
+  const covering = [
+    ...new Set(receipt.failures.filter((f) => f.verdict === 'unknown').map((f) => f.job)),
+  ];
+  const later = covering.length === 0 ? null : io.laterMainCommits(receipt.mergeSha, root);
+  if (later === null) return receipt;
+  const from = receipt.unresolvedThrough ? later.shas.indexOf(receipt.unresolvedThrough) + 1 : 0;
+  let through = receipt.unresolvedThrough;
+  for (const sha of later.shas.slice(from, from + MERGE_ATTRIBUTION_RESOLUTION_READS)) {
+    const fetched = await io.fetchRunJobs(sha, root);
+    if (!fetched.ok) break;
+    const jobs = pinMergeJobs(attemptsOf(fetched.checks, sha, 'push', required));
+    const runs = covering.flatMap((name) => {
+      const job = jobs.get(name);
+      return job === undefined ? [] : [job];
+    });
+    if (runs.some((j) => j.status !== 'completed')) break;
+    through = sha;
+    if (runs.length === covering.length && runs.every((j) => j.conclusion === 'success'))
+      return {
+        ...receipt,
+        resolution: { claim: 'holds-on-main', sha, via: later.via, runs: pinsOf(runs) },
+      };
+  }
+  return through === receipt.unresolvedThrough
+    ? receipt
+    : { ...receipt, unresolvedThrough: through };
+}
 
 /** A merged PR as the merge sweep reads it. */
 export interface AttributedPr {
@@ -517,14 +647,23 @@ export async function attributeMergedPr(
 ): Promise<MergeAttributionReceipt | null> {
   const mergeSha = pr.mergeCommitSha;
   if (!mergeSha) return null;
-  // A stored receipt is final: a later rerun on either commit never changes it (T14253).
-  const stored = readMergeAttributions(storeRoot).find(
-    (r) =>
-      r.prNumber === pr.number &&
-      r.mergeSha === mergeSha &&
-      r.ruleVersion === MERGE_ATTRIBUTION_RULE_VERSION,
-  );
-  if (stored !== undefined) return stored;
+  // A stored verdict is final: a later rerun on either commit never changes it
+  // (T14253). An unknown one may only gain its resolution (T14255); the
+  // newest line of a (PR, merge sha) wins.
+  const stored = readMergeAttributions(storeRoot)
+    .reverse()
+    .find(
+      (r) =>
+        r.prNumber === pr.number &&
+        r.mergeSha === mergeSha &&
+        r.ruleVersion === MERGE_ATTRIBUTION_RULE_VERSION,
+    );
+  if (stored !== undefined) {
+    if (dryRun) return stored;
+    const resolved = await resolveUnknownReceipt(stored, root, required, io);
+    if (resolved !== stored) appendReceiptLine(storeRoot, resolved);
+    return resolved;
+  }
   const merge = await io.fetchRunJobs(mergeSha, root);
   if (!merge.ok) return null;
   const parentSha = io.firstParentOf(mergeSha, root);
@@ -544,7 +683,7 @@ export async function attributeMergedPr(
   if (receipt === null || dryRun) return receipt;
   const filed = await fileMainBudgetTasks(storeRoot, receipt, taskId);
   const final: MergeAttributionReceipt = {
-    ...receipt,
+    ...(await resolveUnknownReceipt(receipt, root, required, io)),
     ...(filed.tasks.length > 0 ? { budgetTasks: filed.tasks } : {}),
     ...(filed.skipped ? { budgetTaskSkipped: filed.skipped } : {}),
   };
@@ -638,9 +777,7 @@ export async function storeMergeAttribution(
   receipt: MergeAttributionReceipt,
   taskId: string | null,
 ): Promise<void> {
-  const file = join(storeRoot, MERGE_ATTRIBUTION_FILE);
-  mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, `${JSON.stringify(receipt)}\n`, 'utf-8');
+  appendReceiptLine(storeRoot, receipt);
   if (taskId === null) return;
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   await (await getTaskAccessor(storeRoot)).appendLog({
@@ -654,6 +791,13 @@ export async function storeMergeAttribution(
       receipt: MERGE_ATTRIBUTION_FILE,
     },
   });
+}
+
+/** Append one receipt line to {@link MERGE_ATTRIBUTION_FILE}. */
+function appendReceiptLine(storeRoot: string, receipt: MergeAttributionReceipt): void {
+  const file = join(storeRoot, MERGE_ATTRIBUTION_FILE);
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `${JSON.stringify(receipt)}\n`, 'utf-8');
 }
 
 /** Whether a parsed jsonl line is a stored receipt. */
