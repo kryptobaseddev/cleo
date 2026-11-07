@@ -142,9 +142,9 @@ export interface MutateTaskData {
   changed: string[];
 }
 
+// T14268: `active` is a live claim lease (`cleo start`), never a written status.
 const VALID_STATUS_W: ReadonlySet<TaskStatus> = new Set([
   'pending',
-  'active',
   'blocked',
   'done',
   'cancelled',

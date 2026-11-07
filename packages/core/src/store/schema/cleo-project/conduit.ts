@@ -340,6 +340,31 @@ export const conduitAttachments = sqliteTable(
     uid: text('uid').$defaultFn(defaultRowUid),
     /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
     birthFp: text('birth_fp'),
+    // T14288 — the doc's metadata on its immutable identity (D11226). The
+    // writers mirror the registry row here (`setConduitDocMeta`); merged per
+    // field by HLC, with (lifecycle_status, superseded_by_uid) as one group
+    // under the absorbing `docs.lifecycle.transitions` rule. Appended after
+    // `birth_fp` by the t14288 migration, so declared in that order.
+    /** Doc kind (`adr`, `spec`, …); NULL when unclassified. */
+    docType: text('doc_type'),
+    /** Lifecycle status (`ATTACHMENT_LIFECYCLE_STATUSES`); NULL until mirrored. */
+    lifecycleStatus: text('lifecycle_status'),
+    /** The doc this one supersedes, as its uid (soft reference; travels verbatim). */
+    supersedesUid: text('supersedes_uid'),
+    /** The doc that supersedes this one, as its uid (soft reference; travels verbatim). */
+    supersededByUid: text('superseded_by_uid'),
+    /** One-sentence human summary. */
+    summary: text('summary'),
+    /** JSON array of keywords (TEXT, as on the registry row). */
+    keywords: text('keywords'),
+    /** JSON array of topic slugs (TEXT, as on the registry row). */
+    topics: text('topics'),
+    /** JSON array of related `T####` ids (TEXT, as on the registry row). */
+    relatedTasks: text('related_tasks'),
+    /** Explicit ADR display number; NULL means derive from the slug. */
+    displayAlias: integer('display_alias'),
+    /** CLEO release that wrote the doc's current metadata. */
+    ownerVersion: text('owner_version'),
   },
   (table) => [
     index('idx_conduit_attachments_conversation').on(table.conversationId),
