@@ -27,6 +27,7 @@ import { readLedger } from '../../resources/admission-ledger.js';
 import { _resetMemoryGateForTest } from '../../resources/pressure-gate.js';
 import {
   _resetToolSemaphoreForTest,
+  AdmissionTimeoutError,
   acquireGlobalSlot,
   legacyConcurrencyOverride,
 } from '../tool-semaphore.js';
@@ -163,5 +164,44 @@ describe('the deprecated CLEO_TOOL_CONCURRENCY_<TOOL> (T13133)', () => {
     expect(legacyConcurrencyOverride('lint', () => {})).toBeNull();
     process.env.CLEO_TOOL_CONCURRENCY_LINT = 'lots';
     expect(legacyConcurrencyOverride('lint', () => {})).toBeNull();
+  });
+});
+
+describe('AdmissionTimeoutError (T14282)', () => {
+  const reading = {
+    score: 38,
+    fullStall: 0,
+    refuseAbove: 25,
+    resumeAtOrBelow: 15,
+    latched: false,
+    memAvailableBytes: null,
+    summary: 'kernel level warn',
+  };
+  const refusal = {
+    reason: 'memory pressure 38 (refused above 25)',
+    retryAfterMs: 10_000,
+    memoryPressure: reading,
+    ahead: 0,
+    holders: [],
+  };
+
+  it('a timeout names no switch that turns admission off', () => {
+    const err = new AdmissionTimeoutError('test', refusal);
+    expect(err.message).toContain('Timed out waiting for admission');
+    expect(err.message).not.toContain('CLEO_RESOURCES_MODE');
+  });
+
+  it('pressure outside CLEO names the programs holding the memory', () => {
+    const err = new AdmissionTimeoutError('test', {
+      ...refusal,
+      externalPressure: {
+        topProcesses: [{ pid: 4242, command: 'codex', rssBytes: 13 * 1024 ** 3 }],
+        expectedAdmitAt: null,
+        waitedMs: 120_000,
+        memoryPressure: reading,
+      },
+    });
+    expect(err.message).toContain('held outside CLEO by codex pid 4242 13.0 GiB');
+    expect(err.message).not.toContain('CLEO_RESOURCES_MODE');
   });
 });
