@@ -37,10 +37,7 @@ import type { AgentLifecycleLane } from './agent-lifecycle-lane.js';
  * completion must go through the evidence-gated complete flow, never a raw
  * status flip from the board.
  */
-export type DraggableTargetStatus = Extract<
-  TaskStatus,
-  'pending' | 'active' | 'blocked' | 'cancelled'
->;
+export type DraggableTargetStatus = Extract<TaskStatus, 'pending' | 'blocked' | 'cancelled'>;
 
 /**
  * A concrete, validated transition plan produced by {@link planLaneTransition}.
@@ -92,9 +89,12 @@ export type LaneTransitionResult =
  * 1:1 onto a {@link DraggableTargetStatus}:
  *
  *  - `backlog`   → `status: 'pending'`   — defer / un-start work.
- *  - `running`   → `status: 'active'`    — mark as actively being worked.
  *  - `blocked`   → `status: 'blocked'`   — explicitly park (operator blocker).
  *  - `cancelled` → `status: 'cancelled'` — abandon.
+ *
+ * `running` is absent too (T14268, owner decision D11230): a task is running
+ * while an agent session holds its claim lease (`cleo start`), which a board
+ * drag cannot take.
  *
  * `ready`, `review`, and `done` are intentionally absent: `ready`/`review` are
  * RESOLVED lanes (computed from deps/gates, not a settable status), and `done`
@@ -104,7 +104,6 @@ const DRAGGABLE_TARGET_STATUS: Readonly<
   Partial<Record<AgentLifecycleLane, DraggableTargetStatus>>
 > = {
   backlog: 'pending',
-  running: 'active',
   blocked: 'blocked',
   cancelled: 'cancelled',
 } as const;
@@ -193,6 +192,14 @@ export function planLaneTransition(
   }
 
   const status = DRAGGABLE_TARGET_STATUS[toLane];
+  if (toLane === 'running') {
+    // T14268: running is a live claim lease, which only an agent session takes.
+    return {
+      ok: false,
+      reason: 'resolved-target',
+      message: `Running is computed — ${taskId} runs while an agent holds its claim (cleo start ${taskId}), not by dragging.`,
+    };
+  }
   if (status === undefined) {
     // ready / review — resolved lanes with no directly-settable status.
     return {
