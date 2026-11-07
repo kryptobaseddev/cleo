@@ -33,6 +33,7 @@ import { eq, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { resolveStoreOwnerRoot } from '../project-scope.js';
 import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
+import { isAttachmentLifecycleStatus } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import {
   type AttachmentLifecycleStatus,
@@ -187,22 +188,21 @@ export async function checkDocsConsistency(
   }>;
 
   try {
-    const db = await getDb();
-    const rows = db
-      .select({
-        id: attachments.id,
-        sha256: attachments.sha256,
-        slug: attachments.slug,
-        type: attachments.type,
-        lifecycleStatus: attachments.lifecycleStatus,
-        refCount: attachments.refCount,
-      })
-      .from(attachments)
-      .all();
-
-    publishedAttachments = rows.filter(
-      (r) => r.slug !== null && PUBLISHED_LIFECYCLE_STATES.has(r.lifecycleStatus),
-    );
+    // T14288: every doc through its identity: its head content and lifecycle
+    // (a legacy doc through its registry row).
+    const { listDocRefs } = await import('./slug-rename.js');
+    publishedAttachments = (await listDocRefs(root))
+      .map((r) => ({
+        id: r.ownRow.id,
+        sha256: r.sha256,
+        slug: r.slug,
+        type: r.meta.docType,
+        lifecycleStatus: isAttachmentLifecycleStatus(r.meta.lifecycleStatus)
+          ? r.meta.lifecycleStatus
+          : r.ownRow.lifecycleStatus,
+        refCount: r.row.refCount,
+      }))
+      .filter((r) => PUBLISHED_LIFECYCLE_STATES.has(r.lifecycleStatus));
   } catch (err) {
     findings.push({
       kind: 'missing-blob-manifest',

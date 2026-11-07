@@ -37,6 +37,41 @@ vi.mock('../../store/sqlite.js', () => ({
   getNativeTasksDb: vi.fn(() => ({ exec: vi.fn() })),
 }));
 
+// T14288: the detector reads every doc through listDocRefs. Each canned row of
+// the first query becomes a legacy ref (its registry row and metadata), so the
+// queries after it consume their canned results in the same order as before.
+vi.mock('../slug-rename.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../slug-rename.js')>()),
+  listDocRefs: vi.fn(async () => {
+    const { getDb } = await import('../../store/sqlite.js');
+    const { attachments } = await import('../../store/tasks-schema.js');
+    const rows = (await getDb()).select().from(attachments).all();
+    return rows
+      .filter((r) => r.slug !== null)
+      .map((r) => ({
+        identity: 'legacy',
+        slug: r.slug,
+        docUid: null,
+        headVersionUid: null,
+        sha256: r.sha256,
+        row: r,
+        ownRow: r,
+        meta: {
+          docType: r.type ?? null,
+          lifecycleStatus: r.lifecycleStatus,
+          supersedesUid: null,
+          supersededByUid: null,
+          summary: null,
+          keywords: null,
+          topics: null,
+          relatedTasks: null,
+          displayAlias: null,
+          ownerVersion: null,
+        },
+      }));
+  }),
+}));
+
 vi.mock('../../paths.js', () => ({
   getProjectRoot: vi.fn(() => '/tmp/test-project'),
 }));

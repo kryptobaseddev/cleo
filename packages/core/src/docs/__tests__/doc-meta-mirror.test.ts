@@ -24,7 +24,6 @@ import { getDb, getNativeDb } from '../../store/sqlite.js';
 import { docsAttachments } from '../../store/tasks-schema.js';
 import { updateDocBySlug } from '../docs-update.js';
 import { runLegacyDocMigration } from '../legacy-doc-migration.js';
-import { restoreSupersession } from '../modernize/restore.js';
 import { setDocKind } from '../slug-rename.js';
 import { supersedeDoc } from '../supersede.js';
 
@@ -124,24 +123,20 @@ describe('doc metadata on the identity row (T14288)', () => {
     expect(newer.supersedesUid).toBe(older.uid);
   });
 
-  it('a superseded identity stays superseded when its registry row is restored (absorbing rule)', async () => {
+  it('a superseded identity stays superseded when its registry row leaves superseded (absorbing rule)', async () => {
     await seedDoc('meta-was', { summary: 'before' });
     await seedDoc('meta-now');
     await migrate();
     await supersedeDoc(env.tempDir, { oldSlug: 'meta-was', newSlug: 'meta-now' });
     const successor = (await identityRow('meta-now')).uid;
 
-    // A modernize undo puts the registry row back; the identity row keeps the
-    // absorbing state every receiver keeps, and the other columns still mirror.
-    await restoreSupersession(env.tempDir, 'meta-was', 'meta-now', {
-      lifecycleStatus: 'draft',
-      supersededBy: null,
-      supersedes: null,
-    });
+    // A registry row put back from superseded (as the pre-T14333 modernize
+    // undo did): the identity row keeps the absorbing state every receiver
+    // keeps, and the other columns still mirror.
     const db = await getDb(env.tempDir);
     await db
       .update(docsAttachments)
-      .set({ summary: 'after' })
+      .set({ summary: 'after', lifecycleStatus: 'draft', supersededBy: null })
       .where(eq(docsAttachments.id, 'att-meta-was'))
       .run();
     await mirrorConduitDocMeta(env.tempDir, { rowId: 'att-meta-was' });

@@ -144,9 +144,13 @@ function insideGitCheckout(dir: string): boolean {
 
 /**
  * Whether a {@link TEST_SANDBOX_MARKER} sits in `path` or an ancestor, outside
- * any git checkout (a marker inside a checkout is refused).
+ * any git checkout (a marker inside a checkout is refused). Also gates the
+ * test suite's resource-sample fixture (T14282).
+ *
+ * @param path - Any path; its directory and the ancestors are searched.
+ * @returns `true` when `path` is a test fixture.
  */
-function insideTestSandbox(path: string): boolean {
+export function insideTestSandbox(path: string): boolean {
   let dir = dirname(path);
   for (;;) {
     if (existsSync(join(dir, TEST_SANDBOX_MARKER))) return !insideGitCheckout(dir);

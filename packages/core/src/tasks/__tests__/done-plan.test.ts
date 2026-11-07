@@ -1510,8 +1510,6 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     git(root, ['switch', '-q', '-c', `task/${id}`]);
     writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 4;\n');
     git(root, ['commit', '-q', '-am', `${id}: a`]);
-    const saved = process.env['CLEO_ADMISSION_PRESSURE'];
-    delete process.env['CLEO_ADMISSION_PRESSURE'];
     const line = { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 };
     const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue({
       sampledAtMs: 1,
@@ -1536,8 +1534,6 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     } finally {
       spy.mockRestore();
       _resetMemoryGateForTest();
-      if (saved === undefined) delete process.env['CLEO_ADMISSION_PRESSURE'];
-      else process.env['CLEO_ADMISSION_PRESSURE'] = saved;
     }
   }, 30_000);
 
