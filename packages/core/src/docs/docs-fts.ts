@@ -29,9 +29,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { isNotNull } from 'drizzle-orm';
 import { bindTasksDomain } from '../store/sqlite.js';
-import { attachments } from '../store/tasks-schema.js';
 
 /** The FTS5 table (project `cleo.db`, class `derived`). */
 export const DOCS_FTS_TABLE = 'docs_fts';
@@ -172,26 +170,19 @@ export async function syncDocsFts(
 
 /** {@link syncDocsFts} on a bound connection. */
 async function syncWith(projectRoot: string, native: DatabaseSync): Promise<DocsFtsSync> {
-  const { db } = await bindTasksDomain(projectRoot);
+  await bindTasksDomain(projectRoot);
   if (!ensureIndex(native)) return { available: false, indexed: 0, removed: 0, total: 0 };
 
-  const rows = await db
-    .select({
-      slug: attachments.slug,
-      sha256: attachments.sha256,
-      summary: attachments.summary,
-      attachmentJson: attachments.attachmentJson,
-    })
-    .from(attachments)
-    .where(isNotNull(attachments.slug))
-    .all();
+  // T14288: every doc through its identity: the head's bytes, the identity's
+  // summary (a legacy doc through its registry row).
+  const { listDocRefs } = await import('./slug-rename.js');
   const store = new Map<string, StoreDoc>();
-  for (const row of rows) {
-    if (!row.slug || !isTextAttachment(row.attachmentJson)) continue;
-    store.set(row.slug, {
-      slug: row.slug,
-      sha256: row.sha256,
-      title: [row.summary ?? '', row.slug.replace(/[-_]+/g, ' ')].join(' ').trim(),
+  for (const ref of await listDocRefs(projectRoot)) {
+    if (!isTextAttachment(ref.row.attachmentJson)) continue;
+    store.set(ref.slug, {
+      slug: ref.slug,
+      sha256: ref.sha256,
+      title: [ref.meta.summary ?? '', ref.slug.replace(/[-_]+/g, ' ')].join(' ').trim(),
     });
   }
 

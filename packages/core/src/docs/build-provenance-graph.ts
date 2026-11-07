@@ -132,7 +132,7 @@ export async function buildDocProvenanceGraph(
   const projectRoot = options.projectRoot ?? getProjectRoot();
   const db = await getDb(projectRoot);
 
-  const rootDocs = await resolveRootDocs(db, options.root);
+  const rootDocs = await resolveRootDocs(db, options.root, projectRoot);
   if (rootDocs.length === 0) {
     throw new DocProvenanceRootNotFoundError(options.root);
   }
@@ -370,12 +370,15 @@ export function renderProvenanceGraphAsDot(graph: DocProvenanceResponse): string
 async function resolveRootDocs(
   db: Awaited<ReturnType<typeof getDb>>,
   root: string,
+  projectRoot: string,
 ): Promise<AttachmentRow[]> {
   const looksLikeTask = /^T\d+$/.test(root);
 
   if (!looksLikeTask) {
-    const row = await db.select().from(attachments).where(eq(attachments.slug, root)).get();
-    return row ? [normalizeRow(row)] : [];
+    // T14288: a slug (live or an alias) resolves to the doc's head content row.
+    const { resolveDocRef } = await import('./slug-rename.js');
+    const ref = await resolveDocRef(projectRoot, root);
+    return ref ? [normalizeRow({ ...ref.row, slug: ref.slug })] : [];
   }
 
   // Task-anchored root: union of (refs where owner_id = root) and

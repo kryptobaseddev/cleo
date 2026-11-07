@@ -27,7 +27,10 @@ import { CleoError } from '../errors.js';
 import { pushWarning } from '../output.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import {
+  type ConduitDocMeta,
   conduitDocAliasRow,
+  conduitDocMetaOf,
+  conduitDocMetaOfRow,
   ensureConduitDoc,
   getConduitAttachmentVersion,
   getConduitDocHead,
@@ -37,6 +40,7 @@ import { docsWikilinks } from '../store/schema/attachments.js';
 import {
   conduitAttachments,
   conduitAttachmentVersions,
+  conduitDocHeads,
   conduitDocSlugAliases,
 } from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
@@ -76,7 +80,14 @@ export async function renameDocSlug(
   input: RenameDocSlugInput,
 ): Promise<RenameDocSlugResult> {
   const store = createAttachmentStore();
-  const row = await store.findBySlug(input.oldSlug, projectRoot);
+  // The registry row the rename moves: the one carrying the live slug.
+  const registry = await getDb(projectRoot);
+  const live = await registry
+    .select({ id: attachments.id, sha256: attachments.sha256 })
+    .from(attachments)
+    .where(eq(attachments.slug, input.oldSlug))
+    .get();
+  const row = live ? { metadata: live } : null;
   if (!row) {
     // @sync-invariant none:input-shape renaming a slug no doc carries is refused before any write
     throw new CleoError(ExitCode.NOT_FOUND, `no doc has the slug '${input.oldSlug}'`);
@@ -85,7 +96,11 @@ export async function renameDocSlug(
     // @sync-invariant none:input-shape a rename to the same slug is refused before any write
     throw new CleoError(ExitCode.VALIDATION_ERROR, 'the new slug equals the old slug');
   }
-  if ((await store.findBySlug(input.newSlug, projectRoot)) !== null) {
+  // T14288: taken means a doc already answers to the slug (a live slug or an
+  // alias), unless it is this doc's own old slug (a rename back).
+  const holder = await resolveConduitDocUid(projectRoot, input.newSlug);
+  const own = await resolveConduitDocUid(projectRoot, input.oldSlug);
+  if ((await isDocSlugTaken(projectRoot, input.newSlug)) && !(holder !== null && holder === own)) {
     // @sync-invariant none:input-shape a rename onto a live slug is refused before any write; slugs stay unique
     throw new CleoError(ExitCode.VALIDATION_ERROR, `the slug '${input.newSlug}' is already taken`);
   }
@@ -136,18 +151,8 @@ export async function renameDocSlug(
  * @returns The live slug, or null when neither resolves.
  */
 export async function resolveDocSlug(projectRoot: string, slug: string): Promise<string | null> {
-  const store = createAttachmentStore();
-  if ((await store.findBySlug(slug, projectRoot)) !== null) return slug;
-  const uid = await resolveConduitDocUid(projectRoot, slug);
-  if (uid === null) return null;
-  const db = await getDb(projectRoot);
-  const live = await db
-    .select({ slug: conduitAttachments.slug })
-    .from(conduitAttachments)
-    .where(eq(conduitAttachments.uid, uid))
-    .get();
-  if (!live?.slug || live.slug === slug) return null;
-  return (await store.findBySlug(live.slug, projectRoot)) !== null ? live.slug : null;
+  // T14288: the doc resolver follows the live slug and aliases.
+  return (await resolveDocRef(projectRoot, slug, { quiet: true }))?.slug ?? null;
 }
 
 /** A doc resolved from a slug (T14288): its identity, live slug, head and metadata row. */
@@ -178,6 +183,14 @@ export interface DocRef {
    * no row) the live slug's row. Bytes always come from {@link sha256}.
    */
   readonly row: typeof attachments.$inferSelect;
+  /**
+   * The doc's metadata (T14288 PR 3b): from its identity row on the uid path,
+   * from the registry row on the legacy path (supersession pointers are then
+   * doc uids when the other doc has one). An identity row created before the
+   * metadata columns existed, with nothing mirrored yet, also reads the
+   * registry row; `cleo upgrade` mirrors every such row.
+   */
+  readonly meta: ConduitDocMeta;
 }
 
 /**
@@ -195,25 +208,31 @@ export interface DocRef {
  *
  * @param projectRoot - Absolute project root.
  * @param slug - A live slug or an alias.
+ * @param opts - `quiet` skips the legacy warning (lookups that probe many slugs).
  * @returns The resolved doc, or null when nothing resolves.
  * @task T14288
  */
-export async function resolveDocRef(projectRoot: string, slug: string): Promise<DocRef | null> {
+export async function resolveDocRef(
+  projectRoot: string,
+  slug: string,
+  opts: { readonly quiet?: boolean } = {},
+): Promise<DocRef | null> {
   const db = await getDb(projectRoot);
   const bySlug = async (s: string) =>
     (await db.select().from(attachments).where(eq(attachments.slug, s)).get()) ?? undefined;
-  const legacy = (
+  const legacy = async (
     live: string,
     row: typeof attachments.$inferSelect | undefined,
-  ): DocRef | null => {
+  ): Promise<DocRef | null> => {
     if (!row) return null;
-    pushWarning({
-      // @sync-invariant none:input-shape the warning only names a doc that predates its version history; it rejects nothing and writes nothing
-      code: 'W_DOC_NOT_MIGRATED',
-      message:
-        `doc '${live}' has no version history yet, so it resolved through its legacy registry row; ` +
-        'run `cleo docs migrate` (or `cleo upgrade`) to give it an immutable identity and head.',
-    });
+    if (opts.quiet !== true)
+      pushWarning({
+        // @sync-invariant none:input-shape the warning only names a doc that predates its version history; it rejects nothing and writes nothing
+        code: 'W_DOC_NOT_MIGRATED',
+        message:
+          `doc '${live}' has no version history yet, so it resolved through its legacy registry row; ` +
+          'run `cleo docs migrate` (or `cleo upgrade`) to give it an immutable identity and head.',
+      });
     return {
       identity: 'legacy',
       slug: live,
@@ -221,12 +240,13 @@ export async function resolveDocRef(projectRoot: string, slug: string): Promise<
       headVersionUid: null,
       sha256: row.sha256,
       row,
+      meta: await conduitDocMetaOfRow(projectRoot, row),
     };
   };
   const uid = await resolveConduitDocUid(projectRoot, slug);
   if (uid !== null) {
     const live = await db
-      .select({ slug: conduitAttachments.slug })
+      .select()
       .from(conduitAttachments)
       .where(eq(conduitAttachments.uid, uid))
       .get();
@@ -257,6 +277,10 @@ export async function resolveDocRef(projectRoot: string, slug: string): Promise<
             headVersionUid: head.headVersionUid,
             sha256: slugRow.sha256,
             row: slugRow,
+            meta:
+              live?.lifecycleStatus != null
+                ? conduitDocMetaOf(live)
+                : await conduitDocMetaOfRow(projectRoot, slugRow),
           };
         }
       }
@@ -274,12 +298,181 @@ export async function resolveDocRef(projectRoot: string, slug: string): Promise<
           headVersionUid: head.headVersionUid,
           sha256: version.contentHash,
           row,
+          // Mirrored identity rows always hold a lifecycle; NULL means none yet.
+          meta:
+            live?.lifecycleStatus != null
+              ? conduitDocMetaOf(live)
+              : await conduitDocMetaOfRow(projectRoot, row),
         };
       }
     }
-    return legacy(liveSlug, await bySlug(liveSlug));
+    return await legacy(liveSlug, await bySlug(liveSlug));
   }
-  return legacy(slug, await bySlug(slug));
+  return await legacy(slug, await bySlug(slug));
+}
+
+/**
+ * Every doc in the project, resolved as {@link resolveDocRef} resolves one
+ * (T14288 PR 3b): each doc identity with a head (its head content's registry
+ * row, its identity metadata) and each legacy registry row whose slug has no
+ * identity yet. Four set reads, no per-doc query, so listing and indexing
+ * surfaces can use it on every call. No warning is pushed.
+ *
+ * @param projectRoot - Absolute project root.
+ * @returns One {@link DocRef} per doc, uid docs first, each slug once.
+ * @task T14288
+ */
+export async function listDocRefs(projectRoot: string): Promise<DocRef[]> {
+  const db = await getDb(projectRoot);
+  const registry = await db.select().from(attachments).all();
+  const bySha = new Map(registry.map((r) => [r.sha256, r]));
+  const byId = new Map(registry.map((r) => [r.id, r]));
+  const bySlug = new Map(registry.flatMap((r) => (r.slug ? [[r.slug, r] as const] : [])));
+  const heads = await db
+    .select({
+      doc: conduitAttachments,
+      headVersionUid: conduitDocHeads.headVersionUid,
+      contentHash: conduitAttachmentVersions.contentHash,
+    })
+    .from(conduitAttachments)
+    .innerJoin(conduitDocHeads, eq(conduitDocHeads.attachmentUid, conduitAttachments.uid))
+    .innerJoin(
+      conduitAttachmentVersions,
+      eq(conduitAttachmentVersions.uid, conduitDocHeads.headVersionUid),
+    )
+    .all();
+  const uidBySlug = new Map(
+    heads.flatMap((h) => (h.doc.uid ? [[h.doc.slug, h.doc.uid] as const] : [])),
+  );
+  const uidOfRowId = (id: string | null): string | null => {
+    if (id === null) return null;
+    const slug = byId.get(id)?.slug;
+    return slug ? (uidBySlug.get(slug) ?? null) : null;
+  };
+  const metaOfRow = (row: typeof attachments.$inferSelect): ConduitDocMeta => ({
+    docType: row.type ?? null,
+    lifecycleStatus: row.lifecycleStatus,
+    supersedesUid: uidOfRowId(row.supersedes ?? null),
+    supersededByUid: uidOfRowId(row.supersededBy ?? null),
+    summary: row.summary ?? null,
+    keywords: row.keywords ?? null,
+    topics: row.topics ?? null,
+    relatedTasks: row.relatedTasks ?? null,
+    displayAlias: row.displayAlias ?? null,
+    ownerVersion: row.ownerVersion ?? null,
+  });
+  const out: DocRef[] = [];
+  const listed = new Set<string>();
+  // A live slug row whose content no version of its doc records is a write
+  // the projection did not land, served over the head (as resolveDocRef does).
+  const recorded = new Set(
+    (
+      await db
+        .select({
+          doc: conduitAttachmentVersions.attachmentUid,
+          hash: conduitAttachmentVersions.contentHash,
+        })
+        .from(conduitAttachmentVersions)
+        .all()
+    ).map((v) => `${v.doc}|${v.hash}`),
+  );
+  for (const { doc, headVersionUid, contentHash } of heads) {
+    const live = bySlug.get(doc.slug);
+    const unlanded =
+      live !== undefined &&
+      live.sha256 !== contentHash &&
+      !recorded.has(`${doc.uid}|${live.sha256}`);
+    const row = unlanded ? live : (bySha.get(contentHash) ?? live);
+    if (!row || !doc.uid || listed.has(doc.slug)) continue;
+    listed.add(doc.slug);
+    out.push({
+      identity: 'uid',
+      slug: doc.slug,
+      docUid: doc.uid,
+      headVersionUid,
+      sha256: unlanded ? row.sha256 : contentHash,
+      row,
+      meta: doc.lifecycleStatus != null ? conduitDocMetaOf(doc) : metaOfRow(row),
+    });
+  }
+  for (const [slug, row] of bySlug) {
+    if (listed.has(slug)) continue;
+    listed.add(slug);
+    out.push({
+      identity: 'legacy',
+      slug,
+      docUid: null,
+      headVersionUid: null,
+      sha256: row.sha256,
+      row,
+      meta: metaOfRow(row),
+    });
+  }
+  return out;
+}
+
+/**
+ * The live slugs of the docs a resolved doc supersedes and is superseded by
+ * (T14288 PR 3b): through the doc uids of its metadata, else (a doc the other
+ * side of which has no identity yet) through the registry row's pointer.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param ref - A resolved doc.
+ * @returns The two slugs, null where there is none.
+ * @task T14288
+ */
+export async function supersessionSlugs(
+  projectRoot: string,
+  ref: DocRef,
+): Promise<{ supersedes: string | null; supersededBy: string | null }> {
+  const db = await getDb(projectRoot);
+  const slugOfUid = async (uid: string | null): Promise<string | null> => {
+    if (uid === null) return null;
+    const row = await db
+      .select({ slug: conduitAttachments.slug })
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.uid, uid))
+      .get();
+    return row?.slug ?? null;
+  };
+  const slugOfRow = async (id: string | null): Promise<string | null> => {
+    if (id === null) return null;
+    const row = await db
+      .select({ slug: attachments.slug })
+      .from(attachments)
+      .where(eq(attachments.id, id))
+      .get();
+    return row?.slug ?? null;
+  };
+  return {
+    supersedes:
+      (await slugOfUid(ref.meta.supersedesUid)) ?? (await slugOfRow(ref.row.supersedes ?? null)),
+    supersededBy:
+      (await slugOfUid(ref.meta.supersededByUid)) ??
+      (await slugOfRow(ref.row.supersededBy ?? null)),
+  };
+}
+
+/**
+ * Whether a slug already names a doc (T14288 PR 3b): a registry row's slug, a
+ * doc identity's live slug, or an old slug kept as an alias. An alias counts:
+ * a new doc under it would shadow the renamed doc its old links reach.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param slug - The candidate slug.
+ * @returns True when the slug is taken.
+ * @task T14288
+ */
+export async function isDocSlugTaken(projectRoot: string, slug: string): Promise<boolean> {
+  const db = await getDb(projectRoot);
+  const registry = await db
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(eq(attachments.slug, slug))
+    .get();
+  if (registry) return true;
+  const { isConduitDocSlug } = await import('../store/conduit-doc-history.js');
+  return isConduitDocSlug(db, slug);
 }
 
 /**

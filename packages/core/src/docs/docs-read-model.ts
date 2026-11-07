@@ -35,7 +35,10 @@ import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
 import { blobList, blobRead, blobReadBySha } from '../store/blob-ops.js';
-import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
+import {
+  type AttachmentLifecycleStatus,
+  isAttachmentLifecycleStatus,
+} from '../store/schema/attachments.js';
 import type { DocsPublicationRecord, DocsStatusResult } from './docs-ops.js';
 import { resolveDisplayNumber } from './numbering.js';
 import { readDocsPublications } from './publications-store.js';
@@ -529,16 +532,22 @@ export class DocsReadModel {
     const store = createAttachmentStore();
     const metas = await store.listByOwner(ownerType, ownerId, this.projectRoot);
 
-    // For each attachment, also fetch extras (slug/type) from the attachments row.
+    // T14288: an attachment that is a doc's head content carries the doc's
+    // live slug and identity metadata; any other row its own extras.
+    const { listDocRefs } = await import('./slug-rename.js');
+    const refByRowId = new Map(
+      (metas.length > 0 ? await listDocRefs(this.projectRoot) : []).map((r) => [r.row.id, r]),
+    );
     const results: ResolvedDoc[] = [];
     for (const meta of metas) {
-      const extras = await store.getExtras(meta.id, this.projectRoot);
-      const doc = await this.enrichFromTasksDb(meta, {
-        slug: extras?.slug ?? null,
-        type: extras?.type ?? null,
-        summary: null,
+      const ref = refByRowId.get(meta.id);
+      const extras = ref ? null : await store.getExtras(meta.id, this.projectRoot);
+      const doc = await this.enrichFromTasksDb(ref ? { ...meta, sha256: ref.sha256 } : meta, {
+        slug: ref?.slug ?? extras?.slug ?? null,
+        type: ref ? ref.meta.docType : (extras?.type ?? null),
+        summary: ref?.meta.summary ?? null,
         lifecycleStatus: 'active',
-        displayAlias: extras?.displayAlias ?? null,
+        displayAlias: ref ? ref.meta.displayAlias : (extras?.displayAlias ?? null),
       });
       results.push(doc);
     }
@@ -550,7 +559,32 @@ export class DocsReadModel {
    */
   private async resolveAllFromTasksDb(): Promise<ResolvedDoc[]> {
     const store = createAttachmentStore();
-    const rows = await store.listAllInProject(this.projectRoot);
+    const all = await store.listAllInProject(this.projectRoot);
+    // T14288: a slugged doc is listed once, through its identity: its head
+    // content's row (with that row's owner) under its live slug and identity
+    // metadata. Slug-less attachments are listed as their rows.
+    const { listDocRefs } = await import('./slug-rename.js');
+    const refs = await listDocRefs(this.projectRoot);
+    const headRowIds = new Set(refs.map((r) => r.row.id));
+    const rows: typeof all = [];
+    for (const ref of refs) {
+      const owned = all.find((row) => row.metadata.id === ref.row.id);
+      if (!owned) continue;
+      rows.push({
+        ...owned,
+        metadata: { ...owned.metadata, sha256: ref.sha256 },
+        slug: ref.slug,
+        type: ref.meta.docType,
+        summary: ref.meta.summary,
+        lifecycleStatus: isAttachmentLifecycleStatus(ref.meta.lifecycleStatus)
+          ? ref.meta.lifecycleStatus
+          : owned.lifecycleStatus,
+        displayAlias: ref.meta.displayAlias,
+      });
+    }
+    for (const row of all) {
+      if (row.slug === null && !headRowIds.has(row.metadata.id)) rows.push(row);
+    }
     return rows.map((row) => {
       const name = extractBlobName(row.metadata);
       const size = extractBlobSize(row.metadata);
