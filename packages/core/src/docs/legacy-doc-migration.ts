@@ -61,7 +61,6 @@
  * @saga T13339
  */
 
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, resolve, sep } from 'node:path';
@@ -186,10 +185,6 @@ function countTokens(bytes: Buffer): number {
     inWs = ws;
   }
   return count;
-}
-
-function sha256Hex(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex');
 }
 
 function parsePayload(raw: string): LegacyPayload | null {
@@ -475,18 +470,10 @@ export async function planLegacyDocMigration(opts: {
           log(`marked dangling: ${doc.slug} (${doc.reason})`);
           continue;
         }
-        const content = doc.content ?? Buffer.alloc(0);
-        const contentHash = sha256Hex(content);
         const { uid: docUid } = await importMigratedConduitDoc(projectRoot, {
           slug: doc.slug,
-          fromAgentId: doc.fromAgentId,
-          content,
-          contentHash,
-          format: doc.format,
-          ...(doc.title !== null ? { title: doc.title } : {}),
-          tokens: countTokens(content),
+          legacySha256: doc.legacySha256,
           createdAt: doc.createdAt,
-          versionCount: doc.versions.length,
         });
         let parentUid: string | null = null;
         let lastVersionUid = '';
