@@ -1,12 +1,16 @@
 /**
- * The bound and the inlined derived-status SQL come from one builder and
- * agree row for row (T14330, T14268).
+ * The bound, the inlined and the drizzle derived-status SQL come from one
+ * builder and agree row for row (T14330, T14343, T14268).
  *
  * @task T14330
+ * @task T14343
  */
 
 import { DatabaseSync } from 'node:sqlite';
+import { sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-sqlite';
 import { describe, expect, it } from 'vitest';
+import { derivedStatusSql } from '../sqlite-data-accessor.js';
 import { DERIVED_STATUS_SQL, derivedStatusSqlAt } from '../task-claim.js';
 
 const NOW = '2026-11-06T12:00:00.000Z';
@@ -39,8 +43,13 @@ describe('derived-status SQL forms (T14330)', () => {
     const aliased = db
       .prepare(`SELECT t.id, ${derivedStatusSqlAt('t', NOW)} AS s FROM tasks_tasks t ORDER BY t.id`)
       .all();
+    // T14343: the drizzle form, built from the same builder with now bound.
+    const drizzled = drizzle({ client: db }).all(
+      sql`SELECT id, ${derivedStatusSql(NOW)} AS s FROM tasks_tasks ORDER BY id`,
+    );
     expect(inlined).toEqual(bound);
     expect(aliased).toEqual(bound);
+    expect(drizzled).toEqual(bound);
     expect(bound.map((r) => r.s)).toEqual([
       'pending',
       'active',
