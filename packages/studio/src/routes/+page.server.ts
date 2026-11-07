@@ -219,11 +219,11 @@ export const load: PageServerLoad = ({ locals }) => {
   try {
     const tasks = getTasksDb(locals.projectCtx);
     if (tasks) {
-      const taskRow = tasks.prepare('SELECT COUNT(*) AS cnt FROM tasks').get() as {
+      const taskRow = tasks.prepare('SELECT COUNT(*) AS cnt FROM tasks_tasks').get() as {
         cnt: number;
       };
       const epicRow = tasks
-        .prepare("SELECT COUNT(*) AS cnt FROM tasks WHERE type = 'epic'")
+        .prepare("SELECT COUNT(*) AS cnt FROM tasks_tasks WHERE type = 'epic'")
         .get() as { cnt: number };
       tasksStats = [
         { value: formatCount(taskRow.cnt), label: 'Tasks' },
@@ -234,7 +234,7 @@ export const load: PageServerLoad = ({ locals }) => {
       try {
         const recent = tasks
           .prepare(
-            'SELECT id, title, completed_at FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ? ORDER BY completed_at DESC LIMIT 500',
+            'SELECT id, title, completed_at FROM tasks_tasks WHERE completed_at IS NOT NULL AND completed_at >= ? ORDER BY completed_at DESC LIMIT 500',
           )
           .all(cutoff) as Array<{ id: string; title: string; completed_at: string }>;
         for (const row of recent) {
@@ -264,7 +264,7 @@ export const load: PageServerLoad = ({ locals }) => {
       try {
         const created = tasks
           .prepare(
-            'SELECT id, title, created_at FROM tasks WHERE created_at >= ? ORDER BY created_at DESC LIMIT 6',
+            'SELECT id, title, created_at FROM tasks_tasks WHERE created_at >= ? ORDER BY created_at DESC LIMIT 6',
           )
           .all(cutoff) as Array<{ id: string; title: string; created_at: string }>;
         for (const row of created) {
@@ -282,7 +282,7 @@ export const load: PageServerLoad = ({ locals }) => {
 
       try {
         const sessions = tasks
-          .prepare("SELECT COUNT(*) AS cnt FROM sessions WHERE status = 'active'")
+          .prepare("SELECT COUNT(*) AS cnt FROM tasks_sessions WHERE status = 'active'")
           .get() as { cnt: number };
         activeSessions = sessions.cnt;
       } catch {

@@ -96,9 +96,9 @@ describe('coreTaskUnarchive regression (T12883)', () => {
     });
     expect((await accessor.loadSingleTask(id))?.status).toBe('archived');
 
-    const back = await coreTaskUnarchive(env.tempDir, id, { status: 'active' });
-    expect(back).toMatchObject({ task: id, unarchived: true, status: 'active' });
-    expect((await accessor.loadSingleTask(id))?.status).toBe('active');
+    const back = await coreTaskUnarchive(env.tempDir, id, { status: 'blocked' });
+    expect(back).toMatchObject({ task: id, unarchived: true, status: 'blocked' });
+    expect((await accessor.loadSingleTask(id))?.status).toBe('blocked');
     // A task that is already active is still refused.
     await expect(coreTaskUnarchive(env.tempDir, id)).rejects.toThrow(
       /already exists in active tasks/,

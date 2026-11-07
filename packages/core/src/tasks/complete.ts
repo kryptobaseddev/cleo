@@ -58,7 +58,7 @@ import { type AcCoverageAccessor, completionCoverageAccessor } from './ac-table.
 import { assertCancelledChildrenWaived } from './cancelled-child-waiver.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
-import { stageGateModeFrom } from './epic-enforcement.js';
+import { epicStageBlockers, stageGateModeFrom, stageGateRemedy } from './epic-enforcement.js';
 import { revalidateEvidence, taskEvidenceKindReport } from './evidence.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
 import { readAllowCachedGates } from './gate-result-cache.js';
@@ -1998,15 +1998,14 @@ export async function completeTaskStrict(
                   epicStage,
                   requiredStages: ['implementation', 'validation', 'testing', 'release'],
                 },
-                // T13945/T13970: the RCASD lifecycle verbs are being retired, and with
-                // the stage gate on `cleo update --pipeline-stage` refuses while
-                // children sit at the epic's stage (T13969). The gate is opt-in, so a
-                // hit means someone chose strict: the fix escalates rather than
-                // telling the agent to undo that choice.
-                fix:
-                  `Parent epic ${task.parentId} is at the planning stage '${epicStage}', and this project set lifecycle.stageGate=strict, which blocks its children until the epic reaches implementation. ` +
-                  `'cleo update ${task.parentId} --pipeline-stage implementation' works only before children sit at '${epicStage}'. ` +
-                  `Report the epic to your lead or the owner with 'cleo show ${task.parentId}'; they decide on lifecycle.stageGate. Do not change that setting yourself or drive the RCASD lifecycle verbs.`,
+                // T14300: name the advance when it works; otherwise the gate and the
+                // epic's own advance refuse each other, and the owner decides.
+                fix: stageGateRemedy(
+                  taskId,
+                  task.parentId,
+                  epicStage,
+                  await epicStageBlockers(task.parentId, epicStage, accessor),
+                ),
               });
             }
             getLogger('engine:lifecycle').warn(

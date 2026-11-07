@@ -8,6 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
 import { error } from '@sveltejs/kit';
 import { getTasksDb } from '$lib/server/db/connections.js';
 import type { PageServerLoad } from './$types';
@@ -201,11 +202,11 @@ export const load: PageServerLoad = ({ locals, params }) => {
 
   const row = db
     .prepare(
-      `SELECT id, title, description, status, priority, type, parent_id,
+      `SELECT id, title, description, ${derivedStatusSqlAt()} AS status, priority, type, parent_id,
               pipeline_stage, size, phase, labels_json, acceptance_json,
               verification_json, notes_json, created_at, updated_at, completed_at,
               assignee, session_id
-       FROM tasks WHERE id = ?`,
+       FROM tasks_tasks WHERE id = ?`,
     )
     .get(id) as
     | {
@@ -297,9 +298,9 @@ export const load: PageServerLoad = ({ locals, params }) => {
 
   const subtasks = db
     .prepare(
-      `SELECT id, title, status, priority, type, pipeline_stage, size,
+      `SELECT id, title, ${derivedStatusSqlAt()} AS status, priority, type, pipeline_stage, size,
               verification_json, acceptance_json, created_at, completed_at
-       FROM tasks WHERE parent_id = ?
+       FROM tasks_tasks WHERE parent_id = ?
        ORDER BY position ASC, created_at ASC`,
     )
     .all(id) as SubtaskRow[];
@@ -307,9 +308,9 @@ export const load: PageServerLoad = ({ locals, params }) => {
   // Deps: upstream (tasks this depends on) and downstream (tasks blocked by this)
   const upstream = db
     .prepare(
-      `SELECT t.id, t.title, t.status, t.priority
-       FROM tasks t
-       INNER JOIN task_dependencies td ON td.depends_on = t.id
+      `SELECT t.id, t.title, ${derivedStatusSqlAt('t')} AS status, t.priority
+       FROM tasks_tasks t
+       INNER JOIN tasks_task_dependencies td ON td.depends_on = t.id
        WHERE td.task_id = ?
        ORDER BY t.id ASC`,
     )
@@ -317,9 +318,9 @@ export const load: PageServerLoad = ({ locals, params }) => {
 
   const downstream = db
     .prepare(
-      `SELECT t.id, t.title, t.status, t.priority
-       FROM tasks t
-       INNER JOIN task_dependencies td ON td.task_id = t.id
+      `SELECT t.id, t.title, ${derivedStatusSqlAt('t')} AS status, t.priority
+       FROM tasks_tasks t
+       INNER JOIN tasks_task_dependencies td ON td.task_id = t.id
        WHERE td.depends_on = ?
        ORDER BY t.id ASC`,
     )
@@ -333,7 +334,7 @@ export const load: PageServerLoad = ({ locals, params }) => {
   let parent: { id: string; title: string; type: string } | null = null;
   if (row.parent_id) {
     parent =
-      (db.prepare('SELECT id, title, type FROM tasks WHERE id = ?').get(row.parent_id) as
+      (db.prepare('SELECT id, title, type FROM tasks_tasks WHERE id = ?').get(row.parent_id) as
         | { id: string; title: string; type: string }
         | undefined) ?? null;
   }

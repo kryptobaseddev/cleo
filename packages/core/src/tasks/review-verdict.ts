@@ -429,7 +429,13 @@ export async function recordReviewVerdict(
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `${input.taskId} has no recorded author, so an independent review cannot be proven`,
-      { fix: `The author claims the task first: \`cleo start ${input.taskId}\`.` },
+      // T14300: `cleo claim` records the author without starting the task, so it
+      // works while the task is blocked on a dependency (where `cleo start`
+      // refuses). It must run in the author's session: the reviewer who ran it
+      // would become an author and be refused.
+      {
+        fix: `The session that delivers ${input.taskId} (never the reviewer) runs \`cleo claim ${input.taskId}\`, which records it as the author even while the task is blocked; then record the verdict again from the reviewer's own session.`,
+      },
     );
   }
   if (

@@ -530,6 +530,9 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     scopeKind: session.scopeKind ?? null,
     scopeId: session.scopeId ?? null,
     lastActivity: session.lastActivity ?? null,
+    // `injectionVersion` is deliberately ABSENT (T14327): only the briefing
+    // records it, through `setSessionInjectionVersion`, so a whole-row upsert
+    // from an older session record never wipes it.
   };
   const { id: _id, ...setFields } = values;
   await db
