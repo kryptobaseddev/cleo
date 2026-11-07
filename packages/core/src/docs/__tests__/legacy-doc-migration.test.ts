@@ -1028,4 +1028,48 @@ describe('docs migrate moves pre-T14332 docs onto the shared identity (T14336)',
     const again = await runLegacyDocMigration({ projectRoot: env.tempDir, db, cwd: env.tempDir });
     expect(again).toMatchObject({ skippedStep: true, counts: { toRekey: 0 }, rekeyed: [] });
   });
+
+  it('a doc whose shared uid is already held is reported with its reason, and runs write no snapshot', async () => {
+    const oldUid = await seedOldRecipeDoc('stuck-doc', Buffer.from('# stuck\nbody'));
+    const hash = sha(Buffer.from('# stuck\nbody'));
+    const shared = legacyDocIdentity('stuck-doc', BIRTH, hash);
+    // Another doc row already holds the identity stuck-doc would move onto.
+    const store = await getDb(env.tempDir);
+    await store
+      .insert(conduitAttachments)
+      .values({ ...shared, slug: 'holder-doc', title: 'holder-doc' })
+      .run();
+    const snapshots = (): string[] => {
+      const dir = join(env.cleoDir, 'backups', 'sqlite');
+      return existsSync(dir) ? readdirSync(dir).filter((n) => n.includes('.migration-')) : [];
+    };
+    const before = snapshots();
+    const stuck = [{ slug: 'stuck-doc', reason: 'shared-uid-taken', holder: 'holder-doc' }];
+
+    for (let run = 0; run < 2; run++) {
+      const result = await runLegacyDocMigration({
+        projectRoot: env.tempDir,
+        db,
+        cwd: env.tempDir,
+      });
+      expect(result).toMatchObject({
+        skippedStep: true,
+        counts: { toRekey: 0 },
+        rekeyed: [],
+        rekeySkipped: stuck,
+      });
+    }
+    expect(snapshots()).toEqual(before);
+    // Nothing moved: the stuck doc keeps its old identity.
+    expect(await resolveConduitDocUid(env.tempDir, 'stuck-doc')).toBe(oldUid);
+    // The owner sees it: docs doctor names it.
+    const { runDocsDoctor } = await import('../doctor.js');
+    const doctor = await runDocsDoctor(env.tempDir);
+    if (!doctor.ok) throw new Error(doctor.error.message);
+    expect(doctor.report.diagnostics.find((d) => d.kind === 'old-identity-stuck')).toMatchObject({
+      severity: 'warn',
+      count: 1,
+      items: stuck,
+    });
+  });
 });

@@ -2,7 +2,7 @@
  * `cleo docs doctor` — store health diagnostics + safe repairs — T13447.
  *
  * Audits the CleoDocs store (`cleo.db` `attachments`/`docs_wikilinks` tables
- * plus the on-disk legacy surfaces and the `docs_publications` ledger) for nine
+ * plus the on-disk legacy surfaces and the `docs_publications` ledger) for ten
  * known drift classes and, when
  * invoked with `apply: true`, performs the repairs that are safe to run
  * in-place:
@@ -186,7 +186,7 @@ export const DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE = '.cleo/audit/docs-publication
 export const DOCS_DOCTOR_REPAIR_AUDIT_FILE = '.cleo/audit/docs-doctor-repairs.jsonl';
 
 /**
- * The nine diagnostic classes {@link runDocsDoctor} checks for.
+ * The ten diagnostic classes {@link runDocsDoctor} checks for.
  *
  * @task T13447
  */
@@ -199,7 +199,9 @@ export type DocsDoctorDiagnosticKind =
   | 'legacy-blob-coverage'
   | 'stale-drafts'
   | 'conduit-history-gaps'
-  | 'publication-ledger-drift';
+  | 'publication-ledger-drift'
+  /** T14336: a doc `docs migrate` cannot move off the pre-T14332 identity. */
+  | 'old-identity-stuck';
 
 /**
  * One diagnostic class in the report: severity, total offender count, and a
@@ -280,7 +282,7 @@ export interface DocsDoctorReport {
   readonly olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   readonly backupReceiptPath: string | null;
-  /** All nine diagnostics, in declaration order. */
+  /** All ten diagnostics, in declaration order. */
   readonly diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   readonly repairs: readonly DocsDoctorRepairAction[];
@@ -1062,6 +1064,9 @@ async function scanStore(
   // and writes nothing.
   const conduitBackfill = await planConduitHistoryBackfill(projectRoot);
   const ledger = await scanPublicationLedger(projectRoot, rows, checkoutRoot);
+  // T14336: docs left on the pre-T14332 identity because the shared uid is held.
+  const { planOldMigrateRekeys } = await import('../store/conduit-doc-history.js');
+  const { skipped: stuck } = await planOldMigrateRekeys(projectRoot);
   const ledgerItems = ledger.slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS).map((f) => ({
     ownerId: f.record.ownerId,
     blobName: f.record.blobName,
@@ -1155,6 +1160,13 @@ async function scanStore(
       count: ledger.length,
       items: ledgerItems,
       truncated: ledger.length > ledgerItems.length,
+    },
+    {
+      kind: 'old-identity-stuck',
+      severity: stuck.length > 0 ? 'warn' : 'info',
+      count: stuck.length,
+      items: stuck.slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS).map((d) => ({ ...d })),
+      truncated: stuck.length > DOCS_DOCTOR_MAX_DETAIL_ITEMS,
     },
   ];
 

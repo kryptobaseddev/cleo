@@ -1178,7 +1178,8 @@ export interface DocsDoctorDiagnostic {
     | 'legacy-blob-coverage'
     | 'stale-drafts'
     | 'conduit-history-gaps'
-    | 'publication-ledger-drift';
+    | 'publication-ledger-drift'
+    | 'old-identity-stuck';
   /** `error` should be fixed promptly; `info` is observational. */
   severity: 'info' | 'warn' | 'error';
   /** Total offenders found (may exceed `items.length`). */
@@ -1221,7 +1222,7 @@ export interface DocsDoctorResult {
   olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   backupReceiptPath: string | null;
-  /** All nine diagnostics, in declaration order. */
+  /** All ten diagnostics, in declaration order. */
   diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   repairs: readonly DocsDoctorRepairAction[];
@@ -1486,6 +1487,21 @@ export interface DocsMigrateParams {
 }
 
 /**
+ * An old-recipe doc `docs migrate` cannot move onto the shared identity
+ * (T14336): another doc row already holds the shared uid (for example a doc
+ * renamed onto the slug the identity derives from). It stays listed until the
+ * owner resolves it; the step writes nothing for it.
+ */
+export interface DocsMigrateRekeySkip {
+  /** The stuck doc's slug. */
+  readonly slug: string;
+  /** Why it cannot move. */
+  readonly reason: 'shared-uid-taken';
+  /** The slug of the doc row holding the shared uid. */
+  readonly holder: string;
+}
+
+/**
  * Result of `docs.migrate` — the honest legacy docs import (T13360). The
  * migration runs inside the T13448 safety harness; `backupId`/`transaction`
  * expose the harness receipt so operators can audit (or undo) the run.
@@ -1516,6 +1532,8 @@ export interface DocsMigrateResult {
    * included (T14336); on a dry run, the docs that would move.
    */
   readonly rekeyed: number;
+  /** Old-recipe docs that cannot move, each with its reason (T14336); empty when none. */
+  readonly rekeySkipped: readonly DocsMigrateRekeySkip[];
   /** True for a dry run: the counts are the plan, nothing was written (T14331). */
   readonly dryRun: boolean;
   /** First failure when halted/refused. */

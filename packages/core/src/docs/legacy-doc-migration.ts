@@ -65,6 +65,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { DocsMigrateRekeySkip } from '@cleocode/contracts/operations/docs.js';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { asc, eq, isNotNull } from 'drizzle-orm';
 import { getCleoDir } from '../paths.js';
@@ -73,8 +74,8 @@ import {
   findConduitDocMigration,
   importMigratedConduitDoc,
   importMigratedConduitVersion,
-  listOldMigrateConduitDocs,
   type OldMigrateRekeyReceipt,
+  planOldMigrateRekeys,
   recordConduitDocMigration,
   rekeyOldMigrateConduitDoc,
   upsertConduitDocHead,
@@ -147,10 +148,12 @@ export interface LegacyMigrationPlan {
   readonly expectedDelta: Readonly<Record<string, number>>;
   /** Planned doc imports (for reporting/tests). */
   readonly docs: readonly PlannedDoc[];
-  /** Slugs of docs still on the pre-T14332 recipe, re-keyed first (T14336). */
+  /** Slugs of docs still on the pre-T14332 recipe that can move, re-keyed first (T14336). */
   readonly rekeys: readonly string[];
+  /** Old-recipe docs that cannot move, each with its reason (T14336). */
+  readonly rekeySkipped: readonly DocsMigrateRekeySkip[];
   readonly counts: {
-    /** Docs moved off the pre-T14332 recipe onto the shared identity (T14336). */
+    /** Docs the step would move off the pre-T14332 recipe (T14336); stuck docs are not counted. */
     readonly toRekey: number;
     readonly toCapture: number;
     readonly toMarkDangling: number;
@@ -468,7 +471,8 @@ export async function planLegacyDocMigration(opts: {
 }): Promise<LegacyMigrationPlan> {
   const bound = opts.limit !== undefined ? { limit: opts.limit } : {};
   const derived = await deriveLegacyDocMigrationPlan(opts.projectRoot, bound);
-  const rekeys = await listOldMigrateConduitDocs(opts.projectRoot);
+  // T14336: only docs that can move make work; a stuck doc is reported, not retried.
+  const { movable: rekeys, skipped: rekeySkipped } = await planOldMigrateRekeys(opts.projectRoot);
   // A re-key moves rows without adding any: the counts hold, the bytes do not.
   const verify: MigrationStepVerificationSpec = {
     expectedDelta: derived.expectedDelta,
@@ -482,7 +486,7 @@ export async function planLegacyDocMigration(opts: {
     run: async ({ db, projectRoot, log }) => {
       // T14336: docs the pre-T14332 recipe imported move onto the shared
       // identity first, in one frame, so their K ops travel as one txn.
-      const slugs = await listOldMigrateConduitDocs(projectRoot);
+      const { movable: slugs } = await planOldMigrateRekeys(projectRoot);
       if (slugs.length > 0) {
         db.exec('PRAGMA defer_foreign_keys = ON');
         const frame = openCaptureFrame(db, 'rekey', null);
@@ -576,6 +580,7 @@ export async function planLegacyDocMigration(opts: {
     expectedDelta: derived.expectedDelta,
     docs: derived.docs,
     rekeys,
+    rekeySkipped,
     counts: {
       toRekey: rekeys.length,
       toCapture: derived.docs.filter((d) => d.status === 'captured').length,
@@ -602,6 +607,8 @@ export interface LegacyMigrationRunResult {
   readonly skippedStep: boolean;
   /** One receipt per doc moved onto the shared identity (T14336); empty when none. */
   readonly rekeyed: readonly OldMigrateRekeyReceipt[];
+  /** Old-recipe docs that cannot move, each with its reason (T14336); reported on every run. */
+  readonly rekeySkipped: readonly DocsMigrateRekeySkip[];
 }
 
 /**
@@ -642,6 +649,7 @@ export async function runLegacyDocMigration(opts: {
       counts: plan.counts,
       skippedStep: true,
       rekeyed,
+      rekeySkipped: plan.rekeySkipped,
     };
   }
   const report = await runMigrationSteps([plan.step], {
@@ -656,5 +664,6 @@ export async function runLegacyDocMigration(opts: {
     counts: plan.counts,
     skippedStep: false,
     rekeyed: report.status === 'completed' ? rekeyed : [],
+    rekeySkipped: plan.rekeySkipped,
   };
 }

@@ -32,6 +32,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import type { DocsMigrateRekeySkip } from '@cleocode/contracts/operations/docs.js';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { birthFingerprint, mintedRowUid, naturalRowUid } from './row-identity.js';
@@ -1013,13 +1014,24 @@ export interface OldMigrateRekeyReceipt {
   readonly naturalRowsRecreated: number;
 }
 
+/** What `docs migrate` can do with the docs still on the pre-T14332 recipe (T14336). */
+export interface OldMigrateRekeyPlan {
+  /** Slugs that can move onto the shared identity, oldest first. */
+  readonly movable: readonly string[];
+  /** Docs that cannot move, each with its reason; listed until the owner resolves them. */
+  readonly skipped: readonly DocsMigrateRekeySkip[];
+}
+
 /**
- * Slugs of every doc still on the pre-T14332 migrate recipe (T14336), oldest first.
+ * Plan the move of every doc still on the pre-T14332 migrate recipe (T14336):
+ * a doc whose shared uid ({@link legacyDocIdentity}) another row already holds
+ * cannot move and is reported, never silently left behind, so a run with only
+ * stuck docs has nothing to do and writes no snapshot.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
- * @returns The slugs to re-key; empty once every doc is on the shared identity.
+ * @returns The movable slugs and the skipped docs.
  */
-export async function listOldMigrateConduitDocs(projectRoot: string): Promise<string[]> {
+export async function planOldMigrateRekeys(projectRoot: string): Promise<OldMigrateRekeyPlan> {
   const db = await getDb(projectRoot);
   const rows = await db
     .select({ slug: conduitAttachments.slug })
@@ -1027,7 +1039,49 @@ export async function listOldMigrateConduitDocs(projectRoot: string): Promise<st
     .where(eq(conduitAttachments.conversationId, OLD_MIGRATE_CONVERSATION))
     .orderBy(asc(conduitAttachments.createdAt), asc(conduitAttachments.slug))
     .all();
-  return rows.map((r) => r.slug);
+  const movable: string[] = [];
+  const skipped: DocsMigrateRekeySkip[] = [];
+  for (const { slug } of rows) {
+    const target = await oldMigrateTarget(db, slug);
+    if (target === null) continue;
+    if (target.holder !== null) {
+      skipped.push({ slug, reason: 'shared-uid-taken', holder: target.holder });
+    } else {
+      movable.push(slug);
+    }
+  }
+  return { movable, skipped };
+}
+
+/**
+ * The old-recipe doc row for a slug, its shared identity, and the slug of any
+ * other row already holding that identity's uid; `null` when the slug is not
+ * on the old recipe.
+ */
+async function oldMigrateTarget(db: NodeSQLiteDatabase, slug: string) {
+  const doc = await db
+    .select()
+    .from(conduitAttachments)
+    .where(
+      and(
+        eq(conduitAttachments.slug, slug),
+        eq(conduitAttachments.conversationId, OLD_MIGRATE_CONVERSATION),
+      ),
+    )
+    .get();
+  if (!doc?.uid) return null;
+  const ledger = await db
+    .select()
+    .from(conduitDocMigrationLedger)
+    .where(eq(conduitDocMigrationLedger.slug, slug))
+    .get();
+  const identity = legacyDocIdentity(slug, doc.createdAt, ledger?.legacySha256 ?? doc.contentHash);
+  const taken = await db
+    .select({ slug: conduitAttachments.slug })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.uid, identity.uid))
+    .get();
+  return { doc: { ...doc, uid: doc.uid }, ledger, identity, holder: taken?.slug ?? null };
 }
 
 /**
@@ -1076,35 +1130,12 @@ export async function rekeyOldMigrateConduitDocOn(
   slug: string,
 ): Promise<OldMigrateRekeyReceipt | null> {
   requireNonEmpty('slug', slug);
-  const doc = await db
-    .select()
-    .from(conduitAttachments)
-    .where(
-      and(
-        eq(conduitAttachments.slug, slug),
-        eq(conduitAttachments.conversationId, OLD_MIGRATE_CONVERSATION),
-      ),
-    )
-    .get();
-  if (!doc?.uid) return null;
+  const target = await oldMigrateTarget(db, slug);
+  // Not on the old recipe, or the shared uid is held (planOldMigrateRekeys reports it).
+  if (target === null || target.holder !== null) return null;
+  const { doc, ledger } = target;
   const oldUid = doc.uid;
-  const ledger = await db
-    .select()
-    .from(conduitDocMigrationLedger)
-    .where(eq(conduitDocMigrationLedger.slug, slug))
-    .get();
-  const {
-    uid: newUid,
-    birthFp,
-    slug: _slug,
-    ...shell
-  } = legacyDocIdentity(slug, doc.createdAt, ledger?.legacySha256 ?? doc.contentHash);
-  const taken = await db
-    .select({ slug: conduitAttachments.slug })
-    .from(conduitAttachments)
-    .where(eq(conduitAttachments.uid, newUid))
-    .get();
-  if (taken) return null;
+  const { uid: newUid, birthFp, slug: _slug, ...shell } = target.identity;
 
   const versionUid = (doc: string, v: { contentHash: string; createdAt: string }): string =>
     naturalRowUid('project', 'conduit_attachment_versions', [doc, v.contentHash, v.createdAt]);
