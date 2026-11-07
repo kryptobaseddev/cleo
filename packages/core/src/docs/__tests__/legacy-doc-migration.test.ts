@@ -987,6 +987,12 @@ describe('docs migrate moves pre-T14332 docs onto the shared identity (T14336)',
       .insert(conduitAttachments)
       .values({ ...newer, supersedesUid: oldUid })
       .run();
+    // And it supersedes an older doc, which names it as its successor.
+    const older = legacyDocIdentity('older-doc', '2026-08-01T00:00:00.000Z', 'c'.repeat(64));
+    await (await getDb(env.tempDir))
+      .insert(conduitAttachments)
+      .values({ ...older, supersededByUid: oldUid })
+      .run();
 
     const dry = await runLegacyDocMigration({
       projectRoot: env.tempDir,
@@ -1009,7 +1015,7 @@ describe('docs migrate moves pre-T14332 docs onto the shared identity (T14336)',
         versionsRepointed: 1,
         approvalsRepointed: 0,
         naturalRowsRecreated: 1,
-        supersessionRepointed: 1,
+        supersessionRepointed: 2,
       },
     ]);
     // The superseding doc now names the doc by its new uid.
@@ -1019,6 +1025,13 @@ describe('docs migrate moves pre-T14332 docs onto the shared identity (T14336)',
       .where(eq(conduitAttachments.slug, 'newer-doc'))
       .get();
     expect(superseding?.supersedesUid).toBe(shared.uid);
+    // The superseded doc names it as its successor by its new uid.
+    const superseded = await (await getDb(env.tempDir))
+      .select({ supersededByUid: conduitAttachments.supersededByUid })
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.slug, 'older-doc'))
+      .get();
+    expect(superseded?.supersededByUid).toBe(shared.uid);
     const store = await getDb(env.tempDir);
     const row = await store
       .select()
