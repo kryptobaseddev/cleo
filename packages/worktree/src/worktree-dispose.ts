@@ -59,6 +59,16 @@ import { computeProjectHash } from './paths.js';
 import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
 import { releaseWorktreeTaskLock } from './worktree-lock.js';
 
+/** A probe that could not answer: git failed (T14274 classifies these `unknown`). */
+const GIT_STATUS_FAILED = 'git status failed';
+const GIT_CANNOT_READ = 'git cannot read the checkout';
+const GIT_CANNOT_COUNT = 'git cannot count commits held elsewhere';
+const PROBE_FAILURES: ReadonlySet<string> = new Set([
+  GIT_STATUS_FAILED,
+  GIT_CANNOT_READ,
+  GIT_CANNOT_COUNT,
+]);
+
 /** Variables that point git at another repository than `-C` names (T14189). */
 const GIT_AMBIENT_REPO_VARS = [
   'GIT_DIR',
@@ -234,7 +244,7 @@ export function unprovenContent(
   const budget = opts.budget ?? newCompareBudget();
   const exemptNodeModules = opts.exemptNodeModules !== false;
   const entries = statusEntries(path);
-  if (entries === null) return 'git status failed';
+  if (entries === null) return GIT_STATUS_FAILED;
   for (const { code, rel } of entries) {
     const untrackedOrIgnored = code === '??' || code === '!!';
     // `node_modules` (a directory, or the symlink a `node_modules/` ignore
@@ -304,7 +314,7 @@ function localDefaultBranch(path: string, named?: string): string | null {
  * @task T13924
  */
 export function unpreservedCommits(path: string, defaultBranch?: string): string | null {
-  if (git(path, ['rev-parse', '--git-dir']) === null) return 'git cannot read the checkout';
+  if (git(path, ['rev-parse', '--git-dir']) === null) return GIT_CANNOT_READ;
   if (git(path, ['rev-parse', '--verify', '-q', 'HEAD']) === null) return null; // unborn
   const base = localDefaultBranch(path, defaultBranch);
   const out = git(path, [
@@ -316,7 +326,7 @@ export function unpreservedCommits(path: string, defaultBranch?: string): string
     ...(base ? [base] : []),
   ]);
   const count = out === null ? Number.NaN : Number.parseInt(out.trim(), 10);
-  if (Number.isNaN(count)) return 'git cannot count commits held elsewhere';
+  if (Number.isNaN(count)) return GIT_CANNOT_COUNT;
   return count === 0 ? null : `${count} commit(s) on no remote and not on the default branch`;
 }
 
@@ -503,8 +513,9 @@ export function disposeWorktree(opts: DisposeWorktreeOptions): DisposeWorktreeRe
   const gitRoot = opts.gitRoot ?? repo?.gitRoot;
   const projectRoot = opts.projectRoot ?? repo?.mainCheckout;
   if (gitRoot === undefined || projectRoot === undefined) {
-    return keep('not proven: git cannot read the worktree', {
-      unpreserved: 'git cannot read the worktree',
+    return keep(`not proven: ${GIT_CANNOT_READ}`, {
+      unpreserved: GIT_CANNOT_READ,
+      indeterminate: true,
     });
   }
 
@@ -523,7 +534,7 @@ export function disposeWorktree(opts: DisposeWorktreeOptions): DisposeWorktreeRe
     try {
       inUse = opts.inUse();
     } catch {
-      inUse = 'the in-use probe failed';
+      return keep('in use: the in-use probe failed', { indeterminate: true });
     }
     if (inUse !== null) return keep(`in use: ${inUse}`);
   }
@@ -532,7 +543,10 @@ export function disposeWorktree(opts: DisposeWorktreeOptions): DisposeWorktreeRe
     unprovenContent(worktreePath, projectRoot, { exemptRegenerable: opts.exemptRegenerable }) ??
     unpreservedCommits(worktreePath, opts.defaultBranch);
   if (unpreserved !== null && opts.force !== true) {
-    return keep(`not proven preserved: ${unpreserved}`, { unpreserved });
+    return keep(`not proven preserved: ${unpreserved}`, {
+      unpreserved,
+      ...(PROBE_FAILURES.has(unpreserved) ? { indeterminate: true } : {}),
+    });
   }
   if (opts.dryRun === true || opts.probe === true) {
     return { worktreePath, removed: false, ...(unpreserved !== null ? { unpreserved } : {}) };

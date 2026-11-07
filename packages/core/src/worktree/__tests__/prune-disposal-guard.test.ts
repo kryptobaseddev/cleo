@@ -66,7 +66,7 @@ function merged(path: string): WorktreeInfo {
     isStale: false,
     isMerged: false,
     owningTaskStatus: null,
-    statusCategory: 'merged',
+    statusCategory: 'redundant',
     source: 'cleo-spawn',
   };
 }
