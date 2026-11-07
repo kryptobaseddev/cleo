@@ -500,6 +500,8 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       ['lifecycle_status'],
       ['D04', 'D05', 'D31', 'D32', 'D39', 'D50'],
       'superseded is sticky; lifecycle transitions follow a matrix',
+      // T14288: the doc's identity row mirrors the metadata under the same rule.
+      ['docs_attachments', 'conduit_attachments'],
     ),
   ),
   // T13354 (D11165) — CleoDocs re-keyed history family; the typed merge rules
