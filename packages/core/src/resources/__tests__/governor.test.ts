@@ -82,15 +82,20 @@ describe('computeClassBudget (T11999)', () => {
     expect(computeClassBudget('test-run', makeSample({ someAvg10: 15 }), mac)).toBe(1);
   });
 
-  it('agent-session clamps by MemAvailable and cpus-2', () => {
-    // 60 GB avail, 2 GB headroom, 4 GB/agent → ⌊58/4⌋=14, clamped to cpus-2=14
+  it('agent-session is a lease count: maxSessions, default cpus-2, never free memory (T14283)', () => {
     expect(
       computeClassBudget('agent-session', makeSample({ memAvailableGb: 60 }), BUDGET_OPTS),
     ).toBe(14);
-    // 6 GB avail → ⌊4/4⌋=1
+    // Little free memory (held outside CLEO) no longer narrows it.
     expect(
       computeClassBudget('agent-session', makeSample({ memAvailableGb: 6 }), BUDGET_OPTS),
-    ).toBe(1);
+    ).toBe(14);
+    expect(
+      computeClassBudget('agent-session', makeSample({ memAvailableGb: 6 }), {
+        ...BUDGET_OPTS,
+        agentMaxSessions: 4,
+      }),
+    ).toBe(4);
   });
 
   it('db-heavy defers (0) under backoff-level pressure, else 1', () => {

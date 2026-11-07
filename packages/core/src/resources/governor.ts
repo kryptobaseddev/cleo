@@ -41,7 +41,9 @@ import { availableParallelism, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import type {
   AdmissionResult,
+  ExternalPressureDetails,
   GovernorMode,
+  MemoryConsumer,
   ResourceClass,
   ResourceDeferral,
   ResourceGrant,
@@ -57,6 +59,7 @@ import {
   admit,
   budgetShare,
   describeAdmissionIoError,
+  externalPressureDetails,
   footprintForClass,
   isLedgerClass,
   readLedger,
@@ -69,6 +72,8 @@ import {
   _resetMemoryGateForTest,
   checkMemoryGate,
   evaluateMemoryGate,
+  externalPressureFix,
+  isCriticalMemory,
   type MemoryGateReporter,
 } from './pressure-gate.js';
 import { parentRunJob } from './run-admission.js';
@@ -78,6 +83,7 @@ import {
   sendResourceAdmit,
   sendResourceRelease,
 } from './supervisor-admit.js';
+import { TOP_MEMORY_COUNT, topMemoryConsumers, withProjects } from './top-memory.js';
 
 let _log: ReturnType<typeof getLogger> | null = null;
 function log(): ReturnType<typeof getLogger> {
@@ -138,13 +144,10 @@ export function _resetGovernorStateForTest(): void {
 
 /** Tunables for budget computation. All optional; sane defaults applied. */
 export interface BudgetOptions {
-  /** RAM reserved for the OS + interactive use, in MiB. Default 2048. */
-  readonly headroomMb?: number;
-  /** Estimated RAM per agent session (incl. ~300 MB MCP suite), MiB. Default 4096. */
-  readonly agentEstRamMb?: number;
   /**
-   * Fixed `agent-session` budget (`resources.agentSession.maxSessions`, T14227):
-   * when set it replaces the memory and CPU formula, as a floor and a ceiling.
+   * The `agent-session` budget (`resources.agentSession.maxSessions`, T14227,
+   * T14283): how many spawned sessions hold a lease at once.
+   * @defaultValue `max(1, cpus - 2)`
    */
   readonly agentMaxSessions?: number;
   /** `some avg10` (pp) above which background work is refused. Default 10. */
@@ -156,8 +159,6 @@ export interface BudgetOptions {
   /** Override total RAM bytes (tests). Default {@link totalmem}. */
   readonly totalMemBytes?: number;
 }
-
-const MB = 1024 * 1024;
 
 /** Extract `some avg10` (0–100) from a sample; 0 when unavailable. */
 function someAvg10(sample: ResourceSample): number {
@@ -206,7 +207,10 @@ function budgetSignal(
  *   how many default-footprint runs it holds under the current pressure share
  *   (`0` while the memory gate refuses, `1` when CPU-saturated, half at hold,
  *   at least `1` otherwise).
- * - `agent-session` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋, cpus−2)`.
+ * - `agent-session` → `resources.agentSession.maxSessions`, default `max(1, cpus−2)`
+ *   (T14283): a count of leases, never memory. Free memory already excludes
+ *   the sessions it would count, and memory outside CLEO drove it to 1; only
+ *   critical memory vetoes a spawn ({@link takeAgentSessionLease}).
  * - `llm-call` → `max(1, cpus−2)` (primarily gated by the llm-queue elsewhere).
  * - `db-heavy` → `1`, deferred (→0) under `backoff`-level MEMORY pressure.
  * - `background-autonomous` → `1` only when MEMORY pressure is `ok`, else `0`.
@@ -227,12 +231,9 @@ export function computeClassBudget(
 
   const cpus = Math.max(1, opts.cpuCount ?? availableParallelism());
   const totalBytes = opts.totalMemBytes ?? totalmem();
-  const headroomBytes = (opts.headroomMb ?? 2048) * MB;
   const hold = opts.holdSomeAvg10 ?? 10;
   const floor = opts.floorSomeAvg10 ?? 25;
   const some = budgetSignal(cls, sample).value;
-  // MemAvailable can be null on non-Linux / read error — fall back to total.
-  const availBytes = sample.memAvailableBytes ?? totalBytes;
   const fullStall = sample.globalPressure?.full?.avg10 ?? sample.slicePressure?.full?.avg10 ?? 0;
   const backoff = some > floor || fullStall > 10;
 
@@ -247,12 +248,8 @@ export function computeClassBudget(
   }
 
   switch (cls) {
-    case 'agent-session': {
-      if (opts.agentMaxSessions !== undefined) return opts.agentMaxSessions;
-      const estRamBytes = (opts.agentEstRamMb ?? 4096) * MB;
-      const byMem = Math.floor((availBytes - headroomBytes) / estRamBytes);
-      return clamp(1, byMem, Math.max(1, cpus - 2));
-    }
+    case 'agent-session':
+      return opts.agentMaxSessions ?? Math.max(1, cpus - 2);
     case 'llm-call':
       return Math.max(1, cpus - 2);
     case 'db-heavy':
@@ -265,52 +262,77 @@ export function computeClassBudget(
 }
 
 /**
- * The config keys that set the `agent-session` budget (T14227), at project
- * and global scope: a fixed budget, the RAM one session is assumed to use, and
- * the RAM kept free for the OS. Unset keys keep the built-in defaults. The
- * headroom is its own key: `resources.headroomMb` stays the monitor's
- * degraded-mode headroom only.
+ * The config key that sets the `agent-session` budget (T14227, T14283), at
+ * project and global scope. Unset, the budget is `max(1, cpus - 2)`.
  */
 export const AGENT_SESSION_CONFIG_KEYS = {
   maxSessions: 'resources.agentSession.maxSessions',
-  estRamMb: 'resources.agentSession.estRamMb',
-  headroomMb: 'resources.agentSession.headroomMb',
 } as const;
 
 /**
- * The `agent-session` budget inputs a project's config sets (T14227): only
- * keys holding a valid integer (`maxSessions` and `estRamMb` at least 1,
- * `headroomMb` at least 0) are returned; an unreadable config returns none,
- * so the defaults apply.
+ * Keys that set the old memory formula of the `agent-session` budget: accepted
+ * and ignored, with a deprecation note, for one release (T14283).
+ */
+export const IGNORED_AGENT_SESSION_KEYS = [
+  'resources.agentSession.estRamMb',
+  'resources.agentSession.headroomMb',
+] as const;
+
+let ignoredKeysNoted = false;
+
+/** The configured budget and the ignored keys a project's config sets. */
+async function readAgentSessionConfig(projectRoot: string): Promise<{
+  readonly agentMaxSessions?: number;
+  readonly ignoredKeys: readonly string[];
+}> {
+  try {
+    const { getConfigValue } = await import('../config/registry.js');
+    const [maxSessions, ...ignored] = await Promise.all(
+      [AGENT_SESSION_CONFIG_KEYS.maxSessions, ...IGNORED_AGENT_SESSION_KEYS].map((key) =>
+        getConfigValue<number>(key, { projectRoot }),
+      ),
+    );
+    const ignoredKeys = IGNORED_AGENT_SESSION_KEYS.filter((_, i) => ignored[i] !== undefined);
+    return typeof maxSessions === 'number' && Number.isInteger(maxSessions) && maxSessions >= 1
+      ? { agentMaxSessions: maxSessions, ignoredKeys }
+      : { ignoredKeys };
+  } catch {
+    return { ignoredKeys: [] };
+  }
+}
+
+/**
+ * The `agent-session` budget a project's config sets (T14227, T14283):
+ * `resources.agentSession.maxSessions` when it holds an integer of at least 1;
+ * otherwise none, so the default applies. A config that still sets the old
+ * memory keys gets one deprecation line on stderr per process; they are
+ * ignored.
  *
  * @param projectRoot - The project whose merged global + project config to read.
+ * @param note - Where the deprecation line goes. @defaultValue stderr
  * @returns The configured budget options.
  * @task T14227
+ * @task T14283
  */
 export async function agentSessionBudgetConfig(
   projectRoot: string,
-): Promise<Pick<BudgetOptions, 'agentMaxSessions' | 'agentEstRamMb' | 'headroomMb'>> {
-  try {
-    const { getConfigValue } = await import('../config/registry.js');
-    const read = async (key: string, min: number): Promise<number | undefined> => {
-      const value = await getConfigValue<number>(key, { projectRoot });
-      return typeof value === 'number' && Number.isInteger(value) && value >= min
-        ? value
-        : undefined;
-    };
-    const [agentMaxSessions, agentEstRamMb, headroomMb] = await Promise.all([
-      read(AGENT_SESSION_CONFIG_KEYS.maxSessions, 1),
-      read(AGENT_SESSION_CONFIG_KEYS.estRamMb, 1),
-      read(AGENT_SESSION_CONFIG_KEYS.headroomMb, 0),
-    ]);
-    return {
-      ...(agentMaxSessions !== undefined ? { agentMaxSessions } : {}),
-      ...(agentEstRamMb !== undefined ? { agentEstRamMb } : {}),
-      ...(headroomMb !== undefined ? { headroomMb } : {}),
-    };
-  } catch {
-    return {};
+  note: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
+): Promise<Pick<BudgetOptions, 'agentMaxSessions'>> {
+  const { ignoredKeys, ...config } = await readAgentSessionConfig(projectRoot);
+  if (ignoredKeys.length > 0 && !ignoredKeysNoted) {
+    ignoredKeysNoted = true;
+    note(
+      `[cleo] ${ignoredKeys.join(' and ')} ${ignoredKeys.length === 1 ? 'is' : 'are'} ignored ` +
+        `(deprecated, T14283): the agent-session budget is ${AGENT_SESSION_CONFIG_KEYS.maxSessions} ` +
+        '(default cpus - 2), and only critical memory stops a spawn.',
+    );
   }
+  return config;
+}
+
+/** Forget the deprecation note. Tests only. @internal */
+export function _resetAgentSessionConfigNoteForTest(): void {
+  ignoredKeysNoted = false;
 }
 
 /** What `cleo doctor tool-locks` reports about the `agent-session` budget (T14227). */
@@ -323,18 +345,15 @@ export interface AgentSessionBudgetStatus {
   /** The inputs in force; `configured` names those a config key set. */
   readonly inputs: {
     readonly maxSessions: number | null;
-    readonly estRamMb: number;
-    readonly headroomMb: number;
-    readonly memAvailableBytes: number | null;
     readonly cpus: number;
   };
   readonly configured: {
     readonly maxSessions: boolean;
-    readonly estRamMb: boolean;
-    readonly headroomMb: boolean;
   };
-  /** The config keys that set it. */
+  /** The config key that sets it. */
   readonly keys: typeof AGENT_SESSION_CONFIG_KEYS;
+  /** Deprecated keys the config still sets, which are ignored (T14283). */
+  readonly ignoredKeys: readonly string[];
 }
 
 /**
@@ -350,7 +369,7 @@ export async function agentSessionBudgetStatus(
   projectRoot: string,
   opts: { readonly sample?: ResourceSample } = {},
 ): Promise<AgentSessionBudgetStatus> {
-  const config = await agentSessionBudgetConfig(projectRoot);
+  const { ignoredKeys, ...config } = await readAgentSessionConfig(projectRoot);
   const sample = opts.sample ?? (await new ResourceMonitor().sample());
   const { liveAgentLeases } = await import('./agent-lease.js');
   const leases = liveAgentLeases();
@@ -360,36 +379,20 @@ export async function agentSessionBudgetStatus(
     leaseTasks: leases.map((l) => l.taskId),
     inputs: {
       maxSessions: config.agentMaxSessions ?? null,
-      estRamMb: config.agentEstRamMb ?? 4096,
-      headroomMb: config.headroomMb ?? 2048,
-      memAvailableBytes: sample.memAvailableBytes ?? null,
       cpus: Math.max(1, availableParallelism()),
     },
-    configured: {
-      maxSessions: config.agentMaxSessions !== undefined,
-      estRamMb: config.agentEstRamMb !== undefined,
-      headroomMb: config.headroomMb !== undefined,
-    },
+    configured: { maxSessions: config.agentMaxSessions !== undefined },
     keys: AGENT_SESSION_CONFIG_KEYS,
+    ignoredKeys,
   };
 }
 
 /**
- * The config keys an at-capacity `agent-session` deferral names, with the
- * values in force (T14227), so the operator raises the budget with a setting
- * rather than `CLEO_RESOURCES_MODE=off`.
+ * The config key an at-capacity `agent-session` deferral names, with the value
+ * in force (T14227, T14283), so the operator raises the budget with a setting.
  */
 function agentSessionKeysHint(opts: BudgetOptions): string {
-  const keys = AGENT_SESSION_CONFIG_KEYS;
-  return (
-    `; raise it with ${keys.maxSessions} (now ${opts.agentMaxSessions ?? 'unset'}), ` +
-    `${keys.estRamMb} (now ${opts.agentEstRamMb ?? 4096} MB) or ${keys.headroomMb} ` +
-    `(now ${opts.headroomMb ?? 2048} MB)`
-  );
-}
-
-function clamp(lo: number, v: number, hi: number): number {
-  return Math.max(lo, Math.min(v, hi));
+  return `; raise it with ${AGENT_SESSION_CONFIG_KEYS.maxSessions} (now ${opts.agentMaxSessions ?? 'unset: cpus - 2'})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -506,7 +509,14 @@ export async function takeAgentSessionLease(
   opts: AcquireOptions = {},
 ): Promise<
   | { readonly lease: AgentSessionLease | null; readonly reused: boolean }
-  | { readonly deferral: ResourceDeferral }
+  | {
+      readonly deferral: ResourceDeferral;
+      /**
+       * Set when critical memory, not the lease count, refused it (T14283): the
+       * caller reports E_RESOURCE_EXTERNAL_PRESSURE naming these programs.
+       */
+      readonly externalPressure?: ExternalPressureDetails;
+    }
 > {
   // Loaded here, not at module load: only spawns and admission read leases (gate 39).
   const { liveAgentLeases, writeAgentLease } = await import('./agent-lease.js');
@@ -519,6 +529,29 @@ export async function takeAgentSessionLease(
     return { lease: renewed, reused: true };
   }
   const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
+  // T14283: the only memory veto is critical memory (a full stall, the macOS
+  // critical level, nearly full swap), named with the programs that hold it.
+  if (resolveGovernorMode() !== 'off' && isCriticalMemory(sample)) {
+    const reading = evaluateMemoryGate(sample, false).reading;
+    if (reading !== null) {
+      const top = opts.topMemory ?? (() => topMemoryConsumers(TOP_MEMORY_COUNT));
+      const listed = (top() ?? []).filter((p) => p.pid !== process.pid);
+      // Name each one's project (T14206); an injected list holds no real pids.
+      const processes = opts.topMemory === undefined ? withProjects(listed) : listed;
+      const details = externalPressureDetails(
+        { ...reading, topConsumers: { sampledAtMs: Date.now(), processes } },
+        0,
+      );
+      return {
+        deferral: deferral(
+          'agent-session',
+          `memory is critical: ${externalPressureFix(details)}`,
+          DEFAULT_RESOURCE_RETRY_AFTER_MS,
+        ),
+        externalPressure: details,
+      };
+    }
+  }
   const { admission, ungoverned } = await admitFailOpen('agent-session', () =>
     governor.tryAcquire('agent-session', { ...opts, sample }),
   );
@@ -598,6 +631,11 @@ export interface AcquireOptions extends BudgetOptions {
    * ends in an admission (T13127).
    */
   readonly memoryPressure?: MemoryGateReporter;
+  /**
+   * The host's largest memory users, listed when critical memory vetoes a
+   * spawn (T14283). @defaultValue {@link topMemoryConsumers}
+   */
+  readonly topMemory?: () => readonly MemoryConsumer[] | null;
 }
 
 /**
