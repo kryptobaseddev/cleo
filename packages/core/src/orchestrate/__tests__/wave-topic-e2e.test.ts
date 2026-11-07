@@ -42,7 +42,7 @@ async function seedTasks(testRoot: string, tasks: SeededTask[]): Promise<void> {
   }
 }
 
-const EPIC = 'T700E';
+const EPIC = 'T97045';
 const now = '2026-09-28T00:00:00Z';
 const tasks: SeededTask[] = [
   {
@@ -56,7 +56,7 @@ const tasks: SeededTask[] = [
     updatedAt: null,
   },
   {
-    id: 'T700A',
+    id: 'T97044',
     title: 'First-wave worker',
     description: 'No dependencies, so wave 1',
     status: 'pending',
@@ -74,7 +74,7 @@ const tasks: SeededTask[] = [
     status: 'pending',
     priority: 'medium',
     parentId: EPIC,
-    depends: ['T700A'],
+    depends: ['T97044'],
     files: ['src/b.ts'],
     createdAt: now,
     updatedAt: null,
@@ -112,7 +112,7 @@ describe('wave numbers: spawned worker -> Lead roll-up (T12682, T13943)', () => 
     // T701 becomes spawnable once its dependency is done — the moment its
     // Lead reads the plan and spawns it.
     const { getTaskAccessor } = await import('@cleocode/core/internal');
-    await (await getTaskAccessor(root)).updateTaskFields('T700A', {
+    await (await getTaskAccessor(root)).updateTaskFields('T97044', {
       status: 'done',
       pipelineStage: 'contribution',
     });
@@ -142,7 +142,7 @@ describe('wave numbers: spawned worker -> Lead roll-up (T12682, T13943)', () => 
 
     // Wave 1 finishes.
     const { getTaskAccessor } = await import('@cleocode/core/internal');
-    await (await getTaskAccessor(root)).updateTaskFields('T700A', {
+    await (await getTaskAccessor(root)).updateTaskFields('T97044', {
       status: 'done',
       pipelineStage: 'contribution',
     });
@@ -157,7 +157,7 @@ describe('wave numbers: spawned worker -> Lead roll-up (T12682, T13943)', () => 
 
   it('roll-up numbers waves as `orchestrate waves` does: 0 is refused, 1 is the first wave', async () => {
     const first = await rollupWaveStatus(EPIC, 1, root);
-    expect(first.workers.map((w) => w.taskId)).toEqual(['T700A']);
+    expect(first.workers.map((w) => w.taskId)).toEqual(['T97044']);
     await expect(rollupWaveStatus(EPIC, 0, root)).rejects.toThrow(/numbered from 1/);
   });
 });

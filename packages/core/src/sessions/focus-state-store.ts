@@ -338,6 +338,9 @@ export function focusUnboundMessage(operation: string, stableTerminal = true): s
  * @task T12501
  */
 export async function requireFocusSessionId(operation: string, cwd?: string): Promise<string> {
+  // T14269: a focus write from an agent in a shared harness session uses its own session.
+  const { ensureAgentSession } = await import('../store/session-store.js');
+  await ensureAgentSession(cwd);
   const sessionId = await resolveFocusSessionId(cwd);
   if (sessionId) return sessionId;
   const { SESSION_UNBOUND_ALTERNATIVES, SESSION_UNBOUND_FIX } = await import(

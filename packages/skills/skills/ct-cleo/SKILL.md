@@ -2,14 +2,14 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.25.5
+  version: 2.25.7
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-11-02
+  lastReviewed: 2026-11-06
   stability: stable
 ---
 
@@ -137,8 +137,8 @@ Unattributed mutations warn on stderr; `session status` / `briefing` label a gue
   session Claude started can be ended from the tab.
 - Two Claude instances that each start a session stay isolated; a sibling tmux
   pane never sees another pane's session.
-- Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID` and act in
-  the parent's session; `cleo orchestrate spawn` gives workers their own.
+- Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID`; each sets
+  `CLEO_AGENT_ID` for its own session and claims (else `E_SESSION_AMBIGUOUS`).
 
 ## Typed decisions (`cleo decide`, T12491)
 

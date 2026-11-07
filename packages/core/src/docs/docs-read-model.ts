@@ -35,7 +35,10 @@ import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
 import { blobList, blobRead, blobReadBySha } from '../store/blob-ops.js';
-import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
+import {
+  type AttachmentLifecycleStatus,
+  isAttachmentLifecycleStatus,
+} from '../store/schema/attachments.js';
 import type { DocsPublicationRecord, DocsStatusResult } from './docs-ops.js';
 import { resolveDisplayNumber } from './numbering.js';
 import { readDocsPublications } from './publications-store.js';
@@ -104,6 +107,14 @@ export interface ResolvedDoc {
   readonly publicationDrift: 'in-sync' | 'modified' | 'deleted' | 'unpublished';
   /** Which backing store this doc was resolved from. */
   readonly source: 'tasks-db' | 'manifest-db' | 'merged';
+  /**
+   * How a slug lookup resolved (T14288): `uid` through the doc's immutable
+   * conduit identity to its head, `legacy` through the registry row of a doc
+   * with no version history yet. Absent for non-slug lookups.
+   */
+  readonly identity?: 'uid' | 'legacy';
+  /** The immutable doc uid when {@link identity} is `uid`. */
+  readonly docUid?: string;
 }
 
 /**
@@ -199,23 +210,30 @@ export class DocsReadModel {
    * @returns A resolved doc, or `null` if no attachment carries this slug.
    */
   async resolveBySlug(slug: string): Promise<ResolvedDoc | null> {
-    const store = createAttachmentStore();
-    let row = await store.findBySlug(slug, this.projectRoot);
-    if (!row) {
-      // T14118: an old slug kept as an alias after a rename resolves to the doc.
-      const { resolveDocSlug } = await import('./slug-rename.js');
-      const live = await resolveDocSlug(this.projectRoot, slug).catch(() => null);
-      row = live ? await store.findBySlug(live, this.projectRoot) : null;
-    }
-    if (!row) return null;
-
-    return this.enrichFromTasksDb(row.metadata, {
-      slug: row.slug,
-      type: row.type,
-      summary: row.summary,
-      lifecycleStatus: row.lifecycleStatus,
-      displayAlias: row.displayAlias,
+    // T14288: slug (live or alias) → doc uid → head → content; a doc with no
+    // version history yet resolves through its registry row (`legacy`).
+    const { resolveDocRef } = await import('./slug-rename.js');
+    const ref = await resolveDocRef(this.projectRoot, slug);
+    if (!ref) return null;
+    const meta = await createAttachmentStore().getMetadata(ref.ownRow.id, this.projectRoot);
+    if (!meta) return null;
+    const doc = await this.enrichFromTasksDb(meta, {
+      slug: ref.slug,
+      type: ref.meta.docType,
+      summary: ref.meta.summary,
+      lifecycleStatus: isAttachmentLifecycleStatus(ref.meta.lifecycleStatus)
+        ? ref.meta.lifecycleStatus
+        : ref.ownRow.lifecycleStatus,
+      displayAlias: ref.meta.displayAlias,
     });
+    return {
+      ...doc,
+      // The head's bytes, even when its content has no registry row of its own.
+      sha256: ref.sha256,
+      slug: ref.slug,
+      identity: ref.identity,
+      ...(ref.docUid !== null ? { docUid: ref.docUid } : {}),
+    };
   }
 
   /**
@@ -516,16 +534,22 @@ export class DocsReadModel {
     const store = createAttachmentStore();
     const metas = await store.listByOwner(ownerType, ownerId, this.projectRoot);
 
-    // For each attachment, also fetch extras (slug/type) from the attachments row.
+    // T14288: an attachment that is a doc's head content carries the doc's
+    // live slug and identity metadata; any other row its own extras.
+    const { listDocRefs } = await import('./slug-rename.js');
+    const refByRowId = new Map(
+      (metas.length > 0 ? await listDocRefs(this.projectRoot) : []).map((r) => [r.ownRow.id, r]),
+    );
     const results: ResolvedDoc[] = [];
     for (const meta of metas) {
-      const extras = await store.getExtras(meta.id, this.projectRoot);
-      const doc = await this.enrichFromTasksDb(meta, {
-        slug: extras?.slug ?? null,
-        type: extras?.type ?? null,
-        summary: null,
+      const ref = refByRowId.get(meta.id);
+      const extras = ref ? null : await store.getExtras(meta.id, this.projectRoot);
+      const doc = await this.enrichFromTasksDb(ref ? { ...meta, sha256: ref.sha256 } : meta, {
+        slug: ref?.slug ?? extras?.slug ?? null,
+        type: ref ? ref.meta.docType : (extras?.type ?? null),
+        summary: ref?.meta.summary ?? null,
         lifecycleStatus: 'active',
-        displayAlias: extras?.displayAlias ?? null,
+        displayAlias: ref ? ref.meta.displayAlias : (extras?.displayAlias ?? null),
       });
       results.push(doc);
     }
@@ -537,7 +561,34 @@ export class DocsReadModel {
    */
   private async resolveAllFromTasksDb(): Promise<ResolvedDoc[]> {
     const store = createAttachmentStore();
-    const rows = await store.listAllInProject(this.projectRoot);
+    const all = await store.listAllInProject(this.projectRoot);
+    // T14288: a slugged doc is listed once, through its identity: its head
+    // content's row (with that row's owner) under its live slug and identity
+    // metadata. Slug-less attachments are listed as their rows.
+    const { listDocRefs } = await import('./slug-rename.js');
+    const refs = await listDocRefs(this.projectRoot);
+    const headRowIds = new Set(refs.flatMap((r) => [r.row.id, r.ownRow.id]));
+    const rows: typeof all = [];
+    for (const ref of refs) {
+      const owned =
+        all.find((row) => row.metadata.id === ref.ownRow.id) ??
+        all.find((row) => row.metadata.id === ref.row.id);
+      if (!owned) continue;
+      rows.push({
+        ...owned,
+        metadata: { ...owned.metadata, sha256: ref.sha256 },
+        slug: ref.slug,
+        type: ref.meta.docType,
+        summary: ref.meta.summary,
+        lifecycleStatus: isAttachmentLifecycleStatus(ref.meta.lifecycleStatus)
+          ? ref.meta.lifecycleStatus
+          : owned.lifecycleStatus,
+        displayAlias: ref.meta.displayAlias,
+      });
+    }
+    for (const row of all) {
+      if (row.slug === null && !headRowIds.has(row.metadata.id)) rows.push(row);
+    }
     return rows.map((row) => {
       const name = extractBlobName(row.metadata);
       const size = extractBlobSize(row.metadata);

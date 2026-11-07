@@ -95,6 +95,13 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
+// The disposal engine stays real; one test replaces a single call with a failed removal.
+vi.mock('@cleocode/worktree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/worktree')>();
+  return { ...actual, disposeWorktree: vi.fn(actual.disposeWorktree) };
+});
+
+import { disposeWorktree } from '@cleocode/worktree';
 import { pruneOrphanedWorktreesByStatus, reasonForStatus } from '../prune.js';
 
 // ---------------------------------------------------------------------------
@@ -112,7 +119,7 @@ function makeWorktreeInfo(overrides: Partial<WorktreeInfo>): WorktreeInfo {
     isStale: overrides.isStale ?? false,
     isMerged: overrides.isMerged ?? false,
     owningTaskStatus: overrides.owningTaskStatus ?? null,
-    statusCategory: overrides.statusCategory ?? 'orphan',
+    statusCategory: overrides.statusCategory ?? 'redundant',
   };
 }
 
@@ -145,37 +152,29 @@ afterEach(() => {
 // reasonForStatus
 // ---------------------------------------------------------------------------
 
-describe('reasonForStatus', () => {
-  it('returns orphan-cancelled when task is cancelled', () => {
+describe('reasonForStatus (T14274)', () => {
+  it('names the task status of a redundant worktree', () => {
     expect(
       reasonForStatus(
-        makeWorktreeInfo({
-          statusCategory: 'orphan',
-          owningTaskStatus: 'cancelled',
-        }),
+        makeWorktreeInfo({ statusCategory: 'redundant', owningTaskStatus: 'cancelled' }),
       ),
-    ).toBe('orphan-cancelled');
+    ).toBe('redundant-cancelled');
+    expect(
+      reasonForStatus(makeWorktreeInfo({ statusCategory: 'redundant', owningTaskStatus: 'done' })),
+    ).toBe('redundant-done');
   });
 
-  it('returns orphan-missing-task when taskId present but no row', () => {
+  it('a redundant worktree with no stored task is redundant-taskless', () => {
     expect(
       reasonForStatus(
-        makeWorktreeInfo({
-          statusCategory: 'orphan',
-          taskId: 'T999',
-          owningTaskStatus: null,
-        }),
+        makeWorktreeInfo({ statusCategory: 'redundant', taskId: 'T999', owningTaskStatus: null }),
       ),
-    ).toBe('orphan-missing-task');
-  });
-
-  it('returns orphaned-merged for merged status', () => {
-    expect(reasonForStatus(makeWorktreeInfo({ statusCategory: 'merged' }))).toBe('orphaned-merged');
+    ).toBe('redundant-taskless');
   });
 
   it('passes through other categories', () => {
-    expect(reasonForStatus(makeWorktreeInfo({ statusCategory: 'stale' }))).toBe('stale');
-    expect(reasonForStatus(makeWorktreeInfo({ statusCategory: 'locked' }))).toBe('locked');
+    expect(reasonForStatus(makeWorktreeInfo({ statusCategory: 'keep' }))).toBe('keep');
+    expect(reasonForStatus(makeWorktreeInfo({ statusCategory: 'unknown' }))).toBe('unknown');
     expect(reasonForStatus(makeWorktreeInfo({ statusCategory: 'active' }))).toBe('active');
   });
 });
@@ -194,8 +193,18 @@ describe('pruneOrphanedWorktreesByStatus — nothing unproven is force-removed (
     execOutputs.set(statusKey(dirty), ' M src/a.ts\0');
     execShouldThrow.add(statusKey(broken));
     MOCK_LIST.value = [
-      makeWorktreeInfo({ path: dirty, taskId: 'T301', statusCategory: 'merged', isMerged: true }),
-      makeWorktreeInfo({ path: broken, taskId: 'T302', statusCategory: 'merged', isMerged: true }),
+      makeWorktreeInfo({
+        path: dirty,
+        taskId: 'T301',
+        statusCategory: 'redundant',
+        isMerged: true,
+      }),
+      makeWorktreeInfo({
+        path: broken,
+        taskId: 'T302',
+        statusCategory: 'redundant',
+        isMerged: true,
+      }),
     ];
     const result = await pruneOrphanedWorktreesByStatus({ projectRoot, auditLogPath });
     expect(result.success).toBe(true);
@@ -211,7 +220,9 @@ describe('pruneOrphanedWorktreesByStatus — nothing unproven is force-removed (
 
   it('prunes an orphan whose directory is already gone without a content check', async () => {
     const gone = join(projectRoot, 'already-removed');
-    MOCK_LIST.value = [makeWorktreeInfo({ path: gone, taskId: 'T303', statusCategory: 'orphan' })];
+    MOCK_LIST.value = [
+      makeWorktreeInfo({ path: gone, taskId: 'T303', statusCategory: 'redundant' }),
+    ];
     const result = await pruneOrphanedWorktreesByStatus({ projectRoot, auditLogPath });
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -221,20 +232,20 @@ describe('pruneOrphanedWorktreesByStatus — nothing unproven is force-removed (
 });
 
 describe('pruneOrphanedWorktreesByStatus — happy path', () => {
-  it('prunes orphan + merged worktrees and writes audit entries', async () => {
+  it('prunes redundant worktrees, never active ones, and writes audit entries', async () => {
     MOCK_LIST.value = [
       makeWorktreeInfo({
         path: '/wt/T100',
         branch: 'task/T100',
         taskId: 'T100',
-        statusCategory: 'orphan',
+        statusCategory: 'redundant',
         owningTaskStatus: 'cancelled',
       }),
       makeWorktreeInfo({
         path: '/wt/T200',
         branch: 'task/T200',
         taskId: 'T200',
-        statusCategory: 'merged',
+        statusCategory: 'redundant',
         isMerged: true,
       }),
       makeWorktreeInfo({
@@ -259,9 +270,9 @@ describe('pruneOrphanedWorktreesByStatus — happy path', () => {
     expect(result.data.outcomes.map((o) => o.path).sort()).toEqual(['/wt/T100', '/wt/T200']);
     const mergedOutcome = result.data.outcomes.find((o) => o.path === '/wt/T200');
     expect(mergedOutcome?.branchDeleted).toBe(true);
-    expect(mergedOutcome?.reason).toBe('orphaned-merged');
+    expect(mergedOutcome?.reason).toBe('redundant-taskless');
     const orphanOutcome = result.data.outcomes.find((o) => o.path === '/wt/T100');
-    expect(orphanOutcome?.reason).toBe('orphan-cancelled');
+    expect(orphanOutcome?.reason).toBe('redundant-cancelled');
 
     // Audit log: one line per pruned worktree.
     const auditContent = readFileSync(auditLogPath, 'utf-8');
@@ -282,7 +293,7 @@ describe('pruneOrphanedWorktreesByStatus — happy path', () => {
         path: '/wt/T100',
         branch: 'task/T100',
         taskId: 'T100',
-        statusCategory: 'orphan',
+        statusCategory: 'redundant',
         owningTaskStatus: 'cancelled',
       }),
     ];
@@ -312,13 +323,13 @@ describe('pruneOrphanedWorktreesByStatus — happy path', () => {
         path: '/wt/T100',
         branch: 'task/T100',
         taskId: 'T100',
-        statusCategory: 'orphan',
+        statusCategory: 'redundant',
       }),
       makeWorktreeInfo({
         path: '/wt/T200',
         branch: 'task/T200',
         taskId: 'T200',
-        statusCategory: 'merged',
+        statusCategory: 'redundant',
         isMerged: true,
       }),
     ];
@@ -357,7 +368,7 @@ describe('pruneOrphanedWorktreesByStatus — primary worktree safety net (T9686-
         path: projectRoot,
         branch: 'main',
         taskId: null,
-        statusCategory: 'merged',
+        statusCategory: 'redundant',
         isMerged: true,
       }),
       // A real orphan candidate — should still be pruned normally.
@@ -365,7 +376,7 @@ describe('pruneOrphanedWorktreesByStatus — primary worktree safety net (T9686-
         path: '/wt/T100',
         branch: 'task/T100',
         taskId: 'T100',
-        statusCategory: 'orphan',
+        statusCategory: 'redundant',
         owningTaskStatus: 'cancelled',
       }),
     ];
@@ -395,7 +406,7 @@ describe('pruneOrphanedWorktreesByStatus — primary worktree safety net (T9686-
         path: projectRoot,
         branch: 'main',
         taskId: null,
-        statusCategory: 'merged',
+        statusCategory: 'redundant',
         isMerged: true,
       }),
     ];
@@ -418,7 +429,8 @@ describe('pruneOrphanedWorktreesByStatus — edge cases', () => {
   it('returns prunedCount=0 when no orphans exist', async () => {
     MOCK_LIST.value = [
       makeWorktreeInfo({ path: '/wt/T1', statusCategory: 'active' }),
-      makeWorktreeInfo({ path: '/wt/T2', statusCategory: 'stale' }),
+      makeWorktreeInfo({ path: '/wt/T2', statusCategory: 'keep' }),
+      makeWorktreeInfo({ path: '/wt/T3', statusCategory: 'unknown' }),
     ];
 
     const result = await pruneOrphanedWorktreesByStatus({ projectRoot, auditLogPath });
@@ -439,26 +451,24 @@ describe('pruneOrphanedWorktreesByStatus — edge cases', () => {
     expect(result.error.message).toContain('not a git repo');
   });
 
-  it('records error outcomes when git removal AND rmSync both fail', async () => {
-    // Create a real path inside the tmpdir so the fallback existsSync() check
-    // resolves to true and the function attempts rmSync (which we mock to throw).
-    const fs = await import('node:fs');
+  it('records error outcomes when the engine fails to remove the worktree', async () => {
     const targetPath = join(projectRoot, 'wt-error');
-    fs.mkdirSync(targetPath, { recursive: true });
 
     MOCK_LIST.value = [
       makeWorktreeInfo({
         path: targetPath,
         branch: 'task/T100',
         taskId: 'T100',
-        statusCategory: 'orphan',
+        statusCategory: 'redundant',
       }),
     ];
-    // Make `git worktree remove --force <path>` fail so we hit the rmSync fallback.
-    execShouldThrow.add(`worktree remove --force ${targetPath}`);
-    // Force rmSync to throw — primary failure path under test.
-    vi.mocked(fs.rmSync).mockImplementation(() => {
-      throw new Error('EACCES');
+    // T13924: the engine attempted the removal and the directory survived.
+    const failed = `removal failed: ${targetPath} is still on disk`;
+    vi.mocked(disposeWorktree).mockReturnValueOnce({
+      worktreePath: targetPath,
+      removed: false,
+      keptReason: failed,
+      failed,
     });
 
     const result = await pruneOrphanedWorktreesByStatus({

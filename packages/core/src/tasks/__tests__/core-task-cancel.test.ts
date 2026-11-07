@@ -250,4 +250,50 @@ describe('taskCancel (dispatch wrapper, error mapping)', () => {
       expect(second.data.alreadyCancelled).toBe(true);
     }
   });
+
+  it('E_HAS_CHILDREN carries a runnable cleo cancel fix and alternatives, and the fix is not refused again (T14300)', async () => {
+    await seedTask(env, { id: 'T0040', status: 'pending', type: 'epic' });
+    await seedTask(env, { id: 'T0041', status: 'pending', parentId: 'T0040', type: 'task' });
+
+    const refused = await taskCancel(env.tempDir, 'T0040');
+    expect(refused.success).toBe(false);
+    if (refused.success) return;
+    expect(refused.error.code).toBe('E_HAS_CHILDREN');
+    expect(refused.error.message).toContain('--children cascade');
+    expect(refused.error.message).not.toMatch(/children='cascade'/);
+    expect(refused.error.fix).toBe('cleo cancel T0040 --children cascade');
+    expect(refused.error.alternatives?.map((a) => a.command)).toEqual([
+      'cleo cancel T0040 --children cascade',
+      'cleo cancel T0040 --children reparent --to <epicId>',
+    ]);
+
+    // The fix, as cleo cancel dispatches it.
+    const fixed = await taskCancel(env.tempDir, 'T0040', { reason: 'fix', children: 'cascade' });
+    expect(fixed.success).toBe(true);
+  });
+
+  it('E_CASCADE_THRESHOLD_EXCEEDED names --force, and the forced cascade runs (T14300)', async () => {
+    await seedTask(env, { id: 'T0050', status: 'pending', type: 'epic' });
+    for (const n of [1, 2]) {
+      await seedTask(env, { id: `T005${n}`, status: 'pending', parentId: 'T0050', type: 'task' });
+    }
+
+    const refused = await taskCancel(env.tempDir, 'T0050', {
+      children: 'cascade',
+      cascadeThreshold: 1,
+    });
+    expect(refused.success).toBe(false);
+    if (refused.success) return;
+    expect(refused.error.code).toBe('E_CASCADE_THRESHOLD_EXCEEDED');
+    expect(refused.error.message).not.toMatch(/force=true/);
+    expect(refused.error.fix).toBe('cleo cancel T0050 --children cascade --force');
+
+    const forced = await taskCancel(env.tempDir, 'T0050', {
+      reason: 'fix',
+      children: 'cascade',
+      cascadeThreshold: 1,
+      force: true,
+    });
+    expect(forced.success).toBe(true);
+  });
 });

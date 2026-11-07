@@ -67,6 +67,7 @@
  */
 
 import { type AnyColumn, like, sql } from 'drizzle-orm';
+import { conduitAttachments, conduitDocSlugAliases } from '../store/schema/cleo-project/conduit.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachments } from '../store/tasks-schema.js';
 
@@ -368,11 +369,25 @@ async function scanMaxSequenceAtomically(
     let max = 0;
     nativeDb.prepare('BEGIN IMMEDIATE').run();
     try {
-      const rows = await db
-        .select({ slug: attachments.slug as AnyColumn })
-        .from(attachments)
-        .where(like(attachments.slug, `${descriptor.likePrefix}%`))
-        .all();
+      const prefix = `${descriptor.likePrefix}%`;
+      const rows = [
+        ...(await db
+          .select({ slug: attachments.slug as AnyColumn })
+          .from(attachments)
+          .where(like(attachments.slug, prefix))
+          .all()),
+        // T14288: a doc identity's live slug and its old aliases hold numbers too.
+        ...(await db
+          .select({ slug: conduitAttachments.slug as AnyColumn })
+          .from(conduitAttachments)
+          .where(like(conduitAttachments.slug, prefix))
+          .all()),
+        ...(await db
+          .select({ slug: conduitDocSlugAliases.slug as AnyColumn })
+          .from(conduitDocSlugAliases)
+          .where(like(conduitDocSlugAliases.slug, prefix))
+          .all()),
+      ];
       for (const row of rows) {
         const slug = row.slug;
         if (typeof slug !== 'string') continue;

@@ -782,6 +782,8 @@ export async function coreTaskRestore(
     t.status = 'pending';
     t.cancelledAt = undefined;
     t.cancellationReason = undefined;
+    t.cancellationKind = undefined;
+    t.replacedBy = undefined;
     t.updatedAt = now;
     // T871: when a task was cancelled, pipelineStage was advanced to the
     // terminal `cancelled` marker. On restore we re-enter the active chain

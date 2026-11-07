@@ -32,7 +32,6 @@
  */
 
 import type { DecisionAnswer, DecisionOutcome, DecisionRequest } from '@cleocode/contracts';
-import { asc, eq } from 'drizzle-orm';
 import type { DecisionAuditEntry, DecisionAuditSink } from '../decide/audit.js';
 import { type DecideOptions, decideBatch } from '../decide/client.js';
 import { redactThenClip, resolveDecisionSiteSettings } from '../decide/site.js';
@@ -41,12 +40,7 @@ import { redactContent } from '../memory/redaction.js';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { getDb } from '../store/sqlite.js';
-import {
-  ATTACHMENT_LIFECYCLE_STATUSES,
-  type AttachmentLifecycleStatus,
-  attachmentRefs,
-  attachments,
-} from '../store/tasks-schema.js';
+import { ATTACHMENT_LIFECYCLE_STATUSES, attachmentRefs } from '../store/tasks-schema.js';
 
 /** Call-site id for the triage decision; keys the audit line. */
 export const DOC_TRIAGE_SITE = DOC_TRIAGE_DECISION_SITE.id;
@@ -234,41 +228,33 @@ export async function listTriageCandidates(
   }
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const db = await getDb(projectRoot);
-  const rows = await db
-    .select({
-      id: attachments.id,
-      sha256: attachments.sha256,
-      slug: attachments.slug,
-      type: attachments.type,
-      lifecycleStatus: attachments.lifecycleStatus,
-      topics: attachments.topics,
-      relatedTasks: attachments.relatedTasks,
-      summary: attachments.summary,
-      createdAt: attachments.createdAt,
-      ownerId: attachmentRefs.ownerId,
-    })
-    .from(attachments)
-    .leftJoin(attachmentRefs, eq(attachmentRefs.attachmentId, attachments.id))
-    .where(eq(attachments.lifecycleStatus, status as AttachmentLifecycleStatus))
-    .orderBy(asc(attachments.createdAt))
-    .all();
+  // T14288: every doc through its identity (a legacy doc through its row),
+  // filtered by its lifecycle, oldest first; the owner is its first ref.
+  const { listDocRefs } = await import('./slug-rename.js');
+  const refs = (await listDocRefs(projectRoot))
+    .filter((r) => (r.meta.lifecycleStatus ?? r.ownRow.lifecycleStatus) === status)
+    .sort((a, b) => a.ownRow.createdAt.localeCompare(b.ownRow.createdAt));
+  const owners = new Map<string, string>();
+  for (const ref of await db
+    .select({ attachmentId: attachmentRefs.attachmentId, ownerId: attachmentRefs.ownerId })
+    .from(attachmentRefs)
+    .all()) {
+    if (!owners.has(ref.attachmentId)) owners.set(ref.attachmentId, ref.ownerId);
+  }
 
-  const seen = new Set<string>();
   const out: DocTriageCandidate[] = [];
-  for (const row of rows) {
-    if (seen.has(row.id)) continue;
-    seen.add(row.id);
+  for (const ref of refs) {
     out.push({
-      attachmentId: row.id,
-      sha256: row.sha256,
-      slug: row.slug ?? null,
-      kind: row.type ?? null,
-      status: row.lifecycleStatus,
-      topics: parseStringArray(row.topics),
-      relatedTasks: parseStringArray(row.relatedTasks),
-      summary: row.summary ?? null,
-      createdAt: row.createdAt,
-      ownerId: row.ownerId ?? null,
+      attachmentId: ref.ownRow.id,
+      sha256: ref.sha256,
+      slug: ref.slug,
+      kind: ref.meta.docType,
+      status: ref.meta.lifecycleStatus ?? ref.ownRow.lifecycleStatus,
+      topics: parseStringArray(ref.meta.topics),
+      relatedTasks: parseStringArray(ref.meta.relatedTasks),
+      summary: ref.meta.summary,
+      createdAt: ref.ownRow.createdAt,
+      ownerId: owners.get(ref.ownRow.id) ?? null,
     });
     if (out.length >= limit) break;
   }

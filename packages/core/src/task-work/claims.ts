@@ -13,10 +13,11 @@
  */
 
 import type { TaskClaim, TaskClaimMode } from '@cleocode/contracts';
-import { and, gt, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, or } from 'drizzle-orm';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
+  ensureAgentSession,
   getSession,
   resolveBoundSession,
   setSessionSpawnedBy,
@@ -24,7 +25,12 @@ import {
   updateSession,
 } from '../store/session-store.js';
 import { getDb } from '../store/sqlite.js';
-import { leaseExpiresAtFrom, taskClaimLeaseMs } from '../store/task-claim.js';
+import {
+  claimClockNow,
+  leaseExpiresAtFrom,
+  sameClaimAgent,
+  taskClaimLeaseMs,
+} from '../store/task-claim.js';
 import * as schema from '../store/tasks-schema.js';
 
 /** The identity a claim is recorded under. */
@@ -60,6 +66,8 @@ export interface ClaimOverrideFlags {
  * ```
  */
 export async function resolveClaimant(cwd?: string, agentId?: string | null): Promise<Claimant> {
+  // T14269: an agent in a shared harness session claims as its own session.
+  await ensureAgentSession(cwd);
   const bound = await resolveBoundSession(cwd);
   const session = bound?.session;
   return {
@@ -91,11 +99,14 @@ export function claimModeFor(flags: ClaimOverrideFlags): Exclude<TaskClaimMode, 
 
 /**
  * Release `taskId`'s lease when `sessionId` holds it; a no-op otherwise
- * (unclaimed, or held by another session — never an error).
+ * (unclaimed, or held by another session — never an error). With `agentId`,
+ * a lease recorded for a DIFFERENT agent of the same session is not the
+ * caller's either (T14269): identity is (session, agent).
  *
  * @param acc - Task accessor (may be inside a transaction).
  * @param taskId - The task.
  * @param sessionId - The caller's session.
+ * @param agentId - The caller's agent, when known.
  * @returns `true` when a lease was released.
  * @example
  * ```ts
@@ -106,10 +117,12 @@ export async function releaseOwnClaim(
   acc: DataAccessor,
   taskId: string,
   sessionId: string | null,
+  agentId: string | null = null,
 ): Promise<boolean> {
   if (!sessionId) return false;
   const task = await acc.loadSingleTask(taskId);
   if (task?.claim?.sessionId !== sessionId) return false;
+  if (!sameClaimAgent(task.claim.agentId, agentId)) return false;
   return acc.unclaimTask(taskId, { sessionId });
 }
 
@@ -244,6 +257,38 @@ export async function sessionsHoldingLiveClaims(
     )
     .all();
   return new Set(rows.flatMap((r) => (r.sessionId ? [r.sessionId] : [])));
+}
+
+/**
+ * The tasks whose working state must be kept (T14268): every task with a live
+ * claim lease, every task an active session has in focus (a lease that lapses
+ * mid-run never exposes a worker's worktree), and, until stored `active` is
+ * retired, every task still stored as `active`.
+ *
+ * @param projectRoot - Project root.
+ * @param now - ISO-8601 UTC instant (defaults to the claim clock).
+ * @returns The task ids.
+ * @example
+ * ```ts
+ * pruneWorktreesForProject(root, await inProgressTaskIds(root));
+ * ```
+ */
+export async function inProgressTaskIds(
+  projectRoot: string,
+  now: string = claimClockNow(),
+): Promise<Set<string>> {
+  const db = await getDb(projectRoot);
+  const leased = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(or(gt(schema.tasks.leaseExpiresAt, now), eq(schema.tasks.status, 'active')))
+    .all();
+  const focused = await db
+    .select({ id: schema.sessions.currentTask })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.status, 'active'))
+    .all();
+  return new Set([...leased, ...focused].flatMap((r) => (r.id ? [r.id] : [])));
 }
 
 /**

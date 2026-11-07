@@ -8913,7 +8913,21 @@ export const OPERATIONS: OperationDef[] = [
     idempotent: true,
     sessionRequired: false,
     requiredParams: [],
-    params: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description:
+          'At most this many docs per run, oldest first (T14329); default all. Run again to continue',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Report the plan counts and write nothing (T14331)',
+      },
+    ],
   },
   // ── docs.modernize (T14113 — Epic T14106) ─────────────────────────────────
   {
@@ -10483,7 +10497,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'worktree',
     operation: 'list',
     description:
-      'worktree.list (query) — enumerate git worktrees with 5 status categories (active|stale|merged|orphan|locked). Reads tasks.db for owning-task status. 60s git timeout (T9546).',
+      'worktree.list (query) — enumerate git worktrees with 4 status categories (active|redundant|keep|unknown) from the disposal proof (T14274). Reads tasks.db for owning-task status. 60s git timeout (T9546).',
     tier: 1,
     idempotent: true,
     sessionRequired: false,

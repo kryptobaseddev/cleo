@@ -226,6 +226,8 @@ export interface SendProjectPresenceOptions
   extends Omit<AttachProjectReplicaOptions, 'binder' | 'rebind'> {
   /** The replica already attached from this device (the link's `replicaId`). */
   replicaId: string;
+  /** Aborts the request alongside its timeout (teardown of best-effort work, T14284). */
+  signal?: AbortSignal;
 }
 
 /**
@@ -233,16 +235,23 @@ export interface SendProjectPresenceOptions
  * per-request timeout, and `maxAttempts` tries (one network call site).
  */
 function attachHttp(
-  opts: Pick<AttachProjectReplicaOptions, 'apiUrl' | 'bearer' | 'deviceId' | 'fetch' | 'timeoutMs'>,
+  opts: Pick<
+    AttachProjectReplicaOptions,
+    'apiUrl' | 'bearer' | 'deviceId' | 'fetch' | 'timeoutMs'
+  > & { readonly signal?: AbortSignal },
   maxAttempts: number,
 ): Http {
   const timeoutMs = opts.timeoutMs ?? NEXUS_ATTACH_TIMEOUT_MS;
   const base = opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
+  const signal = (): AbortSignal =>
+    opts.signal === undefined
+      ? AbortSignal.timeout(timeoutMs)
+      : AbortSignal.any([AbortSignal.timeout(timeoutMs), opts.signal]);
   return new Http({
     baseUrl: opts.apiUrl,
     token: opts.bearer,
     deviceId: opts.deviceId,
-    fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
+    fetch: (input, init) => base(input, { ...init, signal: signal() }),
     maxAttempts,
   });
 }

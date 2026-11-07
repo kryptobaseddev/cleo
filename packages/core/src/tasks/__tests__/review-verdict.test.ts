@@ -18,9 +18,13 @@ import {
   seedTasks,
   type TestDbEnv,
 } from '../../store/__tests__/test-db-helper.js';
+import { checkPrTaskLinkage, reviewedDirectiveLinkage } from '../evidence.js';
 import {
+  acTextSha256,
   buildReviewPacket,
+  canonicalDiff,
   checkPrReviews,
+  ghReviewDeps,
   judgeReviewVerdicts,
   type ReviewDeps,
   recordReviewVerdict,
@@ -68,7 +72,8 @@ beforeEach(async () => {
       id: 'T001',
       title: 'list --limit',
       type: 'task',
-      status: 'active',
+      // T14268: not in progress until an author starts it (a seeded `active` carries a lease).
+      status: 'pending',
       priority: 'medium',
       createdAt: new Date().toISOString(),
     },
@@ -121,6 +126,65 @@ describe('the review packet (T14122)', () => {
     );
   });
 
+  it('a diff carrying terminal escapes builds a stable packet with no raw escape byte (T14328)', async () => {
+    const escaped = DIFF.replace(
+      '+  return opts.limit',
+      '+  // \u001b[31mred\u001b[0m in a CI log fixture\n+  return opts.limit',
+    );
+    const first = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], escaped));
+    const again = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], escaped));
+    expect(first.diff).not.toContain('\u001b');
+    expect(first.diff).toContain('\\x1b[31mred\\x1b[0m');
+    expect(again.packetSha256).toBe(first.packetSha256);
+  });
+
+  it("gh is asked for the diff verbatim, and a gh failure reports gh's own error (T14328)", async () => {
+    const calls: string[][] = [];
+    const ok = ghReviewDeps((args) => {
+      calls.push(args);
+      return args[1] === 'view' ? `${HEAD}\n` : DIFF;
+    });
+    await buildReviewPacket(env.tempDir, 7, 'T001', ok);
+    expect(calls.find((a) => a[1] === 'diff')).toEqual([
+      'pr',
+      'diff',
+      '7',
+      '--color',
+      'never',
+      '--allow-escape-sequences',
+    ]);
+    const failing = ghReviewDeps(() => {
+      throw Object.assign(new Error('Command failed: gh pr view 7'), {
+        stderr:
+          'GraphQL: Could not resolve to a PullRequest with the number of 7. (repository.pullRequest)\n',
+      });
+    });
+    await expect(buildReviewPacket(env.tempDir, 7, 'T001', failing)).rejects.toThrow(
+      /gh pr view 7 failed: GraphQL: Could not resolve to a PullRequest/,
+    );
+  });
+
+  it('two diffs differing only in index-line abbreviation length hash to the same packet (T14325)', async () => {
+    const abbreviated = (len: number): string =>
+      DIFF.replace(
+        '--- a/src/list.ts',
+        `index ${'1a2b3c4d5e6f'.slice(0, len)}..${'6f5e4d3c2b1a'.slice(0, len)} 100644\n--- a/src/list.ts`,
+      );
+    const ten = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], abbreviated(10)));
+    const nine = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD], abbreviated(9)));
+    expect(nine.packetSha256).toBe(ten.packetSha256);
+    expect(ten.diff).toContain('index 100644\n--- a/src/list.ts');
+    expect(canonicalDiff('index 1a2b3c4..6f5e4d3\n')).toBe('index\n');
+    // A real change still moves the packet.
+    const changed = await buildReviewPacket(
+      env.tempDir,
+      7,
+      'T001',
+      stubGh([HEAD], abbreviated(10).replace('items.slice(0, opts.limit)', 'items')),
+    );
+    expect(changed.packetSha256).not.toBe(ten.packetSha256);
+  });
+
   it('withholdDiffPaths keeps every other file whole', () => {
     const { diff, withheldPaths } = withholdDiffPaths(DIFF);
     expect(withheldPaths).toEqual(['.changeset/list-limit.md']);
@@ -150,6 +214,37 @@ describe('recording a verdict (T14122)', () => {
     );
   };
 
+  it('a verdict on a packet fetched seconds earlier is not stale when only the index abbreviation changed (T14325)', async () => {
+    await env.accessor.claimTask('T001', {
+      sessionId: 'ses_author',
+      agentId: 'agent-author',
+      mode: 'acquire',
+    });
+    await bindTestSession(env);
+    vi.stubEnv('CLEO_AGENT_ID', 'agent-reviewer');
+    const withIndex = (ids: string): string =>
+      DIFF.replace('--- a/src/list.ts', `index ${ids} 100644\n--- a/src/list.ts`);
+    const packet = await buildReviewPacket(
+      env.tempDir,
+      7,
+      'T001',
+      stubGh([HEAD], withIndex('1a2b3c4d5e..6f5e4d3c2b')),
+    );
+    const v = await recordReviewVerdict(
+      env.tempDir,
+      {
+        prNumber: 7,
+        taskId: 'T001',
+        ac: 'AC2',
+        verdict: 'unmet',
+        reason: 'The diff never checks for a negative limit.',
+        packetSha256: packet.packetSha256,
+      },
+      { deps: stubGh([HEAD], withIndex('1a2b3c4d5..6f5e4d3c2')) },
+    );
+    expect(v).toMatchObject({ headSha: HEAD, verdict: 'unmet' });
+  });
+
   it('records an unmet verdict under the reviewer’s session, bound to the head, with the authors', async () => {
     await env.accessor.claimTask('T001', {
       sessionId: 'ses_author',
@@ -169,6 +264,8 @@ describe('recording a verdict (T14122)', () => {
     });
     expect(v.authors.sessionIds).toContain('ses_author');
     expect(v.authors.agentIds).toEqual(['agent-author']);
+    // T14259: the verdict binds the criterion text it judged.
+    expect(v.acTextSha256).toBe(acTextSha256('a negative limit is rejected with E_VALIDATION'));
     expect(await reviewVerdictsFor(env.tempDir, 'T001', 7)).toEqual([v]);
     expect(await reviewVerdictsFor(env.tempDir, 'T001', 8)).toEqual([]);
   });
@@ -197,6 +294,24 @@ describe('recording a verdict (T14122)', () => {
     await expect(record()).rejects.toThrow(/has no recorded author/);
     vi.stubEnv('CLEO_SESSION_ID', '');
     await expect(record()).rejects.toThrow(/reviewer’s own CLEO session/);
+  });
+
+  it('the no-author fix runs as written: the delivering session claims a BLOCKED task, then the reviewer records (T14300)', async () => {
+    await bindTestSession(env);
+    vi.stubEnv('CLEO_AGENT_ID', 'agent-reviewer');
+    await env.accessor.updateTaskFields('T001', { status: 'blocked' });
+    const refused = await record().catch((err: unknown) => err);
+    expect(refused).toMatchObject({ fix: expect.stringContaining('`cleo claim T001`') });
+    expect(String((refused as { fix?: string }).fix)).toMatch(/never the reviewer/);
+    // `cleo claim T001` from the delivering session (tasks.claim → claimTask).
+    await env.accessor.claimTask('T001', {
+      sessionId: 'ses_author',
+      agentId: 'agent-author',
+      mode: 'acquire',
+    });
+    const v = await record();
+    expect(v.authors.sessionIds).toContain('ses_author');
+    expect(v.reviewer.sessionId).toBe(BOUND_TEST_SESSION_ID);
   });
 
   it('a claim released by a refocus still names its author: the author is refused, another reviewer accepted (T14213)', async () => {
@@ -314,6 +429,34 @@ describe('judgeReviewVerdicts (T14122)', () => {
         { ac: 'AC4', kind: 'missing', reason: 'AC4: no verdict on head aaaaaaa' },
       ],
     });
+  });
+
+  it('a verdict binds its criterion text: an edit after it invalidates it, whitespace does not, a legacy verdict is judged as before (T14259)', () => {
+    const bound = {
+      ...v('AC1', 'met', HEAD, '2026-10-28T11:00:00Z'),
+      acTextSha256: acTextSha256('list accepts a limit option'),
+    };
+    const legacy = v('AC2', 'met', HEAD, '2026-10-28T11:00:00Z');
+    const judge = (ac1: string) =>
+      judgeReviewVerdicts(
+        [bound, legacy],
+        ['AC1', 'AC2'],
+        HEAD,
+        new Map([
+          ['AC1', ac1],
+          ['AC2', 'edited, but this verdict predates the binding'],
+        ]),
+      );
+    expect(judge('list accepts a limit option').met).toEqual(['AC1', 'AC2']);
+    expect(judge('  list accepts   a limit\noption ').met).toEqual(['AC1', 'AC2']);
+    expect(judge('list accepts a limit option of at most 100').gaps).toEqual([
+      {
+        ac: 'AC1',
+        kind: 'edited',
+        reason:
+          'AC1: edited after verdict AC1-2026-10-28T11:00:00Z on head aaaaaaa; review it again',
+      },
+    ]);
   });
 
   it('a verdict whose reviewer is among its recorded authors counts for nothing', () => {
@@ -550,5 +693,86 @@ describe('review-shopping guard (T14128)', () => {
         met: { id: answer.id, reviewer: answer.reviewer },
       },
     ]);
+  });
+});
+
+describe('the merge sweep linkage: a Closes: line plus non-author verdicts (T14259)', () => {
+  /** The #1062/T11791 shape: a child delivered by its parent's PR, declaring files the PR never touched. */
+  const parentPr = {
+    title: 'feat(M6): the parent epic delivers its children',
+    body: 'Parent work.\n\nCloses: T001 AC1,AC2',
+    headRefName: 'task/T999-parent',
+    changedPaths: ['packages/parent/src/a.ts'],
+    changedFileCount: 1,
+  };
+  const child = {
+    task: {
+      id: 'T001',
+      kind: 'work' as const,
+      labels: [],
+      files: ['packages/child/src/only.ts'],
+      acceptance: [],
+    },
+    gates: ['implemented' as const],
+    criteria: [],
+  };
+
+  it('the old rule refuses the child; the line and the verdicts link it', () => {
+    expect(checkPrTaskLinkage(7, parentPr, child)?.codeName).toBe('E_EVIDENCE_CONTENT_MISMATCH');
+    expect(checkPrTaskLinkage(7, parentPr, child, undefined, true)).toBeNull();
+  });
+
+  it('closes with met verdicts on every named criterion; an edit after the verdicts refuses, whitespace does not', async () => {
+    await env.accessor.claimTask('T001', {
+      sessionId: 'ses_author',
+      agentId: 'agent-author',
+      mode: 'acquire',
+    });
+    await bindTestSession(env);
+    vi.stubEnv('CLEO_AGENT_ID', 'agent-reviewer');
+    const link = (body = parentPr.body) =>
+      reviewedDirectiveLinkage(7, body, HEAD, env.tempDir, 'T001');
+    expect(await link()).toBe(false);
+    for (const ac of ['AC1', 'AC2']) {
+      const packet = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD]));
+      await recordReviewVerdict(
+        env.tempDir,
+        {
+          prNumber: 7,
+          taskId: 'T001',
+          ac,
+          verdict: 'met',
+          reason: 'The parent PR delivers it.',
+          packetSha256: packet.packetSha256,
+        },
+        { deps: stubGh([HEAD]) },
+      );
+    }
+    expect(await link()).toBe(true);
+    // No line naming the task links nothing, whatever the verdicts.
+    expect(await link('Parent work, no lines.')).toBe(false);
+    expect(await link('Closes: T002 AC1')).toBe(false);
+    const rewrite = async (text: string) => {
+      const row = (await env.accessor.getAcRows('T001')).find((r) => r.ordinal === 2);
+      if (row === undefined) throw new Error('AC2 row missing');
+      await env.accessor.transaction(async (tx) => {
+        await tx.updateAcRows([
+          {
+            id: row.id,
+            taskId: 'T001',
+            ordinal: 2,
+            text,
+            kind: 'text',
+            sourceKey: 'direct:2',
+            targetTaskId: null,
+            projection: 'legacy',
+          },
+        ]);
+      });
+    };
+    await rewrite('  a negative limit is rejected   with E_VALIDATION ');
+    expect(await link()).toBe(true);
+    await rewrite('a negative or zero limit is rejected with E_VALIDATION');
+    expect(await link()).toBe(false);
   });
 });

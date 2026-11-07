@@ -233,11 +233,27 @@ writeFileSync(join(sandbox, '.cleo-test-sandbox'), 'vitest fork sandbox (T12687)
 delete process.env.CLEO_TEST_ALLOW_PROJECT_DB;
 process.env.CLEO_TEST_ALLOWED_DB_ROOTS = sandbox;
 process.env.CLEO_DISABLE_LOCAL_INFERENCE = '1';
-// T13133: admission never samples the HOST's memory or CPU pressure in a test,
-// so a loaded dev machine or a PSI-noisy runner cannot turn a test's admission
-// into a refusal. Tests of pressure behaviour pass their own sampler, or
-// delete this in their own setup.
-process.env.CLEO_ADMISSION_PRESSURE = 'off';
+// T13133, T14282: admission never samples the HOST's memory or CPU pressure in
+// a test, so a loaded dev machine or a PSI-noisy runner cannot turn a test's
+// admission into a refusal. It reads a calm fixture instead, through the real
+// admission logic; the fixture is honoured only below the sandbox marker
+// written above. Tests of pressure behaviour pass their own sampler, point
+// this at a hot fixture, or delete it in their own setup.
+const calmSample = join(sandbox, 'calm-resource-sample.json');
+const calmPsi = { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 };
+writeFileSync(
+  calmSample,
+  JSON.stringify({
+    sampledAtMs: 0,
+    pressureAvailable: true,
+    memAvailableBytes: 64 * 1024 ** 3,
+    globalPressure: { some: calmPsi, full: calmPsi },
+    slicePressure: null,
+    cpuPressure: null,
+    walObservations: [],
+  }),
+);
+process.env.CLEO_RESOURCE_SAMPLE_FILE = calmSample;
 // Heavy runs plan for half the budget in every test fork, CI runner or not
 // (T13132): `CI` would otherwise switch the per-run share to the whole budget.
 // Tests of the CI mode pass their own environment.

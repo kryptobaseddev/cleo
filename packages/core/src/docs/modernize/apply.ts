@@ -54,6 +54,7 @@ import type {
   DocsModernizeReceiptOp,
 } from '@cleocode/contracts';
 import { docsModernizeJournalLineSchema } from '@cleocode/contracts/docs/modernize.js';
+import { pushWarning } from '../../output.js';
 import { getCleoDirAbsolute } from '../../paths.js';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { backfillBlobStoreBytes } from '../../store/blob-keep.js';
@@ -882,7 +883,16 @@ export async function rollbackDocsModernize(
           break;
         case 'supersede':
           if (op.slug && op.target && op.prior) {
-            await restoreSupersession(projectRoot, op.slug, op.target, op.prior);
+            const undone = await restoreSupersession(projectRoot, op.slug, op.target, op.prior);
+            if (undone === 'kept') {
+              pushWarning({
+                // @sync-invariant docs.lifecycle.transitions the rollback keeps a landed supersession (superseded is final on every replica); nothing is rejected
+                code: 'W_DOCS_MODERNIZE_SUPERSESSION_KEPT',
+                message:
+                  `${op.slug} stays superseded by ${op.target}: superseded is final on every replica, so the rollback ` +
+                  `cannot undo it. To make ${op.slug} current again, add it as a new doc and supersede ${op.target} with it.`,
+              });
+            }
           }
           break;
         case 'merge': {

@@ -279,6 +279,34 @@ function registeredKindValues(): readonly string[] {
     .map((d) => d.kind);
 }
 
+/**
+ * Record a just-added doc's identity, first version and head (T14329) and
+ * return its head version uid. The doc is already stored, so a failure is a
+ * warning, never a failed add: the projection is one transaction, so nothing
+ * half-written stays, and `cleo docs migrate` records the head later.
+ */
+async function recordAddedDocHead(
+  projectRoot: string,
+  slug: string,
+  attachedBy: string,
+  bytes: Buffer,
+): Promise<string | undefined> {
+  try {
+    const { recordNewDocIdentity } = await import('@cleocode/core/docs/docs-update');
+    return (await recordNewDocIdentity(projectRoot, { slug, authorAgentId: attachedBy, bytes }))
+      .headVersionUid;
+  } catch (err) {
+    pushWarning({
+      // @sync-invariant none:input-shape the warning only reports that the head was not recorded; the add already committed and nothing is rejected
+      code: 'W_DOC_HEAD_DEFERRED',
+      message:
+        `doc '${slug}' was added, but its version head could not be recorded ` +
+        `(${err instanceof Error ? err.message : String(err)}); run \`cleo docs migrate\` to record it.`,
+    });
+    return undefined;
+  }
+}
+
 async function currentAttachmentBackend(): Promise<AttachmentBackend> {
   return resolveAttachmentBackend();
 }
@@ -944,8 +972,17 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
   // ── docs.migrate (T13360 — spec §5 honest legacy docs import) ─────────────
 
-  migrate: async (_params) => {
+  migrate: async (params) => {
     const projectRoot = getProjectRoot();
+    // T14329: every un-migrated doc by default (one run, one backup); --limit batches.
+    const limit = params.limit;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape a non-positive or fractional --limit is refused before the store is opened
+        `--limit must be a positive integer (got ${String(params.limit)})`,
+        'migrate',
+      );
+    }
     // The T13448 harness needs the live native handle; opening through the
     // chokepoint also ensures migrations are reconciled before we read.
     const { getDb, getNativeDb } = await sqliteForMigration();
@@ -962,15 +999,27 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       projectRoot,
       db: native,
       cwd: projectRoot,
+      ...(limit !== undefined ? { limit } : {}),
+      dryRun: params.dryRun === true,
     });
     const step = result.report.steps[0];
-    const summary =
-      result.report.status === 'completed'
-        ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
-          `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
-          `${result.counts.nativeConflicts} native-conflict skips ` +
-          `(${result.counts.versions} history rows)`
-        : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
+    const left =
+      result.counts.remaining > 0
+        ? `; ${result.counts.remaining} left (limit ${limit}): run cleo docs migrate again`
+        : '';
+    const summary = params.dryRun
+      ? `legacy docs migration dry run: would capture ${result.counts.toCapture}, mark ` +
+        `${result.counts.toMarkDangling} dangling (${result.counts.versions} history rows); ` +
+        `${result.counts.toSkip} already migrated, ${result.counts.nativeConflicts} native-conflict skips${left}; nothing written`
+      : result.skippedStep
+        ? `legacy docs migration: nothing to migrate (${result.counts.toSkip} already migrated, ` +
+          `${result.counts.nativeConflicts} native-conflict skips); no snapshot written`
+        : result.report.status === 'completed'
+          ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
+            `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
+            `${result.counts.nativeConflicts} native-conflict skips ` +
+            `(${result.counts.versions} history rows)${left}`
+          : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
     return lafsSuccess<DocsMigrateResult>(
       {
         status: result.report.status,
@@ -979,6 +1028,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         skipped: result.counts.toSkip,
         nativeConflicts: result.counts.nativeConflicts,
         versionsImported: result.counts.versions,
+        remaining: result.counts.remaining,
+        dryRun: params.dryRun === true,
         failure: result.report.failure,
         backupId: step?.backup?.backupId ?? null,
         transaction: step?.transaction ?? 'none',
@@ -1603,6 +1654,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             // the auto-allocated slug would otherwise leak in the in-process
             // reservedSlugs set indefinitely. Consume defensively here.
             if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+            const headVersionUid =
+              slug !== undefined
+                ? await recordAddedDocHead(projectRoot, slug, attachedBy, bytes)
+                : undefined;
 
             // T947 Wave C — llmtxt mirror is now the canonical blob storage path.
             // The legacy store write above remains for slug/refcount/lifecycle
@@ -1661,6 +1716,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 ...(slug !== undefined ? { slug } : {}),
                 ...(type !== undefined ? { type } : {}),
                 ...(adrNumber !== undefined ? { adrNumber } : {}),
+                ...(headVersionUid !== undefined ? { headVersionUid } : {}),
               },
               'add',
             );
@@ -1747,6 +1803,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             }
 
             if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+            const headVersionUid =
+              slug !== undefined
+                ? await recordAddedDocHead(projectRoot, slug, attachedBy, bytes)
+                : undefined;
 
             // T947 Wave C — manifest.db blob mirror. Use the slug (or sha prefix)
             // as the blob name so `blobList`/`publishDocs` see a stable handle.
@@ -1804,6 +1864,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 ...(slug !== undefined ? { slug } : {}),
                 ...(type !== undefined ? { type } : {}),
                 ...(adrNumber !== undefined ? { adrNumber } : {}),
+                ...(headVersionUid !== undefined ? { headVersionUid } : {}),
               },
               'add',
             );
@@ -1857,6 +1918,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
             // T10360 — consume the auto-allocated reservation (see file-path branch).
             if (adrNumber !== undefined && slug !== undefined) consumeReservedSlug(slug);
+            const headVersionUid =
+              slug !== undefined
+                ? await recordAddedDocHead(projectRoot, slug, attachedBy, urlBytes)
+                : undefined;
 
             const backend: AttachmentBackend = await currentAttachmentBackend();
             const projection =
@@ -1900,6 +1965,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 ...(slug !== undefined ? { slug } : {}),
                 ...(type !== undefined ? { type } : {}),
                 ...(adrNumber !== undefined ? { adrNumber } : {}),
+                ...(headVersionUid !== undefined ? { headVersionUid } : {}),
               },
               'add',
             );

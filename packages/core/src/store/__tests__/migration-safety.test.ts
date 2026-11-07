@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { leaseTestTasks } from './test-db-helper.js';
 
 describe('Migration Safety Integration Tests', () => {
   let tempDir: string;
@@ -495,6 +496,7 @@ describe('Migration Safety Integration Tests', () => {
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
+      leaseTestTasks(['T001']);
 
       const { getTask } = await import('../tasks-sqlite.js');
       const task = await getTask('T001');

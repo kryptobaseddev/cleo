@@ -54,14 +54,24 @@ import { LinuxResourceBackend } from './linux-backend.js';
 /**
  * The backend for this platform: macOS gets {@link DarwinResourceBackend}
  * (kernel pressure level + load), everything else {@link LinuxResourceBackend}
- * (which degrades to availability-only where `/proc` is absent).
+ * (which degrades to availability-only where `/proc` is absent). Inside the
+ * test sandbox, `CLEO_RESOURCE_SAMPLE_FILE` replaces the host's samples with a
+ * fixture (T14282).
  *
  * @task T12981
  */
 export function defaultResourceBackend(
   platform: NodeJS.Platform = process.platform,
 ): ResourceBackend {
-  return platform === 'darwin' ? new DarwinResourceBackend() : new LinuxResourceBackend();
+  const base = platform === 'darwin' ? new DarwinResourceBackend() : new LinuxResourceBackend();
+  // T14282: the test suite's fixed sample (`RESOURCE_SAMPLE_FILE_ENV` in
+  // sample-fixture.ts), honoured only in the test sandbox. Its module loads only
+  // when the variable is set, so it never joins the CLI's startup graph.
+  if (!process.env.CLEO_RESOURCE_SAMPLE_FILE) return base;
+  return {
+    sample: async () => (await import('./sample-fixture.js')).fixtureSample(base),
+    sweepChildRss: (pids) => base.sweepChildRss(pids),
+  };
 }
 
 // ---------------------------------------------------------------------------

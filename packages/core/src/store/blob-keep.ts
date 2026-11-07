@@ -28,7 +28,7 @@
  * @task T12535
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -36,6 +36,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -397,6 +398,70 @@ export function resolveLegacyByteSource(
   const keep = join(cleoDir, 'attachments', 'keep', sha256.slice(0, 2), sha256.slice(2));
   if (existsSync(keep) && !existsSync(`${keep}.tomb`)) return keep;
   return null;
+}
+
+/** Mime the legacy-tree probe assumes for doc bytes (the primary path's extension). */
+const DOC_PROBE_MIME = 'text/markdown';
+
+/**
+ * Read content-addressed bytes and verify them (T14329): the blob store
+ * (`.cleo/blobs/blobs/<sha256>`) first, then the legacy attachment tree
+ * ({@link resolveLegacyByteSource}). A candidate whose SHA-256 does not match
+ * is skipped: a corrupt file at the address is a gap, not content. Read-only
+ * and synchronous, so it is safe inside a write transaction.
+ *
+ * Every reader of a conduit version's bytes goes through here, so a version
+ * resolves by its `content_hash` whatever its `storage_key` layout
+ * (`<2>/<rest>.md` from the section write path, `sha256:<hex>` from the
+ * migration and the history backfill) and whether or not the legacy tree
+ * still holds it.
+ *
+ * @param cleoDir - Absolute `.cleo` directory.
+ * @param sha256 - The content hash.
+ * @returns The verified bytes, or `null` when no candidate holds them.
+ * @task T14329
+ */
+export function readVerifiedBlobBytes(cleoDir: string, sha256: string): Buffer | null {
+  const candidates = [
+    join(cleoDir, 'blobs', 'blobs', sha256),
+    resolveLegacyByteSource(cleoDir, sha256, DOC_PROBE_MIME),
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null) continue;
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(candidate);
+    } catch {
+      continue;
+    }
+    if (createHash('sha256').update(bytes).digest('hex') === sha256) return bytes;
+  }
+  return null;
+}
+
+/**
+ * Store verified bytes in the blob store (`.cleo/blobs/blobs/<sha256>`)
+ * unless a matching file is already there (T14329). Synchronous (safe inside
+ * a write transaction) and atomic: a unique tmp file renamed into place, so
+ * an interrupted write never leaves a partial file at the address.
+ *
+ * @param cleoDir - Absolute `.cleo` directory.
+ * @param sha256 - The bytes' content hash (checked against the bytes).
+ * @param bytes - The content.
+ * @throws When the bytes do not hash to `sha256`, or the write fails.
+ * @task T14329
+ */
+export function writeBlobStoreBytesSync(cleoDir: string, sha256: string, bytes: Buffer): void {
+  if (createHash('sha256').update(bytes).digest('hex') !== sha256) {
+    // @sync-invariant none:local-only the blob store is a local content-addressed byte cache; unverified bytes are refused before any write
+    throw new Error(`blob store write refused: bytes do not hash to ${sha256}`);
+  }
+  const target = join(cleoDir, 'blobs', 'blobs', sha256);
+  if (fileBytesMatchSha256(target, sha256)) return;
+  mkdirSync(dirname(target), { recursive: true });
+  const tmp = `${target}.tmp.${process.pid}.${randomUUID()}`;
+  writeFileSync(tmp, bytes);
+  renameSync(tmp, target);
 }
 
 /**

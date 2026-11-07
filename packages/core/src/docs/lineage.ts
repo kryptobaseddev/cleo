@@ -19,7 +19,7 @@ import type {
 import type { DocsLineage } from '@cleocode/contracts/operations/docs.js';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../store/sqlite.js';
-import { attachmentRefs, attachments } from '../store/tasks-schema.js';
+import { attachmentRefs } from '../store/tasks-schema.js';
 
 /** Hops followed along `superseded_by` before giving up (a cycle guard). */
 export const DOC_LINEAGE_MAX_HOPS = 32;
@@ -49,32 +49,23 @@ export async function readDocLineage(
   slug: string,
 ): Promise<DocsLineage | null> {
   const db = await getDb(projectRoot);
-  const row = await db.select().from(attachments).where(eq(attachments.slug, slug)).get();
-  if (!row) return null;
-  const slugOf = async (id: string | null): Promise<string | null> => {
-    if (!id) return null;
-    const hit = await db
-      .select({ slug: attachments.slug })
-      .from(attachments)
-      .where(eq(attachments.id, id))
-      .get();
-    return hit?.slug ?? null;
-  };
+  // T14288: slug (live or an alias) → the doc's identity → its head and metadata.
+  const { resolveDocRef, supersessionSlugs } = await import('./slug-rename.js');
+  const ref = await resolveDocRef(projectRoot, slug);
+  if (!ref) return null;
+  const row = ref.ownRow;
+  const links = await supersessionSlugs(projectRoot, ref);
 
   // Walk superseded_by to the doc that is current now.
-  let currentSlug = slug;
-  let next = row.supersededBy ?? null;
-  const seen = new Set<string>([row.id]);
+  let currentSlug = ref.slug;
+  let next = links.supersededBy;
+  const seen = new Set<string>([ref.slug]);
   for (let hop = 0; next && !seen.has(next) && hop < DOC_LINEAGE_MAX_HOPS; hop += 1) {
     seen.add(next);
-    const hit = await db
-      .select({ slug: attachments.slug, supersededBy: attachments.supersededBy })
-      .from(attachments)
-      .where(eq(attachments.id, next))
-      .get();
+    const hit = await resolveDocRef(projectRoot, next);
     if (!hit) break;
-    if (hit.slug) currentSlug = hit.slug;
-    next = hit.supersededBy ?? null;
+    currentSlug = hit.slug;
+    next = (await supersessionSlugs(projectRoot, hit)).supersededBy;
   }
 
   const owners = await db
@@ -85,12 +76,12 @@ export async function readDocLineage(
   const servesTasks = new Set<string>();
   for (const o of owners)
     if (o.ownerType === 'task' && /^T\d+$/.test(o.ownerId)) servesTasks.add(o.ownerId);
-  for (const t of taskIdsOf(row.relatedTasks ?? null)) servesTasks.add(t);
+  for (const t of taskIdsOf(ref.meta.relatedTasks)) servesTasks.add(t);
 
   return {
-    lifecycleStatus: row.lifecycleStatus,
-    supersedes: await slugOf(row.supersedes ?? null),
-    supersededBy: await slugOf(row.supersededBy ?? null),
+    lifecycleStatus: ref.meta.lifecycleStatus ?? row.lifecycleStatus,
+    supersedes: links.supersedes,
+    supersededBy: links.supersededBy,
     currentSlug,
     servesTasks: [...servesTasks].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))),
   };
@@ -234,7 +225,6 @@ export async function findCurrentDocs(
       return [];
     }
   }
-  const db = await getDb(projectRoot);
   const out: BrainCompactHit[] = [];
   for (const slug of slugs) {
     if (out.length >= limit) break;
@@ -248,21 +238,16 @@ export async function findCurrentDocs(
       if (current !== slug && existing.replaces === undefined) existing.replaces = slug;
       continue;
     }
-    const row = await db
-      .select({
-        createdAt: attachments.createdAt,
-        summary: attachments.summary,
-        status: attachments.lifecycleStatus,
-      })
-      .from(attachments)
-      .where(eq(attachments.slug, current))
-      .get();
-    if (!row || row.status === 'superseded') continue;
+    // T14288: the current doc's metadata through its identity.
+    const { resolveDocRef } = await import('./slug-rename.js');
+    const ref = await resolveDocRef(projectRoot, current);
+    const status = ref ? (ref.meta.lifecycleStatus ?? ref.ownRow.lifecycleStatus) : null;
+    if (!ref || status === 'superseded') continue;
     out.push({
       id: current,
       type: 'doc',
-      title: row.summary ?? current,
-      date: row.createdAt,
+      title: ref.meta.summary ?? current,
+      date: ref.ownRow.createdAt,
       rrfScore: 1 / (out.length + 1 + DOC_RRF_K),
       ...(current !== slug ? { replaces: slug } : {}),
       _next: { fetch: `cleo docs fetch ${current}` },

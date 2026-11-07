@@ -29,7 +29,7 @@ vi.mock('../../memory/lessons.js', () => ({
 }));
 
 import { getTaskAccessor } from '../../store/data-accessor.js';
-import { computeBriefing } from '../briefing.js';
+import { computeBriefing, rankBriefingLessons } from '../briefing.js';
 
 /** Install a task accessor with no tasks and no focus. */
 function setupMockAccessor(): void {
@@ -84,7 +84,7 @@ describe('computeBriefing lessons index', () => {
 
     expect(mockListLessons).toHaveBeenCalledWith(
       '/fake/project',
-      expect.objectContaining({ scope: 'all', limit: 8 }),
+      expect.objectContaining({ scope: 'all', limit: 50 }),
     );
     expect(briefing.lessons).toEqual([
       {
@@ -146,5 +146,40 @@ describe('computeBriefing lessons index', () => {
 
     expect(briefing.lessons).toBeUndefined();
     expect(briefing.warnings).toContain('Lessons unavailable: BRAIN database unavailable');
+  });
+});
+
+describe('rankBriefingLessons (T14305)', () => {
+  const lesson = (id: string, scope: 'project' | 'global', rule: string, why = '') => ({
+    id,
+    rule,
+    why,
+    createdAt: '2026-11-05 00:00:00',
+    scope,
+  });
+
+  it('puts lessons naming the focused task or its parent first, then project, then global', () => {
+    const pool = [
+      lesson('O-g1', 'global', 'newest global rule'),
+      lesson('O-p1', 'project', 'project rule'),
+      lesson('O-g2', 'global', 'older rule', 'broke T14305 before'),
+      lesson('O-g3', 'global', 'rule about T143050, not the focus'),
+      lesson('O-p2', 'project', 'epic rule', 'seen under T14245'),
+    ];
+    expect(rankBriefingLessons(pool, ['T14305', 'T14245']).map((l) => l.id)).toEqual([
+      'O-g2',
+      'O-p2',
+      'O-p1',
+      'O-g1',
+      'O-g3',
+    ]);
+    // With no focus, project lessons lead and each group stays newest first.
+    expect(rankBriefingLessons(pool, []).map((l) => l.id)).toEqual([
+      'O-p1',
+      'O-p2',
+      'O-g1',
+      'O-g2',
+      'O-g3',
+    ]);
   });
 });

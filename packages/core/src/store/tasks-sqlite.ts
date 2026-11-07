@@ -40,7 +40,13 @@ import {
 import { parseLabels, updateTaskLabels } from './db-helpers.js';
 import { rethrowDependencyCycle } from './dependency-cycles.js';
 import { getDb, getNativeDb } from './sqlite.js';
-import { captureTaskAccessorScope, createSqliteDataAccessor } from './sqlite-data-accessor.js';
+import {
+  captureTaskAccessorScope,
+  createSqliteDataAccessor,
+  derivedStatusIn,
+  derivedStatusSql,
+} from './sqlite-data-accessor.js';
+import { claimClockNow } from './task-claim.js';
 import { assertTaskVersion, nextTaskVersion } from './task-version.js';
 import type { TaskRow } from './tasks-schema.js';
 import * as schema from './tasks-schema.js';
@@ -71,7 +77,7 @@ async function insertTaskRow(task: Task, cwd?: string): Promise<Task> {
       ExitCode.INVALID_INPUT,
       `Refusing to insert a task with a malformed id: ${JSON.stringify(task.id)}`,
       {
-        fix: 'A task id must be a non-empty identifier under 64 characters, starting with a letter, containing no whitespace, path separators or control characters (e.g. "T1234"). This is a bug in the caller — the id should come from the id generator, not from user input or a path.',
+        fix: 'A task id is T followed by digits (e.g. "T1234"). This is a bug in the caller — the id should come from the id generator, not from user input or a path.',
         details: { field: 'id', value: String(task.id) },
       },
     );
@@ -236,7 +242,7 @@ export async function listTasks(
     // Exclude archived by default
     conditions.push(ne(schema.tasks.status, 'archived'));
 
-    if (filters?.status) conditions.push(eq(schema.tasks.status, filters.status));
+    if (filters?.status) conditions.push(derivedStatusIn([filters.status], claimClockNow()));
     if (filters?.parentId !== undefined) {
       if (filters.parentId === null) {
         conditions.push(isNull(schema.tasks.parentId));
@@ -548,14 +554,16 @@ export async function getSubtree(rootId: string, cwd?: string): Promise<Task[]> 
 export async function countByStatus(cwd?: string): Promise<Record<string, number>> {
   return inTaskStoreScope(cwd, async (cwd) => {
     const db = await getDb(cwd);
+    // T14268: `pending` / `active` are counted as tasks read: by the claim lease.
+    const derived = derivedStatusSql(claimClockNow());
     const rows = await db
       .select({
-        status: schema.tasks.status,
+        status: derived,
         count: count(),
       })
       .from(schema.tasks)
       .where(ne(schema.tasks.status, 'archived'))
-      .groupBy(schema.tasks.status)
+      .groupBy(derived)
       .all();
 
     const result: Record<string, number> = {};

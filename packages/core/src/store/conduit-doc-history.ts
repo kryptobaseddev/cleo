@@ -32,7 +32,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { birthFingerprint, mintedRowUid, naturalRowUid } from './row-identity.js';
 import {
@@ -174,6 +174,75 @@ export async function resolveConduitDocUid(
 const ADOPT_SENTINEL = 'cleodocs';
 
 /**
+ * Whether a doc identity answers to a slug (T14288 PR 3b): a live slug on
+ * `conduit_attachments` or an old slug in `conduit_doc_slug_aliases`. Slug
+ * allocators check it beside the registry, so a new doc never takes a slug a
+ * renamed doc's old links still reach.
+ *
+ * @param db - The project store's drizzle handle.
+ * @param slug - The candidate slug.
+ * @returns True when a doc identity answers to the slug.
+ * @task T14288
+ */
+export async function isConduitDocSlug(
+  db: Awaited<ReturnType<typeof getDb>>,
+  slug: string,
+): Promise<boolean> {
+  const live = await db
+    .select({ uid: conduitAttachments.uid })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.slug, slug))
+    .get();
+  if (live) return true;
+  const alias = await db
+    .select({ uid: conduitDocSlugAliases.docUid })
+    .from(conduitDocSlugAliases)
+    .where(eq(conduitDocSlugAliases.slug, slug))
+    .get();
+  return alias !== undefined;
+}
+
+/**
+ * The ONE identity recipe of a doc born in the registry (T14332): its uid,
+ * birth fingerprint and birth facts, all functions of the doc's slug and its
+ * registry row's `created_at` (a synced value), never of the device. Adopt on
+ * first update ({@link ensureConduitDoc}), `docs add` (which adopts the row it
+ * just stored) and the legacy migration ({@link importMigratedConduitDoc}) all
+ * mint it, so two devices that bring the same doc into the conduit family by
+ * different paths derive one `(uid, birth_fp)` and the receiver places the
+ * peer's row as a duplicate (T13586).
+ *
+ * @param slug - The doc's slug.
+ * @param birth - The registry row's `created_at`.
+ * @param sha256 - The registry row's content hash.
+ * @returns The doc's whole `conduit_attachments` identity row.
+ * @task T14332
+ */
+export function legacyDocIdentity(
+  slug: string,
+  birth: string,
+  sha256: string,
+): typeof conduitAttachments.$inferInsert & { readonly uid: string } {
+  return {
+    slug,
+    uid: mintedRowUid('project', 'conduit_attachments', [slug], birth),
+    birthFp: birthFingerprint('conduit_attachments', birth, [ADOPT_SENTINEL, ADOPT_SENTINEL]),
+    createdAt: birth,
+    conversationId: ADOPT_SENTINEL,
+    fromAgentId: ADOPT_SENTINEL,
+    // A thin shell: the version rows carry the content addressing. Every
+    // column is a synced fact, so both paths insert the identical row.
+    content: Buffer.alloc(0),
+    originalSize: 0,
+    compressedSize: 0,
+    contentHash: sha256,
+    format: 'text',
+    title: slug,
+    tokens: 0,
+  };
+}
+
+/**
  * Read one `conduit_attachments` row by its immutable uid.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
@@ -235,7 +304,13 @@ export async function findConduitAttachmentByUid(
 // @sync-invariant docs.doc.adopt-once the existence probe and the identity-shell insert are one causal step; the uid is derived from the legacy doc, so a re-adopt here or on another device converges (T13586)
 export async function ensureConduitDoc(
   projectRoot: string,
-  input: { slug: string; authorAgentId: string; content: Buffer; legacyBirth?: string },
+  input: {
+    slug: string;
+    authorAgentId: string;
+    content: Buffer;
+    legacyBirth?: string;
+    legacySha256?: string;
+  },
 ): Promise<{ uid: string; adopted: boolean }> {
   requireNonEmpty('slug', input.slug);
   requireNonEmpty('authorAgentId', input.authorAgentId);
@@ -243,42 +318,37 @@ export async function ensureConduitDoc(
   if (existing !== null) return { uid: existing, adopted: false };
 
   const db = await getDb(projectRoot);
-  const birth =
-    input.legacyBirth ??
-    (
-      await db
-        .select({ birth: docsAttachments.createdAt })
-        .from(docsAttachments)
-        .where(eq(docsAttachments.slug, input.slug))
-        .get()
-    )?.birth ??
-    null;
-  const identity =
-    birth === null
-      ? { fromAgentId: input.authorAgentId }
-      : {
-          fromAgentId: ADOPT_SENTINEL,
-          createdAt: birth,
-          uid: mintedRowUid('project', 'conduit_attachments', [input.slug], birth),
-          birthFp: birthFingerprint('conduit_attachments', birth, [ADOPT_SENTINEL, ADOPT_SENTINEL]),
-        };
+  const legacy =
+    input.legacyBirth !== undefined && input.legacySha256 !== undefined
+      ? { birth: input.legacyBirth, sha256: input.legacySha256 }
+      : ((await db
+          .select({ birth: docsAttachments.createdAt, sha256: docsAttachments.sha256 })
+          .from(docsAttachments)
+          .where(eq(docsAttachments.slug, input.slug))
+          .get()) ?? null);
+  const birth = input.legacyBirth ?? legacy?.birth ?? null;
   await db
     .insert(conduitAttachments)
-    .values({
-      slug: input.slug,
-      conversationId: ADOPT_SENTINEL,
-      ...identity,
-      content: Buffer.alloc(0),
-      originalSize: input.content.length,
-      compressedSize: input.content.length,
-      contentHash: createHash('sha256').update(input.content).digest('hex'),
-      format: 'text',
-      title: input.slug,
-      tokens: input.content
-        .toString('utf-8')
-        .split(/\s+/)
-        .filter((w) => w.length > 0).length,
-    })
+    .values(
+      birth !== null && legacy !== null
+        ? legacyDocIdentity(input.slug, birth, legacy.sha256)
+        : {
+            // A slug with no registry row is a new doc: a random mint.
+            slug: input.slug,
+            conversationId: ADOPT_SENTINEL,
+            fromAgentId: input.authorAgentId,
+            content: Buffer.alloc(0),
+            originalSize: input.content.length,
+            compressedSize: input.content.length,
+            contentHash: createHash('sha256').update(input.content).digest('hex'),
+            format: 'text',
+            title: input.slug,
+            tokens: input.content
+              .toString('utf-8')
+              .split(/\s+/)
+              .filter((w) => w.length > 0).length,
+          },
+    )
     .onConflictDoNothing()
     .run();
 
@@ -294,7 +364,209 @@ export async function ensureConduitDoc(
       `conduit doc adopt for slug '${input.slug}' could not be read back`,
     );
   }
+  // T14288: the new identity carries the doc's metadata from the start.
+  const docRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.slug, input.slug))
+    .get();
+  if (docRow)
+    await setConduitDocMeta(projectRoot, row.uid, await conduitDocMetaOfRow(projectRoot, docRow));
   return { uid: row.uid, adopted: true };
+}
+
+/** The doc metadata carried on its identity row (T14288). */
+export interface ConduitDocMeta {
+  readonly docType: string | null;
+  readonly lifecycleStatus: string | null;
+  readonly supersedesUid: string | null;
+  readonly supersededByUid: string | null;
+  readonly summary: string | null;
+  readonly keywords: string | null;
+  readonly topics: string | null;
+  readonly relatedTasks: string | null;
+  readonly displayAlias: number | null;
+  readonly ownerVersion: string | null;
+}
+
+/** The {@link ConduitDocMeta} keys, in column order. */
+const CONDUIT_DOC_META_KEYS = [
+  'docType',
+  'lifecycleStatus',
+  'supersedesUid',
+  'supersededByUid',
+  'summary',
+  'keywords',
+  'topics',
+  'relatedTasks',
+  'displayAlias',
+  'ownerVersion',
+] as const satisfies readonly (keyof ConduitDocMeta)[];
+
+/**
+ * The doc metadata an identity row holds (T14288), in {@link ConduitDocMeta} form.
+ *
+ * @param row - A `conduit_attachments` row.
+ * @returns Its metadata columns.
+ * @task T14288
+ */
+export function conduitDocMetaOf(row: typeof conduitAttachments.$inferSelect): ConduitDocMeta {
+  return {
+    docType: row.docType ?? null,
+    lifecycleStatus: row.lifecycleStatus ?? null,
+    supersedesUid: row.supersedesUid ?? null,
+    supersededByUid: row.supersededByUid ?? null,
+    summary: row.summary ?? null,
+    keywords: row.keywords ?? null,
+    topics: row.topics ?? null,
+    relatedTasks: row.relatedTasks ?? null,
+    displayAlias: row.displayAlias ?? null,
+    ownerVersion: row.ownerVersion ?? null,
+  };
+}
+
+/**
+ * Mirror every identity row that holds no metadata yet (T14288): rows adopted
+ * before the metadata columns existed. Deterministic (each row's values come
+ * from its synced registry row), so every device writes the same values;
+ * idempotent (a mirrored row always holds a lifecycle). Run by `cleo upgrade`.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns How many identity rows were mirrored.
+ * @task T14288
+ */
+export async function mirrorUnmirroredConduitDocs(projectRoot: string): Promise<number> {
+  const db = await getDb(projectRoot);
+  const rows = await db
+    .select({ slug: conduitAttachments.slug })
+    .from(conduitAttachments)
+    .where(isNull(conduitAttachments.lifecycleStatus))
+    .all();
+  let mirrored = 0;
+  for (const { slug } of rows) {
+    if (await mirrorConduitDocMeta(projectRoot, { slug })) mirrored += 1;
+  }
+  return mirrored;
+}
+
+/**
+ * A registry row's doc metadata in identity-row form (T14288): supersession
+ * pointers (registry row ids) become doc uids, NULL when the other doc has no
+ * identity yet.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param row - The `docs_attachments` row.
+ * @returns The metadata for {@link setConduitDocMeta}.
+ * @task T14288
+ */
+export async function conduitDocMetaOfRow(
+  projectRoot: string,
+  row: typeof docsAttachments.$inferSelect,
+): Promise<ConduitDocMeta> {
+  const db = await getDb(projectRoot);
+  const uidOfRow = async (id: string | null): Promise<string | null> => {
+    if (id === null) return null;
+    const other = await db
+      .select({ slug: docsAttachments.slug })
+      .from(docsAttachments)
+      .where(eq(docsAttachments.id, id))
+      .get();
+    return other?.slug ? resolveConduitDocUid(projectRoot, other.slug) : null;
+  };
+  return {
+    docType: row.type ?? null,
+    lifecycleStatus: row.lifecycleStatus,
+    supersedesUid: await uidOfRow(row.supersedes ?? null),
+    supersededByUid: await uidOfRow(row.supersededBy ?? null),
+    summary: row.summary ?? null,
+    keywords: row.keywords ?? null,
+    topics: row.topics ?? null,
+    relatedTasks: row.relatedTasks ?? null,
+    displayAlias: row.displayAlias ?? null,
+    ownerVersion: row.ownerVersion ?? null,
+  };
+}
+
+/**
+ * Write a doc's metadata onto its identity row (T14288), changed columns only,
+ * so an unchanged mirror records nothing in the change journal. The lifecycle
+ * and its successor travel together (one merge group), and a superseded row
+ * stays superseded (the absorbing `docs.lifecycle.transitions` rule). This is
+ * the only UPDATE of these columns; the inserts are the adopt and migrate
+ * paths, which create the row.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param uid - The doc's `conduit_attachments.uid`.
+ * @param meta - The metadata to hold.
+ * @returns Whether a column changed.
+ * @task T14288
+ */
+export async function setConduitDocMeta(
+  projectRoot: string,
+  uid: string,
+  meta: ConduitDocMeta,
+): Promise<boolean> {
+  requireNonEmpty('uid', uid);
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.uid, uid))
+    .get();
+  if (!row) return false;
+  // superseded is absorbing (docs.lifecycle.transitions, no leave op): every
+  // receiver refuses a write that leaves it, so the identity row never does
+  // either, even when its registry row was restored (a modernize undo). The
+  // group stays as stored; the other columns still mirror.
+  // @sync-invariant docs.lifecycle.transitions a mirror never moves the identity row out of superseded; receivers would refuse it and diverge
+  const keepGroup = row.lifecycleStatus === 'superseded' && meta.lifecycleStatus !== 'superseded';
+  const differs = CONDUIT_DOC_META_KEYS.filter(
+    (key) =>
+      row[key] !== meta[key] &&
+      !(keepGroup && (key === 'lifecycleStatus' || key === 'supersededByUid')),
+  );
+  if (differs.length === 0) return false;
+  const changed: Partial<typeof conduitAttachments.$inferInsert> = {};
+  for (const key of differs) Object.assign(changed, { [key]: meta[key] });
+  // One merge group: a U op carrying part of it is refused, so both travel.
+  if (differs.includes('lifecycleStatus') || differs.includes('supersededByUid')) {
+    Object.assign(changed, {
+      lifecycleStatus: meta.lifecycleStatus,
+      supersededByUid: meta.supersededByUid,
+    });
+  }
+  await db.update(conduitAttachments).set(changed).where(eq(conduitAttachments.uid, uid)).run();
+  return true;
+}
+
+/**
+ * Mirror a registry row's doc metadata onto the doc's identity row (T14288,
+ * PR 3a): the kind, lifecycle, supersession (registry row ids translated to
+ * doc uids), summary, keywords, topics, related tasks, display number and
+ * writing release. Every doc metadata writer calls it after its write, so the
+ * uid carries the doc's metadata before the readers move to it (PR 3b). A row
+ * without a slug, or a doc with no identity yet, has nothing to mirror (the
+ * identity row is created with the metadata when the doc is adopted).
+ *
+ * @param projectRoot - Absolute project root.
+ * @param ref - The `docs_attachments` row just written, by id or by its slug.
+ * @returns Whether the identity row changed.
+ * @task T14288
+ */
+export async function mirrorConduitDocMeta(
+  projectRoot: string,
+  ref: { readonly rowId: string } | { readonly slug: string },
+): Promise<boolean> {
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(docsAttachments)
+    .where('rowId' in ref ? eq(docsAttachments.id, ref.rowId) : eq(docsAttachments.slug, ref.slug))
+    .get();
+  if (!row?.slug) return false;
+  const uid = await resolveConduitDocUid(projectRoot, row.slug);
+  if (uid === null) return false;
+  return setConduitDocMeta(projectRoot, uid, await conduitDocMetaOfRow(projectRoot, row));
 }
 
 /**
@@ -911,22 +1183,10 @@ export async function rebaseSectionCrdtStates(
 export interface ImportMigratedConduitDocInput {
   /** Doc slug (the pre-rekey primary key; still the table PK). */
   readonly slug: string;
-  /** Real provenance author when known; 'system:migration' when none. */
-  readonly fromAgentId: string;
-  /** Captured content bytes (stored uncompressed; sizes equal). */
-  readonly content: Buffer;
-  /** SHA-256 hex of `content`. */
-  readonly contentHash: string;
-  /** Content format tag ('markdown', 'text', …). */
-  readonly format: string;
-  /** Optional title. */
-  readonly title?: string;
-  /** Token count (measured, never invented). */
-  readonly tokens: number;
-  /** ISO-8601 doc creation instant from real provenance. */
+  /** The registry row's content hash (the identity shell's `content_hash`). */
+  readonly legacySha256: string;
+  /** The registry row's `created_at` (the doc's birth). */
   readonly createdAt: string;
-  /** Imported history length (also written to the version_count columns). */
-  readonly versionCount: number;
 }
 
 /**
@@ -947,28 +1207,23 @@ export async function importMigratedConduitDoc(
   input: ImportMigratedConduitDocInput,
 ): Promise<{ uid: string; inserted: boolean }> {
   requireNonEmpty('slug', input.slug);
-  requireNonEmpty('fromAgentId', input.fromAgentId);
-  requireNonEmpty('contentHash', input.contentHash);
-  const uid = naturalRowUid('project', 'conduit_attachments', [input.slug]);
+  requireNonEmpty('legacySha256', input.legacySha256);
+  requireNonEmpty('createdAt', input.createdAt);
+  // T14332: the same identity row adopt and `docs add` mint, so a doc migrated
+  // on one device and adopted on another converges to one row.
+  const identity = legacyDocIdentity(input.slug, input.createdAt, input.legacySha256);
+  const uid = identity.uid;
   const db = await getDb(projectRoot);
+  // T14288: the imported identity carries the doc's metadata from the start.
+  const docRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.slug, input.slug))
+    .get();
+  const meta = docRow ? await conduitDocMetaOfRow(projectRoot, docRow) : {};
   const result = await db
     .insert(conduitAttachments)
-    .values({
-      slug: input.slug,
-      conversationId: 'docs:migration',
-      fromAgentId: input.fromAgentId,
-      content: input.content,
-      originalSize: input.content.length,
-      compressedSize: input.content.length,
-      contentHash: input.contentHash,
-      format: input.format,
-      ...(input.title !== undefined ? { title: input.title } : {}),
-      tokens: input.tokens,
-      versionCount: input.versionCount,
-      currentVersion: input.versionCount,
-      createdAt: input.createdAt,
-      uid,
-    })
+    .values({ ...identity, ...meta })
     .onConflictDoNothing()
     .run();
   return { uid, inserted: (result.changes ?? 0) > 0 };

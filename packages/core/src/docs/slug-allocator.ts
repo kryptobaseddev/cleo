@@ -365,7 +365,9 @@ export async function reserveSlug(
       .where(eq(attachments.slug, normalizedSlug))
       .get();
 
-    if (conflict) {
+    // T14288: a doc identity's live slug or an old alias is taken too.
+    const { isConduitDocSlug } = await import('../store/conduit-doc-history.js');
+    if (conflict || (await isConduitDocSlug(db, normalizedSlug))) {
       const suggestions = await deriveSlugSuggestionsForAllocator(db, normalizedSlug);
       return { ok: false, code: 'E_SLUG_RESERVED', suggestions };
     }

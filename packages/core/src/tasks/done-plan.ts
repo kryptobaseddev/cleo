@@ -157,6 +157,11 @@ export interface DeriveTaskEvidenceOptions {
   /** Explicit PR (`--pr <n>`). */
   prNumber?: number;
   /**
+   * The merge sweep records from the PR's `Closes:`/`Refs:` line with
+   * non-author verdicts (T14259, {@link EvidenceValidationContext.reviewedLinkage}).
+   */
+  reviewedLinkage?: boolean;
+  /**
    * Explicit commit (`--commit <sha>`, T13799): work already on the default
    * branch that no PR or branch cites; verified by the change-set derivation.
    */
@@ -195,6 +200,25 @@ export type DoneEvidencePreview = (
   taskId: string,
   gateEvidence: Partial<Record<VerificationGate, string | string[]>>,
 ) => Promise<{ ok: true } | { ok: false; code: string; message: string; fix?: string }>;
+
+/** The merge sweep's preview: the default one with the reviewed linkage (T14259). */
+const reviewedPreviewEvidence: DoneEvidencePreview = async (storeRoot, taskId, gateEvidence) => {
+  const { validateGateVerify } = await import('../validation/engine-ops.js');
+  const r = await validateGateVerify(storeRoot, {
+    taskId,
+    gateEvidence,
+    preview: true,
+    reviewedLinkage: true,
+  });
+  return r.success
+    ? { ok: true }
+    : {
+        ok: false,
+        code: r.error.code,
+        message: r.error.message,
+        ...(r.error.fix ? { fix: r.error.fix } : {}),
+      };
+};
 
 /** Default preview: `validateGateVerify` in preview mode (no tool runs, no write). */
 const defaultPreviewEvidence: DoneEvidencePreview = async (storeRoot, taskId, gateEvidence) => {
@@ -624,12 +648,16 @@ function recordedCriteria(task: Task): Set<string> {
  */
 async function completionCoverage(
   task: Pick<Task, 'id' | 'acceptance'>,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
   options: { coverCancelledChildren?: boolean } = {},
 ): Promise<AcCoverageResult> {
   const { computeAcCoverage } = await import('./ac-coverage-gate.js');
   const { completionCoverageAccessor } = await import('./ac-table.js');
-  return computeAcCoverage(task.id, completionCoverageAccessor(task, accessor), options);
+  return computeAcCoverage(
+    task.id,
+    completionCoverageAccessor(task, accessor, (id) => accessor.loadSingleTask(id)),
+    options,
+  );
 }
 
 /**
@@ -641,7 +669,7 @@ async function completionCoverage(
 async function boundCriteria(
   task: Task,
   rows: readonly AcRow[],
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
 ): Promise<Set<string>> {
   const coverage = await completionCoverage(task, accessor);
   const unbound = new Set(coverage.ok ? [] : coverage.unsatisfied.map((u) => u.acId));
@@ -955,9 +983,9 @@ function wholeSuiteRefusedBlocker(
         (ciUsable
           ? ", or ci:<pr> once the merged PR's CI is green"
           : // T13745: a change outside every package (root config) has no targeted
-            // run; merged CI with covering rules is its honest route.
-            ', or ci:<pr> once the PR merges if you set evidence.ciSatisfies and evidence.ciChecks ' +
-            '(evidence.ciChecks.covering maps root config paths to the CI jobs that check them)') +
+            // run; merged CI is its honest route (T14260: a filter skip of the
+            // gate jobs stands in outside the package code roots).
+            ', or ci:<pr> once the PR merges if you set evidence.ciSatisfies and evidence.ciChecks') +
         ', or declare testing.affectedCommand in .cleo/project-context.json so cleo done can plan a ' +
         'scoped tool:test-affected. A full run is your explicit choice: cleo verify --gate testsPassed --evidence tool:test.',
     ),
@@ -1039,7 +1067,7 @@ function acMappingBlocker(
  */
 async function unboundCriteriaBlocker(
   task: Pick<Task, 'id' | 'acceptance'>,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
   implementedEvidence: string | null,
 ): Promise<DonePlanBlocker | null> {
   const taskId = task.id;
@@ -1167,16 +1195,21 @@ function withSatisfies(
 async function epicPlan(
   task: Task,
   storeRoot: string,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
   cancelledChildWaiverReason: string | undefined,
 ): Promise<DonePlan> {
   // T14223 / T14266: the same cancelled-child guard `cleo complete` applies.
-  const { decideCancelledChildWaiver } = await import('./cancelled-child-waiver.js');
+  const { decideCancelledChildWaiver, replacedCancelledChildIds } = await import(
+    './cancelled-child-waiver.js'
+  );
+  const epicChildren = await accessor.getChildren(task.id);
+  // T14267 (D11229): a superseded or duplicate child whose replacement is done.
   const waiver = decideCancelledChildWaiver(
     task.id,
-    await accessor.getChildren(task.id),
+    epicChildren,
     cancelledChildWaiverReason,
     'done',
+    await replacedCancelledChildIds(epicChildren, (id) => accessor.loadSingleTask(id)),
   );
   const coverage = await completionCoverage(task, accessor, {
     coverCancelledChildren: waiver.waiverReason !== undefined,
@@ -1592,7 +1625,9 @@ export async function deriveTaskEvidence(
           gates,
           additionalImplemented,
           blocked: derivedBlockers.length > 0,
-          preview: opts.previewEvidence ?? defaultPreviewEvidence,
+          preview:
+            opts.previewEvidence ??
+            (opts.reviewedLinkage === true ? reviewedPreviewEvidence : defaultPreviewEvidence),
         })),
   ]);
   const commands = additionalImplemented.map(

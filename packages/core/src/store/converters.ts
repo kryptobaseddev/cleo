@@ -22,7 +22,7 @@ import { acceptanceItemSchema } from '@cleocode/contracts/acceptance-gate-schema
 import { z } from 'zod';
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
 import type { SessionStatus } from './status-registry.js';
-import { claimFromColumns } from './task-claim.js';
+import { claimFromColumns, isLiveClaim } from './task-claim.js';
 import type { NewTaskRow, SessionRow, TaskRow } from './tasks-schema.js';
 
 // Validate with the canonical stored union, but retain the original values.
@@ -48,12 +48,24 @@ function claimEntry(row: TaskRow): Pick<Task, 'claim'> {
   return claim ? { claim } : {};
 }
 
+/**
+ * The status a task reads with (T14268, owner decision D11230): a task that is
+ * not settled or blocked is `active` exactly while it carries a live claim
+ * lease, and `pending` otherwise, whatever the column says. Stored `active`
+ * is retired: an older peer may still sync it, and it reads by the lease.
+ */
+function derivedStatus(row: TaskRow): TaskStatus {
+  const stored = row.status as TaskStatus;
+  if (stored !== 'pending' && stored !== 'active') return stored;
+  return isLiveClaim(claimFromColumns(row)) ? 'active' : 'pending';
+}
+
 /** Convert a database TaskRow to a domain Task object. */
 export function rowToTask(row: TaskRow): Task {
   return {
     id: row.id,
     title: row.title,
-    status: row.status as TaskStatus,
+    status: derivedStatus(row),
     priority: row.priority as TaskPriority,
     type: (row.type as TaskType) ?? undefined,
     parentId: row.parentId ?? undefined,
@@ -77,6 +89,8 @@ export function rowToTask(row: TaskRow): Task {
     completedAt: row.completedAt ?? undefined,
     cancelledAt: row.cancelledAt ?? undefined,
     cancellationReason: row.cancellationReason ?? undefined,
+    cancellationKind: row.cancellationKind ?? undefined,
+    replacedBy: row.replacedBy ?? undefined,
     verification: row.verificationJson ? safeParseJson(row.verificationJson) : undefined,
     provenance:
       row.createdBy || row.modifiedBy || row.sessionId
@@ -109,7 +123,8 @@ export function rowToTask(row: TaskRow): Task {
  * invariant — the canonical converter enforces it.
  */
 export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
-  const status = task.status ?? 'pending';
+  // T14268: `active` is derived from the lease on read and never stored.
+  const status = task.status === 'active' ? 'pending' : (task.status ?? 'pending');
   let pipelineStage: string | null = task.pipelineStage ?? null;
   if (pipelineStage === null || pipelineStage === undefined) {
     if (status === 'done') pipelineStage = 'contribution';
@@ -141,6 +156,8 @@ export function taskToRow(task: Partial<Task> & { id: string }): NewTaskRow {
     completedAt: task.completedAt ?? null,
     cancelledAt: task.cancelledAt ?? null,
     cancellationReason: task.cancellationReason ?? null,
+    cancellationKind: task.cancellationKind ?? null,
+    replacedBy: task.replacedBy ?? null,
     verificationJson: task.verification ? JSON.stringify(task.verification) : null,
     createdBy: task.provenance?.createdBy ?? null,
     modifiedBy: task.provenance?.modifiedBy ?? null,
@@ -203,5 +220,7 @@ export function rowToSession(row: SessionRow): Session {
     scopeKind: row.scopeKind ?? null,
     scopeId: row.scopeId ?? null,
     lastActivity: row.lastActivity ?? null,
+    // T14327 — read-only here: written only by setSessionInjectionVersion.
+    injectionVersion: row.injectionVersion ?? null,
   };
 }

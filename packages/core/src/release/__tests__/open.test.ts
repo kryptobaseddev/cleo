@@ -150,6 +150,16 @@ async function seedReleaseRow(version: string, status: schema.ReleaseStatus): Pr
     .run();
 }
 
+/** The dispatch branch head the stub reports (T14250). */
+const SMOKE_HEAD = 'a'.repeat(40);
+
+/** Write the receipt the release smoke (`release-mac-smoke`) leaves for `sha` (T14250). */
+function writeSmokeReceipt(sha: string, passed: boolean): void {
+  const dir = join(testDir, '.cleo', 'release-smoke', sha.slice(0, 12));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'results.json'), JSON.stringify({ sha, cliVersion: 'test', passed }));
+}
+
 /** Construct a {@link ReleaseOpenRunner} that records calls. */
 function makeStubRunner(opts?: {
   authOk?: boolean;
@@ -193,6 +203,8 @@ function makeStubRunner(opts?: {
       if (args[0] === 'run' && args[1] === 'view') {
         return opts?.runViewResponse ?? '';
       }
+      // T14250: the head a stable release's smoke receipt must match.
+      if (args[0] === 'api' && String(args[1]).includes('/git/ref/heads/')) return SMOKE_HEAD;
       // gh#1375: the guard asks GitHub which branch workflow_dispatch checks out.
       if (args[0] === 'repo' && args[1] === 'view') {
         return `${opts?.defaultBranch ?? 'main'}\n`;
@@ -265,6 +277,7 @@ beforeEach(async () => {
   execFileSync('git', ['-C', testDir, 'config', 'user.email', 'test@example.com']);
   execFileSync('git', ['-C', testDir, 'config', 'user.name', 'Test']);
   execFileSync('git', ['-C', testDir, 'config', 'commit.gpgsign', 'false']);
+  writeSmokeReceipt(SMOKE_HEAD, true);
   resetDbState();
 });
 
@@ -753,5 +766,48 @@ describe('releaseOpen — re-invocation over a recorded run (T14077)', () => {
       conclusion: state.conclusion === '' ? null : state.conclusion,
       redispatched: false,
     });
+  });
+});
+
+// =============================================================================
+// T14250: a stable release needs a passing smoke of the dispatch head
+// =============================================================================
+
+describe('releaseOpen — release smoke gate (T14250)', () => {
+  it('refuses a stable version without a passing smoke of the head, before dispatching', async () => {
+    const version = 'v2026.6.0';
+    const planPath = writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    pushPlanAfterRemote(planPath);
+    const smokeDir = join(testDir, '.cleo', 'release-smoke');
+
+    rmSync(smokeDir, { recursive: true, force: true });
+    const missingRunner = makeStubRunner();
+    const missing = await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false },
+      missingRunner,
+    );
+    expect(!missing.success && missing.error.code).toBe('E_RELEASE_SMOKE_MISSING');
+    expect(!missing.success && missing.error.fix).toContain(`--sha ${SMOKE_HEAD}`);
+    expect(dispatchOf(missingRunner)).toBeUndefined();
+
+    writeSmokeReceipt(SMOKE_HEAD, false);
+    const failedRunner = makeStubRunner();
+    const failed = await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false },
+      failedRunner,
+    );
+    expect(!failed.success && failed.error.message).toContain('FAILED');
+    expect(dispatchOf(failedRunner)).toBeUndefined();
+
+    writeSmokeReceipt(SMOKE_HEAD, true);
+    const passedRunner = makeStubRunner();
+    const passed = await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false },
+      passedRunner,
+    );
+    expect(passed.success).toBe(true);
+    expect(dispatchOf(passedRunner)).toBeDefined();
   });
 });

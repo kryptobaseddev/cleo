@@ -249,6 +249,7 @@ describe('listWorktrees — integration (T9546 AC1-AC5)', () => {
     expect(locked).toBeDefined();
     expect(locked?.lockState).toBe('locked');
     expect(locked?.isLocked).toBe(true);
-    expect(locked?.statusCategory).toBe('locked');
+    // T14274: a git lock is an annotation; with no stored task and fresh, it is active.
+    expect(locked?.statusCategory).toBe('active');
   });
 });

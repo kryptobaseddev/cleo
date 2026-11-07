@@ -81,6 +81,7 @@ import {
 import { hostname, totalmem } from 'node:os';
 import { join, matchesGlob, relative, resolve } from 'node:path';
 import type {
+  ExternalPressureDetails,
   HeavyToolResourcePlan,
   MemoryConsumer,
   MemoryPressureReading,
@@ -105,11 +106,12 @@ import {
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { ResourceSample } from './backend.js';
 import {
+  commandChargeKey,
   gitHookPath,
-  HOOK_MIN_RUNS,
-  HOOK_PEAK_MARGIN,
   hookFootprintKey,
-  readHookPeak,
+  MEASURED_MIN_RUNS,
+  MEASURED_PEAK_MARGIN,
+  readCountedPeak,
   readMeasuredPeak,
   type ScriptFootprint,
   scriptFootprint,
@@ -117,6 +119,7 @@ import {
 import { classifyPressure, pressureScore, ResourceMonitor } from './monitor.js';
 import {
   checkMemoryGate,
+  EXTERNAL_PRESSURE_AFTER_MS,
   MEMORY_GATE_RETRY_AFTER_MS,
   type MemoryGateReporter,
 } from './pressure-gate.js';
@@ -196,80 +199,37 @@ export const LEDGER_VERSION = 1;
  */
 export const LEDGER_ORPHAN_MS = 600_000;
 
-/**
- * `CLEO_ADMISSION_PRESSURE=off`: admission ignores memory and CPU pressure
- * and admits on the byte budget alone (a CI runner whose PSI is noisy, and
- * the test suite, which must never depend on the host's load). An explicit
- * sampler passed to {@link admit} is still used.
- */
-export const ADMISSION_PRESSURE_ENV = 'CLEO_ADMISSION_PRESSURE';
-
 /** One GiB in bytes. */
 export const GIB = 1024 ** 3;
 
-/**
- * An admitted run's charge may fall to its measured peak only after it has
- * run this long and been measured {@link CHARGE_MIN_SAMPLES} times (T14116):
- * the plan holds while a run warms up.
- */
-export const CHARGE_WARMUP_MS = 60_000;
-
-/** Measurements of a run's tree needed before its charge may fall (T14116). */
-export const CHARGE_MIN_SAMPLES = 2;
-
-/**
- * The margin a lowered charge keeps over the measured peak (T14116): this
- * fraction of the peak, and at least {@link CHARGE_MARGIN_MIN_BYTES}.
- */
-export const CHARGE_MARGIN_FRACTION = 0.25;
-
-/** The least margin a lowered charge keeps over the measured peak (T14116). */
-export const CHARGE_MARGIN_MIN_BYTES = 512 * 1024 ** 2;
-
-/** What {@link nextCharge} needs to know about an admitted run (T14116). */
+/** What {@link nextCharge} needs to know about an admitted run (T14116, T14281). */
 export interface ChargeObservation {
-  /** The planned charge (the entry's `footprintBytes`). */
+  /** The class plan: the entry's `planBytes`, or its `footprintBytes` when not lowered. */
   readonly planBytes: number;
-  /** The current charge: the plan, or a charge already lowered. */
+  /** The current charge: the measured charge it was admitted with, or the plan. */
   readonly chargedBytes: number;
-  /** The largest tree RSS measured so far. */
-  readonly peakBytes: number;
   /** The tree RSS just measured. */
   readonly rssBytes: number;
-  /** How many times the tree has been measured. */
-  readonly samples: number;
-  /** How long the run has been admitted. */
-  readonly admittedForMs: number;
 }
 
 /**
  * The charge an admitted run should hold now, or `null` to keep its current
- * one (T14116). A run whose tree climbs past its current charge goes back to
- * the plan. After the warm-up, a charge above the measured peak plus the
- * margin falls to that, never above the plan. The peak only grows, so a
- * lowered charge never falls and rises again without a climb.
+ * one (T14116, T14281). A run admitted at a measured charge whose tree climbs
+ * past it goes back to its plan. A charge never falls while a run holds it:
+ * the measured charge is decided before admission ({@link planRunFootprint}).
  *
- * @param o - the plan, the current charge and the measurements.
+ * @param o - the plan, the current charge and the measurement.
  * @returns the new charge in bytes, or `null` when it stays.
  *
  * @example
  * ```ts
- * // A hooked push planned at 12 GiB that peaks at 0.17 GiB after a minute.
- * nextCharge({ planBytes: 12 * GIB, chargedBytes: 12 * GIB, peakBytes: 0.17 * GIB,
- *   rssBytes: 0.1 * GIB, samples: 12, admittedForMs: 60_000 }); // ≈ 0.67 GiB
+ * // Admitted at 1 GiB from three measured runs; this one climbs to 3 GiB.
+ * nextCharge({ planBytes: 12 * GIB, chargedBytes: GIB, rssBytes: 3 * GIB }); // 12 GiB
  * ```
  */
 export function nextCharge(o: ChargeObservation): number | null {
   const plan = Math.max(0, o.planBytes);
-  if (o.rssBytes > o.chargedBytes) return o.chargedBytes < plan ? plan : null;
-  if (o.admittedForMs < CHARGE_WARMUP_MS || o.samples < CHARGE_MIN_SAMPLES) return null;
-  const sized = Math.min(
-    plan,
-    Math.ceil(
-      o.peakBytes + Math.max(o.peakBytes * CHARGE_MARGIN_FRACTION, CHARGE_MARGIN_MIN_BYTES),
-    ),
-  );
-  return sized < o.chargedBytes ? sized : null;
+  return o.rssBytes > o.chargedBytes && o.chargedBytes < plan ? plan : null;
 }
 
 /** What a light run (audit, security scan) or a config probe is charged. */
@@ -413,10 +373,13 @@ export interface RunFootprintPlan {
   /** Test files the run names, when it names them (T13132). */
   readonly namedFiles: number | null;
   /**
-   * The git hook this run carries, keyed by its content (T13921): record the
-   * run's measured peak under it so the next run is charged by it.
+   * The charge key of this run (T13921 a hook, T14050 a script, T14281 any
+   * other command): record the run's measured peak under it so the next run
+   * is charged by it.
    */
   readonly hookKey?: string;
+  /** The class plan, when a measured peak lowered the charge below it (T14281). */
+  readonly planBytes?: number;
 }
 
 /** A hook's content key and its measured peak, when measured (T13921). */
@@ -427,7 +390,7 @@ export interface HookPeak {
 
 /** A `node` script's key, the heavy tool it loads, and its measured peak (T14050). */
 export interface ScriptPeak extends ScriptFootprint {
-  /** The peak once {@link HOOK_MIN_RUNS} runs are measured (lowers a charge). */
+  /** The peak once {@link MEASURED_MIN_RUNS} runs are measured (lowers a charge). */
   readonly peakBytes: number | null;
   /** The largest peak any counted run recorded (raises a charge, T14162). @defaultValue null */
   readonly lastPeakBytes?: number | null;
@@ -446,6 +409,11 @@ export interface RunFootprintOptions {
    * scripts (`build.heavyScripts`, globs relative to it). @defaultValue none
    */
   readonly projectRoot?: string;
+  /**
+   * A plain command's counted peak, by its {@link commandChargeKey} (T14281).
+   * @defaultValue reads the measured-charge store
+   */
+  readonly commandPeak?: (key: string) => number | null;
 }
 
 /**
@@ -516,7 +484,7 @@ export function planRunFootprint(
     gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
   hookPeak: (hook: string, globals: readonly string[]) => HookPeak | null = (hook, globals) => {
     const key = hookFootprintKey(process.cwd(), hook, globals, env); // CWD-OK: as above
-    return key === null ? null : { key, peakBytes: readHookPeak(key, admissionDir()) };
+    return key === null ? null : { key, peakBytes: readCountedPeak(key) };
   },
   cwd: string = process.cwd(), // CWD-OK: cleo run runs the command in its own cwd
   scriptPeak: (script: string) => ScriptPeak | null = (script) => {
@@ -525,8 +493,8 @@ export function planRunFootprint(
       ? null
       : {
           ...found,
-          peakBytes: readHookPeak(found.key, admissionDir()),
-          lastPeakBytes: readMeasuredPeak(found.key, admissionDir()),
+          peakBytes: readCountedPeak(found.key),
+          lastPeakBytes: readMeasuredPeak(found.key),
         };
   },
   options: RunFootprintOptions = {},
@@ -542,7 +510,7 @@ export function planRunFootprint(
   // T14162: a run measured above the light charge is heavy from its next run.
   const lastPeak = scripted?.lastPeakBytes ?? null;
   const raised =
-    lastPeak !== null && lastPeak * HOOK_PEAK_MARGIN > LIGHT_FOOTPRINT_BYTES ? lastPeak : null;
+    lastPeak !== null && lastPeak * MEASURED_PEAK_MARGIN > LIGHT_FOOTPRINT_BYTES ? lastPeak : null;
   const host =
     script === null
       ? null
@@ -617,13 +585,18 @@ export function planRunFootprint(
         ? `${cls} plan: ${scope.reason}`
         : `${cls} plan`;
   const planned = resources !== null ? planFootprintBytes(resources) : undefined;
-  // T13921: a measured hook is charged its peak plus a margin, never more than
+  // T14281: any other command is measured too, keyed by project and argv.
+  const commandKey = measured === null ? commandChargeKey(options.projectRoot ?? cwd, argv) : null;
+  const commandPeak =
+    commandKey === null ? null : (options.commandPeak ?? ((k) => readCountedPeak(k)))(commandKey);
+  // T13921: a measured run is charged its peak plus a margin, never more than
   // the plan it runs under (which still bounds its heap and workers).
   // T14162: a raise needs one measured run; a lowering still waits for three.
-  const peak = measured?.peakBytes ?? (host !== null && raised !== null ? raised : null);
+  const peak =
+    measured?.peakBytes ?? commandPeak ?? (host !== null && raised !== null ? raised : null);
   const charged =
     peak !== null && planned !== undefined
-      ? Math.min(planned, Math.max(LIGHT_FOOTPRINT_BYTES, Math.ceil(peak * HOOK_PEAK_MARGIN)))
+      ? Math.min(planned, Math.max(LIGHT_FOOTPRINT_BYTES, Math.ceil(peak * MEASURED_PEAK_MARGIN)))
       : planned;
   return {
     overlay,
@@ -631,12 +604,16 @@ export function planRunFootprint(
     ...(charged !== undefined ? { footprintBytes: charged } : {}),
     footprintReason:
       peak !== null && charged !== planned
-        ? `${reason}, measured peak ${gib(peak)} + ${Math.round((HOOK_PEAK_MARGIN - 1) * 100)}%`
+        ? `${reason}, measured peak ${gib(peak)} + ${Math.round((MEASURED_PEAK_MARGIN - 1) * 100)}%`
         : measured !== null && peak === null && scope?.size === 'class' && script !== null
-          ? `${reason}; charged the plan until ${HOOK_MIN_RUNS} runs are measured`
+          ? `${reason}; charged the plan until ${MEASURED_MIN_RUNS} runs are measured`
           : reason,
     namedFiles,
     ...(measured !== null ? { hookKey: measured.key } : {}),
+    ...(commandKey !== null ? { hookKey: commandKey } : {}),
+    ...(charged !== undefined && planned !== undefined && charged < planned
+      ? { planBytes: planned }
+      : {}),
   };
 }
 
@@ -771,8 +748,13 @@ export interface LedgerEntry {
    */
   readonly admittedBy?: 'idle';
   /**
-   * The charge after it fell below the plan (T14116): the measured peak plus a
-   * margin. Absent while the run is charged its plan, `footprintBytes`.
+   * The class plan, when a measured peak lowered `footprintBytes` below it
+   * (T14281). Absent when the run is charged its plan.
+   */
+  readonly planBytes?: number;
+  /**
+   * The charge after the run's tree climbed past its measured charge: its
+   * plan (T14116, T14281). Absent while it holds `footprintBytes`.
    */
   readonly chargedBytes?: number;
   /** The largest tree RSS measured while admitted (T14116). */
@@ -851,7 +833,8 @@ function isEntry(v: unknown): v is LedgerEntry {
     typeof e.heartbeatAtMs === 'number' &&
     Array.isArray(e.toolGroups) &&
     (e.chargedBytes === undefined ||
-      (typeof e.chargedBytes === 'number' && Number.isFinite(e.chargedBytes)))
+      (typeof e.chargedBytes === 'number' && Number.isFinite(e.chargedBytes))) &&
+    (e.planBytes === undefined || (typeof e.planBytes === 'number' && Number.isFinite(e.planBytes)))
   );
 }
 
@@ -1426,9 +1409,11 @@ function admitOneWhenIdle(
 }
 
 function charged(entry: LedgerEntry, capacityBytes: number): number {
-  // T14116: a charge lowered to the measured peak, never above the plan.
-  const plan = Math.max(0, entry.footprintBytes);
-  return Math.min(Math.max(0, entry.chargedBytes ?? plan), plan, capacityBytes);
+  // T14281: the measured charge it was admitted with, raised to its plan when
+  // its tree climbed past it; never above the plan.
+  const asked = Math.max(0, entry.footprintBytes);
+  const plan = Math.max(asked, entry.planBytes ?? asked);
+  return Math.min(Math.max(asked, entry.chargedBytes ?? asked), plan, capacityBytes);
 }
 
 /**
@@ -2055,11 +2040,14 @@ export function describeHolders(
     });
 }
 
-/** What a ledger entry is charged, for status (T14116). */
+/** What a ledger entry is charged, for status (T14116, T14281). */
 export interface EntryCharge {
-  /** What it holds now: the plan, or a charge lowered to its measured peak. */
+  /**
+   * What it holds now: the measured charge it was admitted with, or its plan
+   * (unmeasured, or raised when its tree climbed past the measured charge).
+   */
   readonly chargedBytes: number;
-  /** What it was planned at admission (`footprintBytes`). */
+  /** Its class plan (`planBytes`, else `footprintBytes`). */
   readonly plannedBytes: number;
   /** The largest tree RSS measured while admitted, or `null` before any. */
   readonly measuredPeakBytes: number | null;
@@ -2072,9 +2060,10 @@ export interface EntryCharge {
  * @param e - a ledger entry.
  */
 export function entryCharge(e: LedgerEntry): EntryCharge {
-  const plannedBytes = Math.max(0, e.footprintBytes);
+  const asked = Math.max(0, e.footprintBytes);
+  const plannedBytes = Math.max(asked, e.planBytes ?? asked);
   return {
-    chargedBytes: Math.min(Math.max(0, e.chargedBytes ?? plannedBytes), plannedBytes),
+    chargedBytes: Math.min(Math.max(asked, e.chargedBytes ?? asked), plannedBytes),
     plannedBytes,
     measuredPeakBytes: e.measuredPeakBytes ?? null,
   };
@@ -2087,11 +2076,11 @@ export function entryCharge(e: LedgerEntry): EntryCharge {
 function describeHolderCharge(e: LedgerEntry): string {
   const reason = e.footprintReason ? ` (${e.footprintReason})` : '';
   const c = entryCharge(e);
-  if (c.measuredPeakBytes === null) return `${gib(c.plannedBytes)}${reason}`;
-  return (
-    `charged ${gib(c.chargedBytes)} (planned ${gib(c.plannedBytes)}${reason}; ` +
-    `measured peak ${gib(c.measuredPeakBytes)})`
-  );
+  if (c.measuredPeakBytes === null && c.chargedBytes === c.plannedBytes) {
+    return `${gib(c.plannedBytes)}${reason}`;
+  }
+  const peak = c.measuredPeakBytes === null ? '' : `; measured peak ${gib(c.measuredPeakBytes)}`;
+  return `charged ${gib(c.chargedBytes)} (planned ${gib(c.plannedBytes)}${reason}${peak})`;
 }
 
 /** Commands too generic to name a lock-taking wrapper. */
@@ -2221,6 +2210,8 @@ export interface AdmissionRequest {
   readonly task?: string;
   /** Why it is charged `footprintBytes`, for status (T13367). */
   readonly footprintReason?: string;
+  /** The class plan, when a measured peak lowered `footprintBytes` below it (T14281). */
+  readonly planBytes?: number;
   /** Take the machine-wide exclusive slot (T13237: a `full-build`). */
   readonly exclusive?: boolean;
   /** Queue ahead of routine waiters, within the budget (T13921). */
@@ -2241,7 +2232,7 @@ export interface AdmitOptions {
    * One pressure sample; a throw counts as no signal. A sampler given here is
    * always called: it bypasses the verdict another process wrote to the
    * ledger in the last 2 s, which the default reuses.
-   * @defaultValue a ResourceMonitor sample, or none under `CLEO_ADMISSION_PRESSURE=off`
+   * @defaultValue a ResourceMonitor sample (in the test sandbox, `CLEO_RESOURCE_SAMPLE_FILE`'s fixture)
    */
   readonly sample?: () => Promise<ResourceSample>;
   /** The machine budget in bytes. @defaultValue {@link admissionCapacityBytes} */
@@ -2288,6 +2279,12 @@ export interface AdmitOptions {
    * {@link LEDGER_ORPHAN_MS} by a child nobody waits for. A throw is ignored.
    */
   readonly onPass?: () => void;
+  /**
+   * How long a waiter is held above the refuse line, with CLEO holding
+   * nothing, before it gets the external-pressure verdict (T14282).
+   * @defaultValue {@link EXTERNAL_PRESSURE_AFTER_MS}
+   */
+  readonly externalPressureAfterMs?: number;
 }
 
 /** An admission: the share is held until `release`. */
@@ -2307,10 +2304,9 @@ export interface AdmissionGrant {
   /** `idle` when the idle rule admitted it (T14088, T14098). */
   readonly admittedBy?: 'idle';
   /**
-   * Report the run's tree RSS (T14116). After the warm-up the charge falls to
-   * the measured peak plus a margin, and the budget it frees admits waiters in
-   * the same pass; a climb past the charge restores the plan. Absent or a
-   * no-op on a pass-through grant.
+   * Report the run's tree RSS (T14116, T14281): a climb past the measured
+   * charge the run was admitted with restores its plan; a charge never falls
+   * while held. Absent or a no-op on a pass-through grant.
    */
   observeRss?(rssBytes: number): void;
   /** Give the share back. Idempotent. */
@@ -2335,6 +2331,12 @@ export interface AdmissionRefusal {
   readonly ahead: number;
   /** One line per admitted run. */
   readonly holders: readonly string[];
+  /**
+   * Set when a waiter gave up because the pressure is another program's: the
+   * memory gate refused above its refuse line while CLEO held nothing, for
+   * {@link AdmitOptions.externalPressureAfterMs} (T14282).
+   */
+  readonly externalPressure?: ExternalPressureDetails;
 }
 
 /** {@link admit}'s result. */
@@ -2431,9 +2433,6 @@ async function sampleShare(
   probeFor: readonly LedgerEntry[] | null = null,
 ): Promise<ShareVerdict> {
   if (!opts.sample) {
-    if (process.env[ADMISSION_PRESSURE_ENV] === 'off') {
-      return { share: 'full', lightShare: 'full', reading: null, sampled: null };
-    }
     if (cached !== null && isFresh(cached, nowMs)) {
       return {
         share: cached.share,
@@ -2705,6 +2704,9 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     command: redactCommandLine(req.command ?? process.argv.slice(1).join(' ')),
     cwd: req.cwd === undefined ? process.cwd() : req.cwd, // CWD-OK: display only — where the run was started, shown in status and reports
     footprintBytes: Math.max(0, req.footprintBytes),
+    ...(req.planBytes !== undefined && req.planBytes > req.footprintBytes
+      ? { planBytes: req.planBytes }
+      : {}),
     ...(parent !== null ? { parentId: parent.id } : {}),
     state: 'waiting',
     enqueuedAtMs: t0,
@@ -2852,7 +2854,26 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     let lastReportAt = t0;
     let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
     let reading = first.reading;
+    let seenDoc = first.doc;
+    // T14282: since when the gate has refused above its refuse line while CLEO
+    // held nothing. The pressure is then another program's: say so and stop.
+    let externalSince: number | null = null;
+    const externalAfterMs = opts.externalPressureAfterMs ?? EXTERNAL_PRESSURE_AFTER_MS;
     for (;;) {
+      externalSince = externallyHeld(reading, seenDoc) ? (externalSince ?? now()) : null;
+      if (reading !== null && externalSince !== null && now() - externalSince >= externalAfterMs) {
+        const raced = await leave();
+        checkQueue();
+        if (raced !== null)
+          return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
+        return {
+          admitted: false,
+          refusal: {
+            ...refusal(seenDoc, reading),
+            externalPressure: externalPressureDetails(reading, now() - t0),
+          },
+        };
+      }
       if (opts.keepAlive && now() - lastKeepAliveAt >= (opts.keepAliveMs ?? 300_000)) {
         lastKeepAliveAt = now();
         await opts.keepAlive().catch(() => undefined);
@@ -2874,6 +2895,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       await sleep(Math.min(opts.pollMs ?? READ_POLL_MS, remaining));
       checkQueue();
       const seen = readLedgerDoc(dir);
+      seenDoc = seen;
       const mine = seen.entries.find((e) => e.id === entry.id);
       if (mine?.state === 'admitted') {
         opts.memoryPressure?.admitted(now() - t0, null);
@@ -2901,6 +2923,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         first = await pass();
         checkQueue();
         reading = first.reading;
+        seenDoc = first.doc;
         if (first.mine?.state === 'admitted') {
           opts.memoryPressure?.admitted(now() - t0, null);
           checkQueue();
@@ -2947,6 +2970,40 @@ function passDue(
   if (sinceLastPassMs < PASS_EVERY_MS) return false;
   // An injected sampler never reads the cache, so it never waits on it either.
   return opts.sample !== undefined || pressure === null || !isFresh(pressure, nowMs);
+}
+
+/**
+ * Whether the memory gate holds the queue for a program outside CLEO
+ * (T14282): it refuses above its refuse line (not merely latched below it),
+ * and CLEO holds nothing — no admitted run, no entry of another CLEO version.
+ */
+function externallyHeld(reading: MemoryPressureReading | null, doc: LedgerDoc): boolean {
+  if (reading === null || isLatchedBelowRefuse(reading)) return false;
+  return doc.foreign.length === 0 && !doc.entries.some((e) => e.state === 'admitted');
+}
+
+/**
+ * The external-pressure verdict's details (T14282): the largest memory users
+ * outside CLEO (CLEO's own runs are already left out of the reading's list).
+ *
+ * @param reading - the gate's refusing reading.
+ * @param waitedMs - how long the run waited.
+ */
+export function externalPressureDetails(
+  reading: MemoryPressureReading,
+  waitedMs: number,
+): ExternalPressureDetails {
+  const top = reading.topConsumers?.processes;
+  return {
+    topProcesses: (Array.isArray(top) ? top : []).map((p) => ({
+      pid: p.pid,
+      command: p.command,
+      rssBytes: p.footprintBytes,
+    })),
+    expectedAdmitAt: null,
+    waitedMs,
+    memoryPressure: reading,
+  };
 }
 
 /** What the admitted runs and foreign entries take from the budget. */
@@ -3170,10 +3227,10 @@ function holdGrant(
   let peakBytes = 0;
   let samples = 0;
   // `chargedBytes` is the charge last decided; `writtenBytes` the one the
-  // ledger holds. Decisions take effect at once and their writes run one
-  // after another, so a restore to the plan can never land before (and be
-  // overwritten by) a lowering decided earlier, and a measurement taken while
-  // a write is in flight is judged against the charge already decided.
+  // ledger holds. A raise to the plan takes effect at once and its write runs
+  // after any earlier one, so a measurement taken while a write is in flight
+  // is judged against the charge already decided (T14281: a charge never falls
+  // while held).
   let chargedBytes = entry.footprintBytes;
   let writtenBytes = entry.footprintBytes;
   let writes: Promise<void> = Promise.resolve();
@@ -3203,18 +3260,12 @@ function holdGrant(
       samples++;
       peakBytes = Math.max(peakBytes, rssBytes);
       const next = nextCharge({
-        planBytes: entry.footprintBytes,
+        planBytes: entry.planBytes ?? entry.footprintBytes,
         chargedBytes,
-        peakBytes,
         rssBytes,
-        samples,
-        admittedForMs: now() - (entry.admittedAtMs ?? entry.enqueuedAtMs),
       });
       if (next === null) return;
-      const patch = (e: LedgerEntry): LedgerEntry => {
-        const { chargedBytes: _was, ...rest } = measured(e);
-        return next >= e.footprintBytes ? rest : { ...rest, chargedBytes: next };
-      };
+      const patch = (e: LedgerEntry): LedgerEntry => ({ ...measured(e), chargedBytes: next });
       chargedBytes = next;
       writes = writes.then(async () => {
         if (await rechargeLedgerEntry(entry, dir, opts, patch)) writtenBytes = next;

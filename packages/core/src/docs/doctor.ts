@@ -122,6 +122,7 @@ import {
   blobContentExists,
   resolveLegacyByteSource,
 } from '../store/blob-keep.js';
+import { mirrorConduitDocMeta } from '../store/conduit-doc-history.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
@@ -175,6 +176,15 @@ export const DOCS_DOCTOR_MAX_DETAIL_ITEMS = 50;
  * @task T14117
  */
 export const DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE = '.cleo/audit/docs-publications-prune.jsonl';
+
+/**
+ * Project-relative audit log each mutating run (`--apply`/`--repair`)
+ * appends one line to, naming its pre-repair backup in `backupReceiptPath`,
+ * so the backup byte cap keeps that rollback point (T14278).
+ *
+ * @task T14278
+ */
+export const DOCS_DOCTOR_REPAIR_AUDIT_FILE = '.cleo/audit/docs-doctor-repairs.jsonl';
 
 /**
  * The nine diagnostic classes {@link runDocsDoctor} checks for.
@@ -489,9 +499,10 @@ function isWorktreeOrTmpPath(absPath: string): 'worktree' | 'tmp' | null {
 }
 
 /**
- * Sum the audit-log revisions per slug. Mirrors the
- * `countVersionsForSlug` semantics in `docs-update.ts`: the expected
- * `docVersion` for a slug is `1 + total revisions`.
+ * Sum the audit-log revisions per slug: the expected `docVersion` for a
+ * slug is `1 + total revisions`. (The `version` a docs update reports comes
+ * from the version DAG since T14288; this audit-log reading only checks the
+ * registry row's counter.)
  *
  * @internal
  */
@@ -1458,6 +1469,7 @@ export async function runDocsDoctor(
           })
           .where(eq(docsAttachments.id, row.id))
           .run();
+        await mirrorConduitDocMeta(projectRoot, { rowId: row.id }); // T14288
       }
       for (const { row } of inScope('dangling-pointers') ? pre.dangling.archivable : []) {
         await db
@@ -1465,6 +1477,7 @@ export async function runDocsDoctor(
           .set({ lifecycleStatus: 'archived' })
           .where(eq(docsAttachments.id, row.id))
           .run();
+        await mirrorConduitDocMeta(projectRoot, { rowId: row.id }); // T14288
       }
       for (const { row, payload } of inScope('dangling-pointers') ? pre.dangling.clearable : []) {
         const cleaned: Record<string, unknown> = { ...payload };
@@ -1525,6 +1538,15 @@ export async function runDocsDoctor(
     entry.planned += 1;
     if (r.applied) entry.applied += 1;
     repairCounts[kind] = entry;
+  }
+  if (mutate) {
+    const auditPath = join(projectRoot, DOCS_DOCTOR_REPAIR_AUDIT_FILE);
+    mkdirSync(dirname(auditPath), { recursive: true });
+    appendFileSync(
+      auditPath,
+      `${JSON.stringify({ op: repair ? 'docs.doctor.repair' : 'docs.doctor.apply', at: new Date().toISOString(), backupReceiptPath: opts.backupReceiptPath ?? null, only, repairCounts })}\n`,
+      'utf-8',
+    );
   }
   const scopeNote = only === null ? '' : ` (only: ${only.join(', ')})`;
   const summary = repair

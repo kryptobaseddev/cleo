@@ -107,11 +107,10 @@ function computeActions(
         continue;
       }
 
-      // External says active, CLEO is pending/blocked → activate
-      if (
-        ext.status === 'active' &&
-        (cleoTask.status === 'pending' || cleoTask.status === 'blocked')
-      ) {
+      // External says active, CLEO is blocked → unblock to pending. T14268:
+      // in progress is a claim lease a CLEO session holds, which an external
+      // system cannot take, so a pending task needs no action.
+      if (ext.status === 'active' && cleoTask.status === 'blocked') {
         actions.push({
           type: 'activate',
           cleoTaskId: cleoTask.id,
@@ -267,8 +266,8 @@ export async function reconcile(
             await updateTask(
               {
                 taskId: action.cleoTaskId!,
-                status: 'active',
-                notes: `Activated via ${providerId} sync`,
+                status: 'pending',
+                notes: `Unblocked via ${providerId} sync: it is in progress there`,
               },
               cwd,
               acc,

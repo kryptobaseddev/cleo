@@ -800,6 +800,12 @@ export interface DocsAddResult {
    * @task T10360
    */
   adrNumber?: number;
+  /**
+   * The doc's head version uid (T14329): recorded by the add itself, so the
+   * expected-base fence (`docs update --base-version-uid`) works from the
+   * first edit. Absent for a slug-less attachment.
+   */
+  headVersionUid?: string;
 }
 
 // --------------------------------------------------------------------------
@@ -938,10 +944,9 @@ export interface DocsUpdateResult {
   /** ISO 8601 timestamp the new row was registered. */
   updatedAt: string;
   /**
-   * Best-effort 1-indexed version number for the slug (count of historical
-   * rows that ever carried this slug, including the current one). When the
-   * underlying store cannot enumerate history this falls back to `2` for the
-   * first update and increments by 1 thereafter.
+   * The doc's version count from its version DAG (T14288): every version row
+   * of the doc's uid, the new one included. A doc with no version history yet
+   * reports its registry row's `docVersion` counter.
    */
   version: number;
   /** CLEO release or owner version associated with the new row. */
@@ -1471,8 +1476,13 @@ export interface DocsModernizeResult {
  * @task T13360 (Epic T13340 / Saga T13339)
  */
 export interface DocsMigrateParams {
-  /** Reserved for future options; currently unused. */
-  readonly _future?: never;
+  /**
+   * At most this many docs per run, oldest first (T14329); default all. Each
+   * run is one harness transaction with its own backup; run again to continue.
+   */
+  readonly limit?: number;
+  /** Report the plan's counts and write nothing (T14331). */
+  readonly dryRun?: boolean;
 }
 
 /**
@@ -1499,6 +1509,10 @@ export interface DocsMigrateResult {
   readonly nativeConflicts: number;
   /** History rows imported across all captured docs. */
   readonly versionsImported: number;
+  /** Docs left for a later run by the `limit` bound (T14329). */
+  readonly remaining: number;
+  /** True for a dry run: the counts are the plan, nothing was written (T14331). */
+  readonly dryRun: boolean;
   /** First failure when halted/refused. */
   readonly failure: string | null;
   /** The harness pre-step backup id (null only when the backup itself failed). */

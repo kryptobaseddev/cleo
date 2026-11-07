@@ -193,7 +193,7 @@ const worktreesCommand = defineCommand({
       const humanMsg =
         `GC worktrees${dryLabel} — ` +
         `${dryRun ? 'Would remove' : 'Removed'}: ${result.removed} director${result.removed === 1 ? 'y' : 'ies'}` +
-        (result.quarantined > 0 ? `, ${result.quarantined} quarantined (dirty/unpushed)` : '') +
+        (result.quarantined > 0 ? `, ${result.quarantined} kept (dirty or unpushed)` : '') +
         (result.errors.length > 0 ? `, ${result.errors.length} error(s)` : '');
 
       cliOutput(result, {

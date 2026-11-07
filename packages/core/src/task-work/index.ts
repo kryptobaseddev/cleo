@@ -205,7 +205,7 @@ export async function startTask(
       await acc.updateTaskFields(taskId, { pipelineStage: 'implementation' });
     }
     if (previousTask && previousTask !== taskId) {
-      await releaseOwnClaim(acc, previousTask, claimant.sessionId);
+      await releaseOwnClaim(acc, previousTask, claimant.sessionId, claimant.agentId);
     }
     await writeFocusState(acc, focusSessionId, focus);
     await mirrorSessionTaskWork(focusSessionId, taskId, cwd);

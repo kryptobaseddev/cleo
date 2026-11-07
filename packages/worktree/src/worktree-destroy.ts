@@ -10,13 +10,12 @@
  * @adr ADR-062
  */
 
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
 import { countUnmergedCommits, getGitRoot, gitSilent, gitSync } from './git.js';
-import { destroyWorktree as napiDestroyWorktree } from './napi-binding.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
-import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
+import { disposeWorktree } from './worktree-dispose.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { locateTaskWorktree } from './worktree-locate.js';
 import { releaseWorktreeTaskLock } from './worktree-lock.js';
@@ -25,12 +24,12 @@ import { releaseWorktreeTaskLock } from './worktree-lock.js';
  * Destroy the git worktree for a task.
  *
  * Steps:
- * 1. Check for uncommitted changes (dirty detection).
+ * 1. Ask {@link disposeWorktree} (T13924) whether the worktree may go: kept
+ *    unless nothing in it is lost; `force` archives the unpreserved work first.
  * 2. Run pre-remove hooks.
- * 3. Unlock the worktree (`git worktree unlock`).
- * 4. Remove the worktree directory (`git worktree remove --force`).
- * 5. Optionally delete the task branch.
- * 6. Run post-destroy hooks.
+ * 3. Dispose of it (re-proved right before removal).
+ * 4. Optionally delete the task branch.
+ * 5. Run post-destroy hooks.
  *
  * Integration (merging commits back to the target branch) is performed by
  * `completeAgentWorktreeViaMerge` before this function is called. Non-fatal
@@ -67,136 +66,88 @@ export async function destroyWorktree(
   let error: string | undefined;
   const hookResults: Awaited<ReturnType<typeof runWorktreeHooks>> = [];
 
-  // Step 1: Dirty detection.
-  let dirty = false;
-  if (existsSync(worktreePath)) {
-    try {
-      const status = gitSync(['status', '--porcelain'], worktreePath);
-      dirty = status.length > 0;
-    } catch {
-      // If git status fails, assume not dirty to avoid blocking cleanup.
-      dirty = false;
-    }
-  }
-
-  if (dirty && !force) {
+  // Step 1: the one disposal engine decides first (T13924). Without proof that
+  // nothing in the worktree is lost it is kept; `force` archives the
+  // unpreserved work (ref + patch + receipt) first. The dependents/evidence
+  // guard always holds. The pre-remove hooks run only once removal is decided.
+  const reason = options.reason ?? 'manual';
+  const dispose = (probe: boolean) =>
+    disposeWorktree({
+      worktreePath,
+      gitRoot,
+      projectRoot,
+      taskId,
+      reason,
+      evidence: options.evidence,
+      force,
+      probe,
+    });
+  const refuse = (disposal: ReturnType<typeof disposeWorktree>): DestroyWorktreeResult => {
+    const message = disposal.kept
+      ? (disposal.keptReason ?? '')
+      : `Worktree kept: ${disposal.keptReason ?? 'not proven preserved'}. Commit and push it, or pass --force to archive it and remove it.`;
+    appendWorktreeAuditLog(projectRoot, {
+      action: 'destroy',
+      xdgPath: worktreePath,
+      taskId,
+      branch,
+      reason,
+      success: false,
+      error: message,
+    });
     return {
       taskId,
       worktreeRemoved: false,
       branchDeleted: false,
-      error: 'Worktree has uncommitted changes - destroy aborted',
-      dirty,
+      error: message,
+      dirty: disposal.unpreserved !== undefined,
       force,
       hookResults,
+      ...(disposal.kept ? { kept: disposal.kept } : {}),
+      ...(disposal.archive ? { archive: disposal.archive } : {}),
     };
-  }
-
-  // T13696: never delete files something outside the worktree still needs —
-  // a sibling's symlinked node_modules, or evidence that exists only here.
+  };
+  let dirty = false;
+  let archive: DestroyWorktreeResult['archive'];
   if (existsSync(worktreePath)) {
-    const kept = guardWorktreeDisposal(worktreePath, {
-      taskId,
-      reason: options.reason ?? 'manual',
-      gitRoot,
-      projectRoot,
-      evidence: options.evidence,
-    });
-    if (kept !== null) {
-      const message = describeDisposalBlockers(worktreePath, kept);
-      appendWorktreeAuditLog(projectRoot, {
-        action: 'destroy',
-        xdgPath: worktreePath,
-        taskId,
-        branch,
-        reason: options.reason ?? 'manual',
-        success: false,
-        error: message,
-      });
-      return {
-        taskId,
-        worktreeRemoved: false,
-        branchDeleted: false,
-        error: message,
-        dirty,
-        force,
-        hookResults,
-        kept,
-      };
-    }
-  }
+    const plan = dispose(true);
+    if (plan.keptReason !== undefined) return refuse(plan);
+    dirty = plan.unpreserved !== undefined;
 
-  // Step 2: Run pre-remove hooks.
-  if (hooks.length > 0 && existsSync(worktreePath)) {
-    try {
-      const preRemoveResults = await runWorktreeHooks(hooks, 'pre-remove', worktreePath);
-      hookResults.push(...preRemoveResults);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        taskId,
-        worktreeRemoved: false,
-        branchDeleted: false,
-        error: `Pre-remove hook failed: ${message}`,
-        dirty,
-        force,
-        hookResults,
-      };
+    // Step 2: Run pre-remove hooks.
+    if (hooks.length > 0) {
+      try {
+        const preRemoveResults = await runWorktreeHooks(hooks, 'pre-remove', worktreePath);
+        hookResults.push(...preRemoveResults);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          taskId,
+          worktreeRemoved: false,
+          branchDeleted: false,
+          error: `Pre-remove hook failed: ${message}`,
+          dirty,
+          force,
+          hookResults,
+        };
+      }
     }
-  }
 
-  // Step 3: Unlock + remove the worktree (T9982 — git plumbing routed through
-  // @cleocode/worktree-napi → worktrunk-core::git_wt::destroy_worktree).
-  // The TS layer still owns the unlock + filesystem-rm fallback so a locked or
-  // partially-removed worktree can be force-cleaned without a second napi call.
-  if (existsSync(worktreePath)) {
-    gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-    try {
-      const result = napiDestroyWorktree({
-        repoRoot: gitRoot,
-        worktreePath,
-        force: true,
-      });
-      worktreeRemoved = result.removed;
-      // T11033 — NAPI may report success even when untracked directories
-      // (e.g. .cleo/) survive inside the worktree. Verify on-disk reality.
-      if (worktreeRemoved && existsSync(worktreePath)) {
-        worktreeRemoved = false; // trigger filesystem fallback below
-      }
-    } catch (err) {
-      // napi reported failure — fall back to filesystem rm so the audit log
-      // still captures the cleanup attempt.
-      try {
-        rmSync(worktreePath, { recursive: true, force: true });
-        worktreeRemoved = true;
-      } catch (err2) {
-        if (!error) {
-          error = `Failed to remove worktree: napi=${err instanceof Error ? err.message : String(err)}; fs=${err2 instanceof Error ? err2.message : String(err2)}`;
-        }
-      }
-    }
-    // Filesystem fallback when NAPI reported success but directory survived.
-    if (!worktreeRemoved && existsSync(worktreePath)) {
-      try {
-        rmSync(worktreePath, { recursive: true, force: true });
-        worktreeRemoved = true;
-      } catch (err2) {
-        if (!error) {
-          error = `Failed to remove worktree directory after NAPI: ${err2 instanceof Error ? err2.message : String(err2)}`;
-        }
-      }
-    }
+    // Step 3: dispose for real; the engine re-proves right before removing.
+    const disposal = dispose(false);
+    if (!disposal.removed) return refuse(disposal);
+    archive = disposal.archive;
+    worktreeRemoved = true;
   } else if (located !== null) {
     // Registered with git but absent from disk — a stale registration. Pruning
     // it IS the removal; without this the entry lingers forever.
     gitSilent(['worktree', 'prune'], gitRoot);
     worktreeRemoved = true;
+    releaseWorktreeTaskLock(projectHash, taskId);
   } else {
     worktreeRemoved = true; // genuinely absent: not on disk, not registered
+    releaseWorktreeTaskLock(projectHash, taskId);
   }
-
-  // T12506: the worktree is gone, so its per-task lock guards nothing — free
-  // it so the next spawn of this task provisions without waiting for a TTL.
-  if (worktreeRemoved) releaseWorktreeTaskLock(projectHash, taskId);
 
   // Step 4: Optionally delete the branch.
   if (deleteBranch) {
@@ -261,5 +212,14 @@ export async function destroyWorktree(
     removeWorktreeFromSentinelIndex(gitRoot, taskId);
   }
 
-  return { taskId, worktreeRemoved, branchDeleted, error, dirty, force, hookResults };
+  return {
+    taskId,
+    worktreeRemoved,
+    branchDeleted,
+    error,
+    dirty,
+    force,
+    hookResults,
+    ...(archive ? { archive } : {}),
+  };
 }

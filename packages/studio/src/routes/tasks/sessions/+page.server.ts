@@ -1,8 +1,15 @@
 /**
  * Sessions page server load — session history with task completions timeline.
+ *
+ * Reads go through `@cleocode/core` (T14330, core-first): the session rows,
+ * each session's work history and the tasks they name, whose status is the
+ * one tasks read with (`active` only while a claim lease is live, T14268).
  */
 
-import { getTasksDb } from '$lib/server/db/connections.js';
+import type { Session, Task } from '@cleocode/contracts';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
+import { workHistory } from '@cleocode/core/store/session-store';
+import type { ProjectContext } from '$lib/server/project-context.js';
 import type { PageServerLoad } from './$types';
 
 export interface WorkedTaskEntry {
@@ -30,128 +37,95 @@ export interface SessionEntry {
   workedTasks: WorkedTaskEntry[];
 }
 
-export const load: PageServerLoad = ({ locals }) => {
-  const db = getTasksDb(locals.projectCtx);
+/** Sessions shown, newest first. */
+const SESSION_LIMIT = 100;
+/** Work-history rows read per session. */
+const WORK_HISTORY_LIMIT = 500;
+/** Completed tasks listed per session. */
+const COMPLETED_LIMIT = 20;
 
-  if (!db) {
-    return { sessions: [] };
-  }
+/** The page's task summary. */
+function brief(task: Task): { id: string; title: string; status: string } {
+  return { id: task.id, title: task.title, status: task.status };
+}
 
-  try {
-    const rows = db
-      .prepare(
-        `SELECT id, name, status, agent, started_at, ended_at,
-                current_task, tasks_completed_json, tasks_created_json
-         FROM sessions
-         ORDER BY started_at DESC
-         LIMIT 100`,
-      )
-      .all() as Array<{
-      id: string;
-      name: string | null;
-      status: string;
-      agent: string | null;
-      started_at: string;
-      ended_at: string | null;
-      current_task: string | null;
-      tasks_completed_json: string | null;
-      tasks_created_json: string | null;
-    }>;
+/**
+ * The page's session entries for a project, read through `@cleocode/core`.
+ * Exported for tests (T14330).
+ *
+ * @param ctx - The active project context.
+ * @returns Newest sessions first; empty when the project has no task store.
+ */
+export async function _loadSessionEntries(ctx: ProjectContext): Promise<SessionEntry[]> {
+  if (!ctx.tasksDbExists) return [];
+  const accessor = await getTaskAccessor(ctx.projectPath);
+  const rows: Session[] = (await accessor.loadSessions())
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+    .slice(0, SESSION_LIMIT);
 
-    // Pre-fetch all task_work_history rows for these sessions in one query
-    const sessionIds = rows.map((r) => r.id);
-    const workHistoryRows =
-      sessionIds.length > 0
-        ? (db
-            .prepare(
-              `SELECT twh.session_id, twh.task_id, twh.set_at, twh.cleared_at,
-                      t.title, t.status
-               FROM task_work_history twh
-               JOIN tasks t ON t.id = twh.task_id
-               WHERE twh.session_id IN (${sessionIds.map(() => '?').join(',')})
-               ORDER BY twh.set_at ASC`,
-            )
-            .all(...sessionIds) as Array<{
-            session_id: string;
-            task_id: string;
-            set_at: string;
-            cleared_at: string | null;
-            title: string;
-            status: string;
-          }>)
-        : [];
+  // Each session's work history, oldest first (workHistory returns newest first).
+  const histories = await Promise.all(
+    rows.map(async (s) => (await workHistory(s.id, WORK_HISTORY_LIMIT, ctx.projectPath)).reverse()),
+  );
 
-    // Group work history by session
-    const workHistoryBySession = new Map<string, WorkedTaskEntry[]>();
-    for (const row of workHistoryRows) {
-      const existing = workHistoryBySession.get(row.session_id) ?? [];
-      existing.push({
-        id: row.task_id,
-        title: row.title,
-        status: row.status,
-        setAt: row.set_at,
-        clearedAt: row.cleared_at,
+  // Every task the page names, loaded once.
+  const ids = new Set<string>();
+  rows.forEach((s, i) => {
+    for (const id of (s.tasksCompleted ?? []).slice(0, COMPLETED_LIMIT)) ids.add(id);
+    if (s.taskWork?.taskId) ids.add(s.taskWork.taskId);
+    for (const h of histories[i] ?? []) ids.add(h.taskId);
+  });
+  const tasks = new Map(
+    (ids.size > 0 ? await accessor.loadTasks([...ids]) : []).map((t) => [t.id, t]),
+  );
+
+  const sessions: SessionEntry[] = rows.map((s, i) => {
+    const completedIds = s.tasksCompleted ?? [];
+    const completedTasks = completedIds
+      .slice(0, COMPLETED_LIMIT)
+      .map((id) => tasks.get(id))
+      .filter((t): t is Task => t !== undefined)
+      .map(brief);
+    const current = s.taskWork?.taskId ? tasks.get(s.taskWork.taskId) : undefined;
+    const workedTasks: WorkedTaskEntry[] = [];
+    for (const h of histories[i] ?? []) {
+      const task = tasks.get(h.taskId);
+      if (!task) continue;
+      workedTasks.push({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        setAt: h.setAt,
+        clearedAt: h.clearedAt,
       });
-      workHistoryBySession.set(row.session_id, existing);
     }
+    const durationMs =
+      s.startedAt && s.endedAt
+        ? new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()
+        : null;
 
-    const sessions: SessionEntry[] = rows.map((s) => {
-      let completedIds: string[] = [];
-      try {
-        completedIds = s.tasks_completed_json ? JSON.parse(s.tasks_completed_json) : [];
-      } catch {
-        completedIds = [];
-      }
+    return {
+      id: s.id,
+      name: s.name ?? null,
+      status: s.status,
+      agent: s.agent ?? null,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt ?? null,
+      durationMs,
+      completedCount: completedIds.length,
+      createdCount: (s.tasksCreated ?? []).length,
+      completedTasks,
+      currentTask: current ? brief(current) : null,
+      workedTasks,
+    };
+  });
 
-      let createdCount = 0;
-      try {
-        const created = s.tasks_created_json ? JSON.parse(s.tasks_created_json) : [];
-        createdCount = Array.isArray(created) ? created.length : 0;
-      } catch {
-        createdCount = 0;
-      }
+  return sessions;
+}
 
-      const completedTasks: Array<{ id: string; title: string; status: string }> = [];
-      for (const tid of completedIds.slice(0, 20)) {
-        const t = db.prepare('SELECT id, title, status FROM tasks WHERE id = ?').get(tid) as
-          | { id: string; title: string; status: string }
-          | undefined;
-        if (t) completedTasks.push(t);
-      }
-
-      // Resolve current active task (only meaningful for active sessions)
-      let currentTask: { id: string; title: string; status: string } | null = null;
-      if (s.current_task) {
-        const ct = db
-          .prepare('SELECT id, title, status FROM tasks WHERE id = ?')
-          .get(s.current_task) as { id: string; title: string; status: string } | undefined;
-        if (ct) currentTask = ct;
-      }
-
-      const workedTasks = workHistoryBySession.get(s.id) ?? [];
-
-      const durationMs =
-        s.started_at && s.ended_at
-          ? new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()
-          : null;
-
-      return {
-        id: s.id,
-        name: s.name,
-        status: s.status,
-        agent: s.agent,
-        startedAt: s.started_at,
-        endedAt: s.ended_at,
-        durationMs,
-        completedCount: completedIds.length,
-        createdCount,
-        completedTasks,
-        currentTask,
-        workedTasks,
-      };
-    });
-
-    return { sessions };
+export const load: PageServerLoad = async ({ locals }) => {
+  try {
+    return { sessions: await _loadSessionEntries(locals.projectCtx) };
   } catch {
     return { sessions: [] };
   }

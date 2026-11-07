@@ -624,6 +624,71 @@ export async function runUpgrade(
     }
   }
 
+  // ── Step 2c: Docs identity migration (T14288) ────────────────────
+  // Every legacy doc without a conduit identity gets its uid, its exact bytes
+  // as the head version and a receipt (`cleo docs migrate`, default all: one
+  // run, one backup). Upgrade is the owner-run convergence point; reads never
+  // migrate. A store with nothing left runs no step and writes no snapshot.
+  // The live store is `cleo.db` (the chokepoint's own path rule), never the
+  // `tasks.db` decoy, which a store that never ran the JSON migration lacks.
+  const { resolveDualScopeDbPath } = await import('./store/dual-scope-db.js');
+  if (existsSync(resolveDualScopeDbPath('project', options.cwd))) {
+    try {
+      const docsRoot = getProjectRoot(options.cwd);
+      const { getDb, getNativeDb } = await import('./store/sqlite.js');
+      await getDb(docsRoot);
+      const native = getNativeDb(docsRoot);
+      if (native) {
+        const { runLegacyDocMigration } = await import('./docs/legacy-doc-migration.js');
+        const run = await runLegacyDocMigration({
+          projectRoot: docsRoot,
+          db: native,
+          cwd: options.cwd ?? docsRoot,
+          dryRun: isDryRun,
+        });
+        const touched = run.counts.toCapture + run.counts.toMarkDangling;
+        if (run.report.status !== 'completed') {
+          actions.push({
+            action: 'docs_migrate',
+            status: 'error',
+            details: `docs identity migration ${run.report.status}: ${run.report.failure ?? 'step failed'}`,
+            fix: 'Run `cleo docs migrate --dry-run`, then `cleo docs migrate`, and read its failure.',
+          });
+          errors.push(`docs migrate: ${run.report.failure ?? run.report.status}`);
+        } else if (touched > 0) {
+          actions.push({
+            action: 'docs_migrate',
+            status: isDryRun ? 'preview' : 'applied',
+            details:
+              `${isDryRun ? 'Would give' : 'Gave'} ${run.counts.toCapture} legacy doc(s) their identity and head ` +
+              `(${run.counts.versions} history rows, ${run.counts.toMarkDangling} recorded dangling)`,
+          });
+        }
+        // T14288: identity rows adopted before the metadata columns existed get
+        // their doc's metadata (deterministic, so every device writes the same).
+        if (!isDryRun && run.report.status === 'completed') {
+          const { mirrorUnmirroredConduitDocs } = await import('./store/conduit-doc-history.js');
+          const mirrored = await mirrorUnmirroredConduitDocs(docsRoot);
+          if (mirrored > 0) {
+            actions.push({
+              action: 'docs_identity_metadata',
+              status: 'applied',
+              details: `Mirrored the metadata of ${mirrored} doc(s) onto their identity`,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      actions.push({
+        action: 'docs_migrate',
+        status: 'error',
+        details: `docs identity migration failed: ${String(err)}`,
+        fix: 'Run `cleo docs migrate --dry-run` to inspect the plan.',
+      });
+      errors.push(`docs migrate: ${String(err)}`);
+    }
+  }
+
   // ── Step 3: Global ~/.cleo check ──────────────────────────────────
   if (options.includeGlobal) {
     try {

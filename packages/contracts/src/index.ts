@@ -1939,6 +1939,7 @@ export type {
 } from './operations/session.js';
 // === Task Operation Types (T1425 — typed-dispatch migration) ===
 export type {
+  ChildStrategy,
   DepGraphIssue,
   DepsTreeEdge,
   DepsTreeNode,
@@ -2134,6 +2135,8 @@ export type {
   CreateWorktreeResult,
   DestroyWorktreeOptions,
   DestroyWorktreeResult,
+  DisposeWorktreeOptions,
+  DisposeWorktreeResult,
   ForceUnlockWorktreeOpts,
   ForceUnlockWorktreeResult,
   ListWorktreesOptions,
@@ -2147,6 +2150,7 @@ export type {
   PruneOrphanedWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeArchiveReceipt,
   WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
@@ -2415,6 +2419,8 @@ export type {
 export * from './render/index.js';
 export type {
   AdmissionResult,
+  ExternalPressureDetails,
+  ExternalPressureProcess,
   GovernorMode,
   HeavyHeapSource,
   HeavyLeverChange,
@@ -2434,6 +2440,7 @@ export {
   RESOURCE_BACKPRESSURE_CODE,
   RESOURCE_CLASSES,
   RESOURCE_DEFERRED_CODE,
+  RESOURCE_EXTERNAL_PRESSURE_CODE,
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
 } from './resource-governor.js';
@@ -2581,6 +2588,8 @@ export type {
 export {
   ADR_STATUSES,
   type AdrStatus,
+  CANCELLATION_KINDS,
+  type CancellationKind,
   // Registry
   type EntityType,
   GATE_STATUSES,
@@ -2594,6 +2603,7 @@ export {
   // Display icons
   PIPELINE_STATUS_ICONS,
   type PipelineStatus,
+  REPLACED_CANCELLATION_KINDS,
   SESSION_STATUSES,
   type SessionStatus,
   type SettledTaskStatus,

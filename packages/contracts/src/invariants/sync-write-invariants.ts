@@ -500,6 +500,8 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       ['lifecycle_status'],
       ['D04', 'D05', 'D31', 'D32', 'D39', 'D50'],
       'superseded is sticky; lifecycle transitions follow a matrix',
+      // T14288: the doc's identity row mirrors the metadata under the same rule.
+      ['docs_attachments', 'conduit_attachments'],
     ),
   ),
   // T13354 (D11165) — CleoDocs re-keyed history family; the typed merge rules
@@ -557,6 +559,18 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     sites: [],
     reason:
       'two devices adopting one legacy doc must mint one uid: the shell takes the legacy birth and sentinel facts, so (uid, birth_fp) converge and receive places the peer copy as a duplicate; a lost local write is refused loudly at the writer',
+  },
+  // T13360 — the legacy docs import mints natural uids (the doc over its
+  // slug, the receipt over its slug), so a re-run or a second device's import
+  // is an ON CONFLICT no-op. Tagged at the accessors since T13360; registered
+  // by T14288, which touched the import.
+  {
+    id: 'docs.docs-migration.idempotent-import',
+    class: 'identity-layer',
+    tables: ['conduit_attachments', 'conduit_doc_migration_ledger'],
+    sites: [],
+    reason:
+      'the docs migration imports each legacy doc once: natural uids over the slug make a re-run a verified no-op, and receipts are never updated or deleted',
   },
   // T14118 — a slug is an alias, not an identity: renaming one moves the
   // live slug on the registry row and the conduit identity row together and

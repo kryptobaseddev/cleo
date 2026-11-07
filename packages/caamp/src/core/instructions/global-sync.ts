@@ -81,6 +81,12 @@ export interface SyncGlobalInstructionsOptions extends GlobalInstructionOptions 
    * (T13409). @defaultValue false
    */
   userRequested?: boolean;
+  /**
+   * Leave legacy `CLEO:START` blocks in place, so every byte outside the CAAMP
+   * block stays as it is (`cleo doctor global-delivery --repair`, T14304).
+   * @defaultValue false
+   */
+  keepLegacyBlocks?: boolean;
 }
 
 /**
@@ -190,7 +196,9 @@ export async function syncGlobalInstructions(
   for (const [path, ids] of targets) {
     const entry: GlobalInstructionSyncFile = { path, providers: ids, action: 'intact' };
     try {
-      if (await stripLegacyCleoBlock(path)) result.legacyStripped.push(path);
+      if (options.keepLegacyBlocks !== true && (await stripLegacyCleoBlock(path))) {
+        result.legacyStripped.push(path);
+      }
       entry.action = await inject(path, delivery.content);
     } catch (err) {
       entry.action = 'failed';
@@ -206,6 +214,11 @@ export async function syncGlobalInstructions(
 interface SourceSnapshot {
   digest: string | null;
   lines: string[];
+}
+
+/** sha256 hex of a string. */
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 async function snapshotSource(path: string): Promise<SourceSnapshot> {
@@ -233,11 +246,13 @@ function evidenceLine(line: string): string | null {
  * Cheap staleness scan over every global provider instruction file.
  *
  * @remarks
- * Reads each distinct provider file once and hashes each distinct stamped
- * source once — no reference expansion, no writes. A file is:
+ * Reads each distinct provider file once, hashes each distinct stamped source
+ * once, and resolves the hub once for the body a sync would write. No writes.
+ * A file is:
  *
  * - `stale` when a `CAAMP:SOURCE` stamp's sha256 no longer matches its source
- *   (or the source is gone);
+ *   (or the source is gone), or when the block's body hash differs from the
+ *   body a sync would write now (T14304);
  * - `unembedded` when its managed block carries no stamp at all (a
  *   reference-only block or the generic stub written before T12377).
  *
@@ -265,6 +280,15 @@ export async function checkGlobalInstructionStaleness(
   const sources = new Map<string, SourceSnapshot>();
   const outsideByFile = new Map<string, string>();
   const files: GlobalInstructionFileStatus[] = [];
+  // T14304: the body a sync would write now. A block that differs is stale
+  // even when every source stamp still matches.
+  const delivery = await resolveInstructionDelivery(
+    options.hubReference ?? GLOBAL_INSTRUCTION_HUB_REFERENCE,
+    options.baseDir ?? homedir(),
+  );
+  const expectedSha256 = delivery.findings.some((f) => f.kind !== 'duplicate')
+    ? null
+    : sha256(delivery.content.trim());
 
   for (const [path, ids] of targets) {
     const status: GlobalInstructionFileStatus = {
@@ -273,6 +297,8 @@ export async function checkGlobalInstructionStaleness(
       state: 'current',
       staleSources: [],
       duplicateLines: 0,
+      blockSha256: null,
+      expectedSha256,
     };
     files.push(status);
 
@@ -290,6 +316,7 @@ export async function checkGlobalInstructionStaleness(
       continue;
     }
     outsideByFile.set(path, content.replace(blockPattern(), ''));
+    status.blockSha256 = sha256(blocks.map((block) => block.content).join('\n'));
 
     const stamps = blocks.flatMap((block) => [
       ...block.content.matchAll(new RegExp(CAAMP_SOURCE_STAMP_PATTERN_SOURCE, 'gm')),
@@ -319,6 +346,8 @@ export async function checkGlobalInstructionStaleness(
       }
     }
     if (status.staleSources.length > 0) status.state = 'stale';
+    else if (expectedSha256 !== null && status.blockSha256 !== expectedSha256)
+      status.state = 'stale';
   }
 
   // Duplicate detection runs after every source is known, so a file whose own

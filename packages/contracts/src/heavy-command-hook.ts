@@ -106,6 +106,11 @@ export interface PreToolUseHookInput {
   readonly cwd?: string;
   /** Claude Code and Codex: `default`, `plan`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`. */
   readonly permission_mode?: string;
+  /**
+   * Claude Code: the subagent or in-process teammate the call comes from;
+   * absent on the main thread (T14341).
+   */
+  readonly agent_id?: string;
 }
 
 /** The answer `cleo hook heavy-command --provider opencode` prints for CLEO's opencode plugin. */

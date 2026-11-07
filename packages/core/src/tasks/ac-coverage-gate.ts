@@ -181,7 +181,9 @@ export function uncoveredAcRows(
  * rollup an epic completes through, so it needs no evidence row of its own.
  * A settled child covers it (`isSettledChild`), except that a `cancelled`
  * child covers it only under the audited `--waive-cancelled-children` waiver
- * `cleo complete` and `cleo done` share (`cancelled-child-waiver.ts`, T14266).
+ * `cleo complete` and `cleo done` share (`cancelled-child-waiver.ts`, T14266),
+ * or when it was cancelled as superseded or duplicate and its replacement is
+ * done (T14267, D11229).
  *
  * @param taskId - The task being completed.
  * @param accessor - DataAccessor used for the AC, binding and child reads.
@@ -190,7 +192,7 @@ export function uncoveredAcRows(
  */
 export async function computeAcCoverage(
   taskId: string,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
   options: { coverCancelledChildren?: boolean } = {},
 ): Promise<AcCoverageResult> {
   const acRows = await accessor.getAcRows(taskId);
@@ -205,18 +207,26 @@ export async function computeAcCoverage(
   const needsChildren = uncoveredAcRows(acRows, bindings, new Set()).some(
     (r) => childProjectionTarget(r) !== null,
   );
-  const coveringChildren = needsChildren
-    ? new Set(
-        (await accessor.getChildren(taskId))
-          // T14266: a settled child covers its projection; a cancelled one only under a waiver.
-          .filter(
-            (c) =>
-              isSettledChild(c.status) &&
-              (c.status !== 'cancelled' || options.coverCancelledChildren === true),
-          )
-          .map((c) => c.id),
-      )
-    : new Set<string>();
+  let coveringChildren = new Set<string>();
+  if (needsChildren) {
+    const children = await accessor.getChildren(taskId);
+    // T14267 (D11229): a superseded or duplicate child whose replacement is done.
+    const { replacedCancelledChildIds } = await import('./cancelled-child-waiver.js');
+    const replaced = await replacedCancelledChildIds(children, (id) => accessor.loadSingleTask(id));
+    coveringChildren = new Set(
+      children
+        // T14266: a settled child covers its projection; a cancelled one only
+        // under a waiver or, T14267, when a done replacement delivered it.
+        .filter(
+          (c) =>
+            isSettledChild(c.status) &&
+            (c.status !== 'cancelled' ||
+              options.coverCancelledChildren === true ||
+              replaced.has(c.id)),
+        )
+        .map((c) => c.id),
+    );
+  }
 
   const unsatisfied = uncoveredAcRows(acRows, bindings, coveringChildren).map<UnsatisfiedAc>(
     (r) => {
@@ -443,7 +453,7 @@ export function readOwnerOverride(env: NodeJS.ProcessEnv = process.env): string 
  */
 export async function assertAcCoveredForDone(
   taskId: string,
-  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren' | 'loadSingleTask'>,
 ): Promise<void> {
   const coverage = await computeAcCoverage(taskId, accessor);
   if (coverage.ok) return;

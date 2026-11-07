@@ -483,7 +483,10 @@ export interface DestroyWorktreeOptions {
    */
   forceDeleteUnmergedBranch?: boolean;
   /**
-   * When true, force destruction even if the worktree has uncommitted changes.
+   * When true, a worktree whose content or commits are not proven preserved
+   * is archived first (an archive ref plus a patch, with a receipt) and then
+   * removed; without it such a worktree is kept (T13924). Nothing that still
+   * links into the worktree, or evidence found only there, is overridden.
    *
    * @default false
    */
@@ -564,6 +567,110 @@ export interface DestroyWorktreeResult {
   hookResults?: WorktreeHookResult[];
   /** Set when the worktree was kept because something still needs its files (T13696). */
   kept?: WorktreeDisposalBlockers;
+  /** The archive a forced destroy wrote before removing unpreserved work (T13924). */
+  archive?: WorktreeArchiveReceipt;
+}
+
+/**
+ * Receipt of a worktree archived before removal (T13924): every commit and
+ * every uncommitted change it held, as a ref in the repository and a patch on
+ * disk. Written beside the patch as `<name>.json`.
+ *
+ * @task T13924
+ */
+export interface WorktreeArchiveReceipt {
+  /** The worktree that was archived. */
+  worktreePath: string;
+  /** Owning task, when known. */
+  taskId: string | null;
+  /** The disposal that archived it. */
+  reason: string;
+  /** Branch checked out in the worktree, or `null` when detached. */
+  branch: string | null;
+  /** The worktree's HEAD commit, or `null` for an unborn branch. */
+  head: string | null;
+  /** Ref holding the archive commit, under `refs/cleo/archive/`. */
+  archiveRef: string;
+  /** Archive commit: HEAD as parent, the tracked, untracked and ignored content (bar `node_modules` and build output) as its tree. */
+  archiveSha: string;
+  /** Patch from HEAD to the archive commit (`git diff --binary`). */
+  patchPath: string;
+  /** Path of this receipt. */
+  receiptPath: string;
+  /** ISO-8601 time the archive was written. */
+  createdAt: string;
+  /** Command that restores the archive into a new worktree. */
+  restore: string;
+}
+
+/**
+ * Options for the one worktree disposal engine (T13924, `disposeWorktree`).
+ *
+ * @task T13924
+ */
+export interface DisposeWorktreeOptions {
+  /** Worktree directory to dispose. */
+  worktreePath: string;
+  /** Repository root the worktree belongs to; read from the worktree when omitted. */
+  gitRoot?: string;
+  /** Main checkout untracked and ignored content is compared against, and the archive's home; the repository's main worktree when omitted. */
+  projectRoot?: string;
+  /** Owning task, when known. */
+  taskId: string | null;
+  /** Why the worktree is disposed (audit and archive receipt). */
+  reason: string;
+  /** The task's recorded evidence atoms (T13696). */
+  evidence?: readonly EvidenceAtom[];
+  /**
+   * The project's default branch (core `getDefaultBranch`, which honours
+   * `git.defaultBranch`). When omitted: `origin/HEAD`, then `main`, `master`,
+   * `develop`, `trunk`.
+   */
+  defaultBranch?: string;
+  /** Ignored build output counts as redundant: only for a checkout whose commits are merged. */
+  exemptRegenerable?: boolean;
+  /**
+   * Archive unpreserved work, then remove (`destroy --force` only). The
+   * dependents and evidence guard still keeps the worktree.
+   */
+  force?: boolean;
+  /** Report what would happen; never write, archive or remove. */
+  dryRun?: boolean;
+  /**
+   * Decide only: run the proof and record a keep marker when the guard keeps
+   * it (as a real disposal does), but never archive or remove. Callers that
+   * act between deciding and removing (hooks, a re-check) use it.
+   */
+  probe?: boolean;
+  /**
+   * Whether something still uses the worktree (a live task lock or claim):
+   * a reason when it does, `null` when not. A probe that throws counts as in use.
+   */
+  inUse?: () => string | null;
+}
+
+/**
+ * Outcome of {@link DisposeWorktreeOptions | disposeWorktree}.
+ *
+ * @task T13924
+ */
+export interface DisposeWorktreeResult {
+  /** The worktree considered. */
+  worktreePath: string;
+  /** Whether the directory is gone (a dry run reports `false`). */
+  removed: boolean;
+  /** Why it was kept, when it was; absent when removed or removable. */
+  keptReason?: string;
+  /** Set when the dependents and evidence guard kept it (T13696). */
+  kept?: WorktreeDisposalBlockers;
+  /** The preservation clause that failed, when one did (dirty, untracked, ignored content, unpreserved commits, a failed probe). */
+  unpreserved?: string;
+  /** The archive written before a forced removal. */
+  archive?: WorktreeArchiveReceipt;
+  /** Set when the removal (or the archive before it) was attempted and failed: an error, not a proof result. */
+  failed?: string;
+  /** True when a probe could not answer (a git or read error), so the worktree was kept unproven (T14274). */
+  indeterminate?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -649,9 +756,9 @@ export interface PruneWorktreesResult {
   removed: number;
   /** Absolute paths that were removed. */
   removedPaths: string[];
-  /** Number of worktrees quarantined (dirty/unpushed — preserved, not deleted). */
+  /** Number of worktrees kept because their content or commits are not proven preserved (T13924). */
   quarantined: number;
-  /** Absolute paths of quarantined worktrees. */
+  /** Absolute paths of those kept worktrees, left on disk untouched. */
   quarantinedPaths: string[];
   /** Entries that failed to remove (with reasons). */
   errors: Array<{ path: string; reason: string }>;
@@ -670,25 +777,26 @@ export interface PruneWorktreesResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Mutually-exclusive worktree status category assigned by orphan-detection
- * heuristics in {@link WorktreeInfo}.
+ * Mutually-exclusive worktree status category: what the one disposal proof
+ * (`disposeWorktree`, T13924) says about the worktree (T14274).
  *
- * Resolution precedence (first match wins):
- *  1. `active` — primary worktree guard: the canonical project checkout
- *     (the directory containing `.git/`, not a `git worktree add` derivative)
- *     is ALWAYS active, regardless of merge state. Without this guard the
- *     `main` branch would classify as `merged` (it is trivially its own
- *     ancestor) and `cleo worktree prune --orphaned` would offer to delete
- *     the project root. (T9686-D)
- *  2. `locked` — git porcelain reports the worktree is locked.
- *  3. `orphan` — owning task is cancelled OR the branch has been deleted.
- *  4. `merged` — the branch is reachable from `main` (already integrated).
- *  5. `stale`  — no commits in N days AND (task=done OR no live owner).
- *  6. `active` — everything else (default).
+ * - `active` — in use: the primary checkout (T9686-D), a worktree whose task
+ *   is open, or one with no (stored) task that was active within the stale
+ *   window. Never pruned.
+ * - `redundant` — its task is done or cancelled (or it has no task and has
+ *   been idle past the stale window) and the proof holds: nothing in it would
+ *   be lost. `cleo worktree prune --orphaned` acts only on these.
+ * - `keep` — same candidacy, but the proof fails; {@link WorktreeInfo.keepReason}
+ *   names the failing clause (uncommitted changes, unpreserved commits,
+ *   something linking into it, a task lock held, …).
+ * - `unknown` — a probe could not answer (a git or read error); never redundant.
+ *
+ * Staleness is an annotation ({@link WorktreeInfo.isStale}), not a category.
  *
  * @task T9546
+ * @task T14274
  */
-export type WorktreeStatusCategory = 'active' | 'stale' | 'merged' | 'orphan' | 'locked';
+export type WorktreeStatusCategory = 'active' | 'redundant' | 'keep' | 'unknown';
 
 /**
  * Source classifier for a worktree entry.
@@ -759,7 +867,7 @@ export interface WorktreeInfo {
    * @task T9546
    */
   lockState: 'locked' | 'unlocked';
-  /** Whether the worktree is stale: no activity > N days AND (task done/cancelled OR branch merged). */
+  /** Annotation: no activity for more than the stale window AND (task done/cancelled OR branch merged). */
   isStale: boolean;
   /** Whether the branch is reachable from `main` (already integrated). */
   isMerged: boolean;
@@ -767,6 +875,8 @@ export interface WorktreeInfo {
   owningTaskStatus: string | null;
   /** Mutually-exclusive status category — see {@link WorktreeStatusCategory}. */
   statusCategory: WorktreeStatusCategory;
+  /** For `keep` and `unknown`: the proof clause that failed, or the probe that could not answer (T14274). */
+  keepReason?: string;
   /**
    * Origin of this worktree entry.
    *
