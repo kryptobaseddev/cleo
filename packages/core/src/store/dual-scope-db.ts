@@ -81,6 +81,7 @@ import {
   lineageAtHead,
   migrateBracketed,
 } from './migration-runner.js';
+import { snapshotBeforePendingMigrations } from './pre-repair-snapshot.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
   resolveConsolidatedJournalSiblings,
@@ -871,7 +872,22 @@ async function migrateScopeSchema(
     existenceTable(scope),
     `dual-scope-db[${scope}]`,
     resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-    syncMigrationHooks(nativeDb, scope),
+    scope === 'project'
+      ? {
+          ...syncMigrationHooks(nativeDb, scope),
+          // T14268: a project store is snapshotted before its first pending
+          // migration, inside this cold-open lease (one snapshot per upgrade).
+          beforePendingMigrations: (d, pending) => {
+            const outcome = snapshotBeforePendingMigrations(d, sync.dbPath, pending);
+            if (outcome.kind === 'snapshot') {
+              log.info(
+                { scope, snapshot: outcome.path },
+                'pre-migration snapshot written (T14268)',
+              );
+            }
+          },
+        }
+      : syncMigrationHooks(nativeDb, scope),
   );
   // NEW-6: the handle leaves the schema pass in its configured FK mode.
   assertHandleForeignKeys(nativeDb);

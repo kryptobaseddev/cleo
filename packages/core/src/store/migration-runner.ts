@@ -26,7 +26,8 @@
  * - **Recovery kept.** A duplicate-column or table-exists error re-runs
  *   `reconcileJournal` once and retries, as `migrateWithRetry` does; a BUSY
  *   error retries the whole bracket with backoff, never mid-bracket.
- * - **Hooks (D4, NEW-8).** `beforeMigrations` runs before the first bracket
+ * - **Hooks (D4, NEW-8).** `beforePendingMigrations` runs first, with the
+ *   pending files (the pre-migration snapshot, T14268); `beforeMigrations` runs before the first bracket
  *   (the sealer's pending work and the repair diff for suspect tables, S3);
  *   `suspendCapture` / `reinstallCapture` run inside each bracket around the
  *   statements (the capture triggers, S2); `afterMigration` runs after each
@@ -74,6 +75,12 @@ const BUSY_MAX_DELAY_MS = 2000;
 
 /** Optional work around the brackets (D4 ordering). */
 export interface MigrationBracketHooks {
+  /**
+   * Before the first bracket and before {@link beforeMigrations}, outside any
+   * transaction, with the lineage's pending files: the pre-migration snapshot
+   * (T14268). A throw refuses the migration: nothing has been written.
+   */
+  beforePendingMigrations?(db: DatabaseSync, pending: readonly MigrationMeta[]): void;
   /** Before the first bracket: seal pending captures, repair suspect tables (S3). */
   beforeMigrations?(db: DatabaseSync): void;
   /** Inside each bracket, before the statements: drop the capture triggers (S2). */
@@ -131,6 +138,25 @@ export interface MigrationRunReport {
   readonly applied: string[];
   /** Names of the files that ran with `foreign_keys = OFF` (rebuilds). */
   readonly rebuilds: string[];
+}
+
+/**
+ * A pending migration set with data DML could not be snapshotted first, so it
+ * was not run (T14268). Nothing was written.
+ */
+export class MigrationSnapshotRequiredError extends Error {
+  readonly code = 'E_MIGRATION_SNAPSHOT_REQUIRED';
+
+  constructor(
+    readonly migrations: readonly string[],
+    reason: string,
+  ) {
+    super(
+      `Refusing to run ${migrations.length} pending migration(s) with data DML (${migrations.join(', ')}) ` +
+        `without a pre-migration snapshot: ${reason}`,
+    );
+    this.name = 'MigrationSnapshotRequiredError';
+  }
 }
 
 /** A migration file that introduced a foreign-key violation (rolled back). */
@@ -281,6 +307,20 @@ export function dmlTables(statements: readonly string[]): string[] {
     }
   }
   return [...out].sort();
+}
+
+/**
+ * Whether a pending migration set changes data, not only schema (T14268): any
+ * file with a statement {@link dmlTables} finds (INSERT, REPLACE, UPDATE or
+ * DELETE), which includes a table rebuild's copy into `__new_<table>`. Such a
+ * set never runs without a pre-migration snapshot; a schema-only set only
+ * warns when the snapshot fails.
+ *
+ * @param pending - The pending migration files.
+ * @returns `true` when any file has data DML.
+ */
+export function pendingHasDataDml(pending: readonly MigrationMeta[]): boolean {
+  return pending.some((m) => dmlTables(m.sql).length > 0);
 }
 
 function listTables(db: DatabaseSync): string[] {
@@ -695,6 +735,7 @@ export function runBracketedMigrations(
       });
       if (pending.length === 0) break;
       if (!hooked) {
+        hooks.beforePendingMigrations?.(nativeDb, pending);
         hooks.beforeMigrations?.(nativeDb);
         hooked = true;
       }
