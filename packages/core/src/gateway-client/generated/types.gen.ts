@@ -14551,6 +14551,10 @@ export type MutateDocsMigrateData = {
          * At most this many docs per run, oldest first (T14329); default all. Run again to continue
          */
         limit?: number;
+        /**
+         * Report the plan counts and write nothing (T14331)
+         */
+        dryRun?: boolean;
     };
     path?: never;
     query?: never;

@@ -1327,9 +1327,16 @@ export async function publishDocs(opts: {
     // whose bytes were never mirrored/consolidated fails loudly instead of
     // silently publishing stale legacy bytes.
     const store = createAttachmentStore();
+    // T14288: a slug (live or alias) resolves to the doc's head content.
+    const bySlug = async (slug: string) => {
+      const { resolveDocRef } = await import('./slug-rename.js');
+      const ref = await resolveDocRef(root, slug).catch(() => null);
+      const meta = ref ? await store.getMetadata(ref.row.id, root).catch(() => null) : null;
+      return ref && meta ? { ...meta, sha256: ref.sha256 } : undefined;
+    };
     const metadata = opts.attachmentId
       ? ((await store.getMetadata(opts.attachmentId, root).catch(() => null)) ??
-        (await store.findBySlug(opts.attachmentId, root).catch(() => null))?.metadata)
+        (await bySlug(opts.attachmentId)))
       : (await store.listByOwner('task', opts.ownerId, root).catch(() => [])).sort((a, b) =>
           b.createdAt.localeCompare(a.createdAt),
         )[0];

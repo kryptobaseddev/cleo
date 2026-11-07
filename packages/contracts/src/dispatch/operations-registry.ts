@@ -8921,6 +8921,12 @@ export const OPERATIONS: OperationDef[] = [
         description:
           'At most this many docs per run, oldest first (T14329); default all. Run again to continue',
       },
+      {
+        name: 'dryRun',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Report the plan counts and write nothing (T14331)',
+      },
     ],
   },
   // ── docs.modernize (T14113 — Epic T14106) ─────────────────────────────────
