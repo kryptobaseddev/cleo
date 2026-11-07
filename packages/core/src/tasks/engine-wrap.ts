@@ -907,7 +907,9 @@ export async function taskCancel(
     }
     if (message.startsWith('E_INVALID_INPUT:')) {
       // @sync-invariant none:input-shape a bad cancel kind or replacement was refused before any write
-      return engineError('E_INVALID_INPUT', message.replace(/^E_INVALID_INPUT:\s*/, ''));
+      return engineError('E_INVALID_INPUT', message.replace(/^E_INVALID_INPUT:\s*/, ''), {
+        fix: `cleo cancel ${taskId} --kind <kind>`,
+      });
     }
     // T14300: the re-wrap carries a runnable CLI fix and the alternatives.
     if (message.startsWith('E_HAS_CHILDREN:')) {
