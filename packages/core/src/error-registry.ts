@@ -227,6 +227,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     httpStatus: 428,
   },
   {
+    exitCode: ExitCode.SESSION_AMBIGUOUS,
+    lafsCode: 'E_SESSION_AMBIGUOUS',
+    category: 'CONTRACT',
+    description: 'Several agents share this harness session; the caller names none',
+    retryable: true,
+    httpStatus: 428,
+  },
+  {
     exitCode: ExitCode.PROJECT_MOVED,
     lafsCode: 'E_PROJECT_MOVED',
     category: 'NOT_FOUND',
