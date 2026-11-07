@@ -432,14 +432,22 @@ export async function computeMergeAttribution(
     ...base,
     failures,
     verdict,
-    claim:
-      verdict === 'disjoint' || verdict === 'main-health'
-        ? 'holds-on-main'
-        : verdict === 'superseded'
-          ? 'green-at-head'
-          : 'none',
+    claim: claimOf(verdict),
     reason: `${decisive.job}: ${decisive.reason}`,
   };
+}
+
+/**
+ * What a receipt's verdict proves (T14252): the change holds on main (clean,
+ * disjoint, main-health), only the head was tested (superseded), or nothing.
+ *
+ * @param verdict - The receipt's verdict.
+ * @returns The receipt's claim.
+ */
+export function claimOf(verdict: MergeAttributionVerdict): MergeAttributionReceipt['claim'] {
+  if (verdict === 'clean' || verdict === 'disjoint' || verdict === 'main-health')
+    return 'holds-on-main';
+  return verdict === 'superseded' ? 'green-at-head' : 'none';
 }
 
 /** The GitHub and git readers a receipt is computed from (T14253). */

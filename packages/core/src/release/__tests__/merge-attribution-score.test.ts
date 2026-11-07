@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { MergeAttributionVerdict } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
+import { claimOf } from '../merge-attribution.js';
 import {
   formatMergeAttributionScore,
   type MergeAttributionScoreRow,
@@ -46,7 +47,7 @@ function dryRun(): MergeAttributionScoreRow[] {
         prNumber: Number(pr),
         taskId: task ?? null,
         set: set ?? '',
-        receipt: { verdict: v, reason: `dry run: ${v}`, failures: [] },
+        receipt: { verdict: v, claim: claimOf(v), reason: `dry run: ${v}`, failures: [] },
         current,
       };
     });
@@ -74,7 +75,7 @@ describe('shadow receipt score (T14256)', () => {
     );
   });
 
-  it('a missing receipt is undecided and named; a receipt closing a new failure blocks', () => {
+  it('a missing receipt is undecided and named; a current close of a new failure is named', () => {
     const score = scoreMergeAttributions([
       {
         prNumber: 1,
@@ -89,7 +90,8 @@ describe('shadow receipt score (T14256)', () => {
         taskId: 'T2',
         set: 'refused',
         receipt: {
-          verdict: 'disjoint',
+          verdict: 'pr-caused',
+          claim: 'none',
           reason: 'x',
           failures: [{ job: 'j', tests: ['a'], cause: null, verdict: 'pr-caused', reason: 'new' }],
         },
@@ -104,11 +106,31 @@ describe('shadow receipt score (T14256)', () => {
       {
         prNumber: 2,
         taskId: 'T2',
-        receipt: 'disjoint: would refuse',
+        receipt: 'pr-caused: would refuse',
         current: 'closed',
         cause: 'x',
       },
     ]);
+  });
+
+  it('AC2: a receipt that claims to hold while carrying a pr-caused failure blocks at a 100% share', () => {
+    const score = scoreMergeAttributions([
+      {
+        prNumber: 4,
+        taskId: 'T4',
+        set: 'refused',
+        receipt: {
+          verdict: 'disjoint',
+          claim: 'holds-on-main',
+          reason: 'x',
+          failures: [{ job: 'j', tests: ['a'], cause: null, verdict: 'pr-caused', reason: 'new' }],
+        },
+        current: 'refused',
+      },
+    ]);
+    expect(score).toMatchObject({ scored: 1, decidable: 1, share: 1, unblocks: false });
+    expect(score.receiptClosedNewFailures).toEqual([{ prNumber: 4, taskId: 'T4' }]);
+    expect(score.disagreements[0]?.receipt).toBe('disjoint: would close');
   });
 
   it('a resolved unknown would close but is not counted decidable', () => {
@@ -119,6 +141,7 @@ describe('shadow receipt score (T14256)', () => {
         set: 'refused',
         receipt: {
           verdict: 'unknown',
+          claim: 'none',
           reason: 'no parent',
           failures: [],
           resolution: { claim: 'holds-on-main', sha: 'l1', via: 'ancestry', runs: [] },

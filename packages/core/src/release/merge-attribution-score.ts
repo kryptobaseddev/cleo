@@ -13,15 +13,6 @@ import type { MergeAttributionReceipt, MergeAttributionVerdict } from '@cleocode
 /** The decidable share the Phase 3 deletions need (T14256). */
 export const MERGE_ATTRIBUTION_DECIDABLE_BAR = 0.8;
 
-/** Verdicts whose receipt would let the PR's task close (budget-crossed per D11225). */
-const CLOSING: ReadonlySet<MergeAttributionVerdict> = new Set([
-  'clean',
-  'superseded',
-  'disjoint',
-  'main-health',
-  'budget-crossed',
-]);
-
 /** Failure verdicts that are new at the merge: never closed. */
 const NEW_AT_MERGE: ReadonlySet<MergeAttributionVerdict> = new Set(['pr-caused', 'combination']);
 
@@ -36,7 +27,7 @@ export interface MergeAttributionScoreRow {
   /** The shadow receipt, or `null` when none could be computed. */
   readonly receipt: Pick<
     MergeAttributionReceipt,
-    'verdict' | 'reason' | 'failures' | 'resolution'
+    'verdict' | 'claim' | 'reason' | 'failures' | 'resolution'
   > | null;
   /** Why no receipt could be computed. */
   readonly noReceipt?: string;
@@ -77,10 +68,19 @@ export interface MergeAttributionScore {
   readonly unblocks: boolean;
 }
 
-/** Whether a receipt would let its task close. */
+/**
+ * Whether the closure rule would close the task on this receipt: it claims the
+ * change holds (on main or at the head), a later green main run resolved it
+ * (T14255), or it only crossed a budget (D11225). It reads the claim, never the
+ * failures, so a receipt that claims to hold despite a failure new at the merge
+ * is counted in `receiptClosedNewFailures` instead of being filtered out.
+ */
 function wouldClose(receipt: NonNullable<MergeAttributionScoreRow['receipt']>): boolean {
-  if (receipt.failures.some((f) => NEW_AT_MERGE.has(f.verdict))) return false;
-  return CLOSING.has(receipt.verdict) || receipt.resolution !== undefined;
+  return (
+    receipt.claim !== 'none' ||
+    receipt.resolution !== undefined ||
+    receipt.verdict === 'budget-crossed'
+  );
 }
 
 /**
