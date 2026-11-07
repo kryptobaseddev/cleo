@@ -669,6 +669,8 @@ export interface DisposeWorktreeResult {
   archive?: WorktreeArchiveReceipt;
   /** Set when the removal (or the archive before it) was attempted and failed: an error, not a proof result. */
   failed?: string;
+  /** True when a probe could not answer (a git or read error), so the worktree was kept unproven (T14274). */
+  indeterminate?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -775,25 +777,26 @@ export interface PruneWorktreesResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Mutually-exclusive worktree status category assigned by orphan-detection
- * heuristics in {@link WorktreeInfo}.
+ * Mutually-exclusive worktree status category: what the one disposal proof
+ * (`disposeWorktree`, T13924) says about the worktree (T14274).
  *
- * Resolution precedence (first match wins):
- *  1. `active` — primary worktree guard: the canonical project checkout
- *     (the directory containing `.git/`, not a `git worktree add` derivative)
- *     is ALWAYS active, regardless of merge state. Without this guard the
- *     `main` branch would classify as `merged` (it is trivially its own
- *     ancestor) and `cleo worktree prune --orphaned` would offer to delete
- *     the project root. (T9686-D)
- *  2. `locked` — git porcelain reports the worktree is locked.
- *  3. `orphan` — owning task is cancelled OR the branch has been deleted.
- *  4. `merged` — the branch is reachable from `main` (already integrated).
- *  5. `stale`  — no commits in N days AND (task=done OR no live owner).
- *  6. `active` — everything else (default).
+ * - `active` — in use: the primary checkout (T9686-D), a worktree whose task
+ *   is open, or one with no (stored) task that was active within the stale
+ *   window. Never pruned.
+ * - `redundant` — its task is done or cancelled (or it has no task and has
+ *   been idle past the stale window) and the proof holds: nothing in it would
+ *   be lost. `cleo worktree prune --orphaned` acts only on these.
+ * - `keep` — same candidacy, but the proof fails; {@link WorktreeInfo.keepReason}
+ *   names the failing clause (uncommitted changes, unpreserved commits,
+ *   something linking into it, a task lock held, …).
+ * - `unknown` — a probe could not answer (a git or read error); never redundant.
+ *
+ * Staleness is an annotation ({@link WorktreeInfo.isStale}), not a category.
  *
  * @task T9546
+ * @task T14274
  */
-export type WorktreeStatusCategory = 'active' | 'stale' | 'merged' | 'orphan' | 'locked';
+export type WorktreeStatusCategory = 'active' | 'redundant' | 'keep' | 'unknown';
 
 /**
  * Source classifier for a worktree entry.
@@ -864,7 +867,7 @@ export interface WorktreeInfo {
    * @task T9546
    */
   lockState: 'locked' | 'unlocked';
-  /** Whether the worktree is stale: no activity > N days AND (task done/cancelled OR branch merged). */
+  /** Annotation: no activity for more than the stale window AND (task done/cancelled OR branch merged). */
   isStale: boolean;
   /** Whether the branch is reachable from `main` (already integrated). */
   isMerged: boolean;
@@ -872,6 +875,8 @@ export interface WorktreeInfo {
   owningTaskStatus: string | null;
   /** Mutually-exclusive status category — see {@link WorktreeStatusCategory}. */
   statusCategory: WorktreeStatusCategory;
+  /** For `keep` and `unknown`: the proof clause that failed, or the probe that could not answer (T14274). */
+  keepReason?: string;
   /**
    * Origin of this worktree entry.
    *

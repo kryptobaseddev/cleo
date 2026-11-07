@@ -51,11 +51,13 @@ export interface OrchestrateDashboardMetrics {
   activeWorktreeCount: number;
   worktrees: {
     total: number;
+    /** Worktree categories (T14274): in use, provably disposable, kept with a reason, undecidable. */
     active: number;
-    locked: number;
+    redundant: number;
+    keep: number;
+    unknown: number;
+    /** Worktrees carrying the `stale` annotation. */
     stale: number;
-    orphan: number;
-    merged: number;
     dirty: number;
     unpushed: number;
     stalled: number;
@@ -159,10 +161,10 @@ function summarizeWorktrees(
   const counts = {
     total: states.length,
     active: 0,
-    locked: 0,
+    redundant: 0,
+    keep: 0,
+    unknown: 0,
     stale: 0,
-    orphan: 0,
-    merged: 0,
     dirty: 0,
     unpushed: 0,
     stalled: 0,
@@ -170,10 +172,10 @@ function summarizeWorktrees(
   for (const state of states) {
     const { statusCategory: category } = state;
     if (category === 'active') counts.active += 1;
-    else if (category === 'locked') counts.locked += 1;
-    else if (category === 'stale') counts.stale += 1;
-    else if (category === 'orphan') counts.orphan += 1;
-    else if (category === 'merged') counts.merged += 1;
+    else if (category === 'redundant') counts.redundant += 1;
+    else if (category === 'keep') counts.keep += 1;
+    else if (category === 'unknown') counts.unknown += 1;
+    if (state.reasons.includes('stale')) counts.stale += 1;
     if (state.isDirty) counts.dirty += 1;
     if (state.hasUnpushedCommits) counts.unpushed += 1;
     if (state.isStalled) counts.stalled += 1;
@@ -189,8 +191,8 @@ function statesFromCategories(categories: readonly string[]): DashboardWorktreeS
     statusCategory,
     isDirty: false,
     hasUnpushedCommits: false,
-    isStalled: statusCategory === 'stale',
-    reasons: statusCategory === 'stale' ? ['stale'] : [],
+    isStalled: false,
+    reasons: [],
   }));
 }
 
@@ -199,7 +201,7 @@ function describeWorktreeState(worktree: WorktreeInfo): DashboardWorktreeState {
   const isDirty = isWorkerWorktree && hasDirtyWorktree(worktree.path);
   const hasUnpushedCommits = isWorkerWorktree && hasUnpushedWork(worktree.path);
   const reasons = [
-    ...(worktree.statusCategory === 'stale' ? ['stale'] : []),
+    ...(worktree.isStale ? ['stale'] : []),
     ...(isDirty ? ['dirty'] : []),
     ...(hasUnpushedCommits ? ['unpushed'] : []),
   ];

@@ -91,10 +91,9 @@ describe('T9686-D primary-worktree guard (real git)', () => {
     // own, merged into main with a merge commit. (T14236: a branch that never
     // diverged is a fresh worktree, which stays `active` and is not pruneable.)
     //
-    // We use a non-`task/` branch name so the classifier doesn't treat the
-    // worktree as an orphan (taskId set, owningTaskStatus null → orphan in
-    // precedence). The intent here is to exercise the `merged` candidacy
-    // path, not orphan detection — those have separate coverage.
+    // A non-`task/` branch with no stored task: T14274 makes it a disposal
+    // candidate once idle past the stale window, so the test passes a zero-day
+    // window; the disposal proof then holds (clean, its work is on main).
     const secondaryPath = join(repoRoot, 'wt-secondary');
     run(repoRoot, ['worktree', 'add', '-b', 'feat/already-merged', secondaryPath]);
     writeFileSync(join(secondaryPath, 'work.md'), 'merged work\n');
@@ -110,19 +109,21 @@ describe('T9686-D primary-worktree guard (real git)', () => {
     ]);
 
     try {
-      const list = await listWorktrees({ projectRoot: repoRoot });
+      const list = await listWorktrees({ projectRoot: repoRoot, staleDays: 0 });
       if (!list.success) throw new Error('expected success');
-      // The primary stays active; the secondary classifies as merged.
+      // The primary stays active; the secondary is redundant (T14274).
       const primary = list.data.worktrees.find((w) => w.path === repoRoot);
       expect(primary?.statusCategory).toBe('active');
       const secondary = list.data.worktrees.find((w) => w.branch === 'feat/already-merged');
-      expect(secondary?.statusCategory).toBe('merged');
+      expect(secondary?.isMerged).toBe(true);
+      expect(secondary?.statusCategory).toBe('redundant');
 
       // Prune dry-run should pick up the secondary but skip the primary.
       const prune = await pruneOrphanedWorktreesByStatus({
         projectRoot: repoRoot,
         auditLogPath: join(repoRoot, 'audit.jsonl'),
         dryRun: true,
+        staleDays: 0,
       });
       if (!prune.success) throw new Error('expected success');
       const paths = prune.data.outcomes.map((o) => o.path);
