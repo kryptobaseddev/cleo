@@ -122,6 +122,7 @@ import {
   blobContentExists,
   resolveLegacyByteSource,
 } from '../store/blob-keep.js';
+import { mirrorConduitDocMeta } from '../store/conduit-doc-history.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
@@ -1468,6 +1469,7 @@ export async function runDocsDoctor(
           })
           .where(eq(docsAttachments.id, row.id))
           .run();
+        await mirrorConduitDocMeta(projectRoot, { rowId: row.id }); // T14288
       }
       for (const { row } of inScope('dangling-pointers') ? pre.dangling.archivable : []) {
         await db
@@ -1475,6 +1477,7 @@ export async function runDocsDoctor(
           .set({ lifecycleStatus: 'archived' })
           .where(eq(docsAttachments.id, row.id))
           .run();
+        await mirrorConduitDocMeta(projectRoot, { rowId: row.id }); // T14288
       }
       for (const { row, payload } of inScope('dangling-pointers') ? pre.dangling.clearable : []) {
         const cleaned: Record<string, unknown> = { ...payload };
