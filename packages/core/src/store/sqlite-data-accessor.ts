@@ -30,6 +30,7 @@ import {
   and,
   eq,
   getTableColumns,
+  getTableName,
   gt,
   inArray,
   isNotNull,
@@ -110,6 +111,7 @@ import {
   claimClockNow,
   claimColumnsOf,
   claimFromColumns,
+  derivedStatusSqlParts,
   isClaimExpired,
   leaseExpiresAtFrom,
   type TaskClaimColumns,
@@ -368,13 +370,15 @@ export interface TaskReferenceColumn {
 /**
  * SQL for the status a task reads with (T14268): `pending` / `active` from the
  * claim lease, every other status as stored. The drizzle form of
- * `DERIVED_STATUS_SQL`, for a `GROUP BY` or a select.
+ * `DERIVED_STATUS_SQL`, for a `GROUP BY` or a select, built from the same
+ * builder in `task-claim.ts` with `now` bound (T14343).
  *
  * @param now - ISO-8601 UTC instant for the lease comparison.
  * @returns The expression.
  */
 export function derivedStatusSql(now: string): SQL<string> {
-  return sql<string>`(CASE WHEN ${schema.tasks.status} IN ('pending', 'active') THEN CASE WHEN ${schema.tasks.claimedBySession} IS NOT NULL AND ${schema.tasks.leaseExpiresAt} > ${now} THEN 'active' ELSE 'pending' END ELSE ${schema.tasks.status} END)`;
+  const [before, after] = derivedStatusSqlParts(getTableName(schema.tasks));
+  return sql<string>`${sql.raw(before)}${now}${sql.raw(after)}`;
 }
 
 /**

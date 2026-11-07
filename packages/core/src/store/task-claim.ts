@@ -199,6 +199,27 @@ function derivedStatusExpr(col: (name: string) => string, now: string): string {
  */
 export const DERIVED_STATUS_SQL = derivedStatusExpr((name) => name, '?');
 
+/**
+ * {@link DERIVED_STATUS_SQL} with each column qualified by `table`, split at
+ * its one `now` placeholder (T14343): the parts a query builder joins around
+ * its own bound parameter, so the drizzle form comes from the same builder.
+ *
+ * @param table - Table name (or alias) the columns belong to.
+ * @returns The SQL before and after the `now` placeholder.
+ * @example
+ * ```ts
+ * const [before, after] = derivedStatusSqlParts('tasks_tasks');
+ * ```
+ */
+export function derivedStatusSqlParts(table: string): readonly [string, string] {
+  const marker = '\u0000now\u0000';
+  const [before = '', after = ''] = derivedStatusExpr(
+    (name) => `"${table}"."${name}"`,
+    marker,
+  ).split(marker);
+  return [before, after];
+}
+
 /** An ISO-8601 UTC instant as `toISOString()` writes it (safe to inline in SQL). */
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
