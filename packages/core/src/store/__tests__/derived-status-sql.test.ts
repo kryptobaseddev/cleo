@@ -4,13 +4,14 @@
  *
  * @task T14330
  * @task T14343
+ * @task T14346
  */
 
 import { DatabaseSync } from 'node:sqlite';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { describe, expect, it } from 'vitest';
-import { derivedStatusSql } from '../sqlite-data-accessor.js';
+import { derivedStatusIn, derivedStatusSql } from '../sqlite-data-accessor.js';
 import { DERIVED_STATUS_SQL, derivedStatusSqlAt } from '../task-claim.js';
 
 const NOW = '2026-11-06T12:00:00.000Z';
@@ -30,6 +31,9 @@ describe('derived-status SQL forms (T14330)', () => {
       ['T6', 'active', 'ses_a', NOW],
       ['T7', 'done', 'ses_a', '2999-01-01T00:00:00.000Z'],
       ['T8', 'blocked', null, null],
+      // A claim with no recorded expiry is lapsed: it reads pending (T14346).
+      ['T9', 'pending', 'ses_a', null],
+      ['TA', 'active', 'ses_a', null],
     ];
     const insert = db.prepare('INSERT INTO tasks_tasks VALUES (?, ?, ?, ?)');
     for (const row of rows) insert.run(...row);
@@ -50,6 +54,18 @@ describe('derived-status SQL forms (T14330)', () => {
     expect(inlined).toEqual(bound);
     expect(aliased).toEqual(bound);
     expect(drizzled).toEqual(bound);
+
+    // T14346: the drizzle IN filter selects exactly the ids each status reads with.
+    const orm = drizzle({ client: db });
+    for (const status of ['active', 'pending', 'done', 'blocked'] as const) {
+      const filtered = orm
+        .all<{ id: string }>(
+          sql`SELECT id FROM tasks_tasks WHERE ${derivedStatusIn([status], NOW)} ORDER BY id`,
+        )
+        .map((r) => r.id);
+      const expected = bound.filter((r) => r.s === status).map((r) => r.id);
+      expect(filtered, status).toEqual(expected);
+    }
     expect(bound.map((r) => r.s)).toEqual([
       'pending',
       'active',
@@ -59,6 +75,8 @@ describe('derived-status SQL forms (T14330)', () => {
       'pending',
       'done',
       'blocked',
+      'pending',
+      'pending',
     ]);
     db.close();
   });

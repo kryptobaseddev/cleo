@@ -31,9 +31,7 @@ import {
   eq,
   getTableColumns,
   getTableName,
-  gt,
   inArray,
-  isNotNull,
   isNull,
   like,
   lte,
@@ -114,6 +112,7 @@ import {
   derivedStatusSqlParts,
   isClaimExpired,
   leaseExpiresAtFrom,
+  liveClaimSqlParts,
   type TaskClaimColumns,
   taskClaimedError,
   taskClaimLeaseMs,
@@ -392,12 +391,14 @@ export function derivedStatusSql(now: string): SQL<string> {
  */
 export function derivedStatusIn(statuses: readonly TaskStatus[], now: string): SQL {
   const open = inArray(schema.tasks.status, ['pending', 'active']);
-  const live = and(isNotNull(schema.tasks.claimedBySession), gt(schema.tasks.leaseExpiresAt, now));
+  // T14346: the live-lease predicate from the task-claim builder, now bound.
+  const [before, after] = liveClaimSqlParts(getTableName(schema.tasks));
+  const live = sql`${sql.raw(before)}${now}${sql.raw(after)}`;
   const parts: SQL[] = [];
   const stored = statuses.filter((s) => s !== 'pending' && s !== 'active');
   if (stored.length > 0) parts.push(inArray(schema.tasks.status, stored));
   if (statuses.includes('active')) parts.push(and(open, live) as SQL);
-  if (statuses.includes('pending')) parts.push(and(open, not(live as SQL)) as SQL);
+  if (statuses.includes('pending')) parts.push(and(open, not(live)) as SQL);
   return parts.length === 0 ? sql`0` : (or(...parts) as SQL);
 }
 
