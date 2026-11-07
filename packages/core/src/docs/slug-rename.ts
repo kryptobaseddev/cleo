@@ -24,14 +24,21 @@
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, eq } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
+import { pushWarning } from '../output.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import {
   conduitDocAliasRow,
   ensureConduitDoc,
+  getConduitAttachmentVersion,
+  getConduitDocHead,
   resolveConduitDocUid,
 } from '../store/conduit-doc-history.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
-import { conduitAttachments, conduitDocSlugAliases } from '../store/schema/cleo-project/conduit.js';
+import {
+  conduitAttachments,
+  conduitAttachmentVersions,
+  conduitDocSlugAliases,
+} from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
 import { attachments } from '../store/tasks-schema.js';
 
@@ -143,6 +150,138 @@ export async function resolveDocSlug(projectRoot: string, slug: string): Promise
   return (await store.findBySlug(live.slug, projectRoot)) !== null ? live.slug : null;
 }
 
+/** A doc resolved from a slug (T14288): its identity, live slug, head and metadata row. */
+export interface DocRef {
+  /**
+   * `uid` when the slug resolved through the doc's immutable conduit identity
+   * (live slug or alias) to its head version; `legacy` when the doc has no
+   * identity or head yet and resolved through the registry row's slug. The
+   * legacy path is deleted once every store has run `cleo docs migrate`
+   * (`cleo upgrade` runs it; T14288 PR 3).
+   */
+  readonly identity: 'uid' | 'legacy';
+  /** The doc's live slug (the conduit row's, on the uid path). */
+  readonly slug: string;
+  /** The immutable doc uid, or null on the legacy path. */
+  readonly docUid: string | null;
+  /** The head version uid, or null on the legacy path. */
+  readonly headVersionUid: string | null;
+  /**
+   * SHA-256 of the bytes the doc resolves to: on the uid path the head
+   * version's content hash, or the live row's when its write never landed as
+   * a version.
+   */
+  readonly sha256: string;
+  /**
+   * The registry row carrying the doc's metadata: the head content's row, or
+   * (a head moved by sync, or a recorded section conflict, whose content has
+   * no row) the live slug's row. Bytes always come from {@link sha256}.
+   */
+  readonly row: typeof attachments.$inferSelect;
+}
+
+/**
+ * Resolve a slug, live or an old alias, to its doc (T14288): slug → conduit
+ * uid (live slug, then `conduit_doc_slug_aliases`) → head version → content
+ * hash → the registry row of that content. One exception on the uid path:
+ * a live slug row whose content no version of the doc records is a write
+ * whose section projection did not land (`docs update` writes the row and
+ * leaves the head when the merge preview or the projection commit fails,
+ * T13842), so that row is served; a head moved by sync still wins, since the
+ * local row then holds the old head's content, which is a recorded version.
+ * A doc with no conduit identity or no head resolves through its registry row's slug, marked
+ * `identity: 'legacy'`, with a `W_DOC_NOT_MIGRATED` warning naming
+ * `cleo docs migrate`.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param slug - A live slug or an alias.
+ * @returns The resolved doc, or null when nothing resolves.
+ * @task T14288
+ */
+export async function resolveDocRef(projectRoot: string, slug: string): Promise<DocRef | null> {
+  const db = await getDb(projectRoot);
+  const bySlug = async (s: string) =>
+    (await db.select().from(attachments).where(eq(attachments.slug, s)).get()) ?? undefined;
+  const legacy = (
+    live: string,
+    row: typeof attachments.$inferSelect | undefined,
+  ): DocRef | null => {
+    if (!row) return null;
+    pushWarning({
+      // @sync-invariant none:input-shape the warning only names a doc that predates its version history; it rejects nothing and writes nothing
+      code: 'W_DOC_NOT_MIGRATED',
+      message:
+        `doc '${live}' has no version history yet, so it resolved through its legacy registry row; ` +
+        'run `cleo docs migrate` (or `cleo upgrade`) to give it an immutable identity and head.',
+    });
+    return {
+      identity: 'legacy',
+      slug: live,
+      docUid: null,
+      headVersionUid: null,
+      sha256: row.sha256,
+      row,
+    };
+  };
+  const uid = await resolveConduitDocUid(projectRoot, slug);
+  if (uid !== null) {
+    const live = await db
+      .select({ slug: conduitAttachments.slug })
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.uid, uid))
+      .get();
+    const liveSlug = live?.slug ?? slug;
+    const head = await getConduitDocHead(projectRoot, uid);
+    const version = head
+      ? await getConduitAttachmentVersion(projectRoot, head.headVersionUid)
+      : null;
+    if (head && version) {
+      // A write the projection did not land is newer than the head (above).
+      const slugRow = await bySlug(liveSlug);
+      if (slugRow && slugRow.sha256 !== version.contentHash) {
+        const recorded = await db
+          .select({ uid: conduitAttachmentVersions.uid })
+          .from(conduitAttachmentVersions)
+          .where(
+            and(
+              eq(conduitAttachmentVersions.attachmentUid, uid),
+              eq(conduitAttachmentVersions.contentHash, slugRow.sha256),
+            ),
+          )
+          .get();
+        if (!recorded) {
+          return {
+            identity: 'uid',
+            slug: liveSlug,
+            docUid: uid,
+            headVersionUid: head.headVersionUid,
+            sha256: slugRow.sha256,
+            row: slugRow,
+          };
+        }
+      }
+      const row =
+        (await db
+          .select()
+          .from(attachments)
+          .where(eq(attachments.sha256, version.contentHash))
+          .get()) ?? (await bySlug(liveSlug));
+      if (row) {
+        return {
+          identity: 'uid',
+          slug: liveSlug,
+          docUid: uid,
+          headVersionUid: head.headVersionUid,
+          sha256: version.contentHash,
+          row,
+        };
+      }
+    }
+    return legacy(liveSlug, await bySlug(liveSlug));
+  }
+  return legacy(slug, await bySlug(slug));
+}
+
 /**
  * Every slug a doc has carried: its live slug first, then its aliases.
  *
@@ -182,6 +321,9 @@ export async function setDocKind(
 ): Promise<void> {
   const db = await getDb(projectRoot);
   await db.update(attachments).set({ type: kind }).where(eq(attachments.id, attachmentId)).run();
+  // T14288: the doc's identity row carries its kind too.
+  const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+  await mirrorConduitDocMeta(projectRoot, { rowId: attachmentId });
 }
 
 /**

@@ -43,11 +43,11 @@ const { DatabaseSync } = _require('node:sqlite') as {
  * the real DB does. Excludes indexes / FKs that aren't germane to the test.
  */
 const CREATE_SCHEMA = `
-  CREATE TABLE tasks (
+  CREATE TABLE tasks_tasks (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
+    status TEXT NOT NULL DEFAULT 'pending',    claimed_by_session TEXT,    lease_expires_at TEXT,
     priority TEXT NOT NULL DEFAULT 'medium',
     type TEXT,
     parent_id TEXT,
@@ -83,12 +83,12 @@ const CREATE_SCHEMA = `
     severity TEXT
   );
 
-  CREATE TABLE task_dependencies (
+  CREATE TABLE tasks_task_dependencies (
     task_id TEXT NOT NULL,
     depends_on TEXT NOT NULL,
     PRIMARY KEY (task_id, depends_on),
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    FOREIGN KEY (depends_on) REFERENCES tasks(id) ON DELETE CASCADE
+    FOREIGN KEY (task_id) REFERENCES tasks_tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (depends_on) REFERENCES tasks_tasks(id) ON DELETE CASCADE
   );
 `;
 
@@ -113,10 +113,10 @@ function insertTask(db: DatabaseSync, t: SeedTask): void {
     else if (status === 'cancelled') pipelineStage = 'cancelled';
   }
   db.prepare(
-    `INSERT INTO tasks
+    `INSERT INTO tasks_tasks
        (id, title, description, status, priority, type, parent_id,
-        pipeline_stage, labels_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        pipeline_stage, labels_json, claimed_by_session, lease_expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     t.id,
     t.title ?? `Task ${t.id}`,
@@ -127,11 +127,14 @@ function insertTask(db: DatabaseSync, t: SeedTask): void {
     t.parentId ?? null,
     pipelineStage,
     JSON.stringify(t.labels ?? []),
+    // T14268: a task reads active only while it holds a live claim lease.
+    status === 'active' ? 'ses_20261106000000_aaaaaa' : null,
+    status === 'active' ? '2999-01-01T00:00:00.000Z' : null,
   );
 }
 
 function insertDep(db: DatabaseSync, taskId: string, dependsOn: string): void {
-  db.prepare('INSERT INTO task_dependencies (task_id, depends_on) VALUES (?, ?)').run(
+  db.prepare('INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES (?, ?)').run(
     taskId,
     dependsOn,
   );

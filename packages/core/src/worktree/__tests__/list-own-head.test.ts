@@ -31,17 +31,8 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ),
 }));
 
-const destroyed = vi.hoisted(() => ({ paths: [] as string[] }));
-// The NAPI addon is not built in every checkout; stand in with a plain removal.
-vi.mock('@cleocode/worktree', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@cleocode/worktree')>()),
-  napiDestroyWorktree: ({ worktreePath }: { worktreePath: string }) => {
-    destroyed.paths.push(worktreePath);
-    rmSync(worktreePath, { recursive: true, force: true });
-    return { removed: true, branchDeleted: false };
-  },
-}));
-
+import { computeProjectHash } from '@cleocode/paths';
+import { acquireWorktreeTaskLock } from '@cleocode/worktree';
 import { listWorktrees } from '../list.js';
 import { pruneOrphanedWorktreesByStatus } from '../prune.js';
 import { taskIdFromWorktreeDir } from '../sentinel-index.js';
@@ -69,7 +60,6 @@ beforeEach(() => {
   commit(repo, 'a.txt');
   commit(repo, 'b.txt');
   TASKS.clear();
-  destroyed.paths = [];
 });
 
 afterEach(() => {
@@ -121,18 +111,93 @@ describe('worktree classification uses each worktree own HEAD (T14236)', () => {
     expect(at(fresh)).toMatchObject({ taskId: 'T2', isMerged: false, statusCategory: 'active' });
     // AC3: a fix/ branch names its task.
     expect(at(fix)).toMatchObject({ taskId: 'T1', isMerged: false, statusCategory: 'active' });
-    // Merged work is still recognised.
-    expect(at(done)).toMatchObject({ taskId: 'T4', isMerged: true, statusCategory: 'merged' });
+    // Merged work is still recognised, and a done task's clean merged worktree is redundant (T14274).
+    expect(at(done)).toMatchObject({ taskId: 'T4', isMerged: true, statusCategory: 'redundant' });
 
     const pruned = await pruneOrphanedWorktreesByStatus({
       projectRoot: repo,
       auditLogPath: join(base, 'audit.jsonl'),
     });
     expect(pruned.success, JSON.stringify(pruned)).toBe(true);
-    for (const p of [detached, fresh, fix]) {
-      expect(destroyed.paths).not.toContain(p);
-      expect(existsSync(p)).toBe(true);
+    for (const p of [detached, fresh, fix]) expect(existsSync(p)).toBe(true);
+    expect(existsSync(done)).toBe(false);
+  });
+
+  it('T14274: each category from real git; keep names its clause; prune acts only on redundant', async () => {
+    const wts = join(base, 'wts');
+    const add = (id: string) => {
+      const p = join(wts, id);
+      git(repo, ['worktree', 'add', '-q', '-b', `task/${id}`, p, 'main']);
+      return p;
+    };
+    const active = add('T10'); // pending task
+    const redundant = add('T11'); // done, clean, nothing of its own
+    const unpushed = add('T12'); // done, but a commit only on its own branch
+    commit(unpushed, 'unpushed.txt');
+    const dirty = add('T13'); // done, untracked work
+    writeFileSync(join(dirty, 'wip.txt'), 'wip\n');
+    const broken = add('T14'); // done, git cannot read it
+    writeFileSync(join(broken, '.git'), 'gitdir: /nonexistent/worktree\n');
+    TASKS.set('T10', 'pending');
+    for (const id of ['T11', 'T12', 'T13', 'T14']) TASKS.set(id, 'done');
+
+    const listed = await listWorktrees({ projectRoot: repo });
+    if (!listed.success) throw new Error(JSON.stringify(listed.error));
+    const at = (p: string) =>
+      listed.data.worktrees.find((w) => w.path === p || realpathSync(w.path) === p);
+    expect(at(active)?.statusCategory).toBe('active');
+    expect(at(redundant)?.statusCategory).toBe('redundant');
+    expect(at(unpushed)).toMatchObject({ statusCategory: 'keep' });
+    expect(at(unpushed)?.keepReason).toContain('commit(s) on no remote');
+    expect(at(dirty)).toMatchObject({ statusCategory: 'keep' });
+    expect(at(dirty)?.keepReason).toContain('uncommitted or untracked');
+    // AC2: a git error is unknown, never redundant.
+    expect(at(broken)?.statusCategory).toBe('unknown');
+    // AC1: only the four categories.
+    for (const w of listed.data.worktrees) {
+      expect(['active', 'redundant', 'keep', 'unknown']).toContain(w.statusCategory);
     }
+
+    const pruned = await pruneOrphanedWorktreesByStatus({
+      projectRoot: repo,
+      auditLogPath: join(base, 'audit.jsonl'),
+    });
+    if (!pruned.success) throw new Error(JSON.stringify(pruned.error));
+    expect(pruned.data.outcomes.map((o) => o.path)).toEqual([at(redundant)?.path]);
+    expect(existsSync(redundant)).toBe(false);
+    for (const p of [active, unpushed, dirty, broken]) expect(existsSync(p)).toBe(true);
+  });
+
+  it('T14274: a git-locked done clean worktree is redundant and removed; a live task lock keeps one out', async () => {
+    const wts = join(base, 'wts');
+    const add = (id: string) => {
+      const p = join(wts, id);
+      git(repo, ['worktree', 'add', '-q', '-b', `task/${id}`, p, 'main']);
+      git(repo, ['worktree', 'lock', '--reason', `cleo-agent-${id}`, p]); // as spawn does
+      return p;
+    };
+    const lockedDone = add('T20');
+    const lockedHeld = add('T21');
+    TASKS.set('T20', 'done');
+    TASKS.set('T21', 'done');
+    acquireWorktreeTaskLock({ projectHash: computeProjectHash(repo), taskId: 'T21' });
+
+    const listed = await listWorktrees({ projectRoot: repo });
+    if (!listed.success) throw new Error(JSON.stringify(listed.error));
+    const at = (p: string) => listed.data.worktrees.find((w) => realpathSync(w.path) === p);
+    expect(at(lockedDone)).toMatchObject({ isLocked: true, statusCategory: 'redundant' });
+    // The in-use probe wins over the proof: never redundant while its task lock is held.
+    expect(at(lockedHeld)).toMatchObject({ isLocked: true, statusCategory: 'keep' });
+    expect(at(lockedHeld)?.keepReason).toContain('task lock held');
+
+    const pruned = await pruneOrphanedWorktreesByStatus({
+      projectRoot: repo,
+      auditLogPath: join(base, 'audit.jsonl'),
+    });
+    if (!pruned.success) throw new Error(JSON.stringify(pruned.error));
+    expect(existsSync(lockedDone)).toBe(false);
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(lockedDone);
+    expect(existsSync(lockedHeld)).toBe(true);
   });
 
   it('a T####[-slug] directory names its task when the branch does not', () => {

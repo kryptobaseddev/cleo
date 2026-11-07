@@ -41,7 +41,7 @@ import { join, relative } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
 import { collectBlobGarbage, isTombstoned, restoreBlob, unpinBlob } from './blob-keep.js';
-import { listConduitHistorySha256Set } from './conduit-doc-history.js';
+import { listConduitHistorySha256Set, mirrorConduitDocMeta } from './conduit-doc-history.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { attachments } from './tasks-schema.js';
 import { assertTwinCollapseWritable } from './twin-collapse.js';
@@ -294,6 +294,7 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
           })
           .where(eq(attachments.id, row.id))
           .run();
+        await mirrorConduitDocMeta(cwd, { rowId: row.id }); // T14288
 
         await appendAuditLine(cwd, {
           ts: new Date().toISOString(),

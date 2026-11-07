@@ -26,6 +26,7 @@
  * @wave 1D
  */
 
+import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
 import { json } from '@sveltejs/kit';
 import { getBrainDb, getTasksDb } from '$lib/server/db/connections.js';
 import type { RequestHandler } from './$types';
@@ -75,7 +76,7 @@ export const GET: RequestHandler = ({ locals, url }) => {
   try {
     /** Existence check. */
     const rootRow = tasksDb
-      .prepare('SELECT id, status, title FROM tasks WHERE id = ?')
+      .prepare(`SELECT id, ${derivedStatusSqlAt()} AS status, title FROM tasks_tasks WHERE id = ?`)
       .get(taskId) as { id: string; status: string; title: string } | undefined;
 
     if (!rootRow) {
@@ -108,7 +109,7 @@ export const GET: RequestHandler = ({ locals, url }) => {
       let depIds: string[] = [];
       try {
         const depRows = tasksDb
-          .prepare('SELECT dep_id FROM task_dependencies WHERE task_id = ?')
+          .prepare('SELECT depends_on AS dep_id FROM tasks_task_dependencies WHERE task_id = ?')
           .all(frame.taskId) as Array<{ dep_id: string }>;
         depIds = depRows.map((r) => r.dep_id);
       } catch {
@@ -118,7 +119,9 @@ export const GET: RequestHandler = ({ locals, url }) => {
       const unresolvedChildren: string[] = [];
       for (const depId of depIds) {
         const row = tasksDb
-          .prepare('SELECT id, status, title FROM tasks WHERE id = ?')
+          .prepare(
+            `SELECT id, ${derivedStatusSqlAt()} AS status, title FROM tasks_tasks WHERE id = ?`,
+          )
           .get(depId) as { id: string; status: string; title: string } | undefined;
         if (!row) continue;
         if (!UNRESOLVED_STATUSES.has(row.status.toLowerCase())) continue;

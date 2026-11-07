@@ -418,8 +418,8 @@ export async function updateDocBySlug(
   projectRoot: string,
   params: DocsUpdateParams,
 ): Promise<UpdateDocBySlugResult> {
-  const slug = params.slug;
-  if (typeof slug !== 'string' || slug.length === 0) {
+  const requestedSlug = params.slug;
+  if (typeof requestedSlug !== 'string' || requestedSlug.length === 0) {
     return { ok: false, error: { code: 'E_INVALID_INPUT', message: 'slug is required' } };
   }
 
@@ -504,21 +504,27 @@ export async function updateDocBySlug(
   // run only reads, so it is still served).
   if (params.dryRun !== true) assertTwinCollapseWritable(db, 'attachments');
 
-  // Look up the existing row by slug.
-  const oldRow = await db
-    .select()
-    .from(docsAttachments)
-    .where(eq(docsAttachments.slug, slug))
-    .get();
-  if (!oldRow) {
+  // T14288: resolve the slug (live or an alias) to the doc's identity and
+  // head; a doc with no version history yet resolves through its row (legacy).
+  const { resolveDocRef } = await import('./slug-rename.js');
+  const ref = await resolveDocRef(projectRoot, requestedSlug);
+  if (!ref) {
     return {
       ok: false,
       error: {
         code: 'E_NOT_FOUND',
-        message: `no attachment found with slug '${slug}' — the slug does not exist in the store and cannot be updated`,
+        message: `no attachment found with slug '${requestedSlug}' — the slug does not exist in the store and cannot be updated`,
       },
     };
   }
+  const slug = ref.slug;
+  // The row the update re-homes: the live slug's row. Its content is the head's
+  // (T13842) unless sync moved the head, when the metadata still lives there.
+  const oldRow =
+    ref.row.slug === slug
+      ? ref.row
+      : ((await db.select().from(docsAttachments).where(eq(docsAttachments.slug, slug)).get()) ??
+        ref.row);
 
   // T13674: resolve the declared base BEFORE any write. The base is the
   // conduit version the edit was authored against (the fetch envelope's
@@ -723,7 +729,7 @@ export async function updateDocBySlug(
         changed: false,
         lifecycleStatus: status,
         updatedAt: nowIso,
-        version: countVersionsForSlug(projectRoot, slug),
+        version: await countDocVersions(projectRoot, slug, oldRow.docVersion),
         squashed: false,
         summary,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
@@ -747,6 +753,9 @@ export async function updateDocBySlug(
         .set({ lifecycleStatus: status })
         .where(eq(docsAttachments.id, oldRow.id))
         .run();
+      // T14288: the doc's identity row carries its lifecycle too.
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(projectRoot, { rowId: oldRow.id });
     }
     const { readDocHeadVersionUid } = await import('./fetch-result.js');
     const noopHead = await readDocHeadVersionUid(projectRoot, slug);
@@ -777,7 +786,7 @@ export async function updateDocBySlug(
         changed: false,
         lifecycleStatus: status,
         updatedAt: nowIso,
-        version: countVersionsForSlug(projectRoot, slug),
+        version: await countDocVersions(projectRoot, slug, oldRow.docVersion),
         squashed,
         summary:
           status === oldRow.lifecycleStatus
@@ -1001,6 +1010,12 @@ export async function updateDocBySlug(
         .run();
     }
 
+    // T14288: the doc's identity row carries the new row's metadata, in the
+    // same transaction (a first update adopts the doc later, in the
+    // projection, with this metadata).
+    const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+    await mirrorConduitDocMeta(projectRoot, { rowId: newAttachmentId });
+
     nativeDb.prepare('COMMIT').run();
   } catch (err) {
     try {
@@ -1156,7 +1171,7 @@ export async function updateDocBySlug(
       changed: true,
       lifecycleStatus: status,
       updatedAt: nowIso,
-      version: countVersionsForSlug(projectRoot, slug),
+      version: await countDocVersions(projectRoot, slug, oldRow.docVersion + 1),
       squashed,
       summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
       ownerVersion: getCanonicalCleoVersion(projectRoot),
@@ -1230,39 +1245,25 @@ export async function recordNewDocIdentity(
 }
 
 /**
- * Count how many revisions for `slug` exist in the audit log, plus 1 for
- * the current row. Returns 2 as a floor for the first update so callers
- * always see a monotone counter even when the audit file is missing.
- *
- * Synchronous (reads a small audit JSONL file) so callers can compose
- * the value into the LAFS result without an extra await round-trip.
+ * The doc's version count from its version DAG (T14288): every
+ * `conduit_attachment_versions` row of the doc's uid. The docs-versioning
+ * audit log is audit-only and is never read for it. A doc with no history
+ * yet reports `fallback` (its registry row's counter).
  *
  * @internal
  */
-function countVersionsForSlug(projectRoot: string, slug: string): number {
-  // The attachments table only carries the CURRENT slug-bearing row.
-  // History lives in the audit log; we derive `version` from it so the
-  // counter is meaningful across the entire update sequence.
-  const auditPath = join(projectRoot, DOCS_VERSIONING_AUDIT_FILE);
-  let raw: string;
-  try {
-    raw = readFileSync(auditPath, 'utf-8');
-  } catch {
-    return 2;
-  }
-  let total = 1; // initial create (no audit entry for the original add)
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let entry: AuditLine;
-    try {
-      entry = JSON.parse(line) as AuditLine;
-    } catch {
-      continue;
-    }
-    if (entry.op !== 'docs.update' || entry.slug !== slug) continue;
-    total += entry.revisions.length;
-  }
-  return total;
+async function countDocVersions(
+  projectRoot: string,
+  slug: string,
+  fallback: number,
+): Promise<number> {
+  const { listConduitAttachmentVersions, resolveConduitDocUid } = await import(
+    '../store/conduit-doc-history.js'
+  );
+  const uid = await resolveConduitDocUid(projectRoot, slug);
+  if (uid === null) return fallback;
+  const count = (await listConduitAttachmentVersions(projectRoot, uid)).length;
+  return count > 0 ? count : fallback;
 }
 
 /**
@@ -1315,6 +1316,7 @@ async function recordPriorVersionOnAdopt(
     authorAgentId,
     content: bytes ?? Buffer.alloc(0),
     legacyBirth: oldRow.createdAt,
+    legacySha256: oldRow.sha256,
   });
   if (bytes === undefined) return null;
   const tokens = bytes

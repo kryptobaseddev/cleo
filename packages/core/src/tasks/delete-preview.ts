@@ -241,7 +241,7 @@ export function previewDelete(
         dryRun: true,
         error: {
           code: 'E_HAS_CHILDREN',
-          message: `Task has ${childCount} child task(s). Use --children=cascade or --children=reparent --to <epicId>`,
+          message: `Task has ${childCount} child task(s). Choose: cleo cancel ${taskId} --children cascade, or cleo cancel ${taskId} --children reparent --to <epicId>`,
           childCount,
         },
       };

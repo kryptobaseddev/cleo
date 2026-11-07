@@ -3,10 +3,10 @@
  *
  * Covers:
  *  - Happy path: porcelain output → classified WorktreeInfo entries
- *  - Each statusCategory (`active|stale|merged|orphan|locked`) is reachable
+ *  - Each statusCategory (`active|redundant|keep|unknown`, T14274) is reachable
  *  - --status filter narrows results
  *  - taskIdFromBranch convention
- *  - classifyStatus precedence (locked > orphan > merged > stale > active)
+ *  - isDisposalCandidate / classifyStatus (the disposal proof decides candidates)
  *  - 50-worktree performance budget (<500ms with mocked git/db calls)
  *
  * @task T9546
@@ -58,10 +58,12 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => {
 
 const mockExec = vi.mocked(execFileSync);
 
+import type { DisposeWorktreeResult } from '@cleocode/contracts';
 import {
   branchIsMergedToMain,
   classifyStatus,
   enumerateWorktrees,
+  isDisposalCandidate,
   isPrimaryWorktree,
   listWorktrees,
   resolvePrimaryWorktreePath,
@@ -178,65 +180,59 @@ describe('taskIdFromBranch', () => {
   });
 });
 
-describe('classifyStatus precedence', () => {
-  it('locked beats every other flag', () => {
-    expect(classifyStatus({ isLocked: true, isOrphan: true, isMerged: true, isStale: true })).toBe(
-      'locked',
-    );
+describe('isDisposalCandidate (T14274)', () => {
+  const flags = (owningTaskStatus: string | null, idlePastWindow = false, isPrimary = false) => ({
+    isPrimary,
+    owningTaskStatus,
+    idlePastWindow,
   });
 
-  it('orphan beats merged and stale', () => {
-    expect(classifyStatus({ isLocked: false, isOrphan: true, isMerged: true, isStale: true })).toBe(
-      'orphan',
-    );
+  it('a done or cancelled task makes a candidate; an open task never does', () => {
+    expect(isDisposalCandidate(flags('done'))).toBe(true);
+    expect(isDisposalCandidate(flags('cancelled'))).toBe(true);
+    expect(isDisposalCandidate(flags('active', true))).toBe(false);
+    expect(isDisposalCandidate(flags('pending', true))).toBe(false);
   });
 
-  it('merged beats stale', () => {
-    expect(
-      classifyStatus({ isLocked: false, isOrphan: false, isMerged: true, isStale: true }),
-    ).toBe('merged');
+  it('a worktree with no stored task is a candidate only once idle past the window', () => {
+    expect(isDisposalCandidate(flags(null, false))).toBe(false);
+    expect(isDisposalCandidate(flags(null, true))).toBe(true);
   });
 
-  it('stale wins over active when isolated', () => {
-    expect(
-      classifyStatus({ isLocked: false, isOrphan: false, isMerged: false, isStale: true }),
-    ).toBe('stale');
+  it('primary-worktree guard: the primary checkout is never a candidate (T9686-D)', () => {
+    expect(isDisposalCandidate(flags('done', true, true))).toBe(false);
+  });
+});
+
+describe('classifyStatus (T14274)', () => {
+  const proof = (extra: Partial<DisposeWorktreeResult>): DisposeWorktreeResult => ({
+    worktreePath: '/wt',
+    removed: false,
+    ...extra,
   });
 
-  it('returns active by default', () => {
-    expect(
-      classifyStatus({ isLocked: false, isOrphan: false, isMerged: false, isStale: false }),
-    ).toBe('active');
+  it('a non-candidate is active', () => {
+    expect(classifyStatus(null)).toEqual({ statusCategory: 'active' });
   });
 
-  it('primary-worktree guard: isPrimary forces active even when merged (T9686-D)', () => {
-    expect(
-      classifyStatus({
-        isPrimary: true,
-        isLocked: false,
-        isOrphan: false,
-        isMerged: true,
-        isStale: false,
-      }),
-    ).toBe('active');
+  it('a holding proof is redundant', () => {
+    expect(classifyStatus(proof({}))).toEqual({ statusCategory: 'redundant' });
   });
 
-  it('primary-worktree guard: isPrimary forces active even when orphan+merged+stale', () => {
-    expect(
-      classifyStatus({
-        isPrimary: true,
-        isLocked: false,
-        isOrphan: true,
-        isMerged: true,
-        isStale: true,
-      }),
-    ).toBe('active');
+  it('a failed clause is keep, naming it', () => {
+    const keptReason = 'not proven preserved: uncommitted or untracked changes';
+    expect(classifyStatus(proof({ keptReason, unpreserved: 'x' }))).toEqual({
+      statusCategory: 'keep',
+      keepReason: keptReason,
+    });
   });
 
-  it('primary-worktree guard: omitting isPrimary preserves legacy behavior', () => {
-    expect(
-      classifyStatus({ isLocked: false, isOrphan: false, isMerged: true, isStale: false }),
-    ).toBe('merged');
+  it('a probe that could not answer is unknown, never redundant', () => {
+    const keptReason = 'not proven preserved: git status failed';
+    expect(classifyStatus(proof({ keptReason, indeterminate: true }))).toEqual({
+      statusCategory: 'unknown',
+      keepReason: keptReason,
+    });
   });
 });
 
@@ -367,7 +363,7 @@ describe('listWorktrees — status classification', () => {
     expect(wt?.isLocked).toBe(false);
   });
 
-  it('stale detection: idle > 7 days AND task done → status=stale', async () => {
+  it('a done task idle > 7 days is a candidate: redundant, with the stale annotation', async () => {
     MOCK_TASK_ROWS.set('T100', 'done');
     installGitMock({
       porcelainOutput: porcelain([{ path: '/tmp/wt/T100', branch: 'task/T100' }]),
@@ -378,11 +374,11 @@ describe('listWorktrees — status classification', () => {
     const result = await listWorktrees({ projectRoot: '/tmp/project' });
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('expected success');
-    expect(result.data.worktrees[0]?.statusCategory).toBe('stale');
+    expect(result.data.worktrees[0]?.statusCategory).toBe('redundant');
     expect(result.data.worktrees[0]?.isStale).toBe(true);
   });
 
-  it('merged detection: branch reachable from main → status=merged', async () => {
+  it('merged work of an open task stays active; isMerged is an annotation', async () => {
     MOCK_TASK_ROWS.set('T200', 'active');
     installGitMock({
       porcelainOutput: porcelain([{ path: '/tmp/wt/T200', branch: 'task/T200' }]),
@@ -394,7 +390,7 @@ describe('listWorktrees — status classification', () => {
     if (!result.success) throw new Error('expected success');
     const wt = result.data.worktrees[0];
     expect(wt?.isMerged).toBe(true);
-    expect(wt?.statusCategory).toBe('merged');
+    expect(wt?.statusCategory).toBe('active');
   });
 
   it('kept: reports the keep marker a disposal left beside the worktree (T13701)', async () => {
@@ -427,7 +423,7 @@ describe('listWorktrees — status classification', () => {
     }
   });
 
-  it('locked detection: porcelain reports locked → status=locked', async () => {
+  it('a git-locked worktree of an open task is active; isLocked is an annotation', async () => {
     MOCK_TASK_ROWS.set('T300', 'active');
     installGitMock({
       porcelainOutput: porcelain([{ path: '/tmp/wt/T300', branch: 'task/T300', locked: true }]),
@@ -437,11 +433,11 @@ describe('listWorktrees — status classification', () => {
 
     const result = await listWorktrees({ projectRoot: '/tmp/project' });
     if (!result.success) throw new Error('expected success');
-    expect(result.data.worktrees[0]?.statusCategory).toBe('locked');
+    expect(result.data.worktrees[0]?.statusCategory).toBe('active');
     expect(result.data.worktrees[0]?.isLocked).toBe(true);
   });
 
-  it('orphan detection: owning task cancelled → status=orphan', async () => {
+  it('a cancelled task is a candidate: redundant when the proof holds', async () => {
     MOCK_TASK_ROWS.set('T400', 'cancelled');
     installGitMock({
       porcelainOutput: porcelain([{ path: '/tmp/wt/T400', branch: 'task/T400' }]),
@@ -451,11 +447,11 @@ describe('listWorktrees — status classification', () => {
 
     const result = await listWorktrees({ projectRoot: '/tmp/project' });
     if (!result.success) throw new Error('expected success');
-    expect(result.data.worktrees[0]?.statusCategory).toBe('orphan');
+    expect(result.data.worktrees[0]?.statusCategory).toBe('redundant');
     expect(result.data.worktrees[0]?.owningTaskStatus).toBe('cancelled');
   });
 
-  it('orphan detection: task row missing → status=orphan', async () => {
+  it('a missing task row inside the stale window is active (a fresh worktree)', async () => {
     // T500 is NOT in MOCK_TASK_ROWS — simulating a deleted task / dangling branch.
     installGitMock({
       porcelainOutput: porcelain([{ path: '/tmp/wt/T500', branch: 'task/T500' }]),
@@ -465,7 +461,7 @@ describe('listWorktrees — status classification', () => {
 
     const result = await listWorktrees({ projectRoot: '/tmp/project' });
     if (!result.success) throw new Error('expected success');
-    expect(result.data.worktrees[0]?.statusCategory).toBe('orphan');
+    expect(result.data.worktrees[0]?.statusCategory).toBe('active');
     expect(result.data.worktrees[0]?.owningTaskStatus).toBeNull();
   });
 
@@ -507,9 +503,9 @@ describe('listWorktrees — status classification', () => {
     if (!result.success) throw new Error('expected success');
     const byPath = new Map(result.data.worktrees.map((w) => [w.path, w]));
     expect(byPath.get('/repo')?.statusCategory).toBe('active');
-    // Secondary worktree: still classified as `merged` (it really is — the guard
-    // only protects the primary), so prune candidacy is unchanged for it.
-    expect(byPath.get('/repo/.cleo/worktrees/T9001')?.statusCategory).toBe('merged');
+    // Secondary worktree: the guard only protects the primary; this one is
+    // active because its task is open (T14274), not because of the guard.
+    expect(byPath.get('/repo/.cleo/worktrees/T9001')?.statusCategory).toBe('active');
   });
 });
 
@@ -538,11 +534,11 @@ describe('listWorktrees — --status filter', () => {
 
     const result = await listWorktrees({
       projectRoot: '/tmp/project',
-      statusFilter: ['orphan', 'merged'],
+      statusFilter: ['redundant'],
     });
     if (!result.success) throw new Error('expected success');
-    const categories = result.data.worktrees.map((w) => w.statusCategory).sort();
-    expect(categories).toEqual(['merged', 'orphan']);
+    // T1 (open task) is active; T2 (cancelled) and T3 (done) are redundant.
+    expect(result.data.worktrees.map((w) => w.path).sort()).toEqual(['/wt/T2', '/wt/T3']);
   });
 
   it('returns ALL entries when statusFilter is omitted', async () => {
