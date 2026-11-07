@@ -1331,7 +1331,7 @@ export async function publishDocs(opts: {
     const bySlug = async (slug: string) => {
       const { resolveDocRef } = await import('./slug-rename.js');
       const ref = await resolveDocRef(root, slug).catch(() => null);
-      const meta = ref ? await store.getMetadata(ref.row.id, root).catch(() => null) : null;
+      const meta = ref ? await store.getMetadata(ref.ownRow.id, root).catch(() => null) : null;
       return ref && meta ? { ...meta, sha256: ref.sha256 } : undefined;
     };
     const metadata = opts.attachmentId

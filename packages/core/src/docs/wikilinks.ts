@@ -110,13 +110,13 @@ export async function rebuildDocsWikilinks(
   const { listDocRefs } = await import('./slug-rename.js');
   const refs = await listDocRefs(projectRoot);
   const slugByUid = new Map(refs.flatMap((r) => (r.docUid ? [[r.docUid, r.slug] as const] : [])));
-  const slugByRowId = new Map(refs.map((r) => [r.row.id, r.slug] as const));
+  const slugByRowId = new Map(refs.map((r) => [r.ownRow.id, r.slug] as const));
   const linked = (uid: string | null, rowId: string | null | undefined): string | null =>
     (uid ? slugByUid.get(uid) : undefined) ?? (rowId ? (slugByRowId.get(rowId) ?? null) : null);
   const slugged: DerivationRow[] = refs.map((r) => ({
     slug: r.slug,
-    supersedesSlug: linked(r.meta.supersedesUid, r.row.supersedes),
-    supersededBySlug: linked(r.meta.supersededByUid, r.row.supersededBy),
+    supersedesSlug: linked(r.meta.supersedesUid, r.ownRow.supersedes),
+    supersededBySlug: linked(r.meta.supersededByUid, r.ownRow.supersededBy),
     relatedTasks: r.meta.relatedTasks,
     topics: r.meta.topics,
   }));

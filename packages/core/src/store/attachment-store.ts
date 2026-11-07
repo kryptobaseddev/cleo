@@ -962,13 +962,13 @@ export function createAttachmentStore(): AttachmentStore {
       const ref = await resolveDocRef(cwd ?? getProjectRoot(), slug, { quiet: true });
       if (!ref) return null;
       return {
-        metadata: { ...rowToMetadata(ref.row), sha256: ref.sha256 },
+        metadata: { ...rowToMetadata(ref.ownRow), sha256: ref.sha256 },
         slug: ref.slug,
         type: ref.meta.docType,
         summary: ref.meta.summary,
         lifecycleStatus: isAttachmentLifecycleStatus(ref.meta.lifecycleStatus)
           ? ref.meta.lifecycleStatus
-          : ref.row.lifecycleStatus,
+          : ref.ownRow.lifecycleStatus,
         displayAlias: ref.meta.displayAlias,
       };
     },

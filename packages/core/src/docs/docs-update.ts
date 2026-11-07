@@ -520,11 +520,7 @@ export async function updateDocBySlug(
   const slug = ref.slug;
   // The row the update re-homes: the live slug's row. Its content is the head's
   // (T13842) unless sync moved the head, when the metadata still lives there.
-  const oldRow =
-    ref.row.slug === slug
-      ? ref.row
-      : ((await db.select().from(docsAttachments).where(eq(docsAttachments.slug, slug)).get()) ??
-        ref.row);
+  const oldRow = ref.ownRow;
 
   // T13674: resolve the declared base BEFORE any write. The base is the
   // conduit version the edit was authored against (the fetch envelope's
@@ -916,107 +912,144 @@ export async function updateDocBySlug(
     .where(eq(attachmentRefs.attachmentId, oldRow.id))
     .all();
 
+  // T14288 AC2: the new bytes may already be ANOTHER doc's content (two docs
+  // whose heads are identical). Moving this slug onto that row would take it
+  // from the other doc. A text doc resolves through its identity and head
+  // (the projection below lands the head on these bytes), so it keeps its own
+  // registry row and slug, and the shared content row stays the other doc's.
+  // A binary doc (no projection) keeps the move: it has no identity to
+  // resolve through yet.
+  const sharedRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.sha256, newSha256))
+    .get();
+  const keepsOwnRow =
+    projectionInput !== null &&
+    sharedRow !== undefined &&
+    sharedRow.slug !== null &&
+    sharedRow.slug !== slug;
+
   let newAttachmentId: string;
   try {
     nativeDb.prepare('BEGIN IMMEDIATE').run();
 
-    // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
-    await db
-      .update(docsAttachments)
-      .set({ slug: null })
-      .where(eq(docsAttachments.id, oldRow.id))
-      .run();
-
-    // 2. Insert OR update the new-sha256 row. If a row already exists
-    //    for this sha256 (rare — same bytes already stored under a
-    //    different slug), reuse it and just transfer the slug onto it.
-    const existingNewRow = await db
-      .select()
-      .from(docsAttachments)
-      .where(eq(docsAttachments.sha256, newSha256))
-      .get();
-
-    if (existingNewRow) {
-      newAttachmentId = existingNewRow.id;
+    if (keepsOwnRow && sharedRow) {
+      newAttachmentId = sharedRow.id;
+      // The doc's own row keeps its slug and owners and takes the update's
+      // metadata; the shared content row is left exactly as it was.
       await db
         .update(docsAttachments)
         .set({
-          slug,
-          type: oldRow.type ?? null,
           lifecycleStatus: status,
           docVersion: oldRow.docVersion + 1,
-          topics: oldRow.topics ?? null,
           relatedTasks: derivedRelatedTasks,
-        })
-        .where(eq(docsAttachments.id, existingNewRow.id))
-        .run();
-    } else {
-      newAttachmentId = randomUUID();
-      await db
-        .insert(docsAttachments)
-        .values({
-          id: newAttachmentId,
-          sha256: newSha256,
-          attachmentJson: newAttachmentJson,
-          createdAt: nowIso,
-          refCount: 0,
-          slug,
-          ...(oldRow.type ? { type: oldRow.type } : {}),
-          lifecycleStatus: status,
           ownerVersion: getCanonicalCleoVersion(projectRoot),
-          docVersion: oldRow.docVersion + 1,
-          topics: oldRow.topics ?? null,
-          relatedTasks: derivedRelatedTasks,
         })
+        .where(eq(docsAttachments.id, oldRow.id))
         .run();
-    }
-
-    // 3. Carry every existing ref over to the new row so the slug stays
-    //    reachable from the same owners. We skip rows that already exist
-    //    on the new row (idempotent re-runs).
-    let refsAdded = 0;
-    for (const ref of oldRefs) {
-      const dup = await db
-        .select()
-        .from(attachmentRefs)
-        .where(
-          and(
-            eq(attachmentRefs.attachmentId, newAttachmentId),
-            eq(attachmentRefs.ownerType, ref.ownerType),
-            eq(attachmentRefs.ownerId, ref.ownerId),
-          ),
-        )
-        .get();
-      if (dup) continue;
-      await db
-        .insert(attachmentRefs)
-        .values({
-          attachmentId: newAttachmentId,
-          ownerType: ref.ownerType,
-          ownerId: ref.ownerId,
-          attachedAt: nowIso,
-          attachedBy,
-        })
-        .run();
-      refsAdded += 1;
-    }
-    if (refsAdded > 0) {
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(projectRoot, { rowId: oldRow.id });
+      nativeDb.prepare('COMMIT').run();
+    } else {
+      // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
       await db
         .update(docsAttachments)
-        .set({
-          refCount: (existingNewRow?.refCount ?? 0) + refsAdded,
-        })
-        .where(eq(docsAttachments.id, newAttachmentId))
+        .set({ slug: null })
+        .where(eq(docsAttachments.id, oldRow.id))
         .run();
+
+      // 2. Insert OR update the new-sha256 row. If a row already exists
+      //    for this sha256 (rare — same bytes already stored under a
+      //    different slug), reuse it and just transfer the slug onto it.
+      const existingNewRow = await db
+        .select()
+        .from(docsAttachments)
+        .where(eq(docsAttachments.sha256, newSha256))
+        .get();
+
+      if (existingNewRow) {
+        newAttachmentId = existingNewRow.id;
+        await db
+          .update(docsAttachments)
+          .set({
+            slug,
+            type: oldRow.type ?? null,
+            lifecycleStatus: status,
+            docVersion: oldRow.docVersion + 1,
+            topics: oldRow.topics ?? null,
+            relatedTasks: derivedRelatedTasks,
+          })
+          .where(eq(docsAttachments.id, existingNewRow.id))
+          .run();
+      } else {
+        newAttachmentId = randomUUID();
+        await db
+          .insert(docsAttachments)
+          .values({
+            id: newAttachmentId,
+            sha256: newSha256,
+            attachmentJson: newAttachmentJson,
+            createdAt: nowIso,
+            refCount: 0,
+            slug,
+            ...(oldRow.type ? { type: oldRow.type } : {}),
+            lifecycleStatus: status,
+            ownerVersion: getCanonicalCleoVersion(projectRoot),
+            docVersion: oldRow.docVersion + 1,
+            topics: oldRow.topics ?? null,
+            relatedTasks: derivedRelatedTasks,
+          })
+          .run();
+      }
+
+      // 3. Carry every existing ref over to the new row so the slug stays
+      //    reachable from the same owners. We skip rows that already exist
+      //    on the new row (idempotent re-runs).
+      let refsAdded = 0;
+      for (const ref of oldRefs) {
+        const dup = await db
+          .select()
+          .from(attachmentRefs)
+          .where(
+            and(
+              eq(attachmentRefs.attachmentId, newAttachmentId),
+              eq(attachmentRefs.ownerType, ref.ownerType),
+              eq(attachmentRefs.ownerId, ref.ownerId),
+            ),
+          )
+          .get();
+        if (dup) continue;
+        await db
+          .insert(attachmentRefs)
+          .values({
+            attachmentId: newAttachmentId,
+            ownerType: ref.ownerType,
+            ownerId: ref.ownerId,
+            attachedAt: nowIso,
+            attachedBy,
+          })
+          .run();
+        refsAdded += 1;
+      }
+      if (refsAdded > 0) {
+        await db
+          .update(docsAttachments)
+          .set({
+            refCount: (existingNewRow?.refCount ?? 0) + refsAdded,
+          })
+          .where(eq(docsAttachments.id, newAttachmentId))
+          .run();
+      }
+
+      // T14288: the doc's identity row carries the new row's metadata, in the
+      // same transaction (a first update adopts the doc later, in the
+      // projection, with this metadata).
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(projectRoot, { rowId: newAttachmentId });
+
+      nativeDb.prepare('COMMIT').run();
     }
-
-    // T14288: the doc's identity row carries the new row's metadata, in the
-    // same transaction (a first update adopts the doc later, in the
-    // projection, with this metadata).
-    const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
-    await mirrorConduitDocMeta(projectRoot, { rowId: newAttachmentId });
-
-    nativeDb.prepare('COMMIT').run();
   } catch (err) {
     try {
       nativeDb.prepare('ROLLBACK').run();

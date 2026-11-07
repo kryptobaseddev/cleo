@@ -378,7 +378,7 @@ async function resolveRootDocs(
     // T14288: a slug (live or an alias) resolves to the doc's head content row.
     const { resolveDocRef } = await import('./slug-rename.js');
     const ref = await resolveDocRef(projectRoot, root);
-    return ref ? [normalizeRow({ ...ref.row, slug: ref.slug })] : [];
+    return ref ? [normalizeRow({ ...ref.ownRow, sha256: ref.sha256, slug: ref.slug })] : [];
   }
 
   // Task-anchored root: union of (refs where owner_id = root) and

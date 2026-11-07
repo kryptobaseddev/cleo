@@ -91,19 +91,19 @@ export async function readDoc(slug: string, opts: ReadDocOptions = {}): Promise<
   const ref = await resolveDocRef(projectRoot, slug);
   if (!ref) throw new DocNotFoundError(slug);
   const frontmatterRow: FrontmatterRow = {
-    id: ref.row.id,
+    id: ref.ownRow.id,
     sha256: ref.sha256,
     slug: ref.slug,
     type: ref.meta.docType,
     summary: ref.meta.summary,
-    lifecycleStatus: ref.meta.lifecycleStatus ?? ref.row.lifecycleStatus,
+    lifecycleStatus: ref.meta.lifecycleStatus ?? ref.ownRow.lifecycleStatus,
     supersedes: null,
     supersededBy: null,
     topics: ref.meta.topics,
     relatedTasks: ref.meta.relatedTasks,
     ownerVersion: ref.meta.ownerVersion,
-    docVersion: ref.row.docVersion,
-    createdAt: ref.row.createdAt,
+    docVersion: ref.ownRow.docVersion,
+    createdAt: ref.ownRow.createdAt,
   };
   const { supersedes: supersedesSlug, supersededBy: supersededBySlug } = await supersessionSlugs(
     projectRoot,
