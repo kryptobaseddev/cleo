@@ -1179,6 +1179,8 @@ export interface OldMigrateRekeyReceipt {
   readonly approvalsRepointed: number;
   /** Head and slug-alias rows recreated under the new doc uid. */
   readonly naturalRowsRecreated: number;
+  /** Doc rows whose `supersedes_uid` / `superseded_by_uid` named the old uid (T14288 3a). */
+  readonly supersessionRepointed: number;
 }
 
 /** What `docs migrate` can do with the docs still on the pre-T14332 recipe (T14336). */
@@ -1262,8 +1264,9 @@ async function oldMigrateTarget(db: NodeSQLiteDatabase, slug: string) {
  *   - versions are re-pointed, and an imported version whose uid is the
  *     natural uid under the old doc uid moves to the natural uid under the
  *     new one (a K: the uid a device migrating today derives);
- *   - approvals, the migration ledger, the local section state and the
- *     derived contributors rollup are re-pointed;
+ *   - approvals, the migration ledger, the local section state, the
+ *     derived contributors rollup, and every doc's `supersedes_uid` /
+ *     `superseded_by_uid` naming the doc are re-pointed;
  *   - heads and slug aliases, natural over the doc uid, are deleted and
  *     inserted again under it (a K cannot carry a natural key change).
  *
@@ -1339,6 +1342,17 @@ export async function rekeyOldMigrateConduitDocOn(
     .where(eq(conduitAttachments.uid, oldUid))
     .run();
   await db.update(conduitAttachments).set(shell).where(eq(conduitAttachments.uid, newUid)).run();
+  // Every doc that supersedes this one, or that it supersedes, names it by uid.
+  const supersedes = await db
+    .update(conduitAttachments)
+    .set({ supersedesUid: newUid })
+    .where(eq(conduitAttachments.supersedesUid, oldUid))
+    .run();
+  const supersededBy = await db
+    .update(conduitAttachments)
+    .set({ supersededByUid: newUid })
+    .where(eq(conduitAttachments.supersededByUid, oldUid))
+    .run();
 
   for (const v of versions) {
     if (!v.uid) continue;
@@ -1425,6 +1439,7 @@ export async function rekeyOldMigrateConduitDocOn(
     versionsRepointed: versions.length,
     approvalsRepointed: approvals.length,
     naturalRowsRecreated: heads.length + aliases.length,
+    supersessionRepointed: Number(supersedes.changes ?? 0) + Number(supersededBy.changes ?? 0),
   };
 }
 

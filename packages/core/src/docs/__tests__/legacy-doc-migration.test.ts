@@ -981,6 +981,12 @@ describe('docs migrate moves pre-T14332 docs onto the shared identity (T14336)',
     const oldUid = await seedOldRecipeDoc('old-recipe-doc', Buffer.from('# old\nbody'));
     const hash = sha(Buffer.from('# old\nbody'));
     const shared = legacyDocIdentity('old-recipe-doc', BIRTH, hash);
+    // A newer doc supersedes the old-recipe one, naming it by uid (T14288 3a).
+    const newer = legacyDocIdentity('newer-doc', '2026-09-02T00:00:00.000Z', 'b'.repeat(64));
+    await (await getDb(env.tempDir))
+      .insert(conduitAttachments)
+      .values({ ...newer, supersedesUid: oldUid })
+      .run();
 
     const dry = await runLegacyDocMigration({
       projectRoot: env.tempDir,
@@ -1003,8 +1009,16 @@ describe('docs migrate moves pre-T14332 docs onto the shared identity (T14336)',
         versionsRepointed: 1,
         approvalsRepointed: 0,
         naturalRowsRecreated: 1,
+        supersessionRepointed: 1,
       },
     ]);
+    // The superseding doc now names the doc by its new uid.
+    const superseding = await (await getDb(env.tempDir))
+      .select({ supersedesUid: conduitAttachments.supersedesUid })
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.slug, 'newer-doc'))
+      .get();
+    expect(superseding?.supersedesUid).toBe(shared.uid);
     const store = await getDb(env.tempDir);
     const row = await store
       .select()
