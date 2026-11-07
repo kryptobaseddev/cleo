@@ -17,11 +17,15 @@ Refusals on the paths agents use to close work now say what to run next:
 - the lifecycle stage gate (`cleo lifecycle complete <id> <stage>`, or
   `skip`), the failed-merge-CI sweep refusal and the names-no-file credit
   refusal (`cleo review packet <pr> --task <id>`), and `E_RESOURCE_DEFERRED`
-  (`cleo run --wait -- <command>`).
+  (`cleo run --wait -- <command>`);
+- the `cleo verify` dispatch handler, which now keeps the verify refusal's
+  own fix through its re-wrap, and the `--criterion` receipt refusals;
+- `cleo complete`'s evidence re-validation (`revalidateEvidence`).
 
 Gate 42 (`scripts/lint-refusal-fixes.mjs`, in `cleo check arch` and CI)
 counts the `CleoError`, `engineError` and `lafsError` refusals on those paths
-that carry no fix, or a fix naming a command or flag the CLI rejects. It is
+that carry no fix, or a fix naming a command or flag the CLI rejects (a fix
+held in a local `const` is checked through its literal). It is
 pinned at zero per file and may only fall; there is no `--baseline` mode.
 Gate 14's flag checker now resolves an args object a command spreads in from
 a sibling command (`cleo done`'s `...completeCommandArgs`).

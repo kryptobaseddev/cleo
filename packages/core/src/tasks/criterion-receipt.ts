@@ -91,13 +91,15 @@ export async function recordCriterionReceipt(
   const fix = `cleo verify ${taskId} --criterion --evidence 'decision:<id>;satisfies:${taskId}#AC<n>'`;
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
-  // @sync-invariant none:input-shape an unknown task is refused before any write
-  if (!task) return engineError('E_NOT_FOUND', `Task ${taskId} not found`);
+  if (!task)
+    // @sync-invariant none:input-shape an unknown task is refused before any write
+    return engineError('E_NOT_FOUND', `Task ${taskId} not found`, { fix: `cleo find "${taskId}"` });
   if (task.status === 'done')
     // @sync-invariant none:input-shape a done task takes no new evidence (ADR-051 §11.1); nothing is written
     return engineError(
       'E_ALREADY_DONE',
       `Task ${taskId} is already done — a receipt cannot be added to a completed task (ADR-051 §11.1)`,
+      { fix: `cleo show ${taskId} --full` },
     );
 
   let atoms: ParsedAtom[];
@@ -158,6 +160,7 @@ export async function recordCriterionReceipt(
     return engineError(
       'E_CRITERION_RECEIPT_REFUSED',
       `${taskId} ${criterion} is a ${row.kind} criterion with its own proof; a receipt covers only a text criterion`,
+      { fix: `cleo show ${taskId} --full` },
     );
   const codePath = criterionCodePaths(row.text)[0];
   if (codePath !== undefined)

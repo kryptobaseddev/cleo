@@ -4758,7 +4758,10 @@ export async function revalidateEvidence(
     const { getTaskAccessor } = await import('../store/data-accessor.js');
     const accessor = await getTaskAccessor(resolveCanonicalProjectRoot(projectRoot));
     const task = await accessor.loadSingleTask(taskId);
-    if (!task) throw new CleoError(ExitCode.NOT_FOUND, `Evidence task ${taskId} is missing`);
+    if (!task)
+      throw new CleoError(ExitCode.NOT_FOUND, `Evidence task ${taskId} is missing`, {
+        fix: `cleo find "${taskId}"`,
+      });
     const context: EvidenceValidationContext = {
       task,
       gates: [gate],

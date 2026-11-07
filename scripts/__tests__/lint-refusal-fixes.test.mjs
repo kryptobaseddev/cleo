@@ -69,6 +69,21 @@ describe('lint-refusal-fixes (gate 42, T14299)', () => {
     ]);
   });
 
+  it('checks a fix named by a local const through its literal', () => {
+    const offending = judge(
+      [
+        "const fix = 'cleo nope T1';",
+        "throw new CleoError(4, 'gone', { fix });",
+        "const ok = 'cleo show T1';",
+        "return engineError('E_X', 'bad', { fix: ok });",
+      ].join('\n'),
+      (text) => (text.includes('cleo nope') ? ['no such command: cleo nope'] : []),
+    );
+    expect(offending).toEqual([
+      { file: 'src/x.ts', line: 2, reason: 'fix does not run: no such command: cleo nope' },
+    ]);
+  });
+
   it('judges only the named functions of a scoped path, object-property handlers included', () => {
     const source = [
       "function outside() { return engineError('E_X', 'bad'); }",

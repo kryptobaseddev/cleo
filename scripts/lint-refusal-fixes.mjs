@@ -7,8 +7,8 @@
  * `engineError(code, message, options)` or a `lafsError(code, message, op,
  * fix)` inside one of {@link REFUSAL_PATHS}. It counts as fix-less unless an
  * options object literal names `fix` (or `lafsError` gets its fourth
- * argument). A fix that is a string or template literal must also run as
- * written: every `cleo …` command in it resolves against the CLI command
+ * argument). A fix that is a string or template literal, or a local `const`
+ * initialised with one, must also run as written: every `cleo …` command in it resolves against the CLI command
  * manifest with declared flags, judged by gate 14's own registry and flag
  * checker (the same check `scripts/__tests__/runnable-remedies.test.mjs` runs
  * on each named remedy).
@@ -50,6 +50,15 @@ export const REFUSAL_PATHS = [
     file: 'packages/core/src/validation/engine-ops.ts',
     functions: ['validateGateVerify'],
   },
+  // The dispatch handler `cleo verify` runs, and its --criterion receipt path.
+  { path: 'verify', file: 'packages/cleo/src/dispatch/domains/check.ts', functions: ['gate.set'] },
+  {
+    path: 'verify',
+    file: 'packages/core/src/tasks/criterion-receipt.ts',
+    functions: ['recordCriterionReceipt'],
+  },
+  // `cleo complete` re-validates every hard atom here before closing.
+  { path: 'close', file: 'packages/core/src/tasks/evidence.ts', functions: ['revalidateEvidence'] },
   { path: 'done', file: 'packages/core/src/tasks/done-plan.ts' },
   { path: 'done', file: 'packages/core/src/tasks/done-record.ts' },
   { path: 'review', file: 'packages/core/src/tasks/review-verdict.ts' },
@@ -66,6 +75,9 @@ export const PINNED = {
   'packages/core/src/tasks/merge-close.ts': 0,
   'packages/core/src/tasks/engine-wrap.ts': 0,
   'packages/core/src/validation/engine-ops.ts': 0,
+  'packages/cleo/src/dispatch/domains/check.ts': 0,
+  'packages/core/src/tasks/criterion-receipt.ts': 0,
+  'packages/core/src/tasks/evidence.ts': 0,
   'packages/core/src/tasks/done-plan.ts': 0,
   'packages/core/src/tasks/done-record.ts': 0,
   'packages/core/src/tasks/review-verdict.ts': 0,
@@ -111,6 +123,25 @@ function fixText(node) {
   return null;
 }
 
+/** Every literal a `const` of each name is initialised with in a file. */
+function constLiterals(sf) {
+  const byName = new Map();
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      fixText(node.initializer) !== null
+    ) {
+      const name = node.name.text;
+      byName.set(name, [...(byName.get(name) ?? []), fixText(node.initializer)]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return byName;
+}
+
 /**
  * The refusals of one file that carry no fix, or a fix naming a command the
  * CLI rejects.
@@ -123,6 +154,7 @@ function fixText(node) {
 export function offendingRefusals(repoRoot, entry, check) {
   const source = readFileSync(join(repoRoot, entry.file), 'utf8');
   const sf = ts.createSourceFile(entry.file, source, ts.ScriptTarget.Latest, true);
+  const consts = constLiterals(sf);
   const out = [];
   const visit = (node, inScope) => {
     const name = functionName(node);
@@ -144,8 +176,10 @@ export function offendingRefusals(repoRoot, entry, check) {
       const fix = fixOf(callee, args);
       if (fix === null) out.push({ file: entry.file, line, reason: `${callee} with no fix` });
       else {
-        const text = fixText(fix);
-        const bad = text === null ? [] : check(text);
+        // A fix named by a local `const` is checked through its literal(s);
+        // any other expression (a passed-through `error.fix`) is not literal.
+        const texts = ts.isIdentifier(fix) ? (consts.get(fix.text) ?? []) : [fixText(fix)];
+        const bad = texts.flatMap((text) => (text === null ? [] : check(text)));
         if (bad.length > 0)
           out.push({ file: entry.file, line, reason: `fix does not run: ${bad.join('; ')}` });
       }
