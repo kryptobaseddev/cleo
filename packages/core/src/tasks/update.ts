@@ -470,7 +470,8 @@ export async function updateTask(
       task.completedAt = now;
       lifecycleEvent = 'task_completed';
     }
-    if ((options.status === 'pending' || options.status === 'active') && oldStatus === 'done') {
+    // T14268: `active` returned above (it starts the task), so a reopen is `pending`.
+    if (options.status === 'pending' && oldStatus === 'done') {
       lifecycleEvent = 'task_reopened';
     }
     if (options.status === 'pending' && oldStatus === 'cancelled') {
