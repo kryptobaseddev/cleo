@@ -189,6 +189,9 @@ export async function setDisplayAlias(
       displayAlias,
       row.id,
     );
+    // T14288: the doc's identity row carries its display number too.
+    const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+    await mirrorConduitDocMeta(projectRoot, { rowId: row.id });
 
     db.exec('COMMIT');
   } catch (txErr) {

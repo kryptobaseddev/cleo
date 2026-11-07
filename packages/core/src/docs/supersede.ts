@@ -194,6 +194,11 @@ export async function supersedeDoc(
         newRow.id,
       );
 
+      // T14288: both docs' identity rows carry the supersession, in this transaction.
+      const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
+      await mirrorConduitDocMeta(cwd, { rowId: oldRow.id });
+      await mirrorConduitDocMeta(cwd, { rowId: newRow.id });
+
       db.exec('COMMIT');
     } catch (txErr) {
       try {

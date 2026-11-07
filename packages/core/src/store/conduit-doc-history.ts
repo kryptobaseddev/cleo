@@ -337,7 +337,163 @@ export async function ensureConduitDoc(
       `conduit doc adopt for slug '${input.slug}' could not be read back`,
     );
   }
+  // T14288: the new identity carries the doc's metadata from the start.
+  const docRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.slug, input.slug))
+    .get();
+  if (docRow)
+    await setConduitDocMeta(projectRoot, row.uid, await conduitDocMetaOfRow(projectRoot, docRow));
   return { uid: row.uid, adopted: true };
+}
+
+/** The doc metadata carried on its identity row (T14288). */
+export interface ConduitDocMeta {
+  readonly docType: string | null;
+  readonly lifecycleStatus: string | null;
+  readonly supersedesUid: string | null;
+  readonly supersededByUid: string | null;
+  readonly summary: string | null;
+  readonly keywords: string | null;
+  readonly topics: string | null;
+  readonly relatedTasks: string | null;
+  readonly displayAlias: number | null;
+  readonly ownerVersion: string | null;
+}
+
+/** The {@link ConduitDocMeta} keys, in column order. */
+const CONDUIT_DOC_META_KEYS = [
+  'docType',
+  'lifecycleStatus',
+  'supersedesUid',
+  'supersededByUid',
+  'summary',
+  'keywords',
+  'topics',
+  'relatedTasks',
+  'displayAlias',
+  'ownerVersion',
+] as const satisfies readonly (keyof ConduitDocMeta)[];
+
+/**
+ * A registry row's doc metadata in identity-row form (T14288): supersession
+ * pointers (registry row ids) become doc uids, NULL when the other doc has no
+ * identity yet.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param row - The `docs_attachments` row.
+ * @returns The metadata for {@link setConduitDocMeta}.
+ * @task T14288
+ */
+export async function conduitDocMetaOfRow(
+  projectRoot: string,
+  row: typeof docsAttachments.$inferSelect,
+): Promise<ConduitDocMeta> {
+  const db = await getDb(projectRoot);
+  const uidOfRow = async (id: string | null): Promise<string | null> => {
+    if (id === null) return null;
+    const other = await db
+      .select({ slug: docsAttachments.slug })
+      .from(docsAttachments)
+      .where(eq(docsAttachments.id, id))
+      .get();
+    return other?.slug ? resolveConduitDocUid(projectRoot, other.slug) : null;
+  };
+  return {
+    docType: row.type ?? null,
+    lifecycleStatus: row.lifecycleStatus,
+    supersedesUid: await uidOfRow(row.supersedes ?? null),
+    supersededByUid: await uidOfRow(row.supersededBy ?? null),
+    summary: row.summary ?? null,
+    keywords: row.keywords ?? null,
+    topics: row.topics ?? null,
+    relatedTasks: row.relatedTasks ?? null,
+    displayAlias: row.displayAlias ?? null,
+    ownerVersion: row.ownerVersion ?? null,
+  };
+}
+
+/**
+ * Write a doc's metadata onto its identity row (T14288), changed columns only,
+ * so an unchanged mirror records nothing in the change journal. The lifecycle
+ * and its successor travel together (one merge group), and a superseded row
+ * stays superseded (the absorbing `docs.lifecycle.transitions` rule). This is
+ * the only UPDATE of these columns; the inserts are the adopt and migrate
+ * paths, which create the row.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param uid - The doc's `conduit_attachments.uid`.
+ * @param meta - The metadata to hold.
+ * @returns Whether a column changed.
+ * @task T14288
+ */
+export async function setConduitDocMeta(
+  projectRoot: string,
+  uid: string,
+  meta: ConduitDocMeta,
+): Promise<boolean> {
+  requireNonEmpty('uid', uid);
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.uid, uid))
+    .get();
+  if (!row) return false;
+  // superseded is absorbing (docs.lifecycle.transitions, no leave op): every
+  // receiver refuses a write that leaves it, so the identity row never does
+  // either, even when its registry row was restored (a modernize undo). The
+  // group stays as stored; the other columns still mirror.
+  // @sync-invariant docs.lifecycle.transitions a mirror never moves the identity row out of superseded; receivers would refuse it and diverge
+  const keepGroup = row.lifecycleStatus === 'superseded' && meta.lifecycleStatus !== 'superseded';
+  const differs = CONDUIT_DOC_META_KEYS.filter(
+    (key) =>
+      row[key] !== meta[key] &&
+      !(keepGroup && (key === 'lifecycleStatus' || key === 'supersededByUid')),
+  );
+  if (differs.length === 0) return false;
+  const changed: Partial<typeof conduitAttachments.$inferInsert> = {};
+  for (const key of differs) Object.assign(changed, { [key]: meta[key] });
+  // One merge group: a U op carrying part of it is refused, so both travel.
+  if (differs.includes('lifecycleStatus') || differs.includes('supersededByUid')) {
+    Object.assign(changed, {
+      lifecycleStatus: meta.lifecycleStatus,
+      supersededByUid: meta.supersededByUid,
+    });
+  }
+  await db.update(conduitAttachments).set(changed).where(eq(conduitAttachments.uid, uid)).run();
+  return true;
+}
+
+/**
+ * Mirror a registry row's doc metadata onto the doc's identity row (T14288,
+ * PR 3a): the kind, lifecycle, supersession (registry row ids translated to
+ * doc uids), summary, keywords, topics, related tasks, display number and
+ * writing release. Every doc metadata writer calls it after its write, so the
+ * uid carries the doc's metadata before the readers move to it (PR 3b). A row
+ * without a slug, or a doc with no identity yet, has nothing to mirror (the
+ * identity row is created with the metadata when the doc is adopted).
+ *
+ * @param projectRoot - Absolute project root.
+ * @param ref - The `docs_attachments` row just written, by id or by its slug.
+ * @returns Whether the identity row changed.
+ * @task T14288
+ */
+export async function mirrorConduitDocMeta(
+  projectRoot: string,
+  ref: { readonly rowId: string } | { readonly slug: string },
+): Promise<boolean> {
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(docsAttachments)
+    .where('rowId' in ref ? eq(docsAttachments.id, ref.rowId) : eq(docsAttachments.slug, ref.slug))
+    .get();
+  if (!row?.slug) return false;
+  const uid = await resolveConduitDocUid(projectRoot, row.slug);
+  if (uid === null) return false;
+  return setConduitDocMeta(projectRoot, uid, await conduitDocMetaOfRow(projectRoot, row));
 }
 
 /**
@@ -985,7 +1141,18 @@ export async function importMigratedConduitDoc(
   const identity = legacyDocIdentity(input.slug, input.createdAt, input.legacySha256);
   const uid = identity.uid;
   const db = await getDb(projectRoot);
-  const result = await db.insert(conduitAttachments).values(identity).onConflictDoNothing().run();
+  // T14288: the imported identity carries the doc's metadata from the start.
+  const docRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.slug, input.slug))
+    .get();
+  const meta = docRow ? await conduitDocMetaOfRow(projectRoot, docRow) : {};
+  const result = await db
+    .insert(conduitAttachments)
+    .values({ ...identity, ...meta })
+    .onConflictDoNothing()
+    .run();
   return { uid, inserted: (result.changes ?? 0) > 0 };
 }
 
