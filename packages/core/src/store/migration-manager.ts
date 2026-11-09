@@ -485,6 +485,16 @@ function probeAndMarkApplied(
     alterTargets.push({ table: m[1] as string, column: m[2] as string });
   }
 
+  // T14311: `ALTER TABLE x DROP COLUMN y` is verifiable too — applied when the
+  // table exists and the column is gone. SQLite has no `DROP COLUMN IF EXISTS`,
+  // so re-running such a migration on a store that already dropped the column
+  // (an emptied journal, Scenario 3) would throw "no such column".
+  const dropColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+DROP\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
+  const dropTargets: Array<{ table: string; column: string }> = [];
+  for (const m of fullSql.matchAll(dropColumnRegex)) {
+    dropTargets.push({ table: m[1] as string, column: m[2] as string });
+  }
+
   // Build rename map: if migration contains "ALTER TABLE x_new RENAME TO x",
   // record { intermediate: "x_new", final: "x" }. Used below to redirect
   // CREATE TABLE probes away from temporary intermediate tables (which no
@@ -562,7 +572,11 @@ function probeAndMarkApplied(
   }
 
   const totalTargets =
-    alterTargets.length + tableTargets.length + indexTargets.length + triggerTargets.length;
+    alterTargets.length +
+    dropTargets.length +
+    tableTargets.length +
+    indexTargets.length +
+    triggerTargets.length;
   if (totalTargets === 0) {
     // No probe-able DDL — pure DML (INSERT/UPDATE/DELETE), DROP-only, CREATE VIEW,
     // etc. Schema inspection can't verify it, so the consolidation cutover decides
@@ -592,6 +606,13 @@ function probeAndMarkApplied(
     }>;
     return cols.some((c) => c.name === column);
   });
+  const allDropsApplied = dropTargets.every(({ table, column }) => {
+    if (!tableExists(nativeDb, table)) return false;
+    const cols = nativeDb.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
+    return !cols.some((c) => c.name === column);
+  });
   // A CREATE-TABLE target is satisfied if it exists OR if a later migration in
   // the lineage permanently eliminated it (bug #2 — e.g. `release_manifests`,
   // dropped by t9686b2). Its absence on a fully-migrated DB is expected.
@@ -611,7 +632,13 @@ function probeAndMarkApplied(
     return rows.length > 0;
   });
 
-  if (allAltersPresent && allTablesPresent && allIndexesPresent && allTriggersPresent) {
+  if (
+    allAltersPresent &&
+    allDropsApplied &&
+    allTablesPresent &&
+    allIndexesPresent &&
+    allTriggersPresent
+  ) {
     insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
     const log = getLogger(logSubsystem);
     log.debug(
