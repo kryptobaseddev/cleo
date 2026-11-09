@@ -83,9 +83,12 @@ import {
   decodeExtraction,
   decodeExtractionHead,
   decodeExtractionSites,
+  decodeParseFailure,
   type ExtractionHead,
   type ExtractionSites,
   encodeExtraction,
+  encodeParseFailure,
+  isCacheableParseFailure,
 } from './parse-cache.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
@@ -478,8 +481,10 @@ export interface ParseLoopOptions {
    */
   reusedEntries?: ReadonlyMap<string, GraphParseCacheEntry>;
   /**
-   * Called once per freshly and successfully parsed file with its compressed
-   * extraction ({@link encodeExtraction}) — the parse-cache payload.
+   * Called once per freshly parsed file with its parse-cache payload: the
+   * compressed extraction ({@link encodeExtraction}), or for a file failing
+   * with `E_PARSE_SYNTAX` the recorded failure ({@link encodeParseFailure}),
+   * so the next run reports it again without re-parsing it (T12350).
    */
   onFileExtracted?: (path: string, payload: Uint8Array) => void;
   /**
@@ -515,7 +520,10 @@ export interface ParseLoopResult {
   barrelMap: BarrelExportMap;
   /** Parseable files handed to the parser this run. */
   parsedFileCount: number;
-  /** Parseable files whose extraction came from {@link ParseLoopOptions.reusedEntries}. */
+  /**
+   * Parseable files served from {@link ParseLoopOptions.reusedEntries}: a cached
+   * extraction, or a cached syntax failure reported again unparsed (T12350).
+   */
   reusedFileCount: number;
   /** Paths of those files. */
   reusedPaths: Set<string>;
@@ -533,15 +541,6 @@ const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
   'call-references',
   'access-references',
   'type-heritage',
-];
-const SQL_CAPABILITIES: GraphAnalysisCapability[] = [
-  'file-evidence',
-  'sql-schema-objects',
-  'sql-migrations',
-  'sql-triggers',
-  'sql-constraints',
-  'sql-literal-references',
-  'sql-dynamic-references',
 ];
 const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
 
@@ -601,12 +600,12 @@ function roleCoverage(
   return {
     role,
     classification,
+    // T14377: no SQL extractor exists, so a SQL file requests only what is extracted
+    // (file evidence); the unassessed SQL semantics stay stated as limitations.
     requested:
-      role === 'sql'
-        ? [...SQL_CAPABILITIES]
-        : role === 'executable' || role === 'unknown'
-          ? [...EXECUTABLE_CAPABILITIES]
-          : ['file-evidence', ...(evidence ? [evidence] : [])],
+      role === 'executable' || role === 'unknown'
+        ? [...EXECUTABLE_CAPABILITIES]
+        : ['file-evidence', ...(evidence ? [evidence] : [])],
     completed: ['file-evidence', ...(evidence ? [evidence] : [])],
     limitations:
       role === 'sql'
@@ -1451,6 +1450,13 @@ export async function runParseLoop(
     let extracted: ExtractionHead | undefined;
     let generation: string | undefined;
     const cached = payload ? undefined : reused.get(file.path);
+    const cachedFailure = cached ? decodeParseFailure(cached.payload) : null;
+    if (cachedFailure !== null) {
+      // T12350: same bytes, same grammar, same syntax error; still reported as a gap.
+      reusedPaths.add(file.path);
+      emitReport({ path: file.path, status: 'failed', reason: cachedFailure });
+      continue;
+    }
     if (cached) {
       const decodeStart = performance.now();
       try {
@@ -1481,7 +1487,11 @@ export async function runParseLoop(
     if (!payload) {
       const failure = pass.failures.get(file.path);
       // Unknown language/grammar keys are silently skipped exactly as before.
-      if (failure) emitReport(failure);
+      if (failure) {
+        if (isCacheableParseFailure(failure.reason))
+          options.onFileExtracted?.(file.path, encodeParseFailure(failure.reason));
+        emitReport(failure);
+      }
       continue;
     }
     if (!reusedPaths.has(file.path)) options.onFileExtracted?.(file.path, payload);
