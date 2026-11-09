@@ -140,8 +140,16 @@ describe('gh#1403 — the scripts test project is reachable from CI', () => {
     // first run that ever included it, and it failed on a missing prerequisite
     // rather than on its own change. Selecting a test the job cannot satisfy is
     // not coverage.
+    //
+    // T14368: the dist comes from the `build` job's shared output, restored
+    // before install, instead of a second full `pnpm run build` here.
     const job = jobBlock(ci, 'scripts-tests');
-    expect(job).toMatch(/run: pnpm run build/);
+    expect(job).toMatch(/needs: \[ biome, changes, build \]/);
+    expect(job).toMatch(/name: build-output-ubuntu-latest/);
+    const restore = job.indexOf('tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"');
+    expect(restore).toBeGreaterThan(-1);
+    expect(restore).toBeLessThan(job.indexOf('vitest run --project=scripts'));
+    expect(job).not.toMatch(/run: pnpm run build/);
   });
 
   it('is in the ci aggregate’s needs, so its failure fails the merge bar', () => {
@@ -151,6 +159,49 @@ describe('gh#1403 — the scripts test project is reachable from CI', () => {
     const aggregate = jobBlock(ci, 'ci');
     expect(aggregate, 'the ci aggregate must exist').not.toBe('');
     expect(aggregate).toMatch(/^\s+- scripts-tests\s*$/m);
+  });
+});
+
+describe('T14368 — the built-CLI gates restore the shared build, never rebuild', () => {
+  const workflow = parseYaml(ci);
+  const job = workflow.jobs['post-build-checks'];
+  const runs = () => job.steps.map((step) => step.run ?? '').join('\n');
+
+  it('replaces the four jobs that each ran their own full build', () => {
+    for (const gone of ['manual-write-sweep', 'canon-drift', 'canon-check', 'docs-drift'])
+      expect(workflow.jobs[gone], gone).toBeUndefined();
+    expect(job.needs).toContain('build');
+    expect(runs()).not.toMatch(/pnpm run build|scripts\/build\.mjs|node build\.mjs/);
+    const restore = job.steps.findIndex((step) => step.run?.includes('build-output.tgz'));
+    const download = job.steps.findIndex((step) => step.uses === 'actions/download-artifact@v4');
+    expect(download).toBeGreaterThan(-1);
+    expect(job.steps[download].with.name).toBe('build-output-ubuntu-latest');
+    expect(restore).toBeGreaterThan(download);
+  });
+
+  it('keeps each gate as its own step that runs after an earlier failure', () => {
+    for (const command of [
+      'index.js check canon\n',
+      'check canon docs --base',
+      'index.js docs status',
+      'scripts/sweep-manual-doc-writes.mjs',
+    ]) {
+      const step = job.steps.find((s) => `${s.run ?? ''}\n`.includes(command));
+      expect(step, command).toBeDefined();
+      expect(step.if, command).toContain('!cancelled()');
+    }
+  });
+
+  it('runs wherever `build` runs, which no longer requires a code change', () => {
+    expect(workflow.jobs.build.if).toBe("needs.changes.outputs.version_only != 'true'");
+    expect(job.if).toBe("needs.changes.outputs.version_only != 'true'");
+    expect(workflow.jobs.ci.needs).toContain('post-build-checks');
+  });
+
+  it('leaves Build & Verify a cold build', () => {
+    const verify = workflow.jobs['build-verify'];
+    expect(verify.needs).not.toContain('build');
+    expect(verify.steps.some((s) => s.uses === 'actions/download-artifact@v4')).toBe(false);
   });
 });
 

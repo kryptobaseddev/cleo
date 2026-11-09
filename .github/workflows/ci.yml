@@ -999,115 +999,26 @@ jobs:
       - name: Lint deployed workflows against shipped templates (baseline mode)
         run: node scripts/lint-deployed-template-parity.mjs
 
-  manual-write-sweep:
-    # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
-    # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
-    # `rawMdPaths` directories since the T9791 docs-import cutoff (located
-    # from the import manifests under `.cleo/audit/imports/`), hashes it, and
-    # queries the docs SSoT to classify each file as `in-sync`, `drift`, or
-    # `orphan`. Emits a structured JSON report under
-    # `audit/manual-write-sweep-<date>.json`.
-    #
-    # READ-ONLY: the script mutates nothing. Initially wired with
-    # `continue-on-error: true` so the existing orphan corpus does not fail
-    # CI; flips to strict after Saga T10288 / Epic T10293 E5.3 lands the
-    # orphan cleanup migration. The report artefact is uploaded on every
-    # run so reviewers can see the unresolved count trend.
-    name: Manual Write Sweep (T10372)
-    needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # full history required for git log --diff-filter=A
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Build cleo CLI (sweep shells out to `cleo docs list/fetch`)
-        run: pnpm run build
-      - name: Run manual-write sweep
-        # The script exits 1 when orphans or drift exist — wrap with
-        # --allow-unresolved so CI is informational until E5.3 cleans up.
-        # --cleo-bin invokes the just-built local CLI bundle.
-        run: node scripts/sweep-manual-doc-writes.mjs --allow-unresolved --cleo-bin "node packages/cleo/dist/cli/index.js"
-      - name: Upload sweep report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: manual-write-sweep
-          path: audit/manual-write-sweep-*.json
-          if-no-files-found: warn
-          # D11216: the shared artifact quota is full; a report read in the run's
-          # own UI needs a day, not the 90-day default.
-          retention-days: 1
-
-  canon-drift:
-    name: Canon Drift Check
-    needs: [ biome, changes ]
+  # T14368: the gates that run the built CLI. Manual Write Sweep, both Canon
+  # Drift Checks and the Docs SSoT Drift Gate were four jobs, each running its
+  # own `pnpm run build` (~3 min, and four more chances of the Wave-5 OOM kill,
+  # T14348). One job now restores the `build` job's Linux output and runs each
+  # gate as its own step (named after the job it replaced), every step running
+  # even when an earlier one failed (`!cancelled()`), so each failure stays
+  # attributable. `build` runs on every run that is not a release bump PR, so
+  # this job always has an artifact to restore. Build & Verify stays the cold
+  # build.
+  post-build-checks:
+    name: Post-build Checks
+    needs: [ biome, changes, build ]
     if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        uses: ./.github/actions/install-ripgrep
-      - name: Build monorepo (cleo + all workspace deps)
-        # Use root build script — pnpm --filter @cleocode/cleo run build alone
-        # does NOT build workspace dependencies first, so tsc cannot resolve
-        # @cleocode/contracts / @cleocode/core/internal / @cleocode/lafs.
-        run: pnpm run build
-      - name: Run canon drift gate
-        run: node packages/cleo/dist/cli/index.js check canon
-
-  canon-check:
-    # T9796 — Docs canon-routing CI gate. Loads `.cleo/canon.yml` and rejects
-    # NEW *.md files (git diff --diff-filter=A vs the PR's base ref) that
-    # land inside a `rawMdPaths` directory whose owning DocKind has
-    # `rawMdAllowed: false`. Existing legacy files (migrated by T9791) are
-    # never flagged — the gate only fires on ADDITIONS. Saga T9787.
-    name: Canon Drift Check (T9796)
-    needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
+          # Canon Drift Check (T9796) diffs against the PR base and Manual Write
+          # Sweep walks `git log --diff-filter=A`: both need full history.
           fetch-depth: 0
           filter: blob:none
       - uses: actions/setup-node@v4
@@ -1126,12 +1037,27 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
+      # Restored BEFORE install, so the file: link to crates/worktree-napi
+      # picks up the .node (T9982).
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
         uses: ./.github/actions/install-ripgrep
-      - name: Build monorepo (cleo + all workspace deps)
-        run: pnpm run build
-      - name: Run docs canon gate
+      - name: "Canon Drift Check: Run canon drift gate"
+        if: ${{ !cancelled() }}
+        run: node packages/cleo/dist/cli/index.js check canon
+      # T9796 — Docs canon-routing gate. Loads `.cleo/canon.yml` and rejects
+      # NEW *.md files (git diff --diff-filter=A vs the PR's base ref) that
+      # land inside a `rawMdPaths` directory whose owning DocKind has
+      # `rawMdAllowed: false`. Existing legacy files (migrated by T9791) are
+      # never flagged — the gate only fires on ADDITIONS. Saga T9787.
+      - name: "Canon Drift Check (T9796): Run docs canon gate"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
         run: |
           # On PRs, diff against the base branch — origin/${{ github.base_ref }}
           # — so non-main PR targets (release branches, stacked PRs, etc.) work.
@@ -1139,40 +1065,16 @@ jobs:
           base_ref="origin/${{ github.base_ref || 'main' }}"
           echo "canon-check: diffing against $base_ref"
           node packages/cleo/dist/cli/index.js check canon docs --base "$base_ref"
-
-  docs-drift:
-    # T9645: gate published docs SSoT vs the on-disk git files.
-    # `cleo docs status` exits 2 when any publication has drifted, 0 when
-    # all are in-sync. T13362: the ledger lives in the project store's
-    # `docs_publications` table (the deprecated `.cleo/docs-publications.json`
-    # is a read-only legacy seed source), so the skip probe reads the table
-    # read-only instead of checking for the JSON file. This job IS the
-    # release-verify drift gate.
-    name: Docs SSoT Drift Gate (T9645)
-    needs: [ biome, changes ]
-    if: needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - name: Skip when the docs ledger has no rows
+      # T9645: gate published docs SSoT vs the on-disk git files.
+      # `cleo docs status` exits 2 when any publication has drifted, 0 when
+      # all are in-sync. T13362: the ledger lives in the project store's
+      # `docs_publications` table (the deprecated `.cleo/docs-publications.json`
+      # is a read-only legacy seed source), so the skip probe reads the table
+      # read-only instead of checking for the JSON file. This step IS the
+      # release-verify drift gate.
+      - name: "Docs SSoT Drift Gate (T9645): Skip when the docs ledger has no rows"
         id: ledger-check
+        if: ${{ !cancelled() }}
         run: |
           # T13362: probe the `docs_publications` table read-only. A fresh
           # checkout has no `.cleo/cleo.db` (untracked per ADR-013), so the
@@ -1185,13 +1087,8 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "No docs_publications rows — gate is a no-op."
           fi
-      - run: pnpm install --frozen-lockfile
-        if: steps.ledger-check.outputs.exists == 'true'
-      - name: Build monorepo (cleo + workspace deps)
-        if: steps.ledger-check.outputs.exists == 'true'
-        run: pnpm run build
-      - name: Run docs drift gate
-        if: steps.ledger-check.outputs.exists == 'true'
+      - name: "Docs SSoT Drift Gate (T9645): Run docs drift gate"
+        if: ${{ !cancelled() && steps.ledger-check.outputs.exists == 'true' }}
         run: |
           # `cleo docs status` exits:
           #   0 — every publication in-sync
@@ -1212,6 +1109,36 @@ jobs:
           fi
           echo "::error::cleo docs status failed with exit $rc"
           exit $rc
+      # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
+      # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
+      # `rawMdPaths` directories since the T9791 docs-import cutoff (located
+      # from the import manifests under `.cleo/audit/imports/`), hashes it, and
+      # queries the docs SSoT to classify each file as `in-sync`, `drift`, or
+      # `orphan`. Emits a structured JSON report under
+      # `audit/manual-write-sweep-<date>.json`.
+      #
+      # READ-ONLY: the script mutates nothing. Informational
+      # (`continue-on-error: true`, as the job it replaced was) until Saga
+      # T10288 / Epic T10293 E5.3 lands the orphan cleanup migration. The
+      # report is uploaded on every run so reviewers can see the unresolved
+      # count trend.
+      - name: "Manual Write Sweep (T10372): Run manual-write sweep"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+        continue-on-error: true
+        # The script exits 1 when orphans or drift exist — wrap with
+        # --allow-unresolved so CI is informational until E5.3 cleans up.
+        # --cleo-bin invokes the restored CLI bundle.
+        run: node scripts/sweep-manual-doc-writes.mjs --allow-unresolved --cleo-bin "node packages/cleo/dist/cli/index.js"
+      - name: "Manual Write Sweep (T10372): Upload sweep report"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-write-sweep
+          path: audit/manual-write-sweep-*.json
+          if-no-files-found: warn
+          # D11216: the shared artifact quota is full; a report read in the run's
+          # own UI needs a day, not the 90-day default.
+          retention-days: 1
 
   exodus-parity-gate:
     # T11551 (DHQ-045) — exodus zero-loss DURABLE GUARD. Runs the actual
@@ -1400,7 +1327,10 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    # T14368: not gated on `code`. Post-build Checks and Scripts Tests run on
+    # docs-only and scripts-only changes too, and restore this output instead
+    # of building themselves.
+    if: needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -2277,7 +2207,9 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   scripts-tests:
     name: Scripts Tests
-    needs: [ biome, changes ]
+    # T14368: `build` runs whenever this job can (it skips only a release bump
+    # PR, which changes no script), and this job restores its output.
+    needs: [ biome, changes, build ]
     if: needs.changes.outputs.scripts == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2347,23 +2279,31 @@ jobs:
             echo "$SELECTED"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+      # Selected tests spawn scripts that import built dist (T14368: restored
+      # from the `build` job, not rebuilt here). Restored BEFORE install, so
+      # the file: link to crates/worktree-napi picks up the .node (T9982).
+      # gh#1403 follow-up. This job installed but never built, and several
+      # scripts/ tests spawn a script that imports `@cleocode/core`'s built
+      # output — `lint-changesets.test.mjs` is the clear case: all five of its
+      # assertions expect exit 0 or 1, and with no dist the script exits 2
+      # before parsing anything, so every one fails.
+      #
+      # This went unnoticed because the sibling-test rule that selects such a
+      # test is itself new. A PR editing scripts/lint-changesets.mjs is the
+      # first thing that ever ran that file here, and it failed on a missing
+      # prerequisite rather than on its own change. Selecting a test without
+      # being able to satisfy what it needs is not coverage.
+      - uses: actions/download-artifact@v4
+        if: steps.select.outputs.count != '0'
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        if: steps.select.outputs.count != '0'
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
       - name: Install dependencies
         if: steps.select.outputs.count != '0'
         run: pnpm install --frozen-lockfile
-      - name: Build packages (selected tests spawn scripts that import built dist)
-        # gh#1403 follow-up. This job installed but never built, and several
-        # scripts/ tests spawn a script that imports `@cleocode/core`'s built
-        # output — `lint-changesets.test.mjs` is the clear case: all five of its
-        # assertions expect exit 0 or 1, and with no dist the script exits 2
-        # before parsing anything, so every one fails.
-        #
-        # This went unnoticed because the sibling-test rule that selects such a
-        # test is itself new. A PR editing scripts/lint-changesets.mjs is the
-        # first thing that ever ran that file here, and it failed on a missing
-        # prerequisite rather than on its own change. Selecting a test without
-        # being able to satisfy what it needs is not coverage.
-        if: steps.select.outputs.count != '0'
-        run: pnpm run build
       - name: Run the selected scripts tests
         if: steps.select.outputs.count != '0'
         shell: bash
@@ -2465,10 +2405,7 @@ jobs:
       - repo-lints-installed
       - contracts-dep-lint
       - deployed-template-parity
-      - manual-write-sweep
-      - canon-drift
-      - canon-check
-      - docs-drift
+      - post-build-checks
       - exodus-parity-gate
       - row-identity-gate-b
       - changeset-lint
