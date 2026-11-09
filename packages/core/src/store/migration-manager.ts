@@ -392,6 +392,25 @@ function insertJournalEntry(
 }
 
 /**
+ * `ALTER TABLE x DROP COLUMN y` targets of a (comment-stripped) migration.
+ *
+ * Such a migration is applied when the table exists and the column is gone.
+ * SQLite has no `DROP COLUMN IF EXISTS`, so re-running one on a store that
+ * already dropped the column (an emptied journal, Scenario 3) throws "no such
+ * column": the journal probe must stamp it instead (T14311).
+ *
+ * @param sql - Migration SQL with comments stripped.
+ * @returns One `{ table, column }` per DROP COLUMN statement.
+ */
+function dropColumnTargets(sql: string): Array<{ table: string; column: string }> {
+  const dropColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+DROP\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
+  return [...sql.matchAll(dropColumnRegex)].map((m) => ({
+    table: m[1] as string,
+    column: m[2] as string,
+  }));
+}
+
+/**
  * Probe a migration's DDL against the live schema and mark the journal entry
  * applied IF AND ONLY IF all DDL targets already exist in the database.
  *
@@ -486,14 +505,8 @@ function probeAndMarkApplied(
   }
 
   // T14311: `ALTER TABLE x DROP COLUMN y` is verifiable too — applied when the
-  // table exists and the column is gone. SQLite has no `DROP COLUMN IF EXISTS`,
-  // so re-running such a migration on a store that already dropped the column
-  // (an emptied journal, Scenario 3) would throw "no such column".
-  const dropColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+DROP\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
-  const dropTargets: Array<{ table: string; column: string }> = [];
-  for (const m of fullSql.matchAll(dropColumnRegex)) {
-    dropTargets.push({ table: m[1] as string, column: m[2] as string });
-  }
+  // table exists and the column is gone (see {@link dropColumnTargets}).
+  const dropTargets = dropColumnTargets(fullSql);
 
   // Build rename map: if migration contains "ALTER TABLE x_new RENAME TO x",
   // record { intermediate: "x_new", final: "x" }. Used below to redirect
@@ -1183,6 +1196,13 @@ export function reconcileJournal(
           // effect (e.g. the cutover agent's INSERT-OR-IGNORE backfill / DROP).
           probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         }
+        continue;
+      }
+
+      // T14311: a migration that also DROPs a column is applied only when the
+      // dropped columns are gone too; the ADD-only stamp below would ignore them.
+      if (dropColumnTargets(stripSqlComments(fullSql)).length > 0) {
+        probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         continue;
       }
 
