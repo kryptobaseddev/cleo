@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.5.0
+version: 3.6.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.5.0
+  version: 3.6.0
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-11-05
+  lastReviewed: 2026-11-09
   stability: stable
 ---
 
@@ -127,14 +127,27 @@ checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
 
-The fourth managed hook, `post-merge` (T14010), never blocks. In shell, before
-starting anything, it requires the `cleo.nexusReindexOnMerge` git marker and
-HEAD on the base branch; otherwise it starts no process. When both hold it
-starts `cleo nexus reindex-on-merge` detached. That command runs one at a time
-per project (`.cleo/nexus-reindex.lock`) at the lowest admission priority: it
-never joins the `cleo run` queue, tries only when nothing is waiting, and
-records `deferred` after `nexus.reindexOnMerge.timeoutSeconds` (300). Turn it
-on or off with `cleo nexus reindex-on-merge --enable` / `--disable`.
+The four `post-*` managed hooks (`post-merge`, `post-commit`, `post-checkout`,
+`post-rewrite`; T12349) keep the NEXUS index current and never block. In shell they
+start `cleo nexus auto-reindex` detached, except in a linked worktree, when git config
+`cleo.nexusAutoReindex` is `false`, or when `CLEO_NEXUS_AUTO_REINDEX=off` (vitest.setup.ts
+sets this for every test fork). `post-checkout` skips file checkouts. Git ignores a
+`post-*` exit status, so a foreign hook at one of these names is chained, not skipped:
+it moves to `<name>.cleo-chained`, and the CLEO hook `exec`s it last with the same
+arguments and stdin. A refresh of a receipt-owned hook keeps its first pre-CLEO image.
+`cleo nexus hooks install` turns the refresh on (idempotent). `cleo nexus hooks
+uninstall` sets the marker to `false`, which init, upgrade and `checkGitHooks` respect,
+and restores the three refresh hooks exactly: it renames each chained hook back and
+removes any hook CLEO created. A hook edited since install is kept and reported in `skipped`.
+
+The refresh runs one at a time per project (`.cleo/nexus-reindex.lock`). A request
+that finds the lock held leaves `.cleo/nexus-reindex.pending`, so a burst coalesces
+into one follow-up pass by the holder. `nexus analyze` is incremental by default and
+is admitted through `cleo run --class scan` at the lowest priority: it never joins the
+queue, tries only when nothing is waiting, and records `deferred` after
+`nexus.reindexOnMerge.timeoutSeconds` (300). When the refresh is off, `post-merge`
+still runs the opt-in `cleo nexus reindex-on-merge` (T14010; `cleo.nexusReindexOnMerge`
+marker, base branch only, `--enable` / `--disable`), which uses the same lock.
 
 ---
 
