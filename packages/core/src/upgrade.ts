@@ -1101,7 +1101,7 @@ export async function runUpgrade(
         });
       }
       for (const details of lines.warnings) {
-        actions.push({ action: 'agent_definition', status: 'warning', details });
+        actions.push({ action: 'agent_definition', status: 'skipped', details });
       }
     } catch (err) {
       actions.push({
