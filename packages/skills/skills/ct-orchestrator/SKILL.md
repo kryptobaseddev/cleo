@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.2.3
+  version: 4.2.4
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-11-06
+  lastReviewed: 2026-11-09
   stability: stable
 ---
 
@@ -84,7 +84,8 @@ Full charter (8 invariants I1–I8 + prefix registry) lives in
 ## The Work Loop
 
 Every issue, feature or bug runs the same loop: plan, execute, verify. RCASD stage
-records and the IVTR loop are retired from agent instructions (epic T13932).
+records are retired from agent instructions (epic T13932), and the IVTR loop is
+deleted (T14311): `cleo orchestrate ivtr` only prints a removal notice.
 `pipeline_stage` is a label on tasks; it gates work only where a project turns on
 the stage gate (see Plan).
 
