@@ -133,7 +133,7 @@ Canonical docs (adr, spec, plan, research, guide, concept, reference, migration,
 
 **Naming rule (T14107 · D11210):** every tracked `docs/**.md` name and every slug is lowercase kebab-case, at most 64 characters, with no task id, session id or date (ADR number and release version allowed). Task, decision and supersession links live in doc metadata, never in names. Rule: `packages/core/src/docs/doc-name-rule.ts`; pre-rule violators: `scripts/.docs-name-baseline.json` (shrink-only — a PR that renames or deletes one removes its entry).
 
-CI gate: `cleo check canon docs` (`Canon Drift Check (T9796)`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged), and enforces the naming rule against the baseline.
+CI gate: `cleo check canon docs` (the `Canon Drift Check (T9796)` step of `Post-build Checks`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged), and enforces the naming rule against the baseline.
 
 **LAFS envelope contract:** `docs/spec/lafs-envelope-contract.md` (SSoT slug `lafs-envelope-contract`, owner T11113).
 

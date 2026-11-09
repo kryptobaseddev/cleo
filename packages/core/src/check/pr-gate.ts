@@ -107,7 +107,7 @@ export const PR_GATES: readonly PrGateDef[] = [
     args: ['check', 'canon', 'docs'],
     heavy: false,
     tier: 'core',
-    description: 'No raw *.md bypassing the docs SSoT (CI: Canon Drift Check)',
+    description: 'No raw *.md bypassing the docs SSoT (CI: Post-build Checks › Canon Drift Check steps)',
   },
   {
     id: 'merge-bar-aggregate',
