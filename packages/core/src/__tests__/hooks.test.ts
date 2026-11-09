@@ -15,7 +15,15 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('canonical Git hook wrappers', () => {
   it('installs and inspects every managed hook', async () => {
-    expect(MANAGED_HOOKS).toEqual(['commit-msg', 'pre-commit', 'pre-push', 'post-merge']);
+    expect(MANAGED_HOOKS).toEqual([
+      'commit-msg',
+      'pre-commit',
+      'pre-push',
+      'post-merge',
+      'post-commit',
+      'post-checkout',
+      'post-rewrite',
+    ]);
     expect((await ensureGitHooks(root)).action).toBe('created');
     expect((await checkGitHooks(root)).every((result) => result.installed && result.current)).toBe(
       true,

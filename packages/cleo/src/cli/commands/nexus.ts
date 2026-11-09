@@ -1363,6 +1363,63 @@ const reindexOnMergeCommand = defineCommand({
   },
 });
 
+/**
+ * cleo nexus auto-reindex — the detached incremental refresh the CLEO `post-*`
+ * git hooks start (T12349). One at a time per project; a burst coalesces.
+ */
+const autoReindexCommand = defineCommand({
+  meta: {
+    name: 'auto-reindex',
+    description:
+      'Incremental reindex after a commit, merge, checkout or rewrite (run detached by the git hooks); a burst coalesces into one pass',
+  },
+  args: {
+    json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
+  },
+  async run({ args }) {
+    applyJsonFlag(args.json as boolean | undefined);
+    const { runNexusAutoReindex } = await import('@cleocode/core/nexus/reindex-on-merge');
+    const outcome = await runNexusAutoReindex(getProjectRoot());
+    cliOutput({ ...outcome }, { command: 'nexus-auto-reindex', operation: 'nexus.auto-reindex' });
+  },
+});
+
+/** One `cleo nexus hooks` verb: install (enabled) or uninstall. */
+function makeNexusHooksVerbCommand(name: 'install' | 'uninstall', description: string) {
+  return defineCommand({
+    meta: { name, description },
+    args: {
+      json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
+    },
+    async run({ args }) {
+      applyJsonFlag(args.json as boolean | undefined);
+      const { setNexusHooks } = await import('@cleocode/core/nexus/reindex-on-merge');
+      const result = await setNexusHooks(getProjectRoot(), name === 'install');
+      cliOutput(result, { command: 'nexus-hooks', operation: `nexus.hooks.${name}` });
+      if (result.skipped.length > 0) process.exitCode = 1;
+    },
+  });
+}
+
+/** cleo nexus hooks install|uninstall — the git hooks that keep the index current (T12349). */
+const hooksCommand = defineCommand({
+  meta: {
+    name: 'hooks',
+    description:
+      'Git hooks that keep the index current (on by default via cleo init/upgrade): install or uninstall',
+  },
+  subCommands: {
+    install: makeNexusHooksVerbCommand(
+      'install',
+      'Turn the refresh on and install the post-commit/checkout/rewrite hooks, chaining any existing hook (idempotent)',
+    ),
+    uninstall: makeNexusHooksVerbCommand(
+      'uninstall',
+      'Turn the refresh off (init/upgrade respect it) and restore each previous hook exactly',
+    ),
+  },
+});
+
 /** cleo nexus analyze — run code intelligence pipeline on a repository directory */
 const analyzeCommand = defineCommand({
   meta: {
@@ -3465,6 +3522,8 @@ export const nexusCommand = defineCommand({
     impact: impactCommand,
     analyze: analyzeCommand,
     'reindex-on-merge': reindexOnMergeCommand,
+    'auto-reindex': autoReindexCommand,
+    hooks: hooksCommand,
     query: queryCommand,
     projects: projectsCommand,
     'refresh-bridge': refreshBridgeCommand,
