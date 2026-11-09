@@ -963,6 +963,7 @@
     "packages/core/src/nexus/user-profile.ts :: silent:cascade": 2,
     "packages/core/src/nexus/wiki-index.ts :: E_INTERNAL": 1,
     "packages/core/src/nexus/wiki-index.ts :: success:false": 1,
+    "packages/core/src/orchestrate/dispatch-workers.ts :: E_FANOUT_FAILED": 1,
     "packages/core/src/orchestrate/handoff-ops.ts :: E_CONCURRENT_SESSION": 1,
     "packages/core/src/orchestrate/handoff-ops.ts :: E_INVALID_INPUT": 2,
     "packages/core/src/orchestrate/handoff-ops.ts :: E_SESSION_REQUIRED": 1,

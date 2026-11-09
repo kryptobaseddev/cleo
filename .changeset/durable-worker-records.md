@@ -11,10 +11,13 @@ adapter's process map lived only in the CLI process that spawned it.
 
 A worker the adapter leaves running now gets a row in the local-only
 `tasks_agent_instances` table (task, adapter instance id, pid/pgid, worktree,
-lead mailbox, provider, start time, session). `reconcileWorkerExits` probes
-each open record's pid and closes an exited worker with a compare-and-set on
-`stopped_at`, so exactly one caller dispatches `SubagentStop`. `cleo
-orchestrate status` runs the reconcile and lists the records under `workers`.
+lead mailbox, provider, start time, session). Completion is an event: the
+worker runs `cleo orchestrate worker-exit` as it ends (the claude-code
+adapter passes it a `SessionEnd` hook via `--settings`). For a worker that
+crashed before its hook ran, `reconcileWorkerExits` probes each open record's
+pid. Both paths close the record with a compare-and-set on `stopped_at`, so
+exactly one caller dispatches `SubagentStop`. `cleo orchestrate status` runs
+the reconcile and lists the records under `workers`.
 Spawns that already ended still emit `SubagentStop` at once.
 
 The adapter registry now passes the provider's `ownership` handle through,

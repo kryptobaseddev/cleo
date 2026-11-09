@@ -10,12 +10,13 @@
  * device) and is written only through this module, on the `getDb` chokepoint
  * handle.
  *
- * Completion: SubagentStop is emitted by {@link reconcileWorkerExits}, never at
- * spawn. It probes each open record's pid and, for a worker that has exited,
- * sets `stopped_at` with a compare-and-set so exactly one caller emits the
- * hook. Because the state lives in the store, the signal
- * survives the spawning CLI exiting; it fires on the first reconcile after the
- * exit (`cleo orchestrate status` runs one).
+ * Completion is an event, never emitted at spawn. Primary path: the worker
+ * runs `cleo orchestrate worker-exit` as it stops ({@link markWorkerExited}).
+ * Fallback for a worker that crashed before its hook ran:
+ * {@link reconcileWorkerExits} probes each open record's pid (`cleo
+ * orchestrate status` runs it). Both close the record with a compare-and-set
+ * on `stopped_at`, and only the caller that closes it dispatches
+ * SubagentStop, so it fires exactly once whichever path wins.
  *
  * @module orchestrate/worker-records
  * @task T14359
@@ -182,6 +183,92 @@ async function claimWorkerStop(recordId: string, cwd: string): Promise<string | 
   return Number(result.changes) > 0 ? now : null;
 }
 
+/** SubagentStop completion status a worker exit reports. */
+export type WorkerExitStatus = 'complete' | 'partial' | 'blocked' | 'failed';
+
+/** Accepted values of {@link WorkerExitStatus}, for input validation. */
+export const WORKER_EXIT_STATUSES: readonly WorkerExitStatus[] = [
+  'complete',
+  'partial',
+  'blocked',
+  'failed',
+];
+
+/**
+ * Close an open record and dispatch its SubagentStop. Only the caller whose
+ * compare-and-set closes the record dispatches, so the hook path and the pid
+ * sweep can race and SubagentStop still fires once.
+ *
+ * @returns The closed record, or null when another caller closed it first.
+ */
+async function closeWorker(
+  record: WorkerRecord,
+  status: WorkerExitStatus,
+  cwd: string,
+): Promise<WorkerRecord | null> {
+  const stoppedAt = await claimWorkerStop(record.recordId, cwd);
+  if (stoppedAt === null) return null;
+  await hooks
+    .dispatch('SubagentStop', cwd, {
+      timestamp: stoppedAt,
+      taskId: record.taskId,
+      agentId: record.agentId,
+      status,
+      metadata: { instanceId: record.instanceId, pid: record.pid },
+    })
+    .catch((err) => {
+      getLogger('engine:orchestrate').warn(
+        { taskId: record.taskId, err: String(err) },
+        'SubagentStop hook failed for an exited worker',
+      );
+    });
+  return { ...record, stoppedAt };
+}
+
+/** Which worker a {@link markWorkerExited} call names. */
+export interface WorkerExitTarget {
+  /** Adapter instance id of the worker (preferred). */
+  instanceId?: string;
+  /** The worker's own CLEO session; used when no instance id is given. */
+  sessionId?: string;
+}
+
+/** Result of {@link markWorkerExited}. */
+export interface WorkerExitResult {
+  /** The matched record, or null when none matched. */
+  record: WorkerRecord | null;
+  /** True when this call closed the record and dispatched SubagentStop. */
+  emitted: boolean;
+}
+
+/**
+ * The worker's own completion signal: close its record and fire SubagentStop.
+ *
+ * This is the primary completion path. A worker runs it as it stops (the
+ * claude-code adapter installs it as the worker's Stop hook:
+ * `cleo orchestrate worker-exit --instance <id>`). Idempotent: a repeat call,
+ * or a pid sweep that got there first, emits nothing.
+ *
+ * @param target - The worker to close, by instance id or session id.
+ * @param status - Completion status for the SubagentStop payload.
+ * @param cwd - Project root.
+ * @returns The matched record and whether this call emitted SubagentStop.
+ */
+export async function markWorkerExited(
+  target: WorkerExitTarget,
+  status: WorkerExitStatus,
+  cwd: string,
+): Promise<WorkerExitResult> {
+  const records = await listWorkerRecords(cwd);
+  const record =
+    (target.instanceId !== undefined
+      ? records.find((r) => r.instanceId === target.instanceId)
+      : records.find((r) => r.stoppedAt === null && r.sessionId === target.sessionId)) ?? null;
+  if (record === null || record.stoppedAt !== null) return { record, emitted: false };
+  const closed = await closeWorker(record, status, cwd);
+  return closed ? { record: closed, emitted: true } : { record, emitted: false };
+}
+
 /**
  * True while a process with this pid exists (EPERM means it exists but
  * belongs to another user).
@@ -200,12 +287,12 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * Emit SubagentStop once for every recorded worker that has exited.
+ * Fallback for workers that died without running their stop hook: emit
+ * SubagentStop once for every open record whose pid is gone.
  *
- * Open records (`stopped_at` unset) whose pid is gone are closed with a
- * compare-and-set, and only the caller that closes a record dispatches the
- * hook, so concurrent or repeated reconciles never emit twice. Records with
- * no pid stay open: their exit cannot be observed.
+ * Records with no pid stay open: their exit cannot be observed. The status is
+ * `partial` because a crashed worker's outcome is unknown; the task's own
+ * status says how it ended.
  *
  * @param cwd - Project root.
  * @param isAlive - Liveness probe (injectable for tests).
@@ -218,25 +305,8 @@ export async function reconcileWorkerExits(
   const closed: WorkerRecord[] = [];
   for (const record of await listWorkerRecords(cwd)) {
     if (record.stoppedAt !== null || record.pid === null || isAlive(record.pid)) continue;
-    const stoppedAt = await claimWorkerStop(record.recordId, cwd);
-    if (stoppedAt === null) continue;
-    closed.push({ ...record, stoppedAt });
-    await hooks
-      .dispatch('SubagentStop', cwd, {
-        timestamp: stoppedAt,
-        taskId: record.taskId,
-        agentId: record.agentId,
-        // The exit code of a detached worker is not observable after the
-        // spawning process is gone; the task's own status says how it ended.
-        status: 'partial',
-        metadata: { instanceId: record.instanceId, pid: record.pid },
-      })
-      .catch((err) => {
-        getLogger('engine:orchestrate').warn(
-          { taskId: record.taskId, err: String(err) },
-          'SubagentStop hook failed for an exited worker',
-        );
-      });
+    const done = await closeWorker(record, 'partial', cwd);
+    if (done) closed.push(done);
   }
   return closed;
 }

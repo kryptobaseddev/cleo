@@ -113,6 +113,7 @@ describe('durable worker records (T14359)', () => {
     worker.child?.kill('SIGKILL');
     await env.cleanup();
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it('records a detached worker, lists it after a restart, and emits SubagentStop once on exit', async () => {
@@ -164,5 +165,71 @@ describe('durable worker records (T14359)', () => {
     const stops = stopCalls(stopSpy);
     expect(stops).toHaveLength(1);
     expect(stops[0]?.[2]).toMatchObject({ taskId: 'T001', metadata: { instanceId: 'inst-1' } });
+  });
+});
+
+describe('worker exit paths fire SubagentStop exactly once (T14359)', () => {
+  let env: TestDbEnv;
+
+  beforeEach(async () => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
+    env = await createTestDb();
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  /** Store one open worker record whose pid the tests declare dead. */
+  async function setup() {
+    const { hooks } = await import('../../hooks/registry.js');
+    const spy = vi.spyOn(hooks, 'dispatch');
+    const mod = await import('../worker-records.js');
+    await mod.recordWorker(
+      {
+        taskId: 'T001',
+        instanceId: 'inst-9',
+        agentId: 'worker-T001',
+        provider: 'fake-provider',
+        pid: 999_999,
+        pgid: 999_999,
+        worktree: env.tempDir,
+        leadMailbox: null,
+        sessionId: 'ses_20261109000002_bbbbbb',
+      },
+      env.tempDir,
+    );
+    return { spy, mod, dead: () => false };
+  }
+
+  it('hook then sweep: the worker-exit hook emits, the sweep emits nothing', async () => {
+    const { spy, mod, dead } = await setup();
+    const exit = await mod.markWorkerExited({ instanceId: 'inst-9' }, 'complete', env.tempDir);
+    expect(exit.emitted).toBe(true);
+    expect(await mod.reconcileWorkerExits(env.tempDir, dead)).toHaveLength(0);
+    expect(
+      (await mod.markWorkerExited({ instanceId: 'inst-9' }, 'complete', env.tempDir)).emitted,
+    ).toBe(false);
+    const stops = stopCalls(spy);
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.[2]).toMatchObject({ status: 'complete', taskId: 'T001' });
+  });
+
+  it('sweep then hook: the sweep emits, the late hook emits nothing', async () => {
+    const { spy, mod, dead } = await setup();
+    expect(await mod.reconcileWorkerExits(env.tempDir, dead)).toHaveLength(1);
+    const exit = await mod.markWorkerExited(
+      { sessionId: 'ses_20261109000002_bbbbbb' },
+      'complete',
+      env.tempDir,
+    );
+    expect(exit.emitted).toBe(false);
+    expect(exit.record?.stoppedAt).not.toBeNull();
+    const stops = stopCalls(spy);
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.[2]).toMatchObject({ status: 'partial', taskId: 'T001' });
   });
 });

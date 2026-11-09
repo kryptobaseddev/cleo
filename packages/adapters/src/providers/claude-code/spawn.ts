@@ -14,6 +14,8 @@
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type {
   AdapterSpawnProvider,
   AgentSuiteOwnership,
@@ -25,6 +27,19 @@ import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 import { reapAgentSuite } from './suite-reaper.js';
+
+/**
+ * Claude Code settings that make a spawned worker report its own exit: a
+ * `SessionEnd` hook running `cleo orchestrate worker-exit` for this instance,
+ * which closes the worker record and fires SubagentStop once (T14359).
+ *
+ * @param instanceId - Spawn instance id the worker record is keyed by.
+ * @returns The settings JSON passed to `claude --settings`.
+ */
+export function workerExitSettings(instanceId: string): string {
+  const command = `cleo orchestrate worker-exit --instance ${instanceId}`;
+  return JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command }] }] } });
+}
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -97,15 +112,22 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       }
 
       tmpFile = await writeSpawnPromptFile('claude-spawn', enrichedPrompt);
+      // T14359: the worker signals its own exit. SessionEnd fires once when the
+      // run ends; Stop fires per turn and a Stop hook may block the stop.
+      const settingsFile = join(dirname(tmpFile), 'settings.json');
+      await writeFile(settingsFile, workerExitSettings(instanceId), 'utf-8');
 
       // --print: non-interactive batch mode (process prompt, output response, exit)
       // --dangerously-skip-permissions: allow all tool calls without human approval
       // --output-format json: structured output for parsing
+      // --settings: adds the worker-exit SessionEnd hook to the project's settings
       const claudeArgs = [
         '--print',
         '--dangerously-skip-permissions',
         '--output-format',
         'json',
+        '--settings',
+        settingsFile,
         tmpFile,
       ];
 
