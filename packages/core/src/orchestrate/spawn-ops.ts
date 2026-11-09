@@ -122,6 +122,7 @@ import {
 } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
+import { recordWorker } from './worker-records.js';
 
 export type { EngineResult };
 
@@ -691,6 +692,11 @@ export interface OrchestrateSpawnExecuteOpts {
    * project root.
    */
   baseRef?: string;
+  /**
+   * T14359 — AgentMBX mailbox of the spawning lead: printed in the worker's
+   * prompt and stored on its worker record.
+   */
+  leadMailbox?: string;
 }
 
 /**
@@ -831,6 +837,7 @@ export async function orchestrateSpawnExecute(
       tier,
       sessionId: activeSessionId,
       protocol: protocolType,
+      ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
     });
 
     // Atomicity violations short-circuit the spawn so the adapter never sees
@@ -1039,28 +1046,53 @@ export async function orchestrateSpawnExecute(
       /* Worktree hooks are best-effort — never block spawn */
     }
 
-    // Dispatch SubagentStop hook AFTER spawn returns — records completion
-    // status in brain and conduit (T555).
-    try {
-      await hooks
-        .dispatch('SubagentStop', cwd, {
-          timestamp: new Date().toISOString(),
-          taskId,
-          agentId: cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`,
-          // T12071: `SpawnResult.status` and `SubagentStopPayload.status` are
-          // DIFFERENT vocabularies — 'completed' vs 'complete', and spawn also
-          // emits 'pending'/'running'/'cancelled', none of which the payload
-          // union admits. Every value this site ever sent was therefore outside
-          // the declared type; nothing caught it because `dispatch` did not
-          // relate the event to its payload.
-          status: toSubagentStopStatus(result.status),
-          metadata: { instanceId: result.instanceId },
-        })
-        .catch(() => {
-          /* Hooks are best-effort — never block spawn */
-        });
-    } catch {
-      /* Hook registry unavailable — non-fatal */
+    // T14359 — a worker the adapter left running (detached) has not exited,
+    // so it gets a durable record and its SubagentStop comes from
+    // reconcileWorkerExits once its pid is gone. Only a spawn that already
+    // ended (or never started) emits SubagentStop here.
+    const hookAgentId = cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`;
+    if (keepExecLock) {
+      try {
+        await recordWorker(
+          {
+            taskId,
+            instanceId: result.instanceId,
+            agentId: hookAgentId,
+            provider: adapter.providerId,
+            pid: result.ownership?.pid ?? null,
+            pgid: result.ownership?.pgid ?? null,
+            worktree: agentWorkingDirectory,
+            leadMailbox: opts.leadMailbox ?? null,
+            sessionId: activeSessionId,
+          },
+          cwd,
+        );
+      } catch (err) {
+        getLogger('engine:orchestrate').warn(
+          { taskId, err: err instanceof Error ? err.message : String(err) },
+          'T14359 worker record not stored — its exit will not emit SubagentStop',
+        );
+      }
+    } else {
+      try {
+        await hooks
+          .dispatch('SubagentStop', cwd, {
+            timestamp: new Date().toISOString(),
+            taskId,
+            agentId: hookAgentId,
+            // T12071: `SpawnResult.status` and `SubagentStopPayload.status` are
+            // DIFFERENT vocabularies — 'completed' vs 'complete', and spawn also
+            // emits 'pending'/'running'/'cancelled', none of which the payload
+            // union admits.
+            status: toSubagentStopStatus(result.status),
+            metadata: { instanceId: result.instanceId },
+          })
+          .catch(() => {
+            /* Hooks are best-effort — never block spawn */
+          });
+      } catch {
+        /* Hook registry unavailable — non-fatal */
+      }
     }
 
     // ---- T9548 — Auto-invoke worktree-complete post-success. --------------
@@ -1091,7 +1123,14 @@ export async function orchestrateSpawnExecute(
       './worktree-complete.js'
     );
     const envDisabled = integrationDisabledReason(false);
-    if (autoComplete && result.exitCode === 0 && envDisabled !== undefined) {
+    if (autoComplete && keepExecLock) {
+      // T14359 — a detached worker is still running (the adapter's exitCode
+      // is only a placeholder), so there is nothing to integrate yet.
+      autoCompleteOutcome = {
+        ran: false,
+        reason: 'worker still running — not integrated at spawn',
+      };
+    } else if (autoComplete && result.exitCode === 0 && envDisabled !== undefined) {
       recordAutoCompleteEnvSkip(taskId, cwd);
       autoCompleteOutcome = { ran: false, reason: envDisabled };
     } else if (autoComplete && result.exitCode === 0) {

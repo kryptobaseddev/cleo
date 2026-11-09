@@ -393,7 +393,6 @@
     "packages/cleo/src/dispatch/domains/orchestrate.ts :: E_APPROVAL_ALREADY_DECIDED": 6,
     "packages/cleo/src/dispatch/domains/orchestrate.ts :: E_APPROVAL_NOT_FOUND": 6,
     "packages/cleo/src/dispatch/domains/orchestrate.ts :: E_CLASSIFY_FAILED": 2,
-    "packages/cleo/src/dispatch/domains/orchestrate.ts :: E_FANOUT_FAILED": 1,
     "packages/cleo/src/dispatch/domains/orchestrate.ts :: E_INVALID_INPUT": 21,
     "packages/cleo/src/dispatch/domains/orchestrate.ts :: E_INVALID_OPERATION": 2,
     "packages/cleo/src/dispatch/domains/orchestrate.ts :: E_NOT_FOUND": 1,

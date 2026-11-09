@@ -9,6 +9,8 @@
  * @phase 1B
  */
 
+import type { AgentSuiteOwnership } from './spawn.js';
+
 /**
  * Provider identifier for spawn operations.
  */
@@ -98,6 +100,13 @@ export interface CLEOSpawnResult extends CAAMPSpawnResult {
    * field's vocabulary ('completed' here vs 'complete' there). @task T12071
    */
   status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+  /**
+   * Containment handle (pid/pgid/scope) of a worker left running, passed on
+   * from the provider's `SpawnResult` so the worker record can store it.
+   * @task T14359
+   */
+  ownership?: AgentSuiteOwnership;
 
   /** Reference to manifest entry if output was captured */
   manifestEntryId?: string;
