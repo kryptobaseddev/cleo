@@ -442,13 +442,66 @@ export function resolveKnowledgeSymbol(
   return matches[0] ?? null;
 }
 
+const COVERAGE_SEVERITY: Record<KnowledgeCoverageStatus, number> = {
+  current: 0,
+  partial: 1,
+  stale: 2,
+  missing: 3,
+  failed: 4,
+};
+
+/** The stronger of two coverage statuses. */
+function strongerStatus(
+  a: KnowledgeCoverageStatus,
+  b: KnowledgeCoverageStatus,
+): KnowledgeCoverageStatus {
+  return COVERAGE_SEVERITY[b] > COVERAGE_SEVERITY[a] ? b : a;
+}
+
+/** Gaps observed for one indexed file. */
+interface FileCoverageGap {
+  status: KnowledgeCoverageStatus;
+  reasons: string[];
+}
+
+/**
+ * Per-file attribution of an assessment's gaps (T14365), kept beside the
+ * contract object so the serialized coverage shape does not change.
+ * `project` is the status the assessment reached from evidence that is not
+ * owned by one file (revision, source roots, references, deadlines).
+ */
+interface CoverageScopeLedger {
+  project: KnowledgeCoverageStatus;
+  files: Map<string, FileCoverageGap>;
+}
+
+const scopeLedgers = new WeakMap<KnowledgeCoverage, CoverageScopeLedger>();
+
+/** Carry the per-file attribution onto a snapshot of the same assessment. */
+function copyScopeLedger(from: KnowledgeCoverage, to: KnowledgeCoverage): void {
+  const ledger = scopeLedgers.get(from);
+  if (!ledger) return;
+  scopeLedgers.set(to, {
+    project: ledger.project,
+    files: new Map(
+      [...ledger.files].map(([path, gap]) => [
+        path,
+        { status: gap.status, reasons: [...gap.reasons] },
+      ]),
+    ),
+  });
+}
+
 /**
  * Add an explicit coverage limitation without hiding a prior diagnostic failure.
  * @param coverage - Assessment to update in place.
  * @param status - Newly observed coverage status.
  * @param reason - Inspectable reason supporting the status.
+ * @param filePath - Indexed file that owns this gap; omitted for project-level evidence.
  * @returns Nothing; the supplied assessment retains the strongest observed defect.
  * @remarks A partial result cannot overwrite a prior missing or failed result.
+ *   File-owned gaps are also attributed to their file so
+ *   {@link scopeKnowledgeCoverage} can judge one answer by the files it rests on.
  * @example
  * ```ts
  * recordKnowledgeGap(coverage, 'missing', 'No indexed symbol matches the evidence.');
@@ -458,16 +511,94 @@ export function recordKnowledgeGap(
   coverage: KnowledgeCoverage,
   status: KnowledgeCoverageStatus,
   reason: string,
+  filePath?: string,
 ): void {
-  const severity: Record<KnowledgeCoverageStatus, number> = {
-    current: 0,
-    partial: 1,
-    stale: 2,
-    missing: 3,
-    failed: 4,
-  };
-  if (severity[status] > severity[coverage.status]) coverage.status = status;
+  let ledger = scopeLedgers.get(coverage);
+  if (filePath !== undefined) {
+    if (!ledger) {
+      // Everything recorded so far is project-level evidence.
+      ledger = { project: coverage.status, files: new Map() };
+      scopeLedgers.set(coverage, ledger);
+    }
+    const gap = ledger.files.get(filePath) ?? { status: 'current', reasons: [] };
+    gap.status = strongerStatus(gap.status, status);
+    if (!gap.reasons.includes(reason)) gap.reasons.push(reason);
+    ledger.files.set(filePath, gap);
+  } else if (ledger) {
+    ledger.project = strongerStatus(ledger.project, status);
+  }
+  coverage.status = strongerStatus(coverage.status, status);
   if (!coverage.reasons.includes(reason)) coverage.reasons.push(reason);
+}
+
+/** Options for {@link scopeKnowledgeCoverage}. */
+export interface ScopeKnowledgeCoverageOptions {
+  /** Append every unrelated file's reasons after the scoped ones (full detail). */
+  includeUnrelated?: boolean;
+}
+
+/**
+ * Judge coverage for one answer by the files it rests on, not the whole project.
+ *
+ * A file whose extraction or freshness check failed elsewhere in the project
+ * cannot hide the callers found in files that were analyzed. The scoped status
+ * is the strongest of the project-level status and the status of each file in
+ * `filePaths`; when files outside the scope have gaps the status is at least
+ * `partial` (callers they hold may be missing), with a reason that counts them.
+ * @param coverage - Complete assessment from {@link assessKnowledgeCoverage}.
+ * @param filePaths - Indexed files the answer rests on (target and traversed callers).
+ * @param options - Whether to keep every unrelated file's reasons.
+ * @returns A new coverage object; the supplied assessment is unchanged.
+ * @remarks Never upgrades a project-level `missing` or `failed` result.
+ * @example
+ * ```ts
+ * const scoped = scopeKnowledgeCoverage(coverage, ['src/a.ts', 'src/b.ts']);
+ * ```
+ */
+export function scopeKnowledgeCoverage(
+  coverage: KnowledgeCoverage,
+  filePaths: Iterable<string>,
+  options: ScopeKnowledgeCoverageOptions = {},
+): KnowledgeCoverage {
+  const copy: KnowledgeCoverage = {
+    ...coverage,
+    reasons: [...coverage.reasons],
+    evidence: [...coverage.evidence],
+    limitations: [...coverage.limitations],
+  };
+  const ledger = scopeLedgers.get(coverage);
+  if (!ledger) return copy;
+  const scope = new Set(filePaths);
+  const fileReasons = new Set<string>();
+  const scoped: FileCoverageGap[] = [];
+  const unrelatedReasons: string[] = [];
+  let status = ledger.project;
+  let unrelatedFiles = 0;
+  let unrelatedFailed = 0;
+  for (const [path, gap] of ledger.files) {
+    for (const reason of gap.reasons) fileReasons.add(reason);
+    if (scope.has(path)) {
+      status = strongerStatus(status, gap.status);
+      scoped.push(gap);
+    } else {
+      unrelatedFiles++;
+      if (gap.status === 'failed') unrelatedFailed++;
+      unrelatedReasons.push(...gap.reasons);
+    }
+  }
+  scoped.sort((a, b) => COVERAGE_SEVERITY[b.status] - COVERAGE_SEVERITY[a.status]);
+  const reasons = scoped.flatMap((gap) => gap.reasons);
+  if (unrelatedFiles > 0) {
+    status = strongerStatus(status, 'partial');
+    reasons.push(
+      `${unrelatedFiles} indexed file(s) outside this answer have coverage gaps, ${unrelatedFailed} of them failed; callers in those files may be missing.`,
+    );
+  }
+  reasons.push(...coverage.reasons.filter((reason) => !fileReasons.has(reason)));
+  if (options.includeUnrelated) reasons.push(...unrelatedReasons);
+  copy.status = status;
+  copy.reasons = reasons;
+  return copy;
 }
 
 /**
@@ -557,14 +688,16 @@ async function assessScopedCoverage(
         markCoveragePending(coverage);
         // A returned snapshot cannot be rewritten by a late read. The timer does
         // not preempt synchronous native database or filesystem work.
-        resolveDeferred({
+        const snapshot: KnowledgeCoverage = {
           ...coverage,
           inventory: { ...inventory },
           capabilities: structuredClone(capabilities),
           reasons: [...coverage.reasons],
           evidence: [...coverage.evidence],
           limitations: [...coverage.limitations],
-        });
+        };
+        copyScopeLedger(coverage, snapshot);
+        resolveDeferred(snapshot);
       },
       Math.max(0, deadline - Date.now()),
     );
@@ -600,6 +733,7 @@ function assessFileCapabilities(file: GraphIndexFileReport, coverage: KnowledgeC
       coverage,
       'partial',
       `Legacy report lacks role and capability provenance: ${file.path}`,
+      file.path,
     );
   } else {
     summary.byRole[report.role] = (summary.byRole[report.role] ?? 0) + 1;
@@ -643,6 +777,7 @@ function assessFileCapabilities(file: GraphIndexFileReport, coverage: KnowledgeC
         coverage,
         'partial',
         `Incomplete ${report.role} capabilities: ${file.path}; uncompleted=${missing.join(',') || 'none'}; unrequested=${unrequested.join(',') || 'none'}`,
+        file.path,
       );
     }
     for (const limitation of report.limitations)
@@ -655,6 +790,7 @@ function assessFileCapabilities(file: GraphIndexFileReport, coverage: KnowledgeC
       coverage,
       'failed',
       `Extraction failed: ${file.path}${file.reason ? `: ${file.reason}` : ''}`,
+      file.path,
     );
   }
   if (file.status === 'unsupported' || file.status === 'oversized') {
@@ -666,7 +802,7 @@ function assessFileCapabilities(file: GraphIndexFileReport, coverage: KnowledgeC
       incomplete
     ) {
       incomplete = true;
-      recordKnowledgeGap(coverage, 'partial', `${file.status}: ${file.path}`);
+      recordKnowledgeGap(coverage, 'partial', `${file.status}: ${file.path}`, file.path);
     } else
       coverage.limitations.push(
         `${file.status}: ${file.path}${file.reason ? `: ${file.reason}` : ''}`,
@@ -866,6 +1002,7 @@ async function assessCoverage(
             coverage,
             'failed',
             `Indexed path is outside source ownership: ${file.path}`,
+            file.path,
           );
           continue;
         }
@@ -878,7 +1015,12 @@ async function assessCoverage(
           if (!stat.isFile()) throw new Error('Indexed source is not a regular file');
           let changed = false;
           if (!file.contentHash) {
-            recordKnowledgeGap(coverage, 'partial', `No source content fingerprint: ${file.path}`);
+            recordKnowledgeGap(
+              coverage,
+              'partial',
+              `No source content fingerprint: ${file.path}`,
+              file.path,
+            );
             coverage.nextAction = 'cleo nexus analyze';
           } else {
             const content = await fs.readFile(absolute, {
@@ -894,15 +1036,26 @@ async function assessCoverage(
                 coverage,
                 'stale',
                 `Source content changed after indexing: ${file.path}`,
+                file.path,
               );
               coverage.nextAction = 'cleo nexus analyze';
             }
           }
           if (file.mtimeMs === undefined || file.size === undefined) {
-            recordKnowledgeGap(coverage, 'partial', `No file freshness evidence: ${file.path}`);
+            recordKnowledgeGap(
+              coverage,
+              'partial',
+              `No file freshness evidence: ${file.path}`,
+              file.path,
+            );
           } else if (stat.mtimeMs !== file.mtimeMs || stat.size !== file.size) {
             changed = true;
-            recordKnowledgeGap(coverage, 'stale', `Source changed after indexing: ${file.path}`);
+            recordKnowledgeGap(
+              coverage,
+              'stale',
+              `Source changed after indexing: ${file.path}`,
+              file.path,
+            );
           }
           if (changed) inventory.changed++;
         } catch (error) {
@@ -916,13 +1069,19 @@ async function assessCoverage(
             (error.code === 'ENOENT' || error.code === 'ENOTDIR')
           ) {
             inventory.missing++;
-            recordKnowledgeGap(coverage, 'stale', `Indexed source is missing: ${file.path}`);
+            recordKnowledgeGap(
+              coverage,
+              'stale',
+              `Indexed source is missing: ${file.path}`,
+              file.path,
+            );
           } else {
             inventory.failed++;
             recordKnowledgeGap(
               coverage,
               'failed',
               `Source freshness read failed: ${file.path}: ${error instanceof Error ? error.message : String(error)}`,
+              file.path,
             );
           }
         }
@@ -1001,6 +1160,7 @@ async function assessCoverage(
           coverage,
           'failed',
           `Indexed path is outside project ownership: ${file.filePath}`,
+          file.filePath,
         );
         continue;
       }
@@ -1024,6 +1184,7 @@ async function assessCoverage(
               coverage,
               'stale',
               `Source changed after indexing: ${file.filePath}`,
+              file.filePath,
             );
           }
         }
@@ -1038,13 +1199,19 @@ async function assessCoverage(
           (error.code === 'ENOENT' || error.code === 'ENOTDIR')
         ) {
           inventory.missing++;
-          recordKnowledgeGap(coverage, 'stale', `Indexed source is missing: ${file.filePath}`);
+          recordKnowledgeGap(
+            coverage,
+            'stale',
+            `Indexed source is missing: ${file.filePath}`,
+            file.filePath,
+          );
         } else {
           inventory.failed++;
           recordKnowledgeGap(
             coverage,
             'failed',
             `Source freshness read failed: ${file.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+            file.filePath,
           );
         }
       }
@@ -1052,8 +1219,9 @@ async function assessCoverage(
       inventory.unassessed--;
     }
   } catch (error) {
-    coverage.status = 'failed';
-    coverage.reasons.push(
+    recordKnowledgeGap(
+      coverage,
+      'failed',
       `Graph assessment failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
