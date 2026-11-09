@@ -1066,6 +1066,25 @@
         }
       }
     },
+    "orchestrate": {
+      "type": "object",
+      "description": "Orchestration settings (T14356).",
+      "additionalProperties": false,
+      "properties": {
+        "leadWorker": {
+          "type": "object",
+          "description": "Lead/worker split (epic T14351).",
+          "additionalProperties": false,
+          "properties": {
+            "v1": {
+              "type": "boolean",
+              "default": false,
+              "description": "Leads spawn with write and network tools stripped; workers return a WorkerReport with proof."
+            }
+          }
+        }
+      }
+    },
     "orchestrator": {
       "type": "object",
       "description": "Orchestrator agent configuration. Only contextThresholds.{warning,critical} are consumed (T109).",
