@@ -222,6 +222,7 @@ describe('T14367 — folded sub-minute gates still fail the required CI aggregat
       'validate-json',
       'install-test',
       'arch-gates',
+      'worktrunk-core-tests',
     ])
       expect(workflow.jobs[gone], gone).toBeUndefined();
     expect(Object.values(workflow.jobs).some((j) => j.uses?.includes('arch-boundary-check'))).toBe(
@@ -256,6 +257,7 @@ describe('T14367 — folded sub-minute gates still fail the required CI aggregat
       'Exodus Real-Data Parity Gate (T11551): ',
       'Row Identity Gate B (T12802): ',
       'Validate JSON Schemas: ',
+      'Worktrunk Core Tests (T14130): ',
     ])
       expect(names('repo-lints'), prefix).toContain(prefix);
     expect(names('post-build-checks')).toContain('Install Test: ');

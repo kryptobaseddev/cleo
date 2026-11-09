@@ -403,6 +403,8 @@ jobs:
   # earlier gate failed (`!cancelled()`), so each failure stays attributable.
   repo-lints:
     name: Repo Lints
+    # T14367: `changes` gates the Worktrunk Core Tests steps (worktree_napi).
+    needs: [ changes ]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1471,6 +1473,22 @@ jobs:
             echo "Validating: $file"
             jq empty "$file"
           done
+      # T14130 / T14367: the worktrunk-core crate tests, formerly the Worktrunk
+      # Core Tests job. The parity test compares the Rust project hash with the
+      # built @cleocode/paths `computeProjectHash`, so @cleocode/paths is built
+      # first and WORKTRUNK_REQUIRE_TS_PARITY makes a missing dist fail instead
+      # of skipping the TypeScript half. Runs only when the worktree_napi scope
+      # changed, as the job did.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' }}
+      - name: "Worktrunk Core Tests (T14130): Build @cleocode/paths (the TypeScript side of the parity test)"
+        if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' }}
+        run: pnpm --filter @cleocode/paths run build
+      - name: "Worktrunk Core Tests (T14130): cargo test -p worktrunk-core"
+        if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' }}
+        env:
+          WORKTRUNK_REQUIRE_TS_PARITY: '1'
+        run: cargo test -p worktrunk-core --locked
 
   contracts-dep-lint:
     name: Contracts Dep Lint
@@ -2435,44 +2453,6 @@ jobs:
     if: needs.changes.outputs.worktree_napi == 'true'
     uses: ./.github/workflows/worktree-napi-prebuild.yml
 
-  worktrunk-core-tests:
-    # T14130: the worktrunk-core crate tests, which no job ran before. The
-    # parity test compares the Rust project hash with the built
-    # @cleocode/paths `computeProjectHash`, so the job builds that package
-    # first and WORKTRUNK_REQUIRE_TS_PARITY makes a missing dist fail instead
-    # of skipping the TypeScript half. Skipped (a pass) when nothing in the
-    # worktree_napi scope changed.
-    name: Worktrunk Core Tests (T14130)
-    needs: [ changes ]
-    if: needs.changes.outputs.worktree_napi == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: pnpm install --frozen-lockfile
-      - name: Build @cleocode/paths (the TypeScript side of the parity test)
-        run: pnpm --filter @cleocode/paths run build
-      - name: cargo test -p worktrunk-core
-        env:
-          WORKTRUNK_REQUIRE_TS_PARITY: '1'
-        run: cargo test -p worktrunk-core --locked
-
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
     needs: [ biome, changes ]
@@ -2755,7 +2735,6 @@ jobs:
       - build-verify
       - packed-artifact
       - worktree-napi-gate
-      - worktrunk-core-tests
       - forge-ts-check
       - cant-napi-gate
       - cleo-supervisor-smoke-gate

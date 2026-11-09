@@ -58,7 +58,7 @@ Existing violations → separate relocation task, do not pile on.
 
 ## SSoT & Architectural Gates (Saga T9831 · SG-ARCH-SOLID · T9837)
 
-`cleo check arch` runs every gate below in baseline mode (regressions only) — it MUST stay green before pushing. `cleo check arch --strict` is zero-tolerance and fails today by design (real baselines). CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)`. Runner `gate-N` ids and these row numbers are independent — join on SCRIPT PATH (gate 20 does).
+`cleo check arch` runs every gate below in baseline mode (regressions only) — it MUST stay green before pushing. `cleo check arch --strict` is zero-tolerance and fails today by design (real baselines). CI: the `Arch Gates (node)` / `Arch Gates (installed)` steps of ci.yml's `Repo Lints` job (T14367). Runner `gate-N` ids and these row numbers are independent — join on SCRIPT PATH (gate 20 does).
 
 Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `docs/spec/arch-gates-rationale.md`)
 
