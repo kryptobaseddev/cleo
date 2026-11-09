@@ -43,10 +43,6 @@ vi.mock('../../config.js', () => ({
   getRawConfigValue: vi.fn(),
 }));
 
-vi.mock('../../lifecycle/ivtr-loop.js', () => ({
-  getIvtrState: vi.fn().mockResolvedValue(null),
-}));
-
 vi.mock('../evidence.js', () => ({
   revalidateEvidence: vi.fn().mockResolvedValue({ stillValid: true, failedAtoms: [] }),
   parseEvidence: vi.fn(),
@@ -66,7 +62,6 @@ vi.mock('../../logger.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { loadConfig } from '../../config.js';
-import { getIvtrState } from '../../lifecycle/ivtr-loop.js';
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import {
   getActiveSession,
@@ -82,7 +77,6 @@ import { completeTaskStrict, completeTask as coreCompleteTask, taskComplete } fr
 const mockCompleteTask = vi.mocked(coreCompleteTask);
 const mockGetAccessor = vi.mocked(getAccessor);
 const mockGetTaskAccessor = vi.mocked(getTaskAccessor);
-const mockGetIvtrState = vi.mocked(getIvtrState);
 const mockLoadConfig = vi.mocked(loadConfig);
 const mockGetActiveSession = vi.mocked(getActiveSession);
 // T11640 — complete.ts now stamps session_id via resolveCurrentSession
@@ -375,11 +369,10 @@ describe('completeTaskStrict — verification_json NULL gate (T1222 · CLEO-VALI
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: strict mode, no IVTR state
+    // Default: strict mode
     mockLoadConfig.mockResolvedValue({
       lifecycle: { mode: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
-    mockGetIvtrState.mockResolvedValue(null);
     mockGetActiveSession.mockResolvedValue(null);
   });
 

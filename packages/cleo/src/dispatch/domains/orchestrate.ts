@@ -30,7 +30,6 @@ import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, wrapResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 import { routeByParam } from './_routing.js';
-import { IvtrHandler } from './ivtr.js';
 import { lazyOperation } from './lazy.js';
 import {
   acquirePlaybookDb,
@@ -102,9 +101,6 @@ const sessionEnd = lazyOperation(
 const sessionStatus = lazyOperation(
   async () => (await import('@cleocode/core/session/status-op')).sessionStatus,
 );
-
-/** Shared IvtrHandler instance for ivtr.* sub-operations (T811). */
-const ivtrHandler = new IvtrHandler();
 
 // ---------------------------------------------------------------------------
 // Local param types for OpsFromCore wrapper functions
@@ -181,11 +177,6 @@ interface OrchestrateBootstrapParams {
 }
 
 type OrchestrateUnblockParams = Record<string, never>;
-
-interface OrchestrateIvtrStatusParams {
-  taskId?: string;
-  [key: string]: unknown;
-}
 
 type OrchestratePendingParams = Record<string, never>;
 
@@ -451,10 +442,6 @@ async function orchestrateUnblockOp(_params: OrchestrateUnblockParams) {
   return orchestrateUnblockOpportunities(getProjectRoot());
 }
 
-async function orchestrateIvtrStatusOp(params: OrchestrateIvtrStatusParams) {
-  return ivtrHandler.query('status', params);
-}
-
 async function orchestratePendingOp(_params: OrchestratePendingParams) {
   return Promise.resolve({ success: true, data: {} }); // sentinel — handled inline
 }
@@ -598,7 +585,6 @@ const coreOps = {
   plan: orchestratePlanOp,
   bootstrap: orchestrateBootstrapOp,
   'unblock.opportunities': orchestrateUnblockOp,
-  'ivtr.status': orchestrateIvtrStatusOp,
   pending: orchestratePendingOp,
   start: orchestrateStartOp,
   spawn: orchestrateSpawnOp,
@@ -821,9 +807,6 @@ export class OrchestrateHandler implements DomainHandler {
             operation,
             startTime,
           );
-
-        case 'ivtr.status':
-          return ivtrHandler.query('status', params);
 
         case 'pending':
           return handlePendingApprovals(startTime);
@@ -1190,15 +1173,6 @@ export class OrchestrateHandler implements DomainHandler {
           );
         }
 
-        case 'ivtr.start':
-          return ivtrHandler.mutate('start', params);
-        case 'ivtr.next':
-          return ivtrHandler.mutate('next', params);
-        case 'ivtr.release':
-          return ivtrHandler.mutate('release', params);
-        case 'ivtr.loop-back':
-          return ivtrHandler.mutate('loop-back', params);
-
         case 'approve':
           return handleApproveGate(params, startTime);
         case 'reject':
@@ -1237,7 +1211,6 @@ export class OrchestrateHandler implements DomainHandler {
         'unblock.opportunities',
         'classify',
         'fanout.status',
-        'ivtr.status',
         'pending',
       ],
       mutate: [
@@ -1249,10 +1222,6 @@ export class OrchestrateHandler implements DomainHandler {
         'pivot',
         'parallel',
         'fanout',
-        'ivtr.start',
-        'ivtr.next',
-        'ivtr.release',
-        'ivtr.loop-back',
         'approve',
         'reject',
         'worktree.complete',

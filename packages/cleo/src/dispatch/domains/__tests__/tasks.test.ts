@@ -38,7 +38,6 @@ vi.mock('@cleocode/core/tasks/show', async (importOriginal) => ({
   taskShow: vi.fn(),
   taskShowOperation: vi.fn(),
   taskShowWithHistory: vi.fn(),
-  taskShowIvtrHistory: vi.fn(),
   taskExists: vi.fn(),
 }));
 vi.mock('@cleocode/core/tasks/list', async (importOriginal) => ({
@@ -285,55 +284,6 @@ describe('TasksHandler', () => {
       // T9966: result now includes attachments: [] alongside task+view
       expect(result.data).toMatchObject({ task: mockTask, view: null, attachments: [] });
       expect(taskShowOperation).toHaveBeenCalledWith('/mock/project', { taskId: 'T001' });
-    });
-
-    it('show --ivtr-history - forwards the requested mode to taskShowOperation', async () => {
-      const mockData = {
-        ivtrHistory: [
-          {
-            phase: 'implement',
-            agent: 'agent-001',
-            startedAt: '2026-04-01T00:00:00Z',
-            completedAt: '2026-04-01T01:00:00Z',
-            passed: true,
-            evidenceRefs: ['sha256abc'],
-          },
-          {
-            phase: 'validate',
-            agent: 'agent-002',
-            startedAt: '2026-04-01T01:00:00Z',
-            completedAt: null,
-            passed: null,
-            evidenceRefs: [],
-          },
-        ],
-      };
-      vi.mocked(taskShowOperation).mockResolvedValue({ success: true, data: mockData });
-
-      const result = await handler.query('show', { taskId: 'T001', ivtrHistory: true });
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockData);
-      expect(taskShowOperation).toHaveBeenCalledWith('/mock/project', {
-        taskId: 'T001',
-        ivtrHistory: true,
-      });
-    });
-
-    it('show --ivtr-history - returns empty ivtrHistory when task has no IVTR state', async () => {
-      vi.mocked(taskShowOperation).mockResolvedValue({
-        success: true,
-        data: { ivtrHistory: [] },
-      });
-
-      const result = await handler.query('show', { taskId: 'T999', ivtrHistory: true });
-
-      expect(result.success).toBe(true);
-      expect((result.data as Record<string, unknown>)?.ivtrHistory).toEqual([]);
-      expect(taskShowOperation).toHaveBeenCalledWith('/mock/project', {
-        taskId: 'T999',
-        ivtrHistory: true,
-      });
     });
 
     it('list - delegates to taskList', async () => {
@@ -948,26 +898,24 @@ describe('TasksHandler', () => {
       expect(completeTaskStrict).not.toHaveBeenCalled();
     });
 
-    it('complete - returns E_IVTR_INCOMPLETE when strict enforcement rejects', async () => {
+    it('complete - propagates a strict enforcement rejection (E_EVIDENCE_STALE)', async () => {
       vi.mocked(completeTaskStrict).mockResolvedValue({
         success: false,
         error: {
-          code: 'E_IVTR_INCOMPLETE',
-          message: "Task T001 IVTR loop is not complete — currentPhase='validate', not 'released'",
-          exitCode: 83,
+          code: 'E_EVIDENCE_STALE',
+          message: "Task T001 evidence is stale. Gate 'implemented': file changed",
           details: {
             taskId: 'T001',
-            currentPhase: 'validate',
-            failedPhases: ["Phase 'implement' has no passing entry"],
+            staleGates: [{ gate: 'implemented', failures: ['file changed'] }],
           },
-          fix: "Drive the IVTR loop to 'released' via the cantbook runtime (T11764): 'cleo go' (autonomous, default) or 'cleo playbook run ivtr --context '{\"taskId\":\"T001\"}'' (single manual run). Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).",
+          fix: "Re-capture evidence for the stale gates via 'cleo verify T001 --gate <gate> --evidence <updated>' then retry 'cleo complete T001'. See ADR-051.",
         },
       });
 
       const result = await handler.mutate('complete', { taskId: 'T001' });
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
+      expect(result.error?.code).toBe('E_EVIDENCE_STALE');
       // T832/ADR-051: force parameter removed from completeTaskStrict signature.
       // T1632: notes/overrideReason/acknowledgeRisk now passed as options object.
       expect(completeTaskStrict).toHaveBeenCalledWith('/mock/project', 'T001', {

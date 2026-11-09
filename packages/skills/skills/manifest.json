@@ -6,7 +6,7 @@
       "research": "ct-research-agent",
       "planning": "ct-epic-architect",
       "implementation": "ct-task-executor",
-      "testing": "ct-ivt-looper",
+      "testing": "ct-validator",
       "documentation": "ct-documentor",
       "specification": "ct-spec-writer",
       "validation": "ct-validator",
@@ -21,7 +21,7 @@
       "research|investigate|explore|discover": "ct-research-agent",
       "epic|plan|decompose|architect": "ct-epic-architect",
       "implement|build|execute|create": "ct-task-executor",
-      "ivt|test|coverage|integration|verify against spec": "ct-ivt-looper",
+      "test|coverage|integration|verify against spec": "ct-validator",
       "doc|document|readme|guide": "ct-documentor",
       "spec|rfc|protocol|contract": "ct-spec-writer",
       "validate|verify|audit|compliance": "ct-validator",
@@ -40,7 +40,7 @@
       "implementation": "ct-task-executor",
       "contribution": "ct-contribution",
       "validation": "ct-validator",
-      "testing": "ct-ivt-looper",
+      "testing": "ct-validator",
       "release": "ct-release-orchestrator",
       "artifact-publish": "ct-artifact-publisher",
       "provenance": "ct-provenance-keeper",
@@ -51,6 +51,7 @@
     "ct-docs-lookup",
     "ct-docs-review",
     "ct-docs-write",
+    "ct-ivt-looper",
     "ct-master-tac",
     "ct-memory",
     "ct-skill-creator",
@@ -62,10 +63,10 @@
   "_meta": {
     "schemaVersion": "2.7.0",
     "lastUpdated": "2026-05-19",
-    "totalSkills": 22,
+    "totalSkills": 21,
     "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance. T9664/T9665/T9672 (epic T9568) — adds loomStage + adrRefs fields on every LOOM-stage skill entry (underscored canonical form matching `cleo lifecycle` stage names; ADR refs point at .cleo/adrs/). T9672 reconciled dispatch_matrix.by_protocol key 'architecture-decision' → 'architecture_decision' matching the lifecycle CLI source of truth; the dashed form is retained as a keyword alias.",
     "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading.",
-    "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name. The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/reference/loom-coverage-matrix.md.",
+    "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name, except `testing`, which shares the `validation` skill (ct-validator) since ct-ivt-looper was removed (T14311). The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/reference/loom-coverage-matrix.md.",
     "adrRefsContract": "Each LOOM-stage skill MUST declare an adrRefs[] array naming the ADR file(s) that govern the stage. Every referenced ADR-NNN MUST resolve to a file under .cleo/adrs/. The Vitest gate at packages/skills/skills/_shared/__tests__/loom-adr-links.test.ts enforces both conditions.",
     "generator": "scripts/skills/generate-manifest.mjs — derived from SKILL.md frontmatter; do not hand-edit identity fields (T12648)"
   },
@@ -226,7 +227,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.25.7",
+      "version": "2.25.8",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -884,86 +885,6 @@
       }
     },
     {
-      "name": "ct-ivt-looper",
-      "version": "1.0.4",
-      "description": "Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. Detects the project's test framework (vitest, jest, mocha, pytest, unittest, go-test, cargo-test, rspec, phpunit, bats, or other) and iterates until the implementation satisfies its specification, recording convergence metrics to the manifest. Use when given an implementation task that must ship verified: the IVT loop is the autonomous compliance layer enforced before any release or PR. Triggers on phrases like 'implement and verify', 'run the IVT loop', 'ship this task', 'complete implementation with tests', 'verify against spec', or any implementation task with acceptance criteria. Works in any git worktree regardless of language or framework, never hardcoded to one project's tooling.",
-      "path": "skills/ct-ivt-looper",
-      "tier": 1,
-      "deliveryTier": "on-demand",
-      "install": "harness",
-      "status": "active",
-      "core": false,
-      "category": "recommended",
-      "dependencies": [],
-      "loomStage": "testing",
-      "references": [
-        "skills/ct-ivt-looper/references/escalation.md",
-        "skills/ct-ivt-looper/references/frameworks.md",
-        "skills/ct-ivt-looper/references/loop-anatomy.md"
-      ],
-      "protocol": "testing",
-      "sharedResources": [],
-      "compatibility": [],
-      "license": "MIT",
-      "tags": [
-        "testing",
-        "ivt-loop",
-        "autonomous",
-        "framework-agnostic",
-        "compliance"
-      ],
-      "token_budget": 10000,
-      "adrRefs": [
-        "ADR-051",
-        "ADR-061"
-      ],
-      "capabilities": {
-        "inputs": [
-          "task-id",
-          "spec-reference",
-          "worktree-path"
-        ],
-        "outputs": [
-          "manifest-entry",
-          "ivt-convergence-report"
-        ],
-        "dependencies": [],
-        "dispatch_triggers": [
-          "run the IVT loop",
-          "implement and verify",
-          "ship this task",
-          "verify against spec",
-          "complete implementation with tests"
-        ],
-        "compatible_subagent_types": [
-          "general-purpose"
-        ],
-        "chains_to": [
-          "ct-validator",
-          "ct-release-orchestrator"
-        ],
-        "dispatch_keywords": {
-          "primary": [
-            "ivt",
-            "implement",
-            "validate",
-            "test"
-          ],
-          "secondary": [
-            "converge",
-            "framework",
-            "spec",
-            "iterate"
-          ]
-        }
-      },
-      "constraints": {
-        "max_context_tokens": 80000,
-        "requires_session": false,
-        "requires_epic": false
-      }
-    },
-    {
       "name": "ct-lead",
       "version": "1.1.3",
       "description": "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration.",
@@ -1167,7 +1088,7 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.8.0",
+      "version": "3.8.1",
       "description": "Orchestrates CLEO releases. Default (T14102): cleo release cut {version} tags the newest main commit with green CI, and release.yml writes the CHANGELOG from changesets, publishes, and opens an auto-merging CHANGELOG + version PR; cleo release reconcile records provenance. The SPEC-T9345 4-verb pipeline (cleo release plan, cleo release open, PR + tag) stays one release as a fallback (T14114). The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/reference/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,
@@ -1577,7 +1498,7 @@
     },
     {
       "name": "ct-validator",
-      "version": "2.0.5",
+      "version": "2.1.0",
       "description": "Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.",
       "path": "skills/ct-validator",
       "tier": 1,
@@ -1614,7 +1535,8 @@
       "token_budget": 6000,
       "adrRefs": [
         "ADR-051",
-        "ADR-023"
+        "ADR-023",
+        "ADR-061"
       ],
       "capabilities": {
         "inputs": [
@@ -1636,9 +1558,7 @@
         "compatible_subagent_types": [
           "general-purpose"
         ],
-        "chains_to": [
-          "ct-ivt-looper"
-        ],
+        "chains_to": [],
         "dispatch_keywords": {
           "primary": [
             "validate",

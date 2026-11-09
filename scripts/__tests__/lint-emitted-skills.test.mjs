@@ -49,7 +49,7 @@ describe('lint-emitted-skills on the real repository', () => {
       'ct-lead',
       'ct-adr-recorder',
       'ct-consensus-voter',
-      'ct-ivt-looper',
+      'ct-validator',
       'ct-release-orchestrator',
       'ct-artifact-publisher',
       'ct-provenance-keeper',

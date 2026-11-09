@@ -9,7 +9,6 @@
     "ct-spec-writer",
     "ct-epic-architect",
     "ct-validator",
-    "ct-ivt-looper",
     "ct-release-orchestrator",
     "ct-contribution",
     "ct-artifact-publisher",

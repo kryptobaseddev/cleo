@@ -236,13 +236,11 @@ export interface TasksCurrentResult {
   sessionId?: string;
 }
 
-// tasks.show (with optional history/ivtrHistory/relations flags)
+// tasks.show (with optional history/relations flags)
 export interface TasksShowParams {
   taskId: string;
   /** When true, include task change history. */
   history?: boolean;
-  /** When true, include IVTR phase history. */
-  ivtrHistory?: boolean;
   /** When true, include expanded relation/doc ID lists alongside compact counts. */
   relations?: boolean;
 }

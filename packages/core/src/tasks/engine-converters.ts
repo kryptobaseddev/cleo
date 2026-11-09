@@ -3,7 +3,7 @@
  *
  * Provides converter functions that map between the core Task domain type
  * and the backward-compatible TaskRecord format used by the dispatch layer,
- * as well as interface types for lifecycle and IVTR history entries.
+ * as well as interface types for lifecycle history entries.
  *
  * Moved from packages/cleo/src/dispatch/engines/task-engine.ts as part of
  * the T1566 engine-migration epic (ADR-057, ADR-058).
@@ -20,7 +20,6 @@ import type {
   TaskRecordRelation,
   TaskRecordRelationCounts,
 } from '@cleocode/contracts';
-import type { IvtrPhase, IvtrPhaseEntry } from '../lifecycle/ivtr-loop.js';
 
 /**
  * A single lifecycle stage transition entry returned by taskShowWithHistory.
@@ -40,28 +39,6 @@ export interface LifecycleStageEntry {
   completedAt: string | null;
   /** Output file path recorded for this stage, or null. */
   outputFile: string | null;
-}
-
-/**
- * A single IVTR phase entry returned by taskCompleteStrict and taskShowIvtrHistory.
- * Surface-safe projection of IvtrPhaseEntry with renamed agentIdentity → agent.
- *
- * @task T1568
- * @epic T1566
- */
-export interface IvtrHistoryEntry {
-  /** Phase name (implement | validate | test | released). */
-  phase: IvtrPhase;
-  /** Agent identity string, or null if unknown. */
-  agent: string | null;
-  /** ISO timestamp when this phase was started. */
-  startedAt: string;
-  /** ISO timestamp when this phase was completed, or null if still active. */
-  completedAt: string | null;
-  /** Whether this phase passed. null = in-progress. */
-  passed: boolean | null;
-  /** sha256 hashes of evidence attachments for this phase. */
-  evidenceRefs: string[];
 }
 
 /**
@@ -144,24 +121,4 @@ export function taskToRecord(task: Task): TaskRecord {
  */
 export function tasksToRecords(tasks: Task[]): TaskRecord[] {
   return tasks.map(taskToRecord);
-}
-
-/**
- * Project IvtrPhaseEntry to the surface-safe IvtrHistoryEntry shape.
- *
- * @param e - The IVTR phase entry from the core lifecycle module
- * @returns Surface-safe projection with renamed agentIdentity → agent
- *
- * @task T1568
- * @epic T1566
- */
-export function toHistoryEntry(e: IvtrPhaseEntry): IvtrHistoryEntry {
-  return {
-    phase: e.phase,
-    agent: e.agentIdentity,
-    startedAt: e.startedAt,
-    completedAt: e.completedAt,
-    passed: e.passed,
-    evidenceRefs: e.evidenceRefs,
-  };
 }

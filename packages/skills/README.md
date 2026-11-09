@@ -61,7 +61,6 @@ installability and every documented `cleo` command honest.
 | **ct-contribution** | Guided workflow for multi-agent consensus contributions. |
 | **ct-council** | Convene "The Council" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewin… |
 | **ct-epic-architect** | Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. |
-| **ct-ivt-looper** | Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. |
 | **ct-provenance-keeper** | Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosi… |
 | **ct-release-orchestrator** | Orchestrates CLEO releases: `cleo release cut <version>` tags the newest main commit with green CI, and release.yml writes the CHANGELOG from changesets and publishes. |
 | **ct-research-agent** | Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase … |

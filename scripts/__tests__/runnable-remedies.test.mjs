@@ -72,12 +72,6 @@ const REMEDIES = [
   },
   // T14299: every code in the durability plan's F-autonomy §E table.
   {
-    code: 'E_IVTR_INCOMPLETE',
-    file: 'packages/core/src/tasks/complete.ts',
-    source: `cleo show ${slot('taskId')} --ivtr-history`,
-    command: 'cleo show T100 --ivtr-history',
-  },
-  {
     code: 'E_LIFECYCLE_GATE_FAILED (stage progress)',
     file: 'packages/core/src/lifecycle/engine-ops.ts',
     source: `cleo lifecycle complete ${slot('taskId')} ${slot('blocking')}`,

@@ -198,7 +198,7 @@ describe('listCanonicalSkillNames', () => {
 
   it('comes from the bundled manifest, so ct-lead, LOOM skills and ct-skill-author count (T12649)', () => {
     const names = listCanonicalSkillNames();
-    for (const name of ['ct-lead', 'ct-adr-recorder', 'ct-ivt-looper', 'ct-skill-author']) {
+    for (const name of ['ct-lead', 'ct-adr-recorder', 'ct-validator', 'ct-skill-author']) {
       expect(names).toContain(name);
     }
     expect(names).not.toContain('ct-test-writer-bats');

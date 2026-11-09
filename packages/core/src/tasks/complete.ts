@@ -26,7 +26,6 @@ import { compactKnowledgeCoverage } from '../doctor/knowledge-summary.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
-import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { requiresStagedPipeline } from '../lifecycle/kind-requirements.js';
 import { getLogger } from '../logger.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
@@ -1824,14 +1823,16 @@ export async function taskComplete(
 }
 
 /**
- * Complete a task with strict IVTR + evidence-staleness enforcement.
+ * Complete a task with strict evidence-staleness enforcement.
  *
  * Enforcement path (T832 / ADR-051 Decision 3+8):
  * 1. Evidence staleness re-check: every verification.evidence record is re-validated.
- * 2. IVTR enforcement in strict mode: ivtr_state.currentPhase MUST be 'released'.
- * 3. Parent-epic stage gate (opt-in via `lifecycle.stageGate`, T13970): child task
+ * 2. Parent-epic stage gate (opt-in via `lifecycle.stageGate`, T13970): child task
  *    completion is blocked while the parent epic is still in a planning stage.
- * 4. Verification_json null check.
+ * 3. Verification_json null check.
+ *
+ * The IVTR completion gate (`E_IVTR_INCOMPLETE`) was deleted in T14311 with the
+ * retired `ivtr_state` column; exit code 83 stays reserved.
  *
  * @param projectRoot - Absolute path to the project root
  * @param taskId - Task identifier to complete
@@ -1860,8 +1861,8 @@ export async function completeTaskStrict(
       const task = await accessor.loadSingleTask(taskId);
       // T12102 (gh#1196): an already-done task short-circuits to the
       // idempotent success path BEFORE any strict pre-check. Without this a
-      // post-timeout retry could spuriously fail on E_EVIDENCE_STALE /
-      // E_IVTR_INCOMPLETE for a task that is legitimately finished.
+      // post-timeout retry could spuriously fail on E_EVIDENCE_STALE for a
+      // task that is legitimately finished.
       if (task?.status === 'done') {
         return taskComplete(projectRoot, taskId, opts);
       }
@@ -1916,51 +1917,7 @@ export async function completeTaskStrict(
       }
     }
 
-    // 2. IVTR enforcement only applies in strict mode.
-    if (lifecycleMode === 'strict') {
-      const ivtrState = await getIvtrState(taskId, { cwd: projectRoot });
-
-      if (ivtrState !== null && ivtrState.currentPhase !== 'released') {
-        const requiredPhases: Array<Exclude<IvtrPhase, 'released'>> = [
-          'implement',
-          'validate',
-          'test',
-        ];
-        const failedPhases: string[] = [];
-        for (const phase of requiredPhases) {
-          const hasPassed = ivtrState.phaseHistory.some(
-            (e) => e.phase === phase && e.passed === true,
-          );
-          if (!hasPassed) {
-            failedPhases.push(`Phase '${phase}' has no passing entry`);
-          }
-        }
-
-        const activeEntry = ivtrState.phaseHistory.findLast((e) => e.completedAt === null);
-        if (activeEntry) {
-          failedPhases.push(
-            `Phase '${activeEntry.phase}' is currently in-progress (not completed)`,
-          );
-        }
-
-        return engineError<{
-          task: TaskRecord;
-          autoCompleted?: string[];
-          unblockedTasks?: Array<{ id: string; title: string }>;
-        }>(
-          'E_IVTR_INCOMPLETE',
-          `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
-          {
-            details: { taskId, currentPhase: ivtrState.currentPhase, failedPhases },
-            // T13945: nothing drives or clears ivtr_state since T11896 retired the
-            // IVTR loop, so the fix names what works: inspect, then escalate.
-            fix: `Task ${taskId} carries IVTR state from the retired IVTR loop (T11896); no command drives or clears it now. Inspect it with 'cleo show ${taskId} --ivtr-history' and report the task to your lead or the owner.`,
-          },
-        );
-      }
-    }
-
-    // 3. Parent-epic stage gate on child complete (T788 LOOM-04). T13970: it
+    // 2. Parent-epic stage gate on child complete (T788 LOOM-04). T13970: it
     // reads `lifecycle.stageGate` (default off), not `lifecycle.mode`, so the
     // strict default no longer strands an epic's children (T13969).
     const stageGate = stageGateModeFrom(config);
@@ -2020,7 +1977,7 @@ export async function completeTaskStrict(
       }
     }
 
-    // 4. T1222 / CLEO-VALID-26: verify verification_json is not NULL before delegating.
+    // 3. T1222 / CLEO-VALID-26: verify verification_json is not NULL before delegating.
     if (lifecycleMode === 'strict') {
       const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
@@ -2044,7 +2001,7 @@ export async function completeTaskStrict(
       }
     }
 
-    // No IVTR state, or lifecycle not strict, or already released — delegate normally.
+    // Every strict pre-check passed — delegate normally.
     return taskComplete(projectRoot, taskId, opts);
   } catch (err: unknown) {
     // T10538: preserve CleoError LAFS codes/details on strict-path pre-check throws.
