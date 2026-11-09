@@ -7,28 +7,14 @@
  *   cleo agent get <id>   — get a specific agent credential
  *   cleo agent remove <id> — remove an agent credential
  *   cleo agent rotate-key <id> — rotate an agent's API key
- *   cleo agent poll       — one-shot message check
- *   cleo agent send       — send a message to an agent or conversation
- *   cleo agent start      — start the daemon poller for an agent
  *   cleo agent install    — install an agent from .cantz archive or directory
  *   cleo agent pack       — package an agent directory as .cantz archive
  *   cleo agent create     — scaffold a new agent package with persona.cant and manifest.json
  *
- * **Daemon vs. Pi session — important distinction.** The daemon spawned
- * by `cleo agent start` ONLY polls for inbound messages (the project's
- * conduit store, or the agent's cloud API) and keeps the cloud status
- * indicator green. SignalDock is retired: no command calls it (T13169).
- * It does NOT execute CANT workflow profiles inside the daemon process. CANT workflow execution
- * (sessions, parallel arms, conditionals, approval gates, discretion
- * evaluation, etc.) lives entirely inside the
- * `cant-bridge.ts` Pi extension at
- * `packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`,
- * which interprets `.cant` files via shell-out to the `cleo cant`
- * command family. Operators who want profile-driven behaviour should
- * start a Pi session and use `/cant:load <file>` followed by
- * `/cant:run <file> <workflowName>`. The daemon and the Pi session are
- * distinct runtimes with distinct purposes, by design (see ADR-035 §D5
- * "Option Y" addendum).
+ * Agent messaging (the conduit poller daemon, `start`/`watch`/`poll`/`send`
+ * and `assign`/`wake`/`reassign`) was removed in T13955; agents message each
+ * other through AgentMBX. CANT workflow execution lives in Pi sessions via
+ * the `cant-bridge.ts` extension (ADR-035 §D5).
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.4
  * @see .cleo/adrs/ADR-035-pi-v2-v3-harness.md §D5 + Addendum
@@ -58,10 +44,8 @@ import {
 import { startWorkLoop } from '@cleocode/core/agents/work-loop.js';
 import { openCleoDb } from '@cleocode/core/store/open-cleo-db';
 import { defineCommand, showUsage } from 'citty';
-import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { AGENTS_SUBDIR, CANT_AGENTS_SUBDIR, CLEO_DIR_NAME } from '../paths.js';
 import { cliError, cliOutput, humanLine, humanWarn } from '../renderers/index.js';
-import { computeProfileStatus, type ProfileValidation } from './agent-profile-status.js';
 
 /** cleo agent register — register a new agent credential in the local registry */
 const registerCommand = defineCommand({
@@ -306,208 +290,6 @@ const signinCommand = defineCommand({
   },
 });
 
-/**
- * cleo agent start <agentId> — start the message-poller daemon.
- *
- * Profile handling:
- *   The `--cant <file>` option (or the default
- *   `.cleo/agents/<agentId>.cant` lookup) is read for two reasons:
- *
- *   1. **Fail-fast validation**: if the file exists and the optional
- *      `@cleocode/cant` validator is available in this build, the
- *      file is parsed so malformed profiles surface as a status
- *      string rather than blowing up later.
- *   2. **Status surface**: the resulting status (`validated`,
- *      `invalid (N errors)`, `loaded (unvalidated)`, or `none`) is
- *      reported in the LAFS envelope so operators know the daemon
- *      saw the file they expected.
- *
- *   The profile string is then DROPPED. The daemon does NOT execute
- *   workflow profiles. Profile-driven behaviour runs inside Pi sessions
- *   through the `cant-bridge.ts` Pi extension.
- *   See ADR-035 §D5 (Option Y addendum) for the architectural rationale.
- */
-const startCommand = defineCommand({
-  meta: {
-    name: 'start',
-    description:
-      'Start an agent daemon — polls for messages. Profile is validated for fail-fast feedback only; CANT execution lives in Pi via cant-bridge.ts.',
-  },
-  args: {
-    agentId: {
-      type: 'positional',
-      description: 'Agent ID to start',
-      required: true,
-    },
-    cant: {
-      type: 'string',
-      description: 'Path to .cant persona file (validated only, NOT executed by the daemon)',
-    },
-    'poll-interval': {
-      type: 'string',
-      description: 'Poll interval in milliseconds',
-      default: '5000',
-    },
-    heartbeat: {
-      type: 'boolean',
-      description: 'Enable heartbeat service (default: true)',
-      default: true,
-    },
-  },
-  async run({ args }) {
-    try {
-      const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { createRuntime } = await import('@cleocode/runtime');
-      const { existsSync, readFileSync } = await import('node:fs');
-      const { join } = await import('node:path');
-
-      await openCleoDb('project');
-      const registry = new AgentRegistryAccessor(getProjectRoot());
-
-      // 1. Look up credential
-      const credential = await registry.get(args.agentId);
-      if (!credential) {
-        cliOutput(
-          {
-            success: false,
-            error: {
-              code: 'E_NOT_FOUND',
-              message: `Agent '${args.agentId}' not registered. Run: cleo agent register --id ${args.agentId} --name "..." --api-key sk_live_...`,
-            },
-          },
-          { command: 'agent start' },
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      // 2. Read and (best-effort) validate the .cant profile.
-      //    This is FAIL-FAST GUARDING ONLY. The profile string is
-      //    used to compute a status field below, then dropped. The
-      //    daemon does not interpret the workflow body.
-      let profile: string | null = null;
-      let cantValidation: ProfileValidation | null = null;
-      const cantPath = args.cant ?? join(CLEO_DIR_NAME, AGENTS_SUBDIR, `${args.agentId}.cant`);
-      if (existsSync(cantPath)) {
-        profile = readFileSync(cantPath, 'utf-8');
-        try {
-          const cantModule = await import('@cleocode/cant');
-          // validate() may not be available in all builds of @cleocode/cant
-          const validate =
-            'validate' in cantModule
-              ? (
-                  cantModule as {
-                    validate: (input: string) => {
-                      valid: boolean;
-                      diagnostics?: Array<{ message: string }>;
-                    };
-                  }
-                ).validate
-              : null;
-          if (validate) {
-            const result = validate(profile);
-            cantValidation = {
-              valid: result.valid,
-              errors: result.diagnostics?.map((d) => d.message) ?? [],
-            };
-          }
-        } catch {
-          // cant-napi not available — profile loaded but unvalidated
-          cantValidation = null;
-        }
-      }
-
-      // 3. Mark active + update lastUsedAt
-      await registry.update(args.agentId, { isActive: true });
-      await registry.markUsed(args.agentId);
-
-      // 4. Set cloud status (best-effort). conduitFetch refuses a retired
-      //    SignalDock host without a network call (T13169).
-      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
-      try {
-        await conduitFetch(`${credential.apiBaseUrl}/agents/${args.agentId}/status`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${credential.apiKey}`,
-            'X-Agent-Id': args.agentId,
-          },
-          body: JSON.stringify({ status: 'online' }),
-          signal: AbortSignal.timeout(5000),
-        });
-      } catch {
-        // Offline is fine — LocalTransport works without cloud
-      }
-
-      // 5. Start runtime services (transport auto-resolved: Local > SSE > HTTP).
-      //    Note: createRuntime() does NOT receive the profile. The daemon's
-      //    job is purely message polling + cloud status. Without conduit.db,
-      //    a retired SignalDock base URL fails here with E_SIGNALDOCK_RETIRED.
-      const pollInterval = Number.parseInt(args['poll-interval'], 10);
-      const runtime = await createRuntime(registry, {
-        agentId: args.agentId,
-        pollIntervalMs: pollInterval,
-        heartbeatIntervalMs: args.heartbeat === false ? 0 : 30000,
-        groupConversationIds: [],
-      });
-
-      runtime.poller.start();
-
-      cliOutput(
-        {
-          success: true,
-          data: {
-            agentId: args.agentId,
-            displayName: credential.displayName,
-            status: 'online',
-            transport: runtime.transport.name,
-            // Surfaced for operator visibility only — see
-            // computeProfileStatus tsdoc for the four possible values.
-            profile: computeProfileStatus(profile, cantValidation),
-            services: {
-              poller: 'running',
-              heartbeat: runtime.heartbeat ? 'running' : 'disabled',
-              keyRotation: runtime.keyRotation ? 'running' : 'disabled',
-            },
-          },
-        },
-        { command: 'agent start' },
-      );
-
-      // 6. Keep process alive until shutdown signal (cross-platform)
-      const shutdown = () => {
-        runtime.stop();
-        void registry.update(args.agentId, { isActive: false }).catch(() => {});
-        process.exit(0);
-      };
-      process.on('SIGINT', shutdown);
-      process.on('SIGTERM', shutdown);
-      // Windows: listen for 'message' from parent process managers (PM2, etc.)
-      if (process.platform === 'win32') {
-        process.on('message', (msg) => {
-          if (msg === 'shutdown') shutdown();
-        });
-      }
-
-      // Keep alive
-      await new Promise(() => {});
-    } catch (err) {
-      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
-      cliOutput(
-        {
-          success: false,
-          error: {
-            code: isSignalDockRetiredError(err) ? err.code : 'E_START',
-            message: String(err),
-          },
-        },
-        { command: 'agent start' },
-      );
-      process.exitCode = 1;
-    }
-  },
-});
-
 /** cleo agent stop <agentId> — stop an agent and mark it offline */
 const stopCommand = defineCommand({
   meta: {
@@ -648,128 +430,6 @@ const statusCommand = defineCommand({
   },
 });
 
-/** cleo agent assign <agentId> <taskId> — assign a task to an agent via messaging */
-const assignCommand = defineCommand({
-  meta: {
-    name: 'assign',
-    description: 'Assign a task to an agent via messaging',
-  },
-  args: {
-    agentId: {
-      type: 'positional',
-      description: 'Target agent ID',
-      required: true,
-    },
-    taskId: {
-      type: 'positional',
-      description: 'Task ID to assign',
-      required: true,
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('agent assign');
-    try {
-      const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('project');
-      const registry = new AgentRegistryAccessor(getProjectRoot());
-
-      const active = await registry.getActive();
-      if (!active) {
-        cliOutput(
-          {
-            success: false,
-            error: {
-              code: 'E_NO_ACTIVE',
-              message: 'No active agent. Run: cleo agent signin <id>',
-            },
-          },
-          { command: 'agent assign' },
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const conduit = await createConduit(registry);
-      await conduit.send(
-        args.agentId,
-        `/action @${args.agentId} #task-assignment\n\nAssigned task ${args.taskId}. Run: cleo show ${args.taskId} && cleo start ${args.taskId}`,
-      );
-      await conduit.disconnect();
-
-      cliOutput(
-        {
-          success: true,
-          data: { agentId: args.agentId, taskId: args.taskId, assignedBy: active.agentId },
-        },
-        { command: 'agent assign' },
-      );
-    } catch (err) {
-      cliOutput(
-        { success: false, error: { code: 'E_ASSIGN', message: String(err) } },
-        { command: 'agent assign' },
-      );
-      process.exitCode = 1;
-    }
-  },
-});
-
-/** cleo agent wake <agentId> — wake an idle agent by sending a prod message */
-const wakeCommand = defineCommand({
-  meta: {
-    name: 'wake',
-    description: 'Wake an idle agent — send a prod message',
-  },
-  args: {
-    agentId: {
-      type: 'positional',
-      description: 'Agent ID to wake',
-      required: true,
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('agent wake');
-    try {
-      const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('project');
-      const registry = new AgentRegistryAccessor(getProjectRoot());
-
-      const active = await registry.getActive();
-      if (!active) {
-        cliOutput(
-          {
-            success: false,
-            error: {
-              code: 'E_NO_ACTIVE',
-              message: 'No active agent. Run: cleo agent signin <id>',
-            },
-          },
-          { command: 'agent wake' },
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const conduit = await createConduit(registry);
-      await conduit.send(
-        args.agentId,
-        `/action @${args.agentId} #wake #prod\n\nYou are idle. Check your queue: cleo current || cleo next. Report status immediately.`,
-      );
-      await conduit.disconnect();
-
-      cliOutput(
-        { success: true, data: { agentId: args.agentId, prodBy: active.agentId } },
-        { command: 'agent wake' },
-      );
-    } catch (err) {
-      cliOutput(
-        { success: false, error: { code: 'E_WAKE', message: String(err) } },
-        { command: 'agent wake' },
-      );
-      process.exitCode = 1;
-    }
-  },
-});
-
 /** cleo agent spawn — spawn a new ephemeral agent for a specific task */
 const spawnCommand = defineCommand({
   meta: {
@@ -841,62 +501,6 @@ const spawnCommand = defineCommand({
       cliOutput(
         { success: false, error: { code: 'E_SPAWN', message: String(err) } },
         { command: 'agent spawn' },
-      );
-      process.exitCode = 1;
-    }
-  },
-});
-
-/** cleo agent reassign <taskId> <agentId> — reassign a task to another agent via conduit */
-const reassignCommand = defineCommand({
-  meta: {
-    name: 'reassign',
-    description: 'Reassign a task to another agent via conduit message',
-  },
-  args: {
-    taskId: {
-      type: 'positional',
-      description: 'Task ID to reassign',
-      required: true,
-    },
-    agentId: {
-      type: 'positional',
-      description: 'Target agent ID',
-      required: true,
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('agent reassign');
-    try {
-      const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('project');
-      const registry = new AgentRegistryAccessor(getProjectRoot());
-      const active = await registry.getActive();
-      if (!active) {
-        cliOutput(
-          { success: false, error: { code: 'E_NO_ACTIVE', message: 'No active agent.' } },
-          { command: 'agent reassign' },
-        );
-        process.exitCode = 1;
-        return;
-      }
-      const conduit = await createConduit(registry);
-      await conduit.send(
-        args.agentId,
-        `/action @${args.agentId} #task-reassignment\n\nTask ${args.taskId} reassigned to you by ${active.agentId}. Run: cleo show ${args.taskId} && cleo start ${args.taskId}`,
-      );
-      await conduit.disconnect();
-      cliOutput(
-        {
-          success: true,
-          data: { taskId: args.taskId, newOwner: args.agentId, reassignedBy: active.agentId },
-        },
-        { command: 'agent reassign' },
-      );
-    } catch (err) {
-      cliOutput(
-        { success: false, error: { code: 'E_REASSIGN', message: String(err) } },
-        { command: 'agent reassign' },
       );
       process.exitCode = 1;
     }
@@ -990,7 +594,6 @@ const workCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { createRuntime } = await import('@cleocode/runtime');
       const { existsSync } = await import('node:fs');
       const { join } = await import('node:path');
       await openCleoDb('project');
@@ -1011,12 +614,6 @@ const workCommand = defineCommand({
       await registry.markUsed(args.agentId);
       const cantPath = join(CLEO_DIR_NAME, AGENTS_SUBDIR, `${args.agentId}.cant`);
       const hasProfile = existsSync(cantPath);
-      const runtime = await createRuntime(registry, {
-        agentId: args.agentId,
-        pollIntervalMs: 5000,
-        heartbeatIntervalMs: 30000,
-      });
-      runtime.poller.start();
       const executeMode = args.execute === true;
       const epicRestrict = args.epic as string | undefined;
       const adapterRestrict = args.adapter as string | undefined;
@@ -1052,7 +649,6 @@ const workCommand = defineCommand({
 
       const shutdown = () => {
         loop.stop();
-        runtime.stop();
         void registry.update(args.agentId, { isActive: false }).catch(() => {});
         process.exit(0);
       };
@@ -1623,229 +1219,6 @@ const claimCodeCommand = defineCommand({
           },
         },
         { command: 'agent claim-code' },
-      );
-      process.exitCode = 1;
-    }
-  },
-});
-
-/** cleo agent watch — start continuous message polling for the active agent */
-const watchCommand = defineCommand({
-  meta: {
-    name: 'watch',
-    description: 'Start continuous message polling for the active agent (long-running)',
-  },
-  args: {
-    agent: {
-      type: 'string',
-      description: 'Agent ID to watch as (defaults to most recently used)',
-      alias: 'a',
-    },
-    interval: {
-      type: 'string',
-      description: 'Poll interval in milliseconds',
-      default: '5000',
-    },
-    group: {
-      type: 'string',
-      description: 'Comma-separated group conversation IDs to monitor',
-    },
-  },
-  async run({ args }) {
-    try {
-      const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { createRuntime } = await import('@cleocode/runtime');
-      await openCleoDb('project');
-      const registry = new AgentRegistryAccessor(getProjectRoot());
-
-      const groupIds = args.group ? args.group.split(',').map((s) => s.trim()) : undefined;
-
-      const handle = await createRuntime(registry, {
-        agentId: args.agent as string | undefined,
-        pollIntervalMs: Number(args.interval) || 5000,
-        groupConversationIds: groupIds,
-      });
-
-      handle.poller.onMessage((msg) => {
-        cliOutput(
-          {
-            success: true,
-            data: {
-              event: 'message',
-              id: msg.id,
-              from: msg.from,
-              content: msg.content,
-              threadId: msg.threadId,
-              timestamp: msg.timestamp,
-            },
-          },
-          { command: 'agent watch' },
-        );
-      });
-
-      handle.poller.start();
-
-      cliOutput(
-        {
-          success: true,
-          data: {
-            event: 'started',
-            agentId: handle.agentId,
-            pollIntervalMs: Number(args.interval) || 5000,
-            groupConversationIds: groupIds ?? [],
-            message: 'Watching for messages. Press Ctrl+C to stop.',
-          },
-        },
-        { command: 'agent watch' },
-      );
-
-      // Keep alive until SIGINT/SIGTERM
-      const shutdown = () => {
-        handle.stop();
-        cliOutput(
-          { success: true, data: { event: 'stopped', agentId: handle.agentId } },
-          { command: 'agent watch' },
-        );
-        process.exit(0);
-      };
-      process.on('SIGINT', shutdown);
-      process.on('SIGTERM', shutdown);
-      if (process.platform === 'win32') {
-        process.on('message', (msg) => {
-          if (msg === 'shutdown') shutdown();
-        });
-      }
-    } catch (err) {
-      cliOutput(
-        { success: false, error: { code: 'E_WATCH', message: String(err) } },
-        { command: 'agent watch' },
-      );
-      process.exitCode = 1;
-    }
-  },
-});
-
-/** cleo agent poll — one-shot message check for the active agent */
-const pollCommand = defineCommand({
-  meta: {
-    name: 'poll',
-    description: 'One-shot message check for the active agent',
-  },
-  args: {
-    agent: {
-      type: 'string',
-      description: 'Agent ID to poll as (defaults to most recently used)',
-      alias: 'a',
-    },
-    limit: {
-      type: 'string',
-      description: 'Max messages to fetch',
-      default: '20',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('agent poll');
-    try {
-      const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('project');
-      const registry = new AgentRegistryAccessor(getProjectRoot());
-
-      const agentId = args.agent as string | undefined;
-      const conduit = await createConduit(registry, agentId);
-      const limit = Number(args.limit) || 20;
-      const messages = await conduit.poll({ limit });
-
-      cliOutput(
-        {
-          success: true,
-          data: { agentId: conduit.agentId, messages, count: messages.length, limit },
-        },
-        { command: 'agent poll' },
-      );
-
-      await conduit.disconnect();
-    } catch (err) {
-      cliOutput(
-        { success: false, error: { code: 'E_POLL', message: String(err) } },
-        { command: 'agent poll' },
-      );
-      process.exitCode = 1;
-    }
-  },
-});
-
-/** cleo agent send <message> — send a message to an agent or conversation */
-const sendCommand = defineCommand({
-  meta: {
-    name: 'send',
-    description: 'Send a message to an agent or conversation',
-  },
-  args: {
-    message: {
-      type: 'positional',
-      description: 'Message content to send',
-      required: true,
-    },
-    to: {
-      type: 'string',
-      description: 'Target agent ID',
-    },
-    conv: {
-      type: 'string',
-      description: 'Target conversation ID',
-    },
-    agent: {
-      type: 'string',
-      description: 'Send as this agent (defaults to most recently used)',
-      alias: 'a',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('agent send');
-    try {
-      const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
-      await openCleoDb('project');
-      const registry = new AgentRegistryAccessor(getProjectRoot());
-
-      const agentId = args.agent as string | undefined;
-      const to = args.to as string | undefined;
-      const conv = args.conv as string | undefined;
-
-      if (!to && !conv) {
-        cliOutput(
-          { success: false, error: { code: 'E_ARGS', message: 'Must specify --to or --conv' } },
-          { command: 'agent send' },
-        );
-        process.exitCode = 1;
-        return;
-      }
-
-      const conduit = await createConduit(registry, agentId);
-      const result = await conduit.send(to ?? conv ?? '', args.message, {
-        threadId: conv,
-      });
-
-      cliOutput(
-        {
-          success: true,
-          // gh#1316: `acceptedAt` is what a send knows; `deliveredAt` is null
-          // until delivery is confirmed. Reporting only the latter would hand
-          // the caller a null where a real timestamp used to be, and drop the
-          // fact that is actually true.
-          data: {
-            messageId: result.messageId,
-            acceptedAt: result.acceptedAt,
-            deliveredAt: result.deliveredAt,
-          },
-        },
-        { command: 'agent send' },
-      );
-
-      await conduit.disconnect();
-    } catch (err) {
-      cliOutput(
-        { success: false, error: { code: 'E_SEND', message: String(err) } },
-        { command: 'agent send' },
       );
       process.exitCode = 1;
     }
@@ -2805,13 +2178,9 @@ export const agentCommand = defineCommand({
     'prune-orphans': pruneOrphansCommand,
     register: registerCommand,
     signin: signinCommand,
-    start: startCommand,
     stop: stopCommand,
     status: statusCommand,
-    assign: assignCommand,
-    wake: wakeCommand,
     spawn: spawnCommand,
-    reassign: reassignCommand,
     'stop-all': stopAllCommand,
     work: workCommand,
     list: listCommand,
@@ -2821,9 +2190,6 @@ export const agentCommand = defineCommand({
     remove: removeCommand,
     'rotate-key': rotateKeyCommand,
     'claim-code': claimCodeCommand,
-    watch: watchCommand,
-    poll: pollCommand,
-    send: sendCommand,
     health: healthCommand,
     install: installCommand,
     pack: packCommand,

@@ -41,7 +41,6 @@ export const DOMAIN_LOADERS: ReadonlyArray<readonly [string, DomainLoader]> = [
   ['docs', async () => new (await import('./docs.js')).DocsHandler()],
   ['focus', async () => new (await import('./focus.js')).FocusHandler()],
   ['playbook', async () => new (await import('./playbook.js')).PlaybookHandler()],
-  ['conduit', async () => new (await import('./conduit.js')).ConduitHandler()],
   ['sentient', async () => new (await import('./sentient.js')).SentientHandler()],
   ['release', async () => new (await import('./release.js')).ReleaseHandler()],
   ['provenance', async () => new (await import('./provenance.js')).ProvenanceHandler()],

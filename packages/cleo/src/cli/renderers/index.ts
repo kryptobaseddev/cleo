@@ -186,7 +186,6 @@ function humanRenderers(): Record<string, HumanRenderer> {
     'nexus-brain-anchors': r.renderNexusBrainAnchors,
     'nexus-why': r.renderNexusWhy,
     'nexus-impact-full': r.renderNexusImpactFull,
-    'nexus-conduit-scan': r.renderNexusConduitScan,
     'nexus-task-symbols': r.renderNexusTaskSymbols,
     'nexus-search-code': r.renderNexusSearchCode,
     'nexus-contracts-sync': r.renderNexusContractsSync,

@@ -1,7 +1,7 @@
 /**
  * Dispatch shape-parity tests for the T1117 Contracts + Ingestion Bridge verbs.
  *
- * Verifies that each of the 5 new operations correctly wires to the
+ * Verifies that each of the 4 operations correctly wires to the
  * corresponding engine function and returns a LAFS-compliant envelope.
  *
  * Operations under test:
@@ -11,7 +11,6 @@
  *   mutate:
  *     - nexus.contracts-sync
  *     - nexus.contracts-link-tasks
- *     - nexus.conduit-scan
  *
  * @task T1117
  */
@@ -74,7 +73,6 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusContractsShow: vi.fn(),
   nexusContractsSync: vi.fn(),
   nexusContractsLinkTasks: vi.fn(),
-  nexusConduitScan: vi.fn(),
   nexusTaskSymbols: vi.fn(),
 }));
 vi.mock('@cleocode/core/logger', async (importOriginal) => {
@@ -88,7 +86,6 @@ vi.mock('@cleocode/core/nexus/api-contracts', async (importOriginal) => {
     nexusContractsShow: barrel.nexusContractsShow,
     nexusContractsSync: barrel.nexusContractsSync,
     nexusContractsLinkTasks: barrel.nexusContractsLinkTasks,
-    nexusConduitScan: barrel.nexusConduitScan,
     nexusTaskSymbols: barrel.nexusTaskSymbols,
   };
 });
@@ -170,7 +167,6 @@ vi.mock('@cleocode/core/project-scope', async (importOriginal) => {
 });
 
 import {
-  nexusConduitScan,
   nexusContractsLinkTasks,
   nexusContractsShow,
   nexusContractsSync,
@@ -259,11 +255,6 @@ const CONTRACTS_LINK_TASKS_FIXTURE = {
   commitsProcessed: 12,
   tasksFound: 3,
   lastCommitHash: 'abc1234',
-};
-
-const CONDUIT_SCAN_FIXTURE = {
-  scanned: 42,
-  linked: 7,
 };
 
 // ---------------------------------------------------------------------------
@@ -496,52 +487,6 @@ describe('NexusHandler — T1117 Contracts + Ingestion Bridge', () => {
       });
 
       const result = await handler.mutate('contracts-link-tasks', {});
-
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_INTERNAL');
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // mutate: conduit-scan
-  // -------------------------------------------------------------------------
-
-  describe('mutate: conduit-scan', () => {
-    it('returns LAFS envelope with scan counts on success', async () => {
-      vi.mocked(nexusConduitScan).mockResolvedValue({
-        success: true,
-        data: CONDUIT_SCAN_FIXTURE,
-      });
-
-      const result = await handler.mutate('conduit-scan', {});
-
-      expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({
-        scanned: 42,
-        linked: 7,
-      });
-      expect(vi.mocked(nexusConduitScan)).toHaveBeenCalledWith('/mock/project');
-    });
-
-    it('accepts empty params (uses projectRoot automatically)', async () => {
-      vi.mocked(nexusConduitScan).mockResolvedValue({
-        success: true,
-        data: { scanned: 0, linked: 0 },
-      });
-
-      const result = await handler.mutate('conduit-scan');
-
-      expect(result.success).toBe(true);
-      expect(vi.mocked(nexusConduitScan)).toHaveBeenCalledWith('/mock/project');
-    });
-
-    it('propagates engine error to LAFS envelope', async () => {
-      vi.mocked(nexusConduitScan).mockResolvedValue({
-        success: false,
-        error: { code: 'E_INTERNAL', message: 'conduit.db missing' },
-      });
-
-      const result = await handler.mutate('conduit-scan', {});
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INTERNAL');
