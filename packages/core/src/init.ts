@@ -40,17 +40,7 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs';
-import {
-  appendFile,
-  copyFile,
-  lstat,
-  mkdir,
-  readFile,
-  symlink,
-  unlink,
-  writeFile,
-} from 'node:fs/promises';
-import { platform } from 'node:os';
+import { appendFile, copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
@@ -65,7 +55,6 @@ import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
 import { pushWarning } from './output.js';
 import {
-  getAgentsHome,
   getCleoDir,
   getCleoDirAbsolute,
   getCleoHome,
@@ -263,21 +252,13 @@ export interface InitResult {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/**
- * Symlink type for directory symlinks.
- * On Windows, use 'junction' (no admin privileges required).
- * On Unix, use 'dir'.
- */
-const DIR_SYMLINK_TYPE: 'junction' | 'dir' = platform() === 'win32' ? 'junction' : 'dir';
-
 // ── Init-specific operations ─────────────────────────────────────────
 
 /**
  * Resolve the absolute path to the bundled `seed-agents/` directory inside
  * the `@cleocode/agents` package.
  *
- * Mirrors the multi-candidate resolution pattern used by
- * {@link initAgentDefinition} so the same code path works across all layouts:
+ * Uses a multi-candidate resolution so the same code path works across all layouts:
  *   1. **npm install** — `require.resolve('@cleocode/agents/package.json')`
  *      finds the package under `node_modules/@cleocode/agents/`.
  *   2. **Workspace dev (bundled CLI)** — walks up from `getPackageRoot()`
@@ -445,81 +426,6 @@ export async function installTemplatesAtProjectTier(
   }
 
   return { installed, failed, templatesDir };
-}
-
-/**
- * Install cleo-subagent agent definition to ~/.agents/agents/.
- * @task T4685
- */
-export async function initAgentDefinition(created: string[], warnings: string[]): Promise<void> {
-  // Resolve agents package via require.resolve, then workspace/bundled fallback
-  let agentSourceDir: string | null = null;
-  try {
-    const { createRequire } = await import('node:module');
-    const req = createRequire(import.meta.url);
-    const agentsPkgMain = req.resolve('@cleocode/agents/package.json');
-    const agentsPkgRoot = dirname(agentsPkgMain);
-    const candidate = join(agentsPkgRoot, 'cleo-subagent');
-    if (existsSync(candidate)) {
-      agentSourceDir = candidate;
-    }
-  } catch {
-    // Not resolvable via require.resolve — fall through to bundled path
-  }
-
-  if (!agentSourceDir) {
-    const packageRoot = getPackageRoot();
-    const bundled = join(packageRoot, 'agents', 'cleo-subagent');
-    if (existsSync(bundled)) {
-      agentSourceDir = bundled;
-    }
-  }
-
-  if (!agentSourceDir) {
-    warnings.push('agents/cleo-subagent/ not found in package, skipping agent definition install');
-    return;
-  }
-
-  const globalAgentsDir = join(getAgentsHome(), 'agents', 'cleo-subagent');
-  await mkdir(dirname(globalAgentsDir), { recursive: true });
-
-  try {
-    // Check if symlink already exists and points to correct target
-    try {
-      const stat = await lstat(globalAgentsDir);
-      if (stat.isSymbolicLink()) {
-        const { readlink } = await import('node:fs/promises');
-        const currentTarget = await readlink(globalAgentsDir);
-        if (currentTarget === agentSourceDir) {
-          return; // Symlink intact and pointing to correct location
-        }
-        // Stale symlink — remove and recreate
-        await unlink(globalAgentsDir);
-      } else if (stat.isDirectory()) {
-        return; // Copied dir, leave as-is
-      }
-    } catch {
-      // Doesn't exist, proceed to create
-    }
-
-    // Create symlink from ~/.agents/agents/cleo-subagent -> package agents/cleo-subagent/
-    await symlink(agentSourceDir, globalAgentsDir, DIR_SYMLINK_TYPE);
-    created.push('agent: cleo-subagent (symlinked)');
-  } catch (_err) {
-    // If symlink fails (e.g., permissions), try copying
-    try {
-      await mkdir(globalAgentsDir, { recursive: true });
-      const files = readdirSync(agentSourceDir);
-      for (const file of files) {
-        await copyFile(join(agentSourceDir, file), join(globalAgentsDir, file));
-      }
-      created.push('agent: cleo-subagent (copied)');
-    } catch (copyErr) {
-      warnings.push(
-        `Agent definition install: ${copyErr instanceof Error ? copyErr.message : String(copyErr)}`,
-      );
-    }
-  }
 }
 
 /**
@@ -1832,8 +1738,17 @@ async function scaffoldInitTarget(
     warnings.push(`Contributor dev channel: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // T4685: Agent definition (cleo-subagent)
-  await initAgentDefinition(created, warnings);
+  // T14378: canonical lead + worker agent files for every detected provider.
+  try {
+    const { agentDefinitionReportLines, ensureAgentDefinitions } = await import(
+      './agents/ensure-agent-definitions.js'
+    );
+    const lines = agentDefinitionReportLines(await ensureAgentDefinitions(projRoot));
+    created.push(...lines.applied);
+    warnings.push(...lines.warnings);
+  } catch (err) {
+    warnings.push(`Agent definitions: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Note: Core skills installation is global-only (bootstrapGlobalCleo / installSkillsGlobally).
   // Skills are NOT installed during project-level init — they are installed once globally.
