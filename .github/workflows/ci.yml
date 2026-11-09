@@ -84,6 +84,13 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    # T14367: `pull-requests`/`issues: write` to add the `macos` label;
+    # `actions: read` for the version-only push detector's run lookup.
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
     # T13141: 5, not 2 — a release/v* dispatch fetches up to 100 commits of the
     # default branch and deepens the release ref; a timeout there would fail the
     # bump-PR's only CI run (safe, but on the release critical path).
@@ -114,14 +121,16 @@ jobs:
       version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true' || steps.version-only-push.outputs.version_only == 'true') && 'true' || 'false' }}
       # T13143: the runners Build, Build & Verify and Unit Tests use, and the
       # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
-      # runs nightly, in merge groups, and on a pull request whose change is
-      # darwin-specific; Linux shards 8 ways, macOS 8 ways nightly and in merge
-      # groups and 4 ways on a darwin pull request (T13198, T14104).
+      # runs in merge groups and on a pull request labelled `macos`, which CI
+      # adds to a darwin-specific one (T14367, owner D11238; macos-main.yml
+      # runs it on main pushes and nightly); Linux shards 8 ways, macOS 8
+      # ways in merge groups and 4 ways on a pull request (T13198, T14104).
       darwin: ${{ steps.platform.outputs.darwin }}
       build_os: ${{ steps.platform.outputs.build_os }}
       test_matrix: ${{ steps.platform.outputs.test_matrix }}
       # T14055 (owner D11196): Type Check and the Linux unit shards run on the
-      # engines floor and on Node 26 (NODE_VERSIONS in the same script).
+      # engines floor and on Node 26 (NODE_VERSIONS in the same script); a
+      # pull request runs the floor only (T14367, nodeVersions()).
       node_versions: ${{ steps.platform.outputs.node_versions }}
     steps:
       - uses: actions/checkout@v4
@@ -185,7 +194,33 @@ jobs:
           fi
       - name: Choose platforms and shards (T13143)
         id: platform
-        run: node scripts/ci-platform-matrix.mjs "${{ github.event_name }}" HEAD^1 HEAD
+        env:
+          # T14367 (owner D11238): macOS runs on a pull request with the
+          # `macos` label or a darwin-specific change, which gets the label
+          # (next step). The labels are read live, so a re-run after
+          # labelling sees them; the event payload's list is the fallback.
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PAYLOAD_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          PR_LABELS='[]'
+          if [ -n "$PR_NUMBER" ]; then
+            PR_LABELS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name]' 2>/dev/null) || PR_LABELS="$PAYLOAD_LABELS"
+          fi
+          export PR_LABELS
+          node scripts/ci-platform-matrix.mjs "${{ github.event_name }}" HEAD^1 HEAD
+      # T14367 (owner D11238): label a darwin-specific pull request `macos`.
+      # Adding a label starts no run (ci.yml has no `labeled` trigger). A token
+      # that cannot write labels (a fork's) only warns: this run already
+      # includes the macOS legs.
+      - name: Add the macos label to a darwin-specific pull request (T14367)
+        if: steps.platform.outputs.add_macos_label == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" -f 'labels[]=macos' --silent \
+            || echo "::warning::Could not add the macos label to #$PR_NUMBER; the macOS legs still run in this run."
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name != 'schedule'
