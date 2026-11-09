@@ -472,16 +472,57 @@ interface FileCoverageGap {
  */
 interface CoverageScopeLedger {
   project: KnowledgeCoverageStatus;
+  /** Keyed by canonical project-root-relative POSIX path. */
   files: Map<string, FileCoverageGap>;
+  /** Canonical project root that keys are relative to. */
+  projectRoot?: string;
+  /** Directory that graph and assessment paths are relative to. */
+  graphRoot?: string;
 }
 
 const scopeLedgers = new WeakMap<KnowledgeCoverage, CoverageScopeLedger>();
+
+/** Resolve symlinks (macOS `/var` → `/private/var`) so both roots compare canonically. */
+function canonicalDirectory(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** Ledger for `coverage`, created on first use with everything so far counted as project-level. */
+function scopeLedger(coverage: KnowledgeCoverage): CoverageScopeLedger {
+  let ledger = scopeLedgers.get(coverage);
+  if (!ledger) {
+    ledger = { project: coverage.status, files: new Map() };
+    scopeLedgers.set(coverage, ledger);
+  }
+  return ledger;
+}
+
+/**
+ * Record which directory the assessment's graph paths are relative to, so
+ * every ledger key and every scoped path takes one canonical form (T14365).
+ */
+function bindScopeRoots(coverage: KnowledgeCoverage, projectRoot: string, graphRoot: string): void {
+  const ledger = scopeLedger(coverage);
+  ledger.projectRoot = canonicalDirectory(projectRoot);
+  ledger.graphRoot = canonicalDirectory(graphRoot);
+}
+
+/** A graph-relative path as a project-root-relative POSIX path. */
+function canonicalScopePath(ledger: CoverageScopeLedger, graphPath: string): string {
+  if (!ledger.projectRoot || !ledger.graphRoot) return graphPath.replaceAll('\\', '/');
+  return relative(ledger.projectRoot, resolve(ledger.graphRoot, graphPath)).replaceAll('\\', '/');
+}
 
 /** Carry the per-file attribution onto a snapshot of the same assessment. */
 function copyScopeLedger(from: KnowledgeCoverage, to: KnowledgeCoverage): void {
   const ledger = scopeLedgers.get(from);
   if (!ledger) return;
   scopeLedgers.set(to, {
+    ...ledger,
     project: ledger.project,
     files: new Map(
       [...ledger.files].map(([path, gap]) => [
@@ -513,17 +554,14 @@ export function recordKnowledgeGap(
   reason: string,
   filePath?: string,
 ): void {
-  let ledger = scopeLedgers.get(coverage);
+  const ledger = scopeLedgers.get(coverage);
   if (filePath !== undefined) {
-    if (!ledger) {
-      // Everything recorded so far is project-level evidence.
-      ledger = { project: coverage.status, files: new Map() };
-      scopeLedgers.set(coverage, ledger);
-    }
-    const gap = ledger.files.get(filePath) ?? { status: 'current', reasons: [] };
+    const fileLedger = scopeLedger(coverage);
+    const key = canonicalScopePath(fileLedger, filePath);
+    const gap = fileLedger.files.get(key) ?? { status: 'current', reasons: [] };
     gap.status = strongerStatus(gap.status, status);
     if (!gap.reasons.includes(reason)) gap.reasons.push(reason);
-    ledger.files.set(filePath, gap);
+    fileLedger.files.set(key, gap);
   } else if (ledger) {
     ledger.project = strongerStatus(ledger.project, status);
   }
@@ -546,7 +584,9 @@ export interface ScopeKnowledgeCoverageOptions {
  * `filePaths`; when files outside the scope have gaps the status is at least
  * `partial` (callers they hold may be missing), with a reason that counts them.
  * @param coverage - Complete assessment from {@link assessKnowledgeCoverage}.
- * @param filePaths - Indexed files the answer rests on (target and traversed callers).
+ * @param filePaths - Graph file paths the answer rests on (target and traversed callers),
+ *   relative to the assessment's source root as stored on graph nodes; both these and
+ *   the ledger keys are compared as project-root-relative POSIX paths.
  * @param options - Whether to keep every unrelated file's reasons.
  * @returns A new coverage object; the supplied assessment is unchanged.
  * @remarks Never upgrades a project-level `missing` or `failed` result.
@@ -568,7 +608,7 @@ export function scopeKnowledgeCoverage(
   };
   const ledger = scopeLedgers.get(coverage);
   if (!ledger) return copy;
-  const scope = new Set(filePaths);
+  const scope = new Set([...filePaths].map((path) => canonicalScopePath(ledger, path)));
   const fileReasons = new Set<string>();
   const scoped: FileCoverageGap[] = [];
   const unrelatedReasons: string[] = [];
@@ -969,6 +1009,9 @@ async function assessCoverage(
           });
         }
       }
+      // Assessment and graph paths are relative to the source root. Bound after
+      // the base status is set, so the ledger starts from the project-level result.
+      bindScopeRoots(coverage, projectRoot, sourceRoot);
       if (files.length === 0)
         recordKnowledgeGap(coverage, 'missing', 'The published graph has no indexed nodes.');
       const referenceCount = assessment.referenceCount ?? assessment.references?.length ?? 0;
@@ -1002,7 +1045,6 @@ async function assessCoverage(
             coverage,
             'failed',
             `Indexed path is outside source ownership: ${file.path}`,
-            file.path,
           );
           continue;
         }
@@ -1138,6 +1180,8 @@ async function assessCoverage(
     inventory.requested = legacyFiles.length;
     inventory.unassessed = legacyFiles.length;
     const root = resolve(projectRoot);
+    // Legacy graph paths are relative to the project root.
+    bindScopeRoots(coverage, root, root);
     for (const file of legacyFiles) {
       if (Date.now() >= deadline) {
         markCoveragePending(coverage);
@@ -1160,7 +1204,6 @@ async function assessCoverage(
           coverage,
           'failed',
           `Indexed path is outside project ownership: ${file.filePath}`,
-          file.filePath,
         );
         continue;
       }

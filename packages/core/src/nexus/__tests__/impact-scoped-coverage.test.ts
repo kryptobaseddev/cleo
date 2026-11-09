@@ -74,16 +74,19 @@ describe('nexus impact scoped coverage (T14365)', () => {
     failed: string[];
     extraFailed?: number;
     excluded?: number;
+    /** Source root as a subdirectory of the project root (graph paths are relative to it). */
+    sourceDir?: string;
   }): Promise<void> {
-    execFileSync('git', ['init', '--quiet', projectRoot]);
-    writeFileSync(join(projectRoot, '.git/info/exclude'), '.cleo/\nhome/\n');
-    mkdirSync(join(projectRoot, 'src'));
+    const sourceRoot = opts.sourceDir ? join(projectRoot, opts.sourceDir) : projectRoot;
+    mkdirSync(join(sourceRoot, 'src'), { recursive: true });
+    execFileSync('git', ['init', '--quiet', sourceRoot]);
+    writeFileSync(join(sourceRoot, '.git/info/exclude'), '.cleo/\nhome/\n');
     const paths = [TARGET_FILE, CALLER_FILE, BROKEN_FILE];
     for (let index = 0; index < (opts.extraFailed ?? 0); index++)
       paths.push(`src/unrelated-${index}.ts`);
     const files: GraphIndexFileReport[] = paths.map((path) => {
       const content = `// ${path}\nexport const value = 1;\n`;
-      const absolute = join(projectRoot, path);
+      const absolute = join(sourceRoot, path);
       writeFileSync(absolute, content);
       const stat = statSync(absolute);
       const failed = opts.failed.includes(path) || path.startsWith('src/unrelated-');
@@ -103,7 +106,7 @@ describe('nexus impact scoped coverage (T14365)', () => {
         status: 'excluded',
         reason: `Excluded by fixture policy ${'padding '.repeat(20)}`,
       });
-    execFileSync('git', ['add', '.'], { cwd: projectRoot });
+    execFileSync('git', ['add', '.'], { cwd: sourceRoot });
     execFileSync(
       'git',
       [
@@ -118,12 +121,12 @@ describe('nexus impact scoped coverage (T14365)', () => {
         '-m',
         'fixture',
       ],
-      { cwd: projectRoot },
+      { cwd: sourceRoot },
     );
     const sourceRoots = await resolveSourceRoots({
       projectId: PROJECT_ID,
       projectRoot,
-      sourceRoot: projectRoot,
+      sourceRoot,
     });
     const native = getNexusNativeDb();
     if (!native) throw new Error('Missing fixture database');
@@ -132,7 +135,7 @@ describe('nexus impact scoped coverage (T14365)', () => {
       .run(
         JSON.stringify({
           sourceRoots,
-          sourceRoot: projectRoot,
+          sourceRoot,
           assessedRevision: sourceRoots.roots[0]?.revision,
           assessedAt: new Date().toISOString(),
           files,
@@ -195,6 +198,25 @@ describe('nexus impact scoped coverage (T14365)', () => {
     expect(impact.riskLevel).toBe('UNKNOWN');
     expect(impact.coverage.status).toBe('failed');
     expect(impact.coverage.reasons.join(' ')).toContain(`Extraction failed: ${CALLER_FILE}`);
+  });
+
+  it('AC2: with a source root below the project root, a failed target file is still in scope (D11237)', async () => {
+    await seed({ failed: [TARGET_FILE], sourceDir: 'app' });
+    const impact = await getSymbolImpact('target', PROJECT_ID, projectRoot);
+    expect(impact.targetNodeId).toBe(TARGET_ID);
+    expect(impact.riskLevel).toBe('UNKNOWN');
+    expect(impact.coverage.status).toBe('failed');
+    expect(impact.coverage.reasons[0]).toContain(
+      `Extraction failed: ${TARGET_FILE}: E_PARSE_SYNTAX`,
+    );
+  });
+
+  it('AC1: with a source root below the project root, an unrelated failure is still partial', async () => {
+    await seed({ failed: [BROKEN_FILE], sourceDir: 'app' });
+    const impact = await getSymbolImpact('target', PROJECT_ID, projectRoot);
+    expect(impact.totalImpactedNodes).toBe(1);
+    expect(impact.coverage.status).toBe('partial');
+    expect(impact.coverage.reasons.join(' ')).not.toContain(`Extraction failed: ${BROKEN_FILE}`);
   });
 
   it('AC3: the default reply stays under 50 KB; --coverage-detail returns every reason', async () => {
