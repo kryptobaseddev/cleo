@@ -95,6 +95,23 @@ describe('selectAffectedTestFiles', () => {
     ]);
   });
 
+  it('an import written in a comment is not an edge, and a regex literal is not a load effect', () => {
+    write(
+      'packages/a/src/other.ts',
+      "/** e.g. import { leaf } from './leaf.js' */\nexport const other = /['\"`]/;\n",
+    );
+    expect(select('packages/a/src/leaf.ts')).toMatchObject({
+      testFiles: [
+        'packages/a/src/mid.test.ts',
+        'packages/b/src/mocks.test.ts',
+        'packages/b/src/uses-mid.test.ts',
+      ],
+    });
+    expect(select('packages/a/src/other.ts')).toMatchObject({
+      testFiles: ['packages/a/src/other.test.ts', 'packages/b/src/uses-other.test.ts'],
+    });
+  });
+
   it('a changed test file selects itself', () => {
     const sel = select('packages/a/src/other.test.ts');
     expect(sel.mode === 'affected' && sel.testFiles).toEqual(['packages/a/src/other.test.ts']);

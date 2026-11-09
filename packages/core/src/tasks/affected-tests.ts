@@ -89,9 +89,9 @@ const FROM_STATEMENT =
 /** `import 'x'`: a side-effect import. */
 const BARE_IMPORT = /(?:^|[;\n])[ \t]*import\s*['"]([^'"\n]+)['"]/g;
 
-/** `import('x')`, `require('x')` and vitest's module mocks with a literal path. */
+/** `import('x')`, `require('x')` and vitest's module mocks with a literal path: 1 callee, 2 path. */
 const CALL_IMPORT =
-  /\b(?:import|require|vi\.(?:mock|doMock|unmock|importActual|importMock))\s*\(\s*['"`]([^'"`$\n]+)['"`]/g;
+  /\b(import|require|vi\.(?:mock|doMock|unmock|importActual|importMock))\s*\(\s*['"`]([^'"`$\n]+)['"`]/g;
 
 /** A name a module declares and exports. */
 const EXPORTED_DECLARATION =
@@ -104,8 +104,89 @@ const EXPORT_LIST = /(?:^|[;\n])[ \t]*export\s*\{([^}]*)\}(?!\s*from)/g;
 const LOAD_EFFECT =
   /^(?!(?:export|import|const|let|var|function|async|class|interface|type|enum|declare|abstract|namespace)\b)[A-Za-z_$([`]|^export\s+(?:const|let|var)\s*[{[]/m;
 
-/** Comments and template literal bodies, which hold no top-level statement. */
-const NOT_CODE = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|`(?:\\[\s\S]|[^\\`])*`/g;
+/** After one of these, `/` starts a regex literal rather than dividing. */
+const BEFORE_REGEX =
+  /[(,=:[!&|?{};+\-*%<>~^]|^$|\b(?:return|typeof|case|in|of|delete|void|throw|new|else|do)$/;
+
+/**
+ * `text` with comments and regex literals blanked (newlines kept), and with
+ * strings and template literals blanked too unless `keepStrings`. Without
+ * strings, a line that starts in code starts a top-level statement or a
+ * continuation, never a template or comment line; with them, import
+ * specifiers survive while imports written in comments do not.
+ */
+function codeOnly(text: string, keepStrings = false): string {
+  let out = '';
+  let i = 0;
+  const templates: number[] = []; // brace depth of each open `${`
+  let depth = 0;
+  const blank = (to: number): void => {
+    out += text.slice(i, to).replace(/[^\n]/g, ' ');
+    i = to;
+  };
+  const literal = (to: number): void => {
+    if (keepStrings) {
+      out += text.slice(i, to);
+      i = to;
+    } else blank(to);
+  };
+  /** Index just past the end of a string, template chunk or regex opened at `i`. */
+  const close = (from: number, end: string): number => {
+    let j = from;
+    while (j < text.length) {
+      const c = text[j];
+      if (c === '\\') j += 2;
+      else if (c === end || (end === '`' && c === '$' && text[j + 1] === '{')) return j;
+      else if (c === '\n' && end !== '`') return j;
+      else j++;
+    }
+    return j;
+  };
+  while (i < text.length) {
+    const c = text[i] as string;
+    const next = text[i + 1];
+    if (c === '/' && next === '/')
+      blank(text.indexOf('\n', i) === -1 ? text.length : text.indexOf('\n', i));
+    else if (c === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2);
+      blank(end === -1 ? text.length : end + 2);
+    } else if (c === '"' || c === "'") literal(close(i + 1, c) + 1);
+    else if (c === '`' || (c === '}' && templates.at(-1) === depth)) {
+      if (c === '}') templates.pop();
+      const end = close(i + 1, '`');
+      if (text[end] === '$') {
+        templates.push(depth);
+        literal(end + 2);
+      } else literal(end + 1);
+    } else if (
+      c === '/' &&
+      BEFORE_REGEX.test(
+        out
+          .trimEnd()
+          .slice(-8)
+          .match(/(?:\w+|.)$/)?.[0] ?? '',
+      )
+    ) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < text.length && text[j] !== '\n' && (inClass || text[j] !== '/')) {
+        if (text[j] === '\\') j++;
+        else if (text[j] === '[') inClass = true;
+        else if (text[j] === ']') inClass = false;
+        j++;
+      }
+      j++;
+      while (/[a-z]/.test(text[j] ?? '')) j++; // flags
+      blank(j);
+    } else {
+      if (c === '{') depth++;
+      if (c === '}') depth--;
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
 
 /** A file read or process spawn: the test may depend on files it never imports. */
 const HIDDEN_READ =
@@ -140,8 +221,8 @@ interface ModuleInfo {
   loadEffect: boolean;
   /** Re-exports: `star` for `export *`, else the source name and the exported name. */
   reexports: Array<{ target: string; star: true } | { target: string; from: string; as: string }>;
-  /** Imports: the names it binds from each target, or {@link ALL}. */
-  imports: Array<{ target: string; names: string[] }>;
+  /** Imports: the names it binds from each target, or {@link ALL}; `lazy` for `import()`. */
+  imports: Array<{ target: string; names: string[]; lazy?: true }>;
   /** Workspace packages it depends on as a whole (an unresolvable workspace specifier). */
   packages: string[];
 }
@@ -231,7 +312,8 @@ function parseModule(
     // anything else is an npm module: a change to neither is a module change.
     return null;
   };
-  for (const m of text.matchAll(FROM_STATEMENT)) {
+  const code = codeOnly(text, true);
+  for (const m of code.matchAll(FROM_STATEMENT)) {
     const [, keyword, rawClause = '', spec = ''] = m;
     const clause = rawClause.trim();
     if (/^type\s+(?!from\b)/.test(clause)) continue; // erased at runtime
@@ -257,22 +339,21 @@ function parseModule(
     if (/^[A-Za-z_$][\w$]*\s*(?:,|$)/.test(clause)) names.push('default');
     info.imports.push({ target: to, names: names.length > 0 ? names : [ALL] });
   }
-  for (const m of text.matchAll(BARE_IMPORT)) {
+  for (const m of code.matchAll(BARE_IMPORT)) {
     const to = m[1] ? target(m[1]) : null;
     if (to) info.imports.push({ target: to, names: [ALL] });
   }
-  for (const m of text.matchAll(CALL_IMPORT)) {
-    const to = m[1] ? target(m[1]) : null;
-    if (to) info.imports.push({ target: to, names: [ALL] });
+  for (const m of code.matchAll(CALL_IMPORT)) {
+    const to = m[2] ? target(m[2]) : null;
+    if (to)
+      info.imports.push({ target: to, names: [ALL], ...(m[1] === 'import' ? { lazy: true } : {}) });
   }
   for (const m of text.matchAll(EXPORTED_DECLARATION)) if (m[1]) info.exports.add(m[1]);
   for (const m of text.matchAll(EXPORT_LIST)) {
     for (const [, as] of bindings(m[1] ?? '')) info.exports.add(as);
   }
   if (/^export\s+default\b/m.test(text)) info.exports.add('default');
-  info.loadEffect = LOAD_EFFECT.test(
-    text.replace(NOT_CODE, (m) => (m.startsWith('`') ? "''" : '')),
-  );
+  info.loadEffect = LOAD_EFFECT.test(codeOnly(text));
   return info;
 }
 
@@ -288,7 +369,7 @@ interface Reach {
 
 /** Who imports, re-exports and package-depends on each module. */
 interface ReverseIndex {
-  importers: Map<string, Array<{ file: string; names: string[] }>>;
+  importers: Map<string, Array<{ file: string; names: string[]; lazy?: true }>>;
   reexporters: Map<string, Array<{ file: string; edge: ModuleInfo['reexports'][number] }>>;
   packageImporters: Map<string, string[]>;
 }
@@ -305,7 +386,7 @@ function reverseIndex(modules: ReadonlyMap<string, ModuleInfo>): ReverseIndex {
     else map.set(key, [value]);
   };
   for (const [file, info] of modules) {
-    for (const i of info.imports) add(index.importers, i.target, { file, names: i.names });
+    for (const i of info.imports) add(index.importers, i.target, { ...i, file });
     for (const edge of info.reexports) add(index.reexporters, edge.target, { file, edge });
     for (const p of info.packages) add(index.packageImporters, p, file);
   }
@@ -336,12 +417,20 @@ function walk(
   const touch = (file: string, change: (r: Reach) => boolean): void => {
     if (change(state(file))) queue.push(file);
   };
-  const makeLocal = (file: string): void =>
+  /**
+   * `file`'s own code depends on the change. Through a static import its
+   * load-time code may too (when it runs any); an `import()` loads the change
+   * only when the code calls it, not when `file` loads.
+   * shortcut: a top-level call of a function that calls `import()` is missed;
+   * upgrade when a load-time registry loads workspace modules lazily.
+   */
+  const makeLocal = (file: string, lazy = false): void =>
     touch(file, (r) => {
-      if (r.local) return false;
-      r.local = true;
       // A module the scan cannot read (deleted) or that runs code on load.
-      r.onLoad ||= modules.get(file)?.loadEffect ?? true;
+      const onLoad = !lazy && (modules.get(file)?.loadEffect ?? true);
+      if (r.local && (r.onLoad || !onLoad)) return false;
+      r.local = true;
+      r.onLoad ||= onLoad;
       return true;
     });
   /** Whether importing `name` from `file` depends on the change. */
@@ -365,7 +454,7 @@ function walk(
     const file = queue.pop() as string;
     const r = reach.get(file) as Reach;
     for (const i of importers.get(file) ?? []) {
-      if (i.names.some((n) => provides(file, n))) makeLocal(i.file);
+      if (i.names.some((n) => provides(file, n))) makeLocal(i.file, i.lazy === true);
     }
     for (const { file: barrel, edge } of reexporters.get(file) ?? []) {
       touch(barrel, (b) => {
