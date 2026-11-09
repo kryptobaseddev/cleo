@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.5.0
+version: 3.6.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.5.0
+  version: 3.6.0
   tier: core
   install: harness
   covers:
@@ -26,7 +26,9 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-11-05
+    - packages/core/src/tasks/merge-train.ts
+    - packages/cleo/src/cli/commands/merge.ts
+  lastReviewed: 2026-11-09
   stability: stable
 ---
 
@@ -333,6 +335,17 @@ A reviewer that is not the author records a verdict per AC on the PR head
 (`cleo review packet <pr> --task T1456`, then `cleo review verdict`). Merge on
 green `CI`; the merge sweep closes the task and records its evidence. No step
 follows the merge.
+
+`cleo merge train` does the merging (dry run by default; `--execute` acts). It
+merges an open PR only on the exact head that was reviewed (pinned with
+`--match-head-commit`), when the required checks are green on that sha in each
+run's latest attempt, the review check passes and `done --from-merge --dry-run`
+says nothing waits or is refused. An infra-only red (runner shutdown, cancel)
+gets its failed jobs rerun, at most 3 times per head; a real red is reported
+once and never rerun. Nothing merges while main's latest push run is red except
+a PR labelled `main-fix`; `Merge-After: #<n>` holds a PR until PR n merged.
+Once the merge commit has a completed push run, the train runs the merge sweep
+for the PR. One train runs per repository, and a train that stops says so.
 
 ### G6: Release
 
