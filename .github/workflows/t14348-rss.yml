@@ -1,0 +1,80 @@
+# TEMPORARY (T14348): why gate 39 RSS is +3-6 MB after a batched build. Never merged.
+name: T14348 rss probe
+on:
+  push:
+    branches: [task/T14348-rss-probe]
+jobs:
+  probe:
+    name: probe (${{ matrix.variant }} ${{ matrix.replica }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [batched, main]
+        replica: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Build worktree-napi
+        run: |
+          cargo build --release -p worktree-napi
+          cp target/release/libworktree_napi.so crates/worktree-napi/worktree-napi.linux-x64-gnu.node
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cleocode/cant run build:napi
+      - name: Use main's build.mjs (baseline)
+        if: matrix.variant == 'main'
+        run: |
+          git fetch -q --depth 1 origin main
+          git show FETCH_HEAD:build.mjs > build.mjs
+      - name: Host before build
+        run: |
+          cat /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag
+          grep -E "MemFree|MemAvailable|AnonHugePages|Cached:" /proc/meminfo
+      - run: node build.mjs
+      - name: Host after build
+        run: grep -E "MemFree|MemAvailable|AnonHugePages|Cached:|SwapFree" /proc/meminfo
+      - name: Gate 39 (as CI runs it)
+        continue-on-error: true
+        run: node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "version |help |show |doctor|ceiling" | head -12
+      - name: Gate 39 again after dropping caches
+        continue-on-error: true
+        run: |
+          sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
+          node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "version |help |show |doctor|ceiling" | head -12
+      - name: Gate 39 with THP never
+        continue-on-error: true
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+          node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "version |help |show |doctor|ceiling" | head -12
+      - name: Hash every build output
+        if: always()
+        run: |
+          { git ls-files --others --ignored --exclude-standard
+            git ls-files --others --exclude-standard
+          } | grep -vE '(^|/)node_modules/' | grep -vE '^target/' | grep -v '^\.github/' | sort -u > out.list
+          xargs -a out.list -d '\n' sha256sum > build-${{ matrix.variant }}-${{ matrix.replica }}.sha
+          wc -l build-*.sha; sha256sum build-*.sha
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-${{ matrix.variant }}-${{ matrix.replica }}
+          path: build-*.sha
+          retention-days: 3
