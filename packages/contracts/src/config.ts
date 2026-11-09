@@ -788,6 +788,37 @@ export interface LeadRollupConfig {
 }
 
 /**
+ * Lead/worker split settings (`orchestrate.leadWorker.*`).
+ *
+ * @task T14356
+ * @epic T14351
+ */
+export interface OrchestrateLeadWorkerConfig {
+  /**
+   * Version 1 of the lead/worker split: leads spawn with their write and
+   * network tools stripped (`LeadToolPolicy`) and workers return a
+   * `WorkerReport` with proof. Off by default.
+   *
+   * @defaultValue false
+   */
+  v1?: boolean;
+}
+
+/**
+ * Orchestration settings (`orchestrate.*`).
+ *
+ * @task T14356
+ */
+export interface OrchestrateConfig {
+  /**
+   * Lead/worker split settings.
+   *
+   * @defaultValue { v1: false }
+   */
+  leadWorker?: OrchestrateLeadWorkerConfig;
+}
+
+/**
  * Inline refresh policy for code-graph queries (T12316).
  *
  * Before answering, a graph query checks how far the published index lags the
@@ -1103,6 +1134,14 @@ export interface CleoConfig {
    * @saga T10377
    */
   leadRollup?: LeadRollupConfig;
+  /**
+   * Orchestration settings. `orchestrate.leadWorker.v1` gates the lead/worker
+   * split and defaults to `false`.
+   *
+   * @defaultValue { leadWorker: { v1: false } }
+   * @task T14356
+   */
+  orchestrate?: OrchestrateConfig;
   /**
    * Code-graph behaviour — inline refresh bounds for stale-index queries.
    *

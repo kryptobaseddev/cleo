@@ -132,6 +132,12 @@ const DEFAULTS: CleoConfig = {
   leadRollup: {
     mode: 'passive',
   },
+  // T14356 — the lead/worker split (epic T14351) is OFF by default.
+  orchestrate: {
+    leadWorker: {
+      v1: false,
+    },
+  },
   // T11984: daemon lifecycle — postinstall respects operator state by default.
   // Set daemon.autoStart = false (via global config.json) for a persistent
   // opt-out that survives npm upgrades.

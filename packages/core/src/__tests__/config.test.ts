@@ -177,6 +177,13 @@ describe('getConfigValue', () => {
     expect(config.leadRollup?.mode).toBe('passive');
   });
 
+  it('orchestrate.leadWorker.v1 defaults to false (T14356)', async () => {
+    const projectDir = join(tempDir, 'project');
+    process.env['CLEO_DIR'] = join(projectDir, '.cleo');
+    const config = await loadConfig(projectDir);
+    expect(config.orchestrate?.leadWorker?.v1).toBe(false);
+  });
+
   it('project config can flip leadRollup.mode to "active" (T10513)', async () => {
     const cleoDir = join(tempDir, 'project', '.cleo');
     await mkdir(cleoDir, { recursive: true });
