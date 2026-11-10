@@ -16,3 +16,8 @@ CORE barrel, to reach one function each. They now import the module that
 declares it. At runtime those paths load a few modules instead of about 1,100.
 The static import graph also stops treating every CORE module as reachable
 from them, so file-level test selection covers more single-package core PRs.
+
+The sentient daemon (`sentient/daemon-entry.ts`) and the nexus refresh child
+(`nexus/refresh-child.ts`) run as their own processes and got the hook
+handlers and credential seeders from that barrel import. They now load
+`@cleocode/core/registrations` when they start.

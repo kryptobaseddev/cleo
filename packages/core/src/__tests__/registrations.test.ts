@@ -135,6 +135,12 @@ describe('@cleocode/core/registrations', () => {
     expect(release.getInvariants().map((i) => i.id)).toEqual([release.ARCHIVE_REASON_INVARIANT_ID]);
   });
 
+  it('is loaded by the standalone CORE processes that used to reach the barrel (T14391)', () => {
+    for (const entry of ['sentient/daemon-entry.ts', 'nexus/refresh-child.ts']) {
+      expect(graph(join(SRC, entry)).has(join(SRC, 'registrations.ts')), entry).toBe(true);
+    }
+  });
+
   it('loads far less than the barrel', () => {
     const barrel = graph(join(SRC, 'internal.ts')).size;
     const registrations = graph(join(SRC, 'registrations.ts')).size;
