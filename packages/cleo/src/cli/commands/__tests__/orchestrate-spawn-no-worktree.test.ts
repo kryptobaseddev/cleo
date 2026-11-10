@@ -29,12 +29,12 @@ vi.mock('../../../dispatch/adapters/cli.js', () => ({
 import { orchestrateCommand } from '../orchestrate.js';
 
 /** Resolve the spawn subcommand and run it on citty-parsed argv. */
-async function runSpawn(argv: string[]): Promise<Record<string, unknown>> {
+async function runSpawn(argv: string[], command = 'spawn'): Promise<Record<string, unknown>> {
   const subCommands = orchestrateCommand.subCommands as Record<
     string,
     { args?: ArgsDef; run?: (ctx: { args: unknown; rawArgs: string[] }) => Promise<void> }
   >;
-  const spawn = subCommands['spawn'];
+  const spawn = subCommands[command];
   if (!spawn?.args || !spawn.run) throw new Error('spawn subcommand missing args/run');
   const args = parseArgs(argv, spawn.args);
   await spawn.run({ args, rawArgs: argv });
@@ -63,5 +63,11 @@ describe('cleo orchestrate spawn --no-worktree (T12520)', () => {
   it('forwards noWorktree: false when the flag is absent', async () => {
     const params = await runSpawn(['T1']);
     expect(params['noWorktree']).toBe(false);
+  });
+
+  it('forwards an explicit spawn-execute adapter parsed by citty (T14449)', async () => {
+    const params = await runSpawn(['T1', '--adapter', 'claude-code'], 'spawn-execute');
+    expect(params).toEqual({ taskId: 'T1', adapterId: 'claude-code' });
+    expect(mockDispatchFromCli.mock.calls[0]?.[2]).toBe('spawn.execute');
   });
 });

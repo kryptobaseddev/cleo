@@ -1119,7 +1119,11 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
     { verb: ['orchestrate', 'classify'], positionals: 1 },
     { verb: ['orchestrate', 'fanout-status'], flags: { '--manifest-entry-id': 'value' } },
     { verb: ['orchestrate', 'handoff'], positionals: 1, flags: { '--protocol': 'value' } },
-    { verb: ['orchestrate', 'spawn-execute'], positionals: 1, flags: { '--base': 'value' } },
+    {
+      verb: ['orchestrate', 'spawn-execute'],
+      positionals: 1,
+      flags: { '--base': 'value', '--adapter': 'value' },
+    },
     { verb: ['orchestrate', 'fanout'], positionals: 1, flags: { '--tasks': 'value' } },
     { verb: ['orchestrate', 'pending'] },
     {

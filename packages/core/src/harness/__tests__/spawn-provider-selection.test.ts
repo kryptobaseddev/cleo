@@ -1,5 +1,7 @@
+import * as caamp from '@cleocode/caamp';
 import type { CLEOSpawnAdapter, CLEOSpawnResult } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as spawnAdapters from '../../spawn/adapter-registry.js';
 import { spawnRegistry } from '../../spawn/adapter-registry.js';
 import { selectHarnessSpawnProvider } from '../spawn-provider-selection.js';
 
@@ -31,6 +33,7 @@ describe('selectHarnessSpawnProvider', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     spawnRegistry.clear();
   });
 
@@ -63,5 +66,28 @@ describe('selectHarnessSpawnProvider', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_SPAWN_ADAPTER_UNAVAILABLE');
     expect(result.error?.exitCode).toBe(63);
+    expect(result.error?.fix).toContain('--adapter');
+    expect(result.error?.fix).toContain('harness-test-claude-code: cannot spawn');
+    expect(result.error?.fix).toContain('cursor: manifest does not support spawning');
+  });
+
+  it('explains missing providers and every discovered adapter', async () => {
+    vi.spyOn(caamp, 'getProvidersBySpawnCapability').mockReturnValue([]);
+    const result = await selectHarnessSpawnProvider(['supportsSubagents']);
+    expect(result.error?.code).toBe('E_SPAWN_NO_PROVIDER');
+    expect(result.error?.fix).toContain(
+      'cleo orchestrate spawn-execute <taskId> --adapter claude-code',
+    );
+    expect(result.error?.fix).toContain('cleo orchestrate lead <epicId> --adapter <id>');
+    expect(result.error?.fix).toContain('claude-code:');
+    expect(result.error?.fix).toContain('cursor: manifest does not support spawning');
+  });
+
+  it('explains missing registrations when discovery cannot load a spawn provider', async () => {
+    vi.spyOn(spawnAdapters, 'initializeDefaultAdapters').mockResolvedValue();
+    const result = await selectHarnessSpawnProvider(['supportsSubagents']);
+    expect(result.error?.code).toBe('E_SPAWN_NO_ADAPTER');
+    expect(result.error?.fix).toContain('--adapter');
+    expect(result.error?.fix).toContain('claude-code: spawn provider not registered');
   });
 });

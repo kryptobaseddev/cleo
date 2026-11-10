@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./manifests": {
+      "types": "./src/manifests.ts",
+      "import": "./dist/manifests.js"
+    },
     "./heavy-command-hook": {
       "types": "./dist/heavy-command-hook.d.ts",
       "import": "./dist/heavy-command-hook.js"
