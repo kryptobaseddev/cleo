@@ -1078,9 +1078,8 @@ function worktreeFindings(s: SystemSnapshot, rows: readonly ProcessRow[]): Findi
         apparentBytes: census.apparentBytes,
         warnAtBytes: WORKTREE_BYTES_WARN,
         freeBytesOnRoot: census.dfFreeBefore,
-        pnpmStore: census.pnpmStore
-          ? { path: census.pnpmStore.path, apparentBytes: census.pnpmStore.apparentBytes }
-          : null,
+        pnpmStorePath: census.pnpmStore?.path ?? null,
+        pnpmStoreBytes: census.pnpmStore?.apparentBytes ?? null,
       },
       impactBytes: census.apparentBytes,
       remedy: {

@@ -134,10 +134,8 @@ describe('worktree findings (T14440 AC2)', () => {
       (f) => f.id === 'worktree-bytes',
     );
     expect(finding?.severity).toBe('warning');
-    expect(finding?.evidence['pnpmStore']).toEqual({
-      path: '/home/u/.pnpm/store',
-      apparentBytes: 5 * GIB,
-    });
+    expect(finding?.evidence['pnpmStorePath']).toBe('/home/u/.pnpm/store');
+    expect(finding?.evidence['pnpmStoreBytes']).toBe(5 * GIB);
   });
 
   it('flags fseventsd RSS from the live ps sample, independent of any census record', () => {

@@ -598,8 +598,7 @@ export async function mergedBranchCounts(
       // aliases are not branches, and the target's own remote ref is trivially
       // merged.
       .filter(
-        (ref) =>
-          ref.includes('/') && !ref.endsWith('/HEAD') && !ref.endsWith('/main'),
+        (ref) => ref.includes('/') && !ref.endsWith('/HEAD') && !ref.endsWith('/main'),
       ).length;
   } catch {
     mergedRemote = null;
