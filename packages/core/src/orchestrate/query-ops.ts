@@ -38,6 +38,7 @@ import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
 import { loadRankingContext } from '../tasks/task-next.js';
 import { computeAgentAdmission } from './admission.js';
+import { hasLeadRecords } from './lead-records-dir.js';
 import { listWorkerRecords, reconcileWorkerExits, type WorkerRecord } from './worker-records.js';
 
 // ---------------------------------------------------------------------------
@@ -169,13 +170,22 @@ export async function loadTasks(projectRoot?: string): Promise<Task[]> {
 }
 
 /**
- * Close the records of exited workers (emitting their SubagentStop), then list
- * every worker record. Best-effort: a store failure yields an empty list
+ * Close the records of exited workers (emitting their SubagentStop) and reap
+ * dead leads (T14363), then list every worker record. Best-effort: a store failure yields an empty list
  * rather than failing the status read.
  */
 async function loadWorkerRecords(root: string): Promise<WorkerRecord[]> {
   try {
     await reconcileWorkerExits(root);
+    // T14363 — a lead killed before its hooks ran gives back its mailbox,
+    // epic claim and temp dir here.
+    // Loaded only when a record exists, so status stays inside its gate-39 budget.
+    if (hasLeadRecords(root)) {
+      const { reapDeadLeads } = await import('./lead-records.js');
+      await reapDeadLeads(root).catch((err) =>
+        getLogger('engine:orchestrate').warn({ err: String(err) }, 'lead reap failed'),
+      );
+    }
     return await listWorkerRecords(root);
   } catch (err) {
     getLogger('engine:orchestrate').warn({ err: String(err) }, 'worker records unavailable');

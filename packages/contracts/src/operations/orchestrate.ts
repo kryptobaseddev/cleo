@@ -886,6 +886,71 @@ export type LeadDeniedTool = (typeof LEAD_DENIED_TOOLS)[number];
 export type LeadToolStripSupport = 'enforced' | 'unsupported';
 
 /**
+ * How a lead runs (T14363, owner decision):
+ *
+ * - `interactive` (default): a Claude session in the caller's terminal
+ *   (stdio inherited, not detached). The owner types to it; it asks
+ *   decisions with `AskUserQuestion`.
+ * - `detached`: a background run. Owner decisions go to the owner's AgentMBX
+ *   mailbox as a structured `hitl.request`, and the lead waits there.
+ *
+ * @task T14363
+ */
+export type LeadMode = 'interactive' | 'detached';
+
+/**
+ * Built-in tool an interactive lead may use to ask the owner (T14363).
+ *
+ * @task T14363
+ */
+export const LEAD_ASK_TOOL = 'AskUserQuestion';
+
+/**
+ * A detached lead has no owner channel: the mbx MCP server is not configured
+ * or was refused, so it could never ask the owner and is refused (T14363).
+ *
+ * @task T14363
+ */
+export const E_LEAD_NO_OWNER_CHANNEL = 'E_LEAD_NO_OWNER_CHANNEL';
+
+/**
+ * AgentMBX recipient for owner decisions of a detached lead (T14363).
+ *
+ * @task T14363
+ */
+export const LEAD_OWNER_MAILBOX = 'owner';
+
+/**
+ * AgentMBX MCP server name a lead may load beside the runner (T14423).
+ *
+ * @task T14423
+ */
+export const LEAD_MAILBOX_MCP_SERVER = 'mbx';
+
+/**
+ * The MCP servers a lead spawn loaded (T14423). A lead loads ONLY the runner
+ * ({@link LEAD_RUNNER_MCP_SERVER}) and, when the user configured it, the
+ * AgentMBX server ({@link LEAD_MAILBOX_MCP_SERVER}); every other user MCP
+ * server is shut out, since one with shell or file tools would hand back
+ * what the tool strip removed.
+ *
+ * @task T14423
+ * @epic T14351
+ */
+export interface LeadMcpReport {
+  /** Server names the lead loads, the runner first. */
+  readonly servers: readonly string[];
+  /**
+   * `loaded` when the user-level mbx server was found, validated and passed;
+   * `not-configured` when there is none; `refused` when an entry failed the
+   * checks (not the agentmbx binary, a path inside the project, ...).
+   */
+  readonly mailbox: 'loaded' | 'not-configured' | 'refused';
+  /** Why the mbx entry was refused (with `mailbox: 'refused'`). */
+  readonly warning?: string;
+}
+
+/**
  * Tool policy applied to a lead spawn under the lead/worker split.
  *
  * @task T14356

@@ -240,6 +240,7 @@ export function bridgeSpawnAdapter(
         workingDirectory: context.workingDirectory,
         options: context.options,
         ...(isLead ? { leadDeniedTools: denied } : {}),
+        ...(isLead && context.onLeadStarted ? { onLeadStarted: context.onLeadStarted } : {}),
       };
       const result: SpawnResult = await delegate.spawn(contractContext);
       return {
@@ -255,6 +256,9 @@ export function bridgeSpawnAdapter(
         },
         // T14359 — the worker record stores the pid/pgid of a detached worker.
         ...(result.ownership ? { ownership: result.ownership } : {}),
+        // T14423 — which MCP servers a lead loaded.
+        ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
+        ...(result.leadTempDir ? { leadTempDir: result.leadTempDir } : {}),
       };
     },
 

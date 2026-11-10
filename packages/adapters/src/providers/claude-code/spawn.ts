@@ -24,10 +24,20 @@ import type {
   SpawnResult,
 } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { E_LEAD_NO_OWNER_CHANNEL } from '@cleocode/contracts/operations/orchestrate.js';
 import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
+import { type LeadMcpSetup, prepareLeadMcp, runnerOnlyLeadMcp } from './lead-mcp.js';
+import {
+  buildLeadArgs,
+  leadModeOf,
+  leadSessionId,
+  leadSessionSettings,
+  resolveAbsoluteBinary,
+  runInteractiveLead,
+} from './lead-session.js';
 import { reapAgentSuite } from './suite-reaper.js';
 
 /**
@@ -55,6 +65,15 @@ export function workerExitSettings(instanceId: string): string {
   return JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command }] }] } });
 }
 
+/** The string-valued entries of `options.env`. */
+function envStrings(options: SpawnContext['options']): Record<string, string> {
+  const env = options?.env;
+  const out: Record<string, string> = {};
+  if (typeof env !== 'object' || env === null) return out;
+  for (const [key, value] of Object.entries(env)) if (typeof value === 'string') out[key] = value;
+  return out;
+}
+
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
   pid: number;
@@ -70,13 +89,14 @@ interface TrackedProcess {
  * - `--print`: non-interactive batch mode (process prompt, output response, exit)
  * - `--output-format json`: structured output for parsing
  * - Worker: `--dangerously-skip-permissions` allows every tool call without approval.
- * - Lead (`context.leadDeniedTools` set): `--disallowedTools <denied>` removes
- *   those tools so they never run, and `--dangerously-skip-permissions` is NOT
- *   passed. `--allowedTools` is not used: it only pre-approves and removes nothing.
+ * - Lead (`context.leadDeniedTools` set): an allow list built by
+ *   `buildLeadArgs` (lead-session.ts) for the lead's mode, interactive or
+ *   detached (T14363, T14423).
  *
  * @param context - Spawn context.
  * @param promptFile - Path of the prompt file passed as the final argument.
  * @param settingsArgs - Extra `--settings <file>` args (a tracked worker's exit hook, T14359).
+ * @param leadMcp - A lead's MCP setup (from `prepareLeadMcp`). @defaultValue the runner alone, inline
  * @returns Argument list for the `claude` binary.
  * @task T14357
  */
@@ -84,11 +104,28 @@ export function buildClaudeArgs(
   context: SpawnContext,
   promptFile: string,
   settingsArgs: readonly string[] = [],
+  leadMcp: LeadMcpSetup = runnerOnlyLeadMcp(),
 ): string[] {
   const denied = leadDeniedTools(context);
-  const permissionArgs =
-    denied === null ? ['--dangerously-skip-permissions'] : ['--disallowedTools', denied.join(',')];
-  return ['--print', ...permissionArgs, '--output-format', 'json', ...settingsArgs, promptFile];
+  if (denied === null) {
+    return [
+      '--print',
+      '--dangerously-skip-permissions',
+      '--output-format',
+      'json',
+      ...settingsArgs,
+      promptFile,
+    ];
+  }
+  const sessionId = leadSessionId(context.options);
+  return buildLeadArgs({
+    mode: leadModeOf(context.options),
+    denied,
+    leadMcp,
+    promptFile,
+    ...(sessionId !== undefined ? { sessionId } : {}),
+    settingsArgs,
+  });
 }
 
 /**
@@ -168,8 +205,75 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         settingsArgs = ['--settings', settingsFile];
       }
 
-      // --settings (tracked workers only): adds the worker-exit SessionEnd hook
-      const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs);
+      // T14423: a lead loads only the runner and the user's validated mbx
+      // server; its settings delete the MCP file at start and the temp dir at end.
+      let leadMcp: LeadMcpSetup | undefined;
+      if (leadDeniedTools(context) !== null) {
+        const dir = dirname(tmpFile);
+        // T14363: absolute binaries, resolved now from absolute PATH entries.
+        const binaries = {
+          cleo: resolveAbsoluteBinary('cleo'),
+          agentmbx: resolveAbsoluteBinary('agentmbx'),
+        };
+        leadMcp = await prepareLeadMcp(dir, context.workingDirectory ?? process.cwd(), {
+          identityEnv: envStrings(context.options),
+          ...(binaries.cleo ? { cleoBin: binaries.cleo } : {}),
+        });
+        const settingsFile = join(dir, 'lead-settings.json');
+        const sessionId = leadSessionId(context.options);
+        await writeFile(
+          settingsFile,
+          leadSessionSettings({
+            dir,
+            mcpFile: leadMcp.config,
+            binaries,
+            ...(sessionId !== undefined ? { sessionId } : {}),
+          }),
+          { mode: 0o600 },
+        );
+        settingsArgs = ['--settings', settingsFile];
+        // T14363: a detached lead's only owner channel is the mbx server. Without
+        // a loaded one it could never ask the owner, so it does not start.
+        if (leadModeOf(context.options) === 'detached' && leadMcp.report.mailbox !== 'loaded') {
+          await removeSpawnPromptFile(tmpFile);
+          return {
+            instanceId,
+            taskId: context.taskId,
+            providerId: 'claude-code',
+            status: 'failed',
+            startTime,
+            endTime: new Date().toISOString(),
+            error: `${E_LEAD_NO_OWNER_CHANNEL}: a detached lead needs the mbx MCP server to reach the owner (${leadMcp.report.warning ?? 'none is configured'})`,
+            leadMcp: leadMcp.report,
+          };
+        }
+        if (leadModeOf(context.options) === 'interactive') {
+          // T14363: the owner's terminal — stdio inherited, awaited, not detached.
+          const env = envStrings(context.options);
+          const exit = await runInteractiveLead(
+            'claude',
+            buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp),
+            {
+              ...(context.workingDirectory ? { cwd: context.workingDirectory } : {}),
+              ...(Object.keys(env).length > 0 ? { env: { ...process.env, ...env } } : {}),
+              ...(context.onLeadStarted ? { onStart: context.onLeadStarted } : {}),
+            },
+          );
+          await removeSpawnPromptFile(tmpFile);
+          return {
+            instanceId,
+            taskId: context.taskId,
+            providerId: 'claude-code',
+            status: exit.exitCode === 0 ? 'completed' : 'failed',
+            ...(exit.exitCode !== null ? { exitCode: exit.exitCode } : {}),
+            startTime,
+            endTime: new Date().toISOString(),
+            leadMcp: leadMcp.report,
+          };
+        }
+      }
+      // --settings: a tracked worker's exit hook, or a lead's session hooks
+      const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp);
 
       // T11998: Build the argv with per-session containment.
       // On Linux with systemd, this wraps 'claude' inside a transient
@@ -209,6 +313,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       // unref() so the parent process can exit without waiting for the child.
       // The containment scope/pgid ensures the child tree can still be reaped.
       child.unref();
+      // T14363: a detached lead's record names its own pid.
+      if (leadMcp !== undefined && child.pid !== undefined) context.onLeadStarted?.(child.pid);
 
       // Resolve the ownership handle: for the pgid path the pgid is the same
       // as the pid when detached:true (Node sets the child as the group leader).
@@ -245,6 +351,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         // T11998: surface the ownership handle in the result so callers can
         // persist it or pass it to reapAgentSuite on session end.
         ownership,
+        ...(leadMcp ? { leadMcp: leadMcp.report, leadTempDir: dirname(tmpFile) } : {}),
       };
     } catch (error) {
       // Log spawn failure for debugging

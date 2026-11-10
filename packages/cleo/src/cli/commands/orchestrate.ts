@@ -23,6 +23,7 @@
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
  *   cleo orchestrate worker-exit          — worker completion signal (SessionEnd hook)
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
+ *   cleo orchestrate lead <epicId> [--detached] — the no-hands lead (orchestrate.leadWorker.v1, T14363)
  *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
  *
  * @task T4466, T478, T483, T811, T964
@@ -1045,6 +1046,47 @@ const pendingCommand = defineCommand({
 });
 
 /**
+ * cleo orchestrate lead <epicId> — spawn the no-hands lead for an epic (T14363).
+ *
+ * Runs only with `orchestrate.leadWorker.v1` on. Interactive by default (a
+ * Claude session in this terminal that asks with AskUserQuestion);
+ * `--detached` runs it in the background, asking the owner over AgentMBX.
+ * Either way its tools are an allow list: the runner, mbx and, interactive
+ * only, AskUserQuestion. All logic lives in `@cleocode/core/orchestrate/lead`.
+ */
+const leadCommand = defineCommand({
+  meta: {
+    name: 'lead',
+    description:
+      'Spawn the no-hands lead for an epic (orchestrate.leadWorker.v1): no Bash/Edit/Write, commands only through the lead runner',
+  },
+  args: {
+    epicId: { type: 'positional', description: 'Epic the lead runs', required: true },
+    adapter: { type: 'string', description: 'Spawn adapter id (default: first capable adapter)' },
+    detached: {
+      type: 'boolean',
+      description:
+        "Run the lead in the background; owner decisions go to the owner's AgentMBX mailbox as a hitl.request (default: interactive in this terminal, asking with AskUserQuestion)",
+    },
+  },
+  async run({ args }) {
+    const { orchestrateLead } = await import('@cleocode/core/orchestrate/lead');
+    const result = await orchestrateLead(args.epicId, {
+      projectRoot: getProjectRoot(),
+      mode: args.detached === true ? 'detached' : 'interactive',
+      ...(args.adapter !== undefined ? { adapterId: args.adapter } : {}),
+    });
+    if (result.success) {
+      cliOutput({ success: true, data: result.data }, { command: 'orchestrate lead' });
+      return;
+    }
+    const { code, message, exitCode, fix, details } = result.error;
+    cliError(message, code, { fix, details });
+    process.exitCode = exitCode ?? 1;
+  },
+});
+
+/**
  * cleo orchestrate lead-runner — serve the lead command runner over MCP stdio.
  *
  * A no-hands lead has no Bash; its agent definition starts this server and
@@ -1104,7 +1146,8 @@ export const orchestrateCommand = defineCommand({
     approve: approveCommand,
     reject: rejectCommand,
     pending: pendingCommand,
-    // T14374: no-hands lead command runner
+    // T14363: no-hands lead entrypoint; T14374: its command runner
+    lead: leadCommand,
     'lead-runner': leadRunnerCommand,
   },
   async run({ cmd, rawArgs }) {

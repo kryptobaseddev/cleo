@@ -9,7 +9,7 @@
  * @phase 1B
  */
 
-import type { LeadDeniedTool } from './operations/orchestrate.js';
+import type { LeadDeniedTool, LeadMcpReport } from './operations/orchestrate.js';
 import type { AgentSuiteOwnership } from './spawn.js';
 
 /**
@@ -79,6 +79,11 @@ export interface CLEOSpawnContext {
    * @task T14357
    */
   leadDeniedTools?: readonly LeadDeniedTool[];
+  /**
+   * Called with the lead process's pid as soon as the provider starts it, so
+   * the lead record can name it (T14363). Lead spawns only.
+   */
+  onLeadStarted?: (pid: number) => void;
 }
 
 /**
@@ -119,6 +124,12 @@ export interface CLEOSpawnResult extends CAAMPSpawnResult {
    * @task T14359
    */
   ownership?: AgentSuiteOwnership;
+
+  /** MCP servers a lead spawn loaded, passed on from `SpawnResult` (T14423). */
+  leadMcp?: LeadMcpReport;
+
+  /** A detached lead's private temp directory, from `SpawnResult` (T14363). */
+  leadTempDir?: string;
 
   /** Reference to manifest entry if output was captured */
   manifestEntryId?: string;

@@ -1,40 +1,27 @@
 # Spawn Pattern — Worker Fanout Examples
 
-The Phase Lead fans out all workers in a single `delegate_task` batch.
+The Phase Lead fans out all workers in ONE `cleo orchestrate fanout` call.
 Width is bounded by `maxConcurrent` (default 10; a convention the Lead enforces — no runtime check exists).
-Each child carries `role=leaf`, and its brief names the Lead's AgentMBX
-mailbox so its completion message reaches the Lead.
+Each child is a leaf, and its prompt names the Lead's AgentMBX mailbox so its
+completion message reaches the Lead.
+
+A no-hands lead (`cleo orchestrate lead`, `orchestrate.leadWorker.v1`) has no
+Bash: it passes the same command as an argv array to `mcp__cleo-lead__cleo_run`,
+for example `["cleo", "orchestrate", "fanout", "T9080", "--tasks", "T9101,T9102,T9103"]`.
 
 All examples assume:
-- Lead's own task ID: `T9080-lead-w2`
 - Epic: `T9080`
 - Wave: `wave-2`
 - Lead mailbox (AgentMBX): `lead-t9080-w2`
+
+`fanout` takes the epic and the task list only; role, model and timeout come
+from each task's spawn prompt (`cleo orchestrate spawn <taskId>`).
 
 ---
 
 ## Example 1 — 3-worker fanout (small wave)
 
 Typical for narrowly-scoped waves where deps fan in tightly.
-
-```json
-{
-  "tool": "delegate_task",
-  "args": {
-    "parent": { "taskId": "T9080-lead-w2", "role": "orchestrator" },
-    "timeoutSeconds": 600,
-    "tasks": [
-      { "taskId": "T9101", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9102", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9103", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" }
-    ]
-  }
-}
-```
-
-CLI equivalent (one shell call, NOT a loop). `fanout` takes the epic and the
-task list only; role, model and timeout come from each task's spawn prompt
-(`cleo orchestrate spawn <taskId>`):
 
 ```bash
 cleo orchestrate fanout T9080 --tasks T9101,T9102,T9103
@@ -44,21 +31,8 @@ cleo orchestrate fanout T9080 --tasks T9101,T9102,T9103
 
 ## Example 2 — 5-worker fanout (medium wave)
 
-```json
-{
-  "tool": "delegate_task",
-  "args": {
-    "parent": { "taskId": "T9080-lead-w2", "role": "orchestrator" },
-    "timeoutSeconds": 600,
-    "tasks": [
-      { "taskId": "T9201", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9202", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9203", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9204", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9205", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" }
-    ]
-  }
-}
+```bash
+cleo orchestrate fanout T9080 --tasks T9201,T9202,T9203,T9204,T9205
 ```
 
 ---
@@ -68,26 +42,8 @@ cleo orchestrate fanout T9080 --tasks T9101,T9102,T9103
 This is the upper bound at the default `maxConcurrent = 10`.
 For wider waves, the parent Orchestrator MUST split into multiple Leads.
 
-```json
-{
-  "tool": "delegate_task",
-  "args": {
-    "parent": { "taskId": "T9080-lead-w2", "role": "orchestrator" },
-    "timeoutSeconds": 600,
-    "tasks": [
-      { "taskId": "T9301", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9302", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9303", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9304", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9305", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9306", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9307", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9308", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9309", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
-      { "taskId": "T9310", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" }
-    ]
-  }
-}
+```bash
+cleo orchestrate fanout T9080 --tasks T9301,T9302,T9303,T9304,T9305,T9306,T9307,T9308,T9309,T9310
 ```
 
 ---

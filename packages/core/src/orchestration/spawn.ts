@@ -844,6 +844,9 @@ export async function composeSpawnPayload(
     task,
     protocol,
     tier,
+    // T14363: the resolved role reaches the prompt, so a tier-1 lead gets the
+    // ct-cleo + ct-lead excerpts (T9213) instead of a worker prompt.
+    role,
     projectRoot,
     sessionId: options.sessionId ?? null,
     leanLevel,
