@@ -44,6 +44,11 @@ jobs:
         run: |
           git fetch -q --depth 1 origin main
           git show FETCH_HEAD:build.mjs > build.mjs
+      - name: Add 16 GiB swap so the baseline survives Wave 5
+        run: |
+          sudo fallocate -l 16G /swap-t14348 && sudo chmod 600 /swap-t14348
+          sudo mkswap /swap-t14348 >/dev/null && sudo swapon /swap-t14348
+          swapon --show
       - name: Host before build
         run: |
           cat /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag
@@ -53,7 +58,7 @@ jobs:
         run: grep -E "MemFree|MemAvailable|AnonHugePages|Cached:|SwapFree" /proc/meminfo
       - name: Gate 39 (as CI runs it)
         continue-on-error: true
-        run: node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "version |help |show |doctor|ceiling" | head -12
+        run: node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "modules \\(budget|ceiling" | head -40
       - name: Gate 39 again after dropping caches
         continue-on-error: true
         run: |
