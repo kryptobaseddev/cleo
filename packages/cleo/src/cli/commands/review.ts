@@ -9,9 +9,10 @@
  *   PR head. Refused from an author of the task, or when the packet changed.
  * - `check <pr> --task <ids>`: before merge, each criterion's state on the
  *   current head (met, or missing / unmet / stale with why). Exits 1 on a gap.
- * - `dispatch [--shadow] [--execute]` (T14372): one reviewer dispatch per
- *   routine open PR whose head lacks verdicts, with the brief to hand the
- *   reviewer agent; lead-reserved PRs are listed, never dispatched.
+ * - `dispatch [--execute] [--counted]` (T14372): one shadow reviewer dispatch
+ *   per routine open PR head that lacks verdicts, with the brief to hand the
+ *   reviewer agent; lead-reserved PRs are listed, never dispatched. Counted
+ *   reviewers are refused until the owner sets `review.workers.counted`.
  *
  * Thin glue over `@cleocode/core/tasks/review-verdict.js`.
  *
@@ -145,21 +146,22 @@ const dispatchCommand = defineCommand({
   meta: {
     name: 'dispatch',
     description:
-      'Dispatch one non-author reviewer per routine open PR whose head lacks verdicts (once per head); ' +
-      'lead-reserved PRs (migrations, store/sync, gates, deletions, evidence) are listed, never dispatched. ' +
-      'Dry run by default',
+      'Dispatch one non-author shadow reviewer per routine open PR head that lacks verdicts; ' +
+      'lead-reserved PRs (migrations, store/sync, gates, deletions, evidence, review integrity) are ' +
+      'listed, never dispatched. Dry run by default',
   },
   args: {
-    shadow: {
-      type: 'boolean',
-      description: 'Send reviewers to record shadow verdicts, which never count, for comparison',
-    },
     execute: { type: 'boolean', description: 'Record the dispatches (default: dry run)' },
+    counted: {
+      type: 'boolean',
+      description:
+        'Send reviewers whose verdicts count; refused unless the owner set review.workers.counted',
+    },
   },
   async run({ args }) {
     const result = await runReviewDispatch(getProjectRoot(), {
       execute: args.execute === true,
-      shadow: args.shadow === true,
+      counted: args.counted === true,
     });
     cliOutput(result, { command: 'review', operation: 'review.dispatch' });
   },

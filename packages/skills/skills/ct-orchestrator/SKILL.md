@@ -122,10 +122,12 @@ the stage gate (see Plan).
   (`Closes: T#### AC1,AC2`, or `Refs:` for partial delivery). A reviewer agent that is
   not the author reviews the PR head from `cleo review packet <pr> --task <id>` and
   records `cleo review verdict` per AC; the implementer never reviews its own work.
-  `cleo review dispatch --execute` sends one reviewer per routine PR head that lacks
-  verdicts and prints its brief; migrations, store/sync, gates, deletions and evidence
-  code stay with the lead. `--shadow` has reviewers record shadow verdicts, which never
-  count; `cleo review check` shows them next to the lead's until they agree.
+  `cleo review dispatch --execute` sends one shadow reviewer per routine PR head that
+  lacks verdicts, under a session the dispatch creates, and prints its brief. Shadow
+  verdicts never count, so the lead still reviews every PR; `cleo review check` shows
+  them next to the lead's. Migrations, store/sync, gates, deletions, evidence and
+  review/session/claim code stay with the lead. `--counted` is refused until the owner
+  sets `review.workers.counted`.
   Merge on green `CI`; the merge sweep closes the task. A worker that fails its
   criteria is re-spawned with the feedback.
 - No-PR work: `cleo done <id> --plan`, then `cleo verify` per gate, then `cleo complete`.

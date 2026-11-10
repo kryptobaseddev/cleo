@@ -1041,6 +1041,20 @@ export interface ResourcesConfig {
   heavyCommandHook?: HeavyCommandHookMode;
 }
 
+/** Per-AC PR review settings (`review.*`, T14372). */
+export interface ReviewConfig {
+  /** Dispatched reviewer workers. */
+  workers?: {
+    /**
+     * Owner decision only: let `cleo review dispatch --counted` send reviewers
+     * whose verdicts count toward a merge. Off, every dispatch is shadow.
+     *
+     * @defaultValue false
+     */
+    counted?: boolean;
+  };
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /**
@@ -1049,6 +1063,12 @@ export interface CleoConfig {
    * @defaultValue undefined (level `full`)
    */
   lean?: LeanConfig;
+  /**
+   * Per-AC PR review settings (T14372).
+   *
+   * @defaultValue undefined (reviewer workers dispatch in shadow mode only)
+   */
+  review?: ReviewConfig;
   /** Configuration schema version string. */
   version: string;
   /** Output formatting preferences. */

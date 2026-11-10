@@ -136,15 +136,27 @@ export interface ReviewJudgement {
 /**
  * Who reviews a PR (T14372, owner decision 2026-11-10): `routine` PRs go to a
  * dispatched reviewer worker; `lead` PRs (migrations, store or sync code,
- * gates, deletions, evidence code) stay with the lead.
+ * gates, deletions, evidence and review-integrity code, or a file list that
+ * cannot be read exactly) stay with the lead.
  */
 export type ReviewRoute = 'routine' | 'lead';
 
 /** Why a PR is lead-reserved: the kind of path and the path itself. */
 export interface ReviewRouteReason {
-  /** `migration`, `store-sync`, `gate`, `deletion` or `evidence`. */
-  kind: 'migration' | 'store-sync' | 'gate' | 'deletion' | 'evidence';
-  /** The changed path that reserved it. */
+  /**
+   * `migration`, `store-sync`, `gate`, `deletion`, `evidence`,
+   * `review-integrity` (review, session, claim and instruction code), or
+   * `unrecognised` (a file entry or list that could not be read exactly).
+   */
+  kind:
+    | 'migration'
+    | 'store-sync'
+    | 'gate'
+    | 'deletion'
+    | 'evidence'
+    | 'review-integrity'
+    | 'unrecognised';
+  /** The changed path that reserved it (for a rename, either path), or what could not be read. */
   path: string;
 }
 
@@ -168,9 +180,14 @@ export interface ReviewDispatch {
   acs: string[];
   /** `shadow`: the reviewer records shadow verdicts, which never count; `counted`: real verdicts. */
   mode: 'shadow' | 'counted';
-  /** The agent id the reviewer runs under: never one of the task's authors. */
+  /** The agent id the reviewer runs under (`reviewer-<mode>-pr<n>-<sha7>`): never one of the task's authors. */
   reviewerAgentId: string;
-  /** The session that dispatched (never the reviewer's). */
+  /**
+   * The session created for the reviewer at dispatch; a verdict under
+   * `reviewerAgentId` is accepted only from it. Empty on a dry run.
+   */
+  reviewerSessionId: string;
+  /** The session that dispatched: never the reviewer's, never an author's. */
   dispatcherSessionId: string | null;
   /** ISO-8601 time it was recorded. */
   dispatchedAt: string;
@@ -202,7 +219,7 @@ export interface ReviewDispatchDecision {
 export interface ReviewShadowComparison {
   /** The criterion. */
   ac: string;
-  /** The latest counted verdict on the head, or null. */
+  /** The latest counted verdict on the head from a non-worker session, or null. */
   lead: 'met' | 'unmet' | null;
   /** The latest shadow verdict on the head, or null. */
   shadow: 'met' | 'unmet' | null;

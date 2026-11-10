@@ -28,6 +28,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type {
   ReviewAnswer,
   ReviewAuthors,
+  ReviewDispatch,
   ReviewGap,
   ReviewJudgement,
   ReviewPacket,
@@ -48,6 +49,62 @@ export const REVIEW_VERDICT_ACTION = 'review.verdict';
  * counts toward a merge.
  */
 export const REVIEW_SHADOW_VERDICT_ACTION = 'review.shadow-verdict';
+
+/** The audit action a reviewer dispatch is recorded under (T14372). */
+export const REVIEW_DISPATCH_ACTION = 'review.dispatch';
+
+/**
+ * The agent-id prefix of a dispatched reviewer worker (T14372). A verdict
+ * under such an id is accepted only from the session its dispatch created.
+ */
+export const REVIEWER_AGENT_PREFIX = 'reviewer-';
+
+/**
+ * The reviewer dispatches recorded for one task on one PR (T14372), every head.
+ *
+ * @param projectRoot - Project root.
+ * @param taskId - The task.
+ * @param prNumber - The PR.
+ * @returns The dispatches, in no particular order.
+ * @task T14372
+ */
+export async function reviewDispatchesFor(
+  projectRoot: string,
+  taskId: string,
+  prNumber: number,
+): Promise<ReviewDispatch[]> {
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const rows = await (await getTaskAccessor(projectRoot)).queryAuditLog({
+    taskIds: [taskId],
+    actions: [REVIEW_DISPATCH_ACTION],
+  });
+  const out: ReviewDispatch[] = [];
+  for (const row of rows) {
+    try {
+      const d = JSON.parse(row.detailsJson ?? 'null') as Partial<ReviewDispatch> | null;
+      if (
+        d?.prNumber === prNumber &&
+        d.taskId === taskId &&
+        typeof d.headSha === 'string' &&
+        typeof d.reviewerAgentId === 'string' &&
+        typeof d.reviewerSessionId === 'string' &&
+        (d.mode === 'shadow' || d.mode === 'counted')
+      )
+        out.push(d as ReviewDispatch);
+    } catch {
+      // A malformed row dispatches nobody.
+    }
+  }
+  return out;
+}
+
+/** Whether a verdict came from a dispatched reviewer worker rather than the lead (T14372). */
+function isWorkerVerdict(v: ReviewVerdict, workerSessions: ReadonlySet<string>): boolean {
+  return (
+    workerSessions.has(v.reviewer.sessionId) ||
+    (v.reviewer.agentId?.startsWith(REVIEWER_AGENT_PREFIX) ?? false)
+  );
+}
 
 /**
  * Audit actions that name a task's claim holders (T14213): a fresh claim, a
@@ -474,6 +531,41 @@ export async function recordReviewVerdict(
     );
   }
 
+  // T14372: a worker's verdict binds to its dispatch: the dispatch's agent id,
+  // the session the dispatch created, this head and the dispatch's mode. A
+  // `reviewer-*` id or a dispatched session alone proves nothing.
+  const dispatches = await reviewDispatchesFor(projectRoot, input.taskId, input.prNumber);
+  const workerClaimed =
+    input.shadow === true ||
+    (reviewer.agentId?.startsWith(REVIEWER_AGENT_PREFIX) ?? false) ||
+    dispatches.some((d) => d.reviewerSessionId === reviewer.sessionId);
+  if (workerClaimed) {
+    const bound = dispatches.find(
+      (d) =>
+        d.reviewerAgentId === reviewer.agentId &&
+        d.reviewerSessionId === reviewer.sessionId &&
+        d.headSha === packet.headSha,
+    );
+    if (bound === undefined) {
+      // @sync-invariant none:input-shape a worker verdict with no matching dispatch is refused before the verdict row is written
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `No dispatch of ${input.taskId} on PR #${input.prNumber} at head ${packet.headSha.slice(0, 7)} names agent ${reviewer.agentId ?? '(none)'} with session ${reviewer.sessionId}`,
+        {
+          fix: 'A reviewer worker records only under the CLEO_SESSION_ID and CLEO_AGENT_ID its `cleo review dispatch` brief names, on that head; the lead records without --shadow under its own identity.',
+        },
+      );
+    }
+    if ((bound.mode === 'shadow') !== (input.shadow === true)) {
+      // @sync-invariant none:input-shape a worker verdict whose kind differs from its dispatch is refused before the verdict row is written
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `This reviewer was dispatched in ${bound.mode} mode, so its verdict must ${bound.mode === 'shadow' ? 'carry' : 'not carry'} --shadow`,
+        { fix: 'Record the verdict exactly as the dispatch brief says.' },
+      );
+    }
+  }
+
   if (input.answers !== undefined) {
     const answered = (await reviewVerdictsFor(projectRoot, input.taskId, input.prNumber)).find(
       (v) => v.id === input.answers,
@@ -697,14 +789,17 @@ export function judgeReviewVerdicts(
 }
 
 /**
- * Each criterion's latest shadow verdict on a head next to its latest counted
- * one (T14372), so the lead can see whether a reviewer worker decides as it
- * does before routine PRs are handed over.
+ * Each criterion's latest shadow verdict on a head next to the lead's latest
+ * counted one (T14372), so the lead can see whether a reviewer worker decides
+ * as it does before routine PRs are handed over. A counted verdict from a
+ * worker (a dispatched session or a `reviewer-*` agent id) is never the lead's,
+ * so a worker is never compared with itself.
  *
  * @param verdicts - Counted verdicts ({@link reviewVerdictsFor}).
  * @param shadow - Shadow verdicts ({@link shadowVerdictsFor}).
  * @param acs - The criteria.
  * @param headSha - The PR head.
+ * @param workerSessions - Sessions created by dispatches ({@link reviewDispatchesFor}).
  * @task T14372
  */
 export function compareShadowVerdicts(
@@ -712,14 +807,16 @@ export function compareShadowVerdicts(
   shadow: readonly ReviewVerdict[],
   acs: readonly string[],
   headSha: string,
+  workerSessions: ReadonlySet<string> = new Set(),
 ): ReviewShadowComparison[] {
+  const leads = verdicts.filter((v) => !isWorkerVerdict(v, workerSessions));
   const latest = (rows: readonly ReviewVerdict[], ac: string): 'met' | 'unmet' | null =>
     rows
       .filter((v) => v.ac === ac && v.headSha === headSha)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .at(-1)?.verdict ?? null;
   return acs.map((ac) => {
-    const lead = latest(verdicts, ac);
+    const lead = latest(leads, ac);
     const s = latest(shadow, ac);
     return { ac, lead, shadow: s, agree: lead !== null && lead === s };
   });
@@ -801,7 +898,19 @@ export async function checkPrReviews(
       ...judgeReviewVerdicts(verdicts, acs, headSha, await currentAcTexts(projectRoot, taskId)),
       answered: reviewAnswers(verdicts, headSha).filter((a) => acs.includes(a.ac)),
       ...(shadow.length > 0
-        ? { shadow: compareShadowVerdicts(verdicts, shadow, acs, headSha) }
+        ? {
+            shadow: compareShadowVerdicts(
+              verdicts,
+              shadow,
+              acs,
+              headSha,
+              new Set(
+                (await reviewDispatchesFor(projectRoot, taskId, prNumber)).map(
+                  (d) => d.reviewerSessionId,
+                ),
+              ),
+            ),
+          }
         : {}),
     });
   }
