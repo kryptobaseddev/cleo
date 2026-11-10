@@ -32,6 +32,9 @@ function crashed(record: Parameters<typeof assessWorktreeLockHolder>[0]): boolea
 /**
  * Whether a task's worktree lock proves its local worker has crashed.
  * Unreadable locks, remote holders and heartbeat expiry alone are inconclusive.
+ * @param projectRoot - The lock's project.
+ * @param taskId - The owning task, when known.
+ * @returns True only for a locally verified dead or recycled holder.
  */
 export function worktreeTaskCrashed(projectRoot: string, taskId: string | null): boolean {
   if (taskId === null) return false;

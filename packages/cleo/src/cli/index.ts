@@ -808,7 +808,7 @@ async function maybeSpawnCensus(command: string | undefined): Promise<void> {
     if ((await lazySweepBlockedReason('', process.cwd())) !== null) return;
     // Skips while a census holds its lock or today's run is claimed; the child
     // is bounded (niced, a wall-clock budget, a partial record) and exits.
-    const { getProjectRoot } = await import('@cleocode/core/paths');
+    const { getProjectRoot } = await import('@cleocode/core/project-scope');
     startLazyCensus(mergeSweepChildEnv(process.env), { projectRoot: getProjectRoot() });
   } catch {
     // Never break the command over a background census.

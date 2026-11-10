@@ -54,7 +54,7 @@ import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode
 import { acquireHeartbeatLock, claimAtMostEvery } from '../tasks/merge-close.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 
-/** The lazy census runs at most this often per machine. */
+/** The lazy census runs at most this often per project. */
 export const CENSUS_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /** A census lock whose heartbeat is older than this is stale. */
@@ -202,6 +202,7 @@ function canonical(path: string): string {
  * Registered project roots from the nexus registry; `[]` when it cannot be read.
  *
  * @param load - The registry listing (default: `nexusList`; tests stub it).
+ * @param onError - Capture missing registry coverage in the census receipt.
  * @returns Each registered project's path.
  * @internal Exported for tests.
  */
@@ -570,6 +571,7 @@ export function startLazyCensus(
  * process alive. The lock is released on every exit path.
  *
  * @param dir - The census directory.
+ * @param projectRoot - The project captured by the scheduling caller.
  * @task T14275
  */
 export async function runLazyCensus(dir = censusDir(), projectRoot?: string): Promise<void> {
@@ -615,11 +617,12 @@ export function censusSpawnAllowed(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * Claim today's lazy census, atomically: true for exactly one caller per
- * {@link CENSUS_INTERVAL_MS} on this machine.
+ * Claim today's lazy census, atomically: one caller per project per interval,
+ * or one machine-wide report when no project is supplied.
  *
  * @param now - Current time (ms).
  * @param dir - The census directory (tests).
+ * @param projectRoot - The canonical project root whose daily run is claimed.
  * @returns True when this caller should start the census.
  * @task T14275
  */

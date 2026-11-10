@@ -126,7 +126,7 @@ describe('worktree census (T14275)', () => {
       return worktree(a, id);
     });
     const safe = [paths.T1!, paths.T4!, ...more];
-    for (const path of safe) git(a, 'worktree', 'lock', path);
+    for (const path of safe) git(path, 'worktree', 'lock', path);
     for (const id of ['T1', 'T6', 'T7', 'T8'])
       acquireWorktreeTaskLock({ projectHash: computeProjectHash(a), taskId: id });
     const preview = await runWorktreeCensus({ projects: [a, b], recordDir, allProjects: true });
@@ -240,7 +240,7 @@ describe('worktree census (T14275)', () => {
     });
     expect(existsSync(unique)).toBe(true);
     expect(existsSync(paths.T3!)).toBe(true);
-    expect(out.record.rows.find((r) => r.path === unique)?.keepReason).toContain('commits');
+    expect(out.record.rows.find((r) => r.path === unique)?.keepReason).toContain('on no remote');
     const remote = join(base, 'remote.git');
     git(base, 'init', '--bare', '-q', remote);
     git(a, 'remote', 'add', 'origin', remote);
@@ -381,7 +381,7 @@ describe('worktree census (T14275)', () => {
   });
 
   it('the lazy spawn claims at most one census per 24 h, never in CI, vitest or a git hook', () => {
-    const now = Date.now();
+    const now = Date.parse('2026-01-01T00:00:00Z');
     expect(claimCensus(now, recordDir)).toBe(true);
     expect(claimCensus(now + 60_000, recordDir)).toBe(false);
     expect(claimCensus(now + CENSUS_INTERVAL_MS + 1, recordDir)).toBe(true);
