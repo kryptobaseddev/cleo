@@ -68,6 +68,7 @@ import type {
   LeadDeniedTool,
   LeadMode,
   SpawnResult,
+  SpawnWorkerSession,
   WorktreeHook,
 } from '@cleocode/contracts';
 import {
@@ -127,6 +128,8 @@ import {
   resolveSpawnLockHolder,
 } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveBoundSession } from '../store/session-store.js';
+import { getTaskPipelineStageSource } from '../tasks/pipeline-stage.js';
 import { resolveLeadMailbox } from './agentmbx.js';
 import { isLeadWorkerV1Enabled, resolveIsolation } from './isolation-policy.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
@@ -569,6 +572,8 @@ export async function composeSpawnForTask(
   options: {
     tier?: 0 | 1 | 2;
     sessionId?: string | null;
+    workerSession?: SpawnWorkerSession;
+    coordinatorSessionId?: string | null;
     role?: AgentSpawnCapability;
     protocol?: string;
     skipAtomicityCheck?: boolean;
@@ -628,8 +633,11 @@ export async function composeSpawnForTask(
       tier: effectiveTier,
       projectRoot: root,
       sessionId: options.sessionId ?? null,
+      workerSession: options.workerSession,
+      coordinatorSessionId: options.coordinatorSessionId,
       role: inferredRole,
       protocol: options.protocol,
+      pipelineStageSource: await getTaskPipelineStageSource(task, accessor),
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
@@ -893,6 +901,7 @@ export async function orchestrateSpawnExecute(
     // orchestrateSpawn for the full rationale. T12500 — no fallback: a failed
     // allocation refuses the spawn with the REAL store error instead of handing
     // over the orchestrator's (newest active) session.
+    const coordinatorSessionId = (await resolveBoundSession(cwd))?.session.id ?? null;
     const spawnSession = await requireSpawnSession(cwd, taskId);
     if (!spawnSession.ok) {
       return {
@@ -913,10 +922,16 @@ export async function orchestrateSpawnExecute(
     execClaim = spawnSession;
     const activeSessionId = spawnSession.identity.sessionId;
     const spawnAgentId = spawnSession.identity.agentId;
+    const workerSession: SpawnWorkerSession = {
+      ...spawnSession.identity,
+      role: opts.lead ? 'lead' : 'worker',
+    };
 
-    const payload = await composeSpawnForTask(taskId, cwd, {
+    let payload = await composeSpawnForTask(taskId, cwd, {
       tier,
       sessionId: activeSessionId,
+      workerSession,
+      coordinatorSessionId,
       protocol: protocolType,
       ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
       // T14363 — a lead is told it is one: the ct-lead excerpt and dispatch rules load.
@@ -981,14 +996,6 @@ export async function orchestrateSpawnExecute(
     // body was substituted (T1238), it is prepended to the composer prompt
     // so subagents receive the fully-resolved template alongside the
     // standard spawn context.
-    const composedPrompt = templateSubstitution.resolvedBody
-      ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
-      : payload.prompt;
-    // T14363 — a lead's mode-specific instructions (how it asks the owner).
-    const rawPrompt = opts.lead?.promptAppendix
-      ? `${composedPrompt}\n\n${opts.lead.promptAppendix}`
-      : composedPrompt;
-
     // T1759 — Worktree provisioning + centralized isolation.
     //
     // Provision a worktree for the task so the agent runs in its own isolated
@@ -998,7 +1005,11 @@ export async function orchestrateSpawnExecute(
     // `orchestrate.leadWorker.v1` on (or a `--base` asked for) the spawn is
     // refused; otherwise it falls back to the project root without isolation.
     let agentWorkingDirectory = cwd;
-    let agentEnvOverride: Record<string, string> | undefined;
+    let agentEnvOverride: Record<string, string> = {
+      CLEO_SESSION_ID: activeSessionId,
+      CLEO_AGENT_ID: spawnAgentId,
+      CLEO_AGENT_ROLE: opts.lead ? 'lead' : 'worker',
+    };
     const leadWorkerV1 = await isLeadWorkerV1Enabled(cwd);
     const provisionWorktree = async () => {
       const worktreeResult = await spawnWorktree(cwd, {
@@ -1039,6 +1050,15 @@ export async function orchestrateSpawnExecute(
           token: worktreeResult.lock.record.token,
         };
       }
+      payload = await composeSpawnForTask(taskId, cwd, {
+        tier,
+        workerSession,
+        coordinatorSessionId,
+        protocol: protocolType,
+        worktreePath: worktreeResult.path,
+        worktreeBranch: worktreeResult.branch,
+        ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
+      });
     } else if (isolationResolution.kind === 'refused') {
       const wtErr = isolationResolution.error;
       // T12506: a live holder owns this task's worktree. Degrading to the
@@ -1092,25 +1112,27 @@ export async function orchestrateSpawnExecute(
         { taskId },
         'T1759 worktree provisioning failed in orchestrateSpawnExecute — spawning without isolation',
       );
-    } else {
-      // T14363 — the lead runs under its OWN allocated CLEO session, never the
-      // caller's: verbs it runs through the runner (`review verdict`,
-      // `merge train`) act as the lead.
-      agentEnvOverride = {
-        CLEO_SESSION_ID: activeSessionId,
-        CLEO_AGENT_ROLE: 'lead',
-        ...(spawnAgentId ? { CLEO_AGENT_ID: spawnAgentId } : {}),
-      };
     }
 
+    if (!payload.atomicity.allowed) return atomicityRefusal(taskId, payload);
+    const composedPrompt = templateSubstitution.resolvedBody
+      ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
+      : payload.prompt;
+    // A lead's mode-specific instructions follow the final bound prompt.
+    const rawPrompt = opts.lead?.promptAppendix
+      ? `${composedPrompt}\n\n${opts.lead.promptAppendix}`
+      : composedPrompt;
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: payload.taskId,
       protocol: protocolType || payload.meta.protocol,
+      protocolResolution: payload.meta.protocolResolution,
+      workerSession,
+      coordinatorSessionId,
       prompt: rawPrompt,
       provider: provider.id,
       options: {
         prompt: rawPrompt,
-        ...(agentEnvOverride !== undefined ? { env: agentEnvOverride } : {}),
+        env: agentEnvOverride,
       },
       workingDirectory: agentWorkingDirectory,
       tokenResolution: {
@@ -1730,6 +1752,7 @@ export async function orchestrateSpawn(
     spawnLease = leased.lease;
     spawnLeaseReused = leased.reused;
 
+    const coordinatorSessionId = (await resolveBoundSession(root))?.session.id ?? null;
     const spawnSession = await requireSpawnSession(root, taskId);
     if (!spawnSession.ok) {
       spawnLogger.error({ taskId, cause: spawnSession.cause }, 'spawn session allocation failed');
@@ -2002,6 +2025,8 @@ export async function orchestrateSpawn(
       composeSpawnForTask(taskId, root, {
         tier,
         sessionId: activeSessionId,
+        workerSession: spawnSession.identity,
+        coordinatorSessionId,
         protocol: protocolType,
         worktreePath,
         worktreeBranch,
@@ -2085,6 +2110,8 @@ export async function orchestrateSpawn(
         harnessHint: payload.harnessHint,
         atomicity: payload.atomicity,
         meta: payload.meta,
+        workerSession: spawnSession.identity,
+        coordinatorSessionId,
         // T1118 L1+L2 / T1140 — worktree binding for harness adapters.
         worktree: worktreeAdapterResult?.worktree ?? null,
         worktreeEnv: worktreeAdapterResult?.envVars ?? null,
@@ -2097,6 +2124,9 @@ export async function orchestrateSpawn(
           protocolType: protocolType || payload.meta.protocol,
           tier: payload.tier,
           prompt: finalPrompt,
+          workerSession: spawnSession.identity,
+          coordinatorSessionId,
+          protocolResolution: payload.meta.protocolResolution,
         },
         protocolType: protocolType || payload.meta.protocol,
         sessionId: activeSessionId,

@@ -385,6 +385,15 @@ describe('manifest example — one append, the same entry read back (T12521)', (
 });
 
 describe('buildSpawnPrompt — session linkage', () => {
+  it('the shared subagent startup recipe preserves the preallocated claim', () => {
+    const shared = readFileSync(
+      new URL('../../../../skills/skills/_shared/subagent-protocol-base.md', import.meta.url),
+      'utf8',
+    );
+    expect(shared).toContain('preallocated');
+    expect(shared).not.toContain('Always `cleo start` before work');
+    expect(shared).toContain('Do not start another session');
+  });
   it('embeds the session id when provided', () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
@@ -393,7 +402,13 @@ describe('buildSpawnPrompt — session linkage', () => {
       sessionId: 'ses_20260417_abc123',
     });
     expect(result.prompt).toContain('ses_20260417_abc123');
-    expect(result.prompt).toContain('Orchestrator Session');
+    expect(result.prompt).toContain('Worker Session');
+    expect(result.prompt).toContain(
+      "export CLEO_SESSION_ID='ses_20260417_abc123' CLEO_AGENT_ID='agent-t9000'",
+    );
+    expect(result.prompt).toContain(
+      'Do not start another session, re-claim the task, or force-claim it',
+    );
   });
 
   it('surfaces a clear notice when no session is available', () => {
@@ -403,7 +418,61 @@ describe('buildSpawnPrompt — session linkage', () => {
       projectRoot: PROJECT_ROOT,
       sessionId: null,
     });
-    expect(result.prompt).toContain('No active orchestrator session');
+    const linkage = result.prompt.split('## Session Linkage')[1]?.split('## ')[0] ?? '';
+    expect(linkage).toContain('No allocated worker session');
+    expect(linkage).toContain('Return blocked to the coordinator');
+    expect(linkage).not.toContain('cleo session start');
+  });
+
+  it('quotes both identity values and preserves a lead role in the per-command export', () => {
+    const workerSession = { sessionId: "ses_'$(printf injected)", agentId: "agent'quoted" };
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      projectRoot: PROJECT_ROOT,
+      tier: 0,
+      role: 'lead',
+      workerSession: { ...workerSession, role: 'lead' },
+    });
+    const binding = /\*\*Command binding\*\*:.*?`(export [^`]+)`/.exec(result.prompt)?.[1];
+    expect(binding).toBeDefined();
+    const run = spawnSync(
+      'sh',
+      ['-c', `${binding}\nprintf '%s\\n' "$CLEO_SESSION_ID" "$CLEO_AGENT_ID" "$CLEO_AGENT_ROLE"`],
+      { encoding: 'utf8' },
+    );
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe(`${workerSession.sessionId}\n${workerSession.agentId}\nlead\n`);
+  });
+
+  it('keeps concurrent workers bound to their allocated identity, separately from the coordinator', () => {
+    for (const id of ['T9011', 'T9012']) {
+      const workerSession = { sessionId: `ses_${id}`, agentId: `allocated-${id}` };
+      const result = buildSpawnPrompt({
+        task: { ...BASE_TASK, id },
+        protocol: 'implementation',
+        tier: 0,
+        projectRoot: PROJECT_ROOT,
+        sessionId: 'legacy-session-must-not-win',
+        agentId: 'legacy-agent-must-not-win',
+        workerSession,
+        coordinatorSessionId: 'ses_coordinator',
+        worktreePath: `/worktrees/project/${id}`,
+      });
+      expect(result.prompt).toContain(`**Worker Session**: \`${workerSession.sessionId}\``);
+      expect(result.prompt).toContain(
+        '**Coordinator Session (reference only)**: `ses_coordinator`',
+      );
+      expect(result.prompt).toContain(
+        `CLEO_SESSION_ID='${workerSession.sessionId}' CLEO_AGENT_ID='${workerSession.agentId}'`,
+      );
+      expect(result.prompt).not.toContain('legacy-session-must-not-win');
+      expect(result.prompt).not.toContain('legacy-agent-must-not-win');
+      expect(result.prompt).not.toContain("CLEO_SESSION_ID='ses_coordinator'");
+      expect(result.prompt).toContain(
+        'If your session or claim has expired or belongs to someone else, return blocked',
+      );
+    }
   });
 });
 

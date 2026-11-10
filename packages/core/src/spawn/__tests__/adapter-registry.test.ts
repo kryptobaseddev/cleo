@@ -168,4 +168,18 @@ describe('bridgeSpawnAdapter lead tool strip (T14357)', () => {
     expect(received).toHaveLength(2);
     for (const ctx of received) expect(ctx.leadDeniedTools).toBeUndefined();
   });
+
+  it('preserves the allocated worker binding and protocol authority across the execution bridge', async () => {
+    const { delegate, received } = createDelegate();
+    const context: CLEOSpawnContext = {
+      ...base,
+      workerSession: { sessionId: 'ses_worker', agentId: 'agent-t1' },
+      coordinatorSessionId: 'ses_coordinator',
+      protocolResolution: { protocol: 'implementation', source: 'pipelineStage', conflicts: [] },
+    };
+    await bridgeSpawnAdapter('p', delegate).spawn(context);
+    expect(received[0]?.workerSession).toEqual(context.workerSession);
+    expect(received[0]?.coordinatorSessionId).toBe('ses_coordinator');
+    expect(received[0]?.protocolResolution).toEqual(context.protocolResolution);
+  });
 });
