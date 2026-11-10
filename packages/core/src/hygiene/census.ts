@@ -341,9 +341,12 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
         crashed: worktree.isCrashed === true,
       };
       // A known task id without readable task state is not a taskless orphan.
-      if (row.taskId !== null && row.taskStatus === null) {
+      if (row.taskStatus === null && (row.taskId !== null || row.category === 'redundant')) {
         row.category = 'unknown';
-        row.keepReason = 'owning task state unavailable (report only)';
+        row.keepReason =
+          row.taskId === null
+            ? 'task ownership unavailable (report only)'
+            : 'owning task state unavailable (report only)';
       }
       rows.push(row);
       meta.set(row, worktree);
