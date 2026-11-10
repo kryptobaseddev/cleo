@@ -22,6 +22,7 @@ import type {
 } from '../store/schema/agent-schema.js';
 // T14387: the live table is the prefixed twin. The bare `agent_instances` carries FKs to the
 // bare `tasks`/`sessions` decoys, so every task- or session-bound row there failed its FK check.
+// Bare `agent_error_log` rows an older build writes drain into the twin at every open (T14399).
 import {
   tasksAgentErrorLog as agentErrorLog,
   tasksAgentInstances as agentInstances,
@@ -150,7 +151,7 @@ export interface UpdateStatusOptions {
 /**
  * Update agent status with optional error tracking.
  * When status is 'error' or 'crashed', increments the error count
- * and logs the error to the agent_error_log table.
+ * and logs the error to the tasks_agent_error_log table.
  */
 export async function updateAgentStatus(
   id: string,

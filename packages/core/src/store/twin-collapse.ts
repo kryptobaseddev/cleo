@@ -145,7 +145,10 @@
  * lossless and takes no snapshot; the twin is correct whatever the bare table
  * holds, so a failed drain degrades nothing (contract 5 does not apply) and is
  * retried at the next open; and a long backlog drains in bounded transactions.
- * See `TOKEN_USAGE`.
+ * See `TOKEN_USAGE`. `audit_log` (T13777) and `agent_error_log` (T14399)
+ * drain the same way; the agent error log numbers rows from 1 in both
+ * tables, so a bare id the twin holds for another row lands under a fresh
+ * twin id (`AGENT_ERROR_LOG`).
  *
  * `playbook_runs` + `playbook_approvals` → `tasks_playbook_runs` +
  * `tasks_playbook_approvals` (T12535) is a lossless CARRY then a freeze: this
@@ -380,6 +383,12 @@ interface Plan {
   fullHashes?: Map<string, string>;
   /** Lossless drain only: more undecided bare rows remain after this bounded plan. */
   truncated?: boolean;
+  /**
+   * Re-keyed drain only (T14399): bare rows whose id the twin holds for another
+   * row, bare id → the carried values (as in `set`); each lands under a fresh
+   * twin id.
+   */
+  rekeyed?: Map<string, string>;
 }
 
 /** One bare/twin pair. */
@@ -1839,7 +1848,7 @@ const DOCS: TwinPair = {
   },
 };
 
-// ── id-keyed drains: token_usage (T13115), audit_log (T13777) ───────────────
+// ── id-keyed drains: token_usage (T13115), audit_log (T13777), agent_error_log (T14399)
 
 /** Most bare rows one drain transaction decides; a longer backlog drains in several. */
 const DRAIN_CHUNK = 2000;
@@ -1870,6 +1879,13 @@ interface DrainSpec {
   readonly rename: Readonly<Record<string, string>>;
   /** The per-row savepoint name. */
   readonly savepoint: string;
+  /**
+   * The id is a per-table integer counter (AUTOINCREMENT), not globally unique
+   * (T14399): a bare id the twin holds for a different row is carried under a
+   * fresh twin id (`renamed` lists `<bare id> -> <twin id>`) instead of being
+   * left behind, since both builds allocate ids from 1.
+   */
+  readonly rekey?: boolean;
 }
 
 /** JSON of `cols` of one row (missing values as null). */
@@ -2000,7 +2016,12 @@ function bareChangeSeq(db: DatabaseSync, spec: DrainSpec): string | undefined {
  * being taken for "left behind" before it was decided.
  */
 function planDrain(db: DatabaseSync, spec: DrainSpec, state: CollapseState | undefined): Plan {
-  const plan: Plan = { ...emptyPlan(), leftBehind: new Map(), fullHashes: new Map() };
+  const plan: Plan = {
+    ...emptyPlan(),
+    leftBehind: new Map(),
+    fullHashes: new Map(),
+    rekeyed: new Map(),
+  };
   const left = plan.leftBehind as Map<string, string>;
   const shape = drainShape(db, spec, 'main');
   if (shape === null) return plan;
@@ -2061,7 +2082,10 @@ function planDrain(db: DatabaseSync, spec: DrainSpec, state: CollapseState | und
       plan.set.set(id, json);
       plan.fullHashes?.set(id, hash);
     } else if (twin === json) plan.del.push(id);
-    else keepLeft(id, hash, `${id}: kept in ${spec.bare} (${spec.twin} holds another copy)`);
+    else if (spec.rekey) {
+      plan.rekeyed?.set(id, json);
+      plan.fullHashes?.set(id, hash);
+    } else keepLeft(id, hash, `${id}: kept in ${spec.bare} (${spec.twin} holds another copy)`);
   }
   // Rows left behind earlier that this bounded pass did not reach stay left
   // behind while they are unchanged.
@@ -2097,15 +2121,26 @@ function applyDrain(
   const removeBare = db.prepare(`DELETE FROM main.${spec.bare} WHERE "id" = ?`);
   let inserted = 0;
   let deleted = 0;
-  for (const [id, json] of plan.set) {
+  const idAt = shape.twinCols.indexOf('id');
+  const carries: Array<[string, string, boolean]> = [
+    ...[...plan.set].map(([id, json]): [string, string, boolean] => [id, json, false]),
+    ...[...(plan.rekeyed ?? [])].map(([id, json]): [string, string, boolean] => [id, json, true]),
+  ];
+  for (const [id, json, rekey] of carries) {
     db.exec(`SAVEPOINT ${spec.savepoint}`);
     try {
-      insert.run(...(JSON.parse(json) as Array<string | number | null>));
-      if (twinRowJson(shape, id) !== json)
+      const values = JSON.parse(json) as Array<string | number | null>;
+      // A re-keyed row takes the twin's next id (T14399).
+      if (rekey) values[idAt] = null;
+      const stored = insert.run(...values).lastInsertRowid;
+      if (rekey) values[idAt] = Number(stored);
+      const at = rekey ? String(stored) : id;
+      if (twinRowJson(shape, at) !== JSON.stringify(values))
         // @sync-invariant none:local-only re-reads a row this device's own drain just inserted; the savepoint rolls it back and the row stays in the bare table
         throw new Error('the stored row differs');
       db.exec(`RELEASE ${spec.savepoint}`);
       inserted++;
+      if (rekey) plan.renamed.push(`${id} -> ${at}`);
     } catch (error) {
       db.exec(`ROLLBACK TO ${spec.savepoint}`);
       db.exec(`RELEASE ${spec.savepoint}`);
@@ -2163,7 +2198,7 @@ function drainPair(spec: DrainSpec): TwinPair {
           // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
           throw new Error(`${spec.bare} collapse did not verify the carried row ${id}`);
       }
-      for (const id of [...plan.set.keys(), ...plan.del]) {
+      for (const id of [...plan.set.keys(), ...(plan.rekeyed?.keys() ?? []), ...plan.del]) {
         if (!refused.has(id) && left.get(id) !== undefined)
           // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
           throw new Error(`${spec.bare} collapse did not verify the drain of ${id}`);
@@ -2199,6 +2234,21 @@ const AUDIT_LOG: TwinPair = drainPair({
   twin: DRAINED_TWINS['audit_log'] ?? 'tasks_audit_log',
   rename: { idempotency_key: 'dispatch_idempotency_key' },
   savepoint: 'audit_log_row',
+});
+
+/**
+ * `agent_error_log` → `tasks_agent_error_log` (T14399): agent error history,
+ * append-only, which this build reads and writes only in the twin since
+ * T14387, so an older build's rows (and those of every store written before
+ * T14387) reach the twin's readers and its sync. Both tables number rows from
+ * 1, so a bare id the twin already holds for another row lands re-keyed.
+ */
+const AGENT_ERROR_LOG: TwinPair = drainPair({
+  bare: 'agent_error_log',
+  twin: DRAINED_TWINS['agent_error_log'] ?? 'tasks_agent_error_log',
+  rename: {},
+  savepoint: 'agent_error_log_row',
+  rekey: true,
 });
 
 // ── playbook_runs + playbook_approvals ───────────────────────────────────────
@@ -2407,6 +2457,7 @@ const PAIRS: readonly TwinPair[] = [
   DOCS,
   TOKEN_USAGE,
   AUDIT_LOG,
+  AGENT_ERROR_LOG,
   PLAYBOOKS,
 ];
 
