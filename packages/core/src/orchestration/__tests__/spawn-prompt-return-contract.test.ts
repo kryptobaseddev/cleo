@@ -11,6 +11,7 @@
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateTokens } from '../../metrics/token-estimation.js';
+import { checkWorkerReport } from '../../orchestrate/worker-report.js';
 import { validateReturnMessage } from '../../skills/validation.js';
 import { checkReturnFormat } from '../../validation/compliance.js';
 import { checkReturnMessageFormat } from '../../validation/protocol-common.js';
@@ -101,15 +102,34 @@ describe('rendered return template passes every validator (T12521)', () => {
       .trim()
       .replace('<complete|partial|blocked>', 'partial')
       .replace('<entryId>', `T12489-${protocol}-20260929`)
-      .replace('<sha7,sha7|none>', 'abc1234')
-      .replace('<gate>=<pass|fail|skip> ...', 'implemented=pass testsPassed=fail')
-      .replace('<≤12 words|none>', 'flaky fixture needs owner decision');
+      .replace('<result>', 'fixture half done')
+      .replace('<none|why>', 'flaky fixture needs owner decision')
+      .replace('<cmd> => exit <n>|<PR|sha|file>', 'abc1234');
     const legacy = `${type} complete. Manifest appended to pipeline_manifest.`;
     for (const message of [filled, legacy]) {
       expect(checkReturnMessageFormat(message, protocol), message).toBe(true);
       expect(checkReturnFormat(message), message).toBe(true);
       expect(validateReturnMessage(message).valid, message).toBe(true);
     }
+  });
+});
+
+describe('rendered template, filled, passes cleo done --report (T14361)', () => {
+  it('a complete report is accepted; the same report without proof is refused', () => {
+    const template = contractBlocks('implementation').split('```')[1] ?? '';
+    const filled = template
+      .trim()
+      .replace('<complete|partial|blocked>', 'complete')
+      .replace('<entryId>', 'T12489-implementation-20261109')
+      .replace('<result>', 'return contract rewritten')
+      .replace('<none|why>', 'none')
+      .replace('<cmd> => exit <n>|<PR|sha|file>', 'pnpm exec vitest run a.test.ts => exit 0');
+    expect(checkWorkerReport(filled)).toMatchObject({ ok: true });
+    const noProof = filled
+      .split('\n')
+      .filter((line) => !line.startsWith('proof:'))
+      .join('\n');
+    expect(checkWorkerReport(noProof)).toMatchObject({ ok: false, code: 'E_WORKER_REPORT_PROOF' });
   });
 });
 

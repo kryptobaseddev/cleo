@@ -207,8 +207,12 @@ describe('T12273 package artifact checks reach the required PR and merge-group g
       .concat([['docs/usage.md', false]]),
   )('evaluates packed verification for the independent input %s as %s', (changedPath, expected) => {
     // The path terms are wrapped in `( ... ) && version_only != 'true'`: the
-    // release bump-PR shape skips packed verification (ci-detect-version-only).
-    const wrapped = /^\((.*)\) && needs\.changes\.outputs\.version_only != 'true'$/.exec(job.if);
+    // release bump-PR shape skips packed verification (ci-detect-version-only),
+    // and so does a draft pull request (T14385).
+    const wrapped =
+      /^\((.*)\) && needs\.changes\.outputs\.version_only != 'true' && needs\.changes\.outputs\.draft != 'true'$/.exec(
+        job.if,
+      );
     expect(wrapped, `unsupported gate expression: ${job.if}`).not.toBeNull();
     const enabled = wrapped[1]
       .split(' || ')

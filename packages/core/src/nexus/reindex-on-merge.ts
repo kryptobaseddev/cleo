@@ -96,16 +96,32 @@ export interface ReindexOnMergeDeps {
 }
 
 /**
- * One attempt: `cleo run --class scan -- cleo nexus analyze <root>`, never
- * `--wait`. Analyze is incremental by default: it parses only the files that
- * changed since the indexed revision.
+ * The `cleo` arguments of one refresh attempt: `run --class scan -- cleo
+ * nexus analyze <root>`, never `--wait`. The git command whose hook started it
+ * is admitted light (T14384); this refresh is the scan-class job.
+ *
+ * @param projectRoot - The checkout to analyze.
+ * @returns The arguments passed to `cleo`.
+ *
+ * @example
+ * ```ts
+ * admittedAnalyzeArgs('/repo'); // ['run', '--class', 'scan', '--', 'cleo', 'nexus', 'analyze', '/repo']
+ * ```
+ */
+export function admittedAnalyzeArgs(projectRoot: string): string[] {
+  return ['run', '--class', 'scan', '--', 'cleo', 'nexus', 'analyze', projectRoot];
+}
+
+/**
+ * One attempt (see {@link admittedAnalyzeArgs}). Analyze is incremental by
+ * default: it parses only the files that changed since the indexed revision.
  */
 const runAdmittedAnalyze: ReindexRunner = (projectRoot) => {
-  const child = spawnSync(
-    'cleo',
-    ['run', '--class', 'scan', '--', 'cleo', 'nexus', 'analyze', projectRoot],
-    { cwd: projectRoot, encoding: 'utf-8', stdio: ['ignore', 'ignore', 'pipe'] },
-  );
+  const child = spawnSync('cleo', admittedAnalyzeArgs(projectRoot), {
+    cwd: projectRoot,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
   return { exitCode: child.status, stderr: (child.stderr ?? '').slice(-500) };
 };
 

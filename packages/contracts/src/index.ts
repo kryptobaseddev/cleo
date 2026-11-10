@@ -308,6 +308,7 @@ export type {
   NexusFreshnessConfig,
   NexusReindexOnMergeConfig,
   OrchestrateConfig,
+  OrchestrateContextThresholds,
   OrchestrateLeadWorkerConfig,
   OutputConfig,
   OutputFormat,
@@ -3353,10 +3354,17 @@ export {
 export type {
   ReviewAnswer,
   ReviewAuthors,
+  ReviewDispatch,
+  ReviewDispatchDecision,
+  ReviewDispatchResult,
   ReviewGap,
   ReviewJudgement,
   ReviewPacket,
   ReviewPacketCriterion,
+  ReviewRoute,
+  ReviewRouteReason,
+  ReviewRouting,
+  ReviewShadowComparison,
   ReviewVerdict,
 } from './review-verdict.js';
 // === Sync schema version, shared by the change journal and the cloud vault (T13034) ===

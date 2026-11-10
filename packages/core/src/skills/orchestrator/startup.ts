@@ -12,6 +12,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Task, TaskRef, TaskRefPriority } from '@cleocode/contracts';
+import { migrateLegacyConfigKeys } from '../../config/legacy-keys.js';
 import { getCleoDirAbsolute } from '../../paths.js';
 import { readLiveFocus, resolveFocusSessionId } from '../../sessions/focus-state-store.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
@@ -37,7 +38,11 @@ const DEFAULT_THRESHOLDS: OrchestratorThresholds = { warning: 70, critical: 80 }
  * @task T4519
  */
 export function getThresholds(config?: Record<string, unknown>): OrchestratorThresholds {
-  const orc = (config as Record<string, Record<string, Record<string, unknown>>>)?.orchestrator
+  // Read-old, write-new (T14375): a config still carrying the legacy
+  // `orchestrator.contextThresholds` key resolves as `orchestrate.contextThresholds`.
+  const normalized: Record<string, unknown> = config ? structuredClone(config) : {};
+  migrateLegacyConfigKeys(normalized);
+  const orc = (normalized as Record<string, Record<string, Record<string, unknown>>>).orchestrate
     ?.contextThresholds;
   const warning = typeof orc?.warning === 'number' ? orc.warning : DEFAULT_THRESHOLDS.warning;
   const critical = typeof orc?.critical === 'number' ? orc.critical : DEFAULT_THRESHOLDS.critical;
