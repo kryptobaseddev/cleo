@@ -36,9 +36,19 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import type { AgentSpawnCapability, AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
+import type {
+  AgentSpawnCapability,
+  AgentTier,
+  ResolvedAgent,
+  Task,
+  TaskPipelineStageSource,
+} from '@cleocode/contracts';
 import type { ProjectWorkerPolicy } from '@cleocode/contracts/config/worker-policy.js';
 import { ThinAgentViolationError } from '@cleocode/contracts/errors.js';
+import type {
+  SpawnProtocolResolution,
+  SpawnWorkerSession,
+} from '@cleocode/contracts/spawn-types.js';
 import { resolveOrCwd } from '../paths.js';
 import { resolveAgent } from '../store/agent-resolver.js';
 import { type AtomicityResult, checkAtomicity } from './atomicity.js';
@@ -50,7 +60,7 @@ import {
 } from './classify.js';
 import { collectOrchestrateDashboard, formatDashboardPromptSummary } from './dashboard.js';
 import { type HarnessHint, resolveHarnessHint } from './harness-hint.js';
-import { autoDispatch } from './index.js';
+import { resolveSpawnProtocol } from './index.js';
 import { effectiveLeanLevel } from './lean-change.js';
 import {
   buildSpawnPrompt,
@@ -88,7 +98,8 @@ export interface ComposeSpawnPayloadOptions {
   /** Force a specific tier. Default: auto-select from role. */
   tier?: SpawnTier;
   /**
-   * Force role. Default: resolved from `ResolvedAgent.orchLevel`.
+   * Force coordination role for guidance/tiering. Default: resolved from `ResolvedAgent.orchLevel`.
+   * Shell privileges come separately from the dispatch-bound workerSession.role.
    * Mirrors the `AgentSpawnCapability` taxonomy so the atomicity guard can
    * consume the role directly without remapping.
    */
@@ -146,16 +157,22 @@ export interface ComposeSpawnPayloadOptions {
    */
   scope?: 'orchestrator-defer';
   /**
-   * Protocol phase to dispatch. Default: {@link autoDispatch} result for the
+   * Protocol phase to dispatch. Default: {@link resolveSpawnProtocol} result for the
    * task. Callers that have already dispatched externally can pin the
    * phase here to avoid a redundant classification.
    */
   protocol?: SpawnProtocolPhase | string;
+  /** Committed task-stage provenance; absent legacy evidence remains unknown. */
+  pipelineStageSource?: TaskPipelineStageSource;
   /**
-   * Orchestrator's active session id to thread into the prompt so the
-   * subagent logs every mutation against the caller's session.
+   * Allocated worker session id, retained for legacy callers.
+   * Prefer {@link workerSession} to bind the worker's agent identity as well.
    */
   sessionId?: string | null;
+  /** Allocated worker session and claim identity, distinct from its persona. */
+  workerSession?: SpawnWorkerSession;
+  /** Coordinator session for correlation only; never exported to the worker. */
+  coordinatorSessionId?: string | null;
   /**
    * CANT peer identifier for the spawned agent (T1260 PSYCHE E3).
    *
@@ -272,9 +289,13 @@ export interface ComposeSpawnPayloadOptions {
 export interface SpawnPayload {
   /** Task id the spawn is about (mirrors `task.id`). */
   taskId: string;
+  /** Allocated worker identity preserved for the execution backend. */
+  workerSession?: SpawnWorkerSession;
+  /** Coordinator session for correlation only. */
+  coordinatorSessionId?: string | null;
   /** Agent id the spawn is routed to. */
   agentId: string;
-  /** Role the agent will execute as. */
+  /** Coordination role for guidance; shell privileges come from workerSession.role. */
   role: AgentSpawnCapability;
   /** Tier of the rendered prompt. */
   tier: SpawnTier;
@@ -371,6 +392,8 @@ export interface SpawnPayloadMeta {
   promptChars: number;
   /** Protocol phase the prompt was rendered for. */
   protocol: string;
+  /** Protocol authority and disagreements, separate from persona classification. */
+  protocolResolution: SpawnProtocolResolution;
   /** ISO 8601 timestamp when the payload was generated. */
   generatedAt: string;
   /** Pinned composer contract version — bump on breaking changes. */
@@ -565,6 +588,7 @@ export async function composeSpawnPayload(
   options: ComposeSpawnPayloadOptions = {},
 ): Promise<SpawnPayload> {
   const projectRoot = resolveOrCwd(options.projectRoot);
+  const sessionId = options.workerSession?.sessionId ?? options.sessionId ?? null;
   const workerPolicy = await resolveProjectWorkerPolicy(projectRoot);
 
   // 1. Agent id resolution.
@@ -708,13 +732,13 @@ export async function composeSpawnPayload(
   //     available. Best-effort: errors are silently swallowed so a broken brain.db
   //     never blocks spawn. The bundle may be empty until T1147 W7 (.132) sweeps.
   let retrievalBundle: import('@cleocode/contracts').RetrievalBundle | undefined;
-  if (tier >= 1 && options.sessionId) {
+  if (tier >= 1 && sessionId) {
     try {
       const { buildRetrievalBundle } = await import('../memory/brain-retrieval.js');
       retrievalBundle = await buildRetrievalBundle(
         {
           peerId: options.peerId ?? 'global',
-          sessionId: options.sessionId,
+          sessionId,
           passMask: { cold: true, warm: true, hot: true },
         },
         projectRoot,
@@ -839,11 +863,16 @@ export async function composeSpawnPayload(
   // 7. Build the prompt via the T882 engine. The engine is now the internal
   //    assembler; callers that previously imported buildSpawnPrompt directly
   //    continue to work unchanged.
-  const protocol = options.protocol ?? autoDispatch(task);
+  const protocolResolution = resolveSpawnProtocol(
+    task,
+    options.protocol,
+    options.pipelineStageSource,
+  );
+  const protocol = protocolResolution.protocol;
   const shouldEmbedInjection = options.embedInjection ?? harnessHint !== 'claude-code';
   const { level: leanLevel } = await effectiveLeanLevel({
     projectRoot,
-    sessionId: options.sessionId ?? null,
+    sessionId,
   });
   const promptResult = buildSpawnPrompt({
     task,
@@ -853,7 +882,10 @@ export async function composeSpawnPayload(
     // ct-cleo + ct-lead excerpts (T9213) instead of a worker prompt.
     role,
     projectRoot,
-    sessionId: options.sessionId ?? null,
+    sessionId,
+    workerSession: options.workerSession,
+    coordinatorSessionId: options.coordinatorSessionId,
+    protocolResolution,
     leanLevel,
     workerPolicy,
     harnessHint,
@@ -882,6 +914,7 @@ export async function composeSpawnPayload(
     dedupSavedChars: effectiveDedup,
     promptChars: promptResult.prompt.length,
     protocol: promptResult.protocol,
+    protocolResolution,
     generatedAt: new Date().toISOString(),
     composerVersion: '3.0.0',
     classify: {
@@ -902,6 +935,8 @@ export async function composeSpawnPayload(
 
   return {
     taskId: task.id,
+    ...(options.workerSession ? { workerSession: options.workerSession } : {}),
+    ...(options.coordinatorSessionId ? { coordinatorSessionId: options.coordinatorSessionId } : {}),
     agentId: resolvedAgent.agentId,
     role,
     tier,

@@ -29,6 +29,7 @@
  * @task T14359
  */
 
+import { isAbsolute } from 'node:path';
 import type { AgentSuiteOwnership } from '@cleocode/contracts';
 import { and, eq, isNull } from 'drizzle-orm';
 import { generateAgentId } from '../agents/registry.js';
@@ -171,9 +172,10 @@ export async function recordWorker(worker: NewWorkerRecord, cwd?: string): Promi
  * List every persisted worker record, newest first.
  *
  * @param cwd - Project root.
+ * @param strict - Refuse incomplete ownership metadata before destructive cleanup.
  * @returns All worker records, open and stopped.
  */
-export async function listWorkerRecords(cwd?: string): Promise<WorkerRecord[]> {
+export async function listWorkerRecords(cwd?: string, strict = false): Promise<WorkerRecord[]> {
   const db = await getDb(cwd);
   const rows = await db
     .select()
@@ -183,6 +185,14 @@ export async function listWorkerRecords(cwd?: string): Promise<WorkerRecord[]> {
   const records: WorkerRecord[] = [];
   for (const row of rows) {
     const meta = parseWorkerMetadata(row);
+    if (
+      strict &&
+      row.stoppedAt === null &&
+      (!meta || typeof meta.worktree !== 'string' || !isAbsolute(meta.worktree))
+    ) {
+      // @sync-invariant none:local-only unreadable local worker ownership forbids worktree cleanup
+      throw new Error(`Worker ownership unavailable for ${row.id}`);
+    }
     if (meta) records.push(toWorkerRecord(row, meta));
   }
   return records.sort((a, b) => b.startedAt.localeCompare(a.startedAt));

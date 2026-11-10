@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { GhPrViewPayload, MergeSweepResult, ReviewVerdict } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CURRENT_HEAD_STAND_IN_OPEN } from '../../release/ci-evidence.js';
 import { getActiveSessionInfo } from '../../sessions/session-enforcement.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
@@ -892,12 +893,33 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     world.mergeRun = { runId: 90, status: 'completed', conclusion: 'failure' };
     const result = await sweepMergedClosures(root, { force: true }, deps);
     expect(result.refused[0]?.reason).toMatch(/CI: failure/);
+    // T14434: it names the commands that close the task, never `done --plan`
+    // (which offers the refused ci:<pr> again).
+    expect(result.refused[0]?.reason).toContain(
+      `cleo verify ${id} --gate testsPassed --evidence tool:test-affected`,
+    );
+    expect(result.refused[0]?.reason).toContain(`cleo complete ${id}`);
+    expect(result.refused[0]?.reason).not.toMatch(/--plan/);
     expect([result.waiting, result.reran]).toEqual([0, 0]);
     expect(calls.reruns).toEqual([]);
     expect(calls.comments).toHaveLength(1);
   });
 
-  it("reruns are off by default until T14136 (rerun joins main's push concurrency group)", () => {
+  it('T14434: a failed merge run waits while a green head run will stand in, and is not rerun', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, calls, world } = fakeDeps([pr(44, `Closes: ${id} AC1`)]);
+    world.recordRefusal = `Required CI on PR #44's merge commit is not green: CI: failure. Next: ${CURRENT_HEAD_STAND_IN_OPEN}; verify again once origin/main HEAD's CI is green.`;
+    world.mergeRun = { runId: 91, status: 'completed', conclusion: 'failure' };
+    const result = await sweepMergedClosures(root, { force: true }, deps);
+    expect(result.prs[0]?.outcomes[0]).toMatchObject({
+      action: 'waiting',
+      reason: /waiting for a green CI run on the default branch's head.*cleo done --from-merge 44/,
+    });
+    expect([result.refused.length, result.waiting, result.reran]).toEqual([0, 1, 0]);
+    expect(calls.reruns).toEqual([]);
+  });
+
+  it('reruns are opt-in: CLEO_MERGE_SWEEP_RERUN=1, and never inside a CI job', () => {
     const prior = { flag: process.env['CLEO_MERGE_SWEEP_RERUN'], ci: process.env['CI'] };
     delete process.env['CLEO_MERGE_SWEEP_RERUN'];
     delete process.env['CI'];
@@ -924,7 +946,7 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     const result = await sweepMergedClosures(root, { force: true }, deps);
     expect(result.prs[0]?.outcomes[0]).toMatchObject({
       action: 'waiting',
-      reason: /automatic reruns are off until T14136/,
+      reason: /gh run rerun 95.*CLEO_MERGE_SWEEP_RERUN=1/,
     });
     expect([result.waiting, result.reran]).toEqual([1, 0]);
     expect(calls.reruns).toEqual([]);

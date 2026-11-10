@@ -92,6 +92,7 @@ export default defineConfig({
       // Aliased to source so vitest resolves redaction.ts / plugin-facade.ts
       // imports without first building utils' dist/ (T11414 · E5).
       '@cleocode/utils': fileURLToPath(new URL('../../packages/utils/src/index.ts', import.meta.url)),
+      '@cleocode/worktree': fileURLToPath(new URL('../worktree/src/index.ts', import.meta.url)),
       // caamp and cant — required to resolve @cleocode/core/internal transitive deps
       '@cleocode/caamp': fileURLToPath(new URL('../../packages/caamp/src/index.ts', import.meta.url)),
       '@cleocode/cant': fileURLToPath(new URL('../../packages/cant/src/index.ts', import.meta.url)),

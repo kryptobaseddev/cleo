@@ -20,7 +20,10 @@
  */
 
 import { ISOLATION_ENV_KEYS } from '@cleocode/contracts/branch-lock.js';
+import type { OrchestrateSpawnResult } from '@cleocode/contracts/operations/orchestrate.js';
+import type { Task } from '@cleocode/contracts/task.js';
 import { describe, expect, it, vi } from 'vitest';
+import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
 import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
 
 // ---------------------------------------------------------------------------
@@ -469,7 +472,16 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
 
 describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
   const stubAccessor = (): unknown => ({
-    loadSingleTask: vi.fn(async () => ({ id: 'T9999', parentId: null })),
+    loadSingleTask: vi.fn(
+      async (): Promise<Task> => ({
+        id: 'T9999',
+        title: 'Resume worker fixture',
+        parentId: null,
+        status: 'pending',
+        priority: 'medium',
+        createdAt: '2026-11-10T00:00:00Z',
+      }),
+    ),
     appendLog: vi.fn(async () => undefined),
     loadSessions: vi.fn(async () => []),
     upsertSingleSession: vi.fn(async () => undefined),
@@ -682,6 +694,22 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
 
   it('T14126: a --resume packet carries every isolation variable its prompt exports', async () => {
     reset();
+    composeSpawnPayloadMock.mockImplementation(
+      (
+        ...[_db, task, options]: Parameters<
+          typeof import('../../orchestration/spawn.js').composeSpawnPayload
+        >
+      ) => ({
+        ...atomicityRefusal,
+        atomicity: { allowed: true },
+        prompt: buildSpawnPrompt({
+          ...options,
+          task,
+          protocol: options?.protocol ?? 'implementation',
+          projectRoot: options?.projectRoot ?? '/tmp/cleo-spawn-test-root',
+        }).prompt,
+      }),
+    );
     existsSyncMock.mockReturnValue(true);
     acquireWorktreeTaskLockMock.mockReturnValue({
       status: 'reentered',
@@ -699,6 +727,18 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
       true,
     );
     expect(result.success, JSON.stringify(result.error)).toBe(true);
+    const binding = result.data as OrchestrateSpawnResult;
+    expect(binding.workerSession).toMatchObject({
+      sessionId: binding.sessionId,
+      agentId: binding.agentId,
+    });
+    expect(binding.prompt).toContain(`**Worker Session**: \`${binding.workerSession?.sessionId}\``);
+    expect(binding.prompt).toContain(
+      `CLEO_SESSION_ID='${binding.workerSession?.sessionId}' CLEO_AGENT_ID='${binding.workerSession?.agentId}'`,
+    );
+    expect(binding.prompt).toContain(
+      'Do not start another session, re-claim the task, or force-claim it',
+    );
     const env = (result.data as { worktreeEnv: Record<string, string> }).worktreeEnv;
     const path = (result.data as { worktreeCwd: string }).worktreeCwd;
     for (const key of ISOLATION_ENV_KEYS.filter((k) => k !== 'CLEO_AGENT_ID')) {

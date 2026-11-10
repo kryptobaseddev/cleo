@@ -756,16 +756,26 @@ const CROSS_DB_QUERY_LIMIT = 100;
  */
 const CROSS_DB_SAMPLE_LIMIT = 5;
 
-/** Stable text for the I3 path-mismatch invariant fix. */
+/**
+ * Stable text for the I3 path-mismatch invariant fix. I3 reads the inventory's
+ * `nexus` role, the retired `<cleoHome>/nexus.db`; the live registry is in the
+ * global `cleo.db`, which `cleo doctor projects` repairs and I3 never reads.
+ * The one verb that acts on the file I3 reads archives it as exodus residue.
+ */
 const I3_FIX =
-  'Run `cleo nexus reset-project-id` to realign nexus.db with the declared identity (.cleo/project.json)';
-/** Stable text for the I1 invariant fix. */
-const I1_FIX = 'Run `cleo memory observe --task <taskId>` to re-anchor';
+  'This row is in the retired <cleoHome>/nexus.db; the live registry is in the global cleo.db. Run `cleo doctor exodus-residue --fix` to archive the retired file (it acts only once the global migration is complete); no CLI verb edits the row itself';
+/**
+ * Stable text for the I1 invariant fix: the reconciliation step of brain
+ * maintenance deletes `brain_memory_links` rows whose task is gone.
+ */
+const I1_FIX =
+  'Run `cleo brain maintenance` — its reconciliation step removes memory links whose task no longer exists';
 /** Stable text for the I2 invariant fix. */
-const I2_FIX = 'Run `cleo docs prune --remove-orphan-blobs`';
+const I2_FIX =
+  'Repair blob attachment anchor — delete the orphan blob_attachments row from manifest.db (no CLI verb prunes it)';
 /** Stable text for the I4 invariant fix. */
 const I4_FIX =
-  'Repair llmtxt session linkage — re-run `cleo session start --link-task <taskId>` or prune the orphan llmtxt session row';
+  'Repair llmtxt session linkage — re-anchor the row to a live sessions row or delete the orphan llmtxt row (no CLI verb prunes it)';
 /** Stable text for the I5 invariant fix. */
 const I5_FIX =
   'Repair conduit job anchor — re-anchor the job to a live tasks/brain row or delete the orphan conduit_dead_letters row (no CLI verb prunes it)';

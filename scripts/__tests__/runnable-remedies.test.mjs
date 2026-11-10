@@ -89,11 +89,31 @@ const REMEDIES = [
     source: `cleo done ${slot('taskId')} --plan`,
     command: 'cleo done T100 --plan',
   },
+  // T14434: the sweep names the commands that close the task, never
+  // `cleo done --plan`, which offered the refused ci:<pr> again.
   {
-    code: 'merge-sweep refusal (failed merge-commit CI)',
+    code: 'merge-sweep refusal (failed merge-commit CI): testsPassed',
     file: 'packages/core/src/tasks/merge-close.ts',
-    source: `cleo done ${slot('taskId')} --plan`,
-    command: 'cleo done T100 --plan',
+    source: `cleo verify ${slot('taskId')} --gate testsPassed --evidence tool:test-affected`,
+    command: 'cleo verify T100 --gate testsPassed --evidence tool:test-affected',
+  },
+  {
+    code: 'merge-sweep refusal (failed merge-commit CI): qaPassed',
+    file: 'packages/core/src/tasks/merge-close.ts',
+    source: `cleo verify ${slot('taskId')} --gate qaPassed --evidence "tool:lint;tool:typecheck"`,
+    command: 'cleo verify T100 --gate qaPassed --evidence "tool:lint;tool:typecheck"',
+  },
+  {
+    code: 'merge-sweep refusal (failed merge-commit CI): complete',
+    file: 'packages/core/src/tasks/merge-close.ts',
+    source: `cleo complete ${slot('taskId')}`,
+    command: 'cleo complete T100',
+  },
+  {
+    code: 'merge-sweep wait (a green head run will stand in)',
+    file: 'packages/core/src/tasks/merge-close.ts',
+    source: `cleo done --from-merge ${slot('pr.number')}`,
+    command: 'cleo done --from-merge 42',
   },
   {
     code: 'E_EVIDENCE_CONTENT_MISMATCH (criterion names no file)',
@@ -147,7 +167,7 @@ const REMEDIES = [
 
 describe('runnable remedies (T14300)', () => {
   const registry = loadRegistry(
-    new Set(['docs', 'doctor', 'lifecycle', 'relates', 'review']),
+    new Set(['backup', 'brain', 'docs', 'doctor', 'lifecycle', 'nexus', 'relates', 'review']),
     REPO_ROOT,
   );
   const checker = makeFlagChecker(REPO_ROOT);
@@ -168,6 +188,18 @@ describe('runnable remedies (T14300)', () => {
       const source = readFileSync(path.join(REPO_ROOT, file), 'utf8');
       expect(source, file).not.toMatch(/children='cascade'|--children=cascade|pass force=true/);
     }
+  });
+
+  it('every command db-substrate names, suggested fixes included, exists with its flags (T14395)', () => {
+    const source = readFileSync(
+      path.join(REPO_ROOT, 'packages/core/src/doctor/db-substrate.ts'),
+      'utf8',
+    );
+    expect(findViolations(source, registry)).toEqual([]);
+    expect(findFlagViolations(source, checker)).toEqual([]);
+    // The retired fixes fail the same checks, so the two above can fail.
+    expect(findViolations('Run `cleo nexus reset-project-id`', registry)).not.toEqual([]);
+    expect(findFlagViolations('`cleo memory observe --task <taskId>`', checker)).not.toEqual([]);
   });
 
   it('the checker rejects a flag cleo cancel lacks, so the tests above can fail', () => {

@@ -74,6 +74,9 @@ export type TaskType = 'saga' | 'epic' | 'task' | 'subtask';
  */
 export type TaskKind = 'work' | 'research' | 'experiment' | 'bug' | 'spike' | 'release';
 
+/** Provenance of a stored pipeline stage; legacy rows without evidence are unknown. */
+export type TaskPipelineStageSource = 'explicit' | 'inherited' | 'default' | 'unknown';
+
 /**
  * Task scope axis — granularity of work. Orthogonal to {@link TaskType} and
  * {@link TaskKind}. Defaults to `'feature'`.
@@ -757,6 +760,17 @@ export type EvidenceAtom =
        * runs are re-checked.
        */
       workspaceWide?: string;
+      /**
+       * `descendantSha` is the default branch's head at verify time standing
+       * in for a SCOPED change (T14434, owner decision D11241): the merge
+       * commit's red or cancelled run was not the PR's, every required check
+       * was green on the PR head (`descendantPrHeadSha`), and every hunk the
+       * PR added was still there at `descendantSha` and at the head it was
+       * read from. Unlike the T12742 stand-in,
+       * `descendantRange` may hold commits that touched the PR's files or a
+       * CI definition.
+       */
+      currentHead?: boolean;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
       /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */

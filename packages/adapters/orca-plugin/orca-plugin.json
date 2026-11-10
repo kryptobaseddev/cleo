@@ -1,0 +1,37 @@
+{
+  "manifestVersion": 2,
+  "id": "cleo",
+  "name": "CLEO",
+  "version": "0.1.0",
+  "description": "Read-only CLEO task and epic view for a workspace on this machine. It runs bounded cleo CLI reads and changes nothing.",
+  "repository": "https://github.com/kryptobaseddev/cleo",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.255"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "tasks",
+        "title": "CLEO Tasks",
+        "icon": "layers",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      {
+        "id": "cleo.refresh",
+        "title": "CLEO: Refresh Tasks"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    }
+  ]
+}
