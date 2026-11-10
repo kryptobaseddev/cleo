@@ -48,7 +48,7 @@ vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
   projectStoreReadVerdict: (...args: Parameters<typeof aheadOfBuild>) => aheadOfBuild(...args),
 }));
 
-import { getDb } from '../../store/sqlite.js';
+import { openProjectTasksReadOnly } from '../../store/sqlite.js';
 import { listWorktrees } from '../list.js';
 
 const mockExec = vi.mocked(execFileSync);

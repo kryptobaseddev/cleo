@@ -19,9 +19,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import {
-  createHash,
-} from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   mkdirSync,
   mkdtempSync,
@@ -128,7 +126,7 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
 
     // The rollup names why the store was not read...
     const rollup = record.projects.find((p) => p.project === projectRoot);
-    expect(rollup?.storeRead).toBe('not read: store behind this build (pending migrations)');
+    expect(rollup?.storeRead).toBe('not read: tasks schema missing');
     // ...so the row's task status is null (nothing was read)...
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBeNull();
@@ -149,7 +147,9 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     const { getDb } = await import('../../store/sqlite.js');
     await getDb(projectRoot);
     const db = new DatabaseSync(dbPath);
-    db.prepare("INSERT INTO tasks_tasks (id, title, status) VALUES ('T1', 't', 'done')").run();
+    db.prepare(
+      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
+    ).run();
     db.close();
 
     const shaBefore = sha256File(dbPath);

@@ -450,8 +450,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
         taskLocked: readTaskLockSafe(readWorktreeTaskLock, rowProjectHash, worktree.taskId),
         dirtyFiles: dirtyFileCount(path, deadline),
         nodeModules: nm,
-        nodeModulesBytes:
-          nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
+        nodeModulesBytes: nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
       };
       // A known task id without readable task state is not a taskless orphan.
       if (row.taskStatus === null && (row.taskId !== null || row.category === 'redundant')) {
@@ -502,8 +501,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
         taskLocked: false,
         dirtyFiles: null,
         nodeModules: nm,
-        nodeModulesBytes:
-          nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
+        nodeModulesBytes: nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
       };
       rows.push(row);
     }
@@ -658,7 +656,12 @@ async function projectRollups(
       mergedLocalBranches: null,
       mergedRemoteBranches: null,
       orphan: project === null,
-      storeRead: project === null ? 'not read: orphan directory' : verdictOf(project),
+      storeRead:
+        project === null
+          ? 'not read: orphan directory'
+          : verdictOf(project) === 'readable'
+            ? 'read'
+            : verdictOf(project),
     };
     byHash.set(projectHash, rollup);
     return rollup;

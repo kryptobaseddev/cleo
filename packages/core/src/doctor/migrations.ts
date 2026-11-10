@@ -292,39 +292,17 @@ function installedProjectMigrationHashSet(): Set<string> {
   return installedProjectMigrationHashes;
 }
 
-/** Memoized hashes of this build's project-lineage migrations, for pending checks (T14440). */
-let projectLineageMigrationHashes: Set<string> | null = null;
-
 /**
- * The hashes of the migrations the project-scope lineages install, computed
- * once per process.
- *
- * @returns The hashes a fully-migrated project journal must contain.
- */
-function expectedProjectJournalHashSet(): Set<string> {
-  if (projectLineageMigrationHashes === null) {
-    projectLineageMigrationHashes = new Set<string>();
-    for (const lineage of PROJECT_LINEAGES) {
-      for (const m of localMigrations(resolveCorePackageMigrationsFolder(lineage))) {
-        projectLineageMigrationHashes.add(m.hash);
-      }
-    }
-  }
-  return projectLineageMigrationHashes;
-}
-
-/**
- * Whether the census's task-status enrichment may open a project's store —
+ * Whether the census's task-status enrichment may read a project's store —
  * read-only, without opening anything through the migrator (T14440, AC3).
  *
- * `loadOwningTaskStatuses` enriches the census (and any worktree listing) by
- * opening EACH listed project's store through `getDb`, which runs pending
- * migrations — a write. This verdict gates that open: only a store whose
- * journal exists, holds no rows this build does not know (nothing written by
- * a newer, unreleased build) and already contains every project-lineage
- * migration this build installs (nothing pending, so the open writes nothing)
- * is `readable`. Every other case names the reason; the caller skips the
- * store and reports it as `not read`.
+ * The enrichment opens each listed project's store through
+ * {@link openProjectTasksReadOnly}, which cannot write; the verdict guards
+ * only against MISREADING a store this build does not understand: a journal
+ * row no installed lineage defines was written by a newer, unreleased build.
+ * It also requires the `tasks_tasks` columns the query reads to exist. Every
+ * other case names the reason; the caller skips the store and reports it as
+ * `not read`.
  *
  * @param projectRoot - Absolute path to the project root whose store to judge.
  * @returns `'readable'`, or `not read: <reason>`.
@@ -358,10 +336,16 @@ export function projectStoreReadVerdict(projectRoot: string): string {
     if (rows.some((r) => !known.has(r.hash))) {
       return 'not read: store written by a newer build';
     }
-    const applied = new Set(rows.map((r) => r.hash));
-    const expected = expectedProjectJournalHashSet();
-    if ([...expected].some((h) => !applied.has(h))) {
-      return 'not read: store behind this build (pending migrations)';
+    // The columns the enrichment's query reads.
+    const columns = new Set(
+      (
+        snap.db.prepare('PRAGMA main.table_info("tasks_tasks")').all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name),
+    );
+    for (const needed of ['id', 'status', 'verification_json']) {
+      if (!columns.has(needed)) return 'not read: tasks schema missing';
     }
     return 'readable';
   } catch {

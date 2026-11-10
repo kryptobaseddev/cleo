@@ -88,11 +88,9 @@ describe('projectStoreReadVerdict (T14440 AC3)', () => {
     expect(projectStoreReadVerdict(projectRoot)).toBe('not read: missing store');
   });
 
-  it('a journal at an old floor (pending migrations) is not read: opening it would migrate', () => {
+  it('a journal at an old floor without the tasks tables is not read: the schema cannot be read', () => {
     const { dbPath, sha } = storeWithJournal([oneInstalledHash()]);
-    expect(projectStoreReadVerdict(projectRoot)).toBe(
-      'not read: store behind this build (pending migrations)',
-    );
+    expect(projectStoreReadVerdict(projectRoot)).toBe('not read: tasks schema missing');
     // The verdict is read-only: the fixture store is byte-identical after.
     expect(sha256File(dbPath)).toBe(sha);
   });
@@ -102,8 +100,11 @@ describe('projectStoreReadVerdict (T14440 AC3)', () => {
     expect(projectStoreReadVerdict(projectRoot)).toBe('not read: store written by a newer build');
   });
 
-  it('a fully-known, fully-applied journal is readable', () => {
-    storeWithJournal(allProjectLineageHashes());
+  it('a journal of installed migrations plus the tasks columns is readable', () => {
+    const { dbPath } = storeWithJournal(allProjectLineageHashes());
+    const db = new DatabaseSync(dbPath);
+    db.exec('CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY, status TEXT, verification_json TEXT)');
+    db.close();
     expect(projectStoreReadVerdict(projectRoot)).toBe('readable');
   });
 
