@@ -385,6 +385,15 @@ describe('manifest example — one append, the same entry read back (T12521)', (
 });
 
 describe('buildSpawnPrompt — session linkage', () => {
+  it('the shared subagent startup recipe preserves the preallocated claim', () => {
+    const shared = readFileSync(
+      new URL('../../../../skills/skills/_shared/subagent-protocol-base.md', import.meta.url),
+      'utf8',
+    );
+    expect(shared).toContain('preallocated');
+    expect(shared).not.toContain('Always `cleo start` before work');
+    expect(shared).toContain('Do not start another session');
+  });
   it('embeds the session id when provided', () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
@@ -423,7 +432,7 @@ describe('buildSpawnPrompt — session linkage', () => {
       projectRoot: PROJECT_ROOT,
       tier: 0,
       role: 'lead',
-      workerSession,
+      workerSession: { ...workerSession, role: 'lead' },
     });
     const binding = /\*\*Command binding\*\*:.*?`(export [^`]+)`/.exec(result.prompt)?.[1];
     expect(binding).toBeDefined();

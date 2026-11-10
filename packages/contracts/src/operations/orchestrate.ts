@@ -579,7 +579,7 @@ export interface OrchestrateSpawnResult {
    * @task T13494
    */
   persona: string;
-  /** Role the agent will execute as (`orchestrator` | `lead` | `worker`). @task T963 */
+  /** Coordination role for guidance; execution privileges come from workerSession.role. @task T963 */
   role: string;
   /** Tier of the rendered prompt (0/1/2). @task T963 */
   tier: 0 | 1 | 2;

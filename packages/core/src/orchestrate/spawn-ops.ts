@@ -124,7 +124,8 @@ import {
   resolveSpawnLockHolder,
 } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveBoundSessionId } from '../store/session-store.js';
+import { resolveBoundSession } from '../store/session-store.js';
+import { getTaskPipelineStageSource } from '../tasks/pipeline-stage.js';
 import { resolveLeadMailbox } from './agentmbx.js';
 import { isLeadWorkerV1Enabled, resolveIsolation } from './isolation-policy.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
@@ -632,6 +633,7 @@ export async function composeSpawnForTask(
       coordinatorSessionId: options.coordinatorSessionId,
       role: inferredRole,
       protocol: options.protocol,
+      pipelineStageSource: await getTaskPipelineStageSource(task, accessor),
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
@@ -889,7 +891,7 @@ export async function orchestrateSpawnExecute(
     // orchestrateSpawn for the full rationale. T12500 — no fallback: a failed
     // allocation refuses the spawn with the REAL store error instead of handing
     // over the orchestrator's (newest active) session.
-    const coordinatorSessionId = await resolveBoundSessionId(cwd);
+    const coordinatorSessionId = (await resolveBoundSession(cwd))?.session.id ?? null;
     const spawnSession = await requireSpawnSession(cwd, taskId);
     if (!spawnSession.ok) {
       return {
@@ -910,11 +912,15 @@ export async function orchestrateSpawnExecute(
     execClaim = spawnSession;
     const activeSessionId = spawnSession.identity.sessionId;
     const spawnAgentId = spawnSession.identity.agentId;
+    const workerSession: SpawnWorkerSession = {
+      ...spawnSession.identity,
+      role: opts.lead ? 'lead' : 'worker',
+    };
 
     let payload = await composeSpawnForTask(taskId, cwd, {
       tier,
       sessionId: activeSessionId,
-      workerSession: spawnSession.identity,
+      workerSession,
       coordinatorSessionId,
       protocol: protocolType,
       ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
@@ -1035,7 +1041,7 @@ export async function orchestrateSpawnExecute(
       }
       payload = await composeSpawnForTask(taskId, cwd, {
         tier,
-        workerSession: spawnSession.identity,
+        workerSession,
         coordinatorSessionId,
         protocol: protocolType,
         worktreePath: worktreeResult.path,
@@ -1109,7 +1115,7 @@ export async function orchestrateSpawnExecute(
       taskId: payload.taskId,
       protocol: protocolType || payload.meta.protocol,
       protocolResolution: payload.meta.protocolResolution,
-      workerSession: spawnSession.identity,
+      workerSession,
       coordinatorSessionId,
       prompt: rawPrompt,
       provider: provider.id,
@@ -1734,7 +1740,7 @@ export async function orchestrateSpawn(
     spawnLease = leased.lease;
     spawnLeaseReused = leased.reused;
 
-    const coordinatorSessionId = await resolveBoundSessionId(root);
+    const coordinatorSessionId = (await resolveBoundSession(root))?.session.id ?? null;
     const spawnSession = await requireSpawnSession(root, taskId);
     if (!spawnSession.ok) {
       spawnLogger.error({ taskId, cause: spawnSession.cause }, 'spawn session allocation failed');

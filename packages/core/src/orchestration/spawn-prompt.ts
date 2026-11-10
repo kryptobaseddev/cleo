@@ -1752,11 +1752,14 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   authoredSections.push(buildReturnFormatBlock(protocol, askProviderId));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(
-    buildSessionBlock(sessionId, agentId, input.coordinatorSessionId, input.role),
+    buildSessionBlock(sessionId, agentId, input.coordinatorSessionId, input.workerSession?.role),
   );
   authoredSections.push(
     [
       `**Protocol authority**: \`${protocolResolution.source}\` selected \`${protocol}\`.`,
+      ...(protocolResolution.pipelineStageSource
+        ? [`Stored stage provenance: \`${protocolResolution.pipelineStageSource}\`.`]
+        : []),
       ...protocolResolution.conflicts.map((conflict) => `- Protocol disagreement: ${conflict}`),
       ...(protocolResolution.conflicts.length > 0
         ? [

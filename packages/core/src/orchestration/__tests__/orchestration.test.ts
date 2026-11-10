@@ -11,6 +11,10 @@ import type { DataAccessor } from '../../store/data-accessor.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { archiveTasks } from '../../tasks/archive.js';
+import {
+  getTaskPipelineStageSource,
+  resolveDefaultPipelineStage,
+} from '../../tasks/pipeline-stage.js';
 import { buildBrainState } from '../bootstrap.js';
 import {
   analyzeEpic,
@@ -312,11 +316,142 @@ describe('autoDispatch — orchestration module', () => {
     pipelineStage: 'implementation',
   };
 
+  it('does not turn a work child of a planning parent into a research assignment', () => {
+    const inherited = resolveDefaultPipelineStage({
+      taskType: 'task',
+      parentTask: { type: 'epic', pipelineStage: 'research' },
+    });
+    const child: Task = {
+      ...assignment,
+      type: 'task',
+      kind: 'work',
+      title: 'Implement DispatchEngine poll loop',
+      pipelineStage: inherited,
+    };
+    expect(autoDispatch(child)).toBe('implementation');
+  });
+
+  it('does not turn a bug with an unproven research stage into research', () => {
+    expect(
+      resolveSpawnProtocol({ ...assignment, kind: 'bug', pipelineStage: 'research' }),
+    ).toMatchObject({
+      protocol: 'implementation',
+      source: 'kind',
+    });
+  });
+
+  it('distinguishes an inherited stage from an explicit task assignment through committed audit evidence', async () => {
+    const { addTask } = await import('../../tasks/add.js');
+    const { updateTask } = await import('../../tasks/update.js');
+    const parent = await addTask(
+      {
+        title: 'Planning parent for spawn authority',
+        type: 'epic',
+        pipelineStage: 'research',
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    const child = await addTask(
+      {
+        title: 'Implement DispatchEngine poll loop',
+        parentId: parent.task.id,
+        kind: 'work',
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    const inherited = await getTaskPipelineStageSource(child.task, accessor);
+    expect(inherited).toBe('inherited');
+    expect(resolveSpawnProtocol(child.task, undefined, inherited)).toMatchObject({
+      protocol: 'implementation',
+      pipelineStageSource: 'inherited',
+    });
+    await updateTask({ taskId: child.task.id, pipelineStage: 'research' }, env.tempDir, accessor);
+    const explicit = await accessor.loadSingleTask(child.task.id);
+    if (!explicit) throw new Error('Explicitly staged child disappeared');
+    const source = await getTaskPipelineStageSource(explicit, accessor);
+    expect(source).toBe('explicit');
+    expect(resolveSpawnProtocol(explicit, undefined, source)).toMatchObject({
+      protocol: 'research',
+      source: 'pipelineStage',
+      pipelineStageSource: 'explicit',
+    });
+    expect(resolveSpawnProtocol(explicit, 'implementation', source).source).toBe('explicit');
+  });
+
+  it('an explicitly staged research bug retains its task-level authority', async () => {
+    const { addTask } = await import('../../tasks/add.js');
+    const result = await addTask(
+      {
+        title: 'Investigate a bug before implementing its fix',
+        kind: 'bug',
+        pipelineStage: 'research',
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    const source = await getTaskPipelineStageSource(result.task, accessor);
+    expect(resolveSpawnProtocol(result.task, undefined, source)).toMatchObject({
+      protocol: 'research',
+      source: 'pipelineStage',
+      pipelineStageSource: 'explicit',
+    });
+  });
+
+  it('a same-timestamp explicit assignment follows inherited creation', async () => {
+    const task: Task = { ...assignment, kind: 'bug', pipelineStage: 'research' };
+    await seedTasks(accessor, [task]);
+    for (const [id, action, source] of [
+      ['created-stage', 'task_created', 'inherited'],
+      ['updated-stage', 'task_updated', 'explicit'],
+    ] as const) {
+      await accessor.appendLog({
+        id,
+        timestamp: '2026-11-10T00:00:00Z',
+        action,
+        taskId: task.id,
+        actor: 'test',
+        details: { pipelineStage: { value: 'research', source } },
+      });
+    }
+    const rows = await accessor.queryAuditLog({ taskIds: [task.id] });
+    vi.spyOn(accessor, 'queryAuditLog').mockResolvedValue(
+      rows.sort((a, b) => a.action.localeCompare(b.action)),
+    );
+    const source = await getTaskPipelineStageSource(task, accessor);
+    expect(source).toBe('explicit');
+    expect(resolveSpawnProtocol(task, undefined, source).protocol).toBe('research');
+  });
+
+  it.each([
+    { value: 'research', source: 'classifier' },
+    { value: 'implementation', source: 'explicit' },
+  ])('does not infer research authority from invalid or mismatched audit evidence (%j)', async (pipelineStage) => {
+    const task: Task = { ...assignment, kind: 'bug', pipelineStage: 'research' };
+    await seedTasks(accessor, [task]);
+    await accessor.appendLog({
+      id: 'unproven-stage',
+      timestamp: new Date().toISOString(),
+      action: 'task_updated',
+      taskId: task.id,
+      actor: 'test',
+      details: { pipelineStage },
+    });
+    const source = await getTaskPipelineStageSource(task, accessor);
+    expect(source).toBe('unknown');
+    expect(resolveSpawnProtocol(task, undefined, source).protocol).toBe('implementation');
+  });
+
   it('selects authoritative stage before research keywords and reports the fallback disagreement', () => {
     expect(autoDispatch(assignment)).toBe('implementation');
     expect(resolveSpawnProtocol(assignment)).toEqual({
       protocol: 'implementation',
       source: 'pipelineStage',
+      pipelineStageSource: 'unknown',
       conflicts: ['keyword: research (selected pipelineStage: implementation)'],
     });
   });
@@ -331,16 +466,17 @@ describe('autoDispatch — orchestration module', () => {
 
   it('keeps a conflicting research intent visible until explicitly overridden', () => {
     const research: Task = { ...assignment, kind: 'research' };
-    expect(resolveSpawnProtocol(research)).toMatchObject({
+    expect(resolveSpawnProtocol(research, undefined, 'explicit')).toMatchObject({
       protocol: 'implementation',
       source: 'pipelineStage',
       conflicts: expect.arrayContaining([
         'kind: research (selected pipelineStage: implementation)',
       ]),
     });
-    expect(resolveSpawnProtocol(research, 'research')).toEqual({
+    expect(resolveSpawnProtocol(research, 'research', 'explicit')).toEqual({
       protocol: 'research',
       source: 'explicit',
+      pipelineStageSource: 'explicit',
       conflicts: ['pipelineStage: implementation (selected explicit: research)'],
     });
   });
@@ -355,6 +491,7 @@ describe('autoDispatch — orchestration module', () => {
     expect(resolveSpawnProtocol(research, 'research')).toEqual({
       protocol: 'research',
       source: 'explicit',
+      pipelineStageSource: 'unknown',
       conflicts: ['pipelineStage: implementation (selected explicit: research)'],
     });
     expect(resolveSpawnProtocol(research).source).toBe('pipelineStage');

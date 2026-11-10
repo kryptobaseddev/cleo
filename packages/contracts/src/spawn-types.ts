@@ -9,8 +9,10 @@
  * @phase 1B
  */
 
+import type { AgentSpawnCapability } from './agent-registry-v3.js';
 import type { LeadDeniedTool, LeadMcpReport } from './operations/orchestrate.js';
 import type { AgentSuiteOwnership } from './spawn.js';
+import type { TaskPipelineStageSource } from './task.js';
 
 /**
  * Provider identifier for spawn operations.
@@ -23,9 +25,11 @@ export interface SpawnWorkerSession {
   readonly sessionId: string;
   /** The worker's claim identity, exported as CLEO_AGENT_ID. */
   readonly agentId: string;
+  /** Actual execution role assigned by dispatch, never a classifier's persona. */
+  readonly role?: AgentSpawnCapability;
 }
 
-/** Authority used to select a spawn protocol, in precedence order. */
+/** Protocol selection source; task-stage priority requires explicit provenance. */
 export type SpawnProtocolSource =
   | 'explicit'
   | 'pipelineStage'
@@ -41,6 +45,8 @@ export interface SpawnProtocolResolution {
   readonly protocol: string;
   /** Highest-precedence source that selected the protocol. */
   readonly source: SpawnProtocolSource;
+  /** Origin of the stored stage; an inherited/default/unknown stage is not explicit intent. */
+  readonly pipelineStageSource?: TaskPipelineStageSource;
   /** Lower-precedence signals that disagree with the selection. */
   readonly conflicts: readonly string[];
 }

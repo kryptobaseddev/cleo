@@ -1,8 +1,8 @@
 # Subagent Protocol Base Reference
 
 **Provenance**: @task T3155, @epic T3147
-**Version**: 1.1.0
-**Updated**: 2026-03-20
+**Version**: 1.3.0
+**Updated**: 2026-11-10
 
 This reference defines the RFC 2119 protocol for subagent output and handoff.
 All subagents operating under an orchestrator MUST follow this protocol.
@@ -105,13 +105,17 @@ Reference: @skills/_shared/task-system-integration.md
 
 ```
 1. Read task:    {{TASK_SHOW_CMD}} {{TASK_ID}}
-2. Start task:   {{TASK_START_CMD}} {{TASK_ID}}
+2. Verify the preallocated worker session and existing task claim; preserve both.
 3. Do work:      [skill-specific execution]
 4. Record output: `cleo docs add {{TASK_ID}} --content - --type <kind> --slug {{TOPIC_SLUG}}`
 5. Create manifest entry: cleo research add [flags]
 6. Complete:     {{TASK_COMPLETE_CMD}} {{TASK_ID}}
 7. Return:       "[Type] complete. Manifest appended to pipeline_manifest."
 ```
+
+Do not start another session or re-claim a preallocated task. Export the allocated
+`CLEO_SESSION_ID` and `CLEO_AGENT_ID` on every command. A missing, expired or foreign
+binding returns blocked to the coordinator for handoff; never replace it yourself.
 
 ---
 
@@ -153,7 +157,7 @@ Reference: @skills/_shared/task-system-integration.md
 
 Before returning, verify:
 
-- [ ] Task started via `{{TASK_START_CMD}}`
+- [ ] The preallocated worker session and existing claim are preserved
 - [ ] Output recorded with `cleo docs add` (slug in the return message)
 - [ ] Manifest entry created via `cleo research add`
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
@@ -221,5 +225,5 @@ If work cannot proceed:
 | Returning full content | Bloats orchestrator context | Return only summary message |
 | Manual JSONL append | No validation, race conditions | Use `cleo research add` |
 | Missing manifest entry | Orchestrator can't find findings | Always create manifest entry |
-| Skipping task start | Protocol violation | Always `cleo start` before work. If `cleo start` fails with `E_SESSION_UNBOUND` (spawned workers and subagents are already bound), run `cleo session start --scope global --name "<name>"` or `cleo session resume <id>` first. |
+| Starting or re-claiming a preallocated task | Replaces the worker binding or steals a claim | Preserve the allocated session and claim. A missing, expired or foreign binding returns blocked to the coordinator for handoff. |
 | Incomplete checklist | Protocol violation | Verify all items before return |

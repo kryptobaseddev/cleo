@@ -36,7 +36,13 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import type { AgentSpawnCapability, AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
+import type {
+  AgentSpawnCapability,
+  AgentTier,
+  ResolvedAgent,
+  Task,
+  TaskPipelineStageSource,
+} from '@cleocode/contracts';
 import { ThinAgentViolationError } from '@cleocode/contracts/errors.js';
 import type {
   SpawnProtocolResolution,
@@ -90,7 +96,8 @@ export interface ComposeSpawnPayloadOptions {
   /** Force a specific tier. Default: auto-select from role. */
   tier?: SpawnTier;
   /**
-   * Force role. Default: resolved from `ResolvedAgent.orchLevel`.
+   * Force coordination role for guidance/tiering. Default: resolved from `ResolvedAgent.orchLevel`.
+   * Shell privileges come separately from the dispatch-bound workerSession.role.
    * Mirrors the `AgentSpawnCapability` taxonomy so the atomicity guard can
    * consume the role directly without remapping.
    */
@@ -153,6 +160,8 @@ export interface ComposeSpawnPayloadOptions {
    * phase here to avoid a redundant classification.
    */
   protocol?: SpawnProtocolPhase | string;
+  /** Committed task-stage provenance; absent legacy evidence remains unknown. */
+  pipelineStageSource?: TaskPipelineStageSource;
   /**
    * Allocated worker session id, retained for legacy callers.
    * Prefer {@link workerSession} to bind the worker's agent identity as well.
@@ -284,7 +293,7 @@ export interface SpawnPayload {
   coordinatorSessionId?: string | null;
   /** Agent id the spawn is routed to. */
   agentId: string;
-  /** Role the agent will execute as. */
+  /** Coordination role for guidance; shell privileges come from workerSession.role. */
   role: AgentSpawnCapability;
   /** Tier of the rendered prompt. */
   tier: SpawnTier;
@@ -849,7 +858,11 @@ export async function composeSpawnPayload(
   // 7. Build the prompt via the T882 engine. The engine is now the internal
   //    assembler; callers that previously imported buildSpawnPrompt directly
   //    continue to work unchanged.
-  const protocolResolution = resolveSpawnProtocol(task, options.protocol);
+  const protocolResolution = resolveSpawnProtocol(
+    task,
+    options.protocol,
+    options.pipelineStageSource,
+  );
   const protocol = protocolResolution.protocol;
   const shouldEmbedInjection = options.embedInjection ?? harnessHint !== 'claude-code';
   const { level: leanLevel } = await effectiveLeanLevel({

@@ -214,6 +214,40 @@ describe('composeSpawnPayload — full envelope', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps a worker shell bound as worker when orchestration keywords select an orchestrator persona', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(
+        db,
+        env,
+        'project-orchestrator.cant',
+        FIXTURE_WORKER_CANT.replaceAll('fixture-worker', 'project-orchestrator').replace(
+          'role: worker',
+          'role: orchestrator',
+        ),
+      );
+      const payload = await composeSpawnPayload(
+        db,
+        {
+          ...BASE_TASK,
+          title: 'Fix orchestration worker startup',
+          files: ['src/a.ts'],
+        },
+        {
+          tier: 0,
+          projectRoot: env.projectRoot,
+          workerSession: { sessionId: 'ses_worker', agentId: 'worker-binding' },
+          worktreePath: '/worktrees/project/T9101',
+        },
+      );
+      expect(payload.meta.classify.role).toBe('orchestrator');
+      expect(payload.prompt).toContain("CLEO_AGENT_ROLE='worker'");
+      expect(payload.prompt).not.toContain("CLEO_AGENT_ROLE='orchestrator'");
+    } finally {
+      db.close();
+    }
+  });
+
   it('returns full SpawnPayload shape for tier 0 (worker)', async () => {
     const db = env.openDb();
     try {

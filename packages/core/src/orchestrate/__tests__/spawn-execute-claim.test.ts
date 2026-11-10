@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import type { CLEOSpawnAdapter, CLEOSpawnContext, SpawnResult } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
+import { requireSpawnSession } from '../../spawn/agent-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { startTask } from '../../task-work/index.js';
 
@@ -118,6 +119,68 @@ describe('orchestrateSpawnExecute — claim rollback on a reported failure (T125
   afterEach(async () => {
     await env.cleanup();
     vi.unstubAllEnvs();
+  });
+
+  it('keeps an expired allocation bound to the same worker when the coordinator dispatches it again', async () => {
+    const allocated = await requireSpawnSession(env.tempDir, 'T001');
+    if (!allocated.ok) throw new Error(allocated.message);
+    await env.accessor.updateTaskFields(
+      'T001',
+      {
+        leaseExpiresAt: '2000-01-01T00:00:00.000Z',
+      },
+      { keepVersion: true },
+    );
+    const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    const result = await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
+      autoComplete: false,
+    });
+    expect(result.success, JSON.stringify(result.error)).toBe(true);
+    const context = adapterSpawn.mock.calls[0]?.[0];
+    expect(context?.workerSession).toMatchObject({
+      sessionId: allocated.identity.sessionId,
+      agentId: allocated.identity.agentId,
+      role: 'worker',
+    });
+    const linkage = context?.prompt.split('## Session Linkage')[1]?.split('## ')[0] ?? '';
+    expect(linkage).toContain(`**Worker Session**: \`${allocated.identity.sessionId}\``);
+    expect(linkage).toContain(
+      'If your session or claim has expired or belongs to someone else, return blocked',
+    );
+    expect(linkage).not.toContain('cleo session start');
+  });
+
+  it('a foreign claim refuses dispatch without emitting a worker binding or starting another session', async () => {
+    const foreign = 'ses_20260929000002_bbbbbb';
+    await env.accessor.upsertSingleSession({
+      id: foreign,
+      name: 'foreign worker',
+      status: 'active',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: new Date().toISOString(),
+    });
+    await env.accessor.claimTask('T001', {
+      sessionId: foreign,
+      agentId: 'foreign-worker',
+      mode: 'acquire',
+    });
+    const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    const result = await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
+      autoComplete: false,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_TASK_CLAIMED');
+    expect(adapterSpawn).not.toHaveBeenCalled();
+    expect((await env.accessor.loadSingleTask('T001'))?.claim).toMatchObject({
+      sessionId: foreign,
+      agentId: 'foreign-worker',
+    });
+    expect(
+      (await env.accessor.loadSessions()).filter(
+        (s) => s.status === 'active' && s.agentHandle === 'agent-t001',
+      ),
+    ).toEqual([]);
   });
 
   it.each([

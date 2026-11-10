@@ -2734,6 +2734,7 @@ export type {
   // T944 new axes (T9072: renamed TaskRole → TaskKind)
   TaskKind,
   TaskOrigin,
+  TaskPipelineStageSource,
   TaskPriority,
   TaskProvenance,
   TaskRelation,

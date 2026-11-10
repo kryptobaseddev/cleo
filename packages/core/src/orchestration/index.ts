@@ -4,7 +4,7 @@
  * @epic T4454
  */
 
-import type { Task, TaskRef } from '@cleocode/contracts';
+import type { Task, TaskPipelineStageSource, TaskRef } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type {
   SpawnProtocolResolution,
@@ -15,6 +15,7 @@ import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { isClaimExpired } from '../store/task-claim.js';
 import { orderByRanking } from '../task-tools/score-task-priority.js';
+import { getTaskPipelineStageSource } from '../tasks/pipeline-stage.js';
 import { loadRankingContext } from '../tasks/task-next.js';
 import { effectiveLeanLevel } from './lean-change.js';
 import {
@@ -278,7 +279,7 @@ export async function analyzeEpic(
 
   const childTasks = await accessor!.getChildren(epicId);
   const { waves } = await getEnrichedWaves(epicId, cwd, accessor);
-  const readiness = projectChildReadiness(childTasks, waves);
+  const readiness = await projectChildReadiness(childTasks, waves, accessor!);
   const completedTasks = childTasks.filter((t) => t.status === 'done').map((t) => t.id);
   const readyTasks = readiness.filter((task) => task.ready).map((task) => task.taskId);
   const blockedTasks = readiness.filter((task) => !task.ready).map((task) => task.taskId);
@@ -297,7 +298,18 @@ export async function analyzeEpic(
 }
 
 /** Project canonical wave assessments without changing child order or protocol dispatch. */
-function projectChildReadiness(children: Task[], waves: EnrichedWave[]): TaskReadiness[] {
+async function projectChildReadiness(
+  children: Task[],
+  waves: EnrichedWave[],
+  accessor: DataAccessor,
+): Promise<TaskReadiness[]> {
+  const stageSources = new Map(
+    await Promise.all(
+      children
+        .filter((task) => !isTerminalWaveStatus(task.status))
+        .map(async (task) => [task.id, await getTaskPipelineStageSource(task, accessor)] as const),
+    ),
+  );
   const now = new Date().toISOString();
   const assessments = new Map(
     waves.flatMap((wave) => wave.tasks.map((task) => [task.id, task] as const)),
@@ -314,7 +326,7 @@ function projectChildReadiness(children: Task[], waves: EnrichedWave[]): TaskRea
         depends: assessment.depends,
         ready: assessment.ready,
         blockers: assessment.blockedBy,
-        protocol: autoDispatch(task),
+        protocol: autoDispatch(task, stageSources.get(task.id)),
         inFlight: task.claim !== undefined && !isClaimExpired(task.claim, now),
       },
     ];
@@ -348,7 +360,7 @@ export async function getReadyTasks(
 ): Promise<TaskReadiness[]> {
   const childTasks = await accessor!.getChildren(epicId);
   const { waves } = await getEnrichedWaves(epicId, cwd, accessor);
-  return projectChildReadiness(childTasks, waves);
+  return projectChildReadiness(childTasks, waves, accessor!);
 }
 
 /**
@@ -411,7 +423,11 @@ export async function prepareSpawn(
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
-  const protocolResolution = resolveSpawnProtocol(task);
+  const protocolResolution = resolveSpawnProtocol(
+    task,
+    undefined,
+    await getTaskPipelineStageSource(task, accessor!),
+  );
   const protocol = protocolResolution.protocol;
   const tier: SpawnTier = options?.tier ?? DEFAULT_SPAWN_TIER;
   const projectRoot = resolveOrCwd(cwd);
@@ -542,15 +558,19 @@ const DISPATCH_MAP: Record<string, { keywords: string[]; labels: string[] }> = {
  * Auto-dispatch: determine the protocol for a task based on metadata.
  * @task T4466
  */
-export function autoDispatch(task: Task): string {
-  return resolveSpawnProtocol(task).protocol;
+export function autoDispatch(task: Task, stageSource: TaskPipelineStageSource = 'unknown'): string {
+  return resolveSpawnProtocol(task, undefined, stageSource).protocol;
 }
 
 /**
  * Resolve protocol authority before keyword fallback, preserving disagreements.
  * Explicit assignments resolve stage/intent conflicts without consulting an LLM.
  */
-export function resolveSpawnProtocol(task: Task, explicit?: string): SpawnProtocolResolution {
+export function resolveSpawnProtocol(
+  task: Task,
+  explicit?: string,
+  stageSource: TaskPipelineStageSource = 'unknown',
+): SpawnProtocolResolution {
   let protocol: string | undefined;
   let source: SpawnProtocolSource = 'fallback';
   const conflicts: string[] = [];
@@ -565,7 +585,7 @@ export function resolveSpawnProtocol(task: Task, explicit?: string): SpawnProtoc
 
   if (explicit !== undefined) consider(explicit, 'explicit');
   const stage = ALL_SPAWN_PROTOCOL_PHASES.find((phase) => phase === task.pipelineStage);
-  if (stage) consider(stage, 'pipelineStage');
+  if (stage && stageSource === 'explicit') consider(stage, 'pipelineStage');
   if (task.kind === 'research' || task.kind === 'spike' || task.kind === 'experiment') {
     consider('research', 'kind');
   } else if (task.kind === 'bug') {
@@ -582,6 +602,21 @@ export function resolveSpawnProtocol(task: Task, explicit?: string): SpawnProtoc
     }
   }
   if (task.type === 'epic') consider('decomposition', 'type');
+  if (stage && stageSource !== 'explicit') {
+    if (
+      stage === 'research' &&
+      task.type !== 'epic' &&
+      (!task.kind || task.kind === 'work' || task.kind === 'bug')
+    ) {
+      consider('implementation', 'type');
+      if (stage !== protocol)
+        conflicts.push(
+          `pipelineStage (${stageSource}): ${stage} (selected ${source}: ${protocol})`,
+        );
+    } else {
+      consider(stage, 'pipelineStage');
+    }
+  }
   const text = `${task.title} ${task.description ?? ''}`.toLowerCase();
   for (const [candidate, config] of Object.entries(DISPATCH_MAP)) {
     if (config.keywords.some((kw) => text.includes(kw))) {
@@ -589,7 +624,12 @@ export function resolveSpawnProtocol(task: Task, explicit?: string): SpawnProtoc
       break;
     }
   }
-  return { protocol: protocol ?? 'implementation', source, conflicts };
+  return {
+    protocol: protocol ?? 'implementation',
+    source,
+    ...(stage ? { pipelineStageSource: stageSource } : {}),
+    conflicts,
+  };
 }
 
 /**

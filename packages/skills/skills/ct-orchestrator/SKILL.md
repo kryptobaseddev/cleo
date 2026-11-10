@@ -204,10 +204,15 @@ workers preserve the preclaim and never start a session or re-claim. Expired or 
 claims return to the coordinator for handoff. Execution backends receive `workerSession`
 separately from `coordinatorSessionId`; a CLI's own environment does not prove Orca's
 launched worker inherited it.
+`workerSession.role` comes from dispatch and controls the shell binding (worker by
+default); a classifier's coordination role never grants a different shell role.
 
 **Protocol authority (T14457)**: explicit `--protocol` wins, then the task's
-`pipelineStage`, declared `kind`/labels, task type and disclosed keyword fallback.
-`meta.protocolResolution` and the prompt name the source and disagreements; persona
+explicit stage assignment proven by committed audit evidence, declared `kind`/labels,
+task type and disclosed fallback. Inherited/default/unknown research stages cannot
+downgrade work or bug tasks to research. Creation and explicit stage updates record
+the stage's provenance in the task audit; legacy rows without proof stay unknown.
+`meta.protocolResolution` and the prompt name stage provenance, source and disagreements; persona
 classification never decides owner intent. For intentional research/design under an
 implementation stage, pass `--protocol research`; the stage disagreement stays visible.
 
