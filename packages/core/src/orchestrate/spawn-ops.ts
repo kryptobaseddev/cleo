@@ -1298,14 +1298,14 @@ export async function orchestrateSpawnExecute(
     if (pendingWorker) await abandonWorkerRecord(pendingWorker, cwd).catch(() => undefined);
     // T14363 — keep a coded refusal's own code (e.g. E_LEAD_TOOLS_UNSTRIPPED).
     const coded = error as { code?: unknown; exitCode?: unknown } | null;
-    const code =
-      typeof coded?.code === 'string' && coded.code.startsWith('E_')
-        ? coded.code
-        : 'E_SPAWN_FAILED';
+    // @sync-invariant none:local-only the spawn threw before an agent ran; the finally hands the claim back
     return {
       success: false,
       error: {
-        code,
+        code:
+          typeof coded?.code === 'string' && coded.code.startsWith('E_')
+            ? coded.code
+            : 'E_SPAWN_FAILED',
         message: error instanceof Error ? error.message : 'Unknown spawn error',
         exitCode: typeof coded?.exitCode === 'number' ? coded.exitCode : 60,
       },

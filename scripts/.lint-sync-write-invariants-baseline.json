@@ -995,7 +995,6 @@
     "packages/core/src/orchestrate/spawn-ops.ts :: E_RESUME_WORKTREE_INVALID": 1,
     "packages/core/src/orchestrate/spawn-ops.ts :: E_RESUME_WORKTREE_MISSING": 1,
     "packages/core/src/orchestrate/spawn-ops.ts :: E_SPAWN_CAPABILITY_UNSUPPORTED": 1,
-    "packages/core/src/orchestrate/spawn-ops.ts :: E_SPAWN_FAILED": 1,
     "packages/core/src/orchestrate/spawn-ops.ts :: E_SPAWN_NO_ADAPTER": 1,
     "packages/core/src/orchestrate/spawn-ops.ts :: E_SPAWN_NO_PROVIDER": 1,
     "packages/core/src/orchestrate/spawn-ops.ts :: E_SPAWN_VALIDATION_FAILED": 1,
