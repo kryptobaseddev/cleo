@@ -2,14 +2,14 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers in one `cleo orchestrate fanout` call, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.6.0
+  version: 1.3.1
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lead-rollup.ts
     - packages/core/src/orchestration/waves.ts
     - packages/core/src/orchestrate/lead.ts
-  lastReviewed: 2026-11-10
+  lastReviewed: 2026-11-09
   stability: stable
 ---
 
@@ -45,7 +45,7 @@ above are enforced by your tool list, not by your discipline (T14363):
 | Your instructions | Your prompt is the appended system prompt (you cannot Read files) |
 | Your session | You run under your OWN CLEO session (`CLEO_SESSION_ID`, also passed to the runner), so `review verdict` and `merge train` act as you. Ending the run ends that session and frees the epic |
 | One command tool | `mcp__cleo-lead__cleo_run` runs one argv (never a shell string) when it matches the lead allow-list: read, plan, dispatch and review verbs of `cleo` and `gh`. Anything else, including pipes and redirection, is refused before a process starts |
-| Your mailbox | The project lead mailbox is claimed for your session before your spawn is dispatched (a missing one is recorded first; an agentmbx name that was never registered is registered with a self-addressed `agentmbx send --new-mailbox` and the claim retried; one that cannot be recorded, registered or claimed — another holder, an agentmbx error, a throwing spawn — refuses the lead with `E_LEAD_MAILBOX_MISSING` and the release/wait fix, T14448) and released when you exit. A lead record keeps one lead per epic while your `claude` process or the `cleo` CLI lives (each recorded with its start time, so a reused pid never counts) (`E_LEAD_RUNNING` for a second one, however long you run); a lead killed before its hooks ran is reaped (mailbox, session, temp dir) by the next `cleo orchestrate lead` or `cleo orchestrate status`. `data.lead.mailbox` says whether the claim held |
+| Your mailbox | The project lead mailbox is claimed for your session once your spawn is admitted (right before you start) and released when you exit. A lead record keeps one lead per epic while your `claude` process or the `cleo` CLI lives (each recorded with its start time, so a reused pid never counts) (`E_LEAD_RUNNING` for a second one, however long you run); a lead killed before its hooks ran is reaped (mailbox, session, temp dir) by the next `cleo orchestrate lead` or `cleo orchestrate status`. `data.lead.mailbox` says whether the claim held |
 | Background dispatch | `cleo orchestrate fanout` / `spawn-execute` start workers in the background. Each worker gets its own worktree (a provisioning failure refuses the spawn, never the project root), a durable worker record, and your mailbox in its prompt |
 | Report contract | A worker returns the Return Format Contract: `conclusion:`, `blocker:` and one `proof:` line per item, 100 words at most. A report with no proof is not a completion; detail belongs in the PR body |
 
@@ -85,10 +85,7 @@ Run `mbx_whoami` for your AgentMBX name; if it shows no identity, claim one
 with `mbx_identity` before any other mbx tool. Then build each worker's prompt
 with `cleo orchestrate spawn <taskId> --lead-mbx <you>` (LEAD-005): the
 prompt's Agent Coordination section names your mailbox. With
-`orchestrate.leadWorker.v1` on, `cleo orchestrate lead` records the project's
-lead mailbox itself when none is recorded and refuses (`E_LEAD_MAILBOX_MISSING`)
-when agentmbx cannot back one — it never starts a lead workers cannot report
-to (T14448) — and `cleo orchestrate fanout` and `spawn-execute`
+`orchestrate.leadWorker.v1` on, `cleo orchestrate fanout` and `spawn-execute`
 fill in the project's recorded lead mailbox when none is given (T14379).
 Claude Code
 Agent-tool subagents share their parent's identity, so they return results

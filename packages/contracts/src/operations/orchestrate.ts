@@ -924,15 +924,6 @@ export const E_LEAD_NO_OWNER_CHANNEL = 'E_LEAD_NO_OWNER_CHANNEL';
 export const LEAD_OWNER_MAILBOX = 'owner';
 
 /**
- * No lead mailbox could be recorded or found for the epic's lead, so workers
- * would have nothing to report to and the lead is refused before any spawn
- * (T14448).
- *
- * @task T14448
- */
-export const E_LEAD_MAILBOX_MISSING = 'E_LEAD_MAILBOX_MISSING';
-
-/**
  * AgentMBX MCP server name a lead may load beside the runner (T14423).
  *
  * @task T14423

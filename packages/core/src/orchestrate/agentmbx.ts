@@ -9,8 +9,8 @@
  *
  * Callers: `cleo init` and `cleo upgrade` record the lead mailbox
  * ({@link ensureLeadMailbox} — `init` refuses on an initialized project, so
- * `upgrade` is the non-destructive verb for it), spawn/fanout read it
- * ({@link resolveLeadMailbox}), and the progress
+ * `upgrade` is the non-destructive verb for it),
+ * spawn/fanout read it ({@link resolveLeadMailbox}), and the progress
  * watchdog (T14362) and worker prompts (T13966) can send through
  * {@link AgentMbxClient.send}.
  *
@@ -110,13 +110,6 @@ export interface AgentMbxClient {
   status(session: MbxSession): Promise<MbxOutcome<MbxIdentityStatus>>;
   /** Release the mailbox a provider session holds (a lead's exit or reap, T14363). */
   release(session: Required<MbxSession>): Promise<MbxOutcome<MbxIdentityStatus>>;
-  /**
-   * Register a mailbox identity that does not exist yet (T14477): a lease-free
-   * self-addressed `agentmbx send --new-mailbox`, which creates the mailbox
-   * and makes it claimable. agentmbx 0.5.58 has no lease-free
-   * `identity register`, so the role stays unset until a session claims it.
-   */
-  register(name: string): Promise<MbxOutcome<{ id: string | null }>>;
 }
 
 /**
@@ -267,29 +260,6 @@ export function createAgentMbxClient(runner?: MbxRunner): AgentMbxClient {
       const r = await call(['identity', 'release', ...sessionArgs(session), '--json']);
       return r.ok ? { ok: true, value: parseIdentity(r.value) } : r;
     },
-    async register(name) {
-      // T14477: there is no lease-free `identity register` in agentmbx 0.5.58;
-      // a self-addressed `send --new-mailbox` registers the sender's mailbox
-      // (registerAgent), which makes the name claimable for the retry claim.
-      if (!MBX_NAME.test(name)) return { ok: false, warning: `invalid mailbox name "${name}"` };
-      const r = await call([
-        'send',
-        '--as',
-        name,
-        '--to',
-        name,
-        '--new-mailbox',
-        '--subject',
-        'cleo lead mailbox registration',
-        '-m',
-        `${name} is this project's lead mailbox, registered by \`cleo orchestrate lead\` so workers can report to it (T14448). This self-addressed note is safe to ignore.`,
-        '--json',
-      ]);
-      if (!r.ok) return r;
-      const rec = asRecord(parseJson(r.value));
-      const id = str(rec, 'id') || str(asRecord(rec?.['data']), 'id') || null;
-      return { ok: true, value: { id } };
-    },
     async status(session) {
       const r = await call([
         'status',
@@ -336,11 +306,10 @@ export type EnsureLeadMailboxResult =
 
 /**
  * Record the project's lead mailbox in project config (`cleo init` and
- * `cleo upgrade`). It runs only with `orchestrate.leadWorker.v1` on
- * (otherwise no probe, `disabled`). With `agentmbx` absent it writes nothing
- * and returns a warning; an existing record is kept. `cleo upgrade` calls
- * this so an already-initialized project — which `cleo init --force` would
- * reset — can record the mailbox non-destructively (T14448).
+ * `cleo upgrade`, T14448). It runs
+ * only with `orchestrate.leadWorker.v1` on (otherwise no probe, `disabled`).
+ * With `agentmbx` absent it writes nothing and returns a warning; an existing
+ * record is kept.
  *
  * @param projectRoot - Project root.
  * @param project - Display name and portable id of the project.
@@ -396,24 +365,10 @@ export async function resolveLeadMailbox(
 }
 
 /**
- * A claim refusal that means the mailbox identity does not exist yet (T14477):
- * agentmbx refuses an unregistered readable name ("not a registered identity
- * yet", phrased variously across versions) rather than a held or failed one.
- */
-const IDENTITY_NOT_REGISTERED_RE =
-  /not a registered identity|isn['’]t among|not among the project|IDENTITY_ROLE_REQUIRED|unknown identity/i;
-
-/**
  * Claim the project's recorded lead mailbox for the lead's provider session.
- * `cleo orchestrate lead` (T14363) calls this before the spawn is dispatched,
- * so the mailbox workers report to has a holder; the lead's exit, or the
- * dead-lead reaper, releases it.
- *
- * A recorded name that agentmbx has never heard of (T14477: `ensureLeadMailbox`
- * only writes config) is registered first — a lease-free self-addressed
- * `agentmbx send` creates the mailbox, which makes it claimable — and the
- * claim is retried once; any other refusal (another holder, an agentmbx
- * error) is returned as-is.
+ * `cleo orchestrate lead` (T14363) calls this once the lead's spawn is
+ * admitted, right before it starts, so the mailbox workers report to has a
+ * holder; the lead's exit, or the dead-lead reaper, releases it.
  *
  * @param projectRoot - Project root.
  * @param session - The lead's provider session (`--cli`, `--session`).
@@ -431,15 +386,6 @@ export async function claimLeadMailbox(
       ok: false,
       warning:
         'No lead mailbox recorded: run `cleo upgrade` with agentmbx installed and orchestrate.leadWorker.v1 on (`cleo config set orchestrate.leadWorker.v1 true`) to record one.',
-    };
-  }
-  const claim = await client.claim(name, session);
-  if (claim.ok || !IDENTITY_NOT_REGISTERED_RE.test(claim.warning)) return claim;
-  const registered = await client.register(name);
-  if (!registered.ok) {
-    return {
-      ok: false,
-      warning: `${claim.warning} (registering it failed: ${registered.warning})`,
     };
   }
   return client.claim(name, session);

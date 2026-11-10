@@ -107,26 +107,7 @@ describe('lead prompt (T14363)', () => {
 
   it('the composed lead prompt carries the tier-1 lead excerpts (ct-lead) and the lead role', async () => {
     const { orchestrateLead } = await import('../lead.js');
-    // T14448: a flag-on project with no recorded mailbox and no agentmbx now
-    // refuses before any spawn, so the prompt test injects a working client;
-    // the default one is agentmbx-absent under vitest.
-    const { createAgentMbxClient } = await import('../agentmbx.js');
-    const client = createAgentMbxClient(async (args) => {
-      if (args[0] === '--version')
-        return { missing: false, exitCode: 0, stdout: '0.5.58', stderr: '' };
-      if (args[0] === 'identity')
-        return {
-          missing: false,
-          exitCode: 0,
-          stdout: JSON.stringify({
-            identity: { name: 'cleo-lead@test', state: 'bound' },
-            unread: 0,
-          }),
-          stderr: '',
-        };
-      return { missing: false, exitCode: 2, stdout: '', stderr: 'unknown command\n' };
-    });
-    const result = await orchestrateLead('T200', { projectRoot: env.tempDir, mbxClient: client });
+    const result = await orchestrateLead('T200', { projectRoot: env.tempDir });
     expect(result.success).toBe(true);
     const prompt = provider.state.seen[0]?.prompt ?? '';
     expect(prompt).toContain('## Skill Excerpts (tier 1 — lead)');
