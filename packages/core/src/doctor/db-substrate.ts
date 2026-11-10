@@ -757,11 +757,13 @@ const CROSS_DB_QUERY_LIMIT = 100;
 const CROSS_DB_SAMPLE_LIMIT = 5;
 
 /**
- * Stable text for the I3 path-mismatch invariant fix: the registry repair
- * lists each row with its remedy and rebinds a moved project by id.
+ * Stable text for the I3 path-mismatch invariant fix. I3 reads the inventory's
+ * `nexus` role, the retired `<cleoHome>/nexus.db`; the live registry is in the
+ * global `cleo.db`, which `cleo doctor projects` repairs and I3 never reads.
+ * The one verb that acts on the file I3 reads archives it as exodus residue.
  */
 const I3_FIX =
-  'Run `cleo doctor projects` to see the registry row and its remedy; `cleo doctor projects --apply` rebinds a moved project to its current path by id';
+  'This row is in the retired <cleoHome>/nexus.db; the live registry is in the global cleo.db. Run `cleo doctor exodus-residue --fix` to archive the retired file (it acts only once the global migration is complete); no CLI verb edits the row itself';
 /**
  * Stable text for the I1 invariant fix: the reconciliation step of brain
  * maintenance deletes `brain_memory_links` rows whose task is gone.
