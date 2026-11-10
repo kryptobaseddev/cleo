@@ -28,6 +28,7 @@
     { "path": "./packages/core" },
     { "path": "./packages/runtime" },
     { "path": "./packages/adapters" },
+    { "path": "./packages/adapters/orca-plugin" },
     { "path": "./packages/cleo" }
   ]
 }
