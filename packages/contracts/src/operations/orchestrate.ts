@@ -899,6 +899,99 @@ export interface LeadToolPolicy {
 }
 
 /**
+ * MCP server name of the lead command runner. The lead reaches it as
+ * {@link LEAD_RUNNER_TOOL}.
+ *
+ * @task T14374
+ */
+export const LEAD_RUNNER_MCP_SERVER = 'cleo-lead';
+
+/**
+ * Tool name the lead command runner serves.
+ *
+ * @task T14374
+ */
+export const LEAD_RUNNER_TOOL_NAME = 'cleo_run';
+
+/**
+ * Provider-qualified name of the lead command runner tool: the one way a lead
+ * without Bash runs a command. It takes an argv array, never a shell string.
+ *
+ * @task T14374
+ * @epic T14351
+ */
+export const LEAD_RUNNER_TOOL = `mcp__${LEAD_RUNNER_MCP_SERVER}__${LEAD_RUNNER_TOOL_NAME}` as const;
+
+/**
+ * Binary the lead command runner may execute.
+ *
+ * @task T14374
+ */
+export type LeadCommandBinary = 'cleo' | 'gh';
+
+/**
+ * One allowed command: the argv words after the binary that must open the
+ * call, plus flags that must also be present (so `done --from-merge` is only
+ * allowed as a dry run).
+ *
+ * @task T14374
+ */
+export interface LeadCommandRule {
+  /** Leading argv words after the binary, e.g. `['review', 'verdict']`. */
+  readonly verb: readonly string[];
+  /** Flags that must appear somewhere in argv for the call to be allowed. */
+  readonly requireFlags?: readonly string[];
+  /** Second words refused even though {@link LeadCommandRule.verb} matches. */
+  readonly denySubcommands?: readonly string[];
+}
+
+/**
+ * Commands a lead may run through {@link LEAD_RUNNER_TOOL}: read, plan,
+ * dispatch and review verbs only, plus `merge train` (T14371), which merges only
+ * PRs green on their exact head and reviewed per AC. Nothing here edits files,
+ * pushes or answers an owner gate; anything not listed is refused.
+ *
+ * `orchestrate` is allowed with every subcommand except the ones that merge
+ * (`worktree-complete`), answer an owner approval gate (`approve`, `reject`)
+ * or start the runner itself (`lead-runner`).
+ *
+ * @task T14374
+ * @epic T14351
+ */
+export const LEAD_COMMAND_ALLOWLIST: Readonly<
+  Record<LeadCommandBinary, readonly LeadCommandRule[]>
+> = {
+  cleo: [
+    {
+      verb: ['orchestrate'],
+      denySubcommands: ['worktree-complete', 'approve', 'reject', 'lead-runner'],
+    },
+    { verb: ['show'] },
+    { verb: ['find'] },
+    { verb: ['list'] },
+    { verb: ['review', 'packet'] },
+    { verb: ['review', 'check'] },
+    { verb: ['review', 'verdict'] },
+    { verb: ['done'], requireFlags: ['--from-merge', '--dry-run'] },
+    { verb: ['memory', 'find'] },
+    { verb: ['memory', 'fetch'] },
+    { verb: ['briefing'] },
+    { verb: ['session', 'status'] },
+    { verb: ['decide', 'ask'] },
+    { verb: ['merge', 'train'] },
+  ],
+  gh: [
+    { verb: ['pr', 'view'] },
+    { verb: ['pr', 'list'] },
+    { verb: ['pr', 'checks'] },
+    { verb: ['pr', 'diff'] },
+    { verb: ['pr', 'comment'] },
+    { verb: ['run', 'list'] },
+    { verb: ['run', 'view'] },
+  ],
+};
+
+/**
  * One piece of proof backing a worker's conclusion: a command it ran with its
  * exit code, an artifact it produced (a PR url, a file path, a commit sha), or
  * both. A proof entry with no field set proves nothing and is rejected with
