@@ -1326,6 +1326,30 @@ const impactCommand = defineCommand({
 });
 
 /**
+ * cleo nexus affected — the test files, vitest projects and symbols a change
+ * reaches through the static import graph (T14366). Reads the checkout, not
+ * the NEXUS index, so it never answers from a stale graph; `mode: full` names
+ * why only a package-level or full run speaks for the change.
+ */
+const affectedCommand = defineCommand({
+  meta: {
+    name: 'affected',
+    description:
+      'Test files, vitest projects and symbols a change reaches through the static import graph (mode full with a reason when it cannot speak)',
+  },
+  args: {
+    base: { type: 'string', description: "Ref to diff against (default: origin's default branch)" },
+    json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
+  },
+  async run({ args }) {
+    applyJsonFlag(args.json as boolean | undefined);
+    const { affectedTestReport } = await import('@cleocode/core/tasks/affected-tests.js');
+    const report = await affectedTestReport(getProjectRoot(), args.base as string | undefined);
+    cliOutput({ ...report }, { command: 'nexus-affected', operation: 'nexus.affected' });
+  },
+});
+
+/**
  * cleo nexus reindex-on-merge — the opt-in background reindex the CLEO
  * `post-merge` hook starts (T14010). Base branch only, one at a time per
  * project, through `cleo run` admission; the outcome shows in `nexus status`.
@@ -3474,6 +3498,7 @@ export const nexusCommand = defineCommand({
     impact: impactCommand,
     analyze: analyzeCommand,
     'reindex-on-merge': reindexOnMergeCommand,
+    affected: affectedCommand,
     'auto-reindex': autoReindexCommand,
     hooks: hooksCommand,
     query: queryCommand,

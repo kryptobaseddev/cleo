@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /**
- * Select the vitest projects a pull request's unit shards run (T13142).
+ * Select the tests a pull request's unit shards run (T13142, T14366).
+ *
+ * File-level first (T14366): the test files whose static import graph reaches
+ * a changed module (`selectAffectedTestFiles` in core), passed to vitest as
+ * file filters. When the graph cannot speak for the change (a non-module file
+ * such as a migration, fixture or template, a module no test reaches, or too
+ * many files), the package-level selection below runs instead.
  *
  * Each PR ran all four unit shards over the whole suite (~7,100 tests,
  * 10–17 min a shard), whatever it changed. A PR now runs the projects of the
@@ -21,10 +27,12 @@
  *
  *   node scripts/ci-affected-test-projects.mjs <base-ref> <head-ref>
  *
- * Writes to `$GITHUB_OUTPUT`: `mode=full|affected`, `args=<--project a --project b ...>`
- * (empty for `full`) and prints the reason. Always exits 0.
+ * Writes to `$GITHUB_OUTPUT`: `mode=full|affected`, `args=<test files>` or
+ * `args=<--project a --project b ...>` (empty for `full`) and prints the
+ * reason. Always exits 0.
  *
  * @task T13142
+ * @task T14366
  */
 
 import { execFileSync } from 'node:child_process';
@@ -36,7 +44,28 @@ import { pathToFileURL } from 'node:url';
  * @typedef {{ scope: 'affected', direct: string[], packages: string[] } | { scope: 'full', reason: string }} AffectedScope
  * @typedef {{ ok: true, projects: string[], untested: string[] } | { ok: false, reason: string }} Targets
  * @typedef {{ mode: 'full', reason: string } | { mode: 'affected', projects: string[], reason: string }} Selection
+ * @typedef {{ mode: 'affected', testFiles: string[], reason: string } | { mode: 'full', reason: string }} FileSelection
  */
+
+/**
+ * File-level selection when the import graph covers the change, else the
+ * package-level selection with the file-level refusal in its reason.
+ *
+ * @param {readonly string[] | null} changed - Repo-relative changed paths, or `null` when git failed.
+ * @param {(changed: readonly string[]) => FileSelection} files - `selectAffectedTestFiles` bound to the root.
+ * @param {(changed: readonly string[] | null) => Promise<Selection>} projects - {@link selectTestProjects}, bound.
+ * @returns {Promise<{ mode: 'affected', testFiles: string[], reason: string } | Selection>}
+ */
+export async function selectTests(changed, files, projects) {
+  if (changed !== null && changed.length > 0) {
+    const sel = files(changed);
+    if (sel.mode === 'affected')
+      return { mode: 'affected', testFiles: sel.testFiles, reason: sel.reason };
+    const fallback = await projects(changed);
+    return { ...fallback, reason: `file-level: ${sel.reason}; package-level: ${fallback.reason}` };
+  }
+  return projects(changed);
+}
 
 /**
  * Decide the projects from the changed paths.
@@ -75,6 +104,14 @@ export function projectArgs(/** @type {readonly string[]} */ projects) {
   return projects.map((p) => `--project ${p}`).join(' ');
 }
 
+/** Test files as one line the shell splits into words: no space, quote or glob character. */
+export function testFileArgs(/** @type {readonly string[]} */ files) {
+  for (const f of files) {
+    if (!/^[\w@./+-]+$/.test(f)) throw new Error(`unexpected test file path: ${f}`);
+  }
+  return files.join(' ');
+}
+
 function output(/** @type {Record<string, string>} */ values) {
   const lines = Object.entries(values).map(([k, v]) => `${k}=${v}`);
   console.log(lines.join('\n'));
@@ -84,7 +121,7 @@ function output(/** @type {Record<string, string>} */ values) {
 async function main() {
   const [base, head] = process.argv.slice(2);
   const root = process.cwd();
-  /** @type {Selection} */
+  /** @type {Selection | { mode: 'affected', testFiles: string[], reason: string }} */
   let selection;
   try {
     let changed = null;
@@ -99,16 +136,27 @@ async function main() {
     } catch {
       changed = null;
     }
-    const core = await import(
-      pathToFileURL(path.join(root, 'packages/core/dist/tasks/affected-packages.js')).href
-    );
+    const dist = (/** @type {string} */ m) =>
+      import(pathToFileURL(path.join(root, `packages/core/dist/tasks/${m}.js`)).href);
+    const core = await dist('affected-packages');
+    // Older core builds have no file-level selection: select by package.
+    const fileLevel = await dist('affected-tests').catch(() => null);
     // CI owns the machine: no heavy-tool slot to queue for.
     const resolve = (/** @type {string} */ r) =>
       core.listVitestProjects(r, { acquireSlot: async () => async () => {} });
-    selection = await selectTestProjects(
+    selection = await selectTests(
       changed,
-      (c) => core.deriveAffectedPackages(root, c),
-      (packages, direct) => core.affectedTestTargets(root, packages, direct, resolve),
+      (c) =>
+        fileLevel?.selectAffectedTestFiles(root, c) ?? {
+          mode: 'full',
+          reason: 'core has no file-level selection built',
+        },
+      (c) =>
+        selectTestProjects(
+          c,
+          (cc) => core.deriveAffectedPackages(root, cc),
+          (packages, direct) => core.affectedTestTargets(root, packages, direct, resolve),
+        ),
     );
   } catch (err) {
     selection = {
@@ -119,14 +167,17 @@ async function main() {
   let args = '';
   if (selection.mode === 'affected') {
     try {
-      args = projectArgs(selection.projects);
+      args =
+        'testFiles' in selection
+          ? testFileArgs(selection.testFiles)
+          : projectArgs(selection.projects);
     } catch (err) {
       selection = { mode: 'full', reason: err instanceof Error ? err.message : String(err) };
     }
   }
   if (selection.mode === 'affected') {
     output({ mode: 'affected', args });
-    console.log(`Affected tests only (T13142): ${selection.reason}`);
+    console.log(`Affected tests only (T13142, T14366): ${selection.reason}`);
   } else {
     output({ mode: 'full', args: '' });
     console.log(`Full suite (T13142): ${selection.reason}`);
