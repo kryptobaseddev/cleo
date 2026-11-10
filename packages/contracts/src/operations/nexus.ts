@@ -856,6 +856,8 @@ export interface NexusImpactParams {
   depth?: number;
   /** `--no-refresh` (T13523): answer from the index as it stands. */
   noRefresh?: boolean;
+  /** `--coverage-detail` (T14365): return every coverage reason instead of a bounded sample. */
+  coverageDetail?: boolean;
 }
 /** Affected symbol in impact result. */
 export interface NexusImpactAffectedNode {
@@ -1093,16 +1095,6 @@ export interface NexusSigilSyncResult {
   metaDir: string | null;
   /** Warnings encountered during sync (missing files, parse failures). */
   warnings: string[];
-}
-
-/** Parameters for `nexus.conduit-scan`. */
-export type NexusConduitScanParams = Record<string, never>;
-/** Result of `nexus.conduit-scan`. */
-export interface NexusConduitScanResult {
-  /** Count of conduit messages scanned. */
-  scanned: number;
-  /** Count of conduit_mentions_symbol edges written. */
-  linked: number;
 }
 
 /** Parameters for `nexus.contracts-sync`. */
@@ -2407,7 +2399,6 @@ export type NexusOps = {
     NexusContractsLinkTasksParams,
     NexusContractsLinkTasksResult,
   ];
-  readonly 'conduit-scan': readonly [NexusConduitScanParams, NexusConduitScanResult];
   // T1510 — Phase 2 dispatch ops
   readonly clusters: readonly [NexusClustersParams, NexusClustersResult];
   readonly flows: readonly [NexusFlowsParams, NexusFlowsResult];

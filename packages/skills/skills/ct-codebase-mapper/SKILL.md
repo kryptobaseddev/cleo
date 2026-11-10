@@ -118,6 +118,15 @@ caller, so an empty footprint alone never establishes that a change is safe.
 When a symbol name is ambiguous, pass the qualified candidate the command
 returns and confirm against the source.
 
+`impact` judges `coverage` by the files its answer rests on: the target's file
+and every traversed caller's file. A file that failed extraction elsewhere
+makes the answer `partial` (one reason counts those files; callers in them may
+be missing) instead of hiding the callers it found; a failed target or caller
+file makes it `failed`. Any status short of `current` gives `UNKNOWN`. The
+reply carries a bounded coverage sample (`reasonCount`, `detailsCommand`);
+`--coverage-detail` returns every reason and limitation, including unrelated
+files.
+
 ## 5. Which tests a change reaches
 
 ```bash

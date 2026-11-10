@@ -61,7 +61,6 @@ import { dispatchFromCli, dispatchRaw, reportRawError } from '../../dispatch/ada
 import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
 import { asCleoErrorLike, cleoErrorCodeName } from '../cleo-error-like.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
-import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
@@ -1202,6 +1201,12 @@ const impactCommand = defineCommand({
     },
     depth: { type: 'string', description: 'Maximum traversal depth (default: 3)', default: '3' },
     why: { type: 'boolean', description: 'Append reasons[] path-strings for each affected symbol' },
+    'coverage-detail': {
+      type: 'boolean',
+      description:
+        'Return every coverage reason and limitation, including files outside this answer (default: a bounded sample with counts) (T14365)',
+      default: false,
+    },
     'no-refresh': {
       type: 'boolean',
       description: 'Answer from the index as it stands, without an inline refresh (T13523)',
@@ -1253,6 +1258,7 @@ const impactCommand = defineCommand({
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
+        coverageDetail: !!args['coverage-detail'],
       });
       // T13922: a symbol absent from a stale index is not "no impact".
       if (result.targetNodeId === null && refusedAsMissing()) return;
@@ -2596,7 +2602,7 @@ const fullContextCommand = defineCommand({
   meta: {
     name: 'full-context',
     description:
-      'Show full Living Brain context for a symbol: NEXUS callers/callees, BRAIN memories, TASKS, sentient proposals, conduit threads',
+      'Show full Living Brain context for a symbol: NEXUS callers/callees, BRAIN memories, TASKS, sentient proposals',
   },
   args: {
     symbol: {
@@ -2805,60 +2811,6 @@ const impactFullCommand = defineCommand({
       {
         command: 'nexus-impact-full',
         operation: 'nexus.impact-full',
-        extensions: { duration_ms: durationMs },
-        responseMeta: response.meta,
-      },
-    );
-  },
-});
-
-// ---------------------------------------------------------------------------
-// T1071 — conduit-scan: link conduit messages to nexus symbols
-// ---------------------------------------------------------------------------
-
-/**
- * cleo nexus conduit-scan — Scan conduit messages and link them to nexus symbols.
- *
- * Writes `conduit_mentions_symbol` edges to brain_page_edges (idempotent).
- * Gracefully no-ops when conduit.db or nexus.db is absent.
- *
- * @task T1071
- * @epic T1042
- */
-const conduitScanCommand = defineCommand({
-  meta: {
-    name: 'conduit-scan',
-    description:
-      'Scan conduit messages for symbol mentions and link them to nexus nodes (conduit_mentions_symbol edges)',
-  },
-  args: {
-    json: {
-      type: 'boolean',
-      description: 'Output result as JSON (LAFS envelope format)',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('nexus conduit-scan');
-    applyJsonFlag(args.json as boolean | undefined);
-    const startTime = Date.now();
-    const response = await dispatchRaw('mutate', 'nexus', 'conduit-scan', {});
-    const durationMs = Date.now() - startTime;
-    if (!response.success) {
-      const msg = response.error?.message ?? 'Unknown error';
-      cliError(
-        msg,
-        1,
-        { name: response.error?.code ?? 'E_CONDUIT_SCAN_FAILED', details: response.error?.details },
-        { operation: 'nexus.conduit-scan', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
-      return;
-    }
-    cliOutput(
-      { ...((response.data as Record<string, unknown>) ?? {}), _durationMs: durationMs },
-      {
-        command: 'nexus-conduit-scan',
-        operation: 'nexus.conduit-scan',
         extensions: { duration_ms: durationMs },
         responseMeta: response.meta,
       },
@@ -3561,8 +3513,6 @@ export const nexusCommand = defineCommand({
     'brain-anchors': brainAnchorsCommand,
     why: whyCommand,
     'impact-full': impactFullCommand,
-    // T1071 — conduit scan
-    'conduit-scan': conduitScanCommand,
     // T1067 — task symbols
     'task-symbols': taskSymbolsCommand,
     // T1058 — code symbol search

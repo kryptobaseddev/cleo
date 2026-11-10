@@ -221,6 +221,8 @@ export async function updateSession(
     // Fork-tree parent edge (T11639)
     if (updates.parentSessionId !== undefined) updateRow.parentSessionId = updates.parentSessionId;
     if (updates.agentIdentifier !== undefined) updateRow.agentIdentifier = updates.agentIdentifier;
+    // T14372: a dispatched reviewer's session names its agent, so it never blocks a session start.
+    if (updates.agentHandle !== undefined) updateRow.agentHandle = updates.agentHandle;
     if (updates.handoffConsumedAt !== undefined)
       updateRow.handoffConsumedAt = updates.handoffConsumedAt;
     if (updates.handoffConsumedBy !== undefined)

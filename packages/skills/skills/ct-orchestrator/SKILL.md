@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.3.0
+  version: 4.3.1
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-11-09
+  lastReviewed: 2026-11-10
   stability: stable
 ---
 
@@ -122,6 +122,12 @@ the stage gate (see Plan).
   (`Closes: T#### AC1,AC2`, or `Refs:` for partial delivery). A reviewer agent that is
   not the author reviews the PR head from `cleo review packet <pr> --task <id>` and
   records `cleo review verdict` per AC; the implementer never reviews its own work.
+  `cleo review dispatch --execute` sends one shadow reviewer per routine PR head that
+  lacks verdicts, under a session the dispatch creates, and prints its brief. Shadow
+  verdicts never count, so the lead still reviews every PR; `cleo review check` shows
+  them next to the lead's. Migrations, store/sync, gates, deletions, evidence and
+  review/session/claim code stay with the lead. `--counted` is refused until the owner
+  sets `review.workers.counted`.
   Merge on green `CI`; the merge sweep closes the task. A worker that fails its
   criteria is re-spawned with the feedback.
 - No-PR work: `cleo done <id> --plan`, then `cleo verify` per gate, then `cleo complete`.
@@ -254,8 +260,8 @@ the store doc exists.
 peers through AgentMBX (`mbx_*` tools; the `agentmbx` CLI can only send without the
 session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` section and
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
-mailbox in it. `cleo conduit` and the `conduit-*` sub-commands of `cleo orchestrate` are
-deprecated (T13982) and leave in the next release; do not build on them.
+mailbox in it. The conduit messaging verbs, including the `conduit-*` sub-commands of
+orchestrate, were removed (T13955).
 
 **Attached documents are budgeted (T14190).** A spawn prompt's `## Task Documents` section
 inlines the task's attached text documents up to 16,000 characters of prose

@@ -95,7 +95,6 @@ export declare const nexusCoreOps: {
   readonly transfer: NexusCoreOperation<'transfer'>;
   readonly 'contracts-sync': NexusCoreOperation<'contracts-sync'>;
   readonly 'contracts-link-tasks': NexusCoreOperation<'contracts-link-tasks'>;
-  readonly 'conduit-scan': NexusCoreOperation<'conduit-scan'>;
   readonly 'profile.import': NexusCoreOperation<'profile.import'>;
   readonly 'profile.export': NexusCoreOperation<'profile.export'>;
   readonly 'profile.reinforce': NexusCoreOperation<'profile.reinforce'>;
