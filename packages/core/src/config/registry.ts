@@ -35,7 +35,7 @@ import {
 import { getCleoHome } from '@cleocode/paths';
 import { GLOBAL_CONFIG_FILE_MODE } from '../llm/global-config-migration.js';
 import { atomicWriteJson } from '../store/atomic.js';
-import { migrateLegacyConfigKeys } from './legacy-keys.js';
+import { migrateLegacyConfigKeys, resolveLegacyConfigKey } from './legacy-keys.js';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -351,7 +351,7 @@ export async function getConfigValue<T = unknown>(
 ): Promise<T | undefined> {
   const scope = opts.scope ?? 'merged';
   const resolved = await resolveCleoConfig({ scope, projectRoot: opts.projectRoot });
-  return getNestedValue(resolved, key) as T | undefined;
+  return getNestedValue(resolved, resolveLegacyConfigKey(key)) as T | undefined;
 }
 
 /**
@@ -434,7 +434,14 @@ export async function unsetConfigValue(
     return { key, scope, removed: false };
   }
 
-  const removed = deleteNestedValue(existing, key);
+  // T14375: unsetting either path removes the value from its new home.
+  const migrated = migrateLegacyConfigKeys(existing).length > 0;
+  const removed = deleteNestedValue(existing, resolveLegacyConfigKey(key));
+  if (!removed && migrated) {
+    await atomicWriteJson(configPath, existing, {
+      mode: opts.global ? GLOBAL_CONFIG_FILE_MODE : undefined,
+    });
+  }
   if (!removed) {
     return { key, scope, removed: false };
   }

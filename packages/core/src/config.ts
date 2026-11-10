@@ -11,7 +11,7 @@
 import { existsSync } from 'node:fs';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { migrateLegacyConfigKeys } from './config/legacy-keys.js';
+import { migrateLegacyConfigKeys, resolveLegacyConfigKey } from './config/legacy-keys.js';
 import { CleoError } from './errors.js';
 // Import from the dependency-free leaf (NOT ./llm/role-resolver.js) so this
 // module's eager DEFAULTS read cannot enter role-resolver's circular import
@@ -317,6 +317,7 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
  *   callers that need provenance should follow that thread.
  */
 export async function getConfigValue<T>(path: string, cwd?: string): Promise<ResolvedValue<T>> {
+  path = resolveLegacyConfigKey(path);
   // Check environment variables first
   for (const [envKey, configPath] of Object.entries(ENV_MAP)) {
     if (configPath === path && process.env[envKey] !== undefined) {
@@ -330,6 +331,7 @@ export async function getConfigValue<T>(path: string, cwd?: string): Promise<Res
   // Check project config
   const projectConfig = await readJson<Record<string, unknown>>(getConfigPath(cwd));
   if (projectConfig) {
+    migrateLegacyConfigKeys(projectConfig);
     const val = getNestedValue(projectConfig, path);
     if (val !== undefined) {
       return { value: val as T, source: 'project' as ConfigSource };
@@ -339,6 +341,7 @@ export async function getConfigValue<T>(path: string, cwd?: string): Promise<Res
   // Check global config
   const globalConfig = await readJson<Record<string, unknown>>(getGlobalConfigPath());
   if (globalConfig) {
+    migrateLegacyConfigKeys(globalConfig);
     const val = getNestedValue(globalConfig, path);
     if (val !== undefined) {
       return { value: val as T, source: 'global' as ConfigSource };
@@ -363,10 +366,11 @@ export async function getRawConfigValue(key: string, cwd?: string): Promise<unkn
   const configPath = getConfigPath(cwd);
   const config = await readJson<Record<string, unknown>>(configPath);
   if (!config) return undefined;
+  migrateLegacyConfigKeys(config);
 
   if (!key) return config;
 
-  return getNestedValue(config, key);
+  return getNestedValue(config, resolveLegacyConfigKey(key));
 }
 
 /**
@@ -437,14 +441,18 @@ export async function setConfigValue(
   }
 
   const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
+  // Write-new (T14375): a legacy key in the file moves to its new home on any
+  // write, and a write to a legacy key path lands on the new path.
+  migrateLegacyConfigKeys(config);
+  const targetKey = resolveLegacyConfigKey(key);
 
   const parsedValue = parseConfigValue(value);
 
-  setNestedValue(config, key, parsedValue);
+  setNestedValue(config, targetKey, parsedValue);
 
   await saveJson(configPath, config, { mode });
 
-  return { key, value: parsedValue, scope: opts?.global ? 'global' : 'project' };
+  return { key: targetKey, value: parsedValue, scope: opts?.global ? 'global' : 'project' };
 }
 
 // ---------------------------------------------------------------------------

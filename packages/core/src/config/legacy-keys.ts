@@ -18,13 +18,18 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/** Legacy key path and the key path that replaced it (T14375). */
+const LEGACY_PREFIX = 'orchestrator.contextThresholds';
+const CURRENT_PREFIX = 'orchestrate.contextThresholds';
+
 /**
  * Move legacy keys in a parsed config object to their current home, in place.
  *
- * `orchestrator.contextThresholds` moves to `orchestrate.contextThresholds`
- * unless that key is already set (the new key wins). The legacy
- * `orchestrator` object is removed once nothing else is left in it, so no
- * value is ever discarded silently. Idempotent.
+ * `orchestrator.contextThresholds` merges into `orchestrate.contextThresholds`
+ * field by field: a field already set under the new key wins, every other
+ * legacy field is carried over. The legacy `orchestrator` object is removed
+ * once nothing else is left in it, so no value is discarded silently.
+ * Idempotent.
  *
  * @param config - Parsed config file contents; mutated in place.
  * @returns The legacy key paths that were moved (empty when none).
@@ -39,16 +44,57 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 export function migrateLegacyConfigKeys(config: Record<string, unknown>): string[] {
   const legacy = config['orchestrator'];
   if (!isPlainObject(legacy) || !('contextThresholds' in legacy)) return [];
+  const legacyThresholds = legacy['contextThresholds'];
   const current = isPlainObject(config['orchestrate']) ? config['orchestrate'] : {};
+  const currentThresholds = current['contextThresholds'];
   if (!('contextThresholds' in current)) {
-    current['contextThresholds'] = legacy['contextThresholds'];
+    current['contextThresholds'] = legacyThresholds;
+  } else if (isPlainObject(currentThresholds) && isPlainObject(legacyThresholds)) {
+    for (const [field, value] of Object.entries(legacyThresholds)) {
+      if (!(field in currentThresholds)) currentThresholds[field] = value;
+    }
   }
   config['orchestrate'] = current;
   delete legacy['contextThresholds'];
   if (Object.keys(legacy).length === 0) {
     delete config['orchestrator'];
   }
-  return ['orchestrator.contextThresholds'];
+  return [LEGACY_PREFIX];
+}
+
+/**
+ * Map a legacy dot-separated config key to the key that replaced it.
+ *
+ * `orchestrator.contextThresholds[.<field>]` maps to
+ * `orchestrate.contextThresholds[.<field>]` and emits a `DeprecationWarning`
+ * naming the new key, so a read or write of the old path is never silent.
+ * Any other key is returned unchanged.
+ *
+ * @param key - Dot-separated key path as the caller gave it.
+ * @returns The key path to read or write.
+ */
+export function resolveLegacyConfigKey(key: string): string {
+  if (key !== LEGACY_PREFIX && !key.startsWith(`${LEGACY_PREFIX}.`)) return key;
+  const current = CURRENT_PREFIX + key.slice(LEGACY_PREFIX.length);
+  process.emitWarning(
+    `config key '${key}' is deprecated since T14375; use '${current}' (run 'cleo upgrade' to migrate config.json)`,
+    'DeprecationWarning',
+  );
+  return current;
+}
+
+/**
+ * Doctor deprecation messages for a parsed config, migrating it in memory
+ * first so schema validation sees the current shape (T14375 · T14260).
+ *
+ * @param config - Parsed `config.json`; mutated in place.
+ * @returns One message per legacy key found.
+ */
+export function configLegacyKeyDeprecations(config: Record<string, unknown>): string[] {
+  return migrateLegacyConfigKeys(config).map(
+    (k) =>
+      `config.json: ${k} is deprecated since T14375 and read as ${CURRENT_PREFIX}; run 'cleo upgrade' to rewrite it`,
+  );
 }
 
 /**

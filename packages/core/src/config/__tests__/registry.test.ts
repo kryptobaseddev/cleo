@@ -13,7 +13,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CLEO_CONFIG_MANIFEST } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ZodTypeAny, z } from 'zod';
 import {
   checkDrift,
@@ -118,6 +118,19 @@ describe('resolveCleoConfig', () => {
     const merged = await resolveCleoConfig({ scope: 'merged', projectRoot });
     expect(merged).toEqual({ orchestrate: { contextThresholds: { warning: 60, critical: 90 } } });
     expect(await getConfigValue('orchestrate.contextThresholds.warning', { projectRoot })).toBe(60);
+    // The legacy path is an alias of the new one, with a deprecation warning (T14375).
+    const warn = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+    try {
+      expect(await getConfigValue('orchestrator.contextThresholds.critical', { projectRoot })).toBe(
+        90,
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('deprecated'),
+        'DeprecationWarning',
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('missing files: returns {} for both global and project on missing', async () => {
