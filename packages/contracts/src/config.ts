@@ -817,15 +817,6 @@ export interface OrchestrateConfig {
    */
   leadWorker?: OrchestrateLeadWorkerConfig;
   /**
-   * The project's lead AgentMBX mailbox, recorded by `cleo init` when
-   * `agentmbx` is installed. Spawn and fanout name it in worker prompts
-   * when `--lead-mbx` is not given.
-   *
-   * @defaultValue undefined (no lead mailbox recorded)
-   * @task T14379
-   */
-  leadMailbox?: LeadMailbox;
-  /**
    * Context-window usage thresholds (percent) for orchestrator wrap-up and
    * stop. Formerly `orchestrator.contextThresholds`; configs with the old key
    * are migrated on read and by `cleo upgrade` (T14375).
@@ -833,21 +824,15 @@ export interface OrchestrateConfig {
    * @defaultValue { warning: 70, critical: 80 }
    */
   contextThresholds?: OrchestrateContextThresholds;
-}
-
-/**
- * A per-project lead mailbox identity on AgentMBX (`orchestrate.leadMailbox`).
- *
- * @task T14379
- * @epic T14351
- */
-export interface LeadMailbox {
-  /** Mailbox name, `<project>-lead` by default. */
-  name: string;
-  /** Portable project id the mailbox belongs to. */
-  projectId: string;
-  /** AgentMBX provider CLI the lead claims it from (`--cli`), e.g. `claude`. */
-  cli: string;
+  /**
+   * The project's lead AgentMBX mailbox, recorded by `cleo init` with
+   * `leadWorker.v1` on and `agentmbx` installed. Spawn and fanout name it in
+   * worker prompts when `--lead-mbx` is not given (only with `leadWorker.v1`).
+   *
+   * @defaultValue undefined (no lead mailbox recorded)
+   * @task T14379
+   */
+  leadMailbox?: LeadMailbox;
 }
 
 /**
@@ -860,6 +845,21 @@ export interface OrchestrateContextThresholds {
   warning?: number;
   /** Percent at which the orchestrator stops and hands off. @defaultValue 80 */
   critical?: number;
+}
+
+/**
+ * A per-project lead mailbox identity on AgentMBX (`orchestrate.leadMailbox`).
+ *
+ * @task T14379
+ * @epic T14351
+ */
+export interface LeadMailbox {
+  /** Mailbox name, `<project>-<project-id hash>-lead` by default. */
+  name: string;
+  /** Portable project id the mailbox belongs to. */
+  projectId: string;
+  /** AgentMBX provider CLI the lead claims it from (`--cli`), e.g. `claude`. */
+  cli: string;
 }
 
 /**
@@ -1085,20 +1085,6 @@ export interface ResourcesConfig {
   heavyCommandHook?: HeavyCommandHookMode;
 }
 
-/** Per-AC PR review settings (`review.*`, T14372). */
-export interface ReviewConfig {
-  /** Dispatched reviewer workers. */
-  workers?: {
-    /**
-     * Owner decision only: let `cleo review dispatch --counted` send reviewers
-     * whose verdicts count toward a merge. Off, every dispatch is shadow.
-     *
-     * @defaultValue false
-     */
-    counted?: boolean;
-  };
-}
-
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /**
@@ -1107,12 +1093,6 @@ export interface CleoConfig {
    * @defaultValue undefined (level `full`)
    */
   lean?: LeanConfig;
-  /**
-   * Per-AC PR review settings (T14372).
-   *
-   * @defaultValue undefined (reviewer workers dispatch in shadow mode only)
-   */
-  review?: ReviewConfig;
   /** Configuration schema version string. */
   version: string;
   /** Output formatting preferences. */
