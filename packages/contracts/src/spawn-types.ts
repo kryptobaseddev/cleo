@@ -79,6 +79,11 @@ export interface CLEOSpawnContext {
    * @task T14357
    */
   leadDeniedTools?: readonly LeadDeniedTool[];
+  /**
+   * Called with the lead process's pid as soon as the provider starts it, so
+   * the lead record can name it (T14363). Lead spawns only.
+   */
+  onLeadStarted?: (pid: number) => void;
 }
 
 /**

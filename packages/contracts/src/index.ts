@@ -1826,6 +1826,7 @@ export type {
   WorkerReport,
 } from './operations/orchestrate.js';
 export {
+  E_LEAD_NO_OWNER_CHANNEL,
   LEAD_ASK_TOOL,
   LEAD_CLEO_GLOBAL_FLAGS,
   LEAD_COMMAND_ALLOWLIST,

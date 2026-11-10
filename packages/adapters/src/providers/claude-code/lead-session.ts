@@ -200,14 +200,19 @@ export interface InteractiveLeadExit {
  *
  * @param command - The `claude` binary.
  * @param args - From {@link buildLeadArgs} with mode `interactive`.
- * @param opts - Working directory and environment.
+ * @param opts - Working directory, environment and a started-pid callback.
  * @returns The pid and exit code once the session ends.
  * @task T14363
  */
 export function runInteractiveLead(
   command: string,
   args: readonly string[],
-  opts: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv },
+  opts: {
+    readonly cwd?: string;
+    readonly env?: NodeJS.ProcessEnv;
+    /** Called with the lead's pid once it started (the lead record names it). */
+    readonly onStart?: (pid: number) => void;
+  },
 ): Promise<InteractiveLeadExit> {
   return new Promise((resolve, reject) => {
     const child = nodeSpawn(command, [...args], {
@@ -217,6 +222,7 @@ export function runInteractiveLead(
       ...(opts.env ? { env: opts.env } : {}),
     });
     child.once('error', reject);
+    if (child.pid !== undefined) opts.onStart?.(child.pid);
     child.once('exit', (code) => resolve({ pid: child.pid, exitCode: code }));
   });
 }

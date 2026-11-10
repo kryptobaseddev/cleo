@@ -2,11 +2,13 @@
  * Lead records (T14363): one running no-hands lead per epic.
  *
  * `cleo orchestrate lead` writes `<cleoDir>/leads/<epicId>.json` once the
- * lead is admitted. The record names the process that keeps the lead alive:
- * the CLI process itself for an interactive lead (it waits in the owner's
- * terminal), or the detached lead's own pid. Liveness is that pid, probed
- * with signal 0, so "one lead per epic" holds for as long as the lead runs,
- * not for a claim lease that only mutations renew.
+ * lead is admitted. The record names every process that keeps the lead
+ * alive, each with its start time: the `cleo` CLI (it waits in the owner's
+ * terminal for an interactive lead) and the `claude` lead process itself. The
+ * lead is alive while ANY of them lives with the start time recorded for it,
+ * so "one lead per epic" holds for as long as the lead runs (not for a claim
+ * lease that only mutations renew), and a reused pid, whose start time
+ * differs, never blocks the epic.
  *
  * A lead killed before its `SessionEnd` hook ran (SIGKILL, OOM) leaves its
  * record behind. {@link reapDeadLeads}, run by the next `cleo orchestrate
@@ -24,16 +26,26 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { LeadMode } from '@cleocode/contracts';
+import { type ProcessLiveness, probeProcess } from '@cleocode/worktree';
 import { resolveCleoDir } from '../paths.js';
 import { endSession } from '../store/session-store.js';
 import { type AgentMbxClient, createAgentMbxClient } from './agentmbx.js';
+
+/** One process of a lead, identified by pid AND start time (pids are reused). */
+export interface LeadProcess {
+  /** `cli` (the `cleo orchestrate lead` process) or `lead` (the provider process). */
+  readonly role: 'cli' | 'lead';
+  readonly pid: number;
+  /** `ps -o lstart` at record time; `null` when it could not be read. */
+  readonly startedAt: string | null;
+}
 
 /** One running lead. */
 export interface LeadRecord {
   /** Epic the lead runs. */
   readonly epicId: string;
-  /** Pid that keeps the lead alive (the CLI for interactive, the lead for detached). */
-  readonly pid: number;
+  /** Processes that keep the lead alive: the CLI and the lead, with start times. */
+  readonly processes: readonly LeadProcess[];
   /** How the lead runs. */
   readonly mode: LeadMode;
   /** The lead's own CLEO session (holds the epic claim). */
@@ -75,14 +87,28 @@ function parseRecord(text: string): LeadRecord | null {
       const v = get(key);
       return typeof v === 'string' ? v : null;
     };
-    const pid = get('pid');
+    const rawProcesses = get('processes');
     const epicId = str('epicId');
     const cleoSessionId = str('cleoSessionId');
     const providerSessionId = str('providerSessionId');
-    if (typeof pid !== 'number' || !epicId || !cleoSessionId || !providerSessionId) return null;
+    if (!Array.isArray(rawProcesses) || !epicId || !cleoSessionId || !providerSessionId) {
+      return null;
+    }
+    const processes: LeadProcess[] = [];
+    for (const p of rawProcesses) {
+      if (typeof p !== 'object' || p === null) continue;
+      const pid: unknown = Reflect.get(p, 'pid');
+      const startedAt: unknown = Reflect.get(p, 'startedAt');
+      if (typeof pid !== 'number') continue;
+      processes.push({
+        role: Reflect.get(p, 'role') === 'lead' ? 'lead' : 'cli',
+        pid,
+        startedAt: typeof startedAt === 'string' ? startedAt : null,
+      });
+    }
     return {
       epicId,
-      pid,
+      processes,
       mode: get('mode') === 'detached' ? 'detached' : 'interactive',
       cleoSessionId,
       providerSessionId,
@@ -150,20 +176,23 @@ export function listLeadRecords(projectRoot: string): LeadRecord[] {
 }
 
 /**
- * Whether a pid is alive (signal 0). `EPERM` means it exists under another user.
+ * Whether a lead is alive: ANY of its processes runs with the start time
+ * recorded for it. A process whose start time was not recorded counts on its
+ * pid alone; a live pid with a different start time is a reused pid.
  *
- * @param pid - Process id.
- * @returns True when the process exists.
+ * @param record - The lead record.
+ * @param probe - Process probe. @defaultValue `probeProcess` (`@cleocode/worktree`)
+ * @returns True while the lead runs.
  * @task T14363
  */
-export function isPidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err instanceof Error && 'code' in err && err.code === 'EPERM';
-  }
+export function isLeadAlive(
+  record: LeadRecord,
+  probe: (pid: number) => ProcessLiveness = probeProcess,
+): boolean {
+  return record.processes.some((p) => {
+    const live = probe(p.pid);
+    return live.alive && (p.startedAt === null || live.startedAt === p.startedAt);
+  });
 }
 
 /**
@@ -179,7 +208,6 @@ function isSpawnTempDir(dir: string): boolean {
 /** What {@link reapDeadLeads} did for one dead lead. */
 export interface ReapedLead {
   readonly epicId: string;
-  readonly pid: number;
   readonly mailboxReleased: boolean;
   readonly sessionEnded: boolean;
   readonly tempDirRemoved: boolean;
@@ -189,8 +217,8 @@ export interface ReapedLead {
 export interface ReapDeps {
   /** AgentMBX adapter. @defaultValue {@link createAgentMbxClient} */
   readonly mbxClient?: AgentMbxClient;
-  /** Liveness probe. @defaultValue {@link isPidAlive} */
-  readonly isAlive?: (pid: number) => boolean;
+  /** Process probe. @defaultValue `probeProcess` (`@cleocode/worktree`) */
+  readonly probe?: (pid: number) => ProcessLiveness;
   /** Only this epic's record. */
   readonly epicId?: string;
 }
@@ -209,14 +237,13 @@ export async function reapDeadLeads(
   projectRoot: string,
   deps: ReapDeps = {},
 ): Promise<ReapedLead[]> {
-  const isAlive = deps.isAlive ?? isPidAlive;
   const records =
     deps.epicId !== undefined
       ? [readLeadRecord(projectRoot, deps.epicId)].filter((r): r is LeadRecord => r !== null)
       : listLeadRecords(projectRoot);
   const reaped: ReapedLead[] = [];
   for (const record of records) {
-    if (isAlive(record.pid)) continue;
+    if (isLeadAlive(record, deps.probe)) continue;
     const client = deps.mbxClient ?? createAgentMbxClient();
     const release = record.mailbox
       ? await client.release({ cli: record.providerCli, session: record.providerSessionId })
@@ -232,7 +259,6 @@ export async function reapDeadLeads(
     removeLeadRecord(projectRoot, record.epicId);
     reaped.push({
       epicId: record.epicId,
-      pid: record.pid,
       mailboxReleased: release?.ok === true,
       sessionEnded: ended,
       tempDirRemoved,

@@ -24,6 +24,7 @@ import type {
   SpawnResult,
 } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { E_LEAD_NO_OWNER_CHANNEL } from '@cleocode/contracts/operations/orchestrate.js';
 import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { leadDeniedTools } from '../shared/lead-tool-strip.js';
@@ -231,6 +232,21 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
           { mode: 0o600 },
         );
         settingsArgs = ['--settings', settingsFile];
+        // T14363: a detached lead's only owner channel is the mbx server. Without
+        // a loaded one it could never ask the owner, so it does not start.
+        if (leadModeOf(context.options) === 'detached' && leadMcp.report.mailbox !== 'loaded') {
+          await removeSpawnPromptFile(tmpFile);
+          return {
+            instanceId,
+            taskId: context.taskId,
+            providerId: 'claude-code',
+            status: 'failed',
+            startTime,
+            endTime: new Date().toISOString(),
+            error: `${E_LEAD_NO_OWNER_CHANNEL}: a detached lead needs the mbx MCP server to reach the owner (${leadMcp.report.warning ?? 'none is configured'})`,
+            leadMcp: leadMcp.report,
+          };
+        }
         if (leadModeOf(context.options) === 'interactive') {
           // T14363: the owner's terminal — stdio inherited, awaited, not detached.
           const env = envStrings(context.options);
@@ -240,6 +256,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
             {
               ...(context.workingDirectory ? { cwd: context.workingDirectory } : {}),
               ...(Object.keys(env).length > 0 ? { env: { ...process.env, ...env } } : {}),
+              ...(context.onLeadStarted ? { onStart: context.onLeadStarted } : {}),
             },
           );
           await removeSpawnPromptFile(tmpFile);
@@ -296,6 +313,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       // unref() so the parent process can exit without waiting for the child.
       // The containment scope/pgid ensures the child tree can still be reaped.
       child.unref();
+      // T14363: a detached lead's record names its own pid.
+      if (leadMcp !== undefined && child.pid !== undefined) context.onLeadStarted?.(child.pid);
 
       // Resolve the ownership handle: for the pgid path the pgid is the same
       // as the pid when detached:true (Node sets the child as the group leader).

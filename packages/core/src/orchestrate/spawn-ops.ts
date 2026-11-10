@@ -763,6 +763,8 @@ export interface LeadSpawnOptions {
     readonly cleoSessionId: string;
     readonly agentId: string | null;
   }) => Promise<void>;
+  /** Called with the lead process's pid once the provider started it. */
+  readonly onStarted?: (pid: number) => void;
 }
 
 /**
@@ -1108,6 +1110,7 @@ export async function orchestrateSpawnExecute(
       // T14363 — a lead spawn loses its denied tools; the bridge refuses a
       // provider that cannot strip them (T14357).
       ...(opts.lead !== undefined ? { leadDeniedTools: opts.lead.deniedTools } : {}),
+      ...(opts.lead?.onStarted ? { onLeadStarted: opts.lead.onStarted } : {}),
     };
     if (opts.lead?.sessionId !== undefined) {
       cleoSpawnContext.options = {
@@ -1361,11 +1364,8 @@ export async function orchestrateSpawnExecute(
         harnessHint: payload.harnessHint,
         // T14423 — the MCP servers a lead spawn loaded.
         ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
-        // T14363 — a detached lead's temp dir and pid, for its lead record.
+        // T14363 — a detached lead's temp dir, for its lead record.
         ...(result.leadTempDir ? { leadTempDir: result.leadTempDir } : {}),
-        ...(opts.lead !== undefined && typeof result.ownership?.pid === 'number'
-          ? { leadPid: result.ownership.pid }
-          : {}),
       },
     };
   } catch (error) {

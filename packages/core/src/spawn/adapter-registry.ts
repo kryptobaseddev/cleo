@@ -240,6 +240,7 @@ export function bridgeSpawnAdapter(
         workingDirectory: context.workingDirectory,
         options: context.options,
         ...(isLead ? { leadDeniedTools: denied } : {}),
+        ...(isLead && context.onLeadStarted ? { onLeadStarted: context.onLeadStarted } : {}),
       };
       const result: SpawnResult = await delegate.spawn(contractContext);
       return {

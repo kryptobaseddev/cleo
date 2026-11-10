@@ -906,6 +906,14 @@ export type LeadMode = 'interactive' | 'detached';
 export const LEAD_ASK_TOOL = 'AskUserQuestion';
 
 /**
+ * A detached lead has no owner channel: the mbx MCP server is not configured
+ * or was refused, so it could never ask the owner and is refused (T14363).
+ *
+ * @task T14363
+ */
+export const E_LEAD_NO_OWNER_CHANNEL = 'E_LEAD_NO_OWNER_CHANNEL';
+
+/**
  * AgentMBX recipient for owner decisions of a detached lead (T14363).
  *
  * @task T14363

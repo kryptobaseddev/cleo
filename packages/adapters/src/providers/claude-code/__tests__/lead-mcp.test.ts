@@ -30,15 +30,15 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpawnContext } from '@cleocode/contracts';
-import { LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { E_LEAD_NO_OWNER_CHANNEL, LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LEAD_MCP_FILE, prepareLeadMcp, resolveMbxMcpServer } from '../lead-mcp.js';
 import {
   LEAD_KICKOFF_PROMPT,
   leadSessionSettings,
   resolveAbsoluteBinary,
 } from '../lead-session.js';
-import { buildClaudeArgs } from '../spawn.js';
+import { buildClaudeArgs, ClaudeCodeSpawnProvider } from '../spawn.js';
 
 const SESSION = '0b9a1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d';
 const lead = (mode?: 'interactive' | 'detached'): SpawnContext => ({
@@ -301,5 +301,23 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     // `bin` holds agentmbx: found via the absolute entry, as an absolute path.
     expect(resolveAbsoluteBinary('agentmbx', env)).toBe(join(bin, 'agentmbx'));
     expect(resolveAbsoluteBinary('agentmbx', { PATH: 'bin:.' })).toBeNull();
+  });
+  it.each([
+    ['not configured', null],
+    ['refused (a shell)', { command: '/bin/sh', args: ['mcp'] }],
+  ])('a detached lead with mbx %s does not start: E_LEAD_NO_OWNER_CHANNEL', async (_label, entry) => {
+    writeFileSync(claudeJson, JSON.stringify({ mcpServers: entry ? { mbx: entry } : {} }));
+    vi.stubEnv('HOME', root); // ~/.claude.json is this test's file
+    try {
+      const result = await new ClaudeCodeSpawnProvider().spawn({
+        ...lead('detached'),
+        workingDirectory: project,
+      });
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain(E_LEAD_NO_OWNER_CHANNEL);
+      expect(result.leadMcp?.mailbox).toBe(entry ? 'refused' : 'not-configured');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

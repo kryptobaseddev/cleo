@@ -130,6 +130,11 @@ export interface SpawnContext {
    * @epic T14351
    */
   leadDeniedTools?: readonly LeadDeniedTool[];
+  /**
+   * Called with the lead process's pid as soon as the provider starts it, so
+   * the lead record can name it (T14363). Lead spawns only.
+   */
+  onLeadStarted?: (pid: number) => void;
 }
 
 export interface SpawnResult {
