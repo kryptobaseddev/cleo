@@ -1087,9 +1087,20 @@
     },
     "orchestrate": {
       "type": "object",
-      "description": "Orchestration settings (T14356).",
+      "description": "Orchestration settings (T14356). contextThresholds moved here from the legacy orchestrator key (T14375).",
       "additionalProperties": false,
       "properties": {
+        "leadMailbox": {
+          "type": "object",
+          "description": "Project lead AgentMBX mailbox, recorded by cleo init with leadWorker.v1 on and agentmbx installed (T14379).",
+          "additionalProperties": false,
+          "required": ["name", "projectId", "cli"],
+          "properties": {
+            "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$" },
+            "projectId": { "type": "string" },
+            "cli": { "type": "string", "description": "AgentMBX provider CLI the lead claims it from." }
+          }
+        },
         "leadWorker": {
           "type": "object",
           "description": "Lead/worker split (epic T14351).",
@@ -1101,14 +1112,7 @@
               "description": "Leads spawn with write and network tools stripped; workers return a WorkerReport with proof."
             }
           }
-        }
-      }
-    },
-    "orchestrator": {
-      "type": "object",
-      "description": "Orchestrator agent configuration. Only contextThresholds.{warning,critical} are consumed (T109).",
-      "additionalProperties": false,
-      "properties": {
+        },
         "contextThresholds": {
           "type": "object",
           "description": "Context window usage thresholds that trigger orchestrator actions. Values are percentages of context window capacity.",

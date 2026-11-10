@@ -153,7 +153,9 @@ export const SMOKE_STEPS = Object.freeze([
         : `cascade left the child ${e.data?.task?.status ?? 'unreadable'}`,
   },
   // done --plan on an epic whose only child is settled (cancelled): the
-  // rollup counts it as settled, so no epic-rollup blocker remains (T14266).
+  // rollup counts it as settled, so no epic-rollup blocker remains (T14266),
+  // while the undelivered child still needs its audited waiver, reported as
+  // its own cancelled-child-waiver blocker (T14426).
   {
     argv: [
       'add',
@@ -175,8 +177,12 @@ export const SMOKE_STEPS = Object.freeze([
   {
     argv: ['done', '{settledEpic}', '--plan'],
     check: (e) => {
-      const rollup = (e.data?.blockers ?? []).find((b) => b.code === 'epic-rollup');
-      return rollup ? `settled child still blocks the epic: ${rollup.message}` : null;
+      const blockers = e.data?.blockers ?? [];
+      const rollup = blockers.find((b) => b.code === 'epic-rollup');
+      if (rollup) return `settled child still blocks the epic: ${rollup.message}`;
+      return blockers.some((b) => b.code === 'cancelled-child-waiver')
+        ? null
+        : 'the cancelled child was closed over without a cancelled-child-waiver blocker';
     },
   },
   {

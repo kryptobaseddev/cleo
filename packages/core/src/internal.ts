@@ -2614,7 +2614,6 @@ export {
 } from './memory/session-memory.js';
 // Nexus Wave 3 — code intelligence EngineResult wrappers
 export {
-  nexusConduitScan,
   nexusContractsLinkTasks,
   nexusContractsShow,
   nexusContractsSync,

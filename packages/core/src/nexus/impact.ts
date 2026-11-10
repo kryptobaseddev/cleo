@@ -15,6 +15,7 @@ import type {
   RiskTier,
 } from '@cleocode/contracts';
 import { eq, notInArray } from 'drizzle-orm';
+import { compactKnowledgeCoverage } from '../doctor/knowledge-summary.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 import {
@@ -22,6 +23,7 @@ import {
   KnowledgeSymbolAmbiguityError,
   recordKnowledgeGap,
   resolveKnowledgeSymbol,
+  scopeKnowledgeCoverage,
 } from './knowledge.js';
 
 /** Risk level classification for an impacted symbol. */
@@ -57,7 +59,15 @@ export interface NexusImpactOptions {
   maxDepth?: number;
   /** When true, populate `reasons` on each node. */
   why?: boolean;
+  /**
+   * When true, return every coverage reason and limitation, including those of
+   * files outside this answer. Default false: a bounded sample with counts.
+   */
+  coverageDetail?: boolean;
 }
+
+/** Command that returns the coverage detail a default impact reply omits. */
+const COVERAGE_DETAIL_COMMAND = 'cleo nexus impact <symbol> --coverage-detail';
 
 /** Result envelope for {@link getSymbolImpact}. */
 export interface NexusImpactResult {
@@ -95,7 +105,12 @@ export interface NexusImpactResult {
  * breadth-first up to `maxDepth` levels. Returns per-depth layers with risk
  * classification.
  *
- * Missing coverage returns UNKNOWN; ambiguous names return qualified candidates.
+ * Coverage is judged by the files this answer rests on — the target's file and
+ * every traversed caller's file (T14365) — so a failed file elsewhere cannot
+ * hide callers found in analyzed files; it makes the answer `partial` instead.
+ * Any coverage short of `current` returns UNKNOWN, never NONE; a project-level
+ * `failed`/`missing` result returns no traversal. Ambiguous names return
+ * qualified candidates.
  *
  * @param symbolName - Symbol name to analyse (partial match).
  * @param projectId  - Nexus project ID.
@@ -118,11 +133,22 @@ export async function getSymbolImpact(
     Math.min(Number.isFinite(opts.maxDepth) ? (opts.maxDepth ?? 3) : 3, 5),
   );
   const whyFlag = opts.why ?? false;
-  const coverage = await assessKnowledgeCoverage(repoPath, projectId);
-  const emptyResult: NexusImpactResult = {
+  const assessed = await assessKnowledgeCoverage(repoPath, projectId);
+  const present = (scoped: KnowledgeCoverage): KnowledgeCoverage =>
+    opts.coverageDetail
+      ? scoped
+      : compactKnowledgeCoverage(scoped, {
+          reasons: 10,
+          limitations: 3,
+          detailsCommand: COVERAGE_DETAIL_COMMAND,
+        });
+  const scopeTo = (files: Iterable<string>): KnowledgeCoverage =>
+    scopeKnowledgeCoverage(assessed, files, { includeUnrelated: opts.coverageDetail });
+  const projectCoverage = scopeTo([]);
+  const emptyResult = (coverage: KnowledgeCoverage): NexusImpactResult => ({
     query: symbolName,
     projectId,
-    coverage,
+    coverage: present(coverage),
     targetNodeId: null,
     targetName: null,
     targetKind: null,
@@ -132,8 +158,9 @@ export async function getSymbolImpact(
     maxDepth,
     why: whyFlag,
     impactByDepth: [],
-  };
-  if (coverage.status === 'failed' || coverage.status === 'missing') return emptyResult;
+  });
+  if (projectCoverage.status === 'failed' || projectCoverage.status === 'missing')
+    return emptyResult(projectCoverage);
   const db = await getNexusDb(repoPath);
   const projectSymbolNodes = db
     .select()
@@ -142,8 +169,8 @@ export async function getSymbolImpact(
     .all();
   const targetNode = resolveKnowledgeSymbol(symbolName, projectSymbolNodes);
   if (!targetNode) {
-    recordKnowledgeGap(coverage, 'missing', `No indexed symbol matches '${symbolName}'.`);
-    return emptyResult;
+    recordKnowledgeGap(projectCoverage, 'missing', `No indexed symbol matches '${symbolName}'.`);
+    return emptyResult(projectCoverage);
   }
   const joined = db
     .select()
@@ -222,6 +249,8 @@ export async function getSymbolImpact(
   }
 
   const totalImpact = visited.size - 1;
+  const answerFiles = [targetNode.filePath, ...impactByDepth.flat().map((node) => node.filePath)];
+  const coverage = scopeTo(answerFiles.filter((path): path is string => path !== null));
   const riskLevel: NexusRiskLevel =
     coverage.status !== 'current'
       ? 'UNKNOWN'
@@ -257,7 +286,7 @@ export async function getSymbolImpact(
   return {
     query: symbolName,
     projectId,
-    coverage,
+    coverage: present(coverage),
     targetNodeId: targetId,
     targetName: targetNode['name'],
     targetKind: targetNode['kind'],
@@ -300,6 +329,7 @@ export async function nexusImpact(
     const impact = await getSymbolImpact(params.symbol, coverage.projectId, projectRoot, {
       why: params.why,
       maxDepth: params.depth,
+      coverageDetail: params.coverageDetail,
     });
     return engineSuccess({
       query: params.symbol,

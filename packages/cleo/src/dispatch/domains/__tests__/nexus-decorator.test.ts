@@ -63,7 +63,6 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusTaskSymbols: vi.fn(),
   nexusContractsSync: vi.fn(),
   nexusContractsLinkTasks: vi.fn(),
-  nexusConduitScan: vi.fn(),
   nexusProfileView: vi.fn(),
   nexusProfileGet: vi.fn(),
   nexusProfileImport: vi.fn(),
