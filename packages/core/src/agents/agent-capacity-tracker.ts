@@ -21,11 +21,10 @@
  */
 
 import { and, eq, inArray } from 'drizzle-orm';
-import {
-  type AgentInstanceRow,
-  type AgentType,
-  agentInstances,
-} from '../store/schema/agent-schema.js';
+import type { AgentInstanceRow, AgentType } from '../store/schema/agent-schema.js';
+// T14387: the live table is the prefixed twin. The bare `agent_instances` carries FKs to the
+// bare `tasks`/`sessions` decoys, so every task- or session-bound row there failed its FK check.
+import { tasksAgentInstances as agentInstances } from '../store/schema/cleo-project/runtime.js';
 import { getDb } from '../store/sqlite.js';
 import {
   type AgentExecutionEvent,
