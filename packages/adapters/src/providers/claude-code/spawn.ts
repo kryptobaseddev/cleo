@@ -29,6 +29,18 @@ import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-fi
 import { reapAgentSuite } from './suite-reaper.js';
 
 /**
+ * Instance id CLEO pre-assigned to a tracked worker (`options.workerInstanceId`,
+ * set only under `orchestrate.leadWorker.v1`), when it is shell-safe.
+ *
+ * @param options - Spawn context options.
+ * @returns The id, or undefined when the spawn is not tracked.
+ */
+export function trackedWorkerInstanceId(options: SpawnContext['options']): string | undefined {
+  const id = options?.workerInstanceId;
+  return typeof id === 'string' && /^[A-Za-z0-9-]+$/.test(id) ? id : undefined;
+}
+
+/**
  * Claude Code settings that make a spawned worker report its own exit: a
  * `SessionEnd` hook running `cleo orchestrate worker-exit` for this instance,
  * which closes the worker record and fires SubagentStop once (T14359).
@@ -88,7 +100,10 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
    * @returns Spawn result with instance ID and status
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
-    const instanceId = `claude-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    // T14359: a tracked worker keeps the instance id its record was stored under.
+    const trackedId = trackedWorkerInstanceId(context.options);
+    const instanceId =
+      trackedId ?? `claude-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
     let tmpFile: string | undefined;
 
@@ -112,22 +127,25 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       }
 
       tmpFile = await writeSpawnPromptFile('claude-spawn', enrichedPrompt);
-      // T14359: the worker signals its own exit. SessionEnd fires once when the
-      // run ends; Stop fires per turn and a Stop hook may block the stop.
-      const settingsFile = join(dirname(tmpFile), 'settings.json');
-      await writeFile(settingsFile, workerExitSettings(instanceId), 'utf-8');
+      // T14359: a tracked worker signals its own exit. SessionEnd fires once
+      // when the run ends; Stop fires every turn and may be blocked.
+      let settingsArgs: string[] = [];
+      if (trackedId !== undefined) {
+        const settingsFile = join(dirname(tmpFile), 'settings.json');
+        await writeFile(settingsFile, workerExitSettings(trackedId), 'utf-8');
+        settingsArgs = ['--settings', settingsFile];
+      }
 
       // --print: non-interactive batch mode (process prompt, output response, exit)
       // --dangerously-skip-permissions: allow all tool calls without human approval
       // --output-format json: structured output for parsing
-      // --settings: adds the worker-exit SessionEnd hook to the project's settings
+      // --settings (tracked workers only): adds the worker-exit SessionEnd hook
       const claudeArgs = [
         '--print',
         '--dangerously-skip-permissions',
         '--output-format',
         'json',
-        '--settings',
-        settingsFile,
+        ...settingsArgs,
         tmpFile,
       ];
 

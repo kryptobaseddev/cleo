@@ -21,7 +21,7 @@
  *   cleo orchestrate handoff <taskId>     — session handoff + successor spawn
  *   cleo orchestrate spawn-execute <taskId> — adapter-registry spawn
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
- *   cleo orchestrate worker-exit          — worker completion signal (Stop hook)
+ *   cleo orchestrate worker-exit          — worker completion signal (SessionEnd hook)
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
  *   cleo orchestrate conduit-status       — conduit messaging status (legacy, prefer `cleo conduit status`)
  *   cleo orchestrate conduit-peek         — peek queued conduit messages (legacy)
@@ -806,10 +806,12 @@ const spawnExecuteCommand = defineCommand({
 /**
  * cleo orchestrate worker-exit — a worker's own completion signal (T14359).
  *
- * Run by the worker as it stops (its Stop hook): closes the worker record and
- * fires SubagentStop once. Without `--instance` it names the open record of
- * the caller's session (`CLEO_SESSION_ID`). Never fails the hook: an unknown
- * or already-closed worker reports `emitted: false`.
+ * Run by the worker as its session ends (its `SessionEnd` hook): closes the
+ * worker record and fires SubagentStop once. Without `--status` the status is
+ * derived from the task (a process exit is not task completion). Without
+ * `--instance` it names the open record of the caller's session
+ * (`CLEO_SESSION_ID`). Never fails the hook: an unknown or already-closed
+ * worker reports `emitted: false`.
  */
 const workerExitCommand = defineCommand({
   meta: { name: 'worker-exit', description: "Record a worker's exit and fire SubagentStop once" },
@@ -817,8 +819,8 @@ const workerExitCommand = defineCommand({
     instance: { type: 'string', description: 'Adapter instance id of the worker' },
     status: {
       type: 'string',
-      description: 'Completion status: complete | partial | blocked | failed',
-      default: 'complete',
+      description:
+        'Completion status: complete | partial | blocked | failed (default: derived from the task)',
     },
   },
   async run({ args }) {
@@ -826,7 +828,7 @@ const workerExitCommand = defineCommand({
       '@cleocode/core/orchestrate/worker-records'
     );
     const status = WORKER_EXIT_STATUSES.find((s) => s === args.status);
-    if (status === undefined) {
+    if (args.status !== undefined && status === undefined) {
       const message = `--status must be one of ${WORKER_EXIT_STATUSES.join(', ')}`;
       cliOutput(
         { success: false, error: { code: 'E_INVALID_INPUT', message } },

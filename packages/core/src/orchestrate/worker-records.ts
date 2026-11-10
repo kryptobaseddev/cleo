@@ -10,8 +10,15 @@
  * device) and is written only through this module, on the `getDb` chokepoint
  * handle.
  *
- * Completion is an event, never emitted at spawn. Primary path: the worker
- * runs `cleo orchestrate worker-exit` as it stops ({@link markWorkerExited}).
+ * Gated by `orchestrate.leadWorker.v1` ({@link workerRecordsEnabled}); with
+ * the flag off, spawn keeps its old behaviour (SubagentStop at spawn).
+ *
+ * The record is written BEFORE the adapter spawns, under a pre-assigned
+ * instance id, so a worker that dies at once still finds its record when its
+ * exit hook runs. Completion is an event, never emitted at spawn. Primary
+ * path: the worker runs `cleo orchestrate worker-exit` as its session ends
+ * ({@link markWorkerExited}; the claude-code adapter installs it as a
+ * `SessionEnd` hook).
  * Fallback for a worker that crashed before its hook ran:
  * {@link reconcileWorkerExits} probes each open record's pid (`cleo
  * orchestrate status` runs it). Both close the record with a compare-and-set
@@ -22,12 +29,46 @@
  * @task T14359
  */
 
+import type { AgentSuiteOwnership } from '@cleocode/contracts';
 import { and, eq, isNull } from 'drizzle-orm';
 import { generateAgentId } from '../agents/registry.js';
 import { hooks } from '../hooks/registry.js';
 import { getLogger } from '../logger.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { tasksAgentInstances } from '../store/schema/cleo-project/runtime.js';
 import { getDb } from '../store/sqlite.js';
+
+/** Config key that gates durable worker records (T14359). */
+export const WORKER_RECORDS_FLAG = 'orchestrate.leadWorker.v1';
+
+/**
+ * True when `orchestrate.leadWorker.v1` is on. Off (the default) keeps the
+ * pre-T14359 spawn behaviour; an unreadable config counts as off.
+ *
+ * @param cwd - Project root.
+ * @returns Whether spawns store worker records.
+ */
+export async function workerRecordsEnabled(cwd: string): Promise<boolean> {
+  try {
+    const { getConfigValue } = await import('../config/registry.js');
+    return (await getConfigValue<boolean>(WORKER_RECORDS_FLAG, { projectRoot: cwd })) === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A fresh adapter instance id, assigned before spawn so the record and the
+ * worker's exit hook share it. Only `[A-Za-z0-9-]`, so it is safe in a shell
+ * hook command.
+ *
+ * @param providerId - Spawn provider id, used as the prefix.
+ * @returns The instance id.
+ */
+export function newWorkerInstanceId(providerId: string): string {
+  const prefix = providerId.replace(/[^A-Za-z0-9-]/g, '-');
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 /** A `tasks_agent_instances` row. */
 type AgentInstanceRow = typeof tasksAgentInstances.$inferSelect;
@@ -183,6 +224,88 @@ async function claimWorkerStop(recordId: string, cwd: string): Promise<string | 
   return Number(result.changes) > 0 ? now : null;
 }
 
+/**
+ * Update a record with what the adapter reported once spawn returned: the
+ * instance id it actually used and the worker's pid/pgid.
+ */
+async function updateWorkerSpawn(
+  record: WorkerRecord,
+  spawned: { instanceId: string; pid: number | null; pgid: number | null },
+  cwd: string,
+): Promise<WorkerRecord> {
+  const metadata: WorkerMetadata = {
+    kind: 'worker',
+    instanceId: spawned.instanceId,
+    agentId: record.agentId,
+    provider: record.provider,
+    pid: spawned.pid,
+    pgid: spawned.pgid,
+    worktree: record.worktree,
+    leadMailbox: record.leadMailbox,
+  };
+  const db = await getDb(cwd);
+  await db
+    .update(tasksAgentInstances)
+    .set({ metadataJson: JSON.stringify(metadata) })
+    .where(eq(tasksAgentInstances.id, record.recordId))
+    .run();
+  return { ...record, ...spawned };
+}
+
+/** What {@link settleWorkerAtSpawn} needs from the adapter's spawn result. */
+export interface SpawnedWorker {
+  /** Instance id the adapter returned. */
+  instanceId: string;
+  /** Whether the adapter left the worker running (`running` or `pending`). */
+  running: boolean;
+  /** Containment handle of the worker, when the adapter reported one. */
+  ownership?: AgentSuiteOwnership;
+  /** SubagentStop status to report when the record is closed at spawn. */
+  stopStatus: WorkerExitStatus;
+}
+
+/**
+ * Settle a pre-spawn record once the adapter returns.
+ *
+ * The record stays open only when its exit can be observed: the adapter
+ * adopted the pre-assigned instance id (so it installed the worker-exit
+ * hook) or reported a pid for the sweep. Otherwise (a spawn that already
+ * ended, or a running worker with neither) the record is closed now and
+ * SubagentStop fires at spawn, as before T14359: fail closed rather than a
+ * record that never closes.
+ *
+ * @param record - The record written before spawn.
+ * @param spawned - What the adapter reported.
+ * @param cwd - Project root.
+ * @returns True when the worker is tracked (its stop comes later).
+ */
+export async function settleWorkerAtSpawn(
+  record: WorkerRecord,
+  spawned: SpawnedWorker,
+  cwd: string,
+): Promise<boolean> {
+  const pid = spawned.ownership?.pid ?? null;
+  const hasExitHook = spawned.instanceId === record.instanceId;
+  const updated = await updateWorkerSpawn(
+    record,
+    { instanceId: spawned.instanceId, pid, pgid: spawned.ownership?.pgid ?? null },
+    cwd,
+  );
+  if (spawned.running && (hasExitHook || pid !== null)) return true;
+  await closeWorker(updated, spawned.stopStatus, cwd);
+  return false;
+}
+
+/**
+ * Close a pre-spawn record whose spawn threw: the worker never ran.
+ *
+ * @param record - The record written before spawn.
+ * @param cwd - Project root.
+ */
+export async function abandonWorkerRecord(record: WorkerRecord, cwd: string): Promise<void> {
+  await closeWorker(record, 'failed', cwd);
+}
+
 /** SubagentStop completion status a worker exit reports. */
 export type WorkerExitStatus = 'complete' | 'partial' | 'blocked' | 'failed';
 
@@ -195,6 +318,36 @@ export const WORKER_EXIT_STATUSES: readonly WorkerExitStatus[] = [
 ];
 
 /**
+ * The stop status a worker's task implies. A process exit is not task
+ * completion: an auth error, max turns or a crash also ends the session, so
+ * only a task the worker finished reports `complete`; a still-active task
+ * reports `partial`.
+ *
+ * @param taskId - The worker's task.
+ * @param cwd - Project root.
+ * @returns The derived status (`partial` when the task cannot be read).
+ */
+export async function deriveWorkerExitStatus(
+  taskId: string,
+  cwd: string,
+): Promise<WorkerExitStatus> {
+  try {
+    const task = await (await getTaskAccessor(cwd)).loadSingleTask(taskId);
+    switch (task?.status) {
+      case 'done':
+        return 'complete';
+      case 'blocked':
+      case 'cancelled':
+        return 'blocked';
+      default:
+        return 'partial';
+    }
+  } catch {
+    return 'partial';
+  }
+}
+
+/**
  * Close an open record and dispatch its SubagentStop. Only the caller whose
  * compare-and-set closes the record dispatches, so the hook path and the pid
  * sweep can race and SubagentStop still fires once.
@@ -203,11 +356,12 @@ export const WORKER_EXIT_STATUSES: readonly WorkerExitStatus[] = [
  */
 async function closeWorker(
   record: WorkerRecord,
-  status: WorkerExitStatus,
+  explicitStatus: WorkerExitStatus | undefined,
   cwd: string,
 ): Promise<WorkerRecord | null> {
   const stoppedAt = await claimWorkerStop(record.recordId, cwd);
   if (stoppedAt === null) return null;
+  const status = explicitStatus ?? (await deriveWorkerExitStatus(record.taskId, cwd));
   await hooks
     .dispatch('SubagentStop', cwd, {
       timestamp: stoppedAt,
@@ -244,19 +398,20 @@ export interface WorkerExitResult {
 /**
  * The worker's own completion signal: close its record and fire SubagentStop.
  *
- * This is the primary completion path. A worker runs it as it stops (the
- * claude-code adapter installs it as the worker's Stop hook:
+ * This is the primary completion path. A worker runs it as its session ends
+ * (the claude-code adapter installs it as the worker's `SessionEnd` hook:
  * `cleo orchestrate worker-exit --instance <id>`). Idempotent: a repeat call,
  * or a pid sweep that got there first, emits nothing.
  *
  * @param target - The worker to close, by instance id or session id.
- * @param status - Completion status for the SubagentStop payload.
+ * @param status - Completion status for the SubagentStop payload; when
+ *   omitted it is derived from the task ({@link deriveWorkerExitStatus}).
  * @param cwd - Project root.
  * @returns The matched record and whether this call emitted SubagentStop.
  */
 export async function markWorkerExited(
   target: WorkerExitTarget,
-  status: WorkerExitStatus,
+  status: WorkerExitStatus | undefined,
   cwd: string,
 ): Promise<WorkerExitResult> {
   const records = await listWorkerRecords(cwd);
@@ -287,12 +442,13 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * Fallback for workers that died without running their stop hook: emit
+ * Fallback for workers that died without running their exit hook: emit
  * SubagentStop once for every open record whose pid is gone.
  *
- * Records with no pid stay open: their exit cannot be observed. The status is
- * `partial` because a crashed worker's outcome is unknown; the task's own
- * status says how it ended.
+ * A record with no pid waits for its exit hook ({@link settleWorkerAtSpawn}
+ * closes at spawn any record that has neither). The status is derived from
+ * the task ({@link deriveWorkerExitStatus}): a crashed worker whose task is
+ * still active reports `partial`.
  *
  * @param cwd - Project root.
  * @param isAlive - Liveness probe (injectable for tests).
@@ -305,7 +461,7 @@ export async function reconcileWorkerExits(
   const closed: WorkerRecord[] = [];
   for (const record of await listWorkerRecords(cwd)) {
     if (record.stoppedAt !== null || record.pid === null || isAlive(record.pid)) continue;
-    const done = await closeWorker(record, 'partial', cwd);
+    const done = await closeWorker(record, undefined, cwd);
     if (done) closed.push(done);
   }
   return closed;

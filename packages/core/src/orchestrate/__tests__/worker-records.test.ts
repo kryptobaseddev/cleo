@@ -1,8 +1,9 @@
 /**
  * Durable worker records and the exit-time SubagentStop (T14359).
  *
- * A detached spawn must NOT emit SubagentStop (the worker is still running);
- * it stores a worker record instead. The record survives a fresh module graph
+ * Behind `orchestrate.leadWorker.v1`, a detached spawn must NOT emit
+ * SubagentStop (the worker is still running); it stores a worker record,
+ * written before the adapter spawns, instead. The record survives a fresh module graph
  * (a new CLI process), `orchestrateStatus` lists it, and SubagentStop fires
  * exactly once, after the worker's process has exited.
  *
@@ -13,25 +14,34 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { CLEOSpawnAdapter, CLEOSpawnContext, SpawnResult } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 
 const { worker, fakeAdapter } = vi.hoisted(() => {
-  const state: { child: ChildProcess | null } = { child: null };
+  const state: {
+    child: ChildProcess | null;
+    /** Report no pid (an adapter with no exit hook and no ownership.pid). */
+    noPid: boolean;
+    /** Run before spawn returns, e.g. a worker exit hook firing at once. */
+    beforeReturn: ((ctx: CLEOSpawnContext) => Promise<void>) | null;
+  } = { child: null, noPid: false, beforeReturn: null };
   const adapter: CLEOSpawnAdapter = {
     id: 'fake-adapter',
     providerId: 'fake-provider',
     canSpawn: async () => true,
     spawn: async (ctx: CLEOSpawnContext): Promise<SpawnResult> => {
       const pid = state.child?.pid;
+      if (state.beforeReturn) await state.beforeReturn(ctx);
       return {
         instanceId: 'inst-1',
         taskId: ctx.taskId,
         providerId: 'fake-provider',
         status: 'running',
         startTime: new Date().toISOString(),
-        ownership: { mode: 'pgid', pid, pgid: pid },
+        ...(state.noPid ? {} : { ownership: { mode: 'pgid', pid, pgid: pid } }),
       };
     },
     listRunning: async () => [],
@@ -80,6 +90,14 @@ vi.mock('../../sentient/worktree-dispatch.js', () => ({
 
 const SES_A = 'ses_20261109000001_aaaaaa';
 
+/** Turn `orchestrate.leadWorker.v1` on in a test project's config.json. */
+function enableWorkerRecords(projectRoot: string): void {
+  const file = join(projectRoot, '.cleo', 'config.json');
+  const config = JSON.parse(readFileSync(file, 'utf-8')) as Record<string, unknown>;
+  config.orchestrate = { leadWorker: { v1: true } };
+  writeFileSync(file, JSON.stringify(config));
+}
+
 /** Count SubagentStop dispatches recorded by a `hooks.dispatch` spy. */
 function stopCalls(spy: { mock: { calls: unknown[][] } }): unknown[][] {
   return spy.mock.calls.filter((call) => call[0] === 'SubagentStop');
@@ -107,6 +125,8 @@ describe('durable worker records (T14359)', () => {
     worker.child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
       stdio: 'ignore',
     });
+    worker.noPid = false;
+    worker.beforeReturn = null;
   });
 
   afterEach(async () => {
@@ -116,7 +136,63 @@ describe('durable worker records (T14359)', () => {
     vi.restoreAllMocks();
   });
 
+  it('flag off: no record, SubagentStop at spawn as before', async () => {
+    const { hooks } = await import('../../hooks/registry.js');
+    const spy = vi.spyOn(hooks, 'dispatch');
+    const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    const result = await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
+      autoComplete: false,
+    });
+    expect(result).toMatchObject({ success: true });
+    expect(stopCalls(spy)).toHaveLength(1);
+    const { listWorkerRecords } = await import('../worker-records.js');
+    expect(await listWorkerRecords(env.tempDir)).toHaveLength(0);
+  });
+
+  it('fails closed: a running worker with no pid and no exit hook stops at spawn', async () => {
+    enableWorkerRecords(env.tempDir);
+    worker.noPid = true;
+    const { hooks } = await import('../../hooks/registry.js');
+    const spy = vi.spyOn(hooks, 'dispatch');
+    const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
+      autoComplete: false,
+    });
+    expect(stopCalls(spy)).toHaveLength(1);
+    const { listWorkerRecords, reconcileWorkerExits } = await import('../worker-records.js');
+    const records = await listWorkerRecords(env.tempDir);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.stoppedAt).not.toBeNull();
+    expect(await reconcileWorkerExits(env.tempDir)).toHaveLength(0);
+    expect(stopCalls(spy)).toHaveLength(1);
+  });
+
+  it('an exit hook that fires before spawn returns finds the pre-spawn record', async () => {
+    enableWorkerRecords(env.tempDir);
+    const { markWorkerExited } = await import('../worker-records.js');
+    const exits: Array<{ emitted: boolean }> = [];
+    worker.beforeReturn = async (ctx) => {
+      const instanceId = ctx.options?.workerInstanceId;
+      expect(typeof instanceId).toBe('string');
+      exits.push(
+        await markWorkerExited({ instanceId: String(instanceId) }, undefined, env.tempDir),
+      );
+    };
+    const { hooks } = await import('../../hooks/registry.js');
+    const spy = vi.spyOn(hooks, 'dispatch');
+    const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
+      autoComplete: false,
+    });
+    expect(exits).toEqual([expect.objectContaining({ emitted: true })]);
+    const stops = stopCalls(spy);
+    expect(stops).toHaveLength(1);
+    // The task is still active, so the exit does not report `complete`.
+    expect(stops[0]?.[2]).toMatchObject({ taskId: 'T001', status: 'partial' });
+  });
+
   it('records a detached worker, lists it after a restart, and emits SubagentStop once on exit', async () => {
+    enableWorkerRecords(env.tempDir);
     const { hooks } = await import('../../hooks/registry.js');
     const spawnSpy = vi.spyOn(hooks, 'dispatch');
     const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
@@ -175,6 +251,9 @@ describe('worker exit paths fire SubagentStop exactly once (T14359)', () => {
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
     env = await createTestDb();
+    await seedTasks(env.accessor, [
+      { id: 'T001', title: 'Worker task', status: 'active', priority: 'medium' },
+    ]);
   });
 
   afterEach(async () => {
@@ -216,6 +295,21 @@ describe('worker exit paths fire SubagentStop exactly once (T14359)', () => {
     const stops = stopCalls(spy);
     expect(stops).toHaveLength(1);
     expect(stops[0]?.[2]).toMatchObject({ status: 'complete', taskId: 'T001' });
+  });
+
+  it('a hook with no --status and the task still active records partial, not complete', async () => {
+    const { spy, mod } = await setup();
+    expect(
+      (await mod.markWorkerExited({ instanceId: 'inst-9' }, undefined, env.tempDir)).emitted,
+    ).toBe(true);
+    expect(stopCalls(spy)[0]?.[2]).toMatchObject({ status: 'partial', taskId: 'T001' });
+  });
+
+  it('a hook with no --status records complete once the task is done', async () => {
+    const { spy, mod } = await setup();
+    await env.accessor.updateTaskFields('T001', { status: 'done', pipelineStage: 'contribution' });
+    await mod.markWorkerExited({ instanceId: 'inst-9' }, undefined, env.tempDir);
+    expect(stopCalls(spy)[0]?.[2]).toMatchObject({ status: 'complete', taskId: 'T001' });
   });
 
   it('sweep then hook: the sweep emits, the late hook emits nothing', async () => {

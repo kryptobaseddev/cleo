@@ -189,14 +189,17 @@ since harness shells keep neither cwd nor env between calls (the git shim reads
 same identity line in its Session Linkage block: `export CLEO_AGENT_ID=<agent>`,
 so teammates sharing one harness session keep separate claims and focus (T14269).
 
-**Worker completion (T14359)**: `cleo orchestrate spawn-execute` stores a durable
-worker record (task, instance id, pid/pgid, worktree, lead mailbox, provider) and
-does not fire `SubagentStop` at spawn. The worker reports its own exit with
-`cleo orchestrate worker-exit --instance <id>` (the claude-code adapter installs it
-as the worker's `SessionEnd` hook); for a worker that crashed first, `cleo
-orchestrate status` probes each open record's pid. `SubagentStop` fires exactly
-once whichever path closes the record, and `cleo orchestrate status` lists the
-records under `workers`.
+**Worker completion (T14359, behind `orchestrate.leadWorker.v1`)**: `cleo orchestrate
+spawn-execute` stores a durable worker record (task, instance id, pid/pgid, worktree,
+lead mailbox, provider) before it spawns and does not fire `SubagentStop` at spawn.
+The worker reports its own exit with `cleo orchestrate worker-exit --instance <id>`
+(the claude-code adapter installs it as the worker's `SessionEnd` hook); without
+`--status` the status comes from the task, so an exit with the task still active is
+`partial`, never `complete`. For a worker that crashed first, `cleo orchestrate
+status` probes each open record's pid. A worker with neither a hook nor a pid gets
+`SubagentStop` at spawn. It fires exactly once whichever path closes the record, and
+`cleo orchestrate status` lists the records under `workers`. Flag off: the old
+behaviour (stop event at spawn).
 
 **Other harnesses**: Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through pipeline_manifest (via `cleo manifest append`) — the universal handoff medium.
 
