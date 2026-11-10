@@ -10,7 +10,6 @@ export * from './agent-operation-contract.js';
 export * from './attention.js';
 export * from './brain.js';
 export * from './check.js';
-export * from './conduit.js';
 export * from './dialectic.js';
 export * from './docs.js';
 export * from './focus.js';

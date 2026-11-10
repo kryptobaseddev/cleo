@@ -6,11 +6,14 @@
  *   runs, and the claim returns to the orchestrator (AC2).
  * - flag off: the agent runs in the project root without isolation, as
  *   before (AC3).
+ * - a refusal removes a worktree the failing call freshly created, and a
+ *   `--base` spawn refuses even with the flag off (T14396).
  *
  * Real task store; only the provider surface (adapter registry, CAAMP
  * capability lookup, composer, worktree provisioning) is stubbed.
  *
  * @task T14358
+ * @task T14396
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -21,7 +24,7 @@ import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/t
 import { startTask } from '../../task-work/index.js';
 import { resolveIsolation } from '../isolation-policy.js';
 
-const { adapterSpawn, fakeAdapter } = vi.hoisted(() => {
+const { adapterSpawn, fakeAdapter, spawnWorktreeMock, destroyWorktreeMock } = vi.hoisted(() => {
   const spawn = vi.fn(
     async (ctx: CLEOSpawnContext): Promise<SpawnResult> => ({
       instanceId: 'inst-1',
@@ -41,8 +44,20 @@ const { adapterSpawn, fakeAdapter } = vi.hoisted(() => {
     listRunning: async () => [],
     terminate: async () => undefined,
   };
-  return { adapterSpawn: spawn, fakeAdapter: adapter };
+  return {
+    adapterSpawn: spawn,
+    fakeAdapter: adapter,
+    spawnWorktreeMock: vi.fn(async (): Promise<never> => {
+      throw new Error('git worktree add failed');
+    }),
+    destroyWorktreeMock: vi.fn(async () => ({ worktreeRemoved: true, branchDeleted: true })),
+  };
 });
+
+vi.mock('@cleocode/worktree', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/worktree')>()),
+  destroyWorktree: destroyWorktreeMock,
+}));
 
 vi.mock('../../spawn/adapter-registry.js', () => ({
   initializeDefaultAdapters: async () => undefined,
@@ -77,9 +92,7 @@ vi.mock('../../orchestration/spawn.js', async (importOriginal) => ({
 }));
 
 vi.mock('../../sentient/worktree-dispatch.js', () => ({
-  spawnWorktree: async () => {
-    throw new Error('git worktree add failed');
-  },
+  spawnWorktree: spawnWorktreeMock,
 }));
 
 const SES_A = 'ses_20261110000001_aaaaaa';
@@ -98,6 +111,8 @@ describe('orchestrateSpawnExecute — fail-closed isolation (T14358)', () => {
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
     adapterSpawn.mockClear();
+    spawnWorktreeMock.mockClear();
+    destroyWorktreeMock.mockClear();
     env = await createTestDb();
     await seedTasks(env.accessor, [
       { id: 'T001', title: 'Spawned', status: 'pending', priority: 'medium' },
@@ -129,6 +144,52 @@ describe('orchestrateSpawnExecute — fail-closed isolation (T14358)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_WORKTREE_PROVISION_FAILED');
     expect(adapterSpawn).not.toHaveBeenCalled();
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
+    // A plain failure created no worktree, so nothing is removed.
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it('flag on: a refusal removes the worktree the failing call freshly created (T14396 AC1)', async () => {
+    setLeadWorkerV1(env.tempDir, true);
+    spawnWorktreeMock.mockRejectedValueOnce(
+      Object.assign(new Error('hook failed after git worktree add'), {
+        freshWorktreeCreated: true,
+      }),
+    );
+    const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    const result = await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
+      autoComplete: false,
+    });
+
+    expect(result.success).toBe(false);
+    expect(adapterSpawn).not.toHaveBeenCalled();
+    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
+    expect(destroyWorktreeMock.mock.calls[0]).toEqual([
+      env.tempDir,
+      expect.objectContaining({ taskId: 'T001', deleteBranch: true, force: true }),
+    ]);
+    expect(result.error?.details).toMatchObject({
+      isolation: 'refused',
+      cleanup: { attempted: true, worktreeRemoved: true },
+    });
+  });
+
+  it('flag off: a spawn with a baseRef refuses a failed provision (T14396 AC2)', async () => {
+    setLeadWorkerV1(env.tempDir, false);
+    const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    const result = await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
+      autoComplete: false,
+      baseRef: 'origin/no-such-branch',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_WORKTREE_PROVISION_FAILED');
+    expect(result.error?.details).toMatchObject({
+      taskId: 'T001',
+      baseRef: 'origin/no-such-branch',
+    });
+    expect(adapterSpawn).not.toHaveBeenCalled();
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
     expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
   });
 

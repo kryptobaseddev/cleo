@@ -308,6 +308,7 @@ export type {
   NexusFreshnessConfig,
   NexusReindexOnMergeConfig,
   OrchestrateConfig,
+  OrchestrateContextThresholds,
   OrchestrateLeadWorkerConfig,
   OutputConfig,
   OutputFormat,
@@ -1431,34 +1432,6 @@ export type {
   AdminTokenQueryParams,
   AdminVersionParams,
 } from './operations/admin.js';
-// === Conduit Operation Types (T1422 — typed-dispatch migration) ===
-// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-// Note: The transport-layer ConduitSendResult (in ./conduit.ts) carries { messageId, deliveredAt }
-// and is the canonical type for the Conduit interface (ConduitClient / publishToTopic).
-// ConduitSendOperationResult (below) is the wire-format type for the conduit.send CLI/HTTP
-// dispatch operation and carries { messageId, from, to, transport, sentAt }.
-// The two types serve different layers and are intentionally distinct.
-export type {
-  ConduitInboxMessage,
-  ConduitListenParams,
-  ConduitListenResult,
-  ConduitOps,
-  ConduitPeekParams,
-  ConduitPeekResult,
-  ConduitPublishParams,
-  ConduitPublishResult,
-  ConduitSendOperationResult,
-  ConduitSendParams,
-  ConduitStartParams,
-  ConduitStartResult,
-  ConduitStatusParams,
-  ConduitStatusResult,
-  ConduitStopParams,
-  ConduitStopResult,
-  ConduitSubscribeParams,
-  ConduitSubscribeResult,
-  ConduitTransportKind,
-} from './operations/conduit.js';
 // Dialectic Evaluator operation types (T1087 Wave 3)
 export type {
   ApplyInsightsParams,
@@ -1634,8 +1607,6 @@ export type {
   NexusColdSymbolsParams,
   NexusColdSymbolsResult,
   NexusCommunityEntry,
-  NexusConduitScanParams,
-  NexusConduitScanResult,
   NexusContextNode,
   NexusContextParams,
   NexusContextProcess,
@@ -3353,10 +3324,17 @@ export {
 export type {
   ReviewAnswer,
   ReviewAuthors,
+  ReviewDispatch,
+  ReviewDispatchDecision,
+  ReviewDispatchResult,
   ReviewGap,
   ReviewJudgement,
   ReviewPacket,
   ReviewPacketCriterion,
+  ReviewRoute,
+  ReviewRouteReason,
+  ReviewRouting,
+  ReviewShadowComparison,
   ReviewVerdict,
 } from './review-verdict.js';
 // === Sync schema version, shared by the change journal and the cloud vault (T13034) ===

@@ -55,7 +55,6 @@ vi.mock('@cleocode/core/internal', () => ({
   nexusTaskSymbols: vi.fn(),
   nexusContractsSync: vi.fn(),
   nexusContractsLinkTasks: vi.fn(),
-  nexusConduitScan: vi.fn(),
   nexusProfileView: vi.fn(),
   nexusProfileGet: vi.fn(),
   nexusProfileImport: vi.fn(),
@@ -138,6 +137,6 @@ describe('graphCommand (T9147 W3)', () => {
     expect(living.subCommands).toHaveProperty('task-footprint');
     expect(living.subCommands).toHaveProperty('brain-anchors');
     expect(living.subCommands).toHaveProperty('why');
-    expect(living.subCommands).toHaveProperty('conduit-scan');
+    expect(living.subCommands).not.toHaveProperty('conduit-scan');
   });
 });
