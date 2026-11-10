@@ -18,7 +18,6 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
-import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import { getLifecycleStatus } from '../lifecycle/status.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskShowNext } from '../mvi-helpers.js';
@@ -28,12 +27,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { findHeldTask, SyncHeldError } from '../store/sync/held.js';
 import { computeTaskView } from './compute-task-view.js';
-import {
-  type IvtrHistoryEntry,
-  type LifecycleStageEntry,
-  taskToRecord,
-  toHistoryEntry,
-} from './engine-converters.js';
+import { type LifecycleStageEntry, taskToRecord } from './engine-converters.js';
 
 /**
  * Hydrated acceptance criterion row surfaced by `cleo show --verbose`.
@@ -331,7 +325,7 @@ function caughtToEngineError<T>(
 /**
  * Operation-shaped `tasks.show` wrapper used by dispatch.
  *
- * Handles the query-mode switches (`history`, `ivtrHistory`) and enriches the
+ * Handles the query-mode switches (`history`) and enriches the
  * standard show envelope with attachments and AC rows entirely inside Core.
  * Dispatch should only call this function and wrap its EngineResult.
  *
@@ -339,17 +333,8 @@ function caughtToEngineError<T>(
  */
 export async function taskShowOperation(
   projectRoot: string,
-  params: { taskId: string; history?: boolean; ivtrHistory?: boolean; relations?: boolean },
-): Promise<
-  EngineResult<
-    | TasksShowResult
-    | { task: TaskRecord; history?: LifecycleStageEntry[] }
-    | { ivtrHistory: IvtrHistoryEntry[] }
-  >
-> {
-  if (params.ivtrHistory) {
-    return taskShowIvtrHistory(projectRoot, params.taskId);
-  }
+  params: { taskId: string; history?: boolean; relations?: boolean },
+): Promise<EngineResult<TasksShowResult | { task: TaskRecord; history?: LifecycleStageEntry[] }>> {
   if (params.history) {
     return taskShowWithHistory(projectRoot, params.taskId, true);
   }
@@ -526,32 +511,6 @@ export async function taskShowWithHistory(
     return engineSuccess({ task, history });
   } catch (err: unknown) {
     return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
-  }
-}
-
-/**
- * Retrieve the IVTR phase history for a task.
- *
- * @param projectRoot - Absolute path to the project root
- * @param taskId - Task identifier (e.g. "T042")
- * @returns EngineResult with ivtrHistory array
- *
- * @task T1568
- * @epic T1566
- */
-export async function taskShowIvtrHistory(
-  projectRoot: string,
-  taskId: string,
-): Promise<EngineResult<{ ivtrHistory: IvtrHistoryEntry[] }>> {
-  try {
-    const ivtrState = await getIvtrState(taskId, { cwd: projectRoot });
-    if (!ivtrState) {
-      return engineSuccess({ ivtrHistory: [] });
-    }
-    const ivtrHistory: IvtrHistoryEntry[] = ivtrState.phaseHistory.map(toHistoryEntry);
-    return engineSuccess({ ivtrHistory });
-  } catch (err: unknown) {
-    return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Failed to read IVTR state');
   }
 }
 

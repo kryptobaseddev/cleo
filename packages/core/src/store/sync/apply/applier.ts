@@ -1229,6 +1229,11 @@ function adoptNaturalRows(
  * than refuse the column (the merge knows only captured columns), collide
  * with its own row of that id, or overwrite a device's own value; an insert
  * takes the local default.
+ *
+ * Retired columns (`RETIRED_SYNC_COLUMNS`, T14311) this store's table no
+ * longer has are dropped the same way, from I, U and D images alike: a store
+ * that dropped a column never gains it back, so refusing an older peer's op
+ * would hold the stream forever. Any other unknown column is still refused.
  */
 function withoutLocalColumns(
   st: StagedTxn,
@@ -1237,7 +1242,10 @@ function withoutLocalColumns(
   let changed = false;
   const ops = st.txn.ops.map((op): LedgerOp => {
     const def = defs(op.t);
-    const local = def?.localOnly ?? new Set(def?.localRowid ? [def.localRowid] : []);
+    const local = new Set([
+      ...(def?.localOnly ?? (def?.localRowid ? [def.localRowid] : [])),
+      ...(def?.retired ?? []),
+    ]);
     const has = (v: Readonly<Record<string, unknown>> | undefined): boolean =>
       v !== undefined && Object.keys(v).some((k) => local.has(k));
     if (!has(op.a) && !has(op.b) && !has(op.fh)) return op;

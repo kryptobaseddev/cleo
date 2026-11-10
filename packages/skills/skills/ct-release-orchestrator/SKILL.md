@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.8.0
+  version: 3.8.1
   tier: on-demand
   install: harness
   covers:
@@ -173,7 +173,6 @@ Exit codes (canonical):
 - `54` — release-prepare workflow gate failed.
 - `56` — tag creation failed.
 - `82` — `E_PLAN_NOT_FOUND` (plan envelope missing for the requested version).
-- `83` — `E_IVTR_INCOMPLETE` (per-task IVTR loops not released).
 - `88` — artifact publish failed.
 
 ## Anti-Patterns

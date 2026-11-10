@@ -625,17 +625,8 @@ function assessFileCapabilities(file: GraphIndexFileReport, coverage: KnowledgeC
             'access-references',
             'type-heritage',
           ] as const)
-        : report.role === 'sql'
-          ? ([
-              'file-evidence',
-              'sql-schema-objects',
-              'sql-migrations',
-              'sql-triggers',
-              'sql-constraints',
-              'sql-literal-references',
-              'sql-dynamic-references',
-            ] as const)
-          : (['file-evidence'] as const);
+        : // T14377: SQL has no extractor, so only file evidence is required of it.
+          (['file-evidence'] as const);
     const unrequested = required.filter((capability) => !report.requested.includes(capability));
     if (missing.length || unrequested.length || report.role === 'unknown') {
       incomplete = true;

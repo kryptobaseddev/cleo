@@ -1266,8 +1266,12 @@ export function resolveSpawnReturnContract(protocol: string): SpawnReturnContrac
 }
 
 /**
- * Build the return-format contract — the compressed cavecrew-style block the
- * subagent returns (T12521). Validators also accept the legacy one-liner
+ * Build the return-format contract — the worker report the subagent returns:
+ * one conclusion, the blocker, and proof lines, at most 100 words (T14361;
+ * compressed head line from T12521). The lead hands it to
+ * `cleo done --report`, which refuses it without proof (`checkWorkerReport`
+ * in `orchestrate/worker-report.ts`). Validators also accept the T12521
+ * `commits:`/`gates:` lines and the legacy one-liner
  * `<Type> <status>. Manifest appended to pipeline_manifest.` (see
  * `parseReturnMessage` in `validation/protocol-common.ts`).
  */
@@ -1276,16 +1280,16 @@ function buildReturnFormatBlock(protocol: string, askProviderId?: string): strin
   return [
     '## Return Format Contract (MANDATORY)',
     '',
-    'Return EXACTLY this block. No findings, no diffs, no prose.',
+    'Return ONLY this block, ≤100 words; no findings or diffs (detail → PR body).',
     '',
     '```',
     `${type} <complete|partial|blocked>. manifest:<entryId>`,
-    'commits: <sha7,sha7|none>',
-    'gates: <gate>=<pass|fail|skip> ...',
-    'blocker: <≤12 words|none>',
+    'conclusion: <result>',
+    'blocker: <none|why>',
+    'proof: <cmd> => exit <n>|<PR|sha|file>',
     '```',
     '',
-    'blocker: none when complete; required when partial/blocked. Findings → manifest, task record, commits.',
+    'blocker: none when complete; required when partial/blocked. No proof: line → `cleo done --report` refuses it.',
     buildHitlLine(type, askProviderId),
   ].join('\n');
 }

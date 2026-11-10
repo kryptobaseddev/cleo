@@ -1,12 +1,13 @@
 /** Shared Git hook management wrappers for init, upgrade and health. */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { GitHookInstallOptions } from '@cleocode/contracts/git-hooks.js';
+import { type GitHookInstallOptions, NEXUS_GIT_HOOK_NAMES } from '@cleocode/contracts/git-hooks.js';
 import type { HookCheckResult, ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import {
   CLEO_HOOK_NAMES,
   defaultTemplatesDir,
   installCleoHooks,
+  isNexusAutoReindexEnabled,
   resolveGitDir,
   resolveHooksDir,
 } from './git/hooks-install.js';
@@ -49,14 +50,21 @@ export async function ensureGitHooks(
   }
 }
 
-/** Inspect all hooks at the location Git actually executes, including worktrees. */
+/**
+ * Inspect all hooks at the location Git actually executes, including
+ * worktrees. The NEXUS refresh hooks are expected only while they are on.
+ */
 export async function checkGitHooks(projectRoot: string): Promise<HookCheckResult[]> {
   const gitDir = resolveGitDir(projectRoot);
   const hooksDir = gitDir
     ? resolveHooksDir(projectRoot, gitDir)
     : join(projectRoot, '.git', 'hooks');
   const templates = defaultTemplatesDir();
-  return MANAGED_HOOKS.map((hook) => {
+  const nexusOn = !gitDir || isNexusAutoReindexEnabled(projectRoot);
+  const expected = nexusOn
+    ? MANAGED_HOOKS
+    : MANAGED_HOOKS.filter((hook) => !NEXUS_GIT_HOOK_NAMES.includes(hook));
+  return expected.map((hook) => {
     const sourcePath = join(templates, hook);
     const installedPath = join(hooksDir, hook);
     const installed = existsSync(installedPath);
