@@ -23,7 +23,7 @@
             "counted": {
               "type": "boolean",
               "default": false,
-              "description": "Owner decision only: let `cleo review dispatch --execute --counted` send reviewers whose verdicts count toward a merge. Off, every dispatch is shadow."
+              "description": "Owner decision only: let `cleo review dispatch --execute --counted` send reviewers whose verdicts count toward a merge. Off, every dispatch is shadow. Sealed by the owner in .cleo/owner-settings.json (`cleo config set review.workers.counted true`, T14403); a value here is ignored."
             }
           }
         }

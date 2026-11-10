@@ -107,6 +107,12 @@ export const configSetCommand = defineCommand({
       await runOwnerOverrideCapSet(rawValue);
       return;
     }
+    // T14403: counted reviewer workers are owner-only, sealed outside config.json.
+    if (key === 'review.workers.counted') {
+      const { runOwnerReviewWorkersCountedSet } = await import('../../lib/owner-override-cap.js');
+      await runOwnerReviewWorkersCountedSet(rawValue);
+      return;
+    }
     const scope = parseWriteScope(args['scope'] as string | undefined);
     if (scope === null) {
       cliError(
