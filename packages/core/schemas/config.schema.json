@@ -1106,7 +1106,16 @@
             },
             "instructions": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+              "maxItems": 16,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "allOf": [
+                  { "pattern": "\\S" },
+                  { "pattern": "^(?!\\s*#)[^\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]+$" }
+                ]
+              }
             }
           }
         },

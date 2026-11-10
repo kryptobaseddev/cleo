@@ -489,8 +489,11 @@ at every tier and for every harness/backend. For example,
 requires single-file local tests via `cleo run` and changed-file formatting/lint;
 build, full tests, whole-project lint and typecheck run in required CI. No policy
 preserves existing behavior; malformed policy refuses dispatch with a repair
-command. Explicit owner instructions remain authoritative. Placement never
-waives evidence: `ci:<pr>` still needs merged green CI and `evidence.ciSatisfies`;
+command. Explicit owner instructions remain authoritative. Instructions are
+limited to 16 single-line items of
+512 characters, with control characters and leading `#` rejected. Refusals
+retain the repair command in `error.fix` on prompt and native execution paths.
+Placement never waives evidence: `ci:<pr>` still needs merged green CI and `evidence.ciSatisfies`;
 unproven gates stay open. With local full verification, lint and typecheck go
 through `tool:lint;tool:typecheck`.
 Its closure block leads with PR work (`Closes: <id> AC…`, a non-author verdict,

@@ -3,7 +3,8 @@ import { z } from 'zod';
 /**
  * Project worker rules; command declarations remain in project-context.json.
  *
- * @remarks Unknown rules and empty instructions are rejected, never ignored.
+ * @remarks At most 16 single-line instructions, each at most 512 characters;
+ * control characters and leading headings are rejected, never rendered.
  * @example
  * ```typescript
  * const policy = projectWorkerPolicySchema.parse({
@@ -21,7 +22,20 @@ export const projectWorkerPolicySchema = z
       })
       .strict()
       .optional(),
-    instructions: z.array(z.string().min(1).regex(/\S/)).optional(),
+    instructions: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(512)
+          .regex(/\S/)
+          .regex(
+            /^(?!\s*#)[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u,
+            'Instructions must be single-line text without control characters or a leading #',
+          ),
+      )
+      .max(16)
+      .optional(),
   })
   .strict();
 

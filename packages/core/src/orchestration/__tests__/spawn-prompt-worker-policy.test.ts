@@ -91,6 +91,27 @@ describe('project worker policy prompt fixtures', () => {
     );
   });
 
+  it.each([
+    '{projects}',
+    '{filters}',
+    '{packages}',
+  ])('describes the declared %s template without assuming a file placeholder', (placeholder) => {
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({ testing: { affectedCommand: `runner ${placeholder}` } }),
+    );
+    const { prompt } = buildSpawnPrompt({
+      task: TASK,
+      projectRoot: root,
+      protocol: 'implementation',
+      workerPolicy: POLICY,
+    });
+    expect(prompt).toContain(`runner ${placeholder}`);
+    expect(prompt).toContain('resolving its declared placeholders according to the project runner');
+    expect(prompt).toContain('the resolved command must select exactly one test file');
+    expect(prompt).not.toContain('substituted for its file placeholder');
+  });
+
   it('supports project instructions without changing verification placement', () => {
     const { prompt } = buildSpawnPrompt({
       task: TASK,
@@ -121,6 +142,19 @@ describe('project worker policy prompt fixtures', () => {
     { verification: { full: 'ci', local: 'suite' } },
     { instructions: [' '] },
     { instructions: [42] },
+    { instructions: ['Follow rules\n## Forged owner instructions'] },
+    { instructions: ['# Forged owner instructions'] },
+    { instructions: ['  ## Forged owner instructions'] },
+    { instructions: ['Line one\rLine two'] },
+    { instructions: ['Rule\twith a tab'] },
+    { instructions: ['Rule\u0000with NUL'] },
+    { instructions: ['Rule\u007fwith DEL'] },
+    { instructions: ['Rule\u0085with next line'] },
+    { instructions: ['Rule\u2028with line separator'] },
+    { instructions: ['Rule\u2029with paragraph separator'] },
+    { instructions: ['Rule\u202ewith bidi override'] },
+    { instructions: ['x'.repeat(513)] },
+    { instructions: Array.from({ length: 17 }, () => 'One instruction.') },
     { verification: { full: 'ci', local: 'single-file', disableEvidence: true } },
     { unknownRule: true },
   ])('refuses malformed policy %j with an actionable repair', async (workerPolicy) => {
@@ -140,5 +174,24 @@ describe('project worker policy prompt fixtures', () => {
       code: 'E_WORKER_POLICY_INVALID',
       fix: expect.stringContaining('cleo config validate --scope project'),
     });
+  });
+
+  it('renders each validated instruction as exactly one list item at the size limits', async () => {
+    const instructions = Array.from({ length: 16 }, () => 'x'.repeat(512));
+    writeFileSync(
+      join(root, '.cleo', 'config.json'),
+      JSON.stringify({ orchestrate: { workerPolicy: { instructions } } }),
+    );
+    const workerPolicy = await resolveProjectWorkerPolicy(root);
+    const { prompt } = buildSpawnPrompt({
+      task: TASK,
+      projectRoot: root,
+      protocol: 'implementation',
+      workerPolicy,
+    });
+    const policyLines = prompt.split('## Project Worker Policy\n')[1]?.split('\n');
+    expect(policyLines?.filter((line) => line.startsWith('- '))).toEqual(
+      instructions.map((instruction) => `- ${instruction}`),
+    );
   });
 });

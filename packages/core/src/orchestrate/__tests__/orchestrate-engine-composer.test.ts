@@ -317,6 +317,7 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_WORKER_POLICY_INVALID');
     expect(result.error?.message).toContain('cleo config set orchestrate.workerPolicy');
+    expect(result.error?.fix).toContain('cleo config set orchestrate.workerPolicy');
   });
 
   describe('T14379 — lead mailbox defaults from project config', () => {

@@ -12,3 +12,7 @@ rules across harnesses without changing project-context command declarations.
 Explicit owner instructions and evidence requirements remain authoritative;
 missing policy preserves existing prompts and malformed policy refuses dispatch
 with a repair command.
+
+Project instruction text is bounded to 16 single-line items of 512 characters;
+headings and control characters are rejected, and structured refusal envelopes
+retain the repair command.
