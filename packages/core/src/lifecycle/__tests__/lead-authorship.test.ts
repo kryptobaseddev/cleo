@@ -3,7 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { validateSpawnRequest } from '../ivtr-loop.js';
+import { validateSpawnRequest } from '../lead-authorship.js';
 
 // Mock the audit module to control delegate_task events
 vi.mock('../../audit.js', () => ({

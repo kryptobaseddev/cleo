@@ -55,5 +55,3 @@ prompt's stage guidance. They are not gates.
 - Exit 80 naming a planning-stage parent epic: the project turned on
   `lifecycle.stageGate`; advance the epic before children exist (above), otherwise
   report it to the lead or owner, who decide on the setting.
-- Exit 83 (`E_IVTR_INCOMPLETE`): the task carries `ivtr_state` from the retired
-  IVTR loop, which no command clears; report it to the lead or owner.

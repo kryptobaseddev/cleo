@@ -50,7 +50,6 @@ vi.mock('@cleocode/core/internal', () => ({
 vi.mock('../../lib/engine.js', () => ({
   taskShow: vi.fn(),
   taskShowWithHistory: vi.fn(),
-  taskShowIvtrHistory: vi.fn(),
   taskList: vi.fn(),
   taskFind: vi.fn(),
   taskExists: vi.fn(),
@@ -310,20 +309,6 @@ describe('tasks.show — attachments[] surface (T9966)', () => {
       const result = await handler.query('show', { taskId: 'T9999' });
 
       expect(result.success).toBe(false);
-    });
-
-    it('ivtr-history path still delegates to taskShowIvtrHistory (no attachment injection)', async () => {
-      const { taskShowIvtrHistory } = await import('../../lib/engine.js');
-      vi.mocked(taskShowIvtrHistory).mockResolvedValue({
-        success: true,
-        data: { ivtrHistory: [] },
-      });
-
-      const result = await handler.query('show', { taskId: 'T9831', ivtrHistory: true });
-
-      expect(result.success).toBe(true);
-      // ivtrHistory path bypasses attachment fetch
-      expect(_mockListByOwner).not.toHaveBeenCalled();
     });
   });
 });

@@ -15,12 +15,10 @@
  *    `blockedBy` contains "owner" / "decision" text OR a confident System One
  *    `noul` answer says it needs one ({@link ReadinessSignals.ownerDecision},
  *    T12494). System One can only ADD the flag, never clear it.
- * 3. IVTR max-retries exhausted — any phase in `ivtrLoopBackCount` has
- *    reached {@link MAX_LOOP_BACKS_PER_PHASE} (requires HITL escalation).
- * 4. Release/publish gate active — task `pipelineStage` is `'release'` and
+ * 3. Release/publish gate active — task `pipelineStage` is `'release'` and
  *    no HITL approval token is present (reuses existing `orchestrate approve`
  *    / `reject` / `pending` surface — no new HITL introduced).
- * 5. Scope ambiguity — epic-type task with no children AND no attached spec
+ * 4. Scope ambiguity — epic-type task with no children AND no attached spec
  *    or research artifact (blob list) — cannot be safely autonomously worked.
  *
  * ## Auto-proceed condition (AC2)
@@ -36,8 +34,6 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import type { IvtrState } from '../lifecycle/ivtr-loop.js';
-import { MAX_LOOP_BACKS_PER_PHASE } from '../lifecycle/ivtr-loop.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -61,8 +57,6 @@ export type GrillTrigger =
   | 'MISSING_AC'
   /** Task carries an `owner-decision` label or its `blockedBy` field mentions owner/decision. */
   | 'OWNER_DECISION_REQUIRED'
-  /** IVTR loop has exhausted loop-back retries for at least one phase. */
-  | 'IVTR_MAX_RETRIES'
   /** Task is in `release` pipeline stage and no HITL approval has been granted. */
   | 'RELEASE_GATE'
   /** Epic with no children and no spec/research artifact — ambiguous scope. */
@@ -106,15 +100,6 @@ export interface ReadinessSignals {
    * to suppress {@link GrillTrigger.AMBIGUOUS_SCOPE} when children exist.
    */
   children?: Task[];
-
-  /**
-   * IVTR state for the task as returned by `getIvtrState()`.
-   *
-   * When present, the predicate checks whether any phase's `loopBackCount`
-   * has reached {@link MAX_LOOP_BACKS_PER_PHASE}.  When absent the
-   * IVTR-max-retries check is skipped.
-   */
-  ivtrState?: IvtrState | null;
 
   /**
    * Names of blob attachments associated with the task (from `blobList()`).
@@ -290,22 +275,6 @@ function requiresOwnerDecision(
 }
 
 /**
- * Return `true` when the IVTR loop has exhausted retries for any phase.
- *
- * Checks every phase's `loopBackCount` against {@link MAX_LOOP_BACKS_PER_PHASE}.
- * A count equal to or greater than the limit means the next `loopBackIvtr`
- * call would throw `E_IVTR_MAX_RETRIES` — the task must escalate to HITL.
- *
- * @param ivtrState - Resolved IVTR state or `null`/`undefined` when absent.
- */
-function hasIvtrMaxRetries(ivtrState: IvtrState | null | undefined): boolean {
-  if (!ivtrState) return false;
-  const counts = ivtrState.loopBackCount;
-  if (!counts) return false;
-  return Object.values(counts).some((count) => count >= MAX_LOOP_BACKS_PER_PHASE);
-}
-
-/**
  * Return `true` when the task is at an active release/publish gate without
  * prior HITL approval.
  *
@@ -392,15 +361,14 @@ function hasReadyFrontier(children: Task[]): boolean {
  * grilling (clarification / escalation) before work starts.
  *
  * **Pure function**: does not open any DB, file, or network connection.
- * All live state (children, IVTR, blobs) is pre-fetched by the caller and
+ * All live state (children, blobs) is pre-fetched by the caller and
  * passed via {@link ReadinessSignals}.
  *
  * ## Grill triggers (checked in order)
  * 1. {@link GrillTrigger.MISSING_AC}              — `task.acceptance` is empty or absent.
  * 2. {@link GrillTrigger.OWNER_DECISION_REQUIRED} — `owner-decision` label or blockedBy text.
- * 3. {@link GrillTrigger.IVTR_MAX_RETRIES}        — IVTR loop-back count ≥ MAX per any phase.
- * 4. {@link GrillTrigger.RELEASE_GATE}            — `pipelineStage` ∈ {release, publish} without approval.
- * 5. {@link GrillTrigger.AMBIGUOUS_SCOPE}         — epic with no children and no spec artifact.
+ * 3. {@link GrillTrigger.RELEASE_GATE}            — `pipelineStage` ∈ {release, publish} without approval.
+ * 4. {@link GrillTrigger.AMBIGUOUS_SCOPE}         — epic with no children and no spec artifact.
  *
  * ## Auto-proceed
  * - All triggers clear.
@@ -423,17 +391,16 @@ function hasReadyFrontier(children: Task[]): boolean {
  * @example With pre-fetched signals:
  * ```typescript
  * const children = await accessor.getChildren(task.id);
- * const ivtrState = await getIvtrState(task.id);
  * const blobNames = (await blobList(task.id)).map(b => b.name);
  *
- * const result = classifyReadiness(task, { children, ivtrState, blobNames });
+ * const result = classifyReadiness(task, { children, blobNames });
  * ```
  *
  * @task T11495 E3-GRILL-GATE
  * @epic T11492 SG-AUTOPILOT
  */
 export function classifyReadiness(task: Task, signals: ReadinessSignals = {}): ReadinessResult {
-  const { children, ivtrState, blobNames, hitlApproved = false, ownerDecision } = signals;
+  const { children, blobNames, hitlApproved = false, ownerDecision } = signals;
   const triggers: GrillTrigger[] = [];
 
   // ── 1. Missing acceptance criteria ──────────────────────────────────────
@@ -446,17 +413,12 @@ export function classifyReadiness(task: Task, signals: ReadinessSignals = {}): R
     triggers.push('OWNER_DECISION_REQUIRED');
   }
 
-  // ── 3. IVTR max-retries exhausted ───────────────────────────────────────
-  if (hasIvtrMaxRetries(ivtrState)) {
-    triggers.push('IVTR_MAX_RETRIES');
-  }
-
-  // ── 4. Release / publish gate ────────────────────────────────────────────
+  // ── 3. Release / publish gate ────────────────────────────────────────────
   if (hasReleaseGate(task, hitlApproved)) {
     triggers.push('RELEASE_GATE');
   }
 
-  // ── 5. Ambiguous scope ───────────────────────────────────────────────────
+  // ── 4. Ambiguous scope ───────────────────────────────────────────────────
   if (hasAmbiguousScope(task, children, blobNames)) {
     triggers.push('AMBIGUOUS_SCOPE');
   }
@@ -534,12 +496,6 @@ function buildGrillReason(
         }
         break;
       }
-
-      case 'IVTR_MAX_RETRIES':
-        parts.push(
-          '  • IVTR_MAX_RETRIES — IVTR loop-back retries exhausted; HITL escalation required.',
-        );
-        break;
 
       case 'RELEASE_GATE':
         parts.push(

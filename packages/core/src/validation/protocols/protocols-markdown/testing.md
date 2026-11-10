@@ -6,7 +6,7 @@ status: active
 type: base
 audience: [llm-agent, orchestrator]
 tags: [testing, ivt-loop, autonomous, framework-agnostic, compliance]
-skillRef: ct-ivt-looper
+skillRef: ct-validator
 lastUpdated: 2026-04-07
 enforcement: strict
 ---
@@ -17,7 +17,7 @@ enforcement: strict
 **Version**: 2.0.0
 **Type**: Base Protocol
 **Stage**: IVTR — T (Testing, the closure of the IVT loop)
-**Skill**: `ct-ivt-looper`
+**Skill**: `ct-validator` (`ct-ivt-looper` was removed in T14311)
 
 This protocol defines the **autonomous compliance layer** that runs before any release or pull request. It is intentionally **project-agnostic** — it works in any git worktree regardless of language, framework, or directory layout. The previous v1 of this protocol was hardcoded to BATS (Bash testing) and is fully superseded.
 
@@ -58,7 +58,7 @@ This protocol MUST work in any project. It MUST NOT assume:
 - A specific directory layout (`tests/`, `__tests__/`, `spec/`, `_test.go`, …)
 - A specific test command (`pnpm test`, `pytest`, `cargo test`, `go test ./...`, …)
 
-The implementation skill (`ct-ivt-looper`) MUST detect the framework dynamically from project signals before invoking any test command.
+The implementing agent MUST detect the framework dynamically from project signals before invoking any test command.
 
 ---
 
@@ -276,7 +276,7 @@ Multi-agent IVT loops MUST record contributor identity per iteration in the cont
 
 ## References
 
-- **Skill**: `packages/skills/skills/ct-ivt-looper/SKILL.md` (project-agnostic loop logic)
+- **Skill**: `packages/skills/skills/ct-validator/SKILL.md` (audits the evidence; `ct-ivt-looper` was removed in T14311)
 - **Pure validator**: `packages/core/src/orchestration/protocol-validators.ts#validateTestingProtocol`
 - **Wrapper**: `packages/core/src/validation/protocols/testing.ts`
 - **Engine op**: `packages/cleo/src/dispatch/engines/validate-engine.ts#validateProtocolTesting`

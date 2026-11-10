@@ -152,7 +152,8 @@ function basenameOf(normalizedPath: string): string {
  * - The `packages` field is sorted alphabetically with duplicates removed so
  *   the prompt renders deterministically.
  *
- * **Used by:** {@link buildValidatePhaseInstruction} in `./ivtr-loop.ts`.
+ * **Used by:** no runtime caller since the IVTR loop was removed (T14311);
+ * the ct-validator blast-radius rule documents the same path set.
  *
  * @param filesChanged - Relative repo paths from the Implement-phase evidence
  *                       bundle (`ImplEvidenceSummary.filesChanged`). May be

@@ -76,6 +76,7 @@
 
 import type {
   PendingTableClassification,
+  RetiredSyncColumn,
   TableClass,
   TableClassification,
   TablePatternRule,
@@ -2482,6 +2483,49 @@ export const SNAPSHOT_STATE_TABLES: Readonly<Record<TableScope, readonly string[
  */
 export function isSnapshotStateTable(scope: TableScope, name: string): boolean {
   return SNAPSHOT_STATE_TABLES[scope].includes(name);
+}
+
+/**
+ * Columns a migration dropped from a syncing table, per scope.
+ *
+ * The sync contract for a retired column: an op from a peer that has not run
+ * the migration yet may still name it in an image (an insert or delete image
+ * carries every non-NULL column). A receiver whose table no longer has the
+ * column drops it from the op's images and applies the rest
+ * (`withoutLocalColumns` in `store/sync/apply/applier.ts`), because a store
+ * that dropped a column never gains it back, so refusing the op as schema
+ * skew would hold the stream forever. A receiver whose table still has the
+ * column (not migrated yet) applies it as before. A column unknown to the
+ * receiver and absent from this list is still refused (`E_SCHEMA_AHEAD`).
+ *
+ * Every migration that drops a column of a syncing table adds an entry here
+ * in the same change; entries are never removed while an older build may
+ * still send the column.
+ *
+ * @task T14311
+ */
+export const RETIRED_SYNC_COLUMNS: Readonly<Record<TableScope, readonly RetiredSyncColumn[]>> = {
+  project: [
+    {
+      table: 'tasks_tasks',
+      column: 'ivtr_state',
+      retiredBy: 'T14311',
+      reason: 'the IVTR loop state was retired; its migration drops the column',
+    },
+  ],
+  global: [],
+};
+
+/**
+ * The retired columns of one table ({@link RETIRED_SYNC_COLUMNS}).
+ *
+ * @param scope - Which `cleo.db` the table lives in.
+ * @param table - The physical table name.
+ * @returns The names of the columns retired from the table, possibly empty.
+ * @task T14311
+ */
+export function retiredSyncColumns(scope: TableScope, table: string): readonly string[] {
+  return RETIRED_SYNC_COLUMNS[scope].filter((r) => r.table === table).map((r) => r.column);
 }
 
 /**

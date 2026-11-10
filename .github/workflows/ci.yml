@@ -339,6 +339,21 @@ jobs:
             release_matrix:
               - 'packages/cleo/test/fixtures/release-test-**'
               - 'packages/cleo/test/integration/release-pipeline/**'
+      # T14369: per-file test durations from the newest main run, fetched ONCE
+      # here so every unit shard splits by the same data (a per-shard fetch
+      # could disagree and drop or repeat files). None found: file-count split.
+      - name: Fetch unit-test shard timings (T14369)
+        if: github.event_name == 'schedule' || steps.filter.outputs.code == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-duration-shards.mjs fetch --out "$RUNNER_TEMP/shard-timings.json"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'schedule' || steps.filter.outputs.code == 'true'
+        with:
+          name: shard-timings
+          path: ${{ runner.temp }}/shard-timings.json
+          if-no-files-found: error
+          retention-days: 1
 
   biome:
     name: Lint & Format
@@ -1641,10 +1656,17 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: node scripts/ci-affected-test-projects.mjs HEAD^1 HEAD
+      # T14369: the timings the `changes` job fetched; read by the vitest
+      # sequencer (scripts/ci-duration-sequencer.mjs) to split by duration.
+      - uses: actions/download-artifact@v4
+        with:
+          name: shard-timings
+          path: ${{ runner.temp }}/shard-timings
       - name: Run unit tests (shard ${{ matrix.shard }}/${{ matrix.total }})
         shell: bash
         env:
           AFFECTED_ARGS: ${{ steps.affected.outputs.args }}
+          VITEST_SHARD_TIMINGS: ${{ runner.temp }}/shard-timings/shard-timings.json
           # T13145: reads the open `flaky-quarantine` issues (the quarantine).
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1678,6 +1700,7 @@ jobs:
           node scripts/ci-flaky-quarantine.mjs run \
             --log /tmp/vitest-shard${{ matrix.shard }}.log \
             --report "$RUNNER_TEMP/flaky-report.json" \
+            --timings "$RUNNER_TEMP/test-timings.json" \
             -- --shard=${{ matrix.shard }}/${{ matrix.total }} $RETRY_FLAG $SCOPE_FLAGS
       - name: Upload flaky-test report (T13145)
         if: always()
@@ -1688,6 +1711,15 @@ jobs:
           if-no-files-found: ignore
           # D11216: read only by this run's flaky-quarantine job.
           retention-days: 1
+      # T14369: main's per-file durations, the next runs' shard timings.
+      - name: Upload test timings (T14369)
+        if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && matrix.os == 'ubuntu-latest' && matrix.node == '24.16.0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-timings-${{ matrix.os }}-${{ matrix.node }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-timings.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/${{ matrix.total }})
         if: matrix.os == 'ubuntu-latest'
         shell: bash
