@@ -426,6 +426,7 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
       containers: 'ok',
       indexing: 'ok',
       'memory-guard': 'skipped',
+      worktrees: 'skipped',
     });
   });
 

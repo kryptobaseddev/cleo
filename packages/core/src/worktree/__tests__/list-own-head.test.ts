@@ -17,10 +17,16 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
+// The foreign-store verdict is stubbed readable: these fixtures live under a
+// tmpdir with no resolvable `.cleo/`, and the real probe would skip the
+// (mocked) store (T14440 review P1a).
+vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
+  projectStoreReadVerdict: vi.fn(() => 'readable'),
+}));
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  getDb: vi.fn(async () => ({}) as never),
-  getNativeTasksDb: vi.fn(
+  getDb: vi.fn(async () => ({}) as never),  getNativeTasksDb: vi.fn(
     () =>
       ({
         prepare: () => ({

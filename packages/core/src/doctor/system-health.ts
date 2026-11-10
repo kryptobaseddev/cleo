@@ -1040,17 +1040,23 @@ function worktreeFindings(s: SystemSnapshot, rows: readonly ProcessRow[]): Findi
 
   if (census === null) return out;
 
+  // A cache written by schema v1 has no projects/orphanFolders fields (T14440
+  // review P1b): degrade to machine-wide numbers instead of crashing.
+  const projects = Array.isArray(census.projects) ? census.projects : [];
   const worktreeCount = Object.values(census.counts).reduce((n, c) => n + c, 0);
   if (worktreeCount >= WORKTREE_COUNT_WARN) {
     out.push({
       id: 'worktree-count',
       category: 'worktrees',
       severity: thresholdSeverity(worktreeCount, WORKTREE_COUNT_WARN),
-      title: `${worktreeCount} worktrees machine-wide across ${census.projects.length} project folders`,
+      title:
+        projects.length > 0
+          ? `${worktreeCount} worktrees machine-wide across ${projects.length} project folders`
+          : `${worktreeCount} worktrees machine-wide (census record predates per-project rollups)`,
       evidence: {
         worktrees: worktreeCount,
         warnAt: WORKTREE_COUNT_WARN,
-        byProject: census.projects
+        byProject: projects
           .slice()
           .sort((a, b) => b.worktrees - a.worktrees)
           .slice(0, 10)

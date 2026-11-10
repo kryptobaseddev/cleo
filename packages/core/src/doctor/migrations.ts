@@ -292,35 +292,56 @@ function installedProjectMigrationHashSet(): Set<string> {
   return installedProjectMigrationHashes;
 }
 
+/** Memoized hashes of this build's project-lineage migrations, for pending checks (T14440). */
+let projectLineageMigrationHashes: Set<string> | null = null;
+
 /**
- * Whether a project store was written by a build newer than this one — read
- * only, without opening it through the migrator (T14440, census AC3).
+ * The hashes of the migrations the project-scope lineages install, computed
+ * once per process.
  *
- * The census (and any worktree listing) resolves foreign projects' stores to
- * enrich task status. A journal row whose hash no installed lineage defines
- * was written by a newer, unreleased build; opening such a store — worse,
- * letting `getDb` migrate it — with this binary is the hazard this check
- * gates. An absent store or journal is `ok`: there is nothing ahead of this
- * build, and the normal open creates both.
+ * @returns The hashes a fully-migrated project journal must contain.
+ */
+function expectedProjectJournalHashSet(): Set<string> {
+  if (projectLineageMigrationHashes === null) {
+    projectLineageMigrationHashes = new Set<string>();
+    for (const lineage of PROJECT_LINEAGES) {
+      for (const m of localMigrations(resolveCorePackageMigrationsFolder(lineage))) {
+        projectLineageMigrationHashes.add(m.hash);
+      }
+    }
+  }
+  return projectLineageMigrationHashes;
+}
+
+/**
+ * Whether the census's task-status enrichment may open a project's store —
+ * read-only, without opening anything through the migrator (T14440, AC3).
+ *
+ * `loadOwningTaskStatuses` enriches the census (and any worktree listing) by
+ * opening EACH listed project's store through `getDb`, which runs pending
+ * migrations — a write. This verdict gates that open: only a store whose
+ * journal exists, holds no rows this build does not know (nothing written by
+ * a newer, unreleased build) and already contains every project-lineage
+ * migration this build installs (nothing pending, so the open writes nothing)
+ * is `readable`. Every other case names the reason; the caller skips the
+ * store and reports it as `not read`.
  *
  * @param projectRoot - Absolute path to the project root whose store to judge.
- * @returns `'ahead'` when the journal holds unknown rows, `'ok'` otherwise
- *   (including no store, no journal), `'unreadable'` when the check itself
- *   could not run.
+ * @returns `'readable'`, or `not read: <reason>`.
  */
-export function projectStoreAheadOfBuild(projectRoot: string): 'ok' | 'ahead' | 'unreadable' {
+export function projectStoreReadVerdict(projectRoot: string): string {
   let dbPath: string;
   try {
     dbPath = resolveDualScopeDbPath('project', projectRoot);
   } catch {
-    return 'unreadable';
+    return 'not read: unreadable store';
   }
-  if (!existsSync(dbPath)) return 'ok';
+  if (!existsSync(dbPath)) return 'not read: missing store';
   let snap: ReturnType<typeof openCleoDbSnapshot>;
   try {
     snap = openCleoDbSnapshot(dbPath, { readOnly: true });
   } catch {
-    return 'unreadable';
+    return 'not read: unreadable store';
   }
   try {
     const hasJournal =
@@ -329,14 +350,22 @@ export function projectStoreAheadOfBuild(projectRoot: string): 'ok' | 'ahead' | 
           "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
         )
         .get() !== undefined;
-    if (!hasJournal) return 'ok';
+    if (!hasJournal) return 'not read: journal missing';
     const rows = snap.db.prepare('SELECT hash FROM main."__drizzle_migrations"').all() as Array<{
       hash: string;
     }>;
     const known = installedProjectMigrationHashSet();
-    return rows.some((r) => !known.has(r.hash)) ? 'ahead' : 'ok';
+    if (rows.some((r) => !known.has(r.hash))) {
+      return 'not read: store written by a newer build';
+    }
+    const applied = new Set(rows.map((r) => r.hash));
+    const expected = expectedProjectJournalHashSet();
+    if ([...expected].some((h) => !applied.has(h))) {
+      return 'not read: store behind this build (pending migrations)';
+    }
+    return 'readable';
   } catch {
-    return 'unreadable';
+    return 'not read: unreadable store';
   } finally {
     snap.close();
   }

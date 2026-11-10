@@ -37,12 +37,13 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ),
 }));
 
-const aheadOfBuild = vi.fn<(projectRoot: string) => 'ok' | 'ahead' | 'unreadable'>(() => 'ok');
+const aheadOfBuild = vi.fn<(projectRoot: string) => string>(() => 'readable');
 vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
-  projectStoreAheadOfBuild: (...args: Parameters<typeof aheadOfBuild>) => aheadOfBuild(...args),
+  projectStoreReadVerdict: (...args: Parameters<typeof aheadOfBuild>) => aheadOfBuild(...args),
 }));
 
+import { getDb } from '../../store/sqlite.js';
 import { listWorktrees } from '../list.js';
 
 const mockExec = vi.mocked(execFileSync);
@@ -55,7 +56,8 @@ function porcelain(entry: { path: string; branch: string }): string {
 beforeEach(() => {
   MOCK_TASK_ROWS.clear();
   MOCK_TASK_ROWS.set('T1', 'done');
-  aheadOfBuild.mockImplementation(() => 'ok');
+  aheadOfBuild.mockImplementation(() => 'readable');
+  vi.mocked(getDb).mockClear();
   mockExec.mockImplementation((_cmd: string, args?: readonly string[]) => {
     const argv = (args ?? []) as readonly string[];
     if (argv[0] === 'worktree' && argv[1] === 'list')
@@ -78,19 +80,20 @@ afterEach(() => {
 });
 
 describe('foreign-store preflight (T14440 AC3)', () => {
-  it('enriches task status when the foreign store is at or behind this build', async () => {
-    aheadOfBuild.mockImplementation(() => 'ok');
+  it('enriches task status when the foreign store is readable without writing', async () => {
+    aheadOfBuild.mockImplementation(() => 'readable');
     const out = await listWorktrees({ projectRoot: '/p' });
     if (!out.success) throw new Error(out.error?.message ?? 'listing failed');
     expect(out.data.worktrees[0]?.owningTaskStatus).toBe('done');
   });
 
-  it('degrades to owningTaskStatus null when the store was written by a newer build', async () => {
-    aheadOfBuild.mockImplementation(() => 'ahead');
+  it('degrades to owningTaskStatus null and never opens the store when the verdict is not readable', async () => {
+    aheadOfBuild.mockImplementation(() => 'not read: store written by a newer build');
     const out = await listWorktrees({ projectRoot: '/p' });
     if (!out.success) throw new Error(out.error?.message ?? 'listing failed');
     expect(out.data.worktrees[0]?.owningTaskStatus).toBeNull();
     expect(out.data.worktrees[0]?.taskId).toBe('T1'); // the listing itself is unaffected
+    expect(getDb).not.toHaveBeenCalled(); // nothing writable was reached
   });
 
   it('the probe is asked once per listing, with the project root', async () => {

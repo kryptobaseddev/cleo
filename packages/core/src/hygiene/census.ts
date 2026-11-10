@@ -53,9 +53,10 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { setPriority } from 'node:os';
+import { homedir, setPriority } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { WorktreeStatusCategory } from '@cleocode/contracts';
+import type { WorktreeLockRecord } from '@cleocode/contracts/operations/worktree.js';
 import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
 import { acquireHeartbeatLock, claimAtMostEvery } from '../tasks/merge-close.js';
 
@@ -123,6 +124,11 @@ export interface ProjectCensusRollup {
   mergedRemoteBranches: number | null;
   /** True when no registered project owns this hash directory. */
   orphan: boolean;
+  /**
+   * The foreign-store verdict behind this rollup's task statuses: `read` when
+   * the store was opened, otherwise why it was skipped (T14440 AC3).
+   */
+  storeRead: string;
 }
 
 /** A worktrees-home hash directory that matches no registered project (T14440). */
@@ -312,6 +318,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const { worktreeInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
   const { readWorktreeTaskLock } = await import('@cleocode/worktree');
+  const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -463,9 +470,20 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   };
   for (const row of rows) if (!row.removed) counts[row.category] += 1;
   outOfTime();
-  const rollups = await projectRollups(rows, (projectRoot) =>
-    mergedBranchCounts(projectRoot, Date.now() + MERGE_PROBE_BUDGET_MS),
+  // One overall deadline: every measurement below shares the walk's, so a
+  // truncation is always visible in `partial` (T14440 review P2d).
+  const registeredRollups = [...projectByHash.entries()].map(([hash, root]) => ({
+    project: root,
+    projectHash: hash,
+  }));
+  const rollups = await projectRollups(
+    rows,
+    registeredRollups,
+    (projectRoot) => mergedBranchCounts(projectRoot, deadline),
+    projectStoreReadVerdict,
   );
+  const store = pnpmStoreCensus(deadline);
+  outOfTime();
   return {
     schemaVersion: 2,
     mode: apply ? 'apply' : 'report',
@@ -486,51 +504,55 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     partial,
     projects: rollups.rollups,
     orphanFolders: rollups.orphans,
-    pnpmStore:
-      opts.pnpmStore === undefined
-        ? pnpmStoreCensus(Date.now() + PNPM_STORE_BUDGET_MS)
-        : opts.pnpmStore,
+    pnpmStore: opts.pnpmStore === undefined ? store : opts.pnpmStore,
   };
 }
 
-/** Wall-clock budget for one project's merged-branch probes (T14440). */
-const MERGE_PROBE_BUDGET_MS = 30_000;
-
-/** Wall-clock budget for resolving and sizing the global pnpm store (T14440). */
-const PNPM_STORE_BUDGET_MS = 30_000;
-
 /**
- * Per-project rollups over the census rows, plus the orphan hash directories.
+ * Per-project rollups over the census rows, seeded with every registered
+ * project (a project with zero worktrees keeps its branch counts, T14440
+ * review P2e), plus the orphan hash directories.
  *
  * Merged-branch probes run once per registered project (never for orphans);
- * a probe failure records `null`, never a zero.
+ * a probe failure records `null`, never a zero. The store verdict is the
+ * same read-only probe the listing's enrichment used, so `storeRead` names
+ * exactly why task statuses are present or absent.
  *
  * @param rows - The census rows.
+ * @param registered - Every registered project root and its hash.
  * @param branchesOf - Merged-branch counter (tests stub it).
+ * @param verdictOf - The foreign-store read verdict (tests stub it).
  * @returns Rollups keyed by hash dir and the orphan directories among them.
  */
 async function projectRollups(
   rows: readonly CensusRow[],
+  registered: ReadonlyArray<{ project: string; projectHash: string }>,
   branchesOf: (projectRoot: string) => Promise<{
     mergedLocal: number | null;
     mergedRemote: number | null;
   }>,
+  verdictOf: (projectRoot: string) => string,
 ): Promise<{ rollups: ProjectCensusRollup[]; orphans: OrphanHashDir[] }> {
   const byHash = new Map<string, ProjectCensusRollup>();
+  const seed = (project: string | null, projectHash: string): ProjectCensusRollup => {
+    const existing = byHash.get(projectHash);
+    if (existing) return existing;
+    const rollup: ProjectCensusRollup = {
+      project,
+      projectHash,
+      worktrees: 0,
+      apparentBytes: 0,
+      mergedLocalBranches: null,
+      mergedRemoteBranches: null,
+      orphan: project === null,
+      storeRead: project === null ? 'not read: orphan directory' : verdictOf(project),
+    };
+    byHash.set(projectHash, rollup);
+    return rollup;
+  };
+  for (const entry of registered) seed(entry.project, entry.projectHash);
   for (const row of rows) {
-    let rollup = byHash.get(row.projectHash);
-    if (!rollup) {
-      rollup = {
-        project: row.project,
-        projectHash: row.projectHash,
-        worktrees: 0,
-        apparentBytes: 0,
-        mergedLocalBranches: null,
-        mergedRemoteBranches: null,
-        orphan: row.project === null,
-      };
-      byHash.set(row.projectHash, rollup);
-    }
+    const rollup = seed(row.project, row.projectHash);
     if (!row.removed) {
       rollup.worktrees += 1;
       rollup.apparentBytes += row.apparentBytes;
@@ -648,22 +670,18 @@ function dirtyFileCount(worktreePath: string, deadline: number): number | null {
 /**
  * CLEO task-lock state for one worktree's task (T14440).
  *
- * @param read - The lock reader (tests stub it).
+ * @param read - The lock reader (`readWorktreeTaskLock`).
  * @param projectHash - The project hash directory.
  * @param taskId - The owning task, or `null`.
- * @returns True when a live task lock is held.
+ * @returns True when a live task lock record exists.
  */
 function readTaskLockSafe(
-  read: (projectHash: string, taskId: string) => unknown,
+  read: (projectHash: string, taskId: string) => WorktreeLockRecord | null,
   projectHash: string,
   taskId: string | null,
 ): boolean {
   if (taskId === null) return false;
-  try {
-    return read(projectHash, taskId) !== null;
-  } catch {
-    return false;
-  }
+  return read(projectHash, taskId) !== null;
 }
 
 /**
@@ -679,6 +697,9 @@ export function pnpmStoreCensus(deadline = Number.POSITIVE_INFINITY): PnpmStoreC
   let storePath: string;
   try {
     storePath = execFileSync('pnpm', ['store', 'path'], {
+      // Resolve the GLOBAL store: an inherited per-worktree cwd would honour
+      // that worktree's `.npmrc` store-dir and misreport (T14440 review P2c).
+      cwd: homedir(),
       timeout: 10_000,
       stdio: ['pipe', 'pipe', 'pipe'],
       encoding: 'utf-8',

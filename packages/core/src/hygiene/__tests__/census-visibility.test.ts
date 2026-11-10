@@ -18,6 +18,15 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
+// The foreign-store verdict is stubbed readable: these fixtures' project
+// roots are tmpdirs with no `.cleo/`, and the real probe would skip the
+// (mocked) store. The live, mock-free preflight test is
+// census-store-preflight-live.test.ts (T14440 review P1a).
+vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
+  projectStoreReadVerdict: vi.fn(() => 'readable'),
+}));
+
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
   getDb: vi.fn(async () => ({}) as never),
@@ -148,10 +157,12 @@ describe('census visibility fields (T14440 AC1)', () => {
   });
 
   it('rolls worktrees and bytes up per project, and names orphan hash directories', async () => {
-    // An unregistered project: an orphan hash dir.
+    // An unregistered project: an orphan hash dir. A registered project with
+    // NO worktrees still gets its rollup and branch counts (P2e).
     const c = repo('c');
     worktree(c, 'T9');
-    const out = await runWorktreeCensus({ projects: [a], recordDir, pnpmStore: null });
+    const b = repo('b');
+    const out = await runWorktreeCensus({ projects: [a, b], recordDir, pnpmStore: null });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
 
@@ -165,6 +176,10 @@ describe('census visibility fields (T14440 AC1)', () => {
     expect(aRollup?.apparentBytes).toBe(
       record.rows.filter((r) => r.project === a).reduce((n, r) => n + r.apparentBytes, 0),
     );
+    // A registered project with zero worktrees is not dropped (P2e).
+    const bRollup = record.projects.find((p) => p.project === b);
+    expect(bRollup).toMatchObject({ worktrees: 0, apparentBytes: 0, orphan: false });
+    expect(bRollup?.mergedLocalBranches).toBe(1); // the probe still ran for it
     const orphanHash = computeProjectHash(c);
     expect(record.orphanFolders).toEqual([
       { projectHash: orphanHash, worktrees: 1, apparentBytes: expect.any(Number) },

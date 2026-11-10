@@ -173,4 +173,29 @@ describe('worktree findings (T14440 AC2)', () => {
     const byProject = finding?.evidence['byProject'] as readonly string[];
     expect(byProject.some((line) => line.startsWith('orphan bbbbbbbbbbbbbbbb'))).toBe(true);
   });
+
+  it('a v1 cache record without per-project rollups still warns, without crashing (P1b)', () => {
+    // latest.json written by a schemaVersion-1 census: no projects field.
+    const legacy = {
+      schemaVersion: 1,
+      mode: 'report',
+      startedAt: new Date(NOW - 60_000).toISOString(),
+      finishedAt: new Date(NOW).toISOString(),
+      machineRoot: '/home/u/worktrees',
+      applyProjects: [],
+      counts: { active: WORKTREE_COUNT_WARN, redundant: 0, keep: 0, unknown: 0 },
+      apparentBytes: WORKTREE_BYTES_WARN,
+      reclaimedApparentBytes: 0,
+      dfFreeBefore: null,
+      dfFreeAfter: null,
+      dfDelta: null,
+      kept: [],
+      rows: [],
+      partial: false,
+    } as unknown as NonNullable<SystemSnapshot['worktreeCensus']>;
+    const findings = findingsOf(snapshot({ worktreeCensus: legacy }));
+    const count = findings.find((f) => f.id === 'worktree-count');
+    expect(count?.title).toContain('predates per-project rollups');
+    expect(findings.find((f) => f.id === 'worktree-bytes')).toBeDefined();
+  });
 });
