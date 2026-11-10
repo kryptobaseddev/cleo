@@ -8,7 +8,8 @@ summary: "Gate 32 measures skill version bumps from the branch point, so paralle
 Parallel PRs that changed one skill each bumped its `metadata.version` from
 the same value; the second to merge failed gate 32 and had to re-bump, which
 conflicted with every other open PR. The gate now requires the version to
-exceed the branch point's (CI passes the PR head with `--head`) and never fall
-below the base's, so identical next-minor bumps merge cleanly. A `v*` release
-tag cut after the branch point becomes the anchor, so released versions stay
-monotonic.
+exceed the branch point's in the PR head itself (CI passes it with `--head`)
+and the merged version never to fall below the base's, so identical
+next-minor bumps merge cleanly. A stable `v*` release tag (not canary or rc)
+cut after the branch point becomes the anchor, so released versions stay
+monotonic; a missing merge base or tag fails and names the fetch.

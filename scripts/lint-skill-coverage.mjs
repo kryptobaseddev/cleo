@@ -32,9 +32,9 @@
  *   skill's directory — or, for an on-demand skill only, a commit trailer
  *   `Skill-Drift-Reviewed: <skill>: <reason>`. Core skills reject the
  *   trailer (D11157);
- * - a changed skill directory requires a `metadata.version` greater than the
- *   version at the branch point (the merge-base of the base and the PR head),
- *   and never lower than the base's current version.
+ * - a changed skill directory requires the PR head's `metadata.version` to be
+ *   greater than the version at the branch point (the merge-base of the base
+ *   and the PR head), and the merged version never lower than the base's.
  *
  * ## Why the branch point, not the base tip (T14393)
  *
@@ -45,10 +45,12 @@
  * PRs that make the same bump (next minor) carry the identical
  * `version:` line and the identical manifest entry, so git merges them in
  * either order with no conflict. Monotonic releases still hold: when a
- * release tag (`v*`) reachable from the base was cut after the branch point,
- * the version must exceed the tag's, so released content never repeats a
- * version. In CI the checkout is GitHub's merge commit, so the workflow
- * passes the PR head with `--head`.
+ * stable release tag (`v*`, not `-canary`/`-rc`) reachable from the base was
+ * cut after the branch point, the version must exceed the tag's, so released
+ * content never repeats a version. A missing merge base or stable tag fails
+ * and names the fetch that fixes it. In CI the checkout is GitHub's merge
+ * commit (which inherits other PRs' bumps), so the workflow passes the PR
+ * head with `--head` and the PR's own version is the one compared.
  *
  * Usage: node scripts/lint-skill-coverage.mjs [--check|--strict] [--base <ref>] [--head <ref>] [--json]
  *
@@ -171,14 +173,21 @@ export function semverGreater(a, b) {
 }
 
 /**
- * The ref a PR's skill versions are measured against: the newest release tag
- * (`v*`) reachable from `base` when it was cut after the branch point,
- * otherwise the branch point itself (T14393).
+ * The ref a PR's skill versions are measured against: the newest stable
+ * release tag (`v*`, excluding `-canary` and `-rc` prereleases) reachable
+ * from `base` when it was cut after the branch point, otherwise the branch
+ * point itself (T14393).
+ *
+ * Never falls back silently: a missing merge base (shallow clone) or a
+ * missing stable tag (tagless clone) throws with the fetch that fixes it,
+ * since either would let a skill change ship under an already-released
+ * version.
  *
  * @param {string} root - Repository root.
  * @param {string} base - Base ref.
  * @param {string} head - PR head ref.
- * @returns {{ ref: string, tag?: string } | null} Null when base and head share no history.
+ * @returns {{ ref: string, tag?: string }}
+ * @throws {Error} When the merge base or a stable release tag cannot be found.
  */
 export function versionAnchor(root, base, head) {
   /** Run git quietly; null on a non-zero exit. */
@@ -194,9 +203,32 @@ export function versionAnchor(root, base, head) {
     }
   };
   const branchPoint = tryGit(['merge-base', base, head]);
-  if (!branchPoint) return null;
-  const tag = tryGit(['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', base]);
-  if (tag && tryGit(['merge-base', '--is-ancestor', branchPoint, tag]) !== null) {
+  if (!branchPoint) {
+    throw new Error(
+      `no merge base between ${base} and ${head}; fetch full history (git fetch --unshallow origin, or actions/checkout fetch-depth: 0)`,
+    );
+  }
+  const tag = tryGit([
+    'describe',
+    '--tags',
+    '--abbrev=0',
+    '--match',
+    'v[0-9]*',
+    '--exclude',
+    '*-canary*',
+    '--exclude',
+    '*-rc*',
+    base,
+  ]);
+  if (!tag) {
+    throw new Error(
+      `no stable release tag (v*, not -canary/-rc) reachable from ${base}; fetch tags (git fetch --tags origin, or actions/checkout fetch-depth: 0)`,
+    );
+  }
+  const cutAfter =
+    tryGit(['rev-parse', `${tag}^{commit}`]) !== branchPoint &&
+    tryGit(['merge-base', '--is-ancestor', branchPoint, tag]) !== null;
+  if (cutAfter) {
     return { ref: tag, tag };
   }
   return { ref: branchPoint };
@@ -236,7 +268,21 @@ export function checkPullRequest(root, base, io = {}) {
     const md = skillMdAt(ref, name);
     return md ? parseFrontmatter(md).metadata.version : undefined;
   };
-  const anchor = versionAnchor(root, base, io.head || 'HEAD') ?? { ref: base };
+  const head = io.head || 'HEAD';
+  /** @type {{ ref: string, tag?: string } | null | undefined} */
+  let anchor;
+  /** The version anchor, resolved once on the first changed skill. */
+  const resolveAnchor = (problems) => {
+    if (anchor === undefined) {
+      try {
+        anchor = versionAnchor(root, base, head);
+      } catch (err) {
+        anchor = null;
+        problems.push(`skill version check cannot run: ${err.message}`);
+      }
+    }
+    return anchor;
+  };
 
   /**
    * Whether every covered file that changed was touched by a commit carrying
@@ -268,11 +314,16 @@ export function checkPullRequest(root, base, io = {}) {
 
     if (skillChanged) {
       const fix = 'bump it (then run node scripts/skills/generate-manifest.mjs)';
-      const anchorVersion = versionAt(anchor.ref, s.name);
+      const at = resolveAnchor(problems);
+      if (!at) continue;
+      // The PR's own version, not the merge commit's: a merge ref inherits
+      // another PR's bump, which would hide a PR that never bumped.
+      const headVersion = versionAt(head, s.name);
+      const anchorVersion = versionAt(at.ref, s.name);
       const baseVersion = versionAt(base, s.name);
-      if (anchorVersion !== undefined && !semverGreater(s.version, anchorVersion)) {
+      if (anchorVersion !== undefined && !semverGreater(headVersion, anchorVersion)) {
         problems.push(
-          `${s.name} changed but metadata.version ${s.version} is not greater than ${anchorVersion}${anchor.tag ? `, released in ${anchor.tag}` : ''}; ${fix}`,
+          `${s.name} changed but metadata.version ${headVersion} is not greater than ${anchorVersion}${at.tag ? `, released in ${at.tag}` : ''}; ${fix}`,
         );
       } else if (baseVersion !== undefined && semverGreater(baseVersion, s.version)) {
         problems.push(
