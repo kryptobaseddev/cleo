@@ -1011,19 +1011,30 @@ export async function orchestrateSpawnExecute(
           ? refusalCode
           : 'E_WORKTREE_PROVISION_FAILED';
       const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
+      // T14396: like orchestrateSpawn, remove a worktree THIS call freshly
+      // created before refusing; any other failure leaves the worktree alone.
+      const cleanup = shouldCleanUpFailedProvision(wtErr)
+        ? await runTimeoutCleanup(cwd, taskId)
+        : undefined;
+      const cleanupDetails = cleanup ? { cleanup } : {};
       // T14046: a bad --base ref or a worktree on another base. Running the
       // agent in the project root would ignore the base it was asked for.
       if (opts.baseRef !== undefined) {
         // @sync-invariant none:input-shape an unusable --base refuses; the finally hands the claim back
         return engineError(code, message, {
-          details: { taskId, baseRef: opts.baseRef },
+          details: { taskId, baseRef: opts.baseRef, ...cleanupDetails },
           fix: `Check that '${opts.baseRef}' resolves to a commit and that no worktree or branch for ${taskId} exists on another base.`,
         });
       }
       // T14358: orchestrate.leadWorker.v1 is on — no agent runs in the project root.
       // @sync-invariant none:local-only fail-closed isolation refuses; the finally hands the claim back
       return engineError(code, message, {
-        details: { taskId, isolation: 'refused', flag: 'orchestrate.leadWorker.v1' },
+        details: {
+          taskId,
+          isolation: 'refused',
+          flag: 'orchestrate.leadWorker.v1',
+          ...cleanupDetails,
+        },
         fix: `Fix worktree provisioning for ${taskId} (\`git worktree list\`, \`git branch --list task/${taskId}\`) and retry; orchestrate.leadWorker.v1 refuses to run a worker without isolation.`,
       });
     } else if (isolationResolution.kind === 'project-root') {

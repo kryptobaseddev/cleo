@@ -825,6 +825,14 @@ export interface OrchestrateConfig {
    * @task T14379
    */
   leadMailbox?: LeadMailbox;
+  /**
+   * Context-window usage thresholds (percent) for orchestrator wrap-up and
+   * stop. Formerly `orchestrator.contextThresholds`; configs with the old key
+   * are migrated on read and by `cleo upgrade` (T14375).
+   *
+   * @defaultValue { warning: 70, critical: 80 }
+   */
+  contextThresholds?: OrchestrateContextThresholds;
 }
 
 /**
@@ -840,6 +848,18 @@ export interface LeadMailbox {
   projectId: string;
   /** AgentMBX provider CLI the lead claims it from (`--cli`), e.g. `claude`. */
   cli: string;
+}
+
+/**
+ * Context-window usage thresholds (`orchestrate.contextThresholds.*`).
+ *
+ * @task T14375
+ */
+export interface OrchestrateContextThresholds {
+  /** Percent at which the orchestrator plans to wrap up. @defaultValue 70 */
+  warning?: number;
+  /** Percent at which the orchestrator stops and hands off. @defaultValue 80 */
+  critical?: number;
 }
 
 /**
@@ -1065,6 +1085,20 @@ export interface ResourcesConfig {
   heavyCommandHook?: HeavyCommandHookMode;
 }
 
+/** Per-AC PR review settings (`review.*`, T14372). */
+export interface ReviewConfig {
+  /** Dispatched reviewer workers. */
+  workers?: {
+    /**
+     * Owner decision only: let `cleo review dispatch --counted` send reviewers
+     * whose verdicts count toward a merge. Off, every dispatch is shadow.
+     *
+     * @defaultValue false
+     */
+    counted?: boolean;
+  };
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /**
@@ -1073,6 +1107,12 @@ export interface CleoConfig {
    * @defaultValue undefined (level `full`)
    */
   lean?: LeanConfig;
+  /**
+   * Per-AC PR review settings (T14372).
+   *
+   * @defaultValue undefined (reviewer workers dispatch in shadow mode only)
+   */
+  review?: ReviewConfig;
   /** Configuration schema version string. */
   version: string;
   /** Output formatting preferences. */
