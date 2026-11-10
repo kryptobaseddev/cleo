@@ -170,7 +170,7 @@ export const BASELINE = {
   'packages/core/src/lifecycle/__tests__/stage-record-provenance.integration.test.ts':
     'fails on main: artifact path and ADR mock root (T14414)',
   'packages/core/src/memory/__tests__/graph-memory-bridge-integration.test.ts':
-    'fails on main: table brain_attention already exists (T14415)',
+    'fails on main: the brain attention table is created twice (T14415)',
   'packages/core/src/sessions/__tests__/handoff-integration.test.ts':
     'fails on main: session-store mock lacks resolveBoundSessionId (T14416)',
   'packages/core/src/store/__tests__/database-topology-integration.test.ts':
