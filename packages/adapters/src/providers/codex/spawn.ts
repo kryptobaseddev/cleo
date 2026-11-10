@@ -29,6 +29,7 @@ import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/
 import { getErrorMessage } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
 import { spawnCli } from '../shared/cli-spawn.js';
+import { assertLeadToolsStrippable } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 
 /** Internal tracking entry for a spawned process. */
@@ -56,6 +57,9 @@ interface TrackedProcess {
  * @task T648
  */
 export class CodexSpawnProvider implements AdapterSpawnProvider {
+  /** Cannot remove tools from a spawned agent: a lead spawn is refused (T14357). */
+  readonly leadToolStrip = 'unsupported' as const;
+
   /** Map of instance IDs to tracked process info. */
   private processMap = new Map<string, TrackedProcess>();
 
@@ -84,6 +88,7 @@ export class CodexSpawnProvider implements AdapterSpawnProvider {
    * @returns Spawn result with instance ID and status
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
+    assertLeadToolsStrippable('codex', this.leadToolStrip, context);
     const instanceId = `codex-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
     let tmpFile: string | undefined;

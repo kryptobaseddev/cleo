@@ -2,11 +2,10 @@
  * Nexus API contracts and ingestion bridge (T1569).
  *
  * Migrated from packages/cleo/src/dispatch/engines/nexus-engine.ts.
- * All five contract/ingestion functions live here:
+ * All four contract/ingestion functions live here:
  *   - nexusContractsSync  — extract and store HTTP/gRPC/topic contracts
  *   - nexusContractsShow  — compatibility matrix between two projects
  *   - nexusContractsLinkTasks — link contracts to tasks via git-log linker
- *   - nexusConduitScan    — link conduit messages to symbols
  *   - nexusTaskSymbols    — show symbols touched by a task
  *
  * Static imports replace the lazy `await import(... as string)` pattern.
@@ -21,7 +20,6 @@ import type {
   NexusTaskSymbolsResult,
 } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { linkConduitMessagesToSymbols } from '../memory/graph-memory-bridge.js';
 import {
   extractGrpcContracts,
   extractHttpContracts,
@@ -157,23 +155,6 @@ export async function nexusContractsLinkTasks(
 ): Promise<EngineResult<unknown>> {
   try {
     const result = await runGitLogTaskLinker(projectId, repoPath);
-    return engineSuccess(result);
-  } catch (error) {
-    return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
-  }
-}
-
-/**
- * Scan conduit messages for symbol mentions and write conduit_mentions_symbol edges.
- *
- * @task T1569
- */
-// SSoT-EXEMPT:engine-migration-T1569
-export async function nexusConduitScan(
-  projectRoot: string,
-): Promise<EngineResult<{ scanned: number; linked: number }>> {
-  try {
-    const result = await linkConduitMessagesToSymbols(projectRoot);
     return engineSuccess(result);
   } catch (error) {
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));

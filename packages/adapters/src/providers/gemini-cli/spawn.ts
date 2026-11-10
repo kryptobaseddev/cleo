@@ -30,6 +30,7 @@ import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/
 import { getErrorMessage } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
 import { spawnCli } from '../shared/cli-spawn.js';
+import { assertLeadToolsStrippable } from '../shared/lead-tool-strip.js';
 
 /** Default Gemini model for subagent spawns. */
 const DEFAULT_MODEL = 'gemini-2.5-pro';
@@ -59,6 +60,9 @@ interface TrackedProcess {
  * @task T648
  */
 export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
+  /** Cannot remove tools from a spawned agent: a lead spawn is refused (T14357). */
+  readonly leadToolStrip = 'unsupported' as const;
+
   /** Map of instance IDs to tracked process info. */
   private processMap = new Map<string, TrackedProcess>();
 
@@ -87,6 +91,7 @@ export class GeminiCliSpawnProvider implements AdapterSpawnProvider {
    * @returns Spawn result with instance ID and status
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
+    assertLeadToolsStrippable('gemini-cli', this.leadToolStrip, context);
     const instanceId = `gemini-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
 

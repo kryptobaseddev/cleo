@@ -1082,8 +1082,13 @@ export type AffectedTestRun =
       untested: string[];
       /** The template the command came from, declared or derived (T13125). */
       template: AffectedTemplate;
-      /** Test files outside every package the run names, for a non-workspace change (T13754). */
+      /**
+       * Test files the run names: outside every package for a non-workspace
+       * change (T13754), or the files the import graph reaches (T14366).
+       */
       testFiles?: string[];
+      /** The files are the import-graph selection, not a package's whole suite (T14366). */
+      fileLevel?: true;
       /** Changed CLEO config the run leaves to `tool:config-schema` (T13779). */
       configPaths?: string[];
       /** Untracked files the scope left out, recorded on the atom (T14125). */
@@ -1227,6 +1232,31 @@ export async function planAffectedTestRun(
         ? `The change touches no workspace package, only CLEO config (${scope.cleoConfig.join(', ')}); use tool:config-schema.`
         : 'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
     };
+  }
+  // T14366: with a vitest template, the test files whose import graph reaches
+  // the change replace {projects}; package-level selection when it cannot speak.
+  if (templateWords.includes('{projects}')) {
+    const { selectAffectedTestFiles } = await import('./affected-tests.js');
+    const files = selectAffectedTestFiles(root, changed);
+    if (files.mode === 'affected') {
+      return {
+        ok: true,
+        command: {
+          canonical: 'test',
+          displayName: 'test-affected',
+          cmd: templateWords[0]!,
+          args: templateWords.slice(1).flatMap((w) => (w === '{projects}' ? files.testFiles : [w])),
+          source: 'project-context',
+        },
+        packages: scope.packages,
+        projects: [],
+        untested: [],
+        template: resolved,
+        testFiles: files.testFiles,
+        fileLevel: true,
+        ...config,
+      };
+    }
   }
   const targets = templateWords.includes('{projects}')
     ? await affectedTestTargets(root, scope.packages, scope.direct, (r) =>

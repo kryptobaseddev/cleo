@@ -176,6 +176,47 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * the `--describe` path, which loads the operation describer through
  * `require(esm)`. Lower each budget in the PR that lowers its count.
  *
+ * RSS ceilings recalibrated 2026-11-09 (T14348, T14392). The earlier ceilings
+ * were read on CI runners that the build just before this gate had driven
+ * into swap: core's single esbuild call peaked at 14.8 GiB on a 16 GiB
+ * ubuntu-latest runner. That host read every probe 3-8 MB lower (`--version`
+ * 57 MB against 60 MB on the same commit and identical build output, the gap
+ * surviving dropped caches and THP=never). Once Wave 5 bundled in batches, the
+ * runner stayed clean and doctor crossed its 260 MB ceiling. Rule, the same for
+ * every probe: a ceiling sits at least 10% above the clean-host peak
+ * (ceiling >= peak / 0.9, rounded up to 5 MB). None was lowered, and module
+ * budgets are unchanged. Clean-host readings: 4 ubuntu-latest replicas x 3
+ * runs (CI run 42741857598), in MB:
+ *
+ * | probe | n | min | max | mean | sd | ceiling |
+ * |-------|---|-----|-----|------|----|---------|
+ * | version | 12 | 60 | 60 | 60 | 0.0 | 120 |
+ * | help | 12 | 65 | 66 | 65.2 | 0.4 | 120 |
+ * | show | 12 | 156 | 160 | 159 | 1.0 | 200 |
+ * | find | 12 | 157 | 158 | 157.4 | 0.5 | 200 |
+ * | list-human | 12 | 159 | 161 | 160.1 | 0.5 | 200 |
+ * | field-miss | 12 | 161 | 165 | 163.7 | 1.4 | 200 |
+ * | current | 12 | 158 | 159 | 158.2 | 0.4 | 200 |
+ * | session-status | 12 | 155 | 159 | 157.9 | 1.0 | 240 |
+ * | briefing | 12 | 194 | 197 | 195.2 | 1.0 | 260 |
+ * | next | 12 | 189 | 191 | 190.6 | 0.6 | 215 (was 200) |
+ * | add | 12 | 197 | 199 | 197.7 | 0.6 | 240 |
+ * | dash | 12 | 178 | 188 | 185.6 | 2.5 | 210 (was 200) |
+ * | config-get | 12 | 137 | 140 | 137.8 | 0.9 | 170 |
+ * | describe | 12 | 145 | 148 | 146.4 | 1.0 | 200 |
+ * | show-existing | 12 | 156 | 159 | 158.1 | 0.8 | 200 |
+ * | show-fill-first | 12 | 157 | 159 | 158.1 | 0.5 | 200 |
+ * | show-filled | 12 | 158 | 159 | 158.4 | 0.5 | 200 |
+ * | verify | 12 | 250 | 262 | 257.6 | 2.8 | 295 (was 280) |
+ * | deps-show | 12 | 166 | 185 | 182.6 | 5.6 | 210 |
+ * | orchestrate-status | 12 | 205 | 209 | 207.4 | 1.8 | 250 |
+ * | memory-find | 12 | 179 | 193 | 190.3 | 4.9 | 215 (was 210) |
+ * | docs-list | 12 | 216 | 222 | 221.2 | 1.7 | 260 |
+ * | nexus-status | 12 | 198 | 205 | 202 | 2.0 | 250 |
+ * | hook-stop-no-goal | 12 | 81 | 83 | 81.3 | 0.6 | 120 |
+ * | doctor | 12 | 259 | 277 | 262.5 | 4.5 | 310 (was 260) |
+ * | session-end | 12 | 195 | 200 | 197.7 | 1.4 | 240 |
+ *
  * Three CLI paths load ES modules through `require(esm)`, which throws
  * `ERR_REQUIRE_ASYNC_MODULE` when the loaded graph uses top-level await: the
  * store's drizzle driver (`core/src/store/drizzle-node-sqlite.ts`), CORE's
@@ -274,7 +315,7 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     maxModules: 735,
-    maxRssMb: 200,
+    maxRssMb: 215,
   },
   {
     name: 'add',
@@ -301,7 +342,7 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     maxModules: 700,
-    maxRssMb: 200,
+    maxRssMb: 210,
   },
   {
     name: 'config-get',
@@ -364,7 +405,7 @@ export const PROBES = Object.freeze([
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     expectExit: 0,
     maxModules: 1000,
-    maxRssMb: 280,
+    maxRssMb: 295,
   },
   {
     name: 'deps-show',
@@ -391,7 +432,7 @@ export const PROBES = Object.freeze([
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     expectExit: 0,
     maxModules: 735,
-    maxRssMb: 210,
+    maxRssMb: 215,
   },
   {
     name: 'docs-list',
@@ -433,7 +474,7 @@ export const PROBES = Object.freeze([
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     expectExit: 0,
     maxModules: 1015,
-    maxRssMb: 260,
+    maxRssMb: 310,
   },
   {
     // T13834: Claude Code's SessionEnd hook runs `cleo session end` (T13913;

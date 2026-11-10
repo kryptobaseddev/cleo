@@ -18,6 +18,9 @@ import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/
  * either reject or return empty results.
  */
 export class CursorSpawnProvider implements AdapterSpawnProvider {
+  /** Cannot remove tools from a spawned agent: a lead spawn is refused (T14357). */
+  readonly leadToolStrip = 'unsupported' as const;
+
   /**
    * Check if Cursor supports spawning subagents.
    *

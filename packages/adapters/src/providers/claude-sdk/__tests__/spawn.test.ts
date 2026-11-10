@@ -16,13 +16,21 @@ import { ClaudeSDKSpawnProvider } from '../spawn.js';
 // Mock Vercel AI SDK surface
 // ---------------------------------------------------------------------------
 
+/** Arguments the provider passes to the mocked `generateText`. */
+interface GenerateTextCall {
+  model: unknown;
+  prompt: string;
+  tools?: object;
+  providerOptions?: { anthropic?: { cleoAllowedTools?: string[] } };
+}
+
 /** Shared mock state tracked across tests. */
 const { mockState } = vi.hoisted(() => {
   return {
     mockState: {
       text: 'mocked claude response',
       shouldThrow: false,
-      lastCall: null as null | { model: unknown; prompt: string },
+      lastCall: null as null | GenerateTextCall,
     },
   };
 });
@@ -38,8 +46,8 @@ vi.mock('@ai-sdk/anthropic', () => ({
 
 // Mock 'ai' generateText to drive deterministic test outputs.
 vi.mock('ai', () => ({
-  generateText: vi.fn(async ({ model, prompt }: { model: unknown; prompt: string }) => {
-    mockState.lastCall = { model, prompt };
+  generateText: vi.fn(async (call: GenerateTextCall) => {
+    mockState.lastCall = call;
     if (mockState.shouldThrow) {
       throw new Error('mock AI SDK error');
     }
@@ -218,6 +226,39 @@ describe('ClaudeSDKSpawnProvider', () => {
         | { __cleoMockModel: true; modelId: string }
         | undefined;
       expect(model?.modelId).toBe('claude-sonnet-4-6');
+    });
+
+    it('declares lead tool strip as enforced (T14357)', () => {
+      expect(provider.leadToolStrip).toBe('enforced');
+    });
+
+    it('lead spawn: passes no tools and drops denied tools from the allowlist (T14357)', async () => {
+      const result = await provider.spawn({
+        taskId: 'T005',
+        prompt: 'Plan only.',
+        leadDeniedTools: ['Bash', 'Edit', 'Write'],
+      });
+
+      expect(result.status).toBe('completed');
+      expect(mockState.lastCall?.tools).toBeUndefined();
+      expect(mockState.lastCall?.providerOptions?.anthropic?.cleoAllowedTools).toEqual([
+        'Read',
+        'Glob',
+        'Grep',
+      ]);
+    });
+
+    it('worker spawn keeps the default tool allowlist (T14357)', async () => {
+      await provider.spawn({ taskId: 'T006', prompt: 'Do the work.' });
+
+      expect(mockState.lastCall?.providerOptions?.anthropic?.cleoAllowedTools).toEqual([
+        'Read',
+        'Write',
+        'Edit',
+        'Bash',
+        'Glob',
+        'Grep',
+      ]);
     });
   });
 

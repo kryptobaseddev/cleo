@@ -20,6 +20,10 @@
  * structural fix is a per-workflow aggregate gate; this lint makes the gate
  * mandatory and keeps its `needs:` list complete forever.
  *
+ * T14367: the arch gates are now steps of ci.yml's Repo Lints job and
+ * arch-boundary-check.yml is gone, so ci.yml is the one gated workflow; the
+ * list stays so a new multi-job gating workflow is a deliberate edit here.
+ *
  * What this script enforces
  * -------------------------
  * For each PR-gating workflow declared in {@link GATED_WORKFLOWS} that has
@@ -91,10 +95,6 @@ const GATED_WORKFLOWS = [
   {
     file: '.github/workflows/ci.yml',
     aggregateJob: 'ci',
-  },
-  {
-    file: '.github/workflows/arch-boundary-check.yml',
-    aggregateJob: 'arch-boundary-check',
   },
 ];
 

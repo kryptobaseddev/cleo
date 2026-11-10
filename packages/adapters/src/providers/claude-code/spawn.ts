@@ -11,9 +11,12 @@
  *
  * @task T5240
  * @task T11998 — per-session scope/pgid suite containment
+ * @task T14357 — lead spawns strip denied tools via --disallowedTools
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type {
   AdapterSpawnProvider,
   AgentSuiteOwnership,
@@ -23,8 +26,34 @@ import type {
 import { getErrorMessage } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
+import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 import { reapAgentSuite } from './suite-reaper.js';
+
+/**
+ * Instance id CLEO pre-assigned to a tracked worker (`options.workerInstanceId`,
+ * set only under `orchestrate.leadWorker.v1`), when it is shell-safe.
+ *
+ * @param options - Spawn context options.
+ * @returns The id, or undefined when the spawn is not tracked.
+ */
+export function trackedWorkerInstanceId(options: SpawnContext['options']): string | undefined {
+  const id = options?.workerInstanceId;
+  return typeof id === 'string' && /^[A-Za-z0-9-]+$/.test(id) ? id : undefined;
+}
+
+/**
+ * Claude Code settings that make a spawned worker report its own exit: a
+ * `SessionEnd` hook running `cleo orchestrate worker-exit` for this instance,
+ * which closes the worker record and fires SubagentStop once (T14359).
+ *
+ * @param instanceId - Spawn instance id the worker record is keyed by.
+ * @returns The settings JSON passed to `claude --settings`.
+ */
+export function workerExitSettings(instanceId: string): string {
+  const command = `cleo orchestrate worker-exit --instance ${instanceId}`;
+  return JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command }] }] } });
+}
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -33,6 +62,33 @@ interface TrackedProcess {
   startTime: string;
   /** Suite containment handle — used by terminate() and session-end reap (T11998). */
   ownership: AgentSuiteOwnership;
+}
+
+/**
+ * Build the `claude` CLI argv for a spawn.
+ *
+ * - `--print`: non-interactive batch mode (process prompt, output response, exit)
+ * - `--output-format json`: structured output for parsing
+ * - Worker: `--dangerously-skip-permissions` allows every tool call without approval.
+ * - Lead (`context.leadDeniedTools` set): `--disallowedTools <denied>` removes
+ *   those tools so they never run, and `--dangerously-skip-permissions` is NOT
+ *   passed. `--allowedTools` is not used: it only pre-approves and removes nothing.
+ *
+ * @param context - Spawn context.
+ * @param promptFile - Path of the prompt file passed as the final argument.
+ * @param settingsArgs - Extra `--settings <file>` args (a tracked worker's exit hook, T14359).
+ * @returns Argument list for the `claude` binary.
+ * @task T14357
+ */
+export function buildClaudeArgs(
+  context: SpawnContext,
+  promptFile: string,
+  settingsArgs: readonly string[] = [],
+): string[] {
+  const denied = leadDeniedTools(context);
+  const permissionArgs =
+    denied === null ? ['--dangerously-skip-permissions'] : ['--disallowedTools', denied.join(',')];
+  return ['--print', ...permissionArgs, '--output-format', 'json', ...settingsArgs, promptFile];
 }
 
 /**
@@ -51,6 +107,9 @@ interface TrackedProcess {
  * in-memory map and verified via `kill(pid, 0)` liveness checks.
  */
 export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
+  /** Lead spawns lose their denied tools through `--disallowedTools` (T14357). */
+  readonly leadToolStrip = 'enforced' as const;
+
   /** Map of instance IDs to tracked process info. */
   private processMap = new Map<string, TrackedProcess>();
 
@@ -73,7 +132,10 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
    * @returns Spawn result with instance ID and status
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
-    const instanceId = `claude-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    // T14359: a tracked worker keeps the instance id its record was stored under.
+    const trackedId = trackedWorkerInstanceId(context.options);
+    const instanceId =
+      trackedId ?? `claude-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
     let tmpFile: string | undefined;
 
@@ -97,17 +159,17 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       }
 
       tmpFile = await writeSpawnPromptFile('claude-spawn', enrichedPrompt);
+      // T14359: a tracked worker signals its own exit. SessionEnd fires once
+      // when the run ends; Stop fires every turn and may be blocked.
+      let settingsArgs: string[] = [];
+      if (trackedId !== undefined) {
+        const settingsFile = join(dirname(tmpFile), 'settings.json');
+        await writeFile(settingsFile, workerExitSettings(trackedId), 'utf-8');
+        settingsArgs = ['--settings', settingsFile];
+      }
 
-      // --print: non-interactive batch mode (process prompt, output response, exit)
-      // --dangerously-skip-permissions: allow all tool calls without human approval
-      // --output-format json: structured output for parsing
-      const claudeArgs = [
-        '--print',
-        '--dangerously-skip-permissions',
-        '--output-format',
-        'json',
-        tmpFile,
-      ];
+      // --settings (tracked workers only): adds the worker-exit SessionEnd hook
+      const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs);
 
       // T11998: Build the argv with per-session containment.
       // On Linux with systemd, this wraps 'claude' inside a transient
