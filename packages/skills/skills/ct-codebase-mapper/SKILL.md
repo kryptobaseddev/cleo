@@ -1,6 +1,6 @@
 ---
 name: ct-codebase-mapper
-version: 2.3.6
+version: 2.4.0
 description: Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on "map the codebase", "understand this project", "what calls X", "what would break", "brownfield analysis", "project structure".
 protocol: null
 dependencies: []
@@ -17,7 +17,7 @@ triggers:
   - project structure
   - blast radius
 metadata:
-  version: 2.3.6
+  version: 2.4.0
   tier: on-demand
   install: harness
   covers:
@@ -127,6 +127,20 @@ reply carries a bounded coverage sample (`reasonCount`, `detailsCommand`);
 `--coverage-detail` returns every reason and limitation, including unrelated
 files.
 
+## 5. Which tests a change reaches
+
+```bash
+cleo nexus affected --base origin/main   # test files, vitest projects and changed symbols
+```
+
+It walks the static import graph of the checkout (not the NEXUS index, so it
+is never stale): from each changed module through its importers, re-exports
+followed by name, to the test files that reach it. `mode: full` with a
+`reason` means the graph cannot speak for the change (a migration, fixture or
+template, a root config, a module no test reaches); select by package or run
+the full suite then. PR CI's unit shards and `tool:test-affected` use the same
+selection.
+
 On a stale index, `impact` and `context` refresh it inline when the size-scaled
 cost estimate fits the budget: one refresh at a time per project, a larger one
 only when `cleo run` admits it, and none for 30 minutes after one fails or is
@@ -172,6 +186,7 @@ concluding "none".
 | Planning an epic in unfamiliar code | `cleo map --focus architecture`, `cleo nexus clusters` |
 | About to change a function or type | `cleo nexus impact <symbol>` |
 | "Who calls this / what does this call?" | `cleo nexus context <symbol>` |
+| "Which tests does my change reach?" | `cleo nexus affected --base origin/main` |
 | Tech-debt review | `cleo map --focus concerns` |
 | "Which machines hold this project, and is it pushed?" | `cleo nexus projects status` |
 
