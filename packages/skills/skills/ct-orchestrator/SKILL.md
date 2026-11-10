@@ -488,7 +488,21 @@ deadlock), and never raise heap or worker counts (`NODE_OPTIONS`,
 
 A spawn prompt names the spawned project's own commands, read from its
 `.cleo/project-context.json` (`build.command`, `testing.command`), never
-another project's; lint and typecheck go through `tool:lint;tool:typecheck`.
+another project's. `orchestrate.workerPolicy` in the project's `.cleo/config.json`
+places full verification locally or in required CI and scopes local iteration
+checks; the composer includes the same resolved policy and project instructions
+at every tier and for every harness/backend. For example,
+`cleo config set orchestrate.workerPolicy '{"verification":{"full":"ci","local":"single-file"},"instructions":["Follow AGENTS.md"]}' --type json`
+requires single-file local tests via `cleo run` and changed-file formatting/lint;
+build, full tests, whole-project lint and typecheck run in required CI. No policy
+preserves existing behavior; malformed policy refuses dispatch with a repair
+command. Explicit owner instructions remain authoritative. Instructions are
+limited to 16 single-line items of
+512 characters, with control characters and leading `#` rejected. Refusals
+retain the repair command in `error.fix` on prompt and native execution paths.
+Placement never waives evidence: `ci:<pr>` still needs merged green CI and `evidence.ciSatisfies`;
+unproven gates stay open. With local full verification, lint and typecheck go
+through `tool:lint;tool:typecheck`.
 Its closure block leads with PR work (`Closes: <id> AC…`, a non-author verdict,
 the merge sweep) and gives `cleo done <id> --plan` for no-PR work (T14303).
 
