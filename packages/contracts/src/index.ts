@@ -2693,6 +2693,7 @@ export type {
   ColumnClass,
   ColumnOverride,
   PendingTableClassification,
+  RetiredSyncColumn,
   RowRouting,
   TableClass,
   TableClassification,
