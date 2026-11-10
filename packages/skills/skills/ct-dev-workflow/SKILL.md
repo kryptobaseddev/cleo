@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.8.2
+version: 3.9.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.8.2
+  version: 3.9.0
   tier: core
   install: harness
   covers:
@@ -128,6 +128,10 @@ tool allow-list, so its lead is reported as not installed (T14374).
 On a project with no tasks, `cleo init`'s next steps start with the root saga
 (`cleo saga create --title ... --acceptance ...`), the only node allowed without a parent; the
 first `cleo add` refusal names the same command (T14186).
+With `orchestrate.leadWorker.v1` on and `agentmbx` installed, `cleo init` records
+`orchestrate.leadMailbox` as `<project>-<id-hash>-lead`; spawn and fanout name it in worker
+prompts when `--lead-mbx` is not given. Without `agentmbx`, init warns and writes nothing;
+with the flag off it neither probes nor names one (T14379).
 It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
 missing or incompatible runners warn and allow. `cleo hook run --probe -- execution`
 answers EXEC or INERT (older builds answer V1; stable builds before 2026.10.17 are

@@ -11,6 +11,9 @@
  * @task T13548
  */
 
+// A standalone child process: load CORE's registrations, which it got from
+// the internal barrel before analyze-orchestrator stopped importing it (T14391).
+import '../registrations.js';
 import {
   type NexusRefreshInput,
   type NexusRefreshReply,

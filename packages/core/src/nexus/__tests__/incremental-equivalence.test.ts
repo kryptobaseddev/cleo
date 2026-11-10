@@ -24,8 +24,12 @@ vi.mock('../../store/nexus-sqlite.js', async () => ({
   nexusSchema: await import('../../store/schema/cleo-project/nexus-graph.js'),
 }));
 vi.mock('../../resources/spawn-wrapper.js', () => ({ createParserExecutionPort: () => undefined }));
-vi.mock('@cleocode/core/internal', () => ({
+vi.mock('../nexus-bridge.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../nexus-bridge.js')>()),
   refreshNexusBridge: vi.fn(),
+}));
+vi.mock('../registry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../registry.js')>()),
   nexusUpdateIndexStats: vi.fn(),
 }));
 vi.mock('@cleocode/core/nexus', () => ({

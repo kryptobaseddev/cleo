@@ -22,7 +22,7 @@
  * @epic T11745
  */
 
-import type { RoleName } from '../config.js';
+import type { RoleName } from '../config/types.js';
 import type { RoleSystem } from './system-of-use.js';
 
 /**

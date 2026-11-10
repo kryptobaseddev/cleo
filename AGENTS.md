@@ -58,7 +58,7 @@ Existing violations → separate relocation task, do not pile on.
 
 ## SSoT & Architectural Gates (Saga T9831 · SG-ARCH-SOLID · T9837)
 
-`cleo check arch` runs every gate below in baseline mode (regressions only) — it MUST stay green before pushing. `cleo check arch --strict` is zero-tolerance and fails today by design (real baselines). CI job: `Architectural Boundary Check (SG-ARCH-SOLID T9837)`. Runner `gate-N` ids and these row numbers are independent — join on SCRIPT PATH (gate 20 does).
+`cleo check arch` runs every gate below in baseline mode (regressions only) — it MUST stay green before pushing. `cleo check arch --strict` is zero-tolerance and fails today by design (real baselines). CI: the `Arch Gates (node)` / `Arch Gates (installed)` steps of ci.yml's `Repo Lints` job (T14367). Runner `gate-N` ids and these row numbers are independent — join on SCRIPT PATH (gate 20 does).
 
 Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `docs/spec/arch-gates-rationale.md`)
 
@@ -106,6 +106,7 @@ Full rationale per gate: `cleo docs fetch arch-gates-rationale` (git mirror: `do
 | 40 | Contracts barrel value imports (T13126) | `scripts/lint-no-contracts-barrel-value-imports.mjs` | inline (`BASELINE`: 5 skill-covered CLI/core files; may only shrink, stale entries fail) | Runtime source of `packages/{core,cleo,runtime,caamp,nexus,git-shim,worktree}/src` imports every VALUE from `@cleocode/contracts` through the module that declares it (`@cleocode/contracts/<path>.js`), never the bare barrel, which evaluates every contracts zod schema (~40 MB of heap). Type-only imports, `export type`, and core's public barrels (`index.ts`, `internal.ts`, `contracts.ts`) are allowed; tests are exempt. Also flags dynamic `import('@cleocode/contracts')`. |
 | 41 | No raw worktree removal (T14276 · T13924) | `scripts/lint-no-raw-worktree-removal.mjs` | none (zero-tolerance) | Every worktree removal goes through `disposeWorktree` (`packages/worktree/src/worktree-dispose.ts`): it removes only with proof that nothing is lost (no tracked change, untracked or ignored content not in the main checkout, or commit held by no remote and no other branch; a failed probe is not proof), otherwise keeps the worktree, and `destroy --force` archives first (a `refs/cleo/archive/` ref plus a patch and receipt). No other source names `napiDestroyWorktree`, `forceRemoveWorktreeDir` or `removeWorktreeFromDisk`, or imports the native `destroyWorktree`. |
 | 42 | Refusal fixes (T14299) | `scripts/lint-refusal-fixes.mjs` | inline (`PINNED`, per file, all 0; may only fall, no `--baseline` mode) | Every `new CleoError(…)`, `engineError(…)` and `lafsError(…)` on the task close, cancel, verify, done, review and docs-link paths (`REFUSAL_PATHS`) carries a `fix`, and every `cleo …` command in a literal fix resolves against the CLI command manifest with declared flags (gate 14's registry and flag checker). A count above its pin fails; below it fails too, naming the lower pin. |
+| 44 | Contracts subpath resolution (T14412) | `scripts/lint-contracts-subpath-resolution.mjs` | none (zero-tolerance) | Every `@cleocode/contracts/<subpath>` import in gate 40's scanned packages names ONE source file: no `x.ts` beside a directory `x/` under `packages/contracts/src`, and the `import`/`types` targets Node picks from the contracts `exports` map are the compiled form of the `src/<subpath>.ts` (else `src/<subpath>/index.ts`) vitest reads. An unexported subpath fails. Pure static; no build needed. |
 
 **Common modes (all gates):** `--strict` zero-tolerance · `--baseline` regenerate · default fail-on-net-add.
 
@@ -133,7 +134,7 @@ Canonical docs (adr, spec, plan, research, guide, concept, reference, migration,
 
 **Naming rule (T14107 · D11210):** every tracked `docs/**.md` name and every slug is lowercase kebab-case, at most 64 characters, with no task id, session id or date (ADR number and release version allowed). Task, decision and supersession links live in doc metadata, never in names. Rule: `packages/core/src/docs/doc-name-rule.ts`; pre-rule violators: `scripts/.docs-name-baseline.json` (shrink-only — a PR that renames or deletes one removes its entry).
 
-CI gate: `cleo check canon docs` (`Canon Drift Check (T9796)`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged), and enforces the naming rule against the baseline.
+CI gate: `cleo check canon docs` (the `Canon Drift Check (T9796)` step of `Post-build Checks`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged), and enforces the naming rule against the baseline.
 
 **LAFS envelope contract:** `docs/spec/lafs-envelope-contract.md` (SSoT slug `lafs-envelope-contract`, owner T11113).
 

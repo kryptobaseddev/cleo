@@ -120,7 +120,7 @@ export default defineConfig({
       // `@cleocode/contracts/gateway`. Like the subpaths above, this MUST appear
       // before the bare alias or vitest rewrites it to `index.ts/gateway`
       // (ENOTDIR). Maps to the contracts gateway source module.
-      '@cleocode/contracts/gateway': fileURLToPath(new URL('../../packages/contracts/src/gateway.ts', import.meta.url)),
+      '@cleocode/contracts/gateway': fileURLToPath(new URL('../../packages/contracts/src/gateway/index.ts', import.meta.url)),
       '@cleocode/contracts': fileURLToPath(new URL('../../packages/contracts/src/index.ts', import.meta.url)),
       '@cleocode/core/internal': fileURLToPath(new URL('../../packages/core/src/internal.ts', import.meta.url)),
       // @cleocode/paths — workspace-local canonical path utilities (env-paths wrapper).

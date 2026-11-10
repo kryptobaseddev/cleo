@@ -182,10 +182,10 @@ describe('stdout jobs install their existing parser dependency', () => {
     'stdout-discipline',
     'stdout-write-allowlist',
   ])('keeps actual %s command after frozen dependency setup', (id) => {
-    const workflow = parseYaml(
-      readFileSync(join(REPO_ROOT, '.github/workflows/arch-boundary-check.yml'), 'utf8'),
-    );
-    // T13838: both gates are steps of the consolidated installed-gates job.
+    const workflow = parseYaml(readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8'));
+    // T13838: both gates are steps of the consolidated installed-gates job;
+    // T14367 folded it into ci.yml's Repo Lints, which the required `ci`
+    // aggregate needs on every pull_request and merge_group run.
     const [jobId, job] = Object.entries(workflow.jobs).find(([, j]) =>
       j.steps?.some((step) => step.run?.startsWith(`node scripts/lint-${id}.mjs`)),
     );
@@ -196,18 +196,8 @@ describe('stdout jobs install their existing parser dependency', () => {
     expect(job.steps.find((step) => step.uses === 'pnpm/action-setup@v4').with.version).toBe(
       '10.30.0',
     );
-    expect(workflow.jobs['arch-boundary-check'].needs).toContain(jobId);
-    // T13263: the arch workflow is a reusable workflow that ci.yml calls on
-    // every pull_request and merge_group run, through a job the required
-    // `ci` aggregate needs — so these gates still run (and gate) there.
-    expect(workflow.on).toHaveProperty('workflow_call');
-    const ci = parseYaml(readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8'));
-    expect(ci.on).toHaveProperty('pull_request');
-    expect(ci.on).toHaveProperty('merge_group');
-    const caller = Object.entries(ci.jobs).find(
-      ([, j]) => j.uses === './.github/workflows/arch-boundary-check.yml',
-    );
-    expect(caller).toBeDefined();
-    expect(ci.jobs.ci.needs).toContain(caller?.[0]);
+    expect(workflow.on).toHaveProperty('pull_request');
+    expect(workflow.on).toHaveProperty('merge_group');
+    expect(workflow.jobs.ci.needs).toContain(jobId);
   });
 });

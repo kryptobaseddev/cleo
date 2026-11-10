@@ -26,10 +26,10 @@
 import type { LAFSPage, MVILevel } from '@cleocode/lafs';
 import { isMVILevel } from '@cleocode/lafs';
 import { z } from 'zod';
-import type { CanonicalDomain, Gateway, Tier } from './dispatch/identity.js';
-import type { ProblemDetails } from './engine-result.js';
+import type { CanonicalDomain, Gateway, Tier } from '../dispatch/identity.js';
+import type { ProblemDetails } from '../engine-result.js';
 
-export { CANONICAL_DOMAINS } from './dispatch/identity.js';
+export { CANONICAL_DOMAINS } from '../dispatch/identity.js';
 export type { CanonicalDomain, Gateway, Tier };
 
 /**

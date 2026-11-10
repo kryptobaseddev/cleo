@@ -104,3 +104,51 @@ export async function runOwnerOverrideCapSet(rawValue: string): Promise<void> {
     { command: 'config-set', operation: 'config.set' },
   );
 }
+
+/**
+ * `cleo config set review.workers.counted <true|false>` — the owner-only path
+ * (T14403). Sealed by core's `setOwnerReviewWorkersCounted`, never written to
+ * config.json; an agent session (no TTY, no owner-auth password) is refused
+ * and the attempt audited.
+ *
+ * @param rawValue - The value as typed (`true` or `false`).
+ * @task T14403
+ */
+export async function runOwnerReviewWorkersCountedSet(rawValue: string): Promise<void> {
+  const raw = rawValue.trim().toLowerCase();
+  if (raw !== 'true' && raw !== 'false') {
+    cliError(
+      `review.workers.counted takes true or false (got "${rawValue}")`,
+      ExitCode.VALIDATION_ERROR,
+      { name: 'E_VALIDATION' },
+      { operation: 'config.set' },
+    );
+    process.exit(ExitCode.VALIDATION_ERROR);
+    return;
+  }
+  const { core, root, caller } = await ownerCaller('review.workers.counted');
+  const result = await core.setOwnerReviewWorkersCounted(root, {
+    ...caller,
+    value: raw === 'true',
+  });
+  if (!result.ok) {
+    cliError(
+      result.message,
+      ExitCode.GENERAL_ERROR,
+      { name: result.code },
+      { operation: 'config.set' },
+    );
+    process.exit(ExitCode.GENERAL_ERROR);
+    return;
+  }
+  cliOutput(
+    {
+      scope: 'project',
+      key: core.REVIEW_WORKERS_COUNTED_KEY,
+      value: result.value,
+      previous: result.previous,
+      sealed: true,
+    },
+    { command: 'config-set', operation: 'config.set' },
+  );
+}

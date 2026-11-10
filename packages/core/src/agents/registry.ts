@@ -1,7 +1,7 @@
 /**
  * Agent instance registry -- runtime tracking of live agent processes.
  *
- * Provides CRUD operations for the `agent_instances` table:
+ * Provides CRUD operations for the `tasks_agent_instances` table:
  * registration, deregistration, heartbeat, status updates, and queries.
  *
  * This is the DB-backed runtime registry for live agent *instances*.
@@ -13,15 +13,20 @@
 
 import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
-import {
-  type AgentErrorLogRow,
-  type AgentErrorType,
-  type AgentInstanceRow,
-  type AgentInstanceStatus,
-  type AgentType,
-  agentErrorLog,
-  agentInstances,
+import type {
+  AgentErrorLogRow,
+  AgentErrorType,
+  AgentInstanceRow,
+  AgentInstanceStatus,
+  AgentType,
 } from '../store/schema/agent-schema.js';
+// T14387: the live table is the prefixed twin. The bare `agent_instances` carries FKs to the
+// bare `tasks`/`sessions` decoys, so every task- or session-bound row there failed its FK check.
+// Bare `agent_error_log` rows an older build writes drain into the twin at every open (T14399).
+import {
+  tasksAgentErrorLog as agentErrorLog,
+  tasksAgentInstances as agentInstances,
+} from '../store/schema/cleo-project/runtime.js';
 import { getDb } from '../store/sqlite.js';
 
 // ============================================================================
@@ -146,7 +151,7 @@ export interface UpdateStatusOptions {
 /**
  * Update agent status with optional error tracking.
  * When status is 'error' or 'crashed', increments the error count
- * and logs the error to the agent_error_log table.
+ * and logs the error to the tasks_agent_error_log table.
  */
 export async function updateAgentStatus(
   id: string,

@@ -1295,7 +1295,7 @@ export async function runHygieneScan(options: HygieneScanOptions): Promise<Hygie
   const observe: HygieneScanOptions['observeMemory'] =
     options.observeMemory ??
     (async (params, root) => {
-      const { memoryObserve } = await import('@cleocode/core/internal');
+      const { memoryObserve } = await import('../memory/engine-compat.js');
       return memoryObserve(params, root);
     });
 
