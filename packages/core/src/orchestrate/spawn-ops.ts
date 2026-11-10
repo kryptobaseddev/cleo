@@ -65,6 +65,8 @@ import type {
   AgentSpawnCapability,
   CLEOSpawnAdapter,
   CLEOSpawnContext,
+  LeadDeniedTool,
+  LeadMode,
   SpawnResult,
   WorktreeHook,
 } from '@cleocode/contracts';
@@ -121,8 +123,16 @@ import {
   resolveSpawnLockHolder,
 } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveLeadMailbox } from './agentmbx.js';
 import { isLeadWorkerV1Enabled, resolveIsolation } from './isolation-policy.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
+import {
+  abandonWorkerRecord,
+  newWorkerInstanceId,
+  recordWorker,
+  settleWorkerAtSpawn,
+  type WorkerRecord,
+} from './worker-records.js';
 
 export type { EngineResult };
 
@@ -605,6 +615,9 @@ export async function composeSpawnForTask(
       ? options.tier
       : resolveEffectiveTier(task, inferredRole ?? 'worker', undefined);
 
+  // T14379 — spawn and fanout both compose here, so the recorded project lead
+  // mailbox fills in for a missing `--lead-mbx` on every path.
+  const leadMailbox = await resolveLeadMailbox(root, options.leadMailbox);
   const db = await openAgentRegistryDbForComposer();
   try {
     return await composeSpawnPayload(db, task, {
@@ -616,7 +629,7 @@ export async function composeSpawnForTask(
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
-      ...(options.leadMailbox ? { leadMailbox: options.leadMailbox } : {}),
+      ...(leadMailbox ? { leadMailbox } : {}),
       spawnCloneExclude: options.spawnCloneExclude,
       // T10430 — pass the atomicity waiver into the composer. When set to
       // 'orchestrator-defer', checkAtomicity grants the spawn for a worker
@@ -692,6 +705,66 @@ export interface OrchestrateSpawnExecuteOpts {
    * project root.
    */
   baseRef?: string;
+  /**
+   * T14359 — AgentMBX mailbox of the spawning lead: printed in the worker's
+   * prompt and stored on its worker record.
+   */
+  leadMailbox?: string;
+  /**
+   * T14363 — spawn the agent as a no-hands lead (`cleo orchestrate lead`).
+   * The spawn context carries {@link LeadSpawnOptions.deniedTools}, which the
+   * spawn bridge forwards only to a provider that enforces the strip (T14357).
+   * A lead runs in the project root (it cannot write, so it needs no worktree),
+   * gets no worker record, and is never auto-integrated.
+   */
+  lead?: LeadSpawnOptions;
+}
+
+/**
+ * The stable code (and exit code, when numeric) of a thrown coded refusal such
+ * as `LeadToolsUnstrippedError`; `null` for any other throw.
+ *
+ * @param error - What the spawn threw.
+ * @returns The code and optional exit code, or `null`.
+ * @task T14363
+ */
+function codedError(error: unknown): { code: string; exitCode?: number } | null {
+  if (!(error instanceof Error) || !('code' in error)) return null;
+  const { code } = error;
+  if (typeof code !== 'string' || !code.startsWith('E_')) return null;
+  const exitCode = 'exitCode' in error ? error.exitCode : undefined;
+  return typeof exitCode === 'number' ? { code, exitCode } : { code };
+}
+
+/**
+ * How {@link orchestrateSpawnExecute} spawns a lead (T14363).
+ *
+ * @task T14363
+ */
+export interface LeadSpawnOptions {
+  /** Tools removed from the lead; normally `LEAD_DENIED_TOOLS`. */
+  readonly deniedTools: readonly LeadDeniedTool[];
+  /**
+   * Provider session id the lead runs under (`options.leadSessionId` on the
+   * spawn context), so the lead mailbox can be claimed for it before it starts.
+   */
+  readonly sessionId?: string;
+  /** Interactive (the caller's terminal) or detached. @defaultValue 'interactive' */
+  readonly mode?: LeadMode;
+  /** Mode-specific instructions appended to the lead's prompt. */
+  readonly promptAppendix?: string;
+  /**
+   * Called once the lead is admitted, right before the adapter starts it
+   * (an interactive lead's spawn only returns when it exits). A throw refuses
+   * the spawn. `cleo orchestrate lead` claims the mailbox and writes the lead
+   * record here.
+   */
+  readonly onAdmitted?: (lead: {
+    readonly cleoSessionId: string;
+    readonly agentId: string | null;
+  }) => Promise<void>;
+  /** Called with the lead process's pid once the provider started it. */
+  readonly onStarted?: (pid: number) => void;
 }
 
 /**
@@ -722,7 +795,8 @@ export async function orchestrateSpawnExecute(
   opts: OrchestrateSpawnExecuteOpts = {},
 ): Promise<EngineResult> {
   const cwd = getProjectRoot(projectRoot);
-  const autoComplete = opts.autoComplete ?? true;
+  // T14363: a lead does no work of its own, so there is nothing to integrate.
+  const autoComplete = opts.lead === undefined && (opts.autoComplete ?? true);
 
   // T12000 (Never-OOM): acquire an `agent-session` grant BEFORE any worktree or
   // process is provisioned, so a denial under memory pressure leaves NO partial
@@ -760,6 +834,8 @@ export async function orchestrateSpawnExecute(
   /** T12502 — the task claim + session this spawn took; undone unless dispatched. */
   let execClaim: SpawnSessionClaimed | undefined;
   let dispatched = false;
+  /** T14359 — worker record written before spawn (only with `orchestrate.leadWorker.v1`). */
+  let pendingWorker: WorkerRecord | null = null;
   try {
     // Get spawn registry
     await initializeDefaultAdapters();
@@ -832,6 +908,9 @@ export async function orchestrateSpawnExecute(
       tier,
       sessionId: activeSessionId,
       protocol: protocolType,
+      ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
+      // T14363 — a lead is told it is one: the ct-lead excerpt and dispatch rules load.
+      ...(opts.lead !== undefined ? { role: 'lead' as const } : {}),
     });
 
     // Atomicity violations short-circuit the spawn so the adapter never sees
@@ -891,9 +970,13 @@ export async function orchestrateSpawnExecute(
     // body was substituted (T1238), it is prepended to the composer prompt
     // so subagents receive the fully-resolved template alongside the
     // standard spawn context.
-    const rawPrompt = templateSubstitution.resolvedBody
+    const composedPrompt = templateSubstitution.resolvedBody
       ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
       : payload.prompt;
+    // T14363 — a lead's mode-specific instructions (how it asks the owner).
+    const rawPrompt = opts.lead?.promptAppendix
+      ? `${composedPrompt}\n\n${opts.lead.promptAppendix}`
+      : composedPrompt;
 
     // T1759 — Worktree provisioning + centralized isolation.
     //
@@ -906,31 +989,35 @@ export async function orchestrateSpawnExecute(
     let agentWorkingDirectory = cwd;
     let agentEnvOverride: Record<string, string> | undefined;
     const leadWorkerV1 = await isLeadWorkerV1Enabled(cwd);
-    const isolationResolution = await resolveIsolation(
-      async () => {
-        const worktreeResult = await spawnWorktree(cwd, {
-          taskId,
-          holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
-          // T13425 — an ended holder session releases the lock.
-          sessionProbe: await resolveLockSessionProbe(cwd, taskId),
-          ...(opts.baseRef !== undefined ? { baseRef: opts.baseRef } : {}),
-        });
-        auditWorktreeLockReclaim(cwd, taskId, worktreeResult.path, worktreeResult.lock);
-        // T11343 — bind the spawned agent's OWN session + identity into the
-        // isolation shell so `resolveSessionIdFromEnv()` returns the agent's
-        // session, never the orchestrator's most-recent active row.
-        const isolation = provisionIsolatedShell({
-          worktreePath: worktreeResult.path,
-          branch: worktreeResult.branch,
-          role: 'worker',
-          projectHash: worktreeResult.projectHash,
-          ...(activeSessionId ? { sessionId: activeSessionId } : {}),
-          ...(spawnAgentId ? { agentId: spawnAgentId } : {}),
-        });
-        return { worktreeResult, isolation };
-      },
-      { failClosed: leadWorkerV1 || opts.baseRef !== undefined },
-    );
+    const provisionWorktree = async () => {
+      const worktreeResult = await spawnWorktree(cwd, {
+        taskId,
+        holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+        // T13425 — an ended holder session releases the lock.
+        sessionProbe: await resolveLockSessionProbe(cwd, taskId),
+        ...(opts.baseRef !== undefined ? { baseRef: opts.baseRef } : {}),
+      });
+      auditWorktreeLockReclaim(cwd, taskId, worktreeResult.path, worktreeResult.lock);
+      // T11343 — bind the spawned agent's OWN session + identity into the
+      // isolation shell so `resolveSessionIdFromEnv()` returns the agent's
+      // session, never the orchestrator's most-recent active row.
+      const isolation = provisionIsolatedShell({
+        worktreePath: worktreeResult.path,
+        branch: worktreeResult.branch,
+        role: 'worker',
+        projectHash: worktreeResult.projectHash,
+        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+        ...(spawnAgentId ? { agentId: spawnAgentId } : {}),
+      });
+      return { worktreeResult, isolation };
+    };
+    // T14363: a lead cannot write, so it runs in the project root, unprovisioned.
+    const isolationResolution =
+      opts.lead !== undefined
+        ? ({ kind: 'lead' } as const)
+        : await resolveIsolation(provisionWorktree, {
+            failClosed: leadWorkerV1 || opts.baseRef !== undefined,
+          });
     if (isolationResolution.kind === 'isolated') {
       const { worktreeResult, isolation } = isolationResolution.result;
       agentWorkingDirectory = isolation.cwd;
@@ -962,27 +1049,47 @@ export async function orchestrateSpawnExecute(
           ? refusalCode
           : 'E_WORKTREE_PROVISION_FAILED';
       const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
+      // T14396: like orchestrateSpawn, remove a worktree THIS call freshly
+      // created before refusing; any other failure leaves the worktree alone.
+      const cleanup = shouldCleanUpFailedProvision(wtErr)
+        ? await runTimeoutCleanup(cwd, taskId)
+        : undefined;
+      const cleanupDetails = cleanup ? { cleanup } : {};
       // T14046: a bad --base ref or a worktree on another base. Running the
       // agent in the project root would ignore the base it was asked for.
       if (opts.baseRef !== undefined) {
         // @sync-invariant none:input-shape an unusable --base refuses; the finally hands the claim back
         return engineError(code, message, {
-          details: { taskId, baseRef: opts.baseRef },
+          details: { taskId, baseRef: opts.baseRef, ...cleanupDetails },
           fix: `Check that '${opts.baseRef}' resolves to a commit and that no worktree or branch for ${taskId} exists on another base.`,
         });
       }
       // T14358: orchestrate.leadWorker.v1 is on — no agent runs in the project root.
       // @sync-invariant none:local-only fail-closed isolation refuses; the finally hands the claim back
       return engineError(code, message, {
-        details: { taskId, isolation: 'refused', flag: 'orchestrate.leadWorker.v1' },
+        details: {
+          taskId,
+          isolation: 'refused',
+          flag: 'orchestrate.leadWorker.v1',
+          ...cleanupDetails,
+        },
         fix: `Fix worktree provisioning for ${taskId} (\`git worktree list\`, \`git branch --list task/${taskId}\`) and retry; orchestrate.leadWorker.v1 refuses to run a worker without isolation.`,
       });
-    } else {
+    } else if (isolationResolution.kind === 'project-root') {
       // Worktree provisioning failure — spawn continues without isolation.
       getLogger('engine:orchestrate').warn(
         { taskId },
         'T1759 worktree provisioning failed in orchestrateSpawnExecute — spawning without isolation',
       );
+    } else {
+      // T14363 — the lead runs under its OWN allocated CLEO session, never the
+      // caller's: verbs it runs through the runner (`review verdict`,
+      // `merge train`) act as the lead.
+      agentEnvOverride = {
+        CLEO_SESSION_ID: activeSessionId,
+        CLEO_AGENT_ROLE: 'lead',
+        ...(spawnAgentId ? { CLEO_AGENT_ID: spawnAgentId } : {}),
+      };
     }
 
     const cleoSpawnContext: CLEOSpawnContext = {
@@ -1000,7 +1107,23 @@ export async function orchestrateSpawnExecute(
         unresolved: [],
         totalTokens: 0,
       },
+      // T14363 — a lead spawn loses its denied tools; the bridge refuses a
+      // provider that cannot strip them (T14357).
+      ...(opts.lead !== undefined ? { leadDeniedTools: opts.lead.deniedTools } : {}),
+      ...(opts.lead?.onStarted ? { onLeadStarted: opts.lead.onStarted } : {}),
     };
+    if (opts.lead?.sessionId !== undefined) {
+      cleoSpawnContext.options = {
+        ...cleoSpawnContext.options,
+        leadSessionId: opts.lead.sessionId,
+      };
+    }
+    if (opts.lead !== undefined) {
+      cleoSpawnContext.options = {
+        ...cleoSpawnContext.options,
+        leadMode: opts.lead.mode ?? 'interactive',
+      };
+    }
 
     // Wave 6-C/D: Capacity-aware routing — find the least-loaded agent and
     // attach it as a preferred routing hint on the spawn options.
@@ -1036,6 +1159,42 @@ export async function orchestrateSpawnExecute(
       /* Hook registry unavailable — non-fatal */
     }
 
+    // T14359 — with `orchestrate.leadWorker.v1`, record the worker BEFORE
+    // spawning, under a pre-assigned instance id the adapter may adopt for
+    // its exit hook, so a worker that dies at once still finds its record.
+    const hookAgentId = cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`;
+    if (opts.lead === undefined && leadWorkerV1) {
+      const workerInstanceId = newWorkerInstanceId(adapter.providerId);
+      try {
+        pendingWorker = await recordWorker(
+          {
+            taskId,
+            instanceId: workerInstanceId,
+            agentId: hookAgentId,
+            provider: adapter.providerId,
+            pid: null,
+            pgid: null,
+            worktree: agentWorkingDirectory,
+            leadMailbox: opts.leadMailbox ?? null,
+            sessionId: activeSessionId,
+          },
+          cwd,
+        );
+        cleoSpawnContext.options = { ...cleoSpawnContext.options, workerInstanceId };
+      } catch (err) {
+        getLogger('engine:orchestrate').warn(
+          { taskId, err: err instanceof Error ? err.message : String(err) },
+          'T14359 worker record not stored — SubagentStop fires at spawn',
+        );
+      }
+    }
+
+    // T14363 — the lead is admitted (resource grant, task claim, prompt): let
+    // the caller claim its mailbox and record it before it starts.
+    if (opts.lead?.onAdmitted) {
+      await opts.lead.onAdmitted({ cleoSessionId: activeSessionId, agentId: spawnAgentId ?? null });
+    }
+
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
     // T12502 — an adapter may REPORT a failure (status `failed`) instead of
@@ -1055,28 +1214,49 @@ export async function orchestrateSpawnExecute(
       /* Worktree hooks are best-effort — never block spawn */
     }
 
-    // Dispatch SubagentStop hook AFTER spawn returns — records completion
-    // status in brain and conduit (T555).
-    try {
-      await hooks
-        .dispatch('SubagentStop', cwd, {
-          timestamp: new Date().toISOString(),
-          taskId,
-          agentId: cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`,
-          // T12071: `SpawnResult.status` and `SubagentStopPayload.status` are
-          // DIFFERENT vocabularies — 'completed' vs 'complete', and spawn also
-          // emits 'pending'/'running'/'cancelled', none of which the payload
-          // union admits. Every value this site ever sent was therefore outside
-          // the declared type; nothing caught it because `dispatch` did not
-          // relate the event to its payload.
-          status: toSubagentStopStatus(result.status),
-          metadata: { instanceId: result.instanceId },
-        })
-        .catch(() => {
-          /* Hooks are best-effort — never block spawn */
-        });
-    } catch {
-      /* Hook registry unavailable — non-fatal */
+    // T14359 — a tracked worker (record + observable exit) gets its
+    // SubagentStop when it exits. Every other spawn emits it here, as before.
+    let workerTracked = false;
+    if (pendingWorker) {
+      const record = pendingWorker;
+      pendingWorker = null;
+      try {
+        workerTracked = await settleWorkerAtSpawn(
+          record,
+          {
+            instanceId: result.instanceId,
+            running: keepExecLock,
+            ...(result.ownership ? { ownership: result.ownership } : {}),
+            stopStatus: toSubagentStopStatus(result.status),
+          },
+          cwd,
+        );
+      } catch (err) {
+        getLogger('engine:orchestrate').warn(
+          { taskId, err: err instanceof Error ? err.message : String(err) },
+          'T14359 worker record not settled after spawn',
+        );
+      }
+    } else {
+      try {
+        await hooks
+          .dispatch('SubagentStop', cwd, {
+            timestamp: new Date().toISOString(),
+            taskId,
+            agentId: hookAgentId,
+            // T12071: `SpawnResult.status` and `SubagentStopPayload.status` are
+            // DIFFERENT vocabularies — 'completed' vs 'complete', and spawn also
+            // emits 'pending'/'running'/'cancelled', none of which the payload
+            // union admits.
+            status: toSubagentStopStatus(result.status),
+            metadata: { instanceId: result.instanceId },
+          })
+          .catch(() => {
+            /* Hooks are best-effort — never block spawn */
+          });
+      } catch {
+        /* Hook registry unavailable — non-fatal */
+      }
     }
 
     // ---- T9548 — Auto-invoke worktree-complete post-success. --------------
@@ -1107,7 +1287,14 @@ export async function orchestrateSpawnExecute(
       './worktree-complete.js'
     );
     const envDisabled = integrationDisabledReason(false);
-    if (autoComplete && result.exitCode === 0 && envDisabled !== undefined) {
+    if (autoComplete && workerTracked) {
+      // T14359 — a tracked worker is still running (the adapter's exitCode
+      // is only a placeholder), so there is nothing to integrate yet.
+      autoCompleteOutcome = {
+        ran: false,
+        reason: 'worker still running — not integrated at spawn',
+      };
+    } else if (autoComplete && result.exitCode === 0 && envDisabled !== undefined) {
       recordAutoCompleteEnvSkip(taskId, cwd);
       autoCompleteOutcome = { ran: false, reason: envDisabled };
     } else if (autoComplete && result.exitCode === 0) {
@@ -1175,15 +1362,24 @@ export async function orchestrateSpawnExecute(
         persona: payload.agentId,
         role: payload.role,
         harnessHint: payload.harnessHint,
+        // T14423 — the MCP servers a lead spawn loaded.
+        ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
+        // T14363 — a detached lead's temp dir, for its lead record.
+        ...(result.leadTempDir ? { leadTempDir: result.leadTempDir } : {}),
       },
     };
   } catch (error) {
+    // T14359 — the spawn threw, so the pre-spawn record's worker never ran.
+    if (pendingWorker) await abandonWorkerRecord(pendingWorker, cwd).catch(() => undefined);
+    // T14363 — keep a coded refusal's own code (e.g. E_LEAD_TOOLS_UNSTRIPPED).
+    const coded = codedError(error);
+    // @sync-invariant none:local-only the spawn threw before an agent ran; the finally hands the claim back
     return {
       success: false,
       error: {
-        code: 'E_SPAWN_FAILED',
+        code: coded?.code ?? 'E_SPAWN_FAILED',
         message: error instanceof Error ? error.message : 'Unknown spawn error',
-        exitCode: 60,
+        exitCode: coded?.exitCode ?? 60,
       },
     };
   } finally {

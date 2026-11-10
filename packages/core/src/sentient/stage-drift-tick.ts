@@ -425,7 +425,7 @@ export async function runStageDriftScan(options: StageDriftOptions): Promise<Sta
     if (options.allocateTaskId) {
       taskId = await options.allocateTaskId();
     } else {
-      const { allocateNextTaskId } = await import('@cleocode/core/internal');
+      const { allocateNextTaskId } = await import('../sequence/index.js');
       taskId = await allocateNextTaskId(projectRoot);
     }
 

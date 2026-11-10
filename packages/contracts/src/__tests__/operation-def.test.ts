@@ -108,14 +108,15 @@ describe('dispatch/operation-def contracts', () => {
     // T11939 — +1 for the new 'service' domain (universal service-vault OAuth flow).
     // T11700 — +4 for the 5-entity provider experience: 'account', 'provider',
     //          'model', 'profile' (North-Star §2 addressable provider surface).
-    expect(CANONICAL_DOMAINS.length).toBe(29);
+    // T13955 — -1: the 'conduit' domain was removed (messaging moved to AgentMBX).
+    expect(CANONICAL_DOMAINS.length).toBe(28);
   });
 
   it('CANONICAL_DOMAINS contains the four sentinel newly-promoted domains', () => {
-    // Spot-check the canonical surface: T964 conduit, T1726 sentient/release,
+    // Spot-check the canonical surface: T1726 sentient/release,
     // T9528 provenance, T9536 upgrade. Catches the most common drift where
     // someone deletes one and breaks SDK consumers downstream.
-    expect(CANONICAL_DOMAINS).toContain('conduit');
+    expect(CANONICAL_DOMAINS).not.toContain('conduit');
     expect(CANONICAL_DOMAINS).toContain('sentient');
     expect(CANONICAL_DOMAINS).toContain('release');
     expect(CANONICAL_DOMAINS).toContain('provenance');

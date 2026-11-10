@@ -21,6 +21,10 @@
  */
 
 import { cwd } from 'node:process';
+// A standalone process never passes through the CLI dispatcher, so it loads
+// CORE's registrations itself: the hook handlers the daemon dispatches to and
+// the credential seeders its LLM calls use (T14391).
+import '../registrations.js';
 import { autoCloudSync } from '../cloud/auto-sync.js';
 import { releaseDaemonExitGuard } from '../llm/pi/pi-errors.js';
 import { bootstrapDaemon } from './daemon.js';

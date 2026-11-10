@@ -724,7 +724,7 @@ async function maybeTriggerDream(
   const dreamer =
     opts.checkAndDream ??
     (async (root: string, dreamerOpts?: { volumeThreshold?: number; inline?: boolean }) => {
-      const { checkAndDream } = await import('@cleocode/core/internal');
+      const { checkAndDream } = await import('../memory/dream-cycle.js');
       return checkAndDream(root, dreamerOpts);
     });
 

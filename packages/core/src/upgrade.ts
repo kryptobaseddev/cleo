@@ -22,10 +22,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { migrateLegacyConfigFile } from './config/legacy-keys.js';
 import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
 import {
-  initAgentDefinition,
   initCoreSkills,
   initNexusRegistration,
   installGitHubTemplates,
@@ -33,7 +33,7 @@ import {
 } from './init.js';
 import { ensureInjection } from './injection.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
-import { getCleoHome, getProjectRoot, resolveCleoDir } from './paths.js';
+import { getCleoHome, getConfigPath, getProjectRoot, resolveCleoDir } from './paths.js';
 import {
   createUpgradeFileJournal,
   type UpgradeFileChange,
@@ -925,6 +925,21 @@ export async function runUpgrade(
       /* best-effort */
     }
 
+    // One-time rename of legacy config keys (T14375): orchestrator.contextThresholds
+    // -> orchestrate.contextThresholds. Readers already accept the old key.
+    try {
+      const migratedKeys = await migrateLegacyConfigFile(getConfigPath(projectRootForMaint));
+      if (migratedKeys.length > 0) {
+        actions.push({
+          action: 'config_legacy_keys',
+          status: 'applied',
+          details: `Moved ${migratedKeys.join(', ')} under orchestrate`,
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+
     // Install/update git hooks
     try {
       const hooksResult = await ensureGitHooks(projectRootForMaint);
@@ -1084,20 +1099,32 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Install cleo-subagent agent definition
+    // T14378: canonical lead + worker agent files for every detected provider.
+    // Replaced files are backed up through the journal; unsupported providers
+    // and user-owned files are reported, not skipped silently.
     try {
-      const agentCreated: string[] = [];
-      const agentWarnings: string[] = [];
-      await initAgentDefinition(agentCreated, agentWarnings);
-      if (agentCreated.length > 0) {
+      const { agentDefinitionReportLines, ensureAgentDefinitions } = await import(
+        './agents/ensure-agent-definitions.js'
+      );
+      const lines = agentDefinitionReportLines(
+        await ensureAgentDefinitions(projectRootForMaint, { journal }),
+      );
+      if (lines.applied.length > 0) {
         actions.push({
           action: 'agent_definition',
           status: 'applied',
-          details: agentCreated.join(', '),
+          details: lines.applied.join(', '),
         });
       }
-    } catch {
-      /* best-effort */
+      for (const details of lines.warnings) {
+        actions.push({ action: 'agent_definition', status: 'skipped', details });
+      }
+    } catch (err) {
+      actions.push({
+        action: 'agent_definition',
+        status: 'skipped',
+        details: `Agent definitions: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
 
     // Deploy starter CANT bundle (team + agents) to .cleo/cant/ if missing.

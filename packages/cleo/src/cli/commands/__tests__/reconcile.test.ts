@@ -26,6 +26,7 @@ const runInvariantsMock = vi.fn();
 
 vi.mock('@cleocode/core', () => ({
   release: {
+    registerReleaseInvariants: vi.fn(),
     runInvariants: (...args: unknown[]) => runInvariantsMock(...args),
   },
 }));

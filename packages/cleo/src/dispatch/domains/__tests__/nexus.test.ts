@@ -49,7 +49,6 @@ vi.mock('@cleocode/core/internal', () => ({
   nexusTaskSymbols: vi.fn(),
   nexusContractsSync: vi.fn(),
   nexusContractsLinkTasks: vi.fn(),
-  nexusConduitScan: vi.fn(),
   nexusProfileView: vi.fn(),
   nexusProfileGet: vi.fn(),
   nexusProfileImport: vi.fn(),
@@ -89,7 +88,6 @@ vi.mock('@cleocode/core/nexus/api-contracts', async (importOriginal) => {
     nexusTaskSymbols: barrel.nexusTaskSymbols,
     nexusContractsSync: barrel.nexusContractsSync,
     nexusContractsLinkTasks: barrel.nexusContractsLinkTasks,
-    nexusConduitScan: barrel.nexusConduitScan,
   };
 });
 vi.mock('@cleocode/core/nexus/augment', async (importOriginal) => {
@@ -1268,7 +1266,6 @@ describe('NexusHandler', () => {
         // T1117 — Contracts + ingestion bridges
         'contracts-sync',
         'contracts-link-tasks',
-        'conduit-scan',
         // T1076 PSYCHE Wave 1 — NEXUS user_profile mutate ops
         'profile.import',
         'profile.export',

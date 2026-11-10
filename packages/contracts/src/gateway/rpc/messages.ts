@@ -39,7 +39,7 @@
  */
 
 import { z } from 'zod';
-import { dispatchRequestSchema, dispatchResponseSchema } from '../../gateway.js';
+import { dispatchRequestSchema, dispatchResponseSchema } from '../index.js';
 import { GATEWAY_RPC_PROTOCOL_VERSION } from './version.js';
 
 // ─── Protocol-level error payload ──────────────────────────────────────────────

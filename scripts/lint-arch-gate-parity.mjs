@@ -156,7 +156,7 @@ export function main() {
     for (const s of unrun) console.error(`    - ${s}`);
     console.error('');
     console.error(
-      '  Fix: add a `run: node <script>` step for each (e.g. a job in .github/workflows/arch-boundary-check.yml, listed in its aggregate `needs:`).',
+      '  Fix: add a `run: node <script>` step for each (e.g. a step of the Repo Lints job in .github/workflows/ci.yml).',
     );
     console.error('');
   }

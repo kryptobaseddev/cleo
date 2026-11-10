@@ -197,7 +197,7 @@ export async function detectStaleAgents(
  * 2. Has not sent a heartbeat for longer than `thresholdMs`
  *
  * Each detected agent is immediately marked `crashed` via {@link markCrashed},
- * incrementing its error count and writing a reason to `agent_error_log`.
+ * incrementing its error count and writing a reason to `tasks_agent_error_log`.
  *
  * @param thresholdMs - Crash threshold in ms (default: 3 minutes / 180 000 ms)
  * @param cwd - Working directory used to resolve the tasks.db path (optional)

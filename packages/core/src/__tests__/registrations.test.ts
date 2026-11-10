@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -121,6 +121,23 @@ describe('@cleocode/core/registrations', () => {
     const barrel = graph(join(SRC, 'internal.ts'));
     for (const file of Object.keys(EXEMPT)) {
       expect(barrel.get(join(SRC, file))?.length ?? 0, file).toBeGreaterThan(0);
+    }
+  });
+
+  it('registers the release invariants; loading their barrel does not (T14391)', async () => {
+    vi.resetModules();
+    const release = await import('../release/invariants/index.js');
+    expect(
+      graph(join(SRC, 'release/invariants/index.ts')).get(join(SRC, 'release/invariants/index.ts')),
+    ).toEqual([]);
+    expect(release.getInvariants()).toEqual([]);
+    await import('../registrations.js');
+    expect(release.getInvariants().map((i) => i.id)).toEqual([release.ARCHIVE_REASON_INVARIANT_ID]);
+  });
+
+  it('is loaded by the standalone CORE processes that used to reach the barrel (T14391)', () => {
+    for (const entry of ['sentient/daemon-entry.ts', 'nexus/refresh-child.ts']) {
+      expect(graph(join(SRC, entry)).has(join(SRC, 'registrations.ts')), entry).toBe(true);
     }
   });
 

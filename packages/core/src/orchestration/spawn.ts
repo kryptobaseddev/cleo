@@ -817,6 +817,20 @@ export async function composeSpawnPayload(
     }
   }
 
+  // 6f. T14429 — tier-0 prompts name the lead mailbox only under
+  //     `orchestrate.leadWorker.v1`; read the flag only when it can matter.
+  let leadWorkerV1 = false;
+  if (tier === 0 && options.leadMailbox) {
+    // Same read as `isLeadWorkerV1Enabled` (orchestrate/isolation-policy.ts),
+    // without pulling the worktree package into the composer.
+    try {
+      const { getConfigValue } = await import('../config/registry.js');
+      leadWorkerV1 = (await getConfigValue('orchestrate.leadWorker.v1', { projectRoot })) === true;
+    } catch {
+      // best-effort — an unreadable config leaves tier 0 unchanged
+    }
+  }
+
   // 7. Build the prompt via the T882 engine. The engine is now the internal
   //    assembler; callers that previously imported buildSpawnPrompt directly
   //    continue to work unchanged.
@@ -830,6 +844,9 @@ export async function composeSpawnPayload(
     task,
     protocol,
     tier,
+    // T14363: the resolved role reaches the prompt, so a tier-1 lead gets the
+    // ct-cleo + ct-lead excerpts (T9213) instead of a worker prompt.
+    role,
     projectRoot,
     sessionId: options.sessionId ?? null,
     leanLevel,
@@ -839,6 +856,7 @@ export async function composeSpawnPayload(
     worktreePath: options.worktreePath,
     worktreeBranch: options.worktreeBranch,
     ...(options.leadMailbox ? { leadMailbox: options.leadMailbox } : {}),
+    ...(leadWorkerV1 ? { leadWorkerV1 } : {}),
     dashboardSummary,
     retrievalBundle,
     ...(attentionDigestLines !== undefined ? { attentionDigestLines } : {}),

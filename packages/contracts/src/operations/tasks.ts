@@ -52,7 +52,7 @@ import type {
   TaskPlanResult,
   TaskTreeNode,
   TaskView,
-} from '../tasks.js';
+} from '../tasks/index.js';
 import type { DocsType } from './docs.js';
 import type { JsonSchema, OperationInputContract } from './input-contract.js';
 

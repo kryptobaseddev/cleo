@@ -247,12 +247,6 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/compliance.js')).complianceCommand as CommandDef,
   },
   {
-    exportName: 'conduitCommand',
-    name: 'conduit',
-    description: 'Manage Conduit inter-agent messaging',
-    load: async () => (await import('../commands/conduit.js')).conduitCommand as CommandDef,
-  },
-  {
     exportName: 'configCommand',
     name: 'config',
     description:
@@ -1132,7 +1126,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'reviewCommand',
     name: 'review',
     description:
-      'Independent per-criterion PR review by a non-author, bound to the PR head (packet | verdict | check)',
+      'Independent per-criterion PR review by a non-author, bound to the PR head (packet | verdict | check | dispatch)',
     load: async () => (await import('../commands/review.js')).reviewCommand as CommandDef,
   },
   {

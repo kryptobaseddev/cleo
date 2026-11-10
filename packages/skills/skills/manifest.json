@@ -303,7 +303,7 @@
     },
     {
       "name": "ct-codebase-mapper",
-      "version": "2.3.5",
+      "version": "2.4.0",
       "description": "Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on \"map the codebase\", \"understand this project\", \"what calls X\", \"what would break\", \"brownfield analysis\", \"project structure\".",
       "path": "skills/ct-codebase-mapper",
       "tier": 1,
@@ -567,7 +567,7 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.7.0",
+      "version": "3.10.0",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
@@ -886,8 +886,8 @@
     },
     {
       "name": "ct-lead",
-      "version": "1.1.3",
-      "description": "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration.",
+      "version": "1.3.1",
+      "description": "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers in one `cleo orchestrate fanout` call, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration.",
       "path": "skills/ct-lead",
       "tier": 0,
       "deliveryTier": "core",
@@ -922,7 +922,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.2.4",
+      "version": "4.6.0",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
@@ -1410,7 +1410,7 @@
     },
     {
       "name": "ct-task-executor",
-      "version": "2.9.2",
+      "version": "2.10.0",
       "description": "General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.",
       "path": "skills/ct-task-executor",
       "tier": 0,

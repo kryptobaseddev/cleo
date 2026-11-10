@@ -26,6 +26,7 @@
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
 import { resolveCredentials } from '../shared/credentials.js';
+import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { SessionStore } from './session-store.js';
 import { resolveTools } from './tool-bridge.js';
 
@@ -48,6 +49,13 @@ const DEFAULT_MODEL = 'claude-sonnet-4-5';
  * agent registry) remains the source of truth for scaffolding.
  */
 export class ClaudeSDKSpawnProvider implements AdapterSpawnProvider {
+  /**
+   * `generateText()` is called with no `tools`, so a spawned agent can call no
+   * tool at all; for a lead the denied tools are also dropped from the recorded
+   * allowlist (T14357).
+   */
+  readonly leadToolStrip = 'enforced' as const;
+
   /** In-memory session registry. */
   private readonly sessions = new SessionStore();
 
@@ -131,7 +139,12 @@ export class ClaudeSDKSpawnProvider implements AdapterSpawnProvider {
       // orchestration (composeSpawnPayload) applies allowlists before prompt
       // composition; this array is surfaced so telemetry remains complete.
       const toolAllowlist = context.options?.toolAllowlist as string[] | undefined;
-      const allowedTools = resolveTools(toolAllowlist);
+      // T14357: a lead's denied tools never appear in the allowlist. The real
+      // enforcement is structural: generateText() below receives no `tools`.
+      const denied = leadDeniedTools(context);
+      const allowedTools = resolveTools(toolAllowlist).filter(
+        (tool) => denied === null || !(denied as readonly string[]).includes(tool),
+      );
 
       const modelId = (context.options?.model as string) ?? DEFAULT_MODEL;
 

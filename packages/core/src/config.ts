@@ -11,10 +11,11 @@
 import { existsSync } from 'node:fs';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { migrateLegacyConfigKeys, resolveLegacyConfigKey } from './config/legacy-keys.js';
+import { CleoError } from './errors.js';
 // Import from the dependency-free leaf (NOT ./llm/role-resolver.js) so this
 // module's eager DEFAULTS read cannot enter role-resolver's circular import
 // chain and hit a temporal-dead-zone ReferenceError. See llm/fallback-model.ts.
-import { CleoError } from './errors.js';
 import { IMPLICIT_FALLBACK_MODEL } from './llm/fallback-model.js';
 import { GLOBAL_CONFIG_FILE_MODE } from './llm/global-config-migration.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
@@ -275,12 +276,14 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
   // Layer 1: Global config
   const globalConfig = await readJson<Record<string, unknown>>(getGlobalConfigPath());
   if (globalConfig) {
+    migrateLegacyConfigKeys(globalConfig);
     merged = deepMerge(merged, globalConfig);
   }
 
   // Layer 2: Project config
   const projectConfig = await readJson<Record<string, unknown>>(getConfigPath(cwd));
   if (projectConfig) {
+    migrateLegacyConfigKeys(projectConfig);
     // Map pinoLogging config key to the logging section used by the pino logger factory
     if (projectConfig.pinoLogging && typeof projectConfig.pinoLogging === 'object') {
       merged.logging = deepMerge(
@@ -314,6 +317,7 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
  *   callers that need provenance should follow that thread.
  */
 export async function getConfigValue<T>(path: string, cwd?: string): Promise<ResolvedValue<T>> {
+  path = resolveLegacyConfigKey(path);
   // Check environment variables first
   for (const [envKey, configPath] of Object.entries(ENV_MAP)) {
     if (configPath === path && process.env[envKey] !== undefined) {
@@ -327,6 +331,7 @@ export async function getConfigValue<T>(path: string, cwd?: string): Promise<Res
   // Check project config
   const projectConfig = await readJson<Record<string, unknown>>(getConfigPath(cwd));
   if (projectConfig) {
+    migrateLegacyConfigKeys(projectConfig);
     const val = getNestedValue(projectConfig, path);
     if (val !== undefined) {
       return { value: val as T, source: 'project' as ConfigSource };
@@ -336,6 +341,7 @@ export async function getConfigValue<T>(path: string, cwd?: string): Promise<Res
   // Check global config
   const globalConfig = await readJson<Record<string, unknown>>(getGlobalConfigPath());
   if (globalConfig) {
+    migrateLegacyConfigKeys(globalConfig);
     const val = getNestedValue(globalConfig, path);
     if (val !== undefined) {
       return { value: val as T, source: 'global' as ConfigSource };
@@ -360,10 +366,11 @@ export async function getRawConfigValue(key: string, cwd?: string): Promise<unkn
   const configPath = getConfigPath(cwd);
   const config = await readJson<Record<string, unknown>>(configPath);
   if (!config) return undefined;
+  migrateLegacyConfigKeys(config);
 
   if (!key) return config;
 
-  return getNestedValue(config, key);
+  return getNestedValue(config, resolveLegacyConfigKey(key));
 }
 
 /**
@@ -423,6 +430,18 @@ export async function setConfigValue(
       await refuseOverrideCapWrite(cwd ?? getProjectRoot(), parseConfigValue(value)),
     );
   }
+  // T14403: counted reviewer workers are owner-only and sealed outside config.json.
+  if (key === 'review.workers.counted') {
+    const [{ refuseReviewWorkersCountedWrite }, { getProjectRoot }] = await Promise.all([
+      import('./security/review-workers-setting.js'),
+      import('./project-scope.js'),
+    ]);
+    // @sync-invariant none:local-only owner-only setting refused before any write; config.json is untouched
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      await refuseReviewWorkersCountedWrite(cwd ?? getProjectRoot(), parseConfigValue(value)),
+    );
+  }
   const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
   // The global config can hold provider keys: owner-only (T14221).
@@ -434,14 +453,18 @@ export async function setConfigValue(
   }
 
   const config = (await readJson<Record<string, unknown>>(configPath)) ?? {};
+  // Write-new (T14375): a legacy key in the file moves to its new home on any
+  // write, and a write to a legacy key path lands on the new path.
+  migrateLegacyConfigKeys(config);
+  const targetKey = resolveLegacyConfigKey(key);
 
   const parsedValue = parseConfigValue(value);
 
-  setNestedValue(config, key, parsedValue);
+  setNestedValue(config, targetKey, parsedValue);
 
   await saveJson(configPath, config, { mode });
 
-  return { key, value: parsedValue, scope: opts?.global ? 'global' : 'project' };
+  return { key: targetKey, value: parsedValue, scope: opts?.global ? 'global' : 'project' };
 }
 
 // ---------------------------------------------------------------------------

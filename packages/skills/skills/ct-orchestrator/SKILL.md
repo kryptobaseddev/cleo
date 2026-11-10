@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.2.4
+  version: 4.6.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-11-09
+  lastReviewed: 2026-11-10
   stability: stable
 ---
 
@@ -122,6 +122,17 @@ the stage gate (see Plan).
   (`Closes: T#### AC1,AC2`, or `Refs:` for partial delivery). A reviewer agent that is
   not the author reviews the PR head from `cleo review packet <pr> --task <id>` and
   records `cleo review verdict` per AC; the implementer never reviews its own work.
+  `cleo review dispatch --execute` sends one shadow reviewer per routine PR head that
+  lacks verdicts, under a session the dispatch creates, and prints its brief and
+  `reviewerSecretFile`: the path of a 0600 file holding that dispatch's secret (never
+  the secret itself). The reviewer runs with `CLEO_REVIEW_SECRET_FILE=<path>`, as the
+  brief says; never cat, copy or paste the secret into a prompt or a command line. Its
+  verdicts are refused without it (T14403). Shadow
+  verdicts never count, so the lead still reviews every PR; `cleo review check` shows
+  them next to the lead's. Migrations, store/sync, gates, deletions, evidence and
+  review/session/claim code stay with the lead. `--counted` is refused until the owner
+  seals `review.workers.counted` (owner-only, like `evidence.overrideCapPerSession`;
+  an agent's `cleo config set` of it is refused and audited).
   Merge on green `CI`; the merge sweep closes the task. A worker that fails its
   criteria is re-spawned with the feedback.
 - No-PR work: `cleo done <id> --plan`, then `cleo verify` per gate, then `cleo complete`.
@@ -189,22 +200,34 @@ since harness shells keep neither cwd nor env between calls (the git shim reads
 same identity line in its Session Linkage block: `export CLEO_AGENT_ID=<agent>`,
 so teammates sharing one harness session keep separate claims and focus (T14269).
 
+**Worker completion (T14359, behind `orchestrate.leadWorker.v1`)**: `cleo orchestrate
+spawn-execute` stores a durable worker record (task, instance id, pid/pgid, worktree,
+lead mailbox, provider) before it spawns and does not fire `SubagentStop` at spawn.
+The worker reports its own exit with `cleo orchestrate worker-exit --instance <id>`
+(the claude-code adapter installs it as the worker's `SessionEnd` hook); without
+`--status` the status comes from the task, so an exit with the task still active is
+`partial`, never `complete`. For a worker that crashed first, `cleo orchestrate
+status` probes each open record's pid. A worker with neither a hook nor a pid gets
+`SubagentStop` at spawn. It fires exactly once whichever path closes the record, and
+`cleo orchestrate status` lists the records under `workers`. Flag off: the old
+behaviour (stop event at spawn).
+
 **Other harnesses**: Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through pipeline_manifest (via `cleo manifest append`) — the universal handoff medium.
 
 ### Valid Return Messages
 
 Append exactly once and capture the id with `--field /data/entryId` (ADR-086: never pipe the receipt through `python3`/`jq`). A nonempty `ENTRY_ID` must then read back with `cleo manifest show "$ENTRY_ID"`. Never append again merely to verify. On append or readback failure, return `blocked` with `manifest:none`; do not claim an entry. Static prompt checks do not prove storage or provider workflow success. The manifest `--type` is the protocol's own type (`consensus`, `specification`, `architecture_decision`, ... — T12521).
 
-After verification, subagents MUST return exactly this compressed block (T12521):
+After verification, subagents MUST return exactly this worker report, at most 100 words (T14361; head line from T12521):
 
 ```
 [Type] <complete|partial|blocked>. manifest:<entryId>
-commits: <sha7,sha7|none>
-gates: <gate>=<pass|fail|skip> ...
-blocker: <≤12 words|none>
+conclusion: <result>
+blocker: <none|why>
+proof: <cmd> => exit <n>|<PR|sha|file>
 ```
 
-blocker: none when complete; required when partial/blocked. `manifest:none` only for `partial`/`blocked`; fill every `<...>` placeholder (validators reject `<`/`>` in the entry id). Validators (`checkReturnMessageFormat`, `checkReturnFormat`, `validateReturnMessage`) still accept the legacy one-liner `"[Type] <complete|partial|blocked>. Manifest appended to pipeline_manifest."`.
+blocker: none when complete; required when partial/blocked. One `proof:` line per item. Close the task with `cleo done <id> --report "<report>"`: it refuses a report with no `conclusion:` or `proof:` line (`E_WORKER_REPORT_PROOF`) or over 100 words (`E_VALIDATION`; detail belongs in the PR body). The older `commits:`/`gates:` lines still parse. `manifest:none` only for `partial`/`blocked`; fill every `<...>` placeholder (validators reject `<`/`>` in the entry id). Validators (`checkReturnMessageFormat`, `checkReturnFormat`, `validateReturnMessage`) still accept the legacy one-liner `"[Type] <complete|partial|blocked>. Manifest appended to pipeline_manifest."`.
 
 > Detailed spawn workflow, manual protocol injection, skill dispatch matrix: `references/orchestrator-spawning.md`
 
@@ -254,8 +277,51 @@ the store doc exists.
 peers through AgentMBX (`mbx_*` tools; the `agentmbx` CLI can only send without the
 session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` section and
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
-mailbox in it. `cleo conduit` and the `conduit-*` sub-commands of `cleo orchestrate` are
-deprecated (T13982) and leave in the next release; do not build on them.
+mailbox in it. Tier-0 prompts stay minimal and have no such section; with
+`orchestrate.leadWorker.v1` on and `--lead-mbx` given, they carry one line naming your mailbox
+and asking for a report of at most 100 words (conclusion, blocker, proof) (T14429). The conduit messaging verbs, including the `conduit-*` sub-commands of
+orchestrate, were removed (T13955).
+
+**Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with
+`orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
+is structural, not a prompt rule. Two modes (owner decision): interactive, the default, opens the
+lead as a Claude session in this terminal (no `--print`, stdio inherited, not detached; the owner
+types to it and it asks with `AskUserQuestion`); `--detached` runs it in the background, and it sends
+owner decisions to the `owner` AgentMBX mailbox as a `hitl.request`
+`{question, options[{label, description}], recommended}` and waits there, acting only on a reply
+whose mbx header shows `authority: OWNER`. `--detached` refuses to start without a loaded mbx
+server (`E_LEAD_NO_OWNER_CHANNEL`); interactive may start without one. On claude-code the
+lead's tools are an ALLOW list: its only built-in tool is `AskUserQuestion` (interactive) or none
+(detached) (`--restricted --tools`), `--permission-mode dontAsk`, `--setting-sources ""`
+(a user's `bypassPermissions` cannot apply), `LEAD_DENIED_TOOLS` denied as a second layer, and
+`--strict-mcp-config` with exactly two MCP servers: the command runner below and the user-level
+`mbx` server (T14423). mbx comes only from `~/.claude.json` user scope and must be the `agentmbx`
+binary on an absolute path outside the project with args `mcp`, so a repo's `.mcp.json` cannot
+plant it; otherwise the lead gets the runner alone and `data.lead.mcpWarning` says why. A
+provider that cannot strip tools refuses the spawn (`E_LEAD_TOOLS_UNSTRIPPED`). The lead's prompt
+is composed with role `lead` (ct-lead excerpts) and passed as its appended system prompt. It runs
+in the project root under its OWN CLEO session (no worktree, no worker record). The lead mailbox
+is claimed once the spawn is admitted and released when the lead exits. A lead record
+(`.cleo/leads/<epic>.json`) holds one lead per epic while its `claude` process or the `cleo` CLI lives, each matched on pid
+AND start time so a reused pid never blocks the epic (a second gets
+`E_LEAD_RUNNING`); a lead killed before its hooks ran is reaped (mailbox, CLEO session, temp dir)
+by the next `cleo orchestrate lead` or `cleo orchestrate status`. Workers it starts
+with `fanout` or `spawn-execute` run in the background with fail-closed isolation, durable
+worker records and the 100-word report contract below.
+
+**A no-hands lead runs commands through `cleo_run` (T14374).** The `cleo-lead` agent has
+no Bash, Edit or Write. Its one command route is the `cleo_run` MCP tool, served by
+`cleo orchestrate lead-runner`. Pass an argv array (never a shell string): the command words
+first, then positionals, then flags. Each allowed command accepts only its listed flags; write
+`--flag=value` for a value starting with `-`; `--no-*` forms are refused. Allowed: the
+`orchestrate` read, plan and dispatch sub-verbs (not `worktree-complete`, `approve`, `reject`,
+`prune`, `ivtr`, `bootstrap` or `conduit-*`), `show`, `find`, `list`, `review packet|check|verdict`,
+`done --from-merge <pr> --dry-run`, `memory find|fetch`, `session status`,
+`decide ask`, `merge train`; `gh pr view|list|checks|diff`, `gh pr comment --body <text>`,
+`gh run list|view`, each given only a numeric PR or run id (no URL, `--repo`, `--web`,
+`--watch` or `--body-file`). Command and flag lists are checked against the CLI manifest, so
+every rule is a leaf command; `briefing` is not on the list because it has a subcommand.
+The lead merges only through `cleo merge train`; pushes and edits go to a worker.
 
 **Attached documents are budgeted (T14190).** A spawn prompt's `## Task Documents` section
 inlines the task's attached text documents up to 16,000 characters of prose
@@ -355,6 +421,7 @@ When operating without continuous HITL oversight, additional constraints apply: 
 | `cleo orchestrate ready T1575` | Parallel-safe tasks in current wave |
 | `cleo orchestrate spawn T1586 --json` | Generate resolved spawn prompt |
 | `cleo orchestrate next T1575` | Suggest next task |
+| `cleo orchestrate status` | Status plus durable worker records (`workers`) |
 | `cleo saga rollup <sagaId>` | Cross-Epic status aggregation when orchestrating a multi-Epic Saga (ADR-073) |
 | `cleo saga members <sagaId>` | Member Epics of a Saga (parent_id containment — NOT `task_relations.groups`) |
 | `cleo find "query"` | Search tasks |

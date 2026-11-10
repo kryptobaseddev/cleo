@@ -154,6 +154,7 @@ export {
   RECONCILE_AUDIT_FILE,
   registerArchiveReasonInvariant,
   registerInvariant,
+  registerReleaseInvariants,
   runInvariants,
 } from './invariants/index.js';
 // T9530 — v2 release open verb (Phase 3 of T9494)

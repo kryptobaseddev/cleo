@@ -23,7 +23,7 @@
 // (verified: grep -c in packages/core/vitest.config.ts === 0). They exercise:
 //   - a flat `.js` subpath           → store/background-ops.ts
 //   - a nested directory `index.js`  → store/exodus/index.ts
-//   - a contracts barrel subpath     → contracts/src/gateway.ts
+//   - a contracts barrel subpath     → contracts/src/gateway/index.ts
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { GATEWAY_SOURCES } from '@cleocode/contracts/gateway';
@@ -44,7 +44,7 @@ describe('vitest worktree subpath resolution (T11953 · DHQ-070)', () => {
   });
 
   it('resolves the @cleocode/contracts/gateway barrel subpath to source', () => {
-    // GATEWAY_SOURCES is a runtime const array exported from gateway.ts.
+    // GATEWAY_SOURCES is a runtime const array exported from gateway/index.ts.
     expect(Array.isArray(GATEWAY_SOURCES)).toBe(true);
     expect(GATEWAY_SOURCES).toContain('cli');
   });
@@ -55,6 +55,8 @@ describe('vitest worktree subpath resolution (T11953 · DHQ-070)', () => {
     expect(
       existsSync(join(REPO_ROOT, 'packages', 'core', 'src', 'store', 'background-ops.ts')),
     ).toBe(true);
-    expect(existsSync(join(REPO_ROOT, 'packages', 'contracts', 'src', 'gateway.ts'))).toBe(true);
+    expect(existsSync(join(REPO_ROOT, 'packages', 'contracts', 'src', 'gateway', 'index.ts'))).toBe(
+      true,
+    );
   });
 });

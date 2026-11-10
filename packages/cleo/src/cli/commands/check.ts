@@ -919,6 +919,17 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-test-files-run.mjs',
         description: 'Every tracked test file is collected by a vitest run CI performs',
       },
+      {
+        // T14412: vitest reads `src/<subpath>.ts` (else `<subpath>/index.ts`)
+        // while Node resolves the contracts `exports` map onto dist/. In #2772
+        // `@cleocode/contracts/config.js` named two modules, so tests passed and
+        // the build broke. No `x.ts` beside `x/`; every subpath import resolves
+        // to the same source both ways. Pure static, zero tolerance.
+        id: 'gate-44',
+        task: 'T14412',
+        script: 'scripts/lint-contracts-subpath-resolution.mjs',
+        description: 'Every @cleocode/contracts subpath import maps to exactly one source file',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
