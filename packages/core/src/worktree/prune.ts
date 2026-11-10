@@ -28,10 +28,12 @@ import type {
   PrunedWorktreeOutcome,
   PruneOrphanedWorktreesOpts,
   PruneOrphanedWorktreesResult,
+  Task,
   WorktreeInfo,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { disposeWorktree, gitSilent, readWorktreeTaskLock } from '@cleocode/worktree';
+import { safeParseJson } from '../store/parsers.js';
 import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { worktreeInUseProbe } from './in-use-probe.js';
@@ -203,6 +205,13 @@ export async function pruneOrphanedWorktreesByStatus(
 /**
  * The owning task's recorded evidence, or `[]` when there is no task or the store is unreadable.
  *
+ * Strictly read-only (T14440, census AC3): the census's `--apply` path calls
+ * this for the disposal proof, and the census must never write another
+ * project's store — so this opens the snapshot handle from the store
+ * chokepoint instead of the task accessor (whose `getDb` restores, seeds and
+ * migrates). A store whose schema this build cannot read yields `[]`, which
+ * only weakens a disposal proof, never deletes anything.
+ *
  * @param projectRoot - Project root whose task store is read.
  * @param taskId - Owning task, or `null`.
  * @returns The task's evidence atoms.
@@ -213,9 +222,20 @@ export async function loadTaskEvidence(
 ): Promise<EvidenceAtom[]> {
   if (taskId === null) return [];
   try {
-    const { getTaskAccessor } = await import('../store/data-accessor.js');
-    const task = await (await getTaskAccessor(projectRoot)).loadSingleTask(taskId);
-    return task ? taskEvidenceAtoms(task) : [];
+    const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
+    const snap = openProjectTasksReadOnly(projectRoot);
+    if (snap === null) return [];
+    try {
+      const row = snap.db
+        .prepare('SELECT verification_json FROM tasks_tasks WHERE id = ?')
+        .get(taskId) as { verification_json?: string | null } | undefined;
+      if (row?.verification_json === undefined || row.verification_json === null) return [];
+      // The same lenient parse `rowToTask` applies to the column (converters.ts).
+      const verification = safeParseJson<Task['verification']>(row.verification_json);
+      return verification ? taskEvidenceAtoms({ verification }) : [];
+    } finally {
+      snap.close();
+    }
   } catch {
     // Without the store the marker and dependents scan still guard the disposal.
     return [];

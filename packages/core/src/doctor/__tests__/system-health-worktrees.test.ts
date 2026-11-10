@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { SystemSnapshot } from '../system-health.js';
+import type { SystemSnapshot, WorktreeCensusInput } from '../system-health.js';
 import {
   assessSystemHealth,
   FSEVENTSD_RSS_WARN,
@@ -175,24 +175,13 @@ describe('worktree findings (T14440 AC2)', () => {
   });
 
   it('a v1 cache record without per-project rollups still warns, without crashing (P1b)', () => {
-    // latest.json written by a schemaVersion-1 census: no projects field.
+    // latest.json written by a schemaVersion-1 census: only the v1 fields.
     const legacy = {
-      schemaVersion: 1,
-      mode: 'report',
       startedAt: new Date(NOW - 60_000).toISOString(),
-      finishedAt: new Date(NOW).toISOString(),
-      machineRoot: '/home/u/worktrees',
-      applyProjects: [],
+      partial: false,
       counts: { active: WORKTREE_COUNT_WARN, redundant: 0, keep: 0, unknown: 0 },
       apparentBytes: WORKTREE_BYTES_WARN,
-      reclaimedApparentBytes: 0,
-      dfFreeBefore: null,
-      dfFreeAfter: null,
-      dfDelta: null,
-      kept: [],
-      rows: [],
-      partial: false,
-    } as unknown as NonNullable<SystemSnapshot['worktreeCensus']>;
+    } satisfies WorktreeCensusInput;
     const findings = findingsOf(snapshot({ worktreeCensus: legacy }));
     const count = findings.find((f) => f.id === 'worktree-count');
     expect(count?.title).toContain('predates per-project rollups');

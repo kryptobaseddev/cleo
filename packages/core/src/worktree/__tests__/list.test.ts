@@ -33,10 +33,10 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 // ---------------------------------------------------------------------------
-// Mock the project tasks store (E6-L6 / T11526): loadOwningTaskStatuses now
-// resolves task statuses via getDb()/getNativeTasksDb() against the consolidated
-// project cleo.db (which carries the legacy `tasks` table). We stub the native
-// handle so it yields the rows the current test configured via `MOCK_TASK_ROWS`.
+// Mock the project tasks store (E6-L6 / T11526): loadOwningTaskStatuses reads
+// task statuses through the strictly read-only accessor (T14440) against the
+// consolidated project cleo.db. We stub the accessor so it yields the rows the
+// current test configured via `MOCK_TASK_ROWS`.
 // ---------------------------------------------------------------------------
 const MOCK_TASK_ROWS = new Map<string, string>();
 const stubNativeTasksDb = {
@@ -60,8 +60,14 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../store/sqlite.js')>();
   return {
     ...actual,
-    getDb: vi.fn(async () => ({}) as never),
-    getNativeTasksDb: vi.fn(() => stubNativeTasksDb as never),
+    openProjectTasksReadOnly: vi.fn(
+      () =>
+        ({
+          db: stubNativeTasksDb,
+          path: 'stub',
+          close: vi.fn(),
+        }) as never,
+    ),
   };
 });
 

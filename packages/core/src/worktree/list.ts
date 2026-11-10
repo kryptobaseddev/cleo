@@ -539,33 +539,41 @@ export async function loadOwningTaskStatuses(
   // therefore guarantees the `tasks` family exists. The dual-scope consolidated
   // schema alone (openDualScopeDb) creates only `tasks_tasks`, not bare `tasks`.
   let db: DatabaseSync | null;
+  let close: (() => void) | null = null;
   try {
     // T14440 (census AC3): the census (and any caller) may list ANOTHER
-    // project's worktrees, and the open below runs pending migrations — a
-    // write to a foreign store. Only a store this build can open without
-    // writing (journal fully known and fully applied — see
-    // projectStoreReadVerdict) is read; every other store is skipped and the
-    // listing degrades to owningTaskStatus null.
+    // project's worktrees. The read goes through the strictly read-only
+    // accessor — `getDb` restores, seeds and migrates on open, a write — and
+    // only when the verdict says the schema is fully known and applied, so
+    // this query cannot even misread a foreign schema. Every other store is
+    // skipped and the listing degrades to owningTaskStatus null.
     const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
     if (projectStoreReadVerdict(projectRoot) !== 'readable') return out;
-    const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
-    await getDb(projectRoot);
-    db = getNativeTasksDb(projectRoot);
+    const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
+    const snap = openProjectTasksReadOnly(projectRoot);
+    if (snap === null) return out;
+    db = snap.db;
+    close = snap.close;
   } catch {
     return out;
   }
   if (!db) return out;
-
-  const placeholders = taskIds.map(() => '?').join(', ');
-  const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-  const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-    id: string;
-    status: string;
-  }>;
-  for (const row of rows) {
-    out.set(row.id, row.status);
+  try {
+    const placeholders = taskIds.map(() => '?').join(', ');
+    const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+    const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+      id: string;
+      status: string;
+    }>;
+    for (const row of rows) {
+      out.set(row.id, row.status);
+    }
+    return out;
+  } catch {
+    return out;
+  } finally {
+    close?.();
   }
-  return out;
 }
 
 /**

@@ -57,6 +57,7 @@ import {
   tableExists,
 } from './migration-manager.js';
 import { lineageAtHead } from './migration-runner.js';
+import { type CleoDbSnapshotHandle, openCleoDbSnapshot } from './open-cleo-db.js';
 // T12037: the tasks domain no longer owns a singleton — the path-keyed binding
 // registry does. This module contributes only `establishTasksSchema`.
 import {
@@ -1018,6 +1019,34 @@ export function getNativeDb(cwd?: string): DatabaseSync | null {
  */
 export function getNativeTasksDb(cwd?: string): DatabaseSync | null {
   return boundProjectNative('tasks', cwd);
+}
+
+/**
+ * Open a project's tasks store strictly read-only, for cross-project reads
+ * that must never write (T14440, census AC3).
+ *
+ * `getDb` restores, seeds and migrates on open — a write — so the census (and
+ * any worktree listing that enriches task status for ANOTHER project) reads
+ * through this instead: a read-only snapshot handle from the store chokepoint,
+ * no restore, no seed, no migration. The caller closes the handle. `null`
+ * when the store file does not exist or cannot be opened.
+ *
+ * @param projectRoot - Absolute path to the project whose store to read.
+ * @returns The read-only snapshot handle, or `null`.
+ */
+export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHandle | null {
+  let dbPath: string;
+  try {
+    dbPath = resolveDualScopeDbPath('project', projectRoot);
+  } catch {
+    return null;
+  }
+  if (!existsSync(dbPath)) return null;
+  try {
+    return openCleoDbSnapshot(dbPath, { readOnly: true });
+  } catch {
+    return null;
+  }
 }
 
 export type { NodeSQLiteDatabase };

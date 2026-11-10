@@ -21,18 +21,23 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 const MOCK_TASK_ROWS = new Map<string, string>();
+const closeSpy = vi.fn();
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  getDb: vi.fn(async () => ({}) as never),
-  getNativeTasksDb: vi.fn(
+  // T14440: the enrichment reads through the strictly read-only accessor.
+  openProjectTasksReadOnly: vi.fn(
     () =>
       ({
-        prepare: () => ({
-          all: (...ids: string[]) =>
-            ids
-              .filter((id) => MOCK_TASK_ROWS.has(id))
-              .map((id) => ({ id, status: MOCK_TASK_ROWS.get(id) })),
-        }),
+        db: {
+          prepare: () => ({
+            all: (...ids: string[]) =>
+              ids
+                .filter((id) => MOCK_TASK_ROWS.has(id))
+                .map((id) => ({ id, status: MOCK_TASK_ROWS.get(id) })),
+          }),
+        },
+        path: 'stub',
+        close: closeSpy,
       }) as never,
   ),
 }));
@@ -57,7 +62,8 @@ beforeEach(() => {
   MOCK_TASK_ROWS.clear();
   MOCK_TASK_ROWS.set('T1', 'done');
   aheadOfBuild.mockImplementation(() => 'readable');
-  vi.mocked(getDb).mockClear();
+  vi.mocked(openProjectTasksReadOnly).mockClear();
+  closeSpy.mockClear();
   mockExec.mockImplementation((_cmd: string, args?: readonly string[]) => {
     const argv = (args ?? []) as readonly string[];
     if (argv[0] === 'worktree' && argv[1] === 'list')
@@ -85,6 +91,7 @@ describe('foreign-store preflight (T14440 AC3)', () => {
     const out = await listWorktrees({ projectRoot: '/p' });
     if (!out.success) throw new Error(out.error?.message ?? 'listing failed');
     expect(out.data.worktrees[0]?.owningTaskStatus).toBe('done');
+    expect(closeSpy).toHaveBeenCalled(); // the read-only handle is released
   });
 
   it('degrades to owningTaskStatus null and never opens the store when the verdict is not readable', async () => {
@@ -93,7 +100,7 @@ describe('foreign-store preflight (T14440 AC3)', () => {
     if (!out.success) throw new Error(out.error?.message ?? 'listing failed');
     expect(out.data.worktrees[0]?.owningTaskStatus).toBeNull();
     expect(out.data.worktrees[0]?.taskId).toBe('T1'); // the listing itself is unaffected
-    expect(getDb).not.toHaveBeenCalled(); // nothing writable was reached
+    expect(openProjectTasksReadOnly).not.toHaveBeenCalled(); // nothing was even opened
   });
 
   it('the probe is asked once per listing, with the project root', async () => {

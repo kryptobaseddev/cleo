@@ -482,7 +482,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     (projectRoot) => mergedBranchCounts(projectRoot, deadline),
     projectStoreReadVerdict,
   );
-  const store = pnpmStoreCensus(deadline);
+  const store = opts.pnpmStore === undefined ? pnpmStoreCensus(deadline) : null;
   outOfTime();
   return {
     schemaVersion: 2,
@@ -594,6 +594,10 @@ export async function mergedBranchCounts(
   let mergedRemote: number | null = null;
   try {
     const { buildGitAwarePrunePlan } = await import('@cleocode/worktree');
+    // The probe is a synchronous SDK call and cannot be interrupted mid-run;
+    // it is only STARTED inside the shared walk deadline (the check above),
+    // and the census re-checks the deadline after it, so overrun marks the
+    // record partial.
     const plan = buildGitAwarePrunePlan(projectRoot, 'main');
     if (plan !== null) {
       mergedLocal = new Set(

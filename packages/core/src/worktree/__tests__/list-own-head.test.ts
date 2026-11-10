@@ -26,14 +26,18 @@ vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
 }));
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  getDb: vi.fn(async () => ({}) as never),
-  getNativeTasksDb: vi.fn(
+  // T14440: the enrichment reads through the strictly read-only accessor.
+  openProjectTasksReadOnly: vi.fn(
     () =>
       ({
-        prepare: () => ({
-          all: (...ids: string[]) =>
-            ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) })),
-        }),
+        db: {
+          prepare: () => ({
+            all: (...ids: string[]) =>
+              ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) })),
+          }),
+        },
+        path: 'stub',
+        close: vi.fn(),
       }) as never,
   ),
 }));

@@ -27,7 +27,6 @@ import { existsSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import type { CensusRecord } from '../hygiene/census.js';
 import { readLedger } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
 import { auditMemoryGuard, type MemoryGuardAudit } from '../resources/memory-guard.js';
@@ -195,9 +194,52 @@ export interface SystemSnapshot {
   /**
    * The machine's newest worktree census record, or `null` when none has been
    * written yet (T14440). Findings read counts and bytes from it; the lazy
-   * census keeps it fresh.
+   * census keeps it fresh. A v1 record (no per-project rollups) is accepted.
    */
-  readonly worktreeCensus: CensusRecord | null;
+  readonly worktreeCensus: WorktreeCensusInput | null;
+}
+
+/**
+ * What the worktree findings read from a census record (T14440).
+ *
+ * Structural on purpose: the newest record is a full census record
+ * (schemaVersion 2, see `hygiene/census.ts`), but `latest.json` may still hold
+ * a v1 record without per-project rollups; the findings degrade instead of
+ * crashing. Everything past `counts`/`apparentBytes`/`startedAt`/`partial` is
+ * optional, so both generations satisfy it.
+ */
+export interface WorktreeCensusInput {
+  readonly startedAt: string;
+  readonly partial: boolean;
+  readonly apparentBytes: number;
+  readonly counts: Readonly<Record<string, number>>;
+  readonly schemaVersion?: number;
+  readonly mode?: 'report' | 'apply';
+  readonly finishedAt?: string;
+  readonly machineRoot?: string;
+  readonly applyProjects?: readonly string[];
+  readonly reclaimedApparentBytes?: number;
+  readonly dfFreeBefore?: number | null;
+  readonly dfFreeAfter?: number | null;
+  readonly dfDelta?: number | null;
+  readonly rows?: ReadonlyArray<{ readonly path: string; readonly apparentBytes: number }>;
+  readonly kept?: ReadonlyArray<{ readonly path: string; readonly category: string }>;
+  readonly projects?: ReadonlyArray<{
+    readonly project: string | null;
+    readonly projectHash: string;
+    readonly worktrees: number;
+    readonly apparentBytes: number;
+    readonly mergedLocalBranches?: number | null;
+    readonly mergedRemoteBranches?: number | null;
+    readonly orphan?: boolean;
+    readonly storeRead?: string;
+  }>;
+  readonly orphanFolders?: ReadonlyArray<{
+    readonly projectHash: string;
+    readonly worktrees: number;
+    readonly apparentBytes?: number;
+  }>;
+  readonly pnpmStore?: { readonly path: string; readonly apparentBytes: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1083,7 +1125,7 @@ function worktreeFindings(s: SystemSnapshot, rows: readonly ProcessRow[]): Findi
       evidence: {
         apparentBytes: census.apparentBytes,
         warnAtBytes: WORKTREE_BYTES_WARN,
-        freeBytesOnRoot: census.dfFreeBefore,
+        freeBytesOnRoot: census.dfFreeBefore ?? null,
         pnpmStorePath: census.pnpmStore?.path ?? null,
         pnpmStoreBytes: census.pnpmStore?.apparentBytes ?? null,
       },
@@ -1353,7 +1395,7 @@ export async function collectSystemSnapshot(
 
   // T14440: the machine's newest census record, read-only. A missing record is
   // coverage, not a finding; the lazy census writes one within a day.
-  let worktreeCensus: CensusRecord | null = null;
+  let worktreeCensus: WorktreeCensusInput | null = null;
   try {
     const { readLatestCensus } = await import('../hygiene/census.js');
     worktreeCensus = readLatestCensus();
