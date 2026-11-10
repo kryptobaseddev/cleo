@@ -47,6 +47,14 @@
  * merge stands in, whatever the merge's own run concluded and whatever later
  * commits touched. See {@link findGreenCurrentHead}.
  *
+ * A fifth (T14434, owner decision D11241, extending D11192): the same
+ * current-head run stands in for a SCOPED change too, when the merge commit's
+ * red or cancelled run is not the PR's (the T12742, T13453, T13809 and T14049
+ * judgements), the PR head's own CI was green, and every hunk the PR added is
+ * still there at the stand-in. It runs today's CI definition: the owner
+ * accepted that a later change weakening a check also releases the tasks
+ * waiting behind it. A failure that is the PR's still refuses.
+ *
  * @task T12634
  */
 
@@ -190,6 +198,17 @@ export const CI_DESCENDANT_MAX_CANDIDATES = 20;
 
 /** Latest committer time after the merge commit a stand-in may have (T12742): 7 days. */
 export const CI_DESCENDANT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * What a `ci:` refusal says while the current-head stand-in is still open
+ * (T14032, T14434): nothing on the merge commit is the PR's to fix, and the
+ * task closes once the default branch's head has green CI. The merge sweep
+ * reads it to keep waiting instead of refusing.
+ *
+ * @task T14434
+ */
+export const CURRENT_HEAD_STAND_IN_OPEN =
+  'a green push run of the required checks on the default branch head will stand in';
 
 /** Merge-commit verdicts a later green main run may stand in for (T12742). */
 const SUPERSEDED_VERDICTS: ReadonlySet<string> = new Set(['cancelled', 'skipped']);
@@ -1725,7 +1744,33 @@ export type FindGreenDescendantResult =
       /** Later runs the search looked past, and why (T14086). */
       passedOver?: PassedOverRun[];
     }
-  | { ok: false; reason: string };
+  | {
+      ok: false;
+      reason: string;
+      /**
+       * Set when only the walk refused (T14434): the merge commit's run is not
+       * the PR's failure and the PR head's own CI was green, so the
+       * current-head stand-in may still be tried.
+       */
+      cleared?: ClearedMerge;
+    };
+
+/**
+ * A merge commit whose red or cancelled run is not the PR's, with a green PR
+ * head: what {@link findGreenDescendant} proved before it walked (T14434).
+ */
+export interface ClearedMerge {
+  /** The PR head whose `pull_request` runs were green; absent in `mainOnly` mode. */
+  prHeadSha?: string;
+  /** Checks fetched for that head. */
+  headChecks: CommitCheck[];
+  /** The merge commit's inherited failures (T13453). */
+  inherited?: InheritedFailure[];
+  /** The merge commit's quarantine-budget failures (T13809). */
+  nonTest?: Array<{ name: string; mergeRunId: number }>;
+  /** The merge commit's failures that tested nothing (T14049, T14074). */
+  untested?: UntestedJobFailure[];
+}
 
 /**
  * CI-definition paths no commit in a descendant range may touch (T12742): the
@@ -1896,9 +1941,19 @@ export async function findGreenDescendant(
       };
     }
   }
+  // T14434: from here only the walk can refuse; what was proven above lets the
+  // caller try the current-head stand-in.
+  const cleared: ClearedMerge = {
+    ...(head ? { prHeadSha: head } : {}),
+    headChecks,
+    ...(inherited ? { inherited } : {}),
+    ...(nonTest ? { nonTest } : {}),
+    ...(untested ? { untested } : {}),
+  };
+  const refuse = (reason: string): FindGreenDescendantResult => ({ ok: false, reason, cleared });
   const candidates = input.listDescendants(merge, input.ref, cwd);
   if (candidates === null) {
-    return { ok: false, reason: `cannot list commits on ${input.ref} after ${merge.slice(0, 12)}` };
+    return refuse(`cannot list commits on ${input.ref} after ${merge.slice(0, 12)}`);
   }
   const scope = pinnedScope(required, pins);
   const ciPaths = ciDefinitionPaths(required, pins);
@@ -1913,32 +1968,29 @@ export async function findGreenDescendant(
     const range = `${merge.slice(0, 12)}..${sha.slice(0, 12)}`;
     for (const [what, paths] of guarded) {
       const touching = input.touchingCommits(merge, sha, paths, cwd);
-      if (touching === null) return { ok: false, reason: `cannot read history ${range}` };
+      if (touching === null) return refuse(`cannot read history ${range}`);
       const first = touching[0];
       if (!first) continue;
       const by = `${first.parents > 1 ? 'merge' : 'commit'} ${first.sha.slice(0, 12)}`;
       if (paths !== input.changedPaths) {
-        return {
-          ok: false,
-          reason: `${what} changed on ${input.ref} by ${by} in ${range}, so a later run no longer tests what the PR merged`,
-        };
+        return refuse(
+          `${what} changed on ${input.ref} by ${by} in ${range}, so a later run no longer tests what the PR merged`,
+        );
       }
       // T14119: later edits elsewhere in the PR's files leave its change
       // standing; the run still tests it while every hunk it added is there.
       const missing = input.missingPrHunk(merge, sha, paths, cwd);
       if (missing !== null) {
-        return {
-          ok: false,
-          reason:
-            `the PR's change is no longer intact at ${sha.slice(0, 12)}: ${missing} (the PR's files ` +
+        return refuse(
+          `the PR's change is no longer intact at ${sha.slice(0, 12)}: ${missing} (the PR's files ` +
             `changed on ${input.ref} from ${by} in ${range}), so a later run no longer tests what ` +
             'the PR merged. Prove testsPassed on a main HEAD with tool:test-affected, or a ' +
             `test-run there covering ${TARGETED_RUN_COVERAGE}`,
-        };
+        );
       }
     }
     const fetched = await input.fetchChecks(sha, cwd);
-    if (!fetched.ok) return { ok: false, reason: fetched.reason };
+    if (!fetched.ok) return refuse(fetched.reason);
     const failedJob = firstRealFailure(fetched.checks, sha, scope);
     if (failedJob && input.fetchJobLog) {
       // T13809: a later run red only for the quarantine budget, cancelled with
@@ -2001,17 +2053,16 @@ export async function findGreenDescendant(
       }
     }
     if (failedJob) {
-      return {
-        ok: false,
-        reason: `${failedJob.name}: ${failedJob.conclusion} on later ${input.ref} commit ${sha.slice(0, 12)}`,
-      };
+      return refuse(
+        `${failedJob.name}: ${failedJob.conclusion} on later ${input.ref} commit ${sha.slice(0, 12)}`,
+      );
     }
     const verdict = judgeStandIn(fetched.checks, sha, supersededNames, pins, input.jobs, input.ref);
     if ('undecided' in verdict) {
       lastUndecided ??= `${sha.slice(0, 12)}: ${verdict.undecided}`;
       continue;
     }
-    if (!verdict.ok) return verdict;
+    if (!verdict.ok) return refuse(verdict.reason);
     return {
       ok: true,
       sha,
@@ -2024,12 +2075,10 @@ export async function findGreenDescendant(
       ...(passedOver.length > 0 ? { passedOver } : {}),
     };
   }
-  return {
-    ok: false,
-    reason:
-      `no later ${input.ref} commit (first ${CI_DESCENDANT_MAX_CANDIDATES} within 7 days) has a completed push run of ${supersededNames.join(', ')}` +
+  return refuse(
+    `no later ${input.ref} commit (first ${CI_DESCENDANT_MAX_CANDIDATES} within 7 days) has a completed push run of ${supersededNames.join(', ')}` +
       (lastUndecided ? ` that ran the gates' jobs (first one passed over: ${lastUndecided})` : ''),
-  };
+  );
 }
 
 /**
@@ -2175,6 +2224,10 @@ export type FindGreenCurrentHeadResult =
  * runs (and the gates' jobs run, T13846) accepts; a failed or pending one
  * refuses; cancelled, skipped or missing runs move to the parent.
  *
+ * The same run stands in for a scoped change (T14434, owner decision D11241)
+ * once the caller has shown the merge commit's failure is not the PR's, the PR
+ * head's own CI was green and the PR's hunks are intact at the stand-in.
+ *
  * @param input - Required checks, pins, merge commit and injected I/O.
  * @returns The stand-in commit, its checks and the head, or the refusal reason.
  * @task T14032
@@ -2185,6 +2238,12 @@ export async function findGreenCurrentHead(
   const { mergeCommitSha: merge, ref, cwd } = input;
   const head = input.defaultBranchHead(ref, cwd);
   if (!head) return { ok: false, reason: `cannot read the current head of ${ref}` };
+  if (head === merge) {
+    return {
+      ok: false,
+      reason: `${ref} HEAD ${head.slice(0, 12)} is the merge commit itself, so no later push run exists yet`,
+    };
+  }
   let sha: string | null = head;
   // T14177: the first commit stepped past whose run decided nothing for a
   // reason other than CI's change filter skipping the gates' jobs.
@@ -3105,6 +3164,8 @@ export async function resolveCiEvidenceAtom(
       }
     | undefined;
   let descendantReason: string | undefined;
+  // T14434: set when only the walk refused, so the current-head run may stand in.
+  let cleared: ClearedMerge | undefined;
   // T13846: a code task's gates need their jobs to have run, so the stand-in
   // must be a later main run where they did — not merely the first one whose
   // required checks are green (a scripts-only merge skips the test jobs).
@@ -3164,6 +3225,7 @@ export async function resolveCiEvidenceAtom(
       }
     } else {
       descendantReason = found.reason;
+      cleared = found.cleared;
     }
   }
   // T14032 (owner decision D11192): a workspace-wide change, which only a full
@@ -3171,15 +3233,22 @@ export async function resolveCiEvidenceAtom(
   // check on the default branch's current head, descending from the merge,
   // whatever the merge's own run concluded and whatever later commits touched:
   // that run tested the merged change as it is now (as the T13673 test-run
-  // stand-in does). A scoped change keeps the T12742 rule alone.
+  // stand-in does).
+  // T14434 (owner decision D11241, extending D11192): the same run stands in
+  // for a scoped change too, when the walk above showed the merge commit's
+  // failure is not the PR's and the PR head's own CI was green (`cleared`),
+  // and every hunk the PR added is still there at the stand-in.
   let workspaceWide: string | undefined;
+  let currentHead = false;
   let currentHeadReason: string | undefined;
-  if (!judgedChecks.ok && onDefault.ref !== null && !docsOnlyDiff) {
-    const wide = await (opts.workspaceWideReason ?? defaultWorkspaceWideReason)(
-      cwd,
-      pr.changedPaths,
-    );
-    if (wide !== null) {
+  // Whether a later green head can still close this: the route applies and only its run is missing.
+  let standInOpen = false;
+  if (!judgedChecks.ok && onDefault.ref !== null) {
+    const wide = docsOnlyDiff
+      ? null
+      : await (opts.workspaceWideReason ?? defaultWorkspaceWideReason)(cwd, pr.changedPaths);
+    const scoped = wide === null ? cleared : undefined;
+    if (wide !== null || scoped) {
       const found = await findGreenCurrentHead({
         ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
         required: required.workflows,
@@ -3193,34 +3262,74 @@ export async function resolveCiEvidenceAtom(
         firstParentOf: opts.firstParentOf ?? defaultFirstParentOf,
         isAncestor: opts.isAncestor ?? defaultIsAncestor,
       });
-      const rejudged = found.ok
-        ? evaluateMergeCommitChecks(
-            required.workflows,
-            [...checks, ...found.checks],
-            pr.mergeCommitSha,
-            {
+      const missing =
+        found.ok && scoped
+          ? (opts.missingPrHunk ?? missingPrHunk)(
+              pr.mergeCommitSha,
+              found.sha,
+              pr.changedPaths,
+              cwd,
+            )
+          : null;
+      const withHead = found.ok
+        ? [...checks, ...found.checks, ...(scoped?.headChecks ?? [])]
+        : checks;
+      const rejudged =
+        found.ok && missing === null
+          ? evaluateMergeCommitChecks(required.workflows, withHead, pr.mergeCommitSha, {
               ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
               pins,
               descendantSha: found.sha,
               currentHead: true,
-            },
-          )
-        : null;
+            })
+          : null;
       if (found.ok && rejudged?.ok) {
-        checks = [...checks, ...found.checks];
+        checks = withHead;
         judgedChecks = rejudged;
-        descendant = { sha: found.sha, range: found.range };
-        workspaceWide = wide;
+        descendant = {
+          sha: found.sha,
+          range: found.range,
+          ...(scoped?.prHeadSha ? { prHeadSha: scoped.prHeadSha } : {}),
+          ...(scoped?.inherited ? { inherited: scoped.inherited } : {}),
+          ...(scoped?.nonTest ? { nonTest: scoped.nonTest } : {}),
+          ...(scoped?.untested ? { untested: scoped.untested } : {}),
+        };
+        if (wide !== null) workspaceWide = wide;
+        else currentHead = true;
       } else {
-        const why = found.ok
-          ? `${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged && !rejudged.ok ? rejudged.reasons.join('; ') : ''}`
-          : found.reason;
-        currentHeadReason = `the change is workspace-wide (${wide}), so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (T14032), but ${why}`;
+        standInOpen = !found.ok;
+        const why = !found.ok
+          ? found.reason
+          : missing !== null
+            ? `the PR's change is no longer intact at ${found.sha.slice(0, 12)}: ${missing}`
+            : `${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged && !rejudged.ok ? rejudged.reasons.join('; ') : ''}`;
+        currentHeadReason =
+          (wide !== null
+            ? `the change is workspace-wide (${wide}), so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (T14032), but `
+            : `the merge commit's run is not the PR's failure and the PR head's own CI was green, so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (D11241), but `) +
+          why;
       }
     }
   }
   if (!judgedChecks.ok) {
-    const waiting = judgedChecks.reasons.some((r) => /pending|not found|missing/.test(r));
+    // T14434: a check "not found" beside one that finished red never ran, so
+    // only an unfinished run, or no run at all, is worth waiting for.
+    const waiting =
+      judgedChecks.reasons.some((r) => r.includes('pending')) ||
+      judgedChecks.reasons.every((r) => /pending|not found|missing/.test(r));
+    // T14434: name what still closes the task, never the atom just refused.
+    const targeted = gateLists
+      .map((g) =>
+        g.gate === 'testsPassed'
+          ? `a test-run covering ${TARGETED_RUN_COVERAGE}, for testsPassed`
+          : "a qa-run of typecheck and lint over the change's roots (or tool:lint;tool:typecheck) for qaPassed",
+      )
+      .join(' and ');
+    const next = waiting
+      ? ''
+      : standInOpen
+        ? ` Next: ${CURRENT_HEAD_STAND_IN_OPEN}; verify again once ${onDefault.ref} HEAD's CI is green.`
+        : ` Next: no later run stands in for it; on ${onDefault.ref} after the merge, record ${targeted}.`;
     const merge12 = pr.mergeCommitSha.slice(0, 12);
     // T14042: the decisive reason and the next step lead; the detail follows,
     // so a truncated refusal still says what to do.
@@ -3235,7 +3344,7 @@ export async function resolveCiEvidenceAtom(
       ok: false,
       codeName: 'E_EVIDENCE_TESTS_FAILED',
       reason:
-        `${lead}\n  Required checks (source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
+        `${lead}${next}\n  Required checks (source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
         (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : '') +
         (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : ''),
     };
@@ -3366,6 +3475,7 @@ export async function resolveCiEvidenceAtom(
           }
         : {}),
       ...(workspaceWide ? { workspaceWide } : {}),
+      ...(currentHead ? { currentHead: true } : {}),
       ...(mainOnly ? { mainOnly: true } : {}),
       ...(Object.keys(filterSkipped).length > 0 ? { filterSkippedJobs: filterSkipped } : {}),
       requiredSource: required.source.tier,

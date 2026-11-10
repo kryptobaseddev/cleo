@@ -757,6 +757,16 @@ export type EvidenceAtom =
        * runs are re-checked.
        */
       workspaceWide?: string;
+      /**
+       * `descendantSha` is the default branch's head at verify time standing
+       * in for a SCOPED change (T14434, owner decision D11241): the merge
+       * commit's red or cancelled run was not the PR's, the PR head's own CI
+       * was green (`descendantPrHeadSha`), and every hunk the PR added was
+       * still there at `descendantSha`. Unlike the T12742 stand-in,
+       * `descendantRange` may hold commits that touched the PR's files or a
+       * CI definition.
+       */
+      currentHead?: boolean;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
       /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */
