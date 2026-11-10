@@ -103,7 +103,6 @@ describe('nexus dispatch OpsFromCore inference (T1440)', () => {
     expect(source).toContain("'transfer'");
     expect(source).toContain("'contracts-sync'");
     expect(source).toContain("'contracts-link-tasks'");
-    expect(source).toContain("'conduit-scan'");
     expect(source).toContain("'profile.import'");
     expect(source).toContain("'profile.export'");
     expect(source).toContain("'profile.reinforce'");

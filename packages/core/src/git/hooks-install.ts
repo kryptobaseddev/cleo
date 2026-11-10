@@ -369,6 +369,52 @@ export function isCleoManagedHook(filePath: string): boolean {
 }
 
 /**
+ * Whether the hook at `filePath` is exactly CLEO's shipped `name` hook of the
+ * kind that only starts a detached NEXUS refresh (a `post-*` hook, T12349)
+ * and runs no chained hook (T14384). Such a hook does no heavy work in the
+ * git command that runs it, so `cleo run` admits that command light; the
+ * refresh it starts is admitted on its own, under the scan class.
+ *
+ * A customized copy, a `pre-*` or check hook, or one with an executable
+ * `.cleo-chained` sibling (which it runs, and which may be heavy) is not.
+ *
+ * @param name - The hook name (`post-checkout`).
+ * @param filePath - The installed hook file.
+ * @param templatesDir - Where the shipped templates live. @defaultValue {@link defaultTemplatesDir}
+ * @returns `true` only for an unmodified detached-refresh hook with nothing chained.
+ *
+ * @example
+ * ```ts
+ * isDetachedCleoHook('post-checkout', '/repo/.git/hooks/post-checkout'); // true after `cleo init`
+ * isDetachedCleoHook('pre-push', '/repo/.git/hooks/pre-push'); // false
+ * ```
+ *
+ * @task T14384
+ */
+export function isDetachedCleoHook(
+  name: string,
+  filePath: string,
+  templatesDir: string = defaultTemplatesDir(),
+): boolean {
+  const hook = CHAINED_GIT_HOOK_NAMES.find((h) => h === name);
+  if (hook === undefined) return false;
+  try {
+    fs.accessSync(`${filePath}${CHAINED_HOOK_SUFFIX}`, fs.constants.X_OK);
+    return false;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'EACCES') return false;
+  }
+  try {
+    return (
+      fs.readFileSync(filePath, 'utf8') === fs.readFileSync(path.join(templatesDir, hook), 'utf8')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve the `.git` directory for a project. Returns `null` when the
  * path is not inside a git repository.
  *

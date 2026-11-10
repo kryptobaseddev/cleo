@@ -25,7 +25,6 @@ import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, reportRawError } from '../../dispatch/adapters/cli.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
-import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { cliError, cliOutput, humanWarn } from '../renderers/index.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -738,7 +737,7 @@ const livingFullContextCommand = defineCommand({
   meta: {
     name: 'full-context',
     description:
-      'Show full Living Brain context for a symbol: NEXUS callers/callees, BRAIN memories, TASKS, sentient proposals, conduit threads',
+      'Show full Living Brain context for a symbol: NEXUS callers/callees, BRAIN memories, TASKS, sentient proposals',
   },
   args: {
     symbol: {
@@ -890,29 +889,6 @@ const livingWhyCommand = defineCommand({
   },
 });
 
-/** cleo graph living conduit-scan — scan Conduit messaging patterns into the graph */
-const livingConduitScanCommand = defineCommand({
-  meta: {
-    name: 'conduit-scan',
-    description: 'Scan Conduit messaging patterns into the graph',
-  },
-  args: {
-    'project-id': { type: 'string', description: 'Project ID (default: auto-detected)' },
-    json: { type: 'boolean', description: 'Output as JSON' },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('graph living conduit-scan');
-    applyJsonFlag(args.json as boolean | undefined);
-    await dispatchFromCli(
-      'mutate',
-      'nexus',
-      'conduit-scan',
-      { projectId: args['project-id'] },
-      { command: 'graph' },
-    );
-  },
-});
-
 // ── Living subgroup ───────────────────────────────────────────────────────────
 
 /** cleo graph living — living-brain ops that bridge the code graph and BRAIN */
@@ -920,14 +896,13 @@ const livingCommand = defineCommand({
   meta: {
     name: 'living',
     description:
-      'Living Brain ops — bridge code graph + BRAIN memory (task-footprint, brain-anchors, why, full-context, conduit-scan)',
+      'Living Brain ops — bridge code graph + BRAIN memory (task-footprint, brain-anchors, why, full-context)',
   },
   subCommands: {
     'full-context': livingFullContextCommand,
     'task-footprint': livingTaskFootprintCommand,
     'brain-anchors': livingBrainAnchorsCommand,
     why: livingWhyCommand,
-    'conduit-scan': livingConduitScanCommand,
   },
   async run({ cmd }) {
     await showUsage(cmd);

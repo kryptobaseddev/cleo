@@ -36,5 +36,4 @@ export {
   LocalTuiChannelAdapter,
   type LocalTuiChannelAdapterOptions,
 } from './local-tui-adapter.js';
-export type { conduitCoreOps } from './ops.js';
 export { SseTransport } from './sse-transport.js';

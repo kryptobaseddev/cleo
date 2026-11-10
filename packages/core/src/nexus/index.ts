@@ -16,7 +16,6 @@ export type {
 } from '@cleocode/contracts/operations/nexus';
 // API Contracts + Ingestion Bridge EngineResult wrappers (T1569)
 export {
-  nexusConduitScan,
   nexusContractsLinkTasks,
   nexusContractsShow,
   nexusContractsSync,

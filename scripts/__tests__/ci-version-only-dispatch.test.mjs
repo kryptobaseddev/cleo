@@ -41,7 +41,7 @@ describe('ci.yml wiring (T13141)', () => {
   });
 
   it('keeps the heavy jobs gated on version_only', () => {
-    for (const job of ['unit-tests', 'build', 'packed-artifact', 'install-test']) {
+    for (const job of ['unit-tests', 'build', 'packed-artifact', 'post-build-checks']) {
       expect(ci.jobs[job]?.if, job).toContain("needs.changes.outputs.version_only != 'true'");
     }
   });
