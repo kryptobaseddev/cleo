@@ -37,6 +37,7 @@ export type {
 } from './core/agents/agent-definitions.js';
 export {
   AGENT_DEFINITION_MARKER,
+  agentDefinitionUnsupportedReason,
   isGeneratedAgentDefinition,
   parseAgentDefinition,
   renderAgentDefinition,

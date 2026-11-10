@@ -221,7 +221,39 @@ function renderClaude(def: AgentDefinition): string {
   return `${fm.join('\n')}\n\n${def.prompt}\n`;
 }
 
+/**
+ * Why a format cannot express a definition, or `undefined` when it can.
+ *
+ * The OpenCode format writes only `permission` denies: it has no tool
+ * allow-list and no per-agent MCP servers, so a definition with `tools` or
+ * `mcpServers` would get every other tool there (global MCP tools, `task`).
+ * Such a definition is not delivered to that provider (T14374).
+ *
+ * @param def - The canonical definition, as delivered.
+ * @param format - The provider's format (registry `agentDefinitions.format`).
+ * @returns The reason, or `undefined` when {@link renderAgentDefinition} can render it.
+ *
+ * @example
+ * ```typescript
+ * agentDefinitionUnsupportedReason(lead, 'opencode'); // 'OpenCode agent files cannot ...'
+ * ```
+ *
+ * @public
+ */
+export function agentDefinitionUnsupportedReason(
+  def: AgentDefinition,
+  format: AgentDefinitionFormat,
+): string | undefined {
+  if (format === 'claude-code') return undefined;
+  if (def.tools || Object.keys(def.mcpServers ?? {}).length > 0) {
+    return 'OpenCode agent files cannot restrict tools to an allow-list or declare per-agent MCP servers';
+  }
+  return undefined;
+}
+
 function renderOpenCode(def: AgentDefinition): string {
+  const unsupported = agentDefinitionUnsupportedReason(def, 'opencode');
+  if (unsupported) throw new Error(`agent definition "${def.name}": ${unsupported}`);
   const fm = [
     '---',
     AGENT_DEFINITION_MARKER,
