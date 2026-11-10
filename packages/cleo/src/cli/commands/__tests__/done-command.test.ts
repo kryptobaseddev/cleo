@@ -86,6 +86,31 @@ describe('cleo done', () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it('T14361: --report without proof is refused before recording; with proof it records', async () => {
+    const head = 'Implementation complete. manifest:e1\nconclusion: done\nblocker: none';
+    await runDone({ taskId: 'T1', report: head });
+    expect(recordTaskDone).not.toHaveBeenCalled();
+    expect(cliError.mock.calls[0]?.[1]).toBe('E_WORKER_REPORT_PROOF');
+    expect(process.exitCode).toBe(61);
+
+    cliError.mockReset();
+    process.exitCode = undefined;
+    recordTaskDone.mockResolvedValue(recorded);
+    dispatchRaw.mockResolvedValue({ success: true, data: { updated: ['T1'] } });
+    await runDone({ taskId: 'T1', report: `${head}\nproof: https://github.com/o/r/pull/1` });
+    expect(cliError).not.toHaveBeenCalled();
+    expect(recordTaskDone).toHaveBeenCalledOnce();
+  });
+
+  it('T14361: --report over 100 words is refused, pointing the detail at the PR body', async () => {
+    const long = `Implementation complete. manifest:e1\nconclusion: ${'word '.repeat(100)}\nblocker: none\nproof: abc1234`;
+    await runDone({ taskId: 'T1', report: long });
+    expect(recordTaskDone).not.toHaveBeenCalled();
+    expect(cliError.mock.calls[0]?.[1]).toBe('E_VALIDATION');
+    expect(cliError.mock.calls[0]?.[2]).toMatchObject({ fix: expect.stringContaining('PR body') });
+    expect(process.exitCode).toBe(6);
+  });
+
   it('refuses an invalid --pr before recording anything', async () => {
     await runDone({ taskId: 'T1', pr: 'abc' });
     expect(recordTaskDone).not.toHaveBeenCalled();
