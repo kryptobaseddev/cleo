@@ -14,7 +14,10 @@
  * 3. A red whose failing job logs show only a runner shutdown or a
  *    cancellation is infra: rerun the failed jobs, at most
  *    {@link MERGE_TRAIN_MAX_RERUNS} times per head, then stop and surface. Any
- *    other red is real: reported once per head, never rerun.
+ *    other red is real: reported once per head, never rerun. The review is
+ *    judged first (T14389): a head whose review check has gaps gets at most
+ *    {@link MERGE_TRAIN_MAX_UNREVIEWED_RERUNS} rerun, so saturated runners go
+ *    to heads that can merge.
  * 4. An old main run is rerun only when that commit's workflow file gives a
  *    rerun its own per-sha concurrency group (`-rerun-{0}`) and does not
  *    cancel in progress on main; otherwise the rerun cancels main's newest run.
@@ -45,6 +48,9 @@ export const MAIN_FIX_LABEL = 'main-fix';
 
 /** Infra reruns allowed per head (PR head or main commit) before the train stops trying. */
 export const MERGE_TRAIN_MAX_RERUNS = 3;
+
+/** Infra reruns allowed per head while its review check has gaps (T14389). */
+export const MERGE_TRAIN_MAX_UNREVIEWED_RERUNS = 1;
 
 /** Heartbeat age after which a train's lock is stale. */
 export const MERGE_TRAIN_LOCK_STALE_MS = 10 * 60_000;
@@ -149,6 +155,12 @@ export interface MergeTrainDecision {
   prNumber: number;
   /** The head judged. */
   headSha: string;
+  /**
+   * The review state, judged before CI and any rerun (T14389): `ready` (no
+   * gaps on this head) or `gaps: ...`. Unset when the PR was skipped before
+   * its review was read, or its head moved after it was judged.
+   */
+  review?: string;
   /**
    * `merge`: would merge (dry run). `merged`: merged. `rerun`: infra-only red,
    * failed jobs rerun (dry run: would be). `retry`: a GitHub API error, judged
@@ -416,13 +428,16 @@ async function judgePr(
 ): Promise<MergeTrainDecision> {
   const { deps, state, execute } = ctx;
   const github = deps.github;
-  const base = { prNumber: pr.number, headSha: pr.headSha };
+  let base: { prNumber: number; headSha: string; review?: string } = {
+    prNumber: pr.number,
+    headSha: pr.headSha,
+  };
   const skip = (reason: string): MergeTrainDecision => ({ ...base, action: 'skip', reason });
   const headKey = `${pr.number}:${pr.headSha}`;
-  /** A failure surfaced once per head: `firstReport` only the first time. */
-  const report = (reason: string): MergeTrainDecision => {
-    const first = state.reported?.[headKey] === undefined;
-    if (first && execute) state.reported = { ...state.reported, [headKey]: reason };
+  /** A failure surfaced once per head (and `key` suffix): `firstReport` only the first time. */
+  const report = (reason: string, key = headKey): MergeTrainDecision => {
+    const first = state.reported?.[key] === undefined;
+    if (first && execute) state.reported = { ...state.reported, [key]: reason };
     return { ...skip(reason), ...(first ? { firstReport: true } : {}) };
   };
   if (pr.isDraft) return skip('draft');
@@ -441,15 +456,34 @@ async function judgePr(
     );
   if (ctx.mainRed && !pr.labels.includes(MAIN_FIX_LABEL))
     return skip(`main is red; only a PR labelled ${MAIN_FIX_LABEL} merges`);
+  // Review before CI (T14389): the rerun budget depends on it.
+  const reviews = await deps.reviewCheck(root, pr.number, directives);
+  const moved = reviews.find((r) => r.headSha !== pr.headSha);
+  if (moved)
+    return skip(`head moved to ${moved.headSha.slice(0, 9)} after it was judged; judge again`);
+  const gaps = reviews.flatMap((r) => r.gaps.map((g) => `${r.taskId} ${g.reason}`));
+  const reviewed = gaps.length === 0;
+  base = { ...base, review: reviewed ? 'ready' : `gaps: ${gaps.join('; ')}` };
+  const said = reviewed ? 'review ready' : 'review check has gaps';
   const ci = await judgeChecks(github, await github.runs({ sha: pr.headSha }), ctx.required);
-  if (ci.state === 'pending') return skip(`CI on ${pr.headSha.slice(0, 9)}: ${ci.reason}`);
+  if (ci.state === 'pending') return skip(`${said}; CI on ${pr.headSha.slice(0, 9)}: ${ci.reason}`);
   if (ci.state === 'red') {
     for (const job of ci.failing)
       if (!(await isInfraFailure(github, job)))
-        return report(`CI on ${pr.headSha.slice(0, 9)} failed for real (${job.name}); not rerun`);
+        return report(
+          `${said}; CI on ${pr.headSha.slice(0, 9)} failed for real (${job.name}); not rerun`,
+        );
     const n = state.reruns?.[headKey] ?? 0;
-    if (n >= MERGE_TRAIN_MAX_RERUNS)
-      return report(`CI on ${pr.headSha.slice(0, 9)} red on infra ${n} times; needs attention`);
+    const limit = reviewed ? MERGE_TRAIN_MAX_RERUNS : MERGE_TRAIN_MAX_UNREVIEWED_RERUNS;
+    if (n >= limit)
+      return reviewed
+        ? report(
+            `${said}; CI on ${pr.headSha.slice(0, 9)} red on infra ${n} times; needs attention`,
+          )
+        : report(
+            `${said}; CI on ${pr.headSha.slice(0, 9)} red on infra after ${n} rerun; not rerun until reviewed`,
+            `${headKey}:unreviewed`,
+          );
     if (execute) {
       for (const id of ci.runIds) await github.rerunFailed(id);
       state.reruns = { ...state.reruns, [headKey]: n + 1 };
@@ -457,15 +491,10 @@ async function judgePr(
     return {
       ...base,
       action: 'rerun',
-      reason: `infra-only red (${ci.failing.map((j) => j.name).join(', ')}); rerun ${n + 1} of ${MERGE_TRAIN_MAX_RERUNS}`,
+      reason: `${said}; infra-only red (${ci.failing.map((j) => j.name).join(', ')}); rerun ${n + 1} of ${limit}`,
     };
   }
-  const reviews = await deps.reviewCheck(root, pr.number, directives);
-  const moved = reviews.find((r) => r.headSha !== pr.headSha);
-  if (moved)
-    return skip(`head moved to ${moved.headSha.slice(0, 9)} after it was judged; judge again`);
-  const gaps = reviews.flatMap((r) => r.gaps.map((g) => `${r.taskId} ${g.reason}`));
-  if (gaps.length > 0) return skip(`review check: ${gaps.join('; ')}`);
+  if (!reviewed) return skip(`review check: ${gaps.join('; ')}`);
   const dry = await deps.closureDryRun(root, pr.number);
   const outcome = dry.prs.find((p) => p.prNumber === pr.number);
   if (!dry.swept || outcome === undefined)

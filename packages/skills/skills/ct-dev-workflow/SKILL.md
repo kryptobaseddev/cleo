@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.10.0
+version: 3.11.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.10.0
+  version: 3.11.0
   tier: core
   install: harness
   covers:
@@ -370,7 +370,9 @@ merges an open PR only on the exact head that was reviewed (pinned with
 run's latest attempt, the review check passes and `done --from-merge --dry-run`
 says nothing waits or is refused. An infra-only red (runner shutdown, cancel)
 gets its failed jobs rerun, at most 3 times per head; a real red is reported
-once and never rerun. Nothing merges while main's latest push run is red except
+once and never rerun. The review is judged first: a head whose review check
+has gaps gets at most one infra rerun, and each decision states the review
+state (`review: ready` or `gaps: ...`) before the rerun decision. Nothing merges while main's latest push run is red except
 a PR labelled `main-fix`; `Merge-After: #<n>` holds a PR until PR n merged.
 Once the merge commit has a completed push run, the train runs the merge sweep
 for the PR. One train runs per repository, and a train that stops says so.
