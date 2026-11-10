@@ -930,20 +930,51 @@ export const LEAD_RUNNER_TOOL = `mcp__${LEAD_RUNNER_MCP_SERVER}__${LEAD_RUNNER_T
 export type LeadCommandBinary = 'cleo' | 'gh';
 
 /**
- * One allowed command: the argv words after the binary that must open the
- * call, plus flags that must also be present (so `done --from-merge` is only
- * allowed as a dry run).
+ * How a lead-runner flag is parsed: `boolean` takes no value; `value` takes
+ * the next argv word (which must not start with `-`) or an inline
+ * `--flag=value`.
+ *
+ * @task T14374
+ */
+export type LeadFlagArity = 'boolean' | 'value';
+
+/**
+ * One allowed command, allow-only at every level: the full command path, the
+ * flags it accepts with their arity, how many positional words it takes, and
+ * the flags that must be set. Anything not listed is refused.
  *
  * @task T14374
  */
 export interface LeadCommandRule {
-  /** Leading argv words after the binary, e.g. `['review', 'verdict']`. */
+  /** Full command path after the binary, down to a leaf, e.g. `['review', 'verdict']`. */
   readonly verb: readonly string[];
-  /** Flags that must appear somewhere in argv for the call to be allowed. */
+  /** Flags the command accepts, keyed by their full token (`--json`), with arity. */
+  readonly flags?: Readonly<Record<string, LeadFlagArity>>;
+  /** Most positional words allowed after the path. @defaultValue 0 */
+  readonly positionals?: number;
+  /** Flags the parse must show set (a boolean set true, a value flag given a value). */
   readonly requireFlags?: readonly string[];
-  /** Second words refused even though {@link LeadCommandRule.verb} matches. */
-  readonly denySubcommands?: readonly string[];
 }
+
+/**
+ * Global `cleo` output flags (parsed by the CLI entry for every command) that
+ * a lead may add after any allowed `cleo` command.
+ *
+ * @task T14374
+ */
+export const LEAD_CLEO_GLOBAL_FLAGS: Readonly<Record<string, LeadFlagArity>> = {
+  '--json': 'boolean',
+  '--human': 'boolean',
+  '--quiet': 'boolean',
+  '--full': 'boolean',
+  '--verbose': 'boolean',
+  '--summary': 'boolean',
+  '--describe': 'boolean',
+  '--field': 'value',
+  '--fields': 'value',
+  '--output': 'value',
+  '--mvi': 'value',
+};
 
 /**
  * Commands a lead may run through {@link LEAD_RUNNER_TOOL}: read, plan,
@@ -951,9 +982,12 @@ export interface LeadCommandRule {
  * PRs green on their exact head and reviewed per AC. Nothing here edits files,
  * pushes or answers an owner gate; anything not listed is refused.
  *
- * `orchestrate` is allowed with every subcommand except the ones that merge
- * (`worktree-complete`), answer an owner approval gate (`approve`, `reject`)
- * or start the runner itself (`lead-runner`).
+ * Each rule names a leaf command, so a flag can never sit in front of the
+ * subcommand and change which one runs. `orchestrate` lists only its
+ * read/plan/dispatch sub-verbs: never `worktree-complete` (merges),
+ * `approve`/`reject` (owner gate), `lead-runner`, `prune`, `ivtr`,
+ * `bootstrap` or `conduit-*`. `gh` takes no `--repo`, `--web`, `--watch`,
+ * `--body-file`, `--edit-last` or `--delete-last`; a comment is `--body` text.
  *
  * @task T14374
  * @epic T14351
@@ -962,32 +996,228 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
   Record<LeadCommandBinary, readonly LeadCommandRule[]>
 > = {
   cleo: [
+    { verb: ['orchestrate', 'start'], positionals: 1 },
+    { verb: ['orchestrate', 'status'], flags: { '--epic': 'value', '--merge-queue': 'boolean' } },
+    { verb: ['orchestrate', 'dashboard'], flags: { '--window': 'value' } },
+    { verb: ['orchestrate', 'roll-up'], positionals: 1, flags: { '--wave': 'value' } },
     {
-      verb: ['orchestrate'],
-      denySubcommands: ['worktree-complete', 'approve', 'reject', 'lead-runner'],
+      verb: ['orchestrate', 'analyze'],
+      positionals: 1,
+      flags: { '--mode': 'value', '--tasks': 'value' },
     },
-    { verb: ['show'] },
-    { verb: ['find'] },
-    { verb: ['list'] },
-    { verb: ['review', 'packet'] },
-    { verb: ['review', 'check'] },
-    { verb: ['review', 'verdict'] },
-    { verb: ['done'], requireFlags: ['--from-merge', '--dry-run'] },
-    { verb: ['memory', 'find'] },
-    { verb: ['memory', 'fetch'] },
-    { verb: ['briefing'] },
+    {
+      verb: ['orchestrate', 'ready'],
+      positionals: 1,
+      flags: { '--ignore-deps-validate': 'boolean', '--via': 'value' },
+    },
+    {
+      verb: ['orchestrate', 'report'],
+      positionals: 1,
+      flags: { '--page': 'value', '--page-size': 'value' },
+    },
+    { verb: ['orchestrate', 'next'], positionals: 1 },
+    {
+      verb: ['orchestrate', 'waves'],
+      positionals: 1,
+      flags: { '--via': 'value', '--hide-completed': 'boolean' },
+    },
+    { verb: ['orchestrate', 'plan'], positionals: 1, flags: { '--tier': 'value' } },
+    {
+      verb: ['orchestrate', 'spawn'],
+      positionals: 1,
+      flags: {
+        '--protocol': 'value',
+        '--tier': 'value',
+        '--scope': 'value',
+        '--orchestrator-defer': 'boolean',
+        '--lead-mbx': 'value',
+        '--base': 'value',
+        '--include-deps': 'boolean',
+        '--resume': 'boolean',
+      },
+    },
+    {
+      verb: ['orchestrate', 'validate'],
+      positionals: 1,
+      flags: { '--file': 'value', '--manifest': 'boolean' },
+    },
+    { verb: ['orchestrate', 'context'], positionals: 1 },
+    { verb: ['orchestrate', 'parallel'], positionals: 2, flags: { '--wave': 'value' } },
+    { verb: ['orchestrate', 'unblock'] },
+    { verb: ['orchestrate', 'classify'], positionals: 1 },
+    { verb: ['orchestrate', 'fanout-status'], flags: { '--manifest-entry-id': 'value' } },
+    { verb: ['orchestrate', 'handoff'], positionals: 1, flags: { '--protocol': 'value' } },
+    { verb: ['orchestrate', 'spawn-execute'], positionals: 1, flags: { '--base': 'value' } },
+    { verb: ['orchestrate', 'fanout'], positionals: 1, flags: { '--tasks': 'value' } },
+    { verb: ['orchestrate', 'pending'] },
+    {
+      verb: ['show'],
+      positionals: 50,
+      flags: { '--history': 'boolean', '--ivtr-history': 'boolean', '--relations': 'boolean' },
+    },
+    {
+      verb: ['find'],
+      positionals: 1,
+      flags: {
+        '--id': 'value',
+        '--exact': 'boolean',
+        '--fuzzy': 'boolean',
+        '--status': 'value',
+        '--in': 'value',
+        '--include-archive': 'boolean',
+        '--limit': 'value',
+        '--all': 'boolean',
+        '--offset': 'value',
+        '--kind': 'value',
+        '--urgent': 'boolean',
+        '--label': 'value',
+        '--parent': 'value',
+      },
+    },
+    {
+      verb: ['list'],
+      flags: {
+        '--include-archive': 'boolean',
+        '--parent': 'value',
+        '--status': 'value',
+        '--priority': 'value',
+        '--type': 'value',
+        '--severity': 'value',
+        '--kind': 'value',
+        '--phase': 'value',
+        '--label': 'value',
+        '--limit': 'value',
+        '--offset': 'value',
+        '--all': 'boolean',
+      },
+    },
+    { verb: ['review', 'packet'], positionals: 1, flags: { '--task': 'value' } },
+    { verb: ['review', 'check'], positionals: 1, flags: { '--task': 'value', '--ac': 'value' } },
+    {
+      verb: ['review', 'verdict'],
+      positionals: 1,
+      flags: {
+        '--task': 'value',
+        '--ac': 'value',
+        '--met': 'boolean',
+        '--unmet': 'boolean',
+        '--reason': 'value',
+        '--packet': 'value',
+        '--answers': 'value',
+      },
+    },
+    {
+      verb: ['done'],
+      flags: { '--from-merge': 'value', '--dry-run': 'boolean' },
+      requireFlags: ['--from-merge', '--dry-run'],
+    },
+    {
+      verb: ['memory', 'find'],
+      positionals: 1,
+      flags: {
+        '--type': 'value',
+        '--docs': 'boolean',
+        '--history': 'boolean',
+        '--pattern-type': 'value',
+        '--min-confidence': 'value',
+        '--actionable': 'boolean',
+        '--limit': 'value',
+        '--agent': 'value',
+      },
+    },
+    { verb: ['memory', 'fetch'], positionals: 50 },
+    {
+      verb: ['briefing'],
+      flags: {
+        '--scope': 'value',
+        '--max-next': 'value',
+        '--max-bugs': 'value',
+        '--max-blocked': 'value',
+        '--max-epics': 'value',
+        '--strict': 'boolean',
+        '--debug': 'boolean',
+        '--with-profile': 'boolean',
+        '--memory-detail': 'boolean',
+      },
+    },
     { verb: ['session', 'status'] },
-    { verb: ['decide', 'ask'] },
-    { verb: ['merge', 'train'] },
+    {
+      verb: ['decide', 'ask'],
+      flags: {
+        '--state': 'value',
+        '--question': 'value',
+        '--noul': 'value',
+        '--timeout-ms': 'value',
+        '--profile': 'value',
+      },
+    },
+    { verb: ['merge', 'train'], flags: { '--dry-run': 'boolean', '--execute': 'boolean' } },
   ],
   gh: [
-    { verb: ['pr', 'view'] },
-    { verb: ['pr', 'list'] },
-    { verb: ['pr', 'checks'] },
-    { verb: ['pr', 'diff'] },
-    { verb: ['pr', 'comment'] },
-    { verb: ['run', 'list'] },
-    { verb: ['run', 'view'] },
+    {
+      verb: ['pr', 'view'],
+      positionals: 1,
+      flags: { '--json': 'value', '--jq': 'value', '--template': 'value', '--comments': 'boolean' },
+    },
+    {
+      verb: ['pr', 'list'],
+      flags: {
+        '--state': 'value',
+        '--limit': 'value',
+        '--search': 'value',
+        '--label': 'value',
+        '--author': 'value',
+        '--base': 'value',
+        '--head': 'value',
+        '--draft': 'boolean',
+        '--json': 'value',
+        '--jq': 'value',
+      },
+    },
+    {
+      verb: ['pr', 'checks'],
+      positionals: 1,
+      flags: { '--json': 'value', '--jq': 'value', '--required': 'boolean' },
+    },
+    {
+      verb: ['pr', 'diff'],
+      positionals: 1,
+      flags: { '--name-only': 'boolean', '--patch': 'boolean', '--color': 'value' },
+    },
+    {
+      verb: ['pr', 'comment'],
+      positionals: 1,
+      flags: { '--body': 'value' },
+      requireFlags: ['--body'],
+    },
+    {
+      verb: ['run', 'list'],
+      flags: {
+        '--branch': 'value',
+        '--workflow': 'value',
+        '--limit': 'value',
+        '--status': 'value',
+        '--commit': 'value',
+        '--event': 'value',
+        '--user': 'value',
+        '--json': 'value',
+        '--jq': 'value',
+      },
+    },
+    {
+      verb: ['run', 'view'],
+      positionals: 1,
+      flags: {
+        '--log': 'boolean',
+        '--log-failed': 'boolean',
+        '--job': 'value',
+        '--attempt': 'value',
+        '--verbose': 'boolean',
+        '--exit-status': 'boolean',
+        '--json': 'value',
+        '--jq': 'value',
+      },
+    },
   ],
 };
 

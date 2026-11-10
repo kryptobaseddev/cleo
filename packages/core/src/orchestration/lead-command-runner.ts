@@ -18,19 +18,22 @@
 
 import { execFile } from 'node:child_process';
 import * as readline from 'node:readline';
-import type { LeadCommandBinary, LeadCommandRule } from '@cleocode/contracts';
+import type { LeadCommandBinary, LeadCommandRule, LeadFlagArity } from '@cleocode/contracts';
 import {
+  LEAD_CLEO_GLOBAL_FLAGS,
   LEAD_COMMAND_ALLOWLIST,
   LEAD_RUNNER_MCP_SERVER,
   LEAD_RUNNER_TOOL_NAME,
 } from '@cleocode/contracts/operations/orchestrate.js';
 
 /**
- * Characters refused in any argv word. `execFile` never hands argv to a shell,
- * so these are harmless to the runner itself; refusing them keeps a word from
- * becoming a shell command if a callee ever re-evaluates it.
+ * Characters refused in any argv word: command separators, redirection,
+ * backticks and line breaks. No argv word ever reaches a shell (the runner
+ * uses `execFile` with `shell: false`), so `$` and `\` stay usable inside
+ * values; these are refused only so a word cannot become a command if a
+ * callee ever re-evaluates it.
  */
-const SHELL_METACHARACTERS = /[;&|`$<>\\\n\r\0]/;
+const SHELL_METACHARACTERS = /[;&|`<>\n\r\0]/;
 
 /** Most bytes kept from each of stdout and stderr. */
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -60,19 +63,58 @@ function isBinary(word: string): word is LeadCommandBinary {
   return Object.hasOwn(LEAD_COMMAND_ALLOWLIST, word);
 }
 
-/** Whether `args` satisfies `rule`, or why not. */
-function matchRule(rule: LeadCommandRule, args: readonly string[]): string | null {
-  if (!rule.verb.every((word, i) => args[i] === word)) return 'no match';
-  const sub = args[rule.verb.length];
-  if (sub !== undefined && rule.denySubcommands?.includes(sub)) {
-    return `"${rule.verb.join(' ')} ${sub}" is not allowed for a lead`;
-  }
-  for (const flag of rule.requireFlags ?? []) {
-    const negated = `--no-${flag.replace(/^--/, '')}`;
-    if (!args.includes(flag) || args.some((a) => a === negated || a.startsWith(`${flag}=`))) {
-      return `"${rule.verb.join(' ')}" is allowed only with ${(rule.requireFlags ?? []).join(' ')}`;
+/**
+ * Parse the words after `rule.verb` against the rule, allow-only: positional
+ * words first, then listed flags only. Refuses an unknown flag, any `--no-*`
+ * form, a value on a boolean flag, a missing or swallowed value (the next word
+ * starts with `-`), a repeated flag, a word after a boolean flag, and too many
+ * positionals. A required flag counts only when the parse set it.
+ *
+ * @returns `null` when allowed, else the reason.
+ */
+function parseRule(
+  rule: LeadCommandRule,
+  rest: readonly string[],
+  globals: Readonly<Record<string, LeadFlagArity>>,
+): string | null {
+  const cmd = rule.verb.join(' ');
+  const set = new Set<string>();
+  let positionals = 0;
+  let inFlags = false;
+  for (let i = 0; i < rest.length; i++) {
+    const word = rest[i] ?? '';
+    if (!word.startsWith('-')) {
+      if (inFlags) return `"${word}" follows a flag that takes no value; put positionals first`;
+      positionals++;
+      if (positionals > (rule.positionals ?? 0)) return `too many positional words for "${cmd}"`;
+      continue;
     }
+    inFlags = true;
+    if (word.startsWith('--no-')) return `negated flags are refused: ${word}`;
+    const eq = word.indexOf('=');
+    const name = eq === -1 ? word : word.slice(0, eq);
+    const arity = Object.hasOwn(rule.flags ?? {}, name)
+      ? rule.flags?.[name]
+      : Object.hasOwn(globals, name)
+        ? globals[name]
+        : undefined;
+    if (arity === undefined) return `flag ${name} is not allowed for "${cmd}"`;
+    if (set.has(name)) return `flag ${name} is repeated`;
+    if (arity === 'boolean') {
+      if (eq !== -1) return `flag ${name} takes no value`;
+    } else if (eq !== -1) {
+      if (eq === word.length - 1) return `flag ${name} needs a value`;
+    } else {
+      const value = rest[i + 1];
+      if (value === undefined || value.startsWith('-')) {
+        return `flag ${name} needs a value (write ${name}=<value> for one starting with "-")`;
+      }
+      i++;
+    }
+    set.add(name);
   }
+  const missing = (rule.requireFlags ?? []).filter((f) => !set.has(f));
+  if (missing.length > 0) return `"${cmd}" is allowed only with ${missing.join(' ')}`;
   return null;
 }
 
@@ -99,13 +141,24 @@ export function checkLeadCommand(argv: readonly string[]): LeadCommandCheck {
   if (bin === undefined || !isBinary(bin)) {
     return { allowed: false, reason: `only cleo and gh may run, not ${JSON.stringify(bin)}` };
   }
-  let reason = `"${bin} ${args.slice(0, 2).join(' ')}" is not on the lead allow-list`;
-  for (const rule of LEAD_COMMAND_ALLOWLIST[bin]) {
-    const miss = matchRule(rule, args);
-    if (miss === null) return { allowed: true };
-    if (miss !== 'no match') reason = miss;
+  const rules = LEAD_COMMAND_ALLOWLIST[bin];
+  const rule = rules.find((r) => r.verb.every((word, i) => args[i] === word));
+  if (rule === undefined) {
+    const lead = args.findIndex((w) => w.startsWith('-'));
+    const words = lead === -1 ? args : args.slice(0, lead);
+    const flagFirst =
+      lead !== -1 &&
+      rules.some((r) => words.every((w, i) => r.verb[i] === w) && r.verb.length > words.length);
+    return {
+      allowed: false,
+      reason: flagFirst
+        ? 'flags must follow the full command words'
+        : `"${bin} ${args.slice(0, 2).join(' ')}" is not on the lead allow-list`,
+    };
   }
-  return { allowed: false, reason };
+  const globals = bin === 'cleo' ? LEAD_CLEO_GLOBAL_FLAGS : {};
+  const reason = parseRule(rule, args.slice(rule.verb.length), globals);
+  return reason === null ? { allowed: true } : { allowed: false, reason };
 }
 
 /**
@@ -165,10 +218,11 @@ const PROTOCOL_VERSION = '2024-11-05';
 const RUNNER_TOOL = {
   name: LEAD_RUNNER_TOOL_NAME,
   description:
-    'Run one allow-listed cleo or gh command. Pass argv as an array of words (no shell): ' +
-    'cleo orchestrate/show/find/list/briefing, cleo review packet|check|verdict, ' +
-    'cleo done --from-merge --dry-run, cleo memory find|fetch, cleo session status, ' +
-    'cleo decide ask, cleo merge train; gh pr view|list|checks|diff|comment, gh run list|view. Anything else is refused.',
+    'Run one allow-listed cleo or gh command. Pass argv as an array of words (no shell), ' +
+    'command words first, then positionals, then listed flags (--flag=value for a value starting with "-"; no --no-* forms): ' +
+    'cleo orchestrate <read/plan/dispatch sub-verb>, cleo show/find/list/briefing, cleo review packet|check|verdict, ' +
+    'cleo done --from-merge <pr> --dry-run, cleo memory find|fetch, cleo session status, cleo decide ask, ' +
+    'cleo merge train; gh pr view|list|checks|diff, gh pr comment --body <text>, gh run list|view. Anything else is refused.',
   inputSchema: {
     type: 'object',
     properties: {

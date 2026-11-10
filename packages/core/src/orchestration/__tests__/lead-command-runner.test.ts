@@ -25,7 +25,10 @@ beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'cleo-lead-runner-'));
   marker = join(dir, 'ran.log');
   const fake = join(dir, 'cleo');
-  writeFileSync(fake, `#!/bin/sh\necho "$@" >> "${marker}"\necho "fake-cleo $@"\n`);
+  writeFileSync(
+    fake,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "${marker}"\nprintf 'fake-cleo %s\\n' "$*"\n`,
+  );
   chmodSync(fake, 0o755);
   env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH ?? ''}` };
 });
@@ -47,6 +50,9 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
       env,
     });
     expect(dryRun).toMatchObject({ allowed: true, exitCode: 0 });
+    // No value reaches a shell, so `$` and `\` pass through verbatim.
+    const literal = await runLeadCommand(['cleo', 'find', '$HOME a\\b $(id)'], { env });
+    expect(literal).toMatchObject({ allowed: true, stdout: 'fake-cleo find $HOME a\\b $(id)\n' });
   });
 
   it.each([
@@ -67,6 +73,41 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
     [['gh', 'api', 'repos/x/y']],
     [['gh', 'pr']],
     [[]],
+    // A flag before the subcommand cannot change which one runs (review of #2757).
+    [['cleo', 'orchestrate', '--json', 'worktree-complete', 'T1']],
+    [['cleo', 'orchestrate', '--json', 'approve', 'tok']],
+    [['cleo', 'orchestrate', '--quiet', 'reject', 'tok']],
+    [['cleo', 'orchestrate', '--json', 'lead-runner']],
+    [['cleo', 'orchestrate', 'prune', 'T1']],
+    [['cleo', 'orchestrate', 'ivtr', 'T1']],
+    [['cleo', 'orchestrate', 'bootstrap']],
+    [['cleo', 'orchestrate', 'conduit-send', 'x']],
+    [['cleo', 'orchestrate', 'reject', 'tok']],
+    // The required dry run cannot be negated or swallowed.
+    [['cleo', 'done', '--from-merge', '12', '--no-dryRun', '--dry-run']],
+    [['cleo', 'done', '--from-merge', '12', '--dry-run', '--no-dry-run']],
+    [['cleo', 'done', '--from-merge', '12', '--since', '--dry-run']],
+    [['cleo', 'done', '--from-merge', '12', '--dryRun']],
+    [['cleo', 'done', '--from-merge', '12', '--dry-run=false']],
+    [['cleo', 'done', '--from-merge', '--dry-run']],
+    [['cleo', 'done', 'T1', '--from-merge', '12', '--dry-run']],
+    // Unknown flags, a word after a boolean flag, short flags, repeats.
+    [['cleo', 'show', 'T1', '--unknown']],
+    [['cleo', 'show', '--full', 'T1']],
+    [['cleo', 'briefing', 'inject']],
+    [['cleo', 'merge', 'train', '--execute', '--execute']],
+    [['cleo', 'merge', 'train', '--', 'x']],
+    [['cleo', 'show', 'T1', '-v']],
+    // gh: no other repo, browser, watch, body file or last-comment edits.
+    [['gh', 'pr', 'view', '12', '-R', 'other/repo']],
+    [['gh', 'pr', 'view', '12', '--repo', 'other/repo']],
+    [['gh', 'pr', 'view', '12', '--web']],
+    [['gh', 'pr', 'checks', '12', '--watch']],
+    [['gh', 'pr', 'comment', '12', '--body-file', '/etc/passwd']],
+    [['gh', 'pr', 'comment', '12', '--edit-last', '--body', 'x']],
+    [['gh', 'pr', 'comment', '12', '--delete-last']],
+    [['gh', 'pr', 'comment', '12']],
+    [['gh', 'pr', '--repo', 'x/y', 'view', '12']],
   ])('refuses %j and starts no process', async (argv) => {
     const result = await runLeadCommand(argv, { env });
     expect(result.allowed).toBe(false);
@@ -74,8 +115,8 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
 
   it.each([
     ['T1; rm -rf ~'],
-    ['$(id)'],
     ['`id`'],
+    ['a & b'],
     ['a|b'],
     ['a && b'],
     ['a > /tmp/x'],
@@ -87,10 +128,14 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
 
   it('never ran the fake for a refused call', () => {
     const runs = existsSync(marker) ? readFileSync(marker, 'utf-8').trim().split('\n') : [];
-    expect(runs).toEqual(['show T1 --full', 'done --from-merge 12 --dry-run']);
+    expect(runs).toEqual([
+      'show T1 --full',
+      'done --from-merge 12 --dry-run',
+      'find $HOME a\\b $(id)',
+    ]);
   });
 
-  it('allows the listed gh verbs and orchestrate subcommands', () => {
+  it('allows every legitimate lead call', () => {
     for (const argv of [
       ['gh', 'pr', 'checks', '12'],
       ['gh', 'run', 'view', '99', '--log-failed'],
@@ -100,6 +145,27 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
       ['cleo', 'session', 'status'],
       ['cleo', 'merge', 'train'],
       ['cleo', 'merge', 'train', '--execute'],
+      ['cleo', 'merge', 'train', '--dry-run', '--json'],
+      ['cleo', 'show', 'T1', 'T2', '--full', '--field', '/data/task/status'],
+      ['cleo', 'find', 'lead runner', '--limit', '0', '--status=pending'],
+      ['cleo', 'list', '--parent', 'T1', '--status', 'pending', '--limit', '0'],
+      ['cleo', 'orchestrate', 'spawn', 'T1', '--lead-mbx', 'cleocode-orch', '--tier', '1'],
+      ['cleo', 'orchestrate', 'waves', 'T1', '--hide-completed'],
+      ['cleo', 'orchestrate', 'parallel', 'start', 'T1', '--wave', '2'],
+      ['cleo', 'orchestrate', 'pending'],
+      ['cleo', 'review', 'packet', '12', '--task', 'T1'],
+      ['cleo', 'review', 'verdict', '12', '--task', 'T1', '--ac', 'AC1', '--met', '--reason', 'ok'],
+      ['cleo', 'review', 'verdict', '12', '--task', 'T1', '--reason=- dash first'],
+      ['cleo', 'done', '--from-merge', '12', '--dry-run'],
+      ['cleo', 'done', '--dry-run', '--from-merge=12'],
+      ['cleo', 'memory', 'fetch', 'O-1', 'D-2'],
+      ['cleo', 'briefing', '--max-next', '5'],
+      ['cleo', 'decide', 'ask', '--question', 'merge?', '--state', '{"a":1}'],
+      ['gh', 'pr', 'view', '12', '--json', 'state,headRefOid', '--jq', '.state'],
+      ['gh', 'pr', 'list', '--state', 'open', '--json', 'number'],
+      ['gh', 'pr', 'diff', '12', '--name-only'],
+      ['gh', 'pr', 'comment', '12', '--body', 'Verdict: AC1 met, see $SHA'],
+      ['gh', 'run', 'list', '--branch', 'main', '--limit', '5'],
     ]) {
       expect(checkLeadCommand(argv)).toEqual({ allowed: true });
     }

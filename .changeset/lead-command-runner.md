@@ -8,16 +8,20 @@ summary: "A lead command runner: one MCP tool (cleo_run, served by cleo orchestr
 A lead has no Bash (`LEAD_DENIED_TOOLS`), yet it dispatches and reviews
 through `cleo` and `gh`. This adds its narrow command route:
 
-- **Allow-list (contracts).** `LEAD_COMMAND_ALLOWLIST` names the verbs a lead
-  may run: `cleo orchestrate` (except `worktree-complete`, `approve`, `reject`
-  and `lead-runner`), `show`, `find`, `list`, `review packet|check|verdict`,
+- **Allow-list (contracts).** `LEAD_COMMAND_ALLOWLIST` is allow-only at
+  every level: each rule names a leaf command (`cleo orchestrate` read, plan
+  and dispatch sub-verbs; `show`, `find`, `list`, `review packet|check|verdict`,
   `done --from-merge --dry-run`, `memory find|fetch`, `briefing`,
-  `session status`, `decide ask` and `merge train`; `gh pr
-  view|list|checks|diff|comment` and `gh run list|view`. `LEAD_RUNNER_TOOL`
-  is the tool's provider name.
+  `session status`, `decide ask`, `merge train`; `gh pr
+  view|list|checks|diff|comment` and `gh run list|view`), its flags with
+  arity, its positional count and its required flags.
+  `LEAD_CLEO_GLOBAL_FLAGS` lists the output flags any cleo command may add.
+  `LEAD_RUNNER_TOOL` is the tool's provider name.
 - **Runner (core).** `runLeadCommand` checks argv against the allow-list,
-  refuses any other binary, verb or shell metacharacter before a process
-  starts, and runs the rest with `execFile` (no shell, no stdin).
+  parses the rest against the rule (a flag before the subcommand, an unknown
+  flag, any `--no-*` form, or a missing or swallowed value is refused), refuses
+  command separators and redirection before a process starts, and runs the
+  rest with `execFile` (no shell, no stdin).
   `serveLeadCommandRunner` serves it as a one-tool MCP stdio server.
 - **Entry (CLI).** `cleo orchestrate lead-runner` starts that server.
 
