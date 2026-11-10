@@ -60,6 +60,7 @@ function leadsDir(projectRoot: string): string {
 
 /** Path of one epic's lead record. */
 function recordPath(projectRoot: string, epicId: string): string {
+  // @sync-invariant none:local-only a lead record is a local file; a malformed id never reaches a path
   if (!EPIC_ID.test(epicId)) throw new Error(`invalid epic id for a lead record: ${epicId}`);
   return join(leadsDir(projectRoot), `${epicId}.json`);
 }
