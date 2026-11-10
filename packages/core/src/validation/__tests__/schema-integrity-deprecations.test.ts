@@ -86,3 +86,36 @@ describe('a deprecated evidence.ciChecks.covering block (T14260)', () => {
     expect(result.message).toMatch(/Deprecated config keys: .*evidence\.ciChecks\.covering/);
   });
 });
+
+describe('a legacy orchestrator.contextThresholds key in config.json (T14375)', () => {
+  const legacy = () => ({
+    version: '2.11.0',
+    orchestrator: { contextThresholds: { warning: 60, critical: 75 } },
+  });
+
+  it('fails the shipped schema raw, so the doctor must migrate it first', () => {
+    expect(checkSchema(legacy(), read('../../../schemas/config.schema.json'))).not.toEqual([]);
+  });
+
+  it('the integrity check keeps config.json ok and names the key as deprecated', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'orchestrator-key-deprecated-'));
+    try {
+      mkdirSync(join(root, '.cleo'), { recursive: true });
+      writeFileSync(join(root, '.cleo', 'config.json'), JSON.stringify(legacy()));
+      vi.stubEnv('CLEO_DIR', join(root, '.cleo'));
+      const report = await checkSchemaIntegrity(root);
+      const file = report.files.find((f) => f.label === 'config.json');
+      expect(file?.errors).toEqual([]);
+      expect(file?.status).toBe('ok');
+      expect(file?.deprecations).toEqual([
+        expect.stringMatching(/orchestrator\.contextThresholds is deprecated/),
+      ]);
+      // The file on disk is untouched: only cleo upgrade rewrites it.
+      expect(JSON.parse(readFileSync(join(root, '.cleo', 'config.json'), 'utf-8'))).toEqual(
+        legacy(),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

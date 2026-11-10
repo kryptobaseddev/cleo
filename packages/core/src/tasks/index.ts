@@ -131,11 +131,9 @@ export {
 } from './dependency-check.js';
 // Engine-layer converter types and functions (T1568 / ADR-057 / ADR-058)
 export {
-  type IvtrHistoryEntry,
   type LifecycleStageEntry,
   tasksToRecords,
   taskToRecord,
-  toHistoryEntry,
 } from './engine-converters.js';
 // Evidence-based verification (T832 / ADR-051, T1534 / ADR-061)
 export {
@@ -253,7 +251,6 @@ export {
   type TaskDetail,
   taskExists,
   taskShow,
-  taskShowIvtrHistory,
   taskShowOperation,
   taskShowWithHistory,
 } from './show.js';

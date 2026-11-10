@@ -201,8 +201,6 @@ export const tasksTasks = sqliteTable(
     claimedAt: text('claimed_at'),
     /** ISO-8601 UTC instant the claim lease lapses unless renewed (T12502). */
     leaseExpiresAt: text('lease_expires_at'),
-    /** JSON IVTR orchestration state (TEXT per JSON audit). */
-    ivtrState: text('ivtr_state'),
     /**
      * Caller-supplied stable idempotency key (§7 Pattern A); NULL for legacy /
      * non-agent task creates. Sentient propose / stage-drift re-ticks set it so

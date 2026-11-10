@@ -768,7 +768,7 @@ const I4_FIX =
   'Repair llmtxt session linkage — re-run `cleo session start --link-task <taskId>` or prune the orphan llmtxt session row';
 /** Stable text for the I5 invariant fix. */
 const I5_FIX =
-  'Repair conduit job anchor — re-anchor the job to a live tasks/brain row or run `cleo conduit prune --orphans`';
+  'Repair conduit job anchor — re-anchor the job to a live tasks/brain row or delete the orphan conduit_dead_letters row (no CLI verb prunes it)';
 
 /**
  * Helper: open a snapshot of `filePath` when it exists, returning `null`

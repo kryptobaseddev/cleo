@@ -33,10 +33,6 @@ vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: vi.fn(),
 }));
 
-vi.mock('../../lifecycle/ivtr-loop.js', () => ({
-  getIvtrState: vi.fn().mockResolvedValue(null),
-}));
-
 vi.mock('../../config.js', () => ({
   loadConfig: vi.fn().mockResolvedValue({ lifecycle: { mode: 'strict' } }),
   getRawConfigValue: vi.fn().mockResolvedValue(undefined),
@@ -61,7 +57,6 @@ vi.mock('../evidence.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { loadConfig } from '../../config.js';
-import { getIvtrState, type IvtrState } from '../../lifecycle/ivtr-loop.js';
 import { type getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { completeTaskStrict } from '../complete.js';
 
@@ -134,8 +129,6 @@ const EPIC_ID = 'T100';
 describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: no IVTR state (gate passes the IVTR check)
-    vi.mocked(getIvtrState).mockResolvedValue(null);
   });
 
   // -------------------------------------------------------------------------
@@ -357,44 +350,9 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
     expect(result.error?.fix).not.toContain('lifecycle complete');
   });
 
-  it('E_IVTR_INCOMPLETE names commands that work, not the retired IVTR verbs (T13945)', async () => {
-    vi.mocked(loadConfig).mockResolvedValue({
-      lifecycle: { mode: 'strict' },
-    } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
-    vi.mocked(getTaskAccessor).mockResolvedValue(
-      makeAccessorMock({
-        child: { id: CHILD_ID, parentId: null },
-      }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
-    );
-    const legacy: IvtrState = {
-      taskId: CHILD_ID,
-      currentPhase: 'validate',
-      phaseHistory: [
-        {
-          phase: 'implement',
-          agentIdentity: null,
-          startedAt: '2026-01-01T00:00:00.000Z',
-          completedAt: '2026-01-01T01:00:00.000Z',
-          passed: true,
-          evidenceRefs: [],
-        },
-      ],
-      startedAt: '2026-01-01T00:00:00.000Z',
-      loopBackCount: { implement: 0, validate: 0, audit: 0, test: 0, released: 0 },
-    };
-    vi.mocked(getIvtrState).mockResolvedValue(legacy);
-
-    const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
-
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('E_IVTR_INCOMPLETE');
-    expect(result.error?.fix).toContain(`cleo show ${CHILD_ID} --ivtr-history`);
-    expect(result.error?.fix).not.toMatch(/cleo go|playbook run ivtr/);
-  });
-
   // -------------------------------------------------------------------------
   // T12102 (gh#1196): idempotent complete — an already-done task must return
-  // success BEFORE any strict pre-check (staleness, IVTR, lifecycle gate),
+  // success BEFORE any strict pre-check (staleness, lifecycle gate),
   // so the post-timeout recovery path is simply "run it again".
   // -------------------------------------------------------------------------
 

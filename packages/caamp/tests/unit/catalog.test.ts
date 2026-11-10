@@ -296,7 +296,7 @@ describe("catalog - the real manifest-only @cleocode/skills package", () => {
     const library = load() ?? null;
     const names = library ? library.listSkills() : catalog.listSkills();
     const core = (library ? library.getCoreSkills() : catalog.getCoreSkills()).map((s) => s.name);
-    for (const name of ["ct-cleo", "ct-lead", "ct-adr-recorder", "ct-ivt-looper", "ct-council"]) {
+    for (const name of ["ct-cleo", "ct-lead", "ct-adr-recorder", "ct-validator", "ct-council"]) {
       expect(names).toContain(name);
     }
     expect(core.sort()).toEqual([

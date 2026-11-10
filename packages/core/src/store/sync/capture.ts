@@ -53,7 +53,7 @@ import {
   rowIdentitySpec,
   UID_COLUMN,
 } from '../row-identity-registry.js';
-import { classifyTable } from '../table-classification.js';
+import { classifyTable, retiredSyncColumns } from '../table-classification.js';
 import { readSyncFlags, setSyncFlag, syncSetTables } from './flags.js';
 import { mergeGroupsOf } from './merge/rules.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
@@ -105,6 +105,13 @@ export interface CaptureTableDef {
    * planning (T13719), so an op from a build that still sent one applies.
    */
   readonly localOnly?: ReadonlySet<string>;
+  /**
+   * Retired columns this store's table no longer has
+   * (`RETIRED_SYNC_COLUMNS`, T14311). A received op's values for them are
+   * dropped before planning, so an op from a peer that has not dropped the
+   * column yet applies instead of being refused forever.
+   */
+  readonly retired?: ReadonlySet<string>;
   /**
    * Nullable key columns whose NULL keeps a row local (T12914,
    * `RowIdentitySpec.localWhenNull`): such a row has no uid and is never
@@ -170,6 +177,9 @@ export function captureTableDef(
   const localOnly = new Set(overrides.filter((o) => o.class === 'local-only').map((o) => o.column));
   const localRowid = localRowidColumn(info, spec);
   if (localRowid) localOnly.add(localRowid);
+  const retired = new Set(
+    retiredSyncColumns(scope, table).filter((c) => !info.some((i) => i.name === c)),
+  );
   const wholeSecret = cls.class === 'portable-secret';
   const secret = new Set(
     wholeSecret
@@ -198,6 +208,7 @@ export function captureTableDef(
     timestamps: timestampColumns(scope, table),
     appendOnly: (spec.content?.length ?? 0) > 0,
     localOnly,
+    ...(retired.size > 0 ? { retired } : {}),
     ...(localRowid ? { localRowid } : {}),
     ...(localRowid && spec.localKey === localRowid && !isIntegerColumn(info, localRowid)
       ? { localKeyIsUid: true }

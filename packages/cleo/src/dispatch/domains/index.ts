@@ -99,7 +99,7 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('conduit', new ConduitHandler());
   // T1008: sentient domain — Tier-2 proposal queue management.
   handlers.set('sentient', new SentientHandler());
-  // T1416: release domain — IVTR gate check (RELEASE-03) + auto-suggest (RELEASE-07).
+  // T1416: release domain (plan/open/reconcile/cut; IVTR ops removed in T14311).
   handlers.set('release', new ReleaseHandler());
   // T9528: provenance domain — backfill the 11 provenance tables for historical
   // releases. Verify + repair verbs land in T9529+.

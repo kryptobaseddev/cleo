@@ -216,6 +216,48 @@ export function encodeParseCacheEntry(
   };
 }
 
+/** Leading bytes of a payload that records a syntax failure instead of an extraction. */
+const FAILURE_MAGIC = Buffer.from('nexus-parse-failure/v1\0', 'utf8');
+
+/**
+ * Whether a parse failure is a pure function of the file's bytes and the
+ * fingerprinted grammar, so caching it under the content hash is exact (T12350).
+ * Only `E_PARSE_SYNTAX` qualifies: timeouts depend on load, reads on the disk.
+ *
+ * @param reason - Failure reason from a sequential or worker parse.
+ * @returns True when the failure may be served from the parse cache.
+ */
+export function isCacheableParseFailure(reason: string | undefined): reason is string {
+  return reason?.includes('E_PARSE_SYNTAX:') ?? false;
+}
+
+/**
+ * Encode a deterministic parse failure as a parse-cache payload (T12350), so an
+ * unchanged unparseable file is reported again without being re-parsed.
+ *
+ * @param reason - The failure reason to report on every later run.
+ * @returns The failure payload.
+ */
+export function encodeParseFailure(reason: string): Uint8Array {
+  return Buffer.concat([FAILURE_MAGIC, Buffer.from(reason, 'utf8')]);
+}
+
+/**
+ * Read the failure reason a payload from {@link encodeParseFailure} records.
+ *
+ * An extraction payload never matches: its first word is a section length, and
+ * the magic would read as one of about 1.9 GB.
+ *
+ * @param payload - A stored parse-cache payload.
+ * @returns The recorded reason, or `null` for an extraction payload.
+ */
+export function decodeParseFailure(payload: Uint8Array): string | null {
+  const bytes = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
+  if (bytes.length < FAILURE_MAGIC.length) return null;
+  if (!bytes.subarray(0, FAILURE_MAGIC.length).equals(FAILURE_MAGIC)) return null;
+  return bytes.subarray(FAILURE_MAGIC.length).toString('utf8');
+}
+
 /** Extraction fields a resolution phase reads one file at a time (T13656). */
 export type ExtractionSites = 'calls' | 'accesses';
 

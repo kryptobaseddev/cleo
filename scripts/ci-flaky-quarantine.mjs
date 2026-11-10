@@ -10,8 +10,9 @@
  *
  * Subcommands:
  *
- *   run  --log <file> --report <file> -- <vitest args...>
+ *   run  --log <file> --report <file> [--timings <file>] -- <vitest args...>
  *     Runs `pnpm exec vitest run <vitest args>` with a JSON report.
+ *     - --timings: writes the first run's per-file durations there (T14369).
  *     - Exit 0 from vitest: pass.
  *     - A failing test listed in the quarantine: reported, not blocking.
  *     - Any other failing test: its FILES are re-run once (without --shard).
@@ -59,6 +60,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { timingsFromVitestReport } from './ci-duration-shards.mjs';
 
 /** Label of the issues that make up the quarantine. */
 export const LABEL = 'flaky-quarantine';
@@ -555,12 +557,18 @@ async function runCommand(/** @type {string[]} */ argv) {
   const vitestArgs = sep === -1 ? [] : argv.slice(sep + 1);
   const log = argValue(own, '--log');
   const reportOut = argValue(own, '--report');
+  const timingsOut = argValue(own, '--timings');
   const repoRoot = process.cwd();
   const work = mkdtempSync(path.join(tmpdir(), 'flaky-quarantine-'));
   const command = vitestCommand();
 
   const firstReport = path.join(work, 'first.json');
   const firstRun = await runVitest(command, vitestArgs, firstReport, log);
+  // T14369: per-file durations for the duration-balanced shards (ci-duration-shards.mjs).
+  if (timingsOut && existsSync(firstReport)) {
+    const files = timingsFromVitestReport(readFileSync(firstReport, 'utf8'), repoRoot);
+    writeFileSync(timingsOut, `${JSON.stringify({ files })}\n`);
+  }
 
   const open = readOpenIssues();
   const quarantine = (open?.issues ?? []).flatMap((i) => (i.state ? [i.state] : []));
@@ -750,7 +758,7 @@ async function main() {
   if (sub === 'budget') return budgetCommand();
   if (sub === 'file') return fileCommand(rest);
   console.error(
-    'usage: ci-flaky-quarantine.mjs run --log <f> --report <f> -- <vitest args> | budget | file --reports <dir> --run-url <u> --sha <s> [--expire]',
+    'usage: ci-flaky-quarantine.mjs run --log <f> --report <f> [--timings <f>] -- <vitest args> | budget | file --reports <dir> --run-url <u> --sha <s> [--expire]',
   );
   return 2;
 }

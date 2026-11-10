@@ -53,7 +53,6 @@ export const showCommand = defineCommand({
   async run({ args }) {
     const shared = {
       history: args['history'] === true,
-      ivtrHistory: args['ivtr-history'] === true,
       relations: args['relations'] === true,
     };
 

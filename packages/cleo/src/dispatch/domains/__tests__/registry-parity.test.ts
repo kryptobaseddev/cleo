@@ -687,10 +687,6 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     'allowlist.add': { pubkey: 'dGVzdA==' },
     'allowlist.remove': { pubkey: 'dGVzdA==' },
   },
-  release: {
-    gate: { epicId: 'T001' },
-    'ivtr-suggest': { taskId: 'T001' },
-  },
   // T11700 — the 5-entity provider experience. We deliberately OMIT secrets (and
   // some required params) here: the parity test only asserts the handler
   // RECOGNIZES the op (no E_INVALID_OPERATION). The secret-bearing ops then bail
