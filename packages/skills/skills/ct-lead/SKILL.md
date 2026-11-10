@@ -2,14 +2,14 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers in one `cleo orchestrate fanout` call, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.3.1
+  version: 1.4.0
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lead-rollup.ts
     - packages/core/src/orchestration/waves.ts
     - packages/core/src/orchestrate/lead.ts
-  lastReviewed: 2026-11-09
+  lastReviewed: 2026-11-10
   stability: stable
 ---
 
@@ -85,7 +85,10 @@ Run `mbx_whoami` for your AgentMBX name; if it shows no identity, claim one
 with `mbx_identity` before any other mbx tool. Then build each worker's prompt
 with `cleo orchestrate spawn <taskId> --lead-mbx <you>` (LEAD-005): the
 prompt's Agent Coordination section names your mailbox. With
-`orchestrate.leadWorker.v1` on, `cleo orchestrate fanout` and `spawn-execute`
+`orchestrate.leadWorker.v1` on, `cleo orchestrate lead` records the project's
+lead mailbox itself when none is recorded and refuses (`E_LEAD_MAILBOX_MISSING`)
+when agentmbx cannot back one — it never starts a lead workers cannot report
+to (T14448) — and `cleo orchestrate fanout` and `spawn-execute`
 fill in the project's recorded lead mailbox when none is given (T14379).
 Claude Code
 Agent-tool subagents share their parent's identity, so they return results
