@@ -76,7 +76,7 @@ import {
   resolveCleoDir,
   worktreeScope,
 } from './paths.js';
-import { captureProjectScope } from './project-scope.js';
+import { captureProjectScope, readProjectInfoAtDirectory } from './project-scope.js';
 // Shared utility imports
 import {
   ensureBrainDb,
@@ -1769,6 +1769,20 @@ async function scaffoldInitTarget(
     warnings.push(
       `Project name "${basename(projRoot)}" is now ambiguous: ${retiredProjectId} was registered under the same name. Rename this one with \`cleo project rename <new-name>\`.`,
     );
+  }
+
+  // T14379: record the project's lead AgentMBX mailbox; without agentmbx,
+  // warn and write nothing.
+  try {
+    const { ensureLeadMailbox } = await import('./orchestrate/agentmbx.js');
+    const lead = await ensureLeadMailbox(
+      projRoot,
+      await readProjectInfoAtDirectory(projRoot, cleoDir),
+    );
+    if (lead.action === 'recorded') created.push(`lead mailbox: ${lead.leadMailbox.name}`);
+    else if (lead.action === 'skipped') warnings.push(lead.warning);
+  } catch (err) {
+    warnings.push(`AgentMBX lead mailbox: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Project context detection (always run during init)

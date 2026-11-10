@@ -816,6 +816,30 @@ export interface OrchestrateConfig {
    * @defaultValue { v1: false }
    */
   leadWorker?: OrchestrateLeadWorkerConfig;
+  /**
+   * The project's lead AgentMBX mailbox, recorded by `cleo init` when
+   * `agentmbx` is installed. Spawn and fanout name it in worker prompts
+   * when `--lead-mbx` is not given.
+   *
+   * @defaultValue undefined (no lead mailbox recorded)
+   * @task T14379
+   */
+  leadMailbox?: LeadMailbox;
+}
+
+/**
+ * A per-project lead mailbox identity on AgentMBX (`orchestrate.leadMailbox`).
+ *
+ * @task T14379
+ * @epic T14351
+ */
+export interface LeadMailbox {
+  /** Mailbox name, `<project>-lead` by default. */
+  name: string;
+  /** Portable project id the mailbox belongs to. */
+  projectId: string;
+  /** AgentMBX provider CLI the lead claims it from (`--cli`), e.g. `claude`. */
+  cli: string;
 }
 
 /**
