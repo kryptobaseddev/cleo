@@ -326,10 +326,11 @@ describe('isolated shared extraction (T12262)', () => {
         });
         assert.deepEqual(mixedPublications[0].assessment.files.find(file => file.path === 'README.md').capabilities.completed, ['file-evidence','documentary-evidence']);
         const sql = mixedPublications[0].assessment.files.find(file => file.path === 'migration.sql');
-        // T14377: no SQL extractor, so only file evidence is requested and completed.
+        // T14383: the SQL extractor completes every SQL capability a SQL file requests.
         assert.equal(sql.status, 'analyzed');
-        assert.deepEqual(sql.capabilities.requested, ['file-evidence']);
-        assert.deepEqual(sql.capabilities.completed, ['file-evidence']);
+        assert.deepEqual(sql.capabilities.requested, ['file-evidence','sql-schema-objects','sql-migrations','sql-triggers','sql-constraints']);
+        assert.deepEqual(sql.capabilities.completed, sql.capabilities.requested);
+        assert.ok([...mixedPublications[0].nodes].some(node => node.id === 'migration.sql::fixture'));
 
         await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
           parserExecution: execution, parserLimits: { maxSourceBytes: 1, workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
@@ -1174,7 +1175,7 @@ describe('capability-specific file evidence (T12289)', () => {
     }
   });
 
-  it('requests only extracted SQL capabilities and states the unassessed SQL semantics as limitations (T14377)', async () => {
+  it('requests only extracted SQL capabilities and states the unassessed SQL semantics as limitations (T14377, T14383)', async () => {
     const directory = makeTempDir();
     try {
       writeFile(
@@ -1197,9 +1198,24 @@ describe('capability-specific file evidence (T12289)', () => {
         status: 'analyzed',
         capabilities: {
           role: 'sql',
-          requested: ['file-evidence'],
-          completed: ['file-evidence'],
-          limitations: expect.arrayContaining([expect.stringMatching(/dynamic SQL.*unresolved/i)]),
+          requested: [
+            'file-evidence',
+            'sql-schema-objects',
+            'sql-migrations',
+            'sql-triggers',
+            'sql-constraints',
+          ],
+          completed: [
+            'file-evidence',
+            'sql-schema-objects',
+            'sql-migrations',
+            'sql-triggers',
+            'sql-constraints',
+          ],
+          limitations: expect.arrayContaining([
+            expect.stringMatching(/dynamic SQL.*unresolved/i),
+            expect.stringMatching(/^1 SQL statement\(s\) matched no extracted DDL form/),
+          ]),
         },
       });
     } finally {
