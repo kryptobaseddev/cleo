@@ -21,6 +21,11 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentDefinition, Provider } from '@cleocode/caamp';
+import {
+  LEAD_DENIED_TOOLS,
+  LEAD_RUNNER_MCP_SERVER,
+  LEAD_RUNNER_TOOL,
+} from '@cleocode/contracts/operations/orchestrate.js';
 import { type UpgradeFileJournal, writeIfChanged } from '../scaffold/upgrade-file-journal.js';
 import { resolveAgentDefinitionsDir } from './resolveAgentTemplates.js';
 
@@ -59,6 +64,39 @@ export interface EnsureAgentDefinitionsOptions {
   readonly journal?: UpgradeFileJournal;
   /** Directory of canonical `.cant` definitions. @defaultValue `@cleocode/agents/definitions` */
   readonly definitionsDir?: string;
+}
+
+/**
+ * Apply the lead tool policy to a lead definition: deny every
+ * {@link LEAD_DENIED_TOOLS} entry, allow the command runner tool, and declare
+ * the runner's MCP server (`cleo orchestrate lead-runner`). Worker definitions
+ * are returned unchanged.
+ *
+ * @param def - A parsed canonical definition.
+ * @returns The definition as delivered.
+ *
+ * @example
+ * ```typescript
+ * applyLeadToolPolicy(lead).deniedTools; // includes 'Bash', 'Edit', 'Write'
+ * ```
+ *
+ * @task T14374
+ */
+export function applyLeadToolPolicy(def: AgentDefinition): AgentDefinition {
+  if (def.role !== 'lead') return def;
+  const denied = [...new Set([...(def.deniedTools ?? []), ...LEAD_DENIED_TOOLS])];
+  const tools = def.tools
+    ? [...new Set([...def.tools, LEAD_RUNNER_TOOL])].filter((t) => !denied.includes(t))
+    : undefined;
+  return {
+    ...def,
+    ...(tools ? { tools } : {}),
+    deniedTools: denied,
+    mcpServers: {
+      ...def.mcpServers,
+      [LEAD_RUNNER_MCP_SERVER]: { command: 'cleo', args: ['orchestrate', 'lead-runner'] },
+    },
+  };
 }
 
 function message(err: unknown): string {
@@ -105,7 +143,8 @@ export async function ensureAgentDefinitions(
     .filter((f) => f.endsWith('.cant'))
     .sort()) {
     try {
-      definitions.push(caamp.parseAgentDefinition(readFileSync(join(dir, file), 'utf-8')));
+      const def = caamp.parseAgentDefinition(readFileSync(join(dir, file), 'utf-8'));
+      definitions.push(applyLeadToolPolicy(def));
     } catch (err) {
       outcomes.push({
         provider: '*',

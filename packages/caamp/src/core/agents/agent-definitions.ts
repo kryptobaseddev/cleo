@@ -37,6 +37,23 @@ export interface AgentDefinition {
   deniedTools?: string[];
   /** Whether the agent always runs as a background task. */
   background?: boolean;
+  /**
+   * MCP stdio servers started for this agent only, keyed by server name.
+   * Set by delivery (the lead's command runner, T14374), not by `.cant` files.
+   */
+  mcpServers?: Record<string, AgentMcpServer>;
+}
+
+/**
+ * An MCP stdio server an agent definition starts for itself.
+ *
+ * @public
+ */
+export interface AgentMcpServer {
+  /** Executable to start. */
+  command: string;
+  /** Arguments, passed without a shell. */
+  args: string[];
 }
 
 /**
@@ -190,6 +207,16 @@ function renderClaude(def: AgentDefinition): string {
   if (def.tools) fm.push(`tools: ${JSON.stringify(def.tools.join(', '))}`);
   if (def.deniedTools) fm.push(`disallowedTools: ${JSON.stringify(def.deniedTools.join(', '))}`);
   if (def.background !== undefined) fm.push(`background: ${def.background}`);
+  const servers = Object.entries(def.mcpServers ?? {});
+  if (servers.length > 0) {
+    // Inline per-agent servers: a list of single-key maps (Claude Code sub-agent docs).
+    fm.push('mcpServers:');
+    for (const [name, server] of servers) {
+      fm.push(`  - ${name}:`, '      type: stdio');
+      fm.push(`      command: ${JSON.stringify(server.command)}`);
+      fm.push(`      args: ${JSON.stringify(server.args)}`);
+    }
+  }
   fm.push('---');
   return `${fm.join('\n')}\n\n${def.prompt}\n`;
 }

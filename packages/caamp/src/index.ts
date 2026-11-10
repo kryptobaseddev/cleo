@@ -32,6 +32,7 @@ export {
 // Agent definitions rendered into provider agent files (T14378)
 export type {
   AgentDefinition,
+  AgentMcpServer,
   RenderedAgentDefinition,
 } from './core/agents/agent-definitions.js';
 export {

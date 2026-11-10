@@ -10,8 +10,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getProvider, type Provider } from '@cleocode/caamp';
+import { LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts/operations/orchestrate.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { agentDefinitionReportLines, ensureAgentDefinitions } from '../ensure-agent-definitions.js';
+import {
+  agentDefinitionReportLines,
+  applyLeadToolPolicy,
+  ensureAgentDefinitions,
+} from '../ensure-agent-definitions.js';
 
 function provider(id: string): Provider {
   const p = getProvider(id);
@@ -54,6 +59,13 @@ describe('ensureAgentDefinitions (T14378)', () => {
       expect(toolsLine.split(/[",\s]+/)).not.toContain(denied);
     }
     expect(lead).toMatch(/^disallowedTools: ".*Bash.*Edit.*Write/m);
+    // T14374: the lead's one command route is the runner, served by its own MCP server.
+    expect(toolsLine.split(/[",\s]+/)).toContain(LEAD_RUNNER_TOOL);
+    const deniedLine = lead.split('\n').find((l) => l.startsWith('disallowedTools:')) ?? '';
+    for (const denied of LEAD_DENIED_TOOLS) expect(deniedLine).toContain(denied);
+    expect(lead).toContain(
+      'mcpServers:\n  - cleo-lead:\n      type: stdio\n      command: "cleo"\n      args: ["orchestrate","lead-runner"]\n',
+    );
 
     const worker = readFileSync(join(root, '.claude/agents/cleo-worker.md'), 'utf-8');
     expect(worker).toMatch(/^background: true$/m);
@@ -63,6 +75,24 @@ describe('ensureAgentDefinitions (T14378)', () => {
     expect(ocLead).toMatch(/^mode: primary$/m);
     expect(ocLead).toMatch(/^ {2}bash: deny$/m);
     expect(ocLead).toMatch(/^ {2}edit: deny$/m);
+  });
+
+  it('lead policy denies every LEAD_DENIED_TOOLS entry even when the file allows one (T14374)', () => {
+    const lead = applyLeadToolPolicy({
+      name: 'cleo-lead',
+      role: 'lead',
+      description: 'd',
+      prompt: 'p',
+      tools: ['Agent', 'Bash'],
+    });
+    expect(lead.tools).toEqual(['Agent', LEAD_RUNNER_TOOL]);
+    expect(lead.deniedTools).toEqual([...LEAD_DENIED_TOOLS]);
+    expect(lead.mcpServers?.['cleo-lead']).toEqual({
+      command: 'cleo',
+      args: ['orchestrate', 'lead-runner'],
+    });
+    const worker = { name: 'w', role: 'worker' as const, description: 'd', prompt: 'p' };
+    expect(applyLeadToolPolicy(worker)).toBe(worker);
   });
 
   it('reports a provider without agent-file support as unsupported', async () => {
