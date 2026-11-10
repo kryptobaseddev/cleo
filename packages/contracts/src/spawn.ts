@@ -8,7 +8,11 @@
  * @task T14357 — lead tool strip (leadToolStrip / leadDeniedTools)
  */
 
-import type { LeadDeniedTool, LeadToolStripSupport } from './operations/orchestrate.js';
+import type {
+  LeadDeniedTool,
+  LeadMcpReport,
+  LeadToolStripSupport,
+} from './operations/orchestrate.js';
 
 // =============================================================================
 // Agent suite ownership handle (T11998 — suite containment)
@@ -149,6 +153,10 @@ export interface SpawnResult {
    * Absent for legacy spawns that used detached+unref without containment.
    */
   ownership?: AgentSuiteOwnership;
+  /**
+   * MCP servers a lead spawn loaded; absent for a worker spawn (T14423).
+   */
+  leadMcp?: LeadMcpReport;
 }
 
 // =============================================================================

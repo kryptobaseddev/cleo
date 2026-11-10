@@ -19,7 +19,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { LeadDeniedTool } from '@cleocode/contracts';
+import type { LeadDeniedTool, LeadMcpReport } from '@cleocode/contracts';
 import { LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts/operations/orchestrate.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
@@ -61,6 +61,30 @@ export interface OrchestrateLeadInfo {
         readonly claimed: false;
         readonly warning: string;
       };
+  /**
+   * MCP servers the lead loaded (T14423): the runner and, when configured,
+   * mbx; nothing else. `null` when the provider did not report them.
+   */
+  readonly mcp: LeadMcpReport | null;
+  /** Set when the lead runs without the mbx server: it cannot read worker mail. */
+  readonly mcpWarning?: string;
+}
+
+/** The provider's {@link LeadMcpReport} from a spawn's data, if it sent one. */
+function leadMcpOf(data: object): LeadMcpReport | null {
+  const report = 'leadMcp' in data ? data.leadMcp : undefined;
+  if (typeof report !== 'object' || report === null) return null;
+  if (!('servers' in report) || !Array.isArray(report.servers)) return null;
+  if (
+    !('mailbox' in report) ||
+    (report.mailbox !== 'loaded' && report.mailbox !== 'not-configured')
+  ) {
+    return null;
+  }
+  return {
+    servers: report.servers.filter((s): s is string => typeof s === 'string'),
+    mailbox: report.mailbox,
+  };
 }
 
 /**
@@ -68,7 +92,8 @@ export interface OrchestrateLeadInfo {
  *
  * Refuses unless `orchestrate.leadWorker.v1` is on (`E_LEAD_WORKER_DISABLED`)
  * and the id names an epic (`E_VALIDATION`). A failed mailbox claim does not
- * stop the spawn: it is reported under `data.lead.mailbox`.
+ * stop the spawn: it is reported under `data.lead.mailbox`. The MCP servers
+ * the lead loaded (runner plus mbx only, T14423) are under `data.lead.mcp`.
  *
  * @param epicId - Epic the lead runs.
  * @param options - See {@link OrchestrateLeadOptions}.
@@ -120,12 +145,20 @@ export async function orchestrateLead(
     lead: { deniedTools: LEAD_DENIED_TOOLS, sessionId },
   });
   if (!result.success) return result;
+  const data = typeof result.data === 'object' && result.data !== null ? result.data : {};
+  const mcp = leadMcpOf(data);
   const lead: OrchestrateLeadInfo = {
     deniedTools: LEAD_DENIED_TOOLS,
     runnerTool: LEAD_RUNNER_TOOL,
     sessionId,
     mailbox,
+    mcp,
+    ...(mcp?.mailbox === 'not-configured'
+      ? {
+          mcpWarning:
+            'No mbx MCP server is configured for this harness, so the lead loads only the runner and cannot read worker mail. Configure the mbx server (agentmbx mcp) and re-run.',
+        }
+      : {}),
   };
-  const data = typeof result.data === 'object' && result.data !== null ? result.data : {};
   return engineSuccess({ ...data, lead });
 }

@@ -886,6 +886,30 @@ export type LeadDeniedTool = (typeof LEAD_DENIED_TOOLS)[number];
 export type LeadToolStripSupport = 'enforced' | 'unsupported';
 
 /**
+ * AgentMBX MCP server name a lead may load beside the runner (T14423).
+ *
+ * @task T14423
+ */
+export const LEAD_MAILBOX_MCP_SERVER = 'mbx';
+
+/**
+ * The MCP servers a lead spawn loaded (T14423). A lead loads ONLY the runner
+ * ({@link LEAD_RUNNER_MCP_SERVER}) and, when the user configured it, the
+ * AgentMBX server ({@link LEAD_MAILBOX_MCP_SERVER}); every other user MCP
+ * server is shut out, since one with shell or file tools would hand back
+ * what the tool strip removed.
+ *
+ * @task T14423
+ * @epic T14351
+ */
+export interface LeadMcpReport {
+  /** Server names the lead loads, the runner first. */
+  readonly servers: readonly string[];
+  /** `loaded` when the mbx server was found and passed; `not-configured` otherwise. */
+  readonly mailbox: 'loaded' | 'not-configured';
+}
+
+/**
  * Tool policy applied to a lead spawn under the lead/worker split.
  *
  * @task T14356

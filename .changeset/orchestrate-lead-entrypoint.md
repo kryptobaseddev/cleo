@@ -1,6 +1,6 @@
 ---
 id: orchestrate-lead-entrypoint
-tasks: [T14363]
+tasks: [T14363, T14423]
 kind: feat
 summary: "cleo orchestrate lead <epic> spawns the no-hands lead behind orchestrate.leadWorker.v1: no Bash, Edit or Write, and the lead runner as its one command tool"
 ---
@@ -13,8 +13,12 @@ T14351. It refuses with `E_LEAD_WORKER_DISABLED` unless
   `CLEOSpawnContext.leadDeniedTools` to `LEAD_DENIED_TOOLS`, so the spawn
   bridge strips them or refuses the provider (`E_LEAD_TOOLS_UNSTRIPPED`,
   now kept as the envelope code instead of `E_SPAWN_FAILED`).
-- **Command runner.** On claude-code the lead gets `--mcp-config` for
-  `cleo orchestrate lead-runner` and `--allowedTools mcp__cleo-lead__cleo_run`.
+- **Command runner, strict MCP.** On claude-code the lead starts with
+  `--mcp-config <file> --strict-mcp-config`: the file names ONLY the runner
+  (`cleo orchestrate lead-runner`) and the user's mbx server, resolved like
+  Claude Code (local, project `.mcp.json`, user). No other user MCP server
+  loads (T14423). `--allowedTools` pre-approves the runner tool and `mcp__mbx`.
+  Without mbx the lead gets the runner alone and `data.lead.mcpWarning` says so.
 - **Mailbox.** The project lead mailbox is claimed for a pre-assigned
   session id (`claude --session-id`) before the lead starts; a failed claim
   is reported under `data.lead.mailbox` and does not stop the spawn.

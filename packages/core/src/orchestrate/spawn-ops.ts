@@ -1291,6 +1291,8 @@ export async function orchestrateSpawnExecute(
         persona: payload.agentId,
         role: payload.role,
         harnessHint: payload.harnessHint,
+        // T14423 — the MCP servers a lead spawn loaded.
+        ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
       },
     };
   } catch (error) {

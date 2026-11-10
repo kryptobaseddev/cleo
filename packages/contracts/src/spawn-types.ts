@@ -9,7 +9,7 @@
  * @phase 1B
  */
 
-import type { LeadDeniedTool } from './operations/orchestrate.js';
+import type { LeadDeniedTool, LeadMcpReport } from './operations/orchestrate.js';
 import type { AgentSuiteOwnership } from './spawn.js';
 
 /**
@@ -119,6 +119,9 @@ export interface CLEOSpawnResult extends CAAMPSpawnResult {
    * @task T14359
    */
   ownership?: AgentSuiteOwnership;
+
+  /** MCP servers a lead spawn loaded, passed on from `SpawnResult` (T14423). */
+  leadMcp?: LeadMcpReport;
 
   /** Reference to manifest entry if output was captured */
   manifestEntryId?: string;

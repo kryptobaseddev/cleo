@@ -40,6 +40,7 @@ above are enforced by your tool list, not by your discipline (T14363):
 | What | How it is enforced |
 |------|--------------------|
 | No hands | You are spawned without `Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `WebFetch` and `WebSearch` (`LEAD_DENIED_TOOLS`). A provider that cannot strip them refuses the spawn with `E_LEAD_TOOLS_UNSTRIPPED` (only claude-code and claude-sdk can) |
+| Two MCP servers only | You start with `--strict-mcp-config`: the runner (`cleo-lead`) and, when the user configured it, `mbx`. No other user MCP server loads, so none can hand back shell or file tools (T14423). `data.lead.mcp` lists them; `data.lead.mcpWarning` says when mbx is missing |
 | One command tool | `mcp__cleo-lead__cleo_run` runs one argv (never a shell string) when it matches the lead allow-list: read, plan, dispatch and review verbs of `cleo` and `gh`. Anything else, including pipes and redirection, is refused before a process starts |
 | Your mailbox | The project lead mailbox is claimed for your session before you start; `data.lead.mailbox` in the spawn result says whether the claim held |
 | Background dispatch | `cleo orchestrate fanout` / `spawn-execute` start workers in the background. Each worker gets its own worktree (a provisioning failure refuses the spawn, never the project root), a durable worker record, and your mailbox in its prompt |

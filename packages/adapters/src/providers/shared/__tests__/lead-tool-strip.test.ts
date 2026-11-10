@@ -16,11 +16,7 @@ import {
   LEAD_RUNNER_TOOL,
 } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import {
-  buildClaudeArgs,
-  ClaudeCodeSpawnProvider,
-  leadRunnerMcpConfig,
-} from '../../claude-code/spawn.js';
+import { buildClaudeArgs, ClaudeCodeSpawnProvider } from '../../claude-code/spawn.js';
 import { CodexSpawnProvider } from '../../codex/spawn.js';
 import { GeminiCliSpawnProvider } from '../../gemini-cli/spawn.js';
 import { KimiSpawnProvider } from '../../kimi/spawn.js';
@@ -53,7 +49,8 @@ describe('claude-code lead tool strip', () => {
   it('lead argv serves the command runner as its only command tool (T14363)', () => {
     const args = buildClaudeArgs(LEAD, '/tmp/prompt.md');
     const config = JSON.parse(args[args.indexOf('--mcp-config') + 1] ?? '{}');
-    expect(config).toEqual(JSON.parse(leadRunnerMcpConfig()));
+    expect(Object.keys(config.mcpServers)).toEqual([LEAD_RUNNER_MCP_SERVER]);
+    expect(args).toContain('--strict-mcp-config');
     expect(config.mcpServers[LEAD_RUNNER_MCP_SERVER]).toEqual({
       type: 'stdio',
       command: 'cleo',

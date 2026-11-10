@@ -24,14 +24,16 @@ import type {
   SpawnResult,
 } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
-import {
-  LEAD_RUNNER_MCP_SERVER,
-  LEAD_RUNNER_TOOL,
-} from '@cleocode/contracts/operations/orchestrate.js';
 import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
+import {
+  type LeadMcpSetup,
+  leadAllowedTools,
+  prepareLeadMcp,
+  runnerOnlyLeadMcp,
+} from './lead-mcp.js';
 import { reapAgentSuite } from './suite-reaper.js';
 
 /**
@@ -57,25 +59,6 @@ export function trackedWorkerInstanceId(options: SpawnContext['options']): strin
 export function workerExitSettings(instanceId: string): string {
   const command = `cleo orchestrate worker-exit --instance ${instanceId}`;
   return JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command }] }] } });
-}
-
-/**
- * Claude Code MCP config that serves the lead command runner (T14374) to a
- * lead: the `cleo-lead` stdio server started by `cleo orchestrate lead-runner`.
- *
- * @returns The JSON string passed to `claude --mcp-config`.
- * @task T14363
- */
-export function leadRunnerMcpConfig(): string {
-  return JSON.stringify({
-    mcpServers: {
-      [LEAD_RUNNER_MCP_SERVER]: {
-        type: 'stdio',
-        command: 'cleo',
-        args: ['orchestrate', 'lead-runner'],
-      },
-    },
-  });
 }
 
 /** `--session-id <uuid>` for a lead whose session CLEO pre-assigned, else nothing. */
@@ -104,15 +87,17 @@ interface TrackedProcess {
  * - Worker: `--dangerously-skip-permissions` allows every tool call without approval.
  * - Lead (`context.leadDeniedTools` set): `--disallowedTools <denied>` removes
  *   those tools so they never run, and `--dangerously-skip-permissions` is NOT
- *   passed. The lead gets the command runner instead (T14363): `--mcp-config`
- *   starts `cleo orchestrate lead-runner` and `--allowedTools` pre-approves its
- *   one tool, {@link LEAD_RUNNER_TOOL} (`--allowedTools` removes nothing).
+ *   passed. `--mcp-config <leadMcp.config> --strict-mcp-config` loads ONLY the
+ *   command runner (`cleo orchestrate lead-runner`, T14363) and, when
+ *   configured, the mbx server (T14423): no other user MCP server loads.
+ *   `--allowedTools` pre-approves those servers' tools (it removes nothing).
  *   `--session-id` pins the session the lead mailbox was claimed for
  *   (`options.leadSessionId`).
  *
  * @param context - Spawn context.
  * @param promptFile - Path of the prompt file passed as the final argument.
  * @param extraArgs - Extra flags placed before the prompt file (e.g. `--settings` for tracked workers, T14359).
+ * @param leadMcp - A lead's MCP setup (from `prepareLeadMcp`). @defaultValue the runner alone, inline
  * @returns Argument list for the `claude` binary.
  * @task T14357
  */
@@ -120,6 +105,7 @@ export function buildClaudeArgs(
   context: SpawnContext,
   promptFile: string,
   extraArgs: readonly string[] = [],
+  leadMcp: LeadMcpSetup = runnerOnlyLeadMcp(),
 ): string[] {
   const denied = leadDeniedTools(context);
   const permissionArgs =
@@ -129,9 +115,10 @@ export function buildClaudeArgs(
           '--disallowedTools',
           denied.join(','),
           '--allowedTools',
-          LEAD_RUNNER_TOOL,
+          leadAllowedTools(leadMcp.report).join(','),
           '--mcp-config',
-          leadRunnerMcpConfig(),
+          leadMcp.config,
+          '--strict-mcp-config',
           ...leadSessionArgs(context.options),
         ];
   // Variadic flags (--disallowedTools, --allowedTools, --mcp-config) are each
@@ -216,8 +203,13 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         settingsArgs = ['--settings', settingsFile];
       }
 
+      // T14423: a lead loads only the runner and the user's mbx server.
+      const leadMcp =
+        leadDeniedTools(context) === null
+          ? undefined
+          : await prepareLeadMcp(dirname(tmpFile), context.workingDirectory ?? process.cwd());
       // --settings (tracked workers only): adds the worker-exit SessionEnd hook
-      const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs);
+      const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp);
 
       // T11998: Build the argv with per-session containment.
       // On Linux with systemd, this wraps 'claude' inside a transient
@@ -293,6 +285,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         // T11998: surface the ownership handle in the result so callers can
         // persist it or pass it to reapAgentSuite on session end.
         ownership,
+        ...(leadMcp ? { leadMcp: leadMcp.report } : {}),
       };
     } catch (error) {
       // Log spawn failure for debugging

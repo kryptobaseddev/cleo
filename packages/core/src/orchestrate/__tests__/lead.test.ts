@@ -20,9 +20,14 @@ import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/t
 import type { AgentMbxClient, MbxSession } from '../agentmbx.js';
 
 const { provider } = vi.hoisted(() => {
-  const state: { strip: 'enforced' | 'unsupported'; seen: SpawnContext[] } = {
+  const state: {
+    strip: 'enforced' | 'unsupported';
+    seen: SpawnContext[];
+    leadMcp: SpawnResult['leadMcp'];
+  } = {
     strip: 'enforced',
     seen: [],
+    leadMcp: { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' },
   };
   const delegate: AdapterSpawnProvider = {
     get leadToolStrip() {
@@ -37,6 +42,7 @@ const { provider } = vi.hoisted(() => {
         providerId: 'fake-provider',
         status: 'running',
         startTime: new Date().toISOString(),
+        ...(state.leadMcp ? { leadMcp: state.leadMcp } : {}),
       };
     },
     listRunning: async () => [],
@@ -139,6 +145,7 @@ describe('orchestrateLead (T14363)', () => {
     vi.stubEnv('CLEO_SESSION_ID', SES);
     provider.state.strip = 'enforced';
     provider.state.seen = [];
+    provider.state.leadMcp = { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' };
   });
 
   afterEach(async () => {
@@ -196,7 +203,10 @@ describe('orchestrateLead (T14363)', () => {
     expect(data?.lead).toMatchObject({
       runnerTool: LEAD_RUNNER_TOOL,
       mailbox: { claimed: true, name: MAILBOX },
+      // T14423: the provider's MCP report reaches data.lead through the bridge.
+      mcp: { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' },
     });
+    expect(data?.lead['mcpWarning']).toBeUndefined();
     expect(mbx.claims).toEqual([{ name: MAILBOX, session: { cli: 'claude', session: sessionId } }]);
     const { listWorkerRecords } = await import('../worker-records.js');
     expect(await listWorkerRecords(env.tempDir)).toHaveLength(0);
@@ -215,6 +225,25 @@ describe('orchestrateLead (T14363)', () => {
     expect(result).toMatchObject({
       success: true,
       data: { lead: { mailbox: { claimed: false, warning: 'agentmbx refused' } } },
+    });
+  });
+
+  it('no mbx server configured: data.lead says the lead runs with the runner alone (T14423)', async () => {
+    setOrchestrate(env.tempDir, { leadWorker: { v1: true } });
+    provider.state.leadMcp = { servers: ['cleo-lead'], mailbox: 'not-configured' };
+    const { orchestrateLead } = await import('../lead.js');
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: fakeMbx(true).client,
+    });
+    expect(result).toMatchObject({
+      success: true,
+      data: {
+        lead: {
+          mcp: { servers: ['cleo-lead'], mailbox: 'not-configured' },
+          mcpWarning: expect.stringContaining('No mbx MCP server'),
+        },
+      },
     });
   });
 

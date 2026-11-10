@@ -273,8 +273,10 @@ deprecated (T13982) and leave in the next release; do not build on them.
 `orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
 is structural, not a prompt rule: the lead spawns without Bash, Edit, Write, MultiEdit,
 NotebookEdit, WebFetch and WebSearch; a provider that cannot strip them refuses the spawn
-(`E_LEAD_TOOLS_UNSTRIPPED`; claude-code and claude-sdk can). On claude-code the lead gets the
-command runner below as its one command tool, runs in the project root (it writes nothing,
+(`E_LEAD_TOOLS_UNSTRIPPED`; claude-code and claude-sdk can). On claude-code the lead starts with
+`--strict-mcp-config` and exactly two MCP servers, the command runner below and the user's
+configured `mbx` server (T14423; without mbx it gets the runner alone and `data.lead.mcpWarning`
+says so), so no other MCP server can hand back write tools. It runs in the project root (it writes nothing,
 so no worktree), and gets no worker record. The project lead mailbox is claimed for the
 lead's pre-assigned session first; `data.lead.mailbox` reports the claim. Workers it starts
 with `fanout` or `spawn-execute` run in the background with fail-closed isolation, durable
