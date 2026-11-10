@@ -268,3 +268,76 @@ export function inspectMigrations(projectRoot: string): MigrationsReport {
     ],
   };
 }
+
+/** Memoized hashes of this build's installed project-lineage migrations (T14440). */
+let installedProjectMigrationHashes: Set<string> | null = null;
+
+/**
+ * The hashes of every migration file this build installs across the
+ * consolidated journal lineages (project and global sets — both may appear in
+ * a journal), computed once per process (an installed build's migration files
+ * do not change under it).
+ *
+ * @returns The known journal-row hashes.
+ */
+function installedProjectMigrationHashSet(): Set<string> {
+  if (installedProjectMigrationHashes === null) {
+    installedProjectMigrationHashes = new Set<string>();
+    for (const lineage of CONSOLIDATED_JOURNAL_LINEAGES) {
+      for (const m of localMigrations(resolveCorePackageMigrationsFolder(lineage))) {
+        installedProjectMigrationHashes.add(m.hash);
+      }
+    }
+  }
+  return installedProjectMigrationHashes;
+}
+
+/**
+ * Whether a project store was written by a build newer than this one — read
+ * only, without opening it through the migrator (T14440, census AC3).
+ *
+ * The census (and any worktree listing) resolves foreign projects' stores to
+ * enrich task status. A journal row whose hash no installed lineage defines
+ * was written by a newer, unreleased build; opening such a store — worse,
+ * letting `getDb` migrate it — with this binary is the hazard this check
+ * gates. An absent store or journal is `ok`: there is nothing ahead of this
+ * build, and the normal open creates both.
+ *
+ * @param projectRoot - Absolute path to the project root whose store to judge.
+ * @returns `'ahead'` when the journal holds unknown rows, `'ok'` otherwise
+ *   (including no store, no journal), `'unreadable'` when the check itself
+ *   could not run.
+ */
+export function projectStoreAheadOfBuild(projectRoot: string): 'ok' | 'ahead' | 'unreadable' {
+  let dbPath: string;
+  try {
+    dbPath = resolveDualScopeDbPath('project', projectRoot);
+  } catch {
+    return 'unreadable';
+  }
+  if (!existsSync(dbPath)) return 'ok';
+  let snap: ReturnType<typeof openCleoDbSnapshot>;
+  try {
+    snap = openCleoDbSnapshot(dbPath, { readOnly: true });
+  } catch {
+    return 'unreadable';
+  }
+  try {
+    const hasJournal =
+      snap.db
+        .prepare(
+          "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
+        )
+        .get() !== undefined;
+    if (!hasJournal) return 'ok';
+    const rows = snap.db.prepare('SELECT hash FROM main."__drizzle_migrations"').all() as Array<{
+      hash: string;
+    }>;
+    const known = installedProjectMigrationHashSet();
+    return rows.some((r) => !known.has(r.hash)) ? 'ahead' : 'ok';
+  } catch {
+    return 'unreadable';
+  } finally {
+    snap.close();
+  }
+}

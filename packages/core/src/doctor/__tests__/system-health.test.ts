@@ -245,6 +245,7 @@ async function darwinSnapshot(over: Partial<SystemSnapshot> = {}): Promise<Syste
       spotlightCount: '1234\n',
     },
     memoryGuard: null,
+    worktreeCensus: null,
     ...over,
   };
 }
@@ -297,6 +298,7 @@ async function linuxSnapshot(over: Partial<SystemSnapshot> = {}): Promise<System
     docker: null,
     indexing: null,
     memoryGuard: UNGUARDED,
+    worktreeCensus: null,
     ...over,
   };
 }

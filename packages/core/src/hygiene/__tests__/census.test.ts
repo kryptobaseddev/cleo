@@ -120,7 +120,7 @@ afterEach(() => {
 
 describe('worktree census (T14275)', () => {
   it('report lists every worktree under the root by project with category, bytes and keep reason; removes nothing', async () => {
-    const out = await runWorktreeCensus({ projects: [a, b], recordDir });
+    const out = await runWorktreeCensus({ projects: [a, b], recordDir, pnpmStore: null });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
     const byPath = new Map(record.rows.map((r) => [r.path, r]));
@@ -153,6 +153,7 @@ describe('worktree census (T14275)', () => {
       recordDir,
       apply: true,
       applyProjects: [a],
+      pnpmStore: null,
     });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
@@ -173,7 +174,7 @@ describe('worktree census (T14275)', () => {
     mkdirSync(recordDir, { recursive: true });
     const release = acquireHeartbeatLock(join(recordDir, 'census.lock'), 60_000);
     try {
-      expect(await runWorktreeCensus({ projects: [a], recordDir })).toEqual({
+      expect(await runWorktreeCensus({ projects: [a], recordDir, pnpmStore: null })).toEqual({
         skipped: 'another census holds the lock',
       });
     } finally {
@@ -227,13 +228,18 @@ describe('worktree census (T14275)', () => {
     expect(startLazyCensus({}, { spawn, dir: recordDir })).toBeNull();
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.join(' ')).toContain('runLazyCensus');
-    const out = await runWorktreeCensus({ projects: [a], recordDir });
+    const out = await runWorktreeCensus({ projects: [a], recordDir, pnpmStore: null });
     expect('skipped' in out).toBe(false);
     expect(existsSync(join(recordDir, 'census.lock'))).toBe(false); // released
   });
 
   it('a spent wall-clock budget writes a partial record instead of hanging', async () => {
-    const out = await runWorktreeCensus({ projects: [a, b], recordDir, deadline: Date.now() - 1 });
+    const out = await runWorktreeCensus({
+      projects: [a, b],
+      recordDir,
+      deadline: Date.now() - 1,
+      pnpmStore: null,
+    });
     if ('skipped' in out) throw new Error(out.skipped);
     expect(out.record.partial).toBe(true);
     expect(JSON.parse(readFileSync(out.recordPath, 'utf-8')).partial).toBe(true);

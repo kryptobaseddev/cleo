@@ -27,6 +27,7 @@ import { existsSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import type { CensusRecord } from '../hygiene/census.js';
 import { readLedger } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
 import { auditMemoryGuard, type MemoryGuardAudit } from '../resources/memory-guard.js';
@@ -77,7 +78,8 @@ export type SystemCheck =
   | 'containers'
   | 'sessions'
   | 'indexing'
-  | 'memory-guard';
+  | 'memory-guard'
+  | 'worktrees';
 
 /** Whether a check ran. A missing finding means healthy only when its check is `ok`. */
 export interface SystemCoverage {
@@ -190,6 +192,12 @@ export interface SystemSnapshot {
   readonly memoryGuard: MemoryGuardAudit | null;
   /** Keyed by session pid; absent entries are reported with unknown project and activity. */
   readonly sessionContext?: Readonly<Record<number, SessionContext>>;
+  /**
+   * The machine's newest worktree census record, or `null` when none has been
+   * written yet (T14440). Findings read counts and bytes from it; the lazy
+   * census keeps it fresh.
+   */
+  readonly worktreeCensus: CensusRecord | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -954,6 +962,141 @@ function indexingFindings(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Worktree census findings (T14440)
+// ---------------------------------------------------------------------------
+
+/**
+ * Warn when the machine holds more worktrees than this (T14440).
+ *
+ * Conservative by design: a healthy multi-project machine runs tens of live
+ * worktrees; the 2026-11-10 incident machine held 403 directories (187 for
+ * cleocode alone) with no GC. Raise only with the owner's calibration.
+ */
+export const WORKTREE_COUNT_WARN = 60;
+
+/**
+ * Warn when census-reported worktree bytes exceed this, apparent size
+ * (T14440). The incident machine accumulated 375 GB before anyone looked.
+ */
+export const WORKTREE_BYTES_WARN = 200 * 1024 ** 3;
+
+/**
+ * Warn when macOS `fseventsd` RSS exceeds this (T14440). It grew with the
+ * watched-file count to 57–62 GB in the incident, forcing 16–18 GB of swap;
+ * a healthy idle machine holds well under 1 GB.
+ */
+export const FSEVENTSD_RSS_WARN = 8 * 1024 ** 3;
+
+/** A finding is `critical` at twice its warn threshold. */
+const CRITICAL_MULTIPLIER = 2;
+
+/** Severity by threshold: `warning` at the warn line, `critical` at twice it. */
+function thresholdSeverity(value: number, warn: number): 'warning' | 'critical' {
+  return value >= warn * CRITICAL_MULTIPLIER ? 'critical' : 'warning';
+}
+
+/**
+ * Worktree-hygiene findings from the machine's newest census record, plus the
+ * live `fseventsd` reading from `ps` (T14440).
+ *
+ * No census record yet is coverage, not a finding: the lazy census writes one
+ * within a day of any read command, and `cleo doctor system` says so under
+ * `coverage`.
+ *
+ * @param s - The system snapshot.
+ * @param rows - Parsed `ps` rows.
+ * @returns Findings, worst first (the caller re-sorts).
+ */
+function worktreeFindings(s: SystemSnapshot, rows: readonly ProcessRow[]): Finding[] {
+  const out: Finding[] = [];
+  const census = s.worktreeCensus;
+
+  // fseventsd from the live ps sample, independent of any census record: the
+  // watcher's memory tracked the worktree forests in the incident and was the
+  // first correct signal the whole chain produced (VidaPeps findings).
+  if (s.platform === 'darwin') {
+    for (const r of rows) {
+      if (commandWords(r.argv)[0] !== 'fseventsd' || r.rssBytes < FSEVENTSD_RSS_WARN) continue;
+      out.push({
+        id: `fseventsd-rss:${r.pid}`,
+        category: 'worktrees',
+        severity: thresholdSeverity(r.rssBytes, FSEVENTSD_RSS_WARN),
+        title: `fseventsd holds ${gib(r.rssBytes)} of memory watching the file tree`,
+        evidence: { pid: r.pid, rssBytes: r.rssBytes, warnAtBytes: FSEVENTSD_RSS_WARN },
+        impactBytes: r.rssBytes,
+        remedy: {
+          command: 'cleo hygiene census --report',
+          description:
+            'fseventsd memory tracks the watched-file count, and CLEO worktree churn feeds it. ' +
+            'Inspect the per-project worktree census, then reclaim proven-redundant worktrees ' +
+            'with `cleo hygiene census --apply` (deletes worktrees of done or cancelled tasks; ' +
+            'branches are kept — ask the owner first).',
+        },
+        needsOwnerChoice: true,
+      });
+    }
+  }
+
+  if (census === null) return out;
+
+  const worktreeCount = Object.values(census.counts).reduce((n, c) => n + c, 0);
+  if (worktreeCount >= WORKTREE_COUNT_WARN) {
+    out.push({
+      id: 'worktree-count',
+      category: 'worktrees',
+      severity: thresholdSeverity(worktreeCount, WORKTREE_COUNT_WARN),
+      title: `${worktreeCount} worktrees machine-wide across ${census.projects.length} project folders`,
+      evidence: {
+        worktrees: worktreeCount,
+        warnAt: WORKTREE_COUNT_WARN,
+        byProject: census.projects
+          .slice()
+          .sort((a, b) => b.worktrees - a.worktrees)
+          .slice(0, 10)
+          .map((p) => `${p.project ?? `orphan ${p.projectHash}`}: ${p.worktrees}`),
+      },
+      impactBytes: null,
+      remedy: {
+        command: 'cleo hygiene census --report',
+        description:
+          'Worktrees accumulate because nothing reports them. See the per-project census, then ' +
+          "reclaim this project's proven-redundant worktrees with `cleo hygiene census --apply` " +
+          '(deletes worktrees whose task is done or cancelled; branches are kept — ask the owner first).',
+      },
+      needsOwnerChoice: true,
+    });
+  }
+
+  if (census.apparentBytes >= WORKTREE_BYTES_WARN) {
+    out.push({
+      id: 'worktree-bytes',
+      category: 'worktrees',
+      severity: thresholdSeverity(census.apparentBytes, WORKTREE_BYTES_WARN),
+      title: `worktrees hold ${gib(census.apparentBytes)} of disk`,
+      evidence: {
+        apparentBytes: census.apparentBytes,
+        warnAtBytes: WORKTREE_BYTES_WARN,
+        freeBytesOnRoot: census.dfFreeBefore,
+        pnpmStore: census.pnpmStore
+          ? { path: census.pnpmStore.path, apparentBytes: census.pnpmStore.apparentBytes }
+          : null,
+      },
+      impactBytes: census.apparentBytes,
+      remedy: {
+        command: 'cleo hygiene census --report',
+        description:
+          'Most of it is per-worktree node_modules (1.3–1.7 GB each) that nothing reclaims. ' +
+          'See the census, then `cleo hygiene census --apply` reclaims proven-redundant ' +
+          'worktrees of this project (deletes worktrees; branches are kept — ask the owner first).',
+      },
+      needsOwnerChoice: true,
+    });
+  }
+
+  return out;
+}
+
 function memoryGuardFindings(audit: MemoryGuardAudit): Finding[] {
   if (!audit.supported || audit.guarded) return [];
   return [
@@ -1054,6 +1197,17 @@ export function assessSystemHealth(s: SystemSnapshot): SystemHealthReport {
   } else {
     coverage.push({ check: 'memory-guard', status: 'skipped', reason: 'Linux cgroup v2 only' });
   }
+
+  findings.push(...worktreeFindings(s, rows));
+  coverage.push(
+    s.worktreeCensus === null
+      ? {
+          check: 'worktrees',
+          status: 'skipped',
+          reason: 'no census record yet; `cleo hygiene census --report` writes one',
+        }
+      : { check: 'worktrees', status: 'ok' },
+  );
 
   findings.sort(
     (a, b) =>
@@ -1192,6 +1346,16 @@ export async function collectSystemSnapshot(
 
   const sessionContext = ps === null ? {} : await collectSessionContext(platform, parsePs(ps));
 
+  // T14440: the machine's newest census record, read-only. A missing record is
+  // coverage, not a finding; the lazy census writes one within a day.
+  let worktreeCensus: CensusRecord | null = null;
+  try {
+    const { readLatestCensus } = await import('../hygiene/census.js');
+    worktreeCensus = readLatestCensus();
+  } catch {
+    worktreeCensus = null;
+  }
+
   return {
     platform,
     sampledAtMs: Date.now(),
@@ -1207,6 +1371,7 @@ export async function collectSystemSnapshot(
     indexing,
     memoryGuard: platform === 'linux' ? auditMemoryGuard() : null,
     sessionContext,
+    worktreeCensus,
   };
 }
 
