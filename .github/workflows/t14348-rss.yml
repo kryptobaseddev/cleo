@@ -11,8 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [batched, main]
-        replica: [1, 2]
+        variant: [batched]
+        replica: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,19 +56,10 @@ jobs:
       - run: node build.mjs
       - name: Host after build
         run: grep -E "MemFree|MemAvailable|AnonHugePages|Cached:|SwapFree" /proc/meminfo
-      - name: Gate 39 (as CI runs it)
-        continue-on-error: true
-        run: node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "modules \\(budget|ceiling" | head -40
-      - name: Gate 39 again after dropping caches
+      - name: Gate 39 x3 (clean host)
         continue-on-error: true
         run: |
-          sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
-          node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "version |help |show |doctor|ceiling" | head -12
-      - name: Gate 39 with THP never
-        continue-on-error: true
-        run: |
-          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-          node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "version |help |show |doctor|ceiling" | head -12
+          for k in 1 2 3; do echo "RUN $k"; node scripts/check-cli-startup-graph.mjs 2>&1 | grep -E "modules \\(budget" ; done
       - name: Hash every build output
         if: always()
         run: |
