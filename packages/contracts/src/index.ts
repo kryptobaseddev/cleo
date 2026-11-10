@@ -288,6 +288,7 @@ export type {
   DepsRequiredAt,
   EnforcementProfile,
   HierarchyConfig,
+  LeadMailbox,
   LeadRollupConfig,
   LeadRollupMode,
   LifecycleConfig,

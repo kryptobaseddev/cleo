@@ -19,10 +19,10 @@
  * @epic T910
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { orchestrateSpawn } from '@cleocode/core/internal';
+import { composeSpawnForTask, orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -274,5 +274,53 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(data.atomicity.allowed).toBe(true);
     // Prompt contains the task id so we know the right task was rendered.
     expect(data.prompt).toContain('T9323');
+  });
+
+  describe('T14379 — lead mailbox defaults from project config', () => {
+    const lead = (prompt: string) => /Your lead's mailbox: `([^`]+)`/.exec(prompt)?.[1];
+    // Only tier 1/2 prompts carry the Agent Coordination block that names the
+    // lead (T13943); T9321's auto tier is 0, so every case asks for tier 1.
+    const TIER = 1;
+    const writeConfig = (v1: boolean) =>
+      writeFile(
+        join(TEST_ROOT, '.cleo', 'config.json'),
+        JSON.stringify({
+          orchestrate: {
+            leadWorker: { v1 },
+            leadMailbox: { name: 'proj-lead', projectId: 'p1', cli: 'claude' },
+          },
+        }),
+      );
+
+    it('spawn names the recorded lead mailbox when --lead-mbx is not given', async () => {
+      await writeConfig(true);
+      const result = await orchestrateSpawn('T9321', undefined, TEST_ROOT, TIER, true);
+      expect(result.success).toBe(true);
+      expect(lead((result.data as { prompt: string }).prompt)).toBe('proj-lead');
+    });
+
+    it('fanout path (composer with no leadMailbox) names it too; --lead-mbx wins', async () => {
+      await writeConfig(true);
+      // orchestrateSpawnExecute, which fanout calls, composes with no leadMailbox.
+      expect(lead((await composeSpawnForTask('T9321', TEST_ROOT, { tier: TIER })).prompt)).toBe(
+        'proj-lead',
+      );
+      const explicit = await composeSpawnForTask('T9321', TEST_ROOT, {
+        tier: TIER,
+        leadMailbox: 'other',
+      });
+      expect(lead(explicit.prompt)).toBe('other');
+    });
+
+    it('with orchestrate.leadWorker.v1 off, spawn and fanout name no recorded mailbox', async () => {
+      await writeConfig(false);
+      const result = await orchestrateSpawn('T9321', undefined, TEST_ROOT, TIER, true);
+      const prompt = (result.data as { prompt: string }).prompt;
+      expect(prompt).toContain('No lead mailbox was given at spawn');
+      expect(lead(prompt)).toBeUndefined();
+      expect(
+        lead((await composeSpawnForTask('T9321', TEST_ROOT, { tier: TIER })).prompt),
+      ).toBeUndefined();
+    });
   });
 });
