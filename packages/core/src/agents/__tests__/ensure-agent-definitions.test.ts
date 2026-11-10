@@ -6,12 +6,17 @@
  * @task T14378
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getProvider, type Provider } from '@cleocode/caamp';
+import { LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts/operations/orchestrate.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { agentDefinitionReportLines, ensureAgentDefinitions } from '../ensure-agent-definitions.js';
+import {
+  agentDefinitionReportLines,
+  applyLeadToolPolicy,
+  ensureAgentDefinitions,
+} from '../ensure-agent-definitions.js';
 
 function provider(id: string): Provider {
   const p = getProvider(id);
@@ -42,27 +47,70 @@ describe('ensureAgentDefinitions (T14378)', () => {
       [
         join(root, '.claude/agents/cleo-lead.md'),
         join(root, '.claude/agents/cleo-worker.md'),
-        join(root, '.opencode/agents/cleo-lead.md'),
         join(root, '.opencode/agents/cleo-worker.md'),
       ].sort(),
     );
 
     const lead = readFileSync(join(root, '.claude/agents/cleo-lead.md'), 'utf-8');
     const toolsLine = lead.split('\n').find((l) => l.startsWith('tools:')) ?? '';
-    expect(toolsLine).toContain('Agent');
-    for (const denied of ['Bash', 'Edit', 'Write']) {
-      expect(toolsLine.split(/[",\s]+/)).not.toContain(denied);
-    }
+    const tools = (toolsLine.match(/^tools: "(.*)"$/)?.[1] ?? '').split(', ');
+    // T14374: the lead spawns cleo-worker agents only; a bare Agent could spawn one with Bash.
+    expect(tools).toContain('Agent(cleo-worker)');
+    expect(tools).not.toContain('Agent');
+    for (const denied of ['Bash', 'Edit', 'Write']) expect(tools).not.toContain(denied);
     expect(lead).toMatch(/^disallowedTools: ".*Bash.*Edit.*Write/m);
+    // T14374: the lead's one command route is the runner, served by its own MCP server.
+    expect(tools).toContain(LEAD_RUNNER_TOOL);
+    const deniedLine = lead.split('\n').find((l) => l.startsWith('disallowedTools:')) ?? '';
+    for (const denied of LEAD_DENIED_TOOLS) expect(deniedLine).toContain(denied);
+    expect(lead).toContain(
+      'mcpServers:\n  - cleo-lead:\n      type: stdio\n      command: "cleo"\n      args: ["orchestrate","lead-runner"]\n',
+    );
 
     const worker = readFileSync(join(root, '.claude/agents/cleo-worker.md'), 'utf-8');
     expect(worker).toMatch(/^background: true$/m);
     expect(worker).not.toMatch(/^tools:/m);
 
-    const ocLead = readFileSync(join(root, '.opencode/agents/cleo-lead.md'), 'utf-8');
-    expect(ocLead).toMatch(/^mode: primary$/m);
-    expect(ocLead).toMatch(/^ {2}bash: deny$/m);
-    expect(ocLead).toMatch(/^ {2}edit: deny$/m);
+    // T14374: OpenCode files cannot hold a tool allow-list or MCP servers, so no lead there.
+    expect(existsSync(join(root, '.opencode/agents/cleo-lead.md'))).toBe(false);
+    expect(report.outcomes).toContainEqual(
+      expect.objectContaining({ provider: 'opencode', agent: 'cleo-lead', status: 'unsupported' }),
+    );
+    expect(
+      agentDefinitionReportLines(report).warnings.some((w) =>
+        w.startsWith('agent definition (opencode) cleo-lead: not installed;'),
+      ),
+    ).toBe(true);
+  });
+
+  it('lead policy denies every LEAD_DENIED_TOOLS entry even when the file allows one (T14374)', () => {
+    const lead = applyLeadToolPolicy({
+      name: 'cleo-lead',
+      role: 'lead',
+      description: 'd',
+      prompt: 'p',
+      tools: ['Agent(cleo-worker)', 'Bash', 'bash(git *)', 'WRITE', 'Edit(src/**)'],
+    });
+    // Case and Name(...) patterns do not slip a denied tool through.
+    expect(lead.tools).toEqual(['Agent(cleo-worker)', LEAD_RUNNER_TOOL]);
+    expect(lead.deniedTools).toEqual([...LEAD_DENIED_TOOLS]);
+    expect(lead.mcpServers?.['cleo-lead']).toEqual({
+      command: 'cleo',
+      args: ['orchestrate', 'lead-runner'],
+    });
+    const worker = { name: 'w', role: 'worker' as const, description: 'd', prompt: 'p' };
+    expect(applyLeadToolPolicy(worker)).toBe(worker);
+  });
+
+  it('refuses a lead that would inherit every tool or spawn any agent (T14374)', () => {
+    const lead = { name: 'l', role: 'lead' as const, description: 'd', prompt: 'p' };
+    expect(() => applyLeadToolPolicy(lead)).toThrow(/explicit allow-list/);
+    expect(() => applyLeadToolPolicy({ ...lead, tools: ['SendMessage', '*'] })).toThrow(
+      /explicit allow-list/,
+    );
+    expect(() => applyLeadToolPolicy({ ...lead, tools: ['agent', 'SendMessage'] })).toThrow(
+      /Agent\(cleo-worker\)/,
+    );
   });
 
   it('reports a provider without agent-file support as unsupported', async () => {
@@ -78,7 +126,7 @@ describe('ensureAgentDefinitions (T14378)', () => {
     const before = readFileSync(join(root, '.claude/agents/cleo-lead.md'), 'utf-8');
     const second = await ensureAgentDefinitions(root, { providers: providers() });
     const fileOutcomes = second.outcomes.filter((o) => o.path);
-    expect(fileOutcomes).toHaveLength(4);
+    expect(fileOutcomes).toHaveLength(3);
     expect(fileOutcomes.every((o) => o.status === 'unchanged')).toBe(true);
     expect(agentDefinitionReportLines(second).applied).toEqual([]);
     expect(readFileSync(join(root, '.claude/agents/cleo-lead.md'), 'utf-8')).toBe(before);

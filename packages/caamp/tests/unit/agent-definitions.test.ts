@@ -5,9 +5,14 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  LEAD_DENIED_TOOLS,
+  LEAD_RUNNER_TOOL,
+} from '@cleocode/contracts/operations/orchestrate.js';
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_DEFINITION_MARKER,
+  agentDefinitionUnsupportedReason,
   parseAgentDefinition,
   renderAgentDefinition,
 } from '../../src/core/agents/agent-definitions.js';
@@ -21,9 +26,10 @@ describe('agent definitions', () => {
     expect(lead.name).toBe('cleo-lead');
     expect(lead.role).toBe('lead');
     expect(lead.tools).toContain('mcp__mbx__*');
-    expect(lead.deniedTools).toEqual(
-      expect.arrayContaining(['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']),
-    );
+    expect(lead.tools).toContain(LEAD_RUNNER_TOOL);
+    expect(lead.tools).toContain('Agent(cleo-worker)');
+    expect(lead.tools).not.toContain('Agent');
+    expect(lead.deniedTools).toEqual([...LEAD_DENIED_TOOLS]);
     const worker = parseAgentDefinition(readFileSync(join(DEFS, 'cleo-worker.cant'), 'utf-8'));
     expect(worker).toMatchObject({ name: 'cleo-worker', role: 'worker', background: true });
     expect(worker.tools).toBeUndefined();
@@ -49,6 +55,31 @@ describe('agent definitions', () => {
     };
     expect(() => renderAgentDefinition(def, 'opencode')).toThrow(/Teleport/);
     expect(renderAgentDefinition(def, 'claude-code').content).toContain(AGENT_DEFINITION_MARKER);
+  });
+
+  it('OpenCode cannot express a tool allow-list or MCP servers, so it refuses them (T14374)', () => {
+    const base = { name: 'x', role: 'lead' as const, description: 'd', prompt: 'p' };
+    const withTools = { ...base, tools: ['SendMessage'] };
+    const withServer = { ...base, mcpServers: { s: { command: 'c', args: [] } } };
+    for (const def of [withTools, withServer]) {
+      expect(agentDefinitionUnsupportedReason(def, 'opencode')).toMatch(/allow-list/);
+      expect(() => renderAgentDefinition(def, 'opencode')).toThrow(/allow-list/);
+      expect(agentDefinitionUnsupportedReason(def, 'claude-code')).toBeUndefined();
+    }
+    expect(agentDefinitionUnsupportedReason(base, 'opencode')).toBeUndefined();
+  });
+
+  it('renders per-agent MCP servers for Claude Code (T14374)', () => {
+    const def = {
+      name: 'x',
+      role: 'lead' as const,
+      description: 'd',
+      prompt: 'p',
+      mcpServers: { 'cleo-lead': { command: 'cleo', args: ['orchestrate', 'lead-runner'] } },
+    };
+    expect(renderAgentDefinition(def, 'claude-code').content).toContain(
+      'mcpServers:\n  - cleo-lead:\n      type: stdio\n      command: "cleo"\n      args: ["orchestrate","lead-runner"]\n---',
+    );
   });
 
   it('declares agent paths only for claude-code and opencode', () => {

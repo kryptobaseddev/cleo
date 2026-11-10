@@ -21,6 +21,11 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentDefinition, Provider } from '@cleocode/caamp';
+import {
+  LEAD_DENIED_TOOLS,
+  LEAD_RUNNER_MCP_SERVER,
+  LEAD_RUNNER_TOOL,
+} from '@cleocode/contracts/operations/orchestrate.js';
 import { type UpgradeFileJournal, writeIfChanged } from '../scaffold/upgrade-file-journal.js';
 import { resolveAgentDefinitionsDir } from './resolveAgentTemplates.js';
 
@@ -31,7 +36,9 @@ export interface AgentDefinitionOutcome {
   /**
    * - `created` / `updated` / `unchanged`: the rendered file at `path`.
    * - `user-owned`: `path` exists without CAAMP's marker and was left alone.
-   * - `unsupported`: the provider has no verified project agent-file support.
+   * - `unsupported`: the provider has no verified project agent-file support,
+   *   or (with `agent` and `reason`) its format cannot express that agent's
+   *   tool policy, so the file is not written (T14374).
    * - `failed`: rendering or writing failed (`reason`).
    */
   readonly status: 'created' | 'updated' | 'unchanged' | 'user-owned' | 'unsupported' | 'failed';
@@ -39,7 +46,7 @@ export interface AgentDefinitionOutcome {
   readonly agent?: string;
   /** Absolute file path, for per-file outcomes. */
   readonly path?: string;
-  /** Why, for `failed`. */
+  /** Why, for `failed` and a per-agent `unsupported`. */
   readonly reason?: string;
 }
 
@@ -59,6 +66,66 @@ export interface EnsureAgentDefinitionsOptions {
   readonly journal?: UpgradeFileJournal;
   /** Directory of canonical `.cant` definitions. @defaultValue `@cleocode/agents/definitions` */
   readonly definitionsDir?: string;
+}
+
+/** A tool name compared by its base: `Agent(cleo-worker)` → `agent`. */
+function toolBase(tool: string): string {
+  return tool
+    .replace(/\(.*\)$/s, '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Apply the lead tool policy to a lead definition: deny every
+ * {@link LEAD_DENIED_TOOLS} entry, allow the command runner tool, and declare
+ * the runner's MCP server (`cleo orchestrate lead-runner`). Worker definitions
+ * are returned unchanged.
+ *
+ * A denied tool is removed from `tools` whatever its case and any `Name(...)`
+ * pattern (`bash(git *)` goes too).
+ *
+ * @param def - A parsed canonical definition.
+ * @returns The definition as delivered.
+ * @throws When the lead has no `tools:` list or a `*` entry (it would inherit
+ *   every tool), or a bare `Agent` entry (it could spawn any agent type; use
+ *   `Agent(cleo-worker)`).
+ *
+ * @example
+ * ```typescript
+ * applyLeadToolPolicy(lead).deniedTools; // includes 'Bash', 'Edit', 'Write'
+ * ```
+ *
+ * @task T14374
+ */
+export function applyLeadToolPolicy(def: AgentDefinition): AgentDefinition {
+  if (def.role !== 'lead') return def;
+  if (!def.tools || def.tools.some((t) => t.trim() === '*')) {
+    // @sync-invariant none:input-shape a lead .cant file without an explicit tool allow-list is refused before any agent file is written
+    throw new Error(
+      `lead "${def.name}": tools must be an explicit allow-list (a missing tools: or "*" inherits every tool)`,
+    );
+  }
+  if (def.tools.some((t) => t.trim().toLowerCase() === 'agent')) {
+    // @sync-invariant none:input-shape a lead .cant file allowing a bare Agent is refused before any agent file is written
+    throw new Error(
+      `lead "${def.name}": bare Agent can spawn any agent type; allow Agent(cleo-worker) instead`,
+    );
+  }
+  const denied = [...new Set([...(def.deniedTools ?? []), ...LEAD_DENIED_TOOLS])];
+  const deniedBases = new Set(denied.map(toolBase));
+  const tools = [...new Set([...def.tools, LEAD_RUNNER_TOOL])].filter(
+    (t) => !deniedBases.has(toolBase(t)),
+  );
+  return {
+    ...def,
+    tools,
+    deniedTools: denied,
+    mcpServers: {
+      ...def.mcpServers,
+      [LEAD_RUNNER_MCP_SERVER]: { command: 'cleo', args: ['orchestrate', 'lead-runner'] },
+    },
+  };
 }
 
 function message(err: unknown): string {
@@ -105,7 +172,8 @@ export async function ensureAgentDefinitions(
     .filter((f) => f.endsWith('.cant'))
     .sort()) {
     try {
-      definitions.push(caamp.parseAgentDefinition(readFileSync(join(dir, file), 'utf-8')));
+      const def = caamp.parseAgentDefinition(readFileSync(join(dir, file), 'utf-8'));
+      definitions.push(applyLeadToolPolicy(def));
     } catch (err) {
       outcomes.push({
         provider: '*',
@@ -124,6 +192,18 @@ export async function ensureAgentDefinitions(
     }
     for (const def of definitions) {
       let path: string | undefined;
+      const unsupported = caamp.agentDefinitionUnsupportedReason(def, target.format);
+      if (unsupported) {
+        // T14374: never write a lead the format cannot restrict; a lead spawn
+        // there is refused with E_LEAD_TOOLS_UNSTRIPPED by its spawn provider.
+        outcomes.push({
+          provider: provider.id,
+          status: 'unsupported',
+          agent: def.name,
+          reason: unsupported,
+        });
+        continue;
+      }
       try {
         const rendered = caamp.renderAgentDefinition(def, target.format);
         path = join(projectRoot, target.pathProject, rendered.fileName);
@@ -151,7 +231,8 @@ export async function ensureAgentDefinitions(
 
 /**
  * Report lines for init/upgrade: every write as `applied`; unsupported
- * providers (one line), user-owned files and failures as `warnings`.
+ * providers (one line), agents a format cannot express, user-owned files and
+ * failures as `warnings`.
  * Unchanged files add nothing.
  *
  * @param report - The delivery report.
@@ -168,6 +249,8 @@ export function agentDefinitionReportLines(report: AgentDefinitionsReport): {
   for (const o of report.outcomes) {
     if (o.status === 'created' || o.status === 'updated') {
       applied.push(`agent definition (${o.provider}): ${o.status} ${o.path}`);
+    } else if (o.status === 'unsupported' && o.agent) {
+      warnings.push(`agent definition (${o.provider}) ${o.agent}: not installed; ${o.reason}`);
     } else if (o.status === 'unsupported') {
       unsupported.push(o.provider);
     } else if (o.status === 'user-owned') {

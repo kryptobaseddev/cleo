@@ -37,6 +37,23 @@ export interface AgentDefinition {
   deniedTools?: string[];
   /** Whether the agent always runs as a background task. */
   background?: boolean;
+  /**
+   * MCP stdio servers started for this agent only, keyed by server name.
+   * Set by delivery (the lead's command runner, T14374), not by `.cant` files.
+   */
+  mcpServers?: Record<string, AgentMcpServer>;
+}
+
+/**
+ * An MCP stdio server an agent definition starts for itself.
+ *
+ * @public
+ */
+export interface AgentMcpServer {
+  /** Executable to start. */
+  command: string;
+  /** Arguments, passed without a shell. */
+  args: string[];
 }
 
 /**
@@ -190,11 +207,53 @@ function renderClaude(def: AgentDefinition): string {
   if (def.tools) fm.push(`tools: ${JSON.stringify(def.tools.join(', '))}`);
   if (def.deniedTools) fm.push(`disallowedTools: ${JSON.stringify(def.deniedTools.join(', '))}`);
   if (def.background !== undefined) fm.push(`background: ${def.background}`);
+  const servers = Object.entries(def.mcpServers ?? {});
+  if (servers.length > 0) {
+    // Inline per-agent servers: a list of single-key maps (Claude Code sub-agent docs).
+    fm.push('mcpServers:');
+    for (const [name, server] of servers) {
+      fm.push(`  - ${name}:`, '      type: stdio');
+      fm.push(`      command: ${JSON.stringify(server.command)}`);
+      fm.push(`      args: ${JSON.stringify(server.args)}`);
+    }
+  }
   fm.push('---');
   return `${fm.join('\n')}\n\n${def.prompt}\n`;
 }
 
+/**
+ * Why a format cannot express a definition, or `undefined` when it can.
+ *
+ * The OpenCode format writes only `permission` denies: it has no tool
+ * allow-list and no per-agent MCP servers, so a definition with `tools` or
+ * `mcpServers` would get every other tool there (global MCP tools, `task`).
+ * Such a definition is not delivered to that provider (T14374).
+ *
+ * @param def - The canonical definition, as delivered.
+ * @param format - The provider's format (registry `agentDefinitions.format`).
+ * @returns The reason, or `undefined` when {@link renderAgentDefinition} can render it.
+ *
+ * @example
+ * ```typescript
+ * agentDefinitionUnsupportedReason(lead, 'opencode'); // 'OpenCode agent files cannot ...'
+ * ```
+ *
+ * @public
+ */
+export function agentDefinitionUnsupportedReason(
+  def: AgentDefinition,
+  format: AgentDefinitionFormat,
+): string | undefined {
+  if (format === 'claude-code') return undefined;
+  if (def.tools || Object.keys(def.mcpServers ?? {}).length > 0) {
+    return 'OpenCode agent files cannot restrict tools to an allow-list or declare per-agent MCP servers';
+  }
+  return undefined;
+}
+
 function renderOpenCode(def: AgentDefinition): string {
+  const unsupported = agentDefinitionUnsupportedReason(def, 'opencode');
+  if (unsupported) throw new Error(`agent definition "${def.name}": ${unsupported}`);
   const fm = [
     '---',
     AGENT_DEFINITION_MARKER,
