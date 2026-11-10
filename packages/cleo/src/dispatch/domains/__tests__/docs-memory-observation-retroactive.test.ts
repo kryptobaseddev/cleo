@@ -29,7 +29,9 @@
  *      round-trip correctly.
  *
  * Strategy: real tasks.db + real brain.db via temp CLEO_DIR, mirroring the
- * existing T9976 test suite so the same storage path is exercised.
+ * existing T9976 test suite so the same storage path is exercised. The
+ * projection is captured with a budget no loaded CI shard reaches (T14432):
+ * the two-second wall-clock default made these cases flake as `pending`.
  *
  * @task T10375
  * @saga T10288
@@ -40,6 +42,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DocsAddResult } from '@cleocode/contracts/operations/docs';
+import type * as Projection from '@cleocode/core/docs/projection';
 import {
   _resetBrainWriterForTests,
   shutdownBrainWriter,
@@ -47,6 +50,16 @@ import {
 import { awaitBackgroundOps } from '@cleocode/core/store/background-ops';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsHandler } from '../docs.js';
+
+vi.mock('@cleocode/core/docs/projection', async (importOriginal) => {
+  const actual = await importOriginal<typeof Projection>();
+  return {
+    ...actual,
+    // A budget no loaded shard reaches: the cases never race the wall clock (T14432).
+    captureDocumentProjection: (root: string, actor: string, key: string) =>
+      actual.captureDocumentProjection(root, actor, key, 2 ** 31),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers — mirrors the read-back helper in docs-memory-observation.test.ts so
