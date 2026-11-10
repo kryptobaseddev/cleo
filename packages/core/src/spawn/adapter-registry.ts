@@ -12,6 +12,7 @@
  * @phase 1C
  */
 
+import { pathToFileURL } from 'node:url';
 import {
   getProvidersBySpawnCapability,
   getSpawnCapableProviders,
@@ -172,6 +173,8 @@ export function hasParallelSpawnProvider(): boolean {
  */
 export const spawnRegistry = new SpawnAdapterRegistry();
 
+const spawnAdapterFailures = new Map<string, string>();
+
 /**
  * Thrown by the spawn bridge when a lead spawn reaches a provider that does
  * not declare `leadToolStrip: 'enforced'`. An absent declaration counts as
@@ -307,10 +310,11 @@ export async function initializeSpawnAdapters(
     if (!manifest.capabilities?.supportsSpawn) continue;
     if (spawnRegistry.hasAdapterForProvider(manifest.provider)) continue;
 
+    spawnAdapterFailures.delete(manifest.provider);
     try {
       const { join } = await import('node:path');
       const modulePath = join(manifest.packagePath, manifest.entryPoint);
-      const adapterModule = await import(modulePath);
+      const adapterModule = await import(pathToFileURL(modulePath).href);
 
       // Look for an exported spawn provider class — convention: <Name>SpawnProvider
       let SpawnProviderClass: (new () => AdapterSpawnProvider) | undefined;
@@ -324,9 +328,14 @@ export async function initializeSpawnAdapters(
       if (SpawnProviderClass) {
         const provider = new SpawnProviderClass();
         spawnRegistry.register(bridgeSpawnAdapter(manifest.provider, provider));
+      } else {
+        spawnAdapterFailures.set(manifest.provider, 'module exports no SpawnProvider');
       }
-    } catch {
-      // Adapter not installed or doesn't have spawn provider — skip
+    } catch (error) {
+      spawnAdapterFailures.set(
+        manifest.provider,
+        `spawn provider could not load: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 }
@@ -334,9 +343,8 @@ export async function initializeSpawnAdapters(
 /**
  * Initialize the registry with default adapters.
  *
- * Legacy entry point that discovers adapters from the project root
- * and delegates to initializeSpawnAdapters(). Maintains backward
- * compatibility for callers that don't have manifests handy.
+ * Discovers adapters shipped with the CLI, plus optional project adapters,
+ * and delegates to initializeSpawnAdapters().
  *
  * @returns Promise that resolves when initialization is complete
  */
@@ -344,4 +352,53 @@ export async function initializeDefaultAdapters(): Promise<void> {
   const { discoverAdapterManifests } = await import('../adapters/discovery.js');
   const manifests = discoverAdapterManifests(getProjectRoot());
   await initializeSpawnAdapters(manifests);
+}
+
+/**
+ * Explain the discovered adapters and how to select one after a spawn refusal.
+ * Includes load failures, capability mismatches and runtime availability.
+ */
+export async function getSpawnAdapterFix(
+  capabilities: readonly SpawnCapability[] = ['supportsSubagents'],
+): Promise<string> {
+  const { discoverAdapterManifests } = await import('../adapters/discovery.js');
+  const manifests = discoverAdapterManifests(getProjectRoot());
+  const ids = new Set([
+    ...manifests.map((manifest) => manifest.id),
+    ...spawnRegistry.list().map((adapter) => adapter.id),
+  ]);
+  const reasons: string[] = [];
+  for (const id of ids) {
+    const manifest = manifests.find((candidate) => candidate.id === id);
+    const adapter =
+      spawnRegistry.get(id) ??
+      (manifest ? spawnRegistry.getForProvider(manifest.provider) : undefined);
+    if (!adapter) {
+      reasons.push(
+        `${id}: ${manifest?.capabilities.supportsSpawn ? (spawnAdapterFailures.get(manifest.provider) ?? 'spawn provider not registered') : 'manifest does not support spawning'}`,
+      );
+      continue;
+    }
+    const missing = capabilities.filter(
+      (capability) => !providerSupportsById(adapter.providerId, `spawn.${capability}`),
+    );
+    if (missing.length) {
+      reasons.push(`${id}: provider lacks ${missing.join(', ')}`);
+      continue;
+    }
+    try {
+      const available = await adapter.canSpawn();
+      const cli = manifest?.detectionPatterns
+        .filter((pattern) => pattern.type === 'cli')
+        .map((pattern) => pattern.pattern);
+      reasons.push(
+        `${id}: ${available ? 'available' : `cannot spawn in this environment (canSpawn returned false${cli?.length ? `; requires CLI on PATH: ${cli.join(', ')}` : ''})`}`,
+      );
+    } catch (error) {
+      reasons.push(
+        `${id}: availability check failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return `Install or enable a compatible provider. For explicit adapter selection, use cleo orchestrate spawn-execute <taskId> --adapter claude-code or cleo orchestrate lead <epicId> --adapter <id>. Found adapters: ${reasons.join('; ') || 'none; reinstall @cleocode/cleo with its @cleocode/adapters dependency'}.`;
 }

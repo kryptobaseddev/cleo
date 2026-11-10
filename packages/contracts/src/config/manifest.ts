@@ -21,6 +21,7 @@
  */
 
 import { type ZodTypeAny, z } from 'zod';
+import { projectWorkerPolicySchema } from './worker-policy.js';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Scope + drift unions
@@ -158,6 +159,14 @@ export const CLEO_CONFIG_MANIFEST: ConfigManifestEntry = {
   path: '.cleo/config.json',
   mergePrecedence: 20,
   driftDetection: 'schema-validate',
+  schema: z
+    .object({
+      orchestrate: z
+        .object({ workerPolicy: projectWorkerPolicySchema.optional() })
+        .passthrough()
+        .optional(),
+    })
+    .passthrough(),
 };
 
 /**

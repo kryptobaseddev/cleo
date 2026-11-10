@@ -43,6 +43,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getProviderAskTool } from '@cleocode/caamp';
 import type { AgentSpawnCapability, LeanLevel, Task } from '@cleocode/contracts';
+import type { ProjectWorkerPolicy } from '@cleocode/contracts/config/worker-policy.js';
 import type {
   SpawnProtocolResolution,
   SpawnWorkerSession,
@@ -56,6 +57,7 @@ import {
   buildBudgetedPsycheMemoryBlock,
   relevanceContextFromTask,
 } from './psyche-memory-budget.js';
+import { buildProjectWorkerPolicyBlock } from './worker-policy.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
@@ -273,6 +275,8 @@ export interface BuildSpawnPromptInput {
    * Callers resolve it with `effectiveLeanLevel`. Defaults to `full`.
    */
   leanLevel?: LeanLevel;
+  /** Resolved project worker policy, applied identically at every tier and harness. */
+  workerPolicy?: ProjectWorkerPolicy;
   /**
    * Per-agent identity handle for the spawned task (T11343).
    *
@@ -1194,7 +1198,12 @@ export function readProjectCommands(projectRoot: string): ProjectCommands {
  * its build, its lint and typecheck through `tool:` atoms, and its test
  * command; nothing another project declares.
  */
-function buildQualityGateBlock(taskId: string, commands: ProjectCommands): string {
+function buildQualityGateBlock(
+  taskId: string,
+  commands: ProjectCommands,
+  policy?: ProjectWorkerPolicy,
+): string {
+  const ciOnly = policy?.verification?.full === 'ci';
   const testLine = commands.test
     ? `This project's test command is \`${commands.test}\`${commands.affectedTest ? ` and its affected-only command is \`${commands.affectedTest}\`` : ''} (\`.cleo/project-context.json\`).`
     : `This project declares no \`testing.command\` in \`.cleo/project-context.json\`; \`cleo done ${taskId} --plan\` names what to run.`;
@@ -1202,16 +1211,28 @@ function buildQualityGateBlock(taskId: string, commands: ProjectCommands): strin
     '## Quality Gates (before you open the PR, or before `cleo complete` for no-PR work)',
     '',
     '```bash',
-    ...(commands.build
+    ...(!ciOnly && commands.build
       ? [`cleo run --wait --class full-build -- ${commands.build}   # the project's build`]
       : []),
-    `cleo verify ${taskId} --gate qaPassed --evidence "tool:lint;tool:typecheck"   # the project's own lint and typecheck`,
+    ...(!ciOnly
+      ? [
+          `cleo verify ${taskId} --gate qaPassed --evidence "tool:lint;tool:typecheck"   # the project's own lint and typecheck`,
+        ]
+      : []),
     'git diff --stat HEAD   # verify the diff matches the story',
     '```',
     '',
     GOVERNED_HEAVY_WORK_LINE,
     '',
-    `Tests (zero new failures vs the default branch): ${testLine} While iterating, run only the failing or changed test files. Record evidence once (\`cleo done ${taskId} --plan\` picks for you): \`ci:<pr>\` when the PR merged and the project sets \`evidence.ciSatisfies\`; otherwise \`tool:test-affected\` when \`testing.affectedCommand\` is configured, else a targeted \`test-run:<json>\` or \`tool:test\`. Never run the full suite manually; with \`testing.affectedCommand\` configured, a full \`tool:test\` is only for root-config changes.`,
+    ...(ciOnly
+      ? [
+          `Full verification runs in required CI: ${commands.build ? `build (\`${commands.build}\`), ` : ''}full tests${commands.test ? ` (\`${commands.test}\`)` : ''}, whole-project lint and typecheck. Do not run these locally.`,
+          `Local checks use \`cleo run --wait --class test -- <scoped-test-command>\`. ${policy?.verification?.local === 'single-file' ? 'Run one changed or failing test file per invocation; do not substitute an affected suite.' : 'Run affected tests only.'}${commands.affectedTest ? ` Use this project's \`testing.affectedCommand\` (\`${commands.affectedTest}\`), resolving its declared placeholders according to the project runner; ${policy?.verification?.local === 'single-file' ? 'the resolved command must select exactly one test file' : 'select only affected tests'}.` : " Select the project runner's file-scoped command before running it."} Formatting/lint may target changed files only.`,
+          `Evidence is still required: \`cleo done ${taskId} --plan\` names every gate. Merged green CI may satisfy \`testsPassed\` and \`qaPassed\` via \`ci:<pr>\` only when the project enables \`evidence.ciSatisfies\`; otherwise retain applicable scoped evidence and leave unproven gates open. CI placement never waives a gate or authorizes a contradictory local full run.`,
+        ]
+      : [
+          `Tests (zero new failures vs the default branch): ${testLine} While iterating, run only the failing or changed test files. Record evidence once (\`cleo done ${taskId} --plan\` picks for you): \`ci:<pr>\` when the PR merged and the project sets \`evidence.ciSatisfies\`; otherwise \`tool:test-affected\` when \`testing.affectedCommand\` is configured, else a targeted \`test-run:<json>\` or \`tool:test\`. Never run the full suite manually; with \`testing.affectedCommand\` configured, a full \`tool:test\` is only for root-config changes.`,
+        ]),
     '',
     'If ANY gate fails, fix it before completing. Do not bypass. Do not `--no-verify`. Do not amend published commits.',
   ].join('\n');
@@ -1830,7 +1851,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   }
   authoredSections.push(buildStageGuidance(protocol, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
-  authoredSections.push(buildQualityGateBlock(taskId, readProjectCommands(input.projectRoot)));
+  authoredSections.push(
+    buildQualityGateBlock(taskId, readProjectCommands(input.projectRoot), input.workerPolicy),
+  );
   const leanBlock = buildLeanChangeBlock(input.leanLevel ?? 'full');
   if (leanBlock !== null) authoredSections.push(leanBlock);
 
@@ -1875,6 +1898,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   const authored = authoredSections.join('\n\n');
   const { resolved, unresolved } = resolvePromptTokens(authored, tokens);
 
+  if (input.workerPolicy) {
+    embeddedSections.push(buildProjectWorkerPolicyBlock(input.workerPolicy));
+  }
   const embedded = embeddedSections.join('\n\n');
   const finalPrompt = embedded ? `${resolved}\n\n${embedded}` : resolved;
 

@@ -771,6 +771,7 @@ const handoffCommand = defineCommand({
 const spawnExecuteCommand = defineCommand({
   meta: { name: 'spawn-execute', description: 'Execute spawn for a task via the adapter registry' },
   args: {
+    adapter: { type: 'string', description: 'Spawn adapter id (default: first capable adapter)' },
     taskId: {
       type: 'positional',
       description: 'Task ID to execute spawn for',
@@ -789,7 +790,11 @@ const spawnExecuteCommand = defineCommand({
       'mutate',
       'orchestrate',
       'spawn.execute',
-      { taskId: args.taskId, ...(args.base !== undefined ? { baseRef: args.base } : {}) },
+      {
+        taskId: args.taskId,
+        ...(args.adapter !== undefined ? { adapterId: args.adapter } : {}),
+        ...(args.base !== undefined ? { baseRef: args.base } : {}),
+      },
       { command: 'orchestrate' },
     );
   },

@@ -298,6 +298,13 @@ mailbox in it. Tier-0 prompts stay minimal and have no such section; with
 and asking for a report of at most 100 words (conclusion, blocker, proof) (T14429). The conduit messaging verbs, including the `conduit-*` sub-commands of
 orchestrate, were removed (T13955).
 
+Spawn adapter discovery uses the installed `@cleocode/adapters` package, including in
+projects without `packages/`. Session adapter activation still discovers only
+explicit project adapters, so session start does not install bundled provider hooks. Both `orchestrate lead` and `orchestrate spawn-execute`
+accept `--adapter claude-code`; selection refusals list discovered adapter IDs,
+load failures, capability mismatches and environment availability. Install the
+provider CLI on `PATH` before selecting it.
+
 **Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with
 `orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
 is structural, not a prompt rule. Two modes (owner decision): interactive, the default, opens the
@@ -497,7 +504,21 @@ deadlock), and never raise heap or worker counts (`NODE_OPTIONS`,
 
 A spawn prompt names the spawned project's own commands, read from its
 `.cleo/project-context.json` (`build.command`, `testing.command`), never
-another project's; lint and typecheck go through `tool:lint;tool:typecheck`.
+another project's. `orchestrate.workerPolicy` in the project's `.cleo/config.json`
+places full verification locally or in required CI and scopes local iteration
+checks; the composer includes the same resolved policy and project instructions
+at every tier and for every harness/backend. For example,
+`cleo config set orchestrate.workerPolicy '{"verification":{"full":"ci","local":"single-file"},"instructions":["Follow AGENTS.md"]}' --type json`
+requires single-file local tests via `cleo run` and changed-file formatting/lint;
+build, full tests, whole-project lint and typecheck run in required CI. No policy
+preserves existing behavior; malformed policy refuses dispatch with a repair
+command. Explicit owner instructions remain authoritative. Instructions are
+limited to 16 single-line items of
+512 characters, with control characters and leading `#` rejected. Refusals
+retain the repair command in `error.fix` on prompt and native execution paths.
+Placement never waives evidence: `ci:<pr>` still needs merged green CI and `evidence.ciSatisfies`;
+unproven gates stay open. With local full verification, lint and typecheck go
+through `tool:lint;tool:typecheck`.
 Its closure block leads with PR work (`Closes: <id> AC…`, a non-author verdict,
 the merge sweep) and gives `cleo done <id> --plan` for no-PR work (T14303).
 
