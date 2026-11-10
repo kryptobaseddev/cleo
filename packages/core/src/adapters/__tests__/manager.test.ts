@@ -6,7 +6,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectProvider, discoverAdapterManifests } from '../discovery.js';
 import { AdapterManager } from '../manager.js';
 
@@ -46,6 +46,8 @@ const MOCK_MANIFEST = {
     { type: 'env' as const, pattern: 'CLEO_TEST_ADAPTER_DETECT', description: 'Test env var' },
   ],
 };
+
+vi.mock('@cleocode/adapters/manifests', () => ({ getProviderManifests: () => [] }));
 
 // --- Discovery tests ---
 

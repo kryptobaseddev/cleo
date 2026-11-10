@@ -90,8 +90,11 @@ export const PACKAGE_DEPS = Object.freeze({
     'packages/core/dist/tools/fs.d.ts',
   ]),
 
+  'packages/adapters/dist/manifests.d.ts': Object.freeze(['packages/contracts/dist/']),
+
   // Wave 5: core depends on caamp, nexus, worktree, paths, contracts.
   'packages/core/dist/': Object.freeze([
+    'packages/adapters/dist/manifests.d.ts',
     'packages/caamp/dist/',
     'packages/contracts/dist/',
     'packages/nexus/dist/',

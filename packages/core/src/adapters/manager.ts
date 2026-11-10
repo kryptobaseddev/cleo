@@ -64,7 +64,7 @@ export class AdapterManager {
   }
 
   /**
-   * Discover adapter manifests from packages/adapters/.
+   * Discover bundled and optional project adapter manifests.
    * Returns manifests found (does not load adapter code yet).
    */
   discover(): AdapterManifest[] {

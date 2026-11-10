@@ -3,15 +3,77 @@
  * @task T5240
  */
 
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DetectionPattern } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { detectProvider, discoverAdapterManifests } from '../discovery.js';
 
-describe('discoverAdapterManifests — unit', () => {
-  it('returns empty array when adapters directory does not exist', () => {
-    const result = discoverAdapterManifests('/tmp/nonexistent-project');
-    expect(result).toEqual([]);
+describe('discoverAdapterManifests — installed package', () => {
+  it.each([
+    fileURLToPath(new URL('../../../../../', import.meta.url)),
+    '/tmp/nonexistent-cleo-project',
+  ])('discovers shipped adapters from %s without project adapter packages', (projectRoot) => {
+    const manifests = discoverAdapterManifests(projectRoot);
+    const claude = manifests.find((manifest) => manifest.id === 'claude-code');
+    expect(claude?.provider).toBe('claude-code');
+    expect(claude?.capabilities.supportsSpawn).toBe(true);
+    expect(claude?.entryPoint).toBe('index.js');
+    expect(existsSync(join(claude!.packagePath, 'index.ts'))).toBe(true);
+    expect(new Set(manifests.map((manifest) => manifest.id)).size).toBe(manifests.length);
+  });
+
+  it('resolves shipped manifests to JavaScript entry points in an installed package layout', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-installed-adapters-'));
+    try {
+      const source = new URL('../../../../adapters/src/manifests.ts', import.meta.url);
+      const manifest = new URL(
+        '../../../../adapters/src/providers/claude-code/manifest.json',
+        import.meta.url,
+      );
+      mkdirSync(join(root, 'src', 'providers', 'claude-code'), { recursive: true });
+      mkdirSync(join(root, 'dist'));
+      writeFileSync(
+        join(root, 'src', 'providers', 'claude-code', 'manifest.json'),
+        readFileSync(manifest),
+      );
+      const modulePath = join(root, 'dist', 'manifests.mjs');
+      writeFileSync(modulePath, stripTypeScriptTypes(readFileSync(source, 'utf8')));
+      const installed: typeof import('@cleocode/adapters/manifests') = await import(
+        pathToFileURL(modulePath).href
+      );
+      expect(installed.getProviderManifests()).toMatchObject([
+        {
+          id: 'claude-code',
+          packagePath: join(root, 'dist', 'providers', 'claude-code'),
+          entryPoint: 'index.js',
+        },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the installed adapter authoritative over a project manifest with the same id', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-adapter-precedence-'));
+    try {
+      const dir = join(root, 'packages', 'adapters', 'claude-code');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, 'manifest.json'),
+        JSON.stringify({ id: 'claude-code', provider: 'project-override' }),
+      );
+      const manifests = discoverAdapterManifests(root);
+      expect(manifests.filter((manifest) => manifest.id === 'claude-code')).toHaveLength(1);
+      expect(manifests.find((manifest) => manifest.id === 'claude-code')?.provider).toBe(
+        'claude-code',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

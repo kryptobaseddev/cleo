@@ -570,7 +570,16 @@ const cleoBuildOptions = {
 /** @type {esbuild.BuildOptions} */
 const adaptersBuildOptions = {
   // Every public adapters export must have a built runtime entry (T13490).
-  entryPoints: ['packages/adapters/src/index.ts', 'packages/adapters/src/heavy-command-hook.ts', 'packages/adapters/src/project-hook-delivery.ts', 'packages/adapters/src/project-hook-native.ts'],
+  entryPoints: [
+    'packages/adapters/src/index.ts',
+    'packages/adapters/src/manifests.ts',
+    'packages/adapters/src/heavy-command-hook.ts',
+    'packages/adapters/src/project-hook-delivery.ts',
+    'packages/adapters/src/project-hook-native.ts',
+    ...readdirSync(resolve(__dirname, 'packages/adapters/src/providers'))
+      .map((id) => `packages/adapters/src/providers/${id}/index.ts`)
+      .filter((entry) => existsSync(resolve(__dirname, entry))),
+  ],
   bundle: true,
   platform: 'node',
   target: 'node24',
@@ -947,6 +956,21 @@ async function build() {
   });
   await buildPkg('@cleocode/caamp', 'packages/caamp/dist/');
   await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
+
+  // ---------------------------------------------------------------------------
+  // The manifest-only leaf imports built contracts, so core can typecheck
+  // before the provider runtime wave without loading or depending on core itself.
+  await new Promise((res, rej) => {
+    const proc = spawnPnpm([
+      'exec', 'tsc', '--ignoreConfig', '--declaration', '--emitDeclarationOnly',
+      '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2022',
+      '--strict', '--skipLibCheck', '--types', 'node',
+      '--rootDir', 'packages/adapters/src', '--outDir', 'packages/adapters/dist',
+      'packages/adapters/src/manifests.ts',
+    ], { stdio: 'inherit' });
+    proc.on('error', rej);
+    proc.on('close', (code) => code === 0 ? res() : rej(new Error(`Adapter manifest declaration emit failed (exit ${code})`)));
+  });
 
   // ---------------------------------------------------------------------------
   // Wave 5: core esbuild bundle + tsc declaration emit

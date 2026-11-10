@@ -107,7 +107,11 @@ import {
 import { externalPressureFix } from '../resources/pressure-gate.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
-import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
+import {
+  getSpawnAdapterFix,
+  initializeDefaultAdapters,
+  spawnRegistry,
+} from '../spawn/adapter-registry.js';
 import {
   abandonSpawnSession,
   requireSpawnSession,
@@ -856,6 +860,7 @@ export async function orchestrateSpawnExecute(
         error: {
           code: 'E_SPAWN_NO_ADAPTER',
           message: 'No spawn adapter available for this provider',
+          fix: await getSpawnAdapterFix(),
           exitCode: 60,
         },
       };
@@ -943,6 +948,7 @@ export async function orchestrateSpawnExecute(
         error: {
           code: 'E_SPAWN_NO_PROVIDER',
           message: `Provider ${adapter.providerId} not found`,
+          fix: await getSpawnAdapterFix(),
           exitCode: 60,
         },
       };

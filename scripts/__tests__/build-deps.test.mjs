@@ -46,6 +46,14 @@ describe('build-deps.mjs (T9939)', () => {
       expect(caampDeps).not.toContain('packages/core/dist/');
     });
 
+    it('emits the adapter manifest leaf before core without a provider-runtime cycle (T14449)', () => {
+      expect(depsFor('packages/core/dist/')).toContain('packages/adapters/dist/manifests.d.ts');
+      expect(depsFor('packages/adapters/dist/manifests.d.ts')).toEqual([
+        'packages/contracts/dist/',
+      ]);
+      expect(depsFor('packages/core/dist/')).not.toContain('packages/adapters/dist/');
+    });
+
     it('declares contracts + paths as prereqs of cant (the cant→caamp chain root)', () => {
       // cant itself depends on contracts + lafs. If those are dropped, the
       // wave-3 build of cant fails and the implicit cant→caamp chain breaks

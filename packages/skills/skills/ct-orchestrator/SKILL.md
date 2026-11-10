@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.6.0
+  version: 4.7.0
   tier: core
   install: harness
   covers:
@@ -281,6 +281,12 @@ mailbox in it. Tier-0 prompts stay minimal and have no such section; with
 `orchestrate.leadWorker.v1` on and `--lead-mbx` given, they carry one line naming your mailbox
 and asking for a report of at most 100 words (conclusion, blocker, proof) (T14429). The conduit messaging verbs, including the `conduit-*` sub-commands of
 orchestrate, were removed (T13955).
+
+Spawn adapter discovery uses the installed `@cleocode/adapters` package, including in
+projects without `packages/`. Both `orchestrate lead` and `orchestrate spawn-execute`
+accept `--adapter claude-code`; selection refusals list discovered adapter IDs,
+load failures, capability mismatches and environment availability. Install the
+provider CLI on `PATH` before selecting it.
 
 **Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with
 `orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
