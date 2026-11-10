@@ -65,6 +65,45 @@ describe('checkWorkerReport (T14361)', () => {
     });
   });
 
+  it('refuses a complete report whose command proof exited non-zero', () => {
+    const check = checkWorkerReport(COMPLETE.replace('=> exit 0', '=> exit 1'));
+    expect(check).toMatchObject({ ok: false, code: 'E_WORKER_REPORT_PROOF' });
+  });
+
+  it('accepts a blocked report that proves its blocker with a non-zero exit', () => {
+    const blocked = [
+      'Implementation blocked. manifest:e1',
+      'conclusion: unit tests fail on main',
+      'blocker: pnpm test fails in a.test.ts',
+      'proof: pnpm exec vitest run a.test.ts => exit 1',
+    ].join('\n');
+    expect(checkWorkerReport(blocked)).toEqual({
+      ok: true,
+      report: {
+        conclusion: 'unit tests fail on main',
+        blocker: 'pnpm test fails in a.test.ts',
+        proof: [{ command: 'pnpm exec vitest run a.test.ts', exitCode: 1 }],
+      },
+    });
+  });
+
+  it.each([
+    ['a placeholder', 'proof: <cmd> => exit <n>'],
+    ['a run with no command', 'proof: => exit 1'],
+    ['a malformed exit', 'proof: pnpm test => exit'],
+  ])('refuses %s in a blocked report too', (_name, line) => {
+    const blocked = [
+      'Implementation partial. manifest:e1',
+      'conclusion: half done',
+      'blocker: CI red',
+      line,
+    ];
+    expect(checkWorkerReport(blocked.join('\n'))).toMatchObject({
+      ok: false,
+      code: 'E_WORKER_REPORT_PROOF',
+    });
+  });
+
   it.each(['None', 'NONE', 'none'])('accepts blocker: %s as no blocker', (word) => {
     const check = checkWorkerReport(COMPLETE.replace('blocker: none', `blocker: ${word}`));
     expect(check).toMatchObject({ ok: true, report: { blocker: null } });

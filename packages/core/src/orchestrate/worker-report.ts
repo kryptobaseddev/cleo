@@ -56,15 +56,18 @@ function isPlaceholder(value: string): boolean {
 /**
  * Read one `proof:` value: `<command> => exit <n>`, else an artifact; `null`
  * when it proves nothing — a placeholder, a run with no command or a
- * malformed exit, or a command that exited non-zero.
+ * malformed exit, or, when `requireExitZero` is set (a complete report), a
+ * command that exited non-zero. A partial or blocked report may cite a
+ * non-zero exit as proof of its blocker.
  */
-function parseProof(value: string): WorkerProof | null {
+function parseProof(value: string, requireExitZero: boolean): WorkerProof | null {
   if (isPlaceholder(value)) return null;
   if (!value.includes('=>')) return { artifact: value };
   const run = /^(.*?)\s*=>\s*exit\s+(-?\d+)$/.exec(value);
   const command = run?.[1]?.trim();
   const exitCode = Number(run?.[2]);
-  if (!command || isPlaceholder(command) || exitCode !== 0) return null;
+  if (!command || isPlaceholder(command) || !Number.isInteger(exitCode)) return null;
+  if (requireExitZero && exitCode !== 0) return null;
   return { command, exitCode };
 }
 
@@ -73,8 +76,10 @@ function parseProof(value: string): WorkerProof | null {
  * filled `conclusion:` line and at least one `proof:` line, and hold at most
  * {@link WORKER_REPORT_MAX_WORDS} words (the template's own keys not counted).
  * Every `proof:` line must prove something: a placeholder (`<cmd>`, `n/a`,
- * `TBD`, `-`), a run with no command, or a command whose exit is not 0
- * refuses the whole report. `blocker: none` in any case means no blocker.
+ * `TBD`, `-`), a run with no command or a malformed exit refuses the whole
+ * report whatever its status. A complete report (status `complete` and no
+ * blocker) also needs every command proof at exit 0; a partial or blocked
+ * report may cite non-zero exits. `blocker: none` in any case means no blocker.
  *
  * @param text - The report exactly as the worker returned it.
  * @returns The parsed {@link WorkerReport}, or the refusal with its fix.
@@ -100,7 +105,6 @@ export function checkWorkerReport(text: string): WorkerReportCheck {
     };
   }
   const parsed = parseReturnMessage(text);
-  const proof = (parsed?.proof ?? []).map(parseProof);
   const refuse = (message: string): WorkerReportCheck => ({
     ok: false,
     code: E_WORKER_REPORT_PROOF,
@@ -112,14 +116,16 @@ export function checkWorkerReport(text: string): WorkerReportCheck {
   if (!parsed.conclusion || isPlaceholder(parsed.conclusion)) {
     return refuse('Worker report has no filled conclusion: line');
   }
+  const blocker = parsed.blocker && parsed.blocker.toLowerCase() !== 'none' ? parsed.blocker : null;
+  const complete = (parsed.status === 'complete' || parsed.status === 'completed') && !blocker;
+  const proof = parsed.proof.map((p) => parseProof(p, complete));
   if (proof.length === 0) return refuse('Worker report has no proof: line backing it');
   const bad = proof.indexOf(null);
   if (bad !== -1) {
     return refuse(
-      `Worker report proof "${parsed.proof[bad]}" proves nothing: a placeholder, a run with no command, or a non-zero exit`,
+      `Worker report proof "${parsed.proof[bad]}" proves nothing: a placeholder, a run with no command, a malformed exit, or a non-zero exit in a complete report`,
     );
   }
-  const blocker = parsed.blocker && parsed.blocker.toLowerCase() !== 'none' ? parsed.blocker : null;
   return {
     ok: true,
     report: {
