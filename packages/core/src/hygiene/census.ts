@@ -434,7 +434,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     if (row.taskId !== null) {
       const lookup = await loadOwningTaskStatuses([row.taskId], row.project);
       const status = lookup.success ? lookup.data.get(row.taskId) : undefined;
-      if (status === undefined || status !== row.taskStatus || status === 'active') {
+      if (status === undefined || status !== row.taskStatus) {
         row.category = 'unknown';
         row.keepReason = 'owning task changed or could not be re-read; nothing removed';
         continue;
