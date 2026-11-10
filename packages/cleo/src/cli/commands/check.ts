@@ -910,6 +910,15 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-refusal-fixes.mjs',
         description: 'Every refusal on the closure paths carries a runnable fix',
       },
+      {
+        // T14410: 24 `*-integration.test.ts` files sat excluded from every
+        // vitest run CI performs, so they never ran. Every tracked test file
+        // must be collected by a CI vitest config; the baseline may only fall.
+        id: 'gate-43',
+        task: 'T14410',
+        script: 'scripts/lint-test-files-run.mjs',
+        description: 'Every tracked test file is collected by a vitest run CI performs',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

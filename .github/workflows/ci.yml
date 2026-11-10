@@ -2224,6 +2224,47 @@ jobs:
           WORKTRUNK_REQUIRE_TS_PARITY: '1'
         run: cargo test -p worktrunk-core --locked
 
+  integration-tests:
+    # T14410: the vitest suites no unit project collects (they need a live
+    # credential or a KVM host). Each skips when its credential or host infra
+    # is absent; this job runs them so a broken import or setup fails here
+    # instead of never running. scripts/lint-test-files-run.mjs (gate 43)
+    # fails when a tracked test file matches no CI run.
+    name: Integration Tests (T14410)
+    needs: [ changes, build ]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        shell: bash
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
+      - run: pnpm install --frozen-lockfile
+      - name: Run core integration suites
+        run: pnpm exec vitest run --config packages/core/vitest.integration.config.ts --reporter=verbose
+
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
     needs: [ biome, changes ]
@@ -2517,6 +2558,7 @@ jobs:
       - install-test
       - worktree-napi-gate
       - worktrunk-core-tests
+      - integration-tests
       - forge-ts-check
       - arch-gates
       - cant-napi-gate
