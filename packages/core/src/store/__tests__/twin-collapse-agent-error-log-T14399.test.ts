@@ -1,11 +1,13 @@
 /**
  * T14399 — the twin collapse drains the bare `agent_error_log` (agent error
  * history an older build, or every store before T14387, wrote) into
- * `tasks_agent_error_log`, the table the registry reads and that syncs.
+ * `tasks_agent_error_log`, the table the registry reads. Neither table is in
+ * the sync set (both are row-identity exempt), so this is per device.
  *
  * Both tables number rows from 1, so a bare id the twin already holds for a
- * different row lands under a fresh twin id; a copy the twin already holds
- * (an exodus copy) lands once; pending bare rows never count as a strand.
+ * different row lands under a fresh twin id above both tables' ids; a copy
+ * the twin already holds (an exodus copy) lands once, unless the drain itself
+ * created that twin id; pending bare rows never count as a strand.
  *
  * Every open goes through the real tasks-domain bind (`bindTasksDomain`).
  *
@@ -119,5 +121,44 @@ describe('agent_error_log drain into tasks_agent_error_log (T14399)', () => {
       [4, 'agt-a'],
       [5, 'agt-c'],
     ]);
+  });
+
+  it('a re-keyed row is never taken for a later identical bare row: every bare row lands, across chunks and opens', async () => {
+    let db = await open();
+    // The twin holds id 1 for a row this build wrote; bare 1 collides with it.
+    row(db, 'tasks_agent_error_log', 1, 'agt-new', 'new failure');
+    // 2001 bare rows (more than one 2000-row chunk). Bare 1 and bare 2001 are
+    // the same error logged twice by a retry loop: identical but for the id.
+    const n = 2001;
+    db.exec('BEGIN');
+    for (let id = 1; id <= n; id++) {
+      const retried = id === 1 || id === n;
+      row(db, 'agent_error_log', id, 'agt-a', retried ? 'retry failure' : `failure ${id}`);
+    }
+    db.exec('COMMIT');
+    db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(MARKER);
+    const before = count(db, 'agent_error_log') + count(db, 'tasks_agent_error_log');
+
+    db = await reopen();
+    expect(count(db, 'agent_error_log')).toBe(0);
+    expect(count(db, 'tasks_agent_error_log')).toBe(before);
+    const retries = () =>
+      (
+        db
+          .prepare(
+            "SELECT id FROM main.tasks_agent_error_log WHERE message = 'retry failure' ORDER BY id",
+          )
+          .all() as Array<{ id: number }>
+      ).map((r) => r.id);
+    // Bare 2001 kept its free id; bare 1 was re-keyed above both tables' ids.
+    expect(retries()).toEqual([n, n + 1]);
+
+    // An older build later logs the same retry under the re-keyed id: it is a
+    // new row, not the drain's copy, so it lands too.
+    row(db, 'agent_error_log', n + 1, 'agt-a', 'retry failure');
+    db = await reopen();
+    expect(count(db, 'agent_error_log')).toBe(0);
+    expect(count(db, 'tasks_agent_error_log')).toBe(before + 1);
+    expect(retries()).toEqual([n, n + 1, n + 2]);
   });
 });

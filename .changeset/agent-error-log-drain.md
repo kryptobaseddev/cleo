@@ -7,11 +7,15 @@ summary: "agent error history written before T14387 is no longer hidden: every o
 
 Since T14387 the agent registry reads only `tasks_agent_error_log`, so rows in
 the bare `agent_error_log` (every store's history before that change, and
-whatever an older build still writes) were invisible to readers and to sync.
+whatever an older build still writes) were invisible to readers. Neither table
+is in the sync set today, so the drain runs on each device and nothing
+replicates.
 
 The twin collapse now drains the bare table into the twin at every open, as it
 does for `token_usage` and `audit_log`. A row keeps its id when the twin has
 that id free, lands once when the twin already holds the same row, and takes a
-fresh twin id when the twin holds a different row under that id, since both
-tables number rows from 1. `@cleocode/core/agents` no longer exports the bare
+fresh twin id, above every id either table holds, when the twin holds a
+different row under that id, since both tables number rows from 1. The twin ids
+the drain creates are recorded, so a later bare row with one of them is
+re-keyed too, never mistaken for the copy already there. `@cleocode/core/agents` no longer exports the bare
 `agentInstances` and `agentErrorLog` tables.
