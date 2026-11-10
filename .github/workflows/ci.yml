@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    # T14385: the defaults plus `ready_for_review`. A draft PR runs only the
+    # cheap lint and admission jobs (`changes.outputs.draft`); marking it ready
+    # starts the full pipeline.
+    types: [ opened, synchronize, reopened, ready_for_review ]
   merge_group: # T12094: a branch pushed and a PR opened with GITHUB_TOKEN do NOT trigger
 
   # workflows — GitHub suppresses them to prevent recursive runs. The release
@@ -123,6 +127,10 @@ jobs:
       # T14055 (owner D11196): Type Check and the Linux unit shards run on the
       # engines floor and on Node 26 (NODE_VERSIONS in the same script).
       node_versions: ${{ steps.platform.outputs.node_versions }}
+      # T14385: `true` on a draft pull request. Every heavy job (builds, tests,
+      # built-CLI gates, native and smoke gates) skips on it; jobs that need
+      # `build` skip with it. Lint and admission jobs still run.
+      draft: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1030,7 +1038,7 @@ jobs:
     # run so reviewers can see the unresolved count trend.
     name: Manual Write Sweep (T10372)
     needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1077,7 +1085,7 @@ jobs:
   canon-drift:
     name: Canon Drift Check
     needs: [ biome, changes ]
-    if: needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1117,7 +1125,7 @@ jobs:
     # never flagged — the gate only fires on ADDITIONS. Saga T9787.
     name: Canon Drift Check (T9796)
     needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1165,7 +1173,7 @@ jobs:
     # release-verify drift gate.
     name: Docs SSoT Drift Gate (T9645)
     needs: [ biome, changes ]
-    if: needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1242,7 +1250,7 @@ jobs:
     # Pure test invocation — no untrusted input flows into run:.
     name: Exodus Real-Data Parity Gate (T11551)
     needs: [ changes ]
-    if: needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -1285,7 +1293,7 @@ jobs:
     # Pure test invocation — no untrusted input flows into run:.
     name: Row Identity Gate B on Fixture Stores (T12802)
     needs: [ changes ]
-    if: needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -1366,7 +1374,7 @@ jobs:
     # matches it); each other Node version is suffixed.
     name: Type Check${{ matrix.node != '24.16.0' && format(' (Node {0})', matrix.node) || '' }}
     needs: [ biome, changes ]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -1415,7 +1423,7 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -1831,7 +1839,7 @@ jobs:
   build-verify:
     name: Build & Verify (${{ matrix.os }})
     needs: [ biome, changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ${{ matrix.os }}
     # T13205: macOS cold builds vary 4.5-8+ min (runner variance), so 10 cancelled
     # whole PR runs: the last 20 macOS Build & Verify jobs (2026-10-04) had a
@@ -2020,7 +2028,7 @@ jobs:
     name: Packed CLI and Studio Artifact
     needs: [ biome, changes ]
     # Includes native and package-manager inputs, even without JavaScript changes.
-    if: (needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true') && needs.changes.outputs.version_only != 'true'
+    if: (needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true') && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -2183,7 +2191,7 @@ jobs:
     # changed.
     name: Worktree NAPI Prebuild Gate (T11127)
     needs: [ changes ]
-    if: needs.changes.outputs.worktree_napi == 'true'
+    if: needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true'
     uses: ./.github/workflows/worktree-napi-prebuild.yml
 
   worktrunk-core-tests:
@@ -2195,7 +2203,7 @@ jobs:
     # worktree_napi scope changed.
     name: Worktrunk Core Tests (T14130)
     needs: [ changes ]
-    if: needs.changes.outputs.worktree_napi == 'true'
+    if: needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -2227,7 +2235,7 @@ jobs:
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
     needs: [ biome, changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     # A TIMEOUT concludes the job as `cancelled`, which `continue-on-error`
     # does NOT mask (T11967), and a cancelled job blocks the merge. The job
@@ -2310,7 +2318,7 @@ jobs:
   scripts-tests:
     name: Scripts Tests
     needs: [ biome, changes ]
-    if: needs.changes.outputs.scripts == 'true'
+    if: needs.changes.outputs.scripts == 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -2464,13 +2472,13 @@ jobs:
   cant-napi-gate:
     name: cant-napi build
     needs: [ changes ]
-    if: needs.changes.outputs.cant_napi == 'true'
+    if: needs.changes.outputs.cant_napi == 'true' && needs.changes.outputs.draft != 'true'
     uses: ./.github/workflows/cant-napi-build.yml
 
   cleo-supervisor-smoke-gate:
     name: cleo-supervisor smoke
     needs: [ changes ]
-    if: needs.changes.outputs.supervisor_smoke == 'true'
+    if: needs.changes.outputs.supervisor_smoke == 'true' && needs.changes.outputs.draft != 'true'
     uses: ./.github/workflows/cleo-supervisor-smoke.yml
 
   skills-depth-gate:
@@ -2482,11 +2490,15 @@ jobs:
   release-pipeline-matrix-gate:
     name: Release Pipeline Matrix
     needs: [ changes ]
-    if: needs.changes.outputs.release_matrix == 'true'
+    if: needs.changes.outputs.release_matrix == 'true' && needs.changes.outputs.draft != 'true'
     uses: ./.github/workflows/release-pipeline-matrix.yml
 
   ci:
-    name: CI
+    # T14385: on a draft PR this aggregate checks the lint jobs under another
+    # name, so the required `CI` context is never reported for a draft and
+    # stays pending: skipped heavy jobs can never satisfy the merge bar. The
+    # `ready_for_review` run reports `CI` with the full pipeline.
+    name: ${{ github.event.pull_request.draft && 'CI (draft, lint only)' || 'CI' }}
     if: always()
     runs-on: ubuntu-latest
     needs:
