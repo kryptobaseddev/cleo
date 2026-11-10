@@ -142,6 +142,7 @@ const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'gate-not-derivable',
   'dependency-unresolved',
   'epic-rollup',
+  'cancelled-child-waiver',
   'evidence-refused',
   'completion-refused',
 ];
@@ -1240,7 +1241,8 @@ async function epicPlan(
           }
         : !waiver.allowed
           ? {
-              code: 'epic-rollup',
+              // T14426: the rollup settles a cancelled child; only the waiver remains.
+              code: 'cancelled-child-waiver',
               message: `${task.id} is an epic; ${waiver.message ?? ''}`,
               next: step(
                 `cleo done ${task.id} --waive-cancelled-children "<reason>"`,

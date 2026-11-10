@@ -80,9 +80,6 @@ const nexusClusters = lazyOperation(
 const nexusColdSymbols = lazyOperation(
   async () => (await import('@cleocode/core/nexus/plasticity-queries')).nexusColdSymbols,
 );
-const nexusConduitScan = lazyOperation(
-  async () => (await import('@cleocode/core/nexus/api-contracts')).nexusConduitScan,
-);
 const nexusContext = lazyOperation(
   async () => (await import('@cleocode/core/nexus/context')).nexusContext,
 );
@@ -759,11 +756,6 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     );
   },
 
-  'conduit-scan': async (_params) => {
-    const projectRoot = getProjectRoot();
-    return wrapCoreResult(await nexusConduitScan(projectRoot), 'conduit-scan');
-  },
-
   'profile.import': async (params) =>
     wrapCoreResult(await nexusProfileImport(params.path), 'profile.import'),
 
@@ -862,7 +854,6 @@ const MUTATE_OPS = new Set<string>([
   'transfer',
   'contracts-sync',
   'contracts-link-tasks',
-  'conduit-scan',
   'profile.import',
   'profile.export',
   'profile.reinforce',

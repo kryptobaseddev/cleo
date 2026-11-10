@@ -38,7 +38,9 @@ export {
   listAgentsForProject,
   lookupAgent,
 } from '../store/agent-registry-accessor.js';
-// Schema & types
+// Schema enums & row types. The tables themselves are not exported: the live
+// ones are the prefixed `tasks_agent_instances` / `tasks_agent_error_log`
+// (T14387), and the bare twins are legacy inboxes (T14399).
 export {
   AGENT_INSTANCE_STATUSES,
   AGENT_TYPES,
@@ -47,13 +49,11 @@ export {
   type AgentInstanceRow,
   type AgentInstanceStatus,
   type AgentType,
-  agentErrorLog,
-  agentInstances,
   type NewAgentErrorLogRow,
   type NewAgentInstanceRow,
 } from '../store/schema/agent-schema.js';
 // Load-balancing capacity tracker: task-count capacity, specializations,
-// performance recording (over `agent_instances`). Renamed from `agent-registry.ts`
+// performance recording (over `tasks_agent_instances`). Renamed from `agent-registry.ts`
 // (T11622) so "agent-registry" unambiguously means the GLOBAL identity registry.
 export {
   type AgentCapacity,

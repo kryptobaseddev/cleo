@@ -24,14 +24,21 @@ const HEAVY = [
   // T14368: one job replaced Manual Write Sweep, both Canon Drift Checks and
   // the Docs SSoT Drift Gate.
   'post-build-checks',
-  'exodus-parity-gate',
-  'row-identity-gate-b',
   'worktree-napi-gate',
-  'worktrunk-core-tests',
   'cant-napi-gate',
   'cleo-supervisor-smoke-gate',
   'release-pipeline-matrix-gate',
-  'arch-gates',
+];
+
+/**
+ * T14367: heavy gates folded into Repo Lints as steps. Each keeps its former
+ * job's draft skip on the step. (The node-only Arch Gates steps run on a draft:
+ * Repo Lints already paid the install their old job was skipped for.)
+ */
+const HEAVY_REPO_LINT_STEPS = [
+  'Exodus Real-Data Parity Gate (T11551)',
+  'Row Identity Gate B (T12802)',
+  'Worktrunk Core Tests (T14130)',
 ];
 
 describe('draft pull requests (T14385)', () => {
@@ -49,8 +56,15 @@ describe('draft pull requests (T14385)', () => {
     expect(ci.jobs[job].if).toContain(DRAFT_GATE);
   });
 
+  it.each(HEAVY_REPO_LINT_STEPS)('the folded %s steps skip on a draft', (prefix) => {
+    const steps = ci.jobs['repo-lints'].steps.filter((step) => step.name?.startsWith(prefix));
+    expect(steps.length).toBeGreaterThan(0);
+    for (const step of steps) expect(step.if).toContain(DRAFT_GATE);
+  });
+
   it('jobs needing build skip with it, never running under always()', () => {
-    for (const job of ['unit-tests', 'install-test', 'core-bundle-budget']) {
+    // T14367: Install Test is now steps of Post-build Checks (HEAVY above).
+    for (const job of ['unit-tests', 'core-bundle-budget']) {
       expect(ci.jobs[job].needs).toContain('build');
       expect(ci.jobs[job].if ?? '').not.toContain('always()');
     }

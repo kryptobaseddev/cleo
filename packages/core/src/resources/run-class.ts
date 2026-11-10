@@ -1375,9 +1375,12 @@ export function runFootprint(argv: readonly string[]): RunFootprint {
   // T13452: git runs no heavy tool itself (a `git push` was charged 24 GiB).
   // Its hooks may, and the caller decides that (see gitHookFor). gc, repack,
   // fsck and clone can use gigabytes across threads, and a command line whose
-  // subcommand cannot be found keeps the class plan.
+  // subcommand cannot be found keeps the class plan. T14398: so does a git
+  // command that runs a command of the caller's (`rebase -x`, `bisect run`).
   if (t.tool === 'git' && t.pm === null) {
     const git = parseGitInvocation(argv);
+    const runs = git === null ? null : gitRunsCommand(git);
+    if (runs !== null) return { size: 'class', reason: runs };
     if (git?.sub && !HEAVY_GIT_SUBCOMMANDS.has(git.sub)) {
       return { size: 'light', reason: `git ${git.sub} runs no heavy tool` };
     }
@@ -1652,6 +1655,28 @@ export function parseGitInvocation(argv: readonly string[]): GitInvocation | nul
   return { globals, sub: null, args: [] };
 }
 
+/**
+ * Why a git command runs a command the caller supplied, so it may be heavy and
+ * keeps its class plan (T14398), or `null`: `rebase -x/--exec <cmd>`, `bisect
+ * run <cmd>`, `submodule foreach <cmd>` and `filter-branch`, whose filters
+ * are shell commands. A bundled short flag (`-ix`, `-xmake`) counts.
+ *
+ * @param git - From {@link parseGitInvocation}.
+ * @returns The reason, or `null` when git runs no command of the caller's.
+ */
+function gitRunsCommand(git: GitInvocation): string | null {
+  const { sub, args } = git;
+  const exec = (a: string): boolean =>
+    a === '--exec' || a.startsWith('--exec=') || /^-[a-z]*x/.test(a);
+  if (sub === 'rebase' && args.some(exec)) return 'git rebase --exec runs another command';
+  if (sub === 'bisect' && args[0] === 'run') return 'git bisect run runs another command';
+  if (sub === 'submodule' && args.find((a) => !a.startsWith('-')) === 'foreach') {
+    return 'git submodule foreach runs another command';
+  }
+  if (sub === 'filter-branch') return 'git filter-branch runs its filter commands';
+  return null;
+}
+
 /** Client-side hooks a git subcommand runs that may do heavy work (T13452, T13458). */
 const GIT_HOOKS: Readonly<Record<string, readonly string[]>> = {
   push: ['pre-push'],
@@ -1660,7 +1685,7 @@ const GIT_HOOKS: Readonly<Record<string, readonly string[]>> = {
   pull: ['post-merge', 'post-rewrite'],
   checkout: ['post-checkout'],
   switch: ['post-checkout'],
-  rebase: ['pre-rebase', 'post-rewrite'],
+  rebase: ['pre-rebase', 'post-checkout', 'post-rewrite'],
   am: ['applypatch-msg', 'pre-applypatch', 'post-applypatch'],
 };
 

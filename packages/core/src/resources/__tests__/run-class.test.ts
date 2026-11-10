@@ -890,4 +890,46 @@ describe('git is charged light; its hook decides (T13452)', () => {
     }
     expect(runFootprint(['git', '-C', '/repo', 'push']).reason).toBe('git push runs no heavy tool');
   });
+
+  it('a git command that runs another command keeps its class (T14398)', () => {
+    for (const [argv, reason] of [
+      [['git', 'rebase', '-x', 'pnpm test', 'main'], 'git rebase --exec runs another command'],
+      [['git', 'rebase', '--exec', 'make', 'main'], 'git rebase --exec runs another command'],
+      [['git', 'rebase', '--exec=make', 'main'], 'git rebase --exec runs another command'],
+      [['git', 'rebase', '-ix', 'make', 'main'], 'git rebase --exec runs another command'],
+      [['git', 'rebase', '-xmake', 'main'], 'git rebase --exec runs another command'],
+      [['git', 'bisect', 'run', 'pnpm', 'vitest', 'run'], 'git bisect run runs another command'],
+      [['git', 'submodule', 'foreach', 'pnpm build'], 'git submodule foreach runs another command'],
+      [
+        ['git', '-C', '/r', 'submodule', '--quiet', 'foreach', 'make'],
+        'git submodule foreach runs another command',
+      ],
+      [
+        ['git', 'filter-branch', '--tree-filter', 'make'],
+        'git filter-branch runs its filter commands',
+      ],
+    ] as const) {
+      expect(runFootprint(argv), argv.join(' ')).toEqual({ size: 'class', reason });
+    }
+    for (const argv of [
+      ['git', 'rebase', '-i', 'main'],
+      ['git', 'rebase', '-X', 'theirs', 'main'],
+      ['git', 'bisect', 'start'],
+      ['git', 'submodule', 'update', '--init'],
+    ]) {
+      expect(runFootprint(argv).size, argv.join(' ')).toBe('light');
+    }
+  });
+
+  it('git rebase may run the post-checkout hook (T14398)', () => {
+    expect(gitHookFor(['git', 'rebase', 'main'])?.hooks).toEqual([
+      'pre-rebase',
+      'post-checkout',
+      'post-rewrite',
+    ]);
+    expect(gitHookFor(['git', 'rebase', '--no-verify', 'main'])?.hooks).toEqual([
+      'post-checkout',
+      'post-rewrite',
+    ]);
+  });
 });

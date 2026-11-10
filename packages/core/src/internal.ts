@@ -1277,6 +1277,14 @@ export {
   ownerMarkRefusal,
   resolveOwnerOverride,
 } from './security/owner-override-authority.js';
+// Owner-only review.workers.counted (T14403)
+export type { ReviewWorkersCountedSetResult } from './security/review-workers-setting.js';
+export {
+  REVIEW_WORKERS_COUNTED_KEY,
+  refuseReviewWorkersCountedWrite,
+  resolveReviewWorkersCounted,
+  setOwnerReviewWorkersCounted,
+} from './security/review-workers-setting.js';
 // Shared-evidence tracker (T1502 / P0-6)
 export type {
   SharedEvidenceCheckResult,
@@ -2606,7 +2614,6 @@ export {
 } from './memory/session-memory.js';
 // Nexus Wave 3 — code intelligence EngineResult wrappers
 export {
-  nexusConduitScan,
   nexusContractsLinkTasks,
   nexusContractsShow,
   nexusContractsSync,

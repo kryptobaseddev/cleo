@@ -208,6 +208,102 @@ describe('T14368 — the built-CLI gates restore the shared build, never rebuild
   });
 });
 
+describe('T14367 — folded sub-minute gates still fail the required CI aggregate', () => {
+  const workflow = parseYaml(ci);
+  const FOLDED = ['repo-lints', 'post-build-checks'];
+  /** Gate steps: every named step that runs a command, except setup. */
+  const gateSteps = (job) =>
+    workflow.jobs[job].steps.filter((s) => s.name && s.run && !/pnpm store path/.test(s.run));
+
+  it('removes the jobs it folded, and the reusable arch workflow', () => {
+    for (const gone of [
+      'repo-lints-installed',
+      'invariants-docs-render-drift',
+      'deployed-template-parity',
+      'exodus-parity-gate',
+      'row-identity-gate-b',
+      'validate-json',
+      'install-test',
+      'arch-gates',
+      'worktrunk-core-tests',
+    ])
+      expect(workflow.jobs[gone], gone).toBeUndefined();
+    expect(Object.values(workflow.jobs).some((j) => j.uses?.includes('arch-boundary-check'))).toBe(
+      false,
+    );
+  });
+
+  it('runs each folded gate as its own step that still runs after an earlier failure', () => {
+    for (const job of FOLDED) {
+      expect(workflow.jobs[job].steps.length, job).toBeGreaterThan(5);
+      expect(workflow.jobs[job]['continue-on-error'], job).toBeUndefined();
+      for (const step of gateSteps(job).slice(1)) {
+        // The first setup run steps (fetch, ajv install) precede every gate.
+        if (/^(Fetch base branch|Install validator|Resolve PR base ref)/.test(step.name)) continue;
+        expect(step.if ?? '', `${job}: ${step.name}`).toMatch(/!cancelled\(\)|always\(\)/);
+      }
+      // Only the informational Manual Write Sweep may swallow its own failure.
+      const swallowing = gateSteps(job).filter((s) => s['continue-on-error']);
+      expect(swallowing.map((s) => s.name)).toEqual(
+        job === 'post-build-checks' ? ['Manual Write Sweep (T10372): Run manual-write sweep'] : [],
+      );
+    }
+  });
+
+  it('keeps the moved gates, each named after the job it replaced', () => {
+    const names = (job) => workflow.jobs[job].steps.map((s) => s.name ?? '').join('\n');
+    for (const prefix of [
+      'Arch Gates (node): ',
+      'Arch Gates (installed): ',
+      'Verify docs/reference/invariants.md',
+      'Deployed Template Parity (T9860): ',
+      'Exodus Real-Data Parity Gate (T11551): ',
+      'Row Identity Gate B (T12802): ',
+      'Validate JSON Schemas: ',
+      'Worktrunk Core Tests (T14130): ',
+    ])
+      expect(names('repo-lints'), prefix).toContain(prefix);
+    expect(names('post-build-checks')).toContain('Install Test: ');
+  });
+
+  it.each(
+    FOLDED.flatMap((job) => [
+      [job, 'failure', 1],
+      [job, 'cancelled', 1],
+      [job, 'success', 0],
+    ]),
+  )('executes the real required aggregate with %s concluding %s', (job, result, expected) => {
+    // A failing gate step fails its job (no job-level continue-on-error, see
+    // above); this runs the aggregate's own script against that job result.
+    const root = mkdtempSync(path.join(tmpdir(), 'folded-aggregate-'));
+    try {
+      expect(workflow.jobs.ci.needs).toContain(job);
+      const aggregate = workflow.jobs.ci.steps.find((step) => step.env?.NEEDS_JSON);
+      const needs = Object.fromEntries(
+        workflow.jobs.ci.needs.map((name) => [name, { result: name === job ? result : 'success' }]),
+      );
+      const run = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', aggregate.run], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: process.env.PATH,
+          RESULTS: Object.values(needs)
+            .map((entry) => entry.result)
+            .join(','),
+          NEEDS_JSON: JSON.stringify(needs),
+          ADVISORY_RESULT: 'success',
+          GITHUB_STEP_SUMMARY: path.join(root, 'summary'),
+        },
+      });
+      expect(run.error).toBeUndefined();
+      expect(run.status, run.stdout + run.stderr).toBe(expected);
+      if (expected !== 0) expect(run.stdout).toContain(job);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('gh#1403 — the helper reads blocks, not the whole file', () => {
   it('returns empty for a job that does not exist', () => {
     // A block reader that silently returns the whole file would make every

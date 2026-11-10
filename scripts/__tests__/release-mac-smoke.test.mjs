@@ -49,7 +49,7 @@ else if (args[0] === 'show') ok({ task: { id: args[1], status: 'cancelled' } });
 else if (args[0] === 'done') {
   const ctx = JSON.parse(fs.readFileSync(path.join(process.cwd(), '.cleo', 'project-context.json'), 'utf8'));
   if (!ctx.testing.command.includes('exit(${DISABLED_TEST_EXIT})')) process.exit(3);
-  ok({ taskId: args[1], blockers: [] });
+  ok({ taskId: args[1], blockers: [{ code: 'cancelled-child-waiver', message: 'waive it' }] });
 } else if (cmd === 'docs list') ok({ attachments: [{ id: 'a1' }, { id: 'a2', slug: 'smoke-doc' }] });
 else if (cmd === 'docs fetch') {
   if (!fs.existsSync(path.join(process.cwd(), '.cleo', 'blobs', 'blobs', 'doc'))) process.exit(4);

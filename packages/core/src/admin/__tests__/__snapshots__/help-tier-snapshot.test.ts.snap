@@ -980,20 +980,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "verify.explain",
     ],
   },
-  "conduit": {
-    "mutate": [
-      "start",
-      "stop",
-      "send",
-      "publish",
-      "subscribe",
-    ],
-    "query": [
-      "status",
-      "peek",
-      "listen",
-    ],
-  },
   "diagnostics": {
     "mutate": [
       "enable",
@@ -1143,7 +1129,6 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "transfer",
       "contracts-sync",
       "contracts-link-tasks",
-      "conduit-scan",
       "profile.import",
       "profile.export",
       "profile.reinforce",
@@ -1527,4 +1512,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `472`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `463`;

@@ -427,14 +427,6 @@ export const NEXUS_SCOPE_MAP = {
     stores: ['nexus-graph', 'tasks'],
     requiresProject: true,
   },
-  'conduit-scan': {
-    op: 'conduit-scan',
-    description: 'Scan Conduit messaging patterns into the graph.',
-    scope: 'project',
-    effect: 'write',
-    stores: ['nexus-graph'],
-    requiresProject: true,
-  },
 
   // ── Analytics ops ─────────────────────────────────────────────────────────
 

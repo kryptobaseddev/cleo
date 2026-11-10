@@ -288,6 +288,7 @@ export type {
   DepsRequiredAt,
   EnforcementProfile,
   HierarchyConfig,
+  LeadMailbox,
   LeadRollupConfig,
   LeadRollupMode,
   LifecycleConfig,
@@ -324,7 +325,7 @@ export type {
   SignalDockConfig,
   SignalDockMode,
   SystemBinding,
-} from './config.js';
+} from './config/types.js';
 export type { AdapterContextMonitorProvider } from './context-monitor.js';
 // === Credential Transfer Types (T12326 — portable credentials) ===
 export type {
@@ -1223,6 +1224,22 @@ export type {
   FetchedBrainEntry,
 } from './memory/fetch.js';
 export type {
+  BridgeDecision,
+  BridgeLearning,
+  BridgeObservation,
+  BridgePattern,
+  DispatchTrace,
+  // T9766 — BRAIN public-API records (centralized from @cleocode/core)
+  LearningRecord,
+  MemoryBridgeConfig,
+  MemoryBridgeContent,
+  MemoryDecisionRecord,
+  MemoryGraphStats,
+  MemorySearchHit,
+  PatternRecord,
+  SessionSummary,
+} from './memory/index.js';
+export type {
   BrainObservationSourceType,
   DocAttachmentObservationPayload,
   ObserveBrainParams,
@@ -1241,22 +1258,6 @@ export type {
   TimelineBrainResult,
   TimelineNeighbor,
 } from './memory/timeline.js';
-export type {
-  BridgeDecision,
-  BridgeLearning,
-  BridgeObservation,
-  BridgePattern,
-  DispatchTrace,
-  // T9766 — BRAIN public-API records (centralized from @cleocode/core)
-  LearningRecord,
-  MemoryBridgeConfig,
-  MemoryBridgeContent,
-  MemoryDecisionRecord,
-  MemoryGraphStats,
-  MemorySearchHit,
-  PatternRecord,
-  SessionSummary,
-} from './memory.js';
 export type {
   MacosRegressionSync,
   MergeAttributionFailure,
@@ -1432,34 +1433,6 @@ export type {
   AdminTokenQueryParams,
   AdminVersionParams,
 } from './operations/admin.js';
-// === Conduit Operation Types (T1422 — typed-dispatch migration) ===
-// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-// Note: The transport-layer ConduitSendResult (in ./conduit.ts) carries { messageId, deliveredAt }
-// and is the canonical type for the Conduit interface (ConduitClient / publishToTopic).
-// ConduitSendOperationResult (below) is the wire-format type for the conduit.send CLI/HTTP
-// dispatch operation and carries { messageId, from, to, transport, sentAt }.
-// The two types serve different layers and are intentionally distinct.
-export type {
-  ConduitInboxMessage,
-  ConduitListenParams,
-  ConduitListenResult,
-  ConduitOps,
-  ConduitPeekParams,
-  ConduitPeekResult,
-  ConduitPublishParams,
-  ConduitPublishResult,
-  ConduitSendOperationResult,
-  ConduitSendParams,
-  ConduitStartParams,
-  ConduitStartResult,
-  ConduitStatusParams,
-  ConduitStatusResult,
-  ConduitStopParams,
-  ConduitStopResult,
-  ConduitSubscribeParams,
-  ConduitSubscribeResult,
-  ConduitTransportKind,
-} from './operations/conduit.js';
 // Dialectic Evaluator operation types (T1087 Wave 3)
 export type {
   ApplyInsightsParams,
@@ -1635,8 +1608,6 @@ export type {
   NexusColdSymbolsParams,
   NexusColdSymbolsResult,
   NexusCommunityEntry,
-  NexusConduitScanParams,
-  NexusConduitScanResult,
   NexusContextNode,
   NexusContextParams,
   NexusContextProcess,
@@ -1840,7 +1811,10 @@ export { USER_PROFILE_SCOPES } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type {
   BrainState,
+  LeadCommandBinary,
+  LeadCommandRule,
   LeadDeniedTool,
+  LeadFlagArity,
   LeadToolPolicy,
   LeadToolStripSupport,
   OrchestrateReportEntry,
@@ -1849,7 +1823,14 @@ export type {
   WorkerProof,
   WorkerReport,
 } from './operations/orchestrate.js';
-export { LEAD_DENIED_TOOLS } from './operations/orchestrate.js';
+export {
+  LEAD_CLEO_GLOBAL_FLAGS,
+  LEAD_COMMAND_ALLOWLIST,
+  LEAD_DENIED_TOOLS,
+  LEAD_RUNNER_MCP_SERVER,
+  LEAD_RUNNER_TOOL,
+  LEAD_RUNNER_TOOL_NAME,
+} from './operations/orchestrate.js';
 // === Operation Output Contracts (T11692 / DHQ-057 — per-op result shape SSoT) ===
 // OUTPUT-side mirror of the input contracts. Surfaces the LAFS envelope `data`
 // shape + valid --field JSON pointers so agents stop guessing (e.g. the real
@@ -2862,7 +2843,7 @@ export type {
   TaskViewLifecycleProgress,
   TaskViewNextAction,
   TaskViewPipelineStage,
-} from './tasks.js';
+} from './tasks/index.js';
 export {
   completionCriterionEvaluationSchema,
   completionEvaluateParamsSchema,
@@ -2875,7 +2856,7 @@ export {
   completionProjectionRepairParamsSchema,
   completionProjectionRepairResultSchema,
   unsatisfiedCompletionCriterionSchema,
-} from './tasks.js';
+} from './tasks/index.js';
 // === Canonical Taxonomy Registry (T11186) ===
 export type {
   CanonicalTagMetadata,
@@ -3354,10 +3335,17 @@ export {
 export type {
   ReviewAnswer,
   ReviewAuthors,
+  ReviewDispatch,
+  ReviewDispatchDecision,
+  ReviewDispatchResult,
   ReviewGap,
   ReviewJudgement,
   ReviewPacket,
   ReviewPacketCriterion,
+  ReviewRoute,
+  ReviewRouteReason,
+  ReviewRouting,
+  ReviewShadowComparison,
   ReviewVerdict,
 } from './review-verdict.js';
 // === Sync schema version, shared by the change journal and the cloud vault (T13034) ===

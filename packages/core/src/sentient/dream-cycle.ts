@@ -1255,7 +1255,7 @@ export async function runDreamCycle(options: DreamCycleOptions): Promise<DreamCy
   const observe =
     options.observeMemory ??
     (async (params, root) => {
-      const { memoryObserve } = await import('@cleocode/core/internal');
+      const { memoryObserve } = await import('../memory/engine-compat.js');
       return memoryObserve(params, root);
     });
 

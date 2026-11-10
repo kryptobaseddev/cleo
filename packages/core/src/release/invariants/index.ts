@@ -1,17 +1,21 @@
 /**
  * Release-time invariants registry — barrel export.
  *
- * Importing this module registers every shipped invariant as a side-effect.
- * Consumers (CLI, programmatic callers) only need:
+ * Importing this module registers nothing (T14391): a barrel that re-exports
+ * it must not change a registry by being loaded. Register the shipped
+ * invariants explicitly before running them — the CLI does so by loading
+ * `@cleocode/core/registrations`:
  *
  * ```ts
- * import { runInvariants } from '@cleocode/core/release/invariants';
+ * import { registerReleaseInvariants, runInvariants } from '@cleocode/core/release/invariants';
+ * registerReleaseInvariants();
  * const report = await runInvariants(tag, { dryRun });
  * ```
  *
  * To add a new invariant, create the file under this directory and append a
- * `register…Invariant()` call below. The registry preserves insertion order
- * which doubles as render order in the CLI report.
+ * `register…Invariant()` call to {@link registerReleaseInvariants}. The
+ * registry preserves insertion order which doubles as render order in the CLI
+ * report.
  *
  * ---
  *
@@ -55,6 +59,14 @@ export {
 
 import { registerArchiveReasonInvariant } from './archive-reason-invariant.js';
 
-// Side-effect: register the first customer on module load.
-// Adding a new customer? Append another register…Invariant() call here.
-registerArchiveReasonInvariant();
+/**
+ * Register every shipped release invariant. Idempotent: the registry is keyed
+ * by invariant id, so a second call replaces each entry in place.
+ *
+ * Adding a new invariant? Append its `register…Invariant()` call here.
+ *
+ * @task T14391
+ */
+export function registerReleaseInvariants(): void {
+  registerArchiveReasonInvariant();
+}

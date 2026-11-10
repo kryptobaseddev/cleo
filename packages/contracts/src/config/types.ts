@@ -9,9 +9,9 @@
  * @task T5710
  */
 
-import type { HeavyCommandHookMode } from './heavy-command-hook.js';
-import type { LeanConfig } from './lean.js';
-import type { ModelTransport } from './operations/llm.js';
+import type { HeavyCommandHookMode } from '../heavy-command-hook.js';
+import type { LeanConfig } from '../lean.js';
+import type { ModelTransport } from '../operations/llm.js';
 
 /** Output format options. */
 export type OutputFormat = 'json' | 'text' | 'jsonl' | 'markdown' | 'table';
@@ -824,6 +824,15 @@ export interface OrchestrateConfig {
    * @defaultValue { warning: 70, critical: 80 }
    */
   contextThresholds?: OrchestrateContextThresholds;
+  /**
+   * The project's lead AgentMBX mailbox, recorded by `cleo init` with
+   * `leadWorker.v1` on and `agentmbx` installed. Spawn and fanout name it in
+   * worker prompts when `--lead-mbx` is not given (only with `leadWorker.v1`).
+   *
+   * @defaultValue undefined (no lead mailbox recorded)
+   * @task T14379
+   */
+  leadMailbox?: LeadMailbox;
 }
 
 /**
@@ -836,6 +845,21 @@ export interface OrchestrateContextThresholds {
   warning?: number;
   /** Percent at which the orchestrator stops and hands off. @defaultValue 80 */
   critical?: number;
+}
+
+/**
+ * A per-project lead mailbox identity on AgentMBX (`orchestrate.leadMailbox`).
+ *
+ * @task T14379
+ * @epic T14351
+ */
+export interface LeadMailbox {
+  /** Mailbox name, `<project>-<project-id hash>-lead` by default. */
+  name: string;
+  /** Portable project id the mailbox belongs to. */
+  projectId: string;
+  /** AgentMBX provider CLI the lead claims it from (`--cli`), e.g. `claude`. */
+  cli: string;
 }
 
 /**
@@ -1061,6 +1085,20 @@ export interface ResourcesConfig {
   heavyCommandHook?: HeavyCommandHookMode;
 }
 
+/** Per-AC PR review settings (`review.*`, T14372). */
+export interface ReviewConfig {
+  /** Dispatched reviewer workers. */
+  workers?: {
+    /**
+     * Owner decision only: let `cleo review dispatch --counted` send reviewers
+     * whose verdicts count toward a merge. Off, every dispatch is shadow.
+     *
+     * @defaultValue false
+     */
+    counted?: boolean;
+  };
+}
+
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
   /**
@@ -1069,6 +1107,12 @@ export interface CleoConfig {
    * @defaultValue undefined (level `full`)
    */
   lean?: LeanConfig;
+  /**
+   * Per-AC PR review settings (T14372).
+   *
+   * @defaultValue undefined (reviewer workers dispatch in shadow mode only)
+   */
+  review?: ReviewConfig;
   /** Configuration schema version string. */
   version: string;
   /** Output formatting preferences. */

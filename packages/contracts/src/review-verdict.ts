@@ -86,6 +86,11 @@ export interface ReviewVerdict {
    * `unmet`, so shopping for a friendlier reviewer stays visible.
    */
   answers?: string;
+  /**
+   * A shadow verdict (T14372): recorded with every independence check, under
+   * `review.shadow-verdict`, and never counted toward a merge.
+   */
+  shadow?: true;
   /** ISO-8601 time it was recorded. */
   createdAt: string;
 }
@@ -127,3 +132,134 @@ export interface ReviewJudgement {
   /** Criteria without a `met` verdict on `headSha`, each with why. */
   gaps: ReviewGap[];
 }
+
+/**
+ * Who reviews a PR (T14372, owner decision 2026-11-10): `routine` PRs go to a
+ * dispatched reviewer worker; `lead` PRs (migrations, store or sync code,
+ * gates, deletions, evidence and review-integrity code, or a file list that
+ * cannot be read exactly) stay with the lead.
+ */
+export type ReviewRoute = 'routine' | 'lead';
+
+/** Why a PR is lead-reserved: the kind of path and the path itself. */
+export interface ReviewRouteReason {
+  /**
+   * `migration`, `store-sync`, `gate`, `deletion`, `evidence`,
+   * `review-integrity` (review, session, claim and instruction code), or
+   * `unrecognised` (a file entry or list that could not be read exactly).
+   */
+  kind:
+    | 'migration'
+    | 'store-sync'
+    | 'gate'
+    | 'deletion'
+    | 'evidence'
+    | 'review-integrity'
+    | 'unrecognised';
+  /** The changed path that reserved it (for a rename, either path), or what could not be read. */
+  path: string;
+}
+
+/** A PR's route and every path that reserved it for the lead. */
+export interface ReviewRouting {
+  /** The route. */
+  route: ReviewRoute;
+  /** Empty for `routine`. */
+  reasons: ReviewRouteReason[];
+}
+
+/** One reviewer dispatch, recorded per task as a `review.dispatch` audit row. */
+export interface ReviewDispatch {
+  /** The PR. */
+  prNumber: number;
+  /** The PR head the reviewer is sent to judge. */
+  headSha: string;
+  /** The task under review. */
+  taskId: string;
+  /** The criteria to judge. */
+  acs: string[];
+  /** `shadow`: the reviewer records shadow verdicts, which never count; `counted`: real verdicts. */
+  mode: 'shadow' | 'counted';
+  /** The agent id the reviewer runs under (`reviewer-<mode>-pr<n>-<sha7>`): never one of the task's authors. */
+  reviewerAgentId: string;
+  /**
+   * The session created for the reviewer at dispatch; a verdict under
+   * `reviewerAgentId` is accepted only from it. Empty on a dry run.
+   */
+  reviewerSessionId: string;
+  /**
+   * SHA-256 (hex) of the per-dispatch secret (T14403). The secret itself is
+   * never stored in a row: it is written to a 0600 file
+   * ({@link ReviewDispatchDecision.reviewerSecretFile}) and a verdict under
+   * this dispatch is accepted only with it. Empty on a dry run.
+   */
+  reviewerSecretSha256: string;
+  /** The session that dispatched: never the reviewer's, never an author's. */
+  dispatcherSessionId: string | null;
+  /** ISO-8601 time it was recorded. */
+  dispatchedAt: string;
+}
+
+/** What a dispatch run did, or would do, with one open PR. */
+export interface ReviewDispatchDecision {
+  /** The PR. */
+  prNumber: number;
+  /** The head judged. */
+  headSha: string;
+  /**
+   * `dispatch`: a reviewer is sent (dry run: would be). `dispatched-already`:
+   * this head already has one in this mode. `lead`: lead-reserved, never
+   * dispatched. `skip`: nothing to review; `reason` says why.
+   */
+  action: 'dispatch' | 'dispatched-already' | 'lead' | 'skip';
+  /** Why. */
+  reason: string;
+  /** The route, once the diff was read. */
+  routing?: ReviewRouting;
+  /** The dispatches recorded (or, on a dry run, that would be), one per task. */
+  dispatches?: ReviewDispatch[];
+  /** The brief to hand the reviewer agent, for `dispatch`. */
+  brief?: string;
+  /**
+   * Where the per-dispatch secret was written (T14403), on an executed
+   * `dispatch`: a 0600 file under `.cleo/review-secrets/`. Only the path is
+   * returned, never the secret, so it stays out of the dispatcher's
+   * transcript; the dispatcher hands the reviewer the path as
+   * `CLEO_REVIEW_SECRET_FILE`.
+   */
+  reviewerSecretFile?: string;
+}
+
+/** One criterion's shadow verdict next to the counted one on the same head (T14372). */
+export interface ReviewShadowComparison {
+  /** The criterion. */
+  ac: string;
+  /** The latest counted verdict on the head from a non-worker session, or null. */
+  lead: 'met' | 'unmet' | null;
+  /** The latest shadow verdict on the head, or null. */
+  shadow: 'met' | 'unmet' | null;
+  /** Both present and equal. */
+  agree: boolean;
+}
+
+/** Result of a reviewer dispatch run (`cleo review dispatch`, T14372). */
+export interface ReviewDispatchResult {
+  /** Nothing was recorded. */
+  dryRun: boolean;
+  /** The verdict kind the reviewers are sent to record. */
+  mode: 'shadow' | 'counted';
+  /** False when no PR was judged; `skippedReason` says why. */
+  ran: boolean;
+  /** Why it did not run. */
+  skippedReason?: string;
+  /** One decision per open PR, in PR-number order. */
+  decisions: ReviewDispatchDecision[];
+}
+
+/**
+ * The owner-only key that lets `cleo review dispatch --counted` send reviewer
+ * workers whose verdicts count (T14403). The owner seals it with
+ * `cleo config set review.workers.counted true`; it is never stored in
+ * config.json, and a plain config write of it is refused.
+ */
+export const REVIEW_WORKERS_COUNTED_KEY = 'review.workers.counted';
