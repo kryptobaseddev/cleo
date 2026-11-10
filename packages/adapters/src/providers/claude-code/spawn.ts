@@ -61,13 +61,73 @@ export function workerExitSettings(instanceId: string): string {
   return JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command }] }] } });
 }
 
-/** `--session-id <uuid>` for a lead whose session CLEO pre-assigned, else nothing. */
-function leadSessionArgs(options: SpawnContext['options']): string[] {
+/**
+ * The lead's pre-assigned provider session id (`options.leadSessionId`), when it
+ * is a UUID; `undefined` otherwise.
+ *
+ * @param options - Spawn context options.
+ * @returns The session id, or undefined.
+ * @task T14363
+ */
+export function leadSessionId(options: SpawnContext['options']): string | undefined {
   const id = options?.leadSessionId;
   return typeof id === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-    ? ['--session-id', id]
-    : [];
+    ? id
+    : undefined;
+}
+
+/** The first user turn of a lead: its instructions are the appended system prompt. */
+export const LEAD_KICKOFF_PROMPT =
+  'You are the no-hands lead. Your full instructions are in your system prompt: follow them, using only your MCP tools.';
+
+/** Single-quote a path for a hook's shell command; refuses a path holding a quote. */
+function shellPath(path: string): string {
+  if (path.includes("'")) throw new Error(`refusing a hook path with a quote: ${path}`);
+  return `'${path}'`;
+}
+
+/**
+ * Claude Code settings for a lead (T14363/T14423), passed with `--settings`
+ * (which still applies under `--setting-sources ""`):
+ *
+ * - `SessionStart` deletes the MCP config file: Claude Code has read it, and
+ *   it may hold the mbx server's env secrets.
+ * - `SessionEnd` removes the spawn's temp directory, ends the lead's CLEO
+ *   session (releasing its epic claim) and releases the lead mailbox held for
+ *   this session, so none of them outlives the lead.
+ *
+ * @param input - The spawn temp dir, the MCP config file and the lead's session id.
+ * @returns The settings JSON.
+ * @task T14363
+ */
+export function leadSessionSettings(input: {
+  readonly dir: string;
+  readonly mcpFile: string;
+  readonly sessionId?: string;
+}): string {
+  // `cleo session end` ends the lead's own CLEO session (CLEO_SESSION_ID in its
+  // env), which releases its epic claim so another lead may start.
+  const end = [`rm -rf ${shellPath(input.dir)}`, 'cleo session end --note "lead exited"'];
+  if (input.sessionId !== undefined) {
+    end.push(`agentmbx identity release --cli claude --session ${input.sessionId} --json`);
+  }
+  const hook = (command: string) => [{ hooks: [{ type: 'command', command }] }];
+  return JSON.stringify({
+    hooks: {
+      SessionStart: hook(`rm -f ${shellPath(input.mcpFile)}`),
+      SessionEnd: hook(`${end.join('; ')}; true`),
+    },
+  });
+}
+
+/** The string-valued entries of `options.env`. */
+function envStrings(options: SpawnContext['options']): Record<string, string> {
+  const env = options?.env;
+  const out: Record<string, string> = {};
+  if (typeof env !== 'object' || env === null) return out;
+  for (const [key, value] of Object.entries(env)) if (typeof value === 'string') out[key] = value;
+  return out;
 }
 
 /** Internal tracking entry for a spawned process. */
@@ -85,14 +145,19 @@ interface TrackedProcess {
  * - `--print`: non-interactive batch mode (process prompt, output response, exit)
  * - `--output-format json`: structured output for parsing
  * - Worker: `--dangerously-skip-permissions` allows every tool call without approval.
- * - Lead (`context.leadDeniedTools` set): `--disallowedTools <denied>` removes
- *   those tools so they never run, and `--dangerously-skip-permissions` is NOT
- *   passed. `--mcp-config <leadMcp.config> --strict-mcp-config` loads ONLY the
- *   command runner (`cleo orchestrate lead-runner`, T14363) and, when
- *   configured, the mbx server (T14423): no other user MCP server loads.
- *   `--allowedTools` pre-approves those servers' tools (it removes nothing).
- *   `--session-id` pins the session the lead mailbox was claimed for
- *   (`options.leadSessionId`).
+ * - Lead (`context.leadDeniedTools` set), an ALLOW list, layered (T14363/T14423):
+ *   - `--restricted` and `--tools ""`: no built-in tool at all (no Bash, Edit,
+ *     Write, Agent/Task, Skill, Monitor, Workflow, triggers, EnterWorktree, ...).
+ *   - `--mcp-config <file> --strict-mcp-config`: only the runner and the user's
+ *     validated mbx server load; `--allowedTools` names exactly their tools.
+ *   - `--permission-mode dontAsk` and `--setting-sources ""`: anything not
+ *     allowed is denied, and no user/project/local setting (a
+ *     `defaultMode: bypassPermissions`, an allow rule) applies.
+ *   - `--disallowedTools <denied>` stays as a second layer;
+ *     `--dangerously-skip-permissions` is never passed.
+ *   - The prompt file is the appended system prompt (the lead cannot Read
+ *     files); the user turn is {@link LEAD_KICKOFF_PROMPT}. `--session-id`
+ *     pins the session the lead mailbox is claimed for.
  *
  * @param context - Spawn context.
  * @param promptFile - Path of the prompt file passed as the final argument.
@@ -108,22 +173,43 @@ export function buildClaudeArgs(
   leadMcp: LeadMcpSetup = runnerOnlyLeadMcp(),
 ): string[] {
   const denied = leadDeniedTools(context);
-  const permissionArgs =
-    denied === null
-      ? ['--dangerously-skip-permissions']
-      : [
-          '--disallowedTools',
-          denied.join(','),
-          '--allowedTools',
-          leadAllowedTools(leadMcp.report).join(','),
-          '--mcp-config',
-          leadMcp.config,
-          '--strict-mcp-config',
-          ...leadSessionArgs(context.options),
-        ];
-  // Variadic flags (--disallowedTools, --allowedTools, --mcp-config) are each
-  // followed by another flag, so none swallows the prompt file.
-  return ['--print', ...permissionArgs, '--output-format', 'json', ...settingsArgs, promptFile];
+  if (denied === null) {
+    return [
+      '--print',
+      '--dangerously-skip-permissions',
+      '--output-format',
+      'json',
+      ...settingsArgs,
+      promptFile,
+    ];
+  }
+  const sessionId = leadSessionId(context.options);
+  // Variadic flags (--tools, --allowedTools, --disallowedTools, --mcp-config)
+  // are each followed by another flag, so none swallows the kickoff prompt.
+  return [
+    '--print',
+    '--restricted',
+    '--tools',
+    '',
+    '--allowedTools',
+    leadAllowedTools(leadMcp.report).join(','),
+    '--disallowedTools',
+    denied.join(','),
+    '--mcp-config',
+    leadMcp.config,
+    '--strict-mcp-config',
+    '--permission-mode',
+    'dontAsk',
+    '--setting-sources',
+    '',
+    ...(sessionId !== undefined ? ['--session-id', sessionId] : []),
+    ...settingsArgs,
+    '--append-system-prompt-file',
+    promptFile,
+    '--output-format',
+    'json',
+    LEAD_KICKOFF_PROMPT,
+  ];
 }
 
 /**
@@ -203,12 +289,30 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         settingsArgs = ['--settings', settingsFile];
       }
 
-      // T14423: a lead loads only the runner and the user's mbx server.
-      const leadMcp =
-        leadDeniedTools(context) === null
-          ? undefined
-          : await prepareLeadMcp(dirname(tmpFile), context.workingDirectory ?? process.cwd());
-      // --settings (tracked workers only): adds the worker-exit SessionEnd hook
+      // T14423: a lead loads only the runner and the user's validated mbx
+      // server; its settings delete the MCP file at start and the temp dir at end.
+      let leadMcp: LeadMcpSetup | undefined;
+      if (leadDeniedTools(context) !== null) {
+        const dir = dirname(tmpFile);
+        leadMcp = await prepareLeadMcp(
+          dir,
+          context.workingDirectory ?? process.cwd(),
+          envStrings(context.options),
+        );
+        const settingsFile = join(dir, 'lead-settings.json');
+        const sessionId = leadSessionId(context.options);
+        await writeFile(
+          settingsFile,
+          leadSessionSettings({
+            dir,
+            mcpFile: leadMcp.config,
+            ...(sessionId !== undefined ? { sessionId } : {}),
+          }),
+          { mode: 0o600 },
+        );
+        settingsArgs = ['--settings', settingsFile];
+      }
+      // --settings: a tracked worker's exit hook, or a lead's session hooks
       const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp);
 
       // T11998: Build the argv with per-session containment.

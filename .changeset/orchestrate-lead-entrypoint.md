@@ -13,15 +13,25 @@ T14351. It refuses with `E_LEAD_WORKER_DISABLED` unless
   `CLEOSpawnContext.leadDeniedTools` to `LEAD_DENIED_TOOLS`, so the spawn
   bridge strips them or refuses the provider (`E_LEAD_TOOLS_UNSTRIPPED`,
   now kept as the envelope code instead of `E_SPAWN_FAILED`).
-- **Command runner, strict MCP.** On claude-code the lead starts with
-  `--mcp-config <file> --strict-mcp-config`: the file names ONLY the runner
-  (`cleo orchestrate lead-runner`) and the user's mbx server, resolved like
-  Claude Code (local, project `.mcp.json`, user). No other user MCP server
-  loads (T14423). `--allowedTools` pre-approves the runner tool and `mcp__mbx`.
-  Without mbx the lead gets the runner alone and `data.lead.mcpWarning` says so.
-- **Mailbox.** The project lead mailbox is claimed for a pre-assigned
-  session id (`claude --session-id`) before the lead starts; a failed claim
-  is reported under `data.lead.mailbox` and does not stop the spawn.
+- **Allow list, not a deny list.** On claude-code the lead gets no built-in
+  tool (`--restricted --tools ""`), `--permission-mode dontAsk` and
+  `--setting-sources ""` (a user's `bypassPermissions` cannot apply), with
+  `LEAD_DENIED_TOOLS` still in `--disallowedTools` as a second layer. Its
+  prompt is the appended system prompt (`--append-system-prompt-file`).
+- **Strict MCP.** `--mcp-config <file> --strict-mcp-config`: the file names
+  ONLY the runner (`cleo orchestrate lead-runner`, carrying the lead's CLEO
+  identity) and the user-level mbx server. mbx is read only from
+  `~/.claude.json` user scope, never a repo's `.mcp.json` or project entry,
+  and must be the `agentmbx` binary on an absolute path outside the project
+  with args `mcp`; otherwise it is refused with `data.lead.mcpWarning` (T14423).
+- **Role and session.** The lead's prompt is composed with role `lead`, which
+  now reaches the prompt builder, so the ct-lead excerpts load; the lead runs
+  under its own allocated CLEO session (`CLEO_SESSION_ID` in its env).
+- **Mailbox.** Claimed for the lead's pre-assigned session (`claude
+  --session-id`) only after the spawn is admitted; a second lead on a held epic
+  is refused (`E_LEAD_RUNNING`). The lead's `SessionStart` hook deletes the MCP
+  config file (it may hold mbx env secrets); its `SessionEnd` hook removes the
+  temp dir, ends its CLEO session and releases the mailbox.
 - **No worktree, no worker record.** A lead writes nothing, so it runs in the
   project root and is never auto-integrated. Workers it dispatches keep
   fail-closed isolation, durable worker records and the report contract.

@@ -3,13 +3,17 @@
  *
  * The tool strip (T14357) removes Bash, Edit and Write, but any user MCP
  * server with shell or file tools would hand them back. A lead therefore
- * starts with `--strict-mcp-config` and a config naming exactly two servers:
- * the lead command runner (`cleo orchestrate lead-runner`) and, when the user
- * configured it, the AgentMBX server, so the lead can still read worker mail.
+ * starts with `--strict-mcp-config` and a config naming at most two servers:
+ * the lead command runner (`cleo orchestrate lead-runner`) and the user's
+ * AgentMBX server, so the lead can still read worker mail.
  *
- * The mbx entry is taken from the user's Claude Code config, with the same
- * precedence Claude Code applies: local (`~/.claude.json` `projects[<dir>]`),
- * then project (`<dir>/.mcp.json`), then user (`~/.claude.json`).
+ * The mbx entry comes ONLY from the user-level `mcpServers` of
+ * `~/.claude.json`, never from the repository (`.mcp.json`) or its project
+ * entry: `--mcp-config` skips Claude Code's project-server approval and
+ * `--allowedTools mcp__mbx` pre-approves every tool on the server, so a
+ * repository could otherwise plant any command as `mbx`. The entry must also
+ * run the `agentmbx` binary from an absolute path outside the project, with
+ * arguments starting `mcp`; anything else is refused with a warning.
  *
  * @task T14423
  * @epic T14351
@@ -18,7 +22,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import type { LeadMcpReport } from '@cleocode/contracts';
 import {
   LEAD_MAILBOX_MCP_SERVER,
@@ -37,38 +41,31 @@ export interface LeadMcpSetup {
   readonly report: LeadMcpReport;
 }
 
-/** The runner's stdio server entry. */
-const RUNNER_ENTRY: McpServerEntry = {
-  type: 'stdio',
-  command: 'cleo',
-  args: ['orchestrate', 'lead-runner'],
-};
+/** Outcome of {@link resolveMbxMcpServer}. */
+export type MbxResolution =
+  | { readonly kind: 'found'; readonly entry: McpServerEntry }
+  | { readonly kind: 'not-configured' }
+  | { readonly kind: 'refused'; readonly reason: string };
 
-/** `mcpServers` of a parsed config object, or an empty map. */
-function serversOf(config: unknown): Readonly<Record<string, unknown>> {
-  if (typeof config !== 'object' || config === null || !('mcpServers' in config)) return {};
-  const servers = config.mcpServers;
-  return typeof servers === 'object' && servers !== null ? { ...servers } : {};
-}
+/**
+ * CLEO identity variables the runner passes to every command, so a verb run
+ * through it (`review verdict`, `merge train`) acts as the lead.
+ */
+const RUNNER_IDENTITY_ENV = ['CLEO_SESSION_ID', 'CLEO_AGENT_ID', 'CLEO_AGENT_ROLE'] as const;
 
-/** The mbx entry of one `mcpServers` map: named `mbx`, else `agentmbx mcp`. */
-function mbxEntryIn(servers: Readonly<Record<string, unknown>>): McpServerEntry | null {
-  const named = servers[LEAD_MAILBOX_MCP_SERVER];
-  if (typeof named === 'object' && named !== null) return { ...named };
-  for (const entry of Object.values(servers)) {
-    if (typeof entry !== 'object' || entry === null) continue;
-    const command = 'command' in entry ? entry.command : undefined;
-    const args = 'args' in entry ? entry.args : undefined;
-    if (
-      typeof command === 'string' &&
-      basename(command) === 'agentmbx' &&
-      Array.isArray(args) &&
-      args[0] === 'mcp'
-    ) {
-      return { ...entry };
-    }
+/** The runner's stdio server entry, carrying the lead's CLEO identity. */
+function runnerEntry(identityEnv: Readonly<Record<string, string>>): McpServerEntry {
+  const env: Record<string, string> = {};
+  for (const key of RUNNER_IDENTITY_ENV) {
+    const value = identityEnv[key];
+    if (value) env[key] = value;
   }
-  return null;
+  return {
+    type: 'stdio',
+    command: 'cleo',
+    args: ['orchestrate', 'lead-runner'],
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+  };
 }
 
 /** Parse a JSON file, or `null` when it is missing or unreadable. */
@@ -81,55 +78,89 @@ function readJson(file: string): unknown {
   }
 }
 
+/** True when `path` is `dir` or inside it. */
+function isInside(path: string, dir: string): boolean {
+  const rel = relative(resolve(dir), resolve(path));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
 /**
- * The user's configured AgentMBX MCP server for a project, resolved as Claude
- * Code resolves MCP scopes: local, then project `.mcp.json`, then user.
+ * Why an mbx entry is unsafe to hand a lead, or `null` when it is safe: it
+ * must run the `agentmbx` binary from an absolute path outside the project,
+ * with arguments starting `mcp`, over stdio.
+ */
+function mbxEntryProblem(
+  entry: Readonly<Record<string, unknown>>,
+  projectDir: string,
+): string | null {
+  const command = entry['command'];
+  const args = entry['args'];
+  const type = entry['type'];
+  if (type !== undefined && type !== 'stdio') return `transport '${String(type)}' is not stdio`;
+  if (typeof command !== 'string' || !isAbsolute(command)) {
+    return 'its command is not an absolute path';
+  }
+  if (basename(command) !== 'agentmbx')
+    return `its command '${command}' is not the agentmbx binary`;
+  if (isInside(command, projectDir)) return `its command '${command}' lives inside the project`;
+  if (!Array.isArray(args) || args[0] !== 'mcp') return "its arguments do not start with 'mcp'";
+  return null;
+}
+
+/**
+ * The user's AgentMBX MCP server, from the user-level `mcpServers` of
+ * `~/.claude.json` only (named `mbx`). Project and local scopes are never
+ * read: a repository must not be able to plant the lead's mailbox server.
  *
- * @param projectDir - Directory the lead runs in.
+ * @param projectDir - Directory the lead runs in (an mbx binary inside it is refused).
  * @param claudeJsonPath - Claude Code user config. @defaultValue `~/.claude.json`
- * @returns The entry verbatim (command, args, env), or `null` when none is configured.
+ * @returns The entry verbatim, `not-configured`, or `refused` with the reason.
  * @task T14423
  */
 export function resolveMbxMcpServer(
   projectDir: string,
   claudeJsonPath: string = join(homedir(), '.claude.json'),
-): McpServerEntry | null {
+): MbxResolution {
   const user = readJson(claudeJsonPath);
-  const dir = resolve(projectDir);
-  const projects =
-    typeof user === 'object' && user !== null && 'projects' in user ? user.projects : undefined;
-  const local =
-    typeof projects === 'object' && projects !== null
-      ? Object.entries(projects).find(([path]) => path === dir)?.[1]
+  const servers =
+    typeof user === 'object' && user !== null && 'mcpServers' in user ? user.mcpServers : undefined;
+  const entry =
+    typeof servers === 'object' && servers !== null && LEAD_MAILBOX_MCP_SERVER in servers
+      ? Object.entries(servers).find(([name]) => name === LEAD_MAILBOX_MCP_SERVER)?.[1]
       : undefined;
-  return (
-    mbxEntryIn(serversOf(local)) ??
-    mbxEntryIn(serversOf(readJson(join(dir, '.mcp.json')))) ??
-    mbxEntryIn(serversOf(user))
-  );
+  if (entry === undefined) return { kind: 'not-configured' };
+  if (typeof entry !== 'object' || entry === null) {
+    return { kind: 'refused', reason: 'the user-level mbx entry is not an object' };
+  }
+  const problem = mbxEntryProblem({ ...entry }, projectDir);
+  return problem === null
+    ? { kind: 'found', entry: { ...entry } }
+    : { kind: 'refused', reason: `the user-level mbx entry was refused: ${problem}` };
 }
 
 /**
  * The lead's MCP config: the runner and, when given, the mbx server. Nothing else.
  *
- * @param mbx - The resolved mbx entry, or `null`.
+ * @param mbx - The validated mbx entry, or `null`.
+ * @param identityEnv - The lead's CLEO identity variables, passed to the runner.
  * @returns The `{ mcpServers }` object passed to `claude --mcp-config`.
  * @task T14423
  */
-export function buildLeadMcpConfig(mbx: McpServerEntry | null): {
-  mcpServers: Record<string, McpServerEntry>;
-} {
+export function buildLeadMcpConfig(
+  mbx: McpServerEntry | null,
+  identityEnv: Readonly<Record<string, string>> = {},
+): { mcpServers: Record<string, McpServerEntry> } {
   return {
     mcpServers: {
-      [LEAD_RUNNER_MCP_SERVER]: RUNNER_ENTRY,
+      [LEAD_RUNNER_MCP_SERVER]: runnerEntry(identityEnv),
       ...(mbx ? { [LEAD_MAILBOX_MCP_SERVER]: mbx } : {}),
     },
   };
 }
 
 /**
- * Tools the lead may call without a prompt: the runner's one tool and, when
- * mbx is loaded, every mbx tool (`mcp__mbx`). It pre-approves; it strips nothing.
+ * Tools the lead may call: the runner's one tool and, when mbx is loaded,
+ * every mbx tool (`mcp__mbx`).
  *
  * @param report - What the lead loads.
  * @returns The `--allowedTools` list.
@@ -154,12 +185,17 @@ export function runnerOnlyLeadMcp(): LeadMcpSetup {
   };
 }
 
+/** File name of the lead's MCP config inside the spawn's private temp directory. */
+export const LEAD_MCP_FILE = 'lead-mcp.json';
+
 /**
  * Write the lead's MCP config file (mode 0600: the mbx entry may carry env
- * secrets) into a spawn's private temp directory.
+ * secrets) into a spawn's private temp directory. The lead's `SessionStart`
+ * hook deletes it once Claude Code has loaded it (see `leadSessionSettings`).
  *
  * @param dir - The spawn's private temp directory.
  * @param projectDir - Directory the lead runs in.
+ * @param identityEnv - The lead's CLEO identity variables, passed to the runner.
  * @param claudeJsonPath - Claude Code user config. @defaultValue `~/.claude.json`
  * @returns The file path and what the lead loads.
  * @task T14423
@@ -167,16 +203,19 @@ export function runnerOnlyLeadMcp(): LeadMcpSetup {
 export async function prepareLeadMcp(
   dir: string,
   projectDir: string,
+  identityEnv: Readonly<Record<string, string>> = {},
   claudeJsonPath?: string,
 ): Promise<LeadMcpSetup> {
   const mbx = resolveMbxMcpServer(projectDir, claudeJsonPath);
-  const file = join(dir, 'lead-mcp.json');
-  await writeFile(file, JSON.stringify(buildLeadMcpConfig(mbx)), { mode: 0o600 });
+  const entry = mbx.kind === 'found' ? mbx.entry : null;
+  const file = join(dir, LEAD_MCP_FILE);
+  await writeFile(file, JSON.stringify(buildLeadMcpConfig(entry, identityEnv)), { mode: 0o600 });
   return {
     config: file,
     report: {
-      servers: mbx ? [LEAD_RUNNER_MCP_SERVER, LEAD_MAILBOX_MCP_SERVER] : [LEAD_RUNNER_MCP_SERVER],
-      mailbox: mbx ? 'loaded' : 'not-configured',
+      servers: entry ? [LEAD_RUNNER_MCP_SERVER, LEAD_MAILBOX_MCP_SERVER] : [LEAD_RUNNER_MCP_SERVER],
+      mailbox: mbx.kind === 'found' ? 'loaded' : mbx.kind,
+      ...(mbx.kind === 'refused' ? { warning: mbx.reason } : {}),
     },
   };
 }

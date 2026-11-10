@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers in one `cleo orchestrate fanout` call, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.2.0
+  version: 1.2.1
   tier: core
   install: harness
   covers:
@@ -39,10 +39,12 @@ above are enforced by your tool list, not by your discipline (T14363):
 
 | What | How it is enforced |
 |------|--------------------|
-| No hands | You are spawned without `Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `WebFetch` and `WebSearch` (`LEAD_DENIED_TOOLS`). A provider that cannot strip them refuses the spawn with `E_LEAD_TOOLS_UNSTRIPPED` (only claude-code and claude-sdk can) |
-| Two MCP servers only | You start with `--strict-mcp-config`: the runner (`cleo-lead`) and, when the user configured it, `mbx`. No other user MCP server loads, so none can hand back shell or file tools (T14423). `data.lead.mcp` lists them; `data.lead.mcpWarning` says when mbx is missing |
+| No hands (allow list) | On claude-code you have NO built-in tool (`--restricted --tools ""`): no Bash, Edit, Write, Read, Agent/Task, Skill, Monitor or worktree tools. `--permission-mode dontAsk` and `--setting-sources ""` deny anything not allowed, whatever the user's settings say; `LEAD_DENIED_TOOLS` stays denied as a second layer. A provider that cannot strip tools refuses the spawn (`E_LEAD_TOOLS_UNSTRIPPED`) |
+| Two MCP servers only | `--strict-mcp-config`: the runner (`cleo-lead`) and the user-level `mbx` server, nothing else (T14423). mbx is taken only from `~/.claude.json` user scope and must be the `agentmbx` binary on an absolute path outside the project with args `mcp`; a repo's `.mcp.json` can never supply it. `data.lead.mcp` lists what loaded; `data.lead.mcpWarning` says when mbx is missing or refused |
+| Your instructions | Your prompt is the appended system prompt (you cannot Read files) |
+| Your session | You run under your OWN CLEO session (`CLEO_SESSION_ID`, also passed to the runner), so `review verdict` and `merge train` act as you. Ending the run ends that session and frees the epic |
 | One command tool | `mcp__cleo-lead__cleo_run` runs one argv (never a shell string) when it matches the lead allow-list: read, plan, dispatch and review verbs of `cleo` and `gh`. Anything else, including pipes and redirection, is refused before a process starts |
-| Your mailbox | The project lead mailbox is claimed for your session before you start; `data.lead.mailbox` in the spawn result says whether the claim held |
+| Your mailbox | The project lead mailbox is claimed for your session only once your spawn is admitted, and released when you exit; a second lead on the same epic is refused (`E_LEAD_RUNNING`). `data.lead.mailbox` says whether the claim held |
 | Background dispatch | `cleo orchestrate fanout` / `spawn-execute` start workers in the background. Each worker gets its own worktree (a provisioning failure refuses the spawn, never the project root), a durable worker record, and your mailbox in its prompt |
 | Report contract | A worker returns the Return Format Contract: `conclusion:`, `blocker:` and one `proof:` line per item, 100 words at most. A report with no proof is not a completion; detail belongs in the PR body |
 

@@ -24,7 +24,9 @@ const { provider } = vi.hoisted(() => {
     strip: 'enforced' | 'unsupported';
     seen: SpawnContext[];
     leadMcp: SpawnResult['leadMcp'];
+    events: string[];
   } = {
+    events: [],
     strip: 'enforced',
     seen: [],
     leadMcp: { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' },
@@ -36,6 +38,7 @@ const { provider } = vi.hoisted(() => {
     canSpawn: async () => true,
     spawn: async (ctx: SpawnContext): Promise<SpawnResult> => {
       state.seen.push(ctx);
+      state.events.push('spawn');
       return {
         instanceId: 'lead-1',
         taskId: ctx.taskId,
@@ -117,6 +120,7 @@ function fakeMbx(grant: boolean): {
     status: async () => refused,
     claim: async (name, session) => {
       claims.push({ name, session });
+      provider.state.events.push('claim');
       return grant ? { ok: true, value: { name, state: 'bound', unread: 0 } } : refused;
     },
   };
@@ -145,6 +149,7 @@ describe('orchestrateLead (T14363)', () => {
     vi.stubEnv('CLEO_SESSION_ID', SES);
     provider.state.strip = 'enforced';
     provider.state.seen = [];
+    provider.state.events = [];
     provider.state.leadMcp = { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' };
   });
 
@@ -197,7 +202,9 @@ describe('orchestrateLead (T14363)', () => {
     // No worker record for the lead.
     expect(ctx?.options?.['workerInstanceId']).toBeUndefined();
 
-    const data = result.success ? (result.data as { lead: Record<string, unknown> }) : null;
+    const data = result.success
+      ? (result.data as { lead: Record<string, unknown>; agentId?: string })
+      : null;
     const sessionId = data?.lead['sessionId'];
     expect(ctx?.options?.['leadSessionId']).toBe(sessionId);
     expect(data?.lead).toMatchObject({
@@ -208,6 +215,14 @@ describe('orchestrateLead (T14363)', () => {
     });
     expect(data?.lead['mcpWarning']).toBeUndefined();
     expect(mbx.claims).toEqual([{ name: MAILBOX, session: { cli: 'claude', session: sessionId } }]);
+    // The mailbox is claimed only after the spawn was admitted and dispatched.
+    expect(provider.state.events).toEqual(['spawn', 'claim']);
+    // The lead runs under its OWN allocated CLEO session, not the caller's.
+    const leadEnv = ctx?.options?.['env'] as Record<string, string> | undefined;
+    expect(leadEnv?.['CLEO_SESSION_ID']).toMatch(/^ses_/);
+    expect(leadEnv?.['CLEO_SESSION_ID']).not.toBe(SES);
+    expect(leadEnv?.['CLEO_AGENT_ROLE']).toBe('lead');
+    expect(data?.['agentId']).toBe(leadEnv?.['CLEO_AGENT_ID']);
     const { listWorkerRecords } = await import('../worker-records.js');
     expect(await listWorkerRecords(env.tempDir)).toHaveLength(0);
   });
@@ -241,7 +256,7 @@ describe('orchestrateLead (T14363)', () => {
       data: {
         lead: {
           mcp: { servers: ['cleo-lead'], mailbox: 'not-configured' },
-          mcpWarning: expect.stringContaining('No mbx MCP server'),
+          mcpWarning: expect.stringContaining('mbx MCP server is configured'),
         },
       },
     });
@@ -260,5 +275,42 @@ describe('orchestrateLead (T14363)', () => {
       error: { code: 'E_LEAD_TOOLS_UNSTRIPPED', exitCode: 63 },
     });
     expect(provider.state.seen).toHaveLength(0);
+  });
+
+  it('a refused lead never claims the mailbox', async () => {
+    setOrchestrate(env.tempDir, {
+      leadWorker: { v1: true },
+      leadMailbox: { name: MAILBOX, projectId: 'p1', cli: 'claude' },
+    });
+    provider.state.strip = 'unsupported';
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+    });
+    expect(result.success).toBe(false);
+    expect(mbx.claims).toHaveLength(0);
+  });
+
+  it("a second lead on the same epic is refused and does not take the running lead's mailbox", async () => {
+    setOrchestrate(env.tempDir, {
+      leadWorker: { v1: true },
+      leadMailbox: { name: MAILBOX, projectId: 'p1', cli: 'claude' },
+    });
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const first = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+    });
+    expect(first.success).toBe(true);
+    const second = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+    });
+    expect(second).toMatchObject({ success: false, error: { code: 'E_LEAD_RUNNING' } });
+    expect(provider.state.seen).toHaveLength(1);
+    expect(mbx.claims).toHaveLength(1);
   });
 });

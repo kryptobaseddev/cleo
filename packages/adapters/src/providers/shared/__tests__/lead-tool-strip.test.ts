@@ -43,7 +43,8 @@ describe('claude-code lead tool strip', () => {
     const denied = (args[flag + 1] ?? '').split(',');
     expect(denied).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write']));
     expect(denied).toEqual([...LEAD_DENIED_TOOLS]);
-    expect(args.at(-1)).toBe('/tmp/prompt.md');
+    // The prompt file is the appended system prompt; the lead cannot Read files.
+    expect(args[args.indexOf('--append-system-prompt-file') + 1]).toBe('/tmp/prompt.md');
   });
 
   it('lead argv serves the command runner as its only command tool (T14363)', () => {
@@ -56,8 +57,8 @@ describe('claude-code lead tool strip', () => {
       command: 'cleo',
       args: ['orchestrate', 'lead-runner'],
     });
-    // Each variadic flag is followed by another flag, never the prompt file.
-    for (const flag of ['--disallowedTools', '--allowedTools', '--mcp-config']) {
+    // Each variadic flag is followed by another flag, never the kickoff prompt.
+    for (const flag of ['--tools', '--disallowedTools', '--allowedTools', '--mcp-config']) {
       expect(args[args.indexOf(flag) + 2]?.startsWith('--')).toBe(true);
     }
   });

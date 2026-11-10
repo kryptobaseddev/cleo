@@ -905,8 +905,14 @@ export const LEAD_MAILBOX_MCP_SERVER = 'mbx';
 export interface LeadMcpReport {
   /** Server names the lead loads, the runner first. */
   readonly servers: readonly string[];
-  /** `loaded` when the mbx server was found and passed; `not-configured` otherwise. */
-  readonly mailbox: 'loaded' | 'not-configured';
+  /**
+   * `loaded` when the user-level mbx server was found, validated and passed;
+   * `not-configured` when there is none; `refused` when an entry failed the
+   * checks (not the agentmbx binary, a path inside the project, ...).
+   */
+  readonly mailbox: 'loaded' | 'not-configured' | 'refused';
+  /** Why the mbx entry was refused (with `mailbox: 'refused'`). */
+  readonly warning?: string;
 }
 
 /**

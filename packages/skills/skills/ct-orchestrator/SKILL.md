@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.4.1
+  version: 4.4.2
   tier: core
   install: harness
   covers:
@@ -277,14 +277,18 @@ orchestrate, were removed (T13955).
 
 **Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with
 `orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
-is structural, not a prompt rule: the lead spawns without Bash, Edit, Write, MultiEdit,
-NotebookEdit, WebFetch and WebSearch; a provider that cannot strip them refuses the spawn
-(`E_LEAD_TOOLS_UNSTRIPPED`; claude-code and claude-sdk can). On claude-code the lead starts with
-`--strict-mcp-config` and exactly two MCP servers, the command runner below and the user's
-configured `mbx` server (T14423; without mbx it gets the runner alone and `data.lead.mcpWarning`
-says so), so no other MCP server can hand back write tools. It runs in the project root (it writes nothing,
-so no worktree), and gets no worker record. The project lead mailbox is claimed for the
-lead's pre-assigned session first; `data.lead.mailbox` reports the claim. Workers it starts
+is structural, not a prompt rule. On claude-code the lead's tools are an ALLOW list: no
+built-in tool (`--restricted --tools ""`), `--permission-mode dontAsk`, `--setting-sources ""`
+(a user's `bypassPermissions` cannot apply), `LEAD_DENIED_TOOLS` denied as a second layer, and
+`--strict-mcp-config` with exactly two MCP servers: the command runner below and the user-level
+`mbx` server (T14423). mbx comes only from `~/.claude.json` user scope and must be the `agentmbx`
+binary on an absolute path outside the project with args `mcp`, so a repo's `.mcp.json` cannot
+plant it; otherwise the lead gets the runner alone and `data.lead.mcpWarning` says why. A
+provider that cannot strip tools refuses the spawn (`E_LEAD_TOOLS_UNSTRIPPED`). The lead's prompt
+is composed with role `lead` (ct-lead excerpts) and passed as its appended system prompt. It runs
+in the project root under its OWN CLEO session (no worktree, no worker record). The lead mailbox
+is claimed only after the spawn is admitted and released when the lead exits; a second lead on a
+held epic is refused (`E_LEAD_RUNNING`). Workers it starts
 with `fanout` or `spawn-execute` run in the background with fail-closed isolation, durable
 worker records and the 100-word report contract below.
 

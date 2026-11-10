@@ -24,6 +24,7 @@ import { LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts/operati
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveBoundSessionId } from '../store/session-store.js';
 import { type AgentMbxClient, claimLeadMailbox, createAgentMbxClient } from './agentmbx.js';
 import { isLeadWorkerV1Enabled } from './isolation-policy.js';
 import { orchestrateSpawnExecute } from './spawn-ops.js';
@@ -75,15 +76,13 @@ function leadMcpOf(data: object): LeadMcpReport | null {
   const report = 'leadMcp' in data ? data.leadMcp : undefined;
   if (typeof report !== 'object' || report === null) return null;
   if (!('servers' in report) || !Array.isArray(report.servers)) return null;
-  if (
-    !('mailbox' in report) ||
-    (report.mailbox !== 'loaded' && report.mailbox !== 'not-configured')
-  ) {
-    return null;
-  }
+  const mailbox = 'mailbox' in report ? report.mailbox : undefined;
+  if (mailbox !== 'loaded' && mailbox !== 'not-configured' && mailbox !== 'refused') return null;
+  const warning = 'warning' in report ? report.warning : undefined;
   return {
     servers: report.servers.filter((s): s is string => typeof s === 'string'),
-    mailbox: report.mailbox,
+    mailbox,
+    ...(typeof warning === 'string' ? { warning } : {}),
   };
 }
 
@@ -91,8 +90,9 @@ function leadMcpOf(data: object): LeadMcpReport | null {
  * Spawn the no-hands lead for an epic.
  *
  * Refuses unless `orchestrate.leadWorker.v1` is on (`E_LEAD_WORKER_DISABLED`)
- * and the id names an epic (`E_VALIDATION`). A failed mailbox claim does not
- * stop the spawn: it is reported under `data.lead.mailbox`. The MCP servers
+ * and the id names an epic (`E_VALIDATION`). The lead mailbox is claimed only
+ * after the lead is admitted and running; a failed claim does not stop it and
+ * is reported under `data.lead.mailbox`. The MCP servers
  * the lead loaded (runner plus mbx only, T14423) are under `data.lead.mcp`.
  *
  * @param epicId - Epic the lead runs.
@@ -130,16 +130,24 @@ export async function orchestrateLead(
     );
   }
 
-  const sessionId = randomUUID();
-  const claim = await claimLeadMailbox(
-    root,
-    { cli: LEAD_PROVIDER_CLI, session: sessionId },
-    options.mbxClient ?? createAgentMbxClient(),
-  );
-  const mailbox: OrchestrateLeadInfo['mailbox'] = claim.ok
-    ? { claimed: true, name: claim.value.name }
-    : { claimed: false, warning: claim.warning };
+  // T14363 — one lead per epic: a live claim held by another session (a
+  // running lead holds its epic) refuses, so a second lead never starts or
+  // takes the running lead's mailbox. The lead's exit ends its session,
+  // which releases the claim.
+  const holder = task.claim;
+  if (holder && Date.parse(holder.leaseExpiresAt) > Date.now()) {
+    const caller = await resolveBoundSessionId(root);
+    if (holder.sessionId !== caller) {
+      // @sync-invariant none:input-shape a second lead on a claimed epic is refused before a spawn
+      return engineError('E_LEAD_RUNNING', `${epicId} is held by session ${holder.sessionId}`, {
+        exitCode: 6,
+        details: { epicId, holder },
+        fix: `Wait for the running lead to exit, or end session ${holder.sessionId} (cleo session end)`,
+      });
+    }
+  }
 
+  const sessionId = randomUUID();
   const spawn = options.spawn ?? orchestrateSpawnExecute;
   const result = await spawn(epicId, options.adapterId, undefined, root, 1, {
     lead: { deniedTools: LEAD_DENIED_TOOLS, sessionId },
@@ -147,6 +155,20 @@ export async function orchestrateLead(
   if (!result.success) return result;
   const data = typeof result.data === 'object' && result.data !== null ? result.data : {};
   const mcp = leadMcpOf(data);
+  // T14363 — claim the mailbox only once the lead is admitted and running: a
+  // refused spawn, or a second lead refused for the same epic, never takes
+  // it. The lead's SessionEnd hook releases it when the lead exits.
+  const running = 'status' in data && data.status !== 'failed';
+  const claim = running
+    ? await claimLeadMailbox(
+        root,
+        { cli: LEAD_PROVIDER_CLI, session: sessionId },
+        options.mbxClient ?? createAgentMbxClient(),
+      )
+    : ({ ok: false, warning: 'the lead did not start, so no mailbox was claimed' } as const);
+  const mailbox: OrchestrateLeadInfo['mailbox'] = claim.ok
+    ? { claimed: true, name: claim.value.name }
+    : { claimed: false, warning: claim.warning };
   const lead: OrchestrateLeadInfo = {
     deniedTools: LEAD_DENIED_TOOLS,
     runnerTool: LEAD_RUNNER_TOOL,
@@ -156,9 +178,13 @@ export async function orchestrateLead(
     ...(mcp?.mailbox === 'not-configured'
       ? {
           mcpWarning:
-            'No mbx MCP server is configured for this harness, so the lead loads only the runner and cannot read worker mail. Configure the mbx server (agentmbx mcp) and re-run.',
+            'No user-level mbx MCP server is configured, so the lead loads only the runner and cannot read worker mail. Configure the mbx server (agentmbx mcp) in ~/.claude.json and re-run.',
         }
-      : {}),
+      : mcp?.mailbox === 'refused'
+        ? {
+            mcpWarning: `The mbx MCP server was refused, so the lead loads only the runner: ${mcp.warning ?? 'it failed the checks'}.`,
+          }
+        : {}),
   };
   return engineSuccess({ ...data, lead });
 }

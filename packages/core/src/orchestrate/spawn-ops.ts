@@ -720,6 +720,22 @@ export interface OrchestrateSpawnExecuteOpts {
 }
 
 /**
+ * The stable code (and exit code, when numeric) of a thrown coded refusal such
+ * as `LeadToolsUnstrippedError`; `null` for any other throw.
+ *
+ * @param error - What the spawn threw.
+ * @returns The code and optional exit code, or `null`.
+ * @task T14363
+ */
+function codedError(error: unknown): { code: string; exitCode?: number } | null {
+  if (!(error instanceof Error) || !('code' in error)) return null;
+  const { code } = error;
+  if (typeof code !== 'string' || !code.startsWith('E_')) return null;
+  const exitCode = 'exitCode' in error ? error.exitCode : undefined;
+  return typeof exitCode === 'number' ? { code, exitCode } : { code };
+}
+
+/**
  * How {@link orchestrateSpawnExecute} spawns a lead (T14363).
  *
  * @task T14363
@@ -876,6 +892,8 @@ export async function orchestrateSpawnExecute(
       sessionId: activeSessionId,
       protocol: protocolType,
       ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
+      // T14363 — a lead is told it is one: the ct-lead excerpt and dispatch rules load.
+      ...(opts.lead !== undefined ? { role: 'lead' as const } : {}),
     });
 
     // Atomicity violations short-circuit the spawn so the adapter never sees
@@ -1042,6 +1060,15 @@ export async function orchestrateSpawnExecute(
         { taskId },
         'T1759 worktree provisioning failed in orchestrateSpawnExecute — spawning without isolation',
       );
+    } else {
+      // T14363 — the lead runs under its OWN allocated CLEO session, never the
+      // caller's: verbs it runs through the runner (`review verdict`,
+      // `merge train`) act as the lead.
+      agentEnvOverride = {
+        CLEO_SESSION_ID: activeSessionId,
+        CLEO_AGENT_ROLE: 'lead',
+        ...(spawnAgentId ? { CLEO_AGENT_ID: spawnAgentId } : {}),
+      };
     }
 
     const cleoSpawnContext: CLEOSpawnContext = {
@@ -1309,17 +1336,14 @@ export async function orchestrateSpawnExecute(
     // T14359 — the spawn threw, so the pre-spawn record's worker never ran.
     if (pendingWorker) await abandonWorkerRecord(pendingWorker, cwd).catch(() => undefined);
     // T14363 — keep a coded refusal's own code (e.g. E_LEAD_TOOLS_UNSTRIPPED).
-    const coded = error as { code?: unknown; exitCode?: unknown } | null;
+    const coded = codedError(error);
     // @sync-invariant none:local-only the spawn threw before an agent ran; the finally hands the claim back
     return {
       success: false,
       error: {
-        code:
-          typeof coded?.code === 'string' && coded.code.startsWith('E_')
-            ? coded.code
-            : 'E_SPAWN_FAILED',
+        code: coded?.code ?? 'E_SPAWN_FAILED',
         message: error instanceof Error ? error.message : 'Unknown spawn error',
-        exitCode: typeof coded?.exitCode === 'number' ? coded.exitCode : 60,
+        exitCode: coded?.exitCode ?? 60,
       },
     };
   } finally {
