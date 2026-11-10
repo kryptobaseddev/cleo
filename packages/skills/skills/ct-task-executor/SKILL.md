@@ -162,7 +162,12 @@ A database or service started for a test run must not outlive it. A `docker run`
    every branch; `worktreeRelease` and warnings report what was removed or kept.
    The scheduled census also reaps the current project's proven-safe worktrees.
    Preview with `cleo hygiene census --dry-run`; add `--all-projects` to include
-   every registered project. `--ttl-days` and `--max-bytes` constrain the oldest-first
+   every registered project, and pass `--apply` explicitly for manual removal.
+   The bare census stays report-only. Automatic cleanup selects only done or
+   cancelled tasks and requires no open worker record, live session lease,
+   process cwd or open file in the worktree; an unavailable probe keeps it.
+   A dead spawner never authorizes removal of a pending or active task's worktree.
+   `--ttl-days` and `--max-bytes` constrain the oldest-first
    plan without overriding safety. Ignored build output is kept unless explicitly
    allowed with `--include-build-output` for merged worktrees.
 

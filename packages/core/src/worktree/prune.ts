@@ -44,7 +44,7 @@ import {
 import { pushWarning } from '../output.js';
 import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
-import { worktreeInUseProbe } from './in-use-probe.js';
+import { worktreeInUseProbe, worktreeReaperInUseProbe } from './in-use-probe.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
 
 /**
@@ -92,6 +92,7 @@ export async function releaseTaskWorktrees(
             taskId: task.id,
             reason: task.status,
             evidence: taskEvidenceAtoms(task),
+            inUse: await worktreeReaperInUseProbe(projectRoot, task.id, worktree.path),
           })
         : { worktreePath: worktree.path, removed: false, keptReason: 'git worktree unlock failed' };
       outcomes.push(outcome);
@@ -105,7 +106,10 @@ export async function releaseTaskWorktrees(
         success: outcome.removed,
         ...(outcome.keptReason !== undefined ? { error: outcome.keptReason } : {}),
       });
-      if (!outcome.removed)
+      if (outcome.kept) {
+        const { warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
+        await warnWorktreeKept(task.id, outcome.kept, outcome.keptReason);
+      } else if (!outcome.removed)
         pushWarning({
           // @sync-invariant none:local-only failed disposal of a local worktree, never a task-state refusal
           code: 'W_WORKTREE_KEPT',
@@ -193,12 +197,7 @@ export async function pruneOrphanedWorktreesByStatus(
       reason,
       evidence: await loadTaskEvidence(opts.projectRoot, wt.taskId),
       exemptRegenerable: wt.isMerged,
-      inUse: worktreeInUseProbe(
-        readWorktreeTaskLock,
-        opts.projectRoot,
-        wt.taskId,
-        wt.owningTaskStatus === 'done' || wt.owningTaskStatus === 'cancelled',
-      ),
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, opts.projectRoot, wt.taskId),
       dryRun,
     });
     if (dryRun && disposal.keptReason === undefined) {

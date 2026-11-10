@@ -8,7 +8,8 @@
  * @task T14275
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
   existsSync,
   mkdirSync,
@@ -27,6 +28,10 @@ import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktre
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
+let taskQueryFails = false;
+vi.mock('../../orchestrate/worker-records.js', () => ({
+  listWorkerRecords: vi.fn(async () => []),
+}));
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
   getDb: vi.fn(async () => ({}) as never),
@@ -34,14 +39,18 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
     () =>
       ({
         prepare: () => ({
-          all: (...ids: string[]) =>
-            ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) })),
+          all: (...ids: string[]) => {
+            if (taskQueryFails) throw new Error('task lookup unavailable');
+            return ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) }));
+          },
         }),
       }) as never,
   ),
 }));
 
 import { acquireHeartbeatLock } from '../../tasks/merge-close.js';
+import { listWorktrees } from '../../worktree/list.js';
+import { pruneOrphanedWorktreesByStatus } from '../../worktree/prune.js';
 import {
   apparentBytes,
   CENSUS_INTERVAL_MS,
@@ -94,6 +103,7 @@ beforeEach(() => {
   process.env['CLEO_HOME'] = join(base, 'cleo-home');
   recordDir = join(base, 'census');
   TASKS.clear();
+  taskQueryFails = false;
   a = repo('a');
   b = repo('b');
   c = repo('c'); // never registered
@@ -114,12 +124,51 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (prevHome === undefined) delete process.env['CLEO_HOME'];
   else process.env['CLEO_HOME'] = prevHome;
   rmSync(base, { recursive: true, force: true });
 });
 
 describe('worktree census (T14275)', () => {
+  it.each([
+    'cwd',
+    'open file',
+  ])('keeps a clean done worktree while a process has its %s in it', async (use) => {
+    const path = paths.T1!;
+    const script =
+      use === 'cwd'
+        ? "process.send('ready'); setInterval(() => {}, 1000)"
+        : "require('node:fs').openSync(process.argv[1], 'r'); process.send('ready'); setInterval(() => {}, 1000)";
+    const child = spawn(process.execPath, ['-e', script, join(path, 'a.txt')], {
+      cwd: use === 'cwd' ? path : base,
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    });
+    const exited = once(child, 'exit');
+    try {
+      await Promise.race([
+        once(child, 'message'),
+        exited.then(() => {
+          throw new Error('process fixture exited before ready');
+        }),
+      ]);
+      const out = await runWorktreeCensus({
+        projects: [a],
+        recordDir,
+        allProjects: true,
+        apply: true,
+      });
+      if ('skipped' in out) throw new Error(out.skipped);
+      expect(existsSync(path)).toBe(true);
+      expect(out.record.rows.find((r) => r.path === path)?.keepReason).toContain(
+        'a process has its cwd or an open file',
+      );
+    } finally {
+      child.kill('SIGTERM');
+      await exited;
+    }
+  });
+
   it('reproduces completed locked worktrees across projects: previews, then removes all proven ones and retains branches', async () => {
     const more = ['T6', 'T7', 'T8'].map((id) => {
       TASKS.set(id, 'done');
@@ -214,7 +263,7 @@ describe('worktree census (T14275)', () => {
     expect(git(root, 'rev-parse', '--verify', 'refs/heads/task/T90-slug')).toBeTruthy();
   });
 
-  it('reaps a locally proven crashed worker, keeps a live task, and never discards unpushed commits', async () => {
+  it('keeps non-terminal tasks when their spawner died, and removes only published terminal work', async () => {
     const crashed = worktree(a, 'T91');
     TASKS.set('T91', 'pending');
     acquireWorktreeTaskLock({
@@ -234,10 +283,8 @@ describe('worktree census (T14275)', () => {
       apply: true,
     });
     if ('skipped' in out) throw new Error(out.skipped);
-    expect(out.record.rows.find((r) => r.path === crashed)).toMatchObject({
-      crashed: true,
-      removed: true,
-    });
+    expect(out.record.rows.find((r) => r.path === crashed)?.removed).not.toBe(true);
+    expect(existsSync(crashed)).toBe(true);
     expect(existsSync(unique)).toBe(true);
     expect(existsSync(paths.T3!)).toBe(true);
     expect(out.record.rows.find((r) => r.path === unique)?.keepReason).toContain('on no remote');
@@ -245,6 +292,7 @@ describe('worktree census (T14275)', () => {
     git(base, 'init', '--bare', '-q', remote);
     git(a, 'remote', 'add', 'origin', remote);
     git(unique, 'push', '-q', 'origin', 'task/T92');
+    git(crashed, 'push', '-q', 'origin', 'task/T91');
     const pushed = await runWorktreeCensus({
       projects: [a],
       recordDir,
@@ -254,6 +302,7 @@ describe('worktree census (T14275)', () => {
     if ('skipped' in pushed) throw new Error(pushed.skipped);
     expect(pushed.record.rows.find((r) => r.path === unique)?.removed).toBe(true);
     expect(git(a, 'rev-parse', '--verify', 'refs/heads/task/T92')).toBeTruthy();
+    expect(existsSync(crashed)).toBe(true);
   });
 
   it('keeps ignored build output by default and exempts it only with the explicit merged-build flag', async () => {
@@ -316,6 +365,25 @@ describe('worktree census (T14275)', () => {
     );
     expect(existsSync(paths.T1!)).toBe(true);
     expect(existsSync(paths.T4!)).toBe(true);
+  });
+
+  it('classifies failed task queries as unknown so legacy orphan pruning cannot erase open tasks', async () => {
+    taskQueryFails = true;
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now + 30 * 86_400_000);
+    const listed = await listWorktrees({ projectRoot: a, staleDays: 0 });
+    expect(listed.success).toBe(true);
+    if (!listed.success) throw new Error(listed.error.message);
+    expect(
+      listed.data.worktrees
+        .filter((w) => w.taskId !== null)
+        .every((w) => w.statusCategory === 'unknown'),
+    ).toBe(true);
+    const pruned = await pruneOrphanedWorktreesByStatus({ projectRoot: a, staleDays: 0 });
+    expect(pruned.success).toBe(true);
+    if (!pruned.success) throw new Error(pruned.error.message);
+    expect(pruned.data.prunedCount).toBe(0);
+    for (const path of [paths.T1!, paths.T2!, paths.T3!]) expect(existsSync(path)).toBe(true);
   });
 
   it('report lists every worktree under the root by project with category, bytes and keep reason; removes nothing', async () => {

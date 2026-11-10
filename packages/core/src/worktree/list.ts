@@ -49,7 +49,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
 import type {
   DisposeWorktreeResult,
   EngineResult,
@@ -62,7 +61,7 @@ import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
-import { worktreeInUseProbe, worktreeTaskCrashed } from './in-use-probe.js';
+import { worktreeInUseProbe } from './in-use-probe.js';
 import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
 
 export { taskIdFromBranch } from './sentinel-index.js';
@@ -127,19 +126,14 @@ export async function listWorktrees(
    * run: nothing is written, archived or removed (prune re-proves with the
    * task's evidence before it acts).
    */
-  const proveRedundant = (
-    path: string,
-    taskId: string | null,
-    isMerged: boolean,
-    terminal: boolean,
-  ) =>
+  const proveRedundant = (path: string, taskId: string | null, isMerged: boolean) =>
     disposeWorktree({
       worktreePath: path,
       projectRoot,
       taskId,
       reason: 'list',
       exemptRegenerable: opts.exemptRegenerable !== false && isMerged,
-      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId, terminal),
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
       dryRun: true,
     });
 
@@ -192,7 +186,10 @@ export async function listWorktrees(
   const taskIds = Array.from(taskIdByPath.values()).filter(
     (id): id is string => id !== null && (opts.taskId === undefined || id === opts.taskId),
   );
-  const taskStatusByid = await loadOwningTaskStatuses(taskIds, projectRoot);
+  const taskStatusResult = await loadOwningTaskStatuses(taskIds, projectRoot);
+  const taskStatusByid = taskStatusResult.success
+    ? taskStatusResult.data
+    : new Map<string, string>();
 
   // Pre-resolve the default upstream branch presence — if `main` is absent,
   // `branchIsMergedToMain` would otherwise spuriously throw for every entry.
@@ -241,24 +238,19 @@ export async function listWorktrees(
     const idleMs = nowMs - lastActivityMs;
     const idleOlderThanThreshold = idleMs > staleThresholdMs;
     const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
-    const isCrashed =
-      owningTaskStatus !== null &&
-      owningTaskStatus !== 'active' &&
-      !ownerTerminal &&
-      worktreeTaskCrashed(projectRoot, taskId);
     // Stale (an annotation) = idle longer than threshold AND (owner is terminal OR branch already integrated).
     const isStale = idleOlderThanThreshold && (ownerTerminal || isMerged);
 
     const candidate = isDisposalCandidate({
       isPrimary,
       owningTaskStatus,
-      isCrashed,
       // At or past the window: a zero-day window makes every taskless worktree a candidate.
       idlePastWindow: idleMs >= staleThresholdMs,
     });
-    const classified = classifyStatus(
-      candidate ? proveRedundant(entry.path, taskId, isMerged, ownerTerminal) : null,
-    );
+    const classified =
+      taskId !== null && !taskStatusResult.success
+        ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
+        : classifyStatus(candidate ? proveRedundant(entry.path, taskId, isMerged) : null);
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -289,7 +281,6 @@ export async function listWorktrees(
       isStale,
       isMerged,
       owningTaskStatus,
-      isCrashed,
       ...classified,
       source,
       ...keptField(entry.path, readKeepMarker),
@@ -310,21 +301,15 @@ export async function listWorktrees(
     const lastActivity = new Date(lastActivityMs).toISOString();
     const idleMs = nowMs - lastActivityMs;
     const isStale = idleMs > staleThresholdMs;
-    const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
-    const isCrashed =
-      owningTaskStatus !== null &&
-      owningTaskStatus !== 'active' &&
-      !ownerTerminal &&
-      worktreeTaskCrashed(projectRoot, taskId);
     const candidate = isDisposalCandidate({
       isPrimary: false,
       owningTaskStatus,
-      isCrashed,
       idlePastWindow: idleMs >= staleThresholdMs,
     });
-    const classified = classifyStatus(
-      candidate ? proveRedundant(sentinel.path, taskId, false, ownerTerminal) : null,
-    );
+    const classified =
+      taskId !== null && !taskStatusResult.success
+        ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
+        : classifyStatus(candidate ? proveRedundant(sentinel.path, taskId, false) : null);
 
     worktrees.push({
       path: sentinel.path,
@@ -341,7 +326,6 @@ export async function listWorktrees(
       isStale,
       isMerged: false,
       owningTaskStatus,
-      isCrashed,
       ...classified,
       source: sentinel.source,
       ...keptField(sentinel.path, readKeepMarker),
@@ -510,11 +494,9 @@ export function isDisposalCandidate(flags: {
   isPrimary: boolean;
   owningTaskStatus: string | null;
   idlePastWindow: boolean;
-  isCrashed?: boolean;
 }): boolean {
   if (flags.isPrimary) return false;
   if (flags.owningTaskStatus === 'done' || flags.owningTaskStatus === 'cancelled') return true;
-  if (flags.isCrashed === true && flags.owningTaskStatus !== 'active') return true;
   if (flags.owningTaskStatus !== null) return false; // an open task
   return flags.idlePastWindow;
 }
@@ -544,55 +526,54 @@ export function classifyStatus(
  * Load the `status` column for each of the given task IDs through the
  * ADR-068 DB chokepoint.
  *
- * Returns a map (taskId → status) for IDs that resolved; missing IDs are
- * absent from the map (callers treat absent as `null` for downstream
- * orphan detection).
+ * Returns a successful map only when the query completed. A failed query is
+ * explicit and keeps the affected worktrees unknown in the listing.
  *
  * @param taskIds - Task IDs to look up.
  * @param projectRoot - Project root for DB resolution.
- * @returns Map of taskId → status.
+ * @returns Task states or an explicit failure with no disposal authority.
  * @internal Exported for tests only.
  */
 export async function loadOwningTaskStatuses(
   taskIds: string[],
   projectRoot: string,
-): Promise<Map<string, string>> {
+): Promise<EngineResult<Map<string, string>>> {
   const out = new Map<string, string>();
-  if (taskIds.length === 0) return out;
+  if (taskIds.length === 0) return engineSuccess(out);
 
-  // Task-status enrichment is BEST-EFFORT: `git worktree list` is the primary
-  // source of truth and must succeed even when the tasks DB cannot be opened
-  // (no `.cleo/` project resolvable from `projectRoot`, fresh checkout, or a
-  // transient open failure). Degrade to no status rather than failing the whole
-  // listing — callers treat a missing entry as `owningTaskStatus: null`.
+  // The listing still succeeds when the store fails, but the affected rows
+  // are unknown and can never become automatic deletion candidates.
   //
   // E6-L6 (T11526): query the legacy `tasks` table via getDb(), which runs the
   // drizzle-tasks migrations against the consolidated project `cleo.db` and
   // therefore guarantees the `tasks` family exists. The dual-scope consolidated
   // schema alone (openDualScopeDb) creates only `tasks_tasks`, not bare `tasks`.
-  let db: DatabaseSync | null;
   try {
     const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
     await getDb(projectRoot);
-    db = getNativeTasksDb(projectRoot);
-  } catch {
-    return out;
-  }
-  if (!db) return out;
-
-  const placeholders = taskIds.map(() => '?').join(', ');
-  const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-  try {
+    const db = getNativeTasksDb(projectRoot);
+    if (!db) {
+      // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
+      return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
+        fix: 'Run cleo doctor to diagnose the task store.',
+      });
+    }
+    const placeholders = taskIds.map(() => '?').join(', ');
+    const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
     const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
       id: string;
       status: string;
     }>;
     for (const row of rows) out.set(row.id, row.status);
-  } catch {
-    // Missing or unreadable task state must never turn a known task into a reaper candidate.
-    return new Map();
+    return engineSuccess(out);
+  } catch (err) {
+    // @sync-invariant none:local-only incomplete task-state coverage forbids local worktree disposal
+    return engineError(
+      'E_TASK_STATE_UNAVAILABLE',
+      `Task lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      { fix: 'Run cleo doctor to diagnose the task store.' },
+    );
   }
-  return out;
 }
 
 /**

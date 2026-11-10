@@ -17,9 +17,9 @@
  * - a directory no registered project owns, and any directory git does not
  *   list as a worktree, is reported `unknown`, report only.
  *
- * The CLI removes only `redundant` worktrees of the projects it is allowed
- * to act on (by default the current project; `--all-projects` includes all),
- * or previews the same plan with `--report` / `--dry-run`, each re-proved by
+ * The CLI reports by default. `--apply` removes only `redundant` terminal
+ * worktrees of the allowed projects (current project unless `--all-projects`);
+ * automatic completion and scheduled cleanup opt in explicitly, each re-proved by
  * `disposeWorktree` with the task's evidence. Every run writes one census
  * record (counts, apparent bytes, bytes reclaimed, the free-space delta and
  * every kept worktree with its reason) under `<cleoHome>/hygiene/census/`.
@@ -80,10 +80,8 @@ export interface CensusRow {
   branch?: string;
   /** Last recorded activity, used to order eligible worktrees oldest first. */
   lastActivity?: string;
-  /** Task state at discovery; a crashed worker is separately identified. */
+  /** Task state at discovery; only done and cancelled tasks are removal candidates. */
   taskStatus?: string | null;
-  /** Whether a local lock proves the worker crashed. */
-  crashed?: boolean;
   /** Selected by the TTL and retained-size budget, including in a dry run. */
   selected?: boolean;
   /** Set when `--apply` removed it. */
@@ -267,10 +265,16 @@ function writeRecord(
 /** The census proper: classify, optionally apply, and build the record. */
 async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   // Lazy: the CLI imports this module on read commands to claim the daily run.
-  const { isPrimaryWorktree, listWorktrees, loadOwningTaskStatuses, resolvePrimaryWorktreePath } =
-    await import('../worktree/list.js');
-  const { worktreeInUseProbe } = await import('../worktree/in-use-probe.js');
+  const {
+    classifyStatus,
+    isPrimaryWorktree,
+    listWorktrees,
+    loadOwningTaskStatuses,
+    resolvePrimaryWorktreePath,
+  } = await import('../worktree/list.js');
+  const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
+  const { disposeWorktree } = await import('@cleocode/worktree');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -328,18 +332,35 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       const path = canonical(worktree.path);
       if (isPrimaryWorktree(path, primary) || path === project || seen.has(path)) continue;
       seen.add(path);
+      const terminal =
+        worktree.taskId !== null &&
+        (worktree.owningTaskStatus === 'done' || worktree.owningTaskStatus === 'cancelled');
+      const classified =
+        terminal && worktree.taskId !== null
+          ? classifyStatus(
+              disposeWorktree({
+                worktreePath: path,
+                projectRoot: project,
+                taskId: worktree.taskId,
+                reason: 'census',
+                dryRun: true,
+                evidence: await loadTaskEvidence(project, worktree.taskId),
+                exemptRegenerable: opts.exemptRegenerable === true && worktree.isMerged,
+                inUse: await worktreeReaperInUseProbe(project, worktree.taskId, path),
+              }),
+            )
+          : { statusCategory: worktree.statusCategory, keepReason: worktree.keepReason };
       const row: CensusRow = {
         project,
         projectHash: computeProjectHash(project),
         path,
         taskId: worktree.taskId,
-        category: worktree.statusCategory,
-        ...(worktree.keepReason !== undefined ? { keepReason: worktree.keepReason } : {}),
+        category: classified.statusCategory,
+        ...(classified.keepReason !== undefined ? { keepReason: classified.keepReason } : {}),
         apparentBytes: apparentBytes(path, deadline),
         branch: worktree.branch,
         lastActivity: worktree.lastActivity,
         taskStatus: worktree.owningTaskStatus,
-        crashed: worktree.isCrashed === true,
       };
       // A known task id without readable task state is not a taskless orphan.
       if (row.taskStatus === null && (row.taskId !== null || row.category === 'redundant')) {
@@ -392,7 +413,6 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const dfFreeBefore = apply ? freeBytes(machineRoot) : null;
   let reclaimed = 0;
   let retainedBytes = rows.reduce((total, row) => total + row.apparentBytes, 0);
-  const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
   const oldestFirst = [...rows].sort(
     (a, b) =>
       (a.lastActivity ?? '').localeCompare(b.lastActivity ?? '') || a.path.localeCompare(b.path),
@@ -400,6 +420,8 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   for (const row of oldestFirst) {
     if (outOfTime()) break;
     if (row.category !== 'redundant' || row.project === null) continue;
+    if (row.taskId === null || (row.taskStatus !== 'done' && row.taskStatus !== 'cancelled'))
+      continue;
     if (!applyProjects.has(row.project)) continue;
     const age = Date.now() - Date.parse(row.lastActivity ?? '');
     if (!Number.isFinite(age) || age < ttlDays * 86_400_000 || retainedBytes <= maxBytes) continue;
@@ -410,7 +432,8 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     }
     // An active/reopened task or a store failure after listing cancels removal.
     if (row.taskId !== null) {
-      const status = (await loadOwningTaskStatuses([row.taskId], row.project)).get(row.taskId);
+      const lookup = await loadOwningTaskStatuses([row.taskId], row.project);
+      const status = lookup.success ? lookup.data.get(row.taskId) : undefined;
       if (status === undefined || status !== row.taskStatus || status === 'active') {
         row.category = 'unknown';
         row.keepReason = 'owning task changed or could not be re-read; nothing removed';
@@ -425,12 +448,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       reason: 'census',
       evidence: await loadTaskEvidence(row.project, row.taskId),
       exemptRegenerable: opts.exemptRegenerable === true && meta.get(row)?.isMerged === true,
-      inUse: worktreeInUseProbe(
-        readWorktreeTaskLock,
-        row.project,
-        row.taskId,
-        row.taskStatus === 'done' || row.taskStatus === 'cancelled',
-      ),
+      inUse: await worktreeReaperInUseProbe(row.project, row.taskId, row.path),
     });
     if (disposal.removed) {
       row.removed = true;

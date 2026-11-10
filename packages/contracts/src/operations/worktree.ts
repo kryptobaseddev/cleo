@@ -873,8 +873,6 @@ export interface WorktreeInfo {
   isMerged: boolean;
   /** Status of the owning task (if {@link taskId} is present and resolvable), or null. */
   owningTaskStatus: string | null;
-  /** A local lock proves the worker process died, and no live task claim remains. */
-  isCrashed?: boolean;
   /** Mutually-exclusive status category — see {@link WorktreeStatusCategory}. */
   statusCategory: WorktreeStatusCategory;
   /** For `keep` and `unknown`: the proof clause that failed, or the probe that could not answer (T14274). */

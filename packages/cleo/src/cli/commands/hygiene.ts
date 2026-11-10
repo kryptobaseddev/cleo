@@ -9,8 +9,8 @@
  * @saga T10431
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import { runSpawnReadinessHygieneCli } from '@cleocode/core/hygiene/validate-spawn-readiness.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -47,18 +47,19 @@ export const hygieneCommand = defineCommand({
       meta: {
         name: 'census',
         description:
-          'Reap proven-safe terminal or crashed worktrees in this project; --report or --dry-run previews, --all-projects includes every registered project. Branches are kept.',
+          'Report worktree retention and usage; --apply reaps proven-safe terminal worktrees, --all-projects includes every registered project. Branches are kept.',
       },
       args: {
         report: {
           type: 'boolean',
-          description: 'List every worktree and the removal plan without removing anything',
+          description:
+            'List every worktree and the removal plan without removing anything (default)',
           default: false,
         },
         apply: {
           type: 'boolean',
           description:
-            "Remove this project's proven-redundant worktrees (default); other projects stay report-only unless --all-projects",
+            "Remove this project's proven-redundant terminal worktrees; other projects stay report-only unless --all-projects",
           default: false,
         },
         'dry-run': {
@@ -104,7 +105,7 @@ export const hygieneCommand = defineCommand({
           projectRoot = null;
         }
         const result = await runWorktreeCensus({
-          apply: !dryRun,
+          apply: args.apply === true,
           applyProjects: projectRoot !== null ? [projectRoot] : [],
           allProjects: args['all-projects'] === true,
           ttlDays: args['ttl-days'] !== undefined ? Number(args['ttl-days']) : undefined,

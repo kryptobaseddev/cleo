@@ -72,20 +72,53 @@ function isLease(v: unknown): v is AgentSessionLease {
   );
 }
 
-function readLeases(): AgentSessionLease[] {
+function readLeases(strict = false): AgentSessionLease[] {
   const dir = agentLeaseDir();
-  if (!existsSync(dir)) return [];
+  if (strict) {
+    try {
+      statSync(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      // @sync-invariant none:local-only unreadable local lease coverage forbids cleanup
+      throw err;
+    }
+  } else if (!existsSync(dir)) return [];
   const leases: AgentSessionLease[] = [];
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.json')) continue;
     try {
       const v: unknown = JSON.parse(readFileSync(join(dir, name), 'utf8'));
-      if (isLease(v)) leases.push(v);
-    } catch {
+      if (
+        isLease(v) &&
+        (!strict ||
+          (isAbsolute(v.projectRoot) &&
+            v.taskId.trim().length > 0 &&
+            v.id.trim().length > 0 &&
+            Number.isFinite(v.takenAtMs) &&
+            Number.isFinite(v.expiresAtMs)))
+      )
+        leases.push(v);
+      else if (strict) {
+        // @sync-invariant none:local-only unparseable local resource ownership blocks worktree cleanup
+        throw new Error(`Invalid agent-session lease: ${name}`);
+      }
+    } catch (err) {
+      // @sync-invariant none:local-only unavailable local resource ownership blocks worktree cleanup
+      if (strict) throw err;
       // A torn or foreign file is no lease.
     }
   }
   return leases;
+}
+
+/**
+ * Read leases for destructive cleanup without deleting expired ones or hiding
+ * unreadable/malformed records. Callers keep worktrees when this read fails.
+ * @returns All valid lease records, including expired ones.
+ * @throws When ownership could not be assessed completely.
+ */
+export function readAgentLeasesForCleanup(): readonly AgentSessionLease[] {
+  return readLeases(true);
 }
 
 /**

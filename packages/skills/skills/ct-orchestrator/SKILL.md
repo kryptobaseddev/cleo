@@ -468,11 +468,16 @@ Completion and cancellation release the task's worktree locks and automatically
 remove only worktrees `disposeWorktree` proves safe; branches are retained and
 unproven work is reported. `--no-integrate` skips merging, not this proof-based
 cleanup. The existing census is the reaper: `cleo hygiene census --dry-run`
-previews the current project's plan; omit `--dry-run` to apply it, or add
-`--all-projects` to include every registered project's external and canonical
+previews the current project's plan; `cleo hygiene census --apply` explicitly
+applies it. Add `--all-projects` to include every registered project's external and canonical
 worktrees. `--ttl-days` sets a minimum idle age and `--max-bytes` a retained
 apparent-size target, oldest eligible first. A budget never overrides TTL or
-the disposal proof. Ignored build output needs `--include-build-output` on a
+the disposal proof. The bare census stays report-only. Automatic completion and
+scheduled cleanup select only done or cancelled tasks (D11240), never a pending
+task because its spawner exited. Removal also requires no open worker record,
+live session lease, process cwd or open file; a failed probe keeps the worktree.
+The shared task-lock probe remains strict for legacy callers.
+Ignored build output needs `--include-build-output` on a
 merged branch; nothing is force-archived. Legacy `cleo orchestrate prune` does
 not provide these retention or machine-wide controls.
 
