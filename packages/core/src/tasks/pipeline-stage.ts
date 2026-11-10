@@ -20,7 +20,7 @@
  * @epic T056
  */
 
-import type { TaskType } from '@cleocode/contracts';
+import type { DataAccessor, Task, TaskPipelineStageSource, TaskType } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
@@ -231,6 +231,53 @@ export function resolveDefaultPipelineStage(options: {
 
   // 4. Default
   return 'implementation';
+}
+
+/**
+ * Read the latest stage assignment's provenance from committed task audit records.
+ * Missing, malformed or superseded evidence remains unknown; stage equality with
+ * a parent alone never proves that the task explicitly selected that stage.
+ */
+export async function getTaskPipelineStageSource(
+  task: Task,
+  accessor: DataAccessor,
+): Promise<TaskPipelineStageSource> {
+  if (!task.pipelineStage) return 'unknown';
+  const rows = await accessor.queryAuditLog({
+    taskIds: [task.id],
+    actions: ['task_created', 'task_updated'],
+    limit: Number.MAX_SAFE_INTEGER,
+  });
+  const { z } = await import('zod');
+  const audit = z.object({
+    pipelineStage: z
+      .object({
+        value: z.string(),
+        source: z.enum(['explicit', 'inherited', 'default']),
+      })
+      .optional(),
+    changes: z.array(z.string()).optional(),
+  });
+  // Creation precedes an update even when both commits share a timestamp.
+  rows.sort(
+    (a, b) =>
+      b.timestamp.localeCompare(a.timestamp) ||
+      Number(b.action === 'task_updated') - Number(a.action === 'task_updated'),
+  );
+  for (const row of rows) {
+    try {
+      const parsed = audit.safeParse(JSON.parse(row.detailsJson ?? '{}'));
+      if (!parsed.success) return 'unknown';
+      const assignment = parsed.data.pipelineStage;
+      if (assignment) {
+        return assignment.value === task.pipelineStage ? assignment.source : 'unknown';
+      }
+      if (parsed.data.changes?.includes('pipelineStage')) return 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+  return 'unknown';
 }
 
 // =============================================================================

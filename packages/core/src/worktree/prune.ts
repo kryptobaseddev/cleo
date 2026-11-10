@@ -23,19 +23,109 @@
  */
 
 import type {
+  DisposeWorktreeResult,
   EngineResult,
   EvidenceAtom,
   PrunedWorktreeOutcome,
   PruneOrphanedWorktreesOpts,
   PruneOrphanedWorktreesResult,
+  Task,
   WorktreeInfo,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
-import { disposeWorktree, gitSilent, readWorktreeTaskLock } from '@cleocode/worktree';
+import { computeProjectHash } from '@cleocode/paths';
+import {
+  disposeWorktree,
+  gitSilent,
+  readWorktreeTaskLock,
+  releaseWorktreeTaskLock,
+  unlockWorktree,
+} from '@cleocode/worktree';
+import { pushWarning } from '../output.js';
 import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
-import { worktreeInUseProbe } from './in-use-probe.js';
+import { worktreeInUseProbe, worktreeReaperInUseProbe } from './in-use-probe.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
+
+/**
+ * Release a terminal task's locks and automatically dispose of its proven-safe
+ * worktrees, retaining every branch. Unproven work is kept and reported; no
+ * ignored build output is exempted and nothing is force-archived.
+ *
+ * @param projectRoot - The task's project.
+ * @param task - The committed terminal task, including its verification evidence.
+ * @returns The disposal receipt for each worktree belonging to this task.
+ */
+export async function releaseTaskWorktrees(
+  projectRoot: string,
+  task: Task,
+): Promise<DisposeWorktreeResult[]> {
+  if (task.status !== 'done' && task.status !== 'cancelled') return [];
+  const outcomes: DisposeWorktreeResult[] = [];
+  try {
+    const hash = computeProjectHash(projectRoot);
+    const lock = readWorktreeTaskLock(hash, task.id);
+    if (lock !== null) releaseWorktreeTaskLock(hash, task.id, lock.token);
+    const listed = await listWorktrees({ projectRoot, taskId: task.id, exemptRegenerable: false });
+    if (!listed.success) {
+      pushWarning({
+        // @sync-invariant none:local-only unavailable git enumeration only defers local cleanup
+        code: 'W_WORKTREE_KEPT',
+        message: `Worktree release for ${task.id} could not enumerate: ${listed.error.message}. Run cleo hygiene census --report.`,
+      });
+      return outcomes;
+    }
+    const primary = resolvePrimaryWorktreePath(projectRoot);
+    for (const worktree of listed.data.worktrees) {
+      if (
+        worktree.taskId !== task.id ||
+        isPrimaryWorktree(worktree.path, primary) ||
+        isPrimaryWorktree(worktree.path, projectRoot)
+      )
+        continue;
+      if (worktree.owningTaskStatus !== task.status) continue;
+      const unlocked = !worktree.isLocked || unlockWorktree(projectRoot, worktree.path);
+      const outcome = unlocked
+        ? disposeWorktree({
+            worktreePath: worktree.path,
+            projectRoot,
+            taskId: task.id,
+            reason: task.status,
+            evidence: taskEvidenceAtoms(task),
+            inUse: await worktreeReaperInUseProbe(projectRoot, task.id, worktree.path),
+          })
+        : { worktreePath: worktree.path, removed: false, keptReason: 'git worktree unlock failed' };
+      outcomes.push(outcome);
+      appendWorktreeAuditEntry(projectRoot, {
+        actor: resolveWorktreeAuditActor(),
+        action: 'prune',
+        target: worktree.path,
+        taskId: task.id,
+        branch: worktree.branch,
+        reason: `task-${task.status}`,
+        success: outcome.removed,
+        ...(outcome.keptReason !== undefined ? { error: outcome.keptReason } : {}),
+      });
+      if (outcome.kept) {
+        const { warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
+        await warnWorktreeKept(task.id, outcome.kept, outcome.keptReason);
+      } else if (!outcome.removed)
+        pushWarning({
+          // @sync-invariant none:local-only failed disposal of a local worktree, never a task-state refusal
+          code: 'W_WORKTREE_KEPT',
+          message: `Worktree ${worktree.path} kept: ${outcome.keptReason ?? 'not proven preserved'}. Branch retained; run cleo hygiene census --report.`,
+          context: { taskId: task.id, worktreePath: worktree.path },
+        });
+    }
+  } catch (err) {
+    pushWarning({
+      // @sync-invariant none:local-only local cleanup failure never rolls back the committed terminal task
+      code: 'W_WORKTREE_KEPT',
+      message: `Worktree release for ${task.id} failed: ${err instanceof Error ? err.message : String(err)}. Run cleo hygiene census --report.`,
+    });
+  }
+  return outcomes;
+}
 
 /**
  * Drive the orphan / merged worktree prune flow used by

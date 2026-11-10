@@ -9,6 +9,7 @@
 import type {
   CancellationKind,
   ChildStrategy,
+  DisposeWorktreeResult,
   Task,
   TaskStatus,
   WorktreeDisposalBlockers,
@@ -26,7 +27,6 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import { boundedStoreWriteFailure } from '../store/db-helpers.js';
 import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { canCancel } from './cancel-ops.js';
-import { taskEvidenceAtoms } from './evidence-paths.js';
 import { discoverRelated, suggestRelated } from './relates.js';
 import { coreTaskAnalyze } from './task-analyze.js';
 import { coreTaskBlockers } from './task-blockers.js';
@@ -178,6 +178,8 @@ export async function coreTaskCancel(
   affectedCount?: number;
   /** Set when the task worktree was kept because something still needs its files (T13701). */
   worktreeKept?: WorktreeDisposalBlockers;
+  /** Automatic terminal-task disposal receipts, including cascaded children; branches retained. */
+  worktreeRelease?: DisposeWorktreeResult[];
 }> {
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
@@ -351,23 +353,12 @@ export async function coreTaskCancel(
     await tx.upsertSingleTask(task);
   });
 
-  // Best-effort worktree cleanup when cancelling a task, awaited so a kept
-  // worktree reaches the envelope (T13701). A failure never fails the cancel.
-  let worktreeKept: WorktreeDisposalBlockers | undefined;
-  try {
-    const { teardownWorktree, warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
-    const teardown = await teardownWorktree(projectRoot, {
-      taskId,
-      reason: 'cancel',
-      evidence: taskEvidenceAtoms(task),
-    });
-    if (teardown.kept) {
-      worktreeKept = teardown.kept;
-      await warnWorktreeKept(taskId, teardown.kept, teardown.error);
-    }
-  } catch {
-    // e.g. not a git checkout — nothing to tear down.
+  const { releaseTaskWorktrees } = await import('../worktree/prune.js');
+  const worktreeRelease: DisposeWorktreeResult[] = [];
+  for (const cancelled of [task, ...descendantsToCancel]) {
+    worktreeRelease.push(...(await releaseTaskWorktrees(projectRoot, cancelled)));
   }
+  const worktreeKept = worktreeRelease.find((outcome) => outcome.kept !== undefined)?.kept;
 
   return {
     task: taskId,
@@ -380,6 +371,7 @@ export async function coreTaskCancel(
     affectedTasks,
     affectedCount: affectedTasks.length,
     ...(worktreeKept ? { worktreeKept } : {}),
+    ...(worktreeRelease.length > 0 ? { worktreeRelease } : {}),
   };
 }
 

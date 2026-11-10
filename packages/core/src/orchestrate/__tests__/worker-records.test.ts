@@ -158,6 +158,28 @@ describe('durable worker records (T14359)', () => {
     expect(await listWorkerRecords(env.tempDir)).toHaveLength(0);
   });
 
+  it('refuses incomplete open worker ownership in cleanup reads while preserving legacy listing', async () => {
+    const { listWorkerRecords, recordWorker } = await import('../worker-records.js');
+    await recordWorker(
+      {
+        taskId: 'T001',
+        instanceId: 'bad-path',
+        agentId: 'bad-path',
+        provider: 'fake-provider',
+        pid: null,
+        pgid: null,
+        worktree: 'relative-path',
+        leadMailbox: null,
+        sessionId: SES_A,
+      },
+      env.tempDir,
+    );
+    expect(await listWorkerRecords(env.tempDir)).toHaveLength(1);
+    await expect(listWorkerRecords(env.tempDir, true)).rejects.toThrow(
+      'Worker ownership unavailable',
+    );
+  });
+
   it('fails closed: a running worker with no pid and no exit hook stops at spawn', async () => {
     enableWorkerRecords(env.tempDir);
     worker.noPid = true;

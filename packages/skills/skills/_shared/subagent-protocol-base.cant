@@ -8,7 +8,7 @@ version: 1
 
 protocol subagent-base:
   description: "RFC 2119 protocol for all CLEO subagents"
-  version: "1.2.0"
+  version: "1.3.0"
 
   # --- Required Tokens ---
 
@@ -37,7 +37,7 @@ protocol subagent-base:
   # --- Lifecycle Requirements ---
 
   constraints [lifecycle]:
-    LIFE-001: MUST call tasks.start before beginning any work
+    LIFE-001: MUST preserve the preallocated worker session and existing task claim; missing, expired or foreign bindings return blocked for coordinator handoff
     LIFE-002: MUST call tasks.complete after writing output and manifest
     LIFE-003: MUST NOT call tasks.complete without having written an output file
 
@@ -61,8 +61,8 @@ protocol subagent-base:
 
   phase initialize:
     step 1: "Read task details via tasks.show ${TASK_ID}"
-    step 2: "Start task via tasks.start ${TASK_ID}"
-    LIFE-001: MUST call tasks.start before beginning any work
+    step 2: "Verify the preallocated session and claim; export CLEO_SESSION_ID and CLEO_AGENT_ID on every command"
+    LIFE-001: MUST NOT start another session or re-claim the task
 
   phase execute:
     step 1: "Follow injected skill protocol for current RCASD-IVTR+C stage"
@@ -90,9 +90,9 @@ protocol subagent-base:
     - pattern: "Writing pretty-printed JSON to manifest"
       problem: "Multiple lines break JSONL parsers"
       solution: "Use cleo manifest append CLI command"
-    - pattern: "Skipping tasks.start"
-      problem: "Protocol violation — LIFE-001"
-      solution: "Always call tasks.start before beginning work"
+    - pattern: "Starting or re-claiming a preallocated task"
+      problem: "Replaces the worker binding or steals a claim — LIFE-001"
+      solution: "Preserve the allocated identity and claim; missing, expired or foreign bindings return blocked for coordinator handoff"
     - pattern: "Using memory.brain.* prefix"
       problem: "Removed in ADR-021 — returns E_INVALID_OPERATION"
       solution: "Use memory.find, memory.observe, memory.link"

@@ -649,6 +649,8 @@ export function completeAgentWorktreeViaMerge(
     skipFetch?: boolean;
     fetchTimeoutMs?: number;
     evidence?: readonly EvidenceAtom[];
+    /** Completion delegates disposal to the terminal-task reaper, which retains branches. */
+    retainWorktree?: boolean;
   } = {},
 ): WorktreeMergeResult {
   // T14053: one decision, shared with `cleo done --plan`.
@@ -692,12 +694,13 @@ export function completeAgentWorktreeViaMerge(
     // worktree unless it holds uncommitted work, which is left for the
     // operator. The checkout itself is never moved (hint-only).
     const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
-    const pruneResult = dirty
-      ? null
-      : pruneWorktree(taskId, projectRoot, {
-          evidence: opts.evidence,
-          defaultBranch: targetBranch,
-        });
+    const pruneResult =
+      dirty || opts.retainWorktree === true
+        ? null
+        : pruneWorktree(taskId, projectRoot, {
+            evidence: opts.evidence,
+            defaultBranch: targetBranch,
+          });
     let branchDeleted = pruneResult?.branchDeleted ?? false;
     // pruneWorktree only deletes a branch with zero commits ahead of the
     // checkout HEAD, so a stale local default branch, a squash merge, or a
@@ -756,6 +759,14 @@ export function completeAgentWorktreeViaMerge(
       error: result.error,
     };
   }
+  if (opts.retainWorktree === true)
+    return {
+      ...noMerge,
+      merged: true,
+      mergeCommit: result.mergeCommit,
+      commitCount: result.commitCount,
+      rebased: result.rebased,
+    };
   const pruneResult = pruneWorktree(taskId, projectRoot, {
     evidence: opts.evidence,
     defaultBranch: targetBranch,
@@ -824,6 +835,8 @@ export function completeAgentWorktreeIntegration(
     skipFetch?: boolean;
     auditLogPath?: string;
     evidence?: readonly EvidenceAtom[];
+    /** Leave disposal to the terminal-task reaper, retaining the task branch. */
+    retainWorktree?: boolean;
   } = {},
 ): WorktreeIntegrationResult {
   const mergeResult = completeAgentWorktreeViaMerge(taskId, projectRoot, {
@@ -831,6 +844,7 @@ export function completeAgentWorktreeIntegration(
     taskTitle: opts.taskTitle,
     skipFetch: opts.skipFetch,
     evidence: opts.evidence,
+    retainWorktree: opts.retainWorktree,
   });
 
   // Write audit log entry.

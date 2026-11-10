@@ -232,9 +232,11 @@ export interface MergeCloseDeps {
   /** The clock (ms), for the run cap, backoff and age-out; tests inject it. */
   now?(): number;
   /**
-   * Whether this sweep may rerun a cancelled merge-commit CI run. Off by
-   * default until T14136: a rerun of an old main push run joins main's live
-   * push concurrency group and cancels (or is cancelled by) main's newest run.
+   * Whether this sweep may rerun a cancelled merge-commit CI run. Opt-in:
+   * since T14136 a rerun gets its own per-sha concurrency group, but only on a
+   * commit whose own ci.yml carries it; a rerun of an older commit still joins
+   * main's live push group. No rerun is needed for the task to close: a green
+   * run on the default branch's head stands in (T14434).
    */
   canRerun(): boolean;
   /** Open PRs (one `gh` call), for the pre-merge verdict check; null when `gh` failed. */
@@ -695,6 +697,8 @@ export function claimAtMostEvery(claim: string, intervalMs: number, now = Date.n
   }
   try {
     closeSync(openSync(claim, 'wx'));
+    const claimedAt = new Date(now);
+    utimesSync(claim, claimedAt, claimedAt);
     return true;
   } catch {
     return false;
@@ -832,8 +836,10 @@ async function appendMergeAudit(
  * when the refusal is real (T14101): the newest run of the required workflow
  * on the merge commit is missing, unfinished, cancelled or skipped. A
  * cancelled or skipped run is rerun once per merge commit, ever (an audit row
- * remembers it), and only where {@link MergeCloseDeps.canRerun} allows (off by
- * default until T14136); a failed run is never rerun and refuses.
+ * remembers it), and only where {@link MergeCloseDeps.canRerun} allows
+ * (opt-in). A failed run is never rerun: it waits while `refusal` says a green
+ * run on the default branch's head will stand in (T14434, owner decision
+ * D11241), and otherwise refuses, naming the commands that close the task.
  */
 async function mergeCiWait(
   storeRoot: string,
@@ -843,6 +849,7 @@ async function mergeCiWait(
   required: readonly string[],
   deps: MergeCloseDeps,
   dryRun: boolean,
+  refusal: string,
 ): Promise<{ reason: string; reran: boolean; final?: boolean } | null> {
   const sha = pr.mergeCommitSha;
   if (sha === null) return null;
@@ -853,13 +860,27 @@ async function mergeCiWait(
     return { reason: `no ${workflow} run on merge commit ${short} yet`, reran: false };
   if (run.status !== 'completed')
     return { reason: `${workflow} on merge commit ${short} is ${run.status}`, reran: false };
-  if (run.conclusion === 'failure' || run.conclusion === 'timed_out')
-    // T14299: a failed run is never rerun; name the route that still closes it.
+  const { CURRENT_HEAD_STAND_IN_OPEN } = await import('../release/ci-evidence.js');
+  // T14434: the ci: refusal says so while only a green head run is missing.
+  const standInOpen = refusal.includes(CURRENT_HEAD_STAND_IN_OPEN);
+  const recheck = `re-checked every sweep; \`cleo done --from-merge ${pr.number}\` re-checks now`;
+  if (run.conclusion === 'failure' || run.conclusion === 'timed_out') {
+    if (standInOpen)
+      return {
+        reason: `${workflow} failed on merge commit ${short}; waiting for a green ${workflow} run on the default branch's head, which stands in (${recheck}): ${refusal}`,
+        reran: false,
+      };
+    // T14299, T14434: a failed run is never rerun. Name the commands that
+    // close the task, never `cleo done --plan`, which offers the refused ci:<pr>.
     return {
-      reason: `${workflow} failed on merge commit ${short}; \`cleo done ${taskId} --plan\` names the evidence that still closes it`,
+      reason:
+        `${workflow} failed on merge commit ${short} and no later run stands in. To close ${taskId}, on the default branch's head run ` +
+        `\`cleo verify ${taskId} --gate testsPassed --evidence tool:test-affected\` and ` +
+        `\`cleo verify ${taskId} --gate qaPassed --evidence "tool:lint;tool:typecheck"\`, then \`cleo complete ${taskId}\``,
       reran: false,
       final: true,
     };
+  }
   if (run.conclusion !== 'cancelled' && run.conclusion !== 'skipped') return null;
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(storeRoot);
@@ -871,7 +892,9 @@ async function mergeCiWait(
   if (already) return { reason: `${was}; its one rerun is done, waiting for it`, reran: false };
   if (dryRun || !deps.canRerun())
     return {
-      reason: `${was}; waiting (automatic reruns are off until T14136; rerun it by hand)`,
+      reason: standInOpen
+        ? `${was} yet; waiting for a green ${workflow} run on the default branch's head, which stands in (${recheck})`
+        : `${was}; waiting (\`gh run rerun ${run.runId}\` reruns it; CLEO_MERGE_SWEEP_RERUN=1 lets the sweep rerun it once)`,
       reran: false,
     };
   if (!(await deps.rerunRun(root, run.runId)))
@@ -977,7 +1000,16 @@ async function applyDirective(
   if (!recorded.ok) {
     // A merge whose own CI run was cancelled, skipped or unfinished, with no
     // later run standing in yet (ci-evidence's T12742 rule, unchanged), waits.
-    const wait = await mergeCiWait(storeRoot, root, pr, taskId, required, deps, dryRun);
+    const wait = await mergeCiWait(
+      storeRoot,
+      root,
+      pr,
+      taskId,
+      required,
+      deps,
+      dryRun,
+      recorded.reason,
+    );
     if (wait?.final)
       return { ...base, action: 'refused', reason: `${wait.reason}: ${recorded.reason}` };
     if (wait !== null)
@@ -1916,8 +1948,9 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     return (await gh(['run', 'rerun', String(runId)], root)) !== null;
   },
   canRerun() {
-    // Disabled until T14136 gives reruns their own concurrency group; opt in
-    // with CLEO_MERGE_SWEEP_RERUN=1, and never inside a CI job.
+    // Opt-in with CLEO_MERGE_SWEEP_RERUN=1, and never inside a CI job: a rerun
+    // of a commit older than T14136's per-sha rerun group joins main's live
+    // push group. A green run on the default branch's head stands in without one.
     return process.env['CLEO_MERGE_SWEEP_RERUN'] === '1' && process.env['CI'] !== 'true';
   },
   async listOpenPrs(root) {

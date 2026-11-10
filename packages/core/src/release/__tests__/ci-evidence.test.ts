@@ -33,6 +33,7 @@ import { parse as parseYaml } from 'yaml';
 import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js';
 import {
   type CommitCheck,
+  CURRENT_HEAD_STAND_IN_OPEN,
   ciSatisfiesRemedy,
   evaluateMergeCommitChecks,
   hasIncompleteIdentity,
@@ -2374,7 +2375,7 @@ describe('resolveCiEvidenceAtom', () => {
       expect(!r.ok && r.reason).toMatch(/pending.*wait for 999999999999/);
     });
 
-    it('a scoped change never takes the route (T12742 stays its only stand-in)', async () => {
+    it("a scoped change whose merge-commit failure may be the PR's never takes the route", async () => {
       let asked = false;
       const r = await onCurrentHead(
         { [CUR]: onSha(CUR) },
@@ -2409,6 +2410,315 @@ describe('resolveCiEvidenceAtom', () => {
         checks: rerun,
       }));
       expect(!red.ok && red.reason).toMatch(/CI: now failure \(push\)/);
+    });
+  });
+
+  describe('a scoped change: green CI on the current main HEAD stands in (T14434, D11241)', () => {
+    // #2738's shape: the merge commit's run failed when a runner shut down
+    // mid-build, a later merge changed ci.yml, and main's tip is green.
+    const CI_WORKFLOW = '.github/workflows/ci.yml';
+    const BASE = '5'.repeat(40);
+    const LATER = '7'.repeat(40);
+    const CUR = '9'.repeat(40);
+    const BUILD_RUN = 900;
+    const TEST_RUN = 901;
+    const RUNNER_SHUTDOWN = [
+      '2026-11-07T18:29:01.0000000Z ##[error]The runner has received a shutdown signal. This can happen when the runner service is stopped, or a manually started runner is canceled.',
+      '2026-11-07T18:29:02.0000000Z ##[error]The operation was canceled.',
+    ].join('\n');
+    const FAILED_TEST = [
+      '2026-11-07T18:29:01.0000000Z  FAIL  packages/a/src/x.test.ts > adds',
+      '2026-11-07T18:29:02.0000000Z  Tests  1 failed | 9 passed (10)',
+      '2026-11-07T18:29:03.0000000Z ##[error]Process completed with exit code 1.',
+    ].join('\n');
+    const scopedPr: PrAtomResolution = { ...merged, changedPaths: ['packages/a/src/x.ts'] };
+    const onSha = (sha: string, patch: Partial<CommitCheck> = {}) =>
+      allGreen.map((c) => ({ ...c, headSha: sha, event: 'push', ...patch }));
+    /** CI red on the merge commit because one job failed; the jobs behind it never ran. */
+    const failedMerge = (job: string, id: number): CommitCheck[] => [
+      ...allGreen
+        .filter((c) => c.name !== 'Contracts Dep Lint')
+        .map((c) =>
+          c.name === 'CI'
+            ? { ...c, conclusion: 'failure', id: c.id + 100 }
+            : c.workflowPath === CI_WORKFLOW
+              ? { ...c, conclusion: 'skipped' }
+              : c,
+        ),
+      check(job, { id, conclusion: 'failure', workflowPath: CI_WORKFLOW }),
+    ];
+    const cancelledMerge = allGreen.map((c) =>
+      c.workflowPath === CI_WORKFLOW ? { ...c, conclusion: 'cancelled' } : c,
+    );
+
+    beforeEach(() => writeContext(optedIn));
+
+    function onTip(
+      mergeChecks: CommitCheck[],
+      byCommit: Record<string, CommitCheck[]>,
+      extra: Partial<ResolveCiEvidenceOptions> = {},
+    ) {
+      let askedHead = false;
+      const run = resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => scopedPr,
+        workspaceWideReason: async () => null,
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks:
+            sha === MERGE
+              ? mergeChecks
+              : sha === HEAD
+                ? onHead
+                : sha === BASE
+                  ? onSha(BASE)
+                  : (byCommit[sha] ?? []),
+        }),
+        fetchJobLog: async (jobId) =>
+          jobId === BUILD_RUN ? RUNNER_SHUTDOWN : jobId === TEST_RUN ? FAILED_TEST : null,
+        firstParentOf: (sha) => (sha === CUR ? LATER : sha === MERGE ? BASE : null),
+        listDescendants: () => [LATER, CUR],
+        isAncestor: (a, d) => a === MERGE && (d === LATER || d === CUR),
+        // The T12742 walk is refused: a later merge changed ci.yml.
+        touchingCommits: (_from, _to, paths) =>
+          paths.includes(CI_WORKFLOW) ? [{ sha: LATER, parents: 2 }] : [],
+        missingPrHunk: () => null,
+        defaultBranchHead: () => {
+          askedHead = true;
+          return CUR;
+        },
+        changedBetween: () => [],
+        ...extra,
+      });
+      return { run, askedHead: () => askedHead };
+    }
+
+    it('merge run failed with no test run + ci.yml changed later + green tip: accepted', async () => {
+      const r = await onTip(failedMerge('Build (ubuntu-latest)', BUILD_RUN), {
+        [CUR]: onSha(CUR),
+      }).run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(CUR);
+      expect(atom?.descendantRange).toBe(`${MERGE}..${CUR}`);
+      expect(atom?.descendantPrHeadSha).toBe(HEAD);
+      expect(atom?.currentHead).toBe(true);
+      expect(atom?.workspaceWide).toBeUndefined();
+      expect(atom?.untestedFailures?.map((j) => j.name)).toContain('Build (ubuntu-latest)');
+      expect(Object.fromEntries((atom?.checks ?? []).map((c) => [c.name, c.sha]))).toEqual({
+        CI: CUR,
+        'Lockfile Check': MERGE,
+        'Contracts Dep Lint': CUR,
+      });
+      expect(atom?.gateChecks?.testsPassed).toContain('Unit Tests (ubuntu-latest, shard 1)');
+    });
+
+    it('cancelled merge run + a later red commit + green tip: accepted (T14433)', async () => {
+      const r = await onTip(
+        cancelledMerge,
+        {
+          [LATER]: onSha(LATER).map((c) => (c.name === 'CI' ? { ...c, conclusion: 'failure' } : c)),
+          [CUR]: onSha(CUR),
+        },
+        { touchingCommits: () => [] },
+      ).run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(CUR);
+      expect(atom?.currentHead).toBe(true);
+    });
+
+    it('cancelled merge run and the tip not green yet: refused, saying a green head run will stand in', async () => {
+      const r = await onTip(cancelledMerge, {
+        [CUR]: onSha(CUR).map((c) =>
+          c.name === 'CI' ? { ...c, status: 'in_progress', conclusion: null } : c,
+        ),
+      }).run;
+      expect(r.ok).toBe(false);
+      const reason = !r.ok ? r.reason : '';
+      expect(reason.slice(0, 320)).toContain(`Next: ${CURRENT_HEAD_STAND_IN_OPEN}`);
+      expect(reason).toMatch(
+        /No current-HEAD run stands in: the merge commit's run is not the PR's failure, .*\(D11241\), but CI: pending.*wait for 999999999999/,
+      );
+      expect(reason).not.toMatch(/wait for it to finish/);
+    });
+
+    it("the tip is the merge commit itself: refused as open, never 'git fetch'", async () => {
+      const r = await onTip(cancelledMerge, {}, { defaultBranchHead: () => MERGE }).run;
+      const reason = !r.ok ? r.reason : '';
+      expect(reason).toContain(CURRENT_HEAD_STAND_IN_OPEN);
+      expect(reason).toMatch(/HEAD aaaaaaaaaaaa is the merge commit itself/);
+    });
+
+    it('a failed test on the merge commit is the PR’s: refused, the tip never consulted', async () => {
+      const { run, askedHead } = onTip(
+        failedMerge('Unit Tests (ubuntu-latest, shard 3)', TEST_RUN),
+        { [CUR]: onSha(CUR) },
+      );
+      const r = await run;
+      expect(r.ok).toBe(false);
+      const reason = !r.ok ? r.reason : '';
+      expect(reason).toMatch(/success on its base 555555555555 — the PR introduced this failure/);
+      expect(askedHead()).toBe(false);
+      expect(reason).not.toContain(CURRENT_HEAD_STAND_IN_OPEN);
+      expect(reason).not.toMatch(/current-HEAD/);
+      // A finished failure is not a wait, though Contracts Dep Lint never ran.
+      expect(reason).toMatch(/Contracts Dep Lint: not found on merge commit/);
+      expect(reason).not.toMatch(/wait for it to finish/);
+      // It names what still closes the task, never the refused ci:<pr>.
+      expect(reason.slice(0, 200)).toContain('Next: no later run stands in for it');
+      expect(reason).toMatch(
+        /on origin\/main after the merge, record a test-run covering .*tool:test-affected runs, for testsPassed and a qa-run .*tool:lint;tool:typecheck\) for qaPassed\./,
+      );
+      expect(reason).not.toMatch(/Next:.*ci:42/);
+    });
+
+    it('the PR head’s own CI was not green: refused, the tip never consulted', async () => {
+      const redHead = onHead.map((c) => (c.name === 'CI' ? { ...c, conclusion: 'failure' } : c));
+      const { run, askedHead } = onTip(
+        cancelledMerge,
+        { [CUR]: onSha(CUR) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? cancelledMerge : sha === HEAD ? redHead : onSha(sha),
+          }),
+        },
+      );
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /CI: failure on PR head bbbbbbbbbbbb — a later main run never stands in for a PR whose own CI was not green/,
+      );
+      expect(askedHead()).toBe(false);
+      expect(!r.ok && r.reason).not.toContain(CURRENT_HEAD_STAND_IN_OPEN);
+    });
+
+    it('a hunk the PR added is gone at the tip: refused', async () => {
+      const asked: string[][] = [];
+      const r = await onTip(
+        failedMerge('Build (ubuntu-latest)', BUILD_RUN),
+        { [CUR]: onSha(CUR) },
+        {
+          missingPrHunk: (merge, at, paths) => {
+            asked.push([merge, at, ...paths]);
+            return 'hunk packages/a/src/x.ts @@ -1,0 +2,3 @@ ("export const x = 1") was rewritten or removed';
+          },
+        },
+      ).run;
+      expect(r.ok).toBe(false);
+      expect(asked).toEqual([[MERGE, CUR, 'packages/a/src/x.ts']]);
+      const reason = !r.ok ? r.reason : '';
+      expect(reason).toMatch(
+        /No current-HEAD run stands in: .*but the PR's change is no longer intact at 999999999999: hunk packages\/a\/src\/x\.ts/,
+      );
+      // Waiting for another green head cannot bring the hunk back.
+      expect(reason).not.toContain(CURRENT_HEAD_STAND_IN_OPEN);
+      expect(reason).toMatch(/Next: no later run stands in for it/);
+    });
+
+    it('the green run is on a parent of the tip and the tip dropped a hunk: refused (#2792 review)', async () => {
+      // The tip's own run was cancelled and it differs from its parent only in
+      // documentation, so the parent's green run is the one accepted; the PR's
+      // hunks must still be intact at the tip the decision names.
+      const asked: string[] = [];
+      const r = await onTip(
+        cancelledMerge,
+        {
+          [LATER]: onSha(LATER),
+          [CUR]: onSha(CUR).map((c) =>
+            c.workflowPath === CI_WORKFLOW ? { ...c, conclusion: 'cancelled' } : c,
+          ),
+        },
+        {
+          changedBetween: () => ['README.md'],
+          missingPrHunk: (_merge, at) => {
+            asked.push(at);
+            return at === CUR
+              ? 'hunk packages/a/src/x.ts @@ -1,0 +2,3 @@ was rewritten or removed'
+              : null;
+          },
+        },
+      ).run;
+      expect(asked).toEqual([LATER, CUR]);
+      expect(r.ok, JSON.stringify(r)).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/the PR's change is no longer intact at 999999999999/);
+    });
+
+    it('a required check the merge commit passed is red on the PR head: refused (#2792 review)', async () => {
+      // Lockfile Check is green on the merge commit, so the walk never looks at
+      // it on the PR head; the owner's condition is every required check there.
+      const partlyRed = onHead.map((c) =>
+        c.name === 'Lockfile Check' ? { ...c, conclusion: 'failure' } : c,
+      );
+      const { run, askedHead } = onTip(
+        cancelledMerge,
+        { [CUR]: onSha(CUR) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? cancelledMerge : sha === HEAD ? partlyRed : onSha(sha),
+          }),
+        },
+      );
+      const r = await run;
+      expect(r.ok, JSON.stringify(r)).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /No current-HEAD run stands in: .*but Lockfile Check: failure on PR head bbbbbbbbbbbb: the PR head's own required CI was not green/,
+      );
+      expect(askedHead()).toBe(false);
+      expect(!r.ok && r.reason).not.toContain(CURRENT_HEAD_STAND_IN_OPEN);
+    });
+
+    it('a green descendant that cannot cover a check that never ran still leaves the tip route open (#2792 review)', async () => {
+      // Build died with its runner, so Contracts Dep Lint never ran on the
+      // merge commit. The walk finds a green descendant, re-judging with it
+      // fails on the absent check, and the green tip must still stand in.
+      const r = await onTip(
+        failedMerge('Build (ubuntu-latest)', BUILD_RUN),
+        { [LATER]: onSha(LATER), [CUR]: onSha(CUR) },
+        { touchingCommits: () => [] },
+      ).run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(CUR);
+      expect(atom?.currentHead).toBe(true);
+    });
+
+    it('complete-time re-check: a required check that goes red on the PR head breaks the atom, stood in or not', async () => {
+      const r = await onTip(failedMerge('Build (ubuntu-latest)', BUILD_RUN), {
+        [CUR]: onSha(CUR),
+      }).run;
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom).not.toBeNull();
+      // Lockfile Check was judged on the merge commit, never on the tip.
+      expect(atom?.checks.find((c) => c.name === 'Lockfile Check')?.sha).toBe(MERGE);
+      const redLater = [
+        ...onHead,
+        { ...onHead.find((c) => c.name === 'Lockfile Check')!, id: 99, conclusion: 'failure' },
+      ];
+      const red = await recheckCiDescendantAtom(atom!, root, async (sha) => ({
+        ok: true as const,
+        checks: sha === HEAD ? redLater : onSha(CUR),
+      }));
+      expect(!red.ok && red.reason).toMatch(
+        /Lockfile Check: now failure \(pull_request\) on bbbbbbbbbbbb/,
+      );
+    });
+
+    it('complete-time re-check: the tip push run and the PR head run are both re-read', async () => {
+      const r = await onTip(failedMerge('Build (ubuntu-latest)', BUILD_RUN), {
+        [CUR]: onSha(CUR),
+      }).run;
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom).not.toBeNull();
+      const asked: string[] = [];
+      const green = await recheckCiDescendantAtom(atom!, root, async (sha) => {
+        asked.push(sha);
+        return { ok: true as const, checks: sha === HEAD ? onHead : onSha(CUR) };
+      });
+      expect(green).toEqual({ ok: true });
+      expect(asked).toEqual([CUR, HEAD]);
     });
   });
 

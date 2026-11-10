@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.10.0
+version: 2.11.0
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.10.0
+  version: 2.11.0
   tier: core
   install: harness
   covers:
@@ -156,8 +156,20 @@ A database or service started for a test run must not outlive it. A `docker run`
    uncommitted tracked changes, and never pushes; a hand-made `task/<id>` branch is
    skipped. `cleo done <id> --plan` shows the decision under `integration`
    (`merge`/`skip`/`refuse` and why); `cleo complete --no-integrate` or
-   `CLEO_NO_AUTO_WORKTREE_COMPLETE=1` leaves branch and worktree untouched, and the
-   envelope's `integration` reports what happened.
+   `CLEO_NO_AUTO_WORKTREE_COMPLETE=1` skips merging, and the envelope's `integration`
+   reports what happened. Completion and cancellation release worktree locks and
+   automatically remove only worktrees the disposal engine proves safe, keeping
+   every branch; `worktreeRelease` and warnings report what was removed or kept.
+   The scheduled census also reaps the current project's proven-safe worktrees.
+   Preview with `cleo hygiene census --dry-run`; add `--all-projects` to include
+   every registered project, and pass `--apply` explicitly for manual removal.
+   The bare census stays report-only. Automatic cleanup selects only done or
+   cancelled tasks and requires no open worker record, live session lease,
+   process cwd or open file in the worktree; an unavailable probe keeps it.
+   A dead spawner never authorizes removal of a pending or active task's worktree.
+   `--ttl-days` and `--max-bytes` constrain the oldest-first
+   plan without overriding safety. Ignored build output is kept unless explicitly
+   allowed with `--include-build-output` for merged worktrees.
 
 ---
 
