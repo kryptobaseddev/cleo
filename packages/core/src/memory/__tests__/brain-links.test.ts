@@ -262,6 +262,41 @@ describe('Brain Memory Links', () => {
     });
   });
 
+  describe('orphan reconciliation (T14395)', () => {
+    it('the db-substrate I1 remedy removes the link I1 reported', async () => {
+      const { linkMemoryToTask } = await import('../brain-links.js');
+      const { reconcileOrphanedRefs } = await import('../../store/cross-db-cleanup.js');
+      const { walkCrossDbInvariants } = await import('../../doctor/db-substrate.js');
+      const { getDb } = await import('../../store/sqlite.js');
+      const { tasks } = await import('../../store/tasks-schema.js');
+      const { eq } = await import('drizzle-orm');
+      const i1Of = () => walkCrossDbInvariants(tempDir).find((r) => r.invariant === 'I1');
+
+      await linkMemoryToTask(tempDir, 'decision', 'D-kept', 'T1000', 'produced_by');
+      await linkMemoryToTask(tempDir, 'decision', 'D-orphan', 'T9999', 'produced_by');
+      expect(i1Of()?.orphanCount).toBe(0);
+
+      // The task row goes without its cleanup hook, leaving the link behind.
+      const db = await getDb(tempDir);
+      await db.delete(tasks).where(eq(tasks.id, 'T9999')).run();
+      const before = i1Of();
+      expect(before?.sample).toEqual(['T9999']);
+      expect(before?.suggestedFix).toContain('`cleo brain maintenance`');
+
+      // The reconciliation step of `cleo brain maintenance`.
+      const result = await reconcileOrphanedRefs(tempDir);
+
+      expect(result.linksRemoved).toBe(1);
+      const after = i1Of();
+      expect(after?.skipped).toBe(false);
+      expect(after?.orphanCount).toBe(0);
+      const kept = db.$client
+        .prepare('SELECT task_id FROM main.brain_memory_links ORDER BY task_id')
+        .all();
+      expect(kept.map((r) => r['task_id'])).toEqual(['T1000']);
+    });
+  });
+
   describe('convenience methods', () => {
     it('getLinkedDecisions should return full decision rows', async () => {
       const { linkMemoryToTask, getLinkedDecisions } = await import('../brain-links.js');
