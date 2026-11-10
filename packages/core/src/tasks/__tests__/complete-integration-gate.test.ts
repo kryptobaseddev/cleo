@@ -74,6 +74,7 @@ describe('completeTask worktree integration gate (T14053)', () => {
   it('integrates once and reports the merge, never pushed', async () => {
     const result = await completeTask({ taskId: 'T001' }, env.tempDir, env.accessor);
     expect(integrate).toHaveBeenCalledTimes(1);
+    expect(integrate.mock.calls[0]?.[2]).toMatchObject({ retainWorktree: true });
     expect(result.integration).toMatchObject({
       action: 'merge',
       mergeCommit: 'abc1234',

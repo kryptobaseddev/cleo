@@ -697,6 +697,8 @@ export function claimAtMostEvery(claim: string, intervalMs: number, now = Date.n
   }
   try {
     closeSync(openSync(claim, 'wx'));
+    const claimedAt = new Date(now);
+    utimesSync(claim, claimedAt, claimedAt);
     return true;
   } catch {
     return false;

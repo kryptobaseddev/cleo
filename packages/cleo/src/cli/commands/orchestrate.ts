@@ -886,7 +886,8 @@ const fanoutCommand = defineCommand({
 const pruneCommand = defineCommand({
   meta: {
     name: 'prune',
-    description: 'Remove stale agent worktrees (after task completion or crash)',
+    description:
+      'Legacy project/task cleanup; for terminal tasks, TTL, size budget and machine-wide cleanup use cleo hygiene census --all-projects --dry-run',
   },
   args: {
     taskId: {

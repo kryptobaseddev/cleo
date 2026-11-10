@@ -49,7 +49,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
 import type {
   DisposeWorktreeResult,
   EngineResult,
@@ -133,7 +132,7 @@ export async function listWorktrees(
       projectRoot,
       taskId,
       reason: 'list',
-      exemptRegenerable: isMerged,
+      exemptRegenerable: opts.exemptRegenerable !== false && isMerged,
       inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
       dryRun: true,
     });
@@ -154,7 +153,11 @@ export async function listWorktrees(
   // worktrees. We build a path → source map so each git-native entry can be
   // labelled accurately, and we track which sentinel paths are NOT in the
   // porcelain output so we can append them as sentinel-only entries below.
-  const sentinelEntries = readSentinelIndex(projectRoot);
+  const sentinelEntries = readSentinelIndex(projectRoot).filter(
+    (entry) =>
+      opts.taskId === undefined ||
+      (entry.taskId ?? taskIdOf(entry.branch, entry.path)) === opts.taskId,
+  );
   const sentinelByPath = new Map(sentinelEntries.map((e) => [e.path, e]));
   // Track paths from porcelain so we can detect sentinel-only entries later.
   const porcelainPaths = new Set(porcelainEntries.map((e) => e.path));
@@ -176,8 +179,17 @@ export async function listWorktrees(
       taskIdByPath.set(sentinel.path, sentinel.taskId ?? taskIdOf(sentinel.branch, sentinel.path));
     }
   }
-  const taskIds = Array.from(taskIdByPath.values()).filter((id): id is string => id !== null);
-  const taskStatusByid = await loadOwningTaskStatuses(taskIds, projectRoot);
+  if (opts.taskId !== undefined)
+    porcelainEntries = porcelainEntries.filter(
+      (entry) => taskIdByPath.get(entry.path) === opts.taskId,
+    );
+  const taskIds = Array.from(taskIdByPath.values()).filter(
+    (id): id is string => id !== null && (opts.taskId === undefined || id === opts.taskId),
+  );
+  const taskStatusResult = await loadOwningTaskStatuses(taskIds, projectRoot);
+  const taskStatusByid = taskStatusResult.success
+    ? taskStatusResult.data
+    : new Map<string, string>();
 
   // Pre-resolve the default upstream branch presence — if `main` is absent,
   // `branchIsMergedToMain` would otherwise spuriously throw for every entry.
@@ -235,9 +247,10 @@ export async function listWorktrees(
       // At or past the window: a zero-day window makes every taskless worktree a candidate.
       idlePastWindow: idleMs >= staleThresholdMs,
     });
-    const classified = classifyStatus(
-      candidate ? proveRedundant(entry.path, taskId, isMerged) : null,
-    );
+    const classified =
+      taskId !== null && !taskStatusResult.success
+        ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
+        : classifyStatus(candidate ? proveRedundant(entry.path, taskId, isMerged) : null);
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -293,9 +306,10 @@ export async function listWorktrees(
       owningTaskStatus,
       idlePastWindow: idleMs >= staleThresholdMs,
     });
-    const classified = classifyStatus(
-      candidate ? proveRedundant(sentinel.path, taskId, false) : null,
-    );
+    const classified =
+      taskId !== null && !taskStatusResult.success
+        ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
+        : classifyStatus(candidate ? proveRedundant(sentinel.path, taskId, false) : null);
 
     worktrees.push({
       path: sentinel.path,
@@ -512,52 +526,54 @@ export function classifyStatus(
  * Load the `status` column for each of the given task IDs through the
  * ADR-068 DB chokepoint.
  *
- * Returns a map (taskId → status) for IDs that resolved; missing IDs are
- * absent from the map (callers treat absent as `null` for downstream
- * orphan detection).
+ * Returns a successful map only when the query completed. A failed query is
+ * explicit and keeps the affected worktrees unknown in the listing.
  *
  * @param taskIds - Task IDs to look up.
  * @param projectRoot - Project root for DB resolution.
- * @returns Map of taskId → status.
+ * @returns Task states or an explicit failure with no disposal authority.
  * @internal Exported for tests only.
  */
 export async function loadOwningTaskStatuses(
   taskIds: string[],
   projectRoot: string,
-): Promise<Map<string, string>> {
+): Promise<EngineResult<Map<string, string>>> {
   const out = new Map<string, string>();
-  if (taskIds.length === 0) return out;
+  if (taskIds.length === 0) return engineSuccess(out);
 
-  // Task-status enrichment is BEST-EFFORT: `git worktree list` is the primary
-  // source of truth and must succeed even when the tasks DB cannot be opened
-  // (no `.cleo/` project resolvable from `projectRoot`, fresh checkout, or a
-  // transient open failure). Degrade to no status rather than failing the whole
-  // listing — callers treat a missing entry as `owningTaskStatus: null`.
+  // The listing still succeeds when the store fails, but the affected rows
+  // are unknown and can never become automatic deletion candidates.
   //
   // E6-L6 (T11526): query the legacy `tasks` table via getDb(), which runs the
   // drizzle-tasks migrations against the consolidated project `cleo.db` and
   // therefore guarantees the `tasks` family exists. The dual-scope consolidated
   // schema alone (openDualScopeDb) creates only `tasks_tasks`, not bare `tasks`.
-  let db: DatabaseSync | null;
   try {
     const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
     await getDb(projectRoot);
-    db = getNativeTasksDb(projectRoot);
-  } catch {
-    return out;
+    const db = getNativeTasksDb(projectRoot);
+    if (!db) {
+      // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
+      return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
+        fix: 'Run cleo doctor to diagnose the task store.',
+      });
+    }
+    const placeholders = taskIds.map(() => '?').join(', ');
+    const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+    const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+      id: string;
+      status: string;
+    }>;
+    for (const row of rows) out.set(row.id, row.status);
+    return engineSuccess(out);
+  } catch (err) {
+    // @sync-invariant none:local-only incomplete task-state coverage forbids local worktree disposal
+    return engineError(
+      'E_TASK_STATE_UNAVAILABLE',
+      `Task lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      { fix: 'Run cleo doctor to diagnose the task store.' },
+    );
   }
-  if (!db) return out;
-
-  const placeholders = taskIds.map(() => '?').join(', ');
-  const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-  const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-    id: string;
-    status: string;
-  }>;
-  for (const row of rows) {
-    out.set(row.id, row.status);
-  }
-  return out;
 }
 
 /**

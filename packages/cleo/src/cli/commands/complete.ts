@@ -88,12 +88,12 @@ export const completeCommandArgs = {
     description:
       'Fail with E_CONFLICT unless the task updatedAt still equals this version (from cleo show). Guards against completing over a concurrent edit.',
   },
-  // T14053 — `--no-integrate` leaves the task branch and worktree untouched
+  // --no-integrate skips merging; terminal-task cleanup retains branches.
   integrate: {
     type: 'boolean',
     default: true,
     description:
-      'Merge a CLEO-provisioned task/<id> worktree into the local default branch on completion (never pushed). --no-integrate (or CLEO_NO_AUTO_WORKTREE_COMPLETE=1) leaves branch and worktree untouched; cleo done --plan shows the decision.',
+      'Merge a CLEO-provisioned task/<id> worktree into the local default branch on completion (never pushed). --no-integrate (or CLEO_NO_AUTO_WORKTREE_COMPLETE=1) skips merging; proven-safe worktree cleanup still runs and retains branches. cleo done --plan shows the decision.',
   },
 } as const;
 
@@ -212,6 +212,9 @@ export const completeCommand = defineCommand({
     // T14053 — the one worktree integration result (merge/skip/refuse).
     if (data?.integration && typeof data.integration === 'object') {
       output['integration'] = data.integration;
+    }
+    if (Array.isArray(data?.worktreeRelease) && data.worktreeRelease.length > 0) {
+      output['worktreeRelease'] = data.worktreeRelease;
     }
 
     cliOutput(output, { command: 'complete', operation: 'tasks.complete' });
