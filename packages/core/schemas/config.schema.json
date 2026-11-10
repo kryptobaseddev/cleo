@@ -10,6 +10,25 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "review": {
+      "type": "object",
+      "description": "Per-AC PR review settings (T14372).",
+      "additionalProperties": false,
+      "properties": {
+        "workers": {
+          "type": "object",
+          "description": "Dispatched reviewer workers (T14372).",
+          "additionalProperties": false,
+          "properties": {
+            "counted": {
+              "type": "boolean",
+              "default": false,
+              "description": "Owner decision only: let `cleo review dispatch --execute --counted` send reviewers whose verdicts count toward a merge. Off, every dispatch is shadow."
+            }
+          }
+        }
+      }
+    },
     "resources": {
       "type": "object",
       "description": "Resource governor and monitor settings (T11994). resources.agentSession sets the spawned agent-session budget (T14227).",
