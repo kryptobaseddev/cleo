@@ -217,7 +217,7 @@ export const doneCommand = defineCommand({
     }
     const args = { ...raw, taskId: raw.taskId };
     if (typeof args.report === 'string') {
-      const { checkWorkerReport } = await import('@cleocode/core/orchestrate/worker-report.js');
+      const { checkWorkerReport } = await import('@cleocode/core/orchestrate/worker-report');
       const check = checkWorkerReport(args.report);
       if (!check.ok) {
         cliError(check.message, check.code, { fix: check.fix });
