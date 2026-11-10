@@ -5,11 +5,17 @@
  * @task T14410
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   BASELINE,
+  BASELINE_PIN,
+  baselineGrowth,
   compare,
+  parseBaseline,
   quarantinedFiles,
+  SECRET_GATED,
   TEST_FILE,
   workflowInvokes,
 } from '../lint-test-files-run.mjs';
@@ -78,6 +84,36 @@ describe('lint-test-files-run (gate 43)', () => {
   it('gives every baseline entry a reason naming its burn-down task', () => {
     for (const [file, reason] of Object.entries(BASELINE)) {
       expect(reason, file).toMatch(/T\d{4,}/);
+    }
+  });
+
+  it("parses this script's own BASELINE and pin", () => {
+    const src = readFileSync(
+      fileURLToPath(new URL('../lint-test-files-run.mjs', import.meta.url)),
+      'utf8',
+    );
+    const parsed = parseBaseline(src);
+    expect([...parsed.keys].sort()).toEqual(Object.keys(BASELINE).sort());
+    expect(parsed.pin).toBe(BASELINE_PIN);
+    expect(Object.keys(BASELINE).length).toBeLessThanOrEqual(BASELINE_PIN);
+  });
+
+  it('fails a baseline entry the base lacks, a pin that rose, and a count above the pin', () => {
+    const base = { keys: new Set(['a.test.ts']), pin: 1 };
+    expect(baselineGrowth({ keys: new Set(['a.test.ts']), pin: 1 }, base)).toEqual([]);
+    expect(baselineGrowth({ keys: new Set([]), pin: 0 }, base)).toEqual([]);
+    const grown = baselineGrowth({ keys: new Set(['a.test.ts', 'b.test.ts']), pin: 2 }, base);
+    expect(grown.some((m) => m.startsWith('b.test.ts'))).toBe(true);
+    expect(grown.some((m) => m.includes('rose from 1 to 2'))).toBe(true);
+    expect(baselineGrowth({ keys: new Set(['a.test.ts', 'b.test.ts']), pin: 1 }, null)).toEqual([
+      'BASELINE has 2 entries, above BASELINE_PIN 1',
+    ]);
+  });
+
+  it('names why each secret-gated file skips in CI', () => {
+    for (const [file, why] of Object.entries(SECRET_GATED)) {
+      expect(file).toMatch(/\.integration\.test\.ts$/);
+      expect(why.length, file).toBeGreaterThan(0);
     }
   });
 });

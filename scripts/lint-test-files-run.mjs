@@ -21,8 +21,14 @@
  *    - the `@cleocode/cleo` quarantine (`packages/cleo/vitest.quarantine.ts`,
  *      burn-down T12072), which CI excludes on purpose;
  *    - {@link BASELINE}: files that never ran before this gate, each with its
- *      reason. It may only shrink: an entry CI now collects, or whose file is
- *      gone, fails as stale.
+ *      reason and task. It may only shrink: an entry CI now collects, or whose
+ *      file is gone, fails as stale; more entries than {@link BASELINE_PIN}
+ *      fails; and with `--base <ref>` an entry the base's baseline lacks, or a
+ *      pin above the base's, fails, so a PR cannot add an unrun test together
+ *      with a matching baseline line.
+ * 3. Every {@link SECRET_GATED} file is collected. Those suites skip without
+ *    their credential or host, so the gate lists them as "collected but skipped
+ *    without secrets" rather than letting them read as covered.
  *
  * `vitest list --filesOnly` resolves include/exclude/projects exactly as
  * `vitest run` does without importing a test file (about 2 s), so the gate
@@ -31,7 +37,7 @@
  * `--check` (default) fails on an uncollected file outside the baseline or a
  * stale baseline entry. `--strict` also fails while the baseline is non-empty.
  *
- * Usage: node scripts/lint-test-files-run.mjs [--check|--strict]
+ * Usage: node scripts/lint-test-files-run.mjs [--check|--strict] [--base <ref>]
  *
  * @task T14410
  */
@@ -65,6 +71,20 @@ export const CI_RUNNERS = [
   },
 ];
 
+/**
+ * Collected files that skip in CI because CI holds no secret or host for them.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const SECRET_GATED = {
+  'packages/core/src/llm/pi/__tests__/pi-anthropic-turn.integration.test.ts':
+    'needs a resolvable Anthropic credential',
+  'packages/core/src/llm/pi/__tests__/pi-gondolin-env.integration.test.ts':
+    'needs CLEO_GONDOLIN_INTEGRATION=1, /dev/kvm and QEMU',
+  'packages/core/src/llm/transports/__tests__/bedrock.integration.test.ts':
+    'needs AWS_BEDROCK_TEST_KEY and AWS credentials',
+};
+
 /** Tracked paths that hold no repo test suite. */
 export const IGNORED_PREFIXES = [
   // Agent run artifacts (benchmark apps an agent wrote), not this repo's tests.
@@ -73,7 +93,9 @@ export const IGNORED_PREFIXES = [
 
 /**
  * Test files that ran in no CI job when this gate landed. MAY ONLY SHRINK.
- * Burn-down: T14411.
+ * Each reason names the task that brings the file into a CI run. The
+ * `*-integration` / `*.integration` entries failed on main's code on their
+ * first run (T14410); each task records whether the code or the test is wrong.
  *
  * @type {Readonly<Record<string, string>>}
  */
@@ -101,7 +123,62 @@ export const BASELINE = {
   'packages/studio/e2e/a11y.spec.ts': 'Playwright spec; no CI job runs Playwright (T14411)',
   'packages/studio/e2e/tasks-explorer.spec.ts':
     'Playwright spec; no CI job runs Playwright (T14411)',
+  'packages/cleo/src/dispatch/domains/__tests__/docs-integration.test.ts':
+    'fails on main: docs.add kind blob vs local-file (T14413)',
+  'packages/cleo/src/dispatch/domains/__tests__/saga-lifecycle-integration.test.ts':
+    'fails on main: saga.add reports success false (T14421)',
+  'packages/core/src/lifecycle/__tests__/stage-record-provenance.integration.test.ts':
+    'fails on main: artifact path and ADR mock root (T14414)',
+  'packages/core/src/memory/__tests__/graph-memory-bridge-integration.test.ts':
+    'fails on main: table brain_attention already exists (T14415)',
+  'packages/core/src/sessions/__tests__/handoff-integration.test.ts':
+    'fails on main: session-store mock lacks resolveBoundSessionId (T14416)',
+  'packages/core/src/store/__tests__/database-topology-integration.test.ts':
+    'fails on main: Scenario 5 no such table items (T14417)',
+  'packages/core/src/store/__tests__/e2e-safety-integration.test.ts':
+    'fails on main: Task ID collision T001 (T14418)',
+  'packages/core/src/store/__tests__/migration-integration.test.ts':
+    'fails on main: JSON to SQLite roundtrip reads null (T14419)',
+  'packages/core/src/store/__tests__/t310-integration.test.ts':
+    'fails on main: paths/conduit mocks lack new exports (T14420)',
 };
+
+/** Size of {@link BASELINE} when this gate landed. May only fall. */
+export const BASELINE_PIN = 21;
+
+/**
+ * The BASELINE keys and pin in another revision of this script's source.
+ *
+ * @param {string} source - This script's source at some revision.
+ * @returns {{ keys: Set<string>, pin: number }}
+ */
+export function parseBaseline(source) {
+  const block = source.match(/export const BASELINE = \{([\s\S]*?)\n\};/);
+  const keys = new Set(block ? [...block[1].matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]) : []);
+  const pin = source.match(/export const BASELINE_PIN = (\d+);/);
+  return { keys, pin: pin ? Number(pin[1]) : Number.NaN };
+}
+
+/**
+ * Baseline growth against the base revision.
+ *
+ * @param {{ keys: Set<string>, pin: number }} head - This revision's baseline.
+ * @param {{ keys: Set<string>, pin: number } | null} base - The base's, or null when the base has no gate.
+ * @returns {string[]} One message per violation.
+ */
+export function baselineGrowth(head, base) {
+  const out = [];
+  if (head.keys.size > head.pin) {
+    out.push(`BASELINE has ${head.keys.size} entries, above BASELINE_PIN ${head.pin}`);
+  }
+  if (!base) return out;
+  for (const k of head.keys) {
+    if (!base.keys.has(k))
+      out.push(`${k}: BASELINE entry the base lacks (the baseline may only shrink)`);
+  }
+  if (head.pin > base.pin) out.push(`BASELINE_PIN rose from ${base.pin} to ${head.pin}`);
+  return out;
+}
 
 /**
  * Whether a workflow source invokes `marker` on a line that is not a comment.
@@ -187,7 +264,21 @@ function listCollected(config) {
 
 function main() {
   const strict = process.argv.includes('--strict');
+  const baseIdx = process.argv.indexOf('--base');
+  const baseRef = baseIdx === -1 ? null : process.argv[baseIdx + 1];
   const failures = [];
+
+  const headBaseline = parseBaseline(readFileSync(fileURLToPath(import.meta.url), 'utf8'));
+  let baseBaseline = null;
+  if (baseRef) {
+    const shown = spawnSync('git', ['show', `${baseRef}:scripts/lint-test-files-run.mjs`], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
+    // A base without this gate is the PR that adds it: nothing to compare.
+    if (shown.status === 0) baseBaseline = parseBaseline(shown.stdout);
+  }
+  failures.push(...baselineGrowth(headBaseline, baseBaseline));
 
   const workflowsDir = join(REPO_ROOT, '.github/workflows');
   const workflows = readdirSync(workflowsDir)
@@ -224,6 +315,10 @@ function main() {
   for (const f of stale) {
     failures.push(`${f}: stale BASELINE entry (CI collects it now, or it is gone). Remove it.`);
   }
+  const skippedWithoutSecrets = Object.keys(SECRET_GATED).filter((f) => collected.has(f));
+  for (const f of Object.keys(SECRET_GATED)) {
+    if (!collected.has(f)) failures.push(`${f}: SECRET_GATED entry no CI run collects`);
+  }
   if (strict) {
     for (const f of baselined) failures.push(`${f}: baselined, never runs in CI (--strict)`);
   }
@@ -234,8 +329,10 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `lint-test-files-run: OK — ${tracked.length} tracked test files; ${collected.size} collected by ${CI_RUNNERS.length} CI runs, ${quarantined.size} quarantined (T12072), ${baselined.length} baselined (T14411).`,
+    `lint-test-files-run: OK — ${tracked.length} tracked test files; ${collected.size} collected by ${CI_RUNNERS.length} CI runs, ${quarantined.size} quarantined (T12072), ${baselined.length} baselined.`,
   );
+  console.log(`  collected but skipped without secrets (${skippedWithoutSecrets.length}):`);
+  for (const f of skippedWithoutSecrets) console.log(`    ${f} — ${SECRET_GATED[f]}`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -512,9 +512,16 @@ jobs:
         run: node scripts/lint-refusal-fixes.mjs --check
       # T14410 · gate 43: every tracked test file is collected by a vitest run
       # CI performs. Needs the installed `vitest` (`vitest list --filesOnly`).
+      # On a pull request the baseline is also compared with the merge
+      # commit's first parent, so it can only shrink.
       - name: Test Files Run In CI (T14410 · gate 43)
         if: ${{ !cancelled() }}
-        run: node scripts/lint-test-files-run.mjs --check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          BASE_ARGS=()
+          if [ "$EVENT_NAME" = pull_request ]; then BASE_ARGS=(--base "$(git rev-parse HEAD^1)"); fi
+          node scripts/lint-test-files-run.mjs --check "${BASE_ARGS[@]}"
       # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
       #
       # Regression-locks the merge-bar coverage itself: every PR-gating multi-job

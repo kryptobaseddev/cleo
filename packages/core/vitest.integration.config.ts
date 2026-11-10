@@ -15,8 +15,9 @@
  *   - `src/llm/transports/__tests__/*.integration.test.ts` — the live Bedrock
  *     transport (`AWS_BEDROCK_TEST_KEY` + AWS credentials).
  *
- * The store suites that lived here need no network and run in the unit suite
- * now as `*-int.test.ts` (T14410).
+ * The store suites that lived here need no network: the passing ones run in
+ * the unit suite as `*-int.test.ts`; the ones that fail on main keep their
+ * `-integration` name in gate 43's BASELINE, each with its repair task (T14410).
  *
  * Invoked from the repo root so the base config's source aliases resolve:
  *   `vitest run --config packages/core/vitest.integration.config.ts`
@@ -35,6 +36,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import baseConfig from './vitest.config.js';
+import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
 
 // Re-derive the inherited blocks from the base config. We deliberately do NOT
 // mergeConfig (that unions include/exclude arrays rather than overriding them).
@@ -49,6 +51,8 @@ const packageRoot = fileURLToPath(new URL('.', import.meta.url));
 export default defineConfig({
   root: packageRoot,
   test: {
+    // Memory-safe fork bounds (T12087), spread first (gate 18, T14410).
+    ...MEMORY_SAFE_TEST_DEFAULTS,
     globals: true,
     environment: 'node',
     testTimeout: 60_000,
