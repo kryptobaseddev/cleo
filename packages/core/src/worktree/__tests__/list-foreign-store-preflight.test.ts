@@ -94,6 +94,15 @@ describe('foreign-store preflight (T14440 AC3)', () => {
     expect(closeSpy).toHaveBeenCalled(); // the read-only handle is released
   });
 
+  it('a missing store is definitive absence: success with no statuses, nothing opened or created', async () => {
+    aheadOfBuild.mockImplementation(() => 'not read: missing store');
+    const out = await listWorktrees({ projectRoot: '/p' });
+    if (!out.success) throw new Error('expected success for a missing store');
+    expect(out.data.worktrees[0]?.owningTaskStatus).toBeNull();
+    expect(out.data.worktrees[0]?.taskId).toBe('T1');
+    expect(openProjectTasksReadOnly).not.toHaveBeenCalled(); // AC3: nothing opened
+  });
+
   it('degrades to owningTaskStatus null and never opens the store when the verdict is not readable', async () => {
     aheadOfBuild.mockImplementation(() => 'not read: store written by a newer build');
     const out = await listWorktrees({ projectRoot: '/p' });

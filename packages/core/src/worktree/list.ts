@@ -561,6 +561,13 @@ export async function loadOwningTaskStatuses(
   try {
     const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
     const verdict = projectStoreReadVerdict(projectRoot);
+    if (verdict === 'not read: missing store') {
+      // A missing store is definitive absence, not unavailability: the project
+      // never initialised CLEO, so there is provably no task row for any
+      // taskId and the taskless-candidate flow (T14274) applies. Success with
+      // an empty map — and, per AC3, nothing was opened or created.
+      return engineSuccess(out);
+    }
     if (verdict !== 'readable') {
       // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
       return engineError('E_TASK_STATE_UNAVAILABLE', `Task store ${verdict}`, {
