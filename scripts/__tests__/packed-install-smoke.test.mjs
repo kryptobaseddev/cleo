@@ -24,6 +24,7 @@ import {
   lockedRuntimeVersions,
   packedLockDrift,
   verifyPackedSchemas,
+  verifyPackedSpawnAdapter,
 } from '../packed-install-smoke.mjs';
 
 let root;
@@ -142,6 +143,49 @@ export const testCountSummarySchema = { safeParse: (s) => ('testResults' in s ? 
     fakeContracts(false);
     await expect(verifyPackedSchemas(root, { ...process.env })).rejects.toThrow(
       /count summary without testResults/,
+    );
+  });
+});
+
+describe('installed CLI adapter-selection probe (T14449)', () => {
+  it('loads selection from the installed CLI dependency graph in a project without packages', async () => {
+    installPackage(root, '@cleocode/cleo', '1.0.0', {
+      manifest: { type: 'module', exports: './index.js' },
+      sources: { 'index.js': '' },
+    });
+    installPackage(root, '@cleocode/core', '1.0.0', {
+      manifest: { type: 'module', exports: { './harness': './harness.js' } },
+      sources: {
+        'harness.js': `import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+export async function selectHarnessSpawnProvider(capabilities) {
+  if (existsSync(join(process.env.CLEO_ROOT, 'packages'))) throw new Error('monorepo fixture');
+  if (!process.env.PATH.includes('adapter-bin')) throw new Error('availability marker missing');
+  return { success: true, data: { adapterId: 'claude-code', providerId: 'claude-code', capabilities } };
+}`,
+      },
+    });
+    const result = await verifyPackedSpawnAdapter(root, root, { ...process.env });
+    expect(result).toEqual({
+      adapterId: 'claude-code',
+      providerId: 'claude-code',
+      capabilities: ['supportsSubagents'],
+    });
+  });
+
+  it('rejects a missing adapter instead of accepting an empty discovery', async () => {
+    installPackage(root, '@cleocode/cleo', '1.0.0', {
+      manifest: { type: 'module', exports: './index.js' },
+      sources: { 'index.js': '' },
+    });
+    installPackage(root, '@cleocode/core', '1.0.0', {
+      manifest: { type: 'module', exports: { './harness': './harness.js' } },
+      sources: {
+        'harness.js': `export async function selectHarnessSpawnProvider() { return { success: false, error: { code: 'E_SPAWN_NO_ADAPTER' } }; }`,
+      },
+    });
+    await expect(verifyPackedSpawnAdapter(root, root, { ...process.env })).rejects.toThrow(
+      'Packed command failed',
     );
   });
 });

@@ -372,7 +372,9 @@ merges an open PR only on the exact head that was reviewed (pinned with
 run's latest attempt, the review check passes and `done --from-merge --dry-run`
 says nothing waits or is refused. An infra-only red (runner shutdown, cancel)
 gets its failed jobs rerun, at most 3 times per head; a real red is reported
-once and never rerun. Nothing merges while main's latest push run is red except
+once and never rerun. The review is judged first: a head whose review check
+has gaps gets at most one infra rerun, and each decision states the review
+state (`review: ready` or `gaps: ...`) before the rerun decision. Nothing merges while main's latest push run is red except
 a PR labelled `main-fix`; `Merge-After: #<n>` holds a PR until PR n merged.
 Once the merge commit has a completed push run, the train runs the merge sweep
 for the PR. One train runs per repository, and a train that stops says so.

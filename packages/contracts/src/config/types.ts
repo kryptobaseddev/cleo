@@ -12,6 +12,7 @@
 import type { HeavyCommandHookMode } from '../heavy-command-hook.js';
 import type { LeanConfig } from '../lean.js';
 import type { ModelTransport } from '../operations/llm.js';
+import type { ProjectWorkerPolicy } from './worker-policy.js';
 
 /** Output format options. */
 export type OutputFormat = 'json' | 'text' | 'jsonl' | 'markdown' | 'table';
@@ -810,6 +811,8 @@ export interface OrchestrateLeadWorkerConfig {
  * @task T14356
  */
 export interface OrchestrateConfig {
+  /** Project worker instructions and verification placement; absent preserves legacy prompts. */
+  workerPolicy?: ProjectWorkerPolicy;
   /**
    * Lead/worker split settings.
    *

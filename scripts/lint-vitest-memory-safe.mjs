@@ -23,9 +23,11 @@
  * ## Checks
  *
  *   1. `vitest.memory-safe.ts` exists and exports MEMORY_SAFE_TEST_DEFAULTS.
- *   2. Every git-tracked `vitest.config.*` ANYWHERE in the repo imports AND
- *      spreads it (gh#1354 — the previous root+`packages/*` glob could not see
- *      `scripts/vitest.config.ts`, which was the one file still inheriting).
+ *   2. Every git-tracked `vitest.config.*` and `vitest.<name>.config.*`
+ *      ANYWHERE in the repo imports AND spreads it (gh#1354 — the previous
+ *      root+`packages/*` glob could not see `scripts/vitest.config.ts`, which was
+ *      the one file still inheriting; T14410 — `vitest.integration.config.ts`,
+ *      run by a CI job, sat outside the `vitest.config.*` name).
  *   3. No config re-declares `maxWorkers` / `poolOptions.forks.execArgv` after
  *      the spread — that would silently override the ceiling.
  *   4. No config overrides `pool` away from `'forks'` (per-worker V8 flags do
@@ -35,6 +37,7 @@
  * something to burn down gradually.
  *
  * @task T12087
+ * @task T14410
  */
 
 import { execFileSync } from 'node:child_process';
@@ -75,7 +78,7 @@ if (!existsSync(ssotPath)) {
 // covered the day it is committed, with no edit here — which is the only kind
 // of fix that survives the next directory.
 function trackedVitestConfigs() {
-  const out = execFileSync('git', ['ls-files', '-z', '*vitest.config.*'], {
+  const out = execFileSync('git', ['ls-files', '-z', '*vitest*.config.*'], {
     cwd: REPO,
     encoding: 'utf8',
     maxBuffer: 8 * 1024 * 1024,
@@ -83,7 +86,7 @@ function trackedVitestConfigs() {
   return out
     .split('\0')
     .filter(Boolean)
-    .filter((f) => /(^|\/)vitest\.config\.(ts|mts|cts|js|mjs|cjs)$/.test(f))
+    .filter((f) => /(^|\/)vitest(\.[a-z0-9-]+)?\.config\.(ts|mts|cts|js|mjs|cjs)$/.test(f))
     .sort();
 }
 

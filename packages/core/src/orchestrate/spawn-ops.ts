@@ -107,7 +107,11 @@ import {
 import { externalPressureFix } from '../resources/pressure-gate.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
-import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
+import {
+  getSpawnAdapterFix,
+  initializeDefaultAdapters,
+  spawnRegistry,
+} from '../spawn/adapter-registry.js';
 import {
   abandonSpawnSession,
   requireSpawnSession,
@@ -721,19 +725,24 @@ export interface OrchestrateSpawnExecuteOpts {
 }
 
 /**
- * The stable code (and exit code, when numeric) of a thrown coded refusal such
+ * The stable code, optional repair and numeric exit code of a thrown coded refusal such
  * as `LeadToolsUnstrippedError`; `null` for any other throw.
  *
  * @param error - What the spawn threw.
- * @returns The code and optional exit code, or `null`.
+ * @returns The code, optional exit code and repair command, or `null`.
  * @task T14363
  */
-function codedError(error: unknown): { code: string; exitCode?: number } | null {
+function codedError(error: unknown): { code: string; exitCode?: number; fix?: string } | null {
   if (!(error instanceof Error) || !('code' in error)) return null;
   const { code } = error;
   if (typeof code !== 'string' || !code.startsWith('E_')) return null;
   const exitCode = 'exitCode' in error ? error.exitCode : undefined;
-  return typeof exitCode === 'number' ? { code, exitCode } : { code };
+  const fix = 'fix' in error ? error.fix : undefined;
+  return {
+    code,
+    ...(typeof exitCode === 'number' ? { exitCode } : {}),
+    ...(typeof fix === 'string' ? { fix } : {}),
+  };
 }
 
 /**
@@ -856,6 +865,7 @@ export async function orchestrateSpawnExecute(
         error: {
           code: 'E_SPAWN_NO_ADAPTER',
           message: 'No spawn adapter available for this provider',
+          fix: await getSpawnAdapterFix(),
           exitCode: 60,
         },
       };
@@ -943,6 +953,7 @@ export async function orchestrateSpawnExecute(
         error: {
           code: 'E_SPAWN_NO_PROVIDER',
           message: `Provider ${adapter.providerId} not found`,
+          fix: await getSpawnAdapterFix(),
           exitCode: 60,
         },
       };
@@ -1380,6 +1391,7 @@ export async function orchestrateSpawnExecute(
         code: coded?.code ?? 'E_SPAWN_FAILED',
         message: error instanceof Error ? error.message : 'Unknown spawn error',
         exitCode: coded?.exitCode ?? 60,
+        ...(coded?.fix ? { fix: coded.fix } : {}),
       },
     };
   } finally {
@@ -2104,7 +2116,7 @@ export async function orchestrateSpawn(
       const step = (stepMatch?.[1] ?? 'budget-exceeded') as SpawnPipelineStep;
       return await buildTimeoutEnvelope(step);
     }
-    return engineError(code, (err as Error).message);
+    return engineError(code, (err as Error).message, { fix: codedError(err)?.fix });
   } finally {
     // T9545 — always release the budget timer so the Node event loop can exit.
     clearTimeout(budgetTimer);

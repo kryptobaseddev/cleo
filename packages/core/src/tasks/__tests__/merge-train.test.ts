@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   MAIN_FIX_LABEL,
   MERGE_TRAIN_MAX_RERUNS,
+  MERGE_TRAIN_MAX_UNREVIEWED_RERUNS,
   MergeTrainApiError,
   type MergeTrainDeps,
   type MergeTrainGitHub,
@@ -306,6 +307,60 @@ describe('red classification (rule 3)', () => {
       { name: 'Build', conclusion: 'cancelled' },
     ]);
     expect((await decision(10, true))?.action).toBe('rerun');
+  });
+
+  it('T14389: a review-ready head with a cancel-only red is rerun once per train run', async () => {
+    github.addRun(10, sha('b'), [
+      { name: 'CI', conclusion: 'failure' },
+      { name: 'Build', conclusion: 'cancelled' },
+    ]);
+    const d = await decision(10, true);
+    expect(d?.review).toBe('ready');
+    expect(d?.action).toBe('rerun');
+    expect(github.reruns).toEqual([10]);
+  });
+
+  it('T14389: an unreviewed head with an infra red is rerun at most once', async () => {
+    gaps.set(10, ['AC1: no verdict on head bbbbbbb']);
+    github.addRun(10, sha('b'), [
+      { name: 'CI', conclusion: 'failure' },
+      { name: 'Unit Tests', conclusion: 'failure' },
+    ]);
+    github.logs.set(1001, '##[error]The runner has received a shutdown signal.');
+    const first = await decision(10, true);
+    expect(first?.action).toBe('rerun');
+    expect(first?.review).toMatch(/^gaps: /);
+    expect(first?.reason).toContain(`rerun 1 of ${MERGE_TRAIN_MAX_UNREVIEWED_RERUNS}`);
+    const second = await decision(10, true);
+    expect(second?.action).toBe('skip');
+    expect(second?.reason).toContain('not rerun until reviewed');
+    expect(second?.firstReport).toBe(true);
+    expect((await decision(10, true))?.firstReport).toBeUndefined();
+    expect(github.reruns).toEqual([10]);
+    // Once reviewed, the same head gets the rest of the full budget, then is reported once.
+    gaps.delete(10);
+    for (let i = 2; i <= MERGE_TRAIN_MAX_RERUNS; i++)
+      expect((await decision(10, true))?.action).toBe('rerun');
+    expect(github.reruns).toHaveLength(MERGE_TRAIN_MAX_RERUNS);
+    const exhausted = await decision(10, true);
+    expect(exhausted?.reason).toContain('needs attention');
+    expect(exhausted?.firstReport).toBe(true);
+  });
+
+  it('T14389: the dry run states the review state before the rerun decision', async () => {
+    gaps.set(10, ['AC1: no verdict on head bbbbbbb']);
+    github.addRun(10, sha('b'), [
+      { name: 'CI', conclusion: 'failure' },
+      { name: 'Build', conclusion: 'cancelled' },
+    ]);
+    const d = await decision(10);
+    expect(d?.action).toBe('rerun');
+    expect(d?.review).toMatch(/^gaps: T1 AC1: no verdict/);
+    expect(d?.reason).toMatch(/^review check has gaps; infra-only red/);
+    expect(Object.keys(d ?? {}).indexOf('review')).toBeLessThan(
+      Object.keys(d ?? {}).indexOf('action'),
+    );
+    expect(github.reruns).toEqual([]);
   });
 
   it('a real failure is reported once per head and never rerun', async () => {

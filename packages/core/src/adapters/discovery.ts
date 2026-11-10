@@ -1,5 +1,5 @@
 /**
- * Adapter discovery: scans packages/adapters/ for installed provider adapters.
+ * Adapter discovery: resolves bundled adapters and optional project adapters.
  * Reads adapter manifests and detects active providers in the current environment.
  *
  * @task T5240
@@ -7,25 +7,38 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { getProviderManifests } from '@cleocode/adapters/manifests';
 import type { AdapterManifest, DetectionPattern } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
 
 /**
- * Scan the packages/adapters/ directory for adapter packages.
- * Each adapter must have a manifest.json at its root.
+ * Discover bundled adapters independently of the project layout, then append
+ * optional project adapters from packages/adapters/<id>/manifest.json.
+ * Bundled adapter IDs take precedence over project manifests.
  */
 export function discoverAdapterManifests(projectRoot: string): AdapterManifest[] {
-  const adaptersDir = resolve(projectRoot, 'packages', 'adapters');
-  if (!existsSync(adaptersDir)) return [];
+  const manifests = getProviderManifests();
+  for (const manifest of discoverProjectAdapterManifests(projectRoot)) {
+    if (!manifests.some((bundled) => bundled.id === manifest.id)) manifests.push(manifest);
+  }
+  return manifests;
+}
 
+/**
+ * Discover only explicit project adapters for session activation.
+ * Bundled spawn adapters must not implicitly install provider hooks.
+ */
+export function discoverProjectAdapterManifests(projectRoot: string): AdapterManifest[] {
   const manifests: AdapterManifest[] = [];
+  const adaptersDir = resolve(projectRoot, 'packages', 'adapters');
+  if (!existsSync(adaptersDir)) return manifests;
   let entries: string[];
   try {
     entries = readdirSync(adaptersDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name);
   } catch {
-    return [];
+    return manifests;
   }
 
   for (const dir of entries) {
