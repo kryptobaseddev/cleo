@@ -110,6 +110,7 @@ const releaseSubcommand = defineCommand({
   },
   async run({ args }) {
     const dryRun = args['dry-run'] === true;
+    release.registerReleaseInvariants();
     const report = await release.runInvariants(args.tag, {
       dryRun,
       cwd: process.cwd(),

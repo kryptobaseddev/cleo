@@ -440,8 +440,9 @@ async function checkArchiveReasonInvariant(opts: InvariantRunOptions): Promise<I
 }
 
 /**
- * Register the archive-reason invariant. Called once on module load via
- * the side-effect import in `./index.ts`.
+ * Register the archive-reason invariant. Idempotent (the registry is keyed by
+ * id). Called by `registerReleaseInvariants()` in `./index.ts`, which the
+ * CLI runs through `@cleocode/core/registrations` and `cleo reconcile release`.
  */
 export function registerArchiveReasonInvariant(): void {
   registerInvariant({

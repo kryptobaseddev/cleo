@@ -52,7 +52,7 @@ export async function sentientProposeList(
   projectRoot: string,
   params: ProposeListParams,
 ): Promise<ProposeListResult> {
-  const { getDb } = await import('@cleocode/core/internal');
+  const { getDb } = await import('../store/sqlite.js');
   const { tasks, taskLabels } = await import('@cleocode/core/store/tasks-schema');
   const { and, eq, inArray } = await import('drizzle-orm');
 
@@ -143,7 +143,7 @@ export async function sentientProposeAccept(
   projectRoot: string,
   params: ProposeAcceptParams,
 ): Promise<ProposeAcceptResult> {
-  const { getDb } = await import('@cleocode/core/internal');
+  const { getDb } = await import('../store/sqlite.js');
   const { tasks, taskLabels } = await import('@cleocode/core/store/tasks-schema');
   const { and, eq, inArray } = await import('drizzle-orm');
 
@@ -191,7 +191,7 @@ export async function sentientProposeReject(
   projectRoot: string,
   params: ProposeRejectParams,
 ): Promise<ProposeRejectResult> {
-  const { getDb } = await import('@cleocode/core/internal');
+  const { getDb } = await import('../store/sqlite.js');
   const { tasks, taskLabels } = await import('@cleocode/core/store/tasks-schema');
   const { and, eq, inArray } = await import('drizzle-orm');
 
