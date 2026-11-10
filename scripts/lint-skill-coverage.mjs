@@ -32,12 +32,30 @@
  *   skill's directory — or, for an on-demand skill only, a commit trailer
  *   `Skill-Drift-Reviewed: <skill>: <reason>`. Core skills reject the
  *   trailer (D11157);
- * - a changed skill directory requires a `metadata.version` bump against the
- *   base.
+ * - a changed skill directory requires the PR head's `metadata.version` to be
+ *   greater than the version at the branch point (the merge-base of the base
+ *   and the PR head), and the merged version never lower than the base's.
  *
- * Usage: node scripts/lint-skill-coverage.mjs [--check|--strict] [--base <ref>] [--json]
+ * ## Why the branch point, not the base tip (T14393)
+ *
+ * Parallel PRs that change one skill each bump its version from the same
+ * starting value. Measured against the base tip, the second PR to merge
+ * failed (its bump equalled the first PR's) and had to re-bump, which then
+ * conflicted with every other open PR. Measured against the branch point,
+ * PRs that make the same bump (next minor) carry the identical
+ * `version:` line and the identical manifest entry, so git merges them in
+ * either order with no conflict. Monotonic releases still hold: when a
+ * stable release tag (`v*`, not `-canary`/`-rc`) reachable from the base was
+ * cut after the branch point, the version must exceed the tag's, so released
+ * content never repeats a version. A missing merge base or stable tag fails
+ * and names the fetch that fixes it. In CI the checkout is GitHub's merge
+ * commit (which inherits other PRs' bumps), so the workflow passes the PR
+ * head with `--head` and the PR's own version is the one compared.
+ *
+ * Usage: node scripts/lint-skill-coverage.mjs [--check|--strict] [--base <ref>] [--head <ref>] [--json]
  *
  * @task T12124
+ * @task T14393
  */
 
 import { execFileSync } from 'node:child_process';
@@ -155,13 +173,77 @@ export function semverGreater(a, b) {
 }
 
 /**
+ * The ref a PR's skill versions are measured against: the newest stable
+ * release tag (`v*`, excluding `-canary` and `-rc` prereleases) reachable
+ * from `base` when it was cut after the branch point, otherwise the branch
+ * point itself (T14393).
+ *
+ * Never falls back silently: a missing merge base (shallow clone) or a
+ * missing stable tag (tagless clone) throws with the fetch that fixes it,
+ * since either would let a skill change ship under an already-released
+ * version.
+ *
+ * @param {string} root - Repository root.
+ * @param {string} base - Base ref.
+ * @param {string} head - PR head ref.
+ * @returns {{ ref: string, tag?: string }}
+ * @throws {Error} When the merge base or a stable release tag cannot be found.
+ */
+export function versionAnchor(root, base, head) {
+  /** Run git quietly; null on a non-zero exit. */
+  const tryGit = (args) => {
+    try {
+      return execFileSync('git', args, {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const branchPoint = tryGit(['merge-base', base, head]);
+  if (!branchPoint) {
+    throw new Error(
+      `no merge base between ${base} and ${head}; fetch full history (git fetch --unshallow origin, or actions/checkout fetch-depth: 0)`,
+    );
+  }
+  const tag = tryGit([
+    'describe',
+    '--tags',
+    '--abbrev=0',
+    '--match',
+    'v[0-9]*',
+    '--exclude',
+    '*-canary*',
+    '--exclude',
+    '*-rc*',
+    base,
+  ]);
+  if (!tag) {
+    throw new Error(
+      `no stable release tag (v*, not -canary/-rc) reachable from ${base}; fetch tags (git fetch --tags origin, or actions/checkout fetch-depth: 0)`,
+    );
+  }
+  const cutAfter =
+    tryGit(['rev-parse', `${tag}^{commit}`]) !== branchPoint &&
+    tryGit(['merge-base', '--is-ancestor', branchPoint, tag]) !== null;
+  if (cutAfter) {
+    return { ref: tag, tag };
+  }
+  return { ref: branchPoint };
+}
+
+/**
  * PR checks against a base ref.
  *
  * @param {string} root - Repository root.
  * @param {string} base - Base ref (e.g. `origin/main`).
- * @param {{ changed?: string[], messagesTouching?: (file: string) => string, baseSkillMd?: (name: string) => string | null }} [io]
- *   Injectable git reads (tests). `messagesTouching(file)` returns the
- *   bodies of the commits in base..HEAD that touch `file`.
+ * @param {{ head?: string, changed?: string[], messagesTouching?: (file: string) => string, skillMdAt?: (ref: string, name: string) => string | null }} [io]
+ *   PR head (defaults to `HEAD`; CI passes the PR head because its checkout
+ *   is the merge commit) and injectable git reads (tests).
+ *   `messagesTouching(file)` returns the bodies of the commits in
+ *   base..HEAD that touch `file`.
  * @returns {string[]} Problems.
  */
 export function checkPullRequest(root, base, io = {}) {
@@ -169,11 +251,11 @@ export function checkPullRequest(root, base, io = {}) {
   const messagesTouching =
     io.messagesTouching ??
     ((file) => git(root, ['log', '--format=%B', `${base}..HEAD`, '--', file]).join('\n'));
-  const baseSkillMd =
-    io.baseSkillMd ??
-    ((name) => {
+  const skillMdAt =
+    io.skillMdAt ??
+    ((ref, name) => {
       try {
-        return execFileSync('git', ['show', `${base}:${SKILLS_DIR}/${name}/SKILL.md`], {
+        return execFileSync('git', ['show', `${ref}:${SKILLS_DIR}/${name}/SKILL.md`], {
           cwd: root,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'ignore'],
@@ -182,6 +264,25 @@ export function checkPullRequest(root, base, io = {}) {
         return null;
       }
     });
+  const versionAt = (ref, name) => {
+    const md = skillMdAt(ref, name);
+    return md ? parseFrontmatter(md).metadata.version : undefined;
+  };
+  const head = io.head || 'HEAD';
+  /** @type {{ ref: string, tag?: string } | null | undefined} */
+  let anchor;
+  /** The version anchor, resolved once on the first changed skill. */
+  const resolveAnchor = (problems) => {
+    if (anchor === undefined) {
+      try {
+        anchor = versionAnchor(root, base, head);
+      } catch (err) {
+        anchor = null;
+        problems.push(`skill version check cannot run: ${err.message}`);
+      }
+    }
+    return anchor;
+  };
 
   /**
    * Whether every covered file that changed was touched by a commit carrying
@@ -212,11 +313,21 @@ export function checkPullRequest(root, base, io = {}) {
     }
 
     if (skillChanged) {
-      const before = baseSkillMd(s.name);
-      const baseVersion = before ? parseFrontmatter(before).metadata.version : undefined;
-      if (baseVersion !== undefined && !semverGreater(s.version, baseVersion)) {
+      const fix = 'bump it (then run node scripts/skills/generate-manifest.mjs)';
+      const at = resolveAnchor(problems);
+      if (!at) continue;
+      // The PR's own version, not the merge commit's: a merge ref inherits
+      // another PR's bump, which would hide a PR that never bumped.
+      const headVersion = versionAt(head, s.name);
+      const anchorVersion = versionAt(at.ref, s.name);
+      const baseVersion = versionAt(base, s.name);
+      if (anchorVersion !== undefined && !semverGreater(headVersion, anchorVersion)) {
         problems.push(
-          `${s.name} changed but metadata.version ${s.version} is not greater than ${baseVersion}; bump it (then run node scripts/skills/generate-manifest.mjs)`,
+          `${s.name} changed but metadata.version ${headVersion} is not greater than ${anchorVersion}${at.tag ? `, released in ${at.tag}` : ''}; ${fix}`,
+        );
+      } else if (baseVersion !== undefined && semverGreater(baseVersion, s.version)) {
+        problems.push(
+          `${s.name} changed but metadata.version ${s.version} is lower than ${base}'s ${baseVersion}; ${fix}`,
         );
       }
     }
@@ -228,12 +339,12 @@ export function checkPullRequest(root, base, io = {}) {
  * Run the gate.
  *
  * @param {string} root - Repository root.
- * @param {{ base?: string, json?: boolean }} [opts] - Mode flags.
+ * @param {{ base?: string, head?: string, json?: boolean }} [opts] - Mode flags.
  * @returns {number} Exit code.
  */
 export function runGate(root, opts = {}) {
   const problems = checkDeclarations(root);
-  if (opts.base) problems.push(...checkPullRequest(root, opts.base));
+  if (opts.base) problems.push(...checkPullRequest(root, opts.base, { head: opts.head }));
   if (opts.json) {
     process.stdout.write(`${JSON.stringify({ base: opts.base ?? null, problems }, null, 2)}\n`);
     return problems.length > 0 ? 1 : 0;
@@ -249,7 +360,15 @@ export function runGate(root, opts = {}) {
 }
 
 if (isMain(import.meta.url)) {
-  const i = process.argv.indexOf('--base');
-  const base = i !== -1 ? process.argv[i + 1] : undefined;
-  process.exit(runGate(process.cwd(), { base, json: process.argv.includes('--json') }));
+  const arg = (flag) => {
+    const i = process.argv.indexOf(flag);
+    return i !== -1 ? process.argv[i + 1] : undefined;
+  };
+  process.exit(
+    runGate(process.cwd(), {
+      base: arg('--base'),
+      head: arg('--head'),
+      json: process.argv.includes('--json'),
+    }),
+  );
 }
