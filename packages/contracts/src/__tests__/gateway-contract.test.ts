@@ -25,7 +25,7 @@ import {
   GATEWAY_SOURCES,
   gatewaySourceSchema,
   gatewayStreamEventSchema,
-} from '../gateway.js';
+} from '../gateway/index.js';
 
 describe('gateway contract — version + sources', () => {
   it('pins the frozen contract version', () => {

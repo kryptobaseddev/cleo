@@ -9,9 +9,9 @@
  * @task T5710
  */
 
-import type { HeavyCommandHookMode } from './heavy-command-hook.js';
-import type { LeanConfig } from './lean.js';
-import type { ModelTransport } from './operations/llm.js';
+import type { HeavyCommandHookMode } from '../heavy-command-hook.js';
+import type { LeanConfig } from '../lean.js';
+import type { ModelTransport } from '../operations/llm.js';
 
 /** Output format options. */
 export type OutputFormat = 'json' | 'text' | 'jsonl' | 'markdown' | 'table';
