@@ -121,7 +121,15 @@ import {
   resolveSpawnLockHolder,
 } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { isLeadWorkerV1Enabled, resolveIsolation } from './isolation-policy.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
+import {
+  abandonWorkerRecord,
+  newWorkerInstanceId,
+  recordWorker,
+  settleWorkerAtSpawn,
+  type WorkerRecord,
+} from './worker-records.js';
 
 export type { EngineResult };
 
@@ -691,6 +699,11 @@ export interface OrchestrateSpawnExecuteOpts {
    * project root.
    */
   baseRef?: string;
+  /**
+   * T14359 — AgentMBX mailbox of the spawning lead: printed in the worker's
+   * prompt and stored on its worker record.
+   */
+  leadMailbox?: string;
 }
 
 /**
@@ -759,6 +772,8 @@ export async function orchestrateSpawnExecute(
   /** T12502 — the task claim + session this spawn took; undone unless dispatched. */
   let execClaim: SpawnSessionClaimed | undefined;
   let dispatched = false;
+  /** T14359 — worker record written before spawn (only with `orchestrate.leadWorker.v1`). */
+  let pendingWorker: WorkerRecord | null = null;
   try {
     // Get spawn registry
     await initializeDefaultAdapters();
@@ -831,6 +846,7 @@ export async function orchestrateSpawnExecute(
       tier,
       sessionId: activeSessionId,
       protocol: protocolType,
+      ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
     });
 
     // Atomicity violations short-circuit the spawn so the adapter never sees
@@ -898,31 +914,40 @@ export async function orchestrateSpawnExecute(
     //
     // Provision a worktree for the task so the agent runs in its own isolated
     // branch. On success, `provisionIsolatedShell` computes the authoritative
-    // cwd, env-var block, and preamble from the single source of truth. On
-    // failure (non-git repo, git not installed, etc.) we degrade gracefully and
-    // fall back to the project root so spawn continues without isolation.
+    // cwd, env-var block, and preamble from the single source of truth.
+    // T14358 — `resolveIsolation` decides what a failure means: with
+    // `orchestrate.leadWorker.v1` on (or a `--base` asked for) the spawn is
+    // refused; otherwise it falls back to the project root without isolation.
     let agentWorkingDirectory = cwd;
     let agentEnvOverride: Record<string, string> | undefined;
-    try {
-      const worktreeResult = await spawnWorktree(cwd, {
-        taskId,
-        holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
-        // T13425 — an ended holder session releases the lock.
-        sessionProbe: await resolveLockSessionProbe(cwd, taskId),
-        ...(opts.baseRef !== undefined ? { baseRef: opts.baseRef } : {}),
-      });
-      auditWorktreeLockReclaim(cwd, taskId, worktreeResult.path, worktreeResult.lock);
-      // T11343 — bind the spawned agent's OWN session + identity into the
-      // isolation shell so `resolveSessionIdFromEnv()` returns the agent's
-      // session, never the orchestrator's most-recent active row.
-      const isolation = provisionIsolatedShell({
-        worktreePath: worktreeResult.path,
-        branch: worktreeResult.branch,
-        role: 'worker',
-        projectHash: worktreeResult.projectHash,
-        ...(activeSessionId ? { sessionId: activeSessionId } : {}),
-        ...(spawnAgentId ? { agentId: spawnAgentId } : {}),
-      });
+    const leadWorkerV1 = await isLeadWorkerV1Enabled(cwd);
+    const isolationResolution = await resolveIsolation(
+      async () => {
+        const worktreeResult = await spawnWorktree(cwd, {
+          taskId,
+          holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+          // T13425 — an ended holder session releases the lock.
+          sessionProbe: await resolveLockSessionProbe(cwd, taskId),
+          ...(opts.baseRef !== undefined ? { baseRef: opts.baseRef } : {}),
+        });
+        auditWorktreeLockReclaim(cwd, taskId, worktreeResult.path, worktreeResult.lock);
+        // T11343 — bind the spawned agent's OWN session + identity into the
+        // isolation shell so `resolveSessionIdFromEnv()` returns the agent's
+        // session, never the orchestrator's most-recent active row.
+        const isolation = provisionIsolatedShell({
+          worktreePath: worktreeResult.path,
+          branch: worktreeResult.branch,
+          role: 'worker',
+          projectHash: worktreeResult.projectHash,
+          ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+          ...(spawnAgentId ? { agentId: spawnAgentId } : {}),
+        });
+        return { worktreeResult, isolation };
+      },
+      { failClosed: leadWorkerV1 || opts.baseRef !== undefined },
+    );
+    if (isolationResolution.kind === 'isolated') {
+      const { worktreeResult, isolation } = isolationResolution.result;
       agentWorkingDirectory = isolation.cwd;
       agentEnvOverride = isolation.env;
       if (worktreeResult.lock) {
@@ -931,7 +956,8 @@ export async function orchestrateSpawnExecute(
           token: worktreeResult.lock.record.token,
         };
       }
-    } catch (wtErr) {
+    } else if (isolationResolution.kind === 'refused') {
+      const wtErr = isolationResolution.error;
       // T12506: a live holder owns this task's worktree. Degrading to the
       // project root would run a SECOND agent on the same task — refuse.
       if (isWorktreeLockedError(wtErr)) {
@@ -945,24 +971,40 @@ export async function orchestrateSpawnExecute(
           },
         };
       }
+      const refusalCode = (wtErr as { code?: unknown } | null)?.code;
+      const code =
+        typeof refusalCode === 'string' && refusalCode.startsWith('E_')
+          ? refusalCode
+          : 'E_WORKTREE_PROVISION_FAILED';
+      const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
+      // T14396: like orchestrateSpawn, remove a worktree THIS call freshly
+      // created before refusing; any other failure leaves the worktree alone.
+      const cleanup = shouldCleanUpFailedProvision(wtErr)
+        ? await runTimeoutCleanup(cwd, taskId)
+        : undefined;
+      const cleanupDetails = cleanup ? { cleanup } : {};
       // T14046: a bad --base ref or a worktree on another base. Running the
       // agent in the project root would ignore the base it was asked for.
       if (opts.baseRef !== undefined) {
-        const refusalCode = (wtErr as { code?: unknown } | null)?.code;
         // @sync-invariant none:input-shape an unusable --base refuses; the finally hands the claim back
-        return engineError(
-          typeof refusalCode === 'string' && refusalCode.startsWith('E_')
-            ? refusalCode
-            : 'E_WORKTREE_PROVISION_FAILED',
-          wtErr instanceof Error ? wtErr.message : String(wtErr),
-          {
-            details: { taskId, baseRef: opts.baseRef },
-            fix: `Check that '${opts.baseRef}' resolves to a commit and that no worktree or branch for ${taskId} exists on another base.`,
-          },
-        );
+        return engineError(code, message, {
+          details: { taskId, baseRef: opts.baseRef, ...cleanupDetails },
+          fix: `Check that '${opts.baseRef}' resolves to a commit and that no worktree or branch for ${taskId} exists on another base.`,
+        });
       }
+      // T14358: orchestrate.leadWorker.v1 is on — no agent runs in the project root.
+      // @sync-invariant none:local-only fail-closed isolation refuses; the finally hands the claim back
+      return engineError(code, message, {
+        details: {
+          taskId,
+          isolation: 'refused',
+          flag: 'orchestrate.leadWorker.v1',
+          ...cleanupDetails,
+        },
+        fix: `Fix worktree provisioning for ${taskId} (\`git worktree list\`, \`git branch --list task/${taskId}\`) and retry; orchestrate.leadWorker.v1 refuses to run a worker without isolation.`,
+      });
+    } else {
       // Worktree provisioning failure — spawn continues without isolation.
-      // This matches the graceful-degradation policy of orchestrateSpawn.
       getLogger('engine:orchestrate').warn(
         { taskId },
         'T1759 worktree provisioning failed in orchestrateSpawnExecute — spawning without isolation',
@@ -1020,6 +1062,36 @@ export async function orchestrateSpawnExecute(
       /* Hook registry unavailable — non-fatal */
     }
 
+    // T14359 — with `orchestrate.leadWorker.v1`, record the worker BEFORE
+    // spawning, under a pre-assigned instance id the adapter may adopt for
+    // its exit hook, so a worker that dies at once still finds its record.
+    const hookAgentId = cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`;
+    if (leadWorkerV1) {
+      const workerInstanceId = newWorkerInstanceId(adapter.providerId);
+      try {
+        pendingWorker = await recordWorker(
+          {
+            taskId,
+            instanceId: workerInstanceId,
+            agentId: hookAgentId,
+            provider: adapter.providerId,
+            pid: null,
+            pgid: null,
+            worktree: agentWorkingDirectory,
+            leadMailbox: opts.leadMailbox ?? null,
+            sessionId: activeSessionId,
+          },
+          cwd,
+        );
+        cleoSpawnContext.options = { ...cleoSpawnContext.options, workerInstanceId };
+      } catch (err) {
+        getLogger('engine:orchestrate').warn(
+          { taskId, err: err instanceof Error ? err.message : String(err) },
+          'T14359 worker record not stored — SubagentStop fires at spawn',
+        );
+      }
+    }
+
     // Execute spawn
     const result = await adapter.spawn(cleoSpawnContext);
     // T12502 — an adapter may REPORT a failure (status `failed`) instead of
@@ -1039,28 +1111,49 @@ export async function orchestrateSpawnExecute(
       /* Worktree hooks are best-effort — never block spawn */
     }
 
-    // Dispatch SubagentStop hook AFTER spawn returns — records completion
-    // status in brain and conduit (T555).
-    try {
-      await hooks
-        .dispatch('SubagentStop', cwd, {
-          timestamp: new Date().toISOString(),
-          taskId,
-          agentId: cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`,
-          // T12071: `SpawnResult.status` and `SubagentStopPayload.status` are
-          // DIFFERENT vocabularies — 'completed' vs 'complete', and spawn also
-          // emits 'pending'/'running'/'cancelled', none of which the payload
-          // union admits. Every value this site ever sent was therefore outside
-          // the declared type; nothing caught it because `dispatch` did not
-          // relate the event to its payload.
-          status: toSubagentStopStatus(result.status),
-          metadata: { instanceId: result.instanceId },
-        })
-        .catch(() => {
-          /* Hooks are best-effort — never block spawn */
-        });
-    } catch {
-      /* Hook registry unavailable — non-fatal */
+    // T14359 — a tracked worker (record + observable exit) gets its
+    // SubagentStop when it exits. Every other spawn emits it here, as before.
+    let workerTracked = false;
+    if (pendingWorker) {
+      const record = pendingWorker;
+      pendingWorker = null;
+      try {
+        workerTracked = await settleWorkerAtSpawn(
+          record,
+          {
+            instanceId: result.instanceId,
+            running: keepExecLock,
+            ...(result.ownership ? { ownership: result.ownership } : {}),
+            stopStatus: toSubagentStopStatus(result.status),
+          },
+          cwd,
+        );
+      } catch (err) {
+        getLogger('engine:orchestrate').warn(
+          { taskId, err: err instanceof Error ? err.message : String(err) },
+          'T14359 worker record not settled after spawn',
+        );
+      }
+    } else {
+      try {
+        await hooks
+          .dispatch('SubagentStop', cwd, {
+            timestamp: new Date().toISOString(),
+            taskId,
+            agentId: hookAgentId,
+            // T12071: `SpawnResult.status` and `SubagentStopPayload.status` are
+            // DIFFERENT vocabularies — 'completed' vs 'complete', and spawn also
+            // emits 'pending'/'running'/'cancelled', none of which the payload
+            // union admits.
+            status: toSubagentStopStatus(result.status),
+            metadata: { instanceId: result.instanceId },
+          })
+          .catch(() => {
+            /* Hooks are best-effort — never block spawn */
+          });
+      } catch {
+        /* Hook registry unavailable — non-fatal */
+      }
     }
 
     // ---- T9548 — Auto-invoke worktree-complete post-success. --------------
@@ -1091,7 +1184,14 @@ export async function orchestrateSpawnExecute(
       './worktree-complete.js'
     );
     const envDisabled = integrationDisabledReason(false);
-    if (autoComplete && result.exitCode === 0 && envDisabled !== undefined) {
+    if (autoComplete && workerTracked) {
+      // T14359 — a tracked worker is still running (the adapter's exitCode
+      // is only a placeholder), so there is nothing to integrate yet.
+      autoCompleteOutcome = {
+        ran: false,
+        reason: 'worker still running — not integrated at spawn',
+      };
+    } else if (autoComplete && result.exitCode === 0 && envDisabled !== undefined) {
       recordAutoCompleteEnvSkip(taskId, cwd);
       autoCompleteOutcome = { ran: false, reason: envDisabled };
     } else if (autoComplete && result.exitCode === 0) {
@@ -1162,6 +1262,8 @@ export async function orchestrateSpawnExecute(
       },
     };
   } catch (error) {
+    // T14359 — the spawn threw, so the pre-spawn record's worker never ran.
+    if (pendingWorker) await abandonWorkerRecord(pendingWorker, cwd).catch(() => undefined);
     return {
       success: false,
       error: {
@@ -1525,8 +1627,8 @@ export async function orchestrateSpawn(
     // Worktrees are created by default for every spawn. The `--no-worktree`
     // flag opts out and logs an audit entry so the choice is traceable.
     //
-    // When provisioning fails (non-git repo, git not installed, etc.) we
-    // degrade gracefully — spawn continues without isolation, same as T1118.
+    // T1878 / T14358 — a failed provision refuses the spawn: this path calls
+    // `resolveIsolation` fail-closed, so no agent runs in the project root.
     //
     // T10078 — `--resume` skips provisioning entirely and attaches to an
     // existing locked worktree at the canonical XDG path.
@@ -1653,27 +1755,34 @@ export async function orchestrateSpawn(
       // T9545: the spawnWorktree call is the historical hang site — wrap it
       // in the budget supervisor so a wedged git child cannot block forever.
       spawnLogger.info({ taskId, step: 'provision-worktree' }, 'provisioning worktree');
-      try {
-        // T9226 — spawn-clone-exclude: exclude heavyweight artefacts to keep
-        // the worktree lean (T9337 removed per-task verifier exclusions).
-        const { SPAWN_CLONE_EXCLUDE_PATTERNS } = await import('../orchestration/spawn-prompt.js');
-        sdkWorktreeResult = await raceAgainstAbort(
-          spawnWorktree(root, {
-            taskId,
-            spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
-            ...(spawnScope ? { spawnScope } : {}),
-            // T12506 — recorded in the per-task worktree lock.
-            holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
-            // T13425 — an ended holder session releases the lock.
-            sessionProbe: await resolveLockSessionProbe(root, taskId),
-            ...(noInstall ? { skipInstall: true } : {}),
-            // T14027 — only the base commit differs from a normal spawn.
-            ...(worktreeBase !== undefined ? { baseRef: worktreeBase } : {}),
-          }),
-          budgetCtrl.signal,
-          'provision-worktree',
-        );
-        auditWorktreeLockReclaim(root, taskId, sdkWorktreeResult.path, sdkWorktreeResult.lock);
+      // T9226 — spawn-clone-exclude: exclude heavyweight artefacts to keep
+      // the worktree lean (T9337 removed per-task verifier exclusions).
+      const { SPAWN_CLONE_EXCLUDE_PATTERNS } = await import('../orchestration/spawn-prompt.js');
+      const isolationResolution = await resolveIsolation(
+        async () => {
+          const provisioned = await raceAgainstAbort(
+            spawnWorktree(root, {
+              taskId,
+              spawnCloneExclude: SPAWN_CLONE_EXCLUDE_PATTERNS,
+              ...(spawnScope ? { spawnScope } : {}),
+              // T12506 — recorded in the per-task worktree lock.
+              holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+              // T13425 — an ended holder session releases the lock.
+              sessionProbe: await resolveLockSessionProbe(root, taskId),
+              ...(noInstall ? { skipInstall: true } : {}),
+              // T14027 — only the base commit differs from a normal spawn.
+              ...(worktreeBase !== undefined ? { baseRef: worktreeBase } : {}),
+            }),
+            budgetCtrl.signal,
+            'provision-worktree',
+          );
+          auditWorktreeLockReclaim(root, taskId, provisioned.path, provisioned.lock);
+          return provisioned;
+        },
+        { failClosed: true },
+      );
+      if (isolationResolution.kind === 'isolated') {
+        sdkWorktreeResult = isolationResolution.result;
         worktreePath = sdkWorktreeResult.path;
         worktreeBranch = sdkWorktreeResult.branch;
         // T9545 — record for the timeout supervisor so auto-cleanup can target
@@ -1697,7 +1806,8 @@ export async function orchestrateSpawn(
         appliedWorktreeExcludePatterns = extResult.appliedExcludePatterns ?? [
           ...SPAWN_CLONE_EXCLUDE_PATTERNS,
         ];
-      } catch (wtErr) {
+      } else {
+        const wtErr = isolationResolution.error;
         const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
         getLogger('engine:orchestrate').error(
           { taskId, err: wtErr },

@@ -25,7 +25,7 @@ import { OpenAiSdkSpawnProvider } from './spawn.js';
  * Bridges CLEO's adapter system with the Vercel AI SDK:
  * - Spawn: Launches agents via the SDK with CLEO-native handoff topology
  * - Install: Manages AGENTS.md @-references and .openai/ config directory
- * - Tracing: Default-on conduit span persistence via `CleoConduitTraceProcessor`
+ * - Tracing: span dispatch to processors registered via `registerTraceProcessor`
  *
  * @remarks
  * Handoff topology is CLEO-owned (see `handoff.ts`): lead agents delegate to

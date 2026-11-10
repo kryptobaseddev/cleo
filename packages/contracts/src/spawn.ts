@@ -5,7 +5,10 @@
  * @task T9214 — orchestrator-defer waiver field (W4 UX hardening)
  * @task T9215 — DelegateTaskEnvelope discriminated-union type (W1 wiring)
  * @task T11998 — per-session suite containment (AgentSuiteOwnership)
+ * @task T14357 — lead tool strip (leadToolStrip / leadDeniedTools)
  */
+
+import type { LeadDeniedTool, LeadToolStripSupport } from './operations/orchestrate.js';
 
 // =============================================================================
 // Agent suite ownership handle (T11998 — suite containment)
@@ -78,6 +81,14 @@ export interface AgentSuiteOwnership {
 }
 
 export interface AdapterSpawnProvider {
+  /**
+   * Whether this provider removes {@link SpawnContext.leadDeniedTools} from a
+   * spawned lead. Absent means `'unsupported'`: a lead spawn is refused with
+   * `E_LEAD_TOOLS_UNSTRIPPED` (lead/worker split, epic T14351).
+   *
+   * @task T14357
+   */
+  readonly leadToolStrip?: LeadToolStripSupport;
   canSpawn(): Promise<boolean>;
   spawn(context: SpawnContext): Promise<SpawnResult>;
   listRunning(): Promise<SpawnResult[]>;
@@ -104,6 +115,17 @@ export interface SpawnContext {
    * @task T9214
    */
   scope?: 'orchestrator-defer';
+  /**
+   * Tools to remove from the spawned agent. Set only for a lead spawn under
+   * the lead/worker split (`orchestrate.leadWorker.v1`), normally to
+   * `LEAD_DENIED_TOOLS`. Absent or empty for a worker spawn, whose tool set is
+   * unchanged. A provider whose {@link AdapterSpawnProvider.leadToolStrip} is
+   * not `'enforced'` refuses such a spawn with `E_LEAD_TOOLS_UNSTRIPPED`.
+   *
+   * @task T14357
+   * @epic T14351
+   */
+  leadDeniedTools?: readonly LeadDeniedTool[];
 }
 
 export interface SpawnResult {

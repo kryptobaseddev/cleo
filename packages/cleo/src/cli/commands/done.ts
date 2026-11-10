@@ -199,6 +199,11 @@ export const doneCommand = defineCommand({
       description:
         'Acknowledge that the same evidence atom (e.g. ci:<pr>) is applied to >3 tasks in this session, as `cleo verify --shared-evidence` does (T14072). Without it the reuse warns W_EVIDENCE_AUDIT_MISS; under CLEO_STRICT_EVIDENCE=1 it is refused.',
     },
+    report: {
+      type: 'string',
+      description:
+        "The spawned worker's report, verbatim (T14361). Refused before anything is recorded when it has no conclusion: or proof: line (E_WORKER_REPORT_PROOF) or runs over 100 words (E_VALIDATION; detail belongs in the PR body)",
+    },
   },
   async run({ args: raw }) {
     if (raw['from-merge'] !== undefined) {
@@ -211,6 +216,15 @@ export const doneCommand = defineCommand({
       return;
     }
     const args = { ...raw, taskId: raw.taskId };
+    if (typeof args.report === 'string') {
+      const { checkWorkerReport } = await import('@cleocode/core/orchestrate/worker-report');
+      const check = checkWorkerReport(args.report);
+      if (!check.ok) {
+        cliError(check.message, check.code, { fix: check.fix });
+        process.exitCode = check.exitCode;
+        return;
+      }
+    }
     const { parseDoneOptions, planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
     const parsed = parseDoneOptions(args.satisfies, args.pr, args.commit);
     if (!parsed.ok) {

@@ -668,17 +668,6 @@ const MINIMAL_PARAMS: Record<string, Record<string, Record<string, unknown>>> = 
     archive: { stickyId: 'stk1' },
     purge: { stickyId: 'stk1' },
   },
-  conduit: {
-    // T964: conduit promoted to first-class domain. Handler reaches agent
-    // registry on all ops; supplying agentId keeps the test in the happy
-    // resolution path. Actual transport calls are already short-circuited by
-    // the empty @cleocode/core/internal mocks above.
-    status: { agentId: 'agent-a' },
-    peek: { agentId: 'agent-a', limit: 5 },
-    start: { agentId: 'agent-a' },
-    stop: {},
-    send: { to: 'agent-b', content: 'hello', agentId: 'agent-a' },
-  },
   // T1726: sentient and release promoted to canonical domains (SDK surface parity)
   sentient: {
     'propose.diff': { id: 'P001' },
@@ -775,8 +764,6 @@ describe('Registry-Handler Parity (T5671)', () => {
       'sticky',
       // T797: docs domain added (attachment management)
       'docs',
-      // T964: conduit promoted to first-class domain (supersedes ADR-042)
-      'conduit',
       // T1726: sentient and release promoted to canonical domains (SDK surface parity)
       'sentient',
       'release',

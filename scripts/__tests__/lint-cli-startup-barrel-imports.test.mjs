@@ -82,7 +82,8 @@ describe('startup barrel ratchet reaches required CI', () => {
     expect(document.on.pull_request.paths).toBeUndefined();
     expect(document.jobs[JOB].if).toBeUndefined();
     expect(document.jobs[JOB]['continue-on-error']).toBeUndefined();
-    expect(document.jobs.ci.name).toBe('CI');
+    // T14385: the aggregate reports `CI` on every run but a draft PR's.
+    expect(document.jobs.ci.name).toMatch(/\|\| 'CI' \}\}$/);
     expect(document.jobs.ci.needs).toContain(JOB);
     expect(gateStep().run).not.toMatch(/--(?:update-baseline|baseline)/);
   });
