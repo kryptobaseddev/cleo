@@ -27,11 +27,11 @@ import {
 } from '@cleocode/contracts/operations/orchestrate.js';
 
 /**
- * Characters refused in any argv word: command separators, redirection,
- * backticks and line breaks. No argv word ever reaches a shell (the runner
- * uses `execFile` with `shell: false`), so `$` and `\` stay usable inside
- * values; these are refused only so a word cannot become a command if a
- * callee ever re-evaluates it.
+ * Characters refused in the binary and command words: command separators,
+ * redirection, backticks and line breaks. Positionals and flag values are
+ * never checked: the runner uses `execFile` with `shell: false`, so no value
+ * ever reaches a shell, and verdict or comment text such as `A & B; x > y`
+ * passes through verbatim.
  */
 const SHELL_METACHARACTERS = /[;&|`<>\n\r\0]/;
 
@@ -59,6 +59,10 @@ export interface LeadCommandRunOptions {
   readonly timeoutMs?: number;
 }
 
+function metacharacters(word: string): LeadCommandCheck {
+  return { allowed: false, reason: `shell metacharacters are refused: ${JSON.stringify(word)}` };
+}
+
 function isBinary(word: string): word is LeadCommandBinary {
   return Object.hasOwn(LEAD_COMMAND_ALLOWLIST, word);
 }
@@ -67,8 +71,8 @@ function isBinary(word: string): word is LeadCommandBinary {
  * Parse the words after `rule.verb` against the rule, allow-only: positional
  * words first, then listed flags only. Refuses an unknown flag, any `--no-*`
  * form, a value on a boolean flag, a missing or swallowed value (the next word
- * starts with `-`), a repeated flag, a word after a boolean flag, and too many
- * positionals. A required flag counts only when the parse set it.
+ * starts with `-`), a repeated flag, a word after a boolean flag, too many
+ * positionals, and a non-numeric positional where the rule wants a number. A required flag counts only when the parse set it.
  *
  * @returns `null` when allowed, else the reason.
  */
@@ -87,6 +91,9 @@ function parseRule(
       if (inFlags) return `"${word}" follows a flag that takes no value; put positionals first`;
       positionals++;
       if (positionals > (rule.positionals ?? 0)) return `too many positional words for "${cmd}"`;
+      if (rule.numericPositionals && !/^[0-9]+$/.test(word)) {
+        return `"${cmd}" takes only a number, not ${JSON.stringify(word)}`;
+      }
       continue;
     }
     inFlags = true;
@@ -133,17 +140,19 @@ export function checkLeadCommand(argv: readonly string[]): LeadCommandCheck {
   if (!Array.isArray(argv) || argv.length === 0 || !argv.every((w) => typeof w === 'string')) {
     return { allowed: false, reason: 'argv must be a non-empty array of strings' };
   }
-  const bad = argv.find((w) => SHELL_METACHARACTERS.test(w));
-  if (bad !== undefined) {
-    return { allowed: false, reason: `shell metacharacters are refused: ${JSON.stringify(bad)}` };
-  }
   const [bin, ...args] = argv;
+  // Only the binary and command words are checked; see SHELL_METACHARACTERS.
+  const bad = [bin, ...args.slice(0, 2)].find(
+    (w, i) => w !== undefined && (i === 0 || !w.startsWith('-')) && SHELL_METACHARACTERS.test(w),
+  );
   if (bin === undefined || !isBinary(bin)) {
+    if (bad !== undefined) return metacharacters(bad);
     return { allowed: false, reason: `only cleo and gh may run, not ${JSON.stringify(bin)}` };
   }
   const rules = LEAD_COMMAND_ALLOWLIST[bin];
   const rule = rules.find((r) => r.verb.every((word, i) => args[i] === word));
   if (rule === undefined) {
+    if (bad !== undefined) return metacharacters(bad);
     const lead = args.findIndex((w) => w.startsWith('-'));
     const words = lead === -1 ? args : args.slice(0, lead);
     const flagFirst =
@@ -220,9 +229,9 @@ const RUNNER_TOOL = {
   description:
     'Run one allow-listed cleo or gh command. Pass argv as an array of words (no shell), ' +
     'command words first, then positionals, then listed flags (--flag=value for a value starting with "-"; no --no-* forms): ' +
-    'cleo orchestrate <read/plan/dispatch sub-verb>, cleo show/find/list/briefing, cleo review packet|check|verdict, ' +
+    'cleo orchestrate <read/plan/dispatch sub-verb>, cleo show/find/list, cleo review packet|check|verdict, ' +
     'cleo done --from-merge <pr> --dry-run, cleo memory find|fetch, cleo session status, cleo decide ask, ' +
-    'cleo merge train; gh pr view|list|checks|diff, gh pr comment --body <text>, gh run list|view. Anything else is refused.',
+    'cleo merge train; gh pr view|list|checks|diff <number>, gh pr comment <number> --body <text>, gh run list, gh run view <id>. Anything else is refused.',
   inputSchema: {
     type: 'object',
     properties: {

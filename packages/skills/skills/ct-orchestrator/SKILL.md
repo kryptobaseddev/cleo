@@ -264,10 +264,12 @@ first, then positionals, then flags. Each allowed command accepts only its liste
 `--flag=value` for a value starting with `-`; `--no-*` forms are refused. Allowed: the
 `orchestrate` read, plan and dispatch sub-verbs (not `worktree-complete`, `approve`, `reject`,
 `prune`, `ivtr`, `bootstrap` or `conduit-*`), `show`, `find`, `list`, `review packet|check|verdict`,
-`done --from-merge <pr> --dry-run`, `memory find|fetch`, `briefing`, `session status`,
+`done --from-merge <pr> --dry-run`, `memory find|fetch`, `session status`,
 `decide ask`, `merge train`; `gh pr view|list|checks|diff`, `gh pr comment --body <text>`,
-`gh run list|view` (no `--repo`, `--web`, `--watch` or `--body-file`). The lead merges only
-through `cleo merge train`; pushes and edits go to a worker.
+`gh run list|view`, each given only a numeric PR or run id (no URL, `--repo`, `--web`,
+`--watch` or `--body-file`). Command and flag lists are checked against the CLI manifest, so
+every rule is a leaf command; `briefing` is not on the list because it has a subcommand.
+The lead merges only through `cleo merge train`; pushes and edits go to a worker.
 
 **Attached documents are budgeted (T14190).** A spawn prompt's `## Task Documents` section
 inlines the task's attached text documents up to 16,000 characters of prose

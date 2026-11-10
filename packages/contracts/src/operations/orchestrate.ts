@@ -952,6 +952,11 @@ export interface LeadCommandRule {
   readonly flags?: Readonly<Record<string, LeadFlagArity>>;
   /** Most positional words allowed after the path. @defaultValue 0 */
   readonly positionals?: number;
+  /**
+   * Positional words must be plain numbers (a PR number or run id), so a URL
+   * cannot point the command at another repository.
+   */
+  readonly numericPositionals?: boolean;
   /** Flags the parse must show set (a boolean set true, a value flag given a value). */
   readonly requireFlags?: readonly string[];
 }
@@ -982,8 +987,10 @@ export const LEAD_CLEO_GLOBAL_FLAGS: Readonly<Record<string, LeadFlagArity>> = {
  * PRs green on their exact head and reviewed per AC. Nothing here edits files,
  * pushes or answers an owner gate; anything not listed is refused.
  *
- * Each rule names a leaf command, so a flag can never sit in front of the
- * subcommand and change which one runs. `orchestrate` lists only its
+ * Each rule names a leaf command with no subcommands (checked against the
+ * CLI command manifest), so neither a flag nor a flag value can select a
+ * different subcommand; `briefing` is absent because it has one (`inject`).
+ * `gh` positionals must be numbers, so a URL cannot reach another repo. `orchestrate` lists only its
  * read/plan/dispatch sub-verbs: never `worktree-complete` (merges),
  * `approve`/`reject` (owner gate), `lead-runner`, `prune`, `ivtr`,
  * `bootstrap` or `conduit-*`. `gh` takes no `--repo`, `--web`, `--watch`,
@@ -1053,7 +1060,7 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
     {
       verb: ['show'],
       positionals: 50,
-      flags: { '--history': 'boolean', '--ivtr-history': 'boolean', '--relations': 'boolean' },
+      flags: { '--history': 'boolean', '--relations': 'boolean' },
     },
     {
       verb: ['find'],
@@ -1126,20 +1133,6 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
       },
     },
     { verb: ['memory', 'fetch'], positionals: 50 },
-    {
-      verb: ['briefing'],
-      flags: {
-        '--scope': 'value',
-        '--max-next': 'value',
-        '--max-bugs': 'value',
-        '--max-blocked': 'value',
-        '--max-epics': 'value',
-        '--strict': 'boolean',
-        '--debug': 'boolean',
-        '--with-profile': 'boolean',
-        '--memory-detail': 'boolean',
-      },
-    },
     { verb: ['session', 'status'] },
     {
       verb: ['decide', 'ask'],
@@ -1157,6 +1150,7 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
     {
       verb: ['pr', 'view'],
       positionals: 1,
+      numericPositionals: true,
       flags: { '--json': 'value', '--jq': 'value', '--template': 'value', '--comments': 'boolean' },
     },
     {
@@ -1177,16 +1171,19 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
     {
       verb: ['pr', 'checks'],
       positionals: 1,
+      numericPositionals: true,
       flags: { '--json': 'value', '--jq': 'value', '--required': 'boolean' },
     },
     {
       verb: ['pr', 'diff'],
       positionals: 1,
+      numericPositionals: true,
       flags: { '--name-only': 'boolean', '--patch': 'boolean', '--color': 'value' },
     },
     {
       verb: ['pr', 'comment'],
       positionals: 1,
+      numericPositionals: true,
       flags: { '--body': 'value' },
       requireFlags: ['--body'],
     },
@@ -1207,6 +1204,7 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
     {
       verb: ['run', 'view'],
       positionals: 1,
+      numericPositionals: true,
       flags: {
         '--log': 'boolean',
         '--log-failed': 'boolean',

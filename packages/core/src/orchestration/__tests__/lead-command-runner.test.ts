@@ -95,6 +95,7 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
     [['cleo', 'show', 'T1', '--unknown']],
     [['cleo', 'show', '--full', 'T1']],
     [['cleo', 'briefing', 'inject']],
+    [['cleo', 'briefing', '--scope', 'inject']],
     [['cleo', 'merge', 'train', '--execute', '--execute']],
     [['cleo', 'merge', 'train', '--', 'x']],
     [['cleo', 'show', 'T1', '-v']],
@@ -114,16 +115,40 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
   });
 
   it.each([
-    ['T1; rm -rf ~'],
-    ['`id`'],
-    ['a & b'],
-    ['a|b'],
-    ['a && b'],
-    ['a > /tmp/x'],
-    ['a\nb'],
-  ])('refuses shell metacharacters in %j', async (word) => {
-    const result = await runLeadCommand(['cleo', 'find', word], { env });
+    [['cleo; rm -rf ~', 'show', 'T1']],
+    [['cleo', 'show;id', 'T1']],
+    [['cleo', '`id`']],
+    [['cleo', 'review', 'verdict|x', '12']],
+    [['gh', 'pr&&id', 'view', '12']],
+    [['gh', 'pr', 'view>/tmp/x', '12']],
+    [['cleo', 'show\nid', 'T1']],
+  ])('refuses shell metacharacters in the binary or command words: %j', async (argv) => {
+    const result = await runLeadCommand(argv, { env });
     expect(result).toMatchObject({ allowed: false, reason: expect.stringMatching(/metachar/) });
+  });
+
+  it('passes metacharacters in values and positionals verbatim (no shell)', () => {
+    for (const argv of [
+      ['cleo', 'review', 'verdict', '12', '--task', 'T1', '--reason', 'A & B; x > y'],
+      ['cleo', 'find', 'a|b `c` $(d)'],
+      ['gh', 'pr', 'comment', '12', '--body', 'line one\nline two -> ok; done & <more>'],
+    ]) {
+      expect(checkLeadCommand(argv)).toEqual({ allowed: true });
+    }
+  });
+
+  it.each([
+    [['gh', 'pr', 'comment', 'https://github.com/other/repo/pull/1', '--body', 'x']],
+    [['gh', 'pr', 'view', 'https://github.com/other/repo/pull/1']],
+    [['gh', 'pr', 'checks', 'other/repo#1']],
+    [['gh', 'pr', 'diff', 'some-branch']],
+    [['gh', 'run', 'view', 'https://github.com/other/repo/actions/runs/1']],
+    [['gh', 'run', 'view', '99abc']],
+  ])('gh takes only a numeric PR or run id: refuses %j', (argv) => {
+    expect(checkLeadCommand(argv)).toMatchObject({
+      allowed: false,
+      reason: expect.stringMatching(/only a number/),
+    });
   });
 
   it('never ran the fake for a refused call', () => {
@@ -159,7 +184,6 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
       ['cleo', 'done', '--from-merge', '12', '--dry-run'],
       ['cleo', 'done', '--dry-run', '--from-merge=12'],
       ['cleo', 'memory', 'fetch', 'O-1', 'D-2'],
-      ['cleo', 'briefing', '--max-next', '5'],
       ['cleo', 'decide', 'ask', '--question', 'merge?', '--state', '{"a":1}'],
       ['gh', 'pr', 'view', '12', '--json', 'state,headRefOid', '--jq', '.state'],
       ['gh', 'pr', 'list', '--state', 'open', '--json', 'number'],
