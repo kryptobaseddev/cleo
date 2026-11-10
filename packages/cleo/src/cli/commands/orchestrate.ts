@@ -23,6 +23,7 @@
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
  *   cleo orchestrate worker-exit          — worker completion signal (SessionEnd hook)
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
+ *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
  *
  * @task T4466, T478, T483, T811, T964
  * @epic T4454
@@ -1044,6 +1045,26 @@ const pendingCommand = defineCommand({
 });
 
 /**
+ * cleo orchestrate lead-runner — serve the lead command runner over MCP stdio.
+ *
+ * A no-hands lead has no Bash; its agent definition starts this server and
+ * runs allow-listed cleo and gh verbs through its one tool (T14374).
+ */
+const leadRunnerCommand = defineCommand({
+  meta: {
+    name: 'lead-runner',
+    description:
+      'Serve the lead command runner (MCP stdio): runs allow-listed cleo and gh argv, no shell',
+  },
+  async run() {
+    const { serveLeadCommandRunner } = await import(
+      '@cleocode/core/orchestration/lead-command-runner'
+    );
+    await serveLeadCommandRunner({ input: process.stdin, output: process.stdout });
+  },
+});
+
+/**
  * Root orchestrate command group — all 25 multi-agent orchestration operations.
  *
  * Dispatches to the `orchestrate` and `pipeline` dispatch domains.
@@ -1083,6 +1104,8 @@ export const orchestrateCommand = defineCommand({
     approve: approveCommand,
     reject: rejectCommand,
     pending: pendingCommand,
+    // T14374: no-hands lead command runner
+    'lead-runner': leadRunnerCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
