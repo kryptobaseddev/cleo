@@ -1090,6 +1090,26 @@
       "description": "Orchestration settings (T14356). contextThresholds moved here from the legacy orchestrator key (T14375).",
       "additionalProperties": false,
       "properties": {
+        "workerPolicy": {
+          "type": "object",
+          "description": "Project worker instructions and verification placement; explicit owner instructions win and evidence remains mandatory.",
+          "additionalProperties": false,
+          "properties": {
+            "verification": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["full", "local"],
+              "properties": {
+                "full": { "enum": ["local", "ci"], "description": "Where build, full tests, whole-project lint and typecheck run." },
+                "local": { "enum": ["single-file", "affected"], "description": "Scope of local iteration checks." }
+              }
+            },
+            "instructions": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "pattern": "\\S" }
+            }
+          }
+        },
         "leadMailbox": {
           "type": "object",
           "description": "Project lead AgentMBX mailbox, recorded by cleo init with leadWorker.v1 on and agentmbx installed (T14379).",

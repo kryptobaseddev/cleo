@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.6.0
+  version: 4.7.0
   tier: core
   install: harness
   covers:
@@ -481,7 +481,18 @@ deadlock), and never raise heap or worker counts (`NODE_OPTIONS`,
 
 A spawn prompt names the spawned project's own commands, read from its
 `.cleo/project-context.json` (`build.command`, `testing.command`), never
-another project's; lint and typecheck go through `tool:lint;tool:typecheck`.
+another project's. `orchestrate.workerPolicy` in the project's `.cleo/config.json`
+places full verification locally or in required CI and scopes local iteration
+checks; the composer includes the same resolved policy and project instructions
+at every tier and for every harness/backend. For example,
+`cleo config set orchestrate.workerPolicy '{"verification":{"full":"ci","local":"single-file"},"instructions":["Follow AGENTS.md"]}' --type json`
+requires single-file local tests via `cleo run` and changed-file formatting/lint;
+build, full tests, whole-project lint and typecheck run in required CI. No policy
+preserves existing behavior; malformed policy refuses dispatch with a repair
+command. Explicit owner instructions remain authoritative. Placement never
+waives evidence: `ci:<pr>` still needs merged green CI and `evidence.ciSatisfies`;
+unproven gates stay open. With local full verification, lint and typecheck go
+through `tool:lint;tool:typecheck`.
 Its closure block leads with PR work (`Closes: <id> AC…`, a non-author verdict,
 the merge sweep) and gives `cleo done <id> --plan` for no-PR work (T14303).
 

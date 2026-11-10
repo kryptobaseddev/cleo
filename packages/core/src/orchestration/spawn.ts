@@ -37,6 +37,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentSpawnCapability, AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
+import type { ProjectWorkerPolicy } from '@cleocode/contracts/config/worker-policy.js';
 import { ThinAgentViolationError } from '@cleocode/contracts/errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { resolveAgent } from '../store/agent-resolver.js';
@@ -63,6 +64,7 @@ import {
   type ThinAgentEnforcementMode,
   type ThinAgentResult,
 } from './thin-agent.js';
+import { resolveProjectWorkerPolicy } from './worker-policy.js';
 
 // ============================================================================
 // Types
@@ -287,6 +289,8 @@ export interface SpawnPayload {
    * (Claude, GPT-4, Gemini) that accepts a system-prompt string.
    */
   prompt: string;
+  /** Resolved project worker rules shared by every execution backend. */
+  workerPolicy?: ProjectWorkerPolicy;
   /**
    * Memory retrieval bundle assembled by `buildRetrievalBundle` (T1260 PSYCHE E3).
    *
@@ -561,6 +565,7 @@ export async function composeSpawnPayload(
   options: ComposeSpawnPayloadOptions = {},
 ): Promise<SpawnPayload> {
   const projectRoot = resolveOrCwd(options.projectRoot);
+  const workerPolicy = await resolveProjectWorkerPolicy(projectRoot);
 
   // 1. Agent id resolution.
   //
@@ -850,6 +855,7 @@ export async function composeSpawnPayload(
     projectRoot,
     sessionId: options.sessionId ?? null,
     leanLevel,
+    workerPolicy,
     harnessHint,
     ...(options.askProviderId !== undefined ? { askProviderId: options.askProviderId } : {}),
     skipCleoInjectionEmbed: !shouldEmbedInjection,
@@ -903,6 +909,7 @@ export async function composeSpawnPayload(
     resolvedAgent,
     atomicity,
     prompt: promptResult.prompt,
+    ...(workerPolicy ? { workerPolicy } : {}),
     ...(retrievalBundle !== undefined ? { retrievalBundle } : {}),
     effectiveSkills,
     ...(effectiveTools !== undefined ? { effectiveTools } : {}),

@@ -22,6 +22,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { OrchestrateSpawnResult } from '@cleocode/contracts/operations/orchestrate.js';
 import { composeSpawnForTask, orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -274,6 +275,48 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(data.atomicity.allowed).toBe(true);
     // Prompt contains the task id so we know the right task was rendered.
     expect(data.prompt).toContain('T9323');
+  });
+
+  it.each([
+    0, 1, 2,
+  ] as const)('tier %i keeps native composition and the Orca prompt handoff policy identical', async (tier) => {
+    await writeFile(
+      join(TEST_ROOT, '.cleo', 'config.json'),
+      JSON.stringify({
+        orchestrate: {
+          workerPolicy: {
+            verification: { full: 'ci', local: 'single-file' },
+            instructions: ['Project-specific worker instruction.'],
+          },
+        },
+      }),
+    );
+    // Native execution composes here; Orca consumes the prompt-only spawn envelope.
+    const native = await composeSpawnForTask('T9321', TEST_ROOT, { tier });
+    const handoff = await orchestrateSpawn('T9321', undefined, TEST_ROOT, tier, true);
+    expect(handoff.success).toBe(true);
+    const orcaPrompt = (handoff.data as OrchestrateSpawnResult).prompt;
+    const policyBlock = (prompt: string) => prompt.split('## Project Worker Policy')[1];
+    expect(policyBlock(native.prompt)).toBeDefined();
+    expect(policyBlock(orcaPrompt)).toBe(policyBlock(native.prompt));
+    for (const prompt of [native.prompt, orcaPrompt]) {
+      expect(prompt).toContain('Project-specific worker instruction.');
+      expect(prompt).toContain('required CI only');
+      expect(prompt).not.toContain(
+        'cleo verify T9321 --gate qaPassed --evidence "tool:lint;tool:typecheck"',
+      );
+    }
+  });
+
+  it('refuses malformed policy in the handoff envelope with its repair command', async () => {
+    await writeFile(
+      join(TEST_ROOT, '.cleo', 'config.json'),
+      JSON.stringify({ orchestrate: { workerPolicy: { verification: { full: 'skip' } } } }),
+    );
+    const result = await orchestrateSpawn('T9321', undefined, TEST_ROOT, 0, true);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_WORKER_POLICY_INVALID');
+    expect(result.error?.message).toContain('cleo config set orchestrate.workerPolicy');
   });
 
   describe('T14379 — lead mailbox defaults from project config', () => {
