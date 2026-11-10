@@ -35,6 +35,7 @@ import {
 import { getCleoHome } from '@cleocode/paths';
 import { GLOBAL_CONFIG_FILE_MODE } from '../llm/global-config-migration.js';
 import { atomicWriteJson } from '../store/atomic.js';
+import { migrateLegacyConfigKeys } from './legacy-keys.js';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types
@@ -167,6 +168,17 @@ async function readJsonOrNull(path: string): Promise<Record<string, unknown> | n
 }
 
 /**
+ * Read a CleoConfig file with its legacy keys migrated in memory (T14375).
+ *
+ * Same contract as {@link readJsonOrNull}; the file itself is not rewritten.
+ */
+async function readConfigJsonOrNull(path: string): Promise<Record<string, unknown> | null> {
+  const parsed = await readJsonOrNull(path);
+  if (parsed !== null) migrateLegacyConfigKeys(parsed);
+  return parsed;
+}
+
+/**
  * Narrow an unknown thrown value to NodeJS.ErrnoException.
  */
 function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
@@ -250,11 +262,11 @@ export async function resolveCleoConfig(opts: {
   const { scope, projectRoot } = opts;
 
   if (scope === 'global') {
-    return (await readJsonOrNull(resolveGlobalConfigPath())) ?? {};
+    return (await readConfigJsonOrNull(resolveGlobalConfigPath())) ?? {};
   }
   if (scope === 'project') {
     return (
-      (await readJsonOrNull(
+      (await readConfigJsonOrNull(
         resolveProjectFilePath(projectRoot, CLEO_CONFIG_MANIFEST.path.replace('.cleo/', '')),
       )) ?? {}
     );
@@ -287,10 +299,10 @@ async function loadEntryFile(
   projectRoot: string,
 ): Promise<Record<string, unknown> | null> {
   if (entry.scope === 'global') {
-    return readJsonOrNull(resolveGlobalConfigPath());
+    return readConfigJsonOrNull(resolveGlobalConfigPath());
   }
   const fileName = entry.path.replace(/^\.cleo\//, '');
-  return readJsonOrNull(resolveProjectFilePath(projectRoot, fileName));
+  return readConfigJsonOrNull(resolveProjectFilePath(projectRoot, fileName));
 }
 
 /**

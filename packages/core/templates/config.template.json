@@ -92,7 +92,7 @@
     "suppressDuration": 0
   },
 
-  "orchestrator": {
+  "orchestrate": {
     "contextThresholds": {
       "warning": 70,
       "critical": 80

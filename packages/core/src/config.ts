@@ -11,10 +11,11 @@
 import { existsSync } from 'node:fs';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { migrateLegacyConfigKeys } from './config/legacy-keys.js';
+import { CleoError } from './errors.js';
 // Import from the dependency-free leaf (NOT ./llm/role-resolver.js) so this
 // module's eager DEFAULTS read cannot enter role-resolver's circular import
 // chain and hit a temporal-dead-zone ReferenceError. See llm/fallback-model.ts.
-import { CleoError } from './errors.js';
 import { IMPLICIT_FALLBACK_MODEL } from './llm/fallback-model.js';
 import { GLOBAL_CONFIG_FILE_MODE } from './llm/global-config-migration.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
@@ -275,12 +276,14 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
   // Layer 1: Global config
   const globalConfig = await readJson<Record<string, unknown>>(getGlobalConfigPath());
   if (globalConfig) {
+    migrateLegacyConfigKeys(globalConfig);
     merged = deepMerge(merged, globalConfig);
   }
 
   // Layer 2: Project config
   const projectConfig = await readJson<Record<string, unknown>>(getConfigPath(cwd));
   if (projectConfig) {
+    migrateLegacyConfigKeys(projectConfig);
     // Map pinoLogging config key to the logging section used by the pino logger factory
     if (projectConfig.pinoLogging && typeof projectConfig.pinoLogging === 'object') {
       merged.logging = deepMerge(

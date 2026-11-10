@@ -112,6 +112,14 @@ describe('resolveCleoConfig', () => {
     expect(result).toEqual({ a: 2, b: 3 });
   });
 
+  it('legacy orchestrator.contextThresholds resolves as orchestrate.contextThresholds (T14375)', async () => {
+    writeGlobalConfig({ orchestrator: { contextThresholds: { warning: 60, critical: 75 } } });
+    writeProjectConfig({ orchestrator: { contextThresholds: { critical: 90 } } });
+    const merged = await resolveCleoConfig({ scope: 'merged', projectRoot });
+    expect(merged).toEqual({ orchestrate: { contextThresholds: { warning: 60, critical: 90 } } });
+    expect(await getConfigValue('orchestrate.contextThresholds.warning', { projectRoot })).toBe(60);
+  });
+
   it('missing files: returns {} for both global and project on missing', async () => {
     // no files written at all
     expect(await resolveCleoConfig({ scope: 'global', projectRoot })).toEqual({});
