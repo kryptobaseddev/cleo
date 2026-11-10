@@ -118,6 +118,7 @@ from a checkout. Publishing it to an Orca catalog is a separate owner decision.
 
 ```sh
 pnpm exec tsc -b packages/adapters/orca-plugin             # type-checks every file; also part of the root `tsc -b`
+pnpm biome check packages/adapters/orca-plugin/src         # lint and format, as CI runs it
 pnpm exec vitest run packages/adapters/src/__tests__/orca-plugin.test.ts packages/adapters/src/__tests__/orca-plugin-panel.test.ts
 orca plugin validate packages/adapters/orca-plugin --json
 orca plugin check packages/adapters/orca-plugin --json     # renders every scenario in src/panel.check.ts
@@ -129,14 +130,19 @@ CI has no Orca, so the plugin is built to be checked without it:
   snapshot of the typings Orca 1.4.255 generates (the `engines.orca` floor), not against the local
   `.orca/types`. CI's Type Check runs it through the root `tsc -b`. When the floor rises, refresh
   the snapshot as that folder's README describes.
-- **Tests.** Everything that decides something has no Orca import and is tested by the two vitest
-  files above, which CI runs: the CLI runner against real subprocesses (Node stands in for `cleo`),
-  the workspace policy, the envelope mapping, the worker handlers and the panel state. The plugin
+- **Lint.** `biome.json` includes `packages/adapters/orca-plugin/src`, `.ts` and `.tsx`.
+- **Tests.** Two vitest files in `packages/adapters/src/__tests__/`, which CI runs. The plugin
   folder holds no `*.test.*` file, because Orca's own test kit ships only inside the Orca app.
-- **Rendering.** `orca plugin check` draws each scenario with Orca's runtime and reports what
-  Orca would refuse or drop. It runs this folder's code on your machine, outside Orca's sandbox,
-  without loading it into Orca. It is a local check; CI covers `panel.tsx` and `worker.ts` by
-  type only.
+  - `orca-plugin.test.ts`: the CLI runner against real subprocesses (Node stands in for `cleo`),
+    the workspace policy, the envelope mapping and the worker handlers.
+  - `orca-plugin-panel.test.ts`: the panel state, with the order of answers under test control,
+    and the real `worker.ts` and `panel.tsx` joined by a stand-in for Orca. The refresh command
+    posts, the open panel reloads and draws the update, and a closed panel hears nothing and
+    drops a read still in flight.
+- **Rendering.** `orca plugin check` draws each scenario with Orca's real runtime and reports
+  what Orca would refuse or drop. It runs this folder's code on your machine, outside Orca's
+  sandbox, without loading it into Orca. It is a local check: in CI the panel is drawn only
+  against the bridge test's stand-in components.
 
 ## Known limits
 
