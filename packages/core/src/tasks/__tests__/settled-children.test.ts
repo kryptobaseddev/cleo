@@ -198,6 +198,8 @@ describe('settled children across cancel, complete and done', () => {
     expect(blocked.data?.ready).toBe(false);
     expect(blocked.data?.blockers[0]?.message).toContain('--waive-cancelled-children');
     expect(blocked.data?.next.command).toContain('cleo done T0700 --waive-cancelled-children');
+    // T14426: the rollup settles the cancelled child; the waiver is its own blocker.
+    expect(blocked.data?.blockers.map((b) => b.code)).toEqual(['cancelled-child-waiver']);
 
     // With it the plan is ready, and completion goes through the same guard.
     const reason = 'T0702 superseded by T0701';

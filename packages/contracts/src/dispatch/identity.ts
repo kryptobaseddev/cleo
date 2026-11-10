@@ -52,13 +52,8 @@ export type Tier = 0 | 1 | 2;
 /**
  * The closed set of dispatch canonical-domain names.
  *
- * T964: `conduit` promoted to first-class domain (supersedes ADR-042 Decision 1).
- * CONDUIT is agent-to-agent messaging and is semantically disjoint from
- * ORCHESTRATE (wave planning + spawn-prompt generation). The original
- * "exactly 10 canonical domains" invariant that justified folding CONDUIT
- * under ORCHESTRATE has been broken multiple times (intelligence, diagnostics,
- * docs, playbook); promoting CONDUIT aligns registry with wire-format, CLI,
- * and core module structure at zero behavior cost.
+ * T964 promoted `conduit` to a domain; T13955 removed it (messaging moved to
+ * AgentMBX).
  *
  * T1726: `sentient` and `release` promoted to first-class domains. Both were
  * reachable via the CLI and had registered DomainHandlers but were absent from
@@ -83,7 +78,6 @@ export const CANONICAL_DOMAINS = [
   'diagnostics',
   'docs',
   'playbook',
-  'conduit',
   'sentient',
   'release',
   'llm',

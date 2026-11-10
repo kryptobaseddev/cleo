@@ -471,6 +471,25 @@ describe('tool:test-affected evidence', () => {
     expect(!r.ok && r.reason).toMatch(/@x\/a.*tool:test/s);
   });
 
+  it('a {projects} run names the test files whose import graph reaches the change (T14366)', async () => {
+    writeFileSync(join(root, 'packages/a/src/a.test.ts'), "import { n } from './index.js';\n");
+    writeFileSync(join(root, 'packages/b/src/b.test.ts'), "import { n } from '@x/a';\n");
+    writeFileSync(join(root, 'packages/b/src/own.test.ts'), "import { n } from './index.js';\n");
+    initRepo('pnpm exec vitest run {projects}');
+    writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change a']);
+    const run = await planAffectedTestRun(root, root);
+    expect(run.ok && [run.command.cmd, ...run.command.args], JSON.stringify(run)).toEqual([
+      'pnpm',
+      'exec',
+      'vitest',
+      'run',
+      'packages/a/src/a.test.ts',
+      'packages/b/src/b.test.ts',
+    ]);
+    expect(run.ok && run.fileLevel).toBe(true);
+  });
+
   it('a failing affected run is E_EVIDENCE_TOOL_FAILED', async () => {
     initRepo('node -e "process.exit(1)" {packages}');
     writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");

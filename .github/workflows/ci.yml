@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    # T14385: the defaults plus `ready_for_review`. A draft PR runs only the
+    # cheap lint and admission jobs (`changes.outputs.draft`); marking it ready
+    # starts the full pipeline.
+    types: [ opened, synchronize, reopened, ready_for_review ]
   merge_group: # T12094: a branch pushed and a PR opened with GITHUB_TOKEN do NOT trigger
 
   # workflows — GitHub suppresses them to prevent recursive runs. The release
@@ -84,6 +88,13 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    # T14367: `pull-requests`/`issues: write` to add the `macos` label;
+    # `actions: read` for the version-only push detector's run lookup.
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
     # T13141: 5, not 2 — a release/v* dispatch fetches up to 100 commits of the
     # default branch and deepens the release ref; a timeout there would fail the
     # bump-PR's only CI run (safe, but on the release critical path).
@@ -114,15 +125,21 @@ jobs:
       version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true' || steps.version-only-push.outputs.version_only == 'true') && 'true' || 'false' }}
       # T13143: the runners Build, Build & Verify and Unit Tests use, and the
       # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
-      # runs nightly, in merge groups, and on a pull request whose change is
-      # darwin-specific; Linux shards 8 ways, macOS 8 ways nightly and in merge
-      # groups and 4 ways on a darwin pull request (T13198, T14104).
+      # runs in merge groups and on a pull request labelled `macos`, which CI
+      # adds to a darwin-specific one (T14367, owner D11238; macos-main.yml
+      # runs it on main pushes and nightly); Linux shards 8 ways, macOS 8
+      # ways in merge groups and 4 ways on a pull request (T13198, T14104).
       darwin: ${{ steps.platform.outputs.darwin }}
       build_os: ${{ steps.platform.outputs.build_os }}
       test_matrix: ${{ steps.platform.outputs.test_matrix }}
       # T14055 (owner D11196): Type Check and the Linux unit shards run on the
-      # engines floor and on Node 26 (NODE_VERSIONS in the same script).
+      # engines floor and on Node 26 (NODE_VERSIONS in the same script); a
+      # pull request runs the floor only (T14367, nodeVersions()).
       node_versions: ${{ steps.platform.outputs.node_versions }}
+      # T14385: `true` on a draft pull request. Every heavy job (builds, tests,
+      # built-CLI gates, native and smoke gates) skips on it; jobs that need
+      # `build` skip with it. Lint and admission jobs still run.
+      draft: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -185,7 +202,33 @@ jobs:
           fi
       - name: Choose platforms and shards (T13143)
         id: platform
-        run: node scripts/ci-platform-matrix.mjs "${{ github.event_name }}" HEAD^1 HEAD
+        env:
+          # T14367 (owner D11238): macOS runs on a pull request with the
+          # `macos` label or a darwin-specific change, which gets the label
+          # (next step). The labels are read live, so a re-run after
+          # labelling sees them; the event payload's list is the fallback.
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PAYLOAD_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          PR_LABELS='[]'
+          if [ -n "$PR_NUMBER" ]; then
+            PR_LABELS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name]' 2>/dev/null) || PR_LABELS="$PAYLOAD_LABELS"
+          fi
+          export PR_LABELS
+          node scripts/ci-platform-matrix.mjs "${{ github.event_name }}" HEAD^1 HEAD
+      # T14367 (owner D11238): label a darwin-specific pull request `macos`.
+      # Adding a label starts no run (ci.yml has no `labeled` trigger). A token
+      # that cannot write labels (a fork's) only warns: this run already
+      # includes the macOS legs.
+      - name: Add the macos label to a darwin-specific pull request (T14367)
+        if: steps.platform.outputs.add_macos_label == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" -f 'labels[]=macos' --silent \
+            || echo "::warning::Could not add the macos label to #$PR_NUMBER; the macOS legs still run in this run."
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name != 'schedule'
@@ -383,8 +426,10 @@ jobs:
   # earlier gate failed (`!cancelled()`), so each failure stays attributable.
   repo-lints:
     name: Repo Lints
+    # T14367: `changes` gates the Worktrunk Core Tests steps (worktree_napi).
+    needs: [ changes ]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -813,92 +858,341 @@ jobs:
             exit 1
           fi
           echo "OK — no polluted-identity commits found in the pushed range."
+      # T14367: the gates below were the jobs Gates (node) and Gates (installed)
+      # (arch-boundary-check.yml), Repo Lints (installed), Invariants Docs Render
+      # Drift (T10342), Deployed Template Parity (T9860), Exodus Real-Data Parity
+      # Gate (T11551), Row Identity Gate B on Fixture Stores (T12802) and Validate
+      # JSON Schemas: each a sub-minute job paying its own runner, checkout and
+      # install. Each is still its own step, named after the job it replaced, and
+      # runs after an earlier failure (`!cancelled()`), so its result stays
+      # attributable and any failure fails this job and the `CI` aggregate.
+      # --- Gates (node), formerly arch-boundary-check.yml (T13838) ---
 
-  invariants-docs-render-drift:
-    # T10342 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3 R8 — keep
-    # `docs/reference/invariants.md` in lockstep with the central
-    # `INVARIANTS_REGISTRY` SSoT. The job:
-    #   1. Builds @cleocode/contracts (TS-only target — schemas not needed).
-    #   2. Re-renders the docs page from the compiled registry.
-    #   3. Compares the rendered output against the committed file via
-    #      `--check`. Drift = CI failure with a remediation hint.
-    #   4. Re-emits packages/contracts/schemas/*.json and fails on any
-    #      difference from the committed files (T14064).
-    # Strict gate: zero tolerance — the rendered output is deterministic
-    # and the registry is the SSoT, so any drift is unambiguously a stale
-    # docs commit.
-    name: Invariants Docs Render Drift (T10342)
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Build @cleocode/contracts (TS only)
-        run: pnpm --filter @cleocode/contracts run build:ts
-      - name: Verify docs/reference/invariants.md matches registry SSoT
-        run: node packages/contracts/scripts/render-invariants-docs.mjs --check
-      # T14064: the committed JSON Schemas are generated from the contracts
-      # zod schemas; a schema change that skips `build:schemas` ships stale
-      # files (gate-result.schema.json did). The emitter is deterministic
-      # (zod toJSONSchema + JSON.stringify), so any difference is drift.
-      - name: Verify packages/contracts/schemas match the generated output
+      - name: "Arch Gates (node): DB Open Guard (T10073): Run lint-no-direct-db-open (strict mode — T11529 · E6-L9)"
         if: ${{ !cancelled() }}
+        run: node scripts/lint-no-direct-db-open.mjs --strict
+
+      - name: "Arch Gates (node): DB Open Guard (T10073): Run lint-node-engine-ssot (T11281)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-node-engine-ssot.mjs
+
+      # T12041 · E6-L17 — reject re-introducing a per-domain DB singleton cache.
+      # Ownership of every consolidated cleo.db handle belongs to the path-keyed
+      # binding registry (core/src/store/ports/domain-binding.ts). Baseline mode:
+      # fails only on a NET INCREASE, so the remaining pre-port debt (telemetry,
+      # brain, studio) is recorded without blocking.
+      - name: "Arch Gates (node): DB Open Guard (T10073): Run lint-no-domain-db-singleton (T12041 · E6-L17)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-domain-db-singleton.mjs
+      # T10072 · Epic T9837 · Saga T9831 SG-ARCH-SOLID
+      #
+      # Enforces that `defineCommand` from 'citty' is only imported through the
+      # canonical SSoT wrapper (packages/cleo/src/cli/lib/define-cli-command.ts).
+      # Runs in --check (baseline) mode: fails only when NEW violations are added
+      # above the committed baseline count. Existing debt is tracked but not
+      # blocked — it will be swept in follow-up tasks under Epic T9837.
+      #
+      # To update the baseline after a migration wave:
+      #   node scripts/lint-no-raw-define-command.mjs --baseline
+      #   git add .cleo/define-command-ssot-baseline.json && git commit
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (node): Architectural Boundary Check (SG-ARCH-SOLID)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-raw-define-command.mjs --check
+      # T11400 · Epic T11388 (E1) · Saga T11387 SG-PACKAGE-ARCH
+      #
+      # Locks the npm publish surface (the `publish_pkg` list in
+      # .github/workflows/release.yml) against silent growth and re-introduction
+      # of dead artifacts. Asserts: exact entry count (EXPECTED_PUBLISH_COUNT,
+      # currently 18 post-E1, trending to the owner's single-artifact target of
+      # 1 via R8/R10); every entry is a public, correctly-named package; and no
+      # per-platform worktree-napi-* stub appears in the list or on disk.
+      #
+      # To shrink the surface: delete the publish_pkg line AND decrement
+      # EXPECTED_PUBLISH_COUNT in scripts/lint-publish-surface.mjs in the same PR.
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (node): Publish Surface Lint (T11400)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-publish-surface.mjs
+      # T11418 · Epic T11392 (E5) · Saga T11387 SG-PACKAGE-ARCH
+      #
+      # Forward-only lock: packages/contracts/ is the type SoT. This gate FAILS
+      # when a NEW exported runtime helper (a bodied function/arrow that is not a
+      # type guard, zod schema, or const data) is added to a contracts source
+      # file. Pre-existing runtime helpers are pinned in
+      # scripts/.lint-no-runtime-in-contracts-baseline.json and migrate OUT over
+      # time under E5 (T11392); --strict will pass once contracts is pure.
+      #
+      # After migrating a helper OUT of contracts:
+      #   node scripts/lint-no-runtime-in-contracts.mjs --update-baseline
+      #   git add scripts/.lint-no-runtime-in-contracts-baseline.json && git commit
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (node): Contracts Purity Lint (T11418)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-runtime-in-contracts.mjs
+      # T11389 · Epic T11389 (E2) · Saga T11387 SG-PACKAGE-ARCH
+      #
+      # Zero crates.io publishes (owner decision 2026-05-30): every
+      # crates/<name>/Cargo.toml MUST declare `publish = false`. A crate that
+      # omits it (Cargo defaults to publishable) or sets `publish = true` could
+      # leak an internal crate to crates.io on a stray `cargo publish`. To make a
+      # crate genuinely external, set publish = true AND add it to the ALLOWLIST
+      # in scripts/lint-no-crate-publish.mjs with rationale.
+      #
+      # Pure static analysis of checked-in Cargo.toml — no untrusted user input.
+      - name: "Arch Gates (node): Crate Publish Guard (T11389)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-crate-publish.mjs
+      # Gate 24 (AGENTS.md SSoT table) · T12382
+      #
+      # No tracked *.node / *.wasm. Until T12382 the only .cant parser users got
+      # was a committed linux-x64 binary (every other OS threw), and nothing tied
+      # a committed binary to its source: the committed lafs-napi one already
+      # rejects every real envelope. Binaries are built by CI
+      # (cant-napi-build.yml, release.yml) and staged at release; the release
+      # also runs this script in --packed mode to prove each packed binary was
+      # built from the released commit. Pre-existing non-cant binaries are
+      # baselined in the script; a cant binary can never be.
+      #
+      # Pure static analysis of the git index — no untrusted user input.
+      - name: "Arch Gates (node): No Committed Native Binaries (T12382 · gate 24)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-committed-native-binaries.mjs
+      # Gate 14 (AGENTS.md SSoT table) · T12069 · Saga T9831 SG-ARCH-SOLID
+      #
+      # packages/core/templates/CLEO-INJECTION.md is injected verbatim into the
+      # context of EVERY agent CLEO spawns, phrased as instruction ("FIRST CALL
+      # IS ...", "BEFORE editing any symbol, run ..."). An agent cannot tell a
+      # documented-but-nonexistent command from one it invoked wrongly.
+      #
+      # Measured 2026-08-06, the mandated Nexus section named seven "first-reach"
+      # commands and FIVE did not exist (nexus report / brain find / compare /
+      # shared / synthesize, plus nexus admin). The cost is not the wasted turn:
+      # an agent that watches the protocol fail, with no signal separating
+      # "command gone" from "subsystem broken", abandons the surface entirely and
+      # silently falls back to grep.
+      #
+      # Parses the generated command manifest + each referenced command module
+      # from SOURCE (never dist/, so a stale build cannot hide the drift), so
+      # this job needs no install and no build.
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (node): Injection Command Existence (T12069): Assert every cleo command in CLEO-INJECTION.md exists"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-injection-commands.mjs
+
+      # Gate 15 (T12093) — same rule, applied to the workflows themselves.
+      # release-prepare.yml invoked `cleo version-bump` and `cleo release
+      # changelog`; neither has ever existed, and each cost a full green
+      # preflight (~20 min) to discover because the steps run last.
+      - name: "Arch Gates (node): Injection Command Existence (T12069): Assert every cleo command invoked by a workflow exists"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-workflow-cleo-commands.mjs
+      # Gate 13 (T11483 · DHQ-035) · Epic T11480 SG-CORE-SELF-TOOLING
+      #
+      # JSON-Schema `enum: [...]` literals in packages/contracts/src/operations/*
+      # hand-duplicate the canonical task-axis enum SSoTs (TASK_KINDS, TASK_SCOPES,
+      # TASK_SEVERITIES, TASK_SIZES, TASK_STATUSES, TaskPriority, TaskType). A typo
+      # or drifted member sails past tsc (the literal is string[]) and then
+      # detonates as a cascade of red CI gates far from the edit. This gate parses
+      # the SSoT + the contract literals from SOURCE (never dist/, so a stale dist
+      # cannot hide the drift) and FAILS when any literal enum member is not in its
+      # canonical SSoT. Run locally before pushing: node
+      # scripts/lint-contract-literal-enums.mjs
+      #
+      # Pure static analysis of checked-in TS source — no untrusted user input.
+      - name: "Arch Gates (node): Contract Literal Enum SSoT (T11483)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-contract-literal-enums.mjs
+      # Gate 13 (AGENTS.md SSoT table) · T11783 · E9 T11745 · Saga T9831 SG-ARCH-SOLID
+      #
+      # Forbids LLM resolution + client/transport construction outside the single
+      # SSoT chokepoint (resolveLLMForSystem → ModelRunner). PR #954 collapsed the
+      # four near-duplicate transport factories onto one ModelRunner; this gate
+      # makes resolver-divergence (a new call-site building its own transport / SDK
+      # client, reading process.env.*_API_KEY, or hardcoding a model literal) fail
+      # CI. Baseline mode: pre-existing call sites are pinned in
+      # scripts/.lint-llm-chokepoint-baseline.json; only NET-NEW violations fail.
+      #
+      # After migrating a call site to the chokepoint:
+      #   node scripts/lint-llm-chokepoint.mjs --update-baseline
+      #   git add scripts/.lint-llm-chokepoint-baseline.json && git commit
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (node): LLM Chokepoint Guard (T11745)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-llm-chokepoint.mjs
+      # T11640 · Epic T11638 EP-SESSION-MANIFEST · Saga T11243
+      #
+      # `getActiveSession()` resolves "the most-recent active session row" — i.e.
+      # whoever wrote the DB last. Under the warm daemon (many concurrent
+      # connections sharing one process) and multi-agent spawn isolation (many
+      # worktrees writing one DB) that is the WRONG identity: it collapses every
+      # caller onto the last writer, causing session-bleed and memory
+      # scope-leakage. Identity-meaning callers MUST use resolveCurrentSession() /
+      # resolveCurrentSessionId() (connection-handle → CLEO_SESSION_ID →
+      # most-recent-active precedence). This gate freezes the current bare-callsite
+      # set in scripts/.lint-no-bare-get-active-session-baseline.json and FAILS on
+      # any NET-NEW bare getActiveSession( callsite. Per-line opt-out for a
+      # justified SCAN-meaning callsite: append
+      # `// get-active-session-allowed: <reason>` on the call line.
+      #
+      # After migrating a callsite to resolveCurrentSession:
+      #   node scripts/lint-no-bare-get-active-session.mjs --update-baseline
+      #   git add scripts/.lint-no-bare-get-active-session-baseline.json && git commit
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (node): No-Bare-getActiveSession Guard (T11640)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-bare-get-active-session.mjs --check
+      # T11981 · Epic T11671 E6-ONBOARDING
+      #
+      # Asserts that the NODE_FLOOR_MAJOR/MINOR/PATCH constants baked into
+      # scripts/install.sh and scripts/install.ps1 match the repo's Node floor
+      # SSoT (root package.json engines.node). The installers embed constants
+      # because they run on a plain POSIX shell / PowerShell without a JSON
+      # parser; if the constants drift, machines just above the stale floor
+      # install successfully but fail at runtime with cryptic native-module errors.
+      #
+      # Bumping the floor is a single edit to root engines.node; this gate
+      # surfaces the required follow-up (update installer constants) in CI before
+      # the bump reaches main.
+      #
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: "Arch Gates (node): Installer Node Floor SSoT (T11981)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-installer-node-floor.mjs
+      # Gate 18 (T12087) — ZERO TOLERANCE. Every vitest config must spread
+      # MEMORY_SAFE_TEST_DEFAULTS; an unbounded fork pool froze this machine
+      # twice on 2026-08-06.
+      #
+      # gh#1354: this gate was bundled into `cleo check arch` and documented in
+      # the AGENTS.md table, and NO WORKFLOW RAN IT. Measured 2026-09-14: of the
+      # 22 gates named in both the runner and the table, three were invoked by no
+      # workflow at all. A zero-tolerance gate nobody runs is the same defect as
+      # gh#1355's `pnpm lint`, and this one guards against a machine freeze.
+      #
+      # Gate 20 below is the parity gate built to catch exactly this class — and
+      # it was itself one of the three. It joins the runner to the table; nothing
+      # joined either to the workflows, which is the third list.
+      - name: "Arch Gates (node): Vitest Memory Safety (T12087 · gate 18)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-vitest-memory-safe.mjs
+      # Gates 29, 30 + 31 (T12648, T12649 · D11157). SKILL.md frontmatter is the skills
+      # metadata SSoT: the manifest is generated from it (gate 29), and every
+      # skill code names must be installable (gate 30), and every cleo command a
+      # skill teaches must exist (gate 31). Wired here as well as in
+      # `cleo check arch`, because a gate bundled and documented but run by no
+      # workflow is the gh#1354 defect. Pure node, no install needed.
+      - name: "Arch Gates (node): Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33): Assert the skills manifest is generated from valid frontmatter"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-skills-manifest.mjs --check
+      - name: "Arch Gates (node): Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33): Assert every skill code emits is installable"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-emitted-skills.mjs --check
+      - name: "Arch Gates (node): Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33): Assert every cleo command a skill teaches exists (gate 31, T12649)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-skill-commands.mjs --check
+      - name: "Arch Gates (node): Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33): Assert ct-cleo stays a thin pointer (gate 33, T12124)"
+        if: ${{ !cancelled() }}
+        run: node scripts/check-ct-cleo-thin.mjs --check
+      - name: "Arch Gates (node): Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33): Assert skills declare live coverage (gate 32, T12124)"
+        if: ${{ !cancelled() && (github.event_name != 'pull_request') }}
+        run: node scripts/lint-skill-coverage.mjs --check
+      - name: "Arch Gates (node): Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33): Assert covered changes update their skill (gate 32 PR mode, T12124)"
+        if: ${{ !cancelled() && (github.event_name == 'pull_request') }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          # T14393: the checkout is GitHub's merge commit; the PR head gives the
+          # branch point that skill version bumps are measured against.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          pnpm --filter @cleocode/contracts run build:schemas
-          drift=$(git status --porcelain -- packages/contracts/schemas)
-          if [ -n "$drift" ]; then
-            echo "::error::packages/contracts/schemas differs from its generated output (T14064):"
-            echo "$drift"
-            git --no-pager diff -- packages/contracts/schemas
-            echo "Fix: pnpm --filter @cleocode/contracts run build && commit packages/contracts/schemas."
-            exit 1
-          fi
-  # T13838: the repo lints that need `pnpm install`, which were 5 jobs each
-  # installing the workspace. One job, one checkout, one install; every gate is
-  # its own step (named after the job it replaced) and runs even when an earlier
-  # gate failed (`!cancelled()`), so each failure stays attributable.
-  repo-lints-installed:
-    name: Repo Lints (installed)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24.16.0"
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.30.0
+          git fetch --no-tags origin "$BASE_REF"
+          node scripts/lint-skill-coverage.mjs --check --base "origin/$BASE_REF" --head "$HEAD_SHA"
+      # Gate 34 (T12704). An ES module has no `require`: a bare call throws
+      # under Node while vitest supplies one, so unit tests cannot catch it.
+      # Wired here as well as in `cleo check arch` (gate 20 requires both).
+      # Pure node, no install needed.
+      - name: "Arch Gates (node): No bare require() in ESM (T12704 · gate 34)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-esm-bare-require.mjs --check
+      # Gate 20 (T12122) — the gate on the gates. Asserts that the set bundled
+      # into `cleo check arch` and the set documented in the AGENTS.md table name
+      # the same scripts. Wired here for the same reason as gate 18: it was
+      # documented, bundled, and run by nothing.
+      - name: "Arch Gates (node): Arch-Gate Parity (T12122 · gate 20)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-arch-gate-parity.mjs
+      # Gates 23, 26, 27, 28 (T12658). Each was bundled into `cleo check arch`
+      # and documented in the AGENTS.md table, and NO WORKFLOW RAN IT — the
+      # gh#1354 defect again, measured 2026-09-28. Gate 20 now also fails when a
+      # bundled gate is run by no workflow, so this cannot recur silently.
+      # Pure node, no install needed; each runs in its default mode (baseline
+      # where it has one), exactly as `cleo check arch` does.
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert every cleo command an agent prompt emits exists (gate 23 · T12308)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-agent-prompt-commands.mjs
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert no raw negated-flag reads in the CLI (gate 26 · T12528)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-negated-flag-reads.mjs
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert the HITL ask-tool rule reaches every agent surface (gate 27 · T12483)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-hitl-rule-delivery.mjs
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert no new raw write on a classified cleo.db table (gate 28 · T12332)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-raw-table-writes.mjs
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Fetch the base ref for the released-migration check (gate 36)"
+        if: ${{ !cancelled() }}
+        run: git fetch --no-tags origin "${{ github.base_ref || 'main' }}"
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert the change-journal schema rules (gate 36 · T12819)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-sync-schema.mjs --base "origin/${{ github.base_ref || 'main' }}"
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert every syncing cleo.db table has row identity or an exemption (gate 37 · T12897)"
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' && github.event_name != 'merge_group') }}
+        run: node scripts/lint-row-identity-coverage.mjs --check
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert row-identity exemptions only shrink against the merge-queue base (gate 37 · T12897)"
+        if: ${{ !cancelled() && (github.event_name == 'merge_group') }}
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          git fetch --no-tags origin "$BASE_SHA"
+          node scripts/lint-row-identity-coverage.mjs --check --base "$BASE_SHA"
+      - name: "Arch Gates (node): Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28): Assert row-identity exemptions only shrink against the PR base (gate 37 PR mode · T12897)"
+        if: ${{ !cancelled() && (github.event_name == 'pull_request') }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          node scripts/lint-row-identity-coverage.mjs --check --base "origin/$BASE_REF"
+      # Gate 35 (T12663 · spec system-one-integration §3.5 · D11158). Every
+      # model call site is a registered decision site: decide()/askSiteDecision
+      # name a registry id, files calling an LLM entry point are registry rows
+      # with a generative/agent rung, a System One site runs `on` only with
+      # go-live evidence, and chokepoint bypasses are baselined per file (they
+      # may only fall). Wired here as well as in `cleo check arch` so CI blocks
+      # on it (gh#1354). Pure node, no install needed.
+      - name: "Arch Gates (node): Model Call Sites Registered (T12663 · gate 35)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-model-call-sites.mjs --check
+      # --- Installed gates: one `pnpm install` for all of them ---
       - name: Get pnpm store directory
         id: pnpm-cache
+        if: ${{ !cancelled() }}
         run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
       - uses: actions/cache@v4
+        if: ${{ !cancelled() }}
         with:
           path: ${{ steps.pnpm-cache.outputs.store }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
+        if: ${{ !cancelled() }}
         name: "Lockfile Check: Verify pnpm-lock.yaml consistency (pnpm install --frozen-lockfile)"
       - uses: ./.github/actions/install-ripgrep
+        if: ${{ !cancelled() }}
       # T11957 / DHQ-074 — the `cleo ops` tier-SSoT snapshot (T9845) is a
       # regression lock over the live OPERATIONS registry. Adding an operation
       # legitimately re-tiers its counts, which used to break CI cryptically.
@@ -948,8 +1242,40 @@ jobs:
         if: ${{ !cancelled() }}
         id: schema-check
         run: pnpm db:check
-      - name: Build @cleocode/contracts (Boundary Registry, Dual Implementation)
+      - name: Build @cleocode/contracts (Boundary Registry, Dual Implementation, Invariants Docs, Exodus, Row Identity)
+        if: ${{ !cancelled() }}
         run: pnpm --filter @cleocode/contracts run build
+      # T10342 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3 R8 — keep
+      # `docs/reference/invariants.md` in lockstep with the central
+      # `INVARIANTS_REGISTRY` SSoT. The job:
+      #   1. Builds @cleocode/contracts (TS-only target — schemas not needed).
+      #   2. Re-renders the docs page from the compiled registry.
+      #   3. Compares the rendered output against the committed file via
+      #      `--check`. Drift = CI failure with a remediation hint.
+      #   4. Re-emits packages/contracts/schemas/*.json and fails on any
+      #      difference from the committed files (T14064).
+      # Strict gate: zero tolerance — the rendered output is deterministic
+      # and the registry is the SSoT, so any drift is unambiguously a stale
+      # docs commit.
+      - name: Verify docs/reference/invariants.md matches registry SSoT
+        if: ${{ !cancelled() }}
+        run: node packages/contracts/scripts/render-invariants-docs.mjs --check
+      # T14064: the committed JSON Schemas are generated from the contracts
+      # zod schemas; a schema change that skips `build:schemas` ships stale
+      # files (gate-result.schema.json did). The emitter is deterministic
+      # (zod toJSONSchema + JSON.stringify), so any difference is drift.
+      - name: Verify packages/contracts/schemas match the generated output
+        if: ${{ !cancelled() }}
+        run: |
+          pnpm --filter @cleocode/contracts run build:schemas
+          drift=$(git status --porcelain -- packages/contracts/schemas)
+          if [ -n "$drift" ]; then
+            echo "::error::packages/contracts/schemas differs from its generated output (T14064):"
+            echo "$drift"
+            git --no-pager diff -- packages/contracts/schemas
+            echo "Fix: pnpm --filter @cleocode/contracts run build && commit packages/contracts/schemas."
+            exit 1
+          fi
       - name: "Boundary Registry: Lint boundary registry against filesystem"
         if: ${{ !cancelled() }}
         run: node scripts/lint-boundary-registry.mjs
@@ -962,6 +1288,235 @@ jobs:
       - name: "Generated Artifact Drift: Generated artifacts match their source"
         if: ${{ !cancelled() }}
         run: node scripts/lint-generated-artifact-drift.mjs
+      # --- Gates (installed), formerly arch-boundary-check.yml (T13838) ---
+      # T10135 · Epic T10114 (E11-HUMAN-RENDER-CONTRACT) · Saga T9855 · ADR-077
+      #
+      # Enforces that `process.stdout.write` is only called from the canonical
+      # render SSoT (`packages/core/src/render/**`), the animations primitives
+      # (`packages/animations/**`), the cleo animation bridge + thin dispatcher,
+      # the top-level CLI entry, scripts, and test files.
+      #
+      # Runs in baseline mode: fails only when NEW violation identities appear
+      # vs the committed baseline (scripts/.lint-stdout-discipline-baseline.json).
+      # Existing pre-B6/B7/B8 debt is tracked but not blocked.
+      #
+      # To update the baseline after migrating a callsite to the render SSoT:
+      #   node scripts/lint-stdout-discipline.mjs --update-baseline
+      #   git add scripts/.lint-stdout-discipline-baseline.json && git commit
+      - name: "Arch Gates (installed): Stdout Discipline Lint (T10135)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-stdout-discipline.mjs
+      # T9924 · Saga T9855 (E8.5) · ADR-077
+      #
+      # Strict companion to `stdout-discipline` (T10135). The T10135 gate
+      # path-allowlists entire directories (scripts/, animations/, cleo-os/,
+      # cli/index.ts, etc.); T9924 requires an EXPLICIT per-line opt-out
+      # comment (`// stdout-write-allowed: <reason>`) for any
+      # `process.stdout.write` call outside the renderer SSoT paths:
+      #   - packages/cleo/src/cli/renderers/**
+      #   - packages/core/src/render/**
+      #
+      # Runs in --check (baseline) mode: fails only when NEW unannotated
+      # violation identities appear vs the committed baseline
+      # (scripts/.lint-stdout-write-allowlist-baseline.json). Existing
+      # call sites are pinned by the baseline; new authors must either move
+      # their call into the renderer SSoT or annotate the line.
+      #
+      # To update the baseline after annotating/migrating call sites:
+      #   node scripts/lint-stdout-write-allowlist.mjs --update-baseline
+      #   git add scripts/.lint-stdout-write-allowlist-baseline.json && git commit
+      - name: "Arch Gates (installed): Stdout Write Allowlist Lint (T9924)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-stdout-write-allowlist.mjs --check
+      # T11409 · Epic T11390 (E3) · Saga T11387 SG-PACKAGE-ARCH
+      #
+      # Enforces the TOOLS-vs-SKILLS boundary (ATOMIC_TOOL_BOUNDARY in
+      # packages/contracts/src/boundary.ts): atomic tool primitives are DEFINED
+      # only under packages/core/src/tools + packages/contracts/src/tools; the
+      # harness/provider packages (mcp-adapter, caamp, cleo-os) CONSUME them, never
+      # redefine. Baseline mode: pre-existing out-of-home definitions are pinned in
+      # scripts/.lint-tools-vs-skills-boundary-baseline.json; only NET-NEW
+      # redefinitions fail.
+      #
+      # After migrating an out-of-home definition INTO core/src/tools:
+      #   node scripts/lint-tools-vs-skills-boundary.mjs --update-baseline
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (installed): Tools-vs-Skills Boundary Lint (T11409)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-tools-vs-skills-boundary.mjs
+      # T11762 ST-3b (T11904) · Epic T11679 · DHQ-057 · LAFS-envelope SSoT T10400 §8 item 6
+      #
+      # Asserts every operation in the OPERATIONS registry resolves a
+      # machine-readable output contract via getOutputContract (hand-authored
+      # OUTPUT_CONTRACTS → derived deriveOutputContract → generic fallback). This is
+      # the conformance enforcer the LAFS-envelope SSoT (T10400 §8 item 6) says
+      # SHOULD exist but did not. A deterministic static scan of the registry SOURCE
+      # files (no DB, no network); unsupported registry syntax and gateways fail
+      # closed. Nested schema fields are not operation declarations.
+      #
+      # Runs in --strict (zero-tolerance): coverage is currently 100% (baseline
+      # scripts/.lint-output-contract-coverage-baseline.json is empty), so any op
+      # that stops resolving a contract fails CI immediately. To intentionally waive
+      # an op (should be rare — prefer fixing deriveOutputContract):
+      #   node scripts/lint-output-contract-coverage.mjs --update-baseline
+      #   git add scripts/.lint-output-contract-coverage-baseline.json && git commit
+      #
+      # Pure static analysis of checked-in source — no untrusted user input.
+      - name: "Arch Gates (installed): Output-Contract Coverage Gate (T11762)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-output-contract-coverage.mjs --strict
+      # gh#1409 — bind the post-deploy poll budget to the job cap.
+      #
+      # release.yml's post-deploy job polls npm until every TARBALL is fetchable,
+      # bounded by POSTDEPLOY_TIMEOUT_MS; the job is bounded by timeout-minutes.
+      # If the budget ever meets or exceeds the cap the runner kills the job
+      # mid-poll, so the step never reaches its own failure branch: no package
+      # named, no artifacts. A red with no diagnosis is WORSE than the red the
+      # budget exists to produce.
+      #
+      # That requirement lived in a release.yml comment for months. A comment is
+      # not an enforcement — the same shape as gh#1394's three unwired arch gates
+      # and gh#1412's lint-changesets, which calls itself a CI gate while no
+      # workflow invokes it. Wired here on the day it was written, deliberately,
+      # because shipping an unwired gate while filing issues about unwired gates
+      # would be the joke writing itself.
+      - name: "Arch Gates (installed): Post-Deploy Budget (gh#1409)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-postdeploy-budget.mjs
+      # Gate 38 (T12881 · spec t12859-sync-write-validator-inventory §3.6.7).
+      # PR and merge-queue runs pass the base, so the baseline is shrink-only
+      # against it (an added or raised key needs a net-zero move or an audit).
+      # Every rejection site on a synced write path carries
+      # `// @sync-invariant <id>` naming a registry entry
+      # (packages/contracts/src/invariants/sync-write-invariants.ts) or an escape
+      # with a reason; untagged sites are baselined per (file :: code) and
+      # the baseline only shrinks. Also checks registry closure. Needs the
+      # installed `typescript` package (compiler-API detection), so it installs.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: "Arch Gates (installed): Sync Write-Invariant Registry (T12881 · gate 38): Assert every synced-write rejection site is classified (gate 38 · T12881)"
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' && github.event_name != 'merge_group') }}
+        run: node scripts/lint-sync-write-invariants.mjs --check
+      - name: "Arch Gates (installed): Sync Write-Invariant Registry (T12881 · gate 38): Assert the gate 38 baseline only shrinks against the PR base (T12881)"
+        if: ${{ !cancelled() && (github.event_name == 'pull_request') }}
+        # The merge commit's first parent, not pull_request.base.sha: the
+        # event's base can lag the branch the merge commit was built on, and
+        # the diff must be taken against the tree the checkout merged (T12954).
+        run: |
+          BASE_SHA=$(git rev-parse HEAD^1)
+          node scripts/lint-sync-write-invariants.mjs --check --base "$BASE_SHA"
+      - name: "Arch Gates (installed): Sync Write-Invariant Registry (T12881 · gate 38): Assert the gate 38 baseline only shrinks against the merge-queue base (T12881)"
+        if: ${{ !cancelled() && (github.event_name == 'merge_group') }}
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          node scripts/lint-sync-write-invariants.mjs --check --base "$BASE_SHA"
+      # Gate 40 (T13126). The @cleocode/contracts barrel evaluates every
+      # contracts zod schema (~40 MB of heap); a runtime import of one value
+      # from it loaded all of them in every cleo command that opened a store.
+      # Values come from the declaring leaf module; type-only imports are free.
+      # Wired here as well as in `cleo check arch` (gate 20 requires both).
+      # Needs the installed `typescript` package (compiler API), so it installs.
+      - name: "Arch Gates (installed): Contracts Barrel Value Imports (T13126 · gate 40)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-contracts-barrel-value-imports.mjs --check
+      # Gate 41 (T14276 · T13924). Every worktree removal goes through the
+      # `disposeWorktree` engine, which removes only with proof that nothing in
+      # the worktree is lost; no other source names the raw removals.
+      # Wired here as well as in `cleo check arch` (gate 20 requires both).
+      - name: "Arch Gates (installed): No Raw Worktree Removal (T14276 · gate 41)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-raw-worktree-removal.mjs --check
+      # T14299 · gate 42: every refusal on the close, cancel, verify, done,
+      # review and docs-link paths carries a fix that runs against the CLI
+      # manifest. Needs the installed `typescript` package (compiler API).
+      - name: "Arch Gates (installed): Refusal Fixes (T14299 · gate 42)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-refusal-fixes.mjs --check
+      # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
+      #
+      # Regression-locks the merge-bar coverage itself: every PR-gating multi-job
+      # workflow MUST keep a complete all-green aggregate gate (this very job's
+      # `arch-boundary-check` sibling, plus ci.yml's `ci` job). The lint fails if
+      # an aggregate omits a sibling from `needs:`, drops `if: always()`, or stops
+      # inspecting `needs.*.result` — so a future job added to either workflow
+      # cannot silently fall outside the merge bar.
+      #
+      # Pure static analysis of checked-in workflow YAML — no untrusted input.
+      - name: "Arch Gates (installed): Merge-Bar Aggregate Gate Lint (T11955)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-merge-bar-aggregate.mjs
+      # T9860 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — dogfood gate.
+      # `packages/cleo/templates/workflows/*.yml.tmpl` (being relocated to
+      # `packages/core/templates/workflows/*.yml.tmpl` by T9858) are the canonical
+      # sources for GitHub Actions workflows shipped to consuming projects via
+      # `cleo init --workflows`. The deployed copies under .github/workflows/
+      # here are supposed to BE the rendered output. Today they drift — this
+      # gate establishes a baseline of the accepted drift and fails CI on any
+      # NEW divergence. The drift itself is closed by a SEPARATE follow-up.
+      # Runs whenever workflows, templates, the script, or the baseline change.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: "Deployed Template Parity (T9860): Lint deployed workflows against shipped templates (baseline mode)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-deployed-template-parity.mjs
+      # T11551 (DHQ-045) — exodus zero-loss DURABLE GUARD. Runs the actual
+      # `runExodusMigrate` engine + the reusable CORE `verifyMigration()` primitive
+      # against a SCHEMA-REAL representative-data fixture (real CHECK enums, ISO-GLOB
+      # epoch columns, legacy enum aliases, a self-referential FK copied
+      # child-before-parent) — NOT name-matched toy tables. It FAILS on any genuine
+      # base-table row deficit, content mismatch, FK orphan, or un-normalised enum
+      # drift. This is the gate that must stay green BEFORE the exodus cutover
+      # (E8 / T11251). The whole zero-loss campaign (~805K rows recovered) happened
+      # because the original fixtures used matching names + canonical enums and
+      # missed every real-schema failure; this job is the regression wall.
+      # Pure test invocation — no untrusted input flows into run:.
+      - name: "Exodus Real-Data Parity Gate (T11551): Run exodus real-data parity + verifyMigration gate"
+        # T14385: skipped on a draft pull request, as its former job was.
+        if: ${{ !cancelled() && needs.changes.outputs.draft != 'true' }}
+        # Drives runExodusMigrate over a schema-real fixture and asserts ZERO
+        # base-table deficit via verifyMigration (count + checksum + FK + enum).
+        run: |
+          pnpm --filter @cleocode/core exec vitest run --reporter=verbose \
+            src/store/__tests__/exodus-representative-data.test.ts \
+            src/store/__tests__/verify-migration.test.ts
+      # T12802 — Gate B for row identity (T12341) on FIXTURE stores, the manual
+      # Gate B run on four real stores folded into CI. The fixtures are shaped
+      # like cleocode and llmtxt (no project-id file: compared with a stub; audit
+      # events only in the bare audit_log). It replays each migrated, filled
+      # store against its pre-migration copy with --omit-row-identity, checks two
+      # migrations agree with identity hashed, and refills a 9.25 (v1-recipe)
+      # copy. It must stay green before CLEO_ROW_UID_FILL defaults on.
+      # Pure test invocation — no untrusted input flows into run:.
+      - name: "Row Identity Gate B (T12802): Run Gate B on the fixture stores"
+        # T14385: skipped on a draft pull request, as its former job was.
+        if: ${{ !cancelled() && needs.changes.outputs.draft != 'true' }}
+        run: |
+          pnpm --filter @cleocode/core exec vitest run --reporter=verbose \
+            src/store/__tests__/row-identity-gate-b.test.ts
+      - name: "Validate JSON Schemas: Validate JSON schema files"
+        if: ${{ !cancelled() }}
+        run: |
+          find packages -name '*.json' -path '*/schemas/*' | while read file; do
+            echo "Validating: $file"
+            jq empty "$file"
+          done
+      # T14130 / T14367: the worktrunk-core crate tests, formerly the Worktrunk
+      # Core Tests job. The parity test compares the Rust project hash with the
+      # built @cleocode/paths `computeProjectHash`, so @cleocode/paths is built
+      # first and WORKTRUNK_REQUIRE_TS_PARITY makes a missing dist fail instead
+      # of skipping the TypeScript half. Runs only when the worktree_napi scope
+      # changed, as the job did.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true' }}
+      - name: "Worktrunk Core Tests (T14130): Build @cleocode/paths (the TypeScript side of the parity test)"
+        if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true' }}
+        run: pnpm --filter @cleocode/paths run build
+      - name: "Worktrunk Core Tests (T14130): cargo test -p worktrunk-core"
+        if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true' }}
+        env:
+          WORKTRUNK_REQUIRE_TS_PARITY: '1'
+        run: cargo test -p worktrunk-core --locked
 
   contracts-dep-lint:
     name: Contracts Dep Lint
@@ -976,153 +1531,26 @@ jobs:
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-dep.mjs
 
-  deployed-template-parity:
-    # T9860 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — dogfood gate.
-    # `packages/cleo/templates/workflows/*.yml.tmpl` (being relocated to
-    # `packages/core/templates/workflows/*.yml.tmpl` by T9858) are the canonical
-    # sources for GitHub Actions workflows shipped to consuming projects via
-    # `cleo init --workflows`. The deployed copies under .github/workflows/
-    # here are supposed to BE the rendered output. Today they drift — this
-    # gate establishes a baseline of the accepted drift and fails CI on any
-    # NEW divergence. The drift itself is closed by a SEPARATE follow-up.
-    # Runs whenever workflows, templates, the script, or the baseline change.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Deployed Template Parity (T9860)
-    needs: changes
-    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.workflows == 'true'
+  # T14368: the gates that run the built CLI. Manual Write Sweep, both Canon
+  # Drift Checks and the Docs SSoT Drift Gate were four jobs, each running its
+  # own `pnpm run build` (~3 min, and four more chances of the Wave-5 OOM kill,
+  # T14348). One job now restores the `build` job's Linux output and runs each
+  # gate as its own step (named after the job it replaced), every step running
+  # even when an earlier one failed (`!cancelled()`), so each failure stays
+  # attributable. `build` runs on every run that is not a release bump PR, so
+  # this job always has an artifact to restore. Build & Verify stays the cold
+  # build.
+  post-build-checks:
+    name: Post-build Checks
+    needs: [ biome, changes, build ]
+    if: needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Lint deployed workflows against shipped templates (baseline mode)
-        run: node scripts/lint-deployed-template-parity.mjs
-
-  manual-write-sweep:
-    # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
-    # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
-    # `rawMdPaths` directories since the T9791 docs-import cutoff (located
-    # from the import manifests under `.cleo/audit/imports/`), hashes it, and
-    # queries the docs SSoT to classify each file as `in-sync`, `drift`, or
-    # `orphan`. Emits a structured JSON report under
-    # `audit/manual-write-sweep-<date>.json`.
-    #
-    # READ-ONLY: the script mutates nothing. Initially wired with
-    # `continue-on-error: true` so the existing orphan corpus does not fail
-    # CI; flips to strict after Saga T10288 / Epic T10293 E5.3 lands the
-    # orphan cleanup migration. The report artefact is uploaded on every
-    # run so reviewers can see the unresolved count trend.
-    name: Manual Write Sweep (T10372)
-    needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    continue-on-error: true
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history required for git log --diff-filter=A
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Build cleo CLI (sweep shells out to `cleo docs list/fetch`)
-        run: pnpm run build
-      - name: Run manual-write sweep
-        # The script exits 1 when orphans or drift exist — wrap with
-        # --allow-unresolved so CI is informational until E5.3 cleans up.
-        # --cleo-bin invokes the just-built local CLI bundle.
-        run: node scripts/sweep-manual-doc-writes.mjs --allow-unresolved --cleo-bin "node packages/cleo/dist/cli/index.js"
-      - name: Upload sweep report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: manual-write-sweep
-          path: audit/manual-write-sweep-*.json
-          if-no-files-found: warn
-          # D11216: the shared artifact quota is full; a report read in the run's
-          # own UI needs a day, not the 90-day default.
-          retention-days: 1
-
-  canon-drift:
-    name: Canon Drift Check
-    needs: [ biome, changes ]
-    if: needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        uses: ./.github/actions/install-ripgrep
-      - name: Build monorepo (cleo + all workspace deps)
-        # Use root build script — pnpm --filter @cleocode/cleo run build alone
-        # does NOT build workspace dependencies first, so tsc cannot resolve
-        # @cleocode/contracts / @cleocode/core/internal / @cleocode/lafs.
-        run: pnpm run build
-      - name: Run canon drift gate
-        run: node packages/cleo/dist/cli/index.js check canon
-
-  canon-check:
-    # T9796 — Docs canon-routing CI gate. Loads `.cleo/canon.yml` and rejects
-    # NEW *.md files (git diff --diff-filter=A vs the PR's base ref) that
-    # land inside a `rawMdPaths` directory whose owning DocKind has
-    # `rawMdAllowed: false`. Existing legacy files (migrated by T9791) are
-    # never flagged — the gate only fires on ADDITIONS. Saga T9787.
-    name: Canon Drift Check (T9796)
-    needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
+          # Canon Drift Check (T9796) diffs against the PR base and Manual Write
+          # Sweep walks `git log --diff-filter=A`: both need full history.
           fetch-depth: 0
           filter: blob:none
       - uses: actions/setup-node@v4
@@ -1141,12 +1569,27 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
+      # Restored BEFORE install, so the file: link to crates/worktree-napi
+      # picks up the .node (T9982).
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
       - run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)
         uses: ./.github/actions/install-ripgrep
-      - name: Build monorepo (cleo + all workspace deps)
-        run: pnpm run build
-      - name: Run docs canon gate
+      - name: "Canon Drift Check: Run canon drift gate"
+        if: ${{ !cancelled() }}
+        run: node packages/cleo/dist/cli/index.js check canon
+      # T9796 — Docs canon-routing gate. Loads `.cleo/canon.yml` and rejects
+      # NEW *.md files (git diff --diff-filter=A vs the PR's base ref) that
+      # land inside a `rawMdPaths` directory whose owning DocKind has
+      # `rawMdAllowed: false`. Existing legacy files (migrated by T9791) are
+      # never flagged — the gate only fires on ADDITIONS. Saga T9787.
+      - name: "Canon Drift Check (T9796): Run docs canon gate"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
         run: |
           # On PRs, diff against the base branch — origin/${{ github.base_ref }}
           # — so non-main PR targets (release branches, stacked PRs, etc.) work.
@@ -1154,40 +1597,16 @@ jobs:
           base_ref="origin/${{ github.base_ref || 'main' }}"
           echo "canon-check: diffing against $base_ref"
           node packages/cleo/dist/cli/index.js check canon docs --base "$base_ref"
-
-  docs-drift:
-    # T9645: gate published docs SSoT vs the on-disk git files.
-    # `cleo docs status` exits 2 when any publication has drifted, 0 when
-    # all are in-sync. T13362: the ledger lives in the project store's
-    # `docs_publications` table (the deprecated `.cleo/docs-publications.json`
-    # is a read-only legacy seed source), so the skip probe reads the table
-    # read-only instead of checking for the JSON file. This job IS the
-    # release-verify drift gate.
-    name: Docs SSoT Drift Gate (T9645)
-    needs: [ biome, changes ]
-    if: needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - name: Skip when the docs ledger has no rows
+      # T9645: gate published docs SSoT vs the on-disk git files.
+      # `cleo docs status` exits 2 when any publication has drifted, 0 when
+      # all are in-sync. T13362: the ledger lives in the project store's
+      # `docs_publications` table (the deprecated `.cleo/docs-publications.json`
+      # is a read-only legacy seed source), so the skip probe reads the table
+      # read-only instead of checking for the JSON file. This step IS the
+      # release-verify drift gate.
+      - name: "Docs SSoT Drift Gate (T9645): Skip when the docs ledger has no rows"
         id: ledger-check
+        if: ${{ !cancelled() }}
         run: |
           # T13362: probe the `docs_publications` table read-only. A fresh
           # checkout has no `.cleo/cleo.db` (untracked per ADR-013), so the
@@ -1200,13 +1619,8 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "No docs_publications rows — gate is a no-op."
           fi
-      - run: pnpm install --frozen-lockfile
-        if: steps.ledger-check.outputs.exists == 'true'
-      - name: Build monorepo (cleo + workspace deps)
-        if: steps.ledger-check.outputs.exists == 'true'
-        run: pnpm run build
-      - name: Run docs drift gate
-        if: steps.ledger-check.outputs.exists == 'true'
+      - name: "Docs SSoT Drift Gate (T9645): Run docs drift gate"
+        if: ${{ !cancelled() && steps.ledger-check.outputs.exists == 'true' }}
         run: |
           # `cleo docs status` exits:
           #   0 — every publication in-sync
@@ -1227,92 +1641,56 @@ jobs:
           fi
           echo "::error::cleo docs status failed with exit $rc"
           exit $rc
-
-  exodus-parity-gate:
-    # T11551 (DHQ-045) — exodus zero-loss DURABLE GUARD. Runs the actual
-    # `runExodusMigrate` engine + the reusable CORE `verifyMigration()` primitive
-    # against a SCHEMA-REAL representative-data fixture (real CHECK enums, ISO-GLOB
-    # epoch columns, legacy enum aliases, a self-referential FK copied
-    # child-before-parent) — NOT name-matched toy tables. It FAILS on any genuine
-    # base-table row deficit, content mismatch, FK orphan, or un-normalised enum
-    # drift. This is the gate that must stay green BEFORE the exodus cutover
-    # (E8 / T11251). The whole zero-loss campaign (~805K rows recovered) happened
-    # because the original fixtures used matching names + canonical enums and
-    # missed every real-schema failure; this job is the regression wall.
-    # Pure test invocation — no untrusted input flows into run:.
-    name: Exodus Real-Data Parity Gate (T11551)
-    needs: [ changes ]
-    if: needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
+      # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
+      # `rawMdPaths` directories since the T9791 docs-import cutoff (located
+      # from the import manifests under `.cleo/audit/imports/`), hashes it, and
+      # queries the docs SSoT to classify each file as `in-sync`, `drift`, or
+      # `orphan`. Emits a structured JSON report under
+      # `audit/manual-write-sweep-<date>.json`.
+      #
+      # READ-ONLY: the script mutates nothing. Informational
+      # (`continue-on-error: true`, as the job it replaced was) until Saga
+      # T10288 / Epic T10293 E5.3 lands the orphan cleanup migration. The
+      # report is uploaded on every run so reviewers can see the unresolved
+      # count trend.
+      - name: "Manual Write Sweep (T10372): Run manual-write sweep"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+        continue-on-error: true
+        # The script exits 1 when orphans or drift exist — wrap with
+        # --allow-unresolved so CI is informational until E5.3 cleans up.
+        # --cleo-bin invokes the restored CLI bundle.
+        run: node scripts/sweep-manual-doc-writes.mjs --allow-unresolved --cleo-bin "node packages/cleo/dist/cli/index.js"
+      - name: "Manual Write Sweep (T10372): Upload sweep report"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+        uses: actions/upload-artifact@v4
         with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Build contracts (the parity primitive imports @cleocode/contracts)
-        run: pnpm --filter @cleocode/contracts run build:ts
-      - name: Run exodus real-data parity + verifyMigration gate
-        # Drives runExodusMigrate over a schema-real fixture and asserts ZERO
-        # base-table deficit via verifyMigration (count + checksum + FK + enum).
+          name: manual-write-sweep
+          path: audit/manual-write-sweep-*.json
+          if-no-files-found: warn
+          # D11216: the shared artifact quota is full; a report read in the run's
+          # own UI needs a day, not the 90-day default.
+          retention-days: 1
+      # T14367: formerly the Install Test job; runs on code changes, as it did.
+      - name: "Install Test: Test global link (simulates global install)"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
         run: |
-          pnpm --filter @cleocode/core exec vitest run --reporter=verbose \
-            src/store/__tests__/exodus-representative-data.test.ts \
-            src/store/__tests__/verify-migration.test.ts
-
-  row-identity-gate-b:
-    # T12802 — Gate B for row identity (T12341) on FIXTURE stores, the manual
-    # Gate B run on four real stores folded into CI. The fixtures are shaped
-    # like cleocode and llmtxt (no project-id file: compared with a stub; audit
-    # events only in the bare audit_log). It replays each migrated, filled
-    # store against its pre-migration copy with --omit-row-identity, checks two
-    # migrations agree with identity hashed, and refills a 9.25 (v1-recipe)
-    # copy. It must stay green before CLEO_ROW_UID_FILL defaults on.
-    # Pure test invocation — no untrusted input flows into run:.
-    name: Row Identity Gate B on Fixture Stores (T12802)
-    needs: [ changes ]
-    if: needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Build contracts
-        run: pnpm --filter @cleocode/contracts run build:ts
-      - name: Run Gate B on the fixture stores
+          cd packages/cleo && pnpm link --global && cd ../..
+          cleo version
+          cleo --help
+      - name: "Install Test: Test MCP server flag"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+        run: timeout 5 cleo --mcp-server 2>&1 || true
+      - name: "Install Test: Test project initialization"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
         run: |
-          pnpm --filter @cleocode/core exec vitest run --reporter=verbose \
-            src/store/__tests__/row-identity-gate-b.test.ts
+          mkdir -p /tmp/test-project
+          cd /tmp/test-project
+          cleo init test-project
+          ls -la .cleo/
+      - name: "Install Test: Cleanup"
+        if: ${{ always() && needs.changes.outputs.code == 'true' }}
+        run: pnpm unlink --global @cleocode/cleo
 
   changeset-lint:
     # T13281: every changeset must parse. Release Readiness (a standalone
@@ -1366,7 +1744,7 @@ jobs:
     # matches it); each other Node version is suffixed.
     name: Type Check${{ matrix.node != '24.16.0' && format(' (Node {0})', matrix.node) || '' }}
     needs: [ biome, changes ]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -1415,7 +1793,10 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     needs: [ changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    # T14368: not gated on `code`. Post-build Checks and Scripts Tests run on
+    # docs-only and scripts-only changes too, and restore this output instead
+    # of building themselves.
+    if: needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -1831,7 +2212,7 @@ jobs:
   build-verify:
     name: Build & Verify (${{ matrix.os }})
     needs: [ biome, changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ${{ matrix.os }}
     # T13205: macOS cold builds vary 4.5-8+ min (runner variance), so 10 cancelled
     # whole PR runs: the last 20 macOS Build & Verify jobs (2026-10-04) had a
@@ -2020,7 +2401,7 @@ jobs:
     name: Packed CLI and Studio Artifact
     needs: [ biome, changes ]
     # Includes native and package-manager inputs, even without JavaScript changes.
-    if: (needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true') && needs.changes.outputs.version_only != 'true'
+    if: (needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true') && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -2107,75 +2488,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-  validate-json:
-    name: Validate JSON Schemas
-    needs: [ biome, changes ]
-    if: needs.changes.outputs.schemas == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install jq
-        run: sudo apt-get install -y jq
-      - name: Validate JSON schema files
-        run: |
-          find packages -name '*.json' -path '*/schemas/*' | while read file; do
-            echo "Validating: $file"
-            jq empty "$file"
-          done
-
-  install-test:
-    name: Install Test
-    needs: [ biome, changes, build ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      # Restores the `build` job's output (dist/ of every package plus the
-      # worktree-napi and cant-napi .node binaries) BEFORE install, so the
-      # file: link to crates/worktree-napi picks up the .node (T9982).
-      - uses: actions/download-artifact@v4
-        with:
-          name: build-output-ubuntu-latest
-          path: ${{ runner.temp }}/build-output
-      - name: Restore shared build output
-        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Test global link (simulates global install)
-        run: |
-          cd packages/cleo && pnpm link --global && cd ../..
-          cleo version
-          cleo --help
-      - name: Test MCP server flag
-        run: timeout 5 cleo --mcp-server 2>&1 || true
-      - name: Test project initialization
-        run: |
-          mkdir -p /tmp/test-project
-          cd /tmp/test-project
-          cleo init test-project
-          ls -la .cleo/
-      - name: Cleanup
-        if: always()
-        run: pnpm unlink --global @cleocode/cleo
-
   worktree-napi-gate:
     # T13279: the worktree-napi prebuild runs HERE (a reusable workflow) when
     # its paths change, instead of a standalone run this job used to poll and
@@ -2183,51 +2495,13 @@ jobs:
     # changed.
     name: Worktree NAPI Prebuild Gate (T11127)
     needs: [ changes ]
-    if: needs.changes.outputs.worktree_napi == 'true'
+    if: needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true'
     uses: ./.github/workflows/worktree-napi-prebuild.yml
-
-  worktrunk-core-tests:
-    # T14130: the worktrunk-core crate tests, which no job ran before. The
-    # parity test compares the Rust project hash with the built
-    # @cleocode/paths `computeProjectHash`, so the job builds that package
-    # first and WORKTRUNK_REQUIRE_TS_PARITY makes a missing dist fail instead
-    # of skipping the TypeScript half. Skipped (a pass) when nothing in the
-    # worktree_napi scope changed.
-    name: Worktrunk Core Tests (T14130)
-    needs: [ changes ]
-    if: needs.changes.outputs.worktree_napi == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: pnpm install --frozen-lockfile
-      - name: Build @cleocode/paths (the TypeScript side of the parity test)
-        run: pnpm --filter @cleocode/paths run build
-      - name: cargo test -p worktrunk-core
-        env:
-          WORKTRUNK_REQUIRE_TS_PARITY: '1'
-        run: cargo test -p worktrunk-core --locked
 
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
     needs: [ biome, changes ]
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     # A TIMEOUT concludes the job as `cancelled`, which `continue-on-error`
     # does NOT mask (T11967), and a cancelled job blocks the merge. The job
@@ -2309,8 +2583,10 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   scripts-tests:
     name: Scripts Tests
-    needs: [ biome, changes ]
-    if: needs.changes.outputs.scripts == 'true'
+    # T14368: `build` runs whenever this job can (it skips only a release bump
+    # PR, which changes no script), and this job restores its output.
+    needs: [ biome, changes, build ]
+    if: needs.changes.outputs.scripts == 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -2379,23 +2655,31 @@ jobs:
             echo "$SELECTED"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+      # Selected tests spawn scripts that import built dist (T14368: restored
+      # from the `build` job, not rebuilt here). Restored BEFORE install, so
+      # the file: link to crates/worktree-napi picks up the .node (T9982).
+      # gh#1403 follow-up. This job installed but never built, and several
+      # scripts/ tests spawn a script that imports `@cleocode/core`'s built
+      # output — `lint-changesets.test.mjs` is the clear case: all five of its
+      # assertions expect exit 0 or 1, and with no dist the script exits 2
+      # before parsing anything, so every one fails.
+      #
+      # This went unnoticed because the sibling-test rule that selects such a
+      # test is itself new. A PR editing scripts/lint-changesets.mjs is the
+      # first thing that ever ran that file here, and it failed on a missing
+      # prerequisite rather than on its own change. Selecting a test without
+      # being able to satisfy what it needs is not coverage.
+      - uses: actions/download-artifact@v4
+        if: steps.select.outputs.count != '0'
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        if: steps.select.outputs.count != '0'
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
       - name: Install dependencies
         if: steps.select.outputs.count != '0'
         run: pnpm install --frozen-lockfile
-      - name: Build packages (selected tests spawn scripts that import built dist)
-        # gh#1403 follow-up. This job installed but never built, and several
-        # scripts/ tests spawn a script that imports `@cleocode/core`'s built
-        # output — `lint-changesets.test.mjs` is the clear case: all five of its
-        # assertions expect exit 0 or 1, and with no dist the script exits 2
-        # before parsing anything, so every one fails.
-        #
-        # This went unnoticed because the sibling-test rule that selects such a
-        # test is itself new. A PR editing scripts/lint-changesets.mjs is the
-        # first thing that ever ran that file here, and it failed on a missing
-        # prerequisite rather than on its own change. Selecting a test without
-        # being able to satisfy what it needs is not coverage.
-        if: steps.select.outputs.count != '0'
-        run: pnpm run build
       - name: Run the selected scripts tests
         if: steps.select.outputs.count != '0'
         shell: bash
@@ -2432,6 +2716,37 @@ jobs:
           echo "Nothing to run. This is a KNOWN GAP, not coverage (gh#1403):"
           echo "a script with no sibling test is still unverified by this job."
 
+  # T13279: the path-scoped gates run when the `changes` job sees their paths
+  # (skipped is a pass for the aggregate). T13840: the always-on single-job
+  # gates (Lockfile Check, AI SDK Surface, Boundary Registry, Dual
+  # Implementation, Dual-Scope Reads, Duplicate Test Filenames, Envelope
+  # Compliance, Generated Artifact Drift, Identity Pollution) are steps of
+  # Repo Lints, and T14367 folded the arch gates (formerly the reusable
+  # arch-boundary-check.yml, T13263) into it too.
+  cant-napi-gate:
+    name: cant-napi build
+    needs: [ changes ]
+    if: needs.changes.outputs.cant_napi == 'true' && needs.changes.outputs.draft != 'true'
+    uses: ./.github/workflows/cant-napi-build.yml
+
+  cleo-supervisor-smoke-gate:
+    name: cleo-supervisor smoke
+    needs: [ changes ]
+    if: needs.changes.outputs.supervisor_smoke == 'true' && needs.changes.outputs.draft != 'true'
+    uses: ./.github/workflows/cleo-supervisor-smoke.yml
+
+  skills-depth-gate:
+    name: Skills Depth Check
+    needs: [ changes ]
+    if: needs.changes.outputs.skills_depth == 'true'
+    uses: ./.github/workflows/skills-depth-check.yml
+
+  release-pipeline-matrix-gate:
+    name: Release Pipeline Matrix
+    needs: [ changes ]
+    if: needs.changes.outputs.release_matrix == 'true' && needs.changes.outputs.draft != 'true'
+    uses: ./.github/workflows/release-pipeline-matrix.yml
+
   # ──────────────────────────────────────────────────────────────────────────
   # Aggregate success gate. Branch protection on `main` requires a single
   # status context named "CI"; this job IS that context. GitHub posts one
@@ -2444,65 +2759,20 @@ jobs:
   # `skipped` (path-filtered) and `success` are accepted, so docs-only PRs that
   # skip the code jobs still satisfy the gate.
   # ──────────────────────────────────────────────────────────────────────────
-  # T13263: gating workflows that used to run standalone, where nothing
-  # required their checks (branch protection requires only `CI`), so a PR
-  # with a failing arch gate could merge green (#1881 at 58989cbbf). Each now
-  # runs here as a reusable workflow (`on: workflow_call`) and is a `needs`
-  # of the `ci` aggregate below. scripts/lint-merge-bar-aggregate.mjs pins it:
-  # every pull_request workflow must be called from here, be a required
-  # context, or be listed as advisory.
-  arch-gates:
-    name: Arch Gates
-    uses: ./.github/workflows/arch-boundary-check.yml
-
-  # T13279: the path-scoped gates run when the `changes` job sees their paths
-  # (skipped is a pass for the aggregate). T13840: the always-on single-job
-  # gates (Lockfile Check, AI SDK Surface, Boundary Registry, Dual
-  # Implementation, Dual-Scope Reads, Duplicate Test Filenames, Envelope
-  # Compliance, Generated Artifact Drift, Identity Pollution) are steps of
-  # Repo Lints and Repo Lints (installed).
-  cant-napi-gate:
-    name: cant-napi build
-    needs: [ changes ]
-    if: needs.changes.outputs.cant_napi == 'true'
-    uses: ./.github/workflows/cant-napi-build.yml
-
-  cleo-supervisor-smoke-gate:
-    name: cleo-supervisor smoke
-    needs: [ changes ]
-    if: needs.changes.outputs.supervisor_smoke == 'true'
-    uses: ./.github/workflows/cleo-supervisor-smoke.yml
-
-  skills-depth-gate:
-    name: Skills Depth Check
-    needs: [ changes ]
-    if: needs.changes.outputs.skills_depth == 'true'
-    uses: ./.github/workflows/skills-depth-check.yml
-
-  release-pipeline-matrix-gate:
-    name: Release Pipeline Matrix
-    needs: [ changes ]
-    if: needs.changes.outputs.release_matrix == 'true'
-    uses: ./.github/workflows/release-pipeline-matrix.yml
-
   ci:
-    name: CI
+    # T14385: on a draft PR this aggregate checks the lint jobs under another
+    # name, so the required `CI` context is never reported for a draft and
+    # stays pending: skipped heavy jobs can never satisfy the merge bar. The
+    # `ready_for_review` run reports `CI` with the full pipeline.
+    name: ${{ github.event.pull_request.draft && 'CI (draft, lint only)' || 'CI' }}
     if: always()
     runs-on: ubuntu-latest
     needs:
       - changes
       - biome
       - repo-lints
-      - invariants-docs-render-drift
-      - repo-lints-installed
       - contracts-dep-lint
-      - deployed-template-parity
-      - manual-write-sweep
-      - canon-drift
-      - canon-check
-      - docs-drift
-      - exodus-parity-gate
-      - row-identity-gate-b
+      - post-build-checks
       - changeset-lint
       - typecheck
       - build
@@ -2513,12 +2783,8 @@ jobs:
       - scripts-tests
       - build-verify
       - packed-artifact
-      - validate-json
-      - install-test
       - worktree-napi-gate
-      - worktrunk-core-tests
       - forge-ts-check
-      - arch-gates
       - cant-napi-gate
       - cleo-supervisor-smoke-gate
       - skills-depth-gate

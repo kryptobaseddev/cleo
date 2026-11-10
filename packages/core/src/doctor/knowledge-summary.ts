@@ -24,9 +24,20 @@ function reference(evidence: KnowledgeEvidenceRef): KnowledgeEvidenceRef {
   return source;
 }
 
+/** Sample sizes and follow-up command for {@link compactKnowledgeCoverage}. */
+export interface CompactKnowledgeCoverageLimits {
+  /** Reasons kept (default 2). */
+  reasons?: number;
+  /** Limitations kept (default 1). */
+  limitations?: number;
+  /** Command returning the omitted detail (default `cleo doctor knowledge`). */
+  detailsCommand?: string;
+}
+
 /**
  * Preserve coverage status and provenance without letting per-file reasons consume orientation.
  * @param coverage - Complete read-only assessment.
+ * @param limits - Sample sizes and follow-up command; defaults suit orientation.
  * @returns A bounded sample with exact original counts and a detailed follow-up command.
  * @remarks The complete assessment remains unchanged; status and provenance are preserved.
  * @example
@@ -34,15 +45,20 @@ function reference(evidence: KnowledgeEvidenceRef): KnowledgeEvidenceRef {
  * const summary = compactKnowledgeCoverage(coverage);
  * ```
  */
-export function compactKnowledgeCoverage(coverage: KnowledgeCoverage): KnowledgeCoverage {
+export function compactKnowledgeCoverage(
+  coverage: KnowledgeCoverage,
+  limits: CompactKnowledgeCoverageLimits = {},
+): KnowledgeCoverage {
   return {
     ...coverage,
-    reasons: coverage.reasons.slice(0, 2).map((reason) => preview(reason)),
+    reasons: coverage.reasons.slice(0, limits.reasons ?? 2).map((reason) => preview(reason)),
     evidence: coverage.evidence.slice(0, 1).map(reference),
-    limitations: coverage.limitations.slice(0, 1).map((reason) => preview(reason)),
+    limitations: coverage.limitations
+      .slice(0, limits.limitations ?? 1)
+      .map((reason) => preview(reason)),
     reasonCount: coverage.reasonCount ?? coverage.reasons.length,
     evidenceCount: coverage.evidenceCount ?? coverage.evidence.length,
-    detailsCommand: DETAILS_COMMAND,
+    detailsCommand: limits.detailsCommand ?? DETAILS_COMMAND,
   };
 }
 

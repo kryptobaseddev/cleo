@@ -89,7 +89,7 @@ export const PR_GATES: readonly PrGateDef[] = [
     args: ['install', '--frozen-lockfile'],
     heavy: false,
     tier: 'core',
-    description: 'pnpm-lock.yaml is consistent (CI: Repo Lints (installed) › Lockfile Check step)',
+    description: 'pnpm-lock.yaml is consistent (CI: Repo Lints › Lockfile Check step)',
   },
   {
     id: 'arch',
@@ -98,7 +98,7 @@ export const PR_GATES: readonly PrGateDef[] = [
     args: ['check', 'arch'],
     heavy: false,
     tier: 'core',
-    description: 'SG-ARCH-SOLID gates (CI: Arch Boundary Check)',
+    description: 'SG-ARCH-SOLID gates (CI: Repo Lints › Arch Gates steps)',
   },
   {
     id: 'canon-docs',
@@ -107,7 +107,8 @@ export const PR_GATES: readonly PrGateDef[] = [
     args: ['check', 'canon', 'docs'],
     heavy: false,
     tier: 'core',
-    description: 'No raw *.md bypassing the docs SSoT (CI: Canon Drift Check)',
+    description:
+      'No raw *.md bypassing the docs SSoT (CI: Post-build Checks › Canon Drift Check steps)',
   },
   {
     id: 'merge-bar-aggregate',
@@ -154,7 +155,7 @@ export const PR_GATES: readonly PrGateDef[] = [
     heavy: false,
     tier: 'full',
     description:
-      'No-hardcoded-models / out-of-chokepoint LLM construction (CI: Arch Boundary Check)',
+      'No-hardcoded-models / out-of-chokepoint LLM construction (CI: Repo Lints › Arch Gates steps)',
   },
   {
     id: 'lint-contracts-dep',
@@ -172,7 +173,8 @@ export const PR_GATES: readonly PrGateDef[] = [
     args: ['scripts/lint-deployed-template-parity.mjs'],
     heavy: false,
     tier: 'full',
-    description: 'Rendered workflow templates match deployed (CI: Deployed Template Parity)',
+    description:
+      'Rendered workflow templates match deployed (CI: Repo Lints › Deployed Template Parity step)',
   },
   {
     id: 'lint-publish-surface',

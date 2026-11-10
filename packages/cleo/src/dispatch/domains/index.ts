@@ -12,7 +12,6 @@ import type { DomainHandler } from '../types.js';
 import { AdminHandler } from './admin.js';
 import { AttentionHandler } from './attention.js';
 import { CheckHandler } from './check.js';
-import { ConduitHandler } from './conduit.js';
 import { DiagnosticsHandler } from './diagnostics.js';
 import { DocsHandler } from './docs.js';
 import { AccountHandler, ModelHandler, ProfileHandler, ProviderHandler } from './entities.js';
@@ -41,7 +40,6 @@ export {
   AdminHandler,
   AttentionHandler,
   CheckHandler,
-  ConduitHandler,
   DiagnosticsHandler,
   DocsHandler,
   FocusHandler,
@@ -93,10 +91,6 @@ export function createDomainHandlers(): Map<string, DomainHandler> {
   handlers.set('focus', new FocusHandler());
   // T935: HITL playbook runtime + approvals surface
   handlers.set('playbook', new PlaybookHandler());
-  // T964: conduit promoted to first-class canonical domain
-  // (supersedes ADR-042 Decision 1). ConduitHandler owns agent-to-agent
-  // messaging (status, peek, start, stop, send) via pluggable transports.
-  handlers.set('conduit', new ConduitHandler());
   // T1008: sentient domain — Tier-2 proposal queue management.
   handlers.set('sentient', new SentientHandler());
   // T1416: release domain (plan/open/reconcile/cut; IVTR ops removed in T14311).
