@@ -18,12 +18,12 @@ OUTPUT:
    cleo manifest show "$ENTRY_ID" >/dev/null || exit 1
    `--status`: completed, partial or blocked (actual progress). Do not append again to verify.
 3. MUST NOT return research content, findings, diffs or prose.
-4. MUST return EXACTLY this block, nothing else:
+4. MUST return EXACTLY this block, ≤100 words (detail → PR body):
    <Type> <complete|partial|blocked>. manifest:<entryId>
-   commits: <sha7,sha7|none>
-   gates: <gate>=<pass|fail|skip> ...
-   blocker: <≤12 words|none>
-   blocker: none when complete; required when partial/blocked.
+   conclusion: <result>
+   blocker: <none|why>
+   proof: <cmd> => exit <n>|<PR|sha|file>
+   blocker: none when complete; required when partial/blocked. One proof: line per item; with none, `cleo done --report` refuses the report.
    Append or readback failed → `<Type> blocked. manifest:none` + `blocker: manifest append failed`. Never claim an entry you did not read back.
 
 HITL: never ask the human. Return `<Type> blocked. manifest:<entryId>` + blocker: with {question, options[{label,description}], recommended} in the manifest; the orchestrator asks via the ask tool.

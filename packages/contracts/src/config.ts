@@ -816,6 +816,26 @@ export interface OrchestrateConfig {
    * @defaultValue { v1: false }
    */
   leadWorker?: OrchestrateLeadWorkerConfig;
+  /**
+   * Context-window usage thresholds (percent) for orchestrator wrap-up and
+   * stop. Formerly `orchestrator.contextThresholds`; configs with the old key
+   * are migrated on read and by `cleo upgrade` (T14375).
+   *
+   * @defaultValue { warning: 70, critical: 80 }
+   */
+  contextThresholds?: OrchestrateContextThresholds;
+}
+
+/**
+ * Context-window usage thresholds (`orchestrate.contextThresholds.*`).
+ *
+ * @task T14375
+ */
+export interface OrchestrateContextThresholds {
+  /** Percent at which the orchestrator plans to wrap up. @defaultValue 70 */
+  warning?: number;
+  /** Percent at which the orchestrator stops and hands off. @defaultValue 80 */
+  critical?: number;
 }
 
 /**

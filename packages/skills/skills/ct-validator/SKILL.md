@@ -1,7 +1,7 @@
 ---
 name: ct-validator
 description: Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.
-version: 2.1.0
+version: 2.1.1
 protocol: validation
 adrRefs:
   - ADR-051
@@ -18,7 +18,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.1.0
+  version: 2.1.1
   tier: on-demand
   install: harness
   covers:
@@ -126,10 +126,10 @@ are touched is grounds for loop-back with reason `infra-test-scope-violation`.
 
 ### Enforcement
 
-`detectInfrastructureTouch()` (`packages/core/src/lifecycle/infra-touch.ts`)
-names the touched infrastructure packages. The IVTR loop that appended this
-block to a Validate-phase prompt was removed (T14311), so the reviewer applies
-the rule from this section directly.
+No code enforces this rule: the IVTR loop that appended this block to a
+Validate-phase prompt was removed (T14311), and its path matcher with it
+(T14394). The reviewer applies the rule by comparing `filesChanged` against
+the canonical paths above.
 
 ---
 
