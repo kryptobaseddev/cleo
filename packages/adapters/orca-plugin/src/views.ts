@@ -71,45 +71,67 @@ export function toTaskPage(data: Record<string, unknown>, offset: number): TaskP
     tasks.push(row);
   }
   const population = isRecord(data['population']) ? data['population'] : {};
-  const matched = count(population['matched'], count(data['filtered'], offset + tasks.length));
+  const shown = offset + tasks.length;
+  const matched = count(population['matched'], count(data['filtered'], shown));
   return {
     ok: true,
     tasks,
     matched,
-    truncated: population['truncated'] === true || matched > offset + tasks.length,
+    // CLEO's own `population.truncated` only says the page is shorter than the match, which
+    // stays true on the last page. More rows exist only while the cursor is short of the
+    // match and the page still added something.
+    truncated: tasks.length > 0 && shown < matched,
     offset,
   };
 }
 
+/** A criterion as drawn, with the CLEO id evidence may name it by. */
+type Criterion = { row: AcceptanceRow; id: string | null };
+
 /** Acceptance criteria from `acRows`, falling back to the task's plain strings. */
-function toAcceptance(data: Record<string, unknown>, task: Record<string, unknown>) {
-  const rows: AcceptanceRow[] = [];
+function toAcceptance(data: Record<string, unknown>, task: Record<string, unknown>): Criterion[] {
+  const criteria: Criterion[] = [];
   const acRows = Array.isArray(data['acRows']) ? data['acRows'] : [];
   for (const row of acRows.slice(0, MAX_ITEMS)) {
     if (!isRecord(row)) continue;
     const criterion = text(row['text'], MAX_TEXT_LENGTH);
     if (criterion === null) continue;
-    rows.push({
-      alias: text(row['alias'], 20) ?? `AC${rows.length + 1}`,
-      text: criterion,
-      gates: [],
-    });
+    const alias = text(row['alias'], 20) ?? `AC${criteria.length + 1}`;
+    criteria.push({ row: { alias, text: criterion, gates: [] }, id: text(row['id'], 60) });
   }
-  if (rows.length > 0) return rows;
+  if (criteria.length > 0) return criteria;
   const plain = Array.isArray(task['acceptance']) ? task['acceptance'] : [];
   for (const entry of plain.slice(0, MAX_ITEMS)) {
     const criterion = text(entry, MAX_TEXT_LENGTH);
-    if (criterion !== null)
-      rows.push({ alias: `AC${rows.length + 1}`, text: criterion, gates: [] });
+    if (criterion === null) continue;
+    criteria.push({
+      row: { alias: `AC${criteria.length + 1}`, text: criterion, gates: [] },
+      id: null,
+    });
   }
-  return rows;
+  return criteria;
+}
+
+/**
+ * The criterion a `satisfies` atom names. An atom carries the criterion's id
+ * (`targetAcId`, the canonical form) or its alias (`targetAcAlias`), and CLEO
+ * adds the id it resolved an alias to as `resolvedAcUuid`. An id decides when
+ * both sides have one, so evidence recorded for an earlier criterion is not
+ * shown against a different one that now holds the same alias.
+ */
+function criterionOf(atom: Record<string, unknown>, criteria: Criterion[]): Criterion | undefined {
+  const ids = [atom['targetAcId'], atom['resolvedAcUuid']].filter((id) => typeof id === 'string');
+  if (ids.length > 0 && criteria.some((criterion) => criterion.id !== null)) {
+    return criteria.find((criterion) => criterion.id !== null && ids.includes(criterion.id));
+  }
+  return criteria.find((criterion) => criterion.row.alias === atom['targetAcAlias']);
 }
 
 /**
  * Evidence gates of a task. Each gate lists the atom kinds recorded for it,
  * and a `satisfies` atom marks the criterion it names with the gate.
  */
-function toGates(task: Record<string, unknown>, acceptance: AcceptanceRow[]): GateRow[] {
+function toGates(task: Record<string, unknown>, criteria: Criterion[]): GateRow[] {
   const verification = isRecord(task['verification']) ? task['verification'] : {};
   const gates = isRecord(verification['gates']) ? verification['gates'] : {};
   const evidence = isRecord(verification['evidence']) ? verification['evidence'] : {};
@@ -122,8 +144,8 @@ function toGates(task: Record<string, unknown>, acceptance: AcceptanceRow[]): Ga
       if (!isRecord(atom) || typeof atom['kind'] !== 'string') continue;
       kinds.set(atom['kind'], (kinds.get(atom['kind']) ?? 0) + 1);
       if (atom['kind'] !== 'satisfies' || atom['targetTaskId'] !== task['id']) continue;
-      const criterion = acceptance.find((row) => row.alias === atom['targetAcAlias']);
-      if (criterion && !criterion.gates.includes(gate)) criterion.gates.push(gate);
+      const criterion = criterionOf(atom, criteria);
+      if (criterion && !criterion.row.gates.includes(gate)) criterion.row.gates.push(gate);
     }
     rows.push({
       gate: gate.slice(0, 60),
@@ -157,8 +179,8 @@ export function toTaskDetail(data: Record<string, unknown>): TaskDetail | CleoFa
   if (!isRecord(task) || row === null) {
     return failure('malformed-envelope', 'CLEO answered the task read without a task.');
   }
-  const acceptance = toAcceptance(data, task);
-  const gates = toGates(task, acceptance);
+  const criteria = toAcceptance(data, task);
+  const gates = toGates(task, criteria);
   const verification = isRecord(task['verification']) ? task['verification'] : {};
   const relations = isRecord(task['relationCounts']) ? task['relationCounts'] : {};
   const view = isRecord(data['view']) ? data['view'] : {};
@@ -172,7 +194,7 @@ export function toTaskDetail(data: Record<string, unknown>): TaskDetail | CleoFa
       children: count(relations['children'], 0),
       updatedAt: text(task['updatedAt'], 40),
     },
-    acceptance,
+    acceptance: criteria.map((criterion) => criterion.row),
     gates,
     verificationPassed: verification['passed'] === true,
     claim: toClaim(task['claim']),

@@ -2,10 +2,10 @@
  * CLEO Tasks panel of the Orca plugin (T14462): a read-only view of one local
  * workspace's epics, tasks, acceptance criteria, evidence gates and worker claim.
  *
- * The panel never touches CLEO itself. It asks the plugin worker, which runs
- * bounded `cleo` reads, and it keeps only the workspace choice and the status
- * filter between runs; everything it draws is the last answer held in memory,
- * never a second task store. Orca loads this file as written: no build step.
+ * This file only draws. What is read when, and which answer may still be drawn,
+ * is decided in `panel-state.ts`; here its cells become Orca atoms and its
+ * requests become `plugin.request` to the plugin worker, which runs the bounded
+ * `cleo` reads. Orca loads this file as written: no build step.
  */
 
 import {
@@ -30,22 +30,17 @@ import {
   Text,
   Tree,
   type TreeItem,
-  update,
 } from 'orca';
+import { createPanelState, KEY_SEPARATOR, STATUS_OPTIONS } from './panel-state.ts';
 import type {
   CleoFailure,
   CleoFailureCode,
   TaskDetail,
-  TaskPage,
   TaskRow,
-  TaskStatusFilter,
   WorkspaceList,
   WorkspaceOption,
   WorkspaceSelection,
 } from './protocol.ts';
-
-/** Loaded children of one task, as the last `cleo list --parent` page gave them. */
-type ChildPage = { tasks: TaskRow[]; matched: number; truncated: boolean };
 
 /** Heading shown for each failure code. */
 const FAILURE_TITLES: Record<CleoFailureCode, string> = {
@@ -63,244 +58,31 @@ const FAILURE_TITLES: Record<CleoFailureCode, string> = {
   'host-error': 'Orca could not complete the request',
 };
 
-/** Epic status filter choices, in picker order. */
-const STATUS_OPTIONS: readonly { value: TaskStatusFilter; label: string }[] = [
-  { value: 'active', label: 'Active epics' },
-  { value: 'pending', label: 'Pending epics' },
-  { value: 'blocked', label: 'Blocked epics' },
-  { value: 'done', label: 'Done epics' },
-  { value: 'all', label: 'All epics' },
-];
-
-/** Separates the task ids in a tree key, so one task may sit under two parents. */
-const KEY_SEPARATOR = '>';
-
-// Kept between runs: the explicit workspace choice and the filter. Nothing else is stored.
-const selection = atom<WorkspaceSelection | null>('selection', null, { persist: 'plugin' });
-const statusFilter = atom<TaskStatusFilter>('status', 'active', { persist: 'plugin' });
-
-// The last answers, held in memory for this panel run only.
-const workspaceList = atom<WorkspaceList | null>(null);
-const workspaceFailure = atom<CleoFailure | null>(null);
-const epics = atom<TaskRow[] | null>(null);
-const epicPage = atom<{ matched: number; truncated: boolean } | null>(null);
-const taskFailure = atom<CleoFailure | null>(null);
-const children = atom<Record<string, ChildPage>>({});
-const parents = atom<string[]>([]);
-const expanded = atom<string[]>([]);
-const selectedKey = atom<string | null>(null);
-const detail = atom<TaskDetail | null>(null);
-const detailFailure = atom<CleoFailure | null>(null);
-const pending = atom(0);
-const notice = atom<string | null>(null);
-
-/** Aborts the reads in flight; replaced on every cancel. */
-let controller = new AbortController();
-
-/** The task id a tree key ends with. */
-function taskIdOf(key: string): string {
-  return key.slice(key.lastIndexOf(KEY_SEPARATOR) + 1);
+/** Backs one piece of panel state with an Orca atom; a `persistKey` keeps it between runs. */
+function atomCell<T>(initial: T, persistKey?: string) {
+  const store =
+    persistKey === undefined ? atom(initial) : atom(persistKey, initial, { persist: 'plugin' });
+  return { get: () => read(store), set: (value: T) => set(store, value) };
 }
 
-/** Stops every read in flight. Their answers are dropped, never drawn. */
-function abortReads(): void {
-  controller.abort();
-  controller = new AbortController();
-}
+/** The panel's state and actions, bound to Orca atoms and to the plugin worker. */
+const state = createPanelState(atomCell, {
+  workspaces: (signal) => plugin.request('cleo.workspaces', undefined, { signal }),
+  tasks: (input, signal) => plugin.request('cleo.tasks', input, { signal }),
+  task: (input, signal) => plugin.request('cleo.task', input, { signal }),
+});
 
 /**
- * Runs one worker request under the current abort signal and counts it as in
- * flight. A rejection becomes a failure value; an answer that arrives after a
- * cancel is reported as `cancelled` so callers leave the drawn state alone.
+ * Runs once before the first render: reloads on the refresh command and loads
+ * the first view. The returned cleanup stops the reads in flight when the
+ * panel closes.
+ *
+ * @param ctx - Orca's panel context.
  */
-async function ask<T extends { ok: true }>(
-  request: (signal: AbortSignal) => Promise<T | CleoFailure>,
-): Promise<T | CleoFailure> {
-  const { signal } = controller;
-  const cancelled: CleoFailure = {
-    ok: false,
-    code: 'cancelled',
-    message: 'The read was cancelled.',
-  };
-  update(pending, (count) => count + 1);
-  try {
-    const answer = await request(signal);
-    return signal.aborted ? cancelled : answer;
-  } catch (error) {
-    if (signal.aborted) return cancelled;
-    const timedOut = error instanceof Error && 'code' in error && error.code === 'timeout';
-    return {
-      ok: false,
-      code: timedOut ? 'timeout' : 'host-error',
-      message: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    update(pending, (count) => count - 1);
-  }
-}
-
-/** Loads one task's detail into the detail pane. */
-async function loadDetail(taskId: string): Promise<void> {
-  const chosen = read(selection);
-  if (chosen === null) return;
-  const answer = await ask((signal) =>
-    plugin.request('cleo.task', { selection: chosen, taskId }, { signal }),
-  );
-  if (!answer.ok) {
-    if (answer.code !== 'cancelled') set(detailFailure, answer);
-    return;
-  }
-  set(detailFailure, null);
-  set(detail, answer);
-  // CLEO's relation count is how a plain task is known to have children to expand.
-  if (answer.task.children > 0) {
-    update(parents, (known) => (known.includes(taskId) ? known : [...known, taskId]));
-  }
-}
-
-/** Loads the direct children of one task into the tree. */
-async function loadChildren(parentId: string): Promise<void> {
-  const chosen = read(selection);
-  if (chosen === null) return;
-  const answer = await ask((signal) =>
-    plugin.request('cleo.tasks', { selection: chosen, parentId }, { signal }),
-  );
-  if (!answer.ok) {
-    if (answer.code !== 'cancelled') set(taskFailure, answer);
-    return;
-  }
-  set(taskFailure, null);
-  update(children, (loaded) => ({ ...loaded, [parentId]: answer }));
-}
-
-/** Loads one page of epics; `offset` above 0 appends to the rows already drawn. */
-async function loadEpics(offset: number): Promise<TaskPage | CleoFailure | null> {
-  const chosen = read(selection);
-  if (chosen === null) return null;
-  const answer = await ask((signal) =>
-    plugin.request(
-      'cleo.tasks',
-      { selection: chosen, status: read(statusFilter), offset },
-      { signal },
-    ),
-  );
-  if (!answer.ok) {
-    if (answer.code !== 'cancelled') set(taskFailure, answer);
-    return answer;
-  }
-  set(taskFailure, null);
-  update(epics, (rows) => (offset > 0 && rows ? [...rows, ...answer.tasks] : answer.tasks));
-  set(epicPage, { matched: answer.matched, truncated: answer.truncated });
-  return answer;
-}
-
-/** Reloads the tree of the chosen workspace: epics, open branches, then the open task. */
-async function loadTasks(): Promise<void> {
-  // A cancel or a new choice replaces the controller: this run then stops between reads.
-  const { signal } = controller;
-  const page = await loadEpics(0);
-  if (!page?.ok) return;
-  for (const key of read(expanded)) {
-    if (signal.aborted) return;
-    await loadChildren(taskIdOf(key));
-  }
-  const open = read(selectedKey);
-  if (open !== null && !signal.aborted) await loadDetail(taskIdOf(open));
-}
-
-/** Forgets every loaded task. Used when the workspace or the filter changes. */
-function clearTasks(): void {
-  set(epics, null);
-  set(epicPage, null);
-  set(taskFailure, null);
-  set(children, {});
-  set(parents, []);
-  set(expanded, []);
-  set(selectedKey, null);
-  set(detail, null);
-  set(detailFailure, null);
-}
-
-/**
- * Reloads everything: the workspace list first, then the tasks of the chosen
- * workspace. A stored choice Orca no longer lists the same way is dropped with
- * a notice, so a stale choice can never read another folder.
- */
-async function refresh(): Promise<void> {
-  abortReads();
-  set(notice, null);
-  const answer = await ask((signal) => plugin.request('cleo.workspaces', undefined, { signal }));
-  if (!answer.ok) {
-    if (answer.code !== 'cancelled') set(workspaceFailure, answer);
-    return;
-  }
-  set(workspaceFailure, null);
-  set(workspaceList, answer);
-  const chosen = read(selection);
-  if (chosen === null) return;
-  const listed = answer.workspaces.find((workspace) => workspace.id === chosen.id);
-  const same = listed?.hostId === chosen.hostId && listed.path === chosen.path;
-  if (!listed || !same || listed.blocked !== null) {
-    set(selection, null);
-    clearTasks();
-    set(notice, 'The saved workspace is no longer available as chosen. Choose a workspace.');
-    return;
-  }
-  await loadTasks();
-}
-
-/** The person stopped the reads in flight; what was drawn before stays. */
-function cancel(): void {
-  abortReads();
-  set(notice, 'Read cancelled. Refresh to load again.');
-}
-
-/** The person picked a workspace in the picker. */
-function chooseWorkspace(id: string): void {
-  const option = read(workspaceList)?.workspaces.find((workspace) => workspace.id === id);
-  if (!option || option.blocked !== null) return;
-  abortReads();
-  set(notice, null);
-  set(selection, { id: option.id, hostId: option.hostId, path: option.path });
-  clearTasks();
-  void loadTasks();
-}
-
-/** The person changed the epic status filter. */
-function chooseStatus(value: string): void {
-  const option = STATUS_OPTIONS.find((status) => status.value === value);
-  if (!option) return;
-  abortReads();
-  set(notice, null);
-  set(statusFilter, option.value);
-  clearTasks();
-  void loadTasks();
-}
-
-/** A tree branch was opened or closed; an opened one loads its children once. */
-function toggle(item: { key: string; expanded: boolean }): void {
-  update(expanded, (keys) =>
-    item.expanded
-      ? [...keys.filter((key) => key !== item.key), item.key]
-      : keys.filter((key) => key !== item.key),
-  );
-  const taskId = taskIdOf(item.key);
-  if (item.expanded && read(children)[taskId] === undefined) void loadChildren(taskId);
-}
-
-/** A tree row was selected: show that task. */
-function selectTask(item: { key: string }): void {
-  set(selectedKey, item.key);
-  set(detail, null);
-  set(detailFailure, null);
-  void loadDetail(taskIdOf(item.key));
-}
-
-/** Runs once before the first render; the returned cleanup runs when the panel closes. */
 export function setup(ctx: PanelContext): () => void {
-  ctx.subscriptions.push(plugin.on('cleo.refresh', () => void refresh()));
-  void refresh();
-  return abortReads;
+  ctx.subscriptions.push(plugin.on('cleo.refresh', () => void state.refresh()));
+  void state.refresh();
+  return state.dispose;
 }
 
 /** One task as a tree item, with its loaded children below it. */
@@ -312,9 +94,10 @@ function treeItem(row: TaskRow, parentKey: string | null): TreeItem {
     description: `${row.status} · ${row.type}`,
     icon: row.type === 'epic' || row.type === 'saga' ? 'layers' : 'file-text',
   };
-  const page = read(children)[row.id];
+  const page = state.children.get()[row.id];
   if (page === undefined) {
-    const expandable = row.type === 'epic' || row.type === 'saga' || read(parents).includes(row.id);
+    const expandable =
+      row.type === 'epic' || row.type === 'saga' || state.parents.get().includes(row.id);
     return { ...item, hasChildren: expandable };
   }
   const items = page.tasks.map((child) => treeItem(child, key));
@@ -369,7 +152,7 @@ function workspaceSection(list: WorkspaceList | null, chosen: WorkspaceSelection
         placeholder="Choose a workspace"
         value={chosen?.id}
         options={list.workspaces.map(option)}
-        onChange={chooseWorkspace}
+        onChange={(id) => void state.chooseWorkspace(id)}
       />
       {list.truncated ? (
         <Callout tone="warning" title="Workspace list truncated" icon="warning">
@@ -406,11 +189,16 @@ function workspaceSection(list: WorkspaceList | null, chosen: WorkspaceSelection
 
 /** The epic and task tree of the chosen workspace. */
 function taskSection(rows: TaskRow[] | null, failed: CleoFailure | null) {
-  const page = read(epicPage);
-  const filter = read(statusFilter);
+  const page = state.epicPage.get();
+  const filter = state.statusFilter.get();
   return (
     <Stack gap="sm">
-      <Select label="Epic status" value={filter} options={STATUS_OPTIONS} onChange={chooseStatus} />
+      <Select
+        label="Epic status"
+        value={filter}
+        options={STATUS_OPTIONS}
+        onChange={(value) => void state.chooseStatus(value)}
+      />
       {failed ? failureCallout(failed, rows !== null) : null}
       {rows !== null && rows.length === 0 ? (
         <EmptyState
@@ -423,17 +211,17 @@ function taskSection(rows: TaskRow[] | null, failed: CleoFailure | null) {
         <Tree
           label="CLEO epics and tasks"
           items={rows.map((row) => treeItem(row, null))}
-          expanded={read(expanded)}
-          selected={read(selectedKey) ?? undefined}
+          expanded={state.expanded.get()}
+          selected={state.selectedKey.get() ?? undefined}
           maxHeight="lg"
-          onToggle={toggle}
-          onSelect={selectTask}
+          onToggle={(item) => void state.toggle(item)}
+          onSelect={(item) => void state.selectTask(item)}
         />
       ) : null}
       {rows !== null && page?.truncated ? (
         <Callout tone="warning" title="Epic list truncated" icon="warning">
           <Text>{`Showing ${rows.length} of ${page.matched} epics.`}</Text>
-          <Button variant="outline" size="sm" onPress={() => void loadEpics(rows.length)}>
+          <Button variant="outline" size="sm" onPress={() => void state.loadMore()}>
             Load more
           </Button>
         </Callout>
@@ -519,21 +307,25 @@ function detailSection(shown: TaskDetail) {
   );
 }
 
+/**
+ * The CLEO Tasks panel: toolbar, workspace picker, epic and task tree, and the
+ * selected task's acceptance criteria, evidence gates and worker claim.
+ */
 export default function Panel() {
-  const loading = read(pending) > 0;
-  const list = read(workspaceList);
-  const listFailure = read(workspaceFailure);
-  const chosen = read(selection);
-  const message = read(notice);
-  const shown = read(detail);
-  const shownFailure = read(detailFailure);
+  const loading = state.pending.get() > 0;
+  const list = state.workspaceList.get();
+  const listFailure = state.workspaceFailure.get();
+  const chosen = state.selection.get();
+  const message = state.notice.get();
+  const shown = state.detail.get();
+  const shownFailure = state.detailFailure.get();
   return (
     <Stack gap="md">
       <Row justify="between" align="center">
         <Heading level={2}>CLEO Tasks</Heading>
         <Row gap="xs" align="center">
           {loading ? <Spinner label="Reading CLEO" /> : null}
-          <Button variant="ghost" size="sm" icon="stop" disabled={!loading} onPress={cancel}>
+          <Button variant="ghost" size="sm" icon="stop" disabled={!loading} onPress={state.cancel}>
             Cancel
           </Button>
           <Button
@@ -541,7 +333,7 @@ export default function Panel() {
             size="sm"
             icon="refresh"
             disabled={loading}
-            onPress={() => void refresh()}
+            onPress={() => void state.refresh()}
           >
             Refresh
           </Button>
@@ -554,7 +346,7 @@ export default function Panel() {
       ) : null}
       {listFailure ? failureCallout(listFailure, list !== null) : null}
       {workspaceSection(list, chosen)}
-      {chosen ? taskSection(read(epics), read(taskFailure)) : null}
+      {chosen ? taskSection(state.epics.get(), state.taskFailure.get()) : null}
       {shownFailure ? failureCallout(shownFailure, shown !== null) : null}
       {shown ? detailSection(shown) : null}
     </Stack>

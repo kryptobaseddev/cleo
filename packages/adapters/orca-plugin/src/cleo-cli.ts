@@ -33,8 +33,11 @@ const STATUS_FILTERS: readonly TaskStatusFilter[] = ['active', 'pending', 'block
  */
 const TASK_ID = /^T[0-9][0-9A-Za-z]{0,15}$/;
 
-/** Identity variables a read must not inherit from whatever started Orca. */
-const AGENT_IDENTITY_ENV = ['CLEO_SESSION_ID', 'CLEO_AGENT_ID', 'CLEO_AGENT_ROLE'] as const;
+/**
+ * The one `CLEO_*` variable a read keeps: where this machine holds CLEO's
+ * global data. It never selects a project or an identity.
+ */
+const KEPT_CLEO_ENV = 'CLEO_HOME';
 
 /** The `data` of a successful envelope, or why there is none. */
 export type CleoRunResult = { ok: true; data: Record<string, unknown> } | CleoFailure;
@@ -153,10 +156,25 @@ export function parseEnvelope(stdout: string): CleoRunResult {
   return failure('cli-error', `${codeName}: ${error['message']}`);
 }
 
-/** The environment of a read: Orca's own, minus any agent identity. */
-function readEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
-  for (const name of AGENT_IDENTITY_ENV) delete env[name];
+/**
+ * The environment of one read: the worker's own, minus every `CLEO_*` setting
+ * of whatever started Orca.
+ *
+ * `CLEO_ROOT`, `CLEO_PROJECT_ROOT` and `CLEO_DIR` override the working
+ * directory as the project a `cleo` command reads, so an inherited one would
+ * show another project under the chosen workspace's name. `CLEO_SESSION_ID`,
+ * `CLEO_AGENT_ID` and `CLEO_AGENT_ROLE` would make the view act as an agent.
+ * Dropping the whole prefix also covers settings added later.
+ *
+ * @param source - The environment to start from; the worker's by default.
+ */
+export function readEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (name.startsWith('CLEO_') && name !== KEPT_CLEO_ENV) continue;
+    env[name] = value;
+  }
+  env['NO_COLOR'] = '1';
   return env;
 }
 

@@ -1,8 +1,16 @@
-// `orca plugin check` renders the panel once per scenario. Every scenario stands in for the
+// `orca plugin check` renders the panel once per scenario, with Orca's own runtime and checks.
+// It is the plugin's rendering proof: the decisions behind each state are tested by the vitest
+// suite in packages/adapters, which CI runs. Every scenario stands in for the
 // worker's CLEO reads (`requests`), so check never starts a `cleo` process; `remoteOnly` leaves
 // `cleo.workspaces` to the real worker over the stand-in host's workspace list.
 import { defineCheck } from 'orca/testing';
-import type { TaskPage, WorkspaceList, WorkspaceOption, WorkspaceSelection } from './protocol.ts';
+import type {
+  TaskDetail,
+  TaskPage,
+  WorkspaceList,
+  WorkspaceOption,
+  WorkspaceSelection,
+} from './protocol.ts';
 
 const CHOSEN: WorkspaceSelection = { id: 'ws-app', hostId: 'local', path: '/work/app' };
 const LOCAL: WorkspaceOption = {
@@ -62,6 +70,39 @@ const epics: TaskPage = {
   offset: 0,
 };
 
+const detail: TaskDetail = {
+  ok: true,
+  task: {
+    id: 'T101',
+    title: 'Build the panel',
+    status: 'active',
+    type: 'task',
+    priority: 'high',
+    parentId: 'T100',
+    description: 'A read-only view of CLEO tasks.',
+    size: 'medium',
+    pipelineStage: 'implementation',
+    children: 0,
+    updatedAt: '2026-11-10T19:00:00.000Z',
+  },
+  acceptance: [
+    { alias: 'AC1', text: 'The panel renders.', gates: ['implemented'] },
+    { alias: 'AC2', text: 'The worker is bounded.', gates: [] },
+  ],
+  gates: [
+    { gate: 'implemented', passed: true, atoms: 'commit, files, satisfies', capturedAt: null },
+    { gate: 'testsPassed', passed: false, atoms: '', capturedAt: null },
+  ],
+  verificationPassed: false,
+  claim: {
+    agentId: 'agent-t101',
+    sessionId: 'ses_1',
+    claimedAt: '2026-11-10T19:00:00.000Z',
+    leaseExpiresAt: '2026-11-10T19:30:00.000Z',
+  },
+  nextAction: 'verify',
+};
+
 const chosen = { plugin: { selection: CHOSEN } };
 
 export default defineCheck({
@@ -88,6 +129,14 @@ export default defineCheck({
   truncatedEpics: {
     persisted: chosen,
     requests: { 'cleo.workspaces': listing([LOCAL, REMOTE]), 'cleo.tasks': epics },
+  },
+  taskDetail: {
+    persisted: { plugin: { selection: CHOSEN, task: 'T100>T101' } },
+    requests: {
+      'cleo.workspaces': listing([LOCAL]),
+      'cleo.tasks': { ...epics, matched: 2, truncated: false },
+      'cleo.task': detail,
+    },
   },
   noEpics: {
     persisted: chosen,
