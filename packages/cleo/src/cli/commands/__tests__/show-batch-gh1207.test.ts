@@ -121,7 +121,7 @@ describe('gh#1207 — a partial batch must be loud, not silent', () => {
 });
 
 describe('gh#1207 — flags are threaded to every id, not just the first', () => {
-  it('passes history/ivtrHistory/relations on each dispatch', async () => {
+  it('passes history/relations on each dispatch', async () => {
     dispatchRawMock.mockResolvedValue({ success: true, data: {}, meta: {} });
 
     await run({ taskId: 'T1', _: ['T2'], history: true, relations: true });
@@ -130,7 +130,8 @@ describe('gh#1207 — flags are threaded to every id, not just the first', () =>
       const params = call[3] as Record<string, unknown>;
       expect(params.history).toBe(true);
       expect(params.relations).toBe(true);
-      expect(params.ivtrHistory).toBe(false);
+      // T14311: --ivtr-history was removed with the IVTR loop.
+      expect(params).not.toHaveProperty('ivtrHistory');
     }
   });
 

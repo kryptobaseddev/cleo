@@ -621,7 +621,7 @@ export function extractHandWiredGuards(sources) {
  * Args a command spreads in from the operations registry
  * (`...paramsToCittyArgs(getOperationParams('query', 'tasks', 'show'))`) are
  * resolved through {@link extractRegistryParamFlags} when `registrySource` is
- * given (T13945): `cleo show --ivtr-history` is declared only there.
+ * given (T13945): `cleo show --relations` is declared only there.
  *
  * @param source - the command module source.
  * @param name   - the command's `meta.name` (root verb or sub-verb).

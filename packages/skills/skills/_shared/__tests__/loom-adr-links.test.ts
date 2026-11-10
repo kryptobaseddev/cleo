@@ -96,6 +96,10 @@ for (const s of manifest.skills) {
     skillsByStage.set(s.loomStage, s);
   }
 }
+// T14311: `testing` shares the validation skill (ct-validator) since
+// ct-ivt-looper was removed, so it is held to the same ADR floor through it.
+const validationSkill = skillsByStage.get('validation');
+if (validationSkill) skillsByStage.set('testing', validationSkill);
 
 // ---------------------------------------------------------------------------
 // Gate 1: every LOOM-stage skill declares a non-empty adrRefs[]

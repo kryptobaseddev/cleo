@@ -650,7 +650,7 @@ export async function validateGateVerify(
       value !== false &&
       !reset
     ) {
-      const { validateSpawnRequest } = await import('../lifecycle/ivtr-loop.js');
+      const { validateSpawnRequest } = await import('../lifecycle/lead-authorship.js');
       const spawnCheck = await validateSpawnRequest(taskId, 'implemented', sessionId);
       if (!spawnCheck.allowed) {
         return engineError(

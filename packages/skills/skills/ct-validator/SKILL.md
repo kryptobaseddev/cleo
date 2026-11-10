@@ -1,11 +1,12 @@
 ---
 name: ct-validator
 description: Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.
-version: 2.0.5
+version: 2.1.0
 protocol: validation
 adrRefs:
   - ADR-051
   - ADR-023
+  - ADR-061
 dependencies: []
 sharedResources:
   - subagent-protocol-base
@@ -17,14 +18,16 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.0.5
+  version: 2.1.0
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/validation.cant
     - packages/core/src/validation/protocols/protocols-markdown/validation.md
+    - packages/core/src/validation/protocols/cant/testing.cant
+    - packages/core/src/validation/protocols/protocols-markdown/testing.md
   loomStage: validation
-  lastReviewed: 2026-11-05
+  lastReviewed: 2026-11-09
   stability: stable
 ---
 
@@ -57,17 +60,10 @@ Context injection for compliance validation tasks spawned via cleo-subagent. Pro
 
 This skill does NOT:
 
-- Run a test suite, framework detection, or iterative IVT loop. Those belong to **`ct-ivt-looper`** at the `testing` stage (stage 8). When dynamic verification is required — e.g. "does the implementation actually pass its tests?" — chain to `ct-ivt-looper` rather than expanding scope here.
+- Run a test suite or an iterative IVT loop itself. The `testing` stage (stage 8) is also routed here since `ct-ivt-looper` was removed (T14311): dynamic verification is proven by the task's `testsPassed` evidence gate (`cleo done <id> --plan`, then `cleo verify`), and this skill audits that evidence rather than producing it.
 - Modify code or apply fixes. The validator reports; downstream skills remediate.
 
-### Chain handoffs
-
-| Direction | When | Handoff |
-|---|---|---|
-| `ct-validator` → `ct-ivt-looper` | Spec is valid but implementation needs dynamic verification | Emit a manifest entry, then dispatch the `testing` stage |
-| `ct-ivt-looper` → `ct-validator` | IVT loop converged; need to audit the resulting artifacts against schema/compliance | Dispatch the `validation` stage after the test convergence record |
-
-Governance: see **ADR-051** (programmatic gate integrity) which defines the evidence atoms each stage emits and that the other stage may re-validate, and **ADR-023** (protocol validation dispatch) which routes between them.
+Governance: see **ADR-051** (programmatic gate integrity), which defines the evidence atoms each stage emits and this skill re-validates, and **ADR-023** (protocol validation dispatch).
 
 ---
 
@@ -130,12 +126,10 @@ are touched is grounds for loop-back with reason `infra-test-scope-violation`.
 
 ### Enforcement
 
-The IVTR Lead spawn prompt is auto-enriched by `resolvePhasePrompt()` in
-`packages/core/src/lifecycle/ivtr-loop.ts` — when an infrastructure touch is
-detected via `detectInfrastructureTouch()` (`packages/core/src/lifecycle/infra-touch.ts`),
-a `### Blast-Radius Test Scope — MANDATORY (T9842)` block is appended to
-the Validate-phase Lead prompt, listing the touched packages and the exact
-`pnpm --filter` commands the Lead must run.
+`detectInfrastructureTouch()` (`packages/core/src/lifecycle/infra-touch.ts`)
+names the touched infrastructure packages. The IVTR loop that appended this
+block to a Validate-phase prompt was removed (T14311), so the reviewer applies
+the rule from this section directly.
 
 ---
 
@@ -318,5 +312,5 @@ Progressive disclosure — load on demand only:
 
 - `references/validation-modes.md` — schema/code/document/protocol modes, selection rubric, composition
 - `references/schema-checking.md` — engine selection, draft selection, pitfalls, bulk validation
-- `references/compliance-reports.md` — canonical scaffold, status calculus, severity, ct-ivt-looper integration
+- `references/compliance-reports.md` — canonical scaffold, status calculus, severity, release integration
 - `references/anti-patterns.md` — twelve validation failure modes with detection and remediation

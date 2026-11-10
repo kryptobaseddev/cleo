@@ -4,7 +4,6 @@
  * Verifies:
  *  - MISSING_AC trigger: fires when no acceptance criteria present.
  *  - OWNER_DECISION_REQUIRED trigger: fires on label or blockedBy text.
- *  - IVTR_MAX_RETRIES trigger: fires when any phase hits MAX_LOOP_BACKS_PER_PHASE.
  *  - RELEASE_GATE trigger: fires on release/publish stage without hitlApproved.
  *  - AMBIGUOUS_SCOPE trigger: fires on bare epic with no children and no spec blob.
  *  - Auto-proceed: all triggers clear → verdict 'proceed'.
@@ -17,8 +16,6 @@
 
 import type { Task } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import type { IvtrState } from '../../lifecycle/ivtr-loop.js';
-import { MAX_LOOP_BACKS_PER_PHASE } from '../../lifecycle/ivtr-loop.js';
 import type { ReadinessSignals } from '../classify-readiness.js';
 import { classifyReadiness } from '../classify-readiness.js';
 
@@ -39,24 +36,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     createdAt: '2026-05-31T00:00:00Z',
     acceptance: ['Implement the feature per spec.'],
     ...overrides,
-  };
-}
-
-/** Build an IvtrState with specific loop-back counts per phase. */
-function makeIvtrState(loopBackCounts: Partial<Record<string, number>> = {}): IvtrState {
-  return {
-    taskId: 'T9000',
-    schemaVersion: 2,
-    currentPhase: 'implement',
-    phaseHistory: [],
-    startedAt: '2026-05-31T00:00:00Z',
-    loopBackCount: {
-      implement: loopBackCounts['implement'] ?? 0,
-      validate: loopBackCounts['validate'] ?? 0,
-      audit: loopBackCounts['audit'] ?? 0,
-      test: loopBackCounts['test'] ?? 0,
-      released: loopBackCounts['released'] ?? 0,
-    },
   };
 }
 
@@ -146,47 +125,6 @@ describe('classifyReadiness — OWNER_DECISION_REQUIRED', () => {
     const task = makeTask({ labels: undefined, blockedBy: undefined });
     const result = classifyReadiness(task);
     expect(result.triggers).not.toContain('OWNER_DECISION_REQUIRED');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 3. IVTR_MAX_RETRIES trigger
-// ---------------------------------------------------------------------------
-
-describe('classifyReadiness — IVTR_MAX_RETRIES', () => {
-  it('grills when any phase hits MAX_LOOP_BACKS_PER_PHASE', () => {
-    const ivtrState = makeIvtrState({ validate: MAX_LOOP_BACKS_PER_PHASE });
-    const result = classifyReadiness(makeTask(), { ivtrState });
-    expect(result.verdict).toBe('grill');
-    expect(result.triggers).toContain('IVTR_MAX_RETRIES');
-  });
-
-  it('grills when IMPLEMENT phase hits max retries', () => {
-    const ivtrState = makeIvtrState({ implement: MAX_LOOP_BACKS_PER_PHASE });
-    const result = classifyReadiness(makeTask(), { ivtrState });
-    expect(result.triggers).toContain('IVTR_MAX_RETRIES');
-  });
-
-  it('grills when TEST phase hits max retries', () => {
-    const ivtrState = makeIvtrState({ test: MAX_LOOP_BACKS_PER_PHASE });
-    const result = classifyReadiness(makeTask(), { ivtrState });
-    expect(result.triggers).toContain('IVTR_MAX_RETRIES');
-  });
-
-  it('proceeds when all phases are below max retries', () => {
-    const ivtrState = makeIvtrState({ validate: MAX_LOOP_BACKS_PER_PHASE - 1 });
-    const result = classifyReadiness(makeTask(), { ivtrState });
-    expect(result.triggers).not.toContain('IVTR_MAX_RETRIES');
-  });
-
-  it('proceeds when ivtrState is null (check skipped)', () => {
-    const result = classifyReadiness(makeTask(), { ivtrState: null });
-    expect(result.triggers).not.toContain('IVTR_MAX_RETRIES');
-  });
-
-  it('proceeds when ivtrState is absent (check skipped)', () => {
-    const result = classifyReadiness(makeTask(), {});
-    expect(result.triggers).not.toContain('IVTR_MAX_RETRIES');
   });
 });
 
@@ -374,20 +312,18 @@ describe('classifyReadiness — multi-trigger', () => {
       labels: ['owner-decision'],
       pipelineStage: 'release',
     });
-    const ivtrState = makeIvtrState({ validate: MAX_LOOP_BACKS_PER_PHASE });
-    const result = classifyReadiness(task, { ivtrState });
+    const result = classifyReadiness(task, {});
 
     expect(result.verdict).toBe('grill');
     expect(result.triggers).toContain('MISSING_AC');
     expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
-    expect(result.triggers).toContain('IVTR_MAX_RETRIES');
     expect(result.triggers).toContain('RELEASE_GATE');
   });
 
-  it('four triggers fire for an epic at release stage (RELEASE_GATE suppresses AMBIGUOUS_SCOPE)', () => {
+  it('three triggers fire for an epic at release stage (RELEASE_GATE suppresses AMBIGUOUS_SCOPE)', () => {
     // RELEASE_GATE and AMBIGUOUS_SCOPE are mutually exclusive from pipelineStage:
     // 'release' is in IMPLEMENTATION_STAGES so AMBIGUOUS_SCOPE is suppressed.
-    // This validates the remaining 4 can fire simultaneously.
+    // This validates the remaining 3 can fire simultaneously (T14311 removed IVTR_MAX_RETRIES).
     const epic = makeTask({
       type: 'epic',
       acceptance: undefined,
@@ -395,21 +331,18 @@ describe('classifyReadiness — multi-trigger', () => {
       pipelineStage: 'release',
       blockedBy: 'waiting on owner decision',
     });
-    const ivtrState = makeIvtrState({ test: MAX_LOOP_BACKS_PER_PHASE });
     const signals: ReadinessSignals = {
       children: [],
       blobNames: [],
-      ivtrState,
       hitlApproved: false,
     };
     const result = classifyReadiness(epic, signals);
     expect(result.verdict).toBe('grill');
     expect(result.triggers).toContain('MISSING_AC');
     expect(result.triggers).toContain('OWNER_DECISION_REQUIRED');
-    expect(result.triggers).toContain('IVTR_MAX_RETRIES');
     expect(result.triggers).toContain('RELEASE_GATE');
     expect(result.triggers).not.toContain('AMBIGUOUS_SCOPE'); // suppressed: release ∈ IMPLEMENTATION_STAGES
-    expect(result.triggers).toHaveLength(4);
+    expect(result.triggers).toHaveLength(3);
   });
 
   it('AMBIGUOUS_SCOPE fires alongside MISSING_AC and OWNER_DECISION_REQUIRED for a bare pre-impl epic', () => {

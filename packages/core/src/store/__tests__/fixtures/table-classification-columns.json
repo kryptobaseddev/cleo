@@ -2140,7 +2140,6 @@
       "files_json",
       "id",
       "idempotency_key",
-      "ivtr_state",
       "labels_json",
       "lease_expires_at",
       "modified_by",
