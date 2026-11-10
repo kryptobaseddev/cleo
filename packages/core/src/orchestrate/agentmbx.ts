@@ -7,7 +7,9 @@
  * closed and surface the warning. The process runner is injected, so tests
  * drive a fake CLI.
  *
- * Callers: `cleo init` records the lead mailbox ({@link ensureLeadMailbox}),
+ * Callers: `cleo init` and `cleo upgrade` record the lead mailbox
+ * ({@link ensureLeadMailbox} — `init` refuses on an initialized project, so
+ * `upgrade` is the non-destructive verb for it),
  * spawn/fanout read it ({@link resolveLeadMailbox}), and the progress
  * watchdog (T14362) and worker prompts (T13966) can send through
  * {@link AgentMbxClient.send}.
@@ -303,7 +305,8 @@ export type EnsureLeadMailboxResult =
   | { action: 'disabled' };
 
 /**
- * Record the project's lead mailbox in project config (`cleo init`). It runs
+ * Record the project's lead mailbox in project config (`cleo init` and
+ * `cleo upgrade`, T14448). It runs
  * only with `orchestrate.leadWorker.v1` on (otherwise no probe, `disabled`).
  * With `agentmbx` absent it writes nothing and returns a warning; an existing
  * record is kept.
@@ -328,7 +331,7 @@ export async function ensureLeadMailbox(
     return {
       action: 'skipped',
       warning:
-        'AgentMBX: agentmbx is not installed, so no lead mailbox was recorded. Install it and re-run `cleo init` to give spawned workers a default lead mailbox.',
+        'AgentMBX: agentmbx is not installed, so no lead mailbox was recorded. Install it and run `cleo upgrade` to give spawned workers a default lead mailbox.',
     };
   }
   const leadMailbox: LeadMailbox = {
@@ -382,7 +385,7 @@ export async function claimLeadMailbox(
     return {
       ok: false,
       warning:
-        'No lead mailbox recorded: turn on orchestrate.leadWorker.v1 and run `cleo init` with agentmbx installed.',
+        'No lead mailbox recorded: run `cleo upgrade` with agentmbx installed and orchestrate.leadWorker.v1 on (`cleo config set orchestrate.leadWorker.v1 true`) to record one.',
     };
   }
   return client.claim(name, session);
