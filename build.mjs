@@ -402,6 +402,36 @@ const coreBuildOptions = {
   ],
 };
 
+/**
+ * Core entry points bundled per esbuild call (T14348).
+ *
+ * Every entry is a self-contained bundle of its whole relative import graph
+ * (no `splitting`), and one esbuild call holds every output and sourcemap in
+ * memory until it writes. With ~900 entries that call peaked at 14.8 GiB RSS
+ * on a 16 GiB ubuntu-latest runner (CI run 42688088176: 230 MiB available,
+ * 1.9 GiB swapped) and held ~10 GiB through the tsc declaration step after
+ * it; as core grew, the runner began killing the job at Wave 5 ("The runner
+ * has received a shutdown signal"). Entries are independent, so bundling them
+ * in sequential batches writes the same files with a fraction of the peak.
+ */
+const CORE_ESBUILD_BATCH = 100;
+
+/**
+ * Build `options.entryPoints` in sequential batches of `batchSize`, so the
+ * outputs one esbuild call holds in memory stay bounded (T14348). Only valid
+ * without `splitting`, where each entry's output depends on that entry alone.
+ *
+ * @param {esbuild.BuildOptions & { entryPoints: { in: string; out: string }[] }} options
+ * @param {number} batchSize
+ */
+async function buildEntriesInBatches(options, batchSize) {
+  if (options.splitting) throw new Error('buildEntriesInBatches: batches would split shared chunks');
+  const all = options.entryPoints;
+  for (let i = 0; i < all.length; i += batchSize) {
+    await esbuild.build({ ...options, entryPoints: all.slice(i, i + batchSize) });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 2. @cleocode/cleo — CLI bundle (MCP removed per MODERN-CLI-STANDARD)
 //    Bundles @cleocode/adapters, @cleocode/nexus, @cleocode/playbooks and
@@ -924,7 +954,7 @@ async function build() {
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 5: core (esbuild + tsc declarations)');
   assertDepsReady('packages/core/dist/');
-  await esbuild.build(coreBuildOptions);
+  await buildEntriesInBatches(coreBuildOptions, CORE_ESBUILD_BATCH);
   await sanitizeSourcemaps('packages/core/dist'); // T9184
   console.log('  -> packages/core/dist/index.js');
   // esbuild doesn't emit .d.ts — run tsc for declarations only.

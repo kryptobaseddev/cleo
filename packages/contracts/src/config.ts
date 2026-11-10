@@ -817,14 +817,34 @@ export interface OrchestrateConfig {
    */
   leadWorker?: OrchestrateLeadWorkerConfig;
   /**
-   * The project's lead AgentMBX mailbox, recorded by `cleo init` when
-   * `agentmbx` is installed. Spawn and fanout name it in worker prompts
-   * when `--lead-mbx` is not given.
+   * Context-window usage thresholds (percent) for orchestrator wrap-up and
+   * stop. Formerly `orchestrator.contextThresholds`; configs with the old key
+   * are migrated on read and by `cleo upgrade` (T14375).
+   *
+   * @defaultValue { warning: 70, critical: 80 }
+   */
+  contextThresholds?: OrchestrateContextThresholds;
+  /**
+   * The project's lead AgentMBX mailbox, recorded by `cleo init` with
+   * `leadWorker.v1` on and `agentmbx` installed. Spawn and fanout name it in
+   * worker prompts when `--lead-mbx` is not given (only with `leadWorker.v1`).
    *
    * @defaultValue undefined (no lead mailbox recorded)
    * @task T14379
    */
   leadMailbox?: LeadMailbox;
+}
+
+/**
+ * Context-window usage thresholds (`orchestrate.contextThresholds.*`).
+ *
+ * @task T14375
+ */
+export interface OrchestrateContextThresholds {
+  /** Percent at which the orchestrator plans to wrap up. @defaultValue 70 */
+  warning?: number;
+  /** Percent at which the orchestrator stops and hands off. @defaultValue 80 */
+  critical?: number;
 }
 
 /**
@@ -834,7 +854,7 @@ export interface OrchestrateConfig {
  * @epic T14351
  */
 export interface LeadMailbox {
-  /** Mailbox name, `<project>-lead` by default. */
+  /** Mailbox name, `<project>-<project-id hash>-lead` by default. */
   name: string;
   /** Portable project id the mailbox belongs to. */
   projectId: string;

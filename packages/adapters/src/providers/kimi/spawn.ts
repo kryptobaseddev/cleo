@@ -30,6 +30,7 @@
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
+import { assertLeadToolsStrippable } from '../shared/lead-tool-strip.js';
 
 /** Moonshot AI API base URL. */
 const MOONSHOT_API_BASE = 'https://api.moonshot.cn/v1';
@@ -102,6 +103,9 @@ async function kimiCliBinaryAvailable(): Promise<boolean> {
  * @task T648
  */
 export class KimiSpawnProvider implements AdapterSpawnProvider {
+  /** Cannot remove tools from a spawned agent: a lead spawn is refused (T14357). */
+  readonly leadToolStrip = 'unsupported' as const;
+
   /** In-flight run tracking set. */
   private readonly runningInstances = new Map<string, TrackedRun>();
 
@@ -136,6 +140,7 @@ export class KimiSpawnProvider implements AdapterSpawnProvider {
    * @returns Resolved spawn result with `status: 'completed'` or `'failed'`
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
+    assertLeadToolsStrippable('kimi', this.leadToolStrip, context);
     const instanceId = `kimi-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
 

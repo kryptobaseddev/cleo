@@ -266,10 +266,11 @@ describe('buildSpawnPrompt — return format contract (T12521)', () => {
     expect(result.prompt).toContain(
       'Implementation <complete|partial|blocked>. manifest:<entryId>',
     );
-    expect(result.prompt).toContain('commits: <sha7,sha7|none>');
-    expect(result.prompt).toContain('gates: <gate>=<pass|fail|skip> ...');
-    expect(result.prompt).toContain('blocker: <≤12 words|none>');
-    expect(result.prompt).toContain('No findings, no diffs, no prose.');
+    expect(result.prompt).toContain('conclusion: <result>');
+    expect(result.prompt).toContain('blocker: <none|why>');
+    expect(result.prompt).toContain('proof: <cmd> => exit <n>|<PR|sha|file>');
+    expect(result.prompt).toContain('≤100 words; no findings or diffs (detail → PR body).');
+    expect(result.prompt).toContain('No proof: line → `cleo done --report` refuses it.');
   });
 
   it('uses the protocol type word on line 1', () => {
