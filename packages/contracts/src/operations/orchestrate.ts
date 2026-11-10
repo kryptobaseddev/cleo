@@ -12,9 +12,7 @@
  * @task T890 — orchestrate.plan deterministic wave+worker plan
  */
 
-/**
- * Common orchestration types
- */
+import type { SpawnProtocolResolution, SpawnWorkerSession } from '../spawn-types.js';
 
 /**
  * A single execution wave grouping tasks by dependency depth.
@@ -554,6 +552,10 @@ export interface OrchestrateSpawnParams {
 export interface OrchestrateSpawnResult {
   /** Task ID the spawn is about (mirrors `task.id`). @task T963 */
   taskId: string;
+  /** Allocated worker identity, preserved for Orca and other execution backends. */
+  workerSession?: SpawnWorkerSession;
+  /** Coordinator session for correlation only, never a worker binding. */
+  coordinatorSessionId?: string | null;
   /**
    * Fully-resolved spawn prompt, copy-pastable into any LLM runtime
    * (Claude, GPT-4, Gemini, open-source). Primary payload every caller
@@ -613,6 +615,8 @@ export interface OrchestrateSpawnResult {
     promptChars: number;
     /** Protocol phase the prompt was rendered for. @task T963 */
     protocol: string;
+    /** Protocol authority and conflicting task signals. */
+    protocolResolution?: SpawnProtocolResolution;
     /** ISO 8601 timestamp when the payload was generated. @task T963 */
     generatedAt: string;
     /** Pinned composer contract version. @task T963 */
@@ -625,8 +629,7 @@ export interface OrchestrateSpawnResult {
    */
   protocolType: string;
   /**
-   * Active session id threaded into the prompt, or `null` when the
-   * orchestrator had no active session at spawn time.
+   * Allocated worker session id, retained for legacy consumers.
    * @task T963
    */
   sessionId: string | null;

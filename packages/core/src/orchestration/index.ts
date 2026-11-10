@@ -6,6 +6,10 @@
 
 import type { Task, TaskRef } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import type {
+  SpawnProtocolResolution,
+  SpawnProtocolSource,
+} from '@cleocode/contracts/spawn-types.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -14,6 +18,7 @@ import { orderByRanking } from '../task-tools/score-task-priority.js';
 import { loadRankingContext } from '../tasks/task-next.js';
 import { effectiveLeanLevel } from './lean-change.js';
 import {
+  ALL_SPAWN_PROTOCOL_PHASES,
   buildSpawnPrompt,
   DEFAULT_SPAWN_TIER,
   type SpawnProtocolPhase,
@@ -406,7 +411,8 @@ export async function prepareSpawn(
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`);
   }
 
-  const protocol = autoDispatch(task);
+  const protocolResolution = resolveSpawnProtocol(task);
+  const protocol = protocolResolution.protocol;
   const tier: SpawnTier = options?.tier ?? DEFAULT_SPAWN_TIER;
   const projectRoot = resolveOrCwd(cwd);
 
@@ -417,6 +423,7 @@ export async function prepareSpawn(
   const result = buildSpawnPrompt({
     task,
     protocol: protocol as SpawnProtocolPhase | string,
+    protocolResolution,
     tier,
     projectRoot,
     sessionId: options?.sessionId ?? null,
@@ -536,28 +543,53 @@ const DISPATCH_MAP: Record<string, { keywords: string[]; labels: string[] }> = {
  * @task T4466
  */
 export function autoDispatch(task: Task): string {
-  // 1. Label-based dispatch (highest priority)
+  return resolveSpawnProtocol(task).protocol;
+}
+
+/**
+ * Resolve protocol authority before keyword fallback, preserving disagreements.
+ * Explicit assignments resolve stage/intent conflicts without consulting an LLM.
+ */
+export function resolveSpawnProtocol(task: Task, explicit?: string): SpawnProtocolResolution {
+  let protocol: string | undefined;
+  let source: SpawnProtocolSource = 'fallback';
+  const conflicts: string[] = [];
+  const consider = (candidate: string, authority: SpawnProtocolSource): void => {
+    if (protocol === undefined) {
+      protocol = candidate;
+      source = authority;
+    } else if (candidate !== protocol) {
+      conflicts.push(`${authority}: ${candidate} (selected ${source}: ${protocol})`);
+    }
+  };
+
+  if (explicit !== undefined) consider(explicit, 'explicit');
+  const stage = ALL_SPAWN_PROTOCOL_PHASES.find((phase) => phase === task.pipelineStage);
+  if (stage) consider(stage, 'pipelineStage');
+  if (task.kind === 'research' || task.kind === 'spike' || task.kind === 'experiment') {
+    consider('research', 'kind');
+  } else if (task.kind === 'bug') {
+    consider('implementation', 'kind');
+  } else if (task.kind === 'release') {
+    consider('release', 'kind');
+  }
+
   if (task.labels?.length) {
-    for (const [protocol, config] of Object.entries(DISPATCH_MAP)) {
+    for (const [candidate, config] of Object.entries(DISPATCH_MAP)) {
       if (task.labels.some((l) => config.labels.includes(l))) {
-        return protocol;
+        consider(candidate, 'label');
       }
     }
   }
-
-  // 2. Type-based dispatch
-  if (task.type === 'epic') return 'decomposition';
-
-  // 3. Keyword-based dispatch
+  if (task.type === 'epic') consider('decomposition', 'type');
   const text = `${task.title} ${task.description ?? ''}`.toLowerCase();
-  for (const [protocol, config] of Object.entries(DISPATCH_MAP)) {
+  for (const [candidate, config] of Object.entries(DISPATCH_MAP)) {
     if (config.keywords.some((kw) => text.includes(kw))) {
-      return protocol;
+      consider(candidate, 'keyword');
+      break;
     }
   }
-
-  // 4. Fallback
-  return 'implementation';
+  return { protocol: protocol ?? 'implementation', source, conflicts };
 }
 
 /**

@@ -239,6 +239,11 @@ export function bridgeSpawnAdapter(
         prompt: context.prompt,
         workingDirectory: context.workingDirectory,
         options: context.options,
+        ...(context.workerSession ? { workerSession: context.workerSession } : {}),
+        ...(context.coordinatorSessionId
+          ? { coordinatorSessionId: context.coordinatorSessionId }
+          : {}),
+        ...(context.protocolResolution ? { protocolResolution: context.protocolResolution } : {}),
         ...(isLead ? { leadDeniedTools: denied } : {}),
         ...(isLead && context.onLeadStarted ? { onLeadStarted: context.onLeadStarted } : {}),
       };

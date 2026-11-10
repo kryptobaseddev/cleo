@@ -2580,7 +2580,10 @@ export type {
   CLEOSpawnContext,
   CLEOSpawnResult,
   Provider,
+  SpawnProtocolResolution,
+  SpawnProtocolSource,
   SpawnStatus,
+  SpawnWorkerSession,
   TokenResolution,
 } from './spawn-types.js';
 // === Status Registry (MUST be first — everything depends on this) ===

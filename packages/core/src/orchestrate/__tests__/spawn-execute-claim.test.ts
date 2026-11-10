@@ -10,12 +10,14 @@
  * @task T12502
  */
 
+import { join } from 'node:path';
 import type { CLEOSpawnAdapter, CLEOSpawnContext, SpawnResult } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { startTask } from '../../task-work/index.js';
 
-const { adapterSpawn, fakeAdapter } = vi.hoisted(() => {
+const { adapterSpawn, fakeAdapter, spawnWorktree } = vi.hoisted(() => {
   const spawn = vi.fn(
     async (ctx: CLEOSpawnContext): Promise<SpawnResult> => ({
       instanceId: 'inst-1',
@@ -35,7 +37,11 @@ const { adapterSpawn, fakeAdapter } = vi.hoisted(() => {
     listRunning: async () => [],
     terminate: async () => undefined,
   };
-  return { adapterSpawn: spawn, fakeAdapter: adapter };
+  return {
+    adapterSpawn: spawn,
+    fakeAdapter: adapter,
+    spawnWorktree: vi.fn<typeof import('../../sentient/worktree-dispatch.js').spawnWorktree>(),
+  };
 });
 
 vi.mock('../../spawn/adapter-registry.js', () => ({
@@ -59,9 +65,18 @@ vi.mock('../plan.js', async (importOriginal) => ({
 
 vi.mock('../../orchestration/spawn.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../orchestration/spawn.js')>()),
-  composeSpawnPayload: async (_db: object, task: { id: string }) => ({
+  composeSpawnPayload: async (
+    ...[_db, task, options]: Parameters<
+      typeof import('../../orchestration/spawn.js').composeSpawnPayload
+    >
+  ) => ({
     taskId: task.id,
-    prompt: 'do the work',
+    prompt: buildSpawnPrompt({
+      ...options,
+      task,
+      protocol: options?.protocol ?? 'implementation',
+      projectRoot: options?.projectRoot ?? process.cwd(),
+    }).prompt,
     agentId: 'agent-test',
     role: 'worker',
     harnessHint: 'generic',
@@ -71,9 +86,7 @@ vi.mock('../../orchestration/spawn.js', async (importOriginal) => ({
 }));
 
 vi.mock('../../sentient/worktree-dispatch.js', () => ({
-  spawnWorktree: async () => {
-    throw new Error('no worktree in this test');
-  },
+  spawnWorktree,
 }));
 
 const SES_A = 'ses_20260929000001_aaaaaa';
@@ -97,6 +110,9 @@ describe('orchestrateSpawnExecute — claim rollback on a reported failure (T125
       startedAt: new Date().toISOString(),
     });
     vi.stubEnv('CLEO_SESSION_ID', SES_A);
+    adapterSpawn.mockClear();
+    spawnWorktree.mockReset();
+    spawnWorktree.mockRejectedValue(new Error('no worktree in this test'));
   });
 
   afterEach(async () => {
@@ -104,7 +120,27 @@ describe('orchestrateSpawnExecute — claim rollback on a reported failure (T125
     vi.unstubAllEnvs();
   });
 
-  it('an adapter returning status `failed` hands the claim back to the orchestrator', async () => {
+  it.each([
+    false,
+    true,
+  ])('binds the final prompt and rolls back a failed spawn (worktree=%s)', async (isolated) => {
+    const worktreePath = join(env.tempDir, 'wt', 'T001');
+    if (isolated) {
+      spawnWorktree.mockResolvedValue({
+        path: worktreePath,
+        branch: 'task/T001',
+        taskId: 'T001',
+        projectHash: 'wt',
+        baseRef: 'main',
+        createdAt: new Date().toISOString(),
+        locked: false,
+        reused: false,
+        envVars: {},
+        preamble: '',
+        hookResults: [],
+        appliedPatterns: [],
+      });
+    }
     await startTask('T001', env.tempDir, env.accessor);
     expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
 
@@ -114,6 +150,20 @@ describe('orchestrateSpawnExecute — claim rollback on a reported failure (T125
     });
     expect(adapterSpawn).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(true);
+    const context = adapterSpawn.mock.calls[0]?.[0];
+    expect(context?.coordinatorSessionId).toBe(SES_A);
+    expect(context?.workerSession?.agentId).toBe('agent-t001');
+    expect(context?.workerSession?.sessionId).not.toBe(SES_A);
+    expect(context?.prompt).toContain(
+      `CLEO_SESSION_ID='${context?.workerSession?.sessionId}' CLEO_AGENT_ID='agent-t001'`,
+    );
+    expect(context?.prompt.includes('## Worktree Setup (REQUIRED)')).toBe(isolated);
+    expect(context?.workingDirectory).toBe(isolated ? worktreePath : env.tempDir);
+    expect(context?.options.env).toMatchObject({
+      CLEO_SESSION_ID: context?.workerSession?.sessionId,
+      CLEO_AGENT_ID: 'agent-t001',
+      CLEO_AGENT_ROLE: 'worker',
+    });
 
     expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
     const children = (await env.accessor.loadSessions()).filter((s) => s.id !== SES_A);

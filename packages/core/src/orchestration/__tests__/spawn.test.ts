@@ -220,13 +220,15 @@ describe('composeSpawnPayload — full envelope', () => {
       await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
       const payload = await composeSpawnPayload(
         db,
-        { ...BASE_TASK, files: ['packages/core/src/foo.ts'] },
+        { ...BASE_TASK, pipelineStage: 'implementation', files: ['packages/core/src/foo.ts'] },
         {
           agentId: 'fixture-worker',
           tier: 0,
           role: 'worker',
           harnessHint: 'generic',
           projectRoot: env.projectRoot,
+          workerSession: { sessionId: 'ses_allocated', agentId: 'allocated-worker' },
+          coordinatorSessionId: 'ses_coordinator',
         },
       );
       expect(payload.taskId).toBe('T9101');
@@ -239,6 +241,19 @@ describe('composeSpawnPayload — full envelope', () => {
       expect(payload.prompt).toContain('T9101');
       expect(payload.meta.composerVersion).toBe('3.0.0');
       expect(payload.meta.protocol).toBeTruthy();
+      expect(payload.meta.protocolResolution).toMatchObject({
+        protocol: 'implementation',
+        source: 'pipelineStage',
+      });
+      expect(payload.workerSession).toEqual({
+        sessionId: 'ses_allocated',
+        agentId: 'allocated-worker',
+      });
+      expect(payload.coordinatorSessionId).toBe('ses_coordinator');
+      expect(payload.prompt).toContain(
+        "CLEO_SESSION_ID='ses_allocated' CLEO_AGENT_ID='allocated-worker'",
+      );
+      expect(payload.prompt).toContain('**Protocol authority**: `pipelineStage`');
       expect(payload.meta.promptChars).toBe(payload.prompt.length);
       expect(payload.meta.sourceTier).toBe('global');
     } finally {

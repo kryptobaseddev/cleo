@@ -19,6 +19,7 @@ import {
   getOrchestratorContext,
   getReadyTasks,
   prepareSpawn,
+  resolveSpawnProtocol,
   resolveTokens,
   startOrchestration,
 } from '../index.js';
@@ -302,6 +303,63 @@ describe('prepareSpawn', () => {
 });
 
 describe('autoDispatch — orchestration module', () => {
+  const assignment: Task = {
+    id: 'T14457',
+    title: 'Implement spawn after research and investigation',
+    status: 'pending',
+    priority: 'medium',
+    createdAt: '2026-11-10T00:00:00Z',
+    pipelineStage: 'implementation',
+  };
+
+  it('selects authoritative stage before research keywords and reports the fallback disagreement', () => {
+    expect(autoDispatch(assignment)).toBe('implementation');
+    expect(resolveSpawnProtocol(assignment)).toEqual({
+      protocol: 'implementation',
+      source: 'pipelineStage',
+      conflicts: ['keyword: research (selected pipelineStage: implementation)'],
+    });
+  });
+
+  it('uses declared work intent before keyword fallback when no stage is present', () => {
+    expect(resolveSpawnProtocol({ ...assignment, pipelineStage: null, kind: 'release' })).toEqual({
+      protocol: 'release',
+      source: 'kind',
+      conflicts: ['keyword: research (selected kind: release)'],
+    });
+  });
+
+  it('keeps a conflicting research intent visible until explicitly overridden', () => {
+    const research: Task = { ...assignment, kind: 'research' };
+    expect(resolveSpawnProtocol(research)).toMatchObject({
+      protocol: 'implementation',
+      source: 'pipelineStage',
+      conflicts: expect.arrayContaining([
+        'kind: research (selected pipelineStage: implementation)',
+      ]),
+    });
+    expect(resolveSpawnProtocol(research, 'research')).toEqual({
+      protocol: 'research',
+      source: 'explicit',
+      conflicts: ['pipelineStage: implementation (selected explicit: research)'],
+    });
+  });
+
+  it('honors an intentional research/design assignment despite its stored implementation stage', () => {
+    const research: Task = {
+      ...assignment,
+      id: 'T14452',
+      title: 'Research and design CLEO-Orca integration',
+      description: 'Research/design only; do not implement.',
+    };
+    expect(resolveSpawnProtocol(research, 'research')).toEqual({
+      protocol: 'research',
+      source: 'explicit',
+      conflicts: ['pipelineStage: implementation (selected explicit: research)'],
+    });
+    expect(resolveSpawnProtocol(research).source).toBe('pipelineStage');
+  });
+
   it('dispatches by label', () => {
     const task: Task = {
       id: 'T001',
