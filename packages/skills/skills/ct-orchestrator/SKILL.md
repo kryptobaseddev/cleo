@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.3.0
+  version: 4.4.0
   tier: core
   install: harness
   covers:
@@ -268,6 +268,17 @@ session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` 
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
 mailbox in it. `cleo conduit` and the `conduit-*` sub-commands of `cleo orchestrate` are
 deprecated (T13982) and leave in the next release; do not build on them.
+
+**Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with
+`orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
+is structural, not a prompt rule: the lead spawns without Bash, Edit, Write, MultiEdit,
+NotebookEdit, WebFetch and WebSearch; a provider that cannot strip them refuses the spawn
+(`E_LEAD_TOOLS_UNSTRIPPED`; claude-code and claude-sdk can). On claude-code the lead gets the
+command runner below as its one command tool, runs in the project root (it writes nothing,
+so no worktree), and gets no worker record. The project lead mailbox is claimed for the
+lead's pre-assigned session first; `data.lead.mailbox` reports the claim. Workers it starts
+with `fanout` or `spawn-execute` run in the background with fail-closed isolation, durable
+worker records and the 100-word report contract below.
 
 **A no-hands lead runs commands through `cleo_run` (T14374).** The `cleo-lead` agent has
 no Bash, Edit or Write. Its one command route is the `cleo_run` MCP tool, served by

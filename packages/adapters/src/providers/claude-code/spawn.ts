@@ -24,6 +24,10 @@ import type {
   SpawnResult,
 } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import {
+  LEAD_RUNNER_MCP_SERVER,
+  LEAD_RUNNER_TOOL,
+} from '@cleocode/contracts/operations/orchestrate.js';
 import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { leadDeniedTools } from '../shared/lead-tool-strip.js';
@@ -55,6 +59,34 @@ export function workerExitSettings(instanceId: string): string {
   return JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command }] }] } });
 }
 
+/**
+ * Claude Code MCP config that serves the lead command runner (T14374) to a
+ * lead: the `cleo-lead` stdio server started by `cleo orchestrate lead-runner`.
+ *
+ * @returns The JSON string passed to `claude --mcp-config`.
+ * @task T14363
+ */
+export function leadRunnerMcpConfig(): string {
+  return JSON.stringify({
+    mcpServers: {
+      [LEAD_RUNNER_MCP_SERVER]: {
+        type: 'stdio',
+        command: 'cleo',
+        args: ['orchestrate', 'lead-runner'],
+      },
+    },
+  });
+}
+
+/** `--session-id <uuid>` for a lead whose session CLEO pre-assigned, else nothing. */
+function leadSessionArgs(options: SpawnContext['options']): string[] {
+  const id = options?.leadSessionId;
+  return typeof id === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    ? ['--session-id', id]
+    : [];
+}
+
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
   pid: number;
@@ -72,7 +104,11 @@ interface TrackedProcess {
  * - Worker: `--dangerously-skip-permissions` allows every tool call without approval.
  * - Lead (`context.leadDeniedTools` set): `--disallowedTools <denied>` removes
  *   those tools so they never run, and `--dangerously-skip-permissions` is NOT
- *   passed. `--allowedTools` is not used: it only pre-approves and removes nothing.
+ *   passed. The lead gets the command runner instead (T14363): `--mcp-config`
+ *   starts `cleo orchestrate lead-runner` and `--allowedTools` pre-approves its
+ *   one tool, {@link LEAD_RUNNER_TOOL} (`--allowedTools` removes nothing).
+ *   `--session-id` pins the session the lead mailbox was claimed for
+ *   (`options.leadSessionId`).
  *
  * @param context - Spawn context.
  * @param promptFile - Path of the prompt file passed as the final argument.
@@ -87,7 +123,19 @@ export function buildClaudeArgs(
 ): string[] {
   const denied = leadDeniedTools(context);
   const permissionArgs =
-    denied === null ? ['--dangerously-skip-permissions'] : ['--disallowedTools', denied.join(',')];
+    denied === null
+      ? ['--dangerously-skip-permissions']
+      : [
+          '--disallowedTools',
+          denied.join(','),
+          '--allowedTools',
+          LEAD_RUNNER_TOOL,
+          '--mcp-config',
+          leadRunnerMcpConfig(),
+          ...leadSessionArgs(context.options),
+        ];
+  // Variadic flags (--disallowedTools, --allowedTools, --mcp-config) are each
+  // followed by another flag, so none swallows the prompt file.
   return ['--print', ...permissionArgs, '--output-format', 'json', ...extraArgs, promptFile];
 }
 

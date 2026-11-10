@@ -16,9 +16,10 @@ Messages drive **timing**; the manifest drives **content**. `rollupWaveStatus`
 
 ## 1. Mailbox before spawn
 
-Before issuing `delegate_task`, build each worker's prompt with `cleo
+Before the `cleo orchestrate fanout` call, build each worker's prompt with `cleo
 orchestrate spawn <taskId> --lead-mbx <you>` so its completion message reaches
-you (`fanout` cannot carry the name yet, T13966: put it in the task notes). A mailbox keeps messages until
+you. With `orchestrate.leadWorker.v1` on, `fanout` fills in the project's recorded
+lead mailbox (T14379); without it, put your mailbox in the task notes (T13966). A mailbox keeps messages until
 they are read, so a worker that finishes first is never lost; a worker that
 does not know your name cannot report at all.
 

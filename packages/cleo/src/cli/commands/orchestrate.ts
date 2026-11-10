@@ -28,6 +28,7 @@
  *   cleo orchestrate conduit-start        — start conduit message loop (legacy)
  *   cleo orchestrate conduit-stop         — stop conduit message loop (legacy)
  *   cleo orchestrate conduit-send <content> — send conduit message (legacy)
+ *   cleo orchestrate lead <epicId>        — spawn the no-hands lead (orchestrate.leadWorker.v1, T14363)
  *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
  *
  * Note: T964 promoted `conduit` to its own canonical dispatch domain. The
@@ -1138,6 +1139,39 @@ const pendingCommand = defineCommand({
 });
 
 /**
+ * cleo orchestrate lead <epicId> — spawn the no-hands lead for an epic (T14363).
+ *
+ * Runs only with `orchestrate.leadWorker.v1` on. The lead spawns without
+ * Bash, Edit or Write; its one command tool is the lead runner. All logic
+ * lives in `@cleocode/core/orchestrate/lead`.
+ */
+const leadCommand = defineCommand({
+  meta: {
+    name: 'lead',
+    description:
+      'Spawn the no-hands lead for an epic (orchestrate.leadWorker.v1): no Bash/Edit/Write, commands only through the lead runner',
+  },
+  args: {
+    epicId: { type: 'positional', description: 'Epic the lead runs', required: true },
+    adapter: { type: 'string', description: 'Spawn adapter id (default: first capable adapter)' },
+  },
+  async run({ args }) {
+    const { orchestrateLead } = await import('@cleocode/core/orchestrate/lead');
+    const result = await orchestrateLead(args.epicId, {
+      projectRoot: getProjectRoot(),
+      ...(args.adapter !== undefined ? { adapterId: args.adapter } : {}),
+    });
+    if (result.success) {
+      cliOutput({ success: true, data: result.data }, { command: 'orchestrate lead' });
+      return;
+    }
+    const { code, message, exitCode, fix, details } = result.error;
+    cliError(message, code, { fix, details });
+    process.exitCode = exitCode ?? 1;
+  },
+});
+
+/**
  * cleo orchestrate lead-runner — serve the lead command runner over MCP stdio.
  *
  * A no-hands lead has no Bash; its agent definition starts this server and
@@ -1239,7 +1273,8 @@ export const orchestrateCommand = defineCommand({
     approve: approveCommand,
     reject: rejectCommand,
     pending: pendingCommand,
-    // T14374: no-hands lead command runner
+    // T14363: no-hands lead entrypoint; T14374: its command runner
+    lead: leadCommand,
     'lead-runner': leadRunnerCommand,
   },
   async run({ cmd, rawArgs }) {
