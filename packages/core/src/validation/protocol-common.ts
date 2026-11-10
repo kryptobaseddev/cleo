@@ -96,8 +96,12 @@ const RETURN_STATUSES = ['complete', ...MANIFEST_STATUSES.filter((s) => s !== 'a
 /** Tail of the legacy one-line return message (ADR-027). */
 const LEGACY_RETURN_TAIL = ' Manifest appended to pipeline_manifest.';
 
-/** Keys a compressed return message may carry after its first line (T12521). */
-const RETURN_DETAIL_KEYS = ['commits', 'gates', 'blocker'] as const;
+/**
+ * Keys a compressed return message may carry at most once after its first
+ * line: `conclusion` and `blocker` are the worker report (T14361); `commits`
+ * and `gates` are the T12521 detail lines, still accepted.
+ */
+const RETURN_DETAIL_KEYS = ['conclusion', 'commits', 'gates', 'blocker'] as const;
 
 /**
  * Map from protocol type identifiers to the expected message type prefix.
@@ -121,7 +125,8 @@ const PROTOCOL_TYPE_MAP: Record<string, string> = {
  *
  * Two forms are accepted:
  * - **compressed** — line 1 `<Type> <status>. manifest:<entryId>`, then
- *   optional `commits:`, `gates:` and `blocker:` lines, each at most once.
+ *   optional `conclusion:`, `commits:`, `gates:` and `blocker:` lines, each at
+ *   most once, and any number of `proof:` lines (T14361).
  * - **legacy** — the single line
  *   `<Type> <status>. Manifest appended to pipeline_manifest.`
  */
@@ -140,6 +145,10 @@ export interface ParsedReturnMessage {
   gates: string | null;
   /** `blocker:` value, or `null` when the line is absent. */
   blocker: string | null;
+  /** `conclusion:` value, or `null` when the line is absent (T14361). */
+  conclusion: string | null;
+  /** Every `proof:` value in order; empty when there is none (T14361). */
+  proof: string[];
 }
 
 /**
@@ -180,10 +189,16 @@ export function parseReturnMessage(
     commits: null,
     gates: null,
     blocker: null,
+    conclusion: null,
+    proof: [],
   };
   if (parsed.form === 'legacy') return lines.length === 1 ? parsed : null;
   for (const line of lines.slice(1)) {
     const detail = /^(\w+): (\S.*)$/.exec(line.trim());
+    if (detail?.[1] === 'proof' && detail[2]) {
+      parsed.proof.push(detail[2].trim());
+      continue;
+    }
     const key = RETURN_DETAIL_KEYS.find((k) => k === detail?.[1]);
     const value = detail?.[2]?.trim();
     if (!key || !value || parsed[key] !== null) return null;

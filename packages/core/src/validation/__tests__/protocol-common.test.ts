@@ -89,7 +89,24 @@ describe('parseReturnMessage (T12521)', () => {
       commits: 'none',
       gates: null,
       blocker: 'manifest append failed',
+      conclusion: null,
+      proof: [],
     });
+  });
+
+  it('parses the worker report lines: one conclusion, repeated proof (T14361)', () => {
+    expect(
+      parseReturnMessage(
+        'Implementation complete. manifest:e1\nconclusion: fixed it\nblocker: none\nproof: pnpm exec vitest run a.test.ts => exit 0\nproof: https://github.com/o/r/pull/1',
+      ),
+    ).toMatchObject({
+      conclusion: 'fixed it',
+      blocker: 'none',
+      proof: ['pnpm exec vitest run a.test.ts => exit 0', 'https://github.com/o/r/pull/1'],
+    });
+    expect(
+      parseReturnMessage('Implementation complete. manifest:e1\nconclusion: a\nconclusion: b'),
+    ).toBeNull();
   });
 
   it('parses the legacy one-liner', () => {
