@@ -102,13 +102,6 @@ vi.mock('../cant-context.js', () => ({
   ),
 }));
 
-// Disable conduit trace writes so the openai-sdk provider never spawns the
-// `cleo` CLI from inside a test run.
-vi.mock('../providers/shared/conduit-trace-writer.js', () => ({
-  writeSpanToConduit: vi.fn(async () => ({ written: true })),
-  writeSpanBatchToConduit: vi.fn(async () => 0),
-}));
-
 // ---------------------------------------------------------------------------
 // Real imports (after mocks so factories take effect)
 // ---------------------------------------------------------------------------
