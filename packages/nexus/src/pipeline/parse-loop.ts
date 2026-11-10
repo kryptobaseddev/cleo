@@ -833,18 +833,15 @@ async function classifyFileCapabilities(
       basis: 'path',
       reason: 'SQL source extension; read by the bounded SQL DDL extractor',
     });
-    return report({
-      ...coverage,
-      completed: [...coverage.requested],
-      limitations: [
-        ...coverage.limitations,
-        ...(extraction.unrecognizedStatements
-          ? [
-              `${extraction.unrecognizedStatements} SQL statement(s) matched no extracted DDL form and were not assessed.`,
-            ]
-          : []),
-      ],
-    });
+    if (extraction.problems.length === 0)
+      return report({ ...coverage, completed: [...coverage.requested] });
+    // Coverage honesty (T14383): a quote or block left open, or a statement no
+    // form matched, means the sql-* capabilities did not complete for this file.
+    const reason = `Partial SQL extraction: ${extraction.problems.join('; ')}`;
+    return {
+      ...report({ ...coverage, limitations: [...coverage.limitations, `${reason}.`] }),
+      reason,
+    };
   }
   if (extension === '.md' || extension === '.markdown')
     return report(

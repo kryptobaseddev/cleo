@@ -45,7 +45,10 @@ CREATE TABLE audit_log (
   FOREIGN KEY (post_id) REFERENCES posts (id)
 );
 INSERT INTO users(id, email) VALUES (1, 'a@b');
-CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;
+CREATE VIRTUAL TABLE posts_fts USING fts5(title, body, content='posts', tokenize='porter');
+CREATE TRIGGER posts_fts_ai AFTER INSERT ON posts BEGIN INSERT INTO posts_fts(rowid, title) VALUES (new.rowid, new.title); END;
+-- A trigger may share a table's name; the SQL kind keeps both nodes.
+CREATE TRIGGER users AFTER DELETE ON users BEGIN DELETE FROM posts WHERE author_id = old.id; END;
 `;
 
 const MIGRATION = `ALTER TABLE users ADD COLUMN name TEXT;
@@ -59,7 +62,8 @@ DROP TABLE IF EXISTS legacy_table;
 
 describe('extractSql (T14383)', () => {
   const schema = extractSql('db/schema.sql', SCHEMA);
-  const byName = new Map(schema.nodes.map((node) => [node.name, node]));
+  // First node per name: the table `users`, not the trigger of the same name.
+  const byName = new Map([...schema.nodes].reverse().map((node) => [node.name, node]));
 
   it('extracts tables, views, indexes and triggers as nodes with their SQL kind', () => {
     expect(schema.nodes.map((node) => [node.name, node.meta?.['sqlKind'], node.kind])).toEqual([
@@ -69,9 +73,12 @@ describe('extractSql (T14383)', () => {
       ['recent_posts', 'view', 'record'],
       ['posts_audit', 'trigger', 'function'],
       ['audit_log', 'table', 'record'],
+      ['posts_fts', 'table', 'record'],
+      ['posts_fts_ai', 'trigger', 'function'],
+      ['users', 'trigger', 'function'],
     ]);
     for (const node of schema.nodes) {
-      expect(node.id).toBe(`db/schema.sql::${node.name}`);
+      expect(node.id).toBe(`db/schema.sql::${node.meta?.['sqlKind']}:${node.name}`);
       expect(node.language).toBe('sql');
       expect(node.exported).toBe(false);
     }
@@ -111,57 +118,127 @@ describe('extractSql (T14383)', () => {
     expect(schema.references).toEqual(
       expect.arrayContaining([
         {
-          source: 'db/schema.sql::posts',
+          source: 'db/schema.sql::table:posts',
           target: 'users',
           type: 'accesses',
           reason: 'foreign key references',
         },
         {
-          source: 'db/schema.sql::audit_log',
+          source: 'db/schema.sql::table:audit_log',
           target: 'posts',
           type: 'accesses',
           reason: 'foreign key references',
         },
         {
-          source: 'db/schema.sql::idx_posts_author',
+          source: 'db/schema.sql::index:idx_posts_author',
           target: 'posts',
           type: 'accesses',
           reason: 'index on table',
         },
         {
-          source: 'db/schema.sql::recent_posts',
+          source: 'db/schema.sql::view:recent_posts',
           target: 'posts',
           type: 'queries',
           reason: 'view selects from',
         },
         {
-          source: 'db/schema.sql::recent_posts',
+          source: 'db/schema.sql::view:recent_posts',
           target: 'users',
           type: 'queries',
           reason: 'view selects from',
         },
         {
-          source: 'db/schema.sql::posts_audit',
+          source: 'db/schema.sql::trigger:posts_audit',
           target: 'posts',
           type: 'accesses',
           reason: 'trigger fires on table',
         },
         {
-          source: 'db/schema.sql::posts_audit',
+          source: 'db/schema.sql::trigger:posts_audit',
           target: 'audit_log',
           type: 'queries',
           reason: 'trigger body reads or writes',
         },
         {
-          source: 'db/schema.sql::posts_audit',
+          source: 'db/schema.sql::trigger:posts_audit',
           target: 'users',
           type: 'queries',
           reason: 'trigger body reads or writes',
         },
       ]),
     );
-    // The INSERT is DML; only CREATE FUNCTION is an unrecognized statement.
-    expect(schema.unrecognizedStatements).toBe(1);
+    // The INSERT is DML, not an unrecognized statement.
+    expect(schema.unrecognizedStatements).toBe(0);
+    expect(schema.problems).toEqual([]);
+  });
+
+  it('extracts a CREATE VIRTUAL TABLE as a table so its triggers link to it', () => {
+    expect(byName.get('posts_fts')?.meta).toEqual({
+      sqlKind: 'table',
+      virtual: true,
+      module: 'fts5',
+      columns: ['title', 'body'],
+    });
+    const graph = createKnowledgeGraph();
+    for (const node of schema.nodes) graph.addNode(node);
+    linkSqlReferences([schema], graph);
+    const edges = graph.relations.map((rel) => `${rel.source} -${rel.type}-> ${rel.target}`);
+    expect(edges).toContain(
+      'db/schema.sql::trigger:posts_fts_ai -queries-> db/schema.sql::table:posts_fts',
+    );
+  });
+
+  it('keeps a trigger and a table of the same name as two nodes', () => {
+    const users = schema.nodes.filter((node) => node.name === 'users');
+    expect(users.map((node) => node.id)).toEqual([
+      'db/schema.sql::table:users',
+      'db/schema.sql::trigger:users',
+    ]);
+    expect(schema.references).toContainEqual({
+      source: 'db/schema.sql::trigger:users',
+      target: 'users',
+      type: 'accesses',
+      reason: 'trigger fires on table',
+    });
+  });
+
+  it('reads Postgres E-strings with backslash escapes and MySQL END IF inside a trigger', () => {
+    const sql = extractSql(
+      'pg.sql',
+      [
+        "CREATE TABLE a (x TEXT DEFAULT E'it\\'s; fine');",
+        'CREATE TRIGGER t BEFORE INSERT ON a FOR EACH ROW BEGIN',
+        '  IF NEW.x IS NULL THEN SET NEW.x = 1; END IF;',
+        'END;',
+        'CREATE TABLE b (id INTEGER);',
+      ].join('\n'),
+    );
+    expect(sql.nodes.map((node) => node.id)).toEqual([
+      'pg.sql::table:a',
+      'pg.sql::trigger:t',
+      'pg.sql::table:b',
+    ]);
+    expect(sql.problems).toEqual([]);
+  });
+
+  it.each([
+    [
+      'an unterminated quote',
+      "CREATE TABLE a (x TEXT DEFAULT 'oops);\nCREATE TABLE b (id INTEGER);\nCREATE TABLE c (id INTEGER);",
+      /unterminated ' quote opened on line 1/,
+    ],
+    [
+      'an unterminated block',
+      'CREATE TABLE b (id INTEGER);\nCREATE TRIGGER t AFTER INSERT ON b BEGIN DELETE FROM b;',
+      /BEGIN or CASE block\(s\) still open/,
+    ],
+    [
+      'an unclassified statement',
+      'CREATE TABLE b (id INTEGER);\nCREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;',
+      /1 statement\(s\) matched no recognized SQL form/,
+    ],
+  ])('reports %s as a problem', (_case, source, problem) => {
+    expect(extractSql('bad.sql', source).problems).toEqual([expect.stringMatching(problem)]);
   });
 
   it('records ALTER and DROP migration statements as file references', () => {
@@ -216,14 +293,14 @@ describe('extractSql (T14383)', () => {
     const edges = graph.relations.map((rel) => `${rel.source} -${rel.type}-> ${rel.target}`);
     expect(edges).toEqual(
       expect.arrayContaining([
-        'db/schema.sql::posts -accesses-> db/schema.sql::users',
-        'db/schema.sql::posts_audit -queries-> db/schema.sql::audit_log',
-        'db/002.sql -accesses-> db/schema.sql::posts',
+        'db/schema.sql::table:posts -accesses-> db/schema.sql::table:users',
+        'db/schema.sql::trigger:posts_audit -queries-> db/schema.sql::table:audit_log',
+        'db/002.sql -accesses-> db/schema.sql::table:posts',
         // The renamed table resolves under its new name.
-        'db/002.sql::idx_events_post -accesses-> db/schema.sql::audit_log',
+        'db/002.sql::index:idx_events_post -accesses-> db/schema.sql::table:audit_log',
       ]),
     );
-    const sameFile = graph.relations.find((rel) => rel.source === 'db/schema.sql::posts');
+    const sameFile = graph.relations.find((rel) => rel.source === 'db/schema.sql::table:posts');
     expect(sameFile).toMatchObject({ confidence: 0.95, confidenceLabel: 'EXTRACTED' });
     const crossFile = graph.relations.find((rel) => rel.source === 'db/002.sql');
     expect(crossFile).toMatchObject({ confidence: 0.9 });
@@ -234,6 +311,36 @@ describe('extractSql (T14383)', () => {
 });
 
 describe('SQL files in the parse loop (T14383)', () => {
+  it('marks a partially read SQL file unsupported and completes no sql-* capability', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'nexus-sql-'));
+    try {
+      writeFileSync(
+        join(directory, 'broken.sql'),
+        "CREATE TABLE a (x TEXT DEFAULT 'oops);\nCREATE TABLE b (id INTEGER);\nCREATE TABLE c (id INTEGER);",
+      );
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['broken.sql']),
+        directory,
+        { onFileReport: (report) => reports.push(report) },
+      );
+      expect(reports[0]).toMatchObject({
+        path: 'broken.sql',
+        status: 'unsupported',
+        reason: expect.stringMatching(/^Partial SQL extraction: unterminated ' quote/),
+        capabilities: { role: 'sql', completed: ['file-evidence'] },
+      });
+      expect(reports[0]?.capabilities?.limitations).toEqual(
+        expect.arrayContaining([expect.stringMatching(/^Partial SQL extraction/)]),
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('adds SQL nodes, defines and reference edges, and completes every requested SQL capability', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'nexus-sql-'));
     try {
@@ -275,18 +382,19 @@ describe('SQL files in the parse loop (T14383)', () => {
         expect.arrayContaining([
           expect.stringMatching(/literal SQL table references inside executable sources/i),
           expect.stringMatching(/dynamic SQL.*unresolved/i),
-          expect.stringMatching(/^1 SQL statement\(s\) matched no extracted DDL form/),
         ]),
       );
-      expect(graph.nodes.get('schema.sql::posts')?.meta?.['sqlKind']).toBe('table');
-      expect(graph.nodes.get('migration.sql::idx_events_post')?.meta?.['sqlKind']).toBe('index');
+      expect(graph.nodes.get('schema.sql::table:posts')?.meta?.['sqlKind']).toBe('table');
+      expect(graph.nodes.get('migration.sql::index:idx_events_post')?.meta?.['sqlKind']).toBe(
+        'index',
+      );
       const edges = graph.relations.map((rel) => `${rel.source} -${rel.type}-> ${rel.target}`);
       expect(edges).toEqual(
         expect.arrayContaining([
-          'schema.sql -defines-> schema.sql::posts',
-          'schema.sql -defines-> schema.sql::posts_audit',
-          'schema.sql::posts -accesses-> schema.sql::users',
-          'migration.sql -accesses-> schema.sql::users',
+          'schema.sql -defines-> schema.sql::table:posts',
+          'schema.sql -defines-> schema.sql::trigger:posts_audit',
+          'schema.sql::table:posts -accesses-> schema.sql::table:users',
+          'migration.sql -accesses-> schema.sql::table:users',
         ]),
       );
     } finally {

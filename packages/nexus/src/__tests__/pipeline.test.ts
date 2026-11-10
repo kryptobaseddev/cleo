@@ -330,7 +330,7 @@ describe('isolated shared extraction (T12262)', () => {
         assert.equal(sql.status, 'analyzed');
         assert.deepEqual(sql.capabilities.requested, ['file-evidence','sql-schema-objects','sql-migrations','sql-triggers','sql-constraints']);
         assert.deepEqual(sql.capabilities.completed, sql.capabilities.requested);
-        assert.ok([...mixedPublications[0].nodes].some(node => node.id === 'migration.sql::fixture'));
+        assert.ok([...mixedPublications[0].nodes].some(node => node.id === 'migration.sql::table:fixture'));
 
         await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
           parserExecution: execution, parserLimits: { maxSourceBytes: 1, workerHeapMb: 64 }, publishGraph(rows) { publications.push(rows); },
@@ -1195,7 +1195,11 @@ describe('capability-specific file evidence (T12289)', () => {
         },
       );
       expect(reports[0]).toMatchObject({
-        status: 'analyzed',
+        // T14383: EXECUTE matches no SQL form, so the file is read only in part.
+        status: 'unsupported',
+        reason: expect.stringMatching(
+          /^Partial SQL extraction: 1 statement\(s\) matched no recognized SQL form/,
+        ),
         capabilities: {
           role: 'sql',
           requested: [
@@ -1205,16 +1209,10 @@ describe('capability-specific file evidence (T12289)', () => {
             'sql-triggers',
             'sql-constraints',
           ],
-          completed: [
-            'file-evidence',
-            'sql-schema-objects',
-            'sql-migrations',
-            'sql-triggers',
-            'sql-constraints',
-          ],
+          completed: ['file-evidence'],
           limitations: expect.arrayContaining([
             expect.stringMatching(/dynamic SQL.*unresolved/i),
-            expect.stringMatching(/^1 SQL statement\(s\) matched no extracted DDL form/),
+            expect.stringMatching(/^Partial SQL extraction/),
           ]),
         },
       });

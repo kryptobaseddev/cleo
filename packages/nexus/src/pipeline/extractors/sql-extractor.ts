@@ -6,7 +6,9 @@
  * quoted identifiers, dollar-quoted bodies and `BEGIN … END` / `CASE … END`
  * blocks, and each statement is matched against the DDL forms below.
  *
- * - **Schema objects**: `CREATE TABLE`, `CREATE VIEW`, `CREATE INDEX`.
+ * - **Schema objects**: `CREATE TABLE`, `CREATE VIRTUAL TABLE` (e.g. FTS5),
+ *   `CREATE VIEW`, `CREATE INDEX`. Node ids are `<path>::<sqlKind>:<name>`, so a
+ *   trigger or index may share a table's name.
  * - **Triggers**: `CREATE TRIGGER`, with the table it fires on and the tables
  *   its body writes or reads.
  * - **Constraints**: `PRIMARY KEY`, `UNIQUE`, `CHECK` and `FOREIGN KEY` /
@@ -20,6 +22,9 @@
  * kind and carry the exact SQL kind in `meta.sqlKind`: tables and views are
  * `record`, indexes `property`, triggers `function`. SQL nodes are never
  * registered in the symbol table, so no code call can resolve to them.
+ *
+ * An unterminated quote or block, or a statement no form matches, is recorded
+ * in `problems`; the parse loop then reports the file as partially read.
  *
  * Not extracted: DML statements, column-level types, routines (`CREATE
  * FUNCTION|PROCEDURE`), literal SQL inside executable sources, and dynamic SQL.
@@ -78,6 +83,12 @@ export interface SqlExtraction {
   renames: { from: string; to: string }[];
   /** Statements that are neither recognized DDL nor DML. */
   unrecognizedStatements: number;
+  /**
+   * Why the extraction is partial: an unterminated quote or block (statement
+   * boundaries after it cannot be trusted) or unclassified statements. Empty
+   * when every statement was read.
+   */
+  problems: string[];
 }
 
 /** Result of linking every SQL file's references into the graph. */
@@ -103,6 +114,10 @@ const CREATE_TABLE = new RegExp(
   String.raw`^CREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:GLOBAL|LOCAL)\s+)?(?:TEMP(?:ORARY)?\s+|UNLOGGED\s+)?TABLE\s+${IF_NOT_EXISTS}(${QUALIFIED})\s*([\s\S]*)$`,
   'i',
 );
+const CREATE_VIRTUAL_TABLE = new RegExp(
+  String.raw`^CREATE\s+VIRTUAL\s+TABLE\s+${IF_NOT_EXISTS}(${QUALIFIED})\s+USING\s+(\w+)\s*([\s\S]*)$`,
+  'i',
+);
 const CREATE_VIEW = new RegExp(
   String.raw`^CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+)?(?:MATERIALIZED\s+)?VIEW\s+${IF_NOT_EXISTS}(${QUALIFIED})[\s\S]*?\bAS\b([\s\S]*)$`,
   'i',
@@ -125,7 +140,7 @@ const DROP_OBJECT = new RegExp(
 );
 /** DML, transaction control and session pragmas: statements, not schema. */
 const NON_SCHEMA_STATEMENT =
-  /^(?:SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH|VALUES|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|PRAGMA|SET|VACUUM|ANALYZE|EXPLAIN|ATTACH|DETACH|REINDEX|GRANT|REVOKE|COMMENT)\b/i;
+  /^(?:SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH|VALUES|BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|PRAGMA|SET|VACUUM|ANALYZE|EXPLAIN|ATTACH|DETACH|REINDEX|GRANT|REVOKE|COMMENT)\b/i;
 /** Tables a query body reads or writes. */
 const TABLE_IN_BODY = new RegExp(
   String.raw`\b(FROM|JOIN|INTO|UPDATE)\s+(?:OR\s+\w+\s+)?(?:ONLY\s+)?(${QUALIFIED})`,
@@ -193,18 +208,30 @@ function blankComments(source: string): string {
   return out;
 }
 
-/** End offset (exclusive) of the quoted span opening at `start`. */
-function quotedEnd(source: string, start: number): number {
+/**
+ * End offset (exclusive) of the quoted span opening at `start`, or -1 when the
+ * span never closes. A Postgres `E'…'` string also takes backslash escapes.
+ */
+function quotedSpanEnd(source: string, start: number): number {
   const open = source[start];
   const close = open === '[' ? ']' : open;
+  const backslashEscapes =
+    open === "'" && /[Ee]/.test(source[start - 1] ?? '') && !/[\w$]/.test(source[start - 2] ?? '');
   let index = start + 1;
   while (index < source.length) {
-    if (source[index] === close) {
+    if (backslashEscapes && source[index] === '\\') index += 2;
+    else if (source[index] === close) {
       if (close !== ']' && source[index + 1] === close) index += 2;
       else return index + 1;
     } else index++;
   }
-  return source.length;
+  return -1;
+}
+
+/** {@link quotedSpanEnd}, running an unterminated span to the end of `source`. */
+function quotedEnd(source: string, start: number): number {
+  const end = quotedSpanEnd(source, start);
+  return end === -1 ? source.length : end;
 }
 
 /** One statement's text and its offset in the comment-blanked source. */
@@ -217,10 +244,15 @@ interface Statement {
 /**
  * Split blanked SQL into statements on `;` at block depth zero. Inside a
  * `CREATE TRIGGER` statement `BEGIN` opens a block; `CASE` always does; `END`
- * closes one. Quoted and dollar-quoted spans never split a statement.
+ * closes one (`END IF|LOOP|WHILE|REPEAT` close nothing the splitter opened).
+ * Quoted and dollar-quoted spans never split a statement. `problems` names a
+ * quote or block still open at the end of the file, after which no statement
+ * boundary can be trusted.
  */
-function splitStatements(source: string): Statement[] {
+function splitStatements(source: string): { statements: Statement[]; problems: string[] } {
   const statements: Statement[] = [];
+  const problems: string[] = [];
+  const lineOf = (offset: number): number => source.slice(0, offset).split('\n').length;
   let start = 0;
   let depth = 0;
   let index = 0;
@@ -233,13 +265,18 @@ function splitStatements(source: string): Statement[] {
   while (index < source.length) {
     const char = source[index] ?? '';
     if (char === "'" || char === '"' || char === '`' || char === '[') {
-      index = quotedEnd(source, index);
+      const end = quotedSpanEnd(source, index);
+      if (end === -1) {
+        problems.push(`unterminated ${char} quote opened on line ${lineOf(index)}`);
+        index = source.length;
+      } else index = end;
       continue;
     }
     if (char === '$') {
       const tag = source.slice(index).match(/^\$[A-Za-z_]*\$/)?.[0];
       if (tag) {
         const end = source.indexOf(tag, index + tag.length);
+        if (end === -1) problems.push(`unterminated ${tag} body opened on line ${lineOf(index)}`);
         index = end === -1 ? source.length : end + tag.length;
         continue;
       }
@@ -247,8 +284,10 @@ function splitStatements(source: string): Statement[] {
     if (/[A-Za-z_]/.test(char) && !/[\w$]/.test(source[index - 1] ?? '')) {
       const word = source.slice(index).match(/^[A-Za-z_]\w*/)?.[0] ?? char;
       const upper = word.toUpperCase();
+      const closesOther =
+        upper === 'END' && /^END\s+(?:IF|LOOP|WHILE|REPEAT)\b/i.test(source.slice(index));
       if (upper === 'CASE') depth++;
-      else if (upper === 'END' && depth > 0) depth--;
+      else if (upper === 'END' && depth > 0 && !closesOther) depth--;
       else if (
         upper === 'BEGIN' &&
         /^CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+)?(?:CONSTRAINT\s+)?TRIGGER\b/i.test(
@@ -265,8 +304,9 @@ function splitStatements(source: string): Statement[] {
     }
     index++;
   }
+  if (depth > 0) problems.push(`${depth} BEGIN or CASE block(s) still open at the end of the file`);
   push(source.length);
-  return statements;
+  return { statements, problems };
 }
 
 /** Split on commas at parenthesis depth zero, outside quoted spans. */
@@ -429,7 +469,8 @@ export function extractSql(filePath: string, source: string): SqlExtraction {
     meta: Record<string, unknown> = {},
   ): string => {
     const objectName = unqualify(name);
-    const id = `${filePath}::${objectName}`;
+    // The SQL kind is part of the id: a trigger or index may share a table's name.
+    const id = `${filePath}::${sqlKind}:${objectName}`;
     if (!nodes.has(id))
       nodes.set(id, {
         id,
@@ -453,8 +494,23 @@ export function extractSql(filePath: string, source: string): SqlExtraction {
     references.push({ source, target: nameKey(target), type, reason });
   };
 
-  for (const statement of splitStatements(blanked)) {
+  const split = splitStatements(blanked);
+  for (const statement of split.statements) {
     const text = statement.text;
+    const virtual = text.match(CREATE_VIRTUAL_TABLE);
+    if (virtual?.[1] && virtual[2]) {
+      const args = parenthesized((virtual[3] ?? '').trim()) ?? '';
+      const columns = splitTopLevel(args)
+        .map((part) => part.trim())
+        .filter((part) => !part.includes('='))
+        .flatMap((part) => columnList(part));
+      addNode('table', virtual[1], statement, {
+        virtual: true,
+        module: virtual[2].toLowerCase(),
+        columns,
+      });
+      continue;
+    }
     const table = text.match(CREATE_TABLE);
     if (table?.[1]) {
       const rest = (table[2] ?? '').trim();
@@ -517,7 +573,17 @@ export function extractSql(filePath: string, source: string): SqlExtraction {
     }
     if (!NON_SCHEMA_STATEMENT.test(text)) unrecognizedStatements++;
   }
-  return { filePath, nodes: [...nodes.values()], references, renames, unrecognizedStatements };
+  const problems = [...split.problems];
+  if (unrecognizedStatements)
+    problems.push(`${unrecognizedStatements} statement(s) matched no recognized SQL form`);
+  return {
+    filePath,
+    nodes: [...nodes.values()],
+    references,
+    renames,
+    unrecognizedStatements,
+    problems,
+  };
 }
 
 /**
