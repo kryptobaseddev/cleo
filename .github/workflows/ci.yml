@@ -1544,9 +1544,9 @@ jobs:
   # T14348). One job now restores the `build` job's Linux output and runs each
   # gate as its own step (named after the job it replaced), every step running
   # even when an earlier one failed (`!cancelled()`), so each failure stays
-  # attributable. `build` runs on every run that is not a release bump PR, so
-  # this job always has an artifact to restore. Build & Verify stays the cold
-  # build.
+  # attributable. `build` runs on every run that is not a release bump PR or a
+  # draft PR, and this job skips on both, so it always has an artifact to
+  # restore. Build & Verify stays the cold build.
   post-build-checks:
     name: Post-build Checks
     needs: [ biome, changes, build ]
@@ -2591,7 +2591,8 @@ jobs:
   scripts-tests:
     name: Scripts Tests
     # T14368: `build` runs whenever this job can (it skips only a release bump
-    # PR, which changes no script), and this job restores its output.
+    # PR, which changes no script, and a draft PR, which this job skips too),
+    # and this job restores its output.
     needs: [ biome, changes, build ]
     if: needs.changes.outputs.scripts == 'true' && needs.changes.outputs.draft != 'true'
     runs-on: ubuntu-latest
