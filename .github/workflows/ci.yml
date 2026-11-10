@@ -2461,6 +2461,9 @@ jobs:
   # context, or be listed as advisory.
   arch-gates:
     name: Arch Gates
+    # T14385: heavy (installs and builds); skipped on a draft pull request.
+    needs: [ changes ]
+    if: needs.changes.outputs.draft != 'true'
     uses: ./.github/workflows/arch-boundary-check.yml
 
   # T13279: the path-scoped gates run when the `changes` job sees their paths

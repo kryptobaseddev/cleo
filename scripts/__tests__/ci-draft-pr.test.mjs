@@ -32,6 +32,7 @@ const HEAVY = [
   'cant-napi-gate',
   'cleo-supervisor-smoke-gate',
   'release-pipeline-matrix-gate',
+  'arch-gates',
 ];
 
 describe('draft pull requests (T14385)', () => {
