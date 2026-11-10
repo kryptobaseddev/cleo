@@ -60,8 +60,8 @@ export interface MbxSendInput {
   /** Thread parent (`--reply-to`). */
   replyTo?: string;
   /**
-   * Delivery key; a retry with the same key is delivered once. Defaults to a
-   * hash of sender, recipients, subject and body, so a plain retry dedupes.
+   * Delivery key; a retry with the same key is delivered once. Pass one for
+   * retry safety; without it no key is sent, so repeats are delivered.
    */
   idempotencyKey?: string;
 }
@@ -98,8 +98,8 @@ export interface MbxSession {
 export interface AgentMbxClient {
   /** True when the `agentmbx` CLI runs. */
   available(): Promise<boolean>;
-  /** Send one message; resolves with the message id (when printed) and the key used. */
-  send(input: MbxSendInput): Promise<MbxOutcome<{ id: string | null; idempotencyKey: string }>>;
+  /** Send one message; resolves with the message id, when printed. */
+  send(input: MbxSendInput): Promise<MbxOutcome<{ id: string | null }>>;
   /** Unread messages for a mailbox. */
   inbox(as: string, session?: MbxSession): Promise<MbxOutcome<MbxInboxMessage[]>>;
   /** Claim a mailbox for a provider session. */
@@ -108,7 +108,11 @@ export interface AgentMbxClient {
   status(session: MbxSession): Promise<MbxOutcome<MbxIdentityStatus>>;
 }
 
-/** Default runner: `execFile('agentmbx', args)` with a 15 s timeout. */
+/**
+ * Real runner: `execFile('agentmbx', args)` with a 15 s timeout. The default
+ * client uses it unless `CLEO_AGENTMBX_DISABLE=1` (set by `vitest.setup.ts`,
+ * so no test reaches a real install).
+ */
 export const runAgentMbx: MbxRunner = (args) =>
   new Promise((resolve) => {
     execFile(
@@ -161,18 +165,19 @@ function parseIdentity(stdout: string): MbxIdentityStatus {
   };
 }
 
-/** The default idempotency key: a hash of who, to whom and what. */
-export function defaultIdempotencyKey(input: MbxSendInput): string {
-  const digest = createHash('sha256')
-    .update([input.as, input.to, input.subject, input.body].join('\0'))
-    .digest('hex');
-  return `cleo:${digest.slice(0, 32)}`;
-}
+/** Runner used when `CLEO_AGENTMBX_DISABLE=1`: behaves as if agentmbx is absent. */
+const disabledRunner: MbxRunner = async () => ({
+  missing: true,
+  exitCode: null,
+  stdout: '',
+  stderr: '',
+});
 
 /**
  * Create the adapter.
  *
- * @param runner - Process runner. Default {@link runAgentMbx}.
+ * @param runner - Process runner. Default {@link runAgentMbx}, or an absent
+ *   CLI when `CLEO_AGENTMBX_DISABLE=1`.
  * @returns An {@link AgentMbxClient} that never throws.
  * @example
  * ```ts
@@ -181,9 +186,11 @@ export function defaultIdempotencyKey(input: MbxSendInput): string {
  * if (!sent.ok) log.warn(sent.warning);
  * ```
  */
-export function createAgentMbxClient(runner: MbxRunner = runAgentMbx): AgentMbxClient {
+export function createAgentMbxClient(runner?: MbxRunner): AgentMbxClient {
   const call = async (args: string[]): Promise<MbxOutcome<string>> => {
-    const r = await runner(args);
+    const run =
+      runner ?? (process.env['CLEO_AGENTMBX_DISABLE'] === '1' ? disabledRunner : runAgentMbx);
+    const r = await run(args);
     if (r.missing) return { ok: false, warning: 'agentmbx is not installed (not on PATH)' };
     if (r.exitCode !== 0) {
       const detail = (r.stderr.trim() || r.stdout.trim()).split('\n')[0] ?? '';
@@ -202,7 +209,6 @@ export function createAgentMbxClient(runner: MbxRunner = runAgentMbx): AgentMbxC
       return (await call(['--version'])).ok;
     },
     async send(input) {
-      const idempotencyKey = input.idempotencyKey ?? defaultIdempotencyKey(input);
       const r = await call([
         'send',
         '--as',
@@ -216,14 +222,13 @@ export function createAgentMbxClient(runner: MbxRunner = runAgentMbx): AgentMbxC
         '-m',
         input.body,
         ...(input.replyTo ? ['--reply-to', input.replyTo] : []),
-        '--idempotency-key',
-        idempotencyKey,
+        ...(input.idempotencyKey ? ['--idempotency-key', input.idempotencyKey] : []),
         '--json',
       ]);
       if (!r.ok) return r;
       const rec = asRecord(parseJson(r.value));
       const id = str(rec, 'id') || str(asRecord(rec?.['data']), 'id') || null;
-      return { ok: true, value: { id, idempotencyKey } };
+      return { ok: true, value: { id } };
     },
     async inbox(as, session) {
       const r = await call(['inbox', '--as', as, '--json', ...sessionArgs(session)]);
@@ -241,6 +246,9 @@ export function createAgentMbxClient(runner: MbxRunner = runAgentMbx): AgentMbxC
       return { ok: true, value };
     },
     async claim(name, session) {
+      // A positional: a name like `--all` would be parsed as a flag.
+      if (!MBX_NAME.test(name))
+        return { ok: false, warning: `invalid AgentMBX mailbox name: ${name}` };
       const r = await call(['identity', 'claim', name, ...sessionArgs(session), '--json']);
       return r.ok ? { ok: true, value: parseIdentity(r.value) } : r;
     },
@@ -258,18 +266,22 @@ export function createAgentMbxClient(runner: MbxRunner = runAgentMbx): AgentMbxC
 }
 
 /**
- * The `<project>-lead` mailbox name for a project display name.
+ * The `<project>-<hash>-lead` mailbox name. The short hash of the project id
+ * keeps two projects (or unrelated clones) with one name on separate
+ * mailboxes across paired machines.
  *
  * @param projectName - Project display name.
- * @returns A valid {@link MBX_NAME}, e.g. `cleocode-lead`.
+ * @param projectId - Portable project id.
+ * @returns A valid {@link MBX_NAME}, e.g. `cleocode-3f2a9c-lead`.
  */
-export function leadMailboxName(projectName: string): string {
+export function leadMailboxName(projectName: string, projectId: string): string {
   const slug = projectName
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^[^a-z0-9]+|-+$/g, '')
     .slice(0, 100);
-  return `${slug || 'project'}-lead`;
+  const hash = createHash('sha256').update(projectId).digest('hex').slice(0, 6);
+  return `${slug || 'project'}-${hash}-lead`;
 }
 
 /** Provider CLI the lead claims from; `CLEO_HOOK_PROVIDER`, else `claude`. */
@@ -281,11 +293,13 @@ function detectProviderCli(env: NodeJS.ProcessEnv): string {
 /** Result of {@link ensureLeadMailbox}. */
 export type EnsureLeadMailboxResult =
   | { action: 'recorded' | 'kept'; leadMailbox: LeadMailbox }
-  | { action: 'skipped'; warning: string };
+  | { action: 'skipped'; warning: string }
+  | { action: 'disabled' };
 
 /**
- * Record the project's lead mailbox in project config (`cleo init`). With
- * `agentmbx` absent it writes nothing and returns a warning; an existing
+ * Record the project's lead mailbox in project config (`cleo init`). It runs
+ * only with `orchestrate.leadWorker.v1` on (otherwise no probe, `disabled`).
+ * With `agentmbx` absent it writes nothing and returns a warning; an existing
  * record is kept.
  *
  * @param projectRoot - Project root.
@@ -300,7 +314,9 @@ export async function ensureLeadMailbox(
   client: AgentMbxClient = createAgentMbxClient(),
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<EnsureLeadMailboxResult> {
-  const existing = (await loadConfig(projectRoot)).orchestrate?.leadMailbox;
+  const orchestrate = (await loadConfig(projectRoot)).orchestrate;
+  if (orchestrate?.leadWorker?.v1 !== true) return { action: 'disabled' };
+  const existing = orchestrate.leadMailbox;
   if (existing && MBX_NAME.test(existing.name)) return { action: 'kept', leadMailbox: existing };
   if (!(await client.available())) {
     return {
@@ -310,7 +326,7 @@ export async function ensureLeadMailbox(
     };
   }
   const leadMailbox: LeadMailbox = {
-    name: leadMailboxName(project.projectName),
+    name: leadMailboxName(project.projectName, project.projectId),
     projectId: project.projectId,
     cli: detectProviderCli(env),
   };
@@ -319,8 +335,9 @@ export async function ensureLeadMailbox(
 }
 
 /**
- * The lead mailbox a spawn names: the explicit `--lead-mbx`, else the
- * project's recorded `orchestrate.leadMailbox.name`, else none.
+ * The lead mailbox a spawn names: the explicit `--lead-mbx`, else (with
+ * `orchestrate.leadWorker.v1` on) the recorded `orchestrate.leadMailbox.name`,
+ * else none.
  *
  * @param projectRoot - Project root.
  * @param explicit - Mailbox given on the command line.
@@ -331,7 +348,35 @@ export async function resolveLeadMailbox(
   explicit?: string,
 ): Promise<string | undefined> {
   if (explicit) return explicit;
-  const name = (await loadConfig(projectRoot)).orchestrate?.leadMailbox?.name ?? '';
+  const orchestrate = (await loadConfig(projectRoot)).orchestrate;
+  if (orchestrate?.leadWorker?.v1 !== true) return undefined;
+  const name = orchestrate.leadMailbox?.name ?? '';
   // The name is printed into the prompt, so a hand-edited value must still be a plain name.
   return MBX_NAME.test(name) ? name : undefined;
+}
+
+/**
+ * Claim the project's recorded lead mailbox for the lead's provider session.
+ * `cleo orchestrate lead` (T14363) calls this when the lead starts, so the
+ * mailbox workers report to has a holder.
+ *
+ * @param projectRoot - Project root.
+ * @param session - The lead's provider session (`--cli`, `--session`).
+ * @param client - Adapter. Default {@link createAgentMbxClient}.
+ * @returns The claimed identity, or a warning (no record, flag off, CLI absent or refused).
+ */
+export async function claimLeadMailbox(
+  projectRoot: string,
+  session: Required<MbxSession>,
+  client: AgentMbxClient = createAgentMbxClient(),
+): Promise<MbxOutcome<MbxIdentityStatus>> {
+  const name = await resolveLeadMailbox(projectRoot);
+  if (!name) {
+    return {
+      ok: false,
+      warning:
+        'No lead mailbox recorded: turn on orchestrate.leadWorker.v1 and run `cleo init` with agentmbx installed.',
+    };
+  }
+  return client.claim(name, session);
 }
