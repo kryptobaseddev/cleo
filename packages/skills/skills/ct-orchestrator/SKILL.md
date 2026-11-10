@@ -269,6 +269,20 @@ no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` name
 mailbox in it. `cleo conduit` and the `conduit-*` sub-commands of `cleo orchestrate` are
 deprecated (T13982) and leave in the next release; do not build on them.
 
+**A no-hands lead runs commands through `cleo_run` (T14374).** The `cleo-lead` agent has
+no Bash, Edit or Write. Its one command route is the `cleo_run` MCP tool, served by
+`cleo orchestrate lead-runner`. Pass an argv array (never a shell string): the command words
+first, then positionals, then flags. Each allowed command accepts only its listed flags; write
+`--flag=value` for a value starting with `-`; `--no-*` forms are refused. Allowed: the
+`orchestrate` read, plan and dispatch sub-verbs (not `worktree-complete`, `approve`, `reject`,
+`prune`, `ivtr`, `bootstrap` or `conduit-*`), `show`, `find`, `list`, `review packet|check|verdict`,
+`done --from-merge <pr> --dry-run`, `memory find|fetch`, `session status`,
+`decide ask`, `merge train`; `gh pr view|list|checks|diff`, `gh pr comment --body <text>`,
+`gh run list|view`, each given only a numeric PR or run id (no URL, `--repo`, `--web`,
+`--watch` or `--body-file`). Command and flag lists are checked against the CLI manifest, so
+every rule is a leaf command; `briefing` is not on the list because it has a subcommand.
+The lead merges only through `cleo merge train`; pushes and edits go to a worker.
+
 **Attached documents are budgeted (T14190).** A spawn prompt's `## Task Documents` section
 inlines the task's attached text documents up to 16,000 characters of prose
 (`orchestration.spawnDocBudgetChars` sets it). Past that, each document is named by its

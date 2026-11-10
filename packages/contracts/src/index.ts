@@ -1839,7 +1839,10 @@ export { USER_PROFILE_SCOPES } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type {
   BrainState,
+  LeadCommandBinary,
+  LeadCommandRule,
   LeadDeniedTool,
+  LeadFlagArity,
   LeadToolPolicy,
   LeadToolStripSupport,
   OrchestrateReportEntry,
@@ -1848,7 +1851,14 @@ export type {
   WorkerProof,
   WorkerReport,
 } from './operations/orchestrate.js';
-export { LEAD_DENIED_TOOLS } from './operations/orchestrate.js';
+export {
+  LEAD_CLEO_GLOBAL_FLAGS,
+  LEAD_COMMAND_ALLOWLIST,
+  LEAD_DENIED_TOOLS,
+  LEAD_RUNNER_MCP_SERVER,
+  LEAD_RUNNER_TOOL,
+  LEAD_RUNNER_TOOL_NAME,
+} from './operations/orchestrate.js';
 // === Operation Output Contracts (T11692 / DHQ-057 — per-op result shape SSoT) ===
 // OUTPUT-side mirror of the input contracts. Surfaces the LAFS envelope `data`
 // shape + valid --field JSON pointers so agents stop guessing (e.g. the real

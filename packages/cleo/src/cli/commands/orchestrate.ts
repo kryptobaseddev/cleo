@@ -28,6 +28,7 @@
  *   cleo orchestrate conduit-start        — start conduit message loop (legacy)
  *   cleo orchestrate conduit-stop         — stop conduit message loop (legacy)
  *   cleo orchestrate conduit-send <content> — send conduit message (legacy)
+ *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
  *
  * Note: T964 promoted `conduit` to its own canonical dispatch domain. The
  * `conduit-*` subcommands here remain as backward-compatible aliases that
@@ -1137,6 +1138,26 @@ const pendingCommand = defineCommand({
 });
 
 /**
+ * cleo orchestrate lead-runner — serve the lead command runner over MCP stdio.
+ *
+ * A no-hands lead has no Bash; its agent definition starts this server and
+ * runs allow-listed cleo and gh verbs through its one tool (T14374).
+ */
+const leadRunnerCommand = defineCommand({
+  meta: {
+    name: 'lead-runner',
+    description:
+      'Serve the lead command runner (MCP stdio): runs allow-listed cleo and gh argv, no shell',
+  },
+  async run() {
+    const { serveLeadCommandRunner } = await import(
+      '@cleocode/core/orchestration/lead-command-runner'
+    );
+    await serveLeadCommandRunner({ input: process.stdin, output: process.stdout });
+  },
+});
+
+/**
  * cleo orchestrate conduit-send — legacy alias for `cleo conduit send`.
  *
  * T964: dispatches to the canonical `conduit` domain.
@@ -1218,6 +1239,8 @@ export const orchestrateCommand = defineCommand({
     approve: approveCommand,
     reject: rejectCommand,
     pending: pendingCommand,
+    // T14374: no-hands lead command runner
+    'lead-runner': leadRunnerCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
