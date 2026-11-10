@@ -1,6 +1,15 @@
-import type { CLEOSpawnAdapter } from '@cleocode/contracts';
+import type {
+  AdapterSpawnProvider,
+  CLEOSpawnAdapter,
+  CLEOSpawnContext,
+  LeadToolStripSupport,
+  SpawnContext,
+  SpawnResult,
+} from '@cleocode/contracts';
+import { E_LEAD_TOOLS_UNSTRIPPED, LEAD_DENIED_TOOLS } from '@cleocode/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  bridgeSpawnAdapter,
   initializeDefaultAdapters,
   SpawnAdapterRegistry,
   spawnRegistry,
@@ -95,5 +104,68 @@ describe('initializeDefaultAdapters', () => {
     const countAfterSecond = spawnRegistry.list().length;
 
     expect(countAfterSecond).toBe(countAfterFirst);
+  });
+});
+
+describe('bridgeSpawnAdapter lead tool strip (T14357)', () => {
+  /** A delegate that records the contract context it receives. */
+  function createDelegate(strip?: LeadToolStripSupport): {
+    delegate: AdapterSpawnProvider;
+    received: SpawnContext[];
+  } {
+    const received: SpawnContext[] = [];
+    const result: SpawnResult = {
+      instanceId: 'i1',
+      taskId: 'T1',
+      providerId: 'p',
+      status: 'completed',
+      startTime: '2026-11-10T00:00:00.000Z',
+    };
+    const delegate: AdapterSpawnProvider = {
+      ...(strip !== undefined ? { leadToolStrip: strip } : {}),
+      canSpawn: async () => true,
+      spawn: async (context) => {
+        received.push(context);
+        return result;
+      },
+      listRunning: async () => [],
+      terminate: async () => {},
+    };
+    return { delegate, received };
+  }
+
+  const base: CLEOSpawnContext = {
+    taskId: 'T1',
+    protocol: 'implementation',
+    prompt: 'go',
+    provider: 'p',
+    options: { prompt: 'go' },
+  };
+  const lead: CLEOSpawnContext = { ...base, leadDeniedTools: LEAD_DENIED_TOOLS };
+
+  it('forwards leadDeniedTools to a delegate that enforces the strip', async () => {
+    const { delegate, received } = createDelegate('enforced');
+    await bridgeSpawnAdapter('p', delegate).spawn(lead);
+    expect(received).toHaveLength(1);
+    expect(received[0]?.leadDeniedTools).toEqual([...LEAD_DENIED_TOOLS]);
+  });
+
+  it.each<[string, LeadToolStripSupport | undefined]>([
+    ['unsupported', 'unsupported'],
+    ['absent', undefined],
+  ])('refuses a lead spawn when the declaration is %s, before the delegate runs', async (_label, strip) => {
+    const { delegate, received } = createDelegate(strip);
+    await expect(bridgeSpawnAdapter('p', delegate).spawn(lead)).rejects.toMatchObject({
+      code: E_LEAD_TOOLS_UNSTRIPPED,
+    });
+    expect(received).toHaveLength(0);
+  });
+
+  it('passes worker spawns through unchanged on any provider', async () => {
+    const { delegate, received } = createDelegate();
+    await bridgeSpawnAdapter('p', delegate).spawn(base);
+    await bridgeSpawnAdapter('p', delegate).spawn({ ...base, leadDeniedTools: [] });
+    expect(received).toHaveLength(2);
+    for (const ctx of received) expect(ctx.leadDeniedTools).toBeUndefined();
   });
 });

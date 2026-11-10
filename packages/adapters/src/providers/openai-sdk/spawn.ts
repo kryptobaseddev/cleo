@@ -14,7 +14,7 @@
  * - Tier-based model selection (lead → gpt-4.1, worker → gpt-4.1-mini)
  * - Handoff topology built from `SpawnContext.options.handoffs` (CLEO-native)
  * - CLEO path ACL guardrails evaluated before the model call
- * - Default-on tracing via `CleoConduitTraceProcessor`
+ * - Span dispatch to processors registered via `registerTraceProcessor`
  * - CANT prompt enrichment (best-effort, same as Claude Code provider)
  *
  * @task T582 (original)
@@ -24,11 +24,11 @@
 
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { assertLeadToolsStrippable } from '../shared/lead-tool-strip.js';
 import { mapSdkRunOutcome } from '../shared/sdk-result-mapper.js';
 import { buildDefaultGuardrails, evaluateGuardrails } from './guardrails.js';
 import { buildAgentTopology, type CleoAgent } from './handoff.js';
 import type { CleoSpan, CleoTraceProcessor } from './tracing.js';
-import { CleoConduitTraceProcessor } from './tracing.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +81,7 @@ export interface OpenAiSdkSpawnOptions {
   allowedTools?: string[];
 
   /**
-   * Disable tracing to conduit.db.
+   * Disable span dispatch to registered trace processors for this run.
    *
    * @defaultValue `false`
    */
@@ -195,6 +195,9 @@ async function emitSpan(span: CleoSpan): Promise<void> {
  * ```
  */
 export class OpenAiSdkSpawnProvider implements AdapterSpawnProvider {
+  /** Cannot remove tools from a spawned agent: a lead spawn is refused (T14357). */
+  readonly leadToolStrip = 'unsupported' as const;
+
   /** Currently running instance IDs (completed runs are removed). */
   private readonly runningInstances = new Set<string>();
 
@@ -218,6 +221,7 @@ export class OpenAiSdkSpawnProvider implements AdapterSpawnProvider {
    * @returns Resolved spawn result with `status: 'completed'` or `'failed'`.
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
+    assertLeadToolsStrippable('openai-sdk', this.leadToolStrip, context);
     const instanceId = `openai-sdk-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
 
@@ -254,16 +258,9 @@ export class OpenAiSdkSpawnProvider implements AdapterSpawnProvider {
         guardrails,
       });
 
-      // Register trace processor globally (default-on).
-      let traceProcessor: CleoConduitTraceProcessor | undefined;
+      // Span dispatch is on unless this run opts out.
       const previousTracingDisabled = tracingGlobalDisabled;
-      if (!opts.tracingDisabled) {
-        traceProcessor = new CleoConduitTraceProcessor(context.taskId);
-        registerTraceProcessor(traceProcessor);
-        setTracingDisabled(false);
-      } else {
-        setTracingDisabled(true);
-      }
+      setTracingDisabled(opts.tracingDisabled === true);
 
       try {
         // Evaluate guardrails before any model call. A tripped guardrail
@@ -288,10 +285,7 @@ export class OpenAiSdkSpawnProvider implements AdapterSpawnProvider {
           succeeded: true,
         });
       } finally {
-        // Restore previous tracing state and unregister this run's processor.
-        if (traceProcessor) {
-          unregisterTraceProcessor(traceProcessor);
-        }
+        // Restore the previous tracing state.
         setTracingDisabled(previousTracingDisabled);
       }
     } catch (error: unknown) {

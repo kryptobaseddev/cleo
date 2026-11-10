@@ -1068,7 +1068,7 @@
     },
     "orchestrate": {
       "type": "object",
-      "description": "Orchestration settings (T14356).",
+      "description": "Orchestration settings (T14356). contextThresholds moved here from the legacy orchestrator key (T14375).",
       "additionalProperties": false,
       "properties": {
         "leadWorker": {
@@ -1082,14 +1082,7 @@
               "description": "Leads spawn with write and network tools stripped; workers return a WorkerReport with proof."
             }
           }
-        }
-      }
-    },
-    "orchestrator": {
-      "type": "object",
-      "description": "Orchestrator agent configuration. Only contextThresholds.{warning,critical} are consumed (T109).",
-      "additionalProperties": false,
-      "properties": {
+        },
         "contextThresholds": {
           "type": "object",
           "description": "Context window usage thresholds that trigger orchestrator actions. Values are percentages of context window capacity.",

@@ -308,6 +308,7 @@ export type {
   NexusFreshnessConfig,
   NexusReindexOnMergeConfig,
   OrchestrateConfig,
+  OrchestrateContextThresholds,
   OrchestrateLeadWorkerConfig,
   OutputConfig,
   OutputFormat,
