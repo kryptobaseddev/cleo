@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { formatProjectManifest } from '@cleocode/paths';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defaultTemplatesDir } from '../../git/hooks-install.js';
 import {
   ADMISSION_ENV,
   admissionCapacityBytes,
@@ -2976,6 +2977,83 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       expect(gitHookInstalled(repo, 'pre-push', ['-c', 'core.hooksPath=nowhere'])).toBe(false);
       execFileSync('git', ['config', 'core.hooksPath', 'hooks-elsewhere'], { cwd: repo });
       expect(gitHookInstalled(repo, 'pre-push')).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('a git command that runs another command is charged its class plan, not light (T14398)', () => {
+    for (const argv of [
+      ['git', 'rebase', '-x', 'pnpm test', 'main'],
+      ['git', 'bisect', 'run', 'pnpm', 'vitest', 'run'],
+      ['git', 'submodule', 'foreach', 'pnpm build'],
+    ]) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured);
+      expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(GIB);
+      expect(plan.resources, argv.join(' ')).not.toBeNull();
+      expect(plan.footprintReason, argv.join(' ')).toMatch(/^scoped-build plan: git .* runs /);
+    }
+  });
+
+  it('a git rebase with a post-checkout hook installed keeps the class plan (T14398)', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'rebase', 'origin/main'],
+      {},
+      RAM,
+      (hook) => hook === 'post-checkout',
+      unmeasured,
+    );
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the post-checkout hook');
+  });
+
+  it("git checkout with CLEO's nexus hooks installed is charged light (T14384)", () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14384-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      const hooks = join(repo, '.git', 'hooks');
+      for (const name of ['post-checkout', 'post-rewrite', 'post-merge']) {
+        writeFileSync(join(hooks, name), readFileSync(join(defaultTemplatesDir(), name), 'utf8'));
+        chmodSync(join(hooks, name), 0o755);
+      }
+      const probe = (hook: string, globals: readonly string[]) =>
+        gitHookInstalled(repo, hook, globals);
+      for (const argv of [
+        ['git', 'checkout', 'main'],
+        ['git', 'switch', 'main'],
+        ['git', 'rebase', 'origin/main'],
+        ['git', 'pull'],
+      ]) {
+        const plan = planRunFootprint('scoped-build', argv, {}, RAM, probe, unmeasured);
+        expect(plan.footprintBytes, argv.join(' ')).toBe(GIB);
+        expect(plan.resources, argv.join(' ')).toBeNull();
+      }
+      // A customized copy may do anything: the class plan.
+      const checkout = join(hooks, 'post-checkout');
+      writeFileSync(checkout, `${readFileSync(checkout, 'utf8')}pnpm test\n`);
+      expect(gitHookInstalled(repo, 'post-checkout')).toBe(true);
+      // So may a foreign hook the CLEO hook chains.
+      writeFileSync(checkout, readFileSync(join(defaultTemplatesDir(), 'post-checkout'), 'utf8'));
+      expect(gitHookInstalled(repo, 'post-checkout')).toBe(false);
+      writeFileSync(`${checkout}.cleo-chained`, '#!/bin/sh\npnpm test\n');
+      chmodSync(`${checkout}.cleo-chained`, 0o755);
+      expect(gitHookInstalled(repo, 'post-checkout')).toBe(true);
+      const plan = planRunFootprint(
+        'scoped-build',
+        ['git', 'checkout', 'main'],
+        {},
+        RAM,
+        (hook, globals) => gitHookInstalled(repo, hook, globals),
+        unmeasured,
+      );
+      expect(plan.footprintReason).toBe('scoped-build plan: runs the post-checkout hook');
+      // CLEO's check hooks keep the class plan.
+      writeFileSync(
+        join(hooks, 'pre-push'),
+        readFileSync(join(defaultTemplatesDir(), 'pre-push'), 'utf8'),
+      );
+      chmodSync(join(hooks, 'pre-push'), 0o755);
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(true);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

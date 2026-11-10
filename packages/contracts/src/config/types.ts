@@ -1,0 +1,1321 @@
+/**
+ * Configuration type definitions for CLEO.
+ *
+ * Covers project and global config with cascade resolution.
+ * These are stable types shared across core, dispatch, and CLI.
+ *
+ * @epic T4454
+ * @task T4456
+ * @task T5710
+ */
+
+import type { HeavyCommandHookMode } from '../heavy-command-hook.js';
+import type { LeanConfig } from '../lean.js';
+import type { ModelTransport } from '../operations/llm.js';
+
+/** Output format options. */
+export type OutputFormat = 'json' | 'text' | 'jsonl' | 'markdown' | 'table';
+
+/** Date format options. */
+export type DateFormat = 'relative' | 'iso' | 'short' | 'long';
+
+/** Output configuration. */
+export interface OutputConfig {
+  /** Default output format for CLI responses. */
+  defaultFormat: OutputFormat;
+  /** Whether to use ANSI color codes in terminal output. */
+  showColor: boolean;
+  /** Whether to use Unicode symbols (checkmarks, arrows) in output. */
+  showUnicode: boolean;
+  /** Whether to display progress bars for long-running operations. */
+  showProgressBars: boolean;
+  /** Date display format for timestamps in output. */
+  dateFormat: DateFormat;
+}
+
+/** Backup configuration. */
+export interface BackupConfig {
+  /** Maximum number of operational backups to retain during normal operations. */
+  maxOperationalBackups: number;
+  /** Maximum number of safety backups to retain for disaster recovery. */
+  maxSafetyBackups: number;
+  /** Whether to compress backup files to reduce disk usage. */
+  compressionEnabled: boolean;
+  /**
+   * Byte cap on `.cleo/backups/sqlite` (T14278). After every snapshot the
+   * oldest provably redundant sets are removed until the directory fits;
+   * unset or 0: five times the live store's size.
+   */
+  maxBytes?: number;
+}
+
+/** Hierarchy enforcement profile preset. */
+export type EnforcementProfile = 'llm-agent-first' | 'human-cognitive' | 'custom';
+
+/** Hierarchy configuration. */
+export interface HierarchyConfig {
+  /** Maximum nesting depth for task hierarchy (epic > task > subtask). */
+  maxDepth: number;
+  /** Maximum number of sibling tasks under a single parent. */
+  maxSiblings: number;
+  /** Whether deleting a parent cascades to all descendant tasks. */
+  cascadeDelete: boolean;
+  /** Maximum number of active (non-done) siblings. 0 = disabled. */
+  maxActiveSiblings: number;
+  /** Whether done tasks count toward the sibling limit. */
+  countDoneInLimit: boolean;
+  /** Enforcement profile preset. Explicit fields override preset values. */
+  enforcementProfile: EnforcementProfile;
+}
+
+/** Session configuration. */
+export interface SessionConfig {
+  /** Whether to auto-start a session on first mutate operation. */
+  autoStart: boolean;
+  /** Whether session end requires at least one note. */
+  requireNotes: boolean;
+  /** Whether multiple concurrent sessions are allowed. */
+  multiSession: boolean;
+}
+
+/** Pino log levels. */
+export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
+
+/** Logging configuration. */
+export interface LoggingConfig {
+  /** Minimum log level to record (default: 'info') */
+  level: LogLevel;
+  /** Log file path relative to .cleo/ (default: 'logs/cleo.log') */
+  filePath: string;
+  /** Max log file size in bytes before rotation (default: 10MB) */
+  maxFileSize: number;
+  /** Number of rotated log files to retain (default: 5) */
+  maxFiles: number;
+  /** Days to retain audit_log rows before pruning (default: 90) */
+  auditRetentionDays: number;
+  /** Whether to archive pruned rows to compressed JSONL before deletion (default: true) */
+  archiveBeforePrune: boolean;
+}
+
+/** Acceptance criteria enforcement mode. */
+export type AcceptanceEnforcementMode = 'block' | 'warn' | 'off';
+
+/** Acceptance criteria enforcement settings. */
+export interface AcceptanceEnforcementConfig {
+  /** Enforcement mode. */
+  mode: AcceptanceEnforcementMode;
+  /** Task priorities that require AC. */
+  requiredForPriorities: string[];
+  /** Minimum acceptance criteria count. */
+  minimumCriteria: number;
+}
+
+/** Session enforcement settings. */
+export interface SessionEnforcementConfig {
+  /** Whether mutate operations require an active session. */
+  requiredForMutate: boolean;
+}
+
+/** Top-level enforcement configuration. */
+export interface EnforcementConfig {
+  /** Acceptance criteria enforcement. */
+  acceptance: AcceptanceEnforcementConfig;
+  /** Session enforcement. */
+  session: SessionEnforcementConfig;
+}
+
+/** Verification gate configuration. */
+export interface VerificationConfig {
+  /** Whether verification gates are enabled. */
+  enabled: boolean;
+  /** Maximum verification rounds. */
+  maxRounds: number;
+  /** Gate names required for completion. */
+  requiredGates: string[];
+  /**
+   * Gates required per evidence kind (T14001), overriding `requiredGates`
+   * for that kind. Defaults: research and documentation get `requiredGates`
+   * without `testsPassed`/`qaPassed`; code gets `requiredGates`. A task whose
+   * implemented evidence or change set touches any non-document path owes
+   * the code gates whatever its kind.
+   */
+  requiredGatesByKind?: Partial<Record<'code' | 'documentation' | 'research', string[]>>;
+}
+
+/** Lifecycle enforcement mode. */
+export type LifecycleEnforcementMode = 'strict' | 'advisory' | 'off';
+
+/**
+ * Threshold controlling which tasks REQUIRE a declared dependency on creation.
+ *
+ * - `'critical'` — only critical-priority tasks require `--depends` (default, matches T1856 behaviour)
+ * - `'high'`     — critical + high-priority tasks require `--depends`
+ * - `'all'`      — all tasks require `--depends`
+ * - `'off'`      — no mandatory dep declaration
+ *
+ * Consumed by T1858 (`orchestrate ready` guard) to decide which tasks to gate.
+ *
+ * @task T1857
+ * @epic T1855
+ * @defaultValue 'critical'
+ */
+export type DepsRequiredAt = 'critical' | 'high' | 'all' | 'off';
+
+/** Lifecycle enforcement configuration. */
+export interface LifecycleConfig {
+  /** Enforcement mode controlling how lifecycle rules are applied. */
+  mode: LifecycleEnforcementMode;
+  /**
+   * Threshold for mandatory dependency declaration on task creation.
+   *
+   * @task T1857
+   * @epic T1855
+   * @defaultValue 'critical'
+   */
+  depsRequiredAt?: DepsRequiredAt;
+  /**
+   * Parent-epic stage gate, separate from {@link LifecycleConfig.mode}. When
+   * `strict`, a child cannot complete while its parent epic sits in a
+   * planning stage, an epic cannot advance while children sit at its stage,
+   * and a child cannot pass its epic's stage; `advisory` only warns. Unset
+   * means `off`: those three checks are opt-in, because together they can
+   * strand an epic's children (T13969). Evidence strictness stays on `mode`.
+   *
+   * @task T13970
+   * @defaultValue 'off'
+   */
+  stageGate?: LifecycleEnforcementMode;
+}
+
+/** Sharing mode: whether .cleo/ files are committed to the project git repo. */
+export type SharingMode = 'none' | 'project';
+
+/** Sharing configuration for multi-contributor .cleo/ state management. */
+export interface SharingConfig {
+  /** Sharing mode (default: 'none'). */
+  mode: SharingMode;
+  /** Files/patterns in .cleo/ to commit to project git (relative to .cleo/). */
+  commitAllowlist: string[];
+  /** Files/patterns to always exclude, even if in commitAllowlist. */
+  denylist: string[];
+}
+
+/**
+ * Memory bridge injection mode.
+ *
+ * - `'cli'`      — AGENTS.md receives a `cleo memory digest` CLI directive instead of
+ *                  `@.cleo/memory-bridge.md`. The bridge markdown file is NOT written on refresh.
+ *                  This is the default for new installations (T999). Also surfaced to operators
+ *                  as the `digest` mode in `cleo setup` (T9425) — the wire value stays `'cli'`
+ *                  so existing project configs keep working unchanged.
+ * - `'file'`     — Legacy behavior: `.cleo/memory-bridge.md` is written on refresh and
+ *                  `@.cleo/memory-bridge.md` is injected into AGENTS.md verbatim.
+ *                  Use this for backcompat with tooling that reads the file directly.
+ * - `'disabled'` — Bridge injection is suppressed entirely; AGENTS.md gets neither a CLI
+ *                  directive nor a file include. Operators select this from `cleo setup`
+ *                  when they want to opt out of BRAIN-driven AGENTS.md augmentation (T9425).
+ */
+export type MemoryBridgeMode = 'cli' | 'file' | 'disabled';
+
+/**
+ * Brain memory bridge refresh configuration.
+ * Controls when `.cleo/memory-bridge.md` is automatically regenerated.
+ *
+ * @epic T134
+ * @task T135
+ * @task T999
+ */
+export interface BrainMemoryBridgeConfig {
+  /** Whether to automatically regenerate memory-bridge.md on lifecycle events (default: true). */
+  autoRefresh: boolean;
+  /** Whether to include scope-aware memory context in generated bridge (default: false). */
+  contextAware: boolean;
+  /** Maximum token budget for memory bridge content (default: 2000). */
+  maxTokens: number;
+  /**
+   * Injection mode for the memory and nexus bridges (default: `'cli'`).
+   *
+   * `'cli'`  — AGENTS.md gets a `cleo memory digest` directive; no `.md` files written.
+   * `'file'` — legacy `@.cleo/memory-bridge.md` + `@.cleo/nexus-bridge.md` injection.
+   *
+   * @defaultValue 'cli'
+   */
+  mode: MemoryBridgeMode;
+}
+
+/**
+ * Brain embedding provider configuration.
+ *
+ * @epic T134
+ * @task T136
+ */
+export interface BrainEmbeddingConfig {
+  /** Whether semantic embedding is enabled (default: false). */
+  enabled: boolean;
+  /** Embedding provider to use (default: 'local'). */
+  provider: 'local' | 'openai';
+  /**
+   * Whether the local provider may download its model from the Hugging Face
+   * hub when it is not cached (default: false). Off, CLEO makes no connection
+   * for embeddings: a cached model still loads, an absent one is skipped.
+   *
+   * @task T13716
+   */
+  allowModelDownload?: boolean;
+}
+
+/**
+ * Brain session summarization configuration.
+ *
+ * @epic T134
+ * @task T140
+ */
+export interface BrainSummarizationConfig {
+  /** Whether session summarization is enabled (default: false). */
+  enabled: boolean;
+}
+
+/**
+ * Brain tiered + typed memory configuration (T549).
+ *
+ * Controls the tiered cognitive memory model: tier promotion, eviction TTLs,
+ * and the sleep-time consolidator. All fields default to disabled/conservative
+ * values — the system requires explicit opt-in.
+ *
+ * @epic T549
+ */
+export interface BrainTieringConfig {
+  /**
+   * Enable write-time tier/type/source_confidence assignment and updated quality scoring.
+   * When false (default), new entries receive column defaults without routing logic overhead.
+   */
+  enabled: boolean;
+  /**
+   * Enable the sleep-time consolidator: runs tier promotion, eviction, and contradiction
+   * detection at session end (after VACUUM INTO backup). Fires as setImmediate — non-blocking.
+   * Requires `enabled: true` to take effect.
+   */
+  autoPromote: boolean;
+  /**
+   * Hours before unverified short-term entries are soft-evicted (default: 48).
+   * Set invalidAt on entries older than this threshold that were not promoted.
+   */
+  shortTermTtlHours: number;
+  /**
+   * Days before unverified medium-term entries are soft-evicted (default: 30).
+   * Medium-term entries with quality_score below the medium decay threshold are evicted.
+   */
+  mediumTermTtlDays: number;
+  /**
+   * Minimum citations for medium→long promotion via citation gate (default: 5).
+   * An entry at medium tier with citationCount >= promotionThreshold qualifies for long-term.
+   */
+  promotionThreshold: number;
+}
+
+/**
+ * Brain LLM-driven extraction gate configuration.
+ *
+ * Controls the LLM-based extraction pipeline that replaces the legacy keyword
+ * regex in `memory/auto-extract.ts`. When enabled and ANTHROPIC_API_KEY is
+ * present, session transcripts are processed by an LLM to extract typed,
+ * structured memories (decisions, patterns, learnings, constraints,
+ * corrections) instead of noise-laden keyword matches.
+ */
+export interface BrainLlmExtractionConfig {
+  /** Enable LLM-driven extraction gate (default: true). */
+  enabled: boolean;
+  /**
+   * Anthropic model to use for extraction. Default lives in
+   * `@cleocode/core/llm/role-resolver` (`IMPLICIT_FALLBACK_MODEL`) so the
+   * literal stays in a single source location (T9255 grep guard).
+   */
+  model: string;
+  /** Minimum importance score (0.0–1.0) below which extractions are dropped (default: 0.6). */
+  minImportance: number;
+  /** Maximum number of memories to extract per transcript (default: 7). */
+  maxExtractions: number;
+  /** Maximum transcript characters sent to the model per call (default: 60000). */
+  maxTranscriptChars: number;
+}
+
+/**
+ * Brain (BRAIN memory system) configuration.
+ * Controls automated memory capture, embedding generation, memory bridge
+ * refresh behavior, and session summarization.
+ *
+ * @epic T134
+ * @task T135
+ */
+export interface BrainConfig {
+  /** Whether to automatically capture observations from lifecycle events (default: true). */
+  autoCapture: boolean;
+  /** Whether to capture file change events (default: false). */
+  captureFiles: boolean;
+  /** Whether to capture active-work dispatch mutations (tasks.add, tasks.update) (default: false). */
+  captureWork: boolean;
+  /** Embedding provider settings. */
+  embedding: BrainEmbeddingConfig;
+  /** Memory bridge auto-refresh settings. */
+  memoryBridge: BrainMemoryBridgeConfig;
+  /** Session summarization settings. */
+  summarization: BrainSummarizationConfig;
+  /**
+   * Tiered + typed memory settings (T549).
+   * Controls tier routing, sleep-time consolidation, and TTL-based eviction.
+   * All fields default to disabled. Opt-in required.
+   *
+   * @defaultValue { enabled: false, autoPromote: false, shortTermTtlHours: 48, mediumTermTtlDays: 30, promotionThreshold: 5 }
+   */
+  tiering?: BrainTieringConfig;
+  /**
+   * LLM-driven extraction gate settings.
+   * When enabled and ANTHROPIC_API_KEY is present, session transcripts are
+   * processed by an LLM to extract typed structured memories instead of the
+   * legacy keyword regex. Defaults are enabled: true and model defaults to
+   * the centralised implicit fallback (cheap Haiku class) defined in
+   * `@cleocode/core/llm/role-resolver` so extraction cost stays bounded.
+   *
+   * @defaultValue { enabled: true, model: IMPLICIT_FALLBACK_MODEL, minImportance: 0.6, maxExtractions: 7, maxTranscriptChars: 60000 }
+   */
+  llmExtraction?: BrainLlmExtractionConfig;
+}
+
+/**
+ * Structured session summary input for ingestStructuredSummary().
+ *
+ * @epic T134
+ * @task T140
+ */
+export interface SessionSummaryInput {
+  /** Key learnings from this session. */
+  keyLearnings: string[];
+  /** Decisions made during this session. */
+  decisions: string[];
+  /** Patterns observed during this session. */
+  patterns: string[];
+  /** Suggested next actions. */
+  nextActions: string[];
+}
+
+// ---------------------------------------------------------------------------
+// LLM daemon + provider config (T1677)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-provider API key override in ~/.cleo/config.json or .cleo/config.json.
+ *
+ * Stored as `llm.providers[<provider>].apiKey`. The centralised
+ * `resolveCredentials()` reads this as resolution tier 4 (global-config) or
+ * tier 5 (project-config).
+ */
+export interface LlmProviderEntry {
+  /** Override API key for this provider (stored in config, not env). */
+  apiKey?: string;
+}
+
+/**
+ * Config-layer transport identifier — re-export of {@link ModelTransport}
+ * from `operations/llm.ts` so config-layer types stay in lock-step with the
+ * operations layer with no risk of drift.
+ *
+ * Previously declared as a separate string-literal union; collapsed in the
+ * T-LLM-CRED Phase 2 DRY/SOLID review (P1-2). Adding a new transport now
+ * requires editing only `operations/llm.ts`.
+ *
+ * **Disambiguation**: This is the *config-level* alias for the
+ * `ModelTransport` string-literal union (`'anthropic' | 'openai' | ...`).
+ * It is intentionally distinct from the `LlmTransport` *interface* defined
+ * in `packages/contracts/src/llm/normalized-response.ts` (Phase 4 wire-level
+ * protocol). Renamed from `LlmTransport` → `LlmProviderTransport` in T9308
+ * to eliminate the name collision.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 — DRY review P1-2
+ * @see T9308 — disambiguation rename
+ */
+export type LlmProviderTransport = ModelTransport;
+
+/**
+ * Logical LLM role name used by role-aware resolvers (BRAIN, sentient, etc.).
+ *
+ * Each role can pin its own provider + model + credential label, with
+ * resolution falling back to `LlmConfig.default`.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
+ */
+export type RoleName =
+  | 'extraction'
+  | 'consolidation'
+  | 'derivation'
+  | 'hygiene'
+  | 'judgement'
+  /** Sandbox role for plugin-scoped single-turn calls (T9305). */
+  | 'plugin'
+  /** Context-compression role — uses a cheap model (haiku) for summarization (T9304). */
+  | 'compression';
+
+/**
+ * Canonical default LLM target for unscoped (non-role) calls.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
+ */
+export interface LlmDefaultConfig {
+  /** LLM provider transport for the default model. */
+  provider: LlmProviderTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+}
+
+/**
+ * Per-role LLM configuration entry.
+ *
+ * Each role may optionally pin to a specific credential label (matching a
+ * `CredentialResult.label`) so that, e.g., the `extraction` role can use a
+ * different Anthropic API key than `judgement` without changing the global
+ * default.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 2 (T9256)
+ */
+export interface LlmRoleConfig {
+  /** LLM provider transport for this role. */
+  provider: LlmProviderTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+  /**
+   * Optional credential label to pin this role to a specific credential
+   * entry resolved by `resolveCredentials()`. When omitted, the role
+   * inherits the default credential resolution order.
+   */
+  credentialLabel?: string;
+  /**
+   * Optional reference to a named profile in {@link LlmConfig.profiles}. When
+   * set, the named profile's `provider` / `model` / `credentialLabel` take
+   * precedence over this entry's inline `provider` / `model` — letting many
+   * roles share one reusable provider+model definition (hermes-agent's
+   * profile-mapping model).
+   *
+   * @task T11617
+   */
+  profile?: string;
+}
+
+/**
+ * Tuning parameters carried by a named LLM profile.
+ *
+ * @task T11617
+ */
+export interface LlmProfileTuning {
+  /** Default maximum tokens to generate for calls bound to this profile. */
+  maxTokens?: number;
+  /** Default sampling temperature (0.0–1.0) for calls bound to this profile. */
+  temperature?: number;
+}
+
+/**
+ * Capability lane a named profile occupies — the hermes "global-base +
+ * granular-override" tiering model (E9 · T11745 · T11748).
+ *
+ * A profile's `tier` is a coarse capability hint a runner can use to pick the
+ * right lane for a turn independently of the role/system axis:
+ *
+ * | Tier         | Meaning                                                          |
+ * |--------------|------------------------------------------------------------------|
+ * | `prime`      | The flagship reasoning lane — orchestration / hard turns.         |
+ * | `aux`        | The auxiliary lane — cheap background subsystems (the hermes      |
+ * |              | `_AUX_TASKS` default model bucket; see {@link LlmProfileConfig.defaultAuxModel}). |
+ * | `background` | The lowest lane — fire-and-forget background work (titles, etc.). |
+ *
+ * Advisory metadata only: it does NOT alter the provider/model resolution
+ * chain in {@link LlmConfig} — it lets callers and diagnostics reason about
+ * which lane a profile belongs to without re-deriving it from the model id.
+ *
+ * @task T11748
+ * @epic T11745
+ */
+export type LlmProfileTier = 'prime' | 'aux' | 'background';
+
+/**
+ * A named, reusable LLM profile.
+ *
+ * A profile names a `provider` + `model` (+ optional credential label and
+ * tuning params) ONCE so that multiple call-sites/roles can bind to it by name
+ * instead of repeating the inline tuple. This is the "Profile" abstraction
+ * modeled on hermes-agent's `auxiliary.<task>` provider bindings — the user
+ * selects which provider fulfills a profile, and roles map to profiles.
+ *
+ * Profiles live in {@link LlmConfig.profiles}; roles reference them via
+ * {@link LlmRoleConfig.profile} and the default binding via
+ * {@link LlmConfig.defaultProfile}.
+ *
+ * @task T11617
+ */
+export interface LlmProfileConfig {
+  /** LLM provider transport this profile resolves to. */
+  provider: LlmProviderTransport;
+  /** Full model identifier for the selected provider. */
+  model: string;
+  /**
+   * Optional credential label pinning this profile to a specific credential
+   * pool entry (e.g. `'codex-cli'` for the OpenAI Codex OAuth token). When
+   * omitted, the standard priority-based credential resolution applies.
+   */
+  credentialLabel?: string;
+  /** Optional tuning parameters (max tokens, temperature). */
+  params?: LlmProfileTuning;
+  /**
+   * Optional capability lane this profile occupies (see {@link LlmProfileTier}).
+   *
+   * Advisory metadata only — does NOT participate in provider/model resolution.
+   * Lets callers/diagnostics reason about a profile's lane (prime/aux/background)
+   * without re-deriving it from the model id. The hermes tiering model.
+   *
+   * @task T11748
+   */
+  tier?: LlmProfileTier;
+  /**
+   * Optional default auxiliary model for this profile — the hermes
+   * `auxiliary.defaultModel` analog (E9 · T11748).
+   *
+   * When this profile is a `prime`/global-base binding, `defaultAuxModel` names
+   * the cheaper model an aux-tier subsystem should use instead of {@link model}
+   * when it has no more-specific binding. Advisory metadata; consumers that want
+   * an aux-tier model read this rather than re-selecting a profile.
+   *
+   * @task T11748
+   */
+  defaultAuxModel?: string;
+}
+
+/**
+ * A per-system LLM binding — the granular override half of the hermes
+ * "global-base + granular-override" model (E9 · T11745 · T11748).
+ *
+ * A {@link LlmConfig.systems} entry pins the provider/model (or a named
+ * {@link LlmProfileConfig}) for ONE encoded system-of-use key (e.g.
+ * `'sentient'`, `'tool:web-search'`, `'skill:ct-cleo'`). It is consulted in the
+ * resolution chain AFTER an explicit role/argument override but BEFORE the
+ * global {@link LlmConfig.defaultProfile} — giving each subsystem a targeted
+ * override without touching the global base.
+ *
+ * Either `profile` (a key of {@link LlmConfig.profiles}) OR an inline
+ * `provider` + `model` tuple supplies the binding; `profile` wins when both are
+ * present. An entry that supplies neither a resolvable `profile` nor a complete
+ * `provider`+`model` tuple is structurally incomplete and is skipped (resolution
+ * falls through to the next tier) — never an error.
+ *
+ * @task T11748
+ * @epic T11745
+ */
+export interface SystemBinding {
+  /**
+   * Optional reference to a named profile in {@link LlmConfig.profiles}. When
+   * set and resolvable, the named profile's provider/model/credentialLabel win
+   * over this entry's inline `provider`/`model`.
+   */
+  profile?: string;
+  /** Inline LLM provider transport for this system (used when `profile` absent). */
+  provider?: LlmProviderTransport;
+  /** Inline full model identifier for this system (used when `profile` absent). */
+  model?: string;
+  /**
+   * Optional credential label pinning this system to a specific credential pool
+   * entry. When omitted, the standard priority-based credential resolution
+   * applies (or the resolved profile's `credentialLabel`).
+   */
+  credentialLabel?: string;
+}
+
+/**
+ * Top-level LLM configuration block inside CleoConfig.
+ *
+ * Stored at `llm` in config.json.
+ *
+ * Resolution order for role-scoped calls:
+ *   `roles[role]` → `default` → implicit fallback.
+ *
+ * Note: configs that still carry a `llm.daemon` key are silently ignored
+ * at parse time — they will not cause a crash. Migration: remove the key
+ * and add `llm.default` or `llm.roles.<role>` instead.
+ *
+ * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
+ */
+export interface LlmConfig {
+  /**
+   * Per-provider API key overrides.
+   * Keys are provider names: 'anthropic' | 'openai' | 'gemini' | 'moonshot'.
+   */
+  providers?: Record<string, LlmProviderEntry>;
+  /**
+   * Canonical default LLM for unscoped calls.
+   *
+   * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
+   */
+  default?: LlmDefaultConfig;
+  /**
+   * Per-role LLM overrides. Each role optionally pins to a credential label.
+   *
+   * Resolution order: `roles[role].profile` → `roles[role]` (inline) →
+   * `defaultProfile` → `default` → implicit fallback.
+   *
+   * @task T-LLM-CRED-CENTRALIZATION Phase 4 (T9306)
+   */
+  roles?: Partial<Record<RoleName, LlmRoleConfig>>;
+  /**
+   * Named, reusable LLM profiles keyed by profile name. Roles bind to a
+   * profile via {@link LlmRoleConfig.profile}; the unscoped default binding is
+   * {@link LlmConfig.defaultProfile}. Modeled on hermes-agent's
+   * provider→profile mapping for "what to use when".
+   *
+   * @task T11617
+   */
+  profiles?: Record<string, LlmProfileConfig>;
+  /**
+   * Name of the profile (a key of {@link LlmConfig.profiles}) used for any
+   * role that does NOT pin its own provider/model/profile. This is the
+   * user-selectable default binding for background roles — it is NEVER a
+   * hardcoded provider in code; the owner re-selects it with
+   * `cleo config set llm.defaultProfile <profileName>`.
+   *
+   * @task T11617
+   * @task T11723
+   */
+  defaultProfile?: string;
+  /**
+   * Per-system-of-use LLM overrides — the granular-override half of the hermes
+   * "global-base + granular-override" model (E9 · T11745 · T11748).
+   *
+   * Keyed by an encoded system-of-use key: a flat role-mapped label
+   * (`'sentient'`, `'memory'`, …) or an open-axis key
+   * (`'tool:<name>'` / `'skill:<name>'` / `'cantbook:<node>'` /
+   * `'spawn-unit:<id>'`). Each value is a {@link SystemBinding}.
+   *
+   * Resolution priority for a system-of-use call:
+   *   explicit-arg (role override) → `systems[key]` → `defaultProfile` →
+   *   implicit fallback.
+   *
+   * `systems[key]` is consulted AFTER any explicit role/argument override but
+   * BEFORE the global {@link defaultProfile}, so a subsystem can be pointed at a
+   * targeted model without disturbing the global base.
+   *
+   * @task T11748
+   */
+  systems?: Record<string, SystemBinding>;
+}
+
+/** SignalDock transport mode. */
+export type SignalDockMode = 'http' | 'native';
+
+/** SignalDock integration configuration. */
+export interface SignalDockConfig {
+  /** Whether SignalDock transport is enabled (default: false). */
+  enabled: boolean;
+  /** Transport mode: 'http' for REST API client, 'native' for napi-rs bindings (default: 'http'). */
+  mode: SignalDockMode;
+  /** SignalDock API server endpoint (default: 'http://localhost:4000'). */
+  endpoint: string;
+  /** Prefix for CLEO agent names in SignalDock registry (default: 'cleo-'). */
+  agentPrefix: string;
+  /** Default privacy tier for registered agents (default: 'private'). */
+  privacyTier: 'public' | 'discoverable' | 'private';
+}
+
+/**
+ * Decision memory write-gate configuration.
+ *
+ * Controls the LLM conflict-validator hook that runs on every ADR-typed
+ * decision write (i.e. writes where `adrPath` is set or `adrNumber` is
+ * requested).  The hook calls the dialectic evaluator to detect collisions,
+ * contradictions, and supersession-graph violations before the decision is
+ * persisted.
+ *
+ * @task T1828
+ */
+export interface DecisionsConfig {
+  /**
+   * Minimum confidence score (0.0–1.0) returned by the LLM conflict-validator
+   * for an ADR-typed decision write to be accepted.
+   *
+   * Writes that fall below this threshold are rejected with
+   * `E_DECISION_VALIDATOR_FAILED`.
+   *
+   * @defaultValue 0.7
+   */
+  validatorConfidenceThreshold?: number;
+}
+
+/**
+ * Operating mode for the Lead-tier wave roll-up
+ * (`packages/core/src/orchestration/lead-rollup.ts`).
+ *
+ * - `'passive'` — Default, backward-compatible behaviour. `rollupWaveStatus` /
+ *   `rollupEpicStatus` compute the rollup contract from manifest +
+ *   verification rows only. The Lead reads the result and decides what to do
+ *   externally.
+ * - `'active'`  — Enables the Lead↔Worker Max-N loop scaffolded by T10383
+ *   (E-VALIDATOR-ROLE). The rollup will additionally surface retry-eligible
+ *   workers and emit Lead-initiated retry signals.  The wiring of retries
+ *   themselves lives in T10512 — this flag is the gate.
+ * - `'auto'`    — Reserved for future heuristic selection (e.g. switch to
+ *   active mode iff the epic has ≥N pending workers). Treated as `'passive'`
+ *   at runtime until the heuristic ships.
+ *
+ * @task T10513
+ * @saga T10377
+ * @adr ADR-070
+ */
+export type LeadRollupMode = 'passive' | 'active' | 'auto';
+
+/**
+ * Lead-tier wave roll-up configuration.
+ *
+ * Single-key config block gating the Lead↔Worker Max-N loop introduced by
+ * SG-IVTR-AC-BINDING (T10377) and council action #9 of E-VALIDATOR-ROLE
+ * (T10383). The whole point of this block is to keep the existing
+ * `rollupWaveStatus` / `rollupEpicStatus` function signatures unchanged —
+ * callers pick up new behaviour by flipping the config key, never by
+ * threading a new parameter.
+ *
+ * @task T10513
+ * @saga T10377
+ */
+export interface LeadRollupConfig {
+  /**
+   * Roll-up operating mode. Defaults to `'passive'` for backward compatibility.
+   *
+   * @defaultValue 'passive'
+   */
+  mode?: LeadRollupMode;
+}
+
+/**
+ * Lead/worker split settings (`orchestrate.leadWorker.*`).
+ *
+ * @task T14356
+ * @epic T14351
+ */
+export interface OrchestrateLeadWorkerConfig {
+  /**
+   * Version 1 of the lead/worker split: leads spawn with their write and
+   * network tools stripped (`LeadToolPolicy`) and workers return a
+   * `WorkerReport` with proof. Off by default.
+   *
+   * @defaultValue false
+   */
+  v1?: boolean;
+}
+
+/**
+ * Orchestration settings (`orchestrate.*`).
+ *
+ * @task T14356
+ */
+export interface OrchestrateConfig {
+  /**
+   * Lead/worker split settings.
+   *
+   * @defaultValue { v1: false }
+   */
+  leadWorker?: OrchestrateLeadWorkerConfig;
+  /**
+   * Context-window usage thresholds (percent) for orchestrator wrap-up and
+   * stop. Formerly `orchestrator.contextThresholds`; configs with the old key
+   * are migrated on read and by `cleo upgrade` (T14375).
+   *
+   * @defaultValue { warning: 70, critical: 80 }
+   */
+  contextThresholds?: OrchestrateContextThresholds;
+  /**
+   * The project's lead AgentMBX mailbox, recorded by `cleo init` with
+   * `leadWorker.v1` on and `agentmbx` installed. Spawn and fanout name it in
+   * worker prompts when `--lead-mbx` is not given (only with `leadWorker.v1`).
+   *
+   * @defaultValue undefined (no lead mailbox recorded)
+   * @task T14379
+   */
+  leadMailbox?: LeadMailbox;
+}
+
+/**
+ * Context-window usage thresholds (`orchestrate.contextThresholds.*`).
+ *
+ * @task T14375
+ */
+export interface OrchestrateContextThresholds {
+  /** Percent at which the orchestrator plans to wrap up. @defaultValue 70 */
+  warning?: number;
+  /** Percent at which the orchestrator stops and hands off. @defaultValue 80 */
+  critical?: number;
+}
+
+/**
+ * A per-project lead mailbox identity on AgentMBX (`orchestrate.leadMailbox`).
+ *
+ * @task T14379
+ * @epic T14351
+ */
+export interface LeadMailbox {
+  /** Mailbox name, `<project>-<project-id hash>-lead` by default. */
+  name: string;
+  /** Portable project id the mailbox belongs to. */
+  projectId: string;
+  /** AgentMBX provider CLI the lead claims it from (`--cli`), e.g. `claude`. */
+  cli: string;
+}
+
+/**
+ * Inline refresh policy for code-graph queries (T12316).
+ *
+ * Before answering, a graph query checks how far the published index lags the
+ * working tree. When only a few files are stale it refreshes the index inline
+ * (incrementally) and discloses that it did; above these bounds it answers
+ * from the stale index with a warning instead of blocking.
+ */
+export interface NexusAutoRefreshConfig {
+  /**
+   * Whether queries may refresh the index inline.
+   *
+   * @defaultValue true
+   */
+  enabled?: boolean;
+  /**
+   * Retired (T14014) and ignored: a query refreshes inline whenever the
+   * size-scaled cost estimate fits `budgetMs`.
+   *
+   * @deprecated The cost estimate against `budgetMs` decides.
+   * @defaultValue 25
+   */
+  maxFiles?: number;
+  /**
+   * Wall-clock budget in milliseconds. A refresh whose recorded-cost estimate
+   * exceeds it is not started; a started one is cancelled at the budget and
+   * leaves the previous graph intact.
+   *
+   * @defaultValue 60000
+   */
+  budgetMs?: number;
+}
+
+/**
+ * When a graph answer from a stale index is refused (T14008).
+ *
+ * @task T14008
+ */
+export interface NexusFreshnessConfig {
+  /**
+   * Most commits the index may trail the checked-out HEAD before graph
+   * queries fail with `E_NEXUS_INDEX_STALE` (`--allow-stale` or
+   * `CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer).
+   *
+   * @defaultValue 50
+   */
+  maxCommitsBehind?: number;
+}
+
+/**
+ * Background reindex after a merge into the base branch (T14010). Started by
+ * the CLEO `post-merge` hook only when the `cleo.nexusReindexOnMerge` git
+ * marker is set (`cleo nexus reindex-on-merge --enable` sets both); runs at
+ * the lowest admission priority, one at a time per project, and records its
+ * outcome for `cleo nexus status`.
+ *
+ * @task T14010
+ */
+export interface NexusReindexOnMergeConfig {
+  /**
+   * Whether a merge into the base branch starts a background reindex. Off by
+   * default: a heavy analysis after every merge must be a choice.
+   *
+   * @defaultValue false
+   */
+  enabled?: boolean;
+  /**
+   * Seconds the reindex keeps trying for `cleo run` admission (never queueing,
+   * only when nothing else waits) before it is recorded as deferred.
+   *
+   * @defaultValue 300
+   */
+  timeoutSeconds?: number;
+}
+
+/** Code-graph (`cleo nexus`) configuration. */
+export interface NexusConfig {
+  /** Background reindex after a merge into the base branch (T14010). */
+  reindexOnMerge?: NexusReindexOnMergeConfig;
+  /** Inline refresh of a slightly stale index before graph queries answer. */
+  autoRefresh?: NexusAutoRefreshConfig;
+  /** When an answer from a stale index is refused instead of returned. */
+  freshness?: NexusFreshnessConfig;
+}
+
+/**
+ * Daemon lifecycle configuration.
+ *
+ * Controls whether the postinstall hook is allowed to auto-enable and start
+ * the cleo-daemon service. When `autoStart` is `false`, postinstall NEVER
+ * enables or starts the service — even on a fresh install. This flag persists
+ * across upgrades so the operator's intent survives `npm install -g`.
+ *
+ * Configure via `~/.local/share/cleo/config.json` (global config):
+ * ```json
+ * { "daemon": { "autoStart": false } }
+ * ```
+ * Or via env var override: `CLEO_DAEMON_DISABLE=1` (per-session, non-persistent).
+ *
+ * @task T11984
+ */
+export interface DaemonConfig {
+  /**
+   * Whether the postinstall hook may auto-enable and start the cleo-daemon.
+   *
+   * - `true` (default): first install enables+starts; upgrade respects the
+   *   current systemd/launchd enabled state.
+   * - `false`: postinstall NEVER enables or starts the daemon. The unit file
+   *   is still written so the operator can activate later via
+   *   `cleo daemon enable`.
+   *
+   * @defaultValue true
+   */
+  autoStart: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Resources config (T11994 · PSI + MemAvailable sensing)
+// ---------------------------------------------------------------------------
+
+/**
+ * PSI pressure thresholds for the ResourceMonitor.
+ *
+ * Values are percentage points (0–100) for `avg10` exponential moving averages.
+ * Defaults sit far below systemd-oomd's Fedora kill line (80%/20s on
+ * user@1000.service).
+ *
+ * @task T11994
+ */
+export interface ResourcesPsiConfig {
+  /**
+   * Enter `hold` state when `some avg10` exceeds this value.
+   * @defaultValue 10
+   */
+  holdSomeAvg10?: number;
+  /**
+   * Enter `backoff` state when `some avg10` exceeds this value.
+   * @defaultValue 20
+   */
+  backoffSomeAvg10?: number;
+  /**
+   * Enter `hold` state when `full avg10` exceeds this value.
+   * @defaultValue 5
+   */
+  holdFullAvg10?: number;
+  /**
+   * Enter `backoff` state when `full avg10` exceeds this value.
+   * @defaultValue 10
+   */
+  backoffFullAvg10?: number;
+}
+
+/**
+ * The spawned agent-session budget (`resources.agentSession.*`, T14227).
+ *
+ * @task T14227
+ */
+export interface ResourcesAgentSessionConfig {
+  /**
+   * How many spawned agent sessions hold a lease at once, machine-wide
+   * (T14283: a lease count; only critical memory stops a spawn).
+   *
+   * @defaultValue undefined (`max(1, cpus - 2)`)
+   */
+  maxSessions?: number;
+  /**
+   * Ignored since T14283: the budget is a lease count, not memory.
+   *
+   * @deprecated Accepted with a deprecation note for one release; set `maxSessions`.
+   */
+  estRamMb?: number;
+  /**
+   * Ignored since T14283: the budget is a lease count, not memory.
+   *
+   * @deprecated Accepted with a deprecation note for one release; set `maxSessions`.
+   */
+  headroomMb?: number;
+}
+
+/**
+ * Resource monitor configuration.
+ *
+ * Optional block — all fields have safe defaults. Maps to the
+ * `resources.*` config namespace (Amendment 5 · T11994).
+ *
+ * @task T11994
+ */
+export interface ResourcesConfig {
+  /**
+   * PSI pressure thresholds (percentage points).
+   *
+   * @defaultValue undefined (monitor uses built-in defaults)
+   */
+  psi?: ResourcesPsiConfig;
+  /**
+   * Minimum free memory headroom in MiB.
+   *
+   * Used in degraded mode (PSI absent) as the sole availability signal. The
+   * agent-session budget has its own `agentSession.headroomMb` (T14227).
+   *
+   * @defaultValue 256
+   */
+  headroomMb?: number;
+  /**
+   * The spawned agent-session budget (T14227).
+   *
+   * @defaultValue undefined (built-in budget)
+   */
+  agentSession?: ResourcesAgentSessionConfig;
+  /**
+   * The heavy-command provider hook: `rewrite` wraps heavy shell commands in
+   * `cleo run` (in harness sessions that run in `bypassPermissions` or `auto`
+   * mode; in any other mode the hook only suggests the governed command), `warn` only
+   * adds a context line, `off` disables it (and `cleo init` / `cleo upgrade`
+   * remove the installed hook). The `CLEO_HEAVY_COMMAND_HOOK` environment
+   * variable overrides it at run time.
+   *
+   * @defaultValue 'rewrite'
+   * @task T12983
+   */
+  heavyCommandHook?: HeavyCommandHookMode;
+}
+
+/** CLEO project configuration (config.json). */
+export interface CleoConfig {
+  /**
+   * ct-lean rule level (T13663).
+   *
+   * @defaultValue undefined (level `full`)
+   */
+  lean?: LeanConfig;
+  /** Configuration schema version string. */
+  version: string;
+  /** Output formatting preferences. */
+  output: OutputConfig;
+  /** Database backup retention and compression settings. */
+  backup: BackupConfig;
+  /** Task hierarchy depth and sibling constraints. */
+  hierarchy: HierarchyConfig;
+  /** Session auto-start and multi-session policies. */
+  session: SessionConfig;
+  /** Acceptance criteria and session enforcement rules. */
+  enforcement: EnforcementConfig;
+  /** Verification gate pipeline settings. */
+  verification: VerificationConfig;
+  /** Task lifecycle enforcement mode. */
+  lifecycle: LifecycleConfig;
+  /** Log level, rotation, and audit retention settings. */
+  logging: LoggingConfig;
+  /** Multi-contributor `.cleo/` state sharing settings. */
+  sharing: SharingConfig;
+  /**
+   * SignalDock inter-agent transport (optional, disabled by default).
+   *
+   * @defaultValue undefined
+   */
+  signaldock?: SignalDockConfig;
+  /**
+   * Brain memory system configuration (optional, uses defaults when absent).
+   *
+   * @defaultValue undefined
+   */
+  brain?: BrainConfig;
+  /**
+   * Provider-specific configuration (optional, uses defaults when absent).
+   *
+   * @defaultValue undefined
+   */
+  provider?: ProviderConfig;
+  /**
+   * LLM configuration — daemon provider/model and per-provider API key overrides.
+   *
+   * @defaultValue undefined
+   */
+  llm?: LlmConfig;
+  /**
+   * Decision memory write-gate configuration.
+   *
+   * When present, the LLM conflict-validator hook is applied to ADR-typed
+   * decision writes (`adrPath` set).  When absent, the validator uses its
+   * default threshold of 0.7.
+   *
+   * @defaultValue undefined
+   * @task T1828
+   */
+  decisions?: DecisionsConfig;
+  /**
+   * Briefing pipeline settings (T1904 / BBTT-W2-3).
+   *
+   * @defaultValue undefined
+   */
+  briefing?: BriefingConfig;
+  /**
+   * Auth-source consent gates for credential seeders.
+   *
+   * Gates third-party credential imports (e.g. Claude Code OAuth) behind
+   * explicit operator opt-in. Mirrors Hermes Agent's PR #4210 consent gate.
+   *
+   * @defaultValue undefined
+   * @task T9410
+   */
+  auth?: AuthConfig;
+  /**
+   * Lead-tier wave roll-up configuration.
+   *
+   * Gates the Lead↔Worker Max-N loop scaffolded under SG-IVTR-AC-BINDING
+   * (T10377) and council action #9 of E-VALIDATOR-ROLE (T10383). When
+   * absent, the roll-up defaults to `{ mode: 'passive' }` — the legacy
+   * compute-from-manifest behaviour — so existing callers continue to work
+   * unchanged.
+   *
+   * @defaultValue undefined
+   * @task T10513
+   * @saga T10377
+   */
+  leadRollup?: LeadRollupConfig;
+  /**
+   * Orchestration settings. `orchestrate.leadWorker.v1` gates the lead/worker
+   * split and defaults to `false`.
+   *
+   * @defaultValue { leadWorker: { v1: false } }
+   * @task T14356
+   */
+  orchestrate?: OrchestrateConfig;
+  /**
+   * Code-graph behaviour — inline refresh bounds for stale-index queries.
+   *
+   * @defaultValue undefined (auto-refresh enabled, 25 files, 60 s)
+   * @task T12316
+   */
+  nexus?: NexusConfig;
+  /**
+   * Daemon lifecycle settings.
+   *
+   * When absent, defaults to `{ autoStart: true }` — matching the legacy
+   * install behaviour. Set `autoStart: false` to prevent postinstall from
+   * ever enabling or starting the cleo-daemon (persistent opt-out).
+   *
+   * @defaultValue undefined (treated as { autoStart: true })
+   * @task T11984
+   */
+  daemon?: DaemonConfig;
+  /**
+   * Resource monitor configuration — PSI pressure thresholds and memory
+   * headroom for the daemon-off governor and continuous supervisor mode.
+   *
+   * When absent, the ResourceMonitor uses built-in defaults which sit well
+   * below systemd-oomd's Fedora kill line (80%/20s on user@1000.service).
+   *
+   * @defaultValue undefined (ResourceMonitor uses built-in defaults)
+   * @task T11994
+   */
+  resources?: ResourcesConfig;
+}
+
+/**
+ * Auth-source consent configuration.
+ *
+ * Concrete `CredentialSeeder` implementations consult these flags before
+ * reading any third-party credential file (e.g. `~/.claude/.credentials.json`).
+ * Defaulting every flag to `false` keeps auxiliary fallback chains opt-in:
+ * aux callers cannot silently read user credentials they were never granted.
+ *
+ * @task T9410
+ */
+export interface AuthConfig {
+  /**
+   * Whether the operator has explicitly opted in to import the Claude Code
+   * OAuth token (`~/.claude/.credentials.json`) into the CLEO credential
+   * pool.
+   *
+   * When `false` (default), the `claude-code` seeder MUST NOT read the file
+   * and MUST return an empty seeder result. When `true`, the seeder reads
+   * the file and emits a single `source: 'claude-code'` entry for the
+   * `anthropic` provider.
+   *
+   * @defaultValue false
+   */
+  claudeCodeConsentGiven?: boolean;
+  /**
+   * Whether CLEO writes refreshed Anthropic OAuth tokens back to Claude
+   * Code's credential file (`~/.claude/.credentials.json`) in addition to
+   * CLEO's own canonical token file (`${getCleoHome()}/anthropic-oauth.json`).
+   *
+   * CLEO ALWAYS writes its own file on every refresh. The cooperative write
+   * to Claude Code's file is gated by this flag AND by either
+   * (a) the Claude Code file already existing on disk, or
+   * (b) `claudeCodeConsentGiven` being `true`.
+   *
+   * This mirrors the OQ-1 decision in `cleo docs fetch e-config-auth-unify`:
+   * cooperative write-back is enabled by default so two CLIs sharing one
+   * machine stay token-coherent, but CLEO never creates Claude Code's file
+   * unless the operator has explicitly opted in.
+   *
+   * @defaultValue true
+   * @task T9411
+   */
+  cooperativeWriteBack?: boolean;
+}
+
+/**
+ * Configuration for the `cleo briefing` pipeline (T1904 / BBTT-W2-3).
+ */
+export interface BriefingConfig {
+  /**
+   * Whether `cleo briefing` opportunistically triggers a dream cycle after
+   * computing the briefing response.
+   *
+   * The dream cycle is always subject to its own 5-minute cooldown guard and
+   * never blocks the briefing response.
+   *
+   * @defaultValue true
+   */
+  opportunisticDream?: boolean;
+}
+
+/**
+ * Claude provider spawn mode.
+ *
+ * - `'cli'` — use the `ClaudeCodeSpawnProvider` (shells out to `claude` CLI).
+ *   This is the default and requires the Claude Code CLI to be installed.
+ * - `'sdk'` — use the `ClaudeSDKSpawnProvider` (programmatic SDK, requires
+ *   `ANTHROPIC_API_KEY`). Enables structured output, session IDs, and
+ *   multi-turn resumption.
+ */
+export type ClaudeSpawnMode = 'cli' | 'sdk';
+
+/** Configuration for the Claude provider adapter. */
+export interface ClaudeProviderConfig {
+  /**
+   * Spawn mode for Claude subagents.
+   *
+   * @defaultValue 'cli'
+   */
+  mode?: ClaudeSpawnMode;
+}
+
+/** Top-level provider adapter configuration. */
+export interface ProviderConfig {
+  /**
+   * Claude-specific provider settings.
+   *
+   * @defaultValue undefined
+   */
+  claude?: ClaudeProviderConfig;
+}
+
+/** Configuration resolution priority. */
+export type ConfigSource = 'cli' | 'env' | 'project' | 'global' | 'default';
+
+/** A resolved config value with its source. */
+export interface ResolvedValue<T> {
+  /** The resolved configuration value. */
+  value: T;
+  /** Where this value was resolved from in the cascade. */
+  source: ConfigSource;
+}

@@ -100,7 +100,6 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusTaskSymbols: vi.fn(),
   nexusContractsSync: vi.fn(),
   nexusContractsLinkTasks: vi.fn(),
-  nexusConduitScan: vi.fn(),
   nexusProfileView: vi.fn(),
   nexusProfileGet: vi.fn(),
   nexusProfileImport: vi.fn(),
@@ -140,7 +139,6 @@ vi.mock('@cleocode/core/nexus/api-contracts', async (importOriginal) => {
     nexusTaskSymbols: barrel.nexusTaskSymbols,
     nexusContractsSync: barrel.nexusContractsSync,
     nexusContractsLinkTasks: barrel.nexusContractsLinkTasks,
-    nexusConduitScan: barrel.nexusConduitScan,
   };
 });
 vi.mock('@cleocode/core/nexus/augment', async (importOriginal) => {

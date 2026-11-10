@@ -487,7 +487,7 @@ export async function taskExistsInTasksDbFresh(
  * Verify an agent exists in the global Agent Registry before creating cross-DB references.
  * Returns true if the agent_id exists in the global cleo.db agent_registry_agents table.
  *
- * Provides write-guard for agent_instances and agent_error_log in tasks.db
+ * Provides write-guard for tasks_agent_instances and tasks_agent_error_log in the project cleo.db
  * that reference agents whose identity lives in the global Agent Registry.
  *
  * @param agentId - Agent slug (e.g. 'cleo-db-lead') to verify

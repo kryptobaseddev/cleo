@@ -246,6 +246,39 @@ describe('composeSpawnPayload — full envelope', () => {
     }
   });
 
+  it.each([
+    [true, true],
+    [false, false],
+  ])('auto-tier worker (tier 0) with leadWorker.v1=%s names the lead mailbox: %s (T14429)', async (flag, expected) => {
+    mkdirSync(join(env.projectRoot, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(env.projectRoot, '.cleo', 'config.json'),
+      JSON.stringify({ orchestrate: { leadWorker: { v1: flag } } }),
+    );
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      const payload = await composeSpawnPayload(
+        db,
+        { ...BASE_TASK, files: ['packages/core/src/foo.ts'] },
+        {
+          agentId: 'fixture-worker',
+          role: 'worker',
+          harnessHint: 'generic',
+          projectRoot: env.projectRoot,
+          leadMailbox: 'lead-t9000',
+        },
+      );
+      expect(payload.tier).toBe(0);
+      expect(payload.prompt.includes('**Report to your lead:** `mbx_send` to `lead-t9000`')).toBe(
+        expected,
+      );
+      expect(payload.prompt).not.toContain('## Agent Coordination (AgentMBX)');
+    } finally {
+      db.close();
+    }
+  });
+
   it('returns full SpawnPayload shape for tier 1 (lead)', async () => {
     const db = env.openDb();
     try {

@@ -266,10 +266,11 @@ describe('buildSpawnPrompt — return format contract (T12521)', () => {
     expect(result.prompt).toContain(
       'Implementation <complete|partial|blocked>. manifest:<entryId>',
     );
-    expect(result.prompt).toContain('commits: <sha7,sha7|none>');
-    expect(result.prompt).toContain('gates: <gate>=<pass|fail|skip> ...');
-    expect(result.prompt).toContain('blocker: <≤12 words|none>');
-    expect(result.prompt).toContain('No findings, no diffs, no prose.');
+    expect(result.prompt).toContain('conclusion: <result>');
+    expect(result.prompt).toContain('blocker: <none|why>');
+    expect(result.prompt).toContain('proof: <cmd> => exit <n>|<PR|sha|file>');
+    expect(result.prompt).toContain('≤100 words; no findings or diffs (detail → PR body).');
+    expect(result.prompt).toContain('No proof: line → `cleo done --report` refuses it.');
   });
 
   it('uses the protocol type word on line 1', () => {
@@ -462,6 +463,50 @@ describe('buildSpawnPrompt — agent coordination over AgentMBX (T13943)', () =>
       projectRoot: PROJECT_ROOT,
     });
     expect(result.prompt).not.toContain('## Agent Coordination (AgentMBX)');
+  });
+});
+
+describe('buildSpawnPrompt — tier-0 lead report line under leadWorker.v1 (T14429)', () => {
+  const LINE = '**Report to your lead:** `mbx_send` to `lead-t9000`';
+  const base = {
+    task: BASE_TASK,
+    protocol: 'implementation' as const,
+    projectRoot: PROJECT_ROOT,
+    leadMailbox: 'lead-t9000',
+  };
+  /** Prompt text without the header's per-call `Generated` timestamp. */
+  const build = (input: Parameters<typeof buildSpawnPrompt>[0]): string =>
+    buildSpawnPrompt(input).prompt.replace(/\*\*Generated\*\*: \S+/, '');
+
+  it('tier 0 with the flag on names the lead mailbox in one line', () => {
+    const prompt = build({ ...base, tier: 0, leadWorkerV1: true });
+    const lines = prompt.split('\n').filter((l) => l.includes('lead-t9000'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(LINE);
+    expect(lines[0]).toContain('at most 100 words: conclusion, blocker, proof');
+    expect(prompt).not.toContain('## Agent Coordination (AgentMBX)');
+  });
+
+  it('tier 0 with the flag off is byte-identical to a prompt without the flag', () => {
+    const off = build({ ...base, tier: 0, leadWorkerV1: false });
+    const absent = build({ ...base, tier: 0 });
+    const noMailbox = build({ ...base, tier: 0, leadMailbox: undefined });
+    expect(off).toBe(absent);
+    expect(off).toBe(noMailbox);
+    expect(off).not.toContain('lead-t9000');
+  });
+
+  it('tier 0 with the flag on but no lead mailbox adds nothing', () => {
+    const on = build({ ...base, tier: 0, leadMailbox: undefined, leadWorkerV1: true });
+    const off = build({ ...base, tier: 0, leadMailbox: undefined });
+    expect(on).toBe(off);
+  });
+
+  it.each([1, 2] as const)('tier %i is unchanged by the flag', (tier) => {
+    const on = build({ ...base, tier, leadWorkerV1: true });
+    const off = build({ ...base, tier });
+    expect(on).toBe(off);
+    expect(on).not.toContain('**Report to your lead:**');
   });
 });
 

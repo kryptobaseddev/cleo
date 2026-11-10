@@ -615,7 +615,7 @@ export interface SessionEndParams {
    * When provided, CLEO persists key learnings, decisions, patterns, and next actions.
    * @task T140 @epic T134
    */
-  sessionSummary?: import('../config.js').SessionSummaryInput;
+  sessionSummary?: import('../config/types.js').SessionSummaryInput;
   /**
    * Explicit session id to end (T11346 · Epic T11284).
    *

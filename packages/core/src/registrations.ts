@@ -25,6 +25,11 @@ import './lib/suppress-sqlite-warning.js';
 import './hooks/handlers/index.js';
 import './llm/credential-seeders/index.js';
 import './llm/credential-seeders/register.js';
-import './release/invariants/index.js';
 import './store/sqlite-data-accessor.js';
 import './store/exodus/abort-events.js';
+
+import { registerReleaseInvariants } from './release/invariants/index.js';
+
+// Registrations whose modules no longer register on load (T14391): the
+// barrels re-export them, so loading a barrel must not run them.
+registerReleaseInvariants();

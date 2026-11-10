@@ -3,7 +3,7 @@
  *
  * Covers cross-project / contract-level + brain/task footprint surfaces:
  * - contractsSync, contractsShow, contractsLinkTasks
- * - conduitScan, taskSymbols
+ * - taskSymbols
  * - brainAnchors, taskFootprint
  * - wiki
  *
@@ -101,19 +101,6 @@ export function renderNexusBrainAnchors(data: Record<string, unknown>, quiet: bo
   if (tasksForNodes.length === 0) lines.push(`  (none)`);
   lines.push(`\n(${durationMs}ms)`);
   return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// nexus conduit-scan
-// ---------------------------------------------------------------------------
-
-/**
- * Render `cleo nexus conduit-scan` human output.
- */
-export function renderNexusConduitScan(data: Record<string, unknown>, quiet: boolean): string {
-  if (quiet) return '';
-  const durationMs = Number(data['_durationMs'] ?? 0);
-  return `[nexus] conduit-scan complete: scanned=${str(data['scanned'])} linked=${str(data['linked'])} (${durationMs}ms)`;
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { configLegacyKeyDeprecations } from '../config/legacy-keys.js';
 import { checkSchema } from '../json-schema-validator.js';
 import { resolveCleoDir } from '../paths.js';
 import { getSchemaVersion, resolveSchemaPath } from '../schema-management.js';
@@ -32,7 +33,10 @@ interface IntegrityTarget {
   required: boolean;
   /** Field in the data file that holds the schema version. */
   versionKey: 'schemaVersion' | 'version';
-  /** Deprecated keys the file still carries: still valid, each named once (T14260). */
+  /**
+   * Deprecated keys the file still carries: still valid, each named once (T14260).
+   * Runs before schema validation and may migrate `data` in memory (T14375).
+   */
   deprecations?: (data: Record<string, unknown>) => string[];
 }
 
@@ -94,6 +98,7 @@ const INTEGRITY_TARGETS: IntegrityTarget[] = [
     schemaName: 'config.schema.json',
     required: true,
     versionKey: 'schemaVersion',
+    deprecations: configLegacyKeyDeprecations,
   },
   {
     label: 'project-info.json',
@@ -185,6 +190,10 @@ function checkFile(target: IntegrityTarget, cleoDir: string): JsonFileIntegrityR
     };
   }
 
+  // Deprecated keys first: a legacy key is migrated in memory, so the schema
+  // judges the current shape and the key warns instead of failing (T14375).
+  const deprecations = target.deprecations?.(data) ?? [];
+
   // AJV validation
   const ajvErrors = checkSchema(data, schema);
   if (ajvErrors.length > 0) {
@@ -208,7 +217,6 @@ function checkFile(target: IntegrityTarget, cleoDir: string): JsonFileIntegrityR
     expectedVersion: expectedVersion ?? undefined,
   };
 
-  const deprecations = target.deprecations?.(data) ?? [];
   if (deprecations.length > 0) result.deprecations = deprecations;
 
   if (dataVersionStr && expectedVersion && dataVersionStr !== expectedVersion) {

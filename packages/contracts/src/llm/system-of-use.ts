@@ -46,7 +46,7 @@
  * @epic T11745
  */
 
-import type { LlmProviderTransport, RoleName } from '../config.js';
+import type { LlmProviderTransport, RoleName } from '../config/types.js';
 import type { ProviderTier } from './provider-profile.js';
 
 /**

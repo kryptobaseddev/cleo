@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { LlmConfig, LlmDefaultConfig, LlmRoleConfig, RoleName } from '../config.js';
+import type { LlmConfig, LlmDefaultConfig, LlmRoleConfig, RoleName } from '../config/types.js';
 
 describe('LlmConfig — Phase 4 schema cleanup (T9306)', () => {
   it('accepts a fully-populated config with default and roles', () => {

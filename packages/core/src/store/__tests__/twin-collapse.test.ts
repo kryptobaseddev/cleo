@@ -223,6 +223,7 @@ describe('fresh store', () => {
       'collapsed',
       'collapsed', // token_usage (T13115)
       'collapsed', // audit_log (T13777)
+      'collapsed', // agent_error_log (T14399)
       'collapsed', // playbooks (T12535)
     ]);
   });
@@ -528,6 +529,7 @@ describe('(b) idempotency', () => {
       'unchanged',
       'unchanged', // token_usage (T13115)
       'unchanged', // audit_log (T13777)
+      'unchanged', // agent_error_log (T14399)
       'unchanged', // playbooks (T12535)
     ]);
     expect(tableDigest(db, 'tasks_schema_meta', 'key')).toBe(tasks);

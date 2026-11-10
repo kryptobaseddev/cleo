@@ -40,7 +40,7 @@ async function llmSubCommandNames(): Promise<Set<string>> {
 describe('LlmConfig TSDoc command references (T11723)', () => {
   it('AC1 — no TSDoc references to retired vapor commands', () => {
     const configSrc = readFileSync(
-      fileURLToPath(new URL('../../../../../contracts/src/config.ts', import.meta.url)),
+      fileURLToPath(new URL('../../../../../contracts/src/config/types.ts', import.meta.url)),
       'utf8',
     );
     expect(configSrc).not.toContain('cleo llm bind');
@@ -51,7 +51,7 @@ describe('LlmConfig TSDoc command references (T11723)', () => {
 
   it('AC3 — every `cleo llm <verb>` referenced in config.ts is a real llm subcommand', async () => {
     const configSrc = readFileSync(
-      fileURLToPath(new URL('../../../../../contracts/src/config.ts', import.meta.url)),
+      fileURLToPath(new URL('../../../../../contracts/src/config/types.ts', import.meta.url)),
       'utf8',
     );
     const referenced = new Set<string>();

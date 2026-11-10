@@ -9,6 +9,9 @@
  * @phase 1B
  */
 
+import type { LeadDeniedTool, LeadMcpReport } from './operations/orchestrate.js';
+import type { AgentSuiteOwnership } from './spawn.js';
+
 /**
  * Provider identifier for spawn operations.
  */
@@ -65,6 +68,22 @@ export interface CLEOSpawnContext {
 
   /** Token resolution information for the prompt */
   tokenResolution?: TokenResolution;
+
+  /**
+   * Tools to remove from the spawned agent; set only for a lead spawn under
+   * the lead/worker split. The spawn bridge forwards it as
+   * `SpawnContext.leadDeniedTools` and refuses the spawn with
+   * `E_LEAD_TOOLS_UNSTRIPPED` when the provider does not declare
+   * `leadToolStrip: 'enforced'`. Absent or empty for a worker spawn.
+   *
+   * @task T14357
+   */
+  leadDeniedTools?: readonly LeadDeniedTool[];
+  /**
+   * Called with the lead process's pid as soon as the provider starts it, so
+   * the lead record can name it (T14363). Lead spawns only.
+   */
+  onLeadStarted?: (pid: number) => void;
 }
 
 /**
@@ -98,6 +117,19 @@ export interface CLEOSpawnResult extends CAAMPSpawnResult {
    * field's vocabulary ('completed' here vs 'complete' there). @task T12071
    */
   status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+  /**
+   * Containment handle (pid/pgid/scope) of a worker left running, passed on
+   * from the provider's `SpawnResult` so the worker record can store it.
+   * @task T14359
+   */
+  ownership?: AgentSuiteOwnership;
+
+  /** MCP servers a lead spawn loaded, passed on from `SpawnResult` (T14423). */
+  leadMcp?: LeadMcpReport;
+
+  /** A detached lead's private temp directory, from `SpawnResult` (T14363). */
+  leadTempDir?: string;
 
   /** Reference to manifest entry if output was captured */
   manifestEntryId?: string;

@@ -11,9 +11,12 @@
  *
  * @task T5240
  * @task T11998 — per-session scope/pgid suite containment
+ * @task T14357 — lead spawns strip denied tools via --disallowedTools
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type {
   AdapterSpawnProvider,
   AgentSuiteOwnership,
@@ -21,10 +24,55 @@ import type {
   SpawnResult,
 } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { E_LEAD_NO_OWNER_CHANNEL } from '@cleocode/contracts/operations/orchestrate.js';
 import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
+import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
+import { type LeadMcpSetup, prepareLeadMcp, runnerOnlyLeadMcp } from './lead-mcp.js';
+import {
+  buildLeadArgs,
+  leadModeOf,
+  leadSessionId,
+  leadSessionSettings,
+  resolveAbsoluteBinary,
+  runInteractiveLead,
+} from './lead-session.js';
 import { reapAgentSuite } from './suite-reaper.js';
+
+/**
+ * Instance id CLEO pre-assigned to a tracked worker (`options.workerInstanceId`,
+ * set only under `orchestrate.leadWorker.v1`), when it is shell-safe.
+ *
+ * @param options - Spawn context options.
+ * @returns The id, or undefined when the spawn is not tracked.
+ */
+export function trackedWorkerInstanceId(options: SpawnContext['options']): string | undefined {
+  const id = options?.workerInstanceId;
+  return typeof id === 'string' && /^[A-Za-z0-9-]+$/.test(id) ? id : undefined;
+}
+
+/**
+ * Claude Code settings that make a spawned worker report its own exit: a
+ * `SessionEnd` hook running `cleo orchestrate worker-exit` for this instance,
+ * which closes the worker record and fires SubagentStop once (T14359).
+ *
+ * @param instanceId - Spawn instance id the worker record is keyed by.
+ * @returns The settings JSON passed to `claude --settings`.
+ */
+export function workerExitSettings(instanceId: string): string {
+  const command = `cleo orchestrate worker-exit --instance ${instanceId}`;
+  return JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command }] }] } });
+}
+
+/** The string-valued entries of `options.env`. */
+function envStrings(options: SpawnContext['options']): Record<string, string> {
+  const env = options?.env;
+  const out: Record<string, string> = {};
+  if (typeof env !== 'object' || env === null) return out;
+  for (const [key, value] of Object.entries(env)) if (typeof value === 'string') out[key] = value;
+  return out;
+}
 
 /** Internal tracking entry for a spawned process. */
 interface TrackedProcess {
@@ -33,6 +81,51 @@ interface TrackedProcess {
   startTime: string;
   /** Suite containment handle — used by terminate() and session-end reap (T11998). */
   ownership: AgentSuiteOwnership;
+}
+
+/**
+ * Build the `claude` CLI argv for a spawn.
+ *
+ * - `--print`: non-interactive batch mode (process prompt, output response, exit)
+ * - `--output-format json`: structured output for parsing
+ * - Worker: `--dangerously-skip-permissions` allows every tool call without approval.
+ * - Lead (`context.leadDeniedTools` set): an allow list built by
+ *   `buildLeadArgs` (lead-session.ts) for the lead's mode, interactive or
+ *   detached (T14363, T14423).
+ *
+ * @param context - Spawn context.
+ * @param promptFile - Path of the prompt file passed as the final argument.
+ * @param settingsArgs - Extra `--settings <file>` args (a tracked worker's exit hook, T14359).
+ * @param leadMcp - A lead's MCP setup (from `prepareLeadMcp`). @defaultValue the runner alone, inline
+ * @returns Argument list for the `claude` binary.
+ * @task T14357
+ */
+export function buildClaudeArgs(
+  context: SpawnContext,
+  promptFile: string,
+  settingsArgs: readonly string[] = [],
+  leadMcp: LeadMcpSetup = runnerOnlyLeadMcp(),
+): string[] {
+  const denied = leadDeniedTools(context);
+  if (denied === null) {
+    return [
+      '--print',
+      '--dangerously-skip-permissions',
+      '--output-format',
+      'json',
+      ...settingsArgs,
+      promptFile,
+    ];
+  }
+  const sessionId = leadSessionId(context.options);
+  return buildLeadArgs({
+    mode: leadModeOf(context.options),
+    denied,
+    leadMcp,
+    promptFile,
+    ...(sessionId !== undefined ? { sessionId } : {}),
+    settingsArgs,
+  });
 }
 
 /**
@@ -51,6 +144,9 @@ interface TrackedProcess {
  * in-memory map and verified via `kill(pid, 0)` liveness checks.
  */
 export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
+  /** Lead spawns lose their denied tools through `--disallowedTools` (T14357). */
+  readonly leadToolStrip = 'enforced' as const;
+
   /** Map of instance IDs to tracked process info. */
   private processMap = new Map<string, TrackedProcess>();
 
@@ -73,7 +169,10 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
    * @returns Spawn result with instance ID and status
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
-    const instanceId = `claude-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    // T14359: a tracked worker keeps the instance id its record was stored under.
+    const trackedId = trackedWorkerInstanceId(context.options);
+    const instanceId =
+      trackedId ?? `claude-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const startTime = new Date().toISOString();
     let tmpFile: string | undefined;
 
@@ -97,17 +196,84 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       }
 
       tmpFile = await writeSpawnPromptFile('claude-spawn', enrichedPrompt);
+      // T14359: a tracked worker signals its own exit. SessionEnd fires once
+      // when the run ends; Stop fires every turn and may be blocked.
+      let settingsArgs: string[] = [];
+      if (trackedId !== undefined) {
+        const settingsFile = join(dirname(tmpFile), 'settings.json');
+        await writeFile(settingsFile, workerExitSettings(trackedId), 'utf-8');
+        settingsArgs = ['--settings', settingsFile];
+      }
 
-      // --print: non-interactive batch mode (process prompt, output response, exit)
-      // --dangerously-skip-permissions: allow all tool calls without human approval
-      // --output-format json: structured output for parsing
-      const claudeArgs = [
-        '--print',
-        '--dangerously-skip-permissions',
-        '--output-format',
-        'json',
-        tmpFile,
-      ];
+      // T14423: a lead loads only the runner and the user's validated mbx
+      // server; its settings delete the MCP file at start and the temp dir at end.
+      let leadMcp: LeadMcpSetup | undefined;
+      if (leadDeniedTools(context) !== null) {
+        const dir = dirname(tmpFile);
+        // T14363: absolute binaries, resolved now from absolute PATH entries.
+        const binaries = {
+          cleo: resolveAbsoluteBinary('cleo'),
+          agentmbx: resolveAbsoluteBinary('agentmbx'),
+        };
+        leadMcp = await prepareLeadMcp(dir, context.workingDirectory ?? process.cwd(), {
+          identityEnv: envStrings(context.options),
+          ...(binaries.cleo ? { cleoBin: binaries.cleo } : {}),
+        });
+        const settingsFile = join(dir, 'lead-settings.json');
+        const sessionId = leadSessionId(context.options);
+        await writeFile(
+          settingsFile,
+          leadSessionSettings({
+            dir,
+            mcpFile: leadMcp.config,
+            binaries,
+            ...(sessionId !== undefined ? { sessionId } : {}),
+          }),
+          { mode: 0o600 },
+        );
+        settingsArgs = ['--settings', settingsFile];
+        // T14363: a detached lead's only owner channel is the mbx server. Without
+        // a loaded one it could never ask the owner, so it does not start.
+        if (leadModeOf(context.options) === 'detached' && leadMcp.report.mailbox !== 'loaded') {
+          await removeSpawnPromptFile(tmpFile);
+          return {
+            instanceId,
+            taskId: context.taskId,
+            providerId: 'claude-code',
+            status: 'failed',
+            startTime,
+            endTime: new Date().toISOString(),
+            error: `${E_LEAD_NO_OWNER_CHANNEL}: a detached lead needs the mbx MCP server to reach the owner (${leadMcp.report.warning ?? 'none is configured'})`,
+            leadMcp: leadMcp.report,
+          };
+        }
+        if (leadModeOf(context.options) === 'interactive') {
+          // T14363: the owner's terminal — stdio inherited, awaited, not detached.
+          const env = envStrings(context.options);
+          const exit = await runInteractiveLead(
+            'claude',
+            buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp),
+            {
+              ...(context.workingDirectory ? { cwd: context.workingDirectory } : {}),
+              ...(Object.keys(env).length > 0 ? { env: { ...process.env, ...env } } : {}),
+              ...(context.onLeadStarted ? { onStart: context.onLeadStarted } : {}),
+            },
+          );
+          await removeSpawnPromptFile(tmpFile);
+          return {
+            instanceId,
+            taskId: context.taskId,
+            providerId: 'claude-code',
+            status: exit.exitCode === 0 ? 'completed' : 'failed',
+            ...(exit.exitCode !== null ? { exitCode: exit.exitCode } : {}),
+            startTime,
+            endTime: new Date().toISOString(),
+            leadMcp: leadMcp.report,
+          };
+        }
+      }
+      // --settings: a tracked worker's exit hook, or a lead's session hooks
+      const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp);
 
       // T11998: Build the argv with per-session containment.
       // On Linux with systemd, this wraps 'claude' inside a transient
@@ -147,6 +313,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
       // unref() so the parent process can exit without waiting for the child.
       // The containment scope/pgid ensures the child tree can still be reaped.
       child.unref();
+      // T14363: a detached lead's record names its own pid.
+      if (leadMcp !== undefined && child.pid !== undefined) context.onLeadStarted?.(child.pid);
 
       // Resolve the ownership handle: for the pgid path the pgid is the same
       // as the pid when detached:true (Node sets the child as the group leader).
@@ -183,6 +351,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         // T11998: surface the ownership handle in the result so callers can
         // persist it or pass it to reapAgentSuite on session end.
         ownership,
+        ...(leadMcp ? { leadMcp: leadMcp.report, leadTempDir: dirname(tmpFile) } : {}),
       };
     } catch (error) {
       // Log spawn failure for debugging

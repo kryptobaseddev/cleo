@@ -29,6 +29,19 @@ export {
   selectProvidersByMinimumPriority,
   updateInstructionsSingleOperation,
 } from './core/advanced/orchestration.js';
+// Agent definitions rendered into provider agent files (T14378)
+export type {
+  AgentDefinition,
+  AgentMcpServer,
+  RenderedAgentDefinition,
+} from './core/agents/agent-definitions.js';
+export {
+  AGENT_DEFINITION_MARKER,
+  agentDefinitionUnsupportedReason,
+  isGeneratedAgentDefinition,
+  parseAgentDefinition,
+  renderAgentDefinition,
+} from './core/agents/agent-definitions.js';
 export {
   assertCleoShippedBuildShape,
   CLEO_ARTIFACT_BUDGETS,
@@ -276,8 +289,10 @@ export {
 // Spawn adapter
 export type { SpawnAdapter, SpawnOptions, SpawnResult } from './core/registry/spawn-adapter.js';
 export type {
+  AgentDefinitionFormat,
   AskToolStatus,
   HitlRequestFallback,
+  ProviderAgentDefinitions,
   ProviderAskTool,
   ResolvedProviderAskTool,
 } from './core/registry/types.js';
