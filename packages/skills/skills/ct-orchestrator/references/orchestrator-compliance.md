@@ -16,16 +16,16 @@ echo "$prompt" | grep -q "SUBAGENT PROTOCOL" || echo "ERROR: Missing protocol bl
 
 ### MUST Validate Return Messages
 
-Only accept these return message formats from subagents. The compressed block (T12521) is what spawn prompts ask for:
+Only accept these return message formats from subagents. The worker report (T14361, on the T12521 compressed head line) is what spawn prompts ask for, at most 100 words:
 
 ```
 Research <complete|partial|blocked>. manifest:<entryId>
-commits: <sha7,sha7|none>
-gates: <gate>=<pass|fail|skip> ...
-blocker: <≤12 words|none>
+conclusion: <result>
+blocker: <none|why>
+proof: <cmd> => exit <n>|<PR|sha|file>
 ```
 
-Line 1 is required; `commits:`, `gates:` and `blocker:` may each appear once, and `blocker` is not `none` only for `partial`/`blocked`. The legacy one-liner stays valid:
+Line 1 is required; `conclusion:`, `blocker:` (and the older `commits:`/`gates:`) may each appear once, `proof:` once per item, and `blocker` is not `none` only for `partial`/`blocked`. Close the task with `cleo done <id> --report "<report>"`: it refuses a report with no `conclusion:` or `proof:` line (`E_WORKER_REPORT_PROOF`) or over 100 words (`E_VALIDATION`; detail goes in the PR body). The legacy one-liner stays valid:
 
 | Status | Legacy Return Message |
 |--------|---------------------|
