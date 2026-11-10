@@ -88,6 +88,7 @@ import type {
   ResourceClass,
 } from '@cleocode/contracts';
 import lockfile from 'proper-lockfile';
+import { isDetachedCleoHook } from '../git/hooks-install.js';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import {
@@ -334,7 +335,9 @@ export function planFootprintBytes(
  * Whether a git client hook is installed for the repository at `cwd`
  * (T13452): `git rev-parse --git-path hooks/<name>` honours `core.hooksPath`,
  * and the file must exist and be executable. Any failure reads as installed,
- * which keeps the heavier charge.
+ * which keeps the heavier charge. CLEO's own detached NEXUS refresh hook
+ * ({@link isDetachedCleoHook}) reads as not installed: it does no heavy work
+ * in the git command, and the refresh is admitted separately (T14384).
  *
  * @param cwd - Where the command runs.
  * @param hook - Hook name (`pre-push`, `pre-commit`).
@@ -346,8 +349,9 @@ export function gitHookInstalled(
   globals: readonly string[] = [],
 ): boolean {
   try {
-    accessSync(gitHookPath(cwd, hook, globals), fsConstants.X_OK);
-    return true;
+    const file = gitHookPath(cwd, hook, globals);
+    accessSync(file, fsConstants.X_OK);
+    return !isDetachedCleoHook(hook, file);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     return code !== 'ENOENT' && code !== 'EACCES';
