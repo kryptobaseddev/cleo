@@ -1338,7 +1338,7 @@ const affectedCommand = defineCommand({
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
     const { affectedTestReport } = await import('@cleocode/core/tasks/affected-tests.js');
-    const report = await affectedTestReport(process.cwd(), args.base as string | undefined);
+    const report = await affectedTestReport(getProjectRoot(), args.base as string | undefined);
     cliOutput({ ...report }, { command: 'nexus-affected', operation: 'nexus.affected' });
   },
 });
