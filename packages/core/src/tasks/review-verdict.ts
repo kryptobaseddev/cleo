@@ -24,7 +24,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type {
   ReviewAnswer,
   ReviewAuthors,
@@ -60,6 +60,20 @@ export const REVIEW_DISPATCH_ACTION = 'review.dispatch';
 export const REVIEWER_AGENT_PREFIX = 'reviewer-';
 
 /**
+ * The environment variable a dispatched reviewer process carries its
+ * per-dispatch secret in (T14403). A verdict under a dispatch is accepted only
+ * when its SHA-256 matches the dispatch row's `reviewerSecretSha256`.
+ */
+export const REVIEW_SECRET_ENV = 'CLEO_REVIEW_SECRET';
+
+/** Whether `secret` hashes to `sha256Hex`, compared in constant time (T14403). */
+function secretMatches(secret: string, sha256Hex: string): boolean {
+  if (!/^[0-9a-f]{64}$/.test(sha256Hex)) return false;
+  const got = createHash('sha256').update(secret).digest();
+  return timingSafeEqual(got, Buffer.from(sha256Hex, 'hex'));
+}
+
+/**
  * The reviewer dispatches recorded for one task on one PR (T14372), every head.
  *
  * @param projectRoot - Project root.
@@ -90,7 +104,12 @@ export async function reviewDispatchesFor(
         typeof d.reviewerSessionId === 'string' &&
         (d.mode === 'shadow' || d.mode === 'counted')
       )
-        out.push(d as ReviewDispatch);
+        out.push({
+          ...(d as ReviewDispatch),
+          // A row without a secret hash (T14403) accepts no worker verdict.
+          reviewerSecretSha256:
+            typeof d.reviewerSecretSha256 === 'string' ? d.reviewerSecretSha256 : '',
+        });
     } catch {
       // A malformed row dispatches nobody.
     }
@@ -553,6 +572,18 @@ export async function recordReviewVerdict(
         `No dispatch of ${input.taskId} on PR #${input.prNumber} at head ${packet.headSha.slice(0, 7)} names agent ${reviewer.agentId ?? '(none)'} with session ${reviewer.sessionId}`,
         {
           fix: 'A reviewer worker records only under the CLEO_SESSION_ID and CLEO_AGENT_ID its `cleo review dispatch` brief names, on that head; the lead records without --shadow under its own identity.',
+        },
+      );
+    }
+    // T14403: the session id is readable from audit rows; the secret is not.
+    const secret = env[REVIEW_SECRET_ENV] ?? '';
+    if (secret === '' || !secretMatches(secret, bound.reviewerSecretSha256)) {
+      // @sync-invariant none:input-shape a worker verdict without its dispatch's secret is refused before the verdict row is written
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `${secret === '' ? 'No' : 'The wrong'} per-dispatch secret for the dispatch of ${input.taskId} on PR #${input.prNumber} at head ${packet.headSha.slice(0, 7)}: a verdict under a dispatch needs the secret its dispatcher handed the reviewer`,
+        {
+          fix: `Only the dispatched reviewer records under this dispatch, with ${REVIEW_SECRET_ENV} set in its environment by the dispatcher; the lead records without --shadow under its own identity.`,
         },
       );
     }

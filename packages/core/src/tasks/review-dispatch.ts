@@ -19,12 +19,18 @@
  * - {@link recordReviewVerdict} accepts a worker's verdict only from the
  *   dispatch's own session and agent id on that head, never from an author;
  *   the dispatcher may not be an author either.
+ * - Session ids are readable from audit rows, so each executed dispatch also
+ *   mints a secret (T14403): only its SHA-256 is stored in the dispatch row,
+ *   the secret is returned once to the dispatcher, who hands it to the
+ *   reviewer process in {@link REVIEW_SECRET_ENV}, and a verdict under the
+ *   dispatch is refused without it.
  *
  * Dry run by default: nothing is recorded.
  *
  * @task T14372
  */
 
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
@@ -39,6 +45,7 @@ import { CleoError } from '../errors.js';
 import type { TrainPr } from './merge-train.js';
 import {
   REVIEW_DISPATCH_ACTION,
+  REVIEW_SECRET_ENV,
   REVIEWER_AGENT_PREFIX,
   type ReviewDeps,
 } from './review-verdict.js';
@@ -163,7 +170,7 @@ export function reviewerBrief(dispatches: readonly ReviewDispatch[]): string {
   const session = reviewerSessionId === '' ? '<created on --execute>' : reviewerSessionId;
   const lines = [
     `You review PR #${prNumber} at head ${first.headSha}. You are not its author; never edit the PR, push, comment or merge.`,
-    `1. Run every cleo call with CLEO_SESSION_ID=${session} CLEO_AGENT_ID=${agent} (the session this dispatch created; never start or reuse another).`,
+    `1. Run every cleo call with CLEO_SESSION_ID=${session} CLEO_AGENT_ID=${agent} (the session this dispatch created; never start or reuse another) and the ${REVIEW_SECRET_ENV} your dispatcher put in your environment. Never print it, write it down or put it on a command line.`,
     '2. Per task, read only the packet (the diff and the criteria), never the PR title, body, comments or commits:',
   ];
   for (const d of dispatches) {
@@ -340,6 +347,7 @@ async function judgePr(
       mode: ctx.mode,
       reviewerAgentId: agent,
       reviewerSessionId: '',
+      reviewerSecretSha256: '',
       dispatcherSessionId: sessionId,
       dispatchedAt: new Date(ctx.now()).toISOString(),
     });
@@ -365,7 +373,11 @@ async function judgePr(
       ),
       routing,
     };
+  let reviewerSecret: string | undefined;
   if (ctx.execute) {
+    // T14403: only the hash is recorded; the secret goes back to the dispatcher once.
+    reviewerSecret = randomBytes(32).toString('base64url');
+    const reviewerSecretSha256 = createHash('sha256').update(reviewerSecret).digest('hex');
     const reviewerSessionId = await createReviewerSession(
       root,
       agent,
@@ -373,6 +385,7 @@ async function judgePr(
     );
     for (const d of dispatches) {
       d.reviewerSessionId = reviewerSessionId;
+      d.reviewerSecretSha256 = reviewerSecretSha256;
       await accessor.appendLog({
         action: REVIEW_DISPATCH_ACTION,
         taskId: d.taskId,
@@ -390,6 +403,7 @@ async function judgePr(
     routing,
     dispatches,
     brief: reviewerBrief(dispatches),
+    ...(reviewerSecret !== undefined ? { reviewerSecret } : {}),
   };
 }
 
@@ -397,7 +411,7 @@ async function judgePr(
  * Run a reviewer dispatch once (T14372): judge every open PR and, with
  * `execute`, record one dispatch per task for each routine PR whose head
  * lacks verdicts, create the reviewer's session, and return the brief to hand
- * each reviewer agent. Shadow unless `counted`, which the owner must enable.
+ * each reviewer agent with the secret to put in its {@link REVIEW_SECRET_ENV}. Shadow unless `counted`, which the owner must enable.
  * Idempotent per head: safe on a schedule.
  *
  * @param root - Project root.
