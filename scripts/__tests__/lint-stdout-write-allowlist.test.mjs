@@ -5,8 +5,12 @@
  *   - Run the script against the real cleocode tree to assert the committed
  *     baseline passes (no regression on main).
  *   - Plant a synthetic violation in a non-allowlisted location (under
- *     packages/contracts/src/), re-run the script, and assert it fails with
- *     the new identity reported.
+ *     packages/contracts/src/) of a THROWAWAY copy-shaped root (committed
+ *     baseline + fixture only), run the script there, and assert it fails
+ *     with the new identity reported. The fixture never touches the real
+ *     checkout: a file planted there was seen by every other real-tree scan
+ *     running in the same vitest shard (T14431 — it made
+ *     lint-no-runtime-in-contracts report `bad`/`ok` as net-new helpers).
  *   - Exercise the per-line opt-out (`// stdout-write-allowed`) by planting
  *     a violation annotated with the marker and asserting the script still
  *     passes.
@@ -20,35 +24,28 @@
 
 import { spawnSync } from 'node:child_process';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { createStdoutBaseline, stdoutCallIdentities } from '../stdout-baseline-identity.mjs';
 
 const __dirname = resolve(fileURLToPath(import.meta.url), '..');
 const REPO_ROOT = resolve(__dirname, '../..');
 const SCRIPT = join(REPO_ROOT, 'scripts/lint-stdout-write-allowlist.mjs');
+const BASELINE_REL = 'scripts/.lint-stdout-write-allowlist-baseline.json';
 
-/**
- * Fixture lives under a non-allowlisted package so it must trigger.
- * Suffixed with pid to avoid cross-contamination with the parallel
- * lint-stdout-discipline suite (T10360 — same scan tree, different lint
- * scripts, must not see each other's fixtures).
- */
-const FIXTURE_PATH = join(
-  REPO_ROOT,
-  `packages/contracts/src/__stdout_write_violation_fixture_${process.pid}.ts`,
-);
+/** Fixture path, relative to the isolated root, under a non-allowlisted package. */
+const FIXTURE_REL = `packages/contracts/src/__stdout_write_violation_fixture_${process.pid}.ts`;
 
 /**
  * Run the lint script with optional extra args.
@@ -63,9 +60,29 @@ function runLint(extraArgs = []) {
   });
 }
 
-afterEach(() => {
-  if (existsSync(FIXTURE_PATH)) unlinkSync(FIXTURE_PATH);
-});
+/**
+ * Run the lint script in a throwaway root holding only the committed baseline
+ * and one fixture source file, so the real checkout is never modified.
+ *
+ * @param {string} source - fixture file contents
+ * @param {string[]} extraArgs
+ */
+function runLintOnFixture(source, extraArgs = []) {
+  const root = mkdtempSync(join(tmpdir(), 'stdout-fixture-gate-'));
+  try {
+    mkdirSync(join(root, 'scripts'));
+    copyFileSync(join(REPO_ROOT, BASELINE_REL), join(root, BASELINE_REL));
+    mkdirSync(join(root, dirname(FIXTURE_REL)), { recursive: true });
+    writeFileSync(join(root, FIXTURE_REL), source);
+    return spawnSync('node', [SCRIPT, ...extraArgs], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: root,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 describe('lint-stdout-write-allowlist — check mode (default)', () => {
   it('passes on the current tree (no regression vs committed baseline)', () => {
@@ -75,27 +92,23 @@ describe('lint-stdout-write-allowlist — check mode (default)', () => {
   });
 
   it('rejects a deliberate new violation in a non-allowlisted file', () => {
-    writeFileSync(
-      FIXTURE_PATH,
+    const result = runLintOnFixture(
       'export function bad(): void {\n  process.stdout.write("nope\\n");\n}\n',
+      ['--check'],
     );
-    const result = runLint(['--check']);
     expect(result.status).toBe(1);
     const combined = result.stdout + result.stderr;
-    expect(combined).toContain(
-      `packages/contracts/src/__stdout_write_violation_fixture_${process.pid}.ts`,
-    );
+    expect(combined).toContain(FIXTURE_REL);
     expect(combined).toMatch(/NEW unannotated violation/);
   });
 
   it('accepts a violation annotated with the per-line opt-out marker', () => {
-    writeFileSync(
-      FIXTURE_PATH,
+    const result = runLintOnFixture(
       'export function ok(): void {\n' +
         '  process.stdout.write("justified"); // stdout-write-allowed: T9924 fixture\n' +
         '}\n',
+      ['--check'],
     );
-    const result = runLint(['--check']);
     expect(result.status).toBe(0);
   });
 });
