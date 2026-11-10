@@ -62,7 +62,7 @@ import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
-import { worktreeInUseProbe } from './in-use-probe.js';
+import { worktreeInUseProbe, worktreeTaskCrashed } from './in-use-probe.js';
 import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
 
 export { taskIdFromBranch } from './sentinel-index.js';
@@ -127,14 +127,19 @@ export async function listWorktrees(
    * run: nothing is written, archived or removed (prune re-proves with the
    * task's evidence before it acts).
    */
-  const proveRedundant = (path: string, taskId: string | null, isMerged: boolean) =>
+  const proveRedundant = (
+    path: string,
+    taskId: string | null,
+    isMerged: boolean,
+    terminal: boolean,
+  ) =>
     disposeWorktree({
       worktreePath: path,
       projectRoot,
       taskId,
       reason: 'list',
-      exemptRegenerable: isMerged,
-      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
+      exemptRegenerable: opts.exemptRegenerable !== false && isMerged,
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId, terminal),
       dryRun: true,
     });
 
@@ -154,7 +159,11 @@ export async function listWorktrees(
   // worktrees. We build a path → source map so each git-native entry can be
   // labelled accurately, and we track which sentinel paths are NOT in the
   // porcelain output so we can append them as sentinel-only entries below.
-  const sentinelEntries = readSentinelIndex(projectRoot);
+  const sentinelEntries = readSentinelIndex(projectRoot).filter(
+    (entry) =>
+      opts.taskId === undefined ||
+      (entry.taskId ?? taskIdOf(entry.branch, entry.path)) === opts.taskId,
+  );
   const sentinelByPath = new Map(sentinelEntries.map((e) => [e.path, e]));
   // Track paths from porcelain so we can detect sentinel-only entries later.
   const porcelainPaths = new Set(porcelainEntries.map((e) => e.path));
@@ -176,7 +185,13 @@ export async function listWorktrees(
       taskIdByPath.set(sentinel.path, sentinel.taskId ?? taskIdOf(sentinel.branch, sentinel.path));
     }
   }
-  const taskIds = Array.from(taskIdByPath.values()).filter((id): id is string => id !== null);
+  if (opts.taskId !== undefined)
+    porcelainEntries = porcelainEntries.filter(
+      (entry) => taskIdByPath.get(entry.path) === opts.taskId,
+    );
+  const taskIds = Array.from(taskIdByPath.values()).filter(
+    (id): id is string => id !== null && (opts.taskId === undefined || id === opts.taskId),
+  );
   const taskStatusByid = await loadOwningTaskStatuses(taskIds, projectRoot);
 
   // Pre-resolve the default upstream branch presence — if `main` is absent,
@@ -226,17 +241,23 @@ export async function listWorktrees(
     const idleMs = nowMs - lastActivityMs;
     const idleOlderThanThreshold = idleMs > staleThresholdMs;
     const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
+    const isCrashed =
+      owningTaskStatus !== null &&
+      owningTaskStatus !== 'active' &&
+      !ownerTerminal &&
+      worktreeTaskCrashed(projectRoot, taskId);
     // Stale (an annotation) = idle longer than threshold AND (owner is terminal OR branch already integrated).
     const isStale = idleOlderThanThreshold && (ownerTerminal || isMerged);
 
     const candidate = isDisposalCandidate({
       isPrimary,
       owningTaskStatus,
+      isCrashed,
       // At or past the window: a zero-day window makes every taskless worktree a candidate.
       idlePastWindow: idleMs >= staleThresholdMs,
     });
     const classified = classifyStatus(
-      candidate ? proveRedundant(entry.path, taskId, isMerged) : null,
+      candidate ? proveRedundant(entry.path, taskId, isMerged, ownerTerminal) : null,
     );
 
     // T9804: look up source from sentinel index. A git-native entry whose path
@@ -268,6 +289,7 @@ export async function listWorktrees(
       isStale,
       isMerged,
       owningTaskStatus,
+      isCrashed,
       ...classified,
       source,
       ...keptField(entry.path, readKeepMarker),
@@ -288,13 +310,20 @@ export async function listWorktrees(
     const lastActivity = new Date(lastActivityMs).toISOString();
     const idleMs = nowMs - lastActivityMs;
     const isStale = idleMs > staleThresholdMs;
+    const ownerTerminal = owningTaskStatus === 'done' || owningTaskStatus === 'cancelled';
+    const isCrashed =
+      owningTaskStatus !== null &&
+      owningTaskStatus !== 'active' &&
+      !ownerTerminal &&
+      worktreeTaskCrashed(projectRoot, taskId);
     const candidate = isDisposalCandidate({
       isPrimary: false,
       owningTaskStatus,
+      isCrashed,
       idlePastWindow: idleMs >= staleThresholdMs,
     });
     const classified = classifyStatus(
-      candidate ? proveRedundant(sentinel.path, taskId, false) : null,
+      candidate ? proveRedundant(sentinel.path, taskId, false, ownerTerminal) : null,
     );
 
     worktrees.push({
@@ -312,6 +341,7 @@ export async function listWorktrees(
       isStale,
       isMerged: false,
       owningTaskStatus,
+      isCrashed,
       ...classified,
       source: sentinel.source,
       ...keptField(sentinel.path, readKeepMarker),
@@ -480,9 +510,11 @@ export function isDisposalCandidate(flags: {
   isPrimary: boolean;
   owningTaskStatus: string | null;
   idlePastWindow: boolean;
+  isCrashed?: boolean;
 }): boolean {
   if (flags.isPrimary) return false;
   if (flags.owningTaskStatus === 'done' || flags.owningTaskStatus === 'cancelled') return true;
+  if (flags.isCrashed === true && flags.owningTaskStatus !== 'active') return true;
   if (flags.owningTaskStatus !== null) return false; // an open task
   return flags.idlePastWindow;
 }
@@ -550,12 +582,15 @@ export async function loadOwningTaskStatuses(
 
   const placeholders = taskIds.map(() => '?').join(', ');
   const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-  const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-    id: string;
-    status: string;
-  }>;
-  for (const row of rows) {
-    out.set(row.id, row.status);
+  try {
+    const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+      id: string;
+      status: string;
+    }>;
+    for (const row of rows) out.set(row.id, row.status);
+  } catch {
+    // Missing or unreadable task state must never turn a known task into a reaper candidate.
+    return new Map();
   }
   return out;
 }

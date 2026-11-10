@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.6.0
+  version: 4.7.0
   tier: core
   install: harness
   covers:
@@ -463,6 +463,18 @@ switches the checkout and never pushes. Check `integration` in
 `CLEO_NO_AUTO_WORKTREE_COMPLETE=1`) when the branch lands through a PR. The
 same variable stops `spawn-execute`'s post-spawn auto-complete, which writes a
 `complete-skip` row with `reason: 'env-override'` instead (T14057).
+
+Completion and cancellation release the task's worktree locks and automatically
+remove only worktrees `disposeWorktree` proves safe; branches are retained and
+unproven work is reported. `--no-integrate` skips merging, not this proof-based
+cleanup. The existing census is the reaper: `cleo hygiene census --dry-run`
+previews the current project's plan; omit `--dry-run` to apply it, or add
+`--all-projects` to include every registered project's external and canonical
+worktrees. `--ttl-days` sets a minimum idle age and `--max-bytes` a retained
+apparent-size target, oldest eligible first. A budget never overrides TTL or
+the disposal proof. Ignored build output needs `--include-build-output` on a
+merged branch; nothing is force-archived. Legacy `cleo orchestrate prune` does
+not provide these retention or machine-wide controls.
 
 Never re-run a worker's full suite to "double-check": a worker's
 `tool:test-affected` or `tool:test` result for the same tree and the

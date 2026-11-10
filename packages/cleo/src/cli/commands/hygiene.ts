@@ -11,7 +11,7 @@
 
 import { getProjectRoot } from '@cleocode/core';
 import { runSpawnReadinessHygieneCli } from '@cleocode/core/hygiene/validate-spawn-readiness.js';
-import { defineCommand } from 'citty';
+import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 export const hygieneCommand = defineCommand({
@@ -47,25 +47,52 @@ export const hygieneCommand = defineCommand({
       meta: {
         name: 'census',
         description:
-          'Classify every worktree under the machine worktree root by its disposal proof and record it (report only unless --apply)',
+          'Reap proven-safe terminal or crashed worktrees in this project; --report or --dry-run previews, --all-projects includes every registered project. Branches are kept.',
       },
       args: {
         report: {
           type: 'boolean',
-          description:
-            'List every worktree by project with its category, bytes and keep reason (default)',
+          description: 'List every worktree and the removal plan without removing anything',
           default: false,
         },
         apply: {
           type: 'boolean',
           description:
-            "Also remove this project's proven-redundant worktrees; other projects stay report-only",
+            "Remove this project's proven-redundant worktrees (default); other projects stay report-only unless --all-projects",
+          default: false,
+        },
+        'dry-run': {
+          type: 'boolean',
+          description:
+            'Preview the same reaper plan without removing worktrees or releasing locks.',
+          default: false,
+        },
+        'all-projects': {
+          type: 'boolean',
+          description:
+            'Allow removal across every registered project, including external git worktrees.',
+          default: false,
+        },
+        'ttl-days': {
+          type: 'string',
+          description: 'Minimum idle age in days; a size budget never overrides this (default: 0).',
+        },
+        'max-bytes': {
+          type: 'string',
+          description:
+            'Target retained apparent bytes; removes oldest eligible worktrees first (default: 0).',
+        },
+        'include-build-output': {
+          type: 'boolean',
+          description:
+            'Also allow merged ignored build output to be regenerated; never force-archive it.',
           default: false,
         },
       },
       async run({ args }) {
-        if (args.report === true && args.apply === true) {
-          cliError('Pass --report or --apply, not both.', 2);
+        const dryRun = args.report === true || args['dry-run'] === true;
+        if (dryRun && args.apply === true) {
+          cliError('Pass --report/--dry-run or --apply, not both.', 2);
           process.exit(2);
           return;
         }
@@ -77,8 +104,12 @@ export const hygieneCommand = defineCommand({
           projectRoot = null;
         }
         const result = await runWorktreeCensus({
-          apply: args.apply === true,
+          apply: !dryRun,
           applyProjects: projectRoot !== null ? [projectRoot] : [],
+          allProjects: args['all-projects'] === true,
+          ttlDays: args['ttl-days'] !== undefined ? Number(args['ttl-days']) : undefined,
+          maxBytes: args['max-bytes'] !== undefined ? Number(args['max-bytes']) : undefined,
+          exemptRegenerable: args['include-build-output'] === true,
         });
         if ('skipped' in result) {
           cliOutput(result, {

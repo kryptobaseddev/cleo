@@ -23,6 +23,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
+import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
@@ -119,6 +120,204 @@ afterEach(() => {
 });
 
 describe('worktree census (T14275)', () => {
+  it('reproduces completed locked worktrees across projects: previews, then removes all proven ones and retains branches', async () => {
+    const more = ['T6', 'T7', 'T8'].map((id) => {
+      TASKS.set(id, 'done');
+      return worktree(a, id);
+    });
+    const safe = [paths.T1!, paths.T4!, ...more];
+    for (const path of safe) git(a, 'worktree', 'lock', path);
+    for (const id of ['T1', 'T6', 'T7', 'T8'])
+      acquireWorktreeTaskLock({ projectHash: computeProjectHash(a), taskId: id });
+    const preview = await runWorktreeCensus({ projects: [a, b], recordDir, allProjects: true });
+    if ('skipped' in preview) throw new Error(preview.skipped);
+    expect(
+      preview.record.rows
+        .filter((r) => r.selected)
+        .map((r) => r.path)
+        .sort(),
+    ).toEqual(safe.sort());
+    expect(readWorktreeTaskLock(computeProjectHash(a), 'T1')).not.toBeNull();
+    expect(git(a, 'worktree', 'list', '--porcelain')).toContain('locked');
+    for (const path of safe) expect(existsSync(path)).toBe(true);
+
+    const applied = await runWorktreeCensus({
+      projects: [a, b],
+      recordDir,
+      allProjects: true,
+      apply: true,
+    });
+    if ('skipped' in applied) throw new Error(applied.skipped);
+    expect(
+      applied.record.rows
+        .filter((r) => r.removed)
+        .map((r) => r.path)
+        .sort(),
+    ).toEqual(safe.sort());
+    for (const path of safe) expect(existsSync(path)).toBe(false);
+    for (const id of ['T1', 'T6', 'T7', 'T8']) {
+      expect(git(a, 'rev-parse', '--verify', `refs/heads/task/${id}`)).toBeTruthy();
+      expect(readWorktreeTaskLock(computeProjectHash(a), id)).toBeNull();
+    }
+    for (const path of [a, b, paths.T2!, paths.T3!, paths.T5!, paths.stray!])
+      expect(existsSync(path)).toBe(true);
+    expect(
+      readFileSync(join(a, '.cleo/audit/worktree-lifecycle.jsonl'), 'utf-8').trim().split('\n'),
+    ).toHaveLength(4);
+    expect(JSON.parse(readFileSync(applied.recordPath, 'utf-8'))).toEqual(applied.record);
+  });
+
+  it('honors TTL and retained size budget, selecting oldest eligible worktrees only until the target is reached', async () => {
+    const young = await runWorktreeCensus({
+      projects: [a, b],
+      recordDir,
+      allProjects: true,
+      apply: true,
+      ttlDays: 1,
+    });
+    if ('skipped' in young) throw new Error(young.skipped);
+    expect(young.record.rows.some((r) => r.removed)).toBe(false);
+    const total = young.record.apparentBytes;
+    const trimmed = await runWorktreeCensus({
+      projects: [a, b],
+      recordDir,
+      allProjects: true,
+      apply: true,
+      maxBytes: total - 1,
+    });
+    if ('skipped' in trimmed) throw new Error(trimmed.skipped);
+    expect(trimmed.record.rows.filter((r) => r.removed)).toHaveLength(1);
+    expect(
+      trimmed.record.apparentBytes - trimmed.record.reclaimedApparentBytes,
+    ).toBeLessThanOrEqual(total - 1);
+    expect(existsSync(paths.T2!)).toBe(true);
+    expect(existsSync(paths.T3!)).toBe(true);
+  });
+
+  it('covers unadopted external worktrees even when the project has no canonical hash directory', async () => {
+    const external = join(base, 'external', 'lane');
+    mkdirSync(join(base, 'external'));
+    const root = repo('external-project');
+    git(root, 'worktree', 'add', '-q', '-b', 'task/T90-slug', external, 'main');
+    TASKS.set('T90', 'cancelled');
+    // c's existing canonical worktree is deliberately unproven.
+    writeFileSync(join(paths.T5!, 'unique.txt'), 'keep me');
+    const out = await runWorktreeCensus({
+      projects: [root],
+      recordDir,
+      allProjects: true,
+      apply: true,
+    });
+    if ('skipped' in out) throw new Error(out.skipped);
+    expect(out.record.rows.find((r) => r.path === external)?.removed).toBe(true);
+    expect(existsSync(paths.T5!)).toBe(true);
+    expect(git(root, 'rev-parse', '--verify', 'refs/heads/task/T90-slug')).toBeTruthy();
+  });
+
+  it('reaps a locally proven crashed worker, keeps a live task, and never discards unpushed commits', async () => {
+    const crashed = worktree(a, 'T91');
+    TASKS.set('T91', 'pending');
+    acquireWorktreeTaskLock({
+      projectHash: computeProjectHash(a),
+      taskId: 'T91',
+      holder: { pid: 2_147_483_647 },
+    });
+    const unique = worktree(a, 'T92');
+    TASKS.set('T92', 'done');
+    writeFileSync(join(unique, 'unique.txt'), 'unpublished');
+    git(unique, 'add', '.');
+    git(unique, 'commit', '-q', '-m', 'unique work');
+    const out = await runWorktreeCensus({
+      projects: [a],
+      recordDir,
+      allProjects: true,
+      apply: true,
+    });
+    if ('skipped' in out) throw new Error(out.skipped);
+    expect(out.record.rows.find((r) => r.path === crashed)).toMatchObject({
+      crashed: true,
+      removed: true,
+    });
+    expect(existsSync(unique)).toBe(true);
+    expect(existsSync(paths.T3!)).toBe(true);
+    expect(out.record.rows.find((r) => r.path === unique)?.keepReason).toContain('commits');
+    const remote = join(base, 'remote.git');
+    git(base, 'init', '--bare', '-q', remote);
+    git(a, 'remote', 'add', 'origin', remote);
+    git(unique, 'push', '-q', 'origin', 'task/T92');
+    const pushed = await runWorktreeCensus({
+      projects: [a],
+      recordDir,
+      allProjects: true,
+      apply: true,
+    });
+    if ('skipped' in pushed) throw new Error(pushed.skipped);
+    expect(pushed.record.rows.find((r) => r.path === unique)?.removed).toBe(true);
+    expect(git(a, 'rev-parse', '--verify', 'refs/heads/task/T92')).toBeTruthy();
+  });
+
+  it('keeps ignored build output by default and exempts it only with the explicit merged-build flag', async () => {
+    writeFileSync(join(a, '.gitignore'), 'dist/\n');
+    git(a, 'add', '.gitignore');
+    git(a, 'commit', '-q', '-m', 'ignore output');
+    const path = worktree(a, 'T93');
+    TASKS.set('T93', 'done');
+    writeFileSync(join(path, 'source.txt'), 'source');
+    git(path, 'add', '.');
+    git(path, 'commit', '-q', '-m', 'build source');
+    git(a, 'merge', '--no-ff', '-q', '-m', 'integrated', 'task/T93');
+    mkdirSync(join(path, 'dist'));
+    writeFileSync(join(path, 'dist', 'bundle.js'), 'generated');
+    const kept = await runWorktreeCensus({
+      projects: [a],
+      recordDir,
+      allProjects: true,
+      apply: true,
+    });
+    if ('skipped' in kept) throw new Error(kept.skipped);
+    expect(kept.record.rows.find((r) => r.path === path)?.keepReason).toContain('ignored content');
+    const removed = await runWorktreeCensus({
+      projects: [a],
+      recordDir,
+      allProjects: true,
+      apply: true,
+      exemptRegenerable: true,
+    });
+    if ('skipped' in removed) throw new Error(removed.skipped);
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(join(a, '.cleo/archive/worktrees'))).toBe(false);
+    expect(git(a, 'rev-parse', '--verify', 'refs/heads/task/T93')).toBeTruthy();
+  });
+
+  it('rejects invalid retention limits before creating a record or removing anything', async () => {
+    for (const ttlDays of [-1, NaN, Infinity])
+      await expect(runWorktreeCensus({ recordDir, ttlDays })).rejects.toThrow('non-negative');
+    await expect(runWorktreeCensus({ recordDir, maxBytes: -1 })).rejects.toThrow('non-negative');
+    expect(existsSync(recordDir)).toBe(false);
+  });
+
+  it('keeps known task worktrees when task state is unavailable and reports inaccessible projects', async () => {
+    TASKS.clear();
+    const missing = join(base, 'missing');
+    const out = await runWorktreeCensus({
+      projects: [missing, a, b],
+      recordDir,
+      allProjects: true,
+      apply: true,
+    });
+    if ('skipped' in out) throw new Error(out.skipped);
+    expect(out.record.partial).toBe(true);
+    expect(out.record.projectErrors).toEqual([
+      { project: missing, error: 'registered project path is unavailable' },
+    ]);
+    expect(out.record.rows.some((r) => r.removed)).toBe(false);
+    expect(out.record.rows.find((r) => r.path === paths.T1)?.keepReason).toContain(
+      'task state unavailable',
+    );
+    expect(existsSync(paths.T1!)).toBe(true);
+    expect(existsSync(paths.T4!)).toBe(true);
+  });
+
   it('report lists every worktree under the root by project with category, bytes and keep reason; removes nothing', async () => {
     const out = await runWorktreeCensus({ projects: [a, b], recordDir });
     if ('skipped' in out) throw new Error(out.skipped);
@@ -186,6 +385,9 @@ describe('worktree census (T14275)', () => {
     expect(claimCensus(now, recordDir)).toBe(true);
     expect(claimCensus(now + 60_000, recordDir)).toBe(false);
     expect(claimCensus(now + CENSUS_INTERVAL_MS + 1, recordDir)).toBe(true);
+    expect(claimCensus(now, recordDir, a)).toBe(true);
+    expect(claimCensus(now, recordDir, b)).toBe(true);
+    expect(claimCensus(now + 60_000, recordDir, a)).toBe(false);
     expect(censusSpawnAllowed({})).toBe(true);
     expect(censusSpawnAllowed({ CI: 'true' })).toBe(false);
     expect(censusSpawnAllowed({ VITEST: 'true' })).toBe(false);

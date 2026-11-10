@@ -873,6 +873,8 @@ export interface WorktreeInfo {
   isMerged: boolean;
   /** Status of the owning task (if {@link taskId} is present and resolvable), or null. */
   owningTaskStatus: string | null;
+  /** A local lock proves the worker process died, and no live task claim remains. */
+  isCrashed?: boolean;
   /** Mutually-exclusive status category — see {@link WorktreeStatusCategory}. */
   statusCategory: WorktreeStatusCategory;
   /** For `keep` and `unknown`: the proof clause that failed, or the probe that could not answer (T14274). */
@@ -903,6 +905,8 @@ export interface WorktreeInfo {
  * @task T9546
  */
 export interface ListWorktreesOpts {
+  /** Limit enrichment and disposal proofs to this task (terminal lifecycle cleanup). */
+  taskId?: string;
   /**
    * Absolute path to the project root (used to compute the project hash
    * and resolve the canonical worktrees directory).
@@ -921,6 +925,8 @@ export interface ListWorktreesOpts {
    * @default 7
    */
   staleDays?: number;
+  /** Whether merged ignored build output may be regenerated (default: true for legacy listing). */
+  exemptRegenerable?: boolean;
 }
 
 /**

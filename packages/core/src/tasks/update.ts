@@ -24,6 +24,7 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { pushWarning } from '../output.js';
+import { resolveOrCwd } from '../paths.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -955,6 +956,11 @@ export async function updateTask(
       after: { changes, title: written.title },
     });
   });
+
+  if (lifecycleEvent === 'task_cancelled') {
+    const { releaseTaskWorktrees } = await import('../worktree/prune.js');
+    await releaseTaskWorktrees(resolveOrCwd(cwd), written);
+  }
 
   // T12693: agents are asked for the why of a ranking change.
   if (rankingRecorded && rankingActor.actor !== 'human' && !options.reason?.trim()) {
