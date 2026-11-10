@@ -12,7 +12,7 @@ import { EngineResultError } from '../engine-result.js';
  * @remarks Global configuration cannot supply another project's worker rules.
  * @param projectRoot - Project whose `.cleo/config.json` owns the policy.
  * @returns Validated rules, or undefined when the project declares none.
- * @throws {@link EngineResultError} with a repair command for invalid configuration.
+ * @throws An EngineResultError with a repair command for invalid configuration.
  * @example
  * ```typescript
  * const policy = await resolveProjectWorkerPolicy(projectRoot);
@@ -23,7 +23,7 @@ export async function resolveProjectWorkerPolicy(
   projectRoot: string,
 ): Promise<ProjectWorkerPolicy | undefined> {
   const fix =
-    'cleo config set orchestrate.workerPolicy \'{"verification":{"full":"ci","local":"single-file"},"instructions":[]}\' --type json';
+    "Preserve existing project instructions and repair the invalid fields: cleo config set orchestrate.workerPolicy '<valid-policy-json>' --type json";
   try {
     const raw = await getConfigValue('orchestrate.workerPolicy', {
       projectRoot,
