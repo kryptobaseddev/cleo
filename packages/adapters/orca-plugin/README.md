@@ -102,7 +102,9 @@ approval. `orca plugin dev unload packages/adapters/orca-plugin` removes it.
 The plugin is this folder: `orca-plugin.json`, `src/`, this README. Orca loads the `.ts` and
 `.tsx` files as written, so there is no build step, no bundle and no `node_modules`; that is also
 why the folder imports nothing from the CLEO workspace packages and checks every envelope itself.
-`.orca/` holds typings Orca generates and is not committed.
+`.orca/` holds typings Orca generates and is not committed. `tsconfig.json` repeats Orca's
+compiler options instead of extending the generated file, so the sources still load on a checkout
+that has no `.orca/` (CI, for one).
 
 It lives in `packages/adapters` because it is host integration for one agent environment, and it
 is not part of the `@cleocode/adapters` npm package. Loading it today means loading this folder
