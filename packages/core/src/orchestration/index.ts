@@ -20,6 +20,7 @@ import {
   type SpawnTier,
 } from './spawn-prompt.js';
 import { type EnrichedWave, getEnrichedWaves, isTerminalWaveStatus } from './waves.js';
+import { resolveProjectWorkerPolicy } from './worker-policy.js';
 
 export type { CircularDependency, DependencyAnalysis, MissingDependency } from './analyze.js';
 // Re-export new core modules for barrel access
@@ -421,6 +422,7 @@ export async function prepareSpawn(
     projectRoot,
     sessionId: options?.sessionId ?? null,
     leanLevel,
+    workerPolicy: await resolveProjectWorkerPolicy(projectRoot),
   });
 
   return {

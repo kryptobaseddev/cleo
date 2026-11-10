@@ -903,6 +903,8 @@ export interface WorktreeInfo {
  * @task T9546
  */
 export interface ListWorktreesOpts {
+  /** Limit enrichment and disposal proofs to this task (terminal lifecycle cleanup). */
+  taskId?: string;
   /**
    * Absolute path to the project root (used to compute the project hash
    * and resolve the canonical worktrees directory).
@@ -921,6 +923,8 @@ export interface ListWorktreesOpts {
    * @default 7
    */
   staleDays?: number;
+  /** Whether merged ignored build output may be regenerated (default: true for legacy listing). */
+  exemptRegenerable?: boolean;
 }
 
 /**

@@ -11,6 +11,7 @@
  */
 
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { AdapterManifest, CLEOProviderAdapter } from '@cleocode/contracts';
 
 /**
@@ -46,7 +47,7 @@ export async function loadAdapterFromManifest(
   manifest: AdapterManifest,
 ): Promise<CLEOProviderAdapter> {
   const modulePath = join(manifest.packagePath, manifest.entryPoint);
-  const adapterModule = await import(modulePath);
+  const adapterModule = await import(pathToFileURL(modulePath).href);
 
   // Prefer createAdapter() factory (all adapter packages export this)
   if (typeof adapterModule.createAdapter === 'function') {

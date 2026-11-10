@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   AcceptanceGate,
+  DisposeWorktreeResult,
   KnowledgeCoverage,
   Task,
   TaskRecord,
@@ -163,8 +164,8 @@ export interface CompleteTaskOptions {
    */
   expectedUpdatedAt?: string;
   /**
-   * Skip worktree integration (`cleo complete --no-integrate`): the task
-   * branch and worktree are left exactly as they are (T14053).
+   * Skip worktree merging (`cleo complete --no-integrate`). Terminal-task
+   * cleanup still releases locks and removes proven-safe worktrees, keeping branches.
    */
   noIntegrate?: boolean;
 }
@@ -209,6 +210,8 @@ export interface CompleteTaskResult {
    * when the integration helper could not load.
    */
   integration?: WorktreeIntegrationOutcome;
+  /** Terminal-task cleanup receipts; every branch is retained. */
+  worktreeRelease?: DisposeWorktreeResult[];
 }
 
 interface CompletionEnforcement {
@@ -1430,6 +1433,7 @@ export async function completeTask(
       const result = completeAgentWorktreeIntegration(options.taskId, projectRoot, {
         taskTitle: task.title,
         evidence: taskEvidenceAtoms(task),
+        retainWorktree: true,
       });
       integration = integrationOutcome(result);
       // T13696: a kept worktree is never silent — something still needs its files.
@@ -1473,6 +1477,9 @@ export async function completeTask(
       '[T9175] worktree integration helper unavailable — skipping',
     );
   }
+
+  const { releaseTaskWorktrees } = await import('../worktree/prune.js');
+  const worktreeRelease = await releaseTaskWorktrees(projectRoot, task);
 
   // NOTE: Memory bridge refresh is now handled by the onToolComplete hook
   // via memory-bridge-refresh.ts (T138). No direct call needed here.
@@ -1573,6 +1580,7 @@ export async function completeTask(
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
     ...(receiptSummary ? { receipt: receiptSummary } : {}),
     ...(integration ? { integration } : {}),
+    ...(worktreeRelease.length > 0 ? { worktreeRelease } : {}),
   };
 }
 
@@ -1606,6 +1614,8 @@ interface CompleteEngineSuccess {
    * Absent when the task was already done (nothing ran).
    */
   integration?: WorktreeIntegrationOutcome;
+  /** Automatic cleanup receipts; unproven worktrees and every branch are retained. */
+  worktreeRelease?: DisposeWorktreeResult[];
   /**
    * `true` when the completed task was a focus pointer (the caller's session
    * key or the legacy global key) and that pointer was cleared (T12660).
@@ -1808,6 +1818,7 @@ export async function taskComplete(
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
       ...(result.integration && { integration: result.integration }),
+      ...(result.worktreeRelease && { worktreeRelease: result.worktreeRelease }),
       ...(await clearFinishedFocus(projectRoot, [taskId, ...(result.autoCompleted ?? [])])),
     });
   } catch (err: unknown) {

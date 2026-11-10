@@ -7,6 +7,7 @@ import {
 import type { CLEOSpawnAdapter } from '@cleocode/contracts';
 import type { EngineResult } from '../engine-result.js';
 import {
+  getSpawnAdapterFix,
   initializeDefaultAdapters,
   type SpawnCapability,
   spawnRegistry,
@@ -16,13 +17,19 @@ import type { HarnessSpawnProviderSelection } from './types.js';
 /**
  * Build a typed error result for harness provider selection.
  */
-function selectionError<T>(code: string, message: string, exitCode: number): EngineResult<T> {
+function selectionError<T>(
+  code: string,
+  message: string,
+  exitCode: number,
+  fix?: string,
+): EngineResult<T> {
   return {
     success: false,
     error: {
       code,
       message,
       exitCode,
+      ...(fix ? { fix } : {}),
     },
   };
 }
@@ -89,6 +96,7 @@ export async function selectHarnessSpawnProvider(
         'E_SPAWN_NO_PROVIDER',
         `No provider found with all required capabilities: ${capabilities.join(', ')}`,
         60,
+        await getSpawnAdapterFix(capabilities),
       );
     }
 
@@ -98,6 +106,7 @@ export async function selectHarnessSpawnProvider(
         'E_SPAWN_NO_ADAPTER',
         'No spawn adapter registered for matching providers',
         60,
+        await getSpawnAdapterFix(capabilities),
       );
     }
 
@@ -107,6 +116,7 @@ export async function selectHarnessSpawnProvider(
         'E_SPAWN_ADAPTER_UNAVAILABLE',
         `Selected adapter '${adapter.id}' cannot spawn in current environment`,
         63,
+        await getSpawnAdapterFix(capabilities),
       );
     }
 

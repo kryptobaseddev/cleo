@@ -1621,10 +1621,26 @@ async function handleWorktreePrune(
     );
     if (taskId) {
       const result = pruneWorktree(taskId, projectRoot);
-      return { success: true, data: result };
+      return {
+        success: true,
+        data: {
+          ...result,
+          coverage: 'Legacy single-task cleanup; no TTL, size budget or machine-wide scan.',
+          reaperCommand: 'cleo hygiene census --all-projects --dry-run',
+        },
+      };
     }
     const result = pruneOrphanedWorktrees(projectRoot, undefined);
-    return { success: true, data: { ...result, mode: 'bulk' } };
+    return {
+      success: true,
+      data: {
+        ...result,
+        mode: 'bulk',
+        coverage:
+          'Legacy project cleanup does not select completed tasks or scan other projects. Use the worktree census reaper.',
+        reaperCommand: 'cleo hygiene census --all-projects --dry-run',
+      },
+    };
   } catch (error) {
     getLogger('domain:orchestrate').error(
       { operation: 'worktree.prune', taskId, err: error },

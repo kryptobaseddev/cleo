@@ -7,7 +7,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { detectProvider, discoverAdapterManifests } from '../discovery.js';
+import { detectProvider, discoverProjectAdapterManifests } from '../discovery.js';
 import { AdapterManager } from '../manager.js';
 
 // --- Helpers ---
@@ -49,7 +49,7 @@ const MOCK_MANIFEST = {
 
 // --- Discovery tests ---
 
-describe('discoverAdapterManifests', () => {
+describe('discoverProjectAdapterManifests', () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -61,13 +61,13 @@ describe('discoverAdapterManifests', () => {
   });
 
   it('returns empty array when packages/adapters/ does not exist', () => {
-    const result = discoverAdapterManifests(tempDir);
+    const result = discoverProjectAdapterManifests(tempDir);
     expect(result).toEqual([]);
   });
 
   it('discovers a valid manifest.json', () => {
     createManifest(tempDir, MOCK_MANIFEST);
-    const result = discoverAdapterManifests(tempDir);
+    const result = discoverProjectAdapterManifests(tempDir);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('test-adapter');
     expect(result[0].provider).toBe('test-provider');
@@ -80,14 +80,14 @@ describe('discoverAdapterManifests', () => {
       id: 'second-adapter',
       provider: 'second-provider',
     });
-    const result = discoverAdapterManifests(tempDir);
+    const result = discoverProjectAdapterManifests(tempDir);
     expect(result).toHaveLength(2);
   });
 
   it('skips directories without manifest.json', () => {
     const adaptersDir = join(tempDir, 'packages', 'adapters', 'no-manifest');
     mkdirSync(adaptersDir, { recursive: true });
-    const result = discoverAdapterManifests(tempDir);
+    const result = discoverProjectAdapterManifests(tempDir);
     expect(result).toHaveLength(0);
   });
 
@@ -95,7 +95,7 @@ describe('discoverAdapterManifests', () => {
     const adaptersDir = join(tempDir, 'packages', 'adapters', 'bad-adapter');
     mkdirSync(adaptersDir, { recursive: true });
     writeFileSync(join(adaptersDir, 'manifest.json'), 'not valid json{{{');
-    const result = discoverAdapterManifests(tempDir);
+    const result = discoverProjectAdapterManifests(tempDir);
     expect(result).toHaveLength(0);
   });
 });

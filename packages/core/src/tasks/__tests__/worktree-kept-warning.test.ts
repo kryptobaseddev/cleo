@@ -8,7 +8,13 @@
 
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { WorktreeDisposalBlockers } from '@cleocode/contracts';
+import type {
+  DisposeWorktreeOptions,
+  DisposeWorktreeResult,
+  ListWorktreesResult,
+  WorktreeDisposalBlockers,
+} from '@cleocode/contracts';
+import { engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { drainWarnings } from '../../output.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
@@ -38,15 +44,38 @@ vi.mock('../../spawn/branch-integration.js', async (importOriginal) => ({
   }),
 }));
 
-vi.mock('../../sentient/worktree-dispatch.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../sentient/worktree-dispatch.js')>()),
-  teardownWorktree: async () => ({
-    taskId: 'T001',
-    worktreeRemoved: false,
-    branchDeleted: false,
-    error: MESSAGE,
+vi.mock('@cleocode/worktree', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/worktree')>()),
+  disposeWorktree: (options: DisposeWorktreeOptions): DisposeWorktreeResult => ({
+    worktreePath: options.worktreePath,
+    removed: false,
+    keptReason: MESSAGE,
     kept: KEPT,
   }),
+}));
+
+vi.mock('../../worktree/list.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../worktree/list.js')>()),
+  listWorktrees: async () =>
+    engineSuccess<ListWorktreesResult>({
+      worktrees: [
+        {
+          path: '/wt/T1',
+          branch: 'task/T001',
+          taskId: 'T001',
+          owningAgent: null,
+          lastActivity: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          isLocked: false,
+          lockState: 'unlocked',
+          isStale: false,
+          isMerged: true,
+          owningTaskStatus: 'cancelled',
+          statusCategory: 'keep',
+          source: 'cleo-spawn',
+        },
+      ],
+    }),
 }));
 
 describe('W_WORKTREE_KEPT (T13701)', () => {
@@ -88,7 +117,7 @@ describe('W_WORKTREE_KEPT (T13701)', () => {
     expect(warning?.context).toEqual({ taskId: 'T001', ...KEPT });
   });
 
-  it('cancel awaits teardown, warns, and returns the blockers', async () => {
+  it('cancel awaits disposal, warns, and returns the blockers', async () => {
     const result = await coreTaskCancel(env.tempDir, 'T001');
     expect(result.worktreeKept).toEqual(KEPT);
     const warning = drainWarnings()?.find((w) => w.code === 'W_WORKTREE_KEPT');

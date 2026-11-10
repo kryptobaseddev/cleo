@@ -921,6 +921,54 @@ export async function verifyPackedSchemas(app, env, options = {}) {
 }
 
 /**
+ * Select Claude Code through the installed CLI dependency graph in a plain project.
+ * The executable fixture is only an availability marker; no provider is launched.
+ * @param {string} app - Fresh npm installation containing the CLI.
+ * @param {string} root - Owned evidence directory.
+ * @param {NodeJS.ProcessEnv} env - Isolated child environment.
+ * @param {object} [options] - Bounded process capture options.
+ * @returns {Promise<object>} Actual installed harness selection.
+ */
+export async function verifyPackedSpawnAdapter(app, root, env, options = {}) {
+  const project = join(root, 'adapter-project');
+  const bin = join(root, 'adapter-bin');
+  mkdirSync(join(project, '.cleo'), { recursive: true });
+  mkdirSync(join(project, '.git'), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(project, '.cleo', 'config.json'), '{}');
+  writeFileSync(join(bin, process.platform === 'win32' ? 'claude.cmd' : 'claude'), '', {
+    mode: 0o755,
+  });
+  const probe = `import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const appRequire = createRequire(pathToFileURL(resolve('package.json')));
+const cliRequire = createRequire(appRequire.resolve('@cleocode/cleo'));
+const { selectHarnessSpawnProvider } = await import(pathToFileURL(cliRequire.resolve('@cleocode/core/harness')).href);
+const result = await selectHarnessSpawnProvider(['supportsSubagents']);
+if (!result.success || result.data.adapterId !== 'claude-code') throw new Error(JSON.stringify(result));
+process.stdout.write(JSON.stringify(result.data));
+`;
+  const output = await runPackedCommand(
+    process.execPath,
+    ['--input-type=module', '--eval', probe],
+    {
+      cwd: app,
+      env: {
+        ...env,
+        CLEO_ROOT: project,
+        CLEO_PROJECT_ROOT: project,
+        CLEO_DIR: join(project, '.cleo'),
+        PATH: `${bin}${process.platform === 'win32' ? ';' : ':'}${env.PATH ?? ''}`,
+      },
+      timeout: 30_000,
+      ...options,
+    },
+  );
+  return JSON.parse(output);
+}
+
+/**
  * Verify an API task list against canonical CLI-created identity and title.
  * @param {object} body - Parsed Studio tasks response.
  * @param {string} taskId - Exact identity returned by canonical CLI creation.
@@ -1497,6 +1545,7 @@ async function main() {
       studio: 'not-assessed',
       embedding: 'not-assessed',
       providers: 'not-assessed',
+      adapterSelection: 'not-assessed',
       dependencies: 'not-assessed',
       schemas: 'not-assessed',
     },
@@ -1631,6 +1680,9 @@ async function main() {
       );
     manifest.coverage.dependencies = 'verified-lockfile-versions';
     manifest.coverage.schemas = await verifyPackedSchemas(app, env, { systemdControl });
+    save();
+    manifest.adapterSelection = await verifyPackedSpawnAdapter(app, root, env, { systemdControl });
+    manifest.coverage.adapterSelection = 'verified-installed-claude-code-selection';
     save();
     manifest.git = await verifyPackedGit(app, root, env, { systemdControl });
     manifest.coverage.git = 'verified-installed-version-and-initialization';

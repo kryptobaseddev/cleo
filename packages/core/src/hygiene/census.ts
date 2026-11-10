@@ -7,7 +7,8 @@
  * deleted ones, scratch clones) were never swept: 484 had accumulated. The
  * CI cleanup workflow ran where no worktree exists and swallowed every error.
  *
- * The census walks every project hash directory under the root:
+ * The census walks every project hash directory and every registered project's
+ * git worktree registry (including unadopted external worktrees):
  *
  * - a directory whose hash matches a registered project (the nexus registry)
  *   is classified by that project's {@link listWorktrees}: the disposal proof
@@ -16,25 +17,27 @@
  * - a directory no registered project owns, and any directory git does not
  *   list as a worktree, is reported `unknown`, report only.
  *
- * Every row also carries the visibility fields the machine-hygiene epic needs
- * (T14440): the owning task's status, last activity and creation time, git and
- * task locks, the dirty-entry count, and the `node_modules` kind and size.
- * Per project the record rolls up worktree counts, bytes and merged local and
- * remote branches; machine-wide it names the orphan hash directories and the
- * global pnpm store's size.
- *
- * `--apply` removes only `redundant` worktrees of the projects it is allowed
- * to act on (by default the project it runs in; other projects stay report
- * only until the owner's plan question C is answered), each re-proved by
+ * The CLI reports by default. `--apply` removes only `redundant` terminal
+ * worktrees of the allowed projects (current project unless `--all-projects`);
+ * automatic completion and scheduled cleanup opt in explicitly, each re-proved by
  * `disposeWorktree` with the task's evidence. Every run writes one census
  * record (counts, apparent bytes, bytes reclaimed, the free-space delta and
  * every kept worktree with its reason) under `<cleoHome>/hygiene/census/`.
  *
  * One census runs at a time per machine (a heartbeat lock), and the lazy spawn
- * claims at most one run per 24 h; it never starts in CI, under vitest, or in
+ * claims at most one run per project per 24 h; it never starts in CI, under vitest, or in
  * a process git started (T14189).
  *
+ * Every row also carries the visibility fields the machine-hygiene epic needs
+ * (T14440): the owning task's status, last activity and creation time, git and
+ * task locks, the dirty-entry count, and the `node_modules` kind and size.
+ * Per project the record rolls up worktree counts, bytes and merged local and
+ * remote branches, and names why each project's store was or was not read;
+ * machine-wide it names the orphan hash directories and the global pnpm
+ * store's size.
+ *
  * @task T14275
+ * @task T14440
  */
 
 import { execFileSync, type SpawnOptions, spawn } from 'node:child_process';
@@ -55,12 +58,13 @@ import {
 } from 'node:fs';
 import { homedir, setPriority } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { WorktreeStatusCategory } from '@cleocode/contracts';
+import type { WorktreeInfo, WorktreeStatusCategory } from '@cleocode/contracts';
 import type { WorktreeLockRecord } from '@cleocode/contracts/operations/worktree.js';
 import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
 import { acquireHeartbeatLock, claimAtMostEvery } from '../tasks/merge-close.js';
+import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 
-/** The lazy census runs at most this often per machine. */
+/** The lazy census runs at most this often per project. */
 export const CENSUS_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /** A census lock whose heartbeat is older than this is stale. */
@@ -82,12 +86,12 @@ export interface CensusRow {
   keepReason?: string;
   /** Apparent size (the sum of file sizes, as `du --apparent-size`), in bytes. */
   apparentBytes: number;
-  /** Set when `--apply` removed it. */
-  removed?: boolean;
-  /** The owning task's status (`active`, `done`, ...), or `null` when unresolvable (T14440). */
-  taskStatus: string | null;
-  /** ISO of the last commit on the worktree's branch, else the dir mtime; `null` when unknown (T14440). */
-  lastActivity: string | null;
+  /** The branch is retained after removal. */
+  branch?: string;
+  /** Last recorded activity, used to order eligible worktrees oldest first. */
+  lastActivity?: string;
+  /** Task state at discovery; only done and cancelled tasks are removal candidates. */
+  taskStatus?: string | null;
   /** ISO creation time (git admin file, adopt sentinel or dir mtime); `null` when unknown (T14440). */
   createdAt: string | null;
   /** `git worktree list --porcelain` lock state (T14440). */
@@ -100,6 +104,10 @@ export interface CensusRow {
   nodeModules: 'absent' | 'symlink' | 'real';
   /** Apparent bytes of a `real` `node_modules` (symlinks count as 0); 0 otherwise (T14440). */
   nodeModulesBytes: number;
+  /** Selected by the TTL and retained-size budget, including in a dry run. */
+  selected?: boolean;
+  /** Set when `--apply` removed it. */
+  removed?: boolean;
 }
 
 /**
@@ -179,7 +187,13 @@ export interface CensusRecord {
   rows: CensusRow[];
   /** True when the wall-clock budget ran out: rows and bytes are a lower bound. */
   partial: boolean;
-  /** Per-project rollup: worktree count, bytes and merged branches (T14440). */
+  /** Minimum idle age of eligible worktrees, in days. */
+  ttlDays?: number;
+  /** Target retained apparent bytes; safety and TTL may prevent reaching it. */
+  maxBytes?: number;
+  /** Registered projects that could not be assessed; never eligible for removal. */
+  projectErrors?: Array<{ project: string; error: string }>;
+  /** Per-project rollup: worktree count, bytes, merged branches, store verdict (T14440). */
   projects: ProjectCensusRollup[];
   /** Hash directories under the machine root that no registered project owns (T14440). */
   orphanFolders: OrphanHashDir[];
@@ -193,6 +207,14 @@ export interface WorktreeCensusOptions {
   apply?: boolean;
   /** Projects `apply` may act on (default: none; the CLI passes the current project). */
   applyProjects?: readonly string[];
+  /** Explicitly allow removal in every registered project. */
+  allProjects?: boolean;
+  /** Minimum idle age in days (default: zero); a budget never overrides it. */
+  ttlDays?: number;
+  /** Stop removing once retained apparent bytes reach this budget (default: zero). */
+  maxBytes?: number;
+  /** Explicitly allow merged ignored build output to be regenerated; never force-archive. */
+  exemptRegenerable?: boolean;
   /** Registered project roots (default: read from the nexus registry). */
   projects?: readonly string[];
   /** Where the record is written (default: `<cleoHome>/hygiene/census`). */
@@ -258,16 +280,19 @@ function canonical(path: string): string {
  * Registered project roots from the nexus registry; `[]` when it cannot be read.
  *
  * @param load - The registry listing (default: `nexusList`; tests stub it).
+ * @param onError - Capture missing registry coverage in the census receipt.
  * @returns Each registered project's path.
  * @internal Exported for tests.
  */
 export async function registeredProjects(
   load?: () => Promise<ReadonlyArray<{ path: string }>>,
+  onError?: (message: string) => void,
 ): Promise<string[]> {
   try {
     const list = load ?? (await import('../nexus/registry.js')).nexusList;
     return (await list()).map((p) => p.path);
-  } catch {
+  } catch (err) {
+    onError?.(err instanceof Error ? err.message : String(err));
     return [];
   }
 }
@@ -282,6 +307,12 @@ export async function registeredProjects(
 export async function runWorktreeCensus(
   opts: WorktreeCensusOptions = {},
 ): Promise<{ record: CensusRecord; recordPath: string } | { skipped: string }> {
+  for (const value of [opts.ttlDays, opts.maxBytes]) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+      // @sync-invariant none:input-shape invalid local retention limits cannot select worktrees
+      throw new RangeError('Worktree TTL and size budget must be finite, non-negative numbers.');
+    }
+  }
   const dir = opts.recordDir ?? censusDir();
   mkdirSync(dir, { recursive: true });
   const release = acquireHeartbeatLock(join(dir, 'census.lock'), CENSUS_LOCK_STALE_MS);
@@ -314,28 +345,126 @@ function writeRecord(
 /** The census proper: classify, optionally apply, and build the record. */
 async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   // Lazy: the CLI imports this module on read commands to claim the daily run.
-  const { listWorktrees } = await import('../worktree/list.js');
-  const { worktreeInUseProbe } = await import('../worktree/in-use-probe.js');
+  const {
+    classifyStatus,
+    isPrimaryWorktree,
+    listWorktrees,
+    loadOwningTaskStatuses,
+    resolvePrimaryWorktreePath,
+  } = await import('../worktree/list.js');
+  const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
-  const { readWorktreeTaskLock } = await import('@cleocode/worktree');
+  const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
   const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
   const applyProjects = new Set((opts.applyProjects ?? []).map(canonical));
+  const ttlDays = opts.ttlDays ?? 0;
+  const maxBytes = opts.maxBytes ?? 0;
   const deadline = opts.deadline ?? Number.POSITIVE_INFINITY;
   let partial = false;
+  const projectErrors: NonNullable<CensusRecord['projectErrors']> = [];
   const outOfTime = (): boolean => {
-    if (Date.now() > deadline) partial = true;
-    return partial;
+    const expired = Date.now() > deadline;
+    if (expired) partial = true;
+    return expired;
   };
-  const projects = opts.projects ?? (await registeredProjects());
+  const projects = [
+    ...new Set(
+      (
+        opts.projects ??
+        (await registeredProjects(undefined, (error) => {
+          partial = true;
+          projectErrors.push({ project: 'registry', error });
+        }))
+      ).map(canonical),
+    ),
+  ];
+  if (opts.allProjects === true) for (const project of projects) applyProjects.add(project);
   const projectByHash = new Map<string, string>();
   for (const p of projects)
     if (existsSync(p)) projectByHash.set(computeProjectHash(p), canonical(p));
 
   const rows: CensusRow[] = [];
-  const meta = new Map<CensusRow, { isMerged: boolean }>();
+  const meta = new Map<CensusRow, WorktreeInfo>();
+  const seen = new Set<string>();
+  // Git's registry covers adopted AND unadopted external worktrees, including
+  // projects that have never had a canonical hash directory on this machine.
+  for (const project of projects) {
+    if (outOfTime()) break;
+    if (!existsSync(project)) {
+      partial = true;
+      projectErrors.push({ project, error: 'registered project path is unavailable' });
+      continue;
+    }
+    const result = await listWorktrees({
+      projectRoot: project,
+      exemptRegenerable: opts.exemptRegenerable === true,
+    });
+    if (!result.success) {
+      partial = true;
+      projectErrors.push({ project, error: result.error.message });
+      continue;
+    }
+    const primary = resolvePrimaryWorktreePath(project);
+    for (const worktree of result.data.worktrees) {
+      if (outOfTime()) break;
+      const path = canonical(worktree.path);
+      if (isPrimaryWorktree(path, primary) || path === project || seen.has(path)) continue;
+      seen.add(path);
+      const terminal =
+        worktree.taskId !== null &&
+        (worktree.owningTaskStatus === 'done' || worktree.owningTaskStatus === 'cancelled');
+      const classified =
+        terminal && worktree.taskId !== null
+          ? classifyStatus(
+              disposeWorktree({
+                worktreePath: path,
+                projectRoot: project,
+                taskId: worktree.taskId,
+                reason: 'census',
+                dryRun: true,
+                evidence: await loadTaskEvidence(project, worktree.taskId),
+                exemptRegenerable: opts.exemptRegenerable === true && worktree.isMerged,
+                inUse: await worktreeReaperInUseProbe(project, worktree.taskId, path),
+              }),
+            )
+          : { statusCategory: worktree.statusCategory, keepReason: worktree.keepReason };
+      const rowProjectHash = computeProjectHash(project);
+      const nm = classifyNodeModules(path);
+      const row: CensusRow = {
+        project,
+        projectHash: rowProjectHash,
+        path,
+        taskId: worktree.taskId,
+        category: classified.statusCategory,
+        ...(classified.keepReason !== undefined ? { keepReason: classified.keepReason } : {}),
+        apparentBytes: apparentBytes(path, deadline),
+        branch: worktree.branch,
+        lastActivity: worktree.lastActivity,
+        taskStatus: worktree.owningTaskStatus,
+        // T14440 visibility fields, off the classifier and the filesystem.
+        createdAt: worktree.createdAt ?? null,
+        gitLocked: worktree.lockState === 'locked',
+        taskLocked: readTaskLockSafe(readWorktreeTaskLock, rowProjectHash, worktree.taskId),
+        dirtyFiles: dirtyFileCount(path, deadline),
+        nodeModules: nm,
+        nodeModulesBytes:
+          nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
+      };
+      // A known task id without readable task state is not a taskless orphan.
+      if (row.taskStatus === null && (row.taskId !== null || row.category === 'redundant')) {
+        row.category = 'unknown';
+        row.keepReason =
+          row.taskId === null
+            ? 'task ownership unavailable (report only)'
+            : 'owning task state unavailable (report only)';
+      }
+      rows.push(row);
+      meta.set(row, worktree);
+    }
+  }
   let hashes: string[] = [];
   try {
     hashes = readdirSync(machineRoot).filter((h) => lstatSync(join(machineRoot, h)).isDirectory());
@@ -346,37 +475,6 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     if (outOfTime()) break;
     const hashDir = join(machineRoot, projectHash);
     const project = projectByHash.get(projectHash) ?? null;
-    const listed = new Map<
-      string,
-      {
-        category: WorktreeStatusCategory;
-        keepReason?: string;
-        taskId: string | null;
-        isMerged: boolean;
-        taskStatus: string | null;
-        lastActivity: string | null;
-        createdAt: string | null;
-        gitLocked: boolean;
-      }
-    >();
-    if (project !== null) {
-      const result = await listWorktrees({ projectRoot: project });
-      if (result.success) {
-        for (const w of result.data.worktrees) {
-          listed.set(canonical(w.path), {
-            category: w.statusCategory,
-            ...(w.keepReason !== undefined ? { keepReason: w.keepReason } : {}),
-            taskId: w.taskId,
-            isMerged: w.isMerged,
-            // T14440 visibility fields, straight off the classifier.
-            taskStatus: w.owningTaskStatus,
-            lastActivity: w.lastActivity ?? null,
-            createdAt: w.createdAt ?? null,
-            gitLocked: w.lockState === 'locked',
-          });
-        }
-      }
-    }
     let children: string[] = [];
     try {
       children = readdirSync(hashDir).filter((n) => lstatSync(join(hashDir, n)).isDirectory());
@@ -386,79 +484,89 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     for (const name of children.sort()) {
       if (outOfTime()) break;
       const path = join(hashDir, name);
-      const hit = listed.get(canonical(path));
+      if (seen.has(canonical(path))) continue;
       const nm = classifyNodeModules(path);
-      const row: CensusRow = hit
-        ? {
-            project,
-            projectHash,
-            path,
-            taskId: hit.taskId,
-            category: hit.category,
-            ...(hit.keepReason !== undefined ? { keepReason: hit.keepReason } : {}),
-            apparentBytes: apparentBytes(path, deadline),
-            taskStatus: hit.taskStatus,
-            lastActivity: hit.lastActivity,
-            createdAt: hit.createdAt,
-            gitLocked: hit.gitLocked,
-            taskLocked: readTaskLockSafe(readWorktreeTaskLock, projectHash, hit.taskId),
-            dirtyFiles: dirtyFileCount(path, deadline),
-            nodeModules: nm,
-            nodeModulesBytes:
-              nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
-          }
-        : {
-            project,
-            projectHash,
-            path,
-            taskId: null,
-            category: 'unknown',
-            keepReason:
-              project === null
-                ? 'no registered project owns this hash directory (report only)'
-                : 'git does not list this directory as a worktree of its project (report only)',
-            apparentBytes: apparentBytes(path, deadline),
-            taskStatus: null,
-            lastActivity: null,
-            createdAt: null,
-            gitLocked: false,
-            taskLocked: false,
-            dirtyFiles: null,
-            nodeModules: nm,
-            nodeModulesBytes:
-              nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
-          };
+      const row: CensusRow = {
+        project,
+        projectHash,
+        path,
+        taskId: null,
+        category: 'unknown',
+        keepReason:
+          project === null
+            ? 'no registered project owns this hash directory (report only)'
+            : 'git does not list this directory as a worktree of its project (report only)',
+        apparentBytes: apparentBytes(path, deadline),
+        createdAt: null,
+        gitLocked: false,
+        taskLocked: false,
+        dirtyFiles: null,
+        nodeModules: nm,
+        nodeModulesBytes:
+          nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
+      };
       rows.push(row);
-      meta.set(row, { isMerged: hit?.isMerged ?? false });
     }
   }
 
   const dfFreeBefore = apply ? freeBytes(machineRoot) : null;
   let reclaimed = 0;
-  if (apply) {
-    const { disposeWorktree } = await import('@cleocode/worktree');
-    for (const row of rows) {
-      if (outOfTime()) break;
-      if (row.category !== 'redundant' || row.project === null) continue;
-      if (!applyProjects.has(row.project)) continue;
-      // Re-proved here, with the task's evidence: the listing was a dry run.
-      const disposal = disposeWorktree({
-        worktreePath: row.path,
-        projectRoot: row.project,
-        taskId: row.taskId,
-        reason: 'census',
-        evidence: await loadTaskEvidence(row.project, row.taskId),
-        exemptRegenerable: meta.get(row)?.isMerged ?? false,
-        inUse: worktreeInUseProbe(readWorktreeTaskLock, row.project, row.taskId),
-      });
-      if (disposal.removed) {
-        row.removed = true;
-        reclaimed += row.apparentBytes;
-      } else {
-        row.category = disposal.indeterminate === true ? 'unknown' : 'keep';
-        row.keepReason = disposal.keptReason ?? 'kept';
+  let retainedBytes = rows.reduce((total, row) => total + row.apparentBytes, 0);
+  const oldestFirst = [...rows].sort(
+    (a, b) =>
+      (a.lastActivity ?? '').localeCompare(b.lastActivity ?? '') || a.path.localeCompare(b.path),
+  );
+  for (const row of oldestFirst) {
+    if (outOfTime()) break;
+    if (row.category !== 'redundant' || row.project === null) continue;
+    if (row.taskId === null || (row.taskStatus !== 'done' && row.taskStatus !== 'cancelled'))
+      continue;
+    if (!applyProjects.has(row.project)) continue;
+    const age = Date.now() - Date.parse(row.lastActivity ?? '');
+    if (!Number.isFinite(age) || age < ttlDays * 86_400_000 || retainedBytes <= maxBytes) continue;
+    row.selected = true;
+    if (!apply) {
+      retainedBytes -= row.apparentBytes;
+      continue;
+    }
+    // An active/reopened task or a store failure after listing cancels removal.
+    if (row.taskId !== null) {
+      const lookup = await loadOwningTaskStatuses([row.taskId], row.project);
+      const status = lookup.success ? lookup.data.get(row.taskId) : undefined;
+      if (status === undefined || status !== row.taskStatus) {
+        row.category = 'unknown';
+        row.keepReason = 'owning task changed or could not be re-read; nothing removed';
+        continue;
       }
     }
+    // Re-proved here, with the task's evidence: the listing was a dry run.
+    const disposal = disposeWorktree({
+      worktreePath: row.path,
+      projectRoot: row.project,
+      taskId: row.taskId,
+      reason: 'census',
+      evidence: await loadTaskEvidence(row.project, row.taskId),
+      exemptRegenerable: opts.exemptRegenerable === true && meta.get(row)?.isMerged === true,
+      inUse: await worktreeReaperInUseProbe(row.project, row.taskId, row.path),
+    });
+    if (disposal.removed) {
+      row.removed = true;
+      reclaimed += row.apparentBytes;
+      retainedBytes -= row.apparentBytes;
+    } else {
+      row.category = disposal.indeterminate === true ? 'unknown' : 'keep';
+      row.keepReason = disposal.keptReason ?? 'kept';
+    }
+    appendWorktreeAuditEntry(row.project, {
+      actor: resolveWorktreeAuditActor(),
+      action: 'prune',
+      target: row.path,
+      ...(row.taskId !== null ? { taskId: row.taskId } : {}),
+      ...(row.branch !== undefined ? { branch: row.branch } : {}),
+      reason: 'census',
+      success: disposal.removed,
+      ...(row.keepReason !== undefined ? { error: row.keepReason } : {}),
+    });
   }
   const dfFreeAfter = apply ? freeBytes(machineRoot) : null;
 
@@ -470,8 +578,8 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   };
   for (const row of rows) if (!row.removed) counts[row.category] += 1;
   outOfTime();
-  // One overall deadline: every measurement below shares the walk's, so a
-  // truncation is always visible in `partial` (T14440 review P2d).
+  // T14440: one overall deadline — every measurement below shares the walk's,
+  // so a truncation is always visible in `partial`.
   const registeredRollups = [...projectByHash.entries()].map(([hash, root]) => ({
     project: root,
     projectHash: hash,
@@ -502,11 +610,16 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       .map((r) => ({ path: r.path, category: r.category, keepReason: r.keepReason ?? '' })),
     rows,
     partial,
+    ttlDays,
+    maxBytes,
+    projectErrors,
     projects: rollups.rollups,
     orphanFolders: rollups.orphans,
     pnpmStore: opts.pnpmStore === undefined ? store : opts.pnpmStore,
   };
 }
+
+/** Wall-clock budget note: the merged-branch and pnpm measurements share the walk deadline. */
 
 /**
  * Per-project rollups over the census rows, seeded with every registered
@@ -690,8 +803,9 @@ function readTaskLockSafe(
 
 /**
  * The global pnpm content-addressable store and its apparent size (T14440).
- * `pnpm store path` resolves the location; any failure yields `null`, never a
- * zero-sized store.
+ * `pnpm store path` resolves the location from the home dir (an inherited
+ * per-worktree cwd would honour that worktree's `.npmrc` store-dir); any
+ * failure yields `null`, never a zero-sized store.
  *
  * @param deadline - Past it, `null`.
  * @returns The store census, or `null`.
@@ -701,8 +815,6 @@ export function pnpmStoreCensus(deadline = Number.POSITIVE_INFINITY): PnpmStoreC
   let storePath: string;
   try {
     storePath = execFileSync('pnpm', ['store', 'path'], {
-      // Resolve the GLOBAL store: an inherited per-worktree cwd would honour
-      // that worktree's `.npmrc` store-dir and misreport (T14440 review P2c).
       cwd: homedir(),
       timeout: 10_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -768,15 +880,17 @@ export function startLazyCensus(
     spawn?: (command: string, args: string[], options: SpawnOptions) => { unref(): void };
     dir?: string;
     now?: number;
+    /** Canonical project root: each project has its own daily claim. */
+    projectRoot?: string;
   } = {},
 ): string | null {
   const dir = deps.dir ?? censusDir();
   const now = deps.now ?? Date.now();
   mkdirSync(dir, { recursive: true });
   if (censusLockHeld(dir, now)) return 'another census holds the lock';
-  if (!claimCensus(now, dir)) return 'already claimed in the last 24 h';
+  if (!claimCensus(now, dir, deps.projectRoot)) return 'already claimed in the last 24 h';
   const entry = import.meta.url;
-  const script = `import(${JSON.stringify(entry)}).then((m) => m.runLazyCensus(${JSON.stringify(dir)}))`;
+  const script = `import(${JSON.stringify(entry)}).then((m) => m.runLazyCensus(${JSON.stringify(dir)}, ${JSON.stringify(deps.projectRoot)}))`;
   const log = openSync(join(dir, 'census.log'), 'a');
   try {
     const [cmd, ...pre] = [...lowPriorityPrefix(), process.execPath];
@@ -799,16 +913,25 @@ export function startLazyCensus(
  * process alive. The lock is released on every exit path.
  *
  * @param dir - The census directory.
+ * @param projectRoot - The project captured by the scheduling caller.
  * @task T14275
  */
-export async function runLazyCensus(dir = censusDir()): Promise<void> {
+export async function runLazyCensus(dir = censusDir(), projectRoot?: string): Promise<void> {
   try {
     setPriority(19);
   } catch {
     // Not permitted here: the budget still bounds the run.
   }
   setTimeout(() => process.exit(2), LAZY_CENSUS_BUDGET_MS + 60_000).unref();
+  const { getProjectRoot } = await import('../paths.js');
+  try {
+    projectRoot ??= getProjectRoot();
+  } catch {
+    /* no project: report only */
+  }
   const result = await runWorktreeCensus({
+    apply: projectRoot !== undefined,
+    applyProjects: projectRoot !== undefined ? [projectRoot] : [],
     recordDir: dir,
     deadline: Date.now() + LAZY_CENSUS_BUDGET_MS,
   });
@@ -836,17 +959,19 @@ export function censusSpawnAllowed(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * Claim today's lazy census, atomically: true for exactly one caller per
- * {@link CENSUS_INTERVAL_MS} on this machine.
+ * Claim today's lazy census, atomically: one caller per project per interval,
+ * or one machine-wide report when no project is supplied.
  *
  * @param now - Current time (ms).
  * @param dir - The census directory (tests).
+ * @param projectRoot - The canonical project root whose daily run is claimed.
  * @returns True when this caller should start the census.
  * @task T14275
  */
-export function claimCensus(now = Date.now(), dir = censusDir()): boolean {
+export function claimCensus(now = Date.now(), dir = censusDir(), projectRoot?: string): boolean {
   mkdirSync(dir, { recursive: true });
-  return claimAtMostEvery(join(dir, 'census.claim'), CENSUS_INTERVAL_MS, now);
+  const name = projectRoot === undefined ? 'census' : `census-${computeProjectHash(projectRoot)}`;
+  return claimAtMostEvery(join(dir, `${name}.claim`), CENSUS_INTERVAL_MS, now);
 }
 
 /**

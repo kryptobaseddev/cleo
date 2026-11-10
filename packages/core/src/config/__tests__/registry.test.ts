@@ -224,12 +224,18 @@ describe('getConfigValue', () => {
 // ---------------------------------------------------------------------------
 
 describe('validateConfig', () => {
-  it('returns ok=true when manifest has no attached schema', async () => {
+  it('preserves unrelated config keys when worker policy is absent', async () => {
     writeProjectConfig({ anything: 'goes' });
-    // CLEO_CONFIG_MANIFEST.schema is undefined in the built-in entries.
-    expect(CLEO_CONFIG_MANIFEST.schema).toBeUndefined();
+    expect(CLEO_CONFIG_MANIFEST.schema).toBeDefined();
     const result = await validateConfig('project', projectRoot);
     expect(result).toEqual({ ok: true, issues: [] });
+  });
+
+  it('rejects malformed project worker policy through config validation', async () => {
+    writeProjectConfig({ orchestrate: { workerPolicy: { verification: { full: 'skip' } } } });
+    const result = await validateConfig('project', projectRoot);
+    expect(result.ok).toBe(false);
+    expect(result.issues.join(';')).toContain('orchestrate.workerPolicy.verification.full');
   });
 
   it('returns ok=true when the file does not exist', async () => {
