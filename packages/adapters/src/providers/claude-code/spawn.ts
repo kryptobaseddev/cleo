@@ -11,6 +11,7 @@
  *
  * @task T5240
  * @task T11998 — per-session scope/pgid suite containment
+ * @task T14357 — lead spawns strip denied tools via --disallowedTools
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
@@ -25,6 +26,7 @@ import type {
 import { getErrorMessage } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
+import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 import { reapAgentSuite } from './suite-reaper.js';
 
@@ -63,6 +65,33 @@ interface TrackedProcess {
 }
 
 /**
+ * Build the `claude` CLI argv for a spawn.
+ *
+ * - `--print`: non-interactive batch mode (process prompt, output response, exit)
+ * - `--output-format json`: structured output for parsing
+ * - Worker: `--dangerously-skip-permissions` allows every tool call without approval.
+ * - Lead (`context.leadDeniedTools` set): `--disallowedTools <denied>` removes
+ *   those tools so they never run, and `--dangerously-skip-permissions` is NOT
+ *   passed. `--allowedTools` is not used: it only pre-approves and removes nothing.
+ *
+ * @param context - Spawn context.
+ * @param promptFile - Path of the prompt file passed as the final argument.
+ * @param settingsArgs - Extra `--settings <file>` args (a tracked worker's exit hook, T14359).
+ * @returns Argument list for the `claude` binary.
+ * @task T14357
+ */
+export function buildClaudeArgs(
+  context: SpawnContext,
+  promptFile: string,
+  settingsArgs: readonly string[] = [],
+): string[] {
+  const denied = leadDeniedTools(context);
+  const permissionArgs =
+    denied === null ? ['--dangerously-skip-permissions'] : ['--disallowedTools', denied.join(',')];
+  return ['--print', ...permissionArgs, '--output-format', 'json', ...settingsArgs, promptFile];
+}
+
+/**
  * Spawn provider for Claude Code.
  *
  * Spawns detached Claude CLI processes for subagent execution.
@@ -78,6 +107,9 @@ interface TrackedProcess {
  * in-memory map and verified via `kill(pid, 0)` liveness checks.
  */
 export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
+  /** Lead spawns lose their denied tools through `--disallowedTools` (T14357). */
+  readonly leadToolStrip = 'enforced' as const;
+
   /** Map of instance IDs to tracked process info. */
   private processMap = new Map<string, TrackedProcess>();
 
@@ -136,18 +168,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         settingsArgs = ['--settings', settingsFile];
       }
 
-      // --print: non-interactive batch mode (process prompt, output response, exit)
-      // --dangerously-skip-permissions: allow all tool calls without human approval
-      // --output-format json: structured output for parsing
       // --settings (tracked workers only): adds the worker-exit SessionEnd hook
-      const claudeArgs = [
-        '--print',
-        '--dangerously-skip-permissions',
-        '--output-format',
-        'json',
-        ...settingsArgs,
-        tmpFile,
-      ];
+      const claudeArgs = buildClaudeArgs(context, tmpFile, settingsArgs);
 
       // T11998: Build the argv with per-session containment.
       // On Linux with systemd, this wraps 'claude' inside a transient

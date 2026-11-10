@@ -35,7 +35,7 @@
     "provider.openai.tracingEnabled": {
       "type": "boolean",
       "default": true,
-      "description": "Whether to write adapter span events to conduit.db"
+      "description": "Whether to dispatch adapter span events to registered trace processors"
     }
   },
   "detectionPatterns": [

@@ -14,7 +14,8 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CLEOSpawnAdapter, CLEOSpawnContext, SpawnResult } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -82,10 +83,16 @@ vi.mock('../../orchestration/spawn.js', async (importOriginal) => ({
   }),
 }));
 
+// T14358 — with `orchestrate.leadWorker.v1` on, a failed worktree provision
+// refuses the spawn, so provisioning succeeds here: a real temp directory
+// stands in for the task's worktree.
+const { worktreeDir } = vi.hoisted(() => ({ worktreeDir: { path: '' } }));
 vi.mock('../../sentient/worktree-dispatch.js', () => ({
-  spawnWorktree: async () => {
-    throw new Error('no worktree in this test');
-  },
+  spawnWorktree: async (_root: string, opts: { taskId: string }) => ({
+    path: worktreeDir.path,
+    branch: `task/${opts.taskId}`,
+    projectHash: 'test-project-hash',
+  }),
 }));
 
 const SES_A = 'ses_20261109000001_aaaaaa';
@@ -127,10 +134,12 @@ describe('durable worker records (T14359)', () => {
     });
     worker.noPid = false;
     worker.beforeReturn = null;
+    worktreeDir.path = mkdtempSync(join(tmpdir(), 'cleo-t14359-wt-'));
   });
 
   afterEach(async () => {
     worker.child?.kill('SIGKILL');
+    rmSync(worktreeDir.path, { recursive: true, force: true });
     await env.cleanup();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
@@ -218,7 +227,7 @@ describe('durable worker records (T14359)', () => {
       provider: 'fake-provider',
       pid: worker.child?.pid,
       pgid: worker.child?.pid,
-      worktree: env.tempDir,
+      worktree: worktreeDir.path,
       leadMailbox: 'lead@test',
       stoppedAt: null,
     });
