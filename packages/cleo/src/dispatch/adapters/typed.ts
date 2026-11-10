@@ -458,56 +458,6 @@ export function wrapCoreResult<T = any>(
   return lafsSuccess((result.data ?? fallback) as T, opName);
 }
 
-/**
- * Wrap a conduit `*Impl` call in a standardised try/catch returning a LAFS envelope.
- *
- * All conduit typed-handler ops follow an identical 15-25 line try/catch pattern:
- * ```ts
- * try {
- *   const result = await fooImpl(...params);
- *   if (!result.success) return lafsError(result.error?.code ?? 'E_CONDUIT', ...);
- *   return lafsSuccess(result.data ?? {}, opName);
- * } catch (error) {
- *   return lafsError('E_CONDUIT', error instanceof Error ? error.message : String(error), opName);
- * }
- * ```
- *
- * A thrown error that carries a CLEO code (`E_…`, e.g. `E_SIGNALDOCK_RETIRED`)
- * keeps it; any other thrown error becomes `E_CONDUIT`.
- *
- * Usage:
- * ```ts
- * return wrapConduitImpl(() => fooImpl(params.bar, params.baz), 'foo');
- * ```
- *
- * @param fn     - Zero-argument async factory that calls the impl function.
- * @param opName - Operation name forwarded to {@link lafsError} / {@link lafsSuccess}.
- * @returns A `Promise<LafsEnvelope<T>>` for the operation.
- *
- * @task T1484
- */
-export async function wrapConduitImpl(
-  fn: () => Promise<unknown>,
-  opName: string,
-): Promise<LafsEnvelope<unknown>> {
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: conduit impl types are heterogeneous
-    const result = (await fn()) as any;
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_CONDUIT'),
-        result.error?.message ?? 'Unknown error',
-        opName,
-      );
-    }
-    return lafsSuccess(result.data ?? {}, opName);
-  } catch (error) {
-    if (!(error instanceof Error)) return lafsError('E_CONDUIT', String(error), opName);
-    const code = 'code' in error && typeof error.code === 'string' ? error.code : '';
-    return lafsError(/^E_[A-Z0-9_]+$/.test(code) ? code : 'E_CONDUIT', error.message, opName);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Internal exports for testing
 // ---------------------------------------------------------------------------

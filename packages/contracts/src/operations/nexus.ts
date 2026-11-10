@@ -1095,16 +1095,6 @@ export interface NexusSigilSyncResult {
   warnings: string[];
 }
 
-/** Parameters for `nexus.conduit-scan`. */
-export type NexusConduitScanParams = Record<string, never>;
-/** Result of `nexus.conduit-scan`. */
-export interface NexusConduitScanResult {
-  /** Count of conduit messages scanned. */
-  scanned: number;
-  /** Count of conduit_mentions_symbol edges written. */
-  linked: number;
-}
-
 /** Parameters for `nexus.contracts-sync`. */
 export interface NexusContractsSyncParams {
   /** Repository path (optional). */
@@ -2407,7 +2397,6 @@ export type NexusOps = {
     NexusContractsLinkTasksParams,
     NexusContractsLinkTasksResult,
   ];
-  readonly 'conduit-scan': readonly [NexusConduitScanParams, NexusConduitScanResult];
   // T1510 — Phase 2 dispatch ops
   readonly clusters: readonly [NexusClustersParams, NexusClustersResult];
   readonly flows: readonly [NexusFlowsParams, NexusFlowsResult];

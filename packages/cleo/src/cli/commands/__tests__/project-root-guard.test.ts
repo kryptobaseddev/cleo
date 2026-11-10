@@ -1,6 +1,7 @@
 /**
  * Regression guard for T9582 — project-root normalization in the CLI
- * + dispatch surfaces for `agent`, `nexus`, and `conduit`.
+ * + dispatch surfaces for `agent` and `nexus` (the `conduit` domain was
+ * removed in T13955).
  *
  * The original T9580 audit identified 52 raw `process.cwd()` call sites
  * across four files that forwarded an un-normalized working directory to
@@ -32,7 +33,6 @@ const REPO_ROOT = join(__dirname, '..', '..', '..', '..', '..', '..');
 const GUARDED_FILES = [
   'packages/cleo/src/cli/commands/agent.ts',
   'packages/cleo/src/cli/commands/nexus.ts',
-  'packages/cleo/src/dispatch/domains/conduit.ts',
   'packages/cleo/src/dispatch/domains/nexus.ts',
 ] as const;
 
