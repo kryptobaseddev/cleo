@@ -2,14 +2,14 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.25.8
+  version: 2.25.9
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-11-09
+  lastReviewed: 2026-11-10
   stability: stable
 ---
 
@@ -463,4 +463,4 @@ BRAIN ID going forward.
 
 ## Evidence must prove task criteria
 
-A merged PR closes its `Closes:` tasks once `CI` is green on its exact head and a non-author reviewer recorded `met` for each AC (`cleo review verdict`); the merge sweep records `pr:`, `ci:` and `satisfies:`, so no agent step follows the merge (ADR-099; preview with `cleo done --from-merge <pr> --dry-run`). No-PR work records its own results: plan with `cleo done <id> --plan` (it never plans a whole-suite `tool:test`, T13647), then the atoms in `cleo briefing inject --section evidence`, each linked with `satisfies:T1234#AC1`. Run tests, typechecks and builds one at a time through `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: not admitted yet, wait and retry); never wrap `cleo run` or `cleo verify` in another queue or wrapper, and never raise heap or worker counts (`NODE_OPTIONS`, `--maxWorkers`). A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.
+A merged PR closes its `Closes:` tasks once `CI` is green on its exact head and a non-author reviewer recorded `met` for each AC (`cleo review verdict`); the merge sweep records `pr:`, `ci:` and `satisfies:`, so no agent step follows the merge (ADR-099; preview with `cleo done --from-merge <pr> --dry-run`). A merge whose own main run failed or was cancelled for a reason that is not the PR's closes once the default branch's head has green CI (D11241): the sweep waits for it, and a failure that is the PR's refuses with the `cleo verify` commands that close the task. No-PR work records its own results: plan with `cleo done <id> --plan` (it never plans a whole-suite `tool:test`, T13647), then the atoms in `cleo briefing inject --section evidence`, each linked with `satisfies:T1234#AC1`. Run tests, typechecks and builds one at a time through `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: not admitted yet, wait and retry); never wrap `cleo run` or `cleo verify` in another queue or wrapper, and never raise heap or worker counts (`NODE_OPTIONS`, `--maxWorkers`). A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.
