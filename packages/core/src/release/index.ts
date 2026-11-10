@@ -90,13 +90,9 @@ export { releaseChangelog, releaseCut, releaseVerifyTag } from './cut.js';
 // Engine operations — CLI-callable release operations migrated from dispatch layer (T1572)
 export type { PRCheckStatus, PRStatusResult } from './engine-ops.js';
 export {
-  IVTR_DECOUPLED_AUDIT_FILE,
-  IVTR_DECOUPLED_SENTINEL_FILE,
   releaseCancel,
   releaseCommit,
-  releaseGateCheck,
   releaseGatesRun,
-  releaseIvtrAutoSuggest,
   releaseList,
   releasePrepare,
   releasePrStatus,
@@ -105,7 +101,6 @@ export {
   releaseRollbackFull,
   releaseShow,
   releaseTag,
-  writeIvtrDecouplingAuditOnce,
 } from './engine-ops.js';
 // T9538 — release workflow bypass audit logger (SPEC-T9345 §12.3 / R-441)
 export type {
@@ -164,11 +159,6 @@ export {
 // T9530 — v2 release open verb (Phase 3 of T9494)
 export type { ReleaseOpenOptions, ReleaseOpenResult, ReleaseOpenRunner } from './open.js';
 export { DEFAULT_OPEN_WORKFLOW, releaseOpen } from './open.js';
-// Dispatch op registry (ADR-058 OpsFromCore inference — T1543).
-// Type-only export: ops.ts declares `releaseCoreOps` via `export declare const`
-// for `typeof` inference; there is NO runtime value. Re-exporting as `type`
-// avoids ERR_EXPORT_NOT_DEFINED when ESM loaders evaluate this barrel.
-export type { ReleaseIvtrSuggestParams, releaseCoreOps } from './ops.js';
 // SPEC-T9345 release pipeline v2 verbs (T9492)
 // The legacy 4-step pipeline (releaseStart/Verify/Publish/Reconcile) was
 // deleted in T9540 (Phase 6 of T9499); the new 4-verb surface — plan, open,

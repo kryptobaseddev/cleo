@@ -81,7 +81,7 @@ describe('initCoreSkills installs from manifest metadata.install (T12653)', () =
       'ct-lead',
       'ct-adr-recorder',
       'ct-consensus-voter',
-      'ct-ivt-looper',
+      'ct-validator',
       'ct-release-orchestrator',
       'ct-artifact-publisher',
       'ct-provenance-keeper',
@@ -89,6 +89,8 @@ describe('initCoreSkills installs from manifest metadata.install (T12653)', () =
       expect(installed).toContain(name);
     }
     expect(installed).not.toContain('ct-grade');
+    // T14311: ct-ivt-looper was removed with the IVTR loop.
+    expect(installed).not.toContain('ct-ivt-looper');
     expect(created).toContain(`skills: ${harness.length} core skills installed`);
     // T12678: the ledger records exactly what this run installed.
     const ledger = JSON.parse(

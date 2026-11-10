@@ -193,8 +193,11 @@ describe('T14368 — the built-CLI gates restore the shared build, never rebuild
   });
 
   it('runs wherever `build` runs, which no longer requires a code change', () => {
-    expect(workflow.jobs.build.if).toBe("needs.changes.outputs.version_only != 'true'");
-    expect(job.if).toBe("needs.changes.outputs.version_only != 'true'");
+    // T14385 added the draft skip to both; neither is gated on `code`.
+    expect(workflow.jobs.build.if).toBe(
+      "needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'",
+    );
+    expect(job.if).toBe(workflow.jobs.build.if);
     expect(workflow.jobs.ci.needs).toContain('post-build-checks');
   });
 
@@ -258,8 +261,12 @@ describe('T12273 package artifact checks reach the required PR and merge-group g
       .concat([['docs/usage.md', false]]),
   )('evaluates packed verification for the independent input %s as %s', (changedPath, expected) => {
     // The path terms are wrapped in `( ... ) && version_only != 'true'`: the
-    // release bump-PR shape skips packed verification (ci-detect-version-only).
-    const wrapped = /^\((.*)\) && needs\.changes\.outputs\.version_only != 'true'$/.exec(job.if);
+    // release bump-PR shape skips packed verification (ci-detect-version-only),
+    // and so does a draft pull request (T14385).
+    const wrapped =
+      /^\((.*)\) && needs\.changes\.outputs\.version_only != 'true' && needs\.changes\.outputs\.draft != 'true'$/.exec(
+        job.if,
+      );
     expect(wrapped, `unsupported gate expression: ${job.if}`).not.toBeNull();
     const enabled = wrapped[1]
       .split(' || ')

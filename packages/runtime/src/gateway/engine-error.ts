@@ -157,7 +157,8 @@ export const STRING_TO_EXIT: Record<string, number> = {
   E_AUDIT_MISSING: 81,
   E_CIRCULAR_VALIDATION: 82,
   E_LIFECYCLE_TRANSITION_INVALID: 83,
-  E_IVTR_INCOMPLETE: 83,
+  // E_IVTR_INCOMPLETE (83) was retired in T14311 with the IVTR gate; 83 stays
+  // reserved and the code is never reused.
   E_PROVENANCE_REQUIRED: 84,
   // T1162: lifecycle scope guard — maps to ExitCode.TASK_NOT_IN_SCOPE (34)
   // because a subagent attempting to mutate a parent epic's lifecycle is

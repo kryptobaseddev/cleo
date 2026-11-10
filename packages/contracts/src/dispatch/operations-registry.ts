@@ -306,12 +306,6 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Include lifecycle stage history in the response',
       },
       {
-        name: 'ivtr-history',
-        type: 'boolean',
-        required: false,
-        description: 'Include IVTR phase chain history in the response',
-      },
-      {
         name: 'relations',
         type: 'boolean',
         required: false,
@@ -1114,114 +1108,6 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description:
           'Maximum number of event frames to emit before the terminal `done` frame (default: open-ended until client disconnect)',
-      },
-    ] satisfies ParamDef[],
-  },
-  // T811 — IVTR multi-agent enforcement
-  {
-    gateway: 'query',
-    domain: 'orchestrate',
-    operation: 'ivtr.status',
-    description: 'orchestrate.ivtr.status (query) — current IVTR phase + history',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['taskId'],
-    params: [
-      {
-        name: 'taskId',
-        type: 'string',
-        required: true,
-        description: 'taskId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'orchestrate',
-    operation: 'ivtr.start',
-    description: 'orchestrate.ivtr.start (mutate) — begin Implement phase',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: true,
-    requiredParams: ['taskId'],
-    params: [
-      {
-        name: 'taskId',
-        type: 'string',
-        required: true,
-        description: 'taskId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'orchestrate',
-    operation: 'ivtr.next',
-    description: 'orchestrate.ivtr.next (mutate) — advance to next phase (requires prior evidence)',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: true,
-    requiredParams: ['taskId'],
-    params: [
-      {
-        name: 'taskId',
-        type: 'string',
-        required: true,
-        description: 'taskId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'orchestrate',
-    operation: 'ivtr.release',
-    description: 'orchestrate.ivtr.release (mutate) — final gate, requires I+V+T evidence',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: true,
-    requiredParams: ['taskId'],
-    params: [
-      {
-        name: 'taskId',
-        type: 'string',
-        required: true,
-        description: 'taskId parameter',
-        cli: { positional: true },
-      },
-    ] satisfies ParamDef[],
-  },
-  {
-    gateway: 'mutate',
-    domain: 'orchestrate',
-    operation: 'ivtr.loop-back',
-    description: 'orchestrate.ivtr.loop-back (mutate) — rewind to phase on failure',
-    tier: 1,
-    idempotent: false,
-    sessionRequired: true,
-    requiredParams: ['taskId', 'phase', 'reason'],
-    params: [
-      {
-        name: 'taskId',
-        type: 'string',
-        required: true,
-        description: 'taskId parameter',
-        cli: { positional: true },
-      },
-      {
-        name: 'phase',
-        type: 'string',
-        required: true,
-        description: 'phase parameter',
-      },
-      {
-        name: 'reason',
-        type: 'string',
-        required: true,
-        description: 'reason parameter',
       },
     ] satisfies ParamDef[],
   },
@@ -9675,107 +9561,10 @@ export const OPERATIONS: OperationDef[] = [
   // Release domain — T1726 SDK surface parity
   //
   // Release ops dispatched via ReleaseHandler (registered under 'release' in
-  // the DomainHandler map) were absent from OPERATIONS. Adding gate +
-  // ivtr-suggest (the two ops ReleaseHandler serves) plus the canonical
-  // 4-step pipeline ops (start, verify, publish, reconcile) introduced by
-  // T1597 / ADR-063 that route through the core release module directly.
+  // the DomainHandler map). The IVTR-only ops `release.gate` and
+  // `release.ivtr-suggest` were deleted in T14311 with the retired
+  // `ivtr_state` column.
   // ---------------------------------------------------------------------------
-
-  // release query: gate
-  {
-    gateway: 'query',
-    domain: 'release',
-    operation: 'gate',
-    description:
-      'release.gate (query) — check all IVTR loops in a release epic have reached the released phase before allowing release.ship (T820 RELEASE-03)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['epicId'],
-    params: [
-      {
-        name: 'epicId',
-        type: 'string',
-        required: true,
-        description: 'Epic ID whose child tasks should be inspected',
-      },
-      {
-        name: 'force',
-        type: 'boolean',
-        required: false,
-        description: 'Bypass the IVTR gate — requires explicit owner confirmation',
-      },
-    ] satisfies ParamDef[],
-  },
-
-  // release mutate: gate
-  {
-    gateway: 'mutate',
-    domain: 'release',
-    operation: 'gate',
-    description:
-      'release.gate (mutate) — same IVTR gate check as query.gate; safe in both gateways (no DB writes)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['epicId'],
-    params: [
-      {
-        name: 'epicId',
-        type: 'string',
-        required: true,
-        description: 'Epic ID whose child tasks should be inspected',
-      },
-      {
-        name: 'force',
-        type: 'boolean',
-        required: false,
-        description: 'Bypass the IVTR gate — requires explicit owner confirmation',
-      },
-    ] satisfies ParamDef[],
-  },
-
-  // release query: ivtr-suggest
-  {
-    gateway: 'query',
-    domain: 'release',
-    operation: 'ivtr-suggest',
-    description:
-      'release.ivtr-suggest (query) — check if all epic tasks are released and suggest cleo release ship (T820 RELEASE-07)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['taskId'],
-    params: [
-      {
-        name: 'taskId',
-        type: 'string',
-        required: true,
-        description: 'Task ID that just reached the released phase',
-      },
-    ] satisfies ParamDef[],
-  },
-
-  // release mutate: ivtr-suggest
-  {
-    gateway: 'mutate',
-    domain: 'release',
-    operation: 'ivtr-suggest',
-    description:
-      'release.ivtr-suggest (mutate) — same auto-suggest as query.ivtr-suggest; safe in both gateways (no DB writes)',
-    tier: 1,
-    idempotent: true,
-    sessionRequired: false,
-    requiredParams: ['taskId'],
-    params: [
-      {
-        name: 'taskId',
-        type: 'string',
-        required: true,
-        description: 'Task ID that just reached the released phase',
-      },
-    ] satisfies ParamDef[],
-  },
 
   // release.start / release.verify / release.publish removed in T9540
   // (Phase 6 of T9499) — backing functions in

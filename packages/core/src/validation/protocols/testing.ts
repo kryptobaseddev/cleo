@@ -5,7 +5,8 @@
  * project-agnostic IVT loop closure stage: it checks that a detected test
  * framework ran, achieved 100% pass rate, and the Implement→Validate→Test
  * loop converged on the specification. Framework detection and loop logic
- * live in the `ct-ivt-looper` skill; this validator only certifies results.
+ * are the implementing agent's job (`ct-ivt-looper` was removed in T14311);
+ * this validator only certifies results.
  *
  * @task T4804
  * @task T260 — drop -protocol suffix, delegate, project-agnostic IVT

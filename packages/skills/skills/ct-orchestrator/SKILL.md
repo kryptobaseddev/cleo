@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.2.3
+  version: 4.3.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-11-06
+  lastReviewed: 2026-11-09
   stability: stable
 ---
 
@@ -84,7 +84,8 @@ Full charter (8 invariants I1–I8 + prefix registry) lives in
 ## The Work Loop
 
 Every issue, feature or bug runs the same loop: plan, execute, verify. RCASD stage
-records and the IVTR loop are retired from agent instructions (epic T13932).
+records are retired from agent instructions (epic T13932), and the IVTR loop is
+deleted (T14311): `cleo orchestrate ivtr` only prints a removal notice.
 `pipeline_stage` is a label on tasks; it gates work only where a project turns on
 the stage gate (see Plan).
 
@@ -194,16 +195,16 @@ so teammates sharing one harness session keep separate claims and focus (T14269)
 
 Append exactly once and capture the id with `--field /data/entryId` (ADR-086: never pipe the receipt through `python3`/`jq`). A nonempty `ENTRY_ID` must then read back with `cleo manifest show "$ENTRY_ID"`. Never append again merely to verify. On append or readback failure, return `blocked` with `manifest:none`; do not claim an entry. Static prompt checks do not prove storage or provider workflow success. The manifest `--type` is the protocol's own type (`consensus`, `specification`, `architecture_decision`, ... — T12521).
 
-After verification, subagents MUST return exactly this compressed block (T12521):
+After verification, subagents MUST return exactly this worker report, at most 100 words (T14361; head line from T12521):
 
 ```
 [Type] <complete|partial|blocked>. manifest:<entryId>
-commits: <sha7,sha7|none>
-gates: <gate>=<pass|fail|skip> ...
-blocker: <≤12 words|none>
+conclusion: <result>
+blocker: <none|why>
+proof: <cmd> => exit <n>|<PR|sha|file>
 ```
 
-blocker: none when complete; required when partial/blocked. `manifest:none` only for `partial`/`blocked`; fill every `<...>` placeholder (validators reject `<`/`>` in the entry id). Validators (`checkReturnMessageFormat`, `checkReturnFormat`, `validateReturnMessage`) still accept the legacy one-liner `"[Type] <complete|partial|blocked>. Manifest appended to pipeline_manifest."`.
+blocker: none when complete; required when partial/blocked. One `proof:` line per item. Close the task with `cleo done <id> --report "<report>"`: it refuses a report with no `conclusion:` or `proof:` line (`E_WORKER_REPORT_PROOF`) or over 100 words (`E_VALIDATION`; detail belongs in the PR body). The older `commits:`/`gates:` lines still parse. `manifest:none` only for `partial`/`blocked`; fill every `<...>` placeholder (validators reject `<`/`>` in the entry id). Validators (`checkReturnMessageFormat`, `checkReturnFormat`, `validateReturnMessage`) still accept the legacy one-liner `"[Type] <complete|partial|blocked>. Manifest appended to pipeline_manifest."`.
 
 > Detailed spawn workflow, manual protocol injection, skill dispatch matrix: `references/orchestrator-spawning.md`
 
