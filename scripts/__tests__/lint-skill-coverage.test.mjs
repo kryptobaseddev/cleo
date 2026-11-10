@@ -2,6 +2,7 @@
  * Tests for `scripts/lint-skill-coverage.mjs` (T12124).
  *
  * @task T12124
+ * @task T14393
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -83,6 +84,7 @@ describe('lint-skill-coverage in a git repository (PR mode)', () => {
     git('add', '-A');
     git('commit', '-qm', 'base');
     git('tag', 'base');
+    git('tag', 'v2000.1.0');
   });
 
   afterEach(() => {
@@ -160,6 +162,125 @@ describe('lint-skill-coverage in a git repository (PR mode)', () => {
     );
     commit('bump');
     expect(checkPullRequest(root, 'base')).toEqual([]);
+  });
+
+  describe('parallel PRs that bump one skill (T14393)', () => {
+    const SKILL = 'packages/skills/skills/ct-core/SKILL.md';
+    /** Lines far enough apart that git merges edits to each independently. */
+    const body = (top, bottom) => `\n${top}\n\n1\n2\n3\n4\n5\n6\n\n${bottom}\n`;
+
+    /** A branch off main that edits the covered file, the skill and bumps it. */
+    const branch = (name, version, top, bottom, file) => {
+      git('checkout', '-q', '-b', name, 'main');
+      write(SKILL, `${skill('ct-core', 'core', version)}${body(top, bottom)}`);
+      write(file, `${name}\n`);
+      commit(name);
+      git('checkout', '-q', 'main');
+    };
+
+    /** Merge a branch into main the way GitHub's merge ref does; throws on conflict. */
+    const mergeRef = (name) => {
+      git('checkout', '-q', '-b', `merge-${name}`, 'main');
+      git('merge', '-q', '--no-ff', '-m', `merge ${name}`, name);
+    };
+
+    beforeEach(() => {
+      write(SKILL, `${skill('ct-core', 'core', '1.0.0')}${body('top', 'bottom')}`);
+      write('src/a.ts', 'a\n');
+      write('src/b.ts', 'b\n');
+      write('src/ct-core.ts', 'base\n');
+      commit('skill body');
+      branch('pr-a', '1.1.0', 'top from a', 'bottom', 'src/ct-core.ts');
+      branch('pr-b', '1.1.0', 'top', 'bottom from b', 'src/b.ts');
+    });
+
+    it.each([
+      ['pr-a', 'pr-b'],
+      ['pr-b', 'pr-a'],
+    ])('merge %s then %s with no conflict and a green gate', (first, second) => {
+      mergeRef(first);
+      expect(checkPullRequest(root, 'main', { head: first })).toEqual([]);
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--ff-only', `merge-${first}`);
+
+      mergeRef(second);
+      expect(checkPullRequest(root, 'main', { head: second })).toEqual([]);
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--ff-only', `merge-${second}`);
+      const merged = readFileSync(join(root, SKILL), 'utf8');
+      expect(merged).toContain('version: 1.1.0');
+      expect(merged).toContain('top from a');
+      expect(merged).toContain('bottom from b');
+    });
+
+    it('still fails the second PR when a release tag was cut after its branch point', () => {
+      mergeRef('pr-a');
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--ff-only', 'merge-pr-a');
+      git('tag', 'v2026.1.1');
+
+      mergeRef('pr-b');
+      expect(checkPullRequest(root, 'main', { head: 'pr-b' })).toEqual([
+        'ct-core changed but metadata.version 1.1.0 is not greater than 1.1.0, released in v2026.1.1; bump it (then run node scripts/skills/generate-manifest.mjs)',
+      ]);
+    });
+
+    it('fails a PR that never bumped even though its merge commit inherits another bump', () => {
+      mergeRef('pr-a');
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--ff-only', 'merge-pr-a');
+
+      git('checkout', '-q', '-b', 'pr-d', 'main~1');
+      write(SKILL, `${skill('ct-core', 'core', '1.0.0')}${body('top', 'bottom from d')}`);
+      commit('body only, no bump');
+      git('checkout', '-q', 'main');
+      mergeRef('pr-d');
+      expect(readFileSync(join(root, SKILL), 'utf8')).toContain('version: 1.1.0');
+      expect(checkPullRequest(root, 'main', { head: 'pr-d' })).toEqual([
+        'ct-core changed but metadata.version 1.0.0 is not greater than 1.0.0; bump it (then run node scripts/skills/generate-manifest.mjs)',
+      ]);
+    });
+
+    it('ignores canary and rc tags as release anchors', () => {
+      mergeRef('pr-a');
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--ff-only', 'merge-pr-a');
+      git('tag', 'v2026.1.1-canary.1');
+      git('tag', 'v2026.1.1-rc.1');
+
+      mergeRef('pr-b');
+      expect(checkPullRequest(root, 'main', { head: 'pr-b' })).toEqual([]);
+    });
+
+    it('fails loudly, naming the fetch, when no stable release tag is reachable', () => {
+      git('tag', '-d', 'v2000.1.0');
+      mergeRef('pr-a');
+      expect(checkPullRequest(root, 'main', { head: 'pr-a' })).toEqual([
+        'skill version check cannot run: no stable release tag (v*, not -canary/-rc) reachable from main; fetch tags (git fetch --tags origin, or actions/checkout fetch-depth: 0)',
+      ]);
+    });
+
+    it('rejects a version below the base even when above the branch point', () => {
+      mergeRef('pr-a');
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--ff-only', 'merge-pr-a');
+
+      git('checkout', '-q', 'pr-b');
+      write(SKILL, `${skill('ct-core', 'core', '1.0.1')}${body('top', 'bottom from b')}`);
+      commit('patch bump');
+      expect(checkPullRequest(root, 'main')).toEqual([
+        "ct-core changed but metadata.version 1.0.1 is lower than main's 1.1.0; bump it (then run node scripts/skills/generate-manifest.mjs)",
+      ]);
+    });
+
+    it('still fails a covered change without a skill change', () => {
+      git('checkout', '-q', '-b', 'pr-c', 'main');
+      write('src/ct-core.ts', 'c\n');
+      commit('covered only');
+      expect(checkPullRequest(root, 'main').join('\n')).toMatch(
+        /ct-core \(core\) documents src\/ct-core.ts/,
+      );
+    });
   });
 
   it.each([
