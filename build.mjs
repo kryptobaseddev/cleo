@@ -958,21 +958,6 @@ async function build() {
   await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
 
   // ---------------------------------------------------------------------------
-  // The manifest-only leaf imports built contracts, so core can typecheck
-  // before the provider runtime wave without loading or depending on core itself.
-  await new Promise((res, rej) => {
-    const proc = spawnPnpm([
-      'exec', 'tsc', '--ignoreConfig', '--declaration', '--emitDeclarationOnly',
-      '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2022',
-      '--strict', '--skipLibCheck', '--types', 'node',
-      '--rootDir', 'packages/adapters/src', '--outDir', 'packages/adapters/dist',
-      'packages/adapters/src/manifests.ts',
-    ], { stdio: 'inherit' });
-    proc.on('error', rej);
-    proc.on('close', (code) => code === 0 ? res() : rej(new Error(`Adapter manifest declaration emit failed (exit ${code})`)));
-  });
-
-  // ---------------------------------------------------------------------------
   // Wave 5: core esbuild bundle + tsc declaration emit
   //   (deps caamp, nexus, worktree — all ready after waves 3–4)
   // ---------------------------------------------------------------------------

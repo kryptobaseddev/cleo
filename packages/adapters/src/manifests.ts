@@ -1,4 +1,7 @@
-/** Bundled manifest discovery, independent of provider runtime imports. */
+/**
+ * Bundled manifest discovery, independent of provider runtime imports.
+ * The source type export lets core typecheck before provider runtime builds.
+ */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

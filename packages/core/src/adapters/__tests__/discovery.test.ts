@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DetectionPattern } from '@cleocode/contracts';
+import ts from 'typescript';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { detectProvider, discoverAdapterManifests } from '../discovery.js';
 
@@ -24,6 +25,22 @@ describe('discoverAdapterManifests — installed package', () => {
     expect(claude?.entryPoint).toBe('index.js');
     expect(existsSync(join(claude!.packagePath, 'index.ts'))).toBe(true);
     expect(new Set(manifests.map((manifest) => manifest.id)).size).toBe(manifests.length);
+  });
+
+  it('resolves the manifest type surface before any adapter declaration build exists', () => {
+    const containingFile = fileURLToPath(new URL('../discovery.ts', import.meta.url));
+    const resolved = ts.resolveModuleName(
+      '@cleocode/adapters/manifests',
+      containingFile,
+      {
+        module: ts.ModuleKind.NodeNext,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      },
+      ts.sys,
+    ).resolvedModule;
+    expect(resolved?.resolvedFileName).toBe(
+      fileURLToPath(new URL('../../../../adapters/src/manifests.ts', import.meta.url)),
+    );
   });
 
   it('resolves shipped manifests to JavaScript entry points in an installed package layout', async () => {
