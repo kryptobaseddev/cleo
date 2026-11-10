@@ -136,10 +136,44 @@ export interface RegistryProvider {
   agentSkillsCompatible: boolean;
 
   /**
+   * Where the provider loads project agent (subagent) definition files from,
+   * and the file format it reads (T14378). Omitted when the provider has no
+   * verified project agent-file support; such a provider is reported as
+   * unsupported by agent-definition delivery, never silently skipped.
+   *
+   * @defaultValue undefined
+   */
+  agentDefinitions?: ProviderAgentDefinitions;
+
+  /**
    * Optional provider capabilities for MCP, harness role, skills, hooks, and spawn.
    * @defaultValue undefined
    */
   capabilities?: RegistryCapabilities;
+}
+
+/**
+ * Agent definition file formats CAAMP can render.
+ *
+ * - `claude-code`: `<name>.md` with YAML frontmatter (`name`, `description`,
+ *   `tools`, `disallowedTools`, `background`); body is the system prompt.
+ * - `opencode`: `<name>.md` with YAML frontmatter (`description`, `mode`,
+ *   `permission`); the file name is the agent name.
+ *
+ * @public
+ */
+export type AgentDefinitionFormat = 'claude-code' | 'opencode';
+
+/**
+ * A provider's project agent-definition location.
+ *
+ * @public
+ */
+export interface ProviderAgentDefinitions {
+  /** Project-relative directory the provider loads agent files from (e.g. `".claude/agents"`). */
+  pathProject: string;
+  /** File format the provider reads. */
+  format: AgentDefinitionFormat;
 }
 
 // ── Capability Types (raw JSON schema) ─────────────────────────────

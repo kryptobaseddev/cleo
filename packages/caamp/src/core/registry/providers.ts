@@ -176,6 +176,7 @@ function resolveProvider(raw: RegistryProvider): Provider {
     priority: raw.priority,
     status: raw.status,
     agentSkillsCompatible: raw.agentSkillsCompatible,
+    ...(raw.agentDefinitions ? { agentDefinitions: { ...raw.agentDefinitions } } : {}),
     capabilities: resolveCapabilities(raw.capabilities),
   };
 }

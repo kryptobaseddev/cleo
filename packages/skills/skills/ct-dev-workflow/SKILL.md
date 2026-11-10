@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.8.0
+version: 3.8.1
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.8.0
+  version: 3.8.1
   tier: core
   install: harness
   covers:
@@ -117,6 +117,11 @@ This repository's `.githooks/pre-commit` calls the template rather than copying 
 `cleo init` and `cleo upgrade` no longer seed the CleoOS hub (Pi extensions, CANT
 workflows, justfile) into the global CLEO home (T13994, ADR-098); only the deprecated
 `cleo admin scaffold-hub` still does.
+`cleo init` and `cleo upgrade` write the canonical `cleo-lead` and `cleo-worker` agent files
+(`@cleocode/agents` `definitions/`) for every detected provider whose CAAMP registry entry
+declares `agentDefinitions` (Claude Code `.claude/agents/`, OpenCode `.opencode/agents/`); other
+providers are reported as unsupported. Re-runs change nothing, and a file without CLEO's
+generated marker is never overwritten (T14378).
 On a project with no tasks, `cleo init`'s next steps start with the root saga
 (`cleo saga create --title ... --acceptance ...`), the only node allowed without a parent; the
 first `cleo add` refusal names the same command (T14186).
