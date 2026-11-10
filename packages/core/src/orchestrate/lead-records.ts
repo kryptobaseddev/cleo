@@ -27,9 +27,9 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { LeadMode } from '@cleocode/contracts';
 import { type ProcessLiveness, probeProcess } from '@cleocode/worktree';
-import { resolveCleoDir } from '../paths.js';
 import { endSession } from '../store/session-store.js';
 import { type AgentMbxClient, createAgentMbxClient } from './agentmbx.js';
+import { leadRecordsDir } from './lead-records-dir.js';
 
 /** One process of a lead, identified by pid AND start time (pids are reused). */
 export interface LeadProcess {
@@ -65,16 +65,11 @@ export interface LeadRecord {
 /** Task ids are plain words; anything else never reaches a file name. */
 const EPIC_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Directory holding the lead records of a project. */
-function leadsDir(projectRoot: string): string {
-  return join(resolveCleoDir(projectRoot), 'leads');
-}
-
 /** Path of one epic's lead record. */
 function recordPath(projectRoot: string, epicId: string): string {
   // @sync-invariant none:local-only a lead record is a local file; a malformed id never reaches a path
   if (!EPIC_ID.test(epicId)) throw new Error(`invalid epic id for a lead record: ${epicId}`);
-  return join(leadsDir(projectRoot), `${epicId}.json`);
+  return join(leadRecordsDir(projectRoot), `${epicId}.json`);
 }
 
 /** Parse a record, or `null` when the file is not one. */
@@ -167,7 +162,7 @@ export function removeLeadRecord(projectRoot: string, epicId: string): void {
  * @task T14363
  */
 export function listLeadRecords(projectRoot: string): LeadRecord[] {
-  const dir = leadsDir(projectRoot);
+  const dir = leadRecordsDir(projectRoot);
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((name) => name.endsWith('.json'))
