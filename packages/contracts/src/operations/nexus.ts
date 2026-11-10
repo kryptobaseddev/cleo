@@ -856,6 +856,8 @@ export interface NexusImpactParams {
   depth?: number;
   /** `--no-refresh` (T13523): answer from the index as it stands. */
   noRefresh?: boolean;
+  /** `--coverage-detail` (T14365): return every coverage reason instead of a bounded sample. */
+  coverageDetail?: boolean;
 }
 /** Affected symbol in impact result. */
 export interface NexusImpactAffectedNode {

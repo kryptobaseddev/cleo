@@ -1201,6 +1201,12 @@ const impactCommand = defineCommand({
     },
     depth: { type: 'string', description: 'Maximum traversal depth (default: 3)', default: '3' },
     why: { type: 'boolean', description: 'Append reasons[] path-strings for each affected symbol' },
+    'coverage-detail': {
+      type: 'boolean',
+      description:
+        'Return every coverage reason and limitation, including files outside this answer (default: a bounded sample with counts) (T14365)',
+      default: false,
+    },
     'no-refresh': {
       type: 'boolean',
       description: 'Answer from the index as it stands, without an inline refresh (T13523)',
@@ -1252,6 +1258,7 @@ const impactCommand = defineCommand({
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
+        coverageDetail: !!args['coverage-detail'],
       });
       // T13922: a symbol absent from a stale index is not "no impact".
       if (result.targetNodeId === null && refusedAsMissing()) return;
