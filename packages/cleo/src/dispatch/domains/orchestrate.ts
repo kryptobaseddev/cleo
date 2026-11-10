@@ -22,6 +22,7 @@
 import type { EngineResult } from '@cleocode/core';
 import { CleoError } from '@cleocode/core/errors';
 import { getLogger } from '@cleocode/core/logger';
+import type { DispatchWorkerResult } from '@cleocode/core/orchestrate/dispatch-workers';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { sessionContextInject } from '@cleocode/core/session/engine-ops';
 import { CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '@cleocode/runtime/gateway/dispatch';
@@ -75,6 +76,9 @@ const orchestrateSpawn = lazyOperation(
 );
 const orchestrateSpawnExecute = lazyOperation(
   async () => (await import('@cleocode/core/orchestrate/spawn-ops')).orchestrateSpawnExecute,
+);
+const dispatchWorkers = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/dispatch-workers')).dispatchWorkers,
 );
 const orchestrateStartup = lazyOperation(
   async () => (await import('@cleocode/core/orchestrate/lifecycle-ops')).orchestrateStartup,
@@ -304,28 +308,6 @@ interface ClassifyResult {
   reasoning: string;
 }
 
-/** Single fanout item shape. */
-interface FanoutItem {
-  /** Team name to route the task to. */
-  team: string;
-  /** Task ID to spawn. */
-  taskId: string;
-  /** Optional skill to inject into the spawn context. */
-  skill?: string;
-}
-
-/** Result for a single fanout item. */
-interface FanoutItemResult {
-  /** Task ID. */
-  taskId: string;
-  /** Outcome status. */
-  status: 'spawned' | 'failed';
-  /** Adapter instance ID returned by the spawn adapter, when available. */
-  instanceId?: string;
-  /** Error message if status is failed. */
-  error?: string;
-}
-
 /** An AgentMBX mailbox name accepted for `orchestrate spawn --lead-mbx` (T13943). */
 const MBX_NAME = /^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$/;
 
@@ -335,7 +317,7 @@ const FANOUT_MANIFEST_MAX_SIZE = 64;
 const fanoutManifestStore = new Map<
   string,
   {
-    results: FanoutItemResult[];
+    results: DispatchWorkerResult[];
     completedAt: string;
   }
 >();
@@ -552,7 +534,15 @@ async function orchestrateParallelOp(params: OrchestrateParallelParams) {
 }
 
 async function orchestrateFanoutOp(params: OrchestrateFanoutParams) {
-  return orchestrateFanoutImpl(params.items, getProjectRoot());
+  const result = await dispatchWorkers(params.items, getProjectRoot());
+  if (result.success) {
+    fanoutManifestStore.set(result.data.manifestEntryId, {
+      results: result.data.results,
+      completedAt: new Date().toISOString(),
+    });
+    evictFanoutManifest();
+  }
+  return result;
 }
 
 async function orchestrateApproveOp(params: OrchestrateApproveParams) {
@@ -1432,78 +1422,6 @@ async function orchestrateClassify(
       success: false,
       error: {
         code: 'E_CLASSIFY_FAILED',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
-  }
-}
-
-/**
- * T409 / T433 — Fan out N spawn requests via Promise.allSettled.
- */
-async function orchestrateFanoutImpl(
-  items: FanoutItem[],
-  projectRoot: string,
-): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
-  const manifestEntryId = `fanout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-  try {
-    const settled = await Promise.allSettled(
-      items.map(async (item): Promise<FanoutItemResult> => {
-        const spawnResult = await orchestrateSpawnExecute(
-          item.taskId,
-          undefined,
-          undefined,
-          projectRoot,
-          undefined,
-        );
-        if (!spawnResult.success) {
-          return {
-            taskId: item.taskId,
-            status: 'failed',
-            error: spawnResult.error?.message ?? `Spawn failed for task ${item.taskId}`,
-          };
-        }
-        const data = spawnResult.data as Record<string, unknown> | undefined;
-        return {
-          taskId: item.taskId,
-          status: 'spawned',
-          instanceId: typeof data?.instanceId === 'string' ? data.instanceId : undefined,
-        };
-      }),
-    );
-
-    const results: FanoutItemResult[] = settled.map((outcome, i) => {
-      if (outcome.status === 'fulfilled') return outcome.value;
-      return {
-        taskId: items[i]!.taskId,
-        status: 'failed',
-        error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
-      };
-    });
-
-    fanoutManifestStore.set(manifestEntryId, { results, completedAt: new Date().toISOString() });
-    evictFanoutManifest();
-
-    return {
-      success: true,
-      data: {
-        manifestEntryId,
-        results,
-        total: items.length,
-        spawned: results.filter((r) => r.status === 'spawned').length,
-        failed: results.filter((r) => r.status === 'failed').length,
-      },
-    };
-  } catch (error) {
-    getLogger('domain:orchestrate').error(
-      { operation: 'fanout', err: error },
-      error instanceof Error ? error.message : String(error),
-    );
-    return {
-      success: false,
-      error: {
-        code: 'E_FANOUT_FAILED',
         message: error instanceof Error ? error.message : String(error),
       },
     };

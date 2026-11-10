@@ -63,6 +63,7 @@ import { ensureGitHooks, MANAGED_HOOKS } from './hooks.js';
 import { ensureInjection } from './injection.js';
 import { writeMemoryBridge } from './memory/memory-bridge.js';
 import { migrateAgentOutputs } from './migration/agent-outputs.js';
+import type { MbxRunner } from './orchestrate/agentmbx.js';
 import { pushWarning } from './output.js';
 import {
   getAgentsHome,
@@ -76,7 +77,7 @@ import {
   resolveCleoDir,
   worktreeScope,
 } from './paths.js';
-import { captureProjectScope } from './project-scope.js';
+import { captureProjectScope, readProjectInfoAtDirectory } from './project-scope.js';
 // Shared utility imports
 import {
   ensureBrainDb,
@@ -121,6 +122,11 @@ export interface InitOptions extends Pick<GitHookInstallOptions, 'allowTrackedHo
    * an identity — neither is ever rewritten.
    */
   newIdentity?: boolean;
+  /**
+   * Runner for the `agentmbx` CLI used to record the lead mailbox (T14379).
+   * Tests inject a fake; default is the real CLI.
+   */
+  agentMbxRunner?: MbxRunner;
   /**
    * Point the registry row at this checkout even though its previous location
    * still exists on this device (T12470). Without it such a checkout is only a
@@ -1769,6 +1775,21 @@ async function scaffoldInitTarget(
     warnings.push(
       `Project name "${basename(projRoot)}" is now ambiguous: ${retiredProjectId} was registered under the same name. Rename this one with \`cleo project rename <new-name>\`.`,
     );
+  }
+
+  // T14379: with orchestrate.leadWorker.v1 on, record the project's lead
+  // AgentMBX mailbox; without agentmbx, warn and write nothing.
+  try {
+    const { createAgentMbxClient, ensureLeadMailbox } = await import('./orchestrate/agentmbx.js');
+    const lead = await ensureLeadMailbox(
+      projRoot,
+      await readProjectInfoAtDirectory(projRoot, cleoDir),
+      createAgentMbxClient(opts.agentMbxRunner),
+    );
+    if (lead.action === 'recorded') created.push(`lead mailbox: ${lead.leadMailbox.name}`);
+    else if (lead.action === 'skipped') warnings.push(lead.warning);
+  } catch (err) {
+    warnings.push(`AgentMBX lead mailbox: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Project context detection (always run during init)

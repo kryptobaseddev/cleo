@@ -253,6 +253,8 @@ export function bridgeSpawnAdapter(
           startTime: result.startTime,
           endTime: result.endTime,
         },
+        // T14359 — the worker record stores the pid/pgid of a detached worker.
+        ...(result.ownership ? { ownership: result.ownership } : {}),
       };
     },
 

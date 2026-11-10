@@ -140,8 +140,16 @@ describe('gh#1403 — the scripts test project is reachable from CI', () => {
     // first run that ever included it, and it failed on a missing prerequisite
     // rather than on its own change. Selecting a test the job cannot satisfy is
     // not coverage.
+    //
+    // T14368: the dist comes from the `build` job's shared output, restored
+    // before install, instead of a second full `pnpm run build` here.
     const job = jobBlock(ci, 'scripts-tests');
-    expect(job).toMatch(/run: pnpm run build/);
+    expect(job).toMatch(/needs: \[ biome, changes, build \]/);
+    expect(job).toMatch(/name: build-output-ubuntu-latest/);
+    const restore = job.indexOf('tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"');
+    expect(restore).toBeGreaterThan(-1);
+    expect(restore).toBeLessThan(job.indexOf('vitest run --project=scripts'));
+    expect(job).not.toMatch(/run: pnpm run build/);
   });
 
   it('is in the ci aggregate’s needs, so its failure fails the merge bar', () => {
@@ -151,6 +159,148 @@ describe('gh#1403 — the scripts test project is reachable from CI', () => {
     const aggregate = jobBlock(ci, 'ci');
     expect(aggregate, 'the ci aggregate must exist').not.toBe('');
     expect(aggregate).toMatch(/^\s+- scripts-tests\s*$/m);
+  });
+});
+
+describe('T14368 — the built-CLI gates restore the shared build, never rebuild', () => {
+  const workflow = parseYaml(ci);
+  const job = workflow.jobs['post-build-checks'];
+  const runs = () => job.steps.map((step) => step.run ?? '').join('\n');
+
+  it('replaces the four jobs that each ran their own full build', () => {
+    for (const gone of ['manual-write-sweep', 'canon-drift', 'canon-check', 'docs-drift'])
+      expect(workflow.jobs[gone], gone).toBeUndefined();
+    expect(job.needs).toContain('build');
+    expect(runs()).not.toMatch(/pnpm run build|scripts\/build\.mjs|node build\.mjs/);
+    const restore = job.steps.findIndex((step) => step.run?.includes('build-output.tgz'));
+    const download = job.steps.findIndex((step) => step.uses === 'actions/download-artifact@v4');
+    expect(download).toBeGreaterThan(-1);
+    expect(job.steps[download].with.name).toBe('build-output-ubuntu-latest');
+    expect(restore).toBeGreaterThan(download);
+  });
+
+  it('keeps each gate as its own step that runs after an earlier failure', () => {
+    for (const command of [
+      'index.js check canon\n',
+      'check canon docs --base',
+      'index.js docs status',
+      'scripts/sweep-manual-doc-writes.mjs',
+    ]) {
+      const step = job.steps.find((s) => `${s.run ?? ''}\n`.includes(command));
+      expect(step, command).toBeDefined();
+      expect(step.if, command).toContain('!cancelled()');
+    }
+  });
+
+  it('runs wherever `build` runs, which no longer requires a code change', () => {
+    // T14385 added the draft skip to both; neither is gated on `code`.
+    expect(workflow.jobs.build.if).toBe(
+      "needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'",
+    );
+    expect(job.if).toBe(workflow.jobs.build.if);
+    expect(workflow.jobs.ci.needs).toContain('post-build-checks');
+  });
+
+  it('leaves Build & Verify a cold build', () => {
+    const verify = workflow.jobs['build-verify'];
+    expect(verify.needs).not.toContain('build');
+    expect(verify.steps.some((s) => s.uses === 'actions/download-artifact@v4')).toBe(false);
+  });
+});
+
+describe('T14367 — folded sub-minute gates still fail the required CI aggregate', () => {
+  const workflow = parseYaml(ci);
+  const FOLDED = ['repo-lints', 'post-build-checks'];
+  /** Gate steps: every named step that runs a command, except setup. */
+  const gateSteps = (job) =>
+    workflow.jobs[job].steps.filter((s) => s.name && s.run && !/pnpm store path/.test(s.run));
+
+  it('removes the jobs it folded, and the reusable arch workflow', () => {
+    for (const gone of [
+      'repo-lints-installed',
+      'invariants-docs-render-drift',
+      'deployed-template-parity',
+      'exodus-parity-gate',
+      'row-identity-gate-b',
+      'validate-json',
+      'install-test',
+      'arch-gates',
+      'worktrunk-core-tests',
+    ])
+      expect(workflow.jobs[gone], gone).toBeUndefined();
+    expect(Object.values(workflow.jobs).some((j) => j.uses?.includes('arch-boundary-check'))).toBe(
+      false,
+    );
+  });
+
+  it('runs each folded gate as its own step that still runs after an earlier failure', () => {
+    for (const job of FOLDED) {
+      expect(workflow.jobs[job].steps.length, job).toBeGreaterThan(5);
+      expect(workflow.jobs[job]['continue-on-error'], job).toBeUndefined();
+      for (const step of gateSteps(job).slice(1)) {
+        // The first setup run steps (fetch, ajv install) precede every gate.
+        if (/^(Fetch base branch|Install validator|Resolve PR base ref)/.test(step.name)) continue;
+        expect(step.if ?? '', `${job}: ${step.name}`).toMatch(/!cancelled\(\)|always\(\)/);
+      }
+      // Only the informational Manual Write Sweep may swallow its own failure.
+      const swallowing = gateSteps(job).filter((s) => s['continue-on-error']);
+      expect(swallowing.map((s) => s.name)).toEqual(
+        job === 'post-build-checks' ? ['Manual Write Sweep (T10372): Run manual-write sweep'] : [],
+      );
+    }
+  });
+
+  it('keeps the moved gates, each named after the job it replaced', () => {
+    const names = (job) => workflow.jobs[job].steps.map((s) => s.name ?? '').join('\n');
+    for (const prefix of [
+      'Arch Gates (node): ',
+      'Arch Gates (installed): ',
+      'Verify docs/reference/invariants.md',
+      'Deployed Template Parity (T9860): ',
+      'Exodus Real-Data Parity Gate (T11551): ',
+      'Row Identity Gate B (T12802): ',
+      'Validate JSON Schemas: ',
+      'Worktrunk Core Tests (T14130): ',
+    ])
+      expect(names('repo-lints'), prefix).toContain(prefix);
+    expect(names('post-build-checks')).toContain('Install Test: ');
+  });
+
+  it.each(
+    FOLDED.flatMap((job) => [
+      [job, 'failure', 1],
+      [job, 'cancelled', 1],
+      [job, 'success', 0],
+    ]),
+  )('executes the real required aggregate with %s concluding %s', (job, result, expected) => {
+    // A failing gate step fails its job (no job-level continue-on-error, see
+    // above); this runs the aggregate's own script against that job result.
+    const root = mkdtempSync(path.join(tmpdir(), 'folded-aggregate-'));
+    try {
+      expect(workflow.jobs.ci.needs).toContain(job);
+      const aggregate = workflow.jobs.ci.steps.find((step) => step.env?.NEEDS_JSON);
+      const needs = Object.fromEntries(
+        workflow.jobs.ci.needs.map((name) => [name, { result: name === job ? result : 'success' }]),
+      );
+      const run = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', aggregate.run], {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: process.env.PATH,
+          RESULTS: Object.values(needs)
+            .map((entry) => entry.result)
+            .join(','),
+          NEEDS_JSON: JSON.stringify(needs),
+          ADVISORY_RESULT: 'success',
+          GITHUB_STEP_SUMMARY: path.join(root, 'summary'),
+        },
+      });
+      expect(run.error).toBeUndefined();
+      expect(run.status, run.stdout + run.stderr).toBe(expected);
+      if (expected !== 0) expect(run.stdout).toContain(job);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

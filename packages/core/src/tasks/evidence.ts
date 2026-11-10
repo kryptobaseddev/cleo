@@ -1804,10 +1804,11 @@ async function runAffectedTests(
       stdoutTail: result.stdoutTail,
       scope: 'affected',
       scopeReason:
-        run.template.source === 'derived'
-          ? `${AFFECTED_SCOPE_BASIS}; the affected command was derived from the workspace test ` +
+        (run.fileLevel ? FILE_LEVEL_SCOPE_BASIS : AFFECTED_SCOPE_BASIS) +
+        (run.template.source === 'derived'
+          ? `; the affected command was derived from the workspace test ` +
             `command "${run.template.basis}" (declare testing.affectedCommand to pin it, T13125)`
-          : AFFECTED_SCOPE_BASIS,
+          : ''),
       affectedPackages: run.packages,
       affectedProjects: run.projects,
       ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
@@ -1826,6 +1827,11 @@ async function runAffectedTests(
  */
 const AFFECTED_SCOPE_BASIS =
   'changed packages plus their dependents from declared workspace package dependencies only';
+
+/** What a file-level affected scope rests on (T14366): static imports, read from the checkout. */
+const FILE_LEVEL_SCOPE_BASIS =
+  'the test files whose static import graph reaches a changed module, plus tests that read ' +
+  'source trees or spawn processes in an affected package';
 
 /**
  * Resolve the tree that evidence tools should RUN in, given the CLEO store

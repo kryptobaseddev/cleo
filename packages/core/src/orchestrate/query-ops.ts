@@ -21,6 +21,7 @@ import type {
 import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError } from '../engine-result.js';
+import { getLogger } from '../logger.js';
 import { analyzeDependencies } from '../orchestration/analyze.js';
 import { estimateContext } from '../orchestration/context.js';
 import { analyzeEpic, getRankedReadyTasks, getReadyTasks } from '../orchestration/index.js';
@@ -37,6 +38,7 @@ import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
 import { loadRankingContext } from '../tasks/task-next.js';
 import { computeAgentAdmission } from './admission.js';
+import { listWorkerRecords, reconcileWorkerExits, type WorkerRecord } from './worker-records.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -167,11 +169,27 @@ export async function loadTasks(projectRoot?: string): Promise<Task[]> {
 }
 
 /**
+ * Close the records of exited workers (emitting their SubagentStop), then list
+ * every worker record. Best-effort: a store failure yields an empty list
+ * rather than failing the status read.
+ */
+async function loadWorkerRecords(root: string): Promise<WorkerRecord[]> {
+  try {
+    await reconcileWorkerExits(root);
+    return await listWorkerRecords(root);
+  } catch (err) {
+    getLogger('engine:orchestrate').warn({ err: String(err) }, 'worker records unavailable');
+    return [];
+  }
+}
+
+/**
  * orchestrate.status - Get orchestrator status
  *
  * @param epicId - Optional epic id to scope status to a single epic.
  * @param projectRoot - Optional project root path.
- * @returns Engine result with status data.
+ * @returns Engine result with status data, plus `workers`: the durable worker
+ *   records (T14359), after emitting SubagentStop for any that have exited.
  * @task T4478
  */
 export async function orchestrateStatus(
@@ -200,13 +218,15 @@ export async function orchestrateStatus(
           root,
         );
         const status = computeEpicStatus(epicId, epic.title, children, waves);
+        const childIds = new Set(children.map((t) => t.id));
+        const workers = (await loadWorkerRecords(root)).filter((w) => childIds.has(w.taskId));
 
-        return { success: true, data: status };
+        return { success: true, data: { ...status, workers } };
       }
 
       // No epicId - return overall status
       const status = computeOverallStatus(tasks);
-      return { success: true, data: status };
+      return { success: true, data: { ...status, workers: await loadWorkerRecords(root) } };
     });
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);

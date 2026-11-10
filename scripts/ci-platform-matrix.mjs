@@ -10,13 +10,17 @@
  * - `merge_group`: macOS always. The nightly macOS run lives in macos-main.yml
  *   (T14104), which also files a `macos-regression` issue when it fails, so
  *   ci.yml's `schedule` run is Linux only and nothing runs macOS twice.
- * - `pull_request`: a reduced macOS set ({@link MACOS_PR_SHARDS} shards) when
- *   the change is darwin-specific, so a macOS-only regression is caught on its
- *   own PR instead of the next nightly. A
- *   platform-agnostic change that happens to break on macOS (realpath
- *   `/var` vs `/private/var`, spaces in "Application Support", the
- *   case-insensitive filesystem, BSD userland flags) is still found by the
- *   macos-main.yml nightly or main-push run:
+ * - `pull_request`: a reduced macOS set ({@link MACOS_PR_SHARDS} shards) only
+ *   when the pull request carries the {@link MACOS_LABEL} label (T14367, owner
+ *   D11238). A darwin-specific change gets the label added by this run (the
+ *   `changes` job, from `add_macos_label`) and runs the macOS legs at once;
+ *   a person can add it to any other PR. The label is read when the
+ *   `changes` job runs, so a hand-added label takes effect on the next push
+ *   or re-run. macos-main.yml's main-push and nightly runs cover the rest: a
+ *   platform-agnostic change that happens to break on macOS (realpath `/var`
+ *   vs `/private/var`, spaces in "Application Support", the
+ *   case-insensitive filesystem, BSD userland flags). A change is
+ *   darwin-specific when:
  *   - a changed path names darwin or macOS (`resources/darwin-backend.ts`),
  *     outside `.changeset/`, `docs/` and `macos-main.yml`; or
  *   - a changed, non-comment line of a code or workflow file names macOS (a
@@ -27,7 +31,7 @@
  *
  * The free plan runs at most 5 macOS jobs at once, shared by every pull
  * request and every main push, so the full {@link MACOS_SHARDS}-shard set is
- * kept for the merge-group runs (and macos-main.yml); a darwin
+ * kept for the merge-group runs (and macos-main.yml); a labelled
  * pull request runs {@link MACOS_PR_SHARDS} shards, which start after its
  * macOS `build` and share the pool with `Build & Verify` only: one wave
  * (T13198, T14104).
@@ -36,16 +40,22 @@
  *
  *   node scripts/ci-platform-matrix.mjs <event> [<base-ref> <head-ref>]
  *
+ * `PR_LABELS` (env, a JSON array of label names) carries a pull request's
+ * labels.
+ *
  * Writes to `$GITHUB_OUTPUT`: `darwin`, `build_os` (a JSON array of runner
  * labels), `test_matrix` (a JSON array of `{os, shard, total, node}`) and
- * `node_versions` (the Node versions Type Check runs on). Always exits 0; a
- * detection error on a pull request means "darwin-specific", so macOS runs:
- * the safe direction.
+ * `node_versions` (the Node versions Type Check runs on) and `add_macos_label`
+ * (whether the `changes` job adds {@link MACOS_LABEL}, see {@link macosDecision}).
+ * Always exits 0; a detection error on a pull request counts as
+ * darwin-specific, so macOS runs: the safe direction.
  *
- * Node (T14055, owner decision D11196): Type Check and the Linux unit shards
- * run on the engines floor ({@link NODE_FLOOR}) and on Node 26; macOS runs the
- * floor only. `scripts/lint-node-engine-ssot.mjs` holds every version here to
- * the root `engines.node` floor.
+ * Node (T14055, owner decision D11196; T14367): Type Check and the Linux unit
+ * shards run on the engines floor ({@link NODE_FLOOR}) and on Node 26 on every
+ * event except `pull_request`, which runs the floor only (see
+ * {@link nodeVersions}); macOS runs the floor only.
+ * `scripts/lint-node-engine-ssot.mjs` holds every version here to the root
+ * `engines.node` floor.
  *
  * @task T13143
  * @task T14055
@@ -89,6 +99,57 @@ export const NODE_FLOOR = '24.16.0';
  * developer's machine. Ordered floor first.
  */
 export const NODE_VERSIONS = [NODE_FLOOR, '26'];
+
+/** The pull request label that turns the macOS legs on (T14367). */
+export const MACOS_LABEL = 'macos';
+
+/**
+ * The Node versions Type Check and the Linux unit shards run on for an event
+ * (T14367): a pull request runs the floor only, since its Node 26 shards
+ * duplicated the floor's at about 95 runner-minutes per run; main pushes, the
+ * nightly schedule, merge groups and dispatches run every {@link NODE_VERSIONS}
+ * entry, so a Node-26-only break still fails main's own CI.
+ *
+ * @param {string} event - `github.event_name`.
+ * @returns {string[]}
+ */
+export function nodeVersions(event) {
+  return event === 'pull_request' ? [NODE_FLOOR] : [...NODE_VERSIONS];
+}
+
+/**
+ * Whether an event runs the macOS legs, and whether CI adds the
+ * {@link MACOS_LABEL} label (T14367, owner D11238): a pull request runs them
+ * when it carries the label or its change is darwin-specific, and a
+ * darwin-specific pull request without the label gets it, so the PR shows
+ * why macOS ran and keeps running it. Merge groups always run macOS; any
+ * other event runs it in macos-main.yml, not here.
+ *
+ * @param {string} event - `github.event_name`.
+ * @param {boolean} darwin - Whether the change is darwin-specific ({@link detectDarwin}).
+ * @param {boolean} labelled - Whether the pull request carries {@link MACOS_LABEL}.
+ * @returns {{ runMacos: boolean, addLabel: boolean }}
+ */
+export function macosDecision(event, darwin, labelled) {
+  if (event === 'merge_group') return { runMacos: true, addLabel: false };
+  if (event !== 'pull_request') return { runMacos: false, addLabel: false };
+  return { runMacos: darwin || labelled, addLabel: darwin && !labelled };
+}
+
+/**
+ * Whether a pull request's labels ask for the macOS legs.
+ *
+ * @param {string | undefined} json - `PR_LABELS`: a JSON array of label names.
+ * @returns {boolean} False for a missing or unreadable list.
+ */
+export function hasMacosLabel(json) {
+  try {
+    const labels = JSON.parse(json ?? '[]');
+    return Array.isArray(labels) && labels.includes(MACOS_LABEL);
+  } catch {
+    return false;
+  }
+}
 
 /** A path that is darwin-specific by name. */
 const DARWIN_PATH = /(^|[/._-])(darwin|macos)([/._-]|$)/i;
@@ -196,18 +257,18 @@ export function detectDarwin(paths, patch) {
  * The OS list and unit-test matrix for an event.
  *
  * @param {string} event - `github.event_name`.
- * @param {boolean} darwin - Whether a pull request's change is darwin-specific.
- *   A darwin pull request gets {@link MACOS_PR_SHARDS} macOS shards; the
- *   merge-group runs get {@link MACOS_SHARDS}.
+ * @param {boolean} runMacos - Whether a pull request runs the macOS legs
+ *   ({@link macosDecision}). Such a pull request gets {@link MACOS_PR_SHARDS}
+ *   macOS shards; the merge-group runs get {@link MACOS_SHARDS}.
  * @returns {{ buildOs: string[], testMatrix: Array<{ os: string, shard: number, total: number, node: string }> }}
  */
-export function platformMatrix(event, darwin) {
-  const macos = event === 'merge_group' || (event === 'pull_request' && darwin);
+export function platformMatrix(event, runMacos) {
+  const macos = event === 'merge_group' || (event === 'pull_request' && runMacos);
   const buildOs = macos ? ['ubuntu-latest', 'macos-latest'] : ['ubuntu-latest'];
   const shards = (os, total, node) =>
     Array.from({ length: total }, (_, i) => ({ os, shard: i + 1, total, node }));
   const testMatrix = [
-    ...NODE_VERSIONS.flatMap((node) => shards('ubuntu-latest', LINUX_SHARDS, node)),
+    ...nodeVersions(event).flatMap((node) => shards('ubuntu-latest', LINUX_SHARDS, node)),
     ...(macos
       ? shards(
           'macos-latest',
@@ -240,18 +301,26 @@ function main() {
     } catch (err) {
       detection = {
         darwin: true,
-        reason: `darwin detection failed, so macOS runs: ${err instanceof Error ? err.message : String(err)}`,
+        reason: `darwin detection failed, so the change counts as darwin-specific: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
   }
-  const { buildOs, testMatrix } = platformMatrix(event, detection.darwin);
+  const labelled = event === 'pull_request' && hasMacosLabel(process.env.PR_LABELS);
+  const decision = macosDecision(event, detection.darwin, labelled);
+  const { buildOs, testMatrix } = platformMatrix(event, decision.runMacos);
   const lines = [
     `darwin=${detection.darwin}`,
     `build_os=${JSON.stringify(buildOs)}`,
     `test_matrix=${JSON.stringify(testMatrix)}`,
-    `node_versions=${JSON.stringify(NODE_VERSIONS)}`,
+    `node_versions=${JSON.stringify(nodeVersions(event))}`,
+    `add_macos_label=${decision.addLabel}`,
   ];
   console.log(`${detection.reason}\n${lines.join('\n')}`);
+  if (decision.addLabel) {
+    console.log(
+      `::notice title=macOS runs on this PR::${detection.reason}. CI adds the '${MACOS_LABEL}' label (owner D11238).`,
+    );
+  }
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
   return 0;
 }

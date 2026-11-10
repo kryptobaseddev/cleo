@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.3.1
+  version: 4.3.2
   tier: core
   install: harness
   covers:
@@ -195,6 +195,18 @@ since harness shells keep neither cwd nor env between calls (the git shim reads
 same identity line in its Session Linkage block: `export CLEO_AGENT_ID=<agent>`,
 so teammates sharing one harness session keep separate claims and focus (T14269).
 
+**Worker completion (T14359, behind `orchestrate.leadWorker.v1`)**: `cleo orchestrate
+spawn-execute` stores a durable worker record (task, instance id, pid/pgid, worktree,
+lead mailbox, provider) before it spawns and does not fire `SubagentStop` at spawn.
+The worker reports its own exit with `cleo orchestrate worker-exit --instance <id>`
+(the claude-code adapter installs it as the worker's `SessionEnd` hook); without
+`--status` the status comes from the task, so an exit with the task still active is
+`partial`, never `complete`. For a worker that crashed first, `cleo orchestrate
+status` probes each open record's pid. A worker with neither a hook nor a pid gets
+`SubagentStop` at spawn. It fires exactly once whichever path closes the record, and
+`cleo orchestrate status` lists the records under `workers`. Flag off: the old
+behaviour (stop event at spawn).
+
 **Other harnesses**: Pass the resolved prompt to whatever "give this prompt to an agent" mechanism the runtime provides. Results flow back through pipeline_manifest (via `cleo manifest append`) — the universal handoff medium.
 
 ### Valid Return Messages
@@ -260,8 +272,24 @@ the store doc exists.
 peers through AgentMBX (`mbx_*` tools; the `agentmbx` CLI can only send without the
 session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` section and
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
-mailbox in it. The conduit messaging verbs, including the `conduit-*` sub-commands of
+mailbox in it. Tier-0 prompts stay minimal and have no such section; with
+`orchestrate.leadWorker.v1` on and `--lead-mbx` given, they carry one line naming your mailbox
+and asking for a report of at most 100 words (conclusion, blocker, proof) (T14429). The conduit messaging verbs, including the `conduit-*` sub-commands of
 orchestrate, were removed (T13955).
+
+**A no-hands lead runs commands through `cleo_run` (T14374).** The `cleo-lead` agent has
+no Bash, Edit or Write. Its one command route is the `cleo_run` MCP tool, served by
+`cleo orchestrate lead-runner`. Pass an argv array (never a shell string): the command words
+first, then positionals, then flags. Each allowed command accepts only its listed flags; write
+`--flag=value` for a value starting with `-`; `--no-*` forms are refused. Allowed: the
+`orchestrate` read, plan and dispatch sub-verbs (not `worktree-complete`, `approve`, `reject`,
+`prune`, `ivtr`, `bootstrap` or `conduit-*`), `show`, `find`, `list`, `review packet|check|verdict`,
+`done --from-merge <pr> --dry-run`, `memory find|fetch`, `session status`,
+`decide ask`, `merge train`; `gh pr view|list|checks|diff`, `gh pr comment --body <text>`,
+`gh run list|view`, each given only a numeric PR or run id (no URL, `--repo`, `--web`,
+`--watch` or `--body-file`). Command and flag lists are checked against the CLI manifest, so
+every rule is a leaf command; `briefing` is not on the list because it has a subcommand.
+The lead merges only through `cleo merge train`; pushes and edits go to a worker.
 
 **Attached documents are budgeted (T14190).** A spawn prompt's `## Task Documents` section
 inlines the task's attached text documents up to 16,000 characters of prose
@@ -361,6 +389,7 @@ When operating without continuous HITL oversight, additional constraints apply: 
 | `cleo orchestrate ready T1575` | Parallel-safe tasks in current wave |
 | `cleo orchestrate spawn T1586 --json` | Generate resolved spawn prompt |
 | `cleo orchestrate next T1575` | Suggest next task |
+| `cleo orchestrate status` | Status plus durable worker records (`workers`) |
 | `cleo saga rollup <sagaId>` | Cross-Epic status aggregation when orchestrating a multi-Epic Saga (ADR-073) |
 | `cleo saga members <sagaId>` | Member Epics of a Saga (parent_id containment — NOT `task_relations.groups`) |
 | `cleo find "query"` | Search tasks |

@@ -21,7 +21,9 @@
  *   cleo orchestrate handoff <taskId>     — session handoff + successor spawn
  *   cleo orchestrate spawn-execute <taskId> — adapter-registry spawn
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
+ *   cleo orchestrate worker-exit          — worker completion signal (SessionEnd hook)
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
+ *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
  *
  * @task T4466, T478, T483, T811, T964
  * @epic T4454
@@ -792,6 +794,48 @@ const spawnExecuteCommand = defineCommand({
   },
 });
 
+/**
+ * cleo orchestrate worker-exit — a worker's own completion signal (T14359).
+ *
+ * Run by the worker as its session ends (its `SessionEnd` hook): closes the
+ * worker record and fires SubagentStop once. Without `--status` the status is
+ * derived from the task (a process exit is not task completion). Without
+ * `--instance` it names the open record of the caller's session
+ * (`CLEO_SESSION_ID`). Never fails the hook: an unknown or already-closed
+ * worker reports `emitted: false`.
+ */
+const workerExitCommand = defineCommand({
+  meta: { name: 'worker-exit', description: "Record a worker's exit and fire SubagentStop once" },
+  args: {
+    instance: { type: 'string', description: 'Adapter instance id of the worker' },
+    status: {
+      type: 'string',
+      description:
+        'Completion status: complete | partial | blocked | failed (default: derived from the task)',
+    },
+  },
+  async run({ args }) {
+    const { WORKER_EXIT_STATUSES, markWorkerExited } = await import(
+      '@cleocode/core/orchestrate/worker-records'
+    );
+    const status = WORKER_EXIT_STATUSES.find((s) => s === args.status);
+    if (args.status !== undefined && status === undefined) {
+      const message = `--status must be one of ${WORKER_EXIT_STATUSES.join(', ')}`;
+      cliOutput(
+        { success: false, error: { code: 'E_INVALID_INPUT', message } },
+        { command: 'orchestrate worker-exit' },
+      );
+      process.exitCode = 6;
+      return;
+    }
+    const target = args.instance
+      ? { instanceId: args.instance }
+      : { sessionId: process.env.CLEO_SESSION_ID };
+    const data = await markWorkerExited(target, status, getProjectRoot());
+    cliOutput({ success: true, data }, { command: 'orchestrate worker-exit' });
+  },
+});
+
 /** cleo orchestrate fanout — fan out tasks for an epic using parallel spawn */
 const fanoutCommand = defineCommand({
   meta: { name: 'fanout', description: 'Fan out tasks for an epic using parallel spawn' },
@@ -1001,6 +1045,26 @@ const pendingCommand = defineCommand({
 });
 
 /**
+ * cleo orchestrate lead-runner — serve the lead command runner over MCP stdio.
+ *
+ * A no-hands lead has no Bash; its agent definition starts this server and
+ * runs allow-listed cleo and gh verbs through its one tool (T14374).
+ */
+const leadRunnerCommand = defineCommand({
+  meta: {
+    name: 'lead-runner',
+    description:
+      'Serve the lead command runner (MCP stdio): runs allow-listed cleo and gh argv, no shell',
+  },
+  async run() {
+    const { serveLeadCommandRunner } = await import(
+      '@cleocode/core/orchestration/lead-command-runner'
+    );
+    await serveLeadCommandRunner({ input: process.stdin, output: process.stdout });
+  },
+});
+
+/**
  * Root orchestrate command group — all 25 multi-agent orchestration operations.
  *
  * Dispatches to the `orchestrate` and `pipeline` dispatch domains.
@@ -1033,12 +1097,15 @@ export const orchestrateCommand = defineCommand({
     handoff: handoffCommand,
     'spawn-execute': spawnExecuteCommand,
     fanout: fanoutCommand,
+    'worker-exit': workerExitCommand,
     prune: pruneCommand,
     'worktree-complete': worktreeCompleteCommand,
     // T935: HITL playbook approval gates
     approve: approveCommand,
     reject: rejectCommand,
     pending: pendingCommand,
+    // T14374: no-hands lead command runner
+    'lead-runner': leadRunnerCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
