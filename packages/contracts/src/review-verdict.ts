@@ -187,6 +187,13 @@ export interface ReviewDispatch {
    * `reviewerAgentId` is accepted only from it. Empty on a dry run.
    */
   reviewerSessionId: string;
+  /**
+   * SHA-256 (hex) of the per-dispatch secret (T14403). The secret itself is
+   * never stored in a row: it is written to a 0600 file
+   * ({@link ReviewDispatchDecision.reviewerSecretFile}) and a verdict under
+   * this dispatch is accepted only with it. Empty on a dry run.
+   */
+  reviewerSecretSha256: string;
   /** The session that dispatched: never the reviewer's, never an author's. */
   dispatcherSessionId: string | null;
   /** ISO-8601 time it was recorded. */
@@ -213,6 +220,14 @@ export interface ReviewDispatchDecision {
   dispatches?: ReviewDispatch[];
   /** The brief to hand the reviewer agent, for `dispatch`. */
   brief?: string;
+  /**
+   * Where the per-dispatch secret was written (T14403), on an executed
+   * `dispatch`: a 0600 file under `.cleo/review-secrets/`. Only the path is
+   * returned, never the secret, so it stays out of the dispatcher's
+   * transcript; the dispatcher hands the reviewer the path as
+   * `CLEO_REVIEW_SECRET_FILE`.
+   */
+  reviewerSecretFile?: string;
 }
 
 /** One criterion's shadow verdict next to the counted one on the same head (T14372). */
@@ -240,3 +255,11 @@ export interface ReviewDispatchResult {
   /** One decision per open PR, in PR-number order. */
   decisions: ReviewDispatchDecision[];
 }
+
+/**
+ * The owner-only key that lets `cleo review dispatch --counted` send reviewer
+ * workers whose verdicts count (T14403). The owner seals it with
+ * `cleo config set review.workers.counted true`; it is never stored in
+ * config.json, and a plain config write of it is refused.
+ */
+export const REVIEW_WORKERS_COUNTED_KEY = 'review.workers.counted';

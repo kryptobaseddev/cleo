@@ -352,7 +352,11 @@ export interface ProviderCapabilities {
 
 // Priority and status enums are defined in the registry types module to
 // avoid duplication; they are the same for raw JSON and resolved runtime.
-import type { ProviderPriority, ProviderStatus } from './core/registry/types.js';
+import type {
+  ProviderAgentDefinitions,
+  ProviderPriority,
+  ProviderStatus,
+} from './core/registry/types.js';
 
 export type { ProviderPriority, ProviderStatus } from './core/registry/types.js';
 
@@ -425,6 +429,14 @@ export interface Provider {
   status: ProviderStatus;
   /** Whether the provider is compatible with the Agent Skills standard. */
   agentSkillsCompatible: boolean;
+
+  /**
+   * Project agent-definition location and format; absent when the provider
+   * has no verified project agent-file support (T14378).
+   *
+   * @defaultValue undefined
+   */
+  agentDefinitions?: ProviderAgentDefinitions;
 
   /** Provider capabilities (MCP, harness, skills, hooks, spawn). Always populated at runtime. */
   capabilities: ProviderCapabilities;

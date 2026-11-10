@@ -119,7 +119,7 @@ export interface OnboardingResult {
   readonly modelId: string | null;
   /**
    * The profile/role name the bind step wrote (e.g. `'default'` for the global
-   * binding or a {@link import('../config.js').RoleName} for a per-role
+   * binding or a {@link import('../config/types.js').RoleName} for a per-role
    * binding), or `null` when bind failed.
    */
   readonly profileName: string | null;

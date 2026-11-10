@@ -6,6 +6,7 @@
   "license": "MIT",
   "files": [
     "cleo-subagent.cant",
+    "definitions/",
     "templates/",
     "meta/",
     "README.md"

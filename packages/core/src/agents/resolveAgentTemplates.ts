@@ -59,11 +59,29 @@ import { getTemplatesByKind, resolveSourcePathAbsolute } from '../templates/regi
  * @task T1271
  */
 export function resolveMetaAgentsDir(): string | null {
+  return resolveAgentsPackageDir('meta');
+}
+
+/**
+ * Resolve the absolute path to the `@cleocode/agents/definitions/` directory:
+ * the canonical lead and worker `.cant` files that `cleo init` / `cleo upgrade`
+ * render into provider agent files.
+ *
+ * @returns Absolute path, or `null` when unresolved.
+ *
+ * @task T14378
+ */
+export function resolveAgentDefinitionsDir(): string | null {
+  return resolveAgentsPackageDir('definitions');
+}
+
+/** A sub-directory of the `@cleocode/agents` package, or `null` when absent. */
+function resolveAgentsPackageDir(sub: string): string | null {
   // Primary: workspace module resolution against the published package root.
   try {
     const req = createRequire(import.meta.url);
     const agentsPkgJson = req.resolve('@cleocode/agents/package.json');
-    const candidate = join(dirname(agentsPkgJson), 'meta');
+    const candidate = join(dirname(agentsPkgJson), sub);
     if (existsSync(candidate)) return candidate;
   } catch {
     // Package unreachable — fall through to relative walk.
@@ -74,12 +92,12 @@ export function resolveMetaAgentsDir(): string | null {
   // consumer to have `@cleocode/agents` declared as a direct dependency.
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    // packages/core/src/agents/ → packages/agents/meta
-    join(here, '..', '..', '..', 'agents', 'meta'),
-    // packages/core/dist/agents/ → packages/agents/meta
-    join(here, '..', '..', '..', '..', 'agents', 'meta'),
-    // node_modules/@cleocode/core/dist/agents/ → ../agents/meta
-    join(here, '..', '..', '..', '..', '..', 'agents', 'meta'),
+    // packages/core/src/agents/ → packages/agents/<sub>
+    join(here, '..', '..', '..', 'agents', sub),
+    // packages/core/dist/agents/ → packages/agents/<sub>
+    join(here, '..', '..', '..', '..', 'agents', sub),
+    // node_modules/@cleocode/core/dist/agents/ → ../agents/<sub>
+    join(here, '..', '..', '..', '..', '..', 'agents', sub),
   ];
   return candidates.find((p) => existsSync(p)) ?? null;
 }

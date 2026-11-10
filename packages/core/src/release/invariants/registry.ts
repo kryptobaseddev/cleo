@@ -156,8 +156,9 @@ export interface RegisteredInvariant {
 export type RegisteredReleaseInvariant = RegisteredInvariant;
 
 /**
- * Module-local registry. Single global instance — invariants register on
- * module load via side-effect imports.
+ * Module-local registry. Single global instance, filled by explicit
+ * `register…Invariant()` calls (`registerReleaseInvariants()` in `./index.ts`);
+ * importing a module never registers one (T14391).
  */
 const registry: Map<string, RegisteredInvariant> = new Map();
 

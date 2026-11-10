@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.5.2
+  version: 4.6.0
   tier: core
   install: harness
   covers:
@@ -123,11 +123,16 @@ the stage gate (see Plan).
   not the author reviews the PR head from `cleo review packet <pr> --task <id>` and
   records `cleo review verdict` per AC; the implementer never reviews its own work.
   `cleo review dispatch --execute` sends one shadow reviewer per routine PR head that
-  lacks verdicts, under a session the dispatch creates, and prints its brief. Shadow
+  lacks verdicts, under a session the dispatch creates, and prints its brief and
+  `reviewerSecretFile`: the path of a 0600 file holding that dispatch's secret (never
+  the secret itself). The reviewer runs with `CLEO_REVIEW_SECRET_FILE=<path>`, as the
+  brief says; never cat, copy or paste the secret into a prompt or a command line. Its
+  verdicts are refused without it (T14403). Shadow
   verdicts never count, so the lead still reviews every PR; `cleo review check` shows
   them next to the lead's. Migrations, store/sync, gates, deletions, evidence and
   review/session/claim code stay with the lead. `--counted` is refused until the owner
-  sets `review.workers.counted`.
+  seals `review.workers.counted` (owner-only, like `evidence.overrideCapPerSession`;
+  an agent's `cleo config set` of it is refused and audited).
   Merge on green `CI`; the merge sweep closes the task. A worker that fails its
   criteria is re-spawned with the feedback.
 - No-PR work: `cleo done <id> --plan`, then `cleo verify` per gate, then `cleo complete`.
@@ -272,7 +277,9 @@ the store doc exists.
 peers through AgentMBX (`mbx_*` tools; the `agentmbx` CLI can only send without the
 session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` section and
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
-mailbox in it. The conduit messaging verbs, including the `conduit-*` sub-commands of
+mailbox in it. Tier-0 prompts stay minimal and have no such section; with
+`orchestrate.leadWorker.v1` on and `--lead-mbx` given, they carry one line naming your mailbox
+and asking for a report of at most 100 words (conclusion, blocker, proof) (T14429). The conduit messaging verbs, including the `conduit-*` sub-commands of
 orchestrate, were removed (T13955).
 
 **Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with

@@ -7,7 +7,7 @@
  */
 
 import type { TaskPriority } from '../task.js';
-import type { TaskTreeNode } from '../tasks.js';
+import type { TaskTreeNode } from '../tasks/index.js';
 
 export type { TaskTreeNode };
 

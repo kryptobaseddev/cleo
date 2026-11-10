@@ -936,7 +936,7 @@ function exempt(
 
 /**
  * Bare tables the twin collapse DRAINS into their prefixed twin (T13115,
- * T13777), bare name → twin name. Kept here, a module every open already loads, so
+ * T13777, T14399), bare name → twin name. Kept here, a module every open already loads, so
  * the bare-twin strand check (`sync/flags.ts`) adds nothing to the CLI's
  * startup graph (gate 39).
  *
@@ -950,6 +950,7 @@ function exempt(
 export const DRAINED_TWINS: Readonly<Record<string, string>> = {
   token_usage: 'tasks_token_usage',
   audit_log: 'tasks_audit_log',
+  agent_error_log: 'tasks_agent_error_log',
 };
 
 /**

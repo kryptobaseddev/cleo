@@ -9,7 +9,8 @@
  *
  * This module bridges the agent registry (tasks.db) with the cognitive
  * memory layer (brain.db) without introducing circular dependencies:
- * - Tasks.db agent tables: agent_instances, agent_error_log (agent-schema.ts)
+ * - Project cleo.db agent tables: tasks_agent_instances, tasks_agent_error_log
+ *   (store/schema/cleo-project/runtime.ts)
  * - Brain.db tables: brain_decisions, brain_patterns, brain_observations
  *
  * All brain.db writes are best-effort — failures are silently swallowed so

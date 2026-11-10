@@ -277,7 +277,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
   } else {
     // Ensure brain.db is initialized before calling getBrainNativeDb
     try {
-      const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
+      const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
       await getBrainDb(projectRoot);
       brainDb = getBrainNativeDb(projectRoot);
     } catch {
@@ -289,7 +289,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
     nexusDb = options.nexusDb;
   } else {
     try {
-      const { getNexusDb, getNexusNativeDb } = await import('@cleocode/core/internal');
+      const { getNexusDb, getNexusNativeDb } = await import('../store/nexus-sqlite.js');
       await getNexusDb();
       nexusDb = getNexusNativeDb();
     } catch {
@@ -300,7 +300,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
   if (options.tasksDb !== undefined) {
     tasksNativeDb = options.tasksDb;
   } else {
-    const { getNativeDb, getDb } = await import('@cleocode/core/internal');
+    const { getNativeDb, getDb } = await import('../store/sqlite.js');
     // Ensure tasks.db is initialized
     await getDb(projectRoot);
     tasksNativeDb = getNativeDb(projectRoot);
@@ -448,7 +448,7 @@ export async function runProposeTick(options: ProposeTickOptions): Promise<Propo
     if (options.allocateTaskId) {
       taskId = await options.allocateTaskId();
     } else {
-      const { allocateNextTaskId } = await import('@cleocode/core/internal');
+      const { allocateNextTaskId } = await import('../sequence/index.js');
       taskId = await allocateNextTaskId(projectRoot);
     }
 
@@ -689,7 +689,7 @@ export async function runProposalAutoPromoteScan(
   if (options.tasksDb !== undefined) {
     tasksNativeDb = options.tasksDb;
   } else {
-    const { getNativeDb, getDb } = await import('@cleocode/core/internal');
+    const { getNativeDb, getDb } = await import('../store/sqlite.js');
     await getDb(projectRoot);
     tasksNativeDb = getNativeDb(projectRoot);
   }

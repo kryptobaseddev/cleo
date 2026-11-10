@@ -402,10 +402,10 @@ export async function scanForProjects(opts: ProjectsScanOptions = {}): Promise<P
   const autoRegisterErrors: ScanAutoRegisterError[] = [];
 
   if (opts.autoRegister && unregistered.length > 0) {
-    const { nexusRegister: doRegister } = await import('@cleocode/core/internal' as string);
+    const { nexusRegister } = await import('./registry.js');
     for (const projectPath of unregistered) {
       try {
-        await (doRegister as (p: string) => Promise<string>)(projectPath);
+        await nexusRegister(projectPath);
         autoRegistered.push(projectPath);
       } catch (err) {
         autoRegisterErrors.push({

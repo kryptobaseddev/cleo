@@ -2982,6 +2982,31 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     }
   });
 
+  it('a git command that runs another command is charged its class plan, not light (T14398)', () => {
+    for (const argv of [
+      ['git', 'rebase', '-x', 'pnpm test', 'main'],
+      ['git', 'bisect', 'run', 'pnpm', 'vitest', 'run'],
+      ['git', 'submodule', 'foreach', 'pnpm build'],
+    ]) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured);
+      expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(GIB);
+      expect(plan.resources, argv.join(' ')).not.toBeNull();
+      expect(plan.footprintReason, argv.join(' ')).toMatch(/^scoped-build plan: git .* runs /);
+    }
+  });
+
+  it('a git rebase with a post-checkout hook installed keeps the class plan (T14398)', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'rebase', 'origin/main'],
+      {},
+      RAM,
+      (hook) => hook === 'post-checkout',
+      unmeasured,
+    );
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the post-checkout hook');
+  });
+
   it("git checkout with CLEO's nexus hooks installed is charged light (T14384)", () => {
     const repo = mkdtempSync(join(tmpdir(), 'cleo-t14384-'));
     try {
