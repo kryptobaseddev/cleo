@@ -2,7 +2,7 @@
  * Agent registry with capacity tracking for load balancing.
  *
  * Provides task-count-based capacity queries, specialization lookup,
- * and performance recording on top of the existing `agent_instances` schema.
+ * and performance recording on top of the `tasks_agent_instances` table.
  *
  * Capacity model: each agent has a maximum of {@link MAX_TASKS_PER_AGENT}
  * concurrent tasks. "Remaining capacity" is that constant minus the number of
@@ -98,7 +98,7 @@ export interface AgentPerformanceMetrics {
  *
  * Remaining capacity = {@link MAX_TASKS_PER_AGENT} minus the number of tasks
  * currently routed to this agent instance (tracked via the `task_id` column
- * on `agent_instances` — each instance handles one task at a time; child agents
+ * on `tasks_agent_instances` — each instance handles one task at a time; child agents
  * spawned by an orchestrator appear as sibling rows referencing the same
  * `parent_agent_id`).
  *
@@ -222,7 +222,7 @@ export async function getAgentsByCapacity(
 // ============================================================================
 
 /**
- * Metadata shape stored in the agent_instances.metadata_json column.
+ * Metadata shape stored in the tasks_agent_instances.metadata_json column.
  * Only the subset relevant to specializations is typed here.
  *
  * @internal
@@ -342,7 +342,7 @@ export async function updateAgentSpecializations(
  * Translates a simplified {@link AgentPerformanceMetrics} object into the
  * {@link AgentExecutionEvent} format expected by `execution-learning.ts` and
  * delegates to {@link recordAgentExecution}. The agent type is resolved from
- * the `agent_instances` table so callers only need to supply the agent ID.
+ * the `tasks_agent_instances` table so callers only need to supply the agent ID.
  *
  * @remarks
  * Recording is best-effort — if brain.db is unavailable the error is swallowed
