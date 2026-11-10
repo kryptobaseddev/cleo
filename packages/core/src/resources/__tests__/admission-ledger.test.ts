@@ -3009,8 +3009,8 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       // The command's own globals count: -C picks the repository, -c sets an alias.
       expect(gitAlias(tmpdir(), 't14405', ['-C', repo])).toBe('!pnpm test');
       expect(gitAlias(repo, 'x14405', ['-c', 'alias.x14405=!make'])).toBe('!make');
-      // Git cannot read its config there, so it cannot run an alias either.
-      expect(gitAlias(repo, 't14405', ['-C', join(repo, 'missing')])).toBeNull();
+      // T14405 round 1: a probe git cannot answer throws; it is never read as no alias.
+      expect(() => gitAlias(repo, 't14405', ['-C', join(repo, 'missing')])).toThrow();
       const plan = (argv: readonly string[]) =>
         planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
       for (const [argv, reason] of [
@@ -3034,6 +3034,87 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it('a later alias.<name>.command shell alias is not masked by alias.<name> (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.m14405', 'status'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.m14405.command', '!make'], { cwd: repo });
+      expect(gitAlias(repo, 'm14405')).toBe('!make');
+      const plan = planRunFootprint(
+        'scoped-build',
+        ['git', 'm14405'],
+        {},
+        RAM,
+        () => false,
+        unmeasured,
+        repo,
+      );
+      expect(plan.footprintBytes).toBeGreaterThan(GIB);
+      expect(plan.footprintReason).toBe('scoped-build plan: git m14405 is a shell alias');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('imap.tunnel, tar.<fmt>.command and helper-name keys keep the class plan (T14405)', () => {
+    for (const [argv, key] of [
+      [['git', '-c', 'tar.x.command=make', 'archive', '--format=x', 'HEAD'], 'tar.x.command'],
+      [['git', '-c', 'imap.tunnel=make', 'imap-send'], 'imap.tunnel'],
+      // git runs `git-credential-cat` and `git-remote-cat`, not cat.
+      [['git', '-c', 'credential.helper=cat', 'fetch'], 'credential.helper'],
+      [['git', '-c', 'remote.origin.vcs=cat', 'fetch'], 'remote.origin.vcs'],
+    ] as const) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured);
+      expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(GIB);
+      expect(plan.footprintReason, argv.join(' ')).toBe(
+        `scoped-build plan: git -c ${key} runs another command`,
+      );
+    }
+    // An empty helper list runs nothing.
+    const cleared = planRunFootprint(
+      'scoped-build',
+      ['git', '-c', 'credential.helper=', 'fetch'],
+      {},
+      RAM,
+      () => false,
+      unmeasured,
+    );
+    expect(cleared.footprintBytes).toBe(GIB);
+  });
+
+  it('a failed or timed-out alias probe keeps the class plan, and git commands skip it (T14405)', () => {
+    const asked: string[] = [];
+    const failing = (name: string): string | null => {
+      asked.push(name);
+      throw Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    };
+    const plan = (argv: readonly string[]) =>
+      planRunFootprint(
+        'scoped-build',
+        argv,
+        {},
+        RAM,
+        () => false,
+        unmeasured,
+        tmpdir(),
+        undefined,
+        {
+          gitAlias: failing,
+        },
+      );
+    const unknown = plan(['git', 'mystery14405']);
+    expect(unknown.footprintBytes).toBeGreaterThan(GIB);
+    expect(unknown.footprintReason).toBe(
+      'scoped-build plan: git mystery14405 may be an alias git could not be asked about',
+    );
+    // A git command shadows any alias of its name, so it is never probed.
+    for (const sub of ['status', 'push', 'commit', 'fetch', 'log', 'diff', 'checkout']) {
+      expect(plan(['git', sub]).footprintBytes, sub).toBe(GIB);
+    }
+    expect(asked).toEqual(['mystery14405']);
   });
 
   it('a git rebase with a post-checkout hook installed keeps the class plan (T14398)', () => {

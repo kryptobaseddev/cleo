@@ -1682,8 +1682,15 @@ const GIT_COMMAND_KEY = new RegExp(
     'uploadpack\\.packobjectshook|gc\\.recentobjectshook',
     'sendemail\\.(.+\\.)?(sendmailcmd|smtpserver|tocmd|cccmd|headercmd)',
     '(web|help|instaweb)\\.browser|man\\.viewer',
+    'imap\\.tunnel|tar\\..+\\.command',
   ].join('|')})$`,
 );
+/**
+ * Keys whose value names a helper git runs as `git-credential-<value>` or
+ * `git-remote-<value>` (T14405), so a light utility's name (`cat`) is no
+ * proof of a light run; only an empty value runs nothing.
+ */
+const GIT_HELPER_KEY = /^(credential\.(.+\.)?helper|remote\..+\.vcs)$/;
 /** Config keys whose value is a shell command only when it starts with `!`. */
 const GIT_BANG_KEY = /^(alias\..+|submodule\..+\.update)$/;
 
@@ -1693,7 +1700,8 @@ const GIT_BANG_KEY = /^(alias\..+|submodule\..+\.update)$/;
  * `-c alias.x='!cmd'` and the like ({@link GIT_COMMAND_KEY}), or the same key
  * through `--config-env`, whose value is not on the command line. An empty
  * value or a single light utility (`core.editor=true`, `core.pager=cat`,
- * `core.fsmonitor=false`) runs nothing heavy.
+ * `core.fsmonitor=false`) runs nothing heavy, except for a helper-name key
+ * ({@link GIT_HELPER_KEY}), where only an empty value does.
  *
  * @param globals - The git global options, from {@link parseGitInvocation}.
  */
@@ -1714,7 +1722,8 @@ function gitCommandKey(globals: readonly string[]): string | null {
     const value = g !== '-c' ? null : eq < 0 ? 'true' : pair.slice(eq + 1).trim();
     const name = key.toLowerCase();
     const shell = value === null || value.startsWith('!');
-    const inert = value === '' || (value !== null && LIGHT_UTILITIES.test(value));
+    const inert =
+      value === '' || (value !== null && !GIT_HELPER_KEY.test(name) && LIGHT_UTILITIES.test(value));
     if (GIT_BANG_KEY.test(name) ? shell : GIT_COMMAND_KEY.test(name) && !inert) return key;
   }
   return null;
@@ -1726,8 +1735,10 @@ function gitCommandKey(globals: readonly string[]): string | null {
  * run <cmd>`, `submodule foreach <cmd>` and `filter-branch`, whose filters
  * are shell commands. A bundled short flag (`-ix`, `-xmake`) counts. T14405:
  * so does an inline config key git runs ({@link gitCommandKey}) and an alias
- * that is a shell command (`alias.t = !pnpm test`). An alias named after a
- * built-in command, which git ignores, is read as an alias all the same.
+ * that is a shell command (`alias.t = !pnpm test`), or a name the alias probe
+ * could not answer for (a failure or timeout is never read as "no alias").
+ * A git command ({@link GIT_COMMANDS}) is not probed: git ignores an alias
+ * that hides one.
  *
  * @param git - From {@link parseGitInvocation}.
  * @param aliasOf - What a git alias expands to.
@@ -1745,11 +1756,99 @@ function gitRunsCommand(git: GitInvocation, aliasOf: GitAliasLookup): string | n
     return 'git submodule foreach runs another command';
   }
   if (sub === 'filter-branch') return 'git filter-branch runs its filter commands';
-  if (sub !== null && aliasOf(sub, git.globals)?.trimStart().startsWith('!')) {
-    return `git ${sub} is a shell alias`;
+  if (sub === null || GIT_COMMANDS.has(sub)) return null;
+  let alias: string | null;
+  try {
+    alias = aliasOf(sub, git.globals);
+  } catch {
+    return `git ${sub} may be an alias git could not be asked about`;
   }
-  return null;
+  return alias?.trimStart().startsWith('!') ? `git ${sub} is a shell alias` : null;
 }
+
+/**
+ * Git's own commands (T14405). Git ignores an alias that hides one, so these
+ * skip the alias probe, which keeps it off ordinary git runs. A command
+ * missing here is only probed, never undercharged.
+ */
+const GIT_COMMANDS: ReadonlySet<string> = new Set([
+  'add',
+  'am',
+  'apply',
+  'archive',
+  'bisect',
+  'blame',
+  'branch',
+  'bundle',
+  'cat-file',
+  'check-ignore',
+  'checkout',
+  'cherry',
+  'cherry-pick',
+  'clean',
+  'clone',
+  'commit',
+  'commit-tree',
+  'config',
+  'count-objects',
+  'describe',
+  'diff',
+  'diff-files',
+  'diff-index',
+  'diff-tree',
+  'difftool',
+  'fetch',
+  'for-each-ref',
+  'format-patch',
+  'fsck',
+  'gc',
+  'grep',
+  'hash-object',
+  'help',
+  'init',
+  'log',
+  'ls-files',
+  'ls-remote',
+  'ls-tree',
+  'maintenance',
+  'merge',
+  'merge-base',
+  'mergetool',
+  'mv',
+  'notes',
+  'prune',
+  'pull',
+  'push',
+  'range-diff',
+  'read-tree',
+  'rebase',
+  'reflog',
+  'remote',
+  'repack',
+  'replace',
+  'reset',
+  'restore',
+  'rev-list',
+  'rev-parse',
+  'revert',
+  'rm',
+  'shortlog',
+  'show',
+  'show-ref',
+  'sparse-checkout',
+  'stash',
+  'status',
+  'submodule',
+  'switch',
+  'symbolic-ref',
+  'tag',
+  'update-index',
+  'update-ref',
+  'var',
+  'version',
+  'worktree',
+  'write-tree',
+]);
 
 /** Client-side hooks a git subcommand runs that may do heavy work (T13452, T13458). */
 const GIT_HOOKS: Readonly<Record<string, readonly string[]>> = {
