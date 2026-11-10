@@ -911,6 +911,15 @@ const checkArchCommand = defineCommand({
         description: 'Every refusal on the closure paths carries a runnable fix',
       },
       {
+        // T14410: 24 `*-integration.test.ts` files sat excluded from every
+        // vitest run CI performs, so they never ran. Every tracked test file
+        // must be collected by a CI vitest config; the baseline may only fall.
+        id: 'gate-43',
+        task: 'T14410',
+        script: 'scripts/lint-test-files-run.mjs',
+        description: 'Every tracked test file is collected by a vitest run CI performs',
+      },
+      {
         // T14412: vitest reads `src/<subpath>.ts` (else `<subpath>/index.ts`)
         // while Node resolves the contracts `exports` map onto dist/. In #2772
         // `@cleocode/contracts/config.js` named two modules, so tests passed and

@@ -4,7 +4,8 @@
  * @epic T4454
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -91,6 +92,48 @@ describe('Session lifecycle', () => {
     expect(session.name).toBe('Test session');
     expect(session.status).toBe('active');
     expect(session.scope).toEqual({ type: 'epic', epicId: 'T001', rootTaskId: 'T001' });
+  });
+
+  it.each([
+    false,
+    true,
+  ])('keeps bundled adapters inactive and provider settings unchanged (existing: %s)', async (existingSettings) => {
+    const { AdapterManager } = await import('../../adapters/manager.js');
+    const { discoverAdapterManifests } = await import('../../adapters/discovery.js');
+    const providerDetection = await import('../../metrics/provider-detection.js');
+    expect(
+      discoverAdapterManifests(tempDir).some((manifest) => manifest.id === 'claude-code'),
+    ).toBe(true);
+    const detection = vi
+      .spyOn(providerDetection, 'detectRuntimeProviderContext')
+      .mockReturnValue({ runtimeProviderId: 'claude-code' });
+    AdapterManager.resetInstance();
+    const manager = AdapterManager.getInstance(tempDir);
+    const activate = vi.spyOn(manager, 'activate');
+    await mkdir(join(tempDir, '.git'), { recursive: true });
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    const settingsFile = join(tempDir, '.claude', 'settings.local.json');
+    const settings = '{"permissions":{"allow":["Bash(git status)"]}}\n';
+    if (existingSettings) {
+      await mkdir(join(tempDir, '.claude'));
+      await writeFile(settingsFile, settings);
+    }
+    try {
+      await startSession(tempDir, { name: 'Project-only activation', scope: 'global' });
+      await vi.waitFor(() => expect(activate).toHaveBeenCalledWith('claude-code'));
+      await expect(activate.mock.results[0]?.value).rejects.toThrow(
+        'Adapter manifest not found: claude-code',
+      );
+      expect(manager.getManifest('claude-code')).toBeNull();
+      expect(manager.getActive()).toBeNull();
+      expect(existsSync(settingsFile)).toBe(existingSettings);
+      if (existingSettings) expect(await readFile(settingsFile, 'utf8')).toBe(settings);
+    } finally {
+      detection.mockRestore();
+      activate.mockRestore();
+      await manager.dispose();
+      AdapterManager.resetInstance();
+    }
   });
 
   it('shows session status', async () => {

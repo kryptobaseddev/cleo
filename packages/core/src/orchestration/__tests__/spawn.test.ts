@@ -247,6 +247,39 @@ describe('composeSpawnPayload — full envelope', () => {
   });
 
   it.each([
+    0, 1, 2,
+  ] as const)('resolves project worker policy into the tier %i payload', async (tier) => {
+    const db = env.openDb();
+    try {
+      await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
+      const workerPolicy = {
+        verification: { full: 'ci', local: 'single-file' },
+        instructions: ["Use this project's conventions."],
+      };
+      writeFileSync(
+        join(env.projectRoot, '.cleo', 'config.json'),
+        JSON.stringify({ orchestrate: { workerPolicy } }),
+      );
+      const payload = await composeSpawnPayload(db, BASE_TASK, {
+        projectRoot: env.projectRoot,
+        agentId: 'fixture-worker',
+        skipAtomicityCheck: true,
+        tier,
+        protocol: 'implementation',
+      });
+      expect(payload.workerPolicy).toEqual(workerPolicy);
+      expect(payload.prompt).toContain(
+        'Full verification (build, full tests, lint and typecheck): required CI only',
+      );
+      expect(payload.prompt).not.toContain(
+        'cleo verify T9101 --gate qaPassed --evidence "tool:lint;tool:typecheck"',
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
     [true, true],
     [false, false],
   ])('auto-tier worker (tier 0) with leadWorker.v1=%s names the lead mailbox: %s (T14429)', async (flag, expected) => {

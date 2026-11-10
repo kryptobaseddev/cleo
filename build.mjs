@@ -570,7 +570,16 @@ const cleoBuildOptions = {
 /** @type {esbuild.BuildOptions} */
 const adaptersBuildOptions = {
   // Every public adapters export must have a built runtime entry (T13490).
-  entryPoints: ['packages/adapters/src/index.ts', 'packages/adapters/src/heavy-command-hook.ts', 'packages/adapters/src/project-hook-delivery.ts', 'packages/adapters/src/project-hook-native.ts'],
+  entryPoints: [
+    'packages/adapters/src/index.ts',
+    'packages/adapters/src/manifests.ts',
+    'packages/adapters/src/heavy-command-hook.ts',
+    'packages/adapters/src/project-hook-delivery.ts',
+    'packages/adapters/src/project-hook-native.ts',
+    ...readdirSync(resolve(__dirname, 'packages/adapters/src/providers'))
+      .map((id) => `packages/adapters/src/providers/${id}/index.ts`)
+      .filter((entry) => existsSync(resolve(__dirname, entry))),
+  ],
   bundle: true,
   platform: 'node',
   target: 'node24',
