@@ -269,9 +269,12 @@ jobs:
         if: ${{ !cancelled() && (github.event_name == 'pull_request') }}
         env:
           BASE_REF: ${{ github.base_ref }}
+          # T14393: the checkout is GitHub's merge commit; the PR head gives the
+          # branch point that skill version bumps are measured against.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           git fetch --no-tags origin "$BASE_REF"
-          node scripts/lint-skill-coverage.mjs --check --base "origin/$BASE_REF"
+          node scripts/lint-skill-coverage.mjs --check --base "origin/$BASE_REF" --head "$HEAD_SHA"
       # Gate 34 (T12704). An ES module has no `require`: a bare call throws
       # under Node while vitest supplies one, so unit tests cannot catch it.
       # Wired here as well as in `cleo check arch` (gate 20 requires both).
