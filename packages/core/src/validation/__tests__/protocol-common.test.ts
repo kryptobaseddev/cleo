@@ -121,6 +121,8 @@ describe('parseReturnMessage (T12521)', () => {
     expect(parseReturnMessage('Research complete. manifest:e1\ncommits: ')).toBeNull();
     expect(parseReturnMessage('Research complete. manifest:e1\nblocker: CI red')).toBeNull();
     expect(parseReturnMessage('Research complete. manifest:e1\nblocker: none')).not.toBeNull();
+    expect(parseReturnMessage('Research complete. manifest:e1\nblocker: None')).not.toBeNull();
+    expect(parseReturnMessage('Research blocked. manifest:e1\nblocker: NONE')).toBeNull();
   });
 
   it('requires a non-none blocker for partial/blocked; legacy form unchanged (F3)', () => {

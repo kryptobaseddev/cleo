@@ -11,6 +11,9 @@ The spawn prompt's Return Format Contract now asks workers for the
 commit sha or file), at most 100 words, with detail in the PR body. The lead
 closes the task with `cleo done <id> --report "<report>"`, which refuses,
 before recording anything, a report with no `conclusion:` or `proof:` line
-(`E_WORKER_REPORT_PROOF`, exit 61) or over 100 words (`E_VALIDATION`, exit 6).
+(`E_WORKER_REPORT_PROOF`, exit 61) or over 100 words, the template keys not
+counted (`E_VALIDATION`, exit 6). A placeholder (`<cmd>`, `n/a`, `TBD`, `-`)
+in the conclusion or a proof, a run with no command, and a command whose exit
+is not 0 are refused as no proof; `blocker: None` in any case means no blocker.
 The return-message validators still accept the `commits:`/`gates:` lines and
 the legacy one-liner.

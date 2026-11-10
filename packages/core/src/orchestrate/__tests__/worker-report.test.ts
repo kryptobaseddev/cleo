@@ -38,12 +38,49 @@ describe('checkWorkerReport (T14361)', () => {
     ['proof: none', [HEAD, 'conclusion: done', 'blocker: none', 'proof: none']],
     ['no conclusion', [HEAD, 'blocker: none', 'proof: abc1234']],
     ['not the contract', ['all done, trust me', 'proof: abc1234']],
+    [
+      'a failing command',
+      [HEAD, 'conclusion: done', 'blocker: none', 'proof: pnpm test => exit 1'],
+    ],
+    [
+      'a failing command next to a good artifact',
+      [HEAD, 'conclusion: done', 'blocker: none', 'proof: abc1234', 'proof: pnpm test => exit 2'],
+    ],
+    [
+      'the unfilled proof template',
+      [HEAD, 'conclusion: done', 'blocker: none', 'proof: <cmd> => exit <n>|<PR|sha|file>'],
+    ],
+    ['proof: n/a', [HEAD, 'conclusion: done', 'blocker: none', 'proof: n/a']],
+    ['proof: TBD', [HEAD, 'conclusion: done', 'blocker: none', 'proof: TBD']],
+    ['proof: -', [HEAD, 'conclusion: done', 'blocker: none', 'proof: -']],
+    ['a run with no command', [HEAD, 'conclusion: done', 'blocker: none', 'proof: => exit 0']],
+    ['a malformed exit', [HEAD, 'conclusion: done', 'blocker: none', 'proof: pnpm test => exit']],
+    ['the unfilled conclusion', [HEAD, 'conclusion: <result>', 'blocker: none', 'proof: abc1234']],
+    ['conclusion: TBD', [HEAD, 'conclusion: TBD', 'blocker: none', 'proof: abc1234']],
   ])('refuses %s with E_WORKER_REPORT_PROOF', (_name, lines) => {
     expect(checkWorkerReport(lines.join('\n'))).toMatchObject({
       ok: false,
       code: 'E_WORKER_REPORT_PROOF',
       exitCode: 61,
     });
+  });
+
+  it.each(['None', 'NONE', 'none'])('accepts blocker: %s as no blocker', (word) => {
+    const check = checkWorkerReport(COMPLETE.replace('blocker: none', `blocker: ${word}`));
+    expect(check).toMatchObject({ ok: true, report: { blocker: null } });
+  });
+
+  it('does not count the template keys toward the word limit', () => {
+    const filler = Array.from({ length: WORKER_REPORT_MAX_WORDS - 6 }, (_, i) => `w${i}`).join(' ');
+    const lines = [
+      HEAD,
+      `conclusion: ${filler}`,
+      'blocker: none',
+      'proof: abc1234',
+      'proof: def5678',
+    ];
+    // 104 words counting the conclusion:, blocker: and proof: keys; exactly 100 without.
+    expect(checkWorkerReport(lines.join('\n'))).toMatchObject({ ok: true });
   });
 
   it('refuses a report over the word limit and points the detail at the PR', () => {

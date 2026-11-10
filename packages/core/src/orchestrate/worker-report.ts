@@ -37,16 +37,44 @@ export type WorkerReportCheck =
       fix: string;
     };
 
-/** Read one `proof:` value: `<command> => exit <n>`, else an artifact. */
-function parseProof(value: string): WorkerProof {
-  const run = /^(.+?)\s*=>\s*exit\s+(-?\d+)$/.exec(value);
-  return run?.[1] && run[2] ? { command: run[1], exitCode: Number(run[2]) } : { artifact: value };
+/** Template keys and syntax, left out of the word count. */
+const TEMPLATE_TOKENS = new Set(['conclusion:', 'blocker:', 'proof:', '=>']);
+
+/**
+ * True for a value that proves nothing: an unfilled `<placeholder>` from the
+ * template, or a stand-in such as `n/a`, `TBD` or `-`.
+ */
+function isPlaceholder(value: string): boolean {
+  const v = value.trim();
+  return (
+    /<[^<>]*>/.test(v) ||
+    /^[\s\-–—.?_*]*$/.test(v) ||
+    /^(none|n\/?a|tbd|todo|tba|pending|null|nil|unknown|xxx+)$/i.test(v)
+  );
+}
+
+/**
+ * Read one `proof:` value: `<command> => exit <n>`, else an artifact; `null`
+ * when it proves nothing — a placeholder, a run with no command or a
+ * malformed exit, or a command that exited non-zero.
+ */
+function parseProof(value: string): WorkerProof | null {
+  if (isPlaceholder(value)) return null;
+  if (!value.includes('=>')) return { artifact: value };
+  const run = /^(.*?)\s*=>\s*exit\s+(-?\d+)$/.exec(value);
+  const command = run?.[1]?.trim();
+  const exitCode = Number(run?.[2]);
+  if (!command || isPlaceholder(command) || exitCode !== 0) return null;
+  return { command, exitCode };
 }
 
 /**
  * Check a worker report: it must parse as the Return Format Contract, carry a
- * `conclusion:` line and at least one `proof:` line that is not `none`, and
- * hold at most {@link WORKER_REPORT_MAX_WORDS} words.
+ * filled `conclusion:` line and at least one `proof:` line, and hold at most
+ * {@link WORKER_REPORT_MAX_WORDS} words (the template's own keys not counted).
+ * Every `proof:` line must prove something: a placeholder (`<cmd>`, `n/a`,
+ * `TBD`, `-`), a run with no command, or a command whose exit is not 0
+ * refuses the whole report. `blocker: none` in any case means no blocker.
  *
  * @param text - The report exactly as the worker returned it.
  * @returns The parsed {@link WorkerReport}, or the refusal with its fix.
@@ -61,7 +89,7 @@ export function checkWorkerReport(text: string): WorkerReportCheck {
   const words = text
     .replace(/```[\w-]*/g, ' ')
     .split(/\s+/)
-    .filter(Boolean).length;
+    .filter((w) => w && !TEMPLATE_TOKENS.has(w.toLowerCase())).length;
   if (words > WORKER_REPORT_MAX_WORDS) {
     return {
       ok: false,
@@ -72,18 +100,32 @@ export function checkWorkerReport(text: string): WorkerReportCheck {
     };
   }
   const parsed = parseReturnMessage(text);
-  const proof = (parsed?.proof ?? []).filter((p) => p.toLowerCase() !== 'none').map(parseProof);
-  if (!parsed?.conclusion || proof.length === 0) {
-    return {
-      ok: false,
-      code: E_WORKER_REPORT_PROOF,
-      exitCode: ExitCode.INVALID_RETURN_MESSAGE,
-      message: parsed
-        ? 'Worker report has no conclusion: line or no proof: line backing it'
-        : 'Worker report does not match the Return Format Contract',
-      fix: 'Add a conclusion: line and one proof: line per item (<command> => exit <code>, or a PR url, commit sha or file)',
-    };
+  const proof = (parsed?.proof ?? []).map(parseProof);
+  const refuse = (message: string): WorkerReportCheck => ({
+    ok: false,
+    code: E_WORKER_REPORT_PROOF,
+    exitCode: ExitCode.INVALID_RETURN_MESSAGE,
+    message,
+    fix: 'Add a filled conclusion: line and one proof: line per item (<command> => exit 0, or a PR url, commit sha or file)',
+  });
+  if (!parsed) return refuse('Worker report does not match the Return Format Contract');
+  if (!parsed.conclusion || isPlaceholder(parsed.conclusion)) {
+    return refuse('Worker report has no filled conclusion: line');
   }
-  const blocker = parsed.blocker && parsed.blocker !== 'none' ? parsed.blocker : null;
-  return { ok: true, report: { conclusion: parsed.conclusion, blocker, proof } };
+  if (proof.length === 0) return refuse('Worker report has no proof: line backing it');
+  const bad = proof.indexOf(null);
+  if (bad !== -1) {
+    return refuse(
+      `Worker report proof "${parsed.proof[bad]}" proves nothing: a placeholder, a run with no command, or a non-zero exit`,
+    );
+  }
+  const blocker = parsed.blocker && parsed.blocker.toLowerCase() !== 'none' ? parsed.blocker : null;
+  return {
+    ok: true,
+    report: {
+      conclusion: parsed.conclusion,
+      blocker,
+      proof: proof.filter((p): p is WorkerProof => p !== null),
+    },
+  };
 }

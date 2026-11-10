@@ -155,7 +155,7 @@ export interface ParsedReturnMessage {
  * Parse a subagent return message in the compressed or the legacy form.
  *
  * One surrounding ``` fence is stripped first. In the compressed form:
- * `blocker` must be `none` (or absent) when the status is
+ * `blocker` must be `none` in any case (or absent) when the status is
  * `complete`/`completed`, and present and not `none` when it is
  * `partial`/`blocked`; `manifest:none` is accepted only for `partial`/`blocked`;
  * an entry id containing `<` or `>` (an unfilled `<entryId>` placeholder) is
@@ -206,7 +206,7 @@ export function parseReturnMessage(
   }
   if (/[<>]/.test(entryId ?? '')) return null;
   const done = status === 'complete' || status === 'completed';
-  const blocked = parsed.blocker !== null && parsed.blocker !== 'none';
+  const blocked = parsed.blocker !== null && parsed.blocker.toLowerCase() !== 'none';
   if (done && (blocked || entryId === 'none')) return null;
   if (!done && !blocked) return null;
   return parsed;
