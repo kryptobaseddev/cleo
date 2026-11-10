@@ -596,6 +596,32 @@ export const E_AC_COVERAGE_INCOMPLETE = 'E_AC_COVERAGE_INCOMPLETE' as const;
  */
 export const E_CWD_WALKUP_FORBIDDEN = 'E_CWD_WALKUP_FORBIDDEN' as const;
 
+/**
+ * E_LEAD_TOOLS_UNSTRIPPED — a lead spawn under the lead/worker split
+ * (`orchestrate.leadWorker.v1`) was refused because the provider cannot strip
+ * the lead's denied tools (`LeadToolPolicy.stripSupport` is `'unsupported'`).
+ * A lead that keeps `Bash`, `Edit` or `Write` could do the work itself.
+ *
+ * Maps to {@link ExitCode.SPAWN_VALIDATION_FAILED} (63) at the CLI boundary.
+ *
+ * @task T14356
+ * @epic T14351
+ */
+export const E_LEAD_TOOLS_UNSTRIPPED = 'E_LEAD_TOOLS_UNSTRIPPED' as const;
+
+/**
+ * E_WORKER_REPORT_PROOF — a worker's `WorkerReport` was rejected because its
+ * proof does not back its conclusion (no proof entry, or an entry with no
+ * command, exit code or artifact).
+ *
+ * Maps to {@link ExitCode.INVALID_RETURN_MESSAGE} (61) at the CLI boundary.
+ *
+ * @task T14356
+ * @task T14361
+ * @epic T14351
+ */
+export const E_WORKER_REPORT_PROOF = 'E_WORKER_REPORT_PROOF' as const;
+
 /** Check if an exit code represents an error (1-99). */
 export function isErrorCode(code: ExitCode): boolean {
   return code >= 1 && code < 100;

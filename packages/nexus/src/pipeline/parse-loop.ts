@@ -60,6 +60,7 @@ import { parseOriginalSourceWithRecovery } from '../code/parser.js';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
+import { extractSql, linkSqlReferences, type SqlExtraction } from './extractors/sql-extractor.js';
 import {
   type ExtractedCall,
   type ExtractedHeritage,
@@ -83,9 +84,12 @@ import {
   decodeExtraction,
   decodeExtractionHead,
   decodeExtractionSites,
+  decodeParseFailure,
   type ExtractionHead,
   type ExtractionSites,
   encodeExtraction,
+  encodeParseFailure,
+  isCacheableParseFailure,
 } from './parse-cache.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
@@ -478,8 +482,10 @@ export interface ParseLoopOptions {
    */
   reusedEntries?: ReadonlyMap<string, GraphParseCacheEntry>;
   /**
-   * Called once per freshly and successfully parsed file with its compressed
-   * extraction ({@link encodeExtraction}) — the parse-cache payload.
+   * Called once per freshly parsed file with its parse-cache payload: the
+   * compressed extraction ({@link encodeExtraction}), or for a file failing
+   * with `E_PARSE_SYNTAX` the recorded failure ({@link encodeParseFailure}),
+   * so the next run reports it again without re-parsing it (T12350).
    */
   onFileExtracted?: (path: string, payload: Uint8Array) => void;
   /**
@@ -515,7 +521,10 @@ export interface ParseLoopResult {
   barrelMap: BarrelExportMap;
   /** Parseable files handed to the parser this run. */
   parsedFileCount: number;
-  /** Parseable files whose extraction came from {@link ParseLoopOptions.reusedEntries}. */
+  /**
+   * Parseable files served from {@link ParseLoopOptions.reusedEntries}: a cached
+   * extraction, or a cached syntax failure reported again unparsed (T12350).
+   */
   reusedFileCount: number;
   /** Paths of those files. */
   reusedPaths: Set<string>;
@@ -534,14 +543,19 @@ const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
   'access-references',
   'type-heritage',
 ];
+/** SQL capabilities the SQL extractor completes (T14383); literal and dynamic references stay limitations. */
 const SQL_CAPABILITIES: GraphAnalysisCapability[] = [
   'file-evidence',
   'sql-schema-objects',
   'sql-migrations',
   'sql-triggers',
   'sql-constraints',
-  'sql-literal-references',
-  'sql-dynamic-references',
+];
+/** Limitations every SQL file carries: what the bounded SQL extractor does not assess. */
+const SQL_LIMITATIONS = [
+  'Literal SQL table references inside executable sources are not linked to SQL schema objects.',
+  'Dynamic SQL references remain unresolved.',
+  'DML statements, column types and SQL routines are not extracted; references to tables no indexed SQL file creates stay unlinked.',
 ];
 const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
 
@@ -601,6 +615,7 @@ function roleCoverage(
   return {
     role,
     classification,
+    // T14383: a SQL file requests exactly the capabilities the SQL extractor completes.
     requested:
       role === 'sql'
         ? [...SQL_CAPABILITIES]
@@ -610,10 +625,7 @@ function roleCoverage(
     completed: ['file-evidence', ...(evidence ? [evidence] : [])],
     limitations:
       role === 'sql'
-        ? [
-            'SQL extraction is unsupported; schema and literal references remain unassessed.',
-            'Dynamic SQL references remain unresolved.',
-          ]
+        ? [...SQL_LIMITATIONS]
         : role === 'executable' || role === 'unknown'
           ? ['Static extraction cannot establish complete runtime-call discovery.']
           : [],
@@ -759,11 +771,15 @@ function isJsoncConfigurationPath(path: string): boolean {
   );
 }
 
-/** Classify only observed role evidence; unsupported or ambiguous code remains a gap. */
+/**
+ * Classify only observed role evidence; unsupported or ambiguous code remains a gap.
+ * A SQL file is extracted from the bytes read here and handed to `onSql` (T14383).
+ */
 async function classifyFileCapabilities(
   file: ScannedFile,
   repoPath: string,
   signal?: AbortSignal,
+  onSql?: (extraction: SqlExtraction) => void,
 ): Promise<GraphIndexFileReport> {
   const path = file.path;
   const extension = extname(path).toLowerCase();
@@ -777,14 +793,11 @@ async function classifyFileCapabilities(
     )
       ? 'analyzed'
       : 'unsupported',
-    ...(capabilities.role === 'sql'
-      ? { reason: 'No SQL schema or reference extractor is available' }
-      : capabilities.role === 'executable' || capabilities.role === 'unknown'
-        ? {
-            reason:
-              'Unsupported or unclassified executable capabilities require a symbol extractor',
-          }
-        : {}),
+    ...(capabilities.role === 'executable' || capabilities.role === 'unknown'
+      ? {
+          reason: 'Unsupported or unclassified executable capabilities require a symbol extractor',
+        }
+      : {}),
     capabilities,
   });
   if (hasResourceSignature(extension, bytes))
@@ -813,13 +826,23 @@ async function classifyFileCapabilities(
         reason: `Recognized executable language or filename: ${path}`,
       }),
     );
-  if (extension === '.sql')
-    return report(
-      roleCoverage('sql', {
-        basis: 'path',
-        reason: 'SQL source extension; no schema or reference extractor is implemented',
-      }),
-    );
+  if (extension === '.sql') {
+    const extraction = extractSql(path, content);
+    onSql?.(extraction);
+    const coverage = roleCoverage('sql', {
+      basis: 'path',
+      reason: 'SQL source extension; read by the bounded SQL DDL extractor',
+    });
+    if (extraction.problems.length === 0)
+      return report({ ...coverage, completed: [...coverage.requested] });
+    // Coverage honesty (T14383): a quote or block left open, or a statement no
+    // form matched, means the sql-* capabilities did not complete for this file.
+    const reason = `Partial SQL extraction: ${extraction.problems.join('; ')}`;
+    return {
+      ...report({ ...coverage, limitations: [...coverage.limitations, `${reason}.`] }),
+      reason,
+    };
+  }
   if (extension === '.md' || extension === '.markdown')
     return report(
       roleCoverage(
@@ -1374,11 +1397,14 @@ export async function runParseLoop(
     });
   };
   const parseableFiles: ScannedFile[] = [];
+  const sqlExtractions: SqlExtraction[] = [];
   for (const file of files) {
     options.parserLimits?.signal?.throwIfAborted();
     let report: GraphIndexFileReport;
     try {
-      report = await classifyFileCapabilities(file, repoPath, options.parserLimits?.signal);
+      report = await classifyFileCapabilities(file, repoPath, options.parserLimits?.signal, (sql) =>
+        sqlExtractions.push(sql),
+      );
     } catch (error) {
       options.parserLimits?.signal?.throwIfAborted();
       report = {
@@ -1451,6 +1477,13 @@ export async function runParseLoop(
     let extracted: ExtractionHead | undefined;
     let generation: string | undefined;
     const cached = payload ? undefined : reused.get(file.path);
+    const cachedFailure = cached ? decodeParseFailure(cached.payload) : null;
+    if (cachedFailure !== null) {
+      // T12350: same bytes, same grammar, same syntax error; still reported as a gap.
+      reusedPaths.add(file.path);
+      emitReport({ path: file.path, status: 'failed', reason: cachedFailure });
+      continue;
+    }
     if (cached) {
       const decodeStart = performance.now();
       try {
@@ -1481,7 +1514,11 @@ export async function runParseLoop(
     if (!payload) {
       const failure = pass.failures.get(file.path);
       // Unknown language/grammar keys are silently skipped exactly as before.
-      if (failure) emitReport(failure);
+      if (failure) {
+        if (isCacheableParseFailure(failure.reason))
+          options.onFileExtracted?.(file.path, encodeParseFailure(failure.reason));
+        emitReport(failure);
+      }
       continue;
     }
     if (!reusedPaths.has(file.path)) options.onFileExtracted?.(file.path, payload);
@@ -1495,6 +1532,14 @@ export async function runParseLoop(
     allHeritage.push(...extracted.heritage);
     staged.push({ payload, generation });
   }
+  // T14383: SQL objects join the graph after every SQL file is read, so a
+  // reference resolves to a table another migration created. They are never
+  // registered in the symbol table: no code call can resolve to a SQL object.
+  for (const sql of sqlExtractions) {
+    for (const node of sql.nodes) graph.addNode(node);
+    emitDefinesEdges(sql.filePath, sql.nodes, graph);
+  }
+  linkSqlReferences(sqlExtractions, graph);
   function* decodeStaged<K extends ExtractionSites>(
     sites: K,
   ): Generator<Required<CommonExtractionResult>[K][number]> {

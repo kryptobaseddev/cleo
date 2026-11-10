@@ -48,14 +48,14 @@ describe('Agents public API', () => {
     });
 
     it('returns registered agents', async () => {
-      await registerAgent({ agentType: 'worker' }, tempDir);
+      await registerAgent({ agentType: 'executor' }, tempDir);
       const result = await listAgents({ projectPath: tempDir });
       expect(result.agents.length).toBeGreaterThanOrEqual(1);
       expect(result.total).toBeGreaterThanOrEqual(1);
     });
 
     it('filters by status', async () => {
-      await registerAgent({ agentType: 'worker' }, tempDir);
+      await registerAgent({ agentType: 'executor' }, tempDir);
       const result = await listAgents({ status: 'starting', projectPath: tempDir });
       expect(result.agents.every((a) => a.status === 'starting')).toBe(true);
     });
@@ -91,13 +91,13 @@ describe('Agents public API', () => {
     });
 
     it('stops an active agent', async () => {
-      const registered = await registerAgent({ agentType: 'worker' }, tempDir);
+      const registered = await registerAgent({ agentType: 'executor' }, tempDir);
       const result = await removeAgent(registered.id, tempDir);
       expect(result?.status).toBe('stopped');
     });
 
     it('is idempotent — stopping an already-stopped agent returns existing row', async () => {
-      const registered = await registerAgent({ agentType: 'worker' }, tempDir);
+      const registered = await registerAgent({ agentType: 'executor' }, tempDir);
       await removeAgent(registered.id, tempDir);
       const result = await removeAgent(registered.id, tempDir);
       expect(result?.status).toBe('stopped');

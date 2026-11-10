@@ -288,6 +288,7 @@ export type {
   DepsRequiredAt,
   EnforcementProfile,
   HierarchyConfig,
+  LeadMailbox,
   LeadRollupConfig,
   LeadRollupMode,
   LifecycleConfig,
@@ -307,6 +308,9 @@ export type {
   NexusConfig,
   NexusFreshnessConfig,
   NexusReindexOnMergeConfig,
+  OrchestrateConfig,
+  OrchestrateContextThresholds,
+  OrchestrateLeadWorkerConfig,
   OutputConfig,
   OutputFormat,
   ProviderConfig,
@@ -717,8 +721,11 @@ export {
   E_INVALID_PIPELINE_STAGE,
   E_INVALID_SEVERITY_VALUE,
   E_INVALID_STATE,
+  // T14356 / epic T14351 — lead/worker split
+  E_LEAD_TOOLS_UNSTRIPPED,
   E_PLAN_NOT_FOUND,
   E_RELEASE_PLAN_INVALID,
+  E_WORKER_REPORT_PROOF,
   E_WORKFLOW_NOT_FOUND,
   // gh#391 — application-level SQLITE_BUSY retry exhaustion (T9839)
   E_WRITE_CONTENTION,
@@ -1426,34 +1433,6 @@ export type {
   AdminTokenQueryParams,
   AdminVersionParams,
 } from './operations/admin.js';
-// === Conduit Operation Types (T1422 — typed-dispatch migration) ===
-// Re-exported at top level so CLI dispatch can import without the `ops.` namespace hop.
-// Note: The transport-layer ConduitSendResult (in ./conduit.ts) carries { messageId, deliveredAt }
-// and is the canonical type for the Conduit interface (ConduitClient / publishToTopic).
-// ConduitSendOperationResult (below) is the wire-format type for the conduit.send CLI/HTTP
-// dispatch operation and carries { messageId, from, to, transport, sentAt }.
-// The two types serve different layers and are intentionally distinct.
-export type {
-  ConduitInboxMessage,
-  ConduitListenParams,
-  ConduitListenResult,
-  ConduitOps,
-  ConduitPeekParams,
-  ConduitPeekResult,
-  ConduitPublishParams,
-  ConduitPublishResult,
-  ConduitSendOperationResult,
-  ConduitSendParams,
-  ConduitStartParams,
-  ConduitStartResult,
-  ConduitStatusParams,
-  ConduitStatusResult,
-  ConduitStopParams,
-  ConduitStopResult,
-  ConduitSubscribeParams,
-  ConduitSubscribeResult,
-  ConduitTransportKind,
-} from './operations/conduit.js';
 // Dialectic Evaluator operation types (T1087 Wave 3)
 export type {
   ApplyInsightsParams,
@@ -1629,8 +1608,6 @@ export type {
   NexusColdSymbolsParams,
   NexusColdSymbolsResult,
   NexusCommunityEntry,
-  NexusConduitScanParams,
-  NexusConduitScanResult,
   NexusContextNode,
   NexusContextParams,
   NexusContextProcess,
@@ -1834,9 +1811,25 @@ export { USER_PROFILE_SCOPES } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type {
   BrainState,
+  LeadCommandBinary,
+  LeadCommandRule,
+  LeadDeniedTool,
+  LeadFlagArity,
+  LeadToolPolicy,
+  LeadToolStripSupport,
   OrchestrateReportEntry,
   OrchestrateReportGroup,
   OrchestrateReportParams,
+  WorkerProof,
+  WorkerReport,
+} from './operations/orchestrate.js';
+export {
+  LEAD_CLEO_GLOBAL_FLAGS,
+  LEAD_COMMAND_ALLOWLIST,
+  LEAD_DENIED_TOOLS,
+  LEAD_RUNNER_MCP_SERVER,
+  LEAD_RUNNER_TOOL,
+  LEAD_RUNNER_TOOL_NAME,
 } from './operations/orchestrate.js';
 // === Operation Output Contracts (T11692 / DHQ-057 — per-op result shape SSoT) ===
 // OUTPUT-side mirror of the input contracts. Surfaces the LAFS envelope `data`
@@ -2693,6 +2686,7 @@ export type {
   ColumnClass,
   ColumnOverride,
   PendingTableClassification,
+  RetiredSyncColumn,
   RowRouting,
   TableClass,
   TableClassification,
@@ -3341,10 +3335,17 @@ export {
 export type {
   ReviewAnswer,
   ReviewAuthors,
+  ReviewDispatch,
+  ReviewDispatchDecision,
+  ReviewDispatchResult,
   ReviewGap,
   ReviewJudgement,
   ReviewPacket,
   ReviewPacketCriterion,
+  ReviewRoute,
+  ReviewRouteReason,
+  ReviewRouting,
+  ReviewShadowComparison,
   ReviewVerdict,
 } from './review-verdict.js';
 // === Sync schema version, shared by the change journal and the cloud vault (T13034) ===

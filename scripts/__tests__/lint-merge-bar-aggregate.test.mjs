@@ -50,9 +50,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo test
-  arch-gates:
-    name: Arch Gates
-    uses: ./.github/workflows/arch-boundary-check.yml
+  called-gate:
+    name: Called Gate
+    uses: ./.github/workflows/called-gate.yml
   ci:
     name: CI
     if: always()
@@ -60,7 +60,7 @@ jobs:
     needs:
       - biome
       - unit-tests
-      - arch-gates
+      - called-gate
     steps:
       - name: gate
         env:
@@ -69,32 +69,19 @@ jobs:
           if printf '%s' "$RESULTS" | tr ',' '\\n' | grep -qE '^(failure|cancelled)$'; then exit 1; fi
 `;
 
-/** arch workflow with a COMPLETE aggregate gate. */
-const ARCH_OK = `name: Arch Boundary Check
+/**
+ * A reusable workflow ci.yml calls (T13263). T14367 folded the arch gates
+ * into ci.yml's Repo Lints, so ci.yml is the only gated workflow; a called
+ * workflow is held to the trigger and concurrency rules below.
+ */
+const CALLED_OK = `name: Called Gate
 on:
   workflow_call:
 jobs:
-  db-open-guard:
+  only:
     runs-on: ubuntu-latest
     steps:
       - run: echo a
-  llm-chokepoint-guard:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo b
-  arch-boundary-check:
-    name: Arch Boundary Check
-    if: always()
-    runs-on: ubuntu-latest
-    needs:
-      - db-open-guard
-      - llm-chokepoint-guard
-    steps:
-      - name: gate
-        env:
-          RESULTS: \${{ join(needs.*.result, ',') }}
-        run: |
-          if printf '%s' "$RESULTS" | tr ',' '\\n' | grep -qE '^(failure|cancelled)$'; then exit 1; fi
 `;
 
 let tmpRoot;
@@ -145,24 +132,24 @@ function runLint() {
 function writeCi(content) {
   writeFileSync(join(tmpRoot, '.github/workflows/ci.yml'), content);
 }
-function writeArch(content) {
-  writeFileSync(join(tmpRoot, '.github/workflows/arch-boundary-check.yml'), content);
+function writeCalled(content) {
+  writeFileSync(join(tmpRoot, '.github/workflows/called-gate.yml'), content);
 }
 
 describe('lint-merge-bar-aggregate — PASS cases', () => {
-  it('exits 0 when both workflows have a complete aggregate gate', () => {
+  it('exits 0 when ci.yml has a complete aggregate gate', () => {
     writeCi(CI_OK);
-    writeArch(ARCH_OK);
+    writeCalled(CALLED_OK);
     const r = runLint();
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('PASS');
   });
 
   it('exempts a single-job workflow (no aggregate required)', () => {
-    writeCi(CI_OK);
-    writeArch(`name: Arch Boundary Check
+    writeCi(`name: CI
 on:
-  workflow_call:
+  pull_request:
+    branches: [main]
 jobs:
   only-job:
     runs-on: ubuntu-latest
@@ -177,73 +164,43 @@ jobs:
 
 describe('lint-merge-bar-aggregate — FAIL cases', () => {
   it('fails when the aggregate job is missing entirely', () => {
-    writeCi(CI_OK);
-    writeArch(`name: Arch Boundary Check
-on:
-  workflow_call:
-jobs:
-  db-open-guard:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo a
-  llm-chokepoint-guard:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo b
-`);
+    writeCi(CI_OK.slice(0, CI_OK.indexOf('  ci:\n')));
+    writeCalled(CALLED_OK);
     const r = runLint();
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain("aggregate job 'arch-boundary-check' is missing");
+    expect(r.stderr).toContain("aggregate job 'ci' is missing");
   });
 
   it('fails when the aggregate omits a sibling from needs:', () => {
-    writeCi(CI_OK);
-    writeArch(ARCH_OK.replace('      - llm-chokepoint-guard\n', ''));
+    writeCi(CI_OK.replace('      - unit-tests\n', ''));
+    writeCalled(CALLED_OK);
     const r = runLint();
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain("does not 'needs:' sibling job 'llm-chokepoint-guard'");
+    expect(r.stderr).toContain("does not 'needs:' sibling job 'unit-tests'");
   });
 
   it('fails when the aggregate has a stale needs: reference', () => {
-    writeCi(CI_OK);
-    writeArch(ARCH_OK.replace('      - llm-chokepoint-guard\n', '      - ghost-job\n'));
+    writeCi(CI_OK.replace('      - unit-tests\n', '      - unit-tests\n      - ghost-job\n'));
+    writeCalled(CALLED_OK);
     const r = runLint();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('stale reference');
   });
 
   it('fails when the aggregate lacks if: always()', () => {
-    writeCi(CI_OK);
-    writeArch(ARCH_OK.replace('    if: always()\n', ''));
+    writeCi(CI_OK.replace('    if: always()\n', ''));
+    writeCalled(CALLED_OK);
     const r = runLint();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('if: always()');
   });
 
   it('fails when the aggregate does not inspect needs.*.result', () => {
-    writeCi(CI_OK);
-    writeArch(`name: Arch Boundary Check
-on:
-  workflow_call:
-jobs:
-  db-open-guard:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo a
-  llm-chokepoint-guard:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo b
-  arch-boundary-check:
-    name: Arch Boundary Check
-    if: always()
-    runs-on: ubuntu-latest
-    needs:
-      - db-open-guard
-      - llm-chokepoint-guard
-    steps:
-      - run: echo "no result inspection"
-`);
+    writeCi(
+      CI_OK.slice(0, CI_OK.indexOf('      - name: gate')) +
+        '      - run: echo "no result inspection"\n',
+    );
+    writeCalled(CALLED_OK);
     const r = runLint();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('needs.*.result');
@@ -255,7 +212,7 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
 
   it('fails on a new standalone pull_request workflow that nothing requires', () => {
     writeCi(CI_OK);
-    writeArch(ARCH_OK);
+    writeCalled(CALLED_OK);
     write('new-gate.yml', standalone('New Gate'));
     const r = runLint();
     expect(r.status).toBe(1);
@@ -267,9 +224,9 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
       CI_OK.replace(
         '  ci:\n',
         '  new-gate:\n    uses: ./.github/workflows/new-gate.yml\n  ci:\n',
-      ).replace('      - arch-gates\n', '      - arch-gates\n      - new-gate\n'),
+      ).replace('      - called-gate\n', '      - called-gate\n      - new-gate\n'),
     );
-    writeArch(ARCH_OK);
+    writeCalled(CALLED_OK);
     write(
       'new-gate.yml',
       standalone('New Gate').replace(
@@ -283,17 +240,17 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
   });
 
   it('fails when the calling job is not a need of the ci aggregate', () => {
-    writeCi(CI_OK.replace('      - arch-gates\n', ''));
-    writeArch(ARCH_OK);
+    writeCi(CI_OK.replace('      - called-gate\n', ''));
+    writeCalled(CALLED_OK);
     const r = runLint();
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain("does not 'needs:' sibling job 'arch-gates'");
+    expect(r.stderr).toContain("does not 'needs:' sibling job 'called-gate'");
   });
 
   it('fails when a called workflow still triggers on pull_request (a redundant second run)', () => {
     writeCi(CI_OK);
-    writeArch(
-      ARCH_OK.replace(
+    writeCalled(
+      CALLED_OK.replace(
         '  workflow_call:\n',
         '  workflow_call:\n  pull_request:\n    branches: [main]\n',
       ),
@@ -305,8 +262,8 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
 
   it('allows a called workflow to keep workflow_dispatch and a tag-only push (T13279)', () => {
     writeCi(CI_OK);
-    writeArch(
-      ARCH_OK.replace(
+    writeCalled(
+      CALLED_OK.replace(
         '  workflow_call:\n',
         "  workflow_call:\n  workflow_dispatch:\n  push:\n    tags: ['v*']\n",
       ),
@@ -318,8 +275,8 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
 
   it('fails when a called workflow still runs on a branch push (T13279)', () => {
     writeCi(CI_OK);
-    writeArch(
-      ARCH_OK.replace('  workflow_call:\n', '  workflow_call:\n  push:\n    branches: [main]\n'),
+    writeCalled(
+      CALLED_OK.replace('  workflow_call:\n', '  workflow_call:\n  push:\n    branches: [main]\n'),
     );
     const r = runLint();
     expect(r.status).toBe(1);
@@ -328,8 +285,8 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
 
   it('fails when a called workflow declares workflow-level concurrency', () => {
     writeCi(CI_OK);
-    writeArch(
-      ARCH_OK.replace(
+    writeCalled(
+      CALLED_OK.replace(
         '  workflow_call:\n',
         '  workflow_call:\nconcurrency:\n  group: x\n  cancel-in-progress: true\n',
       ),
@@ -341,7 +298,7 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
 
   it('fails on a stale advisory entry (the workflow no longer runs on pull_request)', () => {
     writeCi(CI_OK);
-    writeArch(ARCH_OK);
+    writeCalled(CALLED_OK);
     const file = ADVISORY_FILES[0];
     writeFileSync(
       join(tmpRoot, file),
@@ -352,18 +309,22 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
     expect(r.stderr).toContain(`ADVISORY_WORKFLOWS: ${file} no longer runs on pull_request`);
   });
 
-  it('the real ci.yml calls the arch gates and its aggregate needs them', () => {
+  it('the real ci.yml runs the arch gates in Repo Lints and its aggregate needs it (T14367)', () => {
     const ci = readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
-    expect(ci).toContain('uses: ./.github/workflows/arch-boundary-check.yml');
+    const repoLints = ci.slice(
+      ci.indexOf('\n  repo-lints:\n'),
+      ci.indexOf('\n  contracts-dep-lint:\n'),
+    );
+    expect(repoLints).toContain('run: node scripts/lint-arch-gate-parity.mjs');
+    expect(repoLints).toContain('run: node scripts/lint-merge-bar-aggregate.mjs');
     const needs = ci.slice(ci.indexOf('\n  ci:\n'));
-    expect(needs).toContain('      - arch-gates\n');
+    expect(needs).toContain('      - repo-lints\n');
   });
 });
 
 describe('lint-merge-bar-aggregate — error surface', () => {
   it('exits 2 when a gated workflow file is missing', () => {
-    writeCi(CI_OK);
-    // arch-boundary-check.yml intentionally not written.
+    // ci.yml intentionally not written.
     const r = runLint();
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('file not found');

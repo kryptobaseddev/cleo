@@ -606,21 +606,6 @@ export {
   skipStageWithReason,
   TIER_0_SKILLS,
 } from './lifecycle/index.js';
-// IVTR `ivtr_state` read + cantbook-mirror surface (T811 + T11805; the
-// hand-rolled phase-walk functions were deleted in T11896 — the loop now runs
-// on the cantbook runtime).
-export type {
-  IvtrPhase,
-  IvtrPhaseEntry,
-  IvtrState,
-} from './lifecycle/ivtr-loop.js';
-export {
-  finalizeIvtrFromPlaybook,
-  getIvtrState,
-  type IvtrPlaybookTerminalStatus,
-  MAX_LOOP_BACKS_PER_PHASE,
-  seedIvtrForPlaybook,
-} from './lifecycle/ivtr-loop.js';
 export { STAGE_DEFINITIONS } from './lifecycle/stages.js';
 // Lifecycle — verify explain (T1013 / T1541 / ADR-051 / ADR-057)
 export {
@@ -2088,13 +2073,9 @@ export { getOtelStatus } from './otel/index.js';
 export { completePhase } from './phases/index.js';
 // Release engine operations (T1572 — ENG-MIG-5: migrated from dispatch layer)
 export {
-  IVTR_DECOUPLED_AUDIT_FILE,
-  IVTR_DECOUPLED_SENTINEL_FILE,
   releaseCancel,
   releaseCommit,
-  releaseGateCheck,
   releaseGatesRun,
-  releaseIvtrAutoSuggest,
   releaseList,
   releasePrepare,
   releasePrStatus,
@@ -2103,7 +2084,6 @@ export {
   releaseRollbackFull,
   releaseShow,
   releaseTag,
-  writeIvtrDecouplingAuditOnce,
 } from './release/engine-ops.js';
 // Release (additional)
 export { tagRelease } from './release/release-manifest.js';
@@ -2258,11 +2238,9 @@ export { taskDecompose } from './tasks/decompose.js';
 export { taskDelete } from './tasks/delete.js';
 // Engine-layer converters and types (T1568 / ADR-057 / ADR-058)
 export {
-  type IvtrHistoryEntry,
   type LifecycleStageEntry,
   tasksToRecords,
   taskToRecord,
-  toHistoryEntry,
 } from './tasks/engine-converters.js';
 export { taskContext } from './tasks/engine-wrap-ops.js';
 export { taskFind } from './tasks/find.js';
@@ -2276,7 +2254,6 @@ export { addTaskWithSessionScope, resolveParentFromSession } from './tasks/sessi
 export {
   taskExists,
   taskShow,
-  taskShowIvtrHistory,
   taskShowOperation,
   taskShowWithHistory,
 } from './tasks/show.js';
@@ -2629,7 +2606,6 @@ export {
 } from './memory/session-memory.js';
 // Nexus Wave 3 — code intelligence EngineResult wrappers
 export {
-  nexusConduitScan,
   nexusContractsLinkTasks,
   nexusContractsShow,
   nexusContractsSync,

@@ -10,6 +10,25 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "review": {
+      "type": "object",
+      "description": "Per-AC PR review settings (T14372).",
+      "additionalProperties": false,
+      "properties": {
+        "workers": {
+          "type": "object",
+          "description": "Dispatched reviewer workers (T14372).",
+          "additionalProperties": false,
+          "properties": {
+            "counted": {
+              "type": "boolean",
+              "default": false,
+              "description": "Owner decision only: let `cleo review dispatch --execute --counted` send reviewers whose verdicts count toward a merge. Off, every dispatch is shadow."
+            }
+          }
+        }
+      }
+    },
     "resources": {
       "type": "object",
       "description": "Resource governor and monitor settings (T11994). resources.agentSession sets the spawned agent-session budget (T14227).",
@@ -1066,11 +1085,34 @@
         }
       }
     },
-    "orchestrator": {
+    "orchestrate": {
       "type": "object",
-      "description": "Orchestrator agent configuration. Only contextThresholds.{warning,critical} are consumed (T109).",
+      "description": "Orchestration settings (T14356). contextThresholds moved here from the legacy orchestrator key (T14375).",
       "additionalProperties": false,
       "properties": {
+        "leadMailbox": {
+          "type": "object",
+          "description": "Project lead AgentMBX mailbox, recorded by cleo init with leadWorker.v1 on and agentmbx installed (T14379).",
+          "additionalProperties": false,
+          "required": ["name", "projectId", "cli"],
+          "properties": {
+            "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$" },
+            "projectId": { "type": "string" },
+            "cli": { "type": "string", "description": "AgentMBX provider CLI the lead claims it from." }
+          }
+        },
+        "leadWorker": {
+          "type": "object",
+          "description": "Lead/worker split (epic T14351).",
+          "additionalProperties": false,
+          "properties": {
+            "v1": {
+              "type": "boolean",
+              "default": false,
+              "description": "Leads spawn with write and network tools stripped; workers return a WorkerReport with proof."
+            }
+          }
+        },
         "contextThresholds": {
           "type": "object",
           "description": "Context window usage thresholds that trigger orchestrator actions. Values are percentages of context window capacity.",

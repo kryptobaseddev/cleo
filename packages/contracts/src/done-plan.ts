@@ -79,6 +79,12 @@ export type DonePlanBlockerCode =
   /** A `depends` edge points at a task that is not terminal; complete refuses (T14036). */
   | 'dependency-unresolved'
   | 'epic-rollup'
+  /**
+   * A cancelled child of the task needs an audited
+   * `--waive-cancelled-children "<reason>"` (or a done replacement) before the
+   * parent closes; the rollup itself counts it as settled (T14426, T14266).
+   */
+  | 'cancelled-child-waiver'
   | 'run-from-worktree'
   | 'checkout-required'
   | 'evidence-refused'

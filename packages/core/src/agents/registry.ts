@@ -1,7 +1,7 @@
 /**
  * Agent instance registry -- runtime tracking of live agent processes.
  *
- * Provides CRUD operations for the `agent_instances` table:
+ * Provides CRUD operations for the `tasks_agent_instances` table:
  * registration, deregistration, heartbeat, status updates, and queries.
  *
  * This is the DB-backed runtime registry for live agent *instances*.
@@ -13,15 +13,19 @@
 
 import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
-import {
-  type AgentErrorLogRow,
-  type AgentErrorType,
-  type AgentInstanceRow,
-  type AgentInstanceStatus,
-  type AgentType,
-  agentErrorLog,
-  agentInstances,
+import type {
+  AgentErrorLogRow,
+  AgentErrorType,
+  AgentInstanceRow,
+  AgentInstanceStatus,
+  AgentType,
 } from '../store/schema/agent-schema.js';
+// T14387: the live table is the prefixed twin. The bare `agent_instances` carries FKs to the
+// bare `tasks`/`sessions` decoys, so every task- or session-bound row there failed its FK check.
+import {
+  tasksAgentErrorLog as agentErrorLog,
+  tasksAgentInstances as agentInstances,
+} from '../store/schema/cleo-project/runtime.js';
 import { getDb } from '../store/sqlite.js';
 
 // ============================================================================

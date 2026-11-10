@@ -195,8 +195,9 @@ describe('post-deploy budget refusal paths', () => {
   });
 
   it('runs in CI after locked dependency installation', () => {
-    const workflow = parseYaml(readFileSync('.github/workflows/arch-boundary-check.yml', 'utf8'));
-    // T13838: the gate is a step of the consolidated installed-gates job.
+    const workflow = parseYaml(readFileSync('.github/workflows/ci.yml', 'utf8'));
+    // T13838: the gate is a step of the consolidated installed-gates job;
+    // T14367 folded that job into ci.yml's Repo Lints.
     const { steps } = Object.values(workflow.jobs).find((j) =>
       j.steps?.some((step) => step.run === 'node scripts/lint-postdeploy-budget.mjs'),
     );

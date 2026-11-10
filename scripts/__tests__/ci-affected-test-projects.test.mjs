@@ -4,6 +4,7 @@
  * wiring that keeps main, nightly, merge-group and dispatch runs full.
  *
  * @task T13142
+ * @task T14366
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -12,7 +13,12 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { REPO_GUARD_TESTS } from '../../vitest.repo-guards.ts';
-import { projectArgs, selectTestProjects } from '../ci-affected-test-projects.mjs';
+import {
+  projectArgs,
+  selectTestProjects,
+  selectTests,
+  testFileArgs,
+} from '../ci-affected-test-projects.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -72,6 +78,53 @@ describe('selectTestProjects', () => {
     expect(await selectTestProjects(['packages/x/a.ts'], derive, targets([]))).toMatchObject({
       mode: 'full',
     });
+  });
+});
+
+describe('selectTests (T14366)', () => {
+  const byPackage = async (changed) => selectTestProjects(changed, derive, targets(['@core']));
+
+  it('uses the file-level selection when the import graph covers the change', async () => {
+    const files = () => ({
+      mode: 'affected',
+      testFiles: ['packages/core/src/a.test.ts'],
+      reason: 'r',
+    });
+    expect(await selectTests(['packages/core/src/a.ts'], files, byPackage)).toEqual({
+      mode: 'affected',
+      testFiles: ['packages/core/src/a.test.ts'],
+      reason: 'r',
+    });
+  });
+
+  it('falls back to package-level selection, naming both reasons, when it does not', async () => {
+    const files = () => ({ mode: 'full', reason: 'the import graph cannot see x.sql' });
+    expect(await selectTests(['packages/core/src/x.sql'], files, byPackage)).toEqual({
+      mode: 'affected',
+      projects: ['@core'],
+      reason:
+        'file-level: the import graph cannot see x.sql; package-level: changed @core; affected @core, @cleo',
+    });
+    expect(await selectTests(['pnpm-lock.yaml'], files, byPackage)).toMatchObject({ mode: 'full' });
+  });
+
+  it('never asks the file level about an unreadable or empty diff', async () => {
+    const never = () => {
+      throw new Error('files must not be asked');
+    };
+    expect(await selectTests(null, never, byPackage)).toMatchObject({ mode: 'full' });
+    expect(await selectTests([], never, byPackage)).toMatchObject({ mode: 'full' });
+  });
+});
+
+describe('testFileArgs', () => {
+  it('joins the files and refuses spaces, quotes and glob characters', () => {
+    expect(testFileArgs(['packages/a/x.test.ts', 'scripts/__tests__/y.test.mjs'])).toBe(
+      'packages/a/x.test.ts scripts/__tests__/y.test.mjs',
+    );
+    for (const bad of ['a b.test.ts', 'routes/[id].test.ts', "x'.test.ts"]) {
+      expect(() => testFileArgs([bad])).toThrow(/unexpected test file path/);
+    }
   });
 });
 

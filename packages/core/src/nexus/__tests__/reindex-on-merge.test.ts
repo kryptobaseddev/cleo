@@ -14,11 +14,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  admittedAnalyzeArgs,
   REINDEX_ON_MERGE_GIT_KEY,
   REINDEX_ON_MERGE_LOCK_FILE,
+  REINDEX_PENDING_FILE,
   type ReindexOnMergeDeps,
   type ReindexRunner,
   readReindexOnMergeOutcome,
+  runNexusAutoReindex,
   runReindexOnMerge,
   setReindexOnMerge,
 } from '../reindex-on-merge.js';
@@ -172,5 +175,54 @@ describe('reindex on merge (T14010)', () => {
     await setReindexOnMerge(root, false);
     expect(() => git(['config', '--get', REINDEX_ON_MERGE_GIT_KEY])).toThrow();
     await setReindexOnMerge(root, false);
+  });
+});
+
+describe('auto reindex after a git change (T12349)', () => {
+  it('runs without opt-in on any branch, and a burst during a run coalesces into one pass', async () => {
+    git(['switch', '-q', '-c', 'feature']);
+    const pending = join(root, '.cleo', REINDEX_PENDING_FILE);
+    let calls = 0;
+    const run: ReindexRunner = () => {
+      // Three commits land while the first pass runs: each leaves the request.
+      if (calls++ === 0) for (let i = 0; i < 3; i++) writeFileSync(pending, '');
+      return { exitCode: 0, stderr: '' };
+    };
+    const outcome = await runNexusAutoReindex(root, { runner: run, queueBusy: () => false });
+    expect(outcome.outcome).toBe('ran');
+    expect(calls).toBe(2);
+    expect(existsSync(pending)).toBe(false);
+    expect(existsSync(join(root, '.cleo', REINDEX_ON_MERGE_LOCK_FILE))).toBe(false);
+    expect(readReindexOnMergeOutcome(root)?.outcome).toBe('ran');
+  });
+
+  it('a request while one runs is left for the holder, not run twice', async () => {
+    writeFileSync(join(root, '.cleo', REINDEX_ON_MERGE_LOCK_FILE), String(process.pid));
+    const run = runner(0);
+    const outcome = await runNexusAutoReindex(root, { runner: run, queueBusy: () => false });
+    expect(outcome).toMatchObject({
+      outcome: 'skipped',
+      reason: expect.stringContaining('coalesced'),
+    });
+    expect(run.state.calls).toBe(0);
+    expect(existsSync(join(root, '.cleo', REINDEX_PENDING_FILE))).toBe(true);
+  });
+
+  it('a failed pass drops the pending request instead of looping', async () => {
+    const run: ReindexRunner = () => {
+      writeFileSync(join(root, '.cleo', REINDEX_PENDING_FILE), '');
+      return { exitCode: 1, stderr: 'boom' };
+    };
+    const outcome = await runNexusAutoReindex(root, { runner: run, queueBusy: () => false });
+    expect(outcome.outcome).toBe('failed');
+    expect(existsSync(join(root, '.cleo', REINDEX_PENDING_FILE))).toBe(false);
+  });
+});
+
+describe('admittedAnalyzeArgs (T14384)', () => {
+  it('admits the detached refresh as its own scan-class job, never waiting', () => {
+    const args = admittedAnalyzeArgs('/repo');
+    expect(args).toEqual(['run', '--class', 'scan', '--', 'cleo', 'nexus', 'analyze', '/repo']);
+    expect(args).not.toContain('--wait');
   });
 });

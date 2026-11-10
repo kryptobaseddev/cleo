@@ -229,12 +229,6 @@ describe('operation envelope registry snapshots (T10615)', () => {
             },
             {
               "cli": undefined,
-              "name": "ivtr-history",
-              "required": false,
-              "type": "boolean",
-            },
-            {
-              "cli": undefined,
               "name": "relations",
               "required": false,
               "type": "boolean",

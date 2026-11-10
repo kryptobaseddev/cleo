@@ -15,11 +15,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import {
   detectDarwin,
+  hasMacosLabel,
   LINUX_SHARDS,
+  MACOS_LABEL,
   MACOS_PR_SHARDS,
   MACOS_SHARDS,
+  macosDecision,
   NODE_FLOOR,
   NODE_VERSIONS,
+  nodeVersions,
   platformMatrix,
   touchesMacos,
 } from '../ci-platform-matrix.mjs';
@@ -30,7 +34,7 @@ const SCRIPT = path.join(REPO_ROOT, 'scripts/ci-platform-matrix.mjs');
 describe('platformMatrix', () => {
   const oses = (m) => [...new Set(m.testMatrix.map((j) => j.os))];
 
-  it('runs macOS in merge groups and on a darwin-specific pull request only', () => {
+  it('runs macOS in merge groups and on a macos-labelled pull request only (T14367)', () => {
     // T14104: the nightly macOS run is macos-main.yml's, not ci.yml's.
     expect(platformMatrix('schedule', true).buildOs).toEqual(['ubuntu-latest']);
     expect(platformMatrix('merge_group', false).buildOs).toEqual(['ubuntu-latest', 'macos-latest']);
@@ -52,7 +56,7 @@ describe('platformMatrix', () => {
     }
   });
 
-  it(`a darwin pull request runs a reduced ${MACOS_PR_SHARDS}-shard macOS set (T13198)`, () => {
+  it(`a labelled pull request runs a reduced ${MACOS_PR_SHARDS}-shard macOS set (T13198)`, () => {
     const macos = (event) =>
       platformMatrix(event, true).testMatrix.filter((j) => j.os === 'macos-latest');
     expect(MACOS_PR_SHARDS).toBe(4);
@@ -73,26 +77,72 @@ describe('platformMatrix', () => {
   });
 });
 
-describe('Node versions (T14055, owner D11196)', () => {
+describe('Node versions (T14055, owner D11196; T14367)', () => {
   it('runs the floor and Node 26, floor first, the floor equal to root engines.node', () => {
     expect(NODE_VERSIONS).toEqual([NODE_FLOOR, '26']);
     const root = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
     expect(root.engines.node).toBe(`>=${NODE_FLOOR}`);
   });
 
+  it('a pull request runs the floor only; every other event runs every version', () => {
+    expect(nodeVersions('pull_request')).toEqual([NODE_FLOOR]);
+    for (const event of ['push', 'schedule', 'merge_group', 'workflow_dispatch'])
+      expect(nodeVersions(event), event).toEqual(NODE_VERSIONS);
+  });
+
   it.each([
     'pull_request',
     'push',
     'schedule',
-  ])('%s: every Linux shard runs on every Node version, macOS on the floor only', (event) => {
+    'merge_group',
+  ])('%s: every Linux shard runs on each of its Node versions, macOS on the floor only', (event) => {
     const m = platformMatrix(event, true).testMatrix;
     for (const node of NODE_VERSIONS) {
       const linux = m.filter((j) => j.os === 'ubuntu-latest' && j.node === node);
-      expect(linux.map((j) => j.shard)).toEqual(
-        Array.from({ length: LINUX_SHARDS }, (_, i) => i + 1),
-      );
+      const expected = nodeVersions(event).includes(node) ? LINUX_SHARDS : 0;
+      expect(linux.map((j) => j.shard)).toEqual(Array.from({ length: expected }, (_, i) => i + 1));
     }
     expect(m.filter((j) => j.os === 'macos-latest').every((j) => j.node === NODE_FLOOR)).toBe(true);
+  });
+});
+
+describe('macosDecision (T14367, owner D11238)', () => {
+  it('a darwin-specific pull request runs macOS and gets the label added', () => {
+    expect(macosDecision('pull_request', true, false)).toEqual({ runMacos: true, addLabel: true });
+  });
+  it('a labelled pull request runs macOS; the label is never added twice', () => {
+    expect(macosDecision('pull_request', false, true)).toEqual({ runMacos: true, addLabel: false });
+    expect(macosDecision('pull_request', true, true)).toEqual({ runMacos: true, addLabel: false });
+  });
+  it('an unlabelled non-darwin pull request runs no macOS job', () => {
+    expect(macosDecision('pull_request', false, false)).toEqual({
+      runMacos: false,
+      addLabel: false,
+    });
+  });
+  it('merge groups always run macOS; push and schedule leave it to macos-main.yml', () => {
+    expect(macosDecision('merge_group', false, false)).toEqual({ runMacos: true, addLabel: false });
+    for (const event of ['push', 'schedule', 'workflow_dispatch'])
+      expect(macosDecision(event, true, true), event).toEqual({ runMacos: false, addLabel: false });
+  });
+  it('macos-main.yml runs macOS on every main push in scope and nightly', () => {
+    const wf = parseYaml(
+      readFileSync(path.join(REPO_ROOT, '.github/workflows/macos-main.yml'), 'utf8'),
+    );
+    expect(wf.on.push.branches).toEqual(['main']);
+    expect(wf.on.schedule?.length ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe('hasMacosLabel (T14367)', () => {
+  it('reads the label from a JSON list, and treats anything else as no label', () => {
+    expect(MACOS_LABEL).toBe('macos');
+    expect(hasMacosLabel('["bug","macos"]')).toBe(true);
+    expect(hasMacosLabel('["macos-regression"]')).toBe(false);
+    expect(hasMacosLabel('[]')).toBe(false);
+    expect(hasMacosLabel(undefined)).toBe(false);
+    expect(hasMacosLabel('not json')).toBe(false);
+    expect(hasMacosLabel('{"macos":true}')).toBe(false);
   });
 });
 
@@ -198,27 +248,31 @@ describe('the script on a real diff', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  function run(event) {
+  function run(event, labels) {
     const out = path.join(dir, 'out');
     writeFileSync(out, '');
     const r = spawnSync(process.execPath, [SCRIPT, event, 'HEAD^1', 'HEAD'], {
       cwd: dir,
       encoding: 'utf8',
-      env: { ...process.env, GITHUB_OUTPUT: out },
+      env: { ...process.env, GITHUB_OUTPUT: out, PR_LABELS: labels ?? '[]' },
     });
     expect(r.status).toBe(0);
-    return Object.fromEntries(
+    const outputs = Object.fromEntries(
       readFileSync(out, 'utf8')
         .trim()
         .split('\n')
         .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
     );
+    return { ...outputs, stdout: r.stdout };
   }
 
-  it('a platform check in code turns macOS on for the pull request; a doc mention does not', () => {
+  it('a darwin-specific pull request runs macOS and asks for the label (D11238)', () => {
     writeFileSync(path.join(dir, 'notes.md'), "Use 'darwin' builds. Really 'darwin'.\n");
     git('commit', '-q', '-am', 'docs');
-    expect(run('pull_request').darwin).toBe('false');
+    const docs = run('pull_request');
+    expect(docs.darwin).toBe('false');
+    expect(docs.add_macos_label).toBe('false');
+    expect(JSON.parse(docs.build_os)).toEqual(['ubuntu-latest']);
 
     writeFileSync(
       path.join(dir, 'src/a.ts'),
@@ -227,23 +281,45 @@ describe('the script on a real diff', () => {
     git('commit', '-q', '-am', 'platform');
     const out = run('pull_request');
     expect(out.darwin).toBe('true');
+    expect(out.add_macos_label).toBe('true');
     expect(JSON.parse(out.build_os)).toEqual(['ubuntu-latest', 'macos-latest']);
-    expect(JSON.parse(out.test_matrix)).toHaveLength(
-      LINUX_SHARDS * NODE_VERSIONS.length + MACOS_PR_SHARDS,
-    );
-    // The same commit pushed to main stays on Linux.
-    expect(JSON.parse(run('push').build_os)).toEqual(['ubuntu-latest']);
+    expect(JSON.parse(out.test_matrix)).toHaveLength(LINUX_SHARDS + MACOS_PR_SHARDS);
+    expect(JSON.parse(out.node_versions)).toEqual([NODE_FLOOR]);
+    expect(out.stdout).toContain(`CI adds the '${MACOS_LABEL}' label`);
+    // Already labelled: macOS runs, nothing is added.
+    expect(run('pull_request', '["macos"]').add_macos_label).toBe('false');
+    // The same commit pushed to main stays on Linux and runs every Node version.
+    const push = run('push');
+    expect(JSON.parse(push.build_os)).toEqual(['ubuntu-latest']);
+    expect(JSON.parse(push.node_versions)).toEqual(NODE_VERSIONS);
+    expect(JSON.parse(push.test_matrix)).toHaveLength(LINUX_SHARDS * NODE_VERSIONS.length);
   });
 
-  it('a diff that cannot be read turns macOS on (the safe direction)', () => {
+  it('the macos label turns the macOS legs on for a pull request, whatever it changes', () => {
+    writeFileSync(path.join(dir, 'src/a.ts'), 'export const a = 2;\n');
+    git('commit', '-q', '-am', 'not darwin');
+    const out = run('pull_request', '["macos"]');
+    expect(out.darwin).toBe('false');
+    expect(JSON.parse(out.build_os)).toEqual(['ubuntu-latest', 'macos-latest']);
+    expect(JSON.parse(out.test_matrix)).toHaveLength(LINUX_SHARDS + MACOS_PR_SHARDS);
+    expect(out.add_macos_label).toBe('false');
+    expect(out.stdout).not.toContain('::notice');
+    // A label on a push event means nothing.
+    expect(JSON.parse(run('push', '["macos"]').build_os)).toEqual(['ubuntu-latest']);
+  });
+
+  it('a diff that cannot be read counts as darwin-specific, so macOS runs (the safe direction)', () => {
     const out = path.join(dir, 'out');
     writeFileSync(out, '');
     spawnSync(process.execPath, [SCRIPT, 'pull_request', 'no-such-ref', 'HEAD'], {
       cwd: dir,
       encoding: 'utf8',
-      env: { ...process.env, GITHUB_OUTPUT: out },
+      env: { ...process.env, GITHUB_OUTPUT: out, PR_LABELS: '[]' },
     });
-    expect(readFileSync(out, 'utf8')).toContain('darwin=true');
+    const text = readFileSync(out, 'utf8');
+    expect(text).toContain('darwin=true');
+    expect(text).toContain('build_os=["ubuntu-latest","macos-latest"]');
+    expect(text).toContain('add_macos_label=true');
   });
 });
 
@@ -253,6 +329,16 @@ describe('ci.yml wiring (T13143)', () => {
   it('the changes job decides the platforms, and every OS-matrixed job reads its answer', () => {
     const step = ci.jobs.changes.steps.find((s) => s.id === 'platform');
     expect(step.run).toContain('node scripts/ci-platform-matrix.mjs');
+    // T14367: the pull request's labels reach the script (live, payload fallback).
+    expect(step.run).toContain('export PR_LABELS');
+    expect(step.run).toContain('/labels');
+    expect(step.env.PAYLOAD_LABELS).toContain('github.event.pull_request.labels.*.name');
+    // D11238: the darwin decision adds the label through the issues API.
+    const add = ci.jobs.changes.steps.find((s) => s.name?.startsWith('Add the macos label'));
+    expect(add.if).toBe("steps.platform.outputs.add_macos_label == 'true'");
+    expect(add.run).toContain('labels[]=macos');
+    expect(ci.jobs.changes.permissions['pull-requests']).toBe('write');
+    expect(ci.jobs.changes.permissions.issues).toBe('write');
     for (const key of ['darwin', 'build_os', 'test_matrix', 'node_versions']) {
       expect(ci.jobs.changes.outputs[key]).toContain(`steps.platform.outputs.${key}`);
     }

@@ -233,6 +233,12 @@ writeFileSync(join(sandbox, '.cleo-test-sandbox'), 'vitest fork sandbox (T12687)
 delete process.env.CLEO_TEST_ALLOW_PROJECT_DB;
 process.env.CLEO_TEST_ALLOWED_DB_ROOTS = sandbox;
 process.env.CLEO_DISABLE_LOCAL_INFERENCE = '1';
+// T12349: a test's `git commit` in a repo with CLEO hooks never starts a real
+// background NEXUS reindex. Hook tests that need it unset this per spawn.
+process.env.CLEO_NEXUS_AUTO_REINDEX = 'off';
+// T14379: the default AgentMBX client acts as if agentmbx is absent, so no
+// test reaches a real install. Tests that need it inject a fake runner.
+process.env.CLEO_AGENTMBX_DISABLE = '1';
 // T13133, T14282: admission never samples the HOST's memory or CPU pressure in
 // a test, so a loaded dev machine or a PSI-noisy runner cannot turn a test's
 // admission into a refusal. It reads a calm fixture instead, through the real

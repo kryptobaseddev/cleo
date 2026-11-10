@@ -82,6 +82,12 @@ const CROSS_CUTTING_PROTOCOLS = new Set([
 /**
  * Skill-name lookup keyed by the `name` field.
  */
+/**
+ * Stages served by another stage's skill. `testing` shares ct-validator
+ * (loomStage `validation`) since ct-ivt-looper was removed (T14311).
+ */
+const SHARED_STAGE_SKILL: Readonly<Record<string, string>> = { testing: 'validation' };
+
 const skillByName = new Map(manifest.skills.map((s) => [s.name, s]));
 
 // ---------------------------------------------------------------------------
@@ -112,7 +118,8 @@ describe('LOOM stage coverage — dispatch_matrix.by_protocol', () => {
 
 describe('LOOM stage coverage — loomStage field on bound skills', () => {
   for (const stage of CANONICAL_LOOM_STAGES) {
-    it(`bound skill for "${stage}" declares loomStage === "${stage}"`, () => {
+    const expectedLoomStage = SHARED_STAGE_SKILL[stage] ?? stage;
+    it(`bound skill for "${stage}" declares loomStage === "${expectedLoomStage}"`, () => {
       const dashed = stage.replace(/_/g, '-');
       const skillName =
         manifest.dispatch_matrix.by_protocol[stage] ??
@@ -121,8 +128,8 @@ describe('LOOM stage coverage — loomStage field on bound skills', () => {
       expect(skill, `skill "${skillName}" not found in manifest.skills[]`).toBeDefined();
       expect(
         skill?.loomStage,
-        `skill "${skillName}" missing loomStage field; expected "${stage}"`,
-      ).toBe(stage);
+        `skill "${skillName}" missing loomStage field; expected "${expectedLoomStage}"`,
+      ).toBe(expectedLoomStage);
     });
   }
 });
@@ -135,8 +142,10 @@ describe('LOOM stage coverage — loomStage values are canonical', () => {
   const stagesSet = new Set<string>(CANONICAL_LOOM_STAGES);
   const skillsWithLoomStage = manifest.skills.filter((s) => typeof s.loomStage === 'string');
 
-  it('at least 10 skills carry a loomStage field (one per LOOM stage)', () => {
-    expect(skillsWithLoomStage.length).toBeGreaterThanOrEqual(CANONICAL_LOOM_STAGES.length);
+  it('every LOOM stage without a shared skill has its own loomStage skill', () => {
+    expect(skillsWithLoomStage.length).toBeGreaterThanOrEqual(
+      CANONICAL_LOOM_STAGES.length - Object.keys(SHARED_STAGE_SKILL).length,
+    );
   });
 
   for (const skill of skillsWithLoomStage) {

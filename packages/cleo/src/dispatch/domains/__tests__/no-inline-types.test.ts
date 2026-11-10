@@ -180,7 +180,6 @@ describe('dispatch domain files: no inline Core-signature type declarations (ADR
     const expectedDomains = [
       'admin.ts',
       'check.ts',
-      'conduit.ts',
       'nexus.ts',
       'pipeline.ts',
       'playbook.ts',

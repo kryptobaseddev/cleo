@@ -546,6 +546,66 @@ describe('living-brain SDK', () => {
       expect(coverage.limitations).toContain('SQL extraction has not been implemented.');
     });
 
+    // T14383: a fresh index requests and completes exactly the SQL capabilities the
+    // extractor produces; literal and dynamic references stay stated limitations.
+    it('requires exactly the extracted sql capabilities of a SQL report', async () => {
+      const extracted = [
+        'file-evidence',
+        'sql-schema-objects',
+        'sql-migrations',
+        'sql-triggers',
+        'sql-constraints',
+      ] as const;
+      const limitation = 'Dynamic SQL references remain unresolved.';
+      const fixture = await seedCompleteInventory(1);
+      await replaceReports([
+        {
+          ...fixture.files[0]!,
+          status: 'analyzed',
+          capabilities: {
+            role: 'sql',
+            classification: { basis: 'path', reason: 'SQL fixture role' },
+            requested: [...extracted],
+            completed: [...extracted],
+            limitations: [limitation],
+          },
+        },
+      ]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.capabilities).toMatchObject({ incompleteFiles: 0, byRole: { sql: 1 } });
+      expect(
+        Object.keys(coverage.capabilities?.byCapability ?? {})
+          .filter((key) => key.startsWith('sql-'))
+          .sort(),
+      ).toEqual(['sql-constraints', 'sql-migrations', 'sql-schema-objects', 'sql-triggers']);
+      expect(coverage.reasons.some((reason) => reason.includes('Incomplete sql'))).toBe(false);
+      expect(coverage.limitations).toContain(limitation);
+
+      // A report from before the extractor (file evidence only) leaves them unrequested.
+      await replaceReports([
+        {
+          ...fixture.files[0]!,
+          status: 'analyzed',
+          capabilities: {
+            role: 'sql',
+            classification: { basis: 'path', reason: 'SQL fixture role' },
+            requested: ['file-evidence'],
+            completed: ['file-evidence'],
+            limitations: [limitation],
+          },
+        },
+      ]);
+      const stale = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(stale.capabilities).toMatchObject({ incompleteFiles: 1 });
+      expect(
+        stale.reasons.some((reason) =>
+          reason.includes(
+            'unrequested=sql-schema-objects,sql-migrations,sql-triggers,sql-constraints',
+          ),
+        ),
+      ).toBe(true);
+    });
+
     // T13380: an oversized file is reported with path-based provenance, so a
     // fresh index no longer counts it as a legacy report.
     it('counts an oversized file with provenance as incomplete, never as legacy', async () => {

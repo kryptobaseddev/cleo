@@ -179,6 +179,29 @@ export interface PendingTableClassification {
 }
 
 /**
+ * A column a schema migration dropped from a syncing table.
+ *
+ * A peer still on an older build can send an op whose image names the
+ * column. A receiver whose table no longer has it drops the column from the
+ * op's images and applies the rest, instead of refusing the op as schema
+ * skew: a store that dropped a column never gains it back, so a refusal
+ * would hold the stream forever. Any other column the receiver lacks is
+ * still refused (`E_SCHEMA_AHEAD`).
+ *
+ * @task T14311
+ */
+export interface RetiredSyncColumn {
+  /** Physical table name. */
+  readonly table: string;
+  /** Physical column name the migration dropped. */
+  readonly column: string;
+  /** The task whose migration dropped the column. */
+  readonly retiredBy: string;
+  /** Why the column was dropped. */
+  readonly reason: string;
+}
+
+/**
  * The full classification of one scope.
  *
  * @task T12332

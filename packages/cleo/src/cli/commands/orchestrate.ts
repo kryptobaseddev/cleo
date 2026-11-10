@@ -12,7 +12,7 @@
  *   cleo orchestrate spawn <taskId>       — prepare subagent spawn context
  *   cleo orchestrate validate <taskId>    — validate subagent output
  *   cleo orchestrate context <epicId>     — orchestrator context summary
- *   cleo orchestrate ivtr <taskId>        — IVTR phased loop
+ *   cleo orchestrate ivtr                 — removed (T14311); prints a removal notice
  *   cleo orchestrate parallel <action> <epicId> — parallel wave execution
  *   cleo orchestrate unblock              — unblocking opportunities
  *   cleo orchestrate bootstrap            — brain state for agent bootstrap
@@ -21,16 +21,9 @@
  *   cleo orchestrate handoff <taskId>     — session handoff + successor spawn
  *   cleo orchestrate spawn-execute <taskId> — adapter-registry spawn
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
+ *   cleo orchestrate worker-exit          — worker completion signal (SessionEnd hook)
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
- *   cleo orchestrate conduit-status       — conduit messaging status (legacy, prefer `cleo conduit status`)
- *   cleo orchestrate conduit-peek         — peek queued conduit messages (legacy)
- *   cleo orchestrate conduit-start        — start conduit message loop (legacy)
- *   cleo orchestrate conduit-stop         — stop conduit message loop (legacy)
- *   cleo orchestrate conduit-send <content> — send conduit message (legacy)
- *
- * Note: T964 promoted `conduit` to its own canonical dispatch domain. The
- * `conduit-*` subcommands here remain as backward-compatible aliases that
- * dispatch to the `conduit` domain directly.
+ *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
  *
  * @task T4466, T478, T483, T811, T964
  * @epic T4454
@@ -38,14 +31,14 @@
 
 import { execFileSync } from 'node:child_process';
 import type { EpicRollup, WaveRollup } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { BUILD_CONFIG } from '@cleocode/core/config/build-config';
 import * as orchestration from '@cleocode/core/orchestration/index';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { negatedFlag } from '../lib/negated-flag.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Format an EpicRollup or WaveRollup as a human-readable terminal table.
@@ -599,69 +592,38 @@ const contextCommand = defineCommand({
   },
 });
 
-/** cleo orchestrate ivtr — drive Implement→Validate→Test phased loop */
+/**
+ * cleo orchestrate ivtr — REMOVED (T14311). The IVTR loop, its `ivtr_state`
+ * column and the `orchestrate.ivtr.*` operations are gone; the subcommand
+ * stays only to print a removal notice. Its old flags are still declared so
+ * the notice wins over an unknown-flag error.
+ */
 const ivtrCommand = defineCommand({
   meta: {
     name: 'ivtr',
-    description: 'Drive an Implement→Validate→Test phased loop on a task with evidence-bound gates',
+    description: 'Removed (T14311): the IVTR loop is retired; prints a removal notice',
   },
   args: {
-    taskId: {
-      type: 'positional',
-      description: 'Task ID to drive IVTR loop for',
-      required: true,
-    },
-    start: {
-      type: 'boolean',
-      description: 'Begin Implement phase',
-    },
-    next: {
-      type: 'boolean',
-      description: 'Advance to next phase (requires prior-phase evidence)',
-    },
-    status: {
-      type: 'boolean',
-      description: 'Show current IVTR state + history',
-    },
-    release: {
-      type: 'boolean',
-      description: 'Final gate — require I+V+T evidence, then release',
-    },
-    'loop-back': {
-      type: 'boolean',
-      description: 'Rewind to specified phase on failure',
-    },
-    phase: {
-      type: 'string',
-      description: 'Phase for --loop-back (implement|validate|test)',
-    },
-    reason: {
-      type: 'string',
-      description: 'Reason for loop-back',
-    },
-    evidence: {
-      type: 'string',
-      description: 'Attachment sha256 to attach',
-    },
+    taskId: { type: 'positional', description: 'Ignored', required: false },
+    start: { type: 'boolean', description: 'Removed' },
+    next: { type: 'boolean', description: 'Removed' },
+    status: { type: 'boolean', description: 'Removed' },
+    release: { type: 'boolean', description: 'Removed' },
+    'loop-back': { type: 'boolean', description: 'Removed' },
+    phase: { type: 'string', description: 'Removed' },
+    reason: { type: 'string', description: 'Removed' },
+    evidence: { type: 'string', description: 'Removed' },
   },
-  async run({ args }) {
-    const action = args.start
-      ? 'start'
-      : args.next
-        ? 'next'
-        : args.release
-          ? 'release'
-          : args['loop-back']
-            ? 'loop-back'
-            : 'status';
-    const kind = action === 'status' ? 'query' : 'mutate';
-    await dispatchFromCli(
-      kind,
-      'orchestrate',
-      `ivtr.${action}`,
-      { taskId: args.taskId, phase: args.phase, reason: args.reason, evidence: args.evidence },
-      { command: 'orchestrate' },
+  async run() {
+    cliError(
+      "'cleo orchestrate ivtr' was removed in T14311: the IVTR loop is retired and nothing reads its state.",
+      ExitCode.INVALID_INPUT,
+      {
+        name: 'E_COMMAND_REMOVED',
+        fix: "Prove a task with evidence gates: 'cleo done <id> --plan', then 'cleo verify' and 'cleo complete'. Autonomous runs use CLEO Goal.",
+      },
     );
+    process.exit(ExitCode.INVALID_INPUT);
   },
 });
 
@@ -832,6 +794,48 @@ const spawnExecuteCommand = defineCommand({
   },
 });
 
+/**
+ * cleo orchestrate worker-exit — a worker's own completion signal (T14359).
+ *
+ * Run by the worker as its session ends (its `SessionEnd` hook): closes the
+ * worker record and fires SubagentStop once. Without `--status` the status is
+ * derived from the task (a process exit is not task completion). Without
+ * `--instance` it names the open record of the caller's session
+ * (`CLEO_SESSION_ID`). Never fails the hook: an unknown or already-closed
+ * worker reports `emitted: false`.
+ */
+const workerExitCommand = defineCommand({
+  meta: { name: 'worker-exit', description: "Record a worker's exit and fire SubagentStop once" },
+  args: {
+    instance: { type: 'string', description: 'Adapter instance id of the worker' },
+    status: {
+      type: 'string',
+      description:
+        'Completion status: complete | partial | blocked | failed (default: derived from the task)',
+    },
+  },
+  async run({ args }) {
+    const { WORKER_EXIT_STATUSES, markWorkerExited } = await import(
+      '@cleocode/core/orchestrate/worker-records'
+    );
+    const status = WORKER_EXIT_STATUSES.find((s) => s === args.status);
+    if (args.status !== undefined && status === undefined) {
+      const message = `--status must be one of ${WORKER_EXIT_STATUSES.join(', ')}`;
+      cliOutput(
+        { success: false, error: { code: 'E_INVALID_INPUT', message } },
+        { command: 'orchestrate worker-exit' },
+      );
+      process.exitCode = 6;
+      return;
+    }
+    const target = args.instance
+      ? { instanceId: args.instance }
+      : { sessionId: process.env.CLEO_SESSION_ID };
+    const data = await markWorkerExited(target, status, getProjectRoot());
+    cliOutput({ success: true, data }, { command: 'orchestrate worker-exit' });
+  },
+});
+
 /** cleo orchestrate fanout — fan out tasks for an epic using parallel spawn */
 const fanoutCommand = defineCommand({
   meta: { name: 'fanout', description: 'Fan out tasks for an epic using parallel spawn' },
@@ -956,89 +960,6 @@ const worktreeCompleteCommand = defineCommand({
   },
 });
 
-/**
- * cleo orchestrate conduit-status — legacy alias for `cleo conduit status`.
- *
- * T964: dispatches to the canonical `conduit` domain. The `conduit-*`
- * orchestrate subcommands are kept for backward compatibility; prefer the
- * top-level `cleo conduit <verb>` command group.
- */
-const conduitStatusCommand = defineCommand({
-  meta: { name: 'conduit-status', description: 'Get conduit messaging status' },
-  async run() {
-    warnConduitDeprecated('orchestrate conduit-status');
-    await dispatchFromCli('query', 'conduit', 'status', {}, { command: 'orchestrate' });
-  },
-});
-
-/**
- * cleo orchestrate conduit-peek — legacy alias for `cleo conduit peek`.
- *
- * T964: dispatches to the canonical `conduit` domain.
- */
-const conduitPeekCommand = defineCommand({
-  meta: { name: 'conduit-peek', description: 'Peek at queued conduit messages' },
-  args: {
-    limit: {
-      type: 'string',
-      description: 'Maximum number of messages to return',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('orchestrate conduit-peek');
-    await dispatchFromCli(
-      'query',
-      'conduit',
-      'peek',
-      { limit: args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined },
-      { command: 'orchestrate' },
-    );
-  },
-});
-
-/**
- * cleo orchestrate conduit-start — legacy alias for `cleo conduit start`.
- *
- * T964: dispatches to the canonical `conduit` domain.
- */
-const conduitStartCommand = defineCommand({
-  meta: { name: 'conduit-start', description: 'Start the conduit message loop' },
-  args: {
-    'poll-interval': {
-      type: 'string',
-      description: 'Polling interval in milliseconds',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('orchestrate conduit-start');
-    await dispatchFromCli(
-      'mutate',
-      'conduit',
-      'start',
-      {
-        pollIntervalMs:
-          args['poll-interval'] !== undefined
-            ? Number.parseInt(args['poll-interval'], 10)
-            : undefined,
-      },
-      { command: 'orchestrate' },
-    );
-  },
-});
-
-/**
- * cleo orchestrate conduit-stop — legacy alias for `cleo conduit stop`.
- *
- * T964: dispatches to the canonical `conduit` domain.
- */
-const conduitStopCommand = defineCommand({
-  meta: { name: 'conduit-stop', description: 'Stop the conduit message loop' },
-  async run() {
-    warnConduitDeprecated('orchestrate conduit-stop');
-    await dispatchFromCli('mutate', 'conduit', 'stop', {}, { command: 'orchestrate' });
-  },
-});
-
 /** cleo orchestrate approve — approve a pending HITL playbook gate (T935) */
 const approveCommand = defineCommand({
   meta: {
@@ -1124,39 +1045,22 @@ const pendingCommand = defineCommand({
 });
 
 /**
- * cleo orchestrate conduit-send — legacy alias for `cleo conduit send`.
+ * cleo orchestrate lead-runner — serve the lead command runner over MCP stdio.
  *
- * T964: dispatches to the canonical `conduit` domain.
+ * A no-hands lead has no Bash; its agent definition starts this server and
+ * runs allow-listed cleo and gh verbs through its one tool (T14374).
  */
-const conduitSendCommand = defineCommand({
+const leadRunnerCommand = defineCommand({
   meta: {
-    name: 'conduit-send',
-    description: 'Send a message via conduit to an agent or conversation',
+    name: 'lead-runner',
+    description:
+      'Serve the lead command runner (MCP stdio): runs allow-listed cleo and gh argv, no shell',
   },
-  args: {
-    content: {
-      type: 'positional',
-      description: 'Message content to send',
-      required: true,
-    },
-    to: {
-      type: 'string',
-      description: 'Target agent ID',
-    },
-    conversation: {
-      type: 'string',
-      description: 'Conversation ID to send into',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('orchestrate conduit-send');
-    await dispatchFromCli(
-      'mutate',
-      'conduit',
-      'send',
-      { content: args.content, to: args.to, conversationId: args.conversation },
-      { command: 'orchestrate' },
+  async run() {
+    const { serveLeadCommandRunner } = await import(
+      '@cleocode/core/orchestration/lead-command-runner'
     );
+    await serveLeadCommandRunner({ input: process.stdin, output: process.stdout });
   },
 });
 
@@ -1193,17 +1097,15 @@ export const orchestrateCommand = defineCommand({
     handoff: handoffCommand,
     'spawn-execute': spawnExecuteCommand,
     fanout: fanoutCommand,
+    'worker-exit': workerExitCommand,
     prune: pruneCommand,
     'worktree-complete': worktreeCompleteCommand,
-    'conduit-status': conduitStatusCommand,
-    'conduit-peek': conduitPeekCommand,
-    'conduit-start': conduitStartCommand,
-    'conduit-stop': conduitStopCommand,
-    'conduit-send': conduitSendCommand,
     // T935: HITL playbook approval gates
     approve: approveCommand,
     reject: rejectCommand,
     pending: pendingCommand,
+    // T14374: no-hands lead command runner
+    'lead-runner': leadRunnerCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

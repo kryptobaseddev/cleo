@@ -8,6 +8,7 @@
  * that map between CLEOSpawnAdapter and AdapterSpawnProvider interfaces.
  *
  * @task T5236
+ * @task T14357 — the bridge forwards and enforces the lead tool strip
  * @phase 1C
  */
 
@@ -22,9 +23,11 @@ import type {
   CLEOSpawnAdapter,
   CLEOSpawnContext,
   CLEOSpawnResult,
+  LeadDeniedTool,
   SpawnContext,
   SpawnResult,
 } from '@cleocode/contracts';
+import { E_LEAD_TOOLS_UNSTRIPPED, ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getProjectRoot } from '../paths.js';
 
 /**
@@ -170,17 +173,52 @@ export function hasParallelSpawnProvider(): boolean {
 export const spawnRegistry = new SpawnAdapterRegistry();
 
 /**
+ * Thrown by the spawn bridge when a lead spawn reaches a provider that does
+ * not declare `leadToolStrip: 'enforced'`. An absent declaration counts as
+ * unsupported, so a provider that never opted in fails closed.
+ *
+ * @task T14357
+ */
+export class LeadToolsUnstrippedError extends Error {
+  /** Stable LAFS error code string for envelope emission. */
+  readonly code = E_LEAD_TOOLS_UNSTRIPPED;
+  /** Numeric exit code aligned with {@link ExitCode.SPAWN_VALIDATION_FAILED} (63). */
+  readonly exitCode: ExitCode = ExitCode.SPAWN_VALIDATION_FAILED;
+
+  /**
+   * @param providerId - Provider that refused the lead spawn.
+   * @param deniedTools - Tools the lead had to lose.
+   */
+  constructor(
+    public readonly providerId: string,
+    public readonly deniedTools: readonly LeadDeniedTool[],
+  ) {
+    super(
+      `${E_LEAD_TOOLS_UNSTRIPPED}: provider '${providerId}' does not enforce the lead tool ` +
+        `strip [${deniedTools.join(', ')}]. Spawn the lead on a provider that does ` +
+        `(claude-code, claude-sdk) or turn off orchestrate.leadWorker.v1.`,
+    );
+    this.name = 'LeadToolsUnstrippedError';
+  }
+}
+
+/**
  * Bridge an AdapterSpawnProvider (from packages/adapters/) to CLEOSpawnAdapter.
  *
  * Maps between the contracts-based SpawnContext/SpawnResult types and the
  * CLEO-specific CLEOSpawnContext/CLEOSpawnResult types used by the orchestrate
- * engine and spawn registry.
+ * engine and spawn registry. A lead spawn (non-empty `leadDeniedTools`) is
+ * forwarded to the delegate only when it declares `leadToolStrip: 'enforced'`;
+ * otherwise it is refused here, before the delegate runs (T14357).
  *
  * @param providerId - Provider identifier (e.g. 'claude-code', 'opencode')
  * @param delegate - The underlying AdapterSpawnProvider instance
  * @returns A CLEOSpawnAdapter wrapping the delegate
  */
-function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider): CLEOSpawnAdapter {
+export function bridgeSpawnAdapter(
+  providerId: string,
+  delegate: AdapterSpawnProvider,
+): CLEOSpawnAdapter {
   return {
     id: providerId,
     providerId,
@@ -190,11 +228,18 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
     },
 
     async spawn(context: CLEOSpawnContext): Promise<CLEOSpawnResult> {
+      const denied = context.leadDeniedTools;
+      const isLead = denied !== undefined && denied.length > 0;
+      if (isLead && delegate.leadToolStrip !== 'enforced') {
+        // @sync-invariant none:input-shape a lead spawn on a provider that cannot strip its tools is refused before anything runs
+        throw new LeadToolsUnstrippedError(providerId, denied);
+      }
       const contractContext: SpawnContext = {
         taskId: context.taskId,
         prompt: context.prompt,
         workingDirectory: context.workingDirectory,
         options: context.options,
+        ...(isLead ? { leadDeniedTools: denied } : {}),
       };
       const result: SpawnResult = await delegate.spawn(contractContext);
       return {
@@ -208,6 +253,8 @@ function bridgeSpawnAdapter(providerId: string, delegate: AdapterSpawnProvider):
           startTime: result.startTime,
           endTime: result.endTime,
         },
+        // T14359 — the worker record stores the pid/pgid of a detached worker.
+        ...(result.ownership ? { ownership: result.ownership } : {}),
       };
     },
 

@@ -55,6 +55,8 @@ import { STAGE_DEFINITIONS, type Stage } from './stages.js';
  *              with dedicated skills (ct-adr-recorder, ct-consensus-voter,
  *              ct-ivt-looper, ct-release-orchestrator). Validation stays on
  *              ct-validator now that consensus duties are split out.
+ * @task T14311 — ct-ivt-looper removed; `testing` routes to ct-validator, which
+ *              audits the task's `testsPassed` evidence gate.
  */
 export const STAGE_SKILL_MAP: Record<Stage, string> = {
   research: 'ct-research-agent',
@@ -64,7 +66,7 @@ export const STAGE_SKILL_MAP: Record<Stage, string> = {
   decomposition: 'ct-epic-architect',
   implementation: 'ct-task-executor',
   validation: 'ct-validator',
-  testing: 'ct-ivt-looper',
+  testing: 'ct-validator',
   release: 'ct-release-orchestrator',
 };
 

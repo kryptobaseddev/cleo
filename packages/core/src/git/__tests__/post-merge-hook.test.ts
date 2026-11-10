@@ -64,8 +64,11 @@ afterEach(() => {
 });
 
 /** Run the hook in the repo with the stub cleo first on PATH; true when cleo was started. */
-async function runHook(): Promise<boolean> {
+async function runHook(auto = false): Promise<boolean> {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}` };
+  // T12349: the default-on refresh runs unless forced off (vitest.setup.ts forces it off).
+  if (auto) delete env['CLEO_NEXUS_AUTO_REINDEX'];
+  else env['CLEO_NEXUS_AUTO_REINDEX'] = 'off';
   delete env['GIT_DIR'];
   delete env['GIT_WORK_TREE'];
   const result = spawnSync('/bin/sh', [HOOK], { cwd: repo, env, encoding: 'utf-8' });
@@ -89,6 +92,21 @@ describe('post-merge hook (T14010)', () => {
   it('starts the reindex when enabled on the base branch', async () => {
     git(['config', 'cleo.nexusReindexOnMerge', 'true']);
     expect(await runHook()).toBe(true);
+    expect(readFileSync(called, 'utf-8')).toContain('nexus reindex-on-merge');
+  });
+});
+
+describe('post-merge auto refresh (T12349)', () => {
+  it('starts the incremental refresh by default, on any branch', async () => {
+    git(['switch', '-q', '-c', 'feature']);
+    expect(await runHook(true)).toBe(true);
+    expect(readFileSync(called, 'utf-8')).toContain('nexus auto-reindex');
+  });
+
+  it('falls back to the opt-in reindex-on-merge when cleo.nexusAutoReindex is false', async () => {
+    git(['config', 'cleo.nexusAutoReindex', 'false']);
+    git(['config', 'cleo.nexusReindexOnMerge', 'true']);
+    expect(await runHook(true)).toBe(true);
     expect(readFileSync(called, 'utf-8')).toContain('nexus reindex-on-merge');
   });
 });

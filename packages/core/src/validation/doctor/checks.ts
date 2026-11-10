@@ -1878,7 +1878,7 @@ export async function checkJsonSchemaIntegrity(projectDir: string): Promise<Chec
       status: 'warning',
       message: `Deprecated config keys: ${deprecations.join('; ')}`,
       details,
-      fix: 'Remove the named keys from the file; they are ignored.',
+      fix: 'Follow each message: remove an ignored key, or run cleo upgrade to rewrite a moved one (T14375).',
     };
   }
 
