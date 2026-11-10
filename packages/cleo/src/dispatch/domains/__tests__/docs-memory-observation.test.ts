@@ -14,6 +14,12 @@
  * and brain writes exercise the actual storage layer without CLI overhead.
  * Each test suite gets an isolated temp directory.
  *
+ * Foreground deadline (T14432): `docs add` observes its projection within a
+ * two-second wall-clock budget, and a loaded CI shard exceeded it, so the
+ * projection came back `pending` and the edge assertions flaked. The suite
+ * captures with a budget no shard load reaches; the deadline-exceeded path is
+ * covered by expiring an injected deadline on purpose.
+ *
  * Note on memory.find search path: `searchBrainCompact` uses an RRF
  * fusion path by default that requires both FTS and vector hits. In fresh
  * temp databases (no vector index), the RRF path may return zero results
@@ -30,6 +36,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
 import type { DocsAddResult } from '@cleocode/contracts/operations/docs';
+import type * as Projection from '@cleocode/core/docs/projection';
 import {
   _resetBrainWriterForTests,
   shutdownBrainWriter,
@@ -38,6 +45,33 @@ import { awaitBackgroundOps, pendingBackgroundOpCount } from '@cleocode/core/sto
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsHandler } from '../docs.js';
 import { MemoryHandler } from '../memory.js';
+
+/** When set, `docs add` observes its projection under an already-expired deadline (T14432). */
+const foreground = vi.hoisted(() => ({ expireAtProjection: false }));
+
+vi.mock('@cleocode/core/docs/projection', async (importOriginal) => {
+  const actual = await importOriginal<typeof Projection>();
+  const { createOperationExecutionContext } = await import('@cleocode/core/store/background-ops');
+  return {
+    ...actual,
+    // A budget no loaded shard reaches: the tests never race the wall clock.
+    captureDocumentProjection: (root: string, actor: string, key: string) =>
+      actual.captureDocumentProjection(root, actor, key, 2 ** 31),
+    projectDocumentAttachment: async (
+      context: Parameters<typeof Projection.projectDocumentAttachment>[0],
+      source: Parameters<typeof Projection.projectDocumentAttachment>[1],
+    ) => {
+      if (!foreground.expireAtProjection) return actual.projectDocumentAttachment(context, source);
+      // Injected deadline: the same captured identity with a zero budget.
+      const expired = createOperationExecutionContext(context.identity, { budgetMs: 0 });
+      try {
+        return await actual.projectDocumentAttachment(expired, source);
+      } finally {
+        expired.close();
+      }
+    },
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -137,6 +171,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  foreground.expireAtProjection = false;
   await awaitBackgroundOps();
   await shutdownBrainWriter();
   _resetBrainWriterForTests();
@@ -242,6 +277,49 @@ describe('T9976/T13985 — docs.add records the documents link', () => {
       status: 'completed',
     });
     expect(await findDocObservationBySlug(slug)).toBeUndefined();
+  });
+});
+
+describe('T14432 — docs.add when the foreground deadline is exceeded', () => {
+  it('keeps the attachment, reports the projection pending, and backfill-docs restores the edge', async () => {
+    const slug = 'deadline-exceeded';
+    foreground.expireAtProjection = true;
+
+    const addResp = await docsHandler.mutate('add', {
+      ownerId: 'T9976',
+      file: fixtureFile,
+      slug,
+      type: 'spec',
+      attachedBy: 'test',
+    });
+    // The canonical attachment write is independent of the projection deadline.
+    expect(addResp.success, `docs.add failed: ${JSON.stringify(addResp.error)}`).toBe(true);
+    const added = addResp.data as DocsAddResult;
+    expect(added.attachmentId).toBeTruthy();
+    expect(added.projection, JSON.stringify(added)).toMatchObject({
+      status: 'pending',
+      coverage: 'missing',
+      deadlineExceeded: true,
+    });
+    expect(added.projection?.diagnostics).toContain(
+      'Foreground observation ended (E_OPERATION_DEADLINE); underlying outcome remains unresolved',
+    );
+    expect(added.projection?.receipt).toBeUndefined();
+    await awaitBackgroundOps();
+    expect(await documentsEdgesFor('task:T9976')).toHaveLength(0);
+    expect(await findDocObservationBySlug(slug)).toBeUndefined();
+
+    // The missed edge is recoverable through the supported backfill.
+    foreground.expireAtProjection = false;
+    const backfill = await memoryHandler.mutate('backfill-docs', {});
+    expect(backfill.success, `backfill-docs failed: ${JSON.stringify(backfill.error)}`).toBe(true);
+    expect(backfill.data).toMatchObject({
+      written: 1,
+      writtenAttachmentIds: [added.attachmentId],
+    });
+    const edges = await documentsEdgesFor('task:T9976');
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.from_id).toMatch(/^llmtxt:[a-f0-9]{64}$/);
   });
 });
 
