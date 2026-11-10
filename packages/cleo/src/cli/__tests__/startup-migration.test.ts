@@ -254,7 +254,6 @@ vi.mock('../commands/intelligence.js', () => ({ intelligenceCommand: {} }));
 vi.mock('../commands/provider.js', () => ({ providerCommand: {} }));
 vi.mock('../commands/sync.js', () => ({ syncCommand: {} }));
 vi.mock('../commands/transcript.js', () => ({ transcriptCommand: {} }));
-vi.mock('../commands/conduit.js', () => ({ conduitCommand: {} }));
 vi.mock('../commands/playbook.js', () => ({ playbookCommand: {} }));
 // ---------------------------------------------------------------------------
 

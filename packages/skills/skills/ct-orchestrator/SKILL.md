@@ -272,8 +272,8 @@ the store doc exists.
 peers through AgentMBX (`mbx_*` tools; the `agentmbx` CLI can only send without the
 session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` section and
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
-mailbox in it. `cleo conduit` and the `conduit-*` sub-commands of `cleo orchestrate` are
-deprecated (T13982) and leave in the next release; do not build on them.
+mailbox in it. The conduit messaging verbs, including the `conduit-*` sub-commands of
+orchestrate, were removed (T13955).
 
 **Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with
 `orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
