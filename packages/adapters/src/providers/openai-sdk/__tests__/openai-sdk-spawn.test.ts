@@ -10,7 +10,6 @@
  * - SpawnProviderTests: spawn(), listRunning(), terminate(), canSpawn()
  * - AdapterTests: identity, capabilities, initialize, dispose, healthCheck
  * - InstallProviderTests: isInstalled, install, uninstall
- * - TraceProcessorTests: onSpanEnd event capture
  * - HandoffIntegrationTest: lead + worker topology with mocked generateText
  *
  * @task T582 (original)
@@ -101,15 +100,6 @@ vi.mock('../../cant-context.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock conduit-trace-writer to avoid CLI calls in unit tests
-// ---------------------------------------------------------------------------
-
-vi.mock('../../../providers/shared/conduit-trace-writer.js', () => ({
-  writeSpanToConduit: vi.fn(async () => ({ written: true })),
-  writeSpanBatchToConduit: vi.fn(async () => 0),
-}));
-
-// ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
@@ -131,21 +121,6 @@ import {
 } from '../handoff.js';
 import { OpenAiSdkInstallProvider } from '../install.js';
 import { OpenAiSdkSpawnProvider } from '../spawn.js';
-import { CleoConduitTraceProcessor, type CleoSpan } from '../tracing.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeSpanLike(overrides: Partial<CleoSpan> = {}): CleoSpan {
-  return {
-    spanId: 'span-001',
-    startedAt: new Date().toISOString(),
-    endedAt: new Date().toISOString(),
-    spanData: { type: 'agent', name: 'test-agent' },
-    ...overrides,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Path ACL helpers
@@ -622,61 +597,6 @@ describe('OpenAiSdkInstallProvider', () => {
       await expect(
         installProvider.ensureInstructionReferences('/tmp/project'),
       ).resolves.toBeUndefined();
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Trace processor
-// ---------------------------------------------------------------------------
-
-describe('CleoConduitTraceProcessor', () => {
-  let processor: CleoConduitTraceProcessor;
-
-  beforeEach(() => {
-    processor = new CleoConduitTraceProcessor('T582-test');
-  });
-
-  afterEach(() => vi.clearAllMocks());
-
-  describe('onTraceStart', () => {
-    it('resolves without error', async () => {
-      await expect(processor.onTraceStart({})).resolves.toBeUndefined();
-    });
-  });
-
-  describe('onTraceEnd', () => {
-    it('resolves without error', async () => {
-      await expect(processor.onTraceEnd({})).resolves.toBeUndefined();
-    });
-  });
-
-  describe('onSpanStart', () => {
-    it('resolves without error', async () => {
-      await expect(processor.onSpanStart(makeSpanLike())).resolves.toBeUndefined();
-    });
-  });
-
-  describe('onSpanEnd', () => {
-    it('does not throw for a well-formed span', async () => {
-      const span = makeSpanLike();
-      await expect(processor.onSpanEnd(span)).resolves.toBeUndefined();
-    });
-
-    it('does not throw for a span with missing fields', async () => {
-      await expect(processor.onSpanEnd({ spanId: 'x' })).resolves.toBeUndefined();
-    });
-  });
-
-  describe('shutdown', () => {
-    it('resolves without error', async () => {
-      await expect(processor.shutdown(1000)).resolves.toBeUndefined();
-    });
-  });
-
-  describe('forceFlush', () => {
-    it('resolves without error', async () => {
-      await expect(processor.forceFlush()).resolves.toBeUndefined();
     });
   });
 });

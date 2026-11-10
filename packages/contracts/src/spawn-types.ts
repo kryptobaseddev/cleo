@@ -9,6 +9,8 @@
  * @phase 1B
  */
 
+import type { LeadDeniedTool } from './operations/orchestrate.js';
+
 /**
  * Provider identifier for spawn operations.
  */
@@ -65,6 +67,17 @@ export interface CLEOSpawnContext {
 
   /** Token resolution information for the prompt */
   tokenResolution?: TokenResolution;
+
+  /**
+   * Tools to remove from the spawned agent; set only for a lead spawn under
+   * the lead/worker split. The spawn bridge forwards it as
+   * `SpawnContext.leadDeniedTools` and refuses the spawn with
+   * `E_LEAD_TOOLS_UNSTRIPPED` when the provider does not declare
+   * `leadToolStrip: 'enforced'`. Absent or empty for a worker spawn.
+   *
+   * @task T14357
+   */
+  leadDeniedTools?: readonly LeadDeniedTool[];
 }
 
 /**
