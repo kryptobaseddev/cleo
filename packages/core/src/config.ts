@@ -423,6 +423,18 @@ export async function setConfigValue(
       await refuseOverrideCapWrite(cwd ?? getProjectRoot(), parseConfigValue(value)),
     );
   }
+  // T14403: counted reviewer workers are owner-only and sealed outside config.json.
+  if (key === 'review.workers.counted') {
+    const [{ refuseReviewWorkersCountedWrite }, { getProjectRoot }] = await Promise.all([
+      import('./security/review-workers-setting.js'),
+      import('./project-scope.js'),
+    ]);
+    // @sync-invariant none:local-only owner-only setting refused before any write; config.json is untouched
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      await refuseReviewWorkersCountedWrite(cwd ?? getProjectRoot(), parseConfigValue(value)),
+    );
+  }
   const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
   // The global config can hold provider keys: owner-only (T14221).

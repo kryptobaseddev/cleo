@@ -189,9 +189,9 @@ export interface ReviewDispatch {
   reviewerSessionId: string;
   /**
    * SHA-256 (hex) of the per-dispatch secret (T14403). The secret itself is
-   * never stored: it is returned once to the dispatcher
-   * ({@link ReviewDispatchDecision.reviewerSecret}) and a verdict under this
-   * dispatch is accepted only with it. Empty on a dry run.
+   * never stored in a row: it is written to a 0600 file
+   * ({@link ReviewDispatchDecision.reviewerSecretFile}) and a verdict under
+   * this dispatch is accepted only with it. Empty on a dry run.
    */
   reviewerSecretSha256: string;
   /** The session that dispatched: never the reviewer's, never an author's. */
@@ -221,12 +221,13 @@ export interface ReviewDispatchDecision {
   /** The brief to hand the reviewer agent, for `dispatch`. */
   brief?: string;
   /**
-   * The per-dispatch secret (T14403), returned once on an executed
-   * `dispatch` and stored nowhere. The dispatcher hands it only to the
-   * reviewer process, in its `CLEO_REVIEW_SECRET` environment variable, never
-   * on a command line, in the brief, an audit row or a log.
+   * Where the per-dispatch secret was written (T14403), on an executed
+   * `dispatch`: a 0600 file under `.cleo/review-secrets/`. Only the path is
+   * returned, never the secret, so it stays out of the dispatcher's
+   * transcript; the dispatcher hands the reviewer the path as
+   * `CLEO_REVIEW_SECRET_FILE`.
    */
-  reviewerSecret?: string;
+  reviewerSecretFile?: string;
 }
 
 /** One criterion's shadow verdict next to the counted one on the same head (T14372). */

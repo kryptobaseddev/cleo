@@ -12,14 +12,9 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getConfigValue } from '../../config/registry.js';
-import { setConfigValue } from '../../config.js';
-import { checkSchema } from '../../json-schema-validator.js';
-import { getConfigPath } from '../../paths.js';
-import { resolveSchemaPath } from '../../schema-management.js';
 import {
   bindTestSession,
   createTestDb,
@@ -34,7 +29,6 @@ import {
   type PrFile,
   type PrFileList,
   REVIEW_DISPATCH_ACTION,
-  REVIEW_WORKERS_COUNTED_KEY,
   type ReviewDispatchDeps,
   runReviewDispatch,
 } from '../review-dispatch.js';
@@ -42,6 +36,7 @@ import {
   buildReviewPacket,
   checkPrReviews,
   REVIEW_SECRET_ENV,
+  REVIEW_SECRET_FILE_ENV,
   recordReviewVerdict,
 } from '../review-verdict.js';
 
@@ -101,6 +96,7 @@ function actAs(sessionId: string, agentId: string, secret = ''): void {
   vi.stubEnv('CLEO_SESSION_ID', sessionId);
   vi.stubEnv('CLEO_AGENT_ID', agentId);
   vi.stubEnv(REVIEW_SECRET_ENV, secret);
+  vi.stubEnv(REVIEW_SECRET_FILE_ENV, '');
 }
 
 /** Every file under `dir`, recursively. */
@@ -130,23 +126,30 @@ async function verdict(ac: string, v: 'met' | 'unmet', shadow: boolean) {
 }
 
 /** Dispatch at HEAD and return the reviewer's session, agent id and secret. */
-async function dispatchAt(
-  counted = false,
-): Promise<{ session: string; agent: string; secret: string; brief: string }> {
+async function dispatchAt(counted = false): Promise<{
+  session: string;
+  agent: string;
+  secret: string;
+  secretFile: string;
+  brief: string;
+  decision: unknown;
+}> {
   const r = await runReviewDispatch(
     env.tempDir,
     { execute: true, counted },
     stub({ head: HEAD, counted }),
   );
   const d = r.decisions[0]?.dispatches?.[0];
-  const secret = r.decisions[0]?.reviewerSecret;
-  if (d === undefined || secret === undefined)
+  const secretFile = r.decisions[0]?.reviewerSecretFile;
+  if (d === undefined || secretFile === undefined)
     throw new Error(`no dispatch: ${r.decisions[0]?.reason}`);
   return {
     session: d.reviewerSessionId,
     agent: d.reviewerAgentId,
-    secret,
+    secret: readFileSync(secretFile, 'utf-8'),
+    secretFile,
     brief: r.decisions[0]?.brief ?? '',
+    decision: r.decisions[0],
   };
 }
 
@@ -433,9 +436,20 @@ describe('the per-dispatch secret (T14403)', () => {
       { execute: true, counted: true },
       stub({ head: HEAD, counted: true }),
     );
-    actAs(session, agent, String(other.decisions[0]?.reviewerSecret));
+    actAs(session, agent, readFileSync(String(other.decisions[0]?.reviewerSecretFile), 'utf-8'));
     await expect(verdict('AC1', 'met', true)).rejects.toThrow(/The wrong per-dispatch secret/);
     actAs(session, agent, secret);
+    expect(await verdict('AC1', 'met', true)).toMatchObject({ shadow: true, ac: 'AC1' });
+  });
+
+  it('the reviewer reads the secret from the file its dispatch returned, mode 0600 in a 0700 directory', async () => {
+    const { session, agent, secretFile } = await dispatchAt();
+    expect(statSync(secretFile).mode & 0o777).toBe(0o600);
+    expect(statSync(join(secretFile, '..')).mode & 0o777).toBe(0o700);
+    actAs(session, agent);
+    vi.stubEnv(REVIEW_SECRET_FILE_ENV, `${secretFile}.missing`);
+    await expect(verdict('AC1', 'met', true)).rejects.toThrow(/No per-dispatch secret/);
+    vi.stubEnv(REVIEW_SECRET_FILE_ENV, secretFile);
     expect(await verdict('AC1', 'met', true)).toMatchObject({ shadow: true, ac: 'AC1' });
   });
 
@@ -453,14 +467,20 @@ describe('the per-dispatch secret (T14403)', () => {
       }),
     );
     let secret = '';
+    let secretFile = '';
     try {
       const d = await dispatchAt();
       secret = d.secret;
+      secretFile = d.secretFile;
+      // The dispatcher's envelope carries the path, never the secret.
+      expect(JSON.stringify(d.decision)).not.toContain(secret);
       expect(d.brief).not.toContain(secret);
-      expect(d.brief).toContain(REVIEW_SECRET_ENV);
-      actAs(d.session, d.agent, secret);
+      expect(d.brief).toContain(`${REVIEW_SECRET_FILE_ENV}=${secretFile}`);
+      actAs(d.session, d.agent);
+      vi.stubEnv(REVIEW_SECRET_FILE_ENV, secretFile);
       await verdict('AC1', 'met', true);
       actAs(d.session, d.agent, 'wrong');
+      vi.stubEnv(REVIEW_SECRET_FILE_ENV, '');
       await expect(verdict('AC2', 'met', true)).rejects.toThrow(/wrong per-dispatch secret/);
     } finally {
       out.mockRestore();
@@ -474,29 +494,9 @@ describe('the per-dispatch secret (T14403)', () => {
     expect(rows.length).toBeGreaterThan(1);
     for (const r of rows) expect(JSON.stringify(r)).not.toContain(secret);
     expect(writes.join('\n')).not.toContain(secret);
-    // Nothing on disk (the store with its WAL, logs, config) holds the secret.
-    for (const file of filesUnder(env.tempDir))
-      expect(readFileSync(file).includes(secret), file).toBe(false);
-  });
-});
-
-describe('review.workers.counted config (T14403)', () => {
-  it('AC3: cleo config set review.workers.counted true passes the config schema and is read back', async () => {
-    const path = getConfigPath(env.tempDir);
-    writeFileSync(path, `${JSON.stringify({ version: '2.11.0' })}\n`);
-    await setConfigValue(REVIEW_WORKERS_COUNTED_KEY, 'true', env.tempDir);
-    const schemaPath = resolveSchemaPath('config.schema.json');
-    expect(schemaPath).not.toBeNull();
-    const schema = JSON.parse(readFileSync(String(schemaPath), 'utf-8')) as Record<string, unknown>;
-    const config = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
-    expect(config).toMatchObject({ review: { workers: { counted: true } } });
-    expect(checkSchema(config, schema)).toEqual([]);
-    expect(
-      await getConfigValue<boolean>(REVIEW_WORKERS_COUNTED_KEY, { projectRoot: env.tempDir }),
-    ).toBe(true);
-    // The schema still rejects an unknown review key, so the check is not vacuous.
-    expect(checkSchema({ ...config, review: { workers: { count: true } } }, schema)).not.toEqual(
-      [],
-    );
+    // Nothing on disk but its own file (the store with its WAL, logs, config) holds the secret.
+    const files = filesUnder(env.tempDir).filter((f) => f !== secretFile);
+    expect(files.length).toBeGreaterThan(1);
+    for (const file of files) expect(readFileSync(file).includes(secret), file).toBe(false);
   });
 });

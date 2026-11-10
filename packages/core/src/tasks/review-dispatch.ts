@@ -21,9 +21,11 @@
  *   the dispatcher may not be an author either.
  * - Session ids are readable from audit rows, so each executed dispatch also
  *   mints a secret (T14403): only its SHA-256 is stored in the dispatch row,
- *   the secret is returned once to the dispatcher, who hands it to the
- *   reviewer process in {@link REVIEW_SECRET_ENV}, and a verdict under the
- *   dispatch is refused without it.
+ *   the secret itself goes to a 0600 file ({@link reviewSecretFile}) whose
+ *   path, never the secret, the dispatcher gets back and hands the reviewer
+ *   as {@link REVIEW_SECRET_FILE_ENV}. A verdict under the dispatch is refused
+ *   without it. An author running as the same OS user can still read that
+ *   file or a process environment: this raises the bar, it does not isolate.
  *
  * Dry run by default: nothing is recorded.
  *
@@ -31,7 +33,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   ReviewDispatch,
@@ -40,20 +42,21 @@ import type {
   ReviewRouteReason,
   ReviewRouting,
 } from '@cleocode/contracts';
+import { REVIEW_WORKERS_COUNTED_KEY } from '@cleocode/contracts/config.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import type { TrainPr } from './merge-train.js';
 import {
   REVIEW_DISPATCH_ACTION,
-  REVIEW_SECRET_ENV,
+  REVIEW_SECRET_FILE_ENV,
   REVIEWER_AGENT_PREFIX,
   type ReviewDeps,
 } from './review-verdict.js';
 
 export { REVIEW_DISPATCH_ACTION } from './review-verdict.js';
 
-/** Config key the owner flips to allow counted reviewer workers (default false). */
-export const REVIEW_WORKERS_COUNTED_KEY = 'review.workers.counted';
+/** Config key the owner seals to allow counted reviewer workers (default off, T14403). */
+export { REVIEW_WORKERS_COUNTED_KEY };
 
 /** Heads per PR and mode a reviewer is dispatched to before the PR is left to the lead. */
 export const MAX_REVIEW_DISPATCHES_PER_PR = 3;
@@ -159,10 +162,11 @@ export function reviewerAgentId(
  * serious finding listed in its report, and never an edit to the PR.
  *
  * @param dispatches - The PR's dispatches, one per task.
+ * @param secretFile - The dispatch's secret file (T14403); absent on a dry run.
  * @returns The brief.
  * @task T14372
  */
-export function reviewerBrief(dispatches: readonly ReviewDispatch[]): string {
+export function reviewerBrief(dispatches: readonly ReviewDispatch[], secretFile?: string): string {
   const first = dispatches[0];
   if (first === undefined) return '';
   const { prNumber, reviewerAgentId: agent, reviewerSessionId, mode } = first;
@@ -170,7 +174,7 @@ export function reviewerBrief(dispatches: readonly ReviewDispatch[]): string {
   const session = reviewerSessionId === '' ? '<created on --execute>' : reviewerSessionId;
   const lines = [
     `You review PR #${prNumber} at head ${first.headSha}. You are not its author; never edit the PR, push, comment or merge.`,
-    `1. Run every cleo call with CLEO_SESSION_ID=${session} CLEO_AGENT_ID=${agent} (the session this dispatch created; never start or reuse another) and the ${REVIEW_SECRET_ENV} your dispatcher put in your environment. Never print it, write it down or put it on a command line.`,
+    `1. Run every cleo call with CLEO_SESSION_ID=${session} CLEO_AGENT_ID=${agent} ${REVIEW_SECRET_FILE_ENV}=${secretFile ?? '<created on --execute>'} (the session and secret file this dispatch created; never start or reuse another). Never print, copy or cat the secret file.`,
     '2. Per task, read only the packet (the diff and the criteria), never the PR title, body, comments or commits:',
   ];
   for (const d of dispatches) {
@@ -266,6 +270,19 @@ async function createReviewerSession(root: string, agent: string, name: string):
   // A session naming its agent is owned, so it never blocks another `cleo session start`.
   await updateSession(id, { agentIdentifier: agent, agentHandle: agent }, root);
   return id;
+}
+
+/**
+ * Where a dispatch's secret lives (T14403): `.cleo/review-secrets/<session>.secret`,
+ * mode 0600 in a 0700 directory, git-ignored with the rest of `.cleo/`.
+ *
+ * @param root - Project root.
+ * @param reviewerSessionId - The session the dispatch created.
+ * @returns The absolute path.
+ * @task T14403
+ */
+export function reviewSecretFile(root: string, reviewerSessionId: string): string {
+  return join(root, '.cleo', 'review-secrets', `${reviewerSessionId}.secret`);
 }
 
 /** Decide (and with `execute`, record) the dispatch for one open PR. */
@@ -373,16 +390,21 @@ async function judgePr(
       ),
       routing,
     };
-  let reviewerSecret: string | undefined;
+  let secretFile: string | undefined;
   if (ctx.execute) {
-    // T14403: only the hash is recorded; the secret goes back to the dispatcher once.
-    reviewerSecret = randomBytes(32).toString('base64url');
-    const reviewerSecretSha256 = createHash('sha256').update(reviewerSecret).digest('hex');
     const reviewerSessionId = await createReviewerSession(
       root,
       agent,
       `review #${pr.number} ${pr.headSha.slice(0, 7)} (${ctx.mode})`,
     );
+    // T14403: the secret goes only to a 0600 file; the row keeps its hash, the
+    // dispatcher gets the path. Never in stdout, argv, an audit row or a log.
+    const secret = randomBytes(32).toString('base64url');
+    const reviewerSecretSha256 = createHash('sha256').update(secret).digest('hex');
+    secretFile = reviewSecretFile(root, reviewerSessionId);
+    mkdirSync(join(root, '.cleo', 'review-secrets'), { recursive: true, mode: 0o700 });
+    chmodSync(join(root, '.cleo', 'review-secrets'), 0o700);
+    writeFileSync(secretFile, secret, { mode: 0o600, flag: 'wx' });
     for (const d of dispatches) {
       d.reviewerSessionId = reviewerSessionId;
       d.reviewerSecretSha256 = reviewerSecretSha256;
@@ -402,8 +424,8 @@ async function judgePr(
     reason: `routine; ${dispatches.map((d) => `${d.taskId} ${d.acs.join(',')}`).join('; ')} lack a verdict on this head`,
     routing,
     dispatches,
-    brief: reviewerBrief(dispatches),
-    ...(reviewerSecret !== undefined ? { reviewerSecret } : {}),
+    brief: reviewerBrief(dispatches, secretFile),
+    ...(secretFile !== undefined ? { reviewerSecretFile: secretFile } : {}),
   };
 }
 
@@ -411,7 +433,8 @@ async function judgePr(
  * Run a reviewer dispatch once (T14372): judge every open PR and, with
  * `execute`, record one dispatch per task for each routine PR whose head
  * lacks verdicts, create the reviewer's session, and return the brief to hand
- * each reviewer agent with the secret to put in its {@link REVIEW_SECRET_ENV}. Shadow unless `counted`, which the owner must enable.
+ * each reviewer agent with the path of its secret file
+ * ({@link REVIEW_SECRET_FILE_ENV}). Shadow unless `counted`, which the owner must enable.
  * Idempotent per head: safe on a schedule.
  *
  * @param root - Project root.
@@ -480,7 +503,7 @@ export async function runReviewDispatch(
 /**
  * The default {@link ReviewDispatchDeps}: open PRs, heads and GitHub's file
  * list (`pulls/<n>/files`, JSON, so no path is parsed from patch text) from
- * `gh`, and {@link REVIEW_WORKERS_COUNTED_KEY} from the config cascade.
+ * `gh`, and {@link REVIEW_WORKERS_COUNTED_KEY} as the owner sealed it.
  *
  * @param root - Project root.
  * @returns The deps.
@@ -543,10 +566,9 @@ export async function defaultReviewDispatchDeps(root: string): Promise<ReviewDis
       return { files, changedFiles: Number(count.trim()) };
     },
     async countedEnabled() {
-      const { getConfigValue } = await import('../config/registry.js');
-      return (
-        (await getConfigValue<boolean>(REVIEW_WORKERS_COUNTED_KEY, { projectRoot: root })) === true
-      );
+      // T14403: owner-sealed, never read from config.json.
+      const { resolveReviewWorkersCounted } = await import('../security/review-workers-setting.js');
+      return resolveReviewWorkersCounted(root);
     },
   };
 }
