@@ -96,7 +96,7 @@ interface TrackedProcess {
  *
  * @param context - Spawn context.
  * @param promptFile - Path of the prompt file passed as the final argument.
- * @param extraArgs - Extra flags placed before the prompt file (e.g. `--settings` for tracked workers, T14359).
+ * @param settingsArgs - Extra `--settings <file>` args (a tracked worker's exit hook, T14359).
  * @param leadMcp - A lead's MCP setup (from `prepareLeadMcp`). @defaultValue the runner alone, inline
  * @returns Argument list for the `claude` binary.
  * @task T14357
@@ -104,7 +104,7 @@ interface TrackedProcess {
 export function buildClaudeArgs(
   context: SpawnContext,
   promptFile: string,
-  extraArgs: readonly string[] = [],
+  settingsArgs: readonly string[] = [],
   leadMcp: LeadMcpSetup = runnerOnlyLeadMcp(),
 ): string[] {
   const denied = leadDeniedTools(context);
@@ -123,7 +123,7 @@ export function buildClaudeArgs(
         ];
   // Variadic flags (--disallowedTools, --allowedTools, --mcp-config) are each
   // followed by another flag, so none swallows the prompt file.
-  return ['--print', ...permissionArgs, '--output-format', 'json', ...extraArgs, promptFile];
+  return ['--print', ...permissionArgs, '--output-format', 'json', ...settingsArgs, promptFile];
 }
 
 /**

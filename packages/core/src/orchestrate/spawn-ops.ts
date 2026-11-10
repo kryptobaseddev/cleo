@@ -131,7 +131,6 @@ import {
   recordWorker,
   settleWorkerAtSpawn,
   type WorkerRecord,
-  workerRecordsEnabled,
 } from './worker-records.js';
 
 export type { EngineResult };
@@ -1109,7 +1108,7 @@ export async function orchestrateSpawnExecute(
     // spawning, under a pre-assigned instance id the adapter may adopt for
     // its exit hook, so a worker that dies at once still finds its record.
     const hookAgentId = cleoSpawnContext.options?.preferredAgent ?? `worker-${taskId}`;
-    if (opts.lead === undefined && (await workerRecordsEnabled(cwd))) {
+    if (opts.lead === undefined && leadWorkerV1) {
       const workerInstanceId = newWorkerInstanceId(adapter.providerId);
       try {
         pendingWorker = await recordWorker(

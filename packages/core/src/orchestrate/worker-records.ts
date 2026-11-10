@@ -10,7 +10,7 @@
  * device) and is written only through this module, on the `getDb` chokepoint
  * handle.
  *
- * Gated by `orchestrate.leadWorker.v1` ({@link workerRecordsEnabled}); with
+ * Gated by `orchestrate.leadWorker.v1` (`isLeadWorkerV1Enabled`); with
  * the flag off, spawn keeps its old behaviour (SubagentStop at spawn).
  *
  * The record is written BEFORE the adapter spawns, under a pre-assigned
@@ -37,25 +37,6 @@ import { getLogger } from '../logger.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { tasksAgentInstances } from '../store/schema/cleo-project/runtime.js';
 import { getDb } from '../store/sqlite.js';
-
-/** Config key that gates durable worker records (T14359). */
-export const WORKER_RECORDS_FLAG = 'orchestrate.leadWorker.v1';
-
-/**
- * True when `orchestrate.leadWorker.v1` is on. Off (the default) keeps the
- * pre-T14359 spawn behaviour; an unreadable config counts as off.
- *
- * @param cwd - Project root.
- * @returns Whether spawns store worker records.
- */
-export async function workerRecordsEnabled(cwd: string): Promise<boolean> {
-  try {
-    const { getConfigValue } = await import('../config/registry.js');
-    return (await getConfigValue<boolean>(WORKER_RECORDS_FLAG, { projectRoot: cwd })) === true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * A fresh adapter instance id, assigned before spawn so the record and the
