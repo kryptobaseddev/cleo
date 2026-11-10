@@ -255,3 +255,11 @@ export interface ReviewDispatchResult {
   /** One decision per open PR, in PR-number order. */
   decisions: ReviewDispatchDecision[];
 }
+
+/**
+ * The owner-only key that lets `cleo review dispatch --counted` send reviewer
+ * workers whose verdicts count (T14403). The owner seals it with
+ * `cleo config set review.workers.counted true`; it is never stored in
+ * config.json, and a plain config write of it is refused.
+ */
+export const REVIEW_WORKERS_COUNTED_KEY = 'review.workers.counted';

@@ -42,8 +42,8 @@ import type {
   ReviewRouteReason,
   ReviewRouting,
 } from '@cleocode/contracts';
-import { REVIEW_WORKERS_COUNTED_KEY } from '@cleocode/contracts/config.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { REVIEW_WORKERS_COUNTED_KEY } from '@cleocode/contracts/review-verdict.js';
 import { CleoError } from '../errors.js';
 import type { TrainPr } from './merge-train.js';
 import {

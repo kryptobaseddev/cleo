@@ -22,7 +22,7 @@
  */
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
-import { REVIEW_WORKERS_COUNTED_KEY } from '@cleocode/contracts/config.js';
+import { REVIEW_WORKERS_COUNTED_KEY } from '@cleocode/contracts/review-verdict.js';
 import {
   judgeOwnerState,
   type OwnerCaller,

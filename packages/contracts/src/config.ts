@@ -1041,14 +1041,6 @@ export interface ResourcesConfig {
   heavyCommandHook?: HeavyCommandHookMode;
 }
 
-/**
- * The owner-only key that lets `cleo review dispatch --counted` send reviewer
- * workers whose verdicts count (T14403). The owner seals it with
- * `cleo config set review.workers.counted true`; it is never stored in
- * config.json, and a plain config write of it is refused.
- */
-export const REVIEW_WORKERS_COUNTED_KEY = 'review.workers.counted';
-
 /** Per-AC PR review settings (`review.*`, T14372). */
 export interface ReviewConfig {
   /** Dispatched reviewer workers. */
