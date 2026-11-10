@@ -51,9 +51,7 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
           prepare: () => ({
             all: (...ids: string[]) => {
               if (taskQueryFails) throw new Error('task lookup unavailable');
-              return ids
-                .filter((id) => TASKS.has(id))
-                .map((id) => ({ id, status: TASKS.get(id) }));
+              return ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) }));
             },
           }),
         },

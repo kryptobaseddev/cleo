@@ -41,8 +41,8 @@ import {
   releaseWorktreeTaskLock,
   unlockWorktree,
 } from '@cleocode/worktree';
-import { safeParseJson } from '../store/parsers.js';
 import { pushWarning } from '../output.js';
+import { safeParseJson } from '../store/parsers.js';
 import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { worktreeInUseProbe, worktreeReaperInUseProbe } from './in-use-probe.js';
