@@ -2,7 +2,7 @@
 id: orchestrate-lead-entrypoint
 tasks: [T14363, T14423]
 kind: feat
-summary: "cleo orchestrate lead <epic> spawns the no-hands lead behind orchestrate.leadWorker.v1: no Bash, Edit or Write, and the lead runner as its one command tool"
+summary: "cleo orchestrate lead <epic> [--detached] starts the no-hands lead behind orchestrate.leadWorker.v1: interactive in the terminal by default, an allow list of the runner, mbx and AskUserQuestion"
 ---
 
 `cleo orchestrate lead <epicId>` composes the lead/worker pieces of epic
@@ -27,14 +27,24 @@ T14351. It refuses with `E_LEAD_WORKER_DISABLED` unless
 - **Role and session.** The lead's prompt is composed with role `lead`, which
   now reaches the prompt builder, so the ct-lead excerpts load; the lead runs
   under its own allocated CLEO session (`CLEO_SESSION_ID` in its env).
-- **Mailbox.** Claimed for the lead's pre-assigned session (`claude
-  --session-id`) only after the spawn is admitted; a second lead on a held epic
-  is refused (`E_LEAD_RUNNING`). The lead's `SessionStart` hook deletes the MCP
-  config file (it may hold mbx env secrets); its `SessionEnd` hook removes the
-  temp dir, ends its CLEO session and releases the mailbox.
+- **Two modes.** Interactive (default): the lead opens in the caller's
+  terminal (no `--print`, stdio inherited, not detached) with
+  `AskUserQuestion` as its only built-in tool. `--detached`: a background run
+  with no built-in tool; owner decisions go to the `owner` AgentMBX mailbox
+  as a `hitl.request` `{question, options[{label, description}], recommended}`.
+- **Mailbox and one lead per epic.** The mailbox is claimed once the spawn is
+  admitted (claude `--session-id`) and released when the lead exits. A lead
+  record (`.cleo/leads/<epic>.json`) names the pid keeping the lead alive, so
+  a second lead gets `E_LEAD_RUNNING` for as long as the first lives (not a
+  30-minute lease). A lead killed by SIGKILL or OOM is reaped by the next
+  `cleo orchestrate lead` or `cleo orchestrate status`: mailbox released, CLEO
+  session ended, temp dir removed. The lead's `SessionStart` hook deletes the
+  MCP config file; `SessionEnd` removes the temp dir, ends its session and
+  releases the mailbox, with `cleo` and `agentmbx` as absolute paths resolved
+  at spawn time from absolute PATH entries.
 - **No worktree, no worker record.** A lead writes nothing, so it runs in the
   project root and is never auto-integrated. Workers it dispatches keep
   fail-closed isolation, durable worker records and the report contract.
 
-ct-lead (1.2.0) and ct-orchestrator (4.4.0) describe the structural policy;
+ct-lead (1.3.0) and ct-orchestrator (4.5.0) describe the structural policy;
 ct-lead no longer names the nonexistent `delegate_task` tool.

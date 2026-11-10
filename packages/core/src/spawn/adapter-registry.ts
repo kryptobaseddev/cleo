@@ -257,6 +257,7 @@ export function bridgeSpawnAdapter(
         ...(result.ownership ? { ownership: result.ownership } : {}),
         // T14423 — which MCP servers a lead loaded.
         ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
+        ...(result.leadTempDir ? { leadTempDir: result.leadTempDir } : {}),
       };
     },
 

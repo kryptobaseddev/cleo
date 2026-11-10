@@ -8,8 +8,11 @@
  *   refuses a provider that cannot enforce the strip (T14357);
  * - its only way to run a command is the allow-listed runner
  *   {@link LEAD_RUNNER_TOOL} (T14374), wired by the provider adapter;
- * - the project lead mailbox is claimed for the lead's provider session before
- *   it starts, so worker reports have a holder (T14379);
+ * - it runs interactive (the caller's terminal, `AskUserQuestion`) or
+ *   `--detached` (owner decisions as an AgentMBX `hitl.request`);
+ * - once the lead is admitted, the project lead mailbox is claimed for its
+ *   provider session and a lead record keeps one lead per epic for as long
+ *   as the lead process lives (T14379; see lead-records.ts);
  * - the workers it dispatches go through `orchestrateSpawnExecute`, which
  *   applies fail-closed isolation (T14358), durable worker records (T14359)
  *   and the report contract in their prompt (T14361).
@@ -19,14 +22,33 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { LeadDeniedTool, LeadMcpReport } from '@cleocode/contracts';
-import { LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts/operations/orchestrate.js';
+import type { LeadDeniedTool, LeadMcpReport, LeadMode } from '@cleocode/contracts';
+import {
+  LEAD_ASK_TOOL,
+  LEAD_DENIED_TOOLS,
+  LEAD_OWNER_MAILBOX,
+  LEAD_RUNNER_TOOL,
+} from '@cleocode/contracts/operations/orchestrate.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { resolveBoundSessionId } from '../store/session-store.js';
-import { type AgentMbxClient, claimLeadMailbox, createAgentMbxClient } from './agentmbx.js';
+import { endSession } from '../store/session-store.js';
+import {
+  type AgentMbxClient,
+  claimLeadMailbox,
+  createAgentMbxClient,
+  type MbxIdentityStatus,
+  type MbxOutcome,
+} from './agentmbx.js';
 import { isLeadWorkerV1Enabled } from './isolation-policy.js';
+import {
+  isPidAlive,
+  type LeadRecord,
+  readLeadRecord,
+  reapDeadLeads,
+  removeLeadRecord,
+  writeLeadRecord,
+} from './lead-records.js';
 import { orchestrateSpawnExecute } from './spawn-ops.js';
 
 /**
@@ -45,6 +67,43 @@ export interface OrchestrateLeadOptions {
   readonly mbxClient?: AgentMbxClient;
   /** Spawn function, injected in tests. @defaultValue {@link orchestrateSpawnExecute} */
   readonly spawn?: typeof orchestrateSpawnExecute;
+  /** Interactive (default) or detached. */
+  readonly mode?: LeadMode;
+  /** Liveness probe for lead records, injected in tests. @defaultValue {@link isPidAlive} */
+  readonly isAlive?: (pid: number) => boolean;
+}
+
+/**
+ * The lead's mode-specific instructions: how it asks the owner.
+ *
+ * - interactive: with `AskUserQuestion`, in the owner's terminal;
+ * - detached: one AgentMBX request to the owner's mailbox whose body is a
+ *   `hitl.request` `{question, options[{label, description}], recommended}`,
+ *   then wait for the reply there.
+ *
+ * @param mode - The lead's mode.
+ * @returns The prompt section appended to the lead's prompt.
+ * @task T14363
+ */
+export function leadModePrompt(mode: LeadMode): string {
+  if (mode === 'interactive') {
+    return [
+      '## Owner decisions (interactive lead)',
+      '',
+      `You run in the owner's terminal. Ask every owner answer, decision or approval with the \`${LEAD_ASK_TOOL}\` tool: 2-4 concrete options, the recommended one first, each saying what happens and its trade-offs. Never ask in prose.`,
+    ].join('\n');
+  }
+  return [
+    '## Owner decisions (detached lead)',
+    '',
+    `You run in the background and have no \`${LEAD_ASK_TOOL}\`. For every owner answer, decision or approval, send ONE AgentMBX request (\`mbx_send\`, kind \`request\`) to the owner's mailbox \`${LEAD_OWNER_MAILBOX}\` whose body is exactly one JSON \`hitl.request\`:`,
+    '',
+    '```json',
+    '{"type":"hitl.request","question":"<one question>","options":[{"label":"<short label>","description":"<what happens and its trade-offs>"}],"recommended":"<label of the recommended option>"}',
+    '```',
+    '',
+    "Give 2-4 options, the recommended one first. Then wait for the owner's reply in your inbox (`mbx_inbox`, `mbx_read`) and act on the chosen label. Never decide for the owner and never ask in prose.",
+  ].join('\n');
 }
 
 /** The lead block of a successful {@link orchestrateLead} result. */
@@ -55,6 +114,8 @@ export interface OrchestrateLeadInfo {
   readonly runnerTool: typeof LEAD_RUNNER_TOOL;
   /** Provider session id the lead runs under. */
   readonly sessionId: string;
+  /** How the lead ran. */
+  readonly mode: LeadMode;
   /** Lead mailbox claim: the held name, or the warning when it failed closed. */
   readonly mailbox:
     | { readonly claimed: true; readonly name: string | null }
@@ -90,9 +151,11 @@ function leadMcpOf(data: object): LeadMcpReport | null {
  * Spawn the no-hands lead for an epic.
  *
  * Refuses unless `orchestrate.leadWorker.v1` is on (`E_LEAD_WORKER_DISABLED`)
- * and the id names an epic (`E_VALIDATION`). The lead mailbox is claimed only
- * after the lead is admitted and running; a failed claim does not stop it and
- * is reported under `data.lead.mailbox`. The MCP servers
+ * and the id names an epic (`E_VALIDATION`), and while a live lead already
+ * runs the epic (`E_LEAD_RUNNING`). The lead mailbox is claimed once the spawn
+ * is admitted and released when the lead exits (interactive: here; detached:
+ * its `SessionEnd` hook, or the reaper if it was killed); a failed claim does
+ * not stop the lead and is reported under `data.lead.mailbox`. The MCP servers
  * the lead loaded (runner plus mbx only, T14423) are under `data.lead.mcp`.
  *
  * @param epicId - Epic the lead runs.
@@ -130,49 +193,100 @@ export async function orchestrateLead(
     );
   }
 
-  // T14363 — one lead per epic: a live claim held by another session (a
-  // running lead holds its epic) refuses, so a second lead never starts or
-  // takes the running lead's mailbox. The lead's exit ends its session,
-  // which releases the claim.
-  const holder = task.claim;
-  if (holder && Date.parse(holder.leaseExpiresAt) > Date.now()) {
-    const caller = await resolveBoundSessionId(root);
-    if (holder.sessionId !== caller) {
-      // @sync-invariant none:input-shape a second lead on a claimed epic is refused before a spawn
-      return engineError('E_LEAD_RUNNING', `${epicId} is held by session ${holder.sessionId}`, {
-        exitCode: 6,
-        details: { epicId, holder },
-        fix: `Wait for the running lead to exit, or end session ${holder.sessionId} (cleo session end)`,
-      });
-    }
+  // T14363 — one lead per epic, for as long as the lead process lives: reap a
+  // dead lead's leftovers first, then refuse while a live lead's record stands.
+  const isAlive = options.isAlive ?? isPidAlive;
+  const client = options.mbxClient ?? createAgentMbxClient();
+  await reapDeadLeads(root, { epicId, isAlive, mbxClient: client });
+  const running = readLeadRecord(root, epicId);
+  if (running) {
+    // @sync-invariant none:local-only a second lead on an epic with a live lead is refused before a spawn
+    return engineError('E_LEAD_RUNNING', `A lead already runs ${epicId} (pid ${running.pid})`, {
+      exitCode: 6,
+      details: { epicId, lead: running },
+      fix: `Wait for the running lead to exit (pid ${running.pid}); a dead one is reaped on the next cleo orchestrate lead or status.`,
+    });
   }
 
+  const mode = options.mode ?? 'interactive';
   const sessionId = randomUUID();
+  const state: { claim: MbxOutcome<MbxIdentityStatus>; record: LeadRecord | null } = {
+    claim: { ok: false, warning: 'the lead was not admitted, so no mailbox was claimed' },
+    record: null,
+  };
+  // Claim the mailbox and record the lead only once the spawn is admitted:
+  // a refused spawn never takes either.
+  const onAdmitted = async (lead: { cleoSessionId: string }): Promise<void> => {
+    const claim = await claimLeadMailbox(
+      root,
+      { cli: LEAD_PROVIDER_CLI, session: sessionId },
+      client,
+    );
+    state.claim = claim;
+    state.record = {
+      epicId,
+      // Interactive: this CLI waits in the owner's terminal for the lead.
+      pid: process.pid,
+      mode,
+      cleoSessionId: lead.cleoSessionId,
+      providerSessionId: sessionId,
+      providerCli: LEAD_PROVIDER_CLI,
+      mailbox: claim.ok ? (claim.value.name ?? null) : null,
+      tempDir: null,
+      startedAt: new Date().toISOString(),
+    };
+    writeLeadRecord(root, state.record);
+  };
+  /** Give back what the lead held: mailbox, CLEO session (the epic claim), record. */
+  const settle = async (endLeadSession: boolean): Promise<void> => {
+    const held = state.record;
+    if (held === null) return;
+    if (state.claim.ok) await client.release({ cli: LEAD_PROVIDER_CLI, session: sessionId });
+    if (endLeadSession) {
+      await endSession(held.cleoSessionId, 'lead exited', root).catch(() => undefined);
+    }
+    removeLeadRecord(root, epicId);
+  };
+
   const spawn = options.spawn ?? orchestrateSpawnExecute;
   const result = await spawn(epicId, options.adapterId, undefined, root, 1, {
-    lead: { deniedTools: LEAD_DENIED_TOOLS, sessionId },
+    lead: {
+      deniedTools: LEAD_DENIED_TOOLS,
+      sessionId,
+      mode,
+      promptAppendix: leadModePrompt(mode),
+      onAdmitted,
+    },
   });
-  if (!result.success) return result;
-  const data = typeof result.data === 'object' && result.data !== null ? result.data : {};
+  const data =
+    result.success && typeof result.data === 'object' && result.data !== null ? result.data : {};
+  const started = result.success && 'status' in data && data.status !== 'failed';
+  if (!started) {
+    // Refused or failed after admission: the spawn already handed the claim back.
+    await settle(false);
+    if (!result.success) return result;
+  } else if (mode === 'interactive') {
+    // The interactive spawn returns when the owner ends the session.
+    await settle(true);
+  } else {
+    const pid = 'leadPid' in data && typeof data.leadPid === 'number' ? data.leadPid : null;
+    const tempDir =
+      'leadTempDir' in data && typeof data.leadTempDir === 'string' ? data.leadTempDir : null;
+    const held = state.record;
+    if (held !== null && pid !== null) writeLeadRecord(root, { ...held, pid, tempDir });
+    // Without the lead's pid nothing can prove it alive: drop the record.
+    else if (held !== null) removeLeadRecord(root, epicId);
+  }
   const mcp = leadMcpOf(data);
-  // T14363 — claim the mailbox only once the lead is admitted and running: a
-  // refused spawn, or a second lead refused for the same epic, never takes
-  // it. The lead's SessionEnd hook releases it when the lead exits.
-  const running = 'status' in data && data.status !== 'failed';
-  const claim = running
-    ? await claimLeadMailbox(
-        root,
-        { cli: LEAD_PROVIDER_CLI, session: sessionId },
-        options.mbxClient ?? createAgentMbxClient(),
-      )
-    : ({ ok: false, warning: 'the lead did not start, so no mailbox was claimed' } as const);
-  const mailbox: OrchestrateLeadInfo['mailbox'] = claim.ok
-    ? { claimed: true, name: claim.value.name }
-    : { claimed: false, warning: claim.warning };
+  const finalClaim = state.claim;
+  const mailbox: OrchestrateLeadInfo['mailbox'] = finalClaim.ok
+    ? { claimed: true, name: finalClaim.value.name }
+    : { claimed: false, warning: finalClaim.warning };
   const lead: OrchestrateLeadInfo = {
     deniedTools: LEAD_DENIED_TOOLS,
     runnerTool: LEAD_RUNNER_TOOL,
     sessionId,
+    mode,
     mailbox,
     mcp,
     ...(mcp?.mailbox === 'not-configured'

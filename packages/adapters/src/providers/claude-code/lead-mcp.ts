@@ -19,7 +19,7 @@
  * @epic T14351
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -54,7 +54,10 @@ export type MbxResolution =
 const RUNNER_IDENTITY_ENV = ['CLEO_SESSION_ID', 'CLEO_AGENT_ID', 'CLEO_AGENT_ROLE'] as const;
 
 /** The runner's stdio server entry, carrying the lead's CLEO identity. */
-function runnerEntry(identityEnv: Readonly<Record<string, string>>): McpServerEntry {
+function runnerEntry(
+  identityEnv: Readonly<Record<string, string>>,
+  cleoBin: string,
+): McpServerEntry {
   const env: Record<string, string> = {};
   for (const key of RUNNER_IDENTITY_ENV) {
     const value = identityEnv[key];
@@ -62,7 +65,7 @@ function runnerEntry(identityEnv: Readonly<Record<string, string>>): McpServerEn
   }
   return {
     type: 'stdio',
-    command: 'cleo',
+    command: cleoBin,
     args: ['orchestrate', 'lead-runner'],
     ...(Object.keys(env).length > 0 ? { env } : {}),
   };
@@ -78,9 +81,18 @@ function readJson(file: string): unknown {
   }
 }
 
-/** True when `path` is `dir` or inside it. */
+/** `realpath`, or the resolved path when it cannot be resolved. */
+function realOrResolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** True when `path` is `dir` or inside it, after resolving symlinks. */
 function isInside(path: string, dir: string): boolean {
-  const rel = relative(resolve(dir), resolve(path));
+  const rel = relative(realOrResolved(dir), path);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 
@@ -100,9 +112,14 @@ function mbxEntryProblem(
   if (typeof command !== 'string' || !isAbsolute(command)) {
     return 'its command is not an absolute path';
   }
-  if (basename(command) !== 'agentmbx')
+  if (!existsSync(command)) return `its command '${command}' does not exist`;
+  // Symlinks resolved: a link outside the project pointing inside it, or named
+  // agentmbx but pointing at a shell, is refused.
+  const real = realpathSync(command);
+  if (basename(command) !== 'agentmbx' || basename(real) !== 'agentmbx') {
     return `its command '${command}' is not the agentmbx binary`;
-  if (isInside(command, projectDir)) return `its command '${command}' lives inside the project`;
+  }
+  if (isInside(real, projectDir)) return `its command '${command}' lives inside the project`;
   if (!Array.isArray(args) || args[0] !== 'mcp') return "its arguments do not start with 'mcp'";
   return null;
 }
@@ -143,16 +160,18 @@ export function resolveMbxMcpServer(
  *
  * @param mbx - The validated mbx entry, or `null`.
  * @param identityEnv - The lead's CLEO identity variables, passed to the runner.
+ * @param cleoBin - The `cleo` binary (absolute when resolved at spawn time).
  * @returns The `{ mcpServers }` object passed to `claude --mcp-config`.
  * @task T14423
  */
 export function buildLeadMcpConfig(
   mbx: McpServerEntry | null,
   identityEnv: Readonly<Record<string, string>> = {},
+  cleoBin = 'cleo',
 ): { mcpServers: Record<string, McpServerEntry> } {
   return {
     mcpServers: {
-      [LEAD_RUNNER_MCP_SERVER]: runnerEntry(identityEnv),
+      [LEAD_RUNNER_MCP_SERVER]: runnerEntry(identityEnv, cleoBin),
       ...(mbx ? { [LEAD_MAILBOX_MCP_SERVER]: mbx } : {}),
     },
   };
@@ -195,21 +214,25 @@ export const LEAD_MCP_FILE = 'lead-mcp.json';
  *
  * @param dir - The spawn's private temp directory.
  * @param projectDir - Directory the lead runs in.
- * @param identityEnv - The lead's CLEO identity variables, passed to the runner.
- * @param claudeJsonPath - Claude Code user config. @defaultValue `~/.claude.json`
+ * @param opts - The lead's CLEO identity env, the Claude Code user config path
+ *   (default `~/.claude.json`) and the absolute `cleo` binary (default `cleo`).
  * @returns The file path and what the lead loads.
  * @task T14423
  */
 export async function prepareLeadMcp(
   dir: string,
   projectDir: string,
-  identityEnv: Readonly<Record<string, string>> = {},
-  claudeJsonPath?: string,
+  opts: {
+    readonly identityEnv?: Readonly<Record<string, string>>;
+    readonly claudeJsonPath?: string;
+    readonly cleoBin?: string;
+  } = {},
 ): Promise<LeadMcpSetup> {
-  const mbx = resolveMbxMcpServer(projectDir, claudeJsonPath);
+  const mbx = resolveMbxMcpServer(projectDir, opts.claudeJsonPath);
   const entry = mbx.kind === 'found' ? mbx.entry : null;
   const file = join(dir, LEAD_MCP_FILE);
-  await writeFile(file, JSON.stringify(buildLeadMcpConfig(entry, identityEnv)), { mode: 0o600 });
+  const config = buildLeadMcpConfig(entry, opts.identityEnv ?? {}, opts.cleoBin ?? 'cleo');
+  await writeFile(file, JSON.stringify(config), { mode: 0o600 });
   return {
     config: file,
     report: {

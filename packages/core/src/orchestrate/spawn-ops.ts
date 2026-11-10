@@ -66,6 +66,7 @@ import type {
   CLEOSpawnAdapter,
   CLEOSpawnContext,
   LeadDeniedTool,
+  LeadMode,
   SpawnResult,
   WorktreeHook,
 } from '@cleocode/contracts';
@@ -748,6 +749,20 @@ export interface LeadSpawnOptions {
    * spawn context), so the lead mailbox can be claimed for it before it starts.
    */
   readonly sessionId?: string;
+  /** Interactive (the caller's terminal) or detached. @defaultValue 'interactive' */
+  readonly mode?: LeadMode;
+  /** Mode-specific instructions appended to the lead's prompt. */
+  readonly promptAppendix?: string;
+  /**
+   * Called once the lead is admitted, right before the adapter starts it
+   * (an interactive lead's spawn only returns when it exits). A throw refuses
+   * the spawn. `cleo orchestrate lead` claims the mailbox and writes the lead
+   * record here.
+   */
+  readonly onAdmitted?: (lead: {
+    readonly cleoSessionId: string;
+    readonly agentId: string | null;
+  }) => Promise<void>;
 }
 
 /**
@@ -953,9 +968,13 @@ export async function orchestrateSpawnExecute(
     // body was substituted (T1238), it is prepended to the composer prompt
     // so subagents receive the fully-resolved template alongside the
     // standard spawn context.
-    const rawPrompt = templateSubstitution.resolvedBody
+    const composedPrompt = templateSubstitution.resolvedBody
       ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
       : payload.prompt;
+    // T14363 — a lead's mode-specific instructions (how it asks the owner).
+    const rawPrompt = opts.lead?.promptAppendix
+      ? `${composedPrompt}\n\n${opts.lead.promptAppendix}`
+      : composedPrompt;
 
     // T1759 — Worktree provisioning + centralized isolation.
     //
@@ -1096,6 +1115,12 @@ export async function orchestrateSpawnExecute(
         leadSessionId: opts.lead.sessionId,
       };
     }
+    if (opts.lead !== undefined) {
+      cleoSpawnContext.options = {
+        ...cleoSpawnContext.options,
+        leadMode: opts.lead.mode ?? 'interactive',
+      };
+    }
 
     // Wave 6-C/D: Capacity-aware routing — find the least-loaded agent and
     // attach it as a preferred routing hint on the spawn options.
@@ -1159,6 +1184,12 @@ export async function orchestrateSpawnExecute(
           'T14359 worker record not stored — SubagentStop fires at spawn',
         );
       }
+    }
+
+    // T14363 — the lead is admitted (resource grant, task claim, prompt): let
+    // the caller claim its mailbox and record it before it starts.
+    if (opts.lead?.onAdmitted) {
+      await opts.lead.onAdmitted({ cleoSessionId: activeSessionId, agentId: spawnAgentId ?? null });
     }
 
     // Execute spawn
@@ -1330,6 +1361,11 @@ export async function orchestrateSpawnExecute(
         harnessHint: payload.harnessHint,
         // T14423 — the MCP servers a lead spawn loaded.
         ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
+        // T14363 — a detached lead's temp dir and pid, for its lead record.
+        ...(result.leadTempDir ? { leadTempDir: result.leadTempDir } : {}),
+        ...(opts.lead !== undefined && typeof result.ownership?.pid === 'number'
+          ? { leadPid: result.ownership.pid }
+          : {}),
       },
     };
   } catch (error) {

@@ -106,6 +106,8 @@ export interface AgentMbxClient {
   claim(name: string, session: Required<MbxSession>): Promise<MbxOutcome<MbxIdentityStatus>>;
   /** The identity a provider session holds. */
   status(session: MbxSession): Promise<MbxOutcome<MbxIdentityStatus>>;
+  /** Release the mailbox a provider session holds (a lead's exit or reap, T14363). */
+  release(session: Required<MbxSession>): Promise<MbxOutcome<MbxIdentityStatus>>;
 }
 
 /**
@@ -252,6 +254,10 @@ export function createAgentMbxClient(runner?: MbxRunner): AgentMbxClient {
       const r = await call(['identity', 'claim', name, ...sessionArgs(session), '--json']);
       return r.ok ? { ok: true, value: parseIdentity(r.value) } : r;
     },
+    async release(session) {
+      const r = await call(['identity', 'release', ...sessionArgs(session), '--json']);
+      return r.ok ? { ok: true, value: parseIdentity(r.value) } : r;
+    },
     async status(session) {
       const r = await call([
         'status',
@@ -357,8 +363,9 @@ export async function resolveLeadMailbox(
 
 /**
  * Claim the project's recorded lead mailbox for the lead's provider session.
- * `cleo orchestrate lead` (T14363) calls this when the lead starts, so the
- * mailbox workers report to has a holder.
+ * `cleo orchestrate lead` (T14363) calls this once the lead's spawn is
+ * admitted, right before it starts, so the mailbox workers report to has a
+ * holder; the lead's exit, or the dead-lead reaper, releases it.
  *
  * @param projectRoot - Project root.
  * @param session - The lead's provider session (`--cli`, `--session`).

@@ -157,6 +157,12 @@ export interface SpawnResult {
    * MCP servers a lead spawn loaded; absent for a worker spawn (T14423).
    */
   leadMcp?: LeadMcpReport;
+  /**
+   * Private temp directory of a detached lead's run (it may hold the mbx
+   * env), so a reaper can remove it when the lead died without its hooks
+   * (T14363). Absent for every other spawn.
+   */
+  leadTempDir?: string;
 }
 
 // =============================================================================

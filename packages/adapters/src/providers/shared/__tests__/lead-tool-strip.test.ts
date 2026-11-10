@@ -37,7 +37,11 @@ describe('claude-code lead tool strip', () => {
     const args = buildClaudeArgs(LEAD, '/tmp/prompt.md');
     expect(args).not.toContain('--dangerously-skip-permissions');
     // T14363: --allowedTools only pre-approves the runner; it never strips.
-    expect(args[args.indexOf('--allowedTools') + 1]).toBe(LEAD_RUNNER_TOOL);
+    // (Interactive, the default, also allows AskUserQuestion.)
+    expect(args[args.indexOf('--allowedTools') + 1]?.split(',')).toEqual([
+      LEAD_RUNNER_TOOL,
+      'AskUserQuestion',
+    ]);
     const flag = args.indexOf('--disallowedTools');
     expect(flag).toBeGreaterThanOrEqual(0);
     const denied = (args[flag + 1] ?? '').split(',');

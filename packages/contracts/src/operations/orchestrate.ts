@@ -886,6 +886,33 @@ export type LeadDeniedTool = (typeof LEAD_DENIED_TOOLS)[number];
 export type LeadToolStripSupport = 'enforced' | 'unsupported';
 
 /**
+ * How a lead runs (T14363, owner decision):
+ *
+ * - `interactive` (default): a Claude session in the caller's terminal
+ *   (stdio inherited, not detached). The owner types to it; it asks
+ *   decisions with `AskUserQuestion`.
+ * - `detached`: a background run. Owner decisions go to the owner's AgentMBX
+ *   mailbox as a structured `hitl.request`, and the lead waits there.
+ *
+ * @task T14363
+ */
+export type LeadMode = 'interactive' | 'detached';
+
+/**
+ * Built-in tool an interactive lead may use to ask the owner (T14363).
+ *
+ * @task T14363
+ */
+export const LEAD_ASK_TOOL = 'AskUserQuestion';
+
+/**
+ * AgentMBX recipient for owner decisions of a detached lead (T14363).
+ *
+ * @task T14363
+ */
+export const LEAD_OWNER_MAILBOX = 'owner';
+
+/**
  * AgentMBX MCP server name a lead may load beside the runner (T14423).
  *
  * @task T14423

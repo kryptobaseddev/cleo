@@ -123,6 +123,9 @@ export interface CLEOSpawnResult extends CAAMPSpawnResult {
   /** MCP servers a lead spawn loaded, passed on from `SpawnResult` (T14423). */
   leadMcp?: LeadMcpReport;
 
+  /** A detached lead's private temp directory, from `SpawnResult` (T14363). */
+  leadTempDir?: string;
+
   /** Reference to manifest entry if output was captured */
   manifestEntryId?: string;
 }

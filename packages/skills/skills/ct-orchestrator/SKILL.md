@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.4.2
+  version: 4.5.0
   tier: core
   install: harness
   covers:
@@ -277,8 +277,13 @@ orchestrate, were removed (T13955).
 
 **Start a no-hands lead with `cleo orchestrate lead <epicId>` (T14363).** It runs only with
 `orchestrate.leadWorker.v1` on (else `E_LEAD_WORKER_DISABLED`) and only for an epic. The policy
-is structural, not a prompt rule. On claude-code the lead's tools are an ALLOW list: no
-built-in tool (`--restricted --tools ""`), `--permission-mode dontAsk`, `--setting-sources ""`
+is structural, not a prompt rule. Two modes (owner decision): interactive, the default, opens the
+lead as a Claude session in this terminal (no `--print`, stdio inherited, not detached; the owner
+types to it and it asks with `AskUserQuestion`); `--detached` runs it in the background, and it sends
+owner decisions to the `owner` AgentMBX mailbox as a `hitl.request`
+`{question, options[{label, description}], recommended}` and waits there. On claude-code the
+lead's tools are an ALLOW list: its only built-in tool is `AskUserQuestion` (interactive) or none
+(detached) (`--restricted --tools`), `--permission-mode dontAsk`, `--setting-sources ""`
 (a user's `bypassPermissions` cannot apply), `LEAD_DENIED_TOOLS` denied as a second layer, and
 `--strict-mcp-config` with exactly two MCP servers: the command runner below and the user-level
 `mbx` server (T14423). mbx comes only from `~/.claude.json` user scope and must be the `agentmbx`
@@ -287,8 +292,10 @@ plant it; otherwise the lead gets the runner alone and `data.lead.mcpWarning` sa
 provider that cannot strip tools refuses the spawn (`E_LEAD_TOOLS_UNSTRIPPED`). The lead's prompt
 is composed with role `lead` (ct-lead excerpts) and passed as its appended system prompt. It runs
 in the project root under its OWN CLEO session (no worktree, no worker record). The lead mailbox
-is claimed only after the spawn is admitted and released when the lead exits; a second lead on a
-held epic is refused (`E_LEAD_RUNNING`). Workers it starts
+is claimed once the spawn is admitted and released when the lead exits. A lead record
+(`.cleo/leads/<epic>.json`) holds one lead per epic for as long as its process lives (a second gets
+`E_LEAD_RUNNING`); a lead killed before its hooks ran is reaped (mailbox, CLEO session, temp dir)
+by the next `cleo orchestrate lead` or `cleo orchestrate status`. Workers it starts
 with `fanout` or `spawn-execute` run in the background with fail-closed isolation, durable
 worker records and the 100-word report contract below.
 

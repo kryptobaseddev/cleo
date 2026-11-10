@@ -1816,6 +1816,7 @@ export type {
   LeadDeniedTool,
   LeadFlagArity,
   LeadMcpReport,
+  LeadMode,
   LeadToolPolicy,
   LeadToolStripSupport,
   OrchestrateReportEntry,
@@ -1825,10 +1826,12 @@ export type {
   WorkerReport,
 } from './operations/orchestrate.js';
 export {
+  LEAD_ASK_TOOL,
   LEAD_CLEO_GLOBAL_FLAGS,
   LEAD_COMMAND_ALLOWLIST,
   LEAD_DENIED_TOOLS,
   LEAD_MAILBOX_MCP_SERVER,
+  LEAD_OWNER_MAILBOX,
   LEAD_RUNNER_MCP_SERVER,
   LEAD_RUNNER_TOOL,
   LEAD_RUNNER_TOOL_NAME,
