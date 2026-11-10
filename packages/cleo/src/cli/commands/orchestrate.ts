@@ -12,7 +12,7 @@
  *   cleo orchestrate spawn <taskId>       — prepare subagent spawn context
  *   cleo orchestrate validate <taskId>    — validate subagent output
  *   cleo orchestrate context <epicId>     — orchestrator context summary
- *   cleo orchestrate ivtr <taskId>        — IVTR phased loop
+ *   cleo orchestrate ivtr                 — removed (T14311); prints a removal notice
  *   cleo orchestrate parallel <action> <epicId> — parallel wave execution
  *   cleo orchestrate unblock              — unblocking opportunities
  *   cleo orchestrate bootstrap            — brain state for agent bootstrap
@@ -29,13 +29,14 @@
 
 import { execFileSync } from 'node:child_process';
 import type { EpicRollup, WaveRollup } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { BUILD_CONFIG } from '@cleocode/core/config/build-config';
 import * as orchestration from '@cleocode/core/orchestration/index';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { negatedFlag } from '../lib/negated-flag.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /**
  * Format an EpicRollup or WaveRollup as a human-readable terminal table.
@@ -589,69 +590,38 @@ const contextCommand = defineCommand({
   },
 });
 
-/** cleo orchestrate ivtr — drive Implement→Validate→Test phased loop */
+/**
+ * cleo orchestrate ivtr — REMOVED (T14311). The IVTR loop, its `ivtr_state`
+ * column and the `orchestrate.ivtr.*` operations are gone; the subcommand
+ * stays only to print a removal notice. Its old flags are still declared so
+ * the notice wins over an unknown-flag error.
+ */
 const ivtrCommand = defineCommand({
   meta: {
     name: 'ivtr',
-    description: 'Drive an Implement→Validate→Test phased loop on a task with evidence-bound gates',
+    description: 'Removed (T14311): the IVTR loop is retired; prints a removal notice',
   },
   args: {
-    taskId: {
-      type: 'positional',
-      description: 'Task ID to drive IVTR loop for',
-      required: true,
-    },
-    start: {
-      type: 'boolean',
-      description: 'Begin Implement phase',
-    },
-    next: {
-      type: 'boolean',
-      description: 'Advance to next phase (requires prior-phase evidence)',
-    },
-    status: {
-      type: 'boolean',
-      description: 'Show current IVTR state + history',
-    },
-    release: {
-      type: 'boolean',
-      description: 'Final gate — require I+V+T evidence, then release',
-    },
-    'loop-back': {
-      type: 'boolean',
-      description: 'Rewind to specified phase on failure',
-    },
-    phase: {
-      type: 'string',
-      description: 'Phase for --loop-back (implement|validate|test)',
-    },
-    reason: {
-      type: 'string',
-      description: 'Reason for loop-back',
-    },
-    evidence: {
-      type: 'string',
-      description: 'Attachment sha256 to attach',
-    },
+    taskId: { type: 'positional', description: 'Ignored', required: false },
+    start: { type: 'boolean', description: 'Removed' },
+    next: { type: 'boolean', description: 'Removed' },
+    status: { type: 'boolean', description: 'Removed' },
+    release: { type: 'boolean', description: 'Removed' },
+    'loop-back': { type: 'boolean', description: 'Removed' },
+    phase: { type: 'string', description: 'Removed' },
+    reason: { type: 'string', description: 'Removed' },
+    evidence: { type: 'string', description: 'Removed' },
   },
-  async run({ args }) {
-    const action = args.start
-      ? 'start'
-      : args.next
-        ? 'next'
-        : args.release
-          ? 'release'
-          : args['loop-back']
-            ? 'loop-back'
-            : 'status';
-    const kind = action === 'status' ? 'query' : 'mutate';
-    await dispatchFromCli(
-      kind,
-      'orchestrate',
-      `ivtr.${action}`,
-      { taskId: args.taskId, phase: args.phase, reason: args.reason, evidence: args.evidence },
-      { command: 'orchestrate' },
+  async run() {
+    cliError(
+      "'cleo orchestrate ivtr' was removed in T14311: the IVTR loop is retired and nothing reads its state.",
+      ExitCode.INVALID_INPUT,
+      {
+        name: 'E_COMMAND_REMOVED',
+        fix: "Prove a task with evidence gates: 'cleo done <id> --plan', then 'cleo verify' and 'cleo complete'. Autonomous runs use CLEO Goal.",
+      },
     );
+    process.exit(ExitCode.INVALID_INPUT);
   },
 });
 

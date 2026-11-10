@@ -2,8 +2,7 @@
 
 The shape, severity calculus, and downstream consumption of the
 validation report. The report is the validator's product — its format
-is rigid because `ct-ivt-looper`, `ct-release-orchestrator`, and HITL
-gates all parse it.
+is rigid because `ct-release-orchestrator` and HITL gates parse it.
 
 ## Canonical Report Scaffold
 
@@ -135,20 +134,6 @@ is the count of constraints evaluated.
 When the denominator is zero (e.g., a spec with no REQs), the
 percentage is undefined — emit `N/A` and report a Critical finding for
 the empty spec.
-
-## Integration with ct-ivt-looper
-
-The IVT loop reads the validator's `status` and `compliance` fields
-to decide whether to continue iterating. The contract:
-
-- `status: PASS` → IVT loop converges; release-orchestrator may proceed.
-- `status: PARTIAL` → IVT loop loops once more with the remediation as
-  input; if still PARTIAL on iteration 3, escalates to HITL.
-- `status: FAIL` → IVT loop blocks; release-orchestrator MUST not
-  proceed; HITL escalation immediate.
-
-This contract is the reason status calculus is rigid — fuzzy statuses
-break the loop's termination conditions.
 
 ## Integration with Release
 

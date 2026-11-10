@@ -933,6 +933,12 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/memory.js')).memoryCommand as CommandDef,
   },
   {
+    exportName: 'mergeCommand',
+    name: 'merge',
+    description: 'Merge open PRs that are green and reviewed on their exact head (train)',
+    load: async () => (await import('../commands/merge.js')).mergeCommand as CommandDef,
+  },
+  {
     exportName: 'migrateAgentsV2Command',
     name: 'agents-v2',
     description:

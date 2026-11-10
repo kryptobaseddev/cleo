@@ -392,6 +392,25 @@ function insertJournalEntry(
 }
 
 /**
+ * `ALTER TABLE x DROP COLUMN y` targets of a (comment-stripped) migration.
+ *
+ * Such a migration is applied when the table exists and the column is gone.
+ * SQLite has no `DROP COLUMN IF EXISTS`, so re-running one on a store that
+ * already dropped the column (an emptied journal, Scenario 3) throws "no such
+ * column": the journal probe must stamp it instead (T14311).
+ *
+ * @param sql - Migration SQL with comments stripped.
+ * @returns One `{ table, column }` per DROP COLUMN statement.
+ */
+function dropColumnTargets(sql: string): Array<{ table: string; column: string }> {
+  const dropColumnRegex = /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+DROP\s+COLUMN\s+[`"]?(\w+)[`"]?/gi;
+  return [...sql.matchAll(dropColumnRegex)].map((m) => ({
+    table: m[1] as string,
+    column: m[2] as string,
+  }));
+}
+
+/**
  * Probe a migration's DDL against the live schema and mark the journal entry
  * applied IF AND ONLY IF all DDL targets already exist in the database.
  *
@@ -485,6 +504,10 @@ function probeAndMarkApplied(
     alterTargets.push({ table: m[1] as string, column: m[2] as string });
   }
 
+  // T14311: `ALTER TABLE x DROP COLUMN y` is verifiable too — applied when the
+  // table exists and the column is gone (see {@link dropColumnTargets}).
+  const dropTargets = dropColumnTargets(fullSql);
+
   // Build rename map: if migration contains "ALTER TABLE x_new RENAME TO x",
   // record { intermediate: "x_new", final: "x" }. Used below to redirect
   // CREATE TABLE probes away from temporary intermediate tables (which no
@@ -562,7 +585,11 @@ function probeAndMarkApplied(
   }
 
   const totalTargets =
-    alterTargets.length + tableTargets.length + indexTargets.length + triggerTargets.length;
+    alterTargets.length +
+    dropTargets.length +
+    tableTargets.length +
+    indexTargets.length +
+    triggerTargets.length;
   if (totalTargets === 0) {
     // No probe-able DDL — pure DML (INSERT/UPDATE/DELETE), DROP-only, CREATE VIEW,
     // etc. Schema inspection can't verify it, so the consolidation cutover decides
@@ -592,6 +619,13 @@ function probeAndMarkApplied(
     }>;
     return cols.some((c) => c.name === column);
   });
+  const allDropsApplied = dropTargets.every(({ table, column }) => {
+    if (!tableExists(nativeDb, table)) return false;
+    const cols = nativeDb.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
+    return !cols.some((c) => c.name === column);
+  });
   // A CREATE-TABLE target is satisfied if it exists OR if a later migration in
   // the lineage permanently eliminated it (bug #2 — e.g. `release_manifests`,
   // dropped by t9686b2). Its absence on a fully-migrated DB is expected.
@@ -611,7 +645,13 @@ function probeAndMarkApplied(
     return rows.length > 0;
   });
 
-  if (allAltersPresent && allTablesPresent && allIndexesPresent && allTriggersPresent) {
+  if (
+    allAltersPresent &&
+    allDropsApplied &&
+    allTablesPresent &&
+    allIndexesPresent &&
+    allTriggersPresent
+  ) {
     insertJournalEntry(nativeDb, migration.hash, migration.folderMillis, migration.name ?? '');
     const log = getLogger(logSubsystem);
     log.debug(
@@ -1156,6 +1196,13 @@ export function reconcileJournal(
           // effect (e.g. the cutover agent's INSERT-OR-IGNORE backfill / DROP).
           probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         }
+        continue;
+      }
+
+      // T14311: a migration that also DROPs a column is applied only when the
+      // dropped columns are gone too; the ADD-only stamp below would ignore them.
+      if (dropColumnTargets(stripSqlComments(fullSql)).length > 0) {
+        probeAndMarkApplied(nativeDb, migration, logSubsystem, eliminatedTables, cutoverPrefix);
         continue;
       }
 

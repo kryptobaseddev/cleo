@@ -1295,6 +1295,46 @@ describe('review #1903 LOWs', () => {
       db.prepare('SELECT title, prune_candidate FROM brain_observations WHERE uid = ?').get('o1'),
     ).toEqual({ title: 'retitled', prune_candidate: 0 });
   });
+
+  it('an older peer op naming the retired ivtr_state column applies, not held (T14311)', async () => {
+    const db = await store();
+    const cols = (
+      db.prepare('PRAGMA table_info(tasks_tasks)').all() as Array<{ name: string }>
+    ).map((c) => c.name);
+    expect(cols, 'the store at head has dropped the column').not.toContain('ivtr_state');
+    const legacy = '{"currentPhase":"implement"}';
+    // As a build that has not run the retire migration captures them: the
+    // insert image and the delete's before-image carry the non-NULL column.
+    stage(db, segment(R1, [txn('R1:1', [insert('v1', h(1), { ivtr_state: legacy })])]));
+    stage(db, segment(R1, [txn('R1:2', [insert('v2', h(2))])]));
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:3', [
+          {
+            ...del('v2', h(3)),
+            b: { id: 'V2', title: 'title v2', status: 'pending', ivtr_state: legacy },
+          },
+        ]),
+      ]),
+    );
+    stage(
+      db,
+      segment(R1, [txn('R1:4', [update('v1', h(4), { title: 'renamed', ivtr_state: legacy })])]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 4, refusedSchema: 0, pending: 0 });
+    expect(inboxCounts(db, STREAM)).toEqual({ applied: 4 });
+    expect(task(db, 'v1')).toMatchObject({ id: 'V1', title: 'renamed' });
+    expect(task(db, 'v2')).toBeUndefined();
+    expect(readRowMeta(db, 'tasks_tasks', 'v2')).toMatchObject({ deleted: 1 });
+  });
+
+  it('an op naming a column never known to the registry is still refused (T14311 falsifier)', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('n1', h(1), { zz_never_known: 'v' })])]));
+    expect(apply(db)).toMatchObject({ applied: 0, refusedSchema: 1, pending: 0 });
+    expect(task(db, 'n1')).toBeUndefined();
+  });
 });
 
 describe('T13226 shapes (#1909): journaled SET NULL and parent-keyed child deletes', () => {

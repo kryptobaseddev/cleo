@@ -1,0 +1,28 @@
+#!/bin/sh
+# CLEO_MANAGED_HOOK v1
+# Post-checkout: start a detached incremental NEXUS refresh (T12349), so the code
+# graph follows the checkout with no manual step. One refresh runs at a time
+# per project; a burst of events while it runs coalesces into one follow-up.
+# Git ignores this hook's exit status, and nothing here can block git.
+#
+# Installation: Automatically installed via `cleo init` and `cleo upgrade`
+
+# Start the refresh unless it is off: CLEO_NEXUS_AUTO_REINDEX=off, git config
+# cleo.nexusAutoReindex=false (`cleo nexus hooks uninstall`), a linked
+# worktree (the index tracks the main checkout), or no cleo on PATH. Plain git
+# reads only; the refresh is detached, so git never waits for it.
+cleo_nexus_refresh() {
+  [ "${CLEO_NEXUS_AUTO_REINDEX:-}" != "off" ] || return 1
+  [ "$(git config --bool --get cleo.nexusAutoReindex 2>/dev/null)" != "false" ] || return 1
+  [ "$(git rev-parse --path-format=absolute --git-dir 2>/dev/null)" = \
+    "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] || return 1
+  command -v cleo >/dev/null 2>&1 || return 1
+  (cleo nexus auto-reindex </dev/null >/dev/null 2>&1 &) >/dev/null 2>&1
+}
+
+# $3 is 1 for a branch checkout, 0 for a file checkout (HEAD unchanged).
+[ "${3:-1}" = "0" ] || cleo_nexus_refresh
+
+# A hook that was here before CLEO runs last, with the same arguments and stdin.
+if [ -x "$0.cleo-chained" ]; then exec "$0.cleo-chained" "$@"; fi
+exit 0

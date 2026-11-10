@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
+import { DurationShardSequencer } from './scripts/ci-duration-sequencer.mjs';
 import { MEMORY_SAFE_TEST_DEFAULTS } from './vitest.memory-safe.js';
 import { REPO_GUARD_TESTS } from './vitest.repo-guards.js';
 import { withWorkspaceSubpathAliases } from './vitest-workspace-resolver.js';
@@ -86,6 +87,9 @@ export default defineConfig({
     // Without this, workers with open SQLite handles or process.once('SIGTERM')
     // handlers that call async code can block the runner indefinitely.
     teardownTimeout: 10_000,
+    // T14369: `--shard` splits by measured file duration when
+    // VITEST_SHARD_TIMINGS names a timings file; vitest's file-count split otherwise.
+    sequence: { sequencer: DurationShardSequencer },
     // Per-fork global isolation. vitest.setup.ts redirects CLEO_HOME and
     // NEXUS_HOME to a throwaway tmp dir so any test that resolves a "global"
     // path (signaldock.db, nexus global registry, etc.) without explicit

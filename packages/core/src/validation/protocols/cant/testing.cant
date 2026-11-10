@@ -7,7 +7,7 @@ status: active
 type: base
 audience: "llm-agent, orchestrator"
 tags: "testing, ivt-loop, autonomous, framework-agnostic, compliance"
-skillRef: ct-ivt-looper
+skillRef: ct-validator
 lastUpdated: 2026-04-08
 enforcement: strict
 stage: "testing"
@@ -28,7 +28,7 @@ output:
 # Provenance: @task T260 (replaces T3155 BATS-locked v1)
 # Type: Base Protocol
 # Stage: IVTR - T (Testing, the closure of the IVT loop)
-# Skill: ct-ivt-looper
+# Skill: ct-validator (ct-ivt-looper removed in T14311)
 #
 # Core Principle:
 #   The loop converges on the spec, not on "tests pass".

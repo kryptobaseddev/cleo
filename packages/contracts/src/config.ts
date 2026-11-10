@@ -788,6 +788,57 @@ export interface LeadRollupConfig {
 }
 
 /**
+ * Lead/worker split settings (`orchestrate.leadWorker.*`).
+ *
+ * @task T14356
+ * @epic T14351
+ */
+export interface OrchestrateLeadWorkerConfig {
+  /**
+   * Version 1 of the lead/worker split: leads spawn with their write and
+   * network tools stripped (`LeadToolPolicy`) and workers return a
+   * `WorkerReport` with proof. Off by default.
+   *
+   * @defaultValue false
+   */
+  v1?: boolean;
+}
+
+/**
+ * Orchestration settings (`orchestrate.*`).
+ *
+ * @task T14356
+ */
+export interface OrchestrateConfig {
+  /**
+   * Lead/worker split settings.
+   *
+   * @defaultValue { v1: false }
+   */
+  leadWorker?: OrchestrateLeadWorkerConfig;
+  /**
+   * Context-window usage thresholds (percent) for orchestrator wrap-up and
+   * stop. Formerly `orchestrator.contextThresholds`; configs with the old key
+   * are migrated on read and by `cleo upgrade` (T14375).
+   *
+   * @defaultValue { warning: 70, critical: 80 }
+   */
+  contextThresholds?: OrchestrateContextThresholds;
+}
+
+/**
+ * Context-window usage thresholds (`orchestrate.contextThresholds.*`).
+ *
+ * @task T14375
+ */
+export interface OrchestrateContextThresholds {
+  /** Percent at which the orchestrator plans to wrap up. @defaultValue 70 */
+  warning?: number;
+  /** Percent at which the orchestrator stops and hands off. @defaultValue 80 */
+  critical?: number;
+}
+
+/**
  * Inline refresh policy for code-graph queries (T12316).
  *
  * Before answering, a graph query checks how far the published index lags the
@@ -1103,6 +1154,14 @@ export interface CleoConfig {
    * @saga T10377
    */
   leadRollup?: LeadRollupConfig;
+  /**
+   * Orchestration settings. `orchestrate.leadWorker.v1` gates the lead/worker
+   * split and defaults to `false`.
+   *
+   * @defaultValue { leadWorker: { v1: false } }
+   * @task T14356
+   */
+  orchestrate?: OrchestrateConfig;
   /**
    * Code-graph behaviour — inline refresh bounds for stale-index queries.
    *
