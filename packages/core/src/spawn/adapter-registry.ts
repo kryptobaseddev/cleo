@@ -395,5 +395,5 @@ export async function getSpawnAdapterFix(
       );
     }
   }
-  return `Select an available adapter with --adapter <id> (for example --adapter claude-code). Found adapters: ${reasons.join('; ') || 'none; reinstall @cleocode/cleo with its @cleocode/adapters dependency'}.`;
+  return `Install or enable a compatible provider. For explicit adapter selection, use cleo orchestrate spawn-execute <taskId> --adapter claude-code or cleo orchestrate lead <epicId> --adapter <id>. Found adapters: ${reasons.join('; ') || 'none; reinstall @cleocode/cleo with its @cleocode/adapters dependency'}.`;
 }

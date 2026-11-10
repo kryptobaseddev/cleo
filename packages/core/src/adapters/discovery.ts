@@ -18,6 +18,18 @@ import { findOnPath } from '@cleocode/paths';
  */
 export function discoverAdapterManifests(projectRoot: string): AdapterManifest[] {
   const manifests = getProviderManifests();
+  for (const manifest of discoverProjectAdapterManifests(projectRoot)) {
+    if (!manifests.some((bundled) => bundled.id === manifest.id)) manifests.push(manifest);
+  }
+  return manifests;
+}
+
+/**
+ * Discover only explicit project adapters for session activation.
+ * Bundled spawn adapters must not implicitly install provider hooks.
+ */
+export function discoverProjectAdapterManifests(projectRoot: string): AdapterManifest[] {
+  const manifests: AdapterManifest[] = [];
   const adaptersDir = resolve(projectRoot, 'packages', 'adapters');
   if (!existsSync(adaptersDir)) return manifests;
   let entries: string[];
@@ -38,7 +50,7 @@ export function discoverAdapterManifests(projectRoot: string): AdapterManifest[]
       const manifest = JSON.parse(raw) as AdapterManifest;
       // Resolve and attach the absolute package path for dynamic import
       manifest.packagePath = resolve(adapterDir);
-      if (!manifests.some((bundled) => bundled.id === manifest.id)) manifests.push(manifest);
+      manifests.push(manifest);
     } catch {
       // Skip malformed manifests
     }

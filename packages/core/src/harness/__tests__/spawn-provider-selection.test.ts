@@ -75,7 +75,10 @@ describe('selectHarnessSpawnProvider', () => {
     vi.spyOn(caamp, 'getProvidersBySpawnCapability').mockReturnValue([]);
     const result = await selectHarnessSpawnProvider(['supportsSubagents']);
     expect(result.error?.code).toBe('E_SPAWN_NO_PROVIDER');
-    expect(result.error?.fix).toContain('--adapter claude-code');
+    expect(result.error?.fix).toContain(
+      'cleo orchestrate spawn-execute <taskId> --adapter claude-code',
+    );
+    expect(result.error?.fix).toContain('cleo orchestrate lead <epicId> --adapter <id>');
     expect(result.error?.fix).toContain('claude-code:');
     expect(result.error?.fix).toContain('cursor: manifest does not support spawning');
   });

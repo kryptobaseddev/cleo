@@ -15,7 +15,7 @@ import { hooks } from '../hooks/registry.js';
 import type { HookEvent, HookPayload } from '../hooks/types.js';
 import { getLogger } from '../logger.js';
 import { loadAdapterFromManifest } from './adapter-registry.js';
-import { detectProvider, discoverAdapterManifests } from './discovery.js';
+import { detectProvider, discoverProjectAdapterManifests } from './discovery.js';
 
 const log = getLogger('adapter-manager');
 
@@ -64,11 +64,11 @@ export class AdapterManager {
   }
 
   /**
-   * Discover bundled and optional project adapter manifests.
+   * Discover only explicit project adapter manifests for activation.
    * Returns manifests found (does not load adapter code yet).
    */
   discover(): AdapterManifest[] {
-    const found = discoverAdapterManifests(this.projectRoot);
+    const found = discoverProjectAdapterManifests(this.projectRoot);
     for (const manifest of found) {
       this.manifests.set(manifest.id, manifest);
     }

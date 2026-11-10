@@ -283,7 +283,8 @@ and asking for a report of at most 100 words (conclusion, blocker, proof) (T1442
 orchestrate, were removed (T13955).
 
 Spawn adapter discovery uses the installed `@cleocode/adapters` package, including in
-projects without `packages/`. Both `orchestrate lead` and `orchestrate spawn-execute`
+projects without `packages/`. Session adapter activation still discovers only
+explicit project adapters, so session start does not install bundled provider hooks. Both `orchestrate lead` and `orchestrate spawn-execute`
 accept `--adapter claude-code`; selection refusals list discovered adapter IDs,
 load failures, capability mismatches and environment availability. Install the
 provider CLI on `PATH` before selecting it.

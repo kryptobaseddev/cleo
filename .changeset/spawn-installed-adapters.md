@@ -10,3 +10,5 @@ Resolve bundled adapter manifests and JavaScript entry points from the installed
 Spawn selection refusals now explain `--adapter` choices, missing capabilities,
 load failures and environment availability. The packed-install smoke probes
 Claude Code selection through the installed CLI dependency graph.
+
+Session activation retains project-only adapter discovery, preserving provider settings.
