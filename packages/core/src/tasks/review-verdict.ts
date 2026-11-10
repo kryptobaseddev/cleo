@@ -31,6 +31,7 @@ import type {
   ReviewGap,
   ReviewJudgement,
   ReviewPacket,
+  ReviewShadowComparison,
   ReviewVerdict,
   Task,
   TaskAuditLogRow,
@@ -41,13 +42,19 @@ import { CleoError } from '../errors.js';
 /** The audit action a verdict is recorded under. */
 export const REVIEW_VERDICT_ACTION = 'review.verdict';
 
-/** Claim audit actions whose `before` names a replaced holder (T12502). */
+/**
+ * The audit action a shadow verdict is recorded under (T14372): the same
+ * checks as a verdict, never read by {@link reviewVerdictsFor}, so it never
+ * counts toward a merge.
+ */
+export const REVIEW_SHADOW_VERDICT_ACTION = 'review.shadow-verdict';
+
 /**
  * Audit actions that name a task's claim holders (T14213): a fresh claim, a
  * holder's own release, and every replacement or forced release. A holder
  * stays an author after its claim is released or refocused.
  */
-const CLAIM_AUTHOR_ACTIONS = [
+export const CLAIM_AUTHOR_ACTIONS = [
   'task_claimed',
   'task_claim_released',
   'task_claim_handoff',
@@ -352,6 +359,8 @@ export interface ReviewVerdictInput {
   packetSha256: string;
   /** For a `met`: the id of the earlier non-author `unmet` verdict on this head it answers (T14128). */
   answers?: string;
+  /** Record a shadow verdict (T14372): every check still applies; it never counts toward a merge. */
+  shadow?: boolean;
 }
 
 /**
@@ -378,6 +387,12 @@ export async function recordReviewVerdict(
     // @sync-invariant none:input-shape an empty verdict reason is refused before anything is written
     throw new CleoError(ExitCode.VALIDATION_ERROR, 'A review verdict needs a --reason', {
       fix: 'Say what in the diff does or does not implement the criterion.',
+    });
+  }
+  if (input.shadow === true && input.answers !== undefined) {
+    // @sync-invariant none:input-shape a shadow verdict answers nothing; refused before anything is written
+    throw new CleoError(ExitCode.VALIDATION_ERROR, 'A shadow verdict cannot --answers a verdict', {
+      fix: 'Drop --answers: a shadow verdict is compared with the counted ones, never answers them.',
     });
   }
   const { ensureAgentSession, resolveBoundSession } = await import('../store/session-store.js');
@@ -495,10 +510,11 @@ export async function recordReviewVerdict(
     authors,
     packetSha256: packet.packetSha256,
     ...(input.answers !== undefined ? { answers: input.answers } : {}),
+    ...(input.shadow === true ? { shadow: true as const } : {}),
     createdAt: new Date().toISOString(),
   };
   await accessor.appendLog({
-    action: REVIEW_VERDICT_ACTION,
+    action: input.shadow === true ? REVIEW_SHADOW_VERDICT_ACTION : REVIEW_VERDICT_ACTION,
     taskId: input.taskId,
     actor: reviewer.agentId ?? reviewer.sessionId,
     sessionId: reviewer.sessionId,
@@ -536,10 +552,35 @@ export async function reviewVerdictsFor(
   taskId: string,
   prNumber: number,
 ): Promise<ReviewVerdict[]> {
+  return verdictRows(projectRoot, taskId, prNumber, REVIEW_VERDICT_ACTION);
+}
+
+/**
+ * The shadow verdicts recorded for one task on one PR (T14372), oldest first.
+ *
+ * @param projectRoot - Project root.
+ * @param taskId - The task.
+ * @param prNumber - The PR.
+ * @task T14372
+ */
+export async function shadowVerdictsFor(
+  projectRoot: string,
+  taskId: string,
+  prNumber: number,
+): Promise<ReviewVerdict[]> {
+  return verdictRows(projectRoot, taskId, prNumber, REVIEW_SHADOW_VERDICT_ACTION);
+}
+
+async function verdictRows(
+  projectRoot: string,
+  taskId: string,
+  prNumber: number,
+  action: string,
+): Promise<ReviewVerdict[]> {
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const rows = await (await getTaskAccessor(projectRoot)).queryAuditLog({
     taskIds: [taskId],
-    actions: [REVIEW_VERDICT_ACTION],
+    actions: [action],
   });
   const byId = new Map<string, ReviewVerdict>();
   for (const row of rows) {
@@ -655,12 +696,43 @@ export function judgeReviewVerdicts(
   return { headSha, met, gaps };
 }
 
+/**
+ * Each criterion's latest shadow verdict on a head next to its latest counted
+ * one (T14372), so the lead can see whether a reviewer worker decides as it
+ * does before routine PRs are handed over.
+ *
+ * @param verdicts - Counted verdicts ({@link reviewVerdictsFor}).
+ * @param shadow - Shadow verdicts ({@link shadowVerdictsFor}).
+ * @param acs - The criteria.
+ * @param headSha - The PR head.
+ * @task T14372
+ */
+export function compareShadowVerdicts(
+  verdicts: readonly ReviewVerdict[],
+  shadow: readonly ReviewVerdict[],
+  acs: readonly string[],
+  headSha: string,
+): ReviewShadowComparison[] {
+  const latest = (rows: readonly ReviewVerdict[], ac: string): 'met' | 'unmet' | null =>
+    rows
+      .filter((v) => v.ac === ac && v.headSha === headSha)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .at(-1)?.verdict ?? null;
+  return acs.map((ac) => {
+    const lead = latest(verdicts, ac);
+    const s = latest(shadow, ac);
+    return { ac, lead, shadow: s, agree: lead !== null && lead === s };
+  });
+}
+
 /** One task's review state on a PR head ({@link checkPrReviews}). */
 export interface PrReviewCheck extends ReviewJudgement {
   /** The task. */
   taskId: string;
   /** Each `unmet` on the head a later `met` answered, and by whom (T14137). */
   answered: ReviewAnswer[];
+  /** Shadow verdicts next to counted ones, when any shadow verdict is on the head (T14372). */
+  shadow?: ReviewShadowComparison[];
 }
 
 /**
@@ -721,10 +793,16 @@ export async function checkPrReviews(
       .map((r) => `AC${r.ordinal}`);
     const acs = opts.acs === undefined ? all : all.filter((a) => opts.acs?.includes(a));
     const verdicts = await reviewVerdictsFor(projectRoot, taskId, prNumber);
+    const shadow = (await shadowVerdictsFor(projectRoot, taskId, prNumber)).filter(
+      (v) => v.headSha === headSha,
+    );
     checks.push({
       taskId,
       ...judgeReviewVerdicts(verdicts, acs, headSha, await currentAcTexts(projectRoot, taskId)),
       answered: reviewAnswers(verdicts, headSha).filter((a) => acs.includes(a.ac)),
+      ...(shadow.length > 0
+        ? { shadow: compareShadowVerdicts(verdicts, shadow, acs, headSha) }
+        : {}),
     });
   }
   return checks;

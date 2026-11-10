@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.2.4
+  version: 4.2.5
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-11-09
+  lastReviewed: 2026-11-10
   stability: stable
 ---
 
@@ -122,6 +122,10 @@ the stage gate (see Plan).
   (`Closes: T#### AC1,AC2`, or `Refs:` for partial delivery). A reviewer agent that is
   not the author reviews the PR head from `cleo review packet <pr> --task <id>` and
   records `cleo review verdict` per AC; the implementer never reviews its own work.
+  `cleo review dispatch --execute` sends one reviewer per routine PR head that lacks
+  verdicts and prints its brief; migrations, store/sync, gates, deletions and evidence
+  code stay with the lead. `--shadow` has reviewers record shadow verdicts, which never
+  count; `cleo review check` shows them next to the lead's until they agree.
   Merge on green `CI`; the merge sweep closes the task. A worker that fails its
   criteria is re-spawned with the feedback.
 - No-PR work: `cleo done <id> --plan`, then `cleo verify` per gate, then `cleo complete`.

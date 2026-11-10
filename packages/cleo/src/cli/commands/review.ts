@@ -9,6 +9,9 @@
  *   PR head. Refused from an author of the task, or when the packet changed.
  * - `check <pr> --task <ids>`: before merge, each criterion's state on the
  *   current head (met, or missing / unmet / stale with why). Exits 1 on a gap.
+ * - `dispatch [--shadow] [--execute]` (T14372): one reviewer dispatch per
+ *   routine open PR whose head lacks verdicts, with the brief to hand the
+ *   reviewer agent; lead-reserved PRs are listed, never dispatched.
  *
  * Thin glue over `@cleocode/core/tasks/review-verdict.js`.
  *
@@ -16,6 +19,7 @@
  */
 
 import { getProjectRoot } from '@cleocode/core/paths.js';
+import { runReviewDispatch } from '@cleocode/core/tasks/review-dispatch.js';
 import {
   buildReviewPacket,
   checkPrReviews,
@@ -81,6 +85,11 @@ const verdictCommand = defineCommand({
       description:
         'With --met: the id of the earlier unmet verdict on this head it answers (an unanswered unmet keeps the criterion unmet)',
     },
+    shadow: {
+      type: 'boolean',
+      description:
+        'Record a shadow verdict: every check applies, it never counts toward a merge, and `review check` shows it next to the counted one',
+    },
   },
   async run({ args }) {
     const pr = prOf(args.pr);
@@ -96,6 +105,7 @@ const verdictCommand = defineCommand({
       reason: String(args.reason),
       packetSha256: String(args.packet),
       ...(typeof args.answers === 'string' && args.answers !== '' ? { answers: args.answers } : {}),
+      ...(args.shadow === true ? { shadow: true } : {}),
     });
     cliOutput(verdict, { command: 'review', operation: 'review.verdict' });
   },
@@ -131,12 +141,41 @@ const checkCommand = defineCommand({
   },
 });
 
+const dispatchCommand = defineCommand({
+  meta: {
+    name: 'dispatch',
+    description:
+      'Dispatch one non-author reviewer per routine open PR whose head lacks verdicts (once per head); ' +
+      'lead-reserved PRs (migrations, store/sync, gates, deletions, evidence) are listed, never dispatched. ' +
+      'Dry run by default',
+  },
+  args: {
+    shadow: {
+      type: 'boolean',
+      description: 'Send reviewers to record shadow verdicts, which never count, for comparison',
+    },
+    execute: { type: 'boolean', description: 'Record the dispatches (default: dry run)' },
+  },
+  async run({ args }) {
+    const result = await runReviewDispatch(getProjectRoot(), {
+      execute: args.execute === true,
+      shadow: args.shadow === true,
+    });
+    cliOutput(result, { command: 'review', operation: 'review.dispatch' });
+  },
+});
+
 /** `cleo review` root command. */
 export const reviewCommand = defineCommand({
   meta: {
     name: 'review',
     description:
-      'Independent per-criterion PR review by a non-author, bound to the PR head (packet | verdict | check)',
+      'Independent per-criterion PR review by a non-author, bound to the PR head (packet | verdict | check | dispatch)',
   },
-  subCommands: { packet: packetCommand, verdict: verdictCommand, check: checkCommand },
+  subCommands: {
+    packet: packetCommand,
+    verdict: verdictCommand,
+    check: checkCommand,
+    dispatch: dispatchCommand,
+  },
 });
