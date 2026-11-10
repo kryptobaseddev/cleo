@@ -6,9 +6,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { selectHarnessSpawnProvider } from '../../harness/spawn-provider-selection.js';
 import { spawnRegistry } from '../../spawn/adapter-registry.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import type { AgentMbxClient } from '../agentmbx.js';
 import { orchestrateLead } from '../lead.js';
 
 vi.mock('@cleocode/worktree', () => import('../../../../worktree/src/index.js'));
+
+// T14448: the lead records and claims its mailbox before any spawn; the
+// default client is agentmbx-absent under vitest, which refuses the lead
+// before the composer. A granted stub keeps this probe about discovery.
+const grantedMbx: AgentMbxClient = {
+  available: async () => true,
+  send: async () => ({ ok: false, warning: 'not used here' }),
+  inbox: async () => ({ ok: false, warning: 'not used here' }),
+  claim: async (name) => ({ ok: true, value: { name, state: 'bound', unread: 0 } }),
+  status: async () => ({ ok: true, value: { name: null, state: 'unknown', unread: 0 } }),
+  release: async () => ({ ok: true, value: { name: null, state: 'unbound', unread: 0 } }),
+};
 
 // Stop after real discovery/selection and the session claim, before any agent can run.
 vi.mock('../plan.js', async (importOriginal) => ({
@@ -84,6 +97,7 @@ describe('plain-terminal adapter selection', () => {
     const result = await orchestrateLead('T100', {
       projectRoot: env.tempDir,
       adapterId: 'claude-code',
+      mbxClient: grantedMbx,
     });
     expect(result).toMatchObject({
       success: false,
