@@ -26,7 +26,8 @@ vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
 }));
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  getDb: vi.fn(async () => ({}) as never),  getNativeTasksDb: vi.fn(
+  getDb: vi.fn(async () => ({}) as never),
+  getNativeTasksDb: vi.fn(
     () =>
       ({
         prepare: () => ({

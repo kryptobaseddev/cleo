@@ -540,14 +540,14 @@ export async function loadOwningTaskStatuses(
   // schema alone (openDualScopeDb) creates only `tasks_tasks`, not bare `tasks`.
   let db: DatabaseSync | null;
   try {
-    // T14440: the census (and any caller) may list ANOTHER project's worktrees.
-    // A store whose journal holds rows this build does not know was written by
-    // a newer, unreleased build; opening it — and letting getDb migrate it —
-    // with this binary is exactly that hazard. Degrade to no status enrichment
-    // (owningTaskStatus null) instead of opening a foreign store this build
-    // cannot model.
-    const { projectStoreAheadOfBuild } = await import('../doctor/migrations.js');
-    if (projectStoreAheadOfBuild(projectRoot) === 'ahead') return out;
+    // T14440 (census AC3): the census (and any caller) may list ANOTHER
+    // project's worktrees, and the open below runs pending migrations — a
+    // write to a foreign store. Only a store this build can open without
+    // writing (journal fully known and fully applied — see
+    // projectStoreReadVerdict) is read; every other store is skipped and the
+    // listing degrades to owningTaskStatus null.
+    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
+    if (projectStoreReadVerdict(projectRoot) !== 'readable') return out;
     const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
     await getDb(projectRoot);
     db = getNativeTasksDb(projectRoot);

@@ -47,6 +47,15 @@ const stubNativeTasksDb = {
         .map((id) => ({ id, status: MOCK_TASK_ROWS.get(id) })),
   }),
 };
+// The foreign-store verdict is stubbed readable: these fixtures' project
+// roots are fake paths with no `.cleo/`, and the real probe would skip the
+// (mocked) store (T14440 review P1a). The live, mock-free preflight test is
+// census-store-preflight-live.test.ts.
+vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
+  projectStoreReadVerdict: vi.fn(() => 'readable'),
+}));
+
 vi.mock('../../store/sqlite.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../store/sqlite.js')>();
   return {
