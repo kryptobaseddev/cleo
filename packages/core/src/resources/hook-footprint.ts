@@ -192,6 +192,33 @@ export function gitHookPath(cwd: string, hook: string, globals: readonly string[
   return isAbsolute(path) ? path : join(cwd, path);
 }
 
+/**
+ * What git says the alias `name` expands to in the repository at `cwd`
+ * (T14405): `alias.<name>`, else `alias.<name>.command`. The command's own
+ * global options are passed through, so `-C <dir>` and an inline
+ * `-c alias.x=…` count. A failure reads as no alias: git expands an alias
+ * from the same config, so when it cannot read it, it cannot run the alias.
+ *
+ * @param cwd - Where the command runs.
+ * @param name - The git subcommand that may be an alias.
+ * @param globals - The command's git global options.
+ * @returns The expansion, or `null` when `name` is no alias.
+ */
+export function gitAlias(
+  cwd: string,
+  name: string,
+  globals: readonly string[] = [],
+): string | null {
+  for (const key of [`alias.${name}`, `alias.${name}.command`]) {
+    try {
+      return git(cwd, globals, ['config', '--get', key]);
+    } catch {
+      // Not set, not a variable name (`alias.a_b`), or git cannot read its config.
+    }
+  }
+  return null;
+}
+
 /** Lefthook's config files, any of which it reads. */
 const LEFTHOOK_CONFIGS = [
   'lefthook.yml',

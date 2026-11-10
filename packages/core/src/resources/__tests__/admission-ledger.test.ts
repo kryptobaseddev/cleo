@@ -66,6 +66,7 @@ import {
 import type { ResourceSample } from '../backend.js';
 import {
   commandChargeKey,
+  gitAlias,
   MEASURED_MIN_RUNS,
   MEASURED_MIN_SAMPLES,
   MEASURED_PEAK_MARGIN,
@@ -2992,6 +2993,46 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(GIB);
       expect(plan.resources, argv.join(' ')).not.toBeNull();
       expect(plan.footprintReason, argv.join(' ')).toMatch(/^scoped-build plan: git .* runs /);
+    }
+  });
+
+  it('a git shell alias and an inline command key are charged the class plan (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.t14405', '!pnpm test'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.co14405', 'checkout'], { cwd: repo });
+      expect(gitAlias(repo, 't14405')).toBe('!pnpm test');
+      expect(gitAlias(repo, 'co14405')).toBe('checkout');
+      expect(gitAlias(repo, 'no14405')).toBeNull();
+      expect(gitAlias(repo, 'no_14405')).toBeNull(); // not a config variable name
+      // The command's own globals count: -C picks the repository, -c sets an alias.
+      expect(gitAlias(tmpdir(), 't14405', ['-C', repo])).toBe('!pnpm test');
+      expect(gitAlias(repo, 'x14405', ['-c', 'alias.x14405=!make'])).toBe('!make');
+      // Git cannot read its config there, so it cannot run an alias either.
+      expect(gitAlias(repo, 't14405', ['-C', join(repo, 'missing')])).toBeNull();
+      const plan = (argv: readonly string[]) =>
+        planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
+      for (const [argv, reason] of [
+        [['git', 't14405'], 'git t14405 is a shell alias'],
+        [['git', '-c', 'alias.x14405=!make', 'x14405'], 'git -c alias.x14405 runs another command'],
+        [
+          ['git', '-c', 'core.sshCommand=make', 'fetch'],
+          'git -c core.sshCommand runs another command',
+        ],
+        [
+          ['git', '-c', 'core.fsmonitor=make', 'status'],
+          'git -c core.fsmonitor runs another command',
+        ],
+      ] as const) {
+        expect(plan(argv).footprintBytes, argv.join(' ')).toBeGreaterThan(GIB);
+        expect(plan(argv).resources, argv.join(' ')).not.toBeNull();
+        expect(plan(argv).footprintReason, argv.join(' ')).toBe(`scoped-build plan: ${reason}`);
+      }
+      expect(plan(['git', 'co14405', 'main']).footprintBytes).toBe(GIB);
+      expect(plan(['git', 'status']).footprintBytes).toBe(GIB);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
     }
   });
 

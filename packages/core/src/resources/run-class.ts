@@ -1360,6 +1360,7 @@ function files(n: number): string {
  * Size a run by what it actually touches (T13367). Pure; reads nothing.
  *
  * @param argv - the command.
+ * @param aliasOf - what a git alias expands to (T14405). @defaultValue none is an alias
  * @returns the size tier and its reason.
  *
  * @example
@@ -1370,16 +1371,20 @@ function files(n: number): string {
  * runFootprint(['pnpm', 'install', '--lockfile-only']).size;         // 'single-process'
  * ```
  */
-export function runFootprint(argv: readonly string[]): RunFootprint {
+export function runFootprint(
+  argv: readonly string[],
+  aliasOf: GitAliasLookup = () => null,
+): RunFootprint {
   const t = commandTarget(argv);
   // T13452: git runs no heavy tool itself (a `git push` was charged 24 GiB).
   // Its hooks may, and the caller decides that (see gitHookFor). gc, repack,
   // fsck and clone can use gigabytes across threads, and a command line whose
   // subcommand cannot be found keeps the class plan. T14398: so does a git
-  // command that runs a command of the caller's (`rebase -x`, `bisect run`).
+  // command that runs a command of the caller's (`rebase -x`, `bisect run`;
+  // T14405: a `!` alias, `-c core.sshCommand=…`).
   if (t.tool === 'git' && t.pm === null) {
     const git = parseGitInvocation(argv);
-    const runs = git === null ? null : gitRunsCommand(git);
+    const runs = git === null ? null : gitRunsCommand(git, aliasOf);
     if (runs !== null) return { size: 'class', reason: runs };
     if (git?.sub && !HEAVY_GIT_SUBCOMMANDS.has(git.sub)) {
       return { size: 'light', reason: `git ${git.sub} runs no heavy tool` };
@@ -1656,16 +1661,82 @@ export function parseGitInvocation(argv: readonly string[]): GitInvocation | nul
 }
 
 /**
+ * What git says an alias expands to (`alias.<name>`), or `null` when `name`
+ * is no alias. Given the command's git global options (`-C`, `-c`).
+ */
+export type GitAliasLookup = (name: string, globals: readonly string[]) => string | null;
+
+/**
+ * Config keys whose value git runs as a command (git-config(1)), lower-cased.
+ * Not `core.hooksPath`: the hook probe reads it (see {@link gitHookFor}).
+ */
+const GIT_COMMAND_KEY = new RegExp(
+  `^(${[
+    'core\\.(sshcommand|fsmonitor|pager|editor|askpass|gitproxy|alternaterefscommand)',
+    'sequence\\.editor|pager\\..+|diff\\.external|interactive\\.difffilter',
+    'credential\\.(.+\\.)?helper|gpg\\.(.+\\.)?program|gpg\\.ssh\\.defaultkeycommand',
+    'diff\\..+\\.(command|textconv)|merge\\..+\\.driver|filter\\..+\\.(clean|smudge|process)',
+    '(difftool|mergetool|browser|man|guitool)\\..+\\.(cmd|path)',
+    'hook\\..+\\.command|trailer\\..+\\.(cmd|command)',
+    'remote\\..+\\.(uploadpack|receivepack|vcs)',
+    'uploadpack\\.packobjectshook|gc\\.recentobjectshook',
+    'sendemail\\.(.+\\.)?(sendmailcmd|smtpserver|tocmd|cccmd|headercmd)',
+    '(web|help|instaweb)\\.browser|man\\.viewer',
+  ].join('|')})$`,
+);
+/** Config keys whose value is a shell command only when it starts with `!`. */
+const GIT_BANG_KEY = /^(alias\..+|submodule\..+\.update)$/;
+
+/**
+ * The inline config key that makes git run a command (T14405), as written, or
+ * `null`: `-c core.sshCommand=<cmd>`, `-c core.fsmonitor=<cmd>`,
+ * `-c alias.x='!cmd'` and the like ({@link GIT_COMMAND_KEY}), or the same key
+ * through `--config-env`, whose value is not on the command line. An empty
+ * value or a single light utility (`core.editor=true`, `core.pager=cat`,
+ * `core.fsmonitor=false`) runs nothing heavy.
+ *
+ * @param globals - The git global options, from {@link parseGitInvocation}.
+ */
+function gitCommandKey(globals: readonly string[]): string | null {
+  for (let x = 0; x < globals.length; x++) {
+    const g = globals[x] as string;
+    const next = GIT_VALUE_GLOBALS.has(g) ? globals[++x] : undefined;
+    const pair =
+      g === '-c' || g === '--config-env'
+        ? next
+        : g.startsWith('--config-env=')
+          ? g.slice('--config-env='.length)
+          : undefined;
+    if (pair === undefined) continue;
+    const eq = pair.indexOf('=');
+    const key = eq < 0 ? pair : pair.slice(0, eq);
+    // `-c key` alone is the boolean true; a `--config-env` value is unknown.
+    const value = g !== '-c' ? null : eq < 0 ? 'true' : pair.slice(eq + 1).trim();
+    const name = key.toLowerCase();
+    const shell = value === null || value.startsWith('!');
+    const inert = value === '' || (value !== null && LIGHT_UTILITIES.test(value));
+    if (GIT_BANG_KEY.test(name) ? shell : GIT_COMMAND_KEY.test(name) && !inert) return key;
+  }
+  return null;
+}
+
+/**
  * Why a git command runs a command the caller supplied, so it may be heavy and
  * keeps its class plan (T14398), or `null`: `rebase -x/--exec <cmd>`, `bisect
  * run <cmd>`, `submodule foreach <cmd>` and `filter-branch`, whose filters
- * are shell commands. A bundled short flag (`-ix`, `-xmake`) counts.
+ * are shell commands. A bundled short flag (`-ix`, `-xmake`) counts. T14405:
+ * so does an inline config key git runs ({@link gitCommandKey}) and an alias
+ * that is a shell command (`alias.t = !pnpm test`). An alias named after a
+ * built-in command, which git ignores, is read as an alias all the same.
  *
  * @param git - From {@link parseGitInvocation}.
+ * @param aliasOf - What a git alias expands to.
  * @returns The reason, or `null` when git runs no command of the caller's.
  */
-function gitRunsCommand(git: GitInvocation): string | null {
+function gitRunsCommand(git: GitInvocation, aliasOf: GitAliasLookup): string | null {
   const { sub, args } = git;
+  const key = gitCommandKey(git.globals);
+  if (key !== null) return `git -c ${key} runs another command`;
   const exec = (a: string): boolean =>
     a === '--exec' || a.startsWith('--exec=') || /^-[a-z]*x/.test(a);
   if (sub === 'rebase' && args.some(exec)) return 'git rebase --exec runs another command';
@@ -1674,6 +1745,9 @@ function gitRunsCommand(git: GitInvocation): string | null {
     return 'git submodule foreach runs another command';
   }
   if (sub === 'filter-branch') return 'git filter-branch runs its filter commands';
+  if (sub !== null && aliasOf(sub, git.globals)?.trimStart().startsWith('!')) {
+    return `git ${sub} is a shell alias`;
+  }
   return null;
 }
 
