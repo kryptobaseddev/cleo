@@ -326,7 +326,9 @@ describe('isolated shared extraction (T12262)', () => {
         });
         assert.deepEqual(mixedPublications[0].assessment.files.find(file => file.path === 'README.md').capabilities.completed, ['file-evidence','documentary-evidence']);
         const sql = mixedPublications[0].assessment.files.find(file => file.path === 'migration.sql');
-        assert.equal(sql.status, 'unsupported');
+        // T14377: no SQL extractor, so only file evidence is requested and completed.
+        assert.equal(sql.status, 'analyzed');
+        assert.deepEqual(sql.capabilities.requested, ['file-evidence']);
         assert.deepEqual(sql.capabilities.completed, ['file-evidence']);
 
         await assert.rejects(runPipeline(fileURLToPath(repo), 'fixture', noWrites, tables, undefined, {
@@ -671,6 +673,55 @@ describe('streamed parse results (T13325)', () => {
       expect(second.payloads).toHaveLength(1);
       expect([...second.result.allCalls]).toEqual(freshCalls);
       expect([...second.graph.nodes.keys()]).toEqual([...fresh.graph.nodes.keys()]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('serves an unchanged syntax failure from the cache and still reports it each run (T12350)', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, 'broken.ts', 'export function broken( { return ; }}}');
+      const files = await walkRepositoryPaths(directory);
+      const parse = async (reusedEntries?: Map<string, GraphParseCacheEntry>) => {
+        const payloads: Uint8Array[] = [];
+        const reports: GraphIndexFileReport[] = [];
+        const result = await runParseLoop(
+          files,
+          createKnowledgeGraph(),
+          createSymbolTable(),
+          buildImportResolutionContext(['broken.ts']),
+          directory,
+          {
+            reusedEntries,
+            onFileReport: (report) => reports.push(report),
+            onFileExtracted: (_path, payload) => payloads.push(payload),
+          },
+        );
+        return { result, payloads, reports };
+      };
+      const fresh = await parse();
+      expect(fresh.result.parsedFileCount).toBe(1);
+      expect(fresh.reports[0]).toMatchObject({ status: 'failed' });
+      expect(fresh.reports[0]?.reason).toMatch(/E_PARSE_SYNTAX/);
+      expect(fresh.payloads).toHaveLength(1);
+      const cached: GraphParseCacheEntry = {
+        path: 'broken.ts',
+        contentHash: 'unused',
+        fingerprint: 'unused',
+        generation: 'unused',
+        payload: fresh.payloads[0] ?? new Uint8Array(),
+      };
+      const second = await parse(new Map([['broken.ts', cached]]));
+      expect(second.result.parsedFileCount).toBe(0);
+      expect(second.result.reusedFileCount).toBe(1);
+      expect(second.payloads).toHaveLength(0);
+      expect(second.reports).toHaveLength(1);
+      expect(second.reports[0]).toMatchObject({
+        path: 'broken.ts',
+        status: 'failed',
+        reason: fresh.reports[0]?.reason,
+      });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -1123,7 +1174,7 @@ describe('capability-specific file evidence (T12289)', () => {
     }
   });
 
-  it('discloses SQL schema and reference capabilities as uncompleted rather than inferring extraction from text', async () => {
+  it('requests only extracted SQL capabilities and states the unassessed SQL semantics as limitations (T14377)', async () => {
     const directory = makeTempDir();
     try {
       writeFile(
@@ -1143,18 +1194,10 @@ describe('capability-specific file evidence (T12289)', () => {
         },
       );
       expect(reports[0]).toMatchObject({
-        status: 'unsupported',
+        status: 'analyzed',
         capabilities: {
           role: 'sql',
-          requested: [
-            'file-evidence',
-            'sql-schema-objects',
-            'sql-migrations',
-            'sql-triggers',
-            'sql-constraints',
-            'sql-literal-references',
-            'sql-dynamic-references',
-          ],
+          requested: ['file-evidence'],
           completed: ['file-evidence'],
           limitations: expect.arrayContaining([expect.stringMatching(/dynamic SQL.*unresolved/i)]),
         },

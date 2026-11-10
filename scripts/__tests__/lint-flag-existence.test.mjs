@@ -110,18 +110,20 @@ describe('registry-spread args (T13945)', () => {
   const registry = () => read('packages/contracts/src/dispatch/operations-registry.ts');
 
   it('resolves `...paramsToCittyArgs(getOperationParams(...))` to the registry params', () => {
-    // `cleo show --ivtr-history` is declared only in the tasks.show registry
-    // entry; before T13945 gates 14/23 called it unknown while the CLI took it.
+    // `cleo show --relations` is declared only in the tasks.show registry
+    // entry; before T13945 gates 14/23 called such flags unknown while the CLI
+    // took them. (`--ivtr-history`, the original example, was removed in T14311.)
     const flags = extractAcceptedFlags(showSrc(), 'show', registry());
-    expect(flags.has('--ivtr-history')).toBe(true);
-    expect(flags.has('--no-ivtr-history')).toBe(true);
+    expect(flags.has('--relations')).toBe(true);
+    expect(flags.has('--no-relations')).toBe(true);
+    expect(flags.has('--ivtr-history')).toBe(false);
     expect(flags.has('--history')).toBe(true);
     expect(flags.has('--full')).toBe(true);
     expect(flags.has('--no-such-show-flag')).toBe(false);
   });
 
   it('leaves registry-spread args unknown when no registry source is given', () => {
-    expect(extractAcceptedFlags(showSrc(), 'show').has('--ivtr-history')).toBe(false);
+    expect(extractAcceptedFlags(showSrc(), 'show').has('--relations')).toBe(false);
   });
 
   it('returns EMPTY for an operation the registry does not have', () => {

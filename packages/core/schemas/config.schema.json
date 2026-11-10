@@ -1066,11 +1066,23 @@
         }
       }
     },
-    "orchestrator": {
+    "orchestrate": {
       "type": "object",
-      "description": "Orchestrator agent configuration. Only contextThresholds.{warning,critical} are consumed (T109).",
+      "description": "Orchestration settings (T14356). contextThresholds moved here from the legacy orchestrator key (T14375).",
       "additionalProperties": false,
       "properties": {
+        "leadWorker": {
+          "type": "object",
+          "description": "Lead/worker split (epic T14351).",
+          "additionalProperties": false,
+          "properties": {
+            "v1": {
+              "type": "boolean",
+              "default": false,
+              "description": "Leads spawn with write and network tools stripped; workers return a WorkerReport with proof."
+            }
+          }
+        },
         "contextThresholds": {
           "type": "object",
           "description": "Context window usage thresholds that trigger orchestrator actions. Values are percentages of context window capacity.",

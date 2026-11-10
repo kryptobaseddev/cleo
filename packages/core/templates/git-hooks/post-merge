@@ -1,25 +1,45 @@
 #!/bin/sh
 # CLEO_MANAGED_HOOK v1
-# Post-merge: start a background NEXUS reindex after a merge into the base
-# branch (T14010). Off unless `cleo nexus reindex-on-merge --enable` set the
-# cleo.nexusReindexOnMerge git config marker. Both checks below are plain git
-# reads, so a disabled project, or a merge on any other branch, starts no
-# process at all. Never blocks or fails the merge.
+# Post-merge: start a detached incremental NEXUS refresh (T12349), so the code
+# graph follows the checkout with no manual step. One refresh runs at a time
+# per project; a burst of events while it runs coalesces into one follow-up.
+# Git ignores this hook's exit status, and nothing here can block git.
 #
-# Installation: Automatically installed via `cleo init`
+# Installation: Automatically installed via `cleo init` and `cleo upgrade`
 
-[ "$(git config --bool --get cleo.nexusReindexOnMerge 2>/dev/null)" = "true" ] || exit 0
-branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
-base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
-base=${base#origin/}
-if [ -z "$base" ]; then
-  if git show-ref --verify --quiet refs/heads/main; then
-    base=main
-  elif git show-ref --verify --quiet refs/heads/master; then
-    base=master
+# Start the refresh unless it is off: CLEO_NEXUS_AUTO_REINDEX=off, git config
+# cleo.nexusAutoReindex=false (`cleo nexus hooks uninstall`), a linked
+# worktree (the index tracks the main checkout), or no cleo on PATH. Plain git
+# reads only; the refresh is detached, so git never waits for it.
+cleo_nexus_refresh() {
+  [ "${CLEO_NEXUS_AUTO_REINDEX:-}" != "off" ] || return 1
+  [ "$(git config --bool --get cleo.nexusAutoReindex 2>/dev/null)" != "false" ] || return 1
+  [ "$(git rev-parse --path-format=absolute --git-dir 2>/dev/null)" = \
+    "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] || return 1
+  command -v cleo >/dev/null 2>&1 || return 1
+  (cleo nexus auto-reindex </dev/null >/dev/null 2>&1 &) >/dev/null 2>&1
+}
+
+if ! cleo_nexus_refresh; then
+  # Off: the opt-in reindex after a merge into the base branch (T14010) still
+  # runs when `cleo nexus reindex-on-merge --enable` set cleo.nexusReindexOnMerge.
+  if [ "$(git config --bool --get cleo.nexusReindexOnMerge 2>/dev/null)" = "true" ] &&
+    branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null); then
+    base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+    base=${base#origin/}
+    if [ -z "$base" ]; then
+      if git show-ref --verify --quiet refs/heads/main; then
+        base=main
+      elif git show-ref --verify --quiet refs/heads/master; then
+        base=master
+      fi
+    fi
+    if [ -n "$base" ] && [ "$branch" = "$base" ] && command -v cleo >/dev/null 2>&1; then
+      (cleo nexus reindex-on-merge >/dev/null 2>&1 &) >/dev/null 2>&1
+    fi
   fi
 fi
-[ -n "$base" ] && [ "$branch" = "$base" ] || exit 0
-command -v cleo >/dev/null 2>&1 || exit 0
-(cleo nexus reindex-on-merge >/dev/null 2>&1 &) >/dev/null 2>&1
+
+# A hook that was here before CLEO runs last, with the same arguments and stdin.
+if [ -x "$0.cleo-chained" ]; then exec "$0.cleo-chained" "$@"; fi
 exit 0

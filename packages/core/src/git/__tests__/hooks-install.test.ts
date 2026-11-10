@@ -667,21 +667,17 @@ describe('Git-native installation and recovery (T13349)', () => {
       templatesDir: REPO_TEMPLATES_DIR,
       allowTrackedHooksPath: true,
     });
-    expect(result.installed).toEqual(['commit-msg', 'pre-commit', 'post-merge']);
+    const others = CLEO_HOOK_NAMES.filter((name) => name !== 'pre-push');
+    expect(result.installed).toEqual(others);
     expect(result.skipped).toEqual(['pre-push']);
     expect(fs.existsSync(privateReceiptPath(repo, hooks))).toBe(true);
-    expect(fs.readdirSync(hooks).sort()).toEqual([
-      'commit-msg',
-      'post-merge',
-      'pre-commit',
-      'pre-push',
-    ]);
+    expect(fs.readdirSync(hooks).sort()).toEqual([...CLEO_HOOK_NAMES].sort());
     const rollback = await installCleoHooks(repo, {
       templatesDir: REPO_TEMPLATES_DIR,
       allowTrackedHooksPath: true,
       rollbackReceipt: result.receipt,
     });
-    expect(rollback.installed).toEqual(['commit-msg', 'pre-commit', 'post-merge']);
+    expect(rollback.installed).toEqual(others);
     expect(fs.readFileSync(path.join(hooks, 'pre-push'), 'utf8')).toBe(original);
   });
 

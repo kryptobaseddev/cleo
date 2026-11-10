@@ -51,7 +51,6 @@ export type {
   CleoTrace,
   CleoTraceProcessor,
 } from './tracing.js';
-export { CleoConduitTraceProcessor } from './tracing.js';
 
 export default OpenAiSdkAdapter;
 

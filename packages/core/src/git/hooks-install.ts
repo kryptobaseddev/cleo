@@ -20,12 +20,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  CHAINED_GIT_HOOK_NAMES,
   CLEO_GIT_HOOK_NAMES,
   type GitHookChange,
   type GitHookInstallOptions,
   type GitHookInstallReceipt,
   GitHookInstallReceiptSchema,
   GitHookLegacyHashesSchema,
+  NEXUS_GIT_HOOK_NAMES,
 } from '@cleocode/contracts/git-hooks.js';
 import { atomicWrite } from '../store/atomic.js';
 import { withFileLock } from '../store/file-utils.js';
@@ -45,6 +47,37 @@ export const CLEO_HOOK_SENTINEL = '# CLEO_MANAGED_HOOK v1';
 export const CLEO_HOOK_NAMES = CLEO_GIT_HOOK_NAMES;
 /** Name of a shipped Git hook. */
 export type CleoHookName = (typeof CLEO_HOOK_NAMES)[number];
+
+/** Suffix of the foreign hook a chained CLEO hook runs last (T12349). */
+export const CHAINED_HOOK_SUFFIX = '.cleo-chained';
+
+/** Git config key that turns the NEXUS refresh hooks off when `false` (T12349). */
+export const NEXUS_AUTO_REINDEX_GIT_KEY = 'cleo.nexusAutoReindex';
+
+/**
+ * Whether the NEXUS refresh hooks are on for a repository: on unless
+ * {@link NEXUS_AUTO_REINDEX_GIT_KEY} is `false` (D11237: no manual step).
+ *
+ * @param projectRoot - Any path inside the repository.
+ * @returns `false` only when the git config key is explicitly `false`.
+ */
+export function isNexusAutoReindexEnabled(projectRoot: string): boolean {
+  try {
+    return (
+      execFileSync(
+        'git',
+        ['-C', projectRoot, 'config', '--bool', '--get', NEXUS_AUTO_REINDEX_GIT_KEY],
+        {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        },
+      ).trim() !== 'false'
+    );
+  } catch {
+    // `git config --get` exits 1 when the key is unset: the default, on.
+    return true;
+  }
+}
 
 /** Options for {@link installCleoHooks}. */
 export type InstallCleoHooksOptions = GitHookInstallOptions;
@@ -149,8 +182,13 @@ export async function installCleoHooks(
     throw new Error(`installCleoHooks: hook templates dir not found: ${templatesDir}`);
   }
 
+  const names =
+    opts.names ??
+    (isNexusAutoReindexEnabled(absRoot)
+      ? CLEO_HOOK_NAMES
+      : CLEO_HOOK_NAMES.filter((name) => !NEXUS_GIT_HOOK_NAMES.includes(name)));
   // Validate the entire shipped set before replacing any destination.
-  for (const name of CLEO_HOOK_NAMES) {
+  for (const name of names) {
     const source = path.join(templatesDir, name);
     if (!fs.existsSync(source)) throw new Error(`installCleoHooks: missing template ${source}`);
   }
@@ -162,23 +200,39 @@ export async function installCleoHooks(
     const changes: GitHookChange[] = [];
     const ledgerPath = path.join(stateDir, `install-${hash(effective)}.json`);
     const ledger = readReceipt(ledgerPath, hooksDir);
-    if (opts.rollbackReceipt) {
-      const receipt = GitHookInstallReceiptSchema.parse(opts.rollbackReceipt);
+    // Uninstall rolls back this directory's own ledger for the named hooks.
+    const rollbackReceipt =
+      opts.rollbackReceipt ??
+      (opts.uninstall
+        ? {
+            schemaVersion: 1 as const,
+            hooksDir,
+            changes: (ledger?.changes ?? []).filter((change) => names.includes(change.name)),
+          }
+        : undefined);
+    if (rollbackReceipt) {
+      const receipt = GitHookInstallReceiptSchema.parse(rollbackReceipt);
       // @sync-invariant none:local-only rollback targets local Git hook files, not synced tables.
       if (receipt.hooksDir !== hooksDir) throw new Error('Git hook rollback directory mismatch');
       for (const change of receipt.changes) {
         const dst = path.join(hooksDir, change.name);
+        const chained = `${dst}${CHAINED_HOOK_SUFFIX}`;
         if (
           !fs.existsSync(dst) ||
           fs.lstatSync(dst).isSymbolicLink() ||
-          hash(fs.readFileSync(dst, 'utf8')) !== change.afterHash
+          hash(fs.readFileSync(dst, 'utf8')) !== change.afterHash ||
+          (change.chained &&
+            (!fs.lstatSync(chained, { throwIfNoEntry: false })?.isFile() ||
+              hash(fs.readFileSync(chained, 'utf8')) !== hash(change.before ?? '')))
         ) {
           skipped.push(change.name);
           skipReasons[change.name] = 'rollback conflict: hook changed since installation';
           continue;
         }
         if (!opts.dryRun) {
-          if (change.before === null) fs.unlinkSync(dst);
+          // Renaming the chained file back restores its exact bytes, mode and inode.
+          if (change.chained) fs.renameSync(chained, dst);
+          else if (change.before === null) fs.unlinkSync(dst);
           else await atomicWrite(dst, change.before, { mode: change.beforeMode ?? 0o755 });
         }
         installed.push(change.name);
@@ -186,8 +240,11 @@ export async function installCleoHooks(
       if (!opts.dryRun && ledger) {
         const restored = receipt.changes.filter((change) => installed.includes(change.name));
         const untouched = ledger.changes.filter((change) => !installed.includes(change.name));
+        // A restored foreign hook is never CLEO-owned: only CLEO images stay recorded.
         const images = restored.flatMap((change) =>
-          change.before === null ? [] : [{ ...change, afterHash: hash(change.before) }],
+          change.before === null || change.chained
+            ? []
+            : [{ ...change, afterHash: hash(change.before) }],
         );
         await atomicWrite(
           ledgerPath,
@@ -197,9 +254,10 @@ export async function installCleoHooks(
       }
       return { hooksDir, installed, skipped, skipReasons };
     }
-    for (const name of CLEO_HOOK_NAMES) {
+    for (const name of names) {
       const src = path.join(templatesDir, name);
       const dst = path.join(hooksDir, name);
+      const chained = `${dst}${CHAINED_HOOK_SUFFIX}`;
       const body = fs.readFileSync(src, 'utf8');
       const entry = fs.lstatSync(dst, { throwIfNoEntry: false });
       if (entry && !entry.isFile()) {
@@ -216,20 +274,35 @@ export async function installCleoHooks(
           (before === body ||
             (before !== null && legacyHashes(name).includes(hash(before))) ||
             (before !== null && recorded?.afterHash === hash(before))));
-      if (!safe) {
+      // A foreign post-* hook is chained: moved aside intact and run last by the CLEO hook.
+      const chain =
+        !safe &&
+        before !== null &&
+        CHAINED_GIT_HOOK_NAMES.includes(name) &&
+        !fs.lstatSync(chained, { throwIfNoEntry: false });
+      if (!safe && !chain) {
         skipped.push(name);
         skipReasons[name] =
           `existing non-CLEO or customized hook preserved; integration: sh '${src.replace(/'/g, "'\\''")}' "$@"`;
         continue;
       }
-      const change = {
-        name,
-        before,
-        beforeMode: exists ? fs.statSync(dst).mode & 0o777 : null,
-        afterHash: hash(body),
-      };
+      // Refreshing a hook CLEO wrote keeps its first pre-CLEO image, so
+      // uninstall restores what was there before CLEO, not an older template.
+      const owned = before !== null && recorded?.afterHash === hash(before) ? recorded : undefined;
+      const change: GitHookChange = owned
+        ? { ...owned, afterHash: hash(body) }
+        : {
+            name,
+            before,
+            beforeMode: exists ? fs.statSync(dst).mode & 0o777 : null,
+            afterHash: hash(body),
+            ...(chain ? { chained: true } : {}),
+          };
       changes.push(change);
-      if (!opts.dryRun) await atomicWrite(dst, body, { mode: 0o755 });
+      if (!opts.dryRun) {
+        if (chain) fs.renameSync(dst, chained);
+        await atomicWrite(dst, body, { mode: 0o755 });
+      }
       installed.push(name);
     }
     const receipt: GitHookInstallReceipt = { schemaVersion: 1, hooksDir, changes };

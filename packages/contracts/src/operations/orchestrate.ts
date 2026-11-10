@@ -839,3 +839,94 @@ export interface OrchestrateReportResult {
     totalEntries: number;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Lead/worker split (epic T14351)
+//
+// A lead plans and delegates; workers do the work and report back. The lead's
+// write and network tools are stripped so it cannot do the work itself, and a
+// worker's report must carry proof the lead can check. Gated by the config key
+// `orchestrate.leadWorker.v1` (default off).
+// ---------------------------------------------------------------------------
+
+/**
+ * Tools a lead is denied under the lead/worker split: every tool that writes
+ * files, runs commands or reaches the network. A lead only reads, plans and
+ * delegates.
+ *
+ * @task T14356
+ * @epic T14351
+ */
+export const LEAD_DENIED_TOOLS = [
+  'Bash',
+  'Edit',
+  'Write',
+  'MultiEdit',
+  'NotebookEdit',
+  'WebFetch',
+  'WebSearch',
+] as const;
+
+/**
+ * One tool name a lead is denied. Member of {@link LEAD_DENIED_TOOLS}.
+ *
+ * @task T14356
+ */
+export type LeadDeniedTool = (typeof LEAD_DENIED_TOOLS)[number];
+
+/**
+ * Whether a provider can remove tools from a spawned lead.
+ *
+ * - `'enforced'` — the provider strips the denied tools; the lead cannot call them.
+ * - `'unsupported'` — the provider cannot strip them. Spawning a lead there with
+ *   the split on is refused with `E_LEAD_TOOLS_UNSTRIPPED`.
+ *
+ * @task T14356
+ */
+export type LeadToolStripSupport = 'enforced' | 'unsupported';
+
+/**
+ * Tool policy applied to a lead spawn under the lead/worker split.
+ *
+ * @task T14356
+ * @epic T14351
+ */
+export interface LeadToolPolicy {
+  /** Tools removed from the lead. Normally {@link LEAD_DENIED_TOOLS}. */
+  deniedTools: readonly LeadDeniedTool[];
+  /** Whether the spawning provider can enforce {@link LeadToolPolicy.deniedTools}. */
+  stripSupport: LeadToolStripSupport;
+}
+
+/**
+ * One piece of proof backing a worker's conclusion: a command it ran with its
+ * exit code, an artifact it produced (a PR url, a file path, a commit sha), or
+ * both. A proof entry with no field set proves nothing and is rejected with
+ * `E_WORKER_REPORT_PROOF`.
+ *
+ * @task T14356
+ */
+export interface WorkerProof {
+  /** Command the worker ran, verbatim. */
+  command?: string;
+  /** Exit code of {@link WorkerProof.command}. */
+  exitCode?: number;
+  /** Artifact the worker produced: a PR url, file path or commit sha. */
+  artifact?: string;
+}
+
+/**
+ * The report a worker returns to its lead: one conclusion, the blocker (or
+ * `null`), and the proof behind the conclusion.
+ *
+ * @task T14356
+ * @epic T14351
+ */
+export interface WorkerReport {
+  /** One-line result of the worker's task. */
+  conclusion: string;
+  /** What stopped the worker, or `null` when nothing did. */
+  blocker: string | null;
+  /** Proof for {@link WorkerReport.conclusion}. Checked by the lead (T14361). */
+  proof: WorkerProof[];
+}

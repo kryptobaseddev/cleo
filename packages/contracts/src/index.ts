@@ -307,6 +307,9 @@ export type {
   NexusConfig,
   NexusFreshnessConfig,
   NexusReindexOnMergeConfig,
+  OrchestrateConfig,
+  OrchestrateContextThresholds,
+  OrchestrateLeadWorkerConfig,
   OutputConfig,
   OutputFormat,
   ProviderConfig,
@@ -717,8 +720,11 @@ export {
   E_INVALID_PIPELINE_STAGE,
   E_INVALID_SEVERITY_VALUE,
   E_INVALID_STATE,
+  // T14356 / epic T14351 — lead/worker split
+  E_LEAD_TOOLS_UNSTRIPPED,
   E_PLAN_NOT_FOUND,
   E_RELEASE_PLAN_INVALID,
+  E_WORKER_REPORT_PROOF,
   E_WORKFLOW_NOT_FOUND,
   // gh#391 — application-level SQLITE_BUSY retry exhaustion (T9839)
   E_WRITE_CONTENTION,
@@ -1834,10 +1840,16 @@ export { USER_PROFILE_SCOPES } from './operations/nexus-user-profile.js';
 // Commonly used ops types re-exported at top level for convenience
 export type {
   BrainState,
+  LeadDeniedTool,
+  LeadToolPolicy,
+  LeadToolStripSupport,
   OrchestrateReportEntry,
   OrchestrateReportGroup,
   OrchestrateReportParams,
+  WorkerProof,
+  WorkerReport,
 } from './operations/orchestrate.js';
+export { LEAD_DENIED_TOOLS } from './operations/orchestrate.js';
 // === Operation Output Contracts (T11692 / DHQ-057 — per-op result shape SSoT) ===
 // OUTPUT-side mirror of the input contracts. Surfaces the LAFS envelope `data`
 // shape + valid --field JSON pointers so agents stop guessing (e.g. the real
@@ -2693,6 +2705,7 @@ export type {
   ColumnClass,
   ColumnOverride,
   PendingTableClassification,
+  RetiredSyncColumn,
   RowRouting,
   TableClass,
   TableClassification,

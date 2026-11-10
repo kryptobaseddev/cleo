@@ -1202,7 +1202,7 @@ export async function runPipeline(
  * older extractor build). A checkpointing run (T14009) has already stored what
  * it parsed, so it writes only the rest and keeps exactly this run's files
  * (`retainPaths`). Either way the committed cache describes exactly this
- * generation's successfully extracted files.
+ * generation's successfully extracted files and its `E_PARSE_SYNTAX` failures (T12350).
  */
 function buildParseCacheUpdate(
   fingerprint: string | null,

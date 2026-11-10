@@ -648,9 +648,8 @@ export interface AutoPromoteScanOptions {
  * Tier-1 run queue without requiring manual `cleo sentient propose accept`.
  * This closes the BRAIN learning loop (E7-CLOSE-LOOPS T11499 AC1).
  *
- * **Grill gate semantics**: `classifyReadiness` checks five triggers
- * (MISSING_AC, OWNER_DECISION_REQUIRED, IVTR_MAX_RETRIES, RELEASE_GATE,
- * AMBIGUOUS_SCOPE). A proposal that fires any trigger is left in `proposed`
+ * **Grill gate semantics**: `classifyReadiness` checks four triggers
+ * (MISSING_AC, OWNER_DECISION_REQUIRED, RELEASE_GATE, AMBIGUOUS_SCOPE). A proposal that fires any trigger is left in `proposed`
  * status and counted in the `grilled` field so callers can surface it.
  *
  * **Kill-switch respected**: if the sentient kill-switch is active no
