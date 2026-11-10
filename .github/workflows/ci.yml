@@ -1693,12 +1693,36 @@ jobs:
           # own UI needs a day, not the 90-day default.
           retention-days: 1
       # T14410: the vitest suites no unit project collects (they need a live
-      # credential or a KVM host), formerly the Integration Tests job of this
-      # PR. Each skips when its credential or host is absent; running them here
-      # makes a broken import or setup fail instead of never running.
+      # credential or a KVM host). Each skips, or returns early, when its
+      # credential or host is absent; running them here makes a broken import
+      # or setup fail instead of never running. The run takes no filter, and
+      # the step proves it: gate 43 (scripts/lint-test-files-run.mjs) lists the
+      # files it credits to this config, and assert-vitest-collected fails when
+      # vitest's report lacks one of them (vitest exits 0 for a partial
+      # selection). Gate 43 pins these three commands exactly (CI_RUNNERS):
+      # change one and the gate fails until its entry changes with it.
       - name: "Integration Tests (T14410): Run core integration suites"
         if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
-        run: pnpm exec vitest run --config packages/core/vitest.integration.config.ts --reporter=verbose
+        shell: bash
+        run: |
+          set -uo pipefail
+          EXPECTED="$RUNNER_TEMP/integration-expected.txt"
+          REPORT="$RUNNER_TEMP/integration-run.json"
+          node scripts/lint-test-files-run.mjs --list packages/core/vitest.integration.config.ts > "$EXPECTED"
+          LRC=$?
+          if [[ $LRC -ne 0 ]]; then exit $LRC; fi
+          mapfile -t FILES < "$EXPECTED"
+          echo "Expecting ${#FILES[@]} integration test file(s):"
+          printf '  %s\n' "${FILES[@]}"
+
+          pnpm exec vitest run --config packages/core/vitest.integration.config.ts --reporter=verbose --reporter=json --outputFile="$REPORT"
+          RC=$?
+
+          node scripts/assert-vitest-collected.mjs "$REPORT" "${FILES[@]}"
+          ARC=$?
+
+          if [[ $RC -ne 0 ]]; then exit $RC; fi
+          exit $ARC
       # T14367: formerly the Install Test job; runs on code changes, as it did.
       - name: "Install Test: Test global link (simulates global install)"
         if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}

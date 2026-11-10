@@ -13,10 +13,16 @@
  *
  * ## Checks
  *
- * 1. Every vitest config in {@link CI_RUNNERS} is invoked by a non-comment line
- *    of a `.github/workflows/*.yml` file (its `marker`).
+ * 1. Every {@link CI_RUNNERS} entry's `commands` each appear as one whole
+ *    command of a `.github/workflows/*.yml` file. The comparison is exact
+ *    (comment lines dropped, `\` continuations joined, whitespace collapsed):
+ *    a path filter, `--exclude`, `-t` or a different config appended to the
+ *    line no longer matches, so the gate fails instead of crediting the runner
+ *    with files that line would drop. Changing how CI invokes a runner means
+ *    changing its `commands` here in the same PR.
  * 2. `vitest list --filesOnly` over those configs (the files CI collects) covers
- *    every tracked `*.test.*` / `*.spec.*` file, except:
+ *    every tracked `*.test.*` / `*.spec.*` file, compared by exact
+ *    repo-relative path, except:
  *    - files under an {@link IGNORED_PREFIXES} prefix (not repo test suites);
  *    - the `@cleocode/cleo` quarantine (`packages/cleo/vitest.quarantine.ts`,
  *      burn-down T12072), which CI excludes on purpose;
@@ -25,10 +31,28 @@
  *      file is gone, fails as stale; more entries than {@link BASELINE_PIN}
  *      fails; and with `--base <ref>` an entry the base's baseline lacks, or a
  *      pin above the base's, fails, so a PR cannot add an unrun test together
- *      with a matching baseline line.
- * 3. Every {@link SECRET_GATED} file is collected. Those suites skip without
- *    their credential or host, so the gate lists them as "collected but skipped
- *    without secrets" rather than letting them read as covered.
+ *      with a matching baseline line. A `--base` that names no commit of this
+ *      clone, or whose copy of this script cannot be read or parsed, fails and
+ *      names the fetch that fixes it; the comparison is never skipped. The one
+ *      base without a baseline is a commit that has no copy of this script.
+ * 3. Every {@link SECRET_GATED} file is collected. Those suites skip, or return
+ *    early, without their credential or host, so the gate lists them as
+ *    "collected but skipped without secrets" rather than letting them read as
+ *    covered.
+ *
+ * ## What it proves, and what it does not
+ *
+ * Proven: each tracked test file is one a CI vitest config collects, and a
+ * workflow runs that config with exactly the pinned command.
+ *
+ * Not proven: that a file's tests execute, or pass, in a given run. A pull
+ * request's unit shards run only the affected projects (`$SCOPE_FLAGS`,
+ * T13142; pushes to main run them all); a suite can skip itself
+ * (`describe.skipIf`, the {@link SECRET_GATED} files); a flaky-quarantined
+ * test does not block (T13145). Only the integration runner is checked at run
+ * time: its step lists this gate's expected files (`--list <config>`) and
+ * `scripts/assert-vitest-collected.mjs` fails the step when vitest's report
+ * lacks one of them.
  *
  * `vitest list --filesOnly` resolves include/exclude/projects exactly as
  * `vitest run` does without importing a test file (about 2 s), so the gate
@@ -36,8 +60,11 @@
  *
  * `--check` (default) fails on an uncollected file outside the baseline or a
  * stale baseline entry. `--strict` also fails while the baseline is non-empty.
+ * `--list <config>` prints the files one {@link CI_RUNNERS} config collects,
+ * one per line, and checks nothing.
  *
  * Usage: node scripts/lint-test-files-run.mjs [--check|--strict] [--base <ref>]
+ *        node scripts/lint-test-files-run.mjs --list <config>
  *
  * @task T14410
  */
@@ -54,31 +81,42 @@ const REPO_ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 export const TEST_FILE = /\.(test|spec)\.(c|m)?[jt]sx?$/;
 
 /**
- * The vitest configs CI runs, and the workflow text that proves it runs each.
+ * The vitest configs CI runs, and the workflow commands that prove it runs
+ * each. Every command must appear in a workflow as one whole command, exactly
+ * (see {@link workflowCommands}): an added filter is a different command.
  *
- * @type {ReadonlyArray<{ config: string, marker: string, job: string }>}
+ * @type {ReadonlyArray<{ config: string, commands: readonly string[], job: string }>}
  */
 export const CI_RUNNERS = [
   {
     config: 'vitest.config.ts',
-    marker: 'node scripts/ci-flaky-quarantine.mjs run',
+    commands: [
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow and bash text, matched verbatim
+      'node scripts/ci-flaky-quarantine.mjs run --log /tmp/vitest-shard${{ matrix.shard }}.log --report "$RUNNER_TEMP/flaky-report.json" --timings "$RUNNER_TEMP/test-timings.json" -- --shard=${{ matrix.shard }}/${{ matrix.total }} $RETRY_FLAG $SCOPE_FLAGS',
+    ],
     job: 'ci.yml unit-tests (every vitest project, sharded)',
   },
   {
     config: 'packages/core/vitest.integration.config.ts',
-    marker: '--config packages/core/vitest.integration.config.ts',
-    job: 'ci.yml integration-tests (live-credential and VM suites, T14410)',
+    commands: [
+      'node scripts/lint-test-files-run.mjs --list packages/core/vitest.integration.config.ts > "$EXPECTED"',
+      'pnpm exec vitest run --config packages/core/vitest.integration.config.ts --reporter=verbose --reporter=json --outputFile="$REPORT"',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow and bash text, matched verbatim
+      'node scripts/assert-vitest-collected.mjs "$REPORT" "${FILES[@]}"',
+    ],
+    job: 'ci.yml post-build-checks, the `Integration Tests (T14410)` step (live-credential and VM suites)',
   },
 ];
 
 /**
- * Collected files that skip in CI because CI holds no secret or host for them.
+ * Collected files that skip (or return early) in CI because CI holds no secret
+ * or host for them.
  *
  * @type {Readonly<Record<string, string>>}
  */
 export const SECRET_GATED = {
   'packages/core/src/llm/pi/__tests__/pi-anthropic-turn.integration.test.ts':
-    'needs a resolvable Anthropic credential',
+    'needs a resolvable Anthropic credential; without one its test returns early and reports a pass',
   'packages/core/src/llm/pi/__tests__/pi-gondolin-env.integration.test.ts':
     'needs CLEO_GONDOLIN_INTEGRATION=1, /dev/kvm and QEMU',
   'packages/core/src/llm/transports/__tests__/bedrock.integration.test.ts':
@@ -123,6 +161,8 @@ export const BASELINE = {
   'packages/studio/e2e/a11y.spec.ts': 'Playwright spec; no CI job runs Playwright (T14411)',
   'packages/studio/e2e/tasks-explorer.spec.ts':
     'Playwright spec; no CI job runs Playwright (T14411)',
+  'packages/cleo/src/cli/commands/__tests__/e3-integration.test.ts':
+    'fails on main: cleo setup --non-interactive fails the harness section (T14467)',
   'packages/cleo/src/dispatch/domains/__tests__/docs-integration.test.ts':
     'fails on main: docs.add kind blob vs local-file (T14413)',
   'packages/cleo/src/dispatch/domains/__tests__/saga-lifecycle-integration.test.ts':
@@ -144,7 +184,7 @@ export const BASELINE = {
 };
 
 /** Size of {@link BASELINE} when this gate landed. May only fall. */
-export const BASELINE_PIN = 21;
+export const BASELINE_PIN = 22;
 
 /**
  * The BASELINE keys and pin in another revision of this script's source.
@@ -176,19 +216,89 @@ export function baselineGrowth(head, base) {
     if (!base.keys.has(k))
       out.push(`${k}: BASELINE entry the base lacks (the baseline may only shrink)`);
   }
-  if (head.pin > base.pin) out.push(`BASELINE_PIN rose from ${base.pin} to ${head.pin}`);
+  if (!(head.pin <= base.pin)) out.push(`BASELINE_PIN rose from ${base.pin} to ${head.pin}`);
   return out;
 }
 
 /**
- * Whether a workflow source invokes `marker` on a line that is not a comment.
+ * The commands a workflow source runs, one string per command: comment lines
+ * dropped, a line ending in `\` joined with the next, a leading `- run:` or
+ * `run:` key removed and runs of whitespace collapsed to one space.
  *
  * @param {string} source - Workflow YAML text.
- * @param {string} marker - Command text that runs one config.
+ * @returns {string[]}
+ */
+export function workflowCommands(source) {
+  const out = [];
+  let pending = '';
+  for (const raw of source.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('#')) continue;
+    const joined = `${pending} ${line.replace(/^(- )?run:\s*/, '')}`;
+    if (joined.endsWith('\\')) {
+      pending = joined.slice(0, -1);
+      continue;
+    }
+    pending = '';
+    const command = joined.replace(/\s+/g, ' ').trim();
+    if (command) out.push(command);
+  }
+  return out;
+}
+
+/**
+ * Whether a workflow source runs `command` as one whole command. Exact, not a
+ * substring test: `vitest run --config x.ts some/filter` does not run
+ * `vitest run --config x.ts`, and `x.ts.bak` is not `x.ts`.
+ *
+ * @param {string} source - Workflow YAML text.
+ * @param {string} command - The whole command that runs one config.
  * @returns {boolean}
  */
-export function workflowInvokes(source, marker) {
-  return source.split('\n').some((l) => !l.trimStart().startsWith('#') && l.includes(marker));
+export function workflowInvokes(source, command) {
+  return workflowCommands(source).includes(command.replace(/\s+/g, ' ').trim());
+}
+
+/**
+ * The base revision's baseline for `--base <ref>`. Fails closed: only a base
+ * commit that has no copy of this script (the commit before the gate landed)
+ * yields `null`; a ref this clone cannot resolve, or a copy that cannot be read
+ * or parsed, throws, because skipping the comparison would let the baseline
+ * grow.
+ *
+ * @param {string | undefined} ref - The value given to `--base`.
+ * @param {(args: string[]) => { status: number | null, stdout: string }} git - Runs git in the repo.
+ * @returns {{ keys: Set<string>, pin: number } | null}
+ * @throws {Error} Naming the fetch that makes the base readable.
+ */
+export function baseBaseline(ref, git) {
+  const path = 'scripts/lint-test-files-run.mjs';
+  if (!ref || ref.startsWith('-')) {
+    throw new Error(
+      '--base needs a ref (got none). In CI pass the merge commit\'s first parent: --base "$(git rev-parse HEAD^1)", after a checkout with fetch-depth: 0.',
+    );
+  }
+  const fetchHint = `Fetch it: \`git fetch --no-tags origin ${ref.replace(/^origin\//, '')}\` (a shallow clone: \`git fetch --unshallow origin\`, or actions/checkout fetch-depth: 0).`;
+  if (git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).status !== 0) {
+    throw new Error(
+      `--base ${ref}: not a commit in this clone, so the baseline cannot be compared with it. ${fetchHint}`,
+    );
+  }
+  const tree = git(['ls-tree', '--name-only', ref, '--', path]);
+  if (tree.status !== 0) {
+    throw new Error(`--base ${ref}: cannot read its tree. ${fetchHint}`);
+  }
+  // A base without this gate is the PR that adds it: nothing to compare.
+  if (tree.stdout.trim() === '') return null;
+  const shown = git(['show', `${ref}:${path}`]);
+  if (shown.status !== 0) {
+    throw new Error(`--base ${ref}: cannot read ${path} at that commit. ${fetchHint}`);
+  }
+  const parsed = parseBaseline(shown.stdout);
+  if (!Number.isInteger(parsed.pin)) {
+    throw new Error(`--base ${ref}: ${path} at that commit has no readable BASELINE_PIN.`);
+  }
+  return parsed;
 }
 
 /**
@@ -262,33 +372,61 @@ function listCollected(config) {
   }
 }
 
+/**
+ * Run git in the repo root.
+ *
+ * @param {string[]} args - git arguments.
+ * @returns {{ status: number | null, stdout: string }}
+ */
+function repoGit(args) {
+  const res = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' });
+  return { status: res.status, stdout: res.stdout ?? '' };
+}
+
 function main() {
+  const listIdx = process.argv.indexOf('--list');
+  if (listIdx !== -1) {
+    const config = process.argv[listIdx + 1];
+    if (!CI_RUNNERS.some((r) => r.config === config)) {
+      console.error(
+        `lint-test-files-run: --list needs a CI_RUNNERS config (${CI_RUNNERS.map((r) => r.config).join(', ')}), got ${config ?? 'none'}`,
+      );
+      process.exit(2);
+    }
+    for (const f of listCollected(config)) console.log(f);
+    return;
+  }
+
   const strict = process.argv.includes('--strict');
   const baseIdx = process.argv.indexOf('--base');
-  const baseRef = baseIdx === -1 ? null : process.argv[baseIdx + 1];
   const failures = [];
 
   const headBaseline = parseBaseline(readFileSync(fileURLToPath(import.meta.url), 'utf8'));
-  let baseBaseline = null;
-  if (baseRef) {
-    const shown = spawnSync('git', ['show', `${baseRef}:scripts/lint-test-files-run.mjs`], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    });
-    // A base without this gate is the PR that adds it: nothing to compare.
-    if (shown.status === 0) baseBaseline = parseBaseline(shown.stdout);
+  let baseBaselineRead = null;
+  if (baseIdx !== -1) {
+    try {
+      baseBaselineRead = baseBaseline(process.argv[baseIdx + 1], repoGit);
+    } catch (err) {
+      // Before the vitest listing: an unusable base fails at once.
+      console.error(
+        `lint-test-files-run: FAIL — ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   }
-  failures.push(...baselineGrowth(headBaseline, baseBaseline));
+  failures.push(...baselineGrowth(headBaseline, baseBaselineRead));
 
   const workflowsDir = join(REPO_ROOT, '.github/workflows');
   const workflows = readdirSync(workflowsDir)
     .filter((f) => /\.ya?ml$/.test(f))
     .map((f) => readFileSync(join(workflowsDir, f), 'utf8'));
   for (const runner of CI_RUNNERS) {
-    if (!workflows.some((w) => workflowInvokes(w, runner.marker))) {
-      failures.push(
-        `${runner.config}: no workflow line runs it (expected \`${runner.marker}\`, ${runner.job})`,
-      );
+    for (const command of runner.commands) {
+      if (!workflows.some((w) => workflowInvokes(w, command))) {
+        failures.push(
+          `${runner.config}: no workflow runs exactly \`${command}\` (${runner.job}). A changed or filtered command is a different command: restore it, or update CI_RUNNERS in the same PR.`,
+        );
+      }
     }
   }
 

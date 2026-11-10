@@ -6,8 +6,9 @@
  * touch a real filesystem/DB or perform a real network turn against a resolved
  * credential. This config inverts the filter so ONLY integration tests run.
  *
- * Covered (each SKIPS when its credential or host infra is absent, so the CI
- * job `integration-tests` runs them without secrets):
+ * Covered (each SKIPS, or returns early, when its credential or host infra is
+ * absent, so CI's `Integration Tests (T14410)` step of the Post-build Checks
+ * job runs them without secrets):
  *   - `src/llm/pi/__tests__/*.integration.test.ts` — the AC3 end-to-end Pi turn
  *     (real `PiAgentAdapter` + `resolveLLMForSystem` + `ModelRunner`; runs a
  *     real Anthropic turn when creds are present) (T11898), and the opt-in

@@ -15,7 +15,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getNexusDb, resetDbState } from '@cleocode/core/internal';
-import { projectRegistry } from '@cleocode/core/store/nexus-schema';
+import { projectRegistry } from '@cleocode/core/store/schema/nexus-schema';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { moveProject } from '../../../../../core/src/project-lifecycle.js';
@@ -72,7 +72,7 @@ describe('T11030 — project move integration (cross-drive)', () => {
 
     // AC2: Pre-register in nexus
     try {
-      const db = await getNexusDb();
+      const db = await getNexusDb(sourceDir);
       const now = new Date().toISOString();
       await db
         .insert(projectRegistry)
@@ -144,7 +144,7 @@ describe('T11030 — project move integration (cross-drive)', () => {
 
   // AC2
   it('AC2: project is registered in nexus', async () => {
-    const db = await getNexusDb();
+    const db = await getNexusDb(sourceDir);
     const rows = await db
       .select()
       .from(projectRegistry)
@@ -210,7 +210,7 @@ describe('T11030 — project move integration (cross-drive)', () => {
   // AC9
   it('AC9: nexus row resolves at new path via projectId', async () => {
     try {
-      const db = await getNexusDb();
+      const db = await getNexusDb(destDir);
       const rows = await db
         .select()
         .from(projectRegistry)
