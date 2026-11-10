@@ -160,11 +160,29 @@ describe('lead mailbox config', () => {
   it('with leadWorker.v1 on and no agentmbx, warns and writes nothing', async () => {
     await writeConfig(true);
     const result = await ensureLeadMailbox(root, project, createAgentMbxClient(absent));
-    expect(result.action).toBe('skipped');
+    expect(result).toMatchObject({
+      action: 'skipped',
+      warning: expect.stringContaining('`cleo upgrade`'),
+    });
     expect(
       JSON.parse(await readFile(configPath(), 'utf-8')).orchestrate.leadMailbox,
     ).toBeUndefined();
     expect(await resolveLeadMailbox(root)).toBeUndefined();
+  });
+
+  it('with leadWorker.v1 on and no recorded mailbox, the lead claim refuses naming `cleo upgrade` (T14448)', async () => {
+    await writeConfig(true);
+    const cli = fakeCli();
+    const claim = await claimLeadMailbox(
+      root,
+      { cli: 'claude', session: 's1' },
+      createAgentMbxClient(cli.runner),
+    );
+    expect(claim.ok).toBe(false);
+    if (claim.ok) throw new Error('expected a refused claim');
+    expect(claim.warning).toContain('`cleo upgrade`');
+    expect(claim.warning).toContain('cleo config set orchestrate.leadWorker.v1 true');
+    expect(cli.calls).toHaveLength(0);
   });
 
   it('with leadWorker.v1 off, never probes agentmbx and spawns name no mailbox', async () => {

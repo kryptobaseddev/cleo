@@ -33,7 +33,9 @@ import {
 } from './init.js';
 import { ensureInjection } from './injection.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
+import type { MbxRunner } from './orchestrate/agentmbx.js';
 import { getCleoHome, getConfigPath, getProjectRoot, resolveCleoDir } from './paths.js';
+import { readProjectInfoAtDirectory } from './project-scope.js';
 import {
   createUpgradeFileJournal,
   type UpgradeFileChange,
@@ -128,6 +130,8 @@ export interface DiagnoseResult {
  * @param options.forceDetect  Force re-detection of project type (ignore staleness)
  * @param options.mapCodebase  Run full codebase analysis and store to brain.db
  * @param options.projectName  Rename the project (`.cleo/project.json`, registry and Nexus label — T12716)
+ * @param options.agentMbxRunner  Runner for the `agentmbx` CLI used to record the lead mailbox (T14448).
+ *   Tests inject a fake; default is the real CLI.
  * @param options.cwd  Project directory override
  */
 export async function runUpgrade(
@@ -138,6 +142,7 @@ export async function runUpgrade(
     forceDetect?: boolean;
     mapCodebase?: boolean;
     projectName?: string;
+    agentMbxRunner?: MbxRunner;
     cwd?: string;
   } = {},
 ): Promise<UpgradeResult> {
@@ -963,6 +968,32 @@ export async function runUpgrade(
           status: 'applied',
           details: infoResult.details ?? 'Regenerated project-info.json',
         });
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    // T14448: with orchestrate.leadWorker.v1 on, record the project's lead
+    // AgentMBX mailbox. `cleo init` refuses on an initialized project, so
+    // `cleo upgrade` is the supported, non-destructive verb for it. An
+    // existing record is kept; without agentmbx the warning is surfaced, not
+    // swallowed.
+    try {
+      const { createAgentMbxClient, ensureLeadMailbox } = await import('./orchestrate/agentmbx.js');
+      const project = await readProjectInfoAtDirectory(projectRootForMaint, cleoDir);
+      const lead = await ensureLeadMailbox(
+        projectRootForMaint,
+        project,
+        createAgentMbxClient(options.agentMbxRunner),
+      );
+      if (lead.action === 'recorded') {
+        actions.push({
+          action: 'lead_mailbox',
+          status: 'applied',
+          details: `Recorded lead mailbox: ${lead.leadMailbox.name}`,
+        });
+      } else if (lead.action === 'skipped') {
+        actions.push({ action: 'lead_mailbox', status: 'skipped', details: lead.warning });
       }
     } catch {
       /* best-effort */
