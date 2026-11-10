@@ -1,6 +1,6 @@
 ---
 name: ct-codebase-mapper
-version: 2.3.5
+version: 2.3.6
 description: Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on "map the codebase", "understand this project", "what calls X", "what would break", "brownfield analysis", "project structure".
 protocol: null
 dependencies: []
@@ -17,13 +17,13 @@ triggers:
   - project structure
   - blast radius
 metadata:
-  version: 2.3.5
+  version: 2.3.6
   tier: on-demand
   install: harness
   covers:
     - packages/cleo/src/cli/commands/nexus.ts
     - packages/cleo/src/cli/commands/map.ts
-  lastReviewed: 2026-10-24
+  lastReviewed: 2026-11-09
   stability: stable
 ---
 
@@ -117,6 +117,15 @@ detected in the assessed graph — static analysis cannot prove every runtime
 caller, so an empty footprint alone never establishes that a change is safe.
 When a symbol name is ambiguous, pass the qualified candidate the command
 returns and confirm against the source.
+
+`impact` judges `coverage` by the files its answer rests on: the target's file
+and every traversed caller's file. A file that failed extraction elsewhere
+makes the answer `partial` (one reason counts those files; callers in them may
+be missing) instead of hiding the callers it found; a failed target or caller
+file makes it `failed`. Any status short of `current` gives `UNKNOWN`. The
+reply carries a bounded coverage sample (`reasonCount`, `detailsCommand`);
+`--coverage-detail` returns every reason and limitation, including unrelated
+files.
 
 On a stale index, `impact` and `context` refresh it inline when the size-scaled
 cost estimate fits the budget: one refresh at a time per project, a larger one

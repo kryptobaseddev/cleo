@@ -22,16 +22,7 @@
  *   cleo orchestrate spawn-execute <taskId> — adapter-registry spawn
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
- *   cleo orchestrate conduit-status       — conduit messaging status (legacy, prefer `cleo conduit status`)
- *   cleo orchestrate conduit-peek         — peek queued conduit messages (legacy)
- *   cleo orchestrate conduit-start        — start conduit message loop (legacy)
- *   cleo orchestrate conduit-stop         — stop conduit message loop (legacy)
- *   cleo orchestrate conduit-send <content> — send conduit message (legacy)
  *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
- *
- * Note: T964 promoted `conduit` to its own canonical dispatch domain. The
- * `conduit-*` subcommands here remain as backward-compatible aliases that
- * dispatch to the `conduit` domain directly.
  *
  * @task T4466, T478, T483, T811, T964
  * @epic T4454
@@ -45,7 +36,6 @@ import * as orchestration from '@cleocode/core/orchestration/index';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
-import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -927,89 +917,6 @@ const worktreeCompleteCommand = defineCommand({
   },
 });
 
-/**
- * cleo orchestrate conduit-status — legacy alias for `cleo conduit status`.
- *
- * T964: dispatches to the canonical `conduit` domain. The `conduit-*`
- * orchestrate subcommands are kept for backward compatibility; prefer the
- * top-level `cleo conduit <verb>` command group.
- */
-const conduitStatusCommand = defineCommand({
-  meta: { name: 'conduit-status', description: 'Get conduit messaging status' },
-  async run() {
-    warnConduitDeprecated('orchestrate conduit-status');
-    await dispatchFromCli('query', 'conduit', 'status', {}, { command: 'orchestrate' });
-  },
-});
-
-/**
- * cleo orchestrate conduit-peek — legacy alias for `cleo conduit peek`.
- *
- * T964: dispatches to the canonical `conduit` domain.
- */
-const conduitPeekCommand = defineCommand({
-  meta: { name: 'conduit-peek', description: 'Peek at queued conduit messages' },
-  args: {
-    limit: {
-      type: 'string',
-      description: 'Maximum number of messages to return',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('orchestrate conduit-peek');
-    await dispatchFromCli(
-      'query',
-      'conduit',
-      'peek',
-      { limit: args.limit !== undefined ? Number.parseInt(args.limit, 10) : undefined },
-      { command: 'orchestrate' },
-    );
-  },
-});
-
-/**
- * cleo orchestrate conduit-start — legacy alias for `cleo conduit start`.
- *
- * T964: dispatches to the canonical `conduit` domain.
- */
-const conduitStartCommand = defineCommand({
-  meta: { name: 'conduit-start', description: 'Start the conduit message loop' },
-  args: {
-    'poll-interval': {
-      type: 'string',
-      description: 'Polling interval in milliseconds',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('orchestrate conduit-start');
-    await dispatchFromCli(
-      'mutate',
-      'conduit',
-      'start',
-      {
-        pollIntervalMs:
-          args['poll-interval'] !== undefined
-            ? Number.parseInt(args['poll-interval'], 10)
-            : undefined,
-      },
-      { command: 'orchestrate' },
-    );
-  },
-});
-
-/**
- * cleo orchestrate conduit-stop — legacy alias for `cleo conduit stop`.
- *
- * T964: dispatches to the canonical `conduit` domain.
- */
-const conduitStopCommand = defineCommand({
-  meta: { name: 'conduit-stop', description: 'Stop the conduit message loop' },
-  async run() {
-    warnConduitDeprecated('orchestrate conduit-stop');
-    await dispatchFromCli('mutate', 'conduit', 'stop', {}, { command: 'orchestrate' });
-  },
-});
-
 /** cleo orchestrate approve — approve a pending HITL playbook gate (T935) */
 const approveCommand = defineCommand({
   meta: {
@@ -1115,43 +1022,6 @@ const leadRunnerCommand = defineCommand({
 });
 
 /**
- * cleo orchestrate conduit-send — legacy alias for `cleo conduit send`.
- *
- * T964: dispatches to the canonical `conduit` domain.
- */
-const conduitSendCommand = defineCommand({
-  meta: {
-    name: 'conduit-send',
-    description: 'Send a message via conduit to an agent or conversation',
-  },
-  args: {
-    content: {
-      type: 'positional',
-      description: 'Message content to send',
-      required: true,
-    },
-    to: {
-      type: 'string',
-      description: 'Target agent ID',
-    },
-    conversation: {
-      type: 'string',
-      description: 'Conversation ID to send into',
-    },
-  },
-  async run({ args }) {
-    warnConduitDeprecated('orchestrate conduit-send');
-    await dispatchFromCli(
-      'mutate',
-      'conduit',
-      'send',
-      { content: args.content, to: args.to, conversationId: args.conversation },
-      { command: 'orchestrate' },
-    );
-  },
-});
-
-/**
  * Root orchestrate command group — all 25 multi-agent orchestration operations.
  *
  * Dispatches to the `orchestrate` and `pipeline` dispatch domains.
@@ -1186,11 +1056,6 @@ export const orchestrateCommand = defineCommand({
     fanout: fanoutCommand,
     prune: pruneCommand,
     'worktree-complete': worktreeCompleteCommand,
-    'conduit-status': conduitStatusCommand,
-    'conduit-peek': conduitPeekCommand,
-    'conduit-start': conduitStartCommand,
-    'conduit-stop': conduitStopCommand,
-    'conduit-send': conduitSendCommand,
     // T935: HITL playbook approval gates
     approve: approveCommand,
     reject: rejectCommand,

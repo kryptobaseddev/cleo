@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  admittedAnalyzeArgs,
   REINDEX_ON_MERGE_GIT_KEY,
   REINDEX_ON_MERGE_LOCK_FILE,
   REINDEX_PENDING_FILE,
@@ -215,5 +216,13 @@ describe('auto reindex after a git change (T12349)', () => {
     const outcome = await runNexusAutoReindex(root, { runner: run, queueBusy: () => false });
     expect(outcome.outcome).toBe('failed');
     expect(existsSync(join(root, '.cleo', REINDEX_PENDING_FILE))).toBe(false);
+  });
+});
+
+describe('admittedAnalyzeArgs (T14384)', () => {
+  it('admits the detached refresh as its own scan-class job, never waiting', () => {
+    const args = admittedAnalyzeArgs('/repo');
+    expect(args).toEqual(['run', '--class', 'scan', '--', 'cleo', 'nexus', 'analyze', '/repo']);
+    expect(args).not.toContain('--wait');
   });
 });
