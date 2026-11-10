@@ -121,6 +121,7 @@ import {
   resolveSpawnLockHolder,
 } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveLeadMailbox } from './agentmbx.js';
 import { isLeadWorkerV1Enabled, resolveIsolation } from './isolation-policy.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
 import {
@@ -613,6 +614,9 @@ export async function composeSpawnForTask(
       ? options.tier
       : resolveEffectiveTier(task, inferredRole ?? 'worker', undefined);
 
+  // T14379 — spawn and fanout both compose here, so the recorded project lead
+  // mailbox fills in for a missing `--lead-mbx` on every path.
+  const leadMailbox = await resolveLeadMailbox(root, options.leadMailbox);
   const db = await openAgentRegistryDbForComposer();
   try {
     return await composeSpawnPayload(db, task, {
@@ -624,7 +628,7 @@ export async function composeSpawnForTask(
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
-      ...(options.leadMailbox ? { leadMailbox: options.leadMailbox } : {}),
+      ...(leadMailbox ? { leadMailbox } : {}),
       spawnCloneExclude: options.spawnCloneExclude,
       // T10430 — pass the atomicity waiver into the composer. When set to
       // 'orchestrator-defer', checkAtomicity grants the spawn for a worker
