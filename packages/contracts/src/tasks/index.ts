@@ -16,9 +16,9 @@
  */
 
 import { z } from 'zod';
-import { TASK_STATUSES } from './status-registry.js';
-import type { TaskPriority, TaskStatus } from './task.js';
-import type { TaskRecord } from './task-record.js';
+import { TASK_STATUSES } from '../status-registry.js';
+import type { TaskPriority, TaskStatus } from '../task.js';
+import type { TaskRecord } from '../task-record.js';
 
 // ---------------------------------------------------------------------------
 // Standard task mutation envelopes (T10608)

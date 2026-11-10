@@ -323,7 +323,7 @@ export type {
   SignalDockConfig,
   SignalDockMode,
   SystemBinding,
-} from './config.js';
+} from './config/types.js';
 export type { AdapterContextMonitorProvider } from './context-monitor.js';
 // === Credential Transfer Types (T12326 — portable credentials) ===
 export type {
@@ -1222,6 +1222,22 @@ export type {
   FetchedBrainEntry,
 } from './memory/fetch.js';
 export type {
+  BridgeDecision,
+  BridgeLearning,
+  BridgeObservation,
+  BridgePattern,
+  DispatchTrace,
+  // T9766 — BRAIN public-API records (centralized from @cleocode/core)
+  LearningRecord,
+  MemoryBridgeConfig,
+  MemoryBridgeContent,
+  MemoryDecisionRecord,
+  MemoryGraphStats,
+  MemorySearchHit,
+  PatternRecord,
+  SessionSummary,
+} from './memory/index.js';
+export type {
   BrainObservationSourceType,
   DocAttachmentObservationPayload,
   ObserveBrainParams,
@@ -1240,22 +1256,6 @@ export type {
   TimelineBrainResult,
   TimelineNeighbor,
 } from './memory/timeline.js';
-export type {
-  BridgeDecision,
-  BridgeLearning,
-  BridgeObservation,
-  BridgePattern,
-  DispatchTrace,
-  // T9766 — BRAIN public-API records (centralized from @cleocode/core)
-  LearningRecord,
-  MemoryBridgeConfig,
-  MemoryBridgeContent,
-  MemoryDecisionRecord,
-  MemoryGraphStats,
-  MemorySearchHit,
-  PatternRecord,
-  SessionSummary,
-} from './memory.js';
 export type {
   MacosRegressionSync,
   MergeAttributionFailure,
@@ -2861,7 +2861,7 @@ export type {
   TaskViewLifecycleProgress,
   TaskViewNextAction,
   TaskViewPipelineStage,
-} from './tasks.js';
+} from './tasks/index.js';
 export {
   completionCriterionEvaluationSchema,
   completionEvaluateParamsSchema,
@@ -2874,7 +2874,7 @@ export {
   completionProjectionRepairParamsSchema,
   completionProjectionRepairResultSchema,
   unsatisfiedCompletionCriterionSchema,
-} from './tasks.js';
+} from './tasks/index.js';
 // === Canonical Taxonomy Registry (T11186) ===
 export type {
   CanonicalTagMetadata,

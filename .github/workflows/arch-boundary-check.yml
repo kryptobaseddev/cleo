@@ -513,6 +513,13 @@ jobs:
       - name: Refusal Fixes (T14299 · gate 42)
         if: ${{ !cancelled() }}
         run: node scripts/lint-refusal-fixes.mjs --check
+      # T14412 · gate 44: every @cleocode/contracts subpath import maps to one
+      # source file. Vitest reads src/, Node reads the exports map onto dist/;
+      # an `x.ts` beside `x/` let them disagree (#2772). Pure static; needs the
+      # installed `typescript` package (compiler API).
+      - name: Contracts Subpath Resolution (T14412 · gate 44)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-contracts-subpath-resolution.mjs --check
       # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
       #
       # Regression-locks the merge-bar coverage itself: every PR-gating multi-job

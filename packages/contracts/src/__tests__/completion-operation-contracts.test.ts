@@ -18,7 +18,7 @@ import {
   completionProjectionRepairParamsSchema,
   completionProjectionRepairResultSchema,
   unsatisfiedCompletionCriterionSchema,
-} from '../tasks.js';
+} from '../tasks/index.js';
 
 const requiredOperations = [
   'completion.list',
