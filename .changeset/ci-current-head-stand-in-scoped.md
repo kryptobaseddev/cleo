@@ -17,8 +17,8 @@ HEAD now stands in for a scoped change too, when:
 - the merge commit's run is not the PR's failure (cancelled or skipped,
   inherited from main, red only on the flaky-quarantine budget, or failed with
   no test run);
-- the PR's final head had green `pull_request` CI;
-- every hunk the PR added is still present at the stand-in commit.
+- the PR's final head had a green `pull_request` run of every required check;
+- every hunk the PR added is still present at the stand-in commit and at HEAD.
 
 A failure that is the PR's, a red PR head or a rewritten hunk still refuses.
 The stand-in runs today's CI definition: a later change that weakens a check

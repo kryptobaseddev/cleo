@@ -1743,6 +1743,12 @@ export type FindGreenDescendantResult =
       untested?: UntestedJobFailure[];
       /** Later runs the search looked past, and why (T14086). */
       passedOver?: PassedOverRun[];
+      /**
+       * What was proven before the walk (T14434), for the caller whose
+       * re-judgement with this stand-in still fails (a required check that
+       * never ran on the merge commit): the current-head stand-in may be tried.
+       */
+      cleared: ClearedMerge;
     }
   | {
       ok: false;
@@ -1931,15 +1937,12 @@ export async function findGreenDescendant(
     if (!onHead.ok) return { ok: false, reason: onHead.reason };
     headChecks = onHead.checks;
   }
-  for (const name of head ? supersededNames : []) {
-    const pinned = headChecks.filter((c) => c.name === name && pinMatches(c, pins[name]));
-    const verdict = judgeOnSha(pinned, head as string, 'pull_request');
-    if (!verdict.ok) {
-      return {
-        ok: false,
-        reason: `${name}: ${verdict.verdict === 'missing' ? 'no pull_request run' : verdict.verdict} on PR head ${(head as string).slice(0, 12)} — a later main run never stands in for a PR whose own CI was not green`,
-      };
-    }
+  const redHead = head ? notGreenOnPrHead(supersededNames, headChecks, head, pins) : null;
+  if (redHead !== null) {
+    return {
+      ok: false,
+      reason: `${redHead} — a later main run never stands in for a PR whose own CI was not green`,
+    };
   }
   // T14434: from here only the walk can refuse; what was proven above lets the
   // caller try the current-head stand-in.
@@ -2073,12 +2076,33 @@ export async function findGreenDescendant(
       ...(nonTest ? { nonTest } : {}),
       ...(untested ? { untested } : {}),
       ...(passedOver.length > 0 ? { passedOver } : {}),
+      cleared,
     };
   }
   return refuse(
     `no later ${input.ref} commit (first ${CI_DESCENDANT_MAX_CANDIDATES} within 7 days) has a completed push run of ${supersededNames.join(', ')}` +
       (lastUndecided ? ` that ran the gates' jobs (first one passed over: ${lastUndecided})` : ''),
   );
+}
+
+/**
+ * The first of `names` whose latest `pull_request` run on the PR head is not
+ * green, described; null when every one is (T12742, T14434).
+ */
+function notGreenOnPrHead(
+  names: readonly string[],
+  headChecks: readonly CommitCheck[],
+  head: string,
+  pins: Record<string, RequiredCheckPinSpec>,
+): string | null {
+  for (const name of names) {
+    const pinned = headChecks.filter((c) => c.name === name && pinMatches(c, pins[name]));
+    const verdict = judgeOnSha(pinned, head, 'pull_request');
+    if (!verdict.ok) {
+      return `${name}: ${verdict.verdict === 'missing' ? 'no pull_request run' : verdict.verdict} on PR head ${head.slice(0, 12)}`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -2832,8 +2856,9 @@ export async function defaultFetchRunAttemptJobs(
  * adds a newer attempt that can go red. Every check judged on the
  * descendant is re-fetched and its latest `push` attempt (same app and
  * workflow) must still be `success`; each such check's latest
- * `pull_request` attempt on the recorded PR head must be too. Atoms without
- * `descendantSha` pass untouched.
+ * `pull_request` attempt on the recorded PR head must be too; for a
+ * `currentHead` atom (T14434) every required check on that head must be.
+ * Atoms without `descendantSha` pass untouched.
  *
  * @param atom - The recorded `ci:` atom.
  * @param cwd - Repository work tree for `gh`.
@@ -2876,7 +2901,9 @@ export async function recheckCiDescendantAtom(
         reason: `cannot re-check ci:${atom.prNumber} on ${sha.slice(0, 12)}: ${fetched.reason}`,
       };
     }
-    for (const c of stoodIn) {
+    // T14434: a current-head atom rests on every required check of the PR
+    // head, not only on those the head run stood in for.
+    for (const c of event === 'pull_request' && atom.currentHead ? atom.checks : stoodIn) {
       const verdict = judgeOnSha(
         fetched.checks.filter((run) => sameSource(run, c)),
         sha,
@@ -3222,6 +3249,7 @@ export async function resolveCiEvidenceAtom(
         };
       } else {
         descendantReason = `later commit ${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged.reasons.join('; ')}`;
+        cleared = found.cleared;
       }
     } else {
       descendantReason = found.reason;
@@ -3247,8 +3275,18 @@ export async function resolveCiEvidenceAtom(
     const wide = docsOnlyDiff
       ? null
       : await (opts.workspaceWideReason ?? defaultWorkspaceWideReason)(cwd, pr.changedPaths);
-    const scoped = wide === null ? cleared : undefined;
-    if (wide !== null || scoped) {
+    // D11241 asks that the PR head's own required CI was green: every required
+    // check there, not only those the walk stood in for. A main-only PR has no
+    // PR-head run to consult (T13174), so it never takes the scoped route.
+    const scopedHead = wide === null ? cleared?.prHeadSha : undefined;
+    const scoped = cleared && scopedHead ? { ...cleared, prHeadSha: scopedHead } : undefined;
+    const redHead = scoped
+      ? notGreenOnPrHead(required.workflows, scoped.headChecks, scoped.prHeadSha, pins)
+      : null;
+    const scopedLead = `the merge commit's run is not the PR's failure, so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (D11241), but `;
+    if (redHead !== null) {
+      currentHeadReason = `${scopedLead}${redHead}: the PR head's own required CI was not green`;
+    } else if (wide !== null || scoped) {
       const found = await findGreenCurrentHead({
         ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
         required: required.workflows,
@@ -3262,15 +3300,22 @@ export async function resolveCiEvidenceAtom(
         firstParentOf: opts.firstParentOf ?? defaultFirstParentOf,
         isAncestor: opts.isAncestor ?? defaultIsAncestor,
       });
-      const missing =
-        found.ok && scoped
-          ? (opts.missingPrHunk ?? missingPrHunk)(
-              pr.mergeCommitSha,
-              found.sha,
-              pr.changedPaths,
-              cwd,
-            )
-          : null;
+      // The run that is accepted can sit on a parent of the tip (the tip
+      // differs from it only in documentation, or CI's filter skipped it): the
+      // PR's hunks must be intact at both.
+      let missing: { at: string; hunk: string } | null = null;
+      for (const at of found.ok && scoped ? new Set([found.sha, found.head]) : []) {
+        const hunk = (opts.missingPrHunk ?? missingPrHunk)(
+          pr.mergeCommitSha,
+          at,
+          pr.changedPaths,
+          cwd,
+        );
+        if (hunk !== null) {
+          missing = { at, hunk };
+          break;
+        }
+      }
       const withHead = found.ok
         ? [...checks, ...found.checks, ...(scoped?.headChecks ?? [])]
         : checks;
@@ -3301,13 +3346,12 @@ export async function resolveCiEvidenceAtom(
         const why = !found.ok
           ? found.reason
           : missing !== null
-            ? `the PR's change is no longer intact at ${found.sha.slice(0, 12)}: ${missing}`
+            ? `the PR's change is no longer intact at ${missing.at.slice(0, 12)}: ${missing.hunk}`
             : `${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged && !rejudged.ok ? rejudged.reasons.join('; ') : ''}`;
         currentHeadReason =
           (wide !== null
             ? `the change is workspace-wide (${wide}), so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (T14032), but `
-            : `the merge commit's run is not the PR's failure and the PR head's own CI was green, so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (D11241), but `) +
-          why;
+            : scopedLead) + why;
       }
     }
   }
