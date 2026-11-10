@@ -995,8 +995,14 @@ export async function runUpgrade(
       } else if (lead.action === 'skipped') {
         actions.push({ action: 'lead_mailbox', status: 'skipped', details: lead.warning });
       }
-    } catch {
-      /* best-effort */
+    } catch (err) {
+      // T14448: a swallowed failure would report upgrade success with no
+      // mailbox and no warning — surface it instead.
+      actions.push({
+        action: 'lead_mailbox',
+        status: 'error',
+        details: `Lead mailbox: ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
 
     // Install global schemas

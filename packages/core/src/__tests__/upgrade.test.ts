@@ -523,6 +523,21 @@ describe('runUpgrade structural parity', () => {
     ).toBeUndefined();
   });
 
+  it('a lead-mailbox failure surfaces as an error action, not a swallowed success (T14448)', async () => {
+    writeFileSync(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({ orchestrate: { leadWorker: { v1: true } } }),
+    );
+    const throwing: MbxRunner = async () => {
+      throw new Error('mbx exploded');
+    };
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: throwing });
+    const action = result.actions.find((a) => a.action === 'lead_mailbox');
+    expect(action?.status).toBe('error');
+    expect(action?.details).toContain('mbx exploded');
+  });
+
   it('installs the heavy-command hook as its own step and reports a blocked provider (T13124)', async () => {
     mkdirSync(join(tmpDir, '.claude'));
     writeFileSync(join(tmpDir, '.codex'), '');

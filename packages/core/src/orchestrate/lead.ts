@@ -24,6 +24,7 @@
 import { randomUUID } from 'node:crypto';
 import type { LeadDeniedTool, LeadMcpReport, LeadMode } from '@cleocode/contracts';
 import {
+  E_LEAD_MAILBOX_MISSING,
   E_LEAD_NO_OWNER_CHANNEL,
   LEAD_ASK_TOOL,
   LEAD_DENIED_TOOLS,
@@ -32,13 +33,16 @@ import {
 } from '@cleocode/contracts/operations/orchestrate.js';
 import { type ProcessLiveness, readProcessStartTime } from '@cleocode/worktree';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { getProjectRoot } from '../paths.js';
+import { getProjectRoot, resolveCleoDir } from '../paths.js';
+import { readProjectInfoAtDirectory } from '../project-scope.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { endSession } from '../store/session-store.js';
 import {
   type AgentMbxClient,
   claimLeadMailbox,
   createAgentMbxClient,
+  type EnsureLeadMailboxResult,
+  ensureLeadMailbox,
   type MbxIdentityStatus,
   type MbxOutcome,
 } from './agentmbx.js';
@@ -161,11 +165,15 @@ function leadMcpOf(data: object): LeadMcpReport | null {
  *
  * Refuses unless `orchestrate.leadWorker.v1` is on (`E_LEAD_WORKER_DISABLED`)
  * and the id names an epic (`E_VALIDATION`), and while a live lead already
- * runs the epic (`E_LEAD_RUNNING`). The lead mailbox is claimed once the spawn
- * is admitted and released when the lead exits (interactive: here; detached:
- * its `SessionEnd` hook, or the reaper if it was killed); a failed claim does
- * not stop the lead and is reported under `data.lead.mailbox`. The MCP servers
- * the lead loaded (runner plus mbx only, T14423) are under `data.lead.mcp`.
+ * runs the epic (`E_LEAD_RUNNING`). With the flag on and no recorded lead
+ * mailbox it records one first; when agentmbx cannot back a mailbox it
+ * refuses before any spawn with `E_LEAD_MAILBOX_MISSING` and the exact fix
+ * (T14448) — a lead workers cannot report to never starts. The lead mailbox
+ * is claimed once the spawn is admitted and released when the lead exits
+ * (interactive: here; detached: its `SessionEnd` hook, or the reaper if it
+ * was killed); a failed claim does not stop the lead and is reported under
+ * `data.lead.mailbox`. The MCP servers the lead loaded (runner plus mbx
+ * only, T14423) are under `data.lead.mcp`.
  *
  * @param epicId - Epic the lead runs.
  * @param options - See {@link OrchestrateLeadOptions}.
@@ -219,6 +227,34 @@ export async function orchestrateLead(
       details: { epicId, lead: running },
       fix: `Wait for the running lead to exit (pid ${pids}); a dead one is reaped on the next cleo orchestrate lead or status.`,
     });
+  }
+
+  // T14448 — a lead workers cannot report to never starts. With the flag on
+  // and no recorded mailbox, record one right here (`cleo init` refuses on an
+  // initialized project; `cleo upgrade` is the non-destructive verb, and the
+  // record is idempotent). If agentmbx cannot back one, refuse before any
+  // spawn with the exact fix instead of starting a mailbox-less lead.
+  const ensured: EnsureLeadMailboxResult = await ensureLeadMailbox(
+    root,
+    await readProjectInfoAtDirectory(root, resolveCleoDir(root)),
+    client,
+  ).catch((err: unknown): EnsureLeadMailboxResult => {
+    return {
+      action: 'skipped',
+      warning: `Recording the lead mailbox failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  });
+  if (ensured.action === 'skipped') {
+    // @sync-invariant none:local-only a lead with no reportable mailbox never spawns
+    return engineError(
+      E_LEAD_MAILBOX_MISSING,
+      `No lead mailbox is available for ${epicId}: ${ensured.warning}`,
+      {
+        exitCode: 6,
+        details: { epicId },
+        fix: 'Install agentmbx, then run `cleo upgrade` (with `cleo config set orchestrate.leadWorker.v1 true`) to record the lead mailbox; or record it by hand with `cleo config set orchestrate.leadMailbox.name <mailbox-name>`.',
+      },
+    );
   }
 
   const mode = options.mode ?? 'interactive';

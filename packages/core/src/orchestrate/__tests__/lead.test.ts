@@ -212,6 +212,44 @@ describe('orchestrateLead (T14363)', () => {
     expect(provider.state.seen).toHaveLength(0);
   });
 
+  it('flag on, no recorded mailbox, agentmbx absent: refuses with E_LEAD_MAILBOX_MISSING before any spawn (T14448)', async () => {
+    setOrchestrate(env.tempDir, { leadWorker: { v1: true } });
+    const { orchestrateLead } = await import('../lead.js');
+    const absent: AgentMbxClient = {
+      available: async () => false,
+      send: async () => ({ ok: false, warning: 'absent' }),
+      inbox: async () => ({ ok: false, warning: 'absent' }),
+      claim: async () => ({ ok: false, warning: 'absent' }),
+      status: async () => ({ ok: false, warning: 'absent' }),
+      release: async () => ({ ok: true, value: { name: null, state: 'unbound', unread: 0 } }),
+    };
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: absent,
+    });
+    expect(result).toMatchObject({ success: false, error: { code: 'E_LEAD_MAILBOX_MISSING' } });
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.fix).toContain('`cleo upgrade`');
+    expect(provider.state.seen).toHaveLength(0);
+  });
+
+  it('flag on, no recorded mailbox, agentmbx present: records it itself, then claims the recorded name (T14448)', async () => {
+    setOrchestrate(env.tempDir, { leadWorker: { v1: true } });
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+    });
+    expect(result.success).toBe(true);
+    const config = JSON.parse(readFileSync(join(env.tempDir, '.cleo', 'config.json'), 'utf-8')) as {
+      orchestrate: { leadMailbox?: { name?: string } };
+    };
+    const name = config.orchestrate.leadMailbox?.name;
+    expect(name).toMatch(/-lead$/);
+    expect(mbx.claims[0]?.name).toBe(name);
+  });
+
   it('interactive (default): tool-stripped, own session, mailbox claimed on admission and released when the session ends', async () => {
     withMailbox();
     provider.state.status = 'completed'; // the owner ended the interactive session
