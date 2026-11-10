@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  CreateWorktreeFailure,
   CreateWorktreeOptions,
   CreateWorktreeResult,
   WorktreeHook,
@@ -53,6 +54,7 @@ import {
   appendWorktreeAuditLog,
   readRecordedWorktreeBase,
 } from './worktree-audit.js';
+import { destroyWorktree } from './worktree-destroy.js';
 import { acquireWorktreeTaskLock, releaseWorktreeTaskLock } from './worktree-lock.js';
 import { assertNoWorktreeConfigLeak, ensureWorktreeBuildReady } from './worktree-preflight.js';
 
@@ -442,7 +444,9 @@ export function buildWorktreeEnvVars(
  * @param projectRoot - Absolute path to the project root directory.
  * @param options - Options controlling the worktree creation.
  * @returns The created worktree result with env vars and preamble.
- * @throws Error if git worktree add fails.
+ * @throws Error if git worktree add fails. Every rethrown error carries
+ *   {@link CreateWorktreeFailure}: a worktree this call created is already
+ *   removed, under the per-task lock, and the outcome is in `cleanup` (T14407).
  *
  * @task T1161
  * @task T1878
@@ -509,13 +513,30 @@ export async function createWorktree(
   try {
     return await provisionUnderLock(projectRoot, options, ctx);
   } catch (err) {
-    releaseWorktreeTaskLock(projectHash, taskId, lock.record.token);
-    // T12506: tell callers whether THIS call created the worktree directory.
-    // Only then may they clean it up; any other failure left a pre-existing
-    // (possibly live) worktree that must never be destroyed.
-    if (err !== null && typeof err === 'object') {
-      Object.assign(err, { freshWorktreeCreated: ctx.freshWorktreeCreated });
+    // T12506: only a worktree THIS call created may go; any other failure left
+    // a pre-existing (possibly live) worktree that must never be destroyed.
+    // T14407: it is removed here, before the lock is released. Afterwards a
+    // concurrent re-spawn may own the path, so no caller may clean up.
+    const failure: CreateWorktreeFailure = { freshWorktreeCreated: ctx.freshWorktreeCreated };
+    if (ctx.freshWorktreeCreated) {
+      try {
+        failure.cleanup = await destroyWorktree(projectRoot, {
+          taskId,
+          deleteBranch: true,
+          force: true,
+          reason: 'failed-provision-cleanup',
+        });
+      } catch (cleanupErr) {
+        failure.cleanup = {
+          taskId,
+          worktreeRemoved: false,
+          branchDeleted: false,
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        };
+      }
     }
+    releaseWorktreeTaskLock(projectHash, taskId, lock.record.token);
+    if (err !== null && typeof err === 'object') Object.assign(err, failure);
     throw err;
   }
 }

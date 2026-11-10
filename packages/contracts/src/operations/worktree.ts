@@ -572,6 +572,23 @@ export interface DestroyWorktreeResult {
 }
 
 /**
+ * What `createWorktree` attaches to the error it rethrows.
+ *
+ * @task T12506
+ * @task T14407
+ */
+export interface CreateWorktreeFailure {
+  /** True when the failing call itself created the worktree directory. */
+  freshWorktreeCreated: boolean;
+  /**
+   * The removal of that fresh worktree, run while the per-task lock was still
+   * held. Absent when the call created none. Callers must not clean up again:
+   * the lock is released by then, so a concurrent re-spawn may own the path.
+   */
+  cleanup?: DestroyWorktreeResult;
+}
+
+/**
  * Receipt of a worktree archived before removal (T13924): every commit and
  * every uncommitted change it held, as a ref in the repository and a patch on
  * disk. Written beside the patch as `<name>.json`.

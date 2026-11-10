@@ -134,9 +134,7 @@ vi.mock('../../resources/governor.js', async () => {
 });
 
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.
-const { orchestrateSpawn, runLintChangesets, shouldCleanUpFailedProvision } = await import(
-  '../spawn-ops.js'
-);
+const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
 
 // ---------------------------------------------------------------------------
 // runLintChangesets — T10448 pre-spawn hygiene gate
@@ -527,24 +525,6 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     taskId: 'T9999',
   };
 
-  it('shouldCleanUpFailedProvision: only a worktree this call freshly created', () => {
-    expect(
-      shouldCleanUpFailedProvision(Object.assign(new Error('x'), { freshWorktreeCreated: true })),
-    ).toBe(true);
-    expect(
-      shouldCleanUpFailedProvision(Object.assign(new Error('x'), { freshWorktreeCreated: false })),
-    ).toBe(false);
-    expect(shouldCleanUpFailedProvision(new Error('EACCES: link failed'))).toBe(false);
-    expect(
-      shouldCleanUpFailedProvision(
-        Object.assign(new Error('E_WORKTREE_LOCKED'), {
-          code: 'E_WORKTREE_LOCKED',
-          freshWorktreeCreated: true,
-        }),
-      ),
-    ).toBe(false);
-  });
-
   it('a lock I/O failure (e.g. link ENOTSUP/EACCES) never triggers destroyWorktree (item 1)', async () => {
     reset();
     spawnWorktreeMock.mockRejectedValue(
@@ -586,22 +566,20 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 
-  it('cleanup still runs for a worktree this call freshly created', async () => {
+  it('reports the cleanup createWorktree ran under the lock and never removes after it (T14407)', async () => {
     reset();
+    // createWorktree removed its fresh worktree before releasing the task
+    // lock; by now a concurrent re-spawn may own the path.
     spawnWorktreeMock.mockRejectedValue(
-      Object.assign(new Error('post-create hook failed'), { freshWorktreeCreated: true }),
+      Object.assign(new Error('post-create hook failed'), {
+        freshWorktreeCreated: true,
+        cleanup: { taskId: 'T9999', worktreeRemoved: true, branchDeleted: true },
+      }),
     );
-    destroyWorktreeMock.mockResolvedValue({
-      taskId: 'T9999',
-      worktreeRemoved: true,
-      branchDeleted: true,
-      dirty: false,
-      force: true,
-      hookResults: [],
-    });
     const result = await orchestrateSpawn('T9999');
     expect(result.error?.code).toBe('E_WORKTREE_PROVISION_FAILED');
-    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
+    expect(result.error?.details).toMatchObject({ cleanup: 'Orphan worktree cleaned up' });
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 
   it('releases the lock when the spawn fails after provisioning, so a retry is not exit 25 (item 2a)', async () => {

@@ -149,11 +149,12 @@ describe('orchestrateSpawnExecute — fail-closed isolation (T14358)', () => {
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 
-  it('flag on: a refusal removes the worktree the failing call freshly created (T14396 AC1)', async () => {
+  it('flag on: a refusal reports the fresh worktree createWorktree removed under the lock (T14396 AC1, T14407)', async () => {
     setLeadWorkerV1(env.tempDir, true);
     spawnWorktreeMock.mockRejectedValueOnce(
       Object.assign(new Error('hook failed after git worktree add'), {
         freshWorktreeCreated: true,
+        cleanup: { taskId: 'T001', worktreeRemoved: true, branchDeleted: true },
       }),
     );
     const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
@@ -163,11 +164,8 @@ describe('orchestrateSpawnExecute — fail-closed isolation (T14358)', () => {
 
     expect(result.success).toBe(false);
     expect(adapterSpawn).not.toHaveBeenCalled();
-    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
-    expect(destroyWorktreeMock.mock.calls[0]).toEqual([
-      env.tempDir,
-      expect.objectContaining({ taskId: 'T001', deleteBranch: true, force: true }),
-    ]);
+    // The task lock is released by now: removing here could hit a re-spawn's worktree.
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
     expect(result.error?.details).toMatchObject({
       isolation: 'refused',
       cleanup: { attempted: true, worktreeRemoved: true },

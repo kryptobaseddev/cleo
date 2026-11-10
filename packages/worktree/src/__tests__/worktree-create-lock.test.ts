@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import type { WorktreeLockRecord } from '@cleocode/contracts';
 import { BRANCH_LOCK_ERROR_CODES, ExitCode } from '@cleocode/contracts';
 import { resolveWorktreeTaskLockPath } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeProjectHash, resolveTaskWorktreePath } from '../paths.js';
 import { createWorktree } from '../worktree-create.js';
 import { destroyWorktree } from '../worktree-destroy.js';
@@ -33,6 +33,22 @@ import {
   releaseWorktreeTaskLock,
   releaseWorktreeTaskLocksForSession,
 } from '../worktree-lock.js';
+
+/** T14407: runs once, right before the next `destroyWorktree` does its work. */
+const beforeNextDestroy = vi.hoisted(() => ({ run: null as (() => Promise<void>) | null }));
+
+vi.mock('../worktree-destroy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../worktree-destroy.js')>();
+  return {
+    ...actual,
+    destroyWorktree: async (...args: Parameters<typeof actual.destroyWorktree>) => {
+      const run = beforeNextDestroy.run;
+      beforeNextDestroy.run = null;
+      await run?.();
+      return actual.destroyWorktree(...args);
+    },
+  };
+});
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -345,6 +361,51 @@ describe('createWorktree — per-task lock (T12506)', () => {
     expect(readWorktreeTaskLock(computeProjectHash(projectRoot), 'T7006')).toBeNull();
     // Branch untouched.
     expect(git(['log', '--format=%s', 'task/T7006'], projectRoot)).toContain('orphan');
+  });
+
+  it('a failed provision removes its fresh worktree before the lock goes, so a concurrent re-spawn is refused and its own worktree is never removed (T14407)', async () => {
+    writeFileSync(join(projectRoot, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    git(['add', 'pnpm-lock.yaml'], projectRoot);
+    git(['commit', '-m', 'lockfile'], projectRoot);
+    const projectHash = computeProjectHash(projectRoot);
+    const worktreePath = resolveTaskWorktreePath(projectHash, 'T7011');
+    const respawn = () =>
+      createWorktree(projectRoot, {
+        taskId: 'T7011',
+        lockWorktree: false,
+        skipInstall: true,
+        holder: { sessionId: 'ses_respawn', agentId: 'agent-respawn' },
+      });
+
+    // A re-spawn arrives while the failed call is cleaning up.
+    let duringCleanup: unknown;
+    beforeNextDestroy.run = async () => {
+      expect(existsSync(worktreePath)).toBe(true);
+      duringCleanup = await respawn().catch((e: unknown) => e);
+    };
+    const err = await createWorktree(projectRoot, {
+      taskId: 'T7011',
+      lockWorktree: false,
+      admitInstall: async () => {
+        throw new Error('admission failed');
+      },
+    }).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({
+      message: 'admission failed',
+      freshWorktreeCreated: true,
+      cleanup: { worktreeRemoved: true },
+    });
+    // Refused, not re-attached to the worktree being removed.
+    expect(isWorktreeLockedError(duringCleanup)).toBe(true);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(readWorktreeTaskLock(projectHash, 'T7011')).toBeNull();
+
+    // The retry gets its own fresh worktree, and no cleanup is left to remove it.
+    const second = await respawn();
+    expect(second.reused).toBe(false);
+    expect(existsSync(second.path)).toBe(true);
+    expect(readWorktreeTaskLock(projectHash, 'T7011')?.token).toBe(second.lock?.record.token);
   });
 });
 
