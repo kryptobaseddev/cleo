@@ -1092,8 +1092,6 @@ export interface ReviewConfig {
     /**
      * Owner decision only: let `cleo review dispatch --counted` send reviewers
      * whose verdicts count toward a merge. Off, every dispatch is shadow.
-     * Sealed in `.cleo/owner-settings.json` (T14403); a value in config.json
-     * is ignored.
      *
      * @defaultValue false
      */
