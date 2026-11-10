@@ -430,18 +430,68 @@ describe('orchestrateLead (T14363)', () => {
     expect(before.claims).toHaveLength(0);
   });
 
-  it('a failed mailbox claim is reported, not fatal', async () => {
+  it('a rejected mailbox claim stops the lead before any spawn, naming the holder fix (T14448)', async () => {
     withMailbox();
     provider.state.status = 'completed';
     const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(false);
     const result = await orchestrateLead('T100', {
       projectRoot: env.tempDir,
-      mbxClient: fakeMbx(false).client,
+      mbxClient: mbx.client,
     });
     expect(result).toMatchObject({
-      success: true,
-      data: { lead: { mailbox: { claimed: false, warning: 'agentmbx refused' } } },
+      success: false,
+      error: { code: 'E_LEAD_MAILBOX_MISSING', exitCode: 6 },
     });
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.message).toContain('could not be claimed');
+    expect(result.error.fix).toContain('release');
+    expect(result.error.fix).toContain('wait for the holder');
+    // No spawn ran, no lead record stands, and the failed claim is not held.
+    expect(provider.state.seen).toHaveLength(0);
+    expect(mbx.claims).toHaveLength(1);
+    expect(mbx.releases).toHaveLength(0);
+    const { readLeadRecord } = await import('../lead-records.js');
+    expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
+  });
+
+  it('detached: a rejected mailbox claim refuses before any spawn too (T14448)', async () => {
+    withMailbox();
+    provider.state.status = 'completed';
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(false);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      mode: 'detached',
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'E_LEAD_MAILBOX_MISSING', exitCode: 6 },
+    });
+    expect(provider.state.seen).toHaveLength(0);
+    expect(mbx.claims).toHaveLength(1);
+  });
+
+  it('unreadable project metadata refuses with E_LEAD_MAILBOX_MISSING and the recorded fix (T14448)', async () => {
+    setOrchestrate(env.tempDir, { leadWorker: { v1: true } });
+    const { rmSync } = await import('node:fs');
+    rmSync(join(env.tempDir, '.cleo', 'project-info.json'));
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'E_LEAD_MAILBOX_MISSING', exitCode: 6 },
+    });
+    if (result.success) throw new Error('expected a refusal');
+    expect(result.error.message).toContain('Recording the lead mailbox failed');
+    expect(result.error.fix).toContain('`cleo upgrade`');
+    expect(provider.state.seen).toHaveLength(0);
+    expect(mbx.claims).toHaveLength(0);
   });
 
   it('no mbx server configured: data.lead says the lead runs with the runner alone (T14423)', async () => {

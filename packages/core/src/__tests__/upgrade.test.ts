@@ -538,6 +538,20 @@ describe('runUpgrade structural parity', () => {
     expect(action?.details).toContain('mbx exploded');
   });
 
+  it('an unreadable config file surfaces as a lead-mailbox error action too (T14448)', async () => {
+    writeFileSync(join(cleoDir, 'config.json'), '{not json');
+    const runner: MbxRunner = async (args) => {
+      if (args[0] === '--version')
+        return { missing: false, exitCode: 0, stdout: '0.5.58', stderr: '' };
+      return { missing: false, exitCode: 2, stdout: '', stderr: 'unknown command\n' };
+    };
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: runner });
+    const action = result.actions.find((a) => a.action === 'lead_mailbox');
+    expect(action?.status).toBe('error');
+    expect(action?.details).toContain('Lead mailbox:');
+  });
+
   it('installs the heavy-command hook as its own step and reports a blocked provider (T13124)', async () => {
     mkdirSync(join(tmpDir, '.claude'));
     writeFileSync(join(tmpDir, '.codex'), '');

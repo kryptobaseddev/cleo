@@ -10,9 +10,9 @@
  *   {@link LEAD_RUNNER_TOOL} (T14374), wired by the provider adapter;
  * - it runs interactive (the caller's terminal, `AskUserQuestion`) or
  *   `--detached` (owner decisions as an AgentMBX `hitl.request`);
- * - once the lead is admitted, the project lead mailbox is claimed for its
- *   provider session and a lead record keeps one lead per epic for as long
- *   as the lead process lives (T14379; see lead-records.ts);
+ * - before any spawn, the project lead mailbox is recorded when missing and
+ *   claimed for the lead's provider session; a lead record keeps one lead per
+ *   epic for as long as the lead process lives (T14379; see lead-records.ts);
  * - the workers it dispatches go through `orchestrateSpawnExecute`, which
  *   applies fail-closed isolation (T14358), durable worker records (T14359)
  *   and the report contract in their prompt (T14361).
@@ -169,11 +169,11 @@ function leadMcpOf(data: object): LeadMcpReport | null {
  * mailbox it records one first; when agentmbx cannot back a mailbox it
  * refuses before any spawn with `E_LEAD_MAILBOX_MISSING` and the exact fix
  * (T14448) — a lead workers cannot report to never starts. The lead mailbox
- * is claimed once the spawn is admitted and released when the lead exits
- * (interactive: here; detached: its `SessionEnd` hook, or the reaper if it
- * was killed); a failed claim does not stop the lead and is reported under
- * `data.lead.mailbox`. The MCP servers the lead loaded (runner plus mbx
- * only, T14423) are under `data.lead.mcp`.
+ * is claimed before the spawn is dispatched (both modes) and released when
+ * the lead exits (interactive: here; detached:
+ * its `SessionEnd` hook, or the reaper if it was killed); a failed claim
+ * refuses the lead with the holder/release fix. The MCP servers
+ * the lead loaded (runner plus mbx only, T14423) are under `data.lead.mcp`.
  *
  * @param epicId - Epic the lead runs.
  * @param options - See {@link OrchestrateLeadOptions}.
@@ -232,18 +232,21 @@ export async function orchestrateLead(
   // T14448 — a lead workers cannot report to never starts. With the flag on
   // and no recorded mailbox, record one right here (`cleo init` refuses on an
   // initialized project; `cleo upgrade` is the non-destructive verb, and the
-  // record is idempotent). If agentmbx cannot back one, refuse before any
-  // spawn with the exact fix instead of starting a mailbox-less lead.
-  const ensured: EnsureLeadMailboxResult = await ensureLeadMailbox(
-    root,
-    await readProjectInfoAtDirectory(root, resolveCleoDir(root)),
-    client,
-  ).catch((err: unknown): EnsureLeadMailboxResult => {
-    return {
-      action: 'skipped',
-      warning: `Recording the lead mailbox failed: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  });
+  // record is idempotent). Project metadata that cannot be read counts the
+  // same: the refusal carries the cause, never a raw thrown error. If
+  // agentmbx cannot back one, refuse before any spawn with the exact fix
+  // instead of starting a mailbox-less lead.
+  const ensured: EnsureLeadMailboxResult = await (async (): Promise<EnsureLeadMailboxResult> => {
+    try {
+      const project = await readProjectInfoAtDirectory(root, resolveCleoDir(root));
+      return await ensureLeadMailbox(root, project, client);
+    } catch (err) {
+      return {
+        action: 'skipped',
+        warning: `Recording the lead mailbox failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  })();
   if (ensured.action === 'skipped') {
     // @sync-invariant none:local-only a lead with no reportable mailbox never spawns
     return engineError(
@@ -259,19 +262,33 @@ export async function orchestrateLead(
 
   const mode = options.mode ?? 'interactive';
   const sessionId = randomUUID();
+  // T14448 — the claim is taken before any spawn, in both modes: a lead whose
+  // mailbox another session holds (or that agentmbx refuses) must not start,
+  // because its workers would have nothing to report to. A refused or failed
+  // spawn gives the claim straight back (settle below).
+  const claim = await claimLeadMailbox(
+    root,
+    { cli: LEAD_PROVIDER_CLI, session: sessionId },
+    client,
+  );
+  if (!claim.ok) {
+    // @sync-invariant none:local-only a lead whose mailbox cannot be claimed never spawns
+    return engineError(
+      E_LEAD_MAILBOX_MISSING,
+      `The lead mailbox for ${epicId} could not be claimed: ${claim.warning}`,
+      {
+        exitCode: 6,
+        details: { epicId },
+        fix: 'The mailbox is held by another session, or agentmbx refused the claim: release it (`agentmbx identity release --cli claude --session <session>`) or wait for the holder to exit — a dead holder is reaped by the next `cleo orchestrate lead` or `cleo orchestrate status`.',
+      },
+    );
+  }
   const state: { claim: MbxOutcome<MbxIdentityStatus>; record: LeadRecord | null } = {
-    claim: { ok: false, warning: 'the lead was not admitted, so no mailbox was claimed' },
+    claim,
     record: null,
   };
-  // Claim the mailbox and record the lead only once the spawn is admitted:
-  // a refused spawn never takes either.
+  // The mailbox is already claimed (above); admission only records the lead.
   const onAdmitted = async (lead: { cleoSessionId: string }): Promise<void> => {
-    const claim = await claimLeadMailbox(
-      root,
-      { cli: LEAD_PROVIDER_CLI, session: sessionId },
-      client,
-    );
-    state.claim = claim;
     state.record = {
       epicId,
       // This CLI (it waits in the owner's terminal for an interactive lead);
@@ -281,7 +298,7 @@ export async function orchestrateLead(
       cleoSessionId: lead.cleoSessionId,
       providerSessionId: sessionId,
       providerCli: LEAD_PROVIDER_CLI,
-      mailbox: claim.ok ? (claim.value.name ?? null) : null,
+      mailbox: claim.value.name ?? null,
       tempDir: null,
       startedAt: new Date().toISOString(),
     };
@@ -296,9 +313,11 @@ export async function orchestrateLead(
   };
   /** Give back what the lead held: mailbox, CLEO session (the epic claim), record. */
   const settle = async (endLeadSession: boolean): Promise<void> => {
+    // The claim precedes the record (T14448): a spawn refused before
+    // admission still gets its pre-taken claim straight back.
+    if (state.claim.ok) await client.release({ cli: LEAD_PROVIDER_CLI, session: sessionId });
     const held = state.record;
     if (held === null) return;
-    if (state.claim.ok) await client.release({ cli: LEAD_PROVIDER_CLI, session: sessionId });
     if (endLeadSession) {
       await endSession(held.cleoSessionId, 'lead exited', root).catch(() => undefined);
     }
