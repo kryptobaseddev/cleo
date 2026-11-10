@@ -933,7 +933,7 @@ async function runScopedNexusAnalysis(
 
   // Best-effort: refresh nexus-bridge.md
   try {
-    const { refreshNexusBridge } = await import('@cleocode/core/internal' as string);
+    const { refreshNexusBridge } = await import('./nexus-bridge.js');
     await refreshNexusBridge(repoPath, projectId);
   } catch {
     // non-fatal
@@ -941,7 +941,7 @@ async function runScopedNexusAnalysis(
 
   // Best-effort: update multi-project registry
   try {
-    const { nexusUpdateIndexStats } = await import('@cleocode/core/internal' as string);
+    const { nexusUpdateIndexStats } = await import('./registry.js');
     await nexusUpdateIndexStats(repoPath, {
       nodeCount: result.nodeCount,
       relationCount: result.relationCount,
