@@ -204,4 +204,88 @@ describe('lead mailbox config', () => {
     expect(leadMailboxName('cleocode', 'x')).toBe('cleocode-2d7116-lead');
     expect(leadMailboxName('--', 'x')).toBe('project-2d7116-lead');
   });
+
+  it('a claim of an unregistered mailbox registers it (self-addressed send) and retries the claim (T14477)', async () => {
+    await writeFile(
+      configPath(),
+      JSON.stringify({
+        orchestrate: {
+          leadWorker: { v1: true },
+          leadMailbox: { name: 'my-project-9a7b43-lead', projectId: 'pid-1', cli: 'claude' },
+        },
+      }),
+    );
+    const calls: string[][] = [];
+    let registered = false;
+    const runner: MbxRunner = async (args) => {
+      calls.push([...args]);
+      if (args[0] === '--version')
+        return { missing: false, exitCode: 0, stdout: '0.5.58', stderr: '' };
+      if (args[0] === 'identity')
+        return registered
+          ? {
+              missing: false,
+              exitCode: 0,
+              stdout: JSON.stringify({ identity: { name: args[2], state: 'bound' }, unread: 0 }),
+              stderr: '',
+            }
+          : {
+              missing: false,
+              exitCode: 2,
+              stdout: '',
+              stderr:
+                'my-project-9a7b43-lead is not a registered identity yet: pass role (e.g. lead, reviewer, builder) to claim it\n',
+            };
+      if (args[0] === 'send') {
+        registered = true;
+        return { missing: false, exitCode: 0, stdout: JSON.stringify({ id: 'msg-1' }), stderr: '' };
+      }
+      return { missing: false, exitCode: 2, stdout: '', stderr: 'unknown command\n' };
+    };
+    const claim = await claimLeadMailbox(
+      root,
+      { cli: 'claude', session: 's1' },
+      createAgentMbxClient(runner),
+    );
+    expect(claim).toMatchObject({ ok: true, value: { name: 'my-project-9a7b43-lead' } });
+    const sends = calls.filter((c) => c[0] === 'send');
+    expect(sends).toHaveLength(1);
+    expect(sends[0]).toContain('--new-mailbox');
+    expect(sends[0]).toContain('my-project-9a7b43-lead');
+    // Self-addressed only: no other mailbox is touched.
+    expect(sends[0]?.[sends[0].indexOf('--to') + 1]).toBe('my-project-9a7b43-lead');
+    expect(calls.filter((c) => c[0] === 'identity' && c[1] === 'claim')).toHaveLength(2);
+  });
+
+  it('a claim refused for another holder registers nothing (T14448)', async () => {
+    await writeFile(
+      configPath(),
+      JSON.stringify({
+        orchestrate: {
+          leadWorker: { v1: true },
+          leadMailbox: { name: 'my-project-9a7b43-lead', projectId: 'pid-1', cli: 'claude' },
+        },
+      }),
+    );
+    const calls: string[][] = [];
+    const runner: MbxRunner = async (args) => {
+      calls.push([...args]);
+      if (args[0] === 'identity')
+        return {
+          missing: false,
+          exitCode: 2,
+          stdout: '',
+          stderr: 'mailbox is held by another session\n',
+        };
+      return { missing: false, exitCode: 0, stdout: '{"id":"x"}', stderr: '' };
+    };
+    const claim = await claimLeadMailbox(
+      root,
+      { cli: 'claude', session: 's1' },
+      createAgentMbxClient(runner),
+    );
+    expect(claim.ok).toBe(false);
+    expect(calls.filter((c) => c[0] === 'send')).toHaveLength(0);
+    expect(calls.filter((c) => c[0] === 'identity' && c[1] === 'claim')).toHaveLength(1);
+  });
 });

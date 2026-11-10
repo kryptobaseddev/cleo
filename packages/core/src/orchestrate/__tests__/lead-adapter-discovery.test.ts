@@ -21,6 +21,7 @@ const grantedMbx: AgentMbxClient = {
   claim: async (name) => ({ ok: true, value: { name, state: 'bound', unread: 0 } }),
   status: async () => ({ ok: true, value: { name: null, state: 'unknown', unread: 0 } }),
   release: async () => ({ ok: true, value: { name: null, state: 'unbound', unread: 0 } }),
+  register: async () => ({ ok: false, warning: 'not used here' }),
 };
 
 // Stop after real discovery/selection and the session claim, before any agent can run.

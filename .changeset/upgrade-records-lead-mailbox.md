@@ -19,9 +19,16 @@ surfaces a `skipped` action instead of writing anything, and a failure
 of being swallowed as success.
 
 `cleo orchestrate lead` now records the mailbox itself before any spawn when
-the flag is on and none is recorded, and refuses with `E_LEAD_MAILBOX_MISSING`
-naming the exact fix (`cleo upgrade`, the config set, or the hand record) when
-agentmbx cannot back one — a lead workers cannot report to never starts.
+the flag is on and none is recorded, claims it before the spawn is dispatched
+in both modes, and refuses with `E_LEAD_MAILBOX_MISSING` naming the exact fix
+(`cleo upgrade`, the config set, the hand record, or the holder release/wait)
+when agentmbx cannot back one, the claim is held elsewhere, or the spawn
+throws before its own guard (the pre-taken claim is released) — a lead
+workers cannot report to never starts. A recorded name agentmbx has never
+heard of (T14477: the recording only wrote config) is registered first with a
+lease-free self-addressed `agentmbx send --new-mailbox` and the claim is
+retried once before any refusal; agentmbx 0.5.58 has no lease-free
+`identity register`, so the role stays unset until a session claims it.
 
 The lead-mailbox warnings now name `cleo upgrade` as the fix — including the
 `cleo orchestrate lead` claim refusal — instead of the unreachable

@@ -325,16 +325,25 @@ export async function orchestrateLead(
   };
 
   const spawn = options.spawn ?? orchestrateSpawnExecute;
-  const result = await spawn(epicId, options.adapterId, undefined, root, 1, {
-    lead: {
-      deniedTools: LEAD_DENIED_TOOLS,
-      sessionId,
-      mode,
-      promptAppendix: leadModePrompt(mode),
-      onAdmitted,
-      onStarted,
-    },
-  });
+  let result: Awaited<ReturnType<typeof orchestrateSpawnExecute>>;
+  try {
+    result = await spawn(epicId, options.adapterId, undefined, root, 1, {
+      lead: {
+        deniedTools: LEAD_DENIED_TOOLS,
+        sessionId,
+        mode,
+        promptAppendix: leadModePrompt(mode),
+        onAdmitted,
+        onStarted,
+      },
+    });
+  } catch (err) {
+    // T14448: admission can throw before spawn-ops' own guard, which would
+    // skip settle and leak the pre-taken mailbox claim with no lead record
+    // for the reaper to find. Give the claim back, then surface the throw.
+    await settle(false);
+    throw err;
+  }
   const data =
     result.success && typeof result.data === 'object' && result.data !== null ? result.data : {};
   const started = result.success && 'status' in data && data.status !== 'failed';

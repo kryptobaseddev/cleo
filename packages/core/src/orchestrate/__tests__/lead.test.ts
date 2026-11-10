@@ -146,6 +146,7 @@ function fakeMbx(grant: boolean): {
       provider.state.events.push('release');
       return { ok: true, value: { name: null, state: 'unbound', unread: 0 } };
     },
+    register: async () => ({ ok: false, warning: 'registration not expected in this fake' }),
   };
   return { client, claims, releases };
 }
@@ -222,6 +223,7 @@ describe('orchestrateLead (T14363)', () => {
       claim: async () => ({ ok: false, warning: 'absent' }),
       status: async () => ({ ok: false, warning: 'absent' }),
       release: async () => ({ ok: true, value: { name: null, state: 'unbound', unread: 0 } }),
+      register: async () => ({ ok: false, warning: 'absent' }),
     };
     const result = await orchestrateLead('T100', {
       projectRoot: env.tempDir,
@@ -471,6 +473,25 @@ describe('orchestrateLead (T14363)', () => {
     });
     expect(provider.state.seen).toHaveLength(0);
     expect(mbx.claims).toHaveLength(1);
+  });
+
+  it('a throwing spawn releases the pre-taken claim and leaves no record (T14448)', async () => {
+    withMailbox();
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    await expect(
+      orchestrateLead('T100', {
+        projectRoot: env.tempDir,
+        mbxClient: mbx.client,
+        spawn: async () => {
+          throw new Error('adapter exploded before its own guard');
+        },
+      }),
+    ).rejects.toThrow('adapter exploded before its own guard');
+    expect(mbx.claims).toHaveLength(1);
+    expect(mbx.releases).toHaveLength(1);
+    const { readLeadRecord } = await import('../lead-records.js');
+    expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
   });
 
   it('unreadable project metadata refuses with E_LEAD_MAILBOX_MISSING and the recorded fix (T14448)', async () => {
