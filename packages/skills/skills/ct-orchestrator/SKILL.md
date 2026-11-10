@@ -272,7 +272,9 @@ the store doc exists.
 peers through AgentMBX (`mbx_*` tools; the `agentmbx` CLI can only send without the
 session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` section and
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
-mailbox in it. The conduit messaging verbs, including the `conduit-*` sub-commands of
+mailbox in it. Tier-0 prompts stay minimal and have no such section; with
+`orchestrate.leadWorker.v1` on and `--lead-mbx` given, they carry one line naming your mailbox
+and asking for a report of at most 100 words (conclusion, blocker, proof) (T14429). The conduit messaging verbs, including the `conduit-*` sub-commands of
 orchestrate, were removed (T13955).
 
 **A no-hands lead runs commands through `cleo_run` (T14374).** The `cleo-lead` agent has

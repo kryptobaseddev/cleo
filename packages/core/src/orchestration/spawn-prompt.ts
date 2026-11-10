@@ -337,6 +337,15 @@ export interface BuildSpawnPromptInput {
    */
   leadMailbox?: string;
   /**
+   * Whether `orchestrate.leadWorker.v1` is on. With it on and a
+   * {@link leadMailbox} known, a tier-0 prompt (which has no Agent
+   * Coordination section) carries one line naming the lead mailbox and how to
+   * report. Off or absent leaves tier 0 unchanged.
+   *
+   * @task T14429
+   */
+  leadWorkerV1?: boolean;
+  /**
    * Compact orchestration dashboard summary.
    *
    * When provided and `tier >= 1`, a small one-line context block is injected
@@ -1569,6 +1578,19 @@ function buildAgentCoordinationBlock(taskId: string, leadMailbox?: string): stri
   ].join('\n');
 }
 
+/**
+ * Build the one-line lead report address for tier-0 prompts under
+ * `orchestrate.leadWorker.v1`, where the Agent Coordination section is absent.
+ *
+ * @param taskId - Task the worker reports on.
+ * @param leadMailbox - AgentMBX mailbox of the spawning lead.
+ * @returns A single Markdown line.
+ * @task T14429
+ */
+function buildTier0LeadReportLine(taskId: string, leadMailbox: string): string {
+  return `**Report to your lead:** \`mbx_send\` to \`${leadMailbox}\` (without the MCP server: \`agentmbx send --as <you> --to ${leadMailbox} --subject "${taskId}" -m "<report>"\`) a report of at most 100 words: conclusion, blocker, proof.`;
+}
+
 /** Build the anti-pattern reference. */
 function buildAntiPatternBlock(): string {
   return [
@@ -1737,6 +1759,9 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // AgentMBX; the CONDUIT subscription block it replaces could not run.
   if (tier >= 1) {
     authoredSections.push(buildAgentCoordinationBlock(taskId, input.leadMailbox));
+  } else if (input.leadWorkerV1 === true && input.leadMailbox) {
+    // T14429 — tier 0 stays minimal, but a lead/worker worker needs its address.
+    authoredSections.push(buildTier0LeadReportLine(taskId, input.leadMailbox));
   }
   if (tier >= 1 && input.dashboardSummary) {
     authoredSections.push(buildDashboardContextBlock(input.dashboardSummary));
