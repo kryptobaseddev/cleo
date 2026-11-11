@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.12.0
+  version: 4.13.0
   tier: core
   install: harness
   covers:
@@ -32,8 +32,13 @@ Fanout serializes Orca admissions so followers use the first proven Run; workers
 still execute concurrently. An unknown first start fences further unbound starts.
 Unknown launch outcomes retain their exact record ID and custody and never
 advance rotation or select another harness.
-Exact per-account placement refuses. A lead's own restricted launch remains
-on the existing native path; Orca lead enforcement is separate work.
+Exact per-account placement refuses. `cleo orchestrate lead` inside a verified
+Orca context refuses before admission: Orca's public launch APIs cannot carry
+the tool/permission argv, strict MCP configuration, or owner channel/session
+binding. Keep `orchestrate.leadWorker.v1` enabled. Use the native Claude lead
+from an owner terminal outside Orca, with validated user-scope mbx for detached
+mode; its enforced guards remain unchanged. Prompt instructions or `--model`
+are insufficient evidence of restricted launch.
 
 For a retained Orca attempt, copy its exact `workers[].recordId` from
 `cleo orchestrate status`. Use `cleo orchestrate worker show <recordId>` for

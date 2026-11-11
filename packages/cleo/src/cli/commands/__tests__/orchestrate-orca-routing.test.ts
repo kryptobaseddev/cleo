@@ -4,10 +4,12 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
 import type { CLEOSpawnAdapter, CLEOSpawnContext } from '@cleocode/contracts';
+import { LEAD_DENIED_TOOLS } from '@cleocode/contracts/operations/orchestrate.js';
 import type { OrcaAgent, OrcaAttempt } from '@cleocode/contracts/orca-execution.js';
 import { orcaAgentSchema } from '@cleocode/contracts/orca-execution.js';
 import { computeProjectHash, resolveTaskWorktreePath } from '@cleocode/paths';
 import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
+import { runCommand } from 'citty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureContext,
@@ -125,6 +127,7 @@ vi.mock('../../../../../core/src/sentient/worktree-dispatch.js', () => ({
 }));
 
 import { OrchestrateHandler } from '../../../dispatch/domains/orchestrate.js';
+import { orchestrateCommand } from '../orchestrate.js';
 
 describe('Orca AC1 routing across product worker entry points', () => {
   let env: TestDbEnv;
@@ -148,6 +151,7 @@ describe('Orca AC1 routing across product worker entry points', () => {
   }
 
   beforeEach(async () => {
+    process.exitCode = 0;
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
     vi.stubEnv('CLEO_AGENT_ID', 'fixture-lead');
@@ -293,6 +297,7 @@ describe('Orca AC1 routing across product worker entry points', () => {
   });
 
   afterEach(async () => {
+    process.exitCode = 0;
     vi.restoreAllMocks();
     await env.cleanup();
     vi.unstubAllEnvs();
@@ -683,5 +688,65 @@ describe('Orca AC1 routing across product worker entry points', () => {
       },
     });
     expect(readWorktreeTaskLock(computeProjectHash(env.tempDir), 'T002')).not.toBeNull();
+  });
+
+  it.each([
+    'interactive',
+    'detached',
+  ])('refuses an Orca %s lead before admission without weakening its guards', async (mode) => {
+    configure({ leadWorker: { v1: true } });
+    await seedTasks(env.accessor, [{ id: 'T100', title: 'Guarded lead', type: 'epic' }]);
+    const configBefore = readFileSync(join(env.cleoDir, 'config.json'), 'utf8');
+    let output = '';
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      output += String(chunk);
+      return true;
+    });
+    try {
+      await runCommand(orchestrateCommand, {
+        rawArgs: [
+          'lead',
+          'T100',
+          '--adapter',
+          'claude-code',
+          ...(mode === 'detached' ? ['--detached'] : []),
+        ],
+      });
+    } finally {
+      write.mockRestore();
+    }
+    expect(JSON.parse(output)).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_LEAD_TOOLS_UNSTRIPPED',
+        message: expect.stringContaining('strict MCP'),
+        fix: expect.stringContaining('keep orchestrate.leadWorker.v1 enabled'),
+      },
+    });
+    expect(process.exitCode).toBe(63);
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[0] === 'status')).toBe(true);
+    expect(starts()).toHaveLength(0);
+    expect(nativeSpawn).not.toHaveBeenCalled();
+    expect(provision).not.toHaveBeenCalled();
+    expect(await listWorkerRecords(env.tempDir)).toEqual([]);
+    expect((await env.accessor.loadSingleTask('T100'))?.claim).toBeUndefined();
+    expect(readFileSync(join(env.cleoDir, 'config.json'), 'utf8')).toBe(configBefore);
+  });
+
+  it('does not fall back to a native lead when Orca context verification fails', async () => {
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', undefined);
+    vi.stubEnv('ORCA_WORKTREE_ID', 'unproven-caller');
+    expect(
+      await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 1, {
+        orca: new OrcaExecutionBackend(),
+        lead: { deniedTools: LEAD_DENIED_TOOLS },
+      }),
+    ).toMatchObject({
+      success: false,
+      error: { code: 'E_ORCA_CONTEXT', fix: expect.stringContaining('ORCA_TERMINAL_HANDLE') },
+    });
+    expect(nativeSpawn).not.toHaveBeenCalled();
+    expect(provision).not.toHaveBeenCalled();
+    expect(starts()).toHaveLength(0);
   });
 });

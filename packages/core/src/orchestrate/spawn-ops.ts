@@ -72,7 +72,10 @@ import type {
   SpawnWorkerSession,
   WorktreeHook,
 } from '@cleocode/contracts';
-import type { OrcaRoutingAdapter } from '@cleocode/contracts/orca-execution.js';
+import {
+  ORCA_LEAD_LAUNCH_REFUSAL,
+  type OrcaRoutingAdapter,
+} from '@cleocode/contracts/orca-execution.js';
 import {
   RESOURCE_DEFERRED_CODE,
   RESOURCE_EXTERNAL_PRESSURE_CODE,
@@ -960,8 +963,19 @@ export async function orchestrateSpawnExecute(
       'validate-readiness',
     ).finally(() => clearTimeout(custodyTimer));
     if (external) return orcaCustodyRefusal(external);
-    // A lead's own restricted launch remains native; its worker dispatches use this port.
-    const orca = opts.lead === undefined ? await opts.orca?.discover(cwd) : null;
+    const orca = await opts.orca?.discover(cwd);
+    if (orca && opts.lead !== undefined) {
+      // @sync-invariant none:local-only Orca cannot admit a lead without enforced tools, MCP isolation and an owner channel
+      return engineError(ORCA_LEAD_LAUNCH_REFUSAL.code, ORCA_LEAD_LAUNCH_REFUSAL.message, {
+        exitCode: 63,
+        fix: ORCA_LEAD_LAUNCH_REFUSAL.fix,
+        details: {
+          backend: 'orca',
+          mode: opts.lead.mode ?? 'interactive',
+          deniedTools: opts.lead.deniedTools,
+        },
+      });
+    }
     if (orca && opts.accountId !== undefined) {
       // @sync-invariant none:input-shape unsupported account placement cannot silently become the host's active account
       return engineError(

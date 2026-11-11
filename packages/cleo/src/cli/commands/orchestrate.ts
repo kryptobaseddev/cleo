@@ -1128,8 +1128,10 @@ const leadCommand = defineCommand({
   },
   async run({ args }) {
     const { orchestrateLead } = await import('@cleocode/core/orchestrate/lead');
+    const { OrcaExecutionBackend } = await import('@cleocode/adapters/orca-execution');
     const result = await orchestrateLead(args.epicId, {
       projectRoot: getProjectRoot(),
+      orca: new OrcaExecutionBackend(),
       mode: args.detached === true ? 'detached' : 'interactive',
       ...(args.adapter !== undefined ? { adapterId: args.adapter } : {}),
     });

@@ -30,6 +30,7 @@ import {
   LEAD_OWNER_MAILBOX,
   LEAD_RUNNER_TOOL,
 } from '@cleocode/contracts/operations/orchestrate.js';
+import type { OrcaRoutingAdapter } from '@cleocode/contracts/orca-execution.js';
 import { type ProcessLiveness, readProcessStartTime } from '@cleocode/worktree';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
@@ -66,6 +67,8 @@ export interface OrchestrateLeadOptions {
   readonly projectRoot?: string;
   /** Spawn adapter id. @defaultValue the first spawn-capable adapter */
   readonly adapterId?: string;
+  /** Host port from product dispatch; verified Orca leads refuse until their guards are enforceable. */
+  readonly orca?: OrcaRoutingAdapter;
   /** AgentMBX adapter. @defaultValue {@link createAgentMbxClient} */
   readonly mbxClient?: AgentMbxClient;
   /** Spawn function, injected in tests. @defaultValue {@link orchestrateSpawnExecute} */
@@ -271,6 +274,7 @@ export async function orchestrateLead(
 
   const spawn = options.spawn ?? orchestrateSpawnExecute;
   const result = await spawn(epicId, options.adapterId, undefined, root, 1, {
+    ...(options.orca ? { orca: options.orca } : {}),
     lead: {
       deniedTools: LEAD_DENIED_TOOLS,
       sessionId,

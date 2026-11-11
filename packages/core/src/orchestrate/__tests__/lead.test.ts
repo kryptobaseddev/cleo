@@ -18,8 +18,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fixtureRunner } from '../../../../adapters/src/__tests__/orca-execution-fixture.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { AgentMbxClient, MbxSession } from '../agentmbx.js';
 
@@ -202,6 +204,35 @@ describe('orchestrateLead (T14363)', () => {
     expect(result).toMatchObject({ success: false, error: { code: 'E_LEAD_WORKER_DISABLED' } });
     expect(provider.state.seen).toHaveLength(0);
     expect(mbx.claims).toHaveLength(0);
+  });
+
+  it.each([
+    'interactive',
+    'detached',
+  ] as const)('preserves guarded native %s leads outside Orca with the execution port supplied', async (mode) => {
+    withMailbox();
+    vi.stubEnv('TERM_PROGRAM', 'Orca');
+    fixtureRunner.mockReset();
+    const { orchestrateLead } = await import('../lead.js');
+    const { LEAD_DENIED_TOOLS } = await import('@cleocode/contracts/operations/orchestrate.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      mode,
+      orca: new OrcaExecutionBackend(fixtureRunner),
+    });
+    expect(result.success).toBe(true);
+    expect(provider.state.seen).toHaveLength(1);
+    expect(provider.state.seen[0]).toMatchObject({
+      leadDeniedTools: [...LEAD_DENIED_TOOLS],
+      options: { leadMode: mode, leadSessionId: expect.any(String) },
+    });
+    expect(mbx.claims).toHaveLength(1);
+    expect(fixtureRunner).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(readFileSync(join(env.cleoDir, 'config.json'), 'utf8')).orchestrate.leadWorker.v1,
+    ).toBe(true);
   });
 
   it('refuses a task that is not an epic', async () => {
