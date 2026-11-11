@@ -280,6 +280,18 @@ export const orcaReplySchema = z.object({
     .object({
       state: z.string().optional(),
       requestId: identifier.optional(),
+      /**
+       * Mutation ledger identity Orca stamps on every successful mutation result.
+       * @remarks Installed Orca 1.4.255 attaches `{ requestId, replayed }` to the
+       * result it records (`Jy` in the retained source), so a successful stop can
+       * be bound to the request key this attempt issued.
+       */
+      mutation: z
+        .object({
+          requestId: identifier.optional(),
+          replayed: z.boolean().optional(),
+        })
+        .optional(),
       stage: z.string().optional(),
       turnStart: z.string().optional(),
       runId: identifier.optional(),

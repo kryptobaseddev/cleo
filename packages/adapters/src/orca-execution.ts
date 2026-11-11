@@ -86,7 +86,7 @@ type HelperEvidence =
  * @returns The evidence class and any helper Dispatch ids still unresolved.
  * @example
  * ```ts
- * readHelperEvidence(attempt, '{"ok":true,"result":{"processAction":"closed_agent_terminal","helpers":[]}}');
+ * readHelperEvidence(attempt, '{"ok":true,"result":{"dispatchId":"ctx_1","processAction":"closed_agent_terminal","helpers":[],"mutation":{"requestId":"<issued stop key>"}}}');
  * ```
  */
 function readHelperEvidence(attempt: OrcaAttempt, receipt: string | null): HelperEvidence {
@@ -128,8 +128,12 @@ function readHelperEvidence(attempt: OrcaAttempt, receipt: string | null): Helpe
 /**
  * Prove a retained reply was produced by this attempt's own mutation.
  * @remarks The runtime epoch, target Dispatch, Run (when the reply names one)
- * and the issued stop request key (when the reply names one) must all match the
- * stored binding. Anything else is another attempt's receipt and never evidence.
+ * and the issued stop request key must all match the stored binding. A refusal
+ * names the key under `error.data.orchestrationRequestId`; a successful mutation
+ * names it under `result.mutation.requestId` (installed Orca stamps the ledger
+ * identity on every successful result), so a successful receipt with no key or
+ * another attempt's key is never evidence either. Anything that fails is another
+ * attempt's receipt and never evidence.
  * @param attempt - The attempt the receipt is being read for.
  * @param reply - Parsed reply from the retained receipt.
  * @returns True only when every identity the reply carries matches this attempt.
@@ -140,11 +144,25 @@ function receiptBelongsToAttempt(attempt: OrcaAttempt, reply: OrcaReply): boolea
   const dispatchId = value?.dispatchId ?? reply.error?.data?.dispatchId;
   if (!attempt.dispatchId || dispatchId !== attempt.dispatchId) return false;
   if (value?.runId !== undefined && value.runId !== attempt.runId) return false;
-  const requestId = reply.error?.data?.orchestrationRequestId;
-  if (requestId !== undefined) {
-    return requestId === attempt.stopRequestKey || requestId === attempt.stopRequestId;
+  const refusedKey = reply.error?.data?.orchestrationRequestId;
+  if (refusedKey !== undefined) return stopsThisAttempt(attempt, refusedKey);
+  if (reply.ok) {
+    // A successful mutation always carries its ledger key; only the stop key this
+    // attempt issued may settle it, so another mutation on the same Dispatch cannot.
+    const succeededKey = value?.mutation?.requestId;
+    return succeededKey !== undefined && stopsThisAttempt(attempt, succeededKey);
   }
   return true;
+}
+
+/**
+ * Compare a reply's request key with the stop key this attempt issued.
+ * @param attempt - The attempt whose stop key would be settled.
+ * @param requestId - Request key the reply reports.
+ * @returns True when the reply belongs to this attempt's own stop request.
+ */
+function stopsThisAttempt(attempt: OrcaAttempt, requestId: string): boolean {
+  return requestId === attempt.stopRequestKey || requestId === attempt.stopRequestId;
 }
 
 /** Actionable refusal; callers must retain any attempt already sent to Orca. */

@@ -793,11 +793,13 @@ describe('durable Orca execution custody', () => {
       new OrcaExecutionBackend(fixtureRunner),
     );
     if (!record.execution) throw new Error('Missing execution fixture');
+    const stopRequestKey = randomUUID();
     const stopReceipt = fixtureReply({
       dispatchId: 'ctx_fixture',
       state: 'stopped',
       processAction: 'closed_agent_terminal',
       helpers: [],
+      mutation: { requestId: stopRequestKey, replayed: false },
     }).stdout;
     // A crash between the durable stop reservation and its reply leaves stop_pending,
     // with the receipt that proved every helper stopped.
@@ -806,7 +808,7 @@ describe('durable Orca execution custody', () => {
       {
         ...record.execution,
         state: 'stop_pending',
-        stopRequestKey: randomUUID(),
+        stopRequestKey,
         lastReceipt: stopReceipt,
       },
       env.tempDir,
@@ -874,6 +876,7 @@ describe('durable Orca execution custody', () => {
     );
     if (!record.execution) throw new Error('Missing execution fixture');
     const helper = 'ctx_helper';
+    const stopRequestKey = randomUUID();
     const stopReceipt = fixtureReply({
       dispatchId: 'ctx_fixture',
       state: 'stopped',
@@ -886,13 +889,14 @@ describe('durable Orca execution custody', () => {
           state: 'ready',
         },
       ],
+      mutation: { requestId: stopRequestKey, replayed: false },
     }).stdout;
     const pending = await updateWorkerExecution(
       record,
       {
         ...record.execution,
         state: 'stop_pending',
-        stopRequestKey: randomUUID(),
+        stopRequestKey,
         lastReceipt: stopReceipt,
       },
       env.tempDir,

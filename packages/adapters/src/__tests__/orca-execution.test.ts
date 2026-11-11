@@ -1,4 +1,4 @@
-import type { OrcaAttempt } from '@cleocode/contracts/orca-execution.js';
+import type { OrcaAttempt, OrcaReply } from '@cleocode/contracts/orca-execution.js';
 import { ORCA_AGENT_HARNESSES, orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionBackend } from '../orca-execution.js';
@@ -813,6 +813,7 @@ describe('Orca execution process boundary', () => {
       state: 'stopped',
       processAction: 'closed_agent_terminal',
       helpers: [],
+      mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000001', replayed: false },
     }).stdout;
     const backend = new OrcaExecutionBackend(fixtureRunner);
     orcaFixture.show = fixtureReleasedShow();
@@ -859,6 +860,7 @@ describe('Orca execution process boundary', () => {
           dispatchId: 'ctx_fixture',
           state: 'stopped',
           processAction: 'closed_agent_terminal',
+          mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000011', replayed: false },
         }).stdout,
         stopHelperEvidence,
       });
@@ -1088,6 +1090,7 @@ describe('Orca execution process boundary', () => {
         state: 'stopped',
         processAction: 'closed_agent_terminal',
         helpers: helpers.map((outcome) => ({ outcome })),
+        mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000003', replayed: false },
         ...(helperStopError ? { helperStopError } : {}),
       }).stdout;
     orcaFixture.show = fixtureReleasedShow();
@@ -1129,6 +1132,7 @@ describe('Orca execution process boundary', () => {
           state: 'ready',
         },
       ],
+      mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000003', replayed: false },
     }).stdout;
     const pending = (lastReceipt: string): OrcaAttempt =>
       fixtureAttempt({
@@ -1174,12 +1178,13 @@ describe('Orca execution process boundary', () => {
         stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000031',
         lastReceipt,
       });
-    const stopReply = (overrides: Record<string, unknown> = {}): string =>
+    const stopReply = (overrides: Partial<NonNullable<OrcaReply['result']>> = {}): string =>
       fixtureReply({
         dispatchId: 'ctx_fixture',
         state: 'stopped',
         processAction: 'closed_agent_terminal',
         helpers: [],
+        mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000031', replayed: false },
         ...overrides,
       }).stdout;
     const foreign = [
@@ -1200,6 +1205,10 @@ describe('Orca execution process boundary', () => {
           },
         },
       }),
+      // This Dispatch stopped successfully under a stop key this attempt never issued.
+      stopReply({
+        mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000032', replayed: false },
+      }),
       // This Dispatch stopped on another runtime epoch.
       JSON.stringify({
         ok: true,
@@ -1209,6 +1218,7 @@ describe('Orca execution process boundary', () => {
           state: 'stopped',
           processAction: 'closed_agent_terminal',
           helpers: [],
+          mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000031', replayed: false },
         },
       }),
     ];
@@ -1239,6 +1249,7 @@ describe('Orca execution process boundary', () => {
           state: 'ready',
         },
       ],
+      mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000033', replayed: false },
     }).stdout;
     const pending = (lastReceipt: string): OrcaAttempt =>
       fixtureAttempt({
@@ -1281,6 +1292,7 @@ describe('Orca execution process boundary', () => {
                 state: 'ready',
               },
             ],
+            mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000033', replayed: false },
           }).stdout,
         ),
       ),
