@@ -15,6 +15,7 @@
 
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -839,4 +840,84 @@ describe('disposeOwnedWorktree — dispose under the task lock (T14407)', () => 
       lock.record.token,
     );
   });
+
+  it("never breaks a live holder's mutex whose start time is unknown (T14407)", () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7105', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7105')}.reclaim`;
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    // Windows, or a failed `ps`: the holder recorded no start time.
+    writeFileSync(
+      mutexPath,
+      JSON.stringify({ token: 'held', pid: live.pid, processStartedAt: null, threadId: 0 }),
+    );
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(mutexPath, old, old);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7105', lock.record.token)).toBeNull();
+    expect(existsSync(mutexPath)).toBe(true);
+  });
+
+  it('a session-end release cannot free the lock for a successor while a dispose holds it (T14407)', () => {
+    const { path, branch, token } = provision('T7106');
+    let released: WorktreeLockRecord[] | undefined;
+    let successorErr: unknown;
+    let successorToken: string | undefined;
+    const result = disposeOwnedWorktree({
+      projectHash: hash,
+      taskId: 'T7106',
+      worktreePath: path,
+      branch,
+      lockToken: token,
+      reason: 'failed-provision-cleanup',
+      force: true,
+      // Right before the removal: the owner's session ends, then another
+      // session spawns the task.
+      inUse: () => {
+        released = releaseWorktreeTaskLocksForSession(hash, holder.sessionId);
+        try {
+          successorToken = acquireWorktreeTaskLock({
+            projectHash: hash,
+            taskId: 'T7106',
+            holder: { sessionId: 'ses_next', agentId: 'agent-next' },
+          }).record.token;
+        } catch (err) {
+          successorErr = err;
+        }
+        return null;
+      },
+    });
+    expect(released).toEqual([]);
+    expect(successorToken).toBeUndefined();
+    expect(isWorktreeLockedError(successorErr)).toBe(true);
+    expect(result).toMatchObject({ outcome: 'removed', lockReleased: true });
+    expect(readWorktreeTaskLock(hash, 'T7106')).toBeNull();
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'an EACCES lookup keeps the worktree and its lock instead of reporting it gone (T14407)',
+    () => {
+      const { path, branch, token } = provision('T7107');
+      const parent = dirname(path);
+      chmodSync(parent, 0o000);
+      let result: ReturnType<typeof disposeOwnedWorktree>;
+      try {
+        result = disposeOwnedWorktree({
+          projectHash: hash,
+          taskId: 'T7107',
+          worktreePath: path,
+          branch,
+          lockToken: token,
+          reason: 'failed-provision-cleanup',
+          force: true,
+        });
+      } finally {
+        chmodSync(parent, 0o755);
+      }
+      expect(result).toMatchObject({ outcome: 'kept', lockReleased: false });
+      expect(result.reason).toContain('could not be looked up');
+      expect(existsSync(path)).toBe(true);
+      expect(readWorktreeTaskLock(hash, 'T7107')?.token).toBe(token);
+    },
+  );
 });

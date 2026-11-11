@@ -669,15 +669,16 @@ export function disposeOwnedWorktree(
     opts.projectHash,
     opts.taskId,
     opts.lockToken,
-    (): DisposeOwnedWorktreeResult => {
+    (_record, releaseLock): DisposeOwnedWorktreeResult => {
       try {
-        if (!existsSync(opts.worktreePath)) {
-          const lockReleased = releaseWorktreeTaskLock(
-            opts.projectHash,
-            opts.taskId,
-            opts.lockToken,
-          );
-          return { outcome: 'removed', reason: 'already gone', lockReleased };
+        // Only ENOENT proves absence; EACCES and the like keep (T14407).
+        try {
+          lstatSync(opts.worktreePath);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            return kept(`${opts.worktreePath} could not be looked up (${String(err)})`);
+          }
+          return { outcome: 'removed', reason: 'already gone', lockReleased: releaseLock() };
         }
         const head = git(opts.worktreePath, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
         if (head === null)
@@ -698,8 +699,7 @@ export function disposeOwnedWorktree(
           false,
         );
         if (!disposal.removed) return kept(disposal.keptReason ?? 'not proven preserved', disposal);
-        const lockReleased = releaseWorktreeTaskLock(opts.projectHash, opts.taskId, opts.lockToken);
-        return { outcome: 'removed', reason: 'removed', lockReleased, disposal };
+        return { outcome: 'removed', reason: 'removed', lockReleased: releaseLock(), disposal };
       } catch (err) {
         return kept(`disposal failed (${err instanceof Error ? err.message : String(err)})`);
       }

@@ -35,9 +35,11 @@
  *   reclaimed on age. Anything else is `E_WORKTREE_LOCKED`.
  * - **Re-entry:** the same caller (session id, agent id, owner pid and start
  *   time all equal) re-enters its own lock, so an orchestrator can retry.
- * - **Reclaim:** serialised through a second O_EXCL "reclaim mutex" file so two
- *   contenders that both saw the same dead holder cannot both win; the winner
- *   re-reads the lock and only replaces it if it is still the record it judged.
+ * - **Every lock-file write is serialised** through a second O_EXCL mutex file
+ *   (`<lock>.reclaim`): publish, re-entry, reclaim, heartbeat, release and
+ *   session-end release (T14407). A holder of the mutex (a dispose under
+ *   {@link withWorktreeTaskLockHeld}) therefore sees no lock transition at all
+ *   until it lets go.
  *
  * @module worktree-lock
  * @task T12506
@@ -497,13 +499,13 @@ function readMutexHolder(mutexPath: string): MutexHolder | null {
 
 /**
  * Take the per-lock mutex (`<lock>.reclaim`, O_EXCL). It serialises every
- * non-create transition of the lock file (reclaim, re-entry, heartbeat) and
+ * write of the lock file (publish, reclaim, re-entry, heartbeat, release) and
  * the whole of {@link withWorktreeTaskLockHeld}.
  *
  * The file names its holder (pid, start time, thread). A mutex older than
  * {@link RECLAIM_MUTEX_STALE_MS} is broken by inode only when that holder is
- * not provably alive, so a long hold by a live process (a forced dispose) is
- * never broken as stale (T14407). A mutex this very thread holds is reported
+ * provably dead, so a long hold by a live process (a forced dispose) is never
+ * broken as stale, even where its start time cannot be read (T14407). A mutex this very thread holds is reported
  * busy at once: waiting would block the holder, which can never release it.
  *
  * @returns A release function (removes the mutex only if it is still ours),
@@ -548,11 +550,57 @@ function takeLockMutex(lockPath: string, now: () => number): (() => void) | null
   return null;
 }
 
-/** True when the mutex holder's pid is alive with the start time it recorded. */
+/**
+ * False only when the mutex holder is provably dead: its pid is gone, or alive
+ * with a different start time (recycled). An unknown start time on either side
+ * (Windows, a failed `ps`) keeps it alive (T14407). A mutex naming no holder
+ * (an older bare-token writer) is treated as dead once stale.
+ */
 function isMutexHolderAlive(holder: MutexHolder | null): boolean {
-  if (holder === null || holder.processStartedAt === null) return false;
+  if (holder === null) return false;
   const liveness = probeProcess(holder.pid);
-  return liveness.alive && liveness.startedAt === holder.processStartedAt;
+  if (!liveness.alive) return false;
+  return (
+    holder.processStartedAt === null ||
+    liveness.startedAt === null ||
+    liveness.startedAt === holder.processStartedAt
+  );
+}
+
+/**
+ * Unlink the lock file when `matches` accepts what is on disk. The caller
+ * holds the lock mutex.
+ *
+ * @returns What was removed, or `null` when nothing was (absent, rejected or an I/O error).
+ */
+function unlinkLockIf(lockPath: string, matches: (read: LockRead) => boolean): LockRead | null {
+  try {
+    const current = readLockAt(lockPath, Date.now());
+    if (current.kind === 'absent' || !matches(current)) return null;
+    unlinkSync(lockPath);
+    return current;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * {@link unlinkLockIf} under the lock mutex. A busy mutex or an I/O error
+ * removes nothing (fail closed: the lock stays).
+ */
+function releaseLockIf(lockPath: string, matches: (read: LockRead) => boolean): LockRead | null {
+  let release: (() => void) | null;
+  try {
+    release = takeLockMutex(lockPath, Date.now);
+  } catch {
+    return null;
+  }
+  if (release === null) return null;
+  try {
+    return unlinkLockIf(lockPath, matches);
+  } finally {
+    release();
+  }
 }
 
 /** Outcome of {@link withWorktreeTaskLockHeld}. */
@@ -566,12 +614,15 @@ export type WorktreeTaskLockHold<T> = { held: true; value: T } | { held: false; 
  * held until `fn` returns, so no re-entry or reclaim can replace the lock in
  * between. Fails closed: a busy mutex, a missing, unreadable or foreign lock,
  * or a read error means `fn` never runs. `fn` must not take the lock mutex
- * itself (a token-bound {@link releaseWorktreeTaskLock} does not).
+ * itself (every lock-file write does); it releases the lock through the
+ * `releaseLock` callback it receives, which removes it only while it still
+ * carries `token`.
  *
  * @param projectHash - Project hash.
  * @param taskId - Task id.
  * @param token - Token of the acquisition that must hold the lock.
- * @param fn - Work to do while the lock is held; receives the record.
+ * @param fn - Work to do while the lock is held; receives the record and a
+ *   `releaseLock` callback (true when it removed the lock).
  * @param now - Clock (default `Date.now`).
  * @returns `fn`'s value, or why it did not run.
  */
@@ -579,7 +630,7 @@ export function withWorktreeTaskLockHeld<T>(
   projectHash: string,
   taskId: string,
   token: string,
-  fn: (record: WorktreeLockRecord) => T,
+  fn: (record: WorktreeLockRecord, releaseLock: () => boolean) => T,
   now: () => number = Date.now,
 ): WorktreeTaskLockHold<T> {
   const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
@@ -603,7 +654,9 @@ export function withWorktreeTaskLockHeld<T>(
     if (current.record.token !== token) {
       return { held: false, reason: 'the task lock passed to another acquisition' };
     }
-    return { held: true, value: fn(current.record) };
+    const releaseLock = (): boolean =>
+      unlinkLockIf(lockPath, (r) => r.kind === 'record' && r.record.token === token) !== null;
+    return { held: true, value: fn(current.record, releaseLock) };
   } finally {
     release();
   }
@@ -741,45 +794,47 @@ function acquireUnchecked(
     heartbeatAt: stamp,
   };
 
+  let backoff = false;
   for (let pass = 0; pass < MAX_ACQUIRE_PASSES; pass++) {
-    if (publishExclusive(lockPath, record)) return { status: 'acquired', lockPath, record };
-
-    const existing = readLockAt(lockPath, now());
-    if (existing.kind === 'absent') continue; // released between create and read — retry
-    let status: 'reclaimed' | 'reentered';
-    let reason: WorktreeLockAcquisition['reclaimReason'];
-    if (existing.kind === 'unreadable') {
-      if (existing.ageMs < UNREADABLE_GRACE_MS) {
-        sleepSync(RECLAIM_BACKOFF_MS); // O_EXCL fallback writer mid-write
-        continue;
-      }
-      status = 'reclaimed';
-      reason = 'unreadable';
-    } else if (isSameLockCaller(existing.record, record)) {
-      status = 'reentered';
-    } else {
-      const verdict = assessWorktreeLockHolder(existing.record, {
-        ttlMs,
-        now: now(),
-        probe,
-        deviceId,
-        ...(options.sessionProbe ? { sessionProbe: options.sessionProbe } : {}),
-      });
-      if (verdict.live) throw lockedError(taskId, lockPath, existing.record);
-      status = 'reclaimed';
-      reason = verdict.reason;
-    }
-
+    if (backoff) sleepSync(RECLAIM_BACKOFF_MS); // O_EXCL fallback writer mid-write
+    backoff = false;
+    // Every write of the lock file happens under its mutex (T14407).
     const release = takeLockMutex(lockPath, now);
-    if (release === null) continue; // another contender is transitioning it — re-evaluate
+    if (release === null) {
+      // Someone is transitioning or disposing the lock: refuse, naming its holder.
+      const busy = readLockAt(lockPath, now());
+      if (busy.kind === 'record') throw lockedError(taskId, lockPath, busy.record);
+      continue;
+    }
     try {
-      // Re-read under the mutex: only replace the exact record we judged.
-      const current = readLockAt(lockPath, now());
-      const same =
-        existing.kind === 'unreadable'
-          ? current.kind === 'unreadable'
-          : current.kind === 'record' && current.record.token === existing.record.token;
-      if (!same) continue;
+      if (publishExclusive(lockPath, record)) return { status: 'acquired', lockPath, record };
+
+      const existing = readLockAt(lockPath, now());
+      if (existing.kind === 'absent') continue; // released between create and read — retry
+      let status: 'reclaimed' | 'reentered';
+      let reason: WorktreeLockAcquisition['reclaimReason'];
+      if (existing.kind === 'unreadable') {
+        if (existing.ageMs < UNREADABLE_GRACE_MS) {
+          backoff = true;
+          continue;
+        }
+        status = 'reclaimed';
+        reason = 'unreadable';
+      } else if (isSameLockCaller(existing.record, record)) {
+        status = 'reentered';
+      } else {
+        const verdict = assessWorktreeLockHolder(existing.record, {
+          ttlMs,
+          now: now(),
+          probe,
+          deviceId,
+          ...(options.sessionProbe ? { sessionProbe: options.sessionProbe } : {}),
+        });
+        if (verdict.live) throw lockedError(taskId, lockPath, existing.record);
+        status = 'reclaimed';
+        reason = verdict.reason;
+      }
+
       unlinkQuiet(lockPath);
       if (publishExclusive(lockPath, record)) {
         return {
@@ -839,8 +894,10 @@ export function heartbeatWorktreeTaskLock(
 }
 
 /**
- * Release the per-task lock. With `token`, only that acquisition's lock is
- * removed (a lock since reclaimed or re-entered by someone else is left alone).
+ * Release the per-task lock under its mutex (T14407). With `token`, only that
+ * acquisition's lock is removed (a lock since reclaimed or re-entered by
+ * someone else is left alone). A busy mutex removes nothing. Inside
+ * {@link withWorktreeTaskLockHeld}, use the `releaseLock` callback instead.
  *
  * @param projectHash - Project hash.
  * @param taskId - Task id.
@@ -853,24 +910,20 @@ export function releaseWorktreeTaskLock(
   token?: string,
 ): boolean {
   const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
-  try {
-    if (token !== undefined) {
-      const current = readLockAt(lockPath, Date.now());
-      if (current.kind !== 'record' || current.record.token !== token) return false;
-    }
-    unlinkSync(lockPath);
-    return true;
-  } catch {
-    return false;
-  }
+  return (
+    releaseLockIf(
+      lockPath,
+      (r) => token === undefined || (r.kind === 'record' && r.record.token === token),
+    ) !== null
+  );
 }
 
 /**
  * Release every per-task worktree lock of a project whose holder is
  * `sessionId` (T13425): `cleo session end` frees the worktrees that session
  * holds, so a successor's `--resume` is not refused while the harness pid that
- * spawned it lives on. Each lock is removed by its own token, so a lock another
- * holder took in the meantime is left alone.
+ * spawned it lives on. Each lock is re-checked and removed under its mutex, so
+ * a lock another holder took in the meantime is left alone (T14407).
  *
  * @param projectHash - Project hash.
  * @param sessionId - The ended session.
@@ -890,9 +943,13 @@ export function releaseWorktreeTaskLocksForSession(
   const released: WorktreeLockRecord[] = [];
   for (const name of names) {
     const taskId = name.slice(0, -'.lock'.length);
-    const record = readWorktreeTaskLock(projectHash, taskId);
-    if (record === null || record.sessionId !== sessionId) continue;
-    if (releaseWorktreeTaskLock(projectHash, taskId, record.token)) released.push(record);
+    const seen = readWorktreeTaskLock(projectHash, taskId);
+    if (seen === null || seen.sessionId !== sessionId) continue;
+    const removed = releaseLockIf(
+      resolveWorktreeTaskLockPath(projectHash, taskId),
+      (r) => r.kind === 'record' && r.record.sessionId === sessionId,
+    );
+    if (removed?.kind === 'record') released.push(removed.record);
   }
   return released;
 }
