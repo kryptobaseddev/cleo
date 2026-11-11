@@ -79,6 +79,7 @@ import {
 import {
   acquireWorktreeTaskLock,
   destroyWorktree,
+  disposeOwnedWorktree,
   isWorktreeLockedError,
   releaseWorktreeTaskLock,
   runWorktreeHooks,
@@ -227,21 +228,32 @@ export interface TimeoutCleanupResult {
   branchDeleted: boolean;
   /** Captured error message when cleanup failed or exceeded its own budget. */
   error?: string;
+  /**
+   * Set when cleanup was skipped because the worktree or its task lock is no
+   * longer the one this spawn created: a newer spawn owns it (T14483).
+   */
+  notOwned?: boolean;
   /** Milliseconds the cleanup pass took. */
   elapsedMs: number;
 }
 
 /**
- * Best-effort, bounded cleanup of a partially-provisioned worktree after the
- * spawn supervisor fires. Idempotent: re-running against an absent worktree
- * returns `worktreeRemoved: true` without erroring. Wrapped in its own
- * `setTimeout` so cleanup itself can never wedge the timeout envelope.
+ * The worktree and per-task lock one spawn created, which
+ * {@link runTimeoutCleanup} may remove (T14483).
  *
- * @param projectRoot - Absolute path to the project root.
- * @param taskId      - Task ID whose worktree is being cleaned up.
- * @returns Structured cleanup outcome (never throws).
- * @task T9545
+ * @task T14483
  */
+export interface OwnedSpawnWorktree {
+  /** Absolute path of the worktree this spawn freshly created. */
+  worktreePath: string;
+  /** Branch this spawn created the worktree on. */
+  branch: string;
+  /** Project hash scoping the per-task lock. */
+  projectHash: string;
+  /** Token of the per-task lock acquisition this spawn holds. */
+  lockToken: string;
+}
+
 /**
  * Map a {@link SpawnResult} status onto the `SubagentStop` payload vocabulary.
  *
@@ -299,13 +311,63 @@ function failedProvisionCleanup(err: unknown): Omit<TimeoutCleanupResult, 'elaps
   };
 }
 
+/**
+ * Best-effort, bounded cleanup of a partially-provisioned worktree after the
+ * spawn supervisor fires. Idempotent: re-running against an absent worktree
+ * returns `worktreeRemoved: true` without erroring. Wrapped in its own
+ * `setTimeout` so cleanup itself can never wedge the timeout envelope.
+ *
+ * With `owned`, removal goes through `disposeOwnedWorktree`: nothing is
+ * removed unless, under the task lock's mutex, the lock still carries the
+ * token this spawn acquired and the task's checkout is the exact path and
+ * branch this spawn created (T14483). After a supervisor timeout or a session
+ * abandonment a newer spawn of the same task may have reclaimed the lock and
+ * now owns that checkout. The branch is kept.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId      - Task ID whose worktree is being cleaned up.
+ * @param owned       - The exact worktree path and lock token this spawn created.
+ * @returns Structured cleanup outcome (never throws).
+ * @task T9545
+ * @task T14483
+ */
 export async function runTimeoutCleanup(
   projectRoot: string,
   taskId: string,
+  owned?: OwnedSpawnWorktree,
 ): Promise<TimeoutCleanupResult> {
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined;
   try {
+    if (owned) {
+      // T14483: token, canonical path, branch and removal are all checked
+      // under the task lock's mutex, so a re-spawn never loses its worktree.
+      const disposed = disposeOwnedWorktree({
+        projectHash: owned.projectHash,
+        taskId,
+        worktreePath: owned.worktreePath,
+        branch: owned.branch,
+        lockToken: owned.lockToken,
+        projectRoot,
+        reason: 'spawn-timeout-cleanup',
+        force: true,
+      });
+      return disposed.outcome === 'removed'
+        ? {
+            attempted: true,
+            worktreeRemoved: true,
+            branchDeleted: false,
+            elapsedMs: Date.now() - startedAt,
+          }
+        : {
+            attempted: false,
+            worktreeRemoved: false,
+            branchDeleted: false,
+            notOwned: true,
+            error: `Cleanup skipped: ${disposed.reason}; nothing was removed`,
+            elapsedMs: Date.now() - startedAt,
+          };
+    }
     const result = await Promise.race<TimeoutCleanupResult>([
       destroyWorktree(projectRoot, {
         taskId,
@@ -1609,12 +1671,31 @@ export async function orchestrateSpawn(
     // Run bounded cleanup ONLY when a worktree was actually provisioned —
     // skip otherwise so we don't churn against absent state. destroyWorktree
     // is idempotent (returns worktreeRemoved=true when the path is already
-    // gone) so repeated invocations are safe. T14407: `spawnLock` is still
-    // held here (released in `finally`), so no re-spawn can own the worktree.
+    // gone) so repeated invocations are safe.
+    // T14483: `spawnLock` may no longer be ours. A session abandonment or a
+    // lock reclaim may have handed the task to a newer spawn while this one
+    // was stuck, so only the exact worktree, branch and lock token this spawn
+    // created are removed, checked under the lock (disposeOwnedWorktree).
     let cleanup: TimeoutCleanupResult | undefined;
     if (partialState.worktreePath && partialState.rootResolved) {
       try {
-        cleanup = await runTimeoutCleanup(partialState.rootResolved, taskId);
+        cleanup =
+          spawnLock && partialState.worktreeBranch
+            ? await runTimeoutCleanup(partialState.rootResolved, taskId, {
+                worktreePath: partialState.worktreePath,
+                branch: partialState.worktreeBranch,
+                projectHash: spawnLock.projectHash,
+                lockToken: spawnLock.token,
+              })
+            : {
+                attempted: false,
+                worktreeRemoved: false,
+                branchDeleted: false,
+                notOwned: true,
+                error:
+                  'Cleanup skipped: this spawn holds no task lock token or branch; nothing was removed',
+                elapsedMs: 0,
+              };
         spawnLogger.info({ taskId, cleanup }, 'T9545 auto-cleanup completed after spawn timeout');
       } catch (cleanupErr) {
         // runTimeoutCleanup never throws, but guard anyway so the envelope
@@ -1641,8 +1722,9 @@ export async function orchestrateSpawn(
           partial,
           ...(cleanup ? { cleanup } : {}),
         },
-        fix:
-          cleanup && !cleanup.worktreeRemoved
+        fix: cleanup?.notOwned
+          ? `Nothing was removed: the worktree for ${taskId} may belong to a newer spawn. Check \`cleo worktree list\` before retrying.`
+          : cleanup && !cleanup.worktreeRemoved
             ? 'Auto-cleanup did not remove the worktree — run `cleo worktree prune --taskId <id>` to force-remove the orphan, then retry the spawn.'
             : 'Auto-cleanup removed the partial worktree — safe to retry the spawn directly.',
       },
