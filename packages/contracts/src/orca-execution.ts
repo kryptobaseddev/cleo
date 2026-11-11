@@ -146,6 +146,9 @@ export const orcaAttemptSchema = z.object({
   /** UUID reserved before committing a retry; its first send and every replay use this key. */
   startRequestKey: z.string().uuid().optional(),
   startRequestId: identifier.nullable(),
+  /** UUID reserved before committing a stop; its first send and every replay use this key. */
+  stopRequestKey: z.string().uuid().optional(),
+  /** Orca-issued stop request id, retained only when the stop receipt was received. */
   stopRequestId: identifier.nullable(),
   failureCount: z.number().int().nonnegative(),
   resourceState: z.string(),

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
@@ -685,6 +686,10 @@ describe('durable Orca execution custody', () => {
       state: 'stop_unknown',
       stopRequestId: 'request-fixture',
     });
+    orcaFixture.request = fixtureReply({
+      state: 'completed',
+      requestId: pending.execution?.stopRequestKey,
+    });
     orcaFixture.stop = fixtureReply({
       dispatchId: 'ctx_fixture',
       state: 'stopped',
@@ -709,7 +714,7 @@ describe('durable Orca execution custody', () => {
     );
   });
 
-  it('keeps stop uncertainty durable when request recovery fails or no replay id exists', async () => {
+  it('replays a stop whose reply was lost without an id by its reserved key', async () => {
     const record = await launchOrcaWorker(
       launch,
       fixtureContext,
@@ -720,25 +725,165 @@ describe('durable Orca execution custody', () => {
       env.tempDir,
       new OrcaExecutionBackend(fixtureRunner),
     );
-    await expect(
-      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
-    ).rejects.toThrow('No recoverable');
-    if (!pending.execution) throw new Error('Missing execution fixture');
-    await updateWorkerExecution(
-      pending,
-      { ...pending.execution, stopRequestId: 'request-fixture' },
+    // The default fixture reply carries no issued id; the reserved key survives.
+    expect(pending.execution).toMatchObject({ state: 'stop_unknown', stopRequestId: null });
+    const key = pending.execution?.stopRequestKey;
+    expect(key).toEqual(expect.any(String));
+    const sent = fixtureRunner.mock.calls.find(([, args]) => args[1] === 'worker-stop')?.[1];
+    expect(sent).toEqual(expect.arrayContaining(['--retry-request', key]));
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await recoverOrcaWorkerStop(
+      record.recordId,
       env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
     );
-    orcaFixture.request = fixtureReply({ state: 'absent', requestId: 'request-fixture' });
-    await expect(
-      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
-    ).rejects.toThrow('absence');
-    expect((await listWorkerRecords(env.tempDir))[0]?.execution).toMatchObject({
-      state: 'stop_unknown',
-      stopRequestId: 'request-fixture',
+    expect(recovered.execution).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+      stopRequestKey: key,
     });
     expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
-      1,
+      2,
+    );
+  });
+
+  it('fences a legacy stop_pending with no key or id, and show settles it to stop_unknown', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const legacy = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending' },
+      env.tempDir,
+    );
+    await expect(
+      recoverOrcaWorkerStop(legacy.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('No recoverable');
+    orcaFixture.show = fixtureShow();
+    const observed = await observeOrcaWorker(
+      legacy.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(observed.execution).toMatchObject({ state: 'stop_unknown', resourceState: 'owned' });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      0,
+    );
+  });
+
+  it('settles a durable stop_pending by release proof so retry proceeds', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    // A crash between the durable stop reservation and its reply leaves stop_pending.
+    const pending = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending', stopRequestKey: randomUUID() },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    const successor = await retryOrcaWorker(
+      pending.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(successor.execution).toMatchObject({
+      state: 'ready',
+      retryOf: 'ctx_fixture',
+      dispatchId: 'ctx_retry',
+    });
+    const records = await listWorkerRecords(env.tempDir);
+    expect(records.find((candidate) => candidate.recordId === pending.recordId)).toMatchObject({
+      execution: { state: 'stopped', resourceState: 'stopped' },
+    });
+    expect(
+      records.find((candidate) => candidate.recordId === pending.recordId)?.stoppedAt,
+    ).not.toBeNull();
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      0,
+    );
+  });
+
+  it('replays a lost stop by its reserved key, then admits the retry', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const key = randomUUID();
+    const pending = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending', stopRequestKey: key },
+      env.tempDir,
+    );
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await recoverOrcaWorkerStop(
+      pending.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(recovered.execution).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+      stopRequestKey: key,
+    });
+    const stops = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.[1]).toEqual(expect.arrayContaining(['--retry-request', key]));
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    const successor = await retryOrcaWorker(
+      pending.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(successor.execution).toMatchObject({ state: 'ready', dispatchId: 'ctx_retry' });
+  });
+
+  it('refuses retry for an unresolved stop with the exact recovery commands', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const pending = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending', stopRequestKey: randomUUID() },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureShow();
+    await expect(
+      retryOrcaWorker(pending.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toMatchObject({
+      fix: expect.stringContaining(`cleo orchestrate worker recover-stop ${pending.recordId}`),
+    });
+    // show settled the reservation to stop_unknown instead of leaving it pending.
+    expect((await listWorkerRecords(env.tempDir))[0]?.execution).toMatchObject({
+      state: 'stop_unknown',
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      0,
     );
   });
 

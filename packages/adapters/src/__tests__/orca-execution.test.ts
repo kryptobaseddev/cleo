@@ -1,3 +1,4 @@
+import type { OrcaAttempt } from '@cleocode/contracts/orca-execution.js';
 import { orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionBackend } from '../orca-execution.js';
@@ -766,6 +767,83 @@ describe('Orca execution process boundary', () => {
       '--json',
       '--full',
     ]);
+  });
+
+  it('settles a durable stop_pending from exact release proof and keeps uncertainty otherwise', async () => {
+    const pending = (): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000001',
+      });
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    orcaFixture.show = fixtureReleasedShow();
+    expect(await backend.show(pending())).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+    });
+    orcaFixture.show = fixtureShow();
+    expect(await backend.show(pending())).toMatchObject({
+      state: 'stop_unknown',
+      resourceState: 'owned',
+    });
+    expect(
+      await backend.show(fixtureAttempt({ ...pending(), state: 'stop_unknown' })),
+    ).toMatchObject({ state: 'stop_unknown' });
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it('replays a lost stop by its reserved key and fences a stop with neither key nor id', async () => {
+    const key = '4f7d2f8e-0000-4000-8000-000000000002';
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    orcaFixture.stop = {
+      stdout: JSON.stringify({
+        ok: false,
+        _meta: { runtimeId: fixtureContext.runtimeId },
+        error: { code: 'runtime_timeout', message: 'lost stop reply' },
+      }),
+      stderr: '',
+      exitCode: 1,
+    };
+    const unknown = await backend.stop(
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: key,
+      }),
+    );
+    expect(unknown).toMatchObject({
+      state: 'stop_unknown',
+      stopRequestId: null,
+      stopRequestKey: key,
+    });
+    const [first] = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(first?.[1]).toEqual(expect.arrayContaining(['--retry-request', key]));
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await backend.replayStop({ ...unknown, state: 'stop_pending' });
+    expect(recovered).toMatchObject({ state: 'stopped', resourceState: 'stopped' });
+    const stops = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(stops[1]?.[1]).toEqual(expect.arrayContaining(['--retry-request', key]));
+    await expect(
+      backend.replayStop(
+        fixtureAttempt({
+          state: 'stop_pending',
+          dispatchId: 'ctx_fixture',
+          orcaTaskId: 'task_fixture',
+          runId: 'run_fixture',
+        }),
+      ),
+    ).rejects.toThrow('No replayable');
   });
 
   it('retains an unknown receipt when workspace or effective harness is unproven', async () => {

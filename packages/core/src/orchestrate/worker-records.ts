@@ -200,6 +200,7 @@ export async function recordWorker(
       next.startRequestKey === previous.startRequestKey ||
       next.startRequestKey === previous.startRequestId ||
       next.startRequestId !== null ||
+      next.stopRequestKey !== undefined ||
       next.stopRequestId !== null ||
       next.retryOf !== previous.dispatchId ||
       next.runId !== previous.runId ||
@@ -323,6 +324,7 @@ export async function updateWorkerExecution(
       next.startRequestId !== null &&
       next.startRequestId !== expected.startRequestKey) ||
     (expected.startRequestId !== null && next.startRequestId !== expected.startRequestId) ||
+    (expected.stopRequestKey !== undefined && next.stopRequestKey !== expected.stopRequestKey) ||
     (expected.stopRequestId !== null && next.stopRequestId !== expected.stopRequestId) ||
     (expected.runId !== null && next.runId !== expected.runId) ||
     (expected.orcaTaskId !== null && next.orcaTaskId !== expected.orcaTaskId) ||

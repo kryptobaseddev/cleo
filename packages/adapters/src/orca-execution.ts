@@ -356,7 +356,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     return this.startCommand(attempt, requestId);
   }
 
-  /** Inspect exactly this attempt, preserving uncertain stop and resource custody. */
+  /** Inspect exactly this attempt, settling a reserved stop only on release proof. */
   async show(attempt: OrcaAttempt): Promise<OrcaAttempt> {
     const dispatchId = this.requireDispatch(attempt);
     const reply = await this.query(
@@ -390,15 +390,22 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       resource.state === 'released' &&
       resource.releaseState === 'released' &&
       resource.terminalState === 'released';
+    // A reserved stop is settled only by exact release proof; anything less stays
+    // uncertain rather than repeating or guessing at the original cancellation.
+    const requestedStop = ['stop_pending', 'stop_unknown'].includes(attempt.state);
     return {
       ...attempt,
-      state: ['stop_pending', 'stop_unknown', 'stopped'].includes(attempt.state)
-        ? attempt.state
-        : failureCount >= 3
-          ? 'circuit_broken'
-          : released && value.worker.state === 'failed'
-            ? 'failed'
-            : attempt.state,
+      state: requestedStop
+        ? released
+          ? 'stopped'
+          : 'stop_unknown'
+        : attempt.state === 'stopped'
+          ? 'stopped'
+          : failureCount >= 3
+            ? 'circuit_broken'
+            : released && value.worker.state === 'failed'
+              ? 'failed'
+              : attempt.state,
       failureCount,
       resourceState: released ? 'stopped' : resource?.state === 'owned' ? 'owned' : 'unknown',
       lastReceipt: reply.rawReceipt,
@@ -436,21 +443,23 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         'Inspect stop_unknown with worker-show; do not blindly repeat a stop.',
       );
     }
-    return this.stopCommand(attempt);
+    // The reserved key makes the first send idempotent, so a lost reply reuses it.
+    return this.stopCommand(attempt, attempt.stopRequestKey);
   }
 
-  /** Recover an issued cancellation without sending an unkeyed second stop. */
+  /** Recover a reserved or issued cancellation without sending an unkeyed second stop. */
   async replayStop(attempt: OrcaAttempt): Promise<OrcaAttempt> {
     this.requireDispatch(attempt);
-    if (attempt.state !== 'stop_unknown' || !attempt.stopRequestId) {
+    const requestId = attempt.stopRequestKey ?? attempt.stopRequestId;
+    if (!['stop_pending', 'stop_unknown'].includes(attempt.state) || !requestId) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
         'No replayable uncertain stop request is retained.',
         'Inspect the exact Dispatch and original stop receipt; never repeat an unkeyed stop.',
       );
     }
-    await this.verifyRequest(attempt, attempt.stopRequestId);
-    return this.stopCommand(attempt, attempt.stopRequestId);
+    await this.verifyRequest(attempt, requestId);
+    return this.stopCommand(attempt, requestId);
   }
 
   private async stopCommand(attempt: OrcaAttempt, requestId?: string): Promise<OrcaAttempt> {
@@ -679,11 +688,10 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       attempt.launch.projectRoot,
       attempt.context,
     );
-    // Reserved retries keep their key and --retry-of; Orca atomically refuses a second successor even if its receipt was pruned.
-    const states =
-      attempt.state === 'outcome_unknown' && requestId === attempt.startRequestKey
-        ? ['pending', 'completed', 'absent']
-        : ['pending', 'completed'];
+    // Reserved keys keep their identity; Orca atomically refuses a second mutation
+    // even if its receipt was pruned, so an absent receipt is never proof of absence.
+    const reserved = requestId === attempt.startRequestKey || requestId === attempt.stopRequestKey;
+    const states = reserved ? ['pending', 'completed', 'absent'] : ['pending', 'completed'];
     if (receipt.result?.requestId !== requestId || !states.includes(receipt.result.state ?? '')) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
