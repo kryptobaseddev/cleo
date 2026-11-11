@@ -28,10 +28,13 @@ import {
 /**
  * Convert a caught value into an {@link EngineResult} failure.
  *
- * - When the caught value is a {@link CleoError}, the LAFS code from
- *   `toLAFSError()` (`E_CLEO_VALIDATION`, `E_CLEO_NOT_FOUND`, etc.) is
- *   used. The original numeric `code` is forwarded as `exitCode`, and the
- *   rich `fix` / `alternatives` / `details` fields are propagated.
+ * - When the caught value is a {@link CleoError}, its own `codeName` is used
+ *   when it declares one (`E_STORE_RESTORING` on `LOCK_TIMEOUT`,
+ *   `E_WORKTREE_BUILD_SCHEMA` on `CONFIG_ERROR`, a nexus/edit refusal, …);
+ *   otherwise the LAFS code from `toLAFSError()` (`E_CLEO_VALIDATION`,
+ *   `E_CLEO_NOT_FOUND`, etc.). The original numeric `code` is forwarded as
+ *   `exitCode`, and the rich `fix` / `alternatives` / `details` fields are
+ *   propagated.
  * - When the caught value is NOT a CleoError (e.g. a plain `Error`, a
  *   string, or `null`), the supplied `fallbackCode` and `fallbackMessage`
  *   are used. The default `fallbackCode` is `'E_INTERNAL'`, which is more
@@ -55,6 +58,7 @@ import {
  * ```
  *
  * @task T9940
+ * @task T14490
  */
 export function cleoErrorToEngineResult<T>(
   err: unknown,
@@ -63,12 +67,16 @@ export function cleoErrorToEngineResult<T>(
 ): EngineResult<T> {
   if (err instanceof CleoError) {
     const lafs = err.toLAFSError();
-    return engineError<T>(lafs.code, err.message, {
-      exitCode: err.code,
-      ...(err.fix !== undefined ? { fix: err.fix } : {}),
-      ...(err.alternatives !== undefined ? { alternatives: err.alternatives } : {}),
-      ...(err.details !== undefined ? { details: err.details } : {}),
-    });
+    return engineError<T>(
+      typeof err.codeName === 'string' && err.codeName.length > 0 ? err.codeName : lafs.code,
+      err.message,
+      {
+        exitCode: err.code,
+        ...(err.fix !== undefined ? { fix: err.fix } : {}),
+        ...(err.alternatives !== undefined ? { alternatives: err.alternatives } : {}),
+        ...(err.details !== undefined ? { details: err.details } : {}),
+      },
+    );
   }
   const refusal = exodusRefusalToEngineResult<T>(err);
   if (refusal !== null) return refusal;

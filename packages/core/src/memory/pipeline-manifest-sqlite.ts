@@ -1852,6 +1852,7 @@ export async function pipelineManifestUpdate(
 /**
  * Read unarchived entries from both manifest histories with physical provenance.
  * @param projectRoot - Explicit project root; takes priority over ambient project pins.
+ * @param entryId - Optional exact id, avoiding an unrelated full-history read.
  * @returns Entries retaining the existing fields and observed source tables/database path.
  * @throws EngineResultError when the same identity has conflicting persisted payloads.
  * @throws Error when storage reads fail; failure is never represented as an empty history.
@@ -1865,8 +1866,9 @@ export async function pipelineManifestUpdate(
  */
 export async function readManifestEntries(
   projectRoot?: string,
+  entryId?: string,
 ): Promise<Array<ManifestWithProvenance<ExtendedManifestEntry>>> {
-  return (await readRows(projectRoot)).map(rowToEntry);
+  return (await readRows(projectRoot, false, entryId)).map(rowToEntry);
 }
 
 /**

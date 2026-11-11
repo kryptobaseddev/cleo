@@ -90,6 +90,7 @@ import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { selectHarnessSpawnProvider } from '../harness/spawn-provider-selection.js';
 import type { HarnessSpawnCapability } from '../harness/types.js';
 import { hooks } from '../hooks/registry.js';
@@ -1649,6 +1650,11 @@ export async function orchestrateSpawnExecute(
   } catch (error) {
     // T14359 — the spawn threw, so the pre-spawn record's worker never ran.
     if (pendingWorker) await abandonWorkerRecord(pendingWorker, cwd).catch(() => undefined);
+    // T14490 — a thrown CleoError keeps its own code name, exit code and fix.
+    // The custody read opens the store before adapter preflight, so a store
+    // refusal (E_STORE_RESTORING, E_WORKTREE_BUILD_SCHEMA) reaches this catch:
+    // it must not collapse to E_SPAWN_FAILED with its fix dropped.
+    if (error instanceof CleoError) return cleoErrorToEngineResult(error);
     // T14363 — keep a coded refusal's own code (e.g. E_LEAD_TOOLS_UNSTRIPPED).
     const coded = codedError(error);
     // @sync-invariant none:local-only the spawn threw before an agent ran; the finally hands the claim back
@@ -2394,6 +2400,11 @@ export async function orchestrateSpawn(
       },
     };
   } catch (err: unknown) {
+    // T14490 — a thrown CleoError keeps its own code name, exit code and fix.
+    // The custody read opens the store before any pipeline step, so a store
+    // refusal (E_STORE_RESTORING, E_WORKTREE_BUILD_SCHEMA) reaches this catch:
+    // it must not surface as a bare numeric code with its fix dropped.
+    if (err instanceof CleoError) return cleoErrorToEngineResult(err);
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     // T9545 — when our budget supervisor aborts a step, the helper throws
     // an Error with `code === 'E_TIMEOUT'`. Surface a structured envelope

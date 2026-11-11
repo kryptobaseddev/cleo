@@ -16,12 +16,15 @@ import {
   fixtureLaunch,
   fixtureReleasedShow,
   fixtureReply,
+  fixtureReportDispatch,
+  fixtureReportInbox,
   fixtureRunner,
   fixtureShow,
   fixtureStart,
   orcaFixture,
   runOrcaFixture,
 } from '../../../../../adapters/src/__tests__/orca-execution-fixture.js';
+import { pipelineManifestAppend } from '../../../../../core/src/memory/pipeline-manifest-sqlite.js';
 import { launchOrcaWorker } from '../../../../../core/src/orchestrate/orca-execution.js';
 import { listWorkerRecords } from '../../../../../core/src/orchestrate/worker-records.js';
 import { requireSpawnSession } from '../../../../../core/src/spawn/agent-identity.js';
@@ -140,6 +143,57 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     expect(readWorktreeTaskLock(launch.projectHash, 'T001')?.token).toBe(launch.lockToken);
     expect(readFileSync(join(launch.worktreePath, 'dirty.txt'), 'utf8')).toBe('owner work');
   }
+
+  it('ingests an exact worker_done id through CLI parsing and returns the same durable report on restart', async () => {
+    const record = await start();
+    const report =
+      'Implementation complete. manifest:cli-report\nconclusion: Implemented the change.\nblocker: none\nproof: vitest worker.test.ts => exit 0';
+    writeFileSync(join(launch.worktreePath, 'worker-report.txt'), report);
+    const manifest = await pipelineManifestAppend(
+      {
+        id: 'cli-report',
+        file: 'cli-report.md',
+        title: 'CLI worker result',
+        date: '2026-11-11',
+        status: 'completed',
+        agent_type: 'implementation',
+        topics: ['orca'],
+        actionable: false,
+        linked_tasks: ['T001'],
+      },
+      env.tempDir,
+    );
+    expect(manifest.success).toBe(true);
+    orcaFixture.inbox = fixtureReportInbox();
+    orcaFixture.currentDispatch = fixtureReportDispatch();
+    fixtureRunner.mockClear();
+    for (let delivery = 0; delivery < 2; delivery++) {
+      const output = await run('ingest-report', record.recordId, '--message-id', 'msg_report');
+      expect(JSON.parse(output)).toMatchObject({
+        success: true,
+        data: {
+          recordId: record.recordId,
+          stoppedAt: null,
+          report: {
+            manifestId: 'cli-report',
+            reportText: report,
+            event: { messageId: 'msg_report' },
+          },
+        },
+      });
+      expect(process.exitCode).toBe(0);
+    }
+    expect(fixtureRunner.mock.calls.map(([, args]) => args[1])).toEqual([
+      'inbox',
+      'dispatch-show',
+      'inbox',
+      'dispatch-show',
+    ]);
+    expect((await env.accessor.loadSingleTask('T001'))?.verification?.gates?.implemented).not.toBe(
+      true,
+    );
+    await expectCustody();
+  });
 
   it('shows the stored dispatch and forwards a source-pinned read cursor without consuming mail', async () => {
     const record = await start();

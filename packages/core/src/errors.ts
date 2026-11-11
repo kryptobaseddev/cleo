@@ -92,6 +92,15 @@ export interface CleoErrorDetails {
  */
 export class CleoError extends Error {
   readonly code: ExitCode;
+  /**
+   * The refusal's own stable code name when its numeric exit class is broader
+   * than its reason (e.g. `E_STORE_RESTORING` on `LOCK_TIMEOUT`). Error
+   * envelopes and `cleoErrorToEngineResult` prefer it over the LAFS code
+   * derived from `code`; subclasses may also declare it as a class field.
+   *
+   * @task T14490
+   */
+  readonly codeName?: string;
   readonly fix?: string;
   readonly alternatives?: Array<{ action: string; command: string }>;
   /** Field-level details for constraint-violation errors. @task T341 */
@@ -105,11 +114,17 @@ export class CleoError extends Error {
       alternatives?: Array<{ action: string; command: string }>;
       details?: CleoErrorDetails;
       cause?: unknown;
+      /**
+       * Stable code name to surface instead of the exit class's LAFS code
+       * (e.g. `E_STORE_RESTORING`). @task T14490
+       */
+      codeName?: string;
     },
   ) {
     super(message, { cause: options?.cause });
     this.name = 'CleoError';
     this.code = code;
+    this.codeName = options?.codeName;
     this.fix = options?.fix;
     this.alternatives = options?.alternatives;
     this.details = options?.details;
