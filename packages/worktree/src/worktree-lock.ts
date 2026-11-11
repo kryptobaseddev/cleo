@@ -434,40 +434,6 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/**
- * Remove an abandoned mutex only if it is still the file we judged stale:
- * rename it to a private name, then compare inodes. A mutex created in the
- * meantime by a live contender is put back rather than deleted.
- */
-function breakStaleMutex(mutexPath: string, staleIno: number): void {
-  const graveyard = `${mutexPath}.${randomUUID()}.stale`;
-  try {
-    renameSync(mutexPath, graveyard);
-  } catch {
-    return; // already gone
-  }
-  let ino = -1;
-  try {
-    ino = statSync(graveyard).ino;
-  } catch {
-    return;
-  }
-  if (ino === staleIno) {
-    unlinkQuiet(graveyard);
-    return;
-  }
-  try {
-    linkSync(graveyard, mutexPath); // restore the live contender's mutex
-  } catch {
-    try {
-      renameSync(graveyard, mutexPath);
-    } catch {
-      /* best effort */
-    }
-  }
-  unlinkQuiet(graveyard);
-}
-
 /** Who holds a lock mutex: written into `<lock>.reclaim` (T14407). */
 interface MutexHolder {
   token: string;
@@ -479,10 +445,31 @@ interface MutexHolder {
 /** This process's start time, read once (a `ps` call). */
 let ownStartTime: string | null | undefined;
 
-/** One mutex file as read through a single descriptor: holder, inode and mtime belong together. */
+/**
+ * A file's identity: device and inode as `bigint` (T14407). A `Number` cannot
+ * hold every 64-bit file id (Windows), so two files could compare equal.
+ */
+export interface FileIdentity {
+  dev: bigint;
+  ino: bigint;
+}
+
+/**
+ * True when two identities name the same file (`dev` and `ino` compared as `bigint`).
+ *
+ * @param a - First identity.
+ * @param b - Second identity.
+ * @returns Whether both name one file.
+ */
+export function sameFileIdentity(a: FileIdentity, b: FileIdentity): boolean {
+  return a.dev === b.dev && a.ino === b.ino;
+}
+
+/** One mutex file as read through a single descriptor: content, holder, identity and mtime belong together. */
 interface MutexSnapshot {
+  raw: string;
   holder: MutexHolder | null;
-  ino: number;
+  id: FileIdentity;
   mtimeMs: number;
 }
 
@@ -521,8 +508,13 @@ function readMutexSnapshot(mutexPath: string): MutexSnapshot | null {
   }
   try {
     const raw = readFileSync(fd, 'utf-8');
-    const st = fstatSync(fd);
-    return { holder: parseMutexHolder(raw), ino: st.ino, mtimeMs: st.mtimeMs };
+    const st = fstatSync(fd, { bigint: true });
+    return {
+      raw,
+      holder: parseMutexHolder(raw),
+      id: { dev: st.dev, ino: st.ino },
+      mtimeMs: Number(st.mtimeMs),
+    };
   } catch {
     return null;
   } finally {
@@ -536,8 +528,8 @@ function readMutexSnapshot(mutexPath: string): MutexSnapshot | null {
  * the whole of {@link withWorktreeTaskLockHeld}.
  *
  * The file names its holder (pid, start time, thread). A mutex older than
- * {@link RECLAIM_MUTEX_STALE_MS} is broken by inode only when that holder is
- * provably dead (holder and inode read from one descriptor), so a long hold by a live process (a forced dispose) is never
+ * {@link RECLAIM_MUTEX_STALE_MS} is broken, under the breaker lock, only when that holder is
+ * provably dead and the file is still the one read (holder and identity read from one descriptor), so a long hold by a live process (a forced dispose) is never
  * broken as stale, even where its start time cannot be read (T14407). A mutex this very thread holds is reported
  * busy at once: waiting would block the holder, which can never release it.
  *
@@ -571,16 +563,83 @@ function takeLockMutex(lockPath: string, now: () => number): (() => void) | null
         if (holder !== null && holder.pid === process.pid && holder.threadId === threadId) {
           return null; // held by this thread: re-entrant from inside a hold
         }
-        // Compare-and-delete: breakStaleMutex removes the file only while it
-        // still has the inode whose holder was judged dead.
-        if (now() - snap.mtimeMs > RECLAIM_MUTEX_STALE_MS && !isMutexHolderAlive(holder)) {
-          breakStaleMutex(mutexPath, snap.ino);
-        }
+        // Breaks are serialised under `<mutex>.break`; the file is unlinked
+        // only while it is still the one whose holder was judged dead.
+        const nowMs = now();
+        if (isStaleMutex(snap, nowMs)) breakStaleMutex(mutexPath, snap, nowMs);
       }
       sleepSync(RECLAIM_BACKOFF_MS);
     }
   }
   return null;
+}
+
+/** A mutex (or breaker) past {@link RECLAIM_MUTEX_STALE_MS} whose holder is provably dead. */
+function isStaleMutex(snap: MutexSnapshot, nowMs: number): boolean {
+  return nowMs - snap.mtimeMs > RECLAIM_MUTEX_STALE_MS && !isMutexHolderAlive(snap.holder);
+}
+
+/** True when `current` is still the very file `snap` read: same identity and content. */
+function isSameMutex(current: MutexSnapshot, snap: MutexSnapshot): boolean {
+  return sameFileIdentity(current.id, snap.id) && current.raw === snap.raw;
+}
+
+/**
+ * Take the breaker lock `<mutex>.break` (O_EXCL). A breaker whose holder is
+ * provably dead is removed (only while it is still the file judged dead) and
+ * the caller retries on its next attempt; a live one is never touched.
+ *
+ * @returns A release function, or `null` when another breaker holds it.
+ */
+function takeBreaker(breakerPath: string, content: string, nowMs: number): (() => void) | null {
+  try {
+    writeExclusive(breakerPath, content);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    const snap = readMutexSnapshot(breakerPath);
+    if (snap !== null && isStaleMutex(snap, nowMs)) {
+      const current = readMutexSnapshot(breakerPath);
+      if (current !== null && isSameMutex(current, snap)) unlinkQuiet(breakerPath);
+    }
+    return null;
+  }
+  return () => {
+    try {
+      if (readFileSync(breakerPath, 'utf-8') === content) unlinkSync(breakerPath);
+    } catch {
+      /* already gone */
+    }
+  };
+}
+
+/**
+ * Remove an abandoned mutex (T14407). A path cannot be compared-and-deleted
+ * atomically, so every break runs under the breaker lock: under it the mutex
+ * is re-read through one descriptor and unlinked only if it is still the file
+ * `stale` read. Acquisition is O_EXCL, which never replaces an existing mutex,
+ * so with breaks serialised a live mutex is never moved or deleted.
+ *
+ * Residual: two contenders that both find the same DEAD breaker can race to
+ * remove it; that needs a breaker that died mid-break and stayed stale.
+ */
+function breakStaleMutex(mutexPath: string, stale: MutexSnapshot, nowMs: number): void {
+  const release = takeBreaker(
+    `${mutexPath}.break`,
+    JSON.stringify({
+      token: randomUUID(),
+      pid: process.pid,
+      processStartedAt: ownStartTime ?? null,
+      threadId,
+    } satisfies MutexHolder),
+    nowMs,
+  );
+  if (release === null) return;
+  try {
+    const current = readMutexSnapshot(mutexPath);
+    if (current !== null && isSameMutex(current, stale)) unlinkQuiet(mutexPath);
+  } finally {
+    release();
+  }
 }
 
 /**

@@ -16,9 +16,11 @@
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   utimesSync,
@@ -43,6 +45,7 @@ import {
   readWorktreeTaskLock,
   releaseWorktreeTaskLock,
   releaseWorktreeTaskLocksForSession,
+  sameFileIdentity,
 } from '../worktree-lock.js';
 
 /** T14407: runs once, right before the next `disposeWorktree` does its work. */
@@ -57,6 +60,13 @@ const afterMutexRead = vi.hoisted(() => ({
   run: null as (() => void) | null,
 }));
 
+/**
+ * T14407: runs after every source `unlinkSync`/`renameSync`/`linkSync` (each
+ * moment a path may have just become free) while set; models a contender
+ * that tries to take the mutex at that instant.
+ */
+const afterFsMutation = vi.hoisted(() => ({ run: null as (() => void) | null }));
+
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   const readFileSync = ((...args: Parameters<typeof actual.readFileSync>) => {
@@ -68,7 +78,19 @@ vi.mock('node:fs', async (importOriginal) => {
     }
     return out;
   }) as typeof actual.readFileSync;
-  return { ...actual, default: { ...actual, readFileSync }, readFileSync };
+  const wrap = <F extends (...args: never[]) => unknown>(fn: F): F =>
+    ((...args: Parameters<F>) => {
+      try {
+        return fn(...args);
+      } finally {
+        afterFsMutation.run?.();
+      }
+    }) as F;
+  const unlinkSync = wrap(actual.unlinkSync);
+  const renameSync = wrap(actual.renameSync);
+  const linkSync = wrap(actual.linkSync);
+  const overrides = { readFileSync, unlinkSync, renameSync, linkSync };
+  return { ...actual, default: { ...actual, ...overrides }, ...overrides };
 });
 
 vi.mock('../worktree-dispose.js', async (importOriginal) => {
@@ -912,6 +934,83 @@ describe('disposeOwnedWorktree — dispose under the task lock (T14407)', () => 
     expect(heartbeatWorktreeTaskLock(hash, 'T7107', lock.record.token)).toBeNull();
     expect(afterMutexRead.run).toBeNull(); // the swap happened
     expect(readFileSync(mutexPath, 'utf-8')).toBe(liveMutex);
+  });
+
+  /** Plant a mutex-shaped file at `path` naming `pid`, aged past the stale threshold. */
+  function plantHolder(path: string, token: string, pid: number, startedAt: string | null): string {
+    const raw = JSON.stringify({ token, pid, processStartedAt: startedAt, threadId: 0 });
+    writeFileSync(path, raw);
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(path, old, old);
+    return raw;
+  }
+
+  /** A live process and its recorded start time. */
+  function liveProcess(): { pid: number; startedAt: string | null } {
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    return { pid: live.pid, startedAt: readProcessStartTime(live.pid) };
+  }
+
+  it('a contender acquiring after a dead mutex is broken never has its mutex moved or deleted (T14407)', () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7108', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7108')}.reclaim`;
+    plantHolder(mutexPath, 'dead-x', deadPid(), null);
+    const c = liveProcess();
+    let liveC = '';
+    let dEntered = false;
+    // A reads dead X. Before A acts, another breaker removes X and C acquires
+    // live Z. From then on, a contender D tries O_EXCL every time A frees a path.
+    afterMutexRead.marker = 'dead-x';
+    afterMutexRead.run = () => {
+      rmSync(mutexPath);
+      liveC = plantHolder(mutexPath, 'live-z', c.pid, c.startedAt);
+      afterFsMutation.run = () => {
+        try {
+          closeSync(openSync(mutexPath, 'wx'));
+          dEntered = true;
+        } catch {
+          /* still held */
+        }
+      };
+    };
+    try {
+      expect(heartbeatWorktreeTaskLock(hash, 'T7108', lock.record.token)).toBeNull();
+    } finally {
+      afterFsMutation.run = null;
+    }
+    expect(afterMutexRead.run).toBeNull();
+    expect(dEntered).toBe(false);
+    expect(readFileSync(mutexPath, 'utf-8')).toBe(liveC);
+  });
+
+  it('a live breaker serialises breaks: a second breaker of the same dead mutex never deletes it (T14407)', () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7109', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7109')}.reclaim`;
+    const deadX = plantHolder(mutexPath, 'dead-x', deadPid(), null);
+    // Breaker B (live) is mid-break of X: A must not break X too.
+    const b = liveProcess();
+    const breakerB = plantHolder(`${mutexPath}.break`, 'breaker-b', b.pid, b.startedAt);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7109', lock.record.token)).toBeNull();
+    expect(readFileSync(mutexPath, 'utf-8')).toBe(deadX);
+    expect(readFileSync(`${mutexPath}.break`, 'utf-8')).toBe(breakerB);
+    // B dies mid-break: its breaker is removed, then exactly one break of X wins.
+    plantHolder(`${mutexPath}.break`, 'breaker-b', deadPid(), null);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7109', lock.record.token)?.token).toBe(
+      lock.record.token,
+    );
+    expect(existsSync(mutexPath)).toBe(false);
+    expect(existsSync(`${mutexPath}.break`)).toBe(false);
+  });
+
+  it('compares file identity as bigint dev+ino, so 64-bit ids that collide as Numbers differ (T14407)', () => {
+    const a = { dev: 1n, ino: 2n ** 63n };
+    const b = { dev: 1n, ino: 2n ** 63n + 1n };
+    expect(Number(a.ino)).toBe(Number(b.ino)); // a Number cannot tell them apart
+    expect(sameFileIdentity(a, b)).toBe(false);
+    expect(sameFileIdentity(a, { dev: 1n, ino: 2n ** 63n })).toBe(true);
+    expect(sameFileIdentity(a, { dev: 2n, ino: 2n ** 63n })).toBe(false);
   });
 
   it('a session-end release cannot free the lock for a successor while a dispose holds it (T14407)', () => {
