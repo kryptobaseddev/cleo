@@ -49,6 +49,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
+  fstatSync,
   fsyncSync,
   linkSync,
   mkdirSync,
@@ -478,10 +479,17 @@ interface MutexHolder {
 /** This process's start time, read once (a `ps` call). */
 let ownStartTime: string | null | undefined;
 
-/** Read the holder a mutex file names, or `null` when it is missing or not a record. */
-function readMutexHolder(mutexPath: string): MutexHolder | null {
+/** One mutex file as read through a single descriptor: holder, inode and mtime belong together. */
+interface MutexSnapshot {
+  holder: MutexHolder | null;
+  ino: number;
+  mtimeMs: number;
+}
+
+/** Parse a mutex file's holder, or `null` when it is not a record. */
+function parseMutexHolder(raw: string): MutexHolder | null {
   try {
-    const parsed = JSON.parse(readFileSync(mutexPath, 'utf-8')) as Partial<MutexHolder>;
+    const parsed = JSON.parse(raw) as Partial<MutexHolder>;
     if (typeof parsed.token === 'string' && typeof parsed.pid === 'number') {
       return {
         token: parsed.token,
@@ -492,9 +500,34 @@ function readMutexHolder(mutexPath: string): MutexHolder | null {
       };
     }
   } catch {
-    /* missing, or a bare-token mutex from an older writer */
+    /* a bare-token mutex from an older writer */
   }
   return null;
+}
+
+/**
+ * Read a mutex file's holder and identity from ONE open descriptor (`fstat` on
+ * the fd that was read), so a mutex replaced between the read and the stat can
+ * never pair the old holder with the new file (T14407).
+ *
+ * @returns The snapshot, or `null` when the file is missing.
+ */
+function readMutexSnapshot(mutexPath: string): MutexSnapshot | null {
+  let fd: number;
+  try {
+    fd = openSync(mutexPath, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const raw = readFileSync(fd, 'utf-8');
+    const st = fstatSync(fd);
+    return { holder: parseMutexHolder(raw), ino: st.ino, mtimeMs: st.mtimeMs };
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
@@ -504,7 +537,7 @@ function readMutexHolder(mutexPath: string): MutexHolder | null {
  *
  * The file names its holder (pid, start time, thread). A mutex older than
  * {@link RECLAIM_MUTEX_STALE_MS} is broken by inode only when that holder is
- * provably dead, so a long hold by a live process (a forced dispose) is never
+ * provably dead (holder and inode read from one descriptor), so a long hold by a live process (a forced dispose) is never
  * broken as stale, even where its start time cannot be read (T14407). A mutex this very thread holds is reported
  * busy at once: waiting would block the holder, which can never release it.
  *
@@ -532,17 +565,17 @@ function takeLockMutex(lockPath: string, now: () => number): (() => void) | null
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      const holder = readMutexHolder(mutexPath);
-      if (holder !== null && holder.pid === process.pid && holder.threadId === threadId) {
-        return null; // held by this thread: re-entrant from inside a hold
-      }
-      try {
-        const st = statSync(mutexPath);
-        if (now() - st.mtimeMs > RECLAIM_MUTEX_STALE_MS && !isMutexHolderAlive(holder)) {
-          breakStaleMutex(mutexPath, st.ino);
+      const snap = readMutexSnapshot(mutexPath);
+      if (snap !== null) {
+        const { holder } = snap;
+        if (holder !== null && holder.pid === process.pid && holder.threadId === threadId) {
+          return null; // held by this thread: re-entrant from inside a hold
         }
-      } catch {
-        /* vanished between open and stat — retry */
+        // Compare-and-delete: breakStaleMutex removes the file only while it
+        // still has the inode whose holder was judged dead.
+        if (now() - snap.mtimeMs > RECLAIM_MUTEX_STALE_MS && !isMutexHolderAlive(holder)) {
+          breakStaleMutex(mutexPath, snap.ino);
+        }
       }
       sleepSync(RECLAIM_BACKOFF_MS);
     }

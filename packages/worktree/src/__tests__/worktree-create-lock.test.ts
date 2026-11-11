@@ -48,6 +48,29 @@ import {
 /** T14407: runs once, right before the next `disposeWorktree` does its work. */
 const beforeNextDispose = vi.hoisted(() => ({ run: null as (() => void) | null }));
 
+/**
+ * T14407: runs once, right after a file read returns text containing `marker`
+ * (the source's mutex holder read), before the reader's next step.
+ */
+const afterMutexRead = vi.hoisted(() => ({
+  marker: null as string | null,
+  run: null as (() => void) | null,
+}));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const readFileSync = ((...args: Parameters<typeof actual.readFileSync>) => {
+    const out = actual.readFileSync(...args);
+    const { marker, run } = afterMutexRead;
+    if (run !== null && marker !== null && String(out).includes(marker)) {
+      afterMutexRead.run = null;
+      run();
+    }
+    return out;
+  }) as typeof actual.readFileSync;
+  return { ...actual, default: { ...actual, readFileSync }, readFileSync };
+});
+
 vi.mock('../worktree-dispose.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../worktree-dispose.js')>();
   return {
@@ -856,6 +879,39 @@ describe('disposeOwnedWorktree — dispose under the task lock (T14407)', () => 
     utimesSync(mutexPath, old, old);
     expect(heartbeatWorktreeTaskLock(hash, 'T7105', lock.record.token)).toBeNull();
     expect(existsSync(mutexPath)).toBe(true);
+  });
+
+  it('never breaks a live mutex that replaced the dead one between the holder read and the stat (T14407)', () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7107', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7107')}.reclaim`;
+    const old = new Date(Date.now() - 120_000);
+    // Dead mutex X, stale by age.
+    writeFileSync(
+      mutexPath,
+      JSON.stringify({ token: 'dead-x', pid: deadPid(), processStartedAt: null, threadId: 0 }),
+    );
+    utimesSync(mutexPath, old, old);
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    const liveMutex = JSON.stringify({
+      token: 'live-y',
+      pid: live.pid,
+      processStartedAt: readProcessStartTime(live.pid),
+      threadId: 0,
+    });
+    // Right after the contender reads X's dead holder, another contender
+    // replaces X with live mutex Y (a new inode), already older than the
+    // stale age.
+    afterMutexRead.marker = 'dead-x';
+    afterMutexRead.run = () => {
+      rmSync(mutexPath);
+      writeFileSync(mutexPath, liveMutex);
+      utimesSync(mutexPath, old, old);
+    };
+    expect(heartbeatWorktreeTaskLock(hash, 'T7107', lock.record.token)).toBeNull();
+    expect(afterMutexRead.run).toBeNull(); // the swap happened
+    expect(readFileSync(mutexPath, 'utf-8')).toBe(liveMutex);
   });
 
   it('a session-end release cannot free the lock for a successor while a dispose holds it (T14407)', () => {
