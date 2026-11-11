@@ -113,14 +113,28 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       ['agent-context', '--json'],
       launch.projectRoot,
     );
-    const registry = orcaCommandRegistrySchema.parse(JSON.parse(registryResult.stdout));
+    if (registryResult.exitCode !== 0) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'The selected Orca CLI is unavailable.',
+        'Inspect the selected Orca executable and runtime; do not substitute a native launch.',
+        registryResult.stdout,
+      );
+    }
+    let registry: ReturnType<typeof orcaCommandRegistrySchema.parse>;
+    try {
+      registry = orcaCommandRegistrySchema.parse(JSON.parse(registryResult.stdout));
+    } catch {
+      throw new OrcaExecutionError(
+        'E_ORCA_COMMAND_UNSUPPORTED',
+        'The selected Orca CLI returned no valid command registry.',
+        'Update the selected Orca CLI and runtime together, then repeat read-only preflight.',
+        registryResult.stdout,
+      );
+    }
     for (const [command, flags] of Object.entries(REQUIRED_COMMANDS)) {
       const declared = registry.commands.find((entry) => entry.command === command);
-      if (
-        registryResult.exitCode !== 0 ||
-        !declared ||
-        flags.some((flag) => !declared.flags.includes(flag))
-      ) {
+      if (!declared || flags.some((flag) => !declared.flags.includes(flag))) {
         throw new OrcaExecutionError(
           'E_ORCA_COMMAND_UNSUPPORTED',
           `Installed Orca does not declare ${command} with required flags.`,

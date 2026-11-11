@@ -154,6 +154,20 @@ describe('Orca execution process boundary', () => {
     expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
   });
 
+  it.each([
+    null,
+    0,
+  ])('refuses an unavailable or malformed CLI registry (exit %s) actionably', async (exitCode) => {
+    fixtureRunner.mockResolvedValue({ stdout: '', stderr: 'unavailable fixture CLI', exitCode });
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).preflight(fixtureLaunch, fixtureContext),
+    ).rejects.toMatchObject({
+      code: exitCode === null ? 'E_ORCA_CONTEXT' : 'E_ORCA_COMMAND_UNSUPPORTED',
+      fix: expect.stringContaining('selected Orca'),
+    });
+    expect(fixtureRunner).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps unobserved-turn starts in flight despite a nonzero full-view exit', async () => {
     orcaFixture.start = fixtureStart('outcome_unknown');
     const backend = new OrcaExecutionBackend(fixtureRunner);
