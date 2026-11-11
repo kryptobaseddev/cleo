@@ -49,7 +49,10 @@ import {
   sameFileIdentity,
 } from '../worktree-lock.js';
 
-/** T14407: runs once, right before the next `disposeWorktree` does its work. */
+/**
+ * T14407: runs once, right before the next `disposeWorktree` does its work,
+ * or, for `disposeOwnedWorktree`, under the lock right before the removal (T14489).
+ */
 const beforeNextDispose = vi.hoisted(() => ({ run: null as (() => void) | null }));
 
 /**
@@ -105,6 +108,16 @@ vi.mock('../worktree-dispose.js', async (importOriginal) => {
       run?.();
       return actual.disposeWorktree(...args);
     },
+    disposeOwnedWorktree: (opts: Parameters<typeof actual.disposeOwnedWorktree>[0]) =>
+      actual.disposeOwnedWorktree({
+        ...opts,
+        inUse: () => {
+          const run = beforeNextDispose.run;
+          beforeNextDispose.run = null;
+          run?.();
+          return opts.inUse ? opts.inUse() : null;
+        },
+      }),
   };
 });
 
@@ -464,6 +477,47 @@ describe('createWorktree — per-task lock (T12506)', () => {
     expect(second.reused).toBe(false);
     expect(existsSync(second.path)).toBe(true);
     expect(readWorktreeTaskLock(projectHash, 'T7011')?.token).toBe(second.lock?.record.token);
+  });
+
+  it('a failed provision disposes under the lock, so a same-holder re-entry cannot take the worktree it is removing (T14489)', async () => {
+    writeFileSync(join(projectRoot, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    git(['add', 'pnpm-lock.yaml'], projectRoot);
+    git(['commit', '-m', 'lockfile'], projectRoot);
+    const projectHash = computeProjectHash(projectRoot);
+    const worktreePath = resolveTaskWorktreePath(projectHash, 'T7014');
+    const holder = { sessionId: 'ses_same', agentId: 'agent-same' };
+
+    // Between the ownership check and the removal, the same caller re-enters
+    // the lock. Without the mutex it would get a new token and the removal
+    // would still take the worktree its re-entered lock now owns.
+    let reentered: string | undefined;
+    let reentryErr: unknown;
+    const err = await createWorktree(projectRoot, {
+      taskId: 'T7014',
+      lockWorktree: false,
+      holder,
+      admitInstall: async () => {
+        beforeNextDispose.run = () => {
+          expect(existsSync(worktreePath)).toBe(true);
+          try {
+            reentered = acquireWorktreeTaskLock({ projectHash, taskId: 'T7014', holder }).status;
+          } catch (e) {
+            reentryErr = e;
+          }
+        };
+        throw new Error('admission failed');
+      },
+    }).catch((e: unknown) => e);
+
+    expect(reentered).toBeUndefined();
+    expect(isWorktreeLockedError(reentryErr)).toBe(true);
+    expect(err).toMatchObject({
+      message: 'admission failed',
+      freshWorktreeCreated: true,
+      cleanup: { worktreeRemoved: true, branchDeleted: true },
+    });
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(readWorktreeTaskLock(projectHash, 'T7014')).toBeNull();
   });
 
   it('a failed provision keeps the worktree a same-holder retry re-attached meanwhile, and its lock (T14407)', async () => {

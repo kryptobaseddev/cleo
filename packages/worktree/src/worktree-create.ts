@@ -56,12 +56,8 @@ import {
   readRecordedWorktreeBase,
   removeWorktreeFromSentinelIndex,
 } from './worktree-audit.js';
-import { disposeWorktree } from './worktree-dispose.js';
-import {
-  acquireWorktreeTaskLock,
-  readWorktreeTaskLock,
-  releaseWorktreeTaskLock,
-} from './worktree-lock.js';
+import { disposeOwnedWorktree } from './worktree-dispose.js';
+import { acquireWorktreeTaskLock, releaseWorktreeTaskLock } from './worktree-lock.js';
 import { assertNoWorktreeConfigLeak, ensureWorktreeBuildReady } from './worktree-preflight.js';
 
 /**
@@ -546,11 +542,10 @@ export async function createWorktree(
  * Remove the worktree a failed {@link createWorktree} call created (T14407).
  *
  * It removes exactly `ctx.worktreePath` and `ctx.branch`, never whatever
- * checkout of the task git lists first, and only while `ctx.lock` still holds
- * the task lock: a same-holder re-spawn that re-entered replaced the token and
- * owns the worktree now, so it is kept. Synchronous on purpose: nothing in
- * this process can re-enter between the token check and the removal, and
- * another process cannot take a lock whose holder is alive.
+ * checkout of the task git lists first, through {@link disposeOwnedWorktree}:
+ * only while `ctx.lock` still holds the task lock, checked and removed under
+ * the lock's mutex (T14489). A same-holder re-spawn that re-entered replaced
+ * the token and owns the worktree now, so it is kept.
  *
  * @internal
  */
@@ -567,37 +562,39 @@ function removeFailedProvision(
     branchDeleted: false,
     force: true,
   };
-  if (readWorktreeTaskLock(projectHash, taskId)?.token !== lock.record.token) {
-    result.error = `Worktree kept: the task lock passed to another acquisition, which owns ${worktreePath} now.`;
+  // T14489: the token check, path and branch match and removal all run under
+  // the lock's mutex, so no re-entered or successor lock loses its worktree.
+  const owned = disposeOwnedWorktree({
+    projectHash,
+    taskId,
+    worktreePath,
+    branch,
+    lockToken: lock.record.token,
+    gitRoot,
+    projectRoot,
+    reason,
+    force: true,
+  });
+  const { disposal } = owned;
+  if (disposal?.archive) result.archive = disposal.archive;
+  if (disposal?.kept) result.kept = disposal.kept;
+  if (disposal) result.dirty = disposal.unpreserved !== undefined;
+  if (owned.outcome !== 'removed') {
+    result.error = `Worktree kept: ${owned.reason}`;
   } else {
-    const disposal = disposeWorktree({
-      worktreePath,
-      gitRoot,
-      projectRoot,
-      taskId,
-      reason,
-      force: true,
-    });
-    if (disposal.archive) result.archive = disposal.archive;
-    if (disposal.kept) result.kept = disposal.kept;
-    result.dirty = disposal.unpreserved !== undefined;
-    if (!disposal.removed) {
-      result.error = `Worktree kept: ${disposal.keptReason ?? 'not proven preserved'}`;
-    } else {
-      result.worktreeRemoved = true;
-      gitSilent(['worktree', 'prune'], gitRoot);
-      try {
-        const exists = gitSync(['branch', '--list', branch], gitRoot).trim() !== '';
-        const unmerged = exists ? countUnmergedCommits(gitRoot, branch, ['HEAD']) : 0;
-        if (unmerged > 0) {
-          result.error = `Branch '${branch}' kept: ${unmerged} commit(s) are on neither origin/main nor HEAD.`;
-        } else if (exists) {
-          gitSync(['branch', '-D', branch], gitRoot);
-          result.branchDeleted = true;
-        }
-      } catch (err) {
-        result.error = `Failed to delete branch: ${err instanceof Error ? err.message : String(err)}`;
+    result.worktreeRemoved = true;
+    gitSilent(['worktree', 'prune'], gitRoot);
+    try {
+      const exists = gitSync(['branch', '--list', branch], gitRoot).trim() !== '';
+      const unmerged = exists ? countUnmergedCommits(gitRoot, branch, ['HEAD']) : 0;
+      if (unmerged > 0) {
+        result.error = `Branch '${branch}' kept: ${unmerged} commit(s) are on neither origin/main nor HEAD.`;
+      } else if (exists) {
+        gitSync(['branch', '-D', branch], gitRoot);
+        result.branchDeleted = true;
       }
+    } catch (err) {
+      result.error = `Failed to delete branch: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
   appendWorktreeAuditLog(projectRoot, {
