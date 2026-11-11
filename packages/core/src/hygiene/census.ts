@@ -719,7 +719,7 @@ async function prunePlanBounded(
   repoRoot: string,
   integrationTarget: string,
   deadline: number,
-): Promise<{ candidates: Array<{ kind: string; branch?: string }> } | null> {
+): Promise<{ candidates: Array<{ kind: string; branch?: string | undefined }> } | null> {
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) return null;
   // `require` from this module's directory so the worker resolves the

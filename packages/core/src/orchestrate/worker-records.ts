@@ -207,21 +207,29 @@ export async function listWorkerRecordsReadOnly(
   try {
     const raw = snap.db
       .prepare(
-        `SELECT id, agent_type, status, session_id, task_id, started_at, last_heartbeat, stopped_at, metadata_json
+        `SELECT id, agent_type, status, session_id, task_id, started_at, last_heartbeat,
+                stopped_at, error_count, total_tasks_completed, capacity, metadata_json,
+                parent_agent_id
          FROM tasks_agent_instances WHERE agent_type = 'executor'`,
       )
       .all() as Array<{
       id: string;
-      agent_type: string;
-      status: string;
+      agent_type: AgentInstanceRow['agentType'];
+      status: AgentInstanceRow['status'];
       session_id: string | null;
       task_id: string | null;
       started_at: string;
       last_heartbeat: string;
       stopped_at: string | null;
+      error_count: number;
+      total_tasks_completed: number;
+      capacity: string;
       metadata_json: string | null;
+      parent_agent_id: string | null;
     }>;
-    const rows = raw.map((r) => ({
+    // Column-for-column projection of the raw reader rows; every field maps
+    // from the SELECT, so no assertion is needed.
+    const rows: AgentInstanceRow[] = raw.map((r) => ({
       id: r.id,
       agentType: r.agent_type,
       status: r.status,
@@ -230,11 +238,11 @@ export async function listWorkerRecordsReadOnly(
       startedAt: r.started_at,
       lastHeartbeat: r.last_heartbeat,
       stoppedAt: r.stopped_at,
-      errorCount: 0,
-      totalTasksCompleted: 0,
-      capacity: '1.0',
+      errorCount: r.error_count,
+      totalTasksCompleted: r.total_tasks_completed,
+      capacity: r.capacity,
       metadataJson: r.metadata_json,
-      parentAgentId: null,
+      parentAgentId: r.parent_agent_id,
     }));
     return recordsFromRows(rows, strict);
   } finally {
