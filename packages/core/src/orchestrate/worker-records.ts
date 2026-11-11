@@ -316,6 +316,7 @@ export async function updateWorkerExecution(
     expected.workspaceSelector !== next.workspaceSelector ||
     next.failureCount < expected.failureCount ||
     expected.retryOf !== next.retryOf ||
+    (expected.startRefusal !== undefined && expected.startRefusal !== next.startRefusal) ||
     JSON.stringify(expected.startBinding) !== JSON.stringify(next.startBinding) ||
     expected.startRequestKey !== next.startRequestKey ||
     (expected.startRequestKey !== undefined &&
@@ -357,6 +358,60 @@ export async function updateWorkerExecution(
     throw new Error('Worker execution reservation lost; no new operation is authorized.');
   }
   return { ...record, execution: next };
+}
+
+/**
+ * Retire a confirmed `agent_unconfigured` refusal that created no Dispatch.
+ * @remarks This releases no task, session or filesystem resource and emits no exit hook.
+ * @param record - Exact persisted refusal, after recording its unusable route.
+ * @param cwd - Owning project root.
+ * @returns The archived pre-dispatch attempt, still readable for audit.
+ */
+export async function retireUnconfiguredOrcaWorker(
+  record: WorkerRecord,
+  cwd: string,
+): Promise<WorkerRecord> {
+  const execution = record.execution;
+  if (
+    execution?.startRefusal !== 'agent_unconfigured' ||
+    execution.state !== 'failed' ||
+    execution.resourceState !== 'stopped' ||
+    execution.dispatchId !== null ||
+    execution.orcaTaskId !== null ||
+    execution.retryOf !== null ||
+    execution.failureCount !== 0
+  ) {
+    // @sync-invariant none:local-only only a confirmed pre-dispatch route refusal can be retired without exit proof
+    throw new Error('Cannot retire an unresolved or dispatched Orca attempt.');
+  }
+  const db = await getDb(cwd);
+  const row = db
+    .select()
+    .from(tasksAgentInstances)
+    .where(eq(tasksAgentInstances.id, record.recordId))
+    .get();
+  const meta = row ? parseWorkerMetadata(row) : null;
+  if (!row || !meta || JSON.stringify(meta.execution) !== JSON.stringify(execution)) {
+    // @sync-invariant none:local-only stale refusal receipts cannot retire newer custody
+    throw new Error('Orca refusal changed; reload its exact record.');
+  }
+  const stoppedAt = new Date().toISOString();
+  const result = db
+    .update(tasksAgentInstances)
+    .set({ stoppedAt, status: 'stopped' })
+    .where(
+      and(
+        eq(tasksAgentInstances.id, record.recordId),
+        eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+        isNull(tasksAgentInstances.stoppedAt),
+      ),
+    )
+    .run();
+  if (Number(result.changes) !== 1) {
+    // @sync-invariant none:local-only one caller owns retirement of a confirmed refusal
+    throw new Error('Orca refusal retirement lost; no replacement is authorized.');
+  }
+  return { ...record, stoppedAt };
 }
 
 /**

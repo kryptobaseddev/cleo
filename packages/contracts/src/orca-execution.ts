@@ -8,6 +8,43 @@ import { z } from 'zod';
 
 const identifier = z.string().min(1);
 
+/** Orca server agent ids supported by the local routing contract. */
+export const orcaAgentSchema = z.enum(['codex', 'opencode2', 'claude', 'grok']);
+
+/** Server agent identity, separate from CLEO harness and model identity. */
+export type OrcaAgent = z.infer<typeof orcaAgentSchema>;
+
+/** Ordered rotation defaults; availability is verified on the execution host. */
+export const DEFAULT_ORCA_AGENTS: OrcaAgent[] = ['codex', 'opencode2', 'claude'];
+
+/** Harness identity for each supported Orca server agent. */
+export const ORCA_AGENT_HARNESSES = {
+  codex: 'codex',
+  opencode2: 'opencode',
+  claude: 'claude-code',
+  grok: 'grok',
+} as const;
+
+/** Account inventory provider; Grok uses its server-side sign-in. */
+export const ORCA_AGENT_PROVIDERS = {
+  codex: 'codex',
+  opencode2: 'opencode',
+  claude: 'claude',
+  grok: null,
+} as const;
+
+/** Project rotation configuration; duplicates and unsupported ids refuse. */
+export const orchestrateOrcaConfigSchema = z.object({
+  agents: z
+    .array(orcaAgentSchema)
+    .min(1)
+    .refine((agents) => new Set(agents).size === agents.length, 'Agent ids must be unique.')
+    .default(DEFAULT_ORCA_AGENTS),
+});
+
+/** Configuration for `orchestrate.orca`, independent of native provider discovery. */
+export type OrchestrateOrcaConfig = z.input<typeof orchestrateOrcaConfigSchema>;
+
 /** Explicit execution endpoint and caller; never inferred from the newest Run. */
 export const orcaContextSchema = z.object({
   runtimeId: identifier,
@@ -17,6 +54,33 @@ export const orcaContextSchema = z.object({
 
 /** Verified local endpoint used for every operation, including recovery. */
 export type OrcaContext = z.infer<typeof orcaContextSchema>;
+
+/** Nonsecret account availability; private account rows never leave the adapter. */
+export interface OrcaAccountAvailability {
+  /** Provider understood by `orca account list`. */
+  provider: 'codex' | 'opencode' | 'claude';
+  /** Number of configured accounts, excluding their private fields. */
+  accountCount: number;
+  /** An active account or the provider's `system` sign-in is selected. */
+  activeAccountPresent: boolean;
+}
+
+/** Verified caller and the sanitized local account inventory. */
+export interface OrcaDiscovery {
+  /** Runtime and coordinator proven through read-only host calls. */
+  context: OrcaContext;
+  /** Availability only; no emails, homes, credentials or exact account placement. */
+  accounts: OrcaAccountAvailability[];
+}
+
+/** Durable routing state for one exact runtime/coordinator Run. */
+export const orcaRoutingRunSchema = z.object({
+  runId: identifier.nullable(),
+  unconfiguredAgents: z.array(orcaAgentSchema),
+});
+
+/** Persisted execution Run and its confirmed prelaunch refusals. */
+export type OrcaRoutingRun = z.infer<typeof orcaRoutingRunSchema>;
 
 /** Canonically prepared CLEO assignment consumed without allocating another session. */
 export const orcaLaunchSchema = z.object({
@@ -88,6 +152,8 @@ export const orcaAttemptSchema = z.object({
   /** Full receipts retain effects, residual resources and recovery advice. */
   lastReceipt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** Confirmed pre-dispatch refusal; never inferred from a process exit. */
+  startRefusal: z.literal('agent_unconfigured').optional(),
   observedAt: z.string(),
 });
 
@@ -131,6 +197,16 @@ export interface OrcaExecutionAdapter {
   stop(attempt: OrcaAttempt): Promise<OrcaAttempt>;
   /** Replay only the issued stop request on its original exact Dispatch. */
   replayStop(attempt: OrcaAttempt): Promise<OrcaAttempt>;
+}
+
+/** Host discovery port injected by product dispatch, outside the model registry. */
+export interface OrcaRoutingAdapter extends OrcaExecutionAdapter {
+  /** Process-free admission hint; backend selection still requires verified discovery. */
+  hasContextHints(): boolean;
+  /** Null outside Orca; partial, unavailable or ambiguous contexts throw a refusal. */
+  discover(projectRoot: string): Promise<OrcaDiscovery | null>;
+  /** Inspect the exact coordinator's current Run; explicit null proves no binding. */
+  currentRun(projectRoot: string, context: OrcaContext): Promise<string | null>;
 }
 
 /** Result from one bounded subprocess invocation, including nonzero JSON receipts. */
@@ -191,7 +267,7 @@ export const orcaReplySchema = z.object({
       stage: z.string().optional(),
       turnStart: z.string().optional(),
       runId: identifier.optional(),
-      run: z.object({ id: identifier }).optional(),
+      run: z.object({ id: identifier }).nullable().optional(),
       taskId: identifier.optional(),
       dispatchId: identifier.optional(),
       failureCount: z.number().int().nonnegative().optional(),
@@ -203,6 +279,14 @@ export const orcaReplySchema = z.object({
       helpers: z.array(z.object({ outcome: z.string() })).optional(),
       helperStopError: z.string().nullable().optional(),
       status: z.string().optional(),
+      terminal: z
+        .object({
+          handle: identifier,
+          connected: z.boolean(),
+          writable: z.boolean(),
+          executionHostId: identifier,
+        })
+        .optional(),
       runtime: z
         .object({
           runtimeId: identifier,
@@ -264,4 +348,20 @@ export type OrcaCommandReply = OrcaReply & { rawReceipt: string };
 export const orcaCommandRegistrySchema = z.object({
   schemaVersion: z.number().int().positive(),
   commands: z.array(z.object({ command: identifier, flags: z.array(z.string()) })),
+});
+
+const accountProviderSchema = z.object({
+  accounts: z.array(z.object({})),
+  activeAccountId: identifier.nullable(),
+});
+
+/** Private account wire fields: account attributes are discarded during parsing. */
+export const orcaAccountReplySchema = z.object({
+  ok: z.literal(true),
+  _meta: z.object({ runtimeId: identifier }),
+  result: z.object({
+    codex: accountProviderSchema,
+    opencode: accountProviderSchema,
+    claude: accountProviderSchema,
+  }),
 });

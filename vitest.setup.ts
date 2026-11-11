@@ -39,6 +39,11 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { afterAll, afterEach, beforeEach, expect } from 'vitest';
 
+// Test forks must not inherit a live coordinator; offline fixtures opt in after setup.
+for (const key of ['ORCA_TERMINAL_HANDLE', 'ORCA_WORKTREE_ID', 'ORCA_WORKSPACE_ID', 'ORCA_RUNTIME_SOURCE_ID', 'ORCA_APP_VERSION']) {
+  delete process.env[key];
+}
+
 // We must patch the CommonJS `child_process` module object so every importer
 // (ESM and CJS) sees the wrapped functions. The ESM namespace object is
 // read-only, so we use createRequire to reach the underlying CJS export.

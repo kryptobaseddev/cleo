@@ -178,10 +178,27 @@ export const orcaFixture = {
   ),
   request: fixtureReply({ state: 'completed', requestId: 'request-fixture' }),
   read: fixtureReply({ text: 'original output', nextCursor: 'source-pinned-cursor' }),
+  accounts: fixtureReply({
+    codex: { accounts: [], activeAccountId: 'system' },
+    opencode: { accounts: [], activeAccountId: 'system' },
+    claude: { accounts: [], activeAccountId: 'system' },
+  }),
+  caller: fixtureReply({
+    terminal: {
+      handle: fixtureContext.coordinatorHandle,
+      executionHostId: 'local',
+      connected: true,
+      writable: true,
+    },
+  }),
+  currentRun: fixtureReply({ run: { id: 'run_fixture' } }),
 };
 
 /** Pure CLI fixture dispatcher; unexpected verbs fail instead of launching anything. */
 export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
+  if (args[0] === 'account') return orcaFixture.accounts;
+  if (args[0] === 'terminal') return orcaFixture.caller;
+  if (args[1] === 'run-current') return orcaFixture.currentRun;
   if (args[0] === 'agent-context') {
     return {
       exitCode: 0,
@@ -212,6 +229,7 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
           },
           { command: 'orchestration worker-stop', flags: ['dispatch', 'retry-request', 'full'] },
           { command: 'orchestration request-show', flags: ['request', 'full'] },
+          { command: 'orchestration run-current', flags: ['from', 'full'] },
           { command: 'worktree show', flags: ['worktree'] },
         ],
       }),

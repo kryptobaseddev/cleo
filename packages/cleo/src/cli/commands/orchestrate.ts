@@ -772,7 +772,10 @@ const handoffCommand = defineCommand({
 const spawnExecuteCommand = defineCommand({
   meta: { name: 'spawn-execute', description: 'Execute spawn for a task via the adapter registry' },
   args: {
-    adapter: { type: 'string', description: 'Spawn adapter id (default: first capable adapter)' },
+    adapter: {
+      type: 'string',
+      description: 'Explicit harness (default: verified Orca rotation, otherwise native selection)',
+    },
     taskId: {
       type: 'positional',
       description: 'Task ID to execute spawn for',
