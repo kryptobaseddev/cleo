@@ -310,6 +310,7 @@ export async function ingestOrcaWorkerReport(
   const execution = requireExecution(record);
   const event = orcaWorkerDoneSchema.parse(await backend.readReport(execution, messageId));
   if (
+    readDeclaredProjectIdentity(cwd)?.projectId !== execution.launch.projectId ||
     event.messageId !== messageId ||
     event.runtimeId !== execution.context.runtimeId ||
     event.runId !== execution.runId ||

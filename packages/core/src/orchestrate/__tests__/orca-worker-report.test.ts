@@ -369,6 +369,19 @@ describe('Orca canonical worker report ingress', () => {
     expect(observed.stoppedAt).toBeNull();
   });
 
+  it('refuses a worker record read under a different portable project identity', async () => {
+    const paths = await import('@cleocode/paths');
+    const identity = paths.readDeclaredProjectIdentity(env.tempDir);
+    if (!identity) throw new Error('Missing fixture project');
+    vi.spyOn(paths, 'readDeclaredProjectIdentity').mockReturnValue({
+      ...identity,
+      projectId: 'project_other',
+    });
+    await expect(ingest()).rejects.toMatchObject({ code: 'E_ORCA_REPORT_IDENTITY' });
+    expect((await listWorkerRecords(env.tempDir))[0]?.report).toBeUndefined();
+    await expectCustody();
+  });
+
   it('requires message ids only for ingest-report requests', async () => {
     const backend = new OrcaExecutionBackend(fixtureRunner);
     expect(
