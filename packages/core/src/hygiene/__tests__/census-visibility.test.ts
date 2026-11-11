@@ -21,7 +21,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -33,6 +33,12 @@ const TASKS = new Map<string, string>();
 vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
   projectStoreReadVerdict: vi.fn(() => 'readable'),
+}));
+
+// Round 7: census fixtures classify as OWN (main's behaviour).
+vi.mock('../../worktree/list.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../worktree/list.js')>()),
+  isOwnProjectRoot: vi.fn(() => true),
 }));
 
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
@@ -211,26 +217,80 @@ describe('census visibility fields (T14440 AC1)', () => {
     expect(counts.mergedRemote).toBe(1); // origin/ship; origin/HEAD excluded
   });
 
-  it('terminates a slow probe at the deadline; the timer marker never appears', async () => {
+  it('terminates a slow probe at the deadline; the worker EXITED before the census resolves and the timer marker never appears', async () => {
     // The running cleocode checkout: hundreds of branches make the SDK walk
-    // outlive a 5 ms deadline, so the worker is terminated mid-run. The
-    // worker writes its marker on a 300 ms timer it can only reach AFTER the
-    // walk — the test waits past that delay before asserting absence, so a
-    // premature resolution cannot fake the pass (round-6 review).
+    // outlive a 5 ms deadline, so the worker is terminated mid-run. Two
+    // proofs (round-7 review): (a) the worker's 'exit' event fires BEFORE
+    // prunePlanBounded resolves — the census never releases its lock over a
+    // live native walk; (b) the worker's marker sits behind a 300 ms timer
+    // reachable only after the walk — the test waits past that delay before
+    // asserting absence, so premature resolution cannot fake the pass.
     const repo = process.cwd();
     const marker = join(base, 'killed.marker');
-    const plan = await prunePlanBounded(repo, 'main', Date.now() + 5, marker, 300);
+    let exited = false;
+    const exitPromise = new Promise<void>((r) => {
+      const check = setInterval(() => {
+        if (exited) {
+          clearInterval(check);
+          r();
+        }
+      }, 5);
+    });
+    const plan = await prunePlanBounded(repo, 'main', Date.now() + 5, marker, 300, () => {
+      exited = true;
+    });
     expect(plan).toBeNull();
+    await exitPromise;
+    expect(exited).toBe(true);
     await new Promise((r) => setTimeout(r, 450));
     expect(existsSync(marker)).toBe(false);
   });
 
-  it('control: an unconstrained probe completes and its timer fires the marker', async () => {
+  it('control: an unconstrained probe completes, its timer fires the marker, and the worker exits', async () => {
     const repo = process.cwd();
     const marker = join(base, 'completed.marker');
-    await prunePlanBounded(repo, 'main', Number.POSITIVE_INFINITY, marker, 50);
+    let exited = false;
+    const plan = await prunePlanBounded(repo, 'main', Number.POSITIVE_INFINITY, marker, 50, () => {
+      exited = true;
+    });
+    expect(plan).not.toBeNull();
     await new Promise((r) => setTimeout(r, 250));
     expect(existsSync(marker)).toBe(true);
+    expect(exited).toBe(true);
+  });
+
+  it('(4) the real worker file runs from a parent started with --input-type=module (execArgv: [])', async () => {
+    // Reproduces the round-7 P2: the lazy census child spawns node with
+    // --input-type=module; a Worker inheriting that flag throws
+    // ERR_INPUT_TYPE_NOT_ALLOWED. The child below IS such a parent; the
+    // worker must still complete.
+    const { fileURLToPath } = await import('node:url');
+    const workerFile = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../hygiene/prune-plan-worker.ts',
+    );
+    const script = [
+      `const { Worker } = await import('node:worker_threads');`,
+      `const w = new Worker(process.env.WORKER_FILE, { execArgv: [], workerData: {`,
+      `  requireFrom: process.env.REQUIRE_FROM,`,
+      `  repoRoot: process.cwd(), integrationTarget: 'main' } });`,
+      `w.on('message', (m) => { console.log('RESULT', JSON.stringify(m)); });`,
+      `w.on('error', (e) => { console.log('ERR', String(e && e.message || e)); process.exitCode = 1; });`,
+    ].join('\n');
+    const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        WORKER_FILE: workerFile,
+        REQUIRE_FROM: join(process.cwd(), 'src', 'hygiene', 'census.ts'),
+      },
+    });
+    expect(out).toContain('RESULT');
+    expect(out).not.toContain('ERR_INPUT_TYPE_NOT_ALLOWED');
+    expect(out).not.toContain('ERR');
   });
 
   it('an infinite deadline sets no timer: the probe runs to completion', async () => {

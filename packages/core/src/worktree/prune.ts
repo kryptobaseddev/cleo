@@ -310,21 +310,40 @@ export async function loadTaskEvidence(
   taskId: string | null,
 ): Promise<EvidenceAtom[]> {
   if (taskId === null) return [];
+  // T14440 (round 7): own rows keep main's accessor behaviour exactly; a
+  // FOREIGN store is read only through the immutable, sidecar-free snapshot
+  // (display/proof fail-closed: a failed read yields no atoms, which keeps
+  // the checkout).
+  const { isOwnProjectRoot } = await import('./list.js');
+  let own = false;
   try {
-    const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
-    const snap = openProjectTasksReadOnly(projectRoot);
-    if (snap === null) return [];
+    own = isOwnProjectRoot(projectRoot);
+  } catch {
+    own = false;
+  }
+  if (!own) {
     try {
-      const row = snap.db
-        .prepare('SELECT verification_json FROM tasks_tasks WHERE id = ?')
-        .get(taskId) as { verification_json?: string | null } | undefined;
-      if (row?.verification_json === undefined || row.verification_json === null) return [];
-      // The same lenient parse `rowToTask` applies to the column (converters.ts).
-      const verification = safeParseJson<Task['verification']>(row.verification_json);
-      return verification ? taskEvidenceAtoms({ verification }) : [];
-    } finally {
-      snap.close();
+      const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
+      const snap = openProjectTasksReadOnly(projectRoot);
+      if (snap === null) return [];
+      try {
+        const row = snap.db
+          .prepare('SELECT verification_json FROM tasks_tasks WHERE id = ?')
+          .get(taskId) as { verification_json?: string | null } | undefined;
+        if (row?.verification_json === undefined || row.verification_json === null) return [];
+        const verification = safeParseJson<Task['verification']>(row.verification_json);
+        return verification ? taskEvidenceAtoms({ verification }) : [];
+      } finally {
+        snap.close();
+      }
+    } catch {
+      return [];
     }
+  }
+  try {
+    const { getTaskAccessor } = await import('../store/data-accessor.js');
+    const task = await (await getTaskAccessor(projectRoot)).loadSingleTask(taskId);
+    return task ? taskEvidenceAtoms(task) : [];
   } catch {
     // Without the store the marker and dependents scan still guard the disposal.
     return [];

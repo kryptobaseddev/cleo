@@ -254,6 +254,9 @@ export async function listWorktrees(
       taskId !== null && !taskStatusResult.success
         ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
         : classifyStatus(candidate ? proveRedundant(entry.path, taskId, isMerged) : null);
+    // T14440 (round 7): a FOREIGN project's statuses are display snapshots —
+    // they never make a row a disposal candidate here. The reaper runs
+    // own-project, so own rows keep main's behaviour exactly.
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -673,7 +676,7 @@ function readProjectIdentityId(projectRoot: string): string | null {
  * @param projectRoot - Absolute path to the project in question.
  * @returns True when the target IS the own project.
  */
-function isOwnProjectRoot(projectRoot: string): boolean {
+export function isOwnProjectRoot(projectRoot: string): boolean {
   try {
     const own = getProjectRoot();
     const ownStore = resolvePath(resolveDualScopeDbPath('project', own));

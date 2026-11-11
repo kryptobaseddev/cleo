@@ -365,6 +365,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
   const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
+  const { isOwnProjectRoot, projectStatusReadLabel } = await import('../worktree/list.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -422,11 +423,18 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       const path = canonical(worktree.path);
       if (isPrimaryWorktree(path, primary) || path === project || seen.has(path)) continue;
       seen.add(path);
+      // T14440 (round 7): a FOREIGN project's row never reaches the reaper's
+      // probe, disposal or any store-opening liveness code — its liveness is
+      // 'unknown (foreign project)' and it is never a removal candidate. Own
+      // rows keep main's behaviour exactly.
+      const own = isOwnProjectRoot(project);
       const terminal =
+        own &&
         worktree.taskId !== null &&
         (worktree.owningTaskStatus === 'done' || worktree.owningTaskStatus === 'cancelled');
-      const classified =
-        terminal && worktree.taskId !== null
+      const classified = !own
+        ? { statusCategory: 'unknown' as const, keepReason: 'unknown (foreign project)' }
+        : terminal && worktree.taskId !== null
           ? classifyStatus(
               disposeWorktree({
                 worktreePath: path,
@@ -468,6 +476,13 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
           row.taskId === null
             ? 'task ownership unavailable (report only)'
             : 'owning task state unavailable (report only)';
+      }
+      // Round 7: the foreign liveness label wins over the null-status
+      // relabel above — the snapshot could not see the WAL, which is exactly
+      // why the row is not a candidate.
+      if (!own) {
+        row.category = 'unknown';
+        row.keepReason = 'unknown (foreign project)';
       }
       rows.push(row);
       meta.set(row, worktree);
@@ -593,7 +608,6 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   }));
   const branchesOf =
     opts.branchesOf ?? ((projectRoot: string) => mergedBranchCounts(projectRoot, deadline));
-  const { projectStatusReadLabel } = await import('../worktree/list.js');
   const rollups = await projectRollups(rows, registeredRollups, branchesOf, (projectRoot) =>
     projectStatusReadLabel(projectRoot),
   );
@@ -741,6 +755,8 @@ export async function prunePlanBounded(
   markerPath?: string,
   /** Test hook: the marker delay (ms) after the walk completes. */
   markerDelayMs?: number,
+  /** Test hook: invoked when the worker has fully exited (round 7, item 5). */
+  onWorkerExit?: () => void,
 ): Promise<BoundedPrunePlan | null> {
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) return null;
@@ -753,6 +769,10 @@ export async function prunePlanBounded(
     return buildGitAwarePrunePlan(repoRoot, integrationTarget) as BoundedPrunePlan | null;
   }
   const worker = new Worker(workerPath, {
+    // Round 7 (item 4): execArgv literally [] — the parent may run with
+    // --input-type=module (the lazy census child spawns that way), and an
+    // inherited --input-type makes the Worker throw ERR_INPUT_TYPE_NOT_ALLOWED.
+    execArgv: [],
     workerData: {
       requireFrom: fileURLToPath(import.meta.url),
       repoRoot,
@@ -792,6 +812,7 @@ export async function prunePlanBounded(
       received = { error: error.message };
     });
     worker.once('exit', () => {
+      onWorkerExit?.();
       const plan = received?.plan;
       settle(plan && Array.isArray(plan.candidates) ? { candidates: plan.candidates } : null);
     });

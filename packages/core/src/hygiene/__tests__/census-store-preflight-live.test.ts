@@ -39,7 +39,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
 
 import { runWorktreeCensus } from '../census.js';
@@ -216,6 +216,65 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     expect(row?.removed).toBeUndefined();
     // And the store is untouched: no sidecars created, no migration run.
     expect(storeFingerprint(dbPath)).toBe(before);
+    live.close();
+  });
+
+  it('(3) a TERMINAL task in a foreign WAL store: no getDb, no sidecars, liveness unknown, not a candidate', async () => {
+    // Round-7 item 3: a done task in a foreign WAL-mode store with an
+    // uncheckpointed commit. The census must (a) never call getDb on that
+    // store (spied), (b) create no sidecars and run no migration, (c) report
+    // liveness 'unknown (foreign project)', and (d) never mark the row a
+    // removal candidate.
+    const getDbCalls = vi.hoisted(() => ({ calls: [] as string[] }));
+    vi.mock('../../store/sqlite.js', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../../store/sqlite.js')>();
+      return {
+        ...actual,
+        getDb: vi.fn(async (cwd?: string) => {
+          getDbCalls.calls.push(cwd ?? '<ambient>');
+          return actual.getDb(cwd);
+        }),
+      };
+    });
+    // Fixture: build via the REAL migrator, seed a DONE task, then hold a
+    // raw writable connection open with an uncheckpointed worker commit.
+    const { getDb } = await import('../../store/sqlite.js');
+    await getDb(projectRoot);
+    const db = new DatabaseSync(dbPath);
+    db.close();
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
+    await closeAllDatabases();
+    const live = new DatabaseSync(dbPath);
+    live.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    live
+      .prepare(
+        "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
+      )
+      .run();
+    expect(existsSync(`${dbPath}-wal`)).toBe(true);
+
+    getDbCalls.calls.length = 0;
+    const before = storeFingerprint(dbPath);
+    const out = await runWorktreeCensus({
+      projects: [projectRoot],
+      recordDir,
+      pnpmStore: null,
+    });
+    if ('skipped' in out) throw new Error(out.skipped);
+    const { record } = out;
+
+    // (a) no getDb reached the foreign store during the census...
+    expect(
+      getDbCalls.calls.filter((p) => p.startsWith(projectRoot) || p === '<ambient>'),
+    ).toHaveLength(0);
+    // (b) ...no sidecars, no migration...
+    expect(storeFingerprint(dbPath)).toBe(before);
+    // (c)+(d) liveness 'unknown (foreign project)', never a candidate.
+    const row = record.rows.find((r) => r.path.endsWith('T1'));
+    expect(row?.category).toBe('unknown');
+    expect(row?.keepReason).toBe('unknown (foreign project)');
+    expect(row?.removed).toBeUndefined();
+    expect(record.rows.some((r) => r.category === 'redundant')).toBe(false);
     live.close();
   });
 

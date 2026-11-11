@@ -28,42 +28,22 @@ import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktre
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
-// The foreign-store verdict is stubbed readable: these fixtures' project
-// roots are tmpdirs with no `.cleo/`, and the real probe would skip the
-// (mocked) store. The live, mock-free preflight test is
-// census-store-preflight-live.test.ts (T14440 review P1a).
-vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
-  projectStoreReadVerdict: vi.fn(() => 'readable'),
-}));
-
 let taskQueryFails = false;
 vi.mock('../../orchestrate/worker-records.js', () => ({
-  // T14440: the in-use probe reads worker records through the read-only
-  // variant; keep both names mocked so every caller gets the stub.
   listWorkerRecords: vi.fn(async () => []),
-  listWorkerRecordsReadOnly: vi.fn(async () => []),
 }));
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  // T14440 round 5: the fixtures are foreign and cold, so the listing takes
-  // the immutable read-only path; the warm peek answers null.
-  isOwnProjectStore: vi.fn(() => false),
-  peekProjectTasksNative: vi.fn(() => null),
-  // The enrichment reads through the strictly read-only accessor.
-  openProjectTasksReadOnly: vi.fn(
+  getDb: vi.fn(async () => ({}) as never),
+  getNativeTasksDb: vi.fn(
     () =>
       ({
-        db: {
-          prepare: () => ({
-            all: (...ids: string[]) => {
-              if (taskQueryFails) throw new Error('task lookup unavailable');
-              return ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) }));
-            },
-          }),
-        },
-        path: 'stub',
-        close: vi.fn(),
+        prepare: () => ({
+          all: (...ids: string[]) => {
+            if (taskQueryFails) throw new Error('task lookup unavailable');
+            return ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) }));
+          },
+        }),
       }) as never,
   ),
 }));
@@ -407,7 +387,7 @@ describe('worktree census (T14275)', () => {
   });
 
   it('report lists every worktree under the root by project with category, bytes and keep reason; removes nothing', async () => {
-    const out = await runWorktreeCensus({ projects: [a, b], recordDir, pnpmStore: null });
+    const out = await runWorktreeCensus({ projects: [a, b], recordDir });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
     const byPath = new Map(record.rows.map((r) => [r.path, r]));
@@ -440,7 +420,6 @@ describe('worktree census (T14275)', () => {
       recordDir,
       apply: true,
       applyProjects: [a],
-      pnpmStore: null,
     });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
@@ -461,7 +440,7 @@ describe('worktree census (T14275)', () => {
     mkdirSync(recordDir, { recursive: true });
     const release = acquireHeartbeatLock(join(recordDir, 'census.lock'), 60_000);
     try {
-      expect(await runWorktreeCensus({ projects: [a], recordDir, pnpmStore: null })).toEqual({
+      expect(await runWorktreeCensus({ projects: [a], recordDir })).toEqual({
         skipped: 'another census holds the lock',
       });
     } finally {
@@ -518,18 +497,13 @@ describe('worktree census (T14275)', () => {
     expect(startLazyCensus({}, { spawn, dir: recordDir })).toBeNull();
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.join(' ')).toContain('runLazyCensus');
-    const out = await runWorktreeCensus({ projects: [a], recordDir, pnpmStore: null });
+    const out = await runWorktreeCensus({ projects: [a], recordDir });
     expect('skipped' in out).toBe(false);
     expect(existsSync(join(recordDir, 'census.lock'))).toBe(false); // released
   });
 
   it('a spent wall-clock budget writes a partial record instead of hanging', async () => {
-    const out = await runWorktreeCensus({
-      projects: [a, b],
-      recordDir,
-      deadline: Date.now() - 1,
-      pnpmStore: null,
-    });
+    const out = await runWorktreeCensus({ projects: [a, b], recordDir, deadline: Date.now() - 1 });
     if ('skipped' in out) throw new Error(out.skipped);
     expect(out.record.partial).toBe(true);
     expect(JSON.parse(readFileSync(out.recordPath, 'utf-8')).partial).toBe(true);
