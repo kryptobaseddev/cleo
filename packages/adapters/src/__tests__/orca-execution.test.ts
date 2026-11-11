@@ -249,6 +249,19 @@ describe('Orca execution process boundary', () => {
     ).rejects.toThrow('No replayable');
   });
 
+  it('fences a reserved key without an exact retry binding even when its request is absent', async () => {
+    const key = '00000000-0000-4000-8000-000000000000';
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    await expect(backend.start(fixtureAttempt({ startRequestKey: key }))).rejects.toThrow(
+      'exact retry binding',
+    );
+    await expect(
+      backend.replayStart(fixtureAttempt({ state: 'outcome_unknown', startRequestKey: key })),
+    ).rejects.toThrow('exact retry binding');
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
+  });
+
   it('replays original spec argv even when a partial receipt supplied Run, Task and Dispatch ids', async () => {
     const partial = orcaReplySchema.parse(JSON.parse(fixtureStart('outcome_unknown').stdout));
     orcaFixture.start = {

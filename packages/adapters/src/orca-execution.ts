@@ -226,14 +226,15 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         'Inspect the stored exact Dispatch; recover an uncertain request by its issued id.',
       );
     }
-    return this.startCommand(attempt);
+    return this.startCommand(attempt, attempt.startRequestKey);
   }
 
-  /** Recover only an issued request on the same runtime/caller, never a fresh start. */
+  /** Replay an issued or pre-reserved retry key on the same runtime and caller. */
   async replayStart(attempt: OrcaAttempt): Promise<OrcaAttempt> {
+    const requestId = attempt.startRequestKey ?? attempt.startRequestId;
     if (
       attempt.state !== 'outcome_unknown' ||
-      !attempt.startRequestId ||
+      !requestId ||
       !attempt.startBinding ||
       attempt.failureCount >= 3
     ) {
@@ -243,8 +244,8 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         'Inspect the original operation; never substitute a fresh Run, Task or launch.',
       );
     }
-    await this.verifyRequest(attempt, attempt.startRequestId);
-    return this.startCommand(attempt, attempt.startRequestId);
+    await this.verifyRequest(attempt, requestId);
+    return this.startCommand(attempt, requestId);
   }
 
   /** Inspect exactly this attempt, preserving uncertain stop and resource custody. */
@@ -405,6 +406,23 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       );
     }
     const binding = attempt.startBinding ?? attempt;
+    if (
+      attempt.startRequestKey &&
+      (!binding.runId ||
+        !binding.orcaTaskId ||
+        !binding.retryOf ||
+        binding.runId !== attempt.runId ||
+        binding.orcaTaskId !== attempt.orcaTaskId ||
+        binding.retryOf !== attempt.retryOf ||
+        requestId !== attempt.startRequestKey ||
+        (attempt.startRequestId !== null && attempt.startRequestId !== attempt.startRequestKey))
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_ATTEMPT_FENCED',
+        'A reserved start key requires the original exact retry binding.',
+        'Retain custody and inspect the reserved key, Run, Task and predecessor; never send an unkeyed replacement.',
+      );
+    }
     const args = [
       'orchestration',
       'worker-start',
@@ -471,6 +489,7 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         orcaTaskId: bound ? (value.taskId ?? null) : attempt.orcaTaskId,
         dispatchId: bound ? (value.dispatchId ?? null) : attempt.dispatchId,
         startRequestId:
+          attempt.startRequestKey ??
           attempt.startRequestId ??
           (reply._meta?.runtimeId === attempt.context.runtimeId
             ? (reply.error?.data?.orchestrationRequestId ?? null)
@@ -505,10 +524,12 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       attempt.launch.projectRoot,
       attempt.context,
     );
-    if (
-      receipt.result?.requestId !== requestId ||
-      !['pending', 'completed'].includes(receipt.result.state ?? '')
-    ) {
+    // Reserved retries keep their key and --retry-of; Orca atomically refuses a second successor even if its receipt was pruned.
+    const states =
+      attempt.state === 'outcome_unknown' && requestId === attempt.startRequestKey
+        ? ['pending', 'completed', 'absent']
+        : ['pending', 'completed'];
+    if (receipt.result?.requestId !== requestId || !states.includes(receipt.result.state ?? '')) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
         'Request absence or a mismatched receipt does not prove that nothing happened.',

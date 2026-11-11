@@ -196,6 +196,9 @@ export async function recordWorker(
       next.failureCount !== previous.failureCount ||
       next.state !== 'launching' ||
       next.dispatchId !== null ||
+      !next.startRequestKey ||
+      next.startRequestKey === previous.startRequestKey ||
+      next.startRequestKey === previous.startRequestId ||
       next.startRequestId !== null ||
       next.stopRequestId !== null ||
       next.retryOf !== previous.dispatchId ||
@@ -314,6 +317,10 @@ export async function updateWorkerExecution(
     next.failureCount < expected.failureCount ||
     expected.retryOf !== next.retryOf ||
     JSON.stringify(expected.startBinding) !== JSON.stringify(next.startBinding) ||
+    expected.startRequestKey !== next.startRequestKey ||
+    (expected.startRequestKey !== undefined &&
+      next.startRequestId !== null &&
+      next.startRequestId !== expected.startRequestKey) ||
     (expected.startRequestId !== null && next.startRequestId !== expected.startRequestId) ||
     (expected.stopRequestId !== null && next.stopRequestId !== expected.stopRequestId) ||
     (expected.runId !== null && next.runId !== expected.runId) ||

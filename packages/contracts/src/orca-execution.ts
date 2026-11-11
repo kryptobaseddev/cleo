@@ -79,6 +79,8 @@ export const orcaAttemptSchema = z.object({
   retryOf: identifier.nullable(),
   /** Absent on legacy records, whose original argv cannot safely be reconstructed. */
   startBinding: orcaStartBindingSchema.optional(),
+  /** UUID reserved before committing a retry; its first send and every replay use this key. */
+  startRequestKey: z.string().uuid().optional(),
   startRequestId: identifier.nullable(),
   stopRequestId: identifier.nullable(),
   failureCount: z.number().int().nonnegative(),
@@ -104,7 +106,7 @@ export interface OrcaExecutionAdapter {
   ): Promise<Pick<OrcaAttempt, 'workspaceId' | 'workspaceSelector'>>;
   /** Start a durably reserved attempt, preserving uncertain outcomes. */
   start(attempt: OrcaAttempt): Promise<OrcaAttempt>;
-  /** Replay only the original issued mutation request. */
+  /** Replay only the original mutation identity, including a pre-reserved retry. */
   replayStart(attempt: OrcaAttempt): Promise<OrcaAttempt>;
   /** Read the exact stored Dispatch identity. */
   show(attempt: OrcaAttempt): Promise<OrcaAttempt>;
