@@ -66,6 +66,37 @@ export function fixtureStart(
   );
 }
 
+/**
+ * Orca 1.4.255 pending workerStart refusal after accept/receipt restart.
+ * Source: installed out/main/chunks/orcad-retained-source-*.js mutation ledger
+ * and out/cli/runtime/client-error-recovery.js attachMutationRecovery.
+ */
+export function fixturePendingStart(
+  dispatchId = 'ctx_retry',
+  requestId = 'request-fixture',
+): OrcaCommandResult {
+  return {
+    stdout: JSON.stringify({
+      ok: false,
+      error: {
+        code: 'operation_unknown',
+        message:
+          `Worker start ${requestId} was accepted as Dispatch ${dispatchId} before restart. ` +
+          `Inspect that Dispatch; do not start another worker. Orchestration mutation request ID: ${requestId}.`,
+        data: {
+          requestId,
+          dispatchId,
+          recoveryCommand: `orca orchestration worker-show --dispatch ${dispatchId} --json`,
+          orchestrationRequestId: requestId,
+        },
+      },
+      _meta: { runtimeId: fixtureContext.runtimeId },
+    }),
+    stderr: '',
+    exitCode: 1,
+  };
+}
+
 /** Full exact-dispatch observation; a status hint alone is never a worker report. */
 export function fixtureShow(dispatchId = 'ctx_fixture', failureCount = 0): OrcaCommandResult {
   return fixtureReply({

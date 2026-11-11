@@ -162,6 +162,7 @@ export const orcaReplySchema = z.object({
       message: z.string(),
       data: z
         .object({
+          requestId: identifier.optional(),
           orchestrationRequestId: identifier.optional(),
           dispatchId: identifier.optional(),
         })
