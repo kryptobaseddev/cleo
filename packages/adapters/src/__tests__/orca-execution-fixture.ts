@@ -98,9 +98,19 @@ export function fixturePendingStart(
 }
 
 /** Full exact-dispatch observation; a status hint alone is never a worker report. */
-export function fixtureShow(dispatchId = 'ctx_fixture', failureCount = 0): OrcaCommandResult {
+export function fixtureShow(
+  dispatchId = 'ctx_fixture',
+  failureCount = 0,
+  creatorDispatchId?: string,
+): OrcaCommandResult {
   return fixtureReply({
-    dispatch: { id: dispatchId, runId: 'run_fixture', taskId: 'task_fixture', failureCount },
+    dispatch: {
+      id: dispatchId,
+      runId: 'run_fixture',
+      taskId: 'task_fixture',
+      failureCount,
+      ...(creatorDispatchId === undefined ? {} : { creatorDispatchId }),
+    },
     worker: {
       dispatchId,
       runtimeEpoch: fixtureContext.runtimeId,
@@ -134,9 +144,18 @@ export function fixtureReleasedShow(
   });
 }
 
-/** A helper Dispatch whose process has exited but whose terminal is still retained. */
-export function fixtureHelperExited(dispatchId: string): OrcaCommandResult {
-  const original = orcaReplySchema.parse(JSON.parse(fixtureShow(dispatchId).stdout));
+/**
+ * A helper Dispatch whose process has exited but whose terminal is still retained.
+ * @param dispatchId - Helper Dispatch to render as exited.
+ * @param creatorDispatchId - Direct creator the helper must descend from.
+ */
+export function fixtureHelperExited(
+  dispatchId: string,
+  creatorDispatchId = 'ctx_fixture',
+): OrcaCommandResult {
+  const original = orcaReplySchema.parse(
+    JSON.parse(fixtureShow(dispatchId, 0, creatorDispatchId).stdout),
+  );
   return fixtureReply({
     ...original.result,
     worker: { ...original.result?.worker, state: 'succeeded', stage: 'settled' },

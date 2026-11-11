@@ -328,6 +328,8 @@ export const orcaReplySchema = z.object({
           id: identifier,
           runId: identifier,
           taskId: identifier,
+          /** Direct creator Dispatch that started this one; null for a Run root. */
+          creatorDispatchId: identifier.nullable().optional(),
           failureCount: z.number().int().nonnegative(),
         })
         .optional(),
