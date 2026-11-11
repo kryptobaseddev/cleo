@@ -17,26 +17,39 @@
  * A job with a genuinely failed/cancelled mid-run step is NOT a phantom and
  * is left alone.
  *
- * Rerun guard (T14488): a run is only re-run if it is NOT superseded and is
- * no older than 7 days. A run is superseded when
- *   - a newer run exists for its exact (workflow, branch, sha) tuple (a newer
+ * Rerun guard (T14488): a run is only re-run when it is NOT superseded, its
+ * head is CONFIRMED to still be the current head of its ref, and it is no
+ * older than 7 days. A run is superseded when
+ *   - a newer run exists for its exact (workflow, ref, sha) tuple (a newer
  *     attempt of the same commit), OR
- *   - a newer run of the same workflow on the same branch carries a DIFFERENT
- *     headSha (the branch/PR has moved on), OR
- *   - its headSha is no longer the head commit of its branch/PR, resolved with
- *     one cached `gh api .../commits/<branch>` call per distinct branch.
+ *   - a newer run of the same workflow on the SAME ref carries a DIFFERENT
+ *     headSha (the ref has moved on).
+ *
+ * The ref identity is the PR number for `pull_request` runs and the head
+ * repository + branch otherwise. Branch names are NOT unique: two PRs (or a
+ * PR and a push) can share `task/x`, and a fork PR's branch name usually also
+ * exists in the base repository. Keying by branch name alone conflates them,
+ * so the head is resolved per ref with at most ONE cached API call:
+ *   - pull_request: the PR's current head (`gh api .../pulls/<n>` -> .head.sha)
+ *   - otherwise:    the branch head of the run's own head repository
+ *                   (`gh api .../commits/<branch>` -> .sha)
+ *
+ * An UNKNOWN head (lookup failed, deleted branch, pull_request run whose PR
+ * cannot be identified) is NEVER re-run. A blind re-run is the exact harm this
+ * guard exists to prevent: it re-enters the ref's concurrency group and can
+ * cancel the ref's current-head run.
  *
  * Why the extra checks: all runs of a workflow share the concurrency group
- * `<workflow>-<ref>[-<sha>]`. Re-running a stale head re-enters that group and
- * GitHub CANCELS the PR's current-head run to make room (observed
- * 2026-11-11 on #2788: re-running 42932816902 at 6b26c850d cancelled
- * 42941492356 at 07f926e8c), leaving the PR with no run for its real head.
+ * `<workflow>-<ref>`. Re-running a stale head re-enters that group and GitHub
+ * CANCELS the ref's current-head run to make room (observed 2026-11-11 on
+ * #2788: re-running 42932816902 at 6b26c850d cancelled 42941492356 at
+ * 07f926e8c), leaving the PR with no run for its real head.
  *
  * Usage:
  *   node scripts/ci-phantom-cancel-watchdog.mjs             # execute reruns
  *   node scripts/ci-phantom-cancel-watchdog.mjs --dry-run   # print only
  *   node scripts/ci-phantom-cancel-watchdog.mjs --json      # machine output
- *   node scripts/ci-phantom-cancel-watchdog.mjs --limit 50  # scan 50 runs
+ *   node scripts/ci-phantom-cancel-watchdog.mjs --limit 50  # scan 50 runs (API max 100)
  *
  * Exit codes: 0 always (automation, not a gate); 1 on API/usage errors.
  *
@@ -62,6 +75,24 @@ import { fileURLToPath } from 'node:url';
  * @property {string} createdAt
  * @property {number} number
  * @property {string} url
+ * @property {string} event GitHub event that created the run (`pull_request`, `push`, …)
+ * @property {string | null} headRepository `owner/repo` owning the head commit (the fork for a fork PR)
+ * @property {number[]} pullRequests base-repository PR numbers the run belongs to
+ */
+
+/**
+ * What a run's freshness must be measured against. `pull_request` runs belong
+ * to a PR (whose head lives in the base repository); everything else belongs
+ * to a branch in the run's own head repository.
+ *
+ * @typedef {{ kind: 'pull_request', pullRequestNumber: number }
+ *   | { kind: 'branch', repo: string | null, branch: string }} HeadTarget
+ */
+
+/**
+ * Tri-state result of comparing a run's `headSha` with the ref's current head.
+ *
+ * @typedef {'current' | 'stale' | 'unknown'} HeadStatus
  */
 
 /**
@@ -148,24 +179,77 @@ export function isLatestForTuple(run, allRuns) {
 }
 
 /**
- * Decide whether the branch (or PR) `run` belongs to has moved on to a
- * different head commit: another run of the SAME workflow on the SAME branch
- * has a higher run `number` and a different `headSha`.
+ * Identify the ref a run's head belongs to.
+ *
+ * `pull_request` runs resolve through their PR number (the PR lives in the
+ * base repository, so a fork's branch name never decides freshness).
+ * `pull_request_target` and every other event run against a branch, so they
+ * keep branch identity.
+ *
+ * Returns `null` when the identity cannot be established — a `pull_request`
+ * run whose `pull_requests[]` is empty (deleted PR, API omission). Such a run
+ * must never be re-run.
+ *
+ * @param {GhRun} run
+ * @returns {HeadTarget | null}
+ */
+export function headTargetForRun(run) {
+  if (run.event === 'pull_request') {
+    const number = run.pullRequests?.[0];
+    return Number.isInteger(number) ? { kind: 'pull_request', pullRequestNumber: number } : null;
+  }
+  return { kind: 'branch', repo: run.headRepository ?? null, branch: run.headBranch };
+}
+
+/**
+ * Cache/identity key for a head target: the PR number (branch names are shared
+ * across PRs and forks), or the head repository + branch for branch runs.
+ *
+ * @param {HeadTarget} target
+ * @returns {string}
+ */
+export function headTargetKey(target) {
+  return target.kind === 'pull_request'
+    ? `pull_request:${target.pullRequestNumber}`
+    : `branch:${target.repo ?? ''}#${target.branch}`;
+}
+
+/**
+ * The ref identity of a run, or `null` when it cannot be established.
+ *
+ * @param {GhRun} run
+ * @returns {string | null}
+ */
+export function headIdentityOf(run) {
+  const target = headTargetForRun(run);
+  return target === null ? null : headTargetKey(target);
+}
+
+/**
+ * Decide whether the ref `run` belongs to has moved on to a different head
+ * commit: another run of the SAME workflow on the SAME ref has a higher run
+ * `number` and a different `headSha`.
  *
  * This is the #2788 failure mode — the stale sha has no newer run of its own,
- * so the tuple guard alone waves it through while the branch already has a
+ * so the tuple guard alone waves it through while the ref already has a
  * current-head run that a re-run would cancel.
+ *
+ * Comparison is per REF, not per branch name: two PRs sharing `task/x` (or a
+ * fork PR whose branch name also exists in the base repository) are unrelated
+ * refs with their own concurrency groups, so neither supersedes the other.
  *
  * @param {GhRun} run
  * @param {GhRun[]} allRuns
  * @returns {boolean}
  */
 export function isSupersededByNewerHead(run, allRuns) {
+  const identity = headIdentityOf(run);
+  if (identity === null) return false;
   for (const other of allRuns) {
     if (other.databaseId === run.databaseId) continue;
     if (other.workflowDatabaseId !== run.workflowDatabaseId) continue;
-    if (other.headBranch !== run.headBranch) continue;
-    // Same sha is the tuple guard's job, not evidence the branch moved on.
+    if (headIdentityOf(other) !== identity) continue;
+    // Same sha is the tuple guard's job, not evidence the ref moved on.
     if (other.headSha === run.headSha) continue;
     if (other.number > run.number) return true;
   }
@@ -173,20 +257,19 @@ export function isSupersededByNewerHead(run, allRuns) {
 }
 
 /**
- * Decide whether `run.headSha` is no longer the head commit of its branch/PR.
+ * Classify `run.headSha` against the resolved current head of its ref.
  *
- * `headShas` holds the resolved head per branch (`null` when the lookup failed
- * or the head could not be read). An unknown head is NOT evidence of staleness
- * — failing soft keeps the watchdog useful when `gh api` is unavailable.
+ * `unknown` (no resolved head) is a SKIP, never a re-run: an unverifiable head
+ * might already be superseded, and re-running it can cancel the ref's current
+ * run. Only a confirmed match may be re-run; a confirmed mismatch is stale.
  *
  * @param {GhRun} run
- * @param {Map<string, string | null>} headShas
- * @returns {boolean}
+ * @param {string | null} head current head sha of the run's ref
+ * @returns {HeadStatus}
  */
-export function isStaleBranchHead(run, headShas) {
-  const head = headShas.get(run.headBranch);
-  if (typeof head !== 'string' || head.length === 0) return false;
-  return head !== run.headSha;
+export function classifyHead(run, head) {
+  if (typeof head !== 'string' || head.length === 0) return 'unknown';
+  return head === run.headSha ? 'current' : 'stale';
 }
 
 /**
@@ -207,24 +290,66 @@ export function isWithinAgeWindow(run, now) {
 // ---------------------------------------------------------------------------
 
 /**
- * List recent completed workflow runs via `gh run list`.
+ * The subset of the Actions-API workflow-run object this script reads.
+ *
+ * @typedef {object} ApiWorkflowRun
+ * @property {number} id
+ * @property {string} name
+ * @property {number} workflow_id
+ * @property {string} head_branch
+ * @property {string} head_sha
+ * @property {string | null} conclusion
+ * @property {string} created_at
+ * @property {number} run_number
+ * @property {string} html_url
+ * @property {string} [event]
+ * @property {{ full_name?: string } | null} [head_repository]
+ * @property {Array<{ number?: number }>} [pull_requests]
+ */
+
+/**
+ * Map one Actions-API run object onto {@link GhRun}.
+ *
+ * @param {ApiWorkflowRun} apiRun
+ * @returns {GhRun}
+ */
+function mapApiRun(apiRun) {
+  return {
+    databaseId: apiRun.id,
+    workflowName: apiRun.name,
+    workflowDatabaseId: apiRun.workflow_id,
+    headBranch: apiRun.head_branch,
+    headSha: apiRun.head_sha,
+    conclusion: apiRun.conclusion,
+    createdAt: apiRun.created_at,
+    number: apiRun.run_number,
+    url: apiRun.html_url,
+    event: apiRun.event ?? '',
+    headRepository: apiRun.head_repository?.full_name ?? null,
+    pullRequests: (apiRun.pull_requests ?? [])
+      .map((pr) => pr?.number)
+      .filter((n) => Number.isInteger(n)),
+  };
+}
+
+/**
+ * List recent completed workflow runs.
+ *
+ * Uses the Actions API rather than `gh run list` because the CLI's JSON fields
+ * omit `event`, `pull_requests[]` and `head_repository` — exactly the ref
+ * identity the freshness guard needs (T14488).
  *
  * @param {ExecFn} exec
  * @param {number} limit
+ * @param {string} slug `owner/repo`
  * @returns {GhRun[]}
  */
-function listRecentRuns(exec, limit) {
-  const out = exec([
-    'run',
-    'list',
-    '--status',
-    'completed',
-    '--limit',
-    String(limit),
-    '--json',
-    'databaseId,workflowName,workflowDatabaseId,headBranch,headSha,conclusion,createdAt,number,url',
-  ]);
-  return JSON.parse(out);
+function listRecentRuns(exec, limit, slug) {
+  // The Actions API caps `per_page` at 100; a larger --limit cannot scan more.
+  const perPage = Math.min(limit, 100);
+  const out = exec(['api', `repos/${slug}/actions/runs?status=completed&per_page=${perPage}`]);
+  const parsed = JSON.parse(out);
+  return (parsed.workflow_runs ?? []).map(mapApiRun);
 }
 
 /**
@@ -283,32 +408,71 @@ function fetchBranchHeadSha(exec, slug, branch) {
 }
 
 /**
- * Build a memoised branch-head resolver: at most ONE `gh api` call per
- * distinct branch for the whole scan, and any failure resolves to `null`
- * (unknown) so a probe error never crashes the watchdog or forces a rerun.
+ * Resolve the current head sha of a pull request via `gh api`.
+ *
+ * @param {ExecFn} exec
+ * @param {string} slug base `owner/repo`
+ * @param {number} pullRequestNumber
+ * @returns {string | null}
+ */
+function fetchPullRequestHeadSha(exec, slug, pullRequestNumber) {
+  const sha = String(
+    exec(['api', `repos/${slug}/pulls/${pullRequestNumber}`, '--jq', '.head.sha']),
+  ).trim();
+  return sha.length > 0 ? sha : null;
+}
+
+/**
+ * Build a memoised ref-head resolver: at most ONE API call per ref (PR number,
+ * or head repo + branch for branch runs) for the whole scan.
+ *
+ * Any failure resolves to `null` (unknown). Unknown is a SKIP at the call
+ * site, never a re-run: an unverifiable head can already be superseded, and
+ * re-running it may cancel the ref's current-head run.
  *
  * @param {object} opts
  * @param {ExecFn} opts.exec
- * @param {string | undefined} opts.repo pre-resolved `owner/repo` slug
- * @returns {(branch: string) => string | null}
+ * @param {string | undefined} opts.repo pre-resolved base `owner/repo` slug
+ * @returns {(target: HeadTarget) => string | null}
  */
-function makeHeadResolver({ exec, repo }) {
+export function createHeadResolver({ exec, repo }) {
   /** @type {Map<string, string | null>} */
   const cache = new Map();
   /** @type {string | null} */
-  let slug = repo ?? null;
-  return (branch) => {
-    if (cache.has(branch)) return cache.get(branch) ?? null;
+  let baseSlug = repo ?? null;
+
+  /** Resolve the base `owner/repo` slug once (env, then `gh repo view`). */
+  const baseRepo = () => {
+    if (baseSlug === null) baseSlug = resolveRepoSlug(exec);
+    return baseSlug;
+  };
+
+  return (target) => {
+    let key;
+    if (target.kind === 'pull_request') {
+      key = headTargetKey(target);
+    } else {
+      try {
+        key = headTargetKey({ ...target, repo: target.repo ?? baseRepo() });
+      } catch {
+        // Base slug unresolvable: key on the branch alone so one failed probe
+        // is not repeated for every run of that branch.
+        key = `branch:${target.branch}`;
+      }
+    }
+    if (cache.has(key)) return cache.get(key) ?? null;
     let sha = null;
     try {
-      if (slug === null) slug = resolveRepoSlug(exec);
-      sha = fetchBranchHeadSha(exec, slug, branch);
+      sha =
+        target.kind === 'pull_request'
+          ? fetchPullRequestHeadSha(exec, baseRepo(), target.pullRequestNumber)
+          : fetchBranchHeadSha(exec, target.repo ?? baseRepo(), target.branch);
     } catch {
-      // Head lookup unavailable (permissions, deleted branch, offline) — fall
-      // back to the run-list evidence instead of assuming staleness.
+      // Head lookup unavailable (permissions, deleted branch, offline, no PR
+      // identity) — the run is skipped, never re-run on a guess.
       sha = null;
     }
-    cache.set(branch, sha);
+    cache.set(key, sha);
     return sha;
   };
 }
@@ -322,29 +486,30 @@ function makeHeadResolver({ exec, repo }) {
  * eligible ones (unless `dryRun`).
  *
  * A run is eligible only when it is a phantom cancel, is not superseded (by a
- * newer attempt of its sha, a newer run of the branch at another sha, or a
- * branch head that has moved past its sha), and is inside the age window.
+ * newer attempt of its sha or a newer run of its ref at another sha), its
+ * headSha is CONFIRMED to still be the ref's head (an unresolvable head is
+ * skipped), and it is inside the age window.
  *
  * @param {object} opts
  * @param {ExecFn} opts.exec
  * @param {boolean} opts.dryRun
  * @param {number} opts.limit
  * @param {Date} [opts.now] injectable clock for tests
- * @param {string} [opts.repo] `owner/repo` slug; default: env, then `gh repo view`
- * @param {(branch: string) => string | null} [opts.resolveHeadSha] injectable
- *   branch-head lookup (default: cached `gh api .../commits/<branch>`)
+ * @param {string} [opts.repo] base `owner/repo` slug; default: env, then `gh repo view`
  * @returns {Promise<{
  *   scanned: number,
  *   cancelledRuns: number,
  *   phantomRuns: Array<{ id: number, workflow: string, branch: string, url: string, phantomJobs: string[] }>,
  *   rerun: number[],
  *   skippedSuperseded: number[],
+ *   skippedHeadUnknown: number[],
  *   skippedTooOld: number[],
  *   skippedNotPhantom: number[],
  * }>}
  */
-export async function runWatchdog({ exec, dryRun, limit, now = new Date(), repo, resolveHeadSha }) {
-  const runs = listRecentRuns(exec, limit);
+export async function runWatchdog({ exec, dryRun, limit, now = new Date(), repo }) {
+  const slug = repo ?? resolveRepoSlug(exec);
+  const runs = listRecentRuns(exec, limit, slug);
   const cancelled = runs.filter((r) => r.conclusion === 'cancelled');
 
   const summary = {
@@ -353,13 +518,12 @@ export async function runWatchdog({ exec, dryRun, limit, now = new Date(), repo,
     phantomRuns: [],
     rerun: [],
     skippedSuperseded: [],
+    skippedHeadUnknown: [],
     skippedTooOld: [],
     skippedNotPhantom: [],
   };
 
-  /** Branch → resolved head sha (`null` = unknown); at most one lookup each. */
-  const headShas = new Map();
-  const resolveHead = resolveHeadSha ?? makeHeadResolver({ exec, repo });
+  const resolve = createHeadResolver({ exec, repo: slug });
 
   for (const run of cancelled) {
     const jobs = getRunJobs(exec, run.databaseId);
@@ -373,13 +537,18 @@ export async function runWatchdog({ exec, dryRun, limit, now = new Date(), repo,
       summary.skippedSuperseded.push(run.databaseId);
       continue;
     }
-    // Then ask the branch: a newer run may still be queued/in progress, so it
-    // is absent from the completed-run list even though the branch moved on.
-    if (!headShas.has(run.headBranch)) {
-      headShas.set(run.headBranch, resolveHead(run.headBranch));
-    }
-    if (isStaleBranchHead(run, headShas)) {
+    // Then ask the ref: a newer run may still be queued/in progress, so it is
+    // absent from the completed-run list even though the ref moved on.
+    const target = headTargetForRun(run);
+    const headStatus = classifyHead(run, target === null ? null : resolve(target));
+    if (headStatus === 'stale') {
       summary.skippedSuperseded.push(run.databaseId);
+      continue;
+    }
+    if (headStatus === 'unknown') {
+      // Never re-run blind: the current-head run may exist and would be
+      // cancelled by the re-run (T14488).
+      summary.skippedHeadUnknown.push(run.databaseId);
       continue;
     }
     if (!isWithinAgeWindow(run, now)) {
@@ -479,6 +648,9 @@ async function main() {
     }
     if (summary.skippedSuperseded.length > 0) {
       console.log(`  skipped (superseded): ${summary.skippedSuperseded.join(', ')}`);
+    }
+    if (summary.skippedHeadUnknown.length > 0) {
+      console.log(`  skipped (head unknown): ${summary.skippedHeadUnknown.join(', ')}`);
     }
     if (summary.skippedTooOld.length > 0) {
       console.log(`  skipped (older than ${MAX_AGE_DAYS}d): ${summary.skippedTooOld.join(', ')}`);

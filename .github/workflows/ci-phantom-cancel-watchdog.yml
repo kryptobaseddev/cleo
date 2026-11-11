@@ -20,6 +20,7 @@ on:
 permissions:
   contents: read
   actions: write # required for `gh run rerun`
+  pull-requests: read # head-sha freshness guard (T14488)
 
 jobs:
   watchdog:
