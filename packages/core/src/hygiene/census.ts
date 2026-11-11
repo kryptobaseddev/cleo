@@ -365,7 +365,8 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
   const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
-  const { isOwnProjectRoot, projectStatusReadLabel } = await import('../worktree/list.js');
+  const { projectStatusReadLabel } = await import('../worktree/list.js');
+  const { isOwnProjectStore } = await import('../worktree/own-project.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -427,7 +428,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       // probe, disposal or any store-opening liveness code — its liveness is
       // 'unknown (foreign project)' and it is never a removal candidate. Own
       // rows keep main's behaviour exactly.
-      const own = isOwnProjectRoot(project);
+      const own = isOwnProjectStore(project);
       const terminal =
         own &&
         worktree.taskId !== null &&

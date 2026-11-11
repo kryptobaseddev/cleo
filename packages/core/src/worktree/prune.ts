@@ -314,10 +314,10 @@ export async function loadTaskEvidence(
   // FOREIGN store is read only through the immutable, sidecar-free snapshot
   // (display/proof fail-closed: a failed read yields no atoms, which keeps
   // the checkout).
-  const { isOwnProjectRoot } = await import('./list.js');
+  const { isOwnProjectStore } = await import('./own-project.js');
   let own = false;
   try {
-    own = isOwnProjectRoot(projectRoot);
+    own = isOwnProjectStore(projectRoot);
   } catch {
     own = false;
   }

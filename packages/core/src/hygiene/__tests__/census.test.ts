@@ -29,6 +29,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
 let taskQueryFails = false;
+// Round 7: the census classifies fixture rows as OWN (main's behaviour);
+// the strict own-decision in list.ts would otherwise mark every tmpdir
+// fixture foreign and reduce the whole census to 'unknown (foreign project)'.
+vi.mock('../../worktree/own-project.js', () => ({
+  isOwnProjectStore: vi.fn(() => true),
+}));
+
 vi.mock('../../orchestrate/worker-records.js', () => ({
   listWorkerRecords: vi.fn(async () => []),
 }));

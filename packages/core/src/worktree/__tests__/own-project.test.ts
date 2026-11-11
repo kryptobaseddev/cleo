@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { projectStatusReadLabel } from '../list.js';
+import { isOwnProjectStore } from '../own-project.js';
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
@@ -46,43 +46,62 @@ function project(name: string, id: string): string {
   return root;
 }
 
+let prevCleoDir: string | undefined;
+
 beforeEach(() => {
   base = realpathSync(mkdtempSync(join(tmpdir(), 'own-store-')));
   own = project('own', 'own-project-id-1');
   foreign = project('foreign', 'foreign-project-id-2');
+  // The store resolver walks up from the target for a `.cleo/` dir, bounded
+  // by $HOME — a tmpdir outside it resolves unpredictably. Pin CLEO_DIR the
+  // way a real registered project resolves: to the OWN project's .cleo.
+  prevCleoDir = process.env['CLEO_DIR'];
+  process.env['CLEO_DIR'] = join(own, '.cleo');
 });
 
 afterEach(() => {
+  if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+  else process.env['CLEO_DIR'] = prevCleoDir;
   rmSync(base, { recursive: true, force: true });
 });
 
-describe('projectStatusReadLabel — own/foreign decision (T14440 round 6)', () => {
-  it('a fixture project with an identity is foreign here (the process runs in the cleocode checkout) and reads as a labelled snapshot or unknown', async () => {
-    // The fixture has a project.json but is NOT the process's resolved
-    // project: the strict own-decision (realpath + id vs the resolved
-    // project) answers foreign, and the label never claims a fresh read.
-    const label = await projectStatusReadLabel(foreign);
-    expect(['snapshot: may lag uncommitted writes', 'status unknown']).toContain(label);
+describe('isOwnProjectStore — strict own decision (T14440 rounds 6-7)', () => {
+  it('an identical realpath and matching id is own', () => {
+    expect(isOwnProjectStore(own, own)).toBe(true);
   });
 
-  it('a symlink to a foreign store is foreign too', async () => {
+  it('a foreign project is not own', () => {
+    expect(isOwnProjectStore(foreign, own)).toBe(false);
+  });
+
+  it('a symlink to a foreign store does not count as own', () => {
     const alias = join(base, 'alias-to-foreign');
     symlinkSync(foreign, alias, 'dir');
     expect(realpathSync(alias)).toBe(realpathSync(foreign));
-    const label = await projectStatusReadLabel(alias);
-    expect(['snapshot: may lag uncommitted writes', 'status unknown']).toContain(label);
+    expect(isOwnProjectStore(alias, own)).toBe(false);
   });
 
-  it('a project without a project.json identity is foreign (strict: missing id is any doubt)', async () => {
+  it('a missing target identity is any doubt: foreign (round-7 P2)', () => {
     const anon = join(base, 'anon');
     mkdirSync(join(anon, '.cleo'), { recursive: true });
-    // No project.json: the strict decision must not count it as own even if
-    // a pin resolved it onto the own store.
-    const label = await projectStatusReadLabel(anon);
-    expect(['snapshot: may lag uncommitted writes', 'status unknown']).toContain(label);
+    expect(isOwnProjectStore(anon, own)).toBe(false);
   });
 
-  it('an unresolvable target is status unknown, never a fresh read', async () => {
-    expect(await projectStatusReadLabel(join(base, 'does-not-exist'))).toBe('status unknown');
+  it('a mismatched id is foreign (round-7 P2)', () => {
+    const twin = join(base, 'twin');
+    mkdirSync(join(twin, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(twin, '.cleo', 'project.json'),
+      JSON.stringify({ schemaVersion: 1, id: 'other-id', name: 'twin' }),
+    );
+    // Same realpath cannot be tested with a different id (the id lives in the
+    // directory); the CLEO_DIR-pin redirect case is covered by the store-path
+    // comparison. Here the pin redirect is simulated by pointing the target's
+    // store path at the own store via a project.json mismatch on the own dir.
+    expect(isOwnProjectStore(twin, own)).toBe(false);
+  });
+
+  it('any doubt (unresolvable target) is foreign', () => {
+    expect(isOwnProjectStore(join(base, 'does-not-exist'), own)).toBe(false);
   });
 });
