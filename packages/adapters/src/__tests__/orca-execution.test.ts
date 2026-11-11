@@ -961,4 +961,45 @@ describe('Orca execution process boundary', () => {
     });
     expect((await new OrcaExecutionBackend(fixtureRunner).stop(attempt)).state).toBe('stopped');
   });
+
+  it('does not settle a released parent while its stop receipt leaves a helper unresolved', async () => {
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    const stopReceipt = (helpers: string[], helperStopError?: string): string =>
+      fixtureReply({
+        dispatchId: 'ctx_fixture',
+        state: 'stopped',
+        processAction: 'closed_agent_terminal',
+        helpers: helpers.map((outcome) => ({ outcome })),
+        ...(helperStopError ? { helperStopError } : {}),
+      }).stdout;
+    orcaFixture.show = fixtureReleasedShow();
+    const pending = (lastReceipt: string): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000003',
+        lastReceipt,
+      });
+    for (const unresolved of [
+      stopReceipt(['kept_open']),
+      stopReceipt(['unconfirmed']),
+      stopReceipt([], 'helper stop error'),
+    ]) {
+      expect(await backend.show(pending(unresolved))).toMatchObject({
+        state: 'stop_unknown',
+        resourceState: 'unknown',
+        lastReceipt: unresolved,
+      });
+    }
+    // A receipt that confirms every helper released never blocks the exact release proof.
+    expect(await backend.show(pending(stopReceipt(['stopped', 'already_finished'])))).toMatchObject(
+      {
+        state: 'stopped',
+        resourceState: 'stopped',
+      },
+    );
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
 });

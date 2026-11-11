@@ -45,6 +45,42 @@ const REQUIRED_COMMANDS = {
   'worktree show': ['worktree'],
 };
 
+/** Helper outcomes that prove Orca released the helper rather than leaving it running. */
+const SETTLED_HELPER_OUTCOMES = new Set(['stopped', 'already_finished']);
+
+/**
+ * Decide whether a stored receipt proves a helper was kept open or its stop unconfirmed.
+ * @remarks A worker-stop receipt is the only helper evidence Orca exposes; a receipt that
+ * is not a stop reply carries none and never blocks exact parent release proof.
+ * @param receipt - Last stored raw receipt, or null when none was retained.
+ * @returns True when a helper outcome or the helper stop error stays unresolved.
+ * @example
+ * ```ts
+ * receiptLeavesHelpersUnresolved('{"ok":true,"result":{"helpers":[{"outcome":"kept_open"}]}}');
+ * ```
+ */
+function receiptLeavesHelpersUnresolved(receipt: string | null): boolean {
+  if (!receipt) return false;
+  try {
+    const parsed = orcaReplySchema.safeParse(JSON.parse(receipt));
+    if (!parsed.success) return false;
+    const value = parsed.data.result;
+    if (!value) return false;
+    // Only a stop reply speaks about helpers; a start or show receipt proves nothing here.
+    const stopReply =
+      value.processAction !== undefined ||
+      value.helpers !== undefined ||
+      value.helperStopError !== undefined;
+    if (!stopReply) return false;
+    if (value.helperStopError) return true;
+    // A stop reply without the helper list could not confirm every helper released.
+    if (!value.helpers) return true;
+    return value.helpers.some((helper) => !SETTLED_HELPER_OUTCOMES.has(helper.outcome));
+  } catch {
+    return false;
+  }
+}
+
 /** Actionable refusal; callers must retain any attempt already sent to Orca. */
 export class OrcaExecutionError extends Error {
   /** Numeric CLI refusal status, independent of a worker's exit. */
@@ -390,13 +426,18 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       resource.state === 'released' &&
       resource.releaseState === 'released' &&
       resource.terminalState === 'released';
-    // A reserved stop is settled only by exact release proof; anything less stays
-    // uncertain rather than repeating or guessing at the original cancellation.
+    // A worker-show reply never carries helper outcomes, so the stored stop receipt is
+    // the only helper evidence. A parent release alone must not override it: a helper
+    // kept open or unconfirmed still runs, so the stop stays fenced and unsettled.
+    const helpersUnresolved = receiptLeavesHelpersUnresolved(attempt.lastReceipt);
+    const settled = released && !helpersUnresolved;
+    // Anything less than parent plus helper release proof stays uncertain rather than
+    // repeating or guessing at the original cancellation.
     const requestedStop = ['stop_pending', 'stop_unknown'].includes(attempt.state);
     return {
       ...attempt,
       state: requestedStop
-        ? released
+        ? settled
           ? 'stopped'
           : 'stop_unknown'
         : attempt.state === 'stopped'
@@ -407,8 +448,10 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
               ? 'failed'
               : attempt.state,
       failureCount,
-      resourceState: released ? 'stopped' : resource?.state === 'owned' ? 'owned' : 'unknown',
-      lastReceipt: reply.rawReceipt,
+      resourceState: settled ? 'stopped' : resource?.state === 'owned' ? 'owned' : 'unknown',
+      // Retain the stop receipt that names the unresolved helper; the observation
+      // cannot replace it without losing the only proof of what is still running.
+      lastReceipt: helpersUnresolved ? attempt.lastReceipt : reply.rawReceipt,
       observedAt: new Date().toISOString(),
     };
   }
