@@ -1041,6 +1041,7 @@ export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHan
   try {
     dbPath = resolveDualScopeDbPath('project', projectRoot);
   } catch {
+    // @sync-invariant none:local-only a cross-project read-only snapshot never writes a store
     throw new Error(`Task store path could not be resolved for ${projectRoot}`);
   }
   if (!existsSync(dbPath)) return null;
