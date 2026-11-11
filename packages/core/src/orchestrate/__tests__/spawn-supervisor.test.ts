@@ -359,6 +359,40 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
     claimTask: vi.fn(async () => null),
   });
 
+  it('returns E_TIMEOUT within the spawn budget when the custody read hangs', async () => {
+    findOrcaWorkerMock.mockClear();
+    getTaskAccessorMock.mockClear();
+    spawnWorktreeMock.mockClear();
+    destroyWorktreeMock.mockClear();
+    const readStarted = new Promise<void>((resolve) => {
+      findOrcaWorkerMock.mockImplementationOnce(() => {
+        resolve();
+        return new Promise<never>(() => undefined);
+      });
+    });
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    try {
+      let settled = false;
+      const startedAt = Date.now();
+      const pending = orchestrateSpawn('T9999').then((result) => {
+        settled = true;
+        return result;
+      });
+      await readStarted;
+      await vi.advanceTimersByTimeAsync(SPAWN_BUDGET_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      expect(await pending).toMatchObject({ success: false, error: { code: 'E_TIMEOUT' } });
+      expect(Date.now() - startedAt).toBe(SPAWN_BUDGET_MS);
+      expect(getTaskAccessorMock).not.toHaveBeenCalled();
+      expect(spawnWorktreeMock).not.toHaveBeenCalled();
+      expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('completes under the spawn budget and returns a success envelope (happy path)', async () => {
     destroyWorktreeMock.mockReset();
     spawnWorktreeMock.mockReset();

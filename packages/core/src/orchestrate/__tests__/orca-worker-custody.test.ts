@@ -169,6 +169,52 @@ describe('durable Orca execution custody', () => {
     );
   });
 
+  it('times out a hanging execution custody read without dispatching or releasing the claim', async () => {
+    const workers = await import('../worker-records.js');
+    const { governor } = await import('../../resources/governor.js');
+    const { orchestrateSpawnExecute, SPAWN_BUDGET_MS } = await import('../spawn-ops.js');
+    const release = vi.fn(async () => undefined);
+    vi.spyOn(governor, 'tryAcquire').mockResolvedValue({
+      deferred: false,
+      class: 'agent-session',
+      slot: -1,
+      acquiredAtMs: Date.now(),
+      release,
+    });
+    const find = vi.spyOn(workers, 'findOrcaWorker');
+    const readStarted = new Promise<void>((resolve) => {
+      find.mockImplementationOnce(() => {
+        resolve();
+        return new Promise<never>(() => undefined);
+      });
+    });
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    try {
+      let settled = false;
+      const startedAt = Date.now();
+      const pending = orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir).then(
+        (result) => {
+          settled = true;
+          return result;
+        },
+      );
+      await readStarted;
+      await vi.advanceTimersByTimeAsync(SPAWN_BUDGET_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      expect(await pending).toMatchObject({ success: false, error: { code: 'E_TIMEOUT' } });
+      expect(Date.now() - startedAt).toBe(SPAWN_BUDGET_MS);
+      expect(release).toHaveBeenCalledOnce();
+      expect(fixtureRunner).not.toHaveBeenCalled();
+      expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(
+        launch.workerSessionId,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('replays the saved request after a restart and preserves the original allocated identity', async () => {
     orcaFixture.start = {
       stdout: JSON.stringify({

@@ -873,7 +873,13 @@ export async function orchestrateSpawnExecute(
   /** T14359 — worker record written before spawn (only with `orchestrate.leadWorker.v1`). */
   let pendingWorker: WorkerRecord | null = null;
   try {
-    const external = await findOrcaWorker(taskId, cwd);
+    const custodyBudget = new AbortController();
+    const custodyTimer = setTimeout(() => custodyBudget.abort(), SPAWN_BUDGET_MS);
+    const external = await raceAgainstAbort(
+      findOrcaWorker(taskId, cwd),
+      custodyBudget.signal,
+      'validate-readiness',
+    ).finally(() => clearTimeout(custodyTimer));
     if (external) return orcaCustodyRefusal(external);
     // Get spawn registry
     await initializeDefaultAdapters();
@@ -1642,7 +1648,11 @@ export async function orchestrateSpawn(
 
   try {
     const root = getProjectRoot(projectRoot);
-    const external = await findOrcaWorker(taskId, root);
+    const external = await raceAgainstAbort(
+      findOrcaWorker(taskId, root),
+      budgetCtrl.signal,
+      'validate-readiness',
+    );
     if (external) return orcaCustodyRefusal(external);
     partialState.rootResolved = root;
     spawnLogger.info(
