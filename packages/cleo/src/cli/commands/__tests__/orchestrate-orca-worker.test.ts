@@ -388,6 +388,9 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
       1,
     );
+    const stopRequestKey = (await listWorkerRecords(env.tempDir))[0]?.execution?.stopRequestKey;
+    expect(stopRequestKey).toEqual(expect.any(String));
+    orcaFixture.request = fixtureReply({ state: 'completed', requestId: stopRequestKey });
     orcaFixture.stop = fixtureReply({
       dispatchId: 'ctx_fixture',
       state: 'stopped',
@@ -406,7 +409,7 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
       '--dispatch',
       'ctx_fixture',
       '--retry-request',
-      'request-fixture',
+      stopRequestKey,
       '--environment',
       'local',
       '--json',

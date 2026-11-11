@@ -215,7 +215,7 @@ export async function retryOrcaWorker(
       ExitCode.SPAWN_VALIDATION_FAILED,
       'The predecessor has no confirmed resource-free failure or stop eligible for retry.',
       {
-        fix: 'Inspect its exact Dispatch and recover any issued stop; retain custody until confirmed.',
+        fix: `Inspect its exact Dispatch with cleo orchestrate worker show ${recordId}; every read re-reads each helper named by the stored stop, so retry admits once the parent and all helpers are released. If the stop receipt was lost or carries no helper evidence, replay its reserved key with cleo orchestrate worker recover-stop ${recordId}. A helper still running or kept open must be stopped or released in Orca first (orca orchestration worker-stop|worker-release --dispatch <helper dispatch id from that receipt>).`,
       },
     );
   }
@@ -249,6 +249,7 @@ export async function retryOrcaWorker(
     },
     startRequestKey: randomUUID(),
     startRequestId: null,
+    stopRequestKey: undefined,
     stopRequestId: null,
     resourceState: 'unknown',
     lastReceipt: null,
@@ -419,6 +420,7 @@ export async function ingestOrcaWorkerReport(
  * Explicit cancellation of an exact attempt. stop_unknown fences another stop;
  * neither a stopped result nor a launch hint disposes a checkout or closes a task.
  * @remarks Requires an explicit cancellation request; uncertainty retains custody.
+ * The stop key is reserved before the send, so a lost receipt still replays exactly.
  * @param recordId - Exact worker record id to cancel.
  * @param cwd - Owning CLEO project root.
  * @param backend - Process adapter for the recorded runtime.
@@ -455,15 +457,17 @@ export async function stopOrcaWorker(
   }
   const reserved = await updateWorkerExecution(
     record,
-    { ...execution, state: 'stop_pending' },
+    { ...execution, state: 'stop_pending', stopRequestKey: randomUUID() },
     cwd,
   );
   return updateWorkerExecution(reserved, await backend.stop(requireExecution(reserved)), cwd);
 }
 
 /**
- * Replay a previously issued uncertain cancellation after a CLI restart.
- * @remarks Missing request ids remain fenced; recovery never sends a fresh stop.
+ * Replay a previously issued or reserved uncertain cancellation after a CLI restart.
+ * @remarks The reserved stop key replays every send, so a lost stop receipt without
+ * an issued id remains replayable; a record with neither stays fenced and is never
+ * sent a fresh unkeyed stop.
  * @param recordId - Exact open worker record containing the issued stop request.
  * @param cwd - Owning CLEO project root.
  * @param backend - Adapter for the original runtime and caller.
@@ -480,7 +484,10 @@ export async function recoverOrcaWorkerStop(
 ): Promise<WorkerRecord> {
   const record = await loadOrcaWorker(recordId, cwd);
   const execution = requireExecution(record);
-  if (!['stop_unknown', 'stop_pending'].includes(execution.state) || !execution.stopRequestId) {
+  if (
+    !['stop_unknown', 'stop_pending'].includes(execution.state) ||
+    !(execution.stopRequestId ?? execution.stopRequestKey)
+  ) {
     // @sync-invariant none:local-only only the original issued cancellation may be replayed
     throw new CleoError(
       ExitCode.SPAWN_VALIDATION_FAILED,

@@ -99,9 +99,19 @@ export function fixturePendingStart(
 }
 
 /** Full exact-dispatch observation; a status hint alone is never a worker report. */
-export function fixtureShow(dispatchId = 'ctx_fixture', failureCount = 0): OrcaCommandResult {
+export function fixtureShow(
+  dispatchId = 'ctx_fixture',
+  failureCount = 0,
+  creatorDispatchId?: string,
+): OrcaCommandResult {
   return fixtureReply({
-    dispatch: { id: dispatchId, runId: 'run_fixture', taskId: 'task_fixture', failureCount },
+    dispatch: {
+      id: dispatchId,
+      runId: 'run_fixture',
+      taskId: 'task_fixture',
+      failureCount,
+      ...(creatorDispatchId === undefined ? {} : { creatorDispatchId }),
+    },
     worker: {
       dispatchId,
       runtimeEpoch: fixtureContext.runtimeId,
@@ -132,6 +142,26 @@ export function fixtureReleasedShow(
         ownerDispatchId: dispatchId,
       },
     },
+  });
+}
+
+/**
+ * A helper Dispatch whose process has exited but whose terminal is still retained.
+ * @param dispatchId - Helper Dispatch to render as exited.
+ * @param creatorDispatchId - Direct creator the helper must descend from.
+ */
+export function fixtureHelperExited(
+  dispatchId: string,
+  creatorDispatchId = 'ctx_fixture',
+): OrcaCommandResult {
+  const original = orcaReplySchema.parse(
+    JSON.parse(fixtureShow(dispatchId, 0, creatorDispatchId).stdout),
+  );
+  return fixtureReply({
+    ...original.result,
+    worker: { ...original.result?.worker, state: 'succeeded', stage: 'settled' },
+    observation: { status: 'exited', exactWorker: true },
+    projection: { resource: { state: 'retained', terminalState: 'retained' } },
   });
 }
 
@@ -229,6 +259,9 @@ export const orcaFixture = {
   launch: { ...fixtureLaunch },
   start: fixtureStart(),
   show: fixtureShow(),
+  /** Per-helper Dispatch observations; a missing key falls back to `show`. */
+  helperShows: {} as Record<string, OrcaCommandResult>,
+  capabilities: ['orchestration.contract.v1', 'orchestration.worker-stop-helpers.v1'],
   stop: fixtureReply(
     {
       dispatchId: 'ctx_fixture',
@@ -305,7 +338,7 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
         runtimeId: fixtureContext.runtimeId,
         reachable: true,
         state: 'ready',
-        capabilities: ['orchestration.contract.v1'],
+        capabilities: orcaFixture.capabilities,
       },
     });
   if (args[0] === 'worktree')
@@ -321,8 +354,13 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
   switch (args[1]) {
     case 'worker-start':
       return orcaFixture.start;
-    case 'worker-show':
-      return orcaFixture.show;
+    case 'worker-show': {
+      const dispatchIndex = args.indexOf('--dispatch');
+      const dispatchId = dispatchIndex === -1 ? undefined : args[dispatchIndex + 1];
+      return dispatchId
+        ? (orcaFixture.helperShows[dispatchId] ?? orcaFixture.show)
+        : orcaFixture.show;
+    }
     case 'worker-stop':
       return orcaFixture.stop;
     case 'request-show':
