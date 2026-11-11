@@ -221,12 +221,15 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
 
   it('reads a readable foreign store as a display snapshot: statuses flow, labelled', async () => {
     // Fixture construction: build the store with the REAL migrator (a write,
-    // before any measurement) and seed one done task. Cold state afterwards.
+    // before any measurement) and seed one NON-terminal task, so the census's
+    // walk stays on the display-only snapshot path (a terminal row would run
+    // main's reaper probe, which opens the store as on main — separate task).
+    // Cold state afterwards.
     const { getDb } = await import('../../store/sqlite.js');
     await getDb(projectRoot);
     const db = new DatabaseSync(dbPath);
     db.prepare(
-      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
+      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'pending', 'implementation')",
     ).run();
     db.close();
     const { closeAllDatabases } = await import('../../store/sqlite.js');
@@ -245,6 +248,6 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     // The snapshot actually read the row — an opener that failed early
     // (caught) would leave this null and fail the test.
     const row = record.rows.find((r) => r.path.endsWith('T1'));
-    expect(row?.taskStatus).toBe('done');
+    expect(row?.taskStatus).toBe('pending');
   });
 });
