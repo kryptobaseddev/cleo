@@ -79,6 +79,8 @@ export const orcaAttemptSchema = z.object({
   retryOf: identifier.nullable(),
   /** Absent on legacy records, whose original argv cannot safely be reconstructed. */
   startBinding: orcaStartBindingSchema.optional(),
+  /** UUID reserved before committing a retry; its first send and every replay use this key. */
+  startRequestKey: z.string().uuid().optional(),
   startRequestId: identifier.nullable(),
   stopRequestId: identifier.nullable(),
   failureCount: z.number().int().nonnegative(),

@@ -2,7 +2,7 @@
  * Durable policy for prepared Orca assignments; no lifecycle settlement at launch.
  * @packageDocumentation
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
@@ -120,7 +120,7 @@ export async function observeOrcaWorker(
 }
 
 /**
- * Replay an issued uncertain start request after a durable reservation.
+ * Replay an issued or pre-reserved start request after a durable reservation.
  * @remarks A missing request receipt never authorizes an unkeyed replacement.
  * @param recordId - Exact pending worker record id.
  * @param cwd - Owning CLEO project root.
@@ -140,7 +140,7 @@ export async function recoverOrcaWorkerStart(
   const execution = requireExecution(record);
   if (
     !['outcome_unknown', 'launching'].includes(execution.state) ||
-    !execution.startRequestId ||
+    !(execution.startRequestId || execution.startRequestKey) ||
     !execution.startBinding ||
     execution.failureCount >= 3
   ) {
@@ -232,6 +232,7 @@ export async function retryOrcaWorker(
       orcaTaskId: execution.orcaTaskId,
       retryOf: execution.dispatchId,
     },
+    startRequestKey: randomUUID(),
     startRequestId: null,
     stopRequestId: null,
     resourceState: 'unknown',

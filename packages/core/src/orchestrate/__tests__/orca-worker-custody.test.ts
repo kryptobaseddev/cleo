@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
-import type { OrcaLaunch } from '@cleocode/contracts/orca-execution.js';
+import type { OrcaCommandResult, OrcaLaunch } from '@cleocode/contracts/orca-execution.js';
 import {
   computeProjectHash,
   readDeclaredProjectIdentity,
@@ -371,6 +371,113 @@ describe('durable Orca execution custody', () => {
       2,
     );
     expect((await env.accessor.loadSingleTask('T001'))?.claim?.agentId).toBe(launch.agentId);
+  });
+
+  it.each([
+    'reservation',
+    'receipt',
+  ])('recovers a retry crash after %s with the same reserved key', async (crashPoint) => {
+    orcaFixture.start = fixtureStart('failed', 1);
+    const predecessor = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    orcaFixture.show = fixtureReleasedShow();
+    const requests = new Map<string, OrcaCommandResult>();
+    let launches = 0;
+    fixtureRunner.mockImplementation(async (...args) => {
+      const argv = args[1];
+      if (argv[1] === 'request-show') {
+        const requestId = argv[argv.indexOf('--request') + 1];
+        if (!requestId) throw new Error('Missing fixture request id');
+        return fixtureReply({
+          requestId,
+          state: requests.has(requestId) ? 'completed' : 'absent',
+        });
+      }
+      if (argv[1] === 'worker-start') {
+        expect(argv).toContain('--retry-request');
+        const key = argv[argv.indexOf('--retry-request') + 1];
+        if (!key) throw new Error('Missing reserved fixture key');
+        expect(argv).toEqual(
+          expect.arrayContaining([
+            '--task',
+            'task_fixture',
+            '--run',
+            'run_fixture',
+            '--retry-of',
+            'ctx_fixture',
+          ]),
+        );
+        const cached = requests.get(key);
+        if (cached) return cached;
+        launches += 1;
+        const result = fixtureStart('ready', 1, 'ctx_retry');
+        requests.set(key, result);
+        return result;
+      }
+      return runOrcaFixture(...args);
+    });
+    const workers = await import('../worker-records.js');
+    const persist = workers.recordWorker;
+    const update = workers.updateWorkerExecution;
+    const crash =
+      crashPoint === 'reservation'
+        ? vi.spyOn(workers, 'recordWorker').mockImplementationOnce(async (...args) => {
+            await persist(...args);
+            throw new Error('Injected retry crash');
+          })
+        : vi.spyOn(workers, 'updateWorkerExecution').mockImplementation(async (...args) => {
+            if (args[0].execution?.retryOf) throw new Error('Injected retry crash');
+            return update(...args);
+          });
+    await expect(
+      retryOrcaWorker(predecessor.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('Injected retry crash');
+    crash.mockRestore();
+    const successor = (await listWorkerRecords(env.tempDir)).find(
+      (record) => record.stoppedAt === null,
+    );
+    if (!successor?.execution?.startRequestKey) throw new Error('Missing reserved retry fixture');
+    expect(successor.execution).toMatchObject({ state: 'launching', startRequestId: null });
+    expect(launches).toBe(crashPoint === 'reservation' ? 0 : 1);
+    const key = successor.execution.startRequestKey;
+    await expect(
+      updateWorkerExecution(
+        successor,
+        { ...successor.execution, startRequestKey: '00000000-0000-4000-8000-000000000000' },
+        env.tempDir,
+      ),
+    ).rejects.toThrow('identity');
+    const recovered = await recoverOrcaWorkerStart(
+      successor.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(recovered.execution).toMatchObject({
+      state: 'ready',
+      dispatchId: 'ctx_retry',
+      startRequestKey: key,
+      startRequestId: key,
+    });
+    await expect(
+      recoverOrcaWorkerStart(
+        successor.recordId,
+        env.tempDir,
+        new OrcaExecutionBackend(fixtureRunner),
+      ),
+    ).rejects.toThrow('No recoverable');
+    expect(launches).toBe(1);
+    expect(
+      (await listWorkerRecords(env.tempDir)).find(
+        (record) => record.recordId === predecessor.recordId,
+      )?.stoppedAt,
+    ).not.toBeNull();
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.agentId).toBe(launch.agentId);
+    expect(readFileSync(join(launch.worktreePath, 'dirty.txt'), 'utf8')).toBe(
+      'uncommitted owner work',
+    );
   });
 
   it('retries a previously unobserved turn only after exact released-failure proof', async () => {
