@@ -41,6 +41,8 @@ const execFileMock = vi.fn();
 const existsSyncMock = vi.fn();
 const acquireWorktreeTaskLockMock = vi.fn();
 const releaseWorktreeTaskLockMock = vi.fn();
+const readWorktreeTaskLockMock = vi.fn();
+const locateTaskWorktreeMock = vi.fn();
 const endSessionMock = vi.fn(async (..._args: unknown[]) => null);
 
 vi.mock('node:child_process', () => ({
@@ -68,6 +70,8 @@ vi.mock('@cleocode/worktree', async () => {
     destroyWorktree: (...args: unknown[]) => destroyWorktreeMock(...args),
     acquireWorktreeTaskLock: (...args: unknown[]) => acquireWorktreeTaskLockMock(...args),
     releaseWorktreeTaskLock: (...args: unknown[]) => releaseWorktreeTaskLockMock(...args),
+    readWorktreeTaskLock: (...args: unknown[]) => readWorktreeTaskLockMock(...args),
+    locateTaskWorktree: (...args: unknown[]) => locateTaskWorktreeMock(...args),
   };
 });
 
@@ -412,7 +416,13 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
       envVars: {},
       preamble: '',
       appliedExcludePatterns: [],
+      lock: { status: 'acquired', lockPath: '/x.lock', record: { token: 'tok-timeout' } },
     });
+    // T14483: the spawn still holds its lock, and git has the worktree it created.
+    readWorktreeTaskLockMock.mockReset();
+    readWorktreeTaskLockMock.mockReturnValue({ token: 'tok-timeout' });
+    locateTaskWorktreeMock.mockReset();
+    locateTaskWorktreeMock.mockReturnValue({ path: '/tmp/wt/T9999', branch: 'task/T9999' });
 
     // T13510: the pre-provision atomicity check composes first and passes.
     composeSpawnPayloadMock.mockResolvedValueOnce({
@@ -514,6 +524,8 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
       getActiveSessionMock,
       acquireWorktreeTaskLockMock,
       releaseWorktreeTaskLockMock,
+      readWorktreeTaskLockMock,
+      locateTaskWorktreeMock,
       execFileSyncMock,
       existsSyncMock,
     ]) {
@@ -690,6 +702,49 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
       'T9999',
       'tok-resume',
     );
+  });
+
+  it('a late timeout after a re-spawn took the task lock removes nothing (T14483)', async () => {
+    reset();
+    // This spawn created the worktree under lock tok-1, then stalled.
+    spawnWorktreeMock.mockResolvedValue(wtResult());
+    composeSpawnPayloadMock.mockResolvedValueOnce({
+      ...atomicityRefusal,
+      atomicity: { allowed: true },
+    });
+    composeSpawnPayloadMock.mockImplementationOnce(() => {
+      throw Object.assign(new Error(`E_TIMEOUT: step 'compose-prompt' aborted`), {
+        code: 'E_TIMEOUT',
+      });
+    });
+    // Meanwhile its session was abandoned and a newer spawn re-spawned the
+    // task: it holds the lock (tok-2) and works in the same checkout.
+    readWorktreeTaskLockMock.mockReturnValue({ token: 'tok-2' });
+    locateTaskWorktreeMock.mockReturnValue({ path: '/tmp/wt/T9999', branch: 'task/T9999' });
+
+    const result = await orchestrateSpawn('T9999');
+
+    expect(result.error?.code).toBe('E_TIMEOUT');
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    expect(result.error?.details).toMatchObject({
+      cleanup: { attempted: false, worktreeRemoved: false, notOwned: true },
+    });
+    // Only its own token is released, which leaves the re-spawn's lock alone.
+    expect(releaseWorktreeTaskLockMock).toHaveBeenCalledWith('deadbeef', 'T9999', 'tok-1');
+    expect(releaseWorktreeTaskLockMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('runTimeoutCleanup keeps a worktree git reports at another path than the one it created (T14483)', async () => {
+    reset();
+    readWorktreeTaskLockMock.mockReturnValue({ token: 'tok-1' });
+    locateTaskWorktreeMock.mockReturnValue({ path: '/tmp/other/T9999', branch: 'task/T9999' });
+    const result = await runTimeoutCleanup('/tmp/cleo-spawn-test-root', 'T9999', {
+      worktreePath: '/tmp/wt/T9999',
+      projectHash: 'deadbeef',
+      lockToken: 'tok-1',
+    });
+    expect(result).toMatchObject({ attempted: false, worktreeRemoved: false, notOwned: true });
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 
   it('T14126: a --resume packet carries every isolation variable its prompt exports', async () => {
