@@ -416,7 +416,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
         projectRoot: project,
         exemptRegenerable: opts.exemptRegenerable === true,
       },
-      false,
+      own,
     );
     if (!result.success) {
       partial = true;

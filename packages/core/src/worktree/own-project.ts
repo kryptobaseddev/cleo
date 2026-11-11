@@ -39,7 +39,7 @@ function readProjectIdentityId(projectRoot: string): string | null {
  * @remarks Missing or invalid project identity fails closed, even for an identical realpath.
  * @example
  * ```ts
- * const own = isOwnProjectStore('/workspace/project');
+ * const own = isOwnProjectStore('/workspace/project', '/workspace/project');
  * ```
  */
 export function isOwnProjectStore(projectRoot: string, ownRoot?: string): boolean {

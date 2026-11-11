@@ -1,3 +1,8 @@
+/**
+ * Census task-status reads with immutable snapshots for foreign projects.
+ * @packageDocumentation
+ */
+
 import type { EngineResult } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { computeProjectHash } from '@cleocode/paths';
@@ -64,7 +69,3 @@ export async function loadCensusTaskStatuses(
     fix: 'Run cleo doctor in the owning project to diagnose its store.',
   });
 }
-/**
- * Census task-status reads with immutable snapshots for foreign projects.
- * @packageDocumentation
- */

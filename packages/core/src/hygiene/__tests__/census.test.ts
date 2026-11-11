@@ -136,6 +136,32 @@ afterEach(() => {
 });
 
 describe('worktree census (T14275)', () => {
+  it('preserves the own-project classification of an idle taskless worktree', async () => {
+    const scratch = join(base, 'scratch');
+    git(a, 'worktree', 'add', '-q', '-b', 'scratch', scratch, 'main');
+    writeFileSync(join(scratch, 'own.txt'), 'unpublished\n');
+    git(scratch, 'add', 'own.txt');
+    execFileSync(
+      'git',
+      ['-c', 'user.name=T', '-c', 'user.email=t@e.x', 'commit', '-q', '-m', 'old scratch'],
+      {
+        cwd: scratch,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+          GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+        },
+        stdio: 'pipe',
+      },
+    );
+    const out = await runWorktreeCensus({ projects: [a], recordDir, pnpmStore: null });
+    if ('skipped' in out) throw new Error(out.skipped);
+    const row = out.record.rows.find((r) => r.path === scratch);
+    expect(row?.taskId).toBeNull();
+    expect(row?.category).toBe('keep');
+    expect(row?.keepReason).toContain('on no remote');
+  });
+
   it.each([
     'cwd',
     'open file',
