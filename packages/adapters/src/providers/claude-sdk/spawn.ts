@@ -25,6 +25,7 @@
 
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { getErrorMessage } from '@cleocode/contracts';
+import { E_LEAD_NO_OWNER_CHANNEL } from '@cleocode/contracts/operations/orchestrate.js';
 import { resolveCredentials } from '../shared/credentials.js';
 import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { SessionStore } from './session-store.js';
@@ -86,6 +87,19 @@ export class ClaudeSDKSpawnProvider implements AdapterSpawnProvider {
     const instanceId = `sdk-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const sessionId = `cleo-${instanceId}`;
     const startTime = new Date().toISOString();
+
+    if (leadDeniedTools(context) !== null && context.options?.leadMode !== 'detached') {
+      return {
+        instanceId,
+        taskId: context.taskId,
+        providerId: 'claude-sdk',
+        status: 'failed',
+        startTime,
+        endTime: new Date().toISOString(),
+        exitCode: 1,
+        error: `${E_LEAD_NO_OWNER_CHANNEL}: claude-sdk cannot deliver interactive AskUserQuestion answers; use --detached with --adapter claude-code and a configured mbx MCP server`,
+      };
+    }
 
     // Register in session store immediately so listRunning() reflects it
     // before the async generation starts.
