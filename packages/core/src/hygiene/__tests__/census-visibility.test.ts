@@ -45,7 +45,7 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ),
 }));
 
-import { mergedBranchCounts, runWorktreeCensus } from '../census.js';
+import { mergedBranchCounts, prunePlanBounded, runWorktreeCensus } from '../census.js';
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
@@ -197,5 +197,25 @@ describe('census visibility fields (T14440 AC1)', () => {
 
     const counts = await mergedBranchCounts(a);
     expect(counts.mergedRemote).toBe(1); // origin/ship; origin/HEAD excluded
+  });
+
+  it('terminates a slow probe at the deadline and resolves only after the worker exits', async () => {
+    // The running cleocode checkout: hundreds of branches make the SDK walk
+    // outlive a 5 ms deadline, so the worker is terminated mid-run. The
+    // promise resolves on the worker's `exit` — after `terminate()` completes
+    // — so the caller never releases a lock over a live native walk.
+    const repo = process.cwd();
+    const t0 = Date.now();
+    const plan = await prunePlanBounded(repo, 'main', Date.now() + 5);
+    expect(plan).toBeNull();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(5);
+  });
+
+  it('an infinite deadline sets no timer: the probe runs to completion', async () => {
+    // Regression for the TimeoutOverflowWarning: Infinity reaching setTimeout
+    // clamps to 1 ms and killed every probe before it finished.
+    const counts = await mergedBranchCounts(a);
+    expect(counts.mergedLocal).not.toBeNull();
+    expect(counts.mergedRemote).not.toBeNull();
   });
 });

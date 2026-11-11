@@ -57,7 +57,7 @@ import {
   tableExists,
 } from './migration-manager.js';
 import { lineageAtHead } from './migration-runner.js';
-import { type CleoDbSnapshotHandle, openCleoDbSnapshot } from './open-cleo-db.js';
+import { type CleoDbSnapshotHandle, openCleoDbImmutable } from './open-cleo-db.js';
 // T12037: the tasks domain no longer owns a singleton — the path-keyed binding
 // registry does. This module contributes only `establishTasksSchema`.
 import {
@@ -1046,8 +1046,12 @@ export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHan
   }
   if (!existsSync(dbPath)) return null;
   // A store that exists but cannot be opened THROWS, so fail-closed callers
-  // can distinguish definitive absence from a failed read.
-  return openCleoDbSnapshot(dbPath, { readOnly: true });
+  // can distinguish definitive absence from a failed read. IMMUTABLE, per
+  // AC3 (round 4): an ordinary read-only open of a WAL-mode store still
+  // writes its -wal/-shm sidecars; immutable creates none. Trade-off:
+  // un-checkpointed WAL transactions are not visible — these reads are
+  // advisory and every removal path re-proves through the disposal engine.
+  return openCleoDbImmutable(dbPath);
 }
 
 export type { NodeSQLiteDatabase };

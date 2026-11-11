@@ -406,3 +406,47 @@ export function openCleoDbSnapshot(
     },
   };
 }
+
+/**
+ * Open a store file IMMUTABLY: a read-only connection that creates no WAL or
+ * SHM sidecars, even on a WAL-mode database (T14440, census AC3).
+ *
+ * SQLite's ordinary read-only open of a WAL database still creates and writes
+ * the `-shm`/`-wal` sidecars (sqlite.org/wal.html#read_only_databases); the
+ * `immutable=1` URI flag does not. The trade-off: SQLite skips WAL recovery,
+ * so un-checkpointed transactions in a live WAL are not visible — the census's
+ * advisory reads accept that, and fail-closed callers keep the checkout.
+ *
+ * Cross-project reads that must never write MUST come through here (or
+ * `openProjectTasksReadOnly`), never through the writable `getDb`.
+ *
+ * @param path - Absolute path to the store file.
+ * @returns The immutable snapshot handle.
+ */
+export function openCleoDbImmutable(path: string): CleoDbSnapshotHandle {
+  const _require = createRequire(import.meta.url);
+  const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
+    DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
+  };
+
+  // T13258: never open a store file a restore is replacing (before and after the open).
+  const db = openUnlessRestoring(path, () =>
+    new DatabaseSyncCtor(`file:${path}?immutable=1`, { readOnly: true }),
+  );
+  // No pragmas: an immutable handle cannot write, and setting one would fail.
+
+  let closed = false;
+  return {
+    db,
+    path,
+    close() {
+      if (closed) return;
+      closed = true;
+      try {
+        db.close();
+      } catch {
+        // Ignore close errors — the handle is already in a terminal state.
+      }
+    },
+  };
+}

@@ -86,9 +86,10 @@ function fixture(): void {
   process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
 }
 
-/** An old-floor store: the journal holds exactly one installed migration. */
+/** An old-floor store in WAL mode: the journal holds exactly one installed migration. */
 function seedOldFloorStore(): void {
   const db = new DatabaseSync(dbPath);
+  db.exec('PRAGMA journal_mode=WAL');
   db.exec('CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT)');
   const folder = resolveCorePackageMigrationsFolder('drizzle-cleo-project');
   const first = readdirSync(folder).sort()[0];
@@ -174,20 +175,22 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
       }),
     );
     db.close();
-    // Cold process state first: drop every warmed binding, so nothing holds
-    // the file when the journal mode is normalized.
+    // The fixture STAYS in WAL mode (round 4): an ordinary read-only open of
+    // a WAL store writes its sidecars, so only an immutable open keeps the
+    // fingerprint stable. Cold process state: drop every warmed binding.
     const { closeAllDatabases } = await import('../../store/sqlite.js');
     await closeAllDatabases();
-    // Normalize the fixture out of WAL mode: a read-only open of a WAL
-    // database legitimately touches its -shm sidecar, which would blur the
-    // fingerprint. In DELETE mode a read-only census creates no sidecars at
-    // all, so any sidecar after the census means a writable open happened.
-    const normalize = new DatabaseSync(dbPath);
-    normalize.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    normalize.exec('PRAGMA journal_mode=DELETE');
-    normalize.close();
 
     const before = storeFingerprint(dbPath);
+    for (const suffix of ['', '-wal', '-shm']) {
+      const f = `${dbPath}${suffix}`;
+      console.log(
+        'DEBUG-before',
+        suffix || 'main',
+        existsSync(f),
+        existsSync(f) ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8) : 'none',
+      );
+    }
     const out = await runWorktreeCensus({
       projects: [projectRoot],
       recordDir,
@@ -208,6 +211,16 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     expect(row?.keepReason).toContain('a worker record has not been closed');
     // Status read, evidence read, worker records read — all read-only: the
     // store AND its sidecars are unchanged from cold state.
+    // DEBUG
+    for (const suffix of ['', '-wal', '-shm']) {
+      const f = `${dbPath}${suffix}`;
+      console.log(
+        'DEBUG',
+        suffix || 'main',
+        existsSync(f),
+        existsSync(f) ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8) : 'none',
+      );
+    }
     expect(storeFingerprint(dbPath)).toBe(before);
   });
 });

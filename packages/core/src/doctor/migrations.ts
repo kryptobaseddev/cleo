@@ -25,7 +25,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { type DualScope, resolveDualScopeDbPath } from '../store/dual-scope-db.js';
-import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
+import { openCleoDbImmutable } from '../store/open-cleo-db.js';
 import {
   CONSOLIDATED_JOURNAL_LINEAGES,
   resolveCorePackageMigrationsFolder,
@@ -315,9 +315,11 @@ export function projectStoreReadVerdict(projectRoot: string): string {
     return 'not read: unreadable store';
   }
   if (!existsSync(dbPath)) return 'not read: missing store';
-  let snap: ReturnType<typeof openCleoDbSnapshot>;
+  // Immutable, like the read it gates: the verdict must not create sidecars
+  // on a foreign WAL-mode store either.
+  let snap: ReturnType<typeof openCleoDbImmutable>;
   try {
-    snap = openCleoDbSnapshot(dbPath, { readOnly: true });
+    snap = openCleoDbImmutable(dbPath);
   } catch {
     return 'not read: unreadable store';
   }

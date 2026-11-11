@@ -715,7 +715,7 @@ async function projectRollups(
  * @param deadline - Wall-clock ms epoch; past it the worker is terminated.
  * @returns The prune plan, or `null`.
  */
-async function prunePlanBounded(
+export async function prunePlanBounded(
   repoRoot: string,
   integrationTarget: string,
   deadline: number,
@@ -743,29 +743,39 @@ async function prunePlanBounded(
       workerData: { repoRoot, integrationTarget, requireFrom },
     },
   );
+  // Resolution contract: the plan resolves on `message`; a deadline
+  // termination resolves only on `exit` — which fires after `terminate()`
+  // completes — so the census never releases its lock while the worker's
+  // native git walk is still running (T14440 review round 4).
+  interface PrunePlanWorkerMessage {
+    plan?: { candidates?: Array<{ kind: string; branch?: string | undefined }> };
+    error?: string;
+  }
+  let received: PrunePlanWorkerMessage | null = null;
   return new Promise((resolvePromise) => {
-    const timer = setTimeout(() => {
-      void worker.terminate();
-      resolvePromise(null);
-    }, remainingMs);
-    worker.once('message', (message: { plan?: unknown }) => {
-      clearTimeout(timer);
-      const plan = message as { plan?: { candidates?: Array<{ kind: string; branch?: string }> } };
-      resolvePromise(
-        message && typeof message === 'object' && Array.isArray(plan?.plan?.candidates)
-          ? { candidates: plan.plan?.candidates ?? [] }
-          : null,
-      );
+    let settled = false;
+    const settle = (value: { candidates: Array<{ kind: string; branch?: string }> } | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      resolvePromise(value);
+    };
+    // AC1 (round 4): no deadline means no timer — `Infinity` clamps to 1 ms
+    // and would kill every probe while it still runs.
+    const timer = Number.isFinite(remainingMs)
+      ? setTimeout(() => {
+          void worker.terminate();
+        }, remainingMs)
+      : null;
+    worker.once('message', (message: PrunePlanWorkerMessage) => {
+      received = message;
     });
-    worker.once('error', () => {
-      clearTimeout(timer);
-      resolvePromise(null);
+    worker.once('error', (error: Error) => {
+      received = { error: error.message };
     });
-    worker.once('exit', (code) => {
-      if (code !== 0) {
-        clearTimeout(timer);
-        resolvePromise(null);
-      }
+    worker.once('exit', () => {
+      const plan = received?.plan;
+      settle(plan && Array.isArray(plan.candidates) ? { candidates: plan.candidates } : null);
     });
   });
 }
