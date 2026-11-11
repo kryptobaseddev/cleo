@@ -938,20 +938,24 @@ describe('durable Orca execution custody', () => {
       new OrcaExecutionBackend(fixtureRunner),
     );
     if (!record.execution) throw new Error('Missing execution fixture');
-    // A receipt from another Dispatch in the same Run proves nothing about this
-    // attempt's helpers, so a released parent can never promote it to stopped.
+    // The receipt carries this attempt's own issued key, so only its Dispatch
+    // identity can refuse it: a receipt from another Dispatch in the same Run
+    // proves nothing about this attempt's helpers, so a released parent can never
+    // promote it to stopped.
+    const stopRequestKey = randomUUID();
     const foreignReceipt = fixtureReply({
       dispatchId: 'ctx_other',
       state: 'stopped',
       processAction: 'closed_agent_terminal',
       helpers: [],
+      mutation: { requestId: stopRequestKey, replayed: false },
     }).stdout;
     const pending = await updateWorkerExecution(
       record,
       {
         ...record.execution,
         state: 'stop_pending',
-        stopRequestKey: randomUUID(),
+        stopRequestKey,
         lastReceipt: foreignReceipt,
       },
       env.tempDir,
@@ -981,6 +985,7 @@ describe('durable Orca execution custody', () => {
     );
     if (!record.execution) throw new Error('Missing execution fixture');
     const helper = 'ctx_unrelated';
+    const stopRequestKey = randomUUID();
     const stopReceipt = fixtureReply({
       dispatchId: 'ctx_fixture',
       state: 'stopped',
@@ -993,13 +998,14 @@ describe('durable Orca execution custody', () => {
           state: 'ready',
         },
       ],
+      mutation: { requestId: stopRequestKey, replayed: false },
     }).stdout;
     const pending = await updateWorkerExecution(
       record,
       {
         ...record.execution,
         state: 'stop_pending',
-        stopRequestKey: randomUUID(),
+        stopRequestKey,
         lastReceipt: stopReceipt,
       },
       env.tempDir,
@@ -1024,6 +1030,14 @@ describe('durable Orca execution custody', () => {
     expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
       1,
     );
+    // The exited helper was actually inspected and its creator chain walked: it is
+    // rejected for ancestry (it never descends from this attempt), not because the
+    // receipt was discarded before the ancestry check could run.
+    const observedDispatches = fixtureRunner.mock.calls
+      .filter(([, args]) => args[1] === 'worker-show')
+      .map(([, args]) => args[args.indexOf('--dispatch') + 1]);
+    expect(observedDispatches).toContain(helper);
+    expect(observedDispatches).toContain('ctx_other');
   });
 
   it('replays a lost stop by its reserved key, then admits the retry', async () => {
