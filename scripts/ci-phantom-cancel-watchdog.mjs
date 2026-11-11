@@ -17,9 +17,20 @@
  * A job with a genuinely failed/cancelled mid-run step is NOT a phantom and
  * is left alone.
  *
- * Rerun guard: a run is only re-run if it is the LATEST run for its
- * (workflow, branch, sha) tuple — never resurrect a superseded run — and is
- * no older than 7 days.
+ * Rerun guard (T14488): a run is only re-run if it is NOT superseded and is
+ * no older than 7 days. A run is superseded when
+ *   - a newer run exists for its exact (workflow, branch, sha) tuple (a newer
+ *     attempt of the same commit), OR
+ *   - a newer run of the same workflow on the same branch carries a DIFFERENT
+ *     headSha (the branch/PR has moved on), OR
+ *   - its headSha is no longer the head commit of its branch/PR, resolved with
+ *     one cached `gh api .../commits/<branch>` call per distinct branch.
+ *
+ * Why the extra checks: all runs of a workflow share the concurrency group
+ * `<workflow>-<ref>[-<sha>]`. Re-running a stale head re-enters that group and
+ * GitHub CANCELS the PR's current-head run to make room (observed
+ * 2026-11-11 on #2788: re-running 42932816902 at 6b26c850d cancelled
+ * 42941492356 at 07f926e8c), leaving the PR with no run for its real head.
  *
  * Usage:
  *   node scripts/ci-phantom-cancel-watchdog.mjs             # execute reruns
@@ -30,6 +41,7 @@
  * Exit codes: 0 always (automation, not a gate); 1 on API/usage errors.
  *
  * @task T12103
+ * @task T14488
  */
 
 import { execFileSync } from 'node:child_process';
@@ -136,6 +148,48 @@ export function isLatestForTuple(run, allRuns) {
 }
 
 /**
+ * Decide whether the branch (or PR) `run` belongs to has moved on to a
+ * different head commit: another run of the SAME workflow on the SAME branch
+ * has a higher run `number` and a different `headSha`.
+ *
+ * This is the #2788 failure mode — the stale sha has no newer run of its own,
+ * so the tuple guard alone waves it through while the branch already has a
+ * current-head run that a re-run would cancel.
+ *
+ * @param {GhRun} run
+ * @param {GhRun[]} allRuns
+ * @returns {boolean}
+ */
+export function isSupersededByNewerHead(run, allRuns) {
+  for (const other of allRuns) {
+    if (other.databaseId === run.databaseId) continue;
+    if (other.workflowDatabaseId !== run.workflowDatabaseId) continue;
+    if (other.headBranch !== run.headBranch) continue;
+    // Same sha is the tuple guard's job, not evidence the branch moved on.
+    if (other.headSha === run.headSha) continue;
+    if (other.number > run.number) return true;
+  }
+  return false;
+}
+
+/**
+ * Decide whether `run.headSha` is no longer the head commit of its branch/PR.
+ *
+ * `headShas` holds the resolved head per branch (`null` when the lookup failed
+ * or the head could not be read). An unknown head is NOT evidence of staleness
+ * — failing soft keeps the watchdog useful when `gh api` is unavailable.
+ *
+ * @param {GhRun} run
+ * @param {Map<string, string | null>} headShas
+ * @returns {boolean}
+ */
+export function isStaleBranchHead(run, headShas) {
+  const head = headShas.get(run.headBranch);
+  if (typeof head !== 'string' || head.length === 0) return false;
+  return head !== run.headSha;
+}
+
+/**
  * Decide whether a run is within the re-run age window.
  *
  * @param {GhRun} run
@@ -196,6 +250,69 @@ function rerunRun(exec, runId) {
   exec(['run', 'rerun', String(runId), '--failed']);
 }
 
+/**
+ * Resolve the `owner/repo` slug used for `gh api` calls. In Actions the slug
+ * comes from the default `GITHUB_REPOSITORY` env var, so no extra call is made.
+ *
+ * @param {ExecFn} exec
+ * @returns {string}
+ */
+function resolveRepoSlug(exec) {
+  const fromEnv = process.env.GITHUB_REPOSITORY;
+  if (typeof fromEnv === 'string' && fromEnv.includes('/')) return fromEnv;
+  const slug = String(
+    exec(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']),
+  ).trim();
+  if (!slug.includes('/')) {
+    throw new Error(`cannot resolve repository slug from "${slug}"`);
+  }
+  return slug;
+}
+
+/**
+ * Resolve the current head sha of a branch (or any git ref) via `gh api`.
+ *
+ * @param {ExecFn} exec
+ * @param {string} slug
+ * @param {string} branch
+ * @returns {string | null}
+ */
+function fetchBranchHeadSha(exec, slug, branch) {
+  const sha = String(exec(['api', `repos/${slug}/commits/${branch}`, '--jq', '.sha'])).trim();
+  return sha.length > 0 ? sha : null;
+}
+
+/**
+ * Build a memoised branch-head resolver: at most ONE `gh api` call per
+ * distinct branch for the whole scan, and any failure resolves to `null`
+ * (unknown) so a probe error never crashes the watchdog or forces a rerun.
+ *
+ * @param {object} opts
+ * @param {ExecFn} opts.exec
+ * @param {string | undefined} opts.repo pre-resolved `owner/repo` slug
+ * @returns {(branch: string) => string | null}
+ */
+function makeHeadResolver({ exec, repo }) {
+  /** @type {Map<string, string | null>} */
+  const cache = new Map();
+  /** @type {string | null} */
+  let slug = repo ?? null;
+  return (branch) => {
+    if (cache.has(branch)) return cache.get(branch) ?? null;
+    let sha = null;
+    try {
+      if (slug === null) slug = resolveRepoSlug(exec);
+      sha = fetchBranchHeadSha(exec, slug, branch);
+    } catch {
+      // Head lookup unavailable (permissions, deleted branch, offline) — fall
+      // back to the run-list evidence instead of assuming staleness.
+      sha = null;
+    }
+    cache.set(branch, sha);
+    return sha;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Core
 // ---------------------------------------------------------------------------
@@ -204,11 +321,18 @@ function rerunRun(exec, runId) {
  * Scan recent completed runs, detect phantom cancels, and re-run the
  * eligible ones (unless `dryRun`).
  *
+ * A run is eligible only when it is a phantom cancel, is not superseded (by a
+ * newer attempt of its sha, a newer run of the branch at another sha, or a
+ * branch head that has moved past its sha), and is inside the age window.
+ *
  * @param {object} opts
  * @param {ExecFn} opts.exec
  * @param {boolean} opts.dryRun
  * @param {number} opts.limit
  * @param {Date} [opts.now] injectable clock for tests
+ * @param {string} [opts.repo] `owner/repo` slug; default: env, then `gh repo view`
+ * @param {(branch: string) => string | null} [opts.resolveHeadSha] injectable
+ *   branch-head lookup (default: cached `gh api .../commits/<branch>`)
  * @returns {Promise<{
  *   scanned: number,
  *   cancelledRuns: number,
@@ -219,7 +343,7 @@ function rerunRun(exec, runId) {
  *   skippedNotPhantom: number[],
  * }>}
  */
-export async function runWatchdog({ exec, dryRun, limit, now = new Date() }) {
+export async function runWatchdog({ exec, dryRun, limit, now = new Date(), repo, resolveHeadSha }) {
   const runs = listRecentRuns(exec, limit);
   const cancelled = runs.filter((r) => r.conclusion === 'cancelled');
 
@@ -233,6 +357,10 @@ export async function runWatchdog({ exec, dryRun, limit, now = new Date() }) {
     skippedNotPhantom: [],
   };
 
+  /** Branch → resolved head sha (`null` = unknown); at most one lookup each. */
+  const headShas = new Map();
+  const resolveHead = resolveHeadSha ?? makeHeadResolver({ exec, repo });
+
   for (const run of cancelled) {
     const jobs = getRunJobs(exec, run.databaseId);
     const phantomJobs = jobs.filter(isPhantomCancelJob);
@@ -240,7 +368,17 @@ export async function runWatchdog({ exec, dryRun, limit, now = new Date() }) {
       summary.skippedNotPhantom.push(run.databaseId);
       continue;
     }
-    if (!isLatestForTuple(run, runs)) {
+    // Cheap evidence first: the run list alone often proves supersession.
+    if (!isLatestForTuple(run, runs) || isSupersededByNewerHead(run, runs)) {
+      summary.skippedSuperseded.push(run.databaseId);
+      continue;
+    }
+    // Then ask the branch: a newer run may still be queued/in progress, so it
+    // is absent from the completed-run list even though the branch moved on.
+    if (!headShas.has(run.headBranch)) {
+      headShas.set(run.headBranch, resolveHead(run.headBranch));
+    }
+    if (isStaleBranchHead(run, headShas)) {
       summary.skippedSuperseded.push(run.databaseId);
       continue;
     }
