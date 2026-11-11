@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.9.0
+  version: 4.10.1
   tier: core
   install: harness
   covers:
@@ -13,6 +13,18 @@ metadata:
 ---
 
 # Orchestrator Protocol
+
+For a retained Orca attempt, copy its exact `workers[].recordId` from
+`cleo orchestrate status`. Use `cleo orchestrate worker show <recordId>` for
+its observation and `cleo orchestrate worker read <recordId>` for one output
+page; pass only that page's source-pinned `--cursor` to continue. Retired
+predecessors remain readable; every other action requires an open record. After a CLI
+restart, `cleo orchestrate worker recover-start <recordId>` or
+`cleo orchestrate worker recover-stop <recordId>` replays the saved operation.
+`cleo orchestrate worker stop <recordId>` requests a guarded stop;
+`cleo orchestrate worker retry <recordId>` requires a confirmed resource-free
+failure or stop and respects the original circuit breaker. Unknown outcomes
+retain the claim and checkout; no command completes or integrates the task.
 
 ## Trustworthy project knowledge
 
