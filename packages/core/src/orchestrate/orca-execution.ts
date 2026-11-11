@@ -207,7 +207,7 @@ export async function retryOrcaWorker(
       ExitCode.SPAWN_VALIDATION_FAILED,
       'The predecessor has no confirmed resource-free failure or stop eligible for retry.',
       {
-        fix: `Inspect its exact Dispatch with cleo orchestrate worker show ${recordId}; replay a stored stop with cleo orchestrate worker recover-stop ${recordId}. Retry requires a resource-free failed or stopped Dispatch, so retain custody until Orca confirms one.`,
+        fix: `Inspect its exact Dispatch with cleo orchestrate worker show ${recordId}; every read re-reads each helper named by the stored stop, so retry admits once the parent and all helpers are released. If the stop receipt was lost or carries no helper evidence, replay its reserved key with cleo orchestrate worker recover-stop ${recordId}. A helper still running or kept open must be stopped or released in Orca first (orca orchestration worker-stop|worker-release --dispatch <helper dispatch id from that receipt>).`,
       },
     );
   }

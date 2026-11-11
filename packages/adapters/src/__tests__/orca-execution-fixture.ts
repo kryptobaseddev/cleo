@@ -134,6 +134,17 @@ export function fixtureReleasedShow(
   });
 }
 
+/** A helper Dispatch whose process has exited but whose terminal is still retained. */
+export function fixtureHelperExited(dispatchId: string): OrcaCommandResult {
+  const original = orcaReplySchema.parse(JSON.parse(fixtureShow(dispatchId).stdout));
+  return fixtureReply({
+    ...original.result,
+    worker: { ...original.result?.worker, state: 'succeeded', stage: 'settled' },
+    observation: { status: 'exited', exactWorker: true },
+    projection: { resource: { state: 'retained', terminalState: 'retained' } },
+  });
+}
+
 /** Durable attempt suitable for testing supervision independently of the store. */
 export function fixtureAttempt(overrides: Partial<OrcaAttempt> = {}): OrcaAttempt {
   return {
@@ -167,6 +178,9 @@ export const orcaFixture = {
   launch: { ...fixtureLaunch },
   start: fixtureStart(),
   show: fixtureShow(),
+  /** Per-helper Dispatch observations; a missing key falls back to `show`. */
+  helperShows: {} as Record<string, OrcaCommandResult>,
+  capabilities: ['orchestration.contract.v1', 'orchestration.worker-stop-helpers.v1'],
   stop: fixtureReply(
     {
       dispatchId: 'ctx_fixture',
@@ -241,7 +255,7 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
         runtimeId: fixtureContext.runtimeId,
         reachable: true,
         state: 'ready',
-        capabilities: ['orchestration.contract.v1'],
+        capabilities: orcaFixture.capabilities,
       },
     });
   if (args[0] === 'worktree')
@@ -257,8 +271,13 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
   switch (args[1]) {
     case 'worker-start':
       return orcaFixture.start;
-    case 'worker-show':
-      return orcaFixture.show;
+    case 'worker-show': {
+      const dispatchIndex = args.indexOf('--dispatch');
+      const dispatchId = dispatchIndex === -1 ? undefined : args[dispatchIndex + 1];
+      return dispatchId
+        ? (orcaFixture.helperShows[dispatchId] ?? orcaFixture.show)
+        : orcaFixture.show;
+    }
     case 'worker-stop':
       return orcaFixture.stop;
     case 'request-show':

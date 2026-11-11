@@ -150,6 +150,11 @@ export const orcaAttemptSchema = z.object({
   stopRequestKey: z.string().uuid().optional(),
   /** Orca-issued stop request id, retained only when the stop receipt was received. */
   stopRequestId: identifier.nullable(),
+  /**
+   * Set when the worker-stop reply came from a runtime that proved it enumerates
+   * every helper it stopped, so an omitted helper list means the worker had none.
+   */
+  stopHelperEvidence: z.literal('enumerated').optional(),
   failureCount: z.number().int().nonnegative(),
   resourceState: z.string(),
   /** Full receipts retain effects, residual resources and recovery advice. */
@@ -279,7 +284,18 @@ export const orcaReplySchema = z.object({
       launch: z.object({ effective: selectionSchema.optional() }).optional(),
       lastError: z.string().nullable().optional(),
       processAction: z.string().optional(),
-      helpers: z.array(z.object({ outcome: z.string() })).optional(),
+      helpers: z
+        .array(
+          z.object({
+            dispatchId: identifier.optional(),
+            creatorDispatchId: identifier.optional(),
+            outcome: z.string(),
+            keptOpenBy: identifier.optional(),
+            state: z.string().optional(),
+            lastError: z.string().nullable().optional(),
+          }),
+        )
+        .optional(),
       helperStopError: z.string().nullable().optional(),
       status: z.string().optional(),
       terminal: z
