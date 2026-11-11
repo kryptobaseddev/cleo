@@ -943,6 +943,9 @@ export async function updateTask(
       details: {
         changes,
         title: written.title,
+        ...(options.pipelineStage !== undefined
+          ? { pipelineStage: { value: options.pipelineStage, source: 'explicit' } }
+          : {}),
         ...(severityAttestation
           ? { severityAttestation: { ...severityAttestation, status: 'committed' } }
           : {}),

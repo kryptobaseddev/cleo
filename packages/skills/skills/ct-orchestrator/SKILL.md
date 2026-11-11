@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.7.0
+  version: 4.9.0
   tier: core
   install: harness
   covers:
@@ -197,8 +197,24 @@ prompt tells the worker to begin every Bash call with
 `cd <worktree> && export CLEO_SESSION_ID=… CLEO_AGENT_ID=… CLEO_AGENT_ROLE=… || exit 1`,
 since harness shells keep neither cwd nor env between calls (the git shim reads
 `CLEO_AGENT_ROLE`). Do not strip that line. A spawn without a worktree gets the
-same identity line in its Session Linkage block: `export CLEO_AGENT_ID=<agent>`,
+same identity line in its Session Linkage block: both `CLEO_SESSION_ID` and `CLEO_AGENT_ID`,
 so teammates sharing one harness session keep separate claims and focus (T14269).
+The prompt names the allocated **Worker Session** and the separate **Coordinator Session**;
+workers preserve the preclaim and never start a session or re-claim. Expired or foreign
+claims return to the coordinator for handoff. Execution backends receive `workerSession`
+separately from `coordinatorSessionId`; a CLI's own environment does not prove Orca's
+launched worker inherited it.
+`workerSession.role` comes from dispatch and controls the shell binding (worker by
+default); a classifier's coordination role never grants a different shell role.
+
+**Protocol authority (T14457)**: explicit `--protocol` wins, then the task's
+explicit stage assignment proven by committed audit evidence, declared `kind`/labels,
+task type and disclosed fallback. Inherited/default/unknown research stages cannot
+downgrade work or bug tasks to research. Creation and explicit stage updates record
+the stage's provenance in the task audit; legacy rows without proof stay unknown.
+`meta.protocolResolution` and the prompt name stage provenance, source and disagreements; persona
+classification never decides owner intent. For intentional research/design under an
+implementation stage, pass `--protocol research`; the stage disagreement stays visible.
 
 **Worker completion (T14359, behind `orchestrate.leadWorker.v1`)**: `cleo orchestrate
 spawn-execute` stores a durable worker record (task, instance id, pid/pgid, worktree,
@@ -297,10 +313,15 @@ types to it and it asks with `AskUserQuestion`); `--detached` runs it in the bac
 owner decisions to the `owner` AgentMBX mailbox as a `hitl.request`
 `{question, options[{label, description}], recommended}` and waits there, acting only on a reply
 whose mbx header shows `authority: OWNER`. `--detached` refuses to start without a loaded mbx
-server (`E_LEAD_NO_OWNER_CHANNEL`); interactive may start without one. On claude-code the
+server (`E_LEAD_NO_OWNER_CHANNEL`); interactive may start without one, but needs terminal
+stdin/stdout and a harness with an owner input channel. A non-terminal interactive run
+or claude-sdk refuses and names `--detached --adapter claude-code` with mbx configured.
+On claude-code the
 lead's tools are an ALLOW list: its only built-in tool is `AskUserQuestion` (interactive) or none
-(detached) (`--restricted --tools`), `--permission-mode dontAsk`, `--setting-sources ""`
-(a user's `bypassPermissions` cannot apply), `LEAD_DENIED_TOOLS` denied as a second layer, and
+(detached) (`--restricted --tools`), Manual (`--permission-mode default`) for interactive
+answers and `dontAsk` for detached runs, `--setting-sources ""` (a user's `bypassPermissions`
+cannot apply), current `LEAD_DENIED_TOOLS` names denied as a second layer (the retired
+`MultiEdit` name is omitted), and
 `--strict-mcp-config` with exactly two MCP servers: the command runner below and the user-level
 `mbx` server (T14423). mbx comes only from `~/.claude.json` user scope and must be the `agentmbx`
 binary on an absolute path outside the project with args `mcp`, so a repo's `.mcp.json` cannot

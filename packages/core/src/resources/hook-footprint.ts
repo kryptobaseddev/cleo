@@ -162,14 +162,22 @@ function largest(peaks: readonly number[]): number {
   return peaks.reduce((a, b) => Math.max(a, b), 0);
 }
 
-function git(cwd: string, globals: readonly string[], args: readonly string[]): string {
+function git(
+  cwd: string,
+  globals: readonly string[],
+  args: readonly string[],
+  timeout = 5_000,
+): string {
   return execFileSync('git', [...globals, ...args], {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
-    timeout: 5_000,
+    timeout,
   }).trim();
 }
+
+/** How long the alias probe may take before it fails heavy (T14405). */
+const ALIAS_PROBE_TIMEOUT_MS = 2_000;
 
 /**
  * Where git looks for a hook in the repository at `cwd`: `git rev-parse
@@ -190,6 +198,53 @@ export function gitHookPath(cwd: string, hook: string, globals: readonly string[
     `hooks/${hook}`,
   ]);
   return isAbsolute(path) ? path : join(cwd, path);
+}
+
+/**
+ * What git says the alias `name` expands to in the repository at `cwd`
+ * (T14405): `alias.<name>` or `alias.<name>.command`, read in ONE `git config
+ * --get-regexp` call. Git runs the last definition in config order; a shell
+ * (`!`) definition anywhere is returned, so a configured `alias.x=status`
+ * never masks a later `alias.x.command=!make`. The command's own global
+ * options are passed through, so `-C <dir>`, `--exec-path` and an inline
+ * `-c alias.x=…` count. Git runs a built-in before an alias of the same name,
+ * so the alias is skipped only when `git --list-cmds=builtins` names `name`.
+ * An external (`git-mergetool`) is not enough: git falls back to the alias
+ * whenever it cannot exec the external (missing from the exec path, or a
+ * broken shebang), so its alias is read.
+ *
+ * @param cwd - Where the command runs.
+ * @param name - The git subcommand that may be an alias.
+ * @param globals - The command's git global options.
+ * @returns The expansion, or `null` when `name` is a git built-in or git
+ *   reports no such key.
+ * @throws When git cannot answer (unreadable config, missing `-C` directory,
+ *   timeout): the caller must not read that as "no alias".
+ */
+export function gitAlias(
+  cwd: string,
+  name: string,
+  globals: readonly string[] = [],
+): string | null {
+  const commands = git(cwd, globals, ['--list-cmds=builtins'], ALIAS_PROBE_TIMEOUT_MS);
+  if (commands.split('\n').includes(name)) return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The variable name is case-insensitive; a subsection is not.
+  const pattern = `^alias\\.(${escaped.toLowerCase()}|${escaped}\\.command)$`;
+  let out: string;
+  try {
+    out = git(cwd, globals, ['config', '--null', '--get-regexp', pattern], ALIAS_PROBE_TIMEOUT_MS);
+  } catch (err) {
+    // Exit 1 is git's "no key matched"; anything else is no answer at all.
+    if (err instanceof Error && 'status' in err && err.status === 1) return null;
+    throw err;
+  }
+  // `--null` entries are `<key>\n<value>\0`.
+  const values = out
+    .split('\0')
+    .filter((e) => e !== '')
+    .map((e) => e.slice(e.indexOf('\n') + 1));
+  return values.find((v) => v.trimStart().startsWith('!')) ?? values.at(-1) ?? null;
 }
 
 /** Lefthook's config files, any of which it reads. */

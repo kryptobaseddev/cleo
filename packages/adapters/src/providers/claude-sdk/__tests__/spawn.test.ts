@@ -232,11 +232,30 @@ describe('ClaudeSDKSpawnProvider', () => {
       expect(provider.leadToolStrip).toBe('enforced');
     });
 
+    it.each([
+      undefined,
+      'interactive',
+    ])('refuses an interactive lead (%s) before generation, naming --detached', async (leadMode) => {
+      const result = await provider.spawn({
+        taskId: 'T005',
+        prompt: 'Plan only.',
+        leadDeniedTools: ['Bash', 'Edit', 'Write'],
+        options: { leadMode },
+      });
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('E_LEAD_NO_OWNER_CHANNEL');
+      expect(result.error).toContain('--detached');
+      expect(result.error).toContain('--adapter claude-code');
+      expect(mockState.lastCall).toBeNull();
+      expect(await provider.listRunning()).toEqual([]);
+    });
+
     it('lead spawn: passes no tools and drops denied tools from the allowlist (T14357)', async () => {
       const result = await provider.spawn({
         taskId: 'T005',
         prompt: 'Plan only.',
         leadDeniedTools: ['Bash', 'Edit', 'Write'],
+        options: { leadMode: 'detached' },
       });
 
       expect(result.status).toBe('completed');

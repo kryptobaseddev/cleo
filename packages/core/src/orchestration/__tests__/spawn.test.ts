@@ -214,19 +214,55 @@ describe('composeSpawnPayload — full envelope', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps a worker shell bound as worker when orchestration keywords select an orchestrator persona', async () => {
+    const db = env.openDb();
+    try {
+      await installFixture(
+        db,
+        env,
+        'project-orchestrator.cant',
+        FIXTURE_WORKER_CANT.replaceAll('fixture-worker', 'project-orchestrator').replace(
+          'role: worker',
+          'role: orchestrator',
+        ),
+      );
+      const payload = await composeSpawnPayload(
+        db,
+        {
+          ...BASE_TASK,
+          title: 'Fix orchestration worker startup',
+          files: ['src/a.ts'],
+        },
+        {
+          tier: 0,
+          projectRoot: env.projectRoot,
+          workerSession: { sessionId: 'ses_worker', agentId: 'worker-binding' },
+          worktreePath: '/worktrees/project/T9101',
+        },
+      );
+      expect(payload.meta.classify.role).toBe('orchestrator');
+      expect(payload.prompt).toContain("CLEO_AGENT_ROLE='worker'");
+      expect(payload.prompt).not.toContain("CLEO_AGENT_ROLE='orchestrator'");
+    } finally {
+      db.close();
+    }
+  });
+
   it('returns full SpawnPayload shape for tier 0 (worker)', async () => {
     const db = env.openDb();
     try {
       await installFixture(db, env, 'fixture-worker.cant', FIXTURE_WORKER_CANT);
       const payload = await composeSpawnPayload(
         db,
-        { ...BASE_TASK, files: ['packages/core/src/foo.ts'] },
+        { ...BASE_TASK, pipelineStage: 'implementation', files: ['packages/core/src/foo.ts'] },
         {
           agentId: 'fixture-worker',
           tier: 0,
           role: 'worker',
           harnessHint: 'generic',
           projectRoot: env.projectRoot,
+          workerSession: { sessionId: 'ses_allocated', agentId: 'allocated-worker' },
+          coordinatorSessionId: 'ses_coordinator',
         },
       );
       expect(payload.taskId).toBe('T9101');
@@ -239,6 +275,19 @@ describe('composeSpawnPayload — full envelope', () => {
       expect(payload.prompt).toContain('T9101');
       expect(payload.meta.composerVersion).toBe('3.0.0');
       expect(payload.meta.protocol).toBeTruthy();
+      expect(payload.meta.protocolResolution).toMatchObject({
+        protocol: 'implementation',
+        source: 'pipelineStage',
+      });
+      expect(payload.workerSession).toEqual({
+        sessionId: 'ses_allocated',
+        agentId: 'allocated-worker',
+      });
+      expect(payload.coordinatorSessionId).toBe('ses_coordinator');
+      expect(payload.prompt).toContain(
+        "CLEO_SESSION_ID='ses_allocated' CLEO_AGENT_ID='allocated-worker'",
+      );
+      expect(payload.prompt).toContain('**Protocol authority**: `pipelineStage`');
       expect(payload.meta.promptChars).toBe(payload.prompt.length);
       expect(payload.meta.sourceTier).toBe('global');
     } finally {

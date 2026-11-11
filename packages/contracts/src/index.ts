@@ -2130,6 +2130,7 @@ export type {
 export type {
   AdoptWorktreeOpts,
   AdoptWorktreeResult,
+  CreateWorktreeFailure,
   CreateWorktreeOptions,
   CreateWorktreeResult,
   DestroyWorktreeOptions,
@@ -2580,7 +2581,10 @@ export type {
   CLEOSpawnContext,
   CLEOSpawnResult,
   Provider,
+  SpawnProtocolResolution,
+  SpawnProtocolSource,
   SpawnStatus,
+  SpawnWorkerSession,
   TokenResolution,
 } from './spawn-types.js';
 // === Status Registry (MUST be first — everything depends on this) ===
@@ -2731,6 +2735,7 @@ export type {
   // T944 new axes (T9072: renamed TaskRole → TaskKind)
   TaskKind,
   TaskOrigin,
+  TaskPipelineStageSource,
   TaskPriority,
   TaskProvenance,
   TaskRelation,

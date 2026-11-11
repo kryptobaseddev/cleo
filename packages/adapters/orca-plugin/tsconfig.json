@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "../node_modules/.cache/orca-plugin.tsbuildinfo",
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "orca",
+    "lib": ["ES2022", "DOM"],
+    "preserveSymlinks": false,
+    "typeRoots": ["../orca-types", "../node_modules/@types"],
+    "types": ["orca", "orca-host", "orca-frame", "orca-worker", "orca-services", "orca-testing", "node"]
+  },
+  "include": ["src"]
+}

@@ -42,8 +42,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getProviderAskTool } from '@cleocode/caamp';
-import type { LeanLevel, Task } from '@cleocode/contracts';
+import type { AgentSpawnCapability, LeanLevel, Task } from '@cleocode/contracts';
 import type { ProjectWorkerPolicy } from '@cleocode/contracts/config/worker-policy.js';
+import type {
+  SpawnProtocolResolution,
+  SpawnWorkerSession,
+} from '@cleocode/contracts/spawn-types.js';
 import { subjectSlug } from '../docs/doc-name-rule.js';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
@@ -238,14 +242,20 @@ export const ALL_SPAWN_PROTOCOL_PHASES: readonly SpawnProtocolPhase[] = [
  * Absolute paths (test-runs dir, output dir) are resolved by the
  * caller against the orchestrator's project root so the subagent never has
  * to guess. Manifest storage is SQLite (`pipeline_manifest`) — not a file
- * path (ADR-027 §6.2, T1096). The session id is threaded from `session.status` so the subagent
- * logs every mutation against the orchestrator's active session.
+ * path (ADR-027 §6.2, T1096). The allocated worker identity is threaded from
+ * requireSpawnSession so the subagent preserves its existing claim and session.
  */
 export interface BuildSpawnPromptInput {
   /** Full task record as loaded from the store. */
   task: Task;
   /** Dispatched protocol phase (auto-selected or overridden). */
   protocol: SpawnProtocolPhase | string;
+  /** Protocol authority and disagreements from the canonical resolver. */
+  protocolResolution?: SpawnProtocolResolution;
+  /** Allocated worker identity; takes precedence over legacy sessionId/agentId. */
+  workerSession?: SpawnWorkerSession;
+  /** Coordinator session for reference only, never a worker command binding. */
+  coordinatorSessionId?: string | null;
   /** Tier 0/1/2 — defaults to {@link DEFAULT_SPAWN_TIER}. */
   tier?: SpawnTier;
   /** Absolute project root. */
@@ -1379,26 +1389,38 @@ function buildFilePathsBlock(outputDir: string, testRunsDir: string): string {
   ].join('\n');
 }
 
-/** Build the session-linkage block — thread orchestrator session id to subagent. */
-function buildSessionBlock(sessionId: string | null | undefined, agentId: string): string {
+/** Bind every worker command to its preallocated session and existing claim. */
+function buildSessionBlock(
+  sessionId: string | null | undefined,
+  agentId: string,
+  coordinatorSessionId?: string | null,
+  role: AgentSpawnCapability = 'worker',
+): string {
   if (!sessionId) {
     return [
       '## Session Linkage',
       '',
-      'No active orchestrator session was found at spawn time. Before running any mutation, start one with:',
-      '',
-      '```bash',
-      'cleo session start --scope global --name "<descriptive name>"',
-      '```',
+      'No allocated worker session was supplied. Return blocked to the coordinator before any mutation; do not start a session or claim the task.',
     ].join('\n');
   }
+  const commandBinding = Object.entries({
+    CLEO_SESSION_ID: sessionId,
+    CLEO_AGENT_ID: agentId,
+    CLEO_AGENT_ROLE: role,
+  })
+    .map(([key, value]) => `${key}='${value.replaceAll("'", "'\\''")}'`)
+    .join(' ');
   return [
     '## Session Linkage',
     '',
-    `- **Orchestrator Session**: \`${sessionId}\``,
-    '- Log every mutation (task start/complete, memory observe, verify) against THIS session. Do not start a new one unless explicitly told.',
-    `- **Agent identity**: begin every Bash call with \`export CLEO_AGENT_ID=${agentId}\`. Agents sharing one harness session keep separate claims and focus only when each names itself (T14269); without it your \`cleo start\` acts as the orchestrator.`,
-    '- If the session has ended by the time you run, the orchestrator will hand you a new one via `cleo orchestrate handoff`.',
+    `- **Worker Session**: \`${sessionId}\``,
+    ...(coordinatorSessionId
+      ? [`- **Coordinator Session (reference only)**: \`${coordinatorSessionId}\``]
+      : []),
+    '- The task is already claimed under your allocated worker session and agent identity. Do not start another session, re-claim the task, or force-claim it.',
+    '- These allocated-worker instructions take precedence over generic session-start or task-start recipes in embedded skills.',
+    `- **Command binding**: begin every Bash call with \`export ${commandBinding}\`. This also applies without a worktree; keep the Worktree Setup Step 1 prefix when present.`,
+    '- If your session or claim has expired or belongs to someone else, return blocked to the coordinator for handoff; never replace it yourself.',
   ].join('\n');
 }
 
@@ -1682,6 +1704,13 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   const taskId = input.task.id;
   const epicId = input.task.parentId ?? '';
   const protocol = input.protocol;
+  const protocolResolution: SpawnProtocolResolution = input.protocolResolution ?? {
+    protocol,
+    source: 'explicit',
+    conflicts: [],
+  };
+  const sessionId = input.workerSession?.sessionId ?? input.sessionId;
+  const agentId = input.workerSession?.agentId ?? input.agentId ?? `agent-${taskId.toLowerCase()}`;
 
   // Absolute paths resolved against the orchestrator's project root.
   //
@@ -1703,7 +1732,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     OUTPUT_DIR: outputDir,
     TEST_RUNS_DIR: testRunsDir,
     PROJECT_ROOT: input.projectRoot,
-    SESSION_ID: input.sessionId ?? '',
+    SESSION_ID: sessionId ?? '',
     PROTOCOL: protocol,
     TIER: String(tier),
     // T14129: agents record docs under this slug, so it follows the doc naming rule.
@@ -1731,7 +1760,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // 1. Header              — short banner (id / protocol / tier)
   // 2. Task Identity       — id, title, description, size, AC
   // 3. Return Format       — contract the subagent must honor on exit
-  // 4. Session Linkage     — orchestrator session id
+  // 4. Session Linkage     — allocated worker identity, coordinator reference
   // 5. Worktree Setup      — pre-provisioned path + context-isolation (T1140)
   // 6. File Paths          — absolute paths
   // 7. Stage Guidance      — phase-specific directives
@@ -1744,7 +1773,21 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   authoredSections.push(buildReturnFormatBlock(protocol, askProviderId));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(
-    buildSessionBlock(input.sessionId, input.agentId ?? `agent-${taskId.toLowerCase()}`),
+    buildSessionBlock(sessionId, agentId, input.coordinatorSessionId, input.workerSession?.role),
+  );
+  authoredSections.push(
+    [
+      `**Protocol authority**: \`${protocolResolution.source}\` selected \`${protocol}\`.`,
+      ...(protocolResolution.pipelineStageSource
+        ? [`Stored stage provenance: \`${protocolResolution.pipelineStageSource}\`.`]
+        : []),
+      ...protocolResolution.conflicts.map((conflict) => `- Protocol disagreement: ${conflict}`),
+      ...(protocolResolution.conflicts.length > 0
+        ? [
+            'An intentional assignment can resolve this with explicit `--protocol`; no classifier decides owner intent.',
+          ]
+        : []),
+    ].join('\n'),
   );
   // Worktree Setup (T1140) — only emitted when the engine provisioned one.
   // Omitted when --no-worktree was passed or worktree creation failed.
@@ -1755,8 +1798,8 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     // built without an explicit handle still attributes to a stable agent.
     authoredSections.push(
       buildWorktreeSetupBlock(worktreePath, worktreeBranch, taskId, {
-        sessionId: input.sessionId,
-        agentId: input.agentId ?? `agent-${taskId.toLowerCase()}`,
+        sessionId,
+        agentId,
       }),
     );
   }

@@ -90,6 +90,15 @@ export { destroyWorktree } from './worktree-destroy.js';
 export {
   archiveWorktree,
   type CompareBudget,
+  type DisposeOwnedWorktreeOptions,
+  type DisposeOwnedWorktreeResult,
+  /**
+   * Remove a worktree only while the caller's lock token still holds the task
+   * lock: token, exact path and branch are checked and the worktree removed
+   * under the lock's mutex, then the lock is released with that token. A
+   * re-entered or successor lock's worktree is always kept (T14407 · T14489).
+   */
+  disposeOwnedWorktree,
   disposeWorktree,
   isRegenerable,
   newCompareBudget,

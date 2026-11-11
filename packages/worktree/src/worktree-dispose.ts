@@ -45,7 +45,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type {
   DisposeWorktreeOptions,
   DisposeWorktreeResult,
@@ -55,9 +55,9 @@ import {
   destroyWorktree as napiDestroyWorktree,
   removeDir as napiRemoveDir,
 } from './napi-binding.js';
-import { computeProjectHash } from './paths.js';
+import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
-import { releaseWorktreeTaskLock } from './worktree-lock.js';
+import { releaseWorktreeTaskLock, withWorktreeTaskLockHeld } from './worktree-lock.js';
 
 /** A probe that could not answer: git failed (T14274 classifies these `unknown`). */
 const GIT_STATUS_FAILED = 'git status failed';
@@ -501,6 +501,14 @@ function removeCheckout(gitRoot: string, worktreePath: string): boolean {
  * @task T13924
  */
 export function disposeWorktree(opts: DisposeWorktreeOptions): DisposeWorktreeResult {
+  return disposeChecked(opts, true);
+}
+
+/**
+ * {@link disposeWorktree}; `releaseLock` false leaves the task lock to a
+ * caller that releases it with its own token ({@link disposeOwnedWorktree}).
+ */
+function disposeChecked(opts: DisposeWorktreeOptions, releaseLock: boolean): DisposeWorktreeResult {
   const { worktreePath } = opts;
   const keep = (keptReason: string, extra: Partial<DisposeWorktreeResult> = {}) => ({
     worktreePath,
@@ -574,11 +582,128 @@ export function disposeWorktree(opts: DisposeWorktreeOptions): DisposeWorktreeRe
     });
   }
   // T12506: a removed worktree's per-task lock guards nothing.
-  if (opts.taskId !== null) releaseWorktreeTaskLock(computeProjectHash(projectRoot), opts.taskId);
+  if (releaseLock && opts.taskId !== null) {
+    releaseWorktreeTaskLock(computeProjectHash(projectRoot), opts.taskId);
+  }
   return {
     worktreePath,
     removed: true,
     ...(unpreserved !== null ? { unpreserved } : {}),
     ...(archive ? { archive } : {}),
   };
+}
+
+/** Options for {@link disposeOwnedWorktree}. */
+export interface DisposeOwnedWorktreeOptions {
+  /** Project hash the task lock is keyed by. */
+  projectHash: string;
+  /** Task whose lock `lockToken` must hold. */
+  taskId: string;
+  /** The task's canonical worktree path; any other path is kept. */
+  worktreePath: string;
+  /** Branch the checkout must be on; a checkout on another branch is kept. */
+  branch: string;
+  /** Token of the caller's own lock acquisition. */
+  lockToken: string;
+  /** Why it is disposed (audit and archive receipt). */
+  reason: string;
+  /** Repository root; read from the worktree when omitted. */
+  gitRoot?: string;
+  /** Main checkout; the repository's main worktree when omitted. */
+  projectRoot?: string;
+  /** Archive unpreserved work, then remove (as {@link disposeWorktree}). */
+  force?: boolean;
+  /** Extra in-use probe, run under the lock right before the removal. */
+  inUse?: () => string | null;
+}
+
+/** Outcome of {@link disposeOwnedWorktree}. */
+export interface DisposeOwnedWorktreeResult {
+  /** `removed`: the directory is gone. `kept`: it is untouched. */
+  outcome: 'removed' | 'kept';
+  /** Why it was kept, or how it went. */
+  reason: string;
+  /** Whether the caller's lock was released (only ever with its token, after a removal). */
+  lockReleased: boolean;
+  /** The engine's result, when the engine ran. */
+  disposal?: DisposeWorktreeResult;
+}
+
+/**
+ * Dispose of a worktree only while the caller still owns its task lock
+ * (T14407). For a caller that created the worktree under the lock and must
+ * now remove it (a failed provision or spawn).
+ *
+ * Under the lock's own mutex, held for the whole check and disposal (a live
+ * holder's mutex is never broken as stale), it checks that `lockToken` still
+ * holds the lock, that `worktreePath` is the task's canonical path and that
+ * the checkout there is on `branch`, then runs {@link disposeWorktree}'s proof
+ * and removal, then releases the lock with `lockToken`. A concurrent re-spawn
+ * cannot re-enter or reclaim the lock in between, so it never loses a
+ * worktree it owns. Fails closed: any failed or unreadable lookup, token
+ * mismatch or path mismatch keeps the worktree. The branch is not deleted.
+ *
+ * @param opts - Lock identity, exact path and branch, and disposal options.
+ * @returns Whether it was removed or kept, why, and whether the lock was released.
+ * @task T14407
+ */
+export function disposeOwnedWorktree(
+  opts: DisposeOwnedWorktreeOptions,
+): DisposeOwnedWorktreeResult {
+  const kept = (reason: string, disposal?: DisposeWorktreeResult): DisposeOwnedWorktreeResult => ({
+    outcome: 'kept',
+    reason,
+    lockReleased: false,
+    ...(disposal ? { disposal } : {}),
+  });
+  let canonical: string;
+  try {
+    canonical = resolveTaskWorktreePath(opts.projectHash, opts.taskId);
+  } catch (err) {
+    return kept(`the task's worktree path could not be resolved (${String(err)})`);
+  }
+  if (resolve(opts.worktreePath) !== resolve(canonical)) {
+    return kept(`${opts.worktreePath} is not the task's worktree path (${canonical})`);
+  }
+  const hold = withWorktreeTaskLockHeld(
+    opts.projectHash,
+    opts.taskId,
+    opts.lockToken,
+    (_record, releaseLock): DisposeOwnedWorktreeResult => {
+      try {
+        // Only ENOENT proves absence; EACCES and the like keep (T14407).
+        try {
+          lstatSync(opts.worktreePath);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            return kept(`${opts.worktreePath} could not be looked up (${String(err)})`);
+          }
+          return { outcome: 'removed', reason: 'already gone', lockReleased: releaseLock() };
+        }
+        const head = git(opts.worktreePath, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+        if (head === null)
+          return kept(`the branch checked out at ${opts.worktreePath} could not be read`);
+        if (head.trim() !== opts.branch) {
+          return kept(`${opts.worktreePath} is on '${head.trim()}', not '${opts.branch}'`);
+        }
+        const disposal = disposeChecked(
+          {
+            worktreePath: opts.worktreePath,
+            ...(opts.gitRoot !== undefined ? { gitRoot: opts.gitRoot } : {}),
+            ...(opts.projectRoot !== undefined ? { projectRoot: opts.projectRoot } : {}),
+            taskId: opts.taskId,
+            reason: opts.reason,
+            ...(opts.force !== undefined ? { force: opts.force } : {}),
+            ...(opts.inUse ? { inUse: opts.inUse } : {}),
+          },
+          false,
+        );
+        if (!disposal.removed) return kept(disposal.keptReason ?? 'not proven preserved', disposal);
+        return { outcome: 'removed', reason: 'removed', lockReleased: releaseLock(), disposal };
+      } catch (err) {
+        return kept(`disposal failed (${err instanceof Error ? err.message : String(err)})`);
+      }
+    },
+  );
+  return hold.held ? hold.value : kept(`worktree kept: ${hold.reason}`);
 }

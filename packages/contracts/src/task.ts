@@ -74,6 +74,9 @@ export type TaskType = 'saga' | 'epic' | 'task' | 'subtask';
  */
 export type TaskKind = 'work' | 'research' | 'experiment' | 'bug' | 'spike' | 'release';
 
+/** Provenance of a stored pipeline stage; legacy rows without evidence are unknown. */
+export type TaskPipelineStageSource = 'explicit' | 'inherited' | 'default' | 'unknown';
+
 /**
  * Task scope axis — granularity of work. Orthogonal to {@link TaskType} and
  * {@link TaskKind}. Defaults to `'feature'`.

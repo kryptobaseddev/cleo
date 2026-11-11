@@ -53,6 +53,12 @@ import {
   loadPragmaSsot,
   normalisePragmaValue,
 } from '../../../../../core/src/doctor/pragma-ssot.js';
+import {
+  archiveStrandedResidue,
+  buildExodusPlan,
+  detectStrandedResidue,
+  writeExodusCompleteMarker,
+} from '../../../../../core/src/store/exodus/index.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync: DatabaseSyncCtor } = _require('node:sqlite') as {
@@ -1383,25 +1389,25 @@ describe('doctor db-substrate (T10307)', () => {
     expect(i1?.skipped).toBe(false);
     expect(i1?.orphanCount).toBeGreaterThanOrEqual(1);
     expect(i1?.sample).toContain('T999');
-    expect(i1?.suggestedFix).toContain('cleo memory observe');
+    expect(i1?.suggestedFix).toContain('`cleo brain maintenance`');
 
     const i2 = byId.get('I2');
     expect(i2?.skipped).toBe(false);
     expect(i2?.orphanCount).toBeGreaterThanOrEqual(1);
     expect(i2?.sample).toContain('T888');
-    expect(i2?.suggestedFix).toContain('cleo docs prune');
+    expect(i2?.suggestedFix).toMatch(/blob_attachments.*no CLI verb/);
 
     const i3 = byId.get('I3');
     expect(i3?.skipped).toBe(false);
     expect(i3?.orphanCount).toBe(1);
     expect(i3?.sample[0]).toContain('-MOVED');
-    expect(i3?.suggestedFix).toContain('cleo nexus reset-project-id');
+    expect(i3?.suggestedFix).toContain('`cleo doctor exodus-residue --fix`');
 
     const i4 = byId.get('I4');
     expect(i4?.skipped).toBe(false);
     expect(i4?.orphanCount).toBe(1);
     expect(i4?.sample).toContain('ses_orphan');
-    expect(i4?.suggestedFix).toContain('cleo session start');
+    expect(i4?.suggestedFix).toMatch(/llmtxt.*no CLI verb/);
 
     const i5 = byId.get('I5');
     expect(i5?.skipped).toBe(false);
@@ -1484,6 +1490,44 @@ describe('doctor db-substrate (T10307)', () => {
     expect(i3?.orphanCount).toBe(0);
   });
 
+  it('T14395: the I3 remedy clears the row I3 reported and deletes nothing', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('i3-remedy');
+    writeFileSync(join(projectRoot, '.cleo/project-id'), 'portable-substrate-i3-remedy\n');
+    const expectedId = computeSubstrateProjectId(projectRoot);
+    if (expectedId === null) throw new Error('Fixture must declare its project identity');
+    const nexusPath = join(cleoHomeOverride, 'nexus.db');
+    seedNexusDbForCrossDb(nexusPath, [
+      { projectId: expectedId, projectPath: `${projectRoot}-MOVED` },
+    ]);
+    const i3Of = () => walkCrossDbInvariants(projectRoot).find((r) => r.invariant === 'I3');
+
+    const before = i3Of();
+    expect(before?.orphanCount).toBe(1);
+    expect(before?.suggestedFix).toContain('`cleo doctor exodus-residue --fix`');
+
+    // Before the global migration is certified the file is a live source, not
+    // residue: the remedy leaves it alone, as the fix text says.
+    const sources = buildExodusPlan(projectRoot).sources;
+    expect(detectStrandedResidue(sources, projectRoot)).toEqual([]);
+    expect(i3Of()?.orphanCount).toBe(1);
+
+    // `cleo doctor exodus-residue --fix`, as its command runs it.
+    writeExodusCompleteMarker('global', [], projectRoot);
+    const stranded = detectStrandedResidue(sources, projectRoot);
+    expect(stranded.map((s) => s.path)).toEqual([nexusPath]);
+    const archived = archiveStrandedResidue(stranded, sources, projectRoot);
+
+    const after = i3Of();
+    expect(after?.orphanCount).toBe(0);
+    expect(after?.skipped).toBe(true);
+    expect(existsSync(nexusPath)).toBe(false);
+    expect(archived.map((a) => a.action)).toEqual(['archived']);
+    expect(existsSync(archived[0]?.archivedTo ?? '')).toBe(true);
+  });
+
   it('T10323: I4 stays skipped when the llmtxt schema has no session_id column', () => {
     const projectRoot = join(fleetRoot, 'i4-no-column');
     const cleoDir = join(projectRoot, '.cleo');
@@ -1536,19 +1580,19 @@ describe('doctor db-substrate (T10307)', () => {
     const i1 = checkInvariantI1(null, null);
     expect(i1.invariant).toBe('I1');
     expect(i1.skipped).toBe(true);
-    expect(i1.suggestedFix).toContain('cleo memory observe');
+    expect(i1.suggestedFix).toContain('`cleo brain maintenance`');
 
     const i2 = checkInvariantI2(null, null);
     expect(i2.invariant).toBe('I2');
-    expect(i2.suggestedFix).toContain('cleo docs prune');
+    expect(i2.suggestedFix).toMatch(/blob_attachments.*no CLI verb/);
 
     const i3 = checkInvariantI3('/tmp/no-such-project', null);
     expect(i3.invariant).toBe('I3');
-    expect(i3.suggestedFix).toContain('reset-project-id');
+    expect(i3.suggestedFix).toContain('`cleo doctor exodus-residue --fix`');
 
     const i4 = checkInvariantI4(null, null);
     expect(i4.invariant).toBe('I4');
-    expect(i4.suggestedFix).toMatch(/cleo session start/);
+    expect(i4.suggestedFix).toMatch(/llmtxt.*no CLI verb/);
 
     const i5 = checkInvariantI5(null, null, null);
     expect(i5.invariant).toBe('I5');

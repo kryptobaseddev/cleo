@@ -71,6 +71,8 @@
     "includes": [
       "packages/*/src/**/*.ts",
       "packages/*/__tests__/**/*.ts",
+      "packages/adapters/orca-plugin/src/**/*.ts",
+      "packages/adapters/orca-plugin/src/**/*.tsx",
       "scripts/**/*.mjs",
       "scripts/**/*.ts",
       "!packages/core/src/gateway-client/generated",

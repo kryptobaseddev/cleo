@@ -13,6 +13,7 @@ import type {
   LeadMcpReport,
   LeadToolStripSupport,
 } from './operations/orchestrate.js';
+import type { SpawnProtocolResolution, SpawnWorkerSession } from './spawn-types.js';
 
 // =============================================================================
 // Agent suite ownership handle (T11998 — suite containment)
@@ -102,6 +103,12 @@ export interface AdapterSpawnProvider {
 export interface SpawnContext {
   taskId: string;
   prompt: string;
+  /** Allocated worker identity; execution backends must preserve both values. */
+  workerSession?: SpawnWorkerSession;
+  /** Coordinator session for correlation only. */
+  coordinatorSessionId?: string | null;
+  /** Protocol authority and disagreements, independent of persona classification. */
+  protocolResolution?: SpawnProtocolResolution;
   workingDirectory?: string;
   options?: Record<string, unknown>;
   /**

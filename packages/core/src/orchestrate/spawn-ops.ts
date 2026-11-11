@@ -65,9 +65,11 @@ import type {
   AgentSpawnCapability,
   CLEOSpawnAdapter,
   CLEOSpawnContext,
+  CreateWorktreeFailure,
   LeadDeniedTool,
   LeadMode,
   SpawnResult,
+  SpawnWorkerSession,
   WorktreeHook,
 } from '@cleocode/contracts';
 import {
@@ -127,11 +129,14 @@ import {
   resolveSpawnLockHolder,
 } from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { resolveBoundSession } from '../store/session-store.js';
+import { getTaskPipelineStageSource } from '../tasks/pipeline-stage.js';
 import { resolveLeadMailbox } from './agentmbx.js';
 import { isLeadWorkerV1Enabled, resolveIsolation } from './isolation-policy.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
 import {
   abandonWorkerRecord,
+  findOrcaWorker,
   newWorkerInstanceId,
   recordWorker,
   settleWorkerAtSpawn,
@@ -139,6 +144,24 @@ import {
 } from './worker-records.js';
 
 export type { EngineResult };
+
+/** Refuse every spawn entry point while an external attempt retains custody. */
+function orcaCustodyRefusal(record: WorkerRecord): EngineResult {
+  // @sync-invariant none:local-only an external editor may still run even after its launch CLI disappeared
+  return engineError(
+    'E_ORCA_ATTEMPT_FENCED',
+    `Task ${record.taskId} has a retained Orca execution attempt.`,
+    {
+      details: {
+        recordId: record.recordId,
+        state: record.execution?.state,
+        dispatchId: record.execution?.dispatchId,
+        runtimeId: record.execution?.context.runtimeId,
+      },
+      fix: 'Inspect the stored runtime, Dispatch and issued request; recover that exact attempt before dispatching another editor.',
+    },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // T9545 — Spawn pipeline timeout supervisor
@@ -254,23 +277,26 @@ export function toSubagentStopStatus(
 }
 
 /**
- * Decide whether a failed `spawnWorktree` may be answered with
- * {@link runTimeoutCleanup} (T12506). Only a worktree the failing call itself
- * created (`freshWorktreeCreated === true`, set by `createWorktree`) is ours
- * to destroy; every other failure — including every lock error — is a
- * refusal that leaves the existing worktree untouched.
+ * The cleanup `createWorktree` already ran for a worktree its failed call
+ * freshly created (T12506). It runs there, while the per-task lock is still
+ * held: once the lock is released a concurrent re-spawn may own the path, so
+ * a failed provision is never cleaned up from here (T14407). Every other
+ * failure, including every lock error, carries none and left the existing
+ * worktree untouched.
  *
  * @param err - The error thrown by `spawnWorktree` / `createWorktree`.
- * @returns True only when cleanup is safe.
- * @task T12506
+ * @returns The cleanup outcome, or `undefined` when no worktree was created.
+ * @task T14407
  */
-export function shouldCleanUpFailedProvision(err: unknown): boolean {
-  if (isWorktreeLockedError(err)) return false;
-  return (
-    err !== null &&
-    typeof err === 'object' &&
-    (err as { freshWorktreeCreated?: unknown }).freshWorktreeCreated === true
-  );
+function failedProvisionCleanup(err: unknown): Omit<TimeoutCleanupResult, 'elapsedMs'> | undefined {
+  const cleanup = (err as Partial<CreateWorktreeFailure> | null)?.cleanup;
+  if (!cleanup) return undefined;
+  return {
+    attempted: true,
+    worktreeRemoved: cleanup.worktreeRemoved,
+    branchDeleted: cleanup.branchDeleted,
+    ...(cleanup.error !== undefined ? { error: cleanup.error } : {}),
+  };
 }
 
 export async function runTimeoutCleanup(
@@ -569,6 +595,8 @@ export async function composeSpawnForTask(
   options: {
     tier?: 0 | 1 | 2;
     sessionId?: string | null;
+    workerSession?: SpawnWorkerSession;
+    coordinatorSessionId?: string | null;
     role?: AgentSpawnCapability;
     protocol?: string;
     skipAtomicityCheck?: boolean;
@@ -628,8 +656,11 @@ export async function composeSpawnForTask(
       tier: effectiveTier,
       projectRoot: root,
       sessionId: options.sessionId ?? null,
+      workerSession: options.workerSession,
+      coordinatorSessionId: options.coordinatorSessionId,
       role: inferredRole,
       protocol: options.protocol,
+      pipelineStageSource: await getTaskPipelineStageSource(task, accessor),
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
@@ -846,6 +877,14 @@ export async function orchestrateSpawnExecute(
   /** T14359 — worker record written before spawn (only with `orchestrate.leadWorker.v1`). */
   let pendingWorker: WorkerRecord | null = null;
   try {
+    const custodyBudget = new AbortController();
+    const custodyTimer = setTimeout(() => custodyBudget.abort(), SPAWN_BUDGET_MS);
+    const external = await raceAgainstAbort(
+      findOrcaWorker(taskId, cwd),
+      custodyBudget.signal,
+      'validate-readiness',
+    ).finally(() => clearTimeout(custodyTimer));
+    if (external) return orcaCustodyRefusal(external);
     // Get spawn registry
     await initializeDefaultAdapters();
 
@@ -893,6 +932,7 @@ export async function orchestrateSpawnExecute(
     // orchestrateSpawn for the full rationale. T12500 — no fallback: a failed
     // allocation refuses the spawn with the REAL store error instead of handing
     // over the orchestrator's (newest active) session.
+    const coordinatorSessionId = (await resolveBoundSession(cwd))?.session.id ?? null;
     const spawnSession = await requireSpawnSession(cwd, taskId);
     if (!spawnSession.ok) {
       return {
@@ -913,10 +953,16 @@ export async function orchestrateSpawnExecute(
     execClaim = spawnSession;
     const activeSessionId = spawnSession.identity.sessionId;
     const spawnAgentId = spawnSession.identity.agentId;
+    const workerSession: SpawnWorkerSession = {
+      ...spawnSession.identity,
+      role: opts.lead ? 'lead' : 'worker',
+    };
 
-    const payload = await composeSpawnForTask(taskId, cwd, {
+    let payload = await composeSpawnForTask(taskId, cwd, {
       tier,
       sessionId: activeSessionId,
+      workerSession,
+      coordinatorSessionId,
       protocol: protocolType,
       ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
       // T14363 — a lead is told it is one: the ct-lead excerpt and dispatch rules load.
@@ -981,14 +1027,6 @@ export async function orchestrateSpawnExecute(
     // body was substituted (T1238), it is prepended to the composer prompt
     // so subagents receive the fully-resolved template alongside the
     // standard spawn context.
-    const composedPrompt = templateSubstitution.resolvedBody
-      ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
-      : payload.prompt;
-    // T14363 — a lead's mode-specific instructions (how it asks the owner).
-    const rawPrompt = opts.lead?.promptAppendix
-      ? `${composedPrompt}\n\n${opts.lead.promptAppendix}`
-      : composedPrompt;
-
     // T1759 — Worktree provisioning + centralized isolation.
     //
     // Provision a worktree for the task so the agent runs in its own isolated
@@ -998,7 +1036,11 @@ export async function orchestrateSpawnExecute(
     // `orchestrate.leadWorker.v1` on (or a `--base` asked for) the spawn is
     // refused; otherwise it falls back to the project root without isolation.
     let agentWorkingDirectory = cwd;
-    let agentEnvOverride: Record<string, string> | undefined;
+    let agentEnvOverride: Record<string, string> = {
+      CLEO_SESSION_ID: activeSessionId,
+      CLEO_AGENT_ID: spawnAgentId,
+      CLEO_AGENT_ROLE: opts.lead ? 'lead' : 'worker',
+    };
     const leadWorkerV1 = await isLeadWorkerV1Enabled(cwd);
     const provisionWorktree = async () => {
       const worktreeResult = await spawnWorktree(cwd, {
@@ -1039,6 +1081,15 @@ export async function orchestrateSpawnExecute(
           token: worktreeResult.lock.record.token,
         };
       }
+      payload = await composeSpawnForTask(taskId, cwd, {
+        tier,
+        workerSession,
+        coordinatorSessionId,
+        protocol: protocolType,
+        worktreePath: worktreeResult.path,
+        worktreeBranch: worktreeResult.branch,
+        ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
+      });
     } else if (isolationResolution.kind === 'refused') {
       const wtErr = isolationResolution.error;
       // T12506: a live holder owns this task's worktree. Degrading to the
@@ -1060,11 +1111,9 @@ export async function orchestrateSpawnExecute(
           ? refusalCode
           : 'E_WORKTREE_PROVISION_FAILED';
       const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
-      // T14396: like orchestrateSpawn, remove a worktree THIS call freshly
-      // created before refusing; any other failure leaves the worktree alone.
-      const cleanup = shouldCleanUpFailedProvision(wtErr)
-        ? await runTimeoutCleanup(cwd, taskId)
-        : undefined;
+      // T14396: like orchestrateSpawn, report the removal of a worktree THIS
+      // call freshly created; any other failure left the worktree alone.
+      const cleanup = failedProvisionCleanup(wtErr);
       const cleanupDetails = cleanup ? { cleanup } : {};
       // T14046: a bad --base ref or a worktree on another base. Running the
       // agent in the project root would ignore the base it was asked for.
@@ -1092,25 +1141,27 @@ export async function orchestrateSpawnExecute(
         { taskId },
         'T1759 worktree provisioning failed in orchestrateSpawnExecute — spawning without isolation',
       );
-    } else {
-      // T14363 — the lead runs under its OWN allocated CLEO session, never the
-      // caller's: verbs it runs through the runner (`review verdict`,
-      // `merge train`) act as the lead.
-      agentEnvOverride = {
-        CLEO_SESSION_ID: activeSessionId,
-        CLEO_AGENT_ROLE: 'lead',
-        ...(spawnAgentId ? { CLEO_AGENT_ID: spawnAgentId } : {}),
-      };
     }
 
+    if (!payload.atomicity.allowed) return atomicityRefusal(taskId, payload);
+    const composedPrompt = templateSubstitution.resolvedBody
+      ? `${templateSubstitution.resolvedBody}\n\n${payload.prompt}`
+      : payload.prompt;
+    // A lead's mode-specific instructions follow the final bound prompt.
+    const rawPrompt = opts.lead?.promptAppendix
+      ? `${composedPrompt}\n\n${opts.lead.promptAppendix}`
+      : composedPrompt;
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: payload.taskId,
       protocol: protocolType || payload.meta.protocol,
+      protocolResolution: payload.meta.protocolResolution,
+      workerSession,
+      coordinatorSessionId,
       prompt: rawPrompt,
       provider: provider.id,
       options: {
         prompt: rawPrompt,
-        ...(agentEnvOverride !== undefined ? { env: agentEnvOverride } : {}),
+        env: agentEnvOverride,
       },
       workingDirectory: agentWorkingDirectory,
       tokenResolution: {
@@ -1558,7 +1609,8 @@ export async function orchestrateSpawn(
     // Run bounded cleanup ONLY when a worktree was actually provisioned —
     // skip otherwise so we don't churn against absent state. destroyWorktree
     // is idempotent (returns worktreeRemoved=true when the path is already
-    // gone) so repeated invocations are safe.
+    // gone) so repeated invocations are safe. T14407: `spawnLock` is still
+    // held here (released in `finally`), so no re-spawn can own the worktree.
     let cleanup: TimeoutCleanupResult | undefined;
     if (partialState.worktreePath && partialState.rootResolved) {
       try {
@@ -1599,6 +1651,12 @@ export async function orchestrateSpawn(
 
   try {
     const root = getProjectRoot(projectRoot);
+    const external = await raceAgainstAbort(
+      findOrcaWorker(taskId, root),
+      budgetCtrl.signal,
+      'validate-readiness',
+    );
+    if (external) return orcaCustodyRefusal(external);
     partialState.rootResolved = root;
     spawnLogger.info(
       { taskId, tier, noWorktree, budgetMs: SPAWN_BUDGET_MS },
@@ -1730,6 +1788,7 @@ export async function orchestrateSpawn(
     spawnLease = leased.lease;
     spawnLeaseReused = leased.reused;
 
+    const coordinatorSessionId = (await resolveBoundSession(root))?.session.id ?? null;
     const spawnSession = await requireSpawnSession(root, taskId);
     if (!spawnSession.ok) {
       spawnLogger.error({ taskId, cause: spawnSession.cause }, 'spawn session allocation failed');
@@ -1936,13 +1995,13 @@ export async function orchestrateSpawn(
           `T1878 worktree provisioning failed for ${taskId}: ${message}`,
         );
 
-        // T12506 — cleanup runs ONLY for a worktree THIS invocation freshly
-        // created (createWorktree flags it). Every other failure — a lock
-        // refusal, a lock I/O error, a dirty branch, an invalid path, a
-        // failure while re-attaching — left a pre-existing, possibly live
-        // worktree behind, and destroyWorktree(force, deleteBranch) would
-        // delete its holder's work.
-        if (!shouldCleanUpFailedProvision(wtErr)) {
+        // T12506 — only a worktree THIS invocation freshly created is removed,
+        // by createWorktree itself under the task lock (T14407). Every other
+        // failure — a lock refusal, a lock I/O error, a dirty branch, an
+        // invalid path, a failure while re-attaching — left a pre-existing,
+        // possibly live worktree behind that holds its holder's work.
+        const cleanup = failedProvisionCleanup(wtErr);
+        if (cleanup === undefined) {
           const refusalCode = (wtErr as { code?: unknown } | null)?.code;
           const code =
             typeof refusalCode === 'string' && refusalCode.startsWith('E_')
@@ -1963,21 +2022,10 @@ export async function orchestrateSpawn(
           });
         }
 
-        // T10078 — best-effort cleanup of any partially-provisioned worktree.
-        // If createWorktree partially succeeded (e.g. git worktree add ran but
-        // a later step failed), an orphan worktree + task branch would remain.
-        // destroyWorktree is idempotent — it safely no-ops when nothing exists.
-        let cleanupNote: string | undefined;
-        try {
-          const cleanupResult = await runTimeoutCleanup(root, taskId);
-          cleanupNote = cleanupResult.worktreeRemoved
-            ? 'Orphan worktree cleaned up'
-            : cleanupResult.error
-              ? `Cleanup attempted but may be incomplete: ${cleanupResult.error}`
-              : 'No orphan worktree found';
-        } catch {
-          cleanupNote = 'Cleanup attempt failed';
-        }
+        // T10078 — an orphan worktree + task branch would otherwise remain.
+        const cleanupNote = cleanup.worktreeRemoved
+          ? 'Orphan worktree cleaned up'
+          : `Cleanup attempted but may be incomplete: ${cleanup.error ?? 'worktree kept'}`;
 
         return engineError('E_WORKTREE_PROVISION_FAILED', message, {
           details: { taskId, cause: message, cleanup: cleanupNote },
@@ -2002,6 +2050,8 @@ export async function orchestrateSpawn(
       composeSpawnForTask(taskId, root, {
         tier,
         sessionId: activeSessionId,
+        workerSession: spawnSession.identity,
+        coordinatorSessionId,
         protocol: protocolType,
         worktreePath,
         worktreeBranch,
@@ -2085,6 +2135,8 @@ export async function orchestrateSpawn(
         harnessHint: payload.harnessHint,
         atomicity: payload.atomicity,
         meta: payload.meta,
+        workerSession: spawnSession.identity,
+        coordinatorSessionId,
         // T1118 L1+L2 / T1140 — worktree binding for harness adapters.
         worktree: worktreeAdapterResult?.worktree ?? null,
         worktreeEnv: worktreeAdapterResult?.envVars ?? null,
@@ -2097,6 +2149,9 @@ export async function orchestrateSpawn(
           protocolType: protocolType || payload.meta.protocol,
           tier: payload.tier,
           prompt: finalPrompt,
+          workerSession: spawnSession.identity,
+          coordinatorSessionId,
+          protocolResolution: payload.meta.protocolResolution,
         },
         protocolType: protocolType || payload.meta.protocol,
         sessionId: activeSessionId,

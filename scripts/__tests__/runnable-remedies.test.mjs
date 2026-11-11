@@ -167,7 +167,7 @@ const REMEDIES = [
 
 describe('runnable remedies (T14300)', () => {
   const registry = loadRegistry(
-    new Set(['docs', 'doctor', 'lifecycle', 'relates', 'review']),
+    new Set(['backup', 'brain', 'docs', 'doctor', 'lifecycle', 'nexus', 'relates', 'review']),
     REPO_ROOT,
   );
   const checker = makeFlagChecker(REPO_ROOT);
@@ -188,6 +188,18 @@ describe('runnable remedies (T14300)', () => {
       const source = readFileSync(path.join(REPO_ROOT, file), 'utf8');
       expect(source, file).not.toMatch(/children='cascade'|--children=cascade|pass force=true/);
     }
+  });
+
+  it('every command db-substrate names, suggested fixes included, exists with its flags (T14395)', () => {
+    const source = readFileSync(
+      path.join(REPO_ROOT, 'packages/core/src/doctor/db-substrate.ts'),
+      'utf8',
+    );
+    expect(findViolations(source, registry)).toEqual([]);
+    expect(findFlagViolations(source, checker)).toEqual([]);
+    // The retired fixes fail the same checks, so the two above can fail.
+    expect(findViolations('Run `cleo nexus reset-project-id`', registry)).not.toEqual([]);
+    expect(findFlagViolations('`cleo memory observe --task <taskId>`', checker)).not.toEqual([]);
   });
 
   it('the checker rejects a flag cleo cancel lacks, so the tests above can fail', () => {

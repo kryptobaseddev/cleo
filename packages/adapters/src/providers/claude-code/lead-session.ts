@@ -9,8 +9,8 @@
  *   owner's AgentMBX mailbox (the prompt says how).
  *
  * In both, tools are an allow list (T14423): only the runner, mbx and (when
- * interactive) `AskUserQuestion`; `dontAsk`, no settings sources, and the
- * denied tools as a second layer.
+ * interactive) `AskUserQuestion`; Manual mode for interactive owner answers,
+ * `dontAsk` for detached runs, no settings sources, and denied tools as a second layer.
  *
  * `cleo` and `agentmbx` in hooks and the runner entry are absolute paths
  * resolved at spawn time from the absolute entries of PATH, never relative
@@ -23,7 +23,10 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import type { LeadMode, SpawnContext } from '@cleocode/contracts';
-import { LEAD_ASK_TOOL } from '@cleocode/contracts/operations/orchestrate.js';
+import {
+  E_LEAD_NO_OWNER_CHANNEL,
+  LEAD_ASK_TOOL,
+} from '@cleocode/contracts/operations/orchestrate.js';
 import { findOnPath, pathDelimiterFor, pathEnvKey, splitPathEnv } from '@cleocode/paths';
 import { type LeadMcpSetup, leadAllowedTools } from './lead-mcp.js';
 
@@ -135,9 +138,11 @@ export function leadSessionSettings(input: {
  *   only; detached gets no built-in tool at all;
  * - `--mcp-config <file> --strict-mcp-config`: only the runner and a
  *   validated mbx; `--allowedTools` names exactly the allowed tools;
- * - `--permission-mode dontAsk` and `--setting-sources ""`: anything not
- *   allowed is denied whatever the user's settings say;
- * - `--disallowedTools <denied>` as a second layer.
+ * - Manual (`default`) permission mode permits interactive owner answers;
+ *   `dontAsk` denies them even when `AskUserQuestion` is explicitly allowed;
+ * - `--setting-sources ""` excludes user/project permission settings;
+ * - `--disallowedTools <denied>` as a second layer, excluding the retired
+ *   `MultiEdit` name (already absent under `--tools`).
  *
  * Interactive drops `--print` and `--output-format`; detached keeps both.
  * The prompt file is the appended system prompt (the lead cannot Read
@@ -169,12 +174,12 @@ export function buildLeadArgs(input: {
     '--allowedTools',
     allowed.join(','),
     '--disallowedTools',
-    input.denied.join(','),
+    input.denied.filter((tool) => tool !== 'MultiEdit').join(','),
     '--mcp-config',
     input.leadMcp.config,
     '--strict-mcp-config',
     '--permission-mode',
-    'dontAsk',
+    interactive ? 'default' : 'dontAsk',
     '--setting-sources',
     '',
     ...(input.sessionId !== undefined ? ['--session-id', input.sessionId] : []),
@@ -202,6 +207,7 @@ export interface InteractiveLeadExit {
  * @param args - From {@link buildLeadArgs} with mode `interactive`.
  * @param opts - Working directory, environment and a started-pid callback.
  * @returns The pid and exit code once the session ends.
+ * @throws When stdin or stdout is not a terminal; use `--detached` instead.
  * @task T14363
  */
 export function runInteractiveLead(
@@ -214,6 +220,13 @@ export function runInteractiveLead(
     readonly onStart?: (pid: number) => void;
   },
 ): Promise<InteractiveLeadExit> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return Promise.reject(
+      new Error(
+        `${E_LEAD_NO_OWNER_CHANNEL}: interactive AskUserQuestion needs terminal stdin and stdout; use --detached with --adapter claude-code and a configured mbx MCP server`,
+      ),
+    );
+  }
   return new Promise((resolve, reject) => {
     const child = nodeSpawn(command, [...args], {
       stdio: 'inherit',

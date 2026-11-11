@@ -297,6 +297,32 @@ describe('leased task claims (T12502)', () => {
     expect(audit).toHaveLength(1);
   });
 
+  it('allocates concurrent workers separately and resumes an unused allocation without re-claiming', async () => {
+    const spawned = await as(SES_A, () =>
+      Promise.all(['T001', 'T002'].map((id) => requireSpawnSession(env.tempDir, id))),
+    );
+    const sessions: string[] = [];
+    for (const [index, result] of spawned.entries()) {
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(result.message);
+      const taskId = index === 0 ? 'T001' : 'T002';
+      const task = await env.accessor.loadSingleTask(taskId);
+      expect(task?.claim).toMatchObject({
+        sessionId: result.identity.sessionId,
+        agentId: result.identity.agentId,
+      });
+      sessions.push(result.identity.sessionId);
+      const resumed = await as(SES_A, () => requireSpawnSession(env.tempDir, taskId));
+      expect(resumed.ok).toBe(true);
+      if (!resumed.ok) throw new Error(resumed.message);
+      expect(resumed.identity.sessionId).toBe(result.identity.sessionId);
+      expect(resumed.identity.agentId).toBe(result.identity.agentId);
+      expect((await env.accessor.loadSingleTask(taskId))?.claim).toEqual(task?.claim);
+    }
+    expect(new Set(sessions).size).toBe(2);
+    expect(sessions).not.toContain(SES_A);
+  });
+
   it('spawn is refused with E_TASK_CLAIMED when another session holds the task', async () => {
     await start(SES_A);
     const spawned = await as(SES_B, () => requireSpawnSession(env.tempDir, 'T001'));

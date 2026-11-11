@@ -9,13 +9,47 @@
  * @phase 1B
  */
 
+import type { AgentSpawnCapability } from './agent-registry-v3.js';
 import type { LeadDeniedTool, LeadMcpReport } from './operations/orchestrate.js';
 import type { AgentSuiteOwnership } from './spawn.js';
+import type { TaskPipelineStageSource } from './task.js';
 
 /**
  * Provider identifier for spawn operations.
  */
 export type Provider = string;
+
+/** Allocated worker identity carried unchanged from the task claim to launch. */
+export interface SpawnWorkerSession {
+  /** The worker's allocated CLEO_SESSION_ID, never the coordinator's. */
+  readonly sessionId: string;
+  /** The worker's claim identity, exported as CLEO_AGENT_ID. */
+  readonly agentId: string;
+  /** Actual execution role assigned by dispatch, never a classifier's persona. */
+  readonly role?: AgentSpawnCapability;
+}
+
+/** Protocol selection source; task-stage priority requires explicit provenance. */
+export type SpawnProtocolSource =
+  | 'explicit'
+  | 'pipelineStage'
+  | 'kind'
+  | 'label'
+  | 'type'
+  | 'keyword'
+  | 'fallback';
+
+/** Selected protocol and disclosed disagreements; no model grants authority. */
+export interface SpawnProtocolResolution {
+  /** Protocol rendered into the assignment. */
+  readonly protocol: string;
+  /** Highest-precedence source that selected the protocol. */
+  readonly source: SpawnProtocolSource;
+  /** Origin of the stored stage; an inherited/default/unknown stage is not explicit intent. */
+  readonly pipelineStageSource?: TaskPipelineStageSource;
+  /** Lower-precedence signals that disagree with the selection. */
+  readonly conflicts: readonly string[];
+}
 
 /**
  * CAAMP-compatible spawn options (inlined for zero-dep contracts).
@@ -53,6 +87,15 @@ export interface CLEOSpawnContext {
 
   /** Protocol to use for the spawned task */
   protocol: string;
+
+  /** Authority and conflicting task signals for the selected protocol. */
+  protocolResolution?: SpawnProtocolResolution;
+
+  /** Allocated worker session and claim identity for the execution backend. */
+  workerSession?: SpawnWorkerSession;
+
+  /** Coordinator session for correlation only; never a worker binding. */
+  coordinatorSessionId?: string | null;
 
   /** Fully-resolved prompt to send to subagent */
   prompt: string;

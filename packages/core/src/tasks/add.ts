@@ -1871,6 +1871,14 @@ export async function addTask(
         title: options.title,
         status,
         priority,
+        pipelineStage: {
+          value: resolvedPipelineStage,
+          source: options.pipelineStage
+            ? 'explicit'
+            : resolvedParentForStage?.pipelineStage === resolvedPipelineStage
+              ? 'inherited'
+              : 'default',
+        },
         ...(severityAttestation
           ? { severityAttestation: { ...severityAttestation, status: 'committed' } }
           : {}),
