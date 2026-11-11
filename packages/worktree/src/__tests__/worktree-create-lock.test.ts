@@ -21,6 +21,7 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
+  type PathLike,
   readFileSync,
   rmSync,
   utimesSync,
@@ -78,14 +79,15 @@ vi.mock('node:fs', async (importOriginal) => {
     }
     return out;
   }) as typeof actual.readFileSync;
-  const wrap = <F extends (...args: never[]) => unknown>(fn: F): F =>
-    ((...args: Parameters<F>) => {
+  const wrap =
+    <A extends PathLike[]>(fn: (...args: A) => void) =>
+    (...args: A): void => {
       try {
-        return fn(...args);
+        fn(...args);
       } finally {
         afterFsMutation.run?.();
       }
-    }) as F;
+    };
   const unlinkSync = wrap(actual.unlinkSync);
   const renameSync = wrap(actual.renameSync);
   const linkSync = wrap(actual.linkSync);
