@@ -1609,9 +1609,10 @@ describe('admit (one ledger, real critical section)', () => {
     stop.abort();
     const b = await waiting;
     expect(b.admitted).toBe(false);
-    await vi.waitFor(() => {
-      expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
-    });
+    // Removed before `admit` returns (T14495): the deferred removal is awaited,
+    // so no ledger writer outlives the call and a caller that removes the dir
+    // right after the refusal cannot race it (ENOTEMPTY).
+    expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
     await a.grant.release();
   });
 
@@ -1695,6 +1696,9 @@ describe('admit (one ledger, real critical section)', () => {
     expect(notices[0]).toMatch(/this wait gives up in \d+s\.$/);
     // One probe per 30 s window while the gate keeps refusing (90 s of waiting), not one per pass.
     expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
+    // Every child and waiter is settled here: `admit` awaits the removal of an
+    // aborted queue entry (T14495), so afterEach can remove `dir` without a
+    // deferred ledger write racing it (ENOTEMPTY).
   });
 
   it('held above the refuse line with CLEO idle, a waiter gets the external-pressure verdict naming the programs (T14282)', async () => {

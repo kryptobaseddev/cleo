@@ -3035,7 +3035,12 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     opts.signal?.removeEventListener('abort', onAbort);
     if (stop.signal.aborted) {
       // A bounded deferral does not prove removal while the ledger is unavailable.
-      void releaseLedgerEntry(entry, dir, { ...opts, signal: stop.signal });
+      // Awaited (T14495): the removal writes the ledger, so no writer may outlive
+      // this call — a caller that removes the ledger dir after the refusal (a
+      // test tearing down its tmpdir) raced an un-awaited write and saw
+      // ENOTEMPTY. The first attempt is bounded; an unavailable ledger still
+      // retries in the background without keeping the process alive.
+      await releaseLedgerEntry(entry, dir, { ...opts, signal: stop.signal });
     }
   }
 }
