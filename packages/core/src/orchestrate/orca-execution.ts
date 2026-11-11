@@ -35,11 +35,12 @@ import {
 /**
  * Launch a payload already prepared once by CLEO's canonical spawn path. The
  * worker claim and worktree lock remain held on every uncertain outcome.
- * Automatic entry-point selection and final report settlement are separate work.
+ * Routing consumes this primitive; final report settlement remains separate.
  * @remarks Consumes canonical preparation once; never provisions another checkout.
  * @param input - Prepared task, prompt, session and worktree lock receipt.
  * @param context - Verified local Orca runtime and original coordinator.
  * @param backend - Process adapter, injectable for offline fixtures.
+ * @param runId - Previously persisted Run for this exact coordinator, if known.
  * @returns The durable attempt after recording its start receipt.
  * @example
  * ```ts
@@ -50,6 +51,7 @@ export async function launchOrcaWorker(
   input: OrcaLaunch,
   context: OrcaContext,
   backend: OrcaExecutionAdapter,
+  runId: string | null = null,
 ): Promise<WorkerRecord> {
   const launch = orcaLaunchSchema.parse(input);
   await validatePreparedAssignment(launch);
@@ -64,11 +66,11 @@ export async function launchOrcaWorker(
     promptDigest: createHash('sha256').update(launch.prompt).digest('hex'),
     ...workspace,
     state: 'prepared',
-    runId: null,
+    runId,
     orcaTaskId: null,
     dispatchId: null,
     retryOf: null,
-    startBinding: { runId: null, orcaTaskId: null, retryOf: null },
+    startBinding: { runId, orcaTaskId: null, retryOf: null },
     startRequestId: null,
     stopRequestId: null,
     failureCount: 0,

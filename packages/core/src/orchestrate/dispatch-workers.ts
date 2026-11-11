@@ -11,7 +11,7 @@
 
 import { type EngineResult, engineError } from '../engine-result.js';
 import { getLogger } from '../logger.js';
-import { orchestrateSpawnExecute } from './spawn-ops.js';
+import { type OrchestrateSpawnExecuteOpts, orchestrateSpawnExecute } from './spawn-ops.js';
 
 /** One worker to dispatch. */
 export interface DispatchWorkerItem {
@@ -33,6 +33,8 @@ export interface DispatchWorkerResult {
   instanceId?: string;
   /** Error message if status is failed. */
   error?: string;
+  /** Actionable refusal details, retained for failed fanout entries. */
+  refusal?: Extract<EngineResult, { success: false }>['error'];
 }
 
 /** Data of a successful {@link dispatchWorkers} call. */
@@ -54,11 +56,13 @@ export interface DispatchWorkersData {
  *
  * @param items - Workers to dispatch.
  * @param projectRoot - Project root.
+ * @param options - Shared execution port for this batch's workers.
  * @returns Engine result carrying {@link DispatchWorkersData}.
  */
 export async function dispatchWorkers(
   items: DispatchWorkerItem[],
   projectRoot: string,
+  options: Pick<OrchestrateSpawnExecuteOpts, 'orca'> = {},
 ): Promise<EngineResult<DispatchWorkersData>> {
   const manifestEntryId = `fanout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -71,12 +75,14 @@ export async function dispatchWorkers(
           undefined,
           projectRoot,
           undefined,
+          options,
         );
         if (!spawnResult.success) {
           return {
             taskId: item.taskId,
             status: 'failed',
             error: spawnResult.error?.message ?? `Spawn failed for task ${item.taskId}`,
+            refusal: spawnResult.error,
           };
         }
         const data = spawnResult.data as Record<string, unknown> | undefined;

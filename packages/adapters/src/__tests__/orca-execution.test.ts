@@ -1,5 +1,5 @@
 import { orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionBackend } from '../orca-execution.js';
 import {
   fixtureAttempt,
@@ -31,6 +31,159 @@ describe('Orca execution process boundary', () => {
       1,
     );
     orcaFixture.request = fixtureReply({ state: 'completed', requestId: 'request-fixture' });
+    orcaFixture.accounts = fixtureReply({
+      codex: {
+        accounts: [{ email: 'private@example.invalid', home: '/private/account' }],
+        activeAccountId: 'managed-private-id',
+      },
+      opencode: { accounts: [], activeAccountId: null },
+      claude: { accounts: [], activeAccountId: 'system' },
+    });
+    orcaFixture.caller = fixtureReply({
+      terminal: {
+        handle: fixtureContext.coordinatorHandle,
+        executionHostId: 'local',
+        connected: true,
+        writable: true,
+      },
+    });
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('ignores TERM_PROGRAM alone and proves the exact local caller before exposing account availability', async () => {
+    for (const key of [
+      'ORCA_TERMINAL_HANDLE',
+      'ORCA_WORKTREE_ID',
+      'ORCA_WORKSPACE_ID',
+      'ORCA_RUNTIME_SOURCE_ID',
+      'ORCA_APP_VERSION',
+    ])
+      vi.stubEnv(key, undefined);
+    vi.stubEnv('TERM_PROGRAM', 'Orca');
+    const backend = new OrcaExecutionBackend(fixtureRunner, '/fixture/orca');
+    expect(await backend.discover(fixtureLaunch.projectRoot)).toBeNull();
+    expect(fixtureRunner).not.toHaveBeenCalled();
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+    const discovery = await backend.discover(fixtureLaunch.projectRoot);
+    expect(discovery).toEqual({
+      context: fixtureContext,
+      accounts: [
+        { provider: 'codex', accountCount: 1, activeAccountPresent: true },
+        { provider: 'opencode', accountCount: 0, activeAccountPresent: false },
+        { provider: 'claude', accountCount: 0, activeAccountPresent: true },
+      ],
+    });
+    expect(JSON.stringify(discovery)).not.toMatch(/private|@|managed-/);
+    expect(fixtureRunner.mock.calls.map(([, args]) => args)).toContainEqual([
+      'terminal',
+      'show',
+      '--terminal',
+      fixtureContext.coordinatorHandle,
+      '--environment',
+      'local',
+      '--json',
+    ]);
+    expect(fixtureRunner.mock.calls.map(([, args]) => args)).toContainEqual([
+      'account',
+      'list',
+      '--json',
+    ]);
+  });
+
+  it.each([
+    'missing-handle',
+    'different-caller',
+    'remote-caller',
+    'unavailable',
+    'bad-accounts',
+  ] as const)('refuses %s without launching, exposing private account data or selecting another runtime', async (condition) => {
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+    vi.stubEnv('ORCA_WORKTREE_ID', 'workspace-fixture');
+    if (condition === 'missing-handle') vi.stubEnv('ORCA_TERMINAL_HANDLE', undefined);
+    if (condition === 'different-caller' || condition === 'remote-caller')
+      orcaFixture.caller = fixtureReply({
+        terminal: {
+          handle:
+            condition === 'different-caller' ? 'term_other' : fixtureContext.coordinatorHandle,
+          executionHostId: condition === 'remote-caller' ? 'remote' : 'local',
+          connected: true,
+          writable: true,
+        },
+      });
+    if (condition === 'unavailable')
+      fixtureRunner.mockResolvedValue({ stdout: '', stderr: 'unreachable', exitCode: null });
+    if (condition === 'bad-accounts')
+      orcaFixture.accounts = {
+        stdout: 'private@example.invalid /private/home',
+        stderr: '',
+        exitCode: 1,
+      };
+    const failure = await new OrcaExecutionBackend(fixtureRunner)
+      .discover(fixtureLaunch.projectRoot)
+      .catch((error: Error) => error);
+    expect(failure).toMatchObject({
+      code: expect.stringMatching(/^E_ORCA_/),
+      fix: expect.any(String),
+    });
+    expect(String(failure)).not.toMatch(/private@example|\/private\/home/);
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
+  });
+
+  it('recognizes only a runtime-bound resource-free agent_unconfigured pre-dispatch refusal', async () => {
+    const refused = {
+      ok: false,
+      error: { code: 'agent_unconfigured', message: 'Agent is disabled' },
+      _meta: { runtimeId: fixtureContext.runtimeId },
+    };
+    orcaFixture.start = { stdout: JSON.stringify(refused), stderr: '', exitCode: 1 };
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    expect(await backend.start(fixtureAttempt())).toMatchObject({
+      state: 'failed',
+      resourceState: 'stopped',
+      startRefusal: 'agent_unconfigured',
+      dispatchId: null,
+    });
+    orcaFixture.start = {
+      ...orcaFixture.start,
+      stdout: JSON.stringify({ ...refused, result: { dispatchId: 'ctx_unknown' } }),
+    };
+    expect(await backend.start(fixtureAttempt())).toMatchObject({
+      state: 'outcome_unknown',
+      resourceState: 'unknown',
+    });
+    orcaFixture.start = {
+      ...orcaFixture.start,
+      stdout: JSON.stringify({ ...refused, _meta: { runtimeId: 'other-runtime' } }),
+    };
+    expect(await backend.start(fixtureAttempt())).toMatchObject({
+      state: 'outcome_unknown',
+      resourceState: 'unknown',
+    });
+  });
+
+  it('refuses ambiguous workspace resolution with an exact-selector fix before launch', async () => {
+    fixtureRunner.mockImplementation(async (...args) =>
+      args[1][0] === 'worktree'
+        ? {
+            stdout: JSON.stringify({
+              ok: false,
+              error: { code: 'ambiguous_selector', message: 'Several workspaces match' },
+              _meta: { runtimeId: fixtureContext.runtimeId },
+            }),
+            stderr: '',
+            exitCode: 1,
+          }
+        : runOrcaFixture(...args),
+    );
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).preflight(fixtureLaunch, fixtureContext),
+    ).rejects.toMatchObject({
+      code: 'E_ORCA_WORKSPACE',
+      message: 'Several workspaces match',
+      fix: expect.stringContaining('<exact-selector>'),
+    });
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
   });
 
   it('preflights the command registry and exact runtime/workspace, then starts once with inert stdin', async () => {

@@ -21,6 +21,7 @@
  */
 
 import { type ZodTypeAny, z } from 'zod';
+import { orchestrateOrcaConfigSchema } from '../orca-execution.js';
 import { projectWorkerPolicySchema } from './worker-policy.js';
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -162,7 +163,10 @@ export const CLEO_CONFIG_MANIFEST: ConfigManifestEntry = {
   schema: z
     .object({
       orchestrate: z
-        .object({ workerPolicy: projectWorkerPolicySchema.optional() })
+        .object({
+          workerPolicy: projectWorkerPolicySchema.optional(),
+          orca: orchestrateOrcaConfigSchema.optional(),
+        })
         .passthrough()
         .optional(),
     })

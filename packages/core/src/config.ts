@@ -11,6 +11,7 @@
 import { existsSync } from 'node:fs';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { DEFAULT_ORCA_AGENTS } from '@cleocode/contracts/orca-execution.js';
 import { migrateLegacyConfigKeys, resolveLegacyConfigKey } from './config/legacy-keys.js';
 import { CleoError } from './errors.js';
 // Import from the dependency-free leaf (NOT ./llm/role-resolver.js) so this
@@ -135,6 +136,7 @@ const DEFAULTS: CleoConfig = {
   },
   // T14356 — the lead/worker split (epic T14351) is OFF by default.
   orchestrate: {
+    orca: { agents: DEFAULT_ORCA_AGENTS },
     leadWorker: {
       v1: false,
     },

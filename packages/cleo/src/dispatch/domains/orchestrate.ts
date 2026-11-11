@@ -467,13 +467,17 @@ async function orchestrateHandoffOp(params: OrchestrateHandoffParams) {
 }
 
 async function orchestrateSpawnExecuteOp(params: OrchestrateSpawnExecuteParams) {
+  const { OrcaExecutionBackend } = await import('@cleocode/adapters/orca-execution');
   return orchestrateSpawnExecute(
     params.taskId,
     params.adapterId,
     params.protocolType,
     getProjectRoot(),
     params.tier,
-    params.baseRef !== undefined ? { baseRef: params.baseRef } : {},
+    {
+      ...(params.baseRef !== undefined ? { baseRef: params.baseRef } : {}),
+      orca: new OrcaExecutionBackend(),
+    },
   );
 }
 
@@ -534,7 +538,10 @@ async function orchestrateParallelOp(params: OrchestrateParallelParams) {
 }
 
 async function orchestrateFanoutOp(params: OrchestrateFanoutParams) {
-  const result = await dispatchWorkers(params.items, getProjectRoot());
+  const { OrcaExecutionBackend } = await import('@cleocode/adapters/orca-execution');
+  const result = await dispatchWorkers(params.items, getProjectRoot(), {
+    orca: new OrcaExecutionBackend(),
+  });
   if (result.success) {
     fanoutManifestStore.set(result.data.manifestEntryId, {
       results: result.data.results,

@@ -10,10 +10,12 @@ import type {
   OrcaCommandResult,
   OrcaCommandRunner,
   OrcaContext,
-  OrcaExecutionAdapter,
+  OrcaDiscovery,
   OrcaLaunch,
+  OrcaRoutingAdapter,
 } from '@cleocode/contracts/orca-execution.js';
 import {
+  orcaAccountReplySchema,
   orcaCommandRegistrySchema,
   orcaContextSchema,
   orcaLaunchSchema,
@@ -44,6 +46,8 @@ const REQUIRED_COMMANDS = {
 
 /** Actionable refusal; callers must retain any attempt already sent to Orca. */
 export class OrcaExecutionError extends Error {
+  /** Numeric CLI refusal status, independent of a worker's exit. */
+  readonly exitCode = 63;
   /** Stable refusal code. */
   readonly code: string;
   /** Recovery instruction that never disables the lead policy. */
@@ -84,7 +88,7 @@ export const runOrcaCommand: OrcaCommandRunner = (executable, args, cwd, input) 
  * Execution backend around a selected harness, deliberately absent from the
  * provider registry. Core persists each operation before invoking these methods.
  */
-export class OrcaExecutionBackend implements OrcaExecutionAdapter {
+export class OrcaExecutionBackend implements OrcaRoutingAdapter {
   /** Public launch APIs cannot enforce denied tools or a strict MCP allowlist. */
   readonly leadToolStrip = 'unsupported';
   private readonly executable: string;
@@ -100,6 +104,80 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
           : 'orca'),
   ) {
     this.executable = executable;
+  }
+
+  /** Verify the local caller before returning a sanitized account inventory. */
+  async discover(projectRoot: string): Promise<OrcaDiscovery | null> {
+    const handle = process.env.ORCA_TERMINAL_HANDLE;
+    if (
+      !handle &&
+      !process.env.ORCA_WORKTREE_ID &&
+      !process.env.ORCA_WORKSPACE_ID &&
+      !process.env.ORCA_RUNTIME_SOURCE_ID &&
+      !process.env.ORCA_APP_VERSION
+    )
+      return null;
+    if (!handle) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca environment hints have no runtime-issued coordinator handle.',
+        'Run this command in the intended Orca agent session with its ORCA_TERMINAL_HANDLE; TERM_PROGRAM alone cannot select a caller.',
+      );
+    }
+    const status = await this.invoke(['status'], projectRoot);
+    const runtimeId = status._meta?.runtimeId;
+    if (!status.ok || !runtimeId) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'The selected local Orca runtime cannot verify this caller.',
+        'Inspect orca status --json in the intended Orca session and restore that runtime before dispatch.',
+      );
+    }
+    const context: OrcaContext = { runtimeId, coordinatorHandle: handle, executionHostId: 'local' };
+    await this.verifyRuntime(projectRoot, context);
+    const caller = await this.query(
+      ['terminal', 'show', '--terminal', handle],
+      projectRoot,
+      context,
+    );
+    const terminal = caller.result?.terminal;
+    if (
+      terminal?.handle !== handle ||
+      terminal.executionHostId !== 'local' ||
+      !terminal.connected ||
+      !terminal.writable
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca did not prove a unique connected local coordinator.',
+        'Inspect orca terminal show --terminal <handle> --json and run from that live local Orca session; do not substitute a different caller.',
+      );
+    }
+    // account list is host-local and rejects --environment; never retain its private stdout.
+    try {
+      const accounts = await this.runner(
+        this.executable,
+        ['account', 'list', '--json'],
+        projectRoot,
+      );
+      if (accounts.exitCode !== 0) throw new Error('inventory unavailable');
+      const { result, _meta } = orcaAccountReplySchema.parse(JSON.parse(accounts.stdout));
+      if (_meta.runtimeId !== context.runtimeId) throw new Error('account runtime changed');
+      return {
+        context,
+        accounts: (['codex', 'opencode', 'claude'] as const).map((provider) => ({
+          provider,
+          accountCount: result[provider].accounts.length,
+          activeAccountPresent: result[provider].activeAccountId !== null,
+        })),
+      };
+    } catch {
+      throw new OrcaExecutionError(
+        'E_ORCA_ACCOUNT_UNAVAILABLE',
+        'Orca returned no verifiable local account availability.',
+        'Inspect orca account list --json locally and select an active account for an agent in orchestrate.orca.agents.',
+      );
+    }
   }
 
   /** Verify supported commands, exact runtime and existing canonical workspace. */
@@ -147,7 +225,13 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       ['worktree', 'show', '--worktree', `path:${launch.worktreePath}`],
       launch.projectRoot,
       context,
-    );
+    ).catch((error: Error) => {
+      throw new OrcaExecutionError(
+        'E_ORCA_WORKSPACE',
+        error.message,
+        'Inspect orca status --json and orca worktree show --worktree <exact-selector> --json; resolve ambiguous entries for the existing canonical checkout before dispatch. Do not create a replacement checkout.',
+      );
+    });
     const tree = workspace.result?.worktree;
     if (
       !tree ||
@@ -453,6 +537,38 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         launch.projectRoot,
         binding.orcaTaskId ? undefined : launch.prompt,
       );
+      if (
+        !reply.ok &&
+        reply.error?.code === 'agent_unconfigured' &&
+        reply._meta?.runtimeId === attempt.context.runtimeId &&
+        !binding.orcaTaskId &&
+        !binding.retryOf &&
+        !reply.error.data?.dispatchId &&
+        !reply.result?.dispatchId &&
+        !reply.result?.taskId &&
+        !reply.result?.runId &&
+        !reply.result?.run &&
+        !reply.result?.failureCount &&
+        !reply.result?.residualResources?.length &&
+        (!reply.result?.effects?.length ||
+          reply.result.effects.every(
+            (effect) =>
+              effect.kind === 'worktree' &&
+              effect.action === 'reused' &&
+              effect.id === attempt.workspaceId,
+          ))
+      ) {
+        return {
+          ...attempt,
+          state: 'failed',
+          resourceState: 'stopped',
+          startRefusal: 'agent_unconfigured',
+          startRequestId: reply.error.data?.orchestrationRequestId ?? null,
+          lastReceipt: reply.rawReceipt,
+          lastError: 'agent_unconfigured',
+          observedAt: new Date().toISOString(),
+        };
+      }
       const value = reply.result;
       const workspace = value?.effects?.filter((effect) => effect.kind === 'worktree');
       const bound =
