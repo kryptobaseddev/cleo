@@ -5,6 +5,7 @@ import type {
   OrcaCommandRunner,
   OrcaContext,
   OrcaLaunch,
+  OrcaWorkerDone,
 } from '@cleocode/contracts/orca-execution.js';
 import { orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { vi } from 'vitest';
@@ -134,6 +135,67 @@ export function fixtureReleasedShow(
   });
 }
 
+/** Full inbox worker_done shape, with the canonical report carried only by a file pointer. */
+export function fixtureReportInbox(overrides: Partial<OrcaWorkerDone> = {}): OrcaCommandResult {
+  const event: OrcaWorkerDone = {
+    messageId: 'msg_report',
+    runtimeId: fixtureContext.runtimeId,
+    runId: 'run_fixture',
+    orcaTaskId: 'task_fixture',
+    dispatchId: 'ctx_fixture',
+    senderHandle: 'term_worker',
+    outcome: 'succeeded',
+    body: 'Implemented the change. Checks passed. Review remains.',
+    reportPath: 'worker-report.txt',
+    ...overrides,
+  };
+  return {
+    exitCode: 0,
+    stderr: '',
+    stdout: JSON.stringify({
+      ok: true,
+      _meta: { runtimeId: event.runtimeId },
+      result: {
+        messages: [
+          {
+            id: event.messageId,
+            run_id: event.runId,
+            delivery_contract: 'current_delivery',
+            from_handle: event.senderHandle,
+            to_handle: `run:${event.runId}`,
+            type: 'worker_done',
+            body: event.body,
+            payload: JSON.stringify({
+              taskId: event.orcaTaskId,
+              dispatchId: event.dispatchId,
+              outcome: event.outcome,
+              reportPath: event.reportPath,
+            }),
+            sender_pane_key: 'pane_worker',
+          },
+        ],
+      },
+    }),
+  };
+}
+
+/** dispatch-show's raw current-task mapping; distinct from worker-show's camel-case view. */
+export function fixtureReportDispatch(
+  dispatchId = 'ctx_fixture',
+  status = 'completed',
+): OrcaCommandResult {
+  return fixtureReply({
+    dispatch: {
+      id: dispatchId,
+      run_id: 'run_fixture',
+      task_id: 'task_fixture',
+      assignee_handle: 'term_worker',
+      assignee_pane_key: 'pane_worker',
+      status,
+    },
+  });
+}
+
 /** Durable attempt suitable for testing supervision independently of the store. */
 export function fixtureAttempt(overrides: Partial<OrcaAttempt> = {}): OrcaAttempt {
   return {
@@ -192,6 +254,8 @@ export const orcaFixture = {
     },
   }),
   currentRun: fixtureReply({ run: { id: 'run_fixture' } }),
+  inbox: fixtureReportInbox(),
+  currentDispatch: fixtureReportDispatch(),
 };
 
 /** Pure CLI fixture dispatcher; unexpected verbs fail instead of launching anything. */
@@ -265,6 +329,10 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
       return orcaFixture.request;
     case 'worker-read':
       return orcaFixture.read;
+    case 'inbox':
+      return orcaFixture.inbox;
+    case 'dispatch-show':
+      return orcaFixture.currentDispatch;
     default:
       throw new Error(`Unexpected fixture command: ${args.join(' ')}`);
   }

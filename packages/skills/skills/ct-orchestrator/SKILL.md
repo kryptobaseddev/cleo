@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.14.0
+  version: 4.15.0
   tier: core
   install: harness
   covers:
@@ -53,6 +53,18 @@ restart, `cleo orchestrate worker recover-start <recordId>` or
 `cleo orchestrate worker retry <recordId>` requires a confirmed resource-free
 failure or stop and respects the original circuit breaker. Unknown outcomes
 retain the claim and checkout; no command completes or integrates the task.
+
+After a `worker_done` wake, ingest its exact message with
+`cleo orchestrate worker ingest-report <recordId> --message-id <messageId>`.
+The worker must supply `--report-path` to a file inside its assigned checkout
+containing the original <=100-word CLEO report, including manifest, conclusion,
+blocker and proof. Orca's three-sentence body remains transport text. Ingestion
+checks the original runtime, Run, current Task/Dispatch, sender, CLEO claim and
+manifest; failed, stale or invalid delivery refuses. Repeated delivery retains
+the first report on the worker record, including after CLI restart. This settles
+only the report: acceptance, independent review, evidence and physical resource
+release remain separate. AgentMBX relay and provider-handle resource reconciliation
+are not implemented by this ingress command.
 
 ## Trustworthy project knowledge
 

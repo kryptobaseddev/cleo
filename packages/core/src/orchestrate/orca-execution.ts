@@ -4,6 +4,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { isAbsolute, relative } from 'node:path';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   type OrcaAttempt,
@@ -12,6 +13,7 @@ import {
   type OrcaLaunch,
   type OrcaWorkerRequest,
   orcaLaunchSchema,
+  orcaWorkerDoneSchema,
   orcaWorkerRequestSchema,
 } from '@cleocode/contracts/orca-execution.js';
 import {
@@ -20,17 +22,23 @@ import {
   resolveTaskWorktreePath,
 } from '@cleocode/paths';
 import { readWorktreeTaskLock } from '@cleocode/worktree';
-import { type EngineResult, engineError } from '../engine-result.js';
+import { type EngineResult, EngineResultError, engineError } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { readContainedFile } from '../memory/manifest-identity.js';
+import { readManifestEntries } from '../memory/pipeline-manifest-sqlite.js';
+import { resolveSpawnReturnContract } from '../orchestration/spawn-prompt.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { isLiveClaim } from '../store/task-claim.js';
+import { parseReturnMessage } from '../validation/protocol-common.js';
 import {
   listWorkerRecords,
   newWorkerInstanceId,
   recordWorker,
+  recordWorkerReport,
   updateWorkerExecution,
   type WorkerRecord,
 } from './worker-records.js';
+import { checkWorkerReport } from './worker-report.js';
 
 /**
  * Launch a payload already prepared once by CLEO's canonical spawn path. The
@@ -279,6 +287,134 @@ export async function readOrcaWorker(
 }
 
 /**
+ * Ingest one current-dispatch report after an Orca wake, without accepting the task.
+ * @param recordId - Exact open CLEO worker record.
+ * @param cwd - Owning project root.
+ * @param backend - Read-only report transport, injectable for fixtures.
+ * @param messageId - Exact worker_done id supplied by the coordinator's wake.
+ * @returns The worker with its first durable canonical report and manifest link.
+ * @throws For stale provenance, missing proof, unsuccessful work or an invalid manifest.
+ * @remarks Report settlement never changes task gates, invokes integration or emits SubagentStop.
+ * @example
+ * ```ts
+ * const settled = await ingestOrcaWorkerReport(recordId, root, backend, messageId);
+ * ```
+ */
+export async function ingestOrcaWorkerReport(
+  recordId: string,
+  cwd: string,
+  backend: OrcaExecutionAdapter,
+  messageId: string,
+): Promise<WorkerRecord> {
+  const record = await loadOrcaWorker(recordId, cwd);
+  const execution = requireExecution(record);
+  const event = orcaWorkerDoneSchema.parse(await backend.readReport(execution, messageId));
+  if (
+    event.messageId !== messageId ||
+    event.runtimeId !== execution.context.runtimeId ||
+    event.runId !== execution.runId ||
+    event.orcaTaskId !== execution.orcaTaskId ||
+    event.dispatchId !== execution.dispatchId ||
+    event.outcome !== 'succeeded'
+  ) {
+    // @sync-invariant none:local-only a failed or stale transport delivery cannot settle a successful report
+    throw new EngineResultError({
+      code: 'E_ORCA_REPORT_IDENTITY',
+      message: 'No successful current-dispatch worker_done matches this worker.',
+      fix: 'Inspect the exact worker record and original worker_done; retain failed or stale delivery as history.',
+    });
+  }
+  if (record.report?.event.messageId === event.messageId) {
+    if (JSON.stringify(record.report.event) !== JSON.stringify(event)) {
+      // @sync-invariant none:local-only repeated event identity cannot replace its original transport bytes
+      throw new EngineResultError({
+        code: 'E_ORCA_REPORT_CONFLICT',
+        message: 'The stored report event changed.',
+        fix: 'Inspect the original durable report; do not overwrite it with a repeated event id.',
+      });
+    }
+    return recordWorkerReport(record, record.report, cwd);
+  }
+  const task = await (await getTaskAccessor(cwd)).loadSingleTask(record.taskId);
+  if (
+    !task?.claim ||
+    !isLiveClaim(task.claim) ||
+    task.claim.sessionId !== record.sessionId ||
+    task.claim.agentId !== record.agentId
+  ) {
+    // @sync-invariant none:local-only a report cannot settle a reassigned or expired CLEO claim
+    throw new EngineResultError({
+      code: 'E_ORCA_REPORT_IDENTITY',
+      message: 'The worker no longer owns the current CLEO task claim.',
+      fix: 'Inspect the task and exact dispatch; a previous assignment cannot settle a replacement worker.',
+    });
+  }
+  const file = isAbsolute(event.reportPath)
+    ? relative(record.worktree, event.reportPath)
+    : event.reportPath;
+  const read = readContainedFile(record.worktree, file);
+  if (read.status !== 'ok') {
+    // @sync-invariant none:input-shape report pointers must name readable files contained in the assigned checkout
+    throw new EngineResultError({
+      code: 'E_ORCA_REPORT_FILE',
+      message: `Canonical worker report is ${read.status}.`,
+      fix: 'Supply worker_done with a report-path inside its assigned worktree; prose is not canonical report proof.',
+    });
+  }
+  const check = checkWorkerReport(read.content);
+  if (!check.ok) {
+    // @sync-invariant none:input-shape every original report must satisfy the existing proof and word-count contract
+    throw new EngineResultError({
+      code: check.code,
+      message: check.message,
+      fix: check.fix,
+      exitCode: check.exitCode,
+    });
+  }
+  const parsed = parseReturnMessage(read.content);
+  const contract = resolveSpawnReturnContract(execution.launch.protocol);
+  if (
+    !parsed?.entryId ||
+    parsed.type !== contract.type ||
+    !['complete', 'completed'].includes(parsed.status) ||
+    check.report.blocker
+  ) {
+    // @sync-invariant none:input-shape successful transport cannot promote a blocked or partial report to completion
+    throw new EngineResultError({
+      code: 'E_ORCA_REPORT_OUTCOME',
+      message: 'The report does not claim successful work under the assigned protocol.',
+      fix: 'Keep partial and blocked work open; use the original protocol report and its actual outcome.',
+    });
+  }
+  const [manifest] = await readManifestEntries(cwd, parsed.entryId);
+  if (
+    !manifest ||
+    manifest.linked_tasks?.[0] !== record.taskId ||
+    manifest.status !== 'completed' ||
+    manifest.agent_type !== contract.manifestType
+  ) {
+    // @sync-invariant none:local-only only an existing manifest for the exact task and protocol backs a complete report
+    throw new EngineResultError({
+      code: 'E_ORCA_REPORT_MANIFEST',
+      message: 'No matching completed worker manifest backs this report.',
+      fix: 'Read back the report manifest for this CLEO task and protocol; do not infer it from Orca prose.',
+    });
+  }
+  return recordWorkerReport(
+    record,
+    {
+      event,
+      manifestId: manifest.id,
+      manifestDigest: createHash('sha256').update(JSON.stringify(manifest)).digest('hex'),
+      reportText: read.content,
+      reportDigest: createHash('sha256').update(read.content).digest('hex'),
+      ingestedAt: new Date().toISOString(),
+    },
+    cwd,
+  );
+}
+
+/**
  * Explicit cancellation of an exact attempt. stop_unknown fences another stop;
  * neither a stopped result nor a launch hint disposes a checkout or closes a task.
  * @remarks Requires an explicit cancellation request; uncertainty retains custody.
@@ -396,7 +532,7 @@ export async function orchestrateOrcaWorker(
       fix: 'Use cleo orchestrate worker --help; read alone accepts a source-pinned cursor.',
     });
   }
-  const { action, recordId, cursor } = parsed.data;
+  const { action, recordId, cursor, messageId } = parsed.data;
   const operations = {
     show: observeOrcaWorker,
     read: readOrcaWorker,
@@ -406,6 +542,12 @@ export async function orchestrateOrcaWorker(
     stop: stopOrcaWorker,
   };
   try {
+    if (action === 'ingest-report') {
+      return {
+        success: true,
+        data: await ingestOrcaWorkerReport(recordId, cwd, backend, messageId ?? ''),
+      };
+    }
     return { success: true, data: await operations[action](recordId, cwd, backend, cursor) };
   } catch (error) {
     const code =
@@ -420,7 +562,12 @@ export async function orchestrateOrcaWorker(
         : `Inspect the stored record ${recordId} with cleo orchestrate status; retain its claim and worktree until its exact operation is resolved.`;
     // @sync-invariant none:local-only refused recovery retains the original durable custody
     return engineError(code, error instanceof Error ? error.message : String(error), {
-      exitCode: error instanceof CleoError ? error.code : ExitCode.SPAWN_VALIDATION_FAILED,
+      exitCode:
+        error instanceof CleoError
+          ? error.code
+          : error instanceof EngineResultError
+            ? error.exitCode
+            : ExitCode.SPAWN_VALIDATION_FAILED,
       fix,
       details: { recordId, action },
     });
