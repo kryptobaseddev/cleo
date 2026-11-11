@@ -10,14 +10,21 @@ import type {
   OrcaCommandResult,
   OrcaCommandRunner,
   OrcaContext,
-  OrcaExecutionAdapter,
+  OrcaDiscovery,
   OrcaLaunch,
+  OrcaReply,
+  OrcaRoutingAdapter,
+  OrcaWorkerDone,
 } from '@cleocode/contracts/orca-execution.js';
 import {
+  ORCA_LEAD_LAUNCH_REFUSAL,
+  orcaAccountReplySchema,
   orcaCommandRegistrySchema,
   orcaContextSchema,
   orcaLaunchSchema,
   orcaReplySchema,
+  orcaReportSourceSchema,
+  orcaWorkerDonePayloadSchema,
 } from '@cleocode/contracts/orca-execution.js';
 
 const AGENTS = { 'claude-code': 'claude', codex: 'codex', opencode: 'opencode2', grok: 'grok' };
@@ -39,11 +46,132 @@ const REQUIRED_COMMANDS = {
   'orchestration worker-read': ['dispatch', 'source', 'limit', 'cursor', 'full'],
   'orchestration worker-stop': ['dispatch', 'retry-request', 'full'],
   'orchestration request-show': ['request', 'full'],
+  'orchestration run-current': ['from', 'full'],
   'worktree show': ['worktree'],
 };
 
+/** Helper outcomes that prove Orca released the helper rather than leaving it running. */
+const SETTLED_HELPER_OUTCOMES = new Set(['stopped', 'already_finished']);
+
+/** Runtime capability proving worker-stop enumerates every helper it stopped. */
+const HELPER_STOP_CAPABILITY = 'orchestration.worker-stop-helpers.v1';
+
+/** Bounded creator chain walk; a helper nested under another helper needs its own link. */
+const HELPER_ANCESTRY_LIMIT = 8;
+
+/**
+ * What a stored receipt proves about the helpers a stopped worker started.
+ * @remarks `settled` is affirmative evidence that no helper is still running;
+ * `absent` is no trustworthy evidence at all (lost, malformed or non-stop
+ * receipt); `empty` is a stop reply that listed no helpers; `unresolved` names
+ * the helper Dispatches a stop reply could not settle.
+ */
+type HelperEvidence =
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'settled' }
+  | {
+      readonly kind: 'unresolved';
+      readonly dispatchIds: readonly string[];
+      readonly reconcileable: boolean;
+    };
+
+/**
+ * Read the helper evidence a stored receipt carries for exactly this attempt.
+ * @remarks Only a stop reply speaks about helpers, and only a listing of each
+ * helper proves it stopped. A lost, malformed or non-stop receipt is `absent`,
+ * which never settles a stop. A receipt that belongs to another attempt (another
+ * Dispatch, Run, runtime epoch or stop request key) is `absent` too, so a
+ * mismatched stop reply can never be promoted later by a parent release. A stop
+ * reply's `helperStopError` means the tree may be incomplete, so it is `absent`.
+ * @param attempt - The attempt whose stop the retained receipt would settle.
+ * @param receipt - Last stored raw receipt, or null when none was retained.
+ * @returns The evidence class and any helper Dispatch ids still unresolved.
+ * @example
+ * ```ts
+ * readHelperEvidence(attempt, '{"ok":true,"result":{"dispatchId":"ctx_1","processAction":"closed_agent_terminal","helpers":[],"mutation":{"requestId":"<issued stop key>"}}}');
+ * ```
+ */
+function readHelperEvidence(attempt: OrcaAttempt, receipt: string | null): HelperEvidence {
+  if (!receipt) return { kind: 'absent' };
+  let reply: OrcaReply;
+  try {
+    const parsed = orcaReplySchema.safeParse(JSON.parse(receipt));
+    if (!parsed.success) return { kind: 'absent' };
+    reply = parsed.data;
+  } catch {
+    return { kind: 'absent' };
+  }
+  if (!receiptBelongsToAttempt(attempt, reply)) return { kind: 'absent' };
+  const value = reply.result;
+  const stopReply =
+    value !== undefined &&
+    (value.processAction !== undefined ||
+      value.helpers !== undefined ||
+      value.helperStopError !== undefined);
+  if (!value || !stopReply) return { kind: 'absent' };
+  if (value.helperStopError) return { kind: 'absent' };
+  // A stop reply that omits the helper list enumerated nothing this client can read.
+  if (value.helpers === undefined) return { kind: 'empty' };
+  const unresolved = value.helpers.filter((helper) => !SETTLED_HELPER_OUTCOMES.has(helper.outcome));
+  if (unresolved.length === 0) return { kind: 'settled' };
+  return {
+    kind: 'unresolved',
+    dispatchIds: [
+      ...new Set(
+        unresolved
+          .map((helper) => helper.dispatchId)
+          .filter((dispatchId): dispatchId is string => dispatchId !== undefined),
+      ),
+    ],
+    reconcileable: unresolved.every((helper) => helper.dispatchId !== undefined),
+  };
+}
+
+/**
+ * Prove a retained reply was produced by this attempt's own mutation.
+ * @remarks The runtime epoch, target Dispatch, Run (when the reply names one)
+ * and the issued stop request key must all match the stored binding. A refusal
+ * names the key under `error.data.orchestrationRequestId`; a successful mutation
+ * names it under `result.mutation.requestId` (installed Orca stamps the ledger
+ * identity on every successful result), so a successful receipt with no key or
+ * another attempt's key is never evidence either. Anything that fails is another
+ * attempt's receipt and never evidence.
+ * @param attempt - The attempt the receipt is being read for.
+ * @param reply - Parsed reply from the retained receipt.
+ * @returns True only when every identity the reply carries matches this attempt.
+ */
+function receiptBelongsToAttempt(attempt: OrcaAttempt, reply: OrcaReply): boolean {
+  if (reply._meta?.runtimeId !== attempt.context.runtimeId) return false;
+  const value = reply.result;
+  const dispatchId = value?.dispatchId ?? reply.error?.data?.dispatchId;
+  if (!attempt.dispatchId || dispatchId !== attempt.dispatchId) return false;
+  if (value?.runId !== undefined && value.runId !== attempt.runId) return false;
+  const refusedKey = reply.error?.data?.orchestrationRequestId;
+  if (refusedKey !== undefined) return stopsThisAttempt(attempt, refusedKey);
+  if (reply.ok) {
+    // A successful mutation always carries its ledger key; only the stop key this
+    // attempt issued may settle it, so another mutation on the same Dispatch cannot.
+    const succeededKey = value?.mutation?.requestId;
+    return succeededKey !== undefined && stopsThisAttempt(attempt, succeededKey);
+  }
+  return true;
+}
+
+/**
+ * Compare a reply's request key with the stop key this attempt issued.
+ * @param attempt - The attempt whose stop key would be settled.
+ * @param requestId - Request key the reply reports.
+ * @returns True when the reply belongs to this attempt's own stop request.
+ */
+function stopsThisAttempt(attempt: OrcaAttempt, requestId: string): boolean {
+  return requestId === attempt.stopRequestKey || requestId === attempt.stopRequestId;
+}
+
 /** Actionable refusal; callers must retain any attempt already sent to Orca. */
 export class OrcaExecutionError extends Error {
+  /** Numeric CLI refusal status, independent of a worker's exit. */
+  readonly exitCode = 63;
   /** Stable refusal code. */
   readonly code: string;
   /** Recovery instruction that never disables the lead policy. */
@@ -84,7 +212,7 @@ export const runOrcaCommand: OrcaCommandRunner = (executable, args, cwd, input) 
  * Execution backend around a selected harness, deliberately absent from the
  * provider registry. Core persists each operation before invoking these methods.
  */
-export class OrcaExecutionBackend implements OrcaExecutionAdapter {
+export class OrcaExecutionBackend implements OrcaRoutingAdapter {
   /** Public launch APIs cannot enforce denied tools or a strict MCP allowlist. */
   readonly leadToolStrip = 'unsupported';
   private readonly executable: string;
@@ -100,6 +228,103 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
           : 'orca'),
   ) {
     this.executable = executable;
+  }
+
+  /** Inspect hints without spawning a process; this cannot select an execution backend. */
+  hasContextHints(): boolean {
+    return Boolean(
+      process.env.ORCA_TERMINAL_HANDLE ||
+        process.env.ORCA_WORKTREE_ID ||
+        process.env.ORCA_WORKSPACE_ID ||
+        process.env.ORCA_RUNTIME_SOURCE_ID ||
+        process.env.ORCA_APP_VERSION,
+    );
+  }
+
+  /** Verify the local caller before returning a sanitized account inventory. */
+  async discover(projectRoot: string): Promise<OrcaDiscovery | null> {
+    if (!this.hasContextHints()) return null;
+    const handle = process.env.ORCA_TERMINAL_HANDLE;
+    if (!handle) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca environment hints have no runtime-issued coordinator handle.',
+        'Run this command in the intended Orca agent session with its ORCA_TERMINAL_HANDLE; TERM_PROGRAM alone cannot select a caller.',
+      );
+    }
+    const status = await this.invoke(['status'], projectRoot);
+    const runtimeId = status._meta?.runtimeId;
+    if (!status.ok || !runtimeId) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'The selected local Orca runtime cannot verify this caller.',
+        'Inspect orca status --json in the intended Orca session and restore that runtime before dispatch.',
+      );
+    }
+    const context: OrcaContext = { runtimeId, coordinatorHandle: handle, executionHostId: 'local' };
+    await this.verifyRuntime(projectRoot, context);
+    const caller = await this.query(
+      ['terminal', 'show', '--terminal', handle],
+      projectRoot,
+      context,
+    );
+    const terminal = caller.result?.terminal;
+    if (
+      terminal?.handle !== handle ||
+      terminal.executionHostId !== 'local' ||
+      !terminal.connected ||
+      !terminal.writable
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca did not prove a unique connected local coordinator.',
+        'Inspect orca terminal show --terminal <handle> --json and run from that live local Orca session; do not substitute a different caller.',
+      );
+    }
+    // account list is host-local and rejects --environment; never retain its private stdout.
+    try {
+      const accounts = await this.runner(
+        this.executable,
+        ['account', 'list', '--json'],
+        projectRoot,
+      );
+      if (accounts.exitCode !== 0) throw new Error('inventory unavailable');
+      const { result, _meta } = orcaAccountReplySchema.parse(JSON.parse(accounts.stdout));
+      if (_meta.runtimeId !== context.runtimeId) throw new Error('account runtime changed');
+      return {
+        context,
+        accounts: (['codex', 'opencode', 'claude'] as const).map((provider) => ({
+          provider,
+          accountCount: result[provider].accounts.length,
+          activeAccountPresent: result[provider].activeAccountId !== null,
+        })),
+      };
+    } catch {
+      throw new OrcaExecutionError(
+        'E_ORCA_ACCOUNT_UNAVAILABLE',
+        'Orca returned no verifiable local account availability.',
+        'Inspect orca account list --json locally and select an active account for an agent in orchestrate.orca.agents.',
+      );
+    }
+  }
+
+  /** Read the Run currently bound to the original local coordinator, without mutation. */
+  async currentRun(projectRoot: string, context: OrcaContext): Promise<string | null> {
+    await this.verifyRuntime(projectRoot, context);
+    const reply = await this.query(
+      ['orchestration', 'run-current', '--from', context.coordinatorHandle],
+      projectRoot,
+      context,
+    );
+    const run = reply.result?.run;
+    if (run === undefined) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca did not prove the coordinator Run binding.',
+        'Inspect orca orchestration run-current --from <handle> --json in the original local runtime before dispatch.',
+      );
+    }
+    return run?.id ?? null;
   }
 
   /** Verify supported commands, exact runtime and existing canonical workspace. */
@@ -147,7 +372,13 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       ['worktree', 'show', '--worktree', `path:${launch.worktreePath}`],
       launch.projectRoot,
       context,
-    );
+    ).catch((error: Error) => {
+      throw new OrcaExecutionError(
+        'E_ORCA_WORKSPACE',
+        error.message,
+        'Inspect orca status --json and orca worktree show --worktree <exact-selector> --json; resolve ambiguous entries for the existing canonical checkout before dispatch. Do not create a replacement checkout.',
+      );
+    });
     const tree = workspace.result?.worktree;
     if (
       !tree ||
@@ -177,9 +408,9 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
     }
     if (launch.role === 'lead') {
       throw new OrcaExecutionError(
-        'E_LEAD_TOOLS_UNSTRIPPED',
-        'Orca cannot enforce the lead denied tools, strict MCP allowlist and owner channel before launch.',
-        'Use an enforced native lead route until Orca exposes constrained launch; keep leadWorker.v1 enabled.',
+        ORCA_LEAD_LAUNCH_REFUSAL.code,
+        ORCA_LEAD_LAUNCH_REFUSAL.message,
+        ORCA_LEAD_LAUNCH_REFUSAL.fix,
       );
     }
     if (launch.accountId !== undefined) {
@@ -248,7 +479,13 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
     return this.startCommand(attempt, requestId);
   }
 
-  /** Inspect exactly this attempt, preserving uncertain stop and resource custody. */
+  /**
+   * Inspect exactly this attempt, settling a reserved stop only on release proof.
+   * @remarks A stop settles only when the parent's exact release and affirmative
+   * helper evidence agree. A lost, malformed or non-stop receipt is never helper
+   * evidence; each helper the receipt names is re-read from Orca, so one that
+   * finishes later can still settle the stop.
+   */
   async show(attempt: OrcaAttempt): Promise<OrcaAttempt> {
     const dispatchId = this.requireDispatch(attempt);
     const reply = await this.query(
@@ -282,18 +519,38 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       resource.state === 'released' &&
       resource.releaseState === 'released' &&
       resource.terminalState === 'released';
+    // A worker-show reply never carries helper outcomes, so only a stop receipt can
+    // name the helpers this worker started. A parent release alone must never override
+    // that evidence: a helper kept open or unconfirmed still runs, so the stop stays
+    // fenced and unsettled.
+    const requestedStop = ['stop_pending', 'stop_unknown'].includes(attempt.state);
+    const helpersSettled =
+      !requestedStop ||
+      (released &&
+        (await this.helpersAffirmativelyStopped(
+          attempt,
+          readHelperEvidence(attempt, attempt.lastReceipt),
+        )));
+    const settled = released && helpersSettled;
+    // Anything less than parent plus helper release proof stays uncertain rather than
+    // repeating or guessing at the original cancellation. The stop receipt keeps the
+    // only proof of what is still running, so it is replaced only once the stop settles.
     return {
       ...attempt,
-      state: ['stop_pending', 'stop_unknown', 'stopped'].includes(attempt.state)
-        ? attempt.state
-        : failureCount >= 3
-          ? 'circuit_broken'
-          : released && value.worker.state === 'failed'
-            ? 'failed'
-            : attempt.state,
+      state: requestedStop
+        ? settled
+          ? 'stopped'
+          : 'stop_unknown'
+        : attempt.state === 'stopped'
+          ? 'stopped'
+          : failureCount >= 3
+            ? 'circuit_broken'
+            : released && value.worker.state === 'failed'
+              ? 'failed'
+              : attempt.state,
       failureCount,
-      resourceState: released ? 'stopped' : resource?.state === 'owned' ? 'owned' : 'unknown',
-      lastReceipt: reply.rawReceipt,
+      resourceState: settled ? 'stopped' : resource?.state === 'owned' ? 'owned' : 'unknown',
+      lastReceipt: requestedStop && !settled ? attempt.lastReceipt : reply.rawReceipt,
       observedAt: new Date().toISOString(),
     };
   }
@@ -319,6 +576,95 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
     return reply.rawReceipt;
   }
 
+  /** Fetch one full report pointer after a wake; never acknowledge or poll coordinator mail. */
+  async readReport(attempt: OrcaAttempt, messageId: string): Promise<OrcaWorkerDone> {
+    const dispatchId = this.requireDispatch(attempt);
+    const { runId, orcaTaskId } = attempt;
+    if (!runId || !orcaTaskId) {
+      throw new OrcaExecutionError(
+        'E_ORCA_IDENTITY',
+        'No complete report binding is stored.',
+        'Recover the original start receipt before ingesting a worker report.',
+      );
+    }
+    // shortcut: inspect the newest 200 Run messages; use exact lookup when Orca exposes it.
+    const source = await this.reportSource(
+      ['orchestration', 'inbox', '--terminal', `run:${runId}`, '--limit', '200'],
+      attempt,
+    );
+    const message = source.result.messages?.find((entry) => entry.id === messageId);
+    if (
+      !message ||
+      message.type !== 'worker_done' ||
+      message.delivery_contract !== 'current_delivery' ||
+      message.run_id !== runId ||
+      message.to_handle !== `run:${runId}` ||
+      !message.payload
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_SOURCE',
+        'No current worker_done matches that message id in the bounded Run inbox.',
+        'Use the exact worker_done id from the original Run; a wake or prose body is not a report.',
+      );
+    }
+    let payload: ReturnType<typeof orcaWorkerDonePayloadSchema.parse>;
+    try {
+      payload = orcaWorkerDonePayloadSchema.parse(JSON.parse(message.payload));
+    } catch {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_SOURCE',
+        'worker_done has no valid report-path payload.',
+        'Supply the original canonical report through worker_done --report-path.',
+      );
+    }
+    if (payload.taskId !== orcaTaskId || payload.dispatchId !== dispatchId) {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_IDENTITY',
+        'The report pointer does not match this exact Task and Dispatch.',
+        'Retain stale delivery as history; use the current worker record and its report-path.',
+      );
+    }
+    const current = await this.reportSource(
+      [
+        'orchestration',
+        'dispatch-show',
+        '--task',
+        orcaTaskId,
+        '--from',
+        attempt.context.coordinatorHandle,
+      ],
+      attempt,
+    );
+    const dispatch = current.result.dispatch;
+    if (
+      dispatch?.id !== dispatchId ||
+      dispatch.run_id !== runId ||
+      dispatch.task_id !== orcaTaskId ||
+      dispatch.status !== 'completed' ||
+      !(
+        message.from_handle === dispatch.assignee_handle ||
+        (message.sender_pane_key && message.sender_pane_key === dispatch.assignee_pane_key)
+      )
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_IDENTITY',
+        'The current Dispatch and its report sender are unproven or unsettled.',
+        'Inspect the exact current Dispatch; old, cancelled or superseded deliveries cannot settle this worker.',
+      );
+    }
+    return {
+      messageId,
+      runtimeId: attempt.context.runtimeId,
+      runId,
+      orcaTaskId,
+      dispatchId,
+      senderHandle: message.from_handle,
+      outcome: payload.outcome,
+      body: message.body,
+      reportPath: payload.reportPath,
+    };
+  }
+
   /** Request guarded cancellation; a closed terminal action alone is not exit proof. */
   async stop(attempt: OrcaAttempt): Promise<OrcaAttempt> {
     if (attempt.state !== 'stop_pending' || attempt.stopRequestId) {
@@ -328,27 +674,33 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         'Inspect stop_unknown with worker-show; do not blindly repeat a stop.',
       );
     }
-    return this.stopCommand(attempt);
+    // The reserved key makes the first send idempotent, so a lost reply reuses it.
+    return this.stopCommand(attempt, attempt.stopRequestKey);
   }
 
-  /** Recover an issued cancellation without sending an unkeyed second stop. */
+  /**
+   * Recover a reserved or issued cancellation without sending an unkeyed second stop.
+   * @remarks A completed key replays Orca's recorded outcome, which cannot reflect a
+   * helper that finished after the original stop; `show` reconciles those helpers.
+   */
   async replayStop(attempt: OrcaAttempt): Promise<OrcaAttempt> {
     this.requireDispatch(attempt);
-    if (attempt.state !== 'stop_unknown' || !attempt.stopRequestId) {
+    const requestId = attempt.stopRequestKey ?? attempt.stopRequestId;
+    if (!['stop_pending', 'stop_unknown'].includes(attempt.state) || !requestId) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
         'No replayable uncertain stop request is retained.',
         'Inspect the exact Dispatch and original stop receipt; never repeat an unkeyed stop.',
       );
     }
-    await this.verifyRequest(attempt, attempt.stopRequestId);
-    return this.stopCommand(attempt, attempt.stopRequestId);
+    await this.verifyRequest(attempt, requestId);
+    return this.stopCommand(attempt, requestId);
   }
 
   private async stopCommand(attempt: OrcaAttempt, requestId?: string): Promise<OrcaAttempt> {
     const dispatchId = this.requireDispatch(attempt);
     try {
-      await this.verifyRuntime(attempt.launch.projectRoot, attempt.context);
+      const capabilities = await this.verifyRuntime(attempt.launch.projectRoot, attempt.context);
       const result = await this.invoke(
         [
           'orchestration',
@@ -360,6 +712,12 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         attempt.launch.projectRoot,
       );
       const value = result.result;
+      // An omitted helper list is affirmative only when this runtime enumerates the
+      // helper tree; otherwise helpers could still run and the stop stays unknown.
+      const helpersStopped =
+        value?.helpers !== undefined
+          ? value.helpers.every((helper) => SETTLED_HELPER_OUTCOMES.has(helper.outcome))
+          : capabilities.includes(HELPER_STOP_CAPABILITY);
       const confirmed =
         result.ok &&
         result._meta?.runtimeId === attempt.context.runtimeId &&
@@ -367,7 +725,7 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         value.state === 'stopped' &&
         value.processAction === 'closed_agent_terminal' &&
         !value.helperStopError &&
-        value.helpers?.every((helper) => ['stopped', 'already_finished'].includes(helper.outcome));
+        helpersStopped;
       return {
         ...attempt,
         state: confirmed ? 'stopped' : 'stop_unknown',
@@ -376,6 +734,12 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
           (result._meta?.runtimeId === attempt.context.runtimeId
             ? (result.error?.data?.orchestrationRequestId ?? null)
             : null),
+        // Record that this runtime enumerated helpers, so an omitted list in its reply
+        // is latent affirmative evidence rather than an unknown helper tree. Only a
+        // proven stopped parent from this exact runtime, Dispatch and request can prove
+        // it cannot start a new helper after this reply.
+        stopHelperEvidence:
+          confirmed && value?.helpers === undefined ? 'enumerated' : attempt.stopHelperEvidence,
         resourceState: confirmed ? 'stopped' : 'unknown',
         lastReceipt: result.rawReceipt,
         lastError: result.error?.message ?? value?.lastError ?? null,
@@ -453,6 +817,38 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         launch.projectRoot,
         binding.orcaTaskId ? undefined : launch.prompt,
       );
+      if (
+        !reply.ok &&
+        reply.error?.code === 'agent_unconfigured' &&
+        reply._meta?.runtimeId === attempt.context.runtimeId &&
+        !binding.orcaTaskId &&
+        !binding.retryOf &&
+        !reply.error.data?.dispatchId &&
+        !reply.result?.dispatchId &&
+        !reply.result?.taskId &&
+        !reply.result?.runId &&
+        !reply.result?.run &&
+        !reply.result?.failureCount &&
+        !reply.result?.residualResources?.length &&
+        (!reply.result?.effects?.length ||
+          reply.result.effects.every(
+            (effect) =>
+              effect.kind === 'worktree' &&
+              effect.action === 'reused' &&
+              effect.id === attempt.workspaceId,
+          ))
+      ) {
+        return {
+          ...attempt,
+          state: 'failed',
+          resourceState: 'stopped',
+          startRefusal: 'agent_unconfigured',
+          startRequestId: reply.error.data?.orchestrationRequestId ?? null,
+          lastReceipt: reply.rawReceipt,
+          lastError: 'agent_unconfigured',
+          observedAt: new Date().toISOString(),
+        };
+      }
       const value = reply.result;
       const workspace = value?.effects?.filter((effect) => effect.kind === 'worktree');
       const bound =
@@ -482,12 +878,27 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         else if (value.state === 'failed') state = 'failed';
       }
       const failureCount = Math.max(attempt.failureCount, value?.failureCount ?? 0);
+      const pending = reply.error?.data;
+      const recoveredDispatchId =
+        !reply.ok &&
+        reply.error?.code === 'operation_unknown' &&
+        reply._meta?.runtimeId === attempt.context.runtimeId &&
+        requestId &&
+        requestId === (attempt.startRequestKey ?? attempt.startRequestId) &&
+        pending?.requestId === requestId &&
+        pending.orchestrationRequestId === requestId &&
+        pending.dispatchId !== attempt.retryOf &&
+        (!attempt.dispatchId || attempt.dispatchId === pending.dispatchId)
+          ? pending.dispatchId
+          : null;
       return {
         ...attempt,
         state: failureCount >= 3 ? 'circuit_broken' : state,
         runId: bound ? (value.runId ?? value.run?.id ?? null) : attempt.runId,
         orcaTaskId: bound ? (value.taskId ?? null) : attempt.orcaTaskId,
-        dispatchId: bound ? (value.dispatchId ?? null) : attempt.dispatchId,
+        dispatchId: bound
+          ? (value.dispatchId ?? null)
+          : (recoveredDispatchId ?? attempt.dispatchId),
         startRequestId:
           attempt.startRequestKey ??
           attempt.startRequestId ??
@@ -517,6 +928,93 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
     }
   }
 
+  /**
+   * Decide whether current Orca evidence proves every helper stopped or finished.
+   * @remarks An absent receipt or an incomplete helper tree never settles; a
+   * listed helper is settled only by its own exact Dispatch showing an exited
+   * process. A completed stop key replays its recorded outcome, so unresolved
+   * helpers are re-read rather than replayed.
+   */
+  private async helpersAffirmativelyStopped(
+    attempt: OrcaAttempt,
+    evidence: HelperEvidence,
+  ): Promise<boolean> {
+    switch (evidence.kind) {
+      case 'settled':
+        return true;
+      case 'absent':
+        return false;
+      case 'empty':
+        // Only a stop reply from a runtime that proved it enumerates helpers turns an
+        // omitted list into affirmative "this worker started no helper" evidence.
+        return attempt.stopHelperEvidence === 'enumerated';
+      case 'unresolved': {
+        if (!evidence.reconcileable) return false;
+        for (const helperDispatchId of evidence.dispatchIds) {
+          if (!(await this.helperFinished(attempt, helperDispatchId))) return false;
+        }
+        return true;
+      }
+    }
+  }
+
+  /**
+   * Prove one helper Dispatch's process exited under this exact attempt's ancestry.
+   * @remarks A helper counts only when its own Dispatch is on this Run and runtime,
+   * its process exited, and its creator chain reaches this attempt's Dispatch. An
+   * unrelated helper in the same Run therefore never settles this stop.
+   */
+  private async helperFinished(attempt: OrcaAttempt, helperDispatchId: string): Promise<boolean> {
+    const observation = await this.exactWorkerObservation(attempt, helperDispatchId);
+    if (
+      !observation ||
+      observation.observation?.exactWorker !== true ||
+      observation.observation.status !== 'exited'
+    ) {
+      return false;
+    }
+    return this.descendsFromAttempt(attempt, observation.dispatch?.creatorDispatchId ?? null);
+  }
+
+  /** Walk the bounded creator chain of a helper back to this attempt's Dispatch. */
+  private async descendsFromAttempt(
+    attempt: OrcaAttempt,
+    creatorDispatchId: string | null,
+  ): Promise<boolean> {
+    let creator = creatorDispatchId;
+    for (let hop = 0; hop < HELPER_ANCESTRY_LIMIT; hop += 1) {
+      if (creator === attempt.dispatchId) return true;
+      if (!creator) return false;
+      const parent = await this.exactWorkerObservation(attempt, creator);
+      creator = parent?.dispatch?.creatorDispatchId ?? null;
+    }
+    return false;
+  }
+
+  /** Read one exact worker observation, refusing any other Dispatch, Run or epoch. */
+  private async exactWorkerObservation(
+    attempt: OrcaAttempt,
+    dispatchId: string,
+  ): Promise<OrcaReply['result'] | null> {
+    const reply = await this.query(
+      ['orchestration', 'worker-show', '--dispatch', dispatchId],
+      attempt.launch.projectRoot,
+      attempt.context,
+    ).catch(() => null);
+    const value = reply?.result;
+    if (
+      !value?.dispatch ||
+      !value.worker ||
+      value.dispatch.id !== dispatchId ||
+      value.dispatch.runId !== attempt.runId ||
+      value.worker.dispatchId !== dispatchId ||
+      value.worker.runtimeEpoch !== attempt.context.runtimeId
+    ) {
+      return null;
+    }
+    return value;
+  }
+
   private async verifyRequest(attempt: OrcaAttempt, requestId: string): Promise<void> {
     await this.verifyRuntime(attempt.launch.projectRoot, attempt.context);
     const receipt = await this.query(
@@ -524,11 +1022,10 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       attempt.launch.projectRoot,
       attempt.context,
     );
-    // Reserved retries keep their key and --retry-of; Orca atomically refuses a second successor even if its receipt was pruned.
-    const states =
-      attempt.state === 'outcome_unknown' && requestId === attempt.startRequestKey
-        ? ['pending', 'completed', 'absent']
-        : ['pending', 'completed'];
+    // Reserved keys keep their identity; Orca atomically refuses a second mutation
+    // even if its receipt was pruned, so an absent receipt is never proof of absence.
+    const reserved = requestId === attempt.startRequestKey || requestId === attempt.stopRequestKey;
+    const states = reserved ? ['pending', 'completed', 'absent'] : ['pending', 'completed'];
     if (receipt.result?.requestId !== requestId || !states.includes(receipt.result.state ?? '')) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
@@ -553,7 +1050,7 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
     cwd: string,
     context: OrcaContext,
     modelRequested = false,
-  ): Promise<void> {
+  ): Promise<string[]> {
     const reply = await this.query(['status'], cwd, context);
     const runtime = reply.result?.runtime;
     if (
@@ -570,6 +1067,30 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         'Inspect Orca status and retain unresolved attempts; explicitly reconcile their original runtime before relaunch.',
       );
     }
+    return runtime.capabilities;
+  }
+
+  private async reportSource(
+    args: string[],
+    attempt: OrcaAttempt,
+  ): Promise<ReturnType<typeof orcaReportSourceSchema.parse>> {
+    const reply = await this.runner(
+      this.executable,
+      [...args, '--environment', 'local', '--json', '--full'],
+      attempt.launch.projectRoot,
+    );
+    try {
+      const source = orcaReportSourceSchema.parse(JSON.parse(reply.stdout));
+      if (reply.exitCode === 0 && source._meta.runtimeId === attempt.context.runtimeId)
+        return source;
+    } catch {
+      // Malformed output is never converted into a report or lifecycle observation.
+    }
+    throw new OrcaExecutionError(
+      'E_ORCA_REPORT_SOURCE',
+      'Orca returned no verified report source.',
+      'Inspect the original runtime and full Run inbox; retain the worker record.',
+    );
   }
 
   private async query(

@@ -30,16 +30,24 @@
  * @task T14359
  */
 
+import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { AgentSuiteOwnership } from '@cleocode/contracts';
-import { type OrcaAttempt, orcaAttemptSchema } from '@cleocode/contracts/orca-execution.js';
+import {
+  type OrcaAttempt,
+  type OrcaWorkerReport,
+  orcaAttemptSchema,
+  orcaWorkerReportSchema,
+} from '@cleocode/contracts/orca-execution.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { generateAgentId } from '../agents/registry.js';
 import { hooks } from '../hooks/registry.js';
 import { getLogger } from '../logger.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { tasksAgentInstances } from '../store/schema/cleo-project/runtime.js';
+import { tasksTasks } from '../store/schema/cleo-project/tasks-core.js';
 import { getDb } from '../store/sqlite.js';
+import { claimFromColumns, isLiveClaim } from '../store/task-claim.js';
 
 /**
  * A fresh adapter instance id, assigned before spawn so the record and the
@@ -85,10 +93,12 @@ export interface WorkerRecord {
   stoppedAt: string | null;
   /** External execution custody; a nullable PID never settles this attempt. */
   execution?: OrcaAttempt;
+  /** Canonical report settlement, independent of acceptance and resource release. */
+  report?: OrcaWorkerReport;
 }
 
 /** Input for {@link recordWorker}: a {@link WorkerRecord} before it is stored. */
-export type NewWorkerRecord = Omit<WorkerRecord, 'recordId' | 'startedAt' | 'stoppedAt'>;
+export type NewWorkerRecord = Omit<WorkerRecord, 'recordId' | 'startedAt' | 'stoppedAt' | 'report'>;
 
 /** Metadata keys stored in `agent_instances.metadata_json` for a worker. */
 interface WorkerMetadata {
@@ -101,6 +111,7 @@ interface WorkerMetadata {
   worktree: string;
   leadMailbox: string | null;
   execution?: OrcaAttempt;
+  report?: OrcaWorkerReport;
 }
 
 /** Parse a worker row's metadata; null for any non-worker agent instance. */
@@ -120,6 +131,7 @@ function parseWorkerMetadata(row: AgentInstanceRow): WorkerMetadata | null {
     return null;
   // Invalid external custody must fail a read, never disappear from the census.
   if (meta.execution !== undefined) meta.execution = orcaAttemptSchema.parse(meta.execution);
+  if (meta.report !== undefined) meta.report = orcaWorkerReportSchema.parse(meta.report);
   return meta as WorkerMetadata;
 }
 
@@ -139,6 +151,7 @@ function toWorkerRecord(row: AgentInstanceRow, meta: WorkerMetadata): WorkerReco
     startedAt: row.startedAt,
     stoppedAt: row.stoppedAt,
     ...(meta.execution ? { execution: meta.execution } : {}),
+    ...(meta.report ? { report: meta.report } : {}),
   };
 }
 
@@ -200,6 +213,7 @@ export async function recordWorker(
       next.startRequestKey === previous.startRequestKey ||
       next.startRequestKey === previous.startRequestId ||
       next.startRequestId !== null ||
+      next.stopRequestKey !== undefined ||
       next.stopRequestId !== null ||
       next.retryOf !== previous.dispatchId ||
       next.runId !== previous.runId ||
@@ -316,12 +330,14 @@ export async function updateWorkerExecution(
     expected.workspaceSelector !== next.workspaceSelector ||
     next.failureCount < expected.failureCount ||
     expected.retryOf !== next.retryOf ||
+    (expected.startRefusal !== undefined && expected.startRefusal !== next.startRefusal) ||
     JSON.stringify(expected.startBinding) !== JSON.stringify(next.startBinding) ||
     expected.startRequestKey !== next.startRequestKey ||
     (expected.startRequestKey !== undefined &&
       next.startRequestId !== null &&
       next.startRequestId !== expected.startRequestKey) ||
     (expected.startRequestId !== null && next.startRequestId !== expected.startRequestId) ||
+    (expected.stopRequestKey !== undefined && next.stopRequestKey !== expected.stopRequestKey) ||
     (expected.stopRequestId !== null && next.stopRequestId !== expected.stopRequestId) ||
     (expected.runId !== null && next.runId !== expected.runId) ||
     (expected.orcaTaskId !== null && next.orcaTaskId !== expected.orcaTaskId) ||
@@ -356,7 +372,150 @@ export async function updateWorkerExecution(
     // @sync-invariant none:local-only only one caller may reserve an external execution mutation
     throw new Error('Worker execution reservation lost; no new operation is authorized.');
   }
-  return { ...record, execution: next };
+  return toWorkerRecord(row, { ...meta, execution: next });
+}
+
+/**
+ * Persist one validated logical report on its exact worker without releasing custody.
+ * @param record - Current worker and expected execution revision.
+ * @param report - Original report bytes, transport identity and validated manifest link.
+ * @param cwd - Owning project root.
+ * @returns The stored record; identical duplicate reports retain the first receipt.
+ * @throws When identity, content or a concurrent custody change conflicts.
+ * @remarks Uses the existing local-only worker metadata transaction; no acceptance or resource hook is emitted.
+ * @example
+ * ```ts
+ * const settled = await recordWorkerReport(record, validatedReport, projectRoot);
+ * ```
+ */
+export async function recordWorkerReport(
+  record: WorkerRecord,
+  report: OrcaWorkerReport,
+  cwd: string,
+): Promise<WorkerRecord> {
+  const receipt = orcaWorkerReportSchema.parse(report);
+  const execution = record.execution;
+  if (
+    !execution ||
+    receipt.event.runtimeId !== execution.context.runtimeId ||
+    receipt.event.runId !== execution.runId ||
+    receipt.event.orcaTaskId !== execution.orcaTaskId ||
+    receipt.event.dispatchId !== execution.dispatchId ||
+    receipt.reportDigest !== createHash('sha256').update(receipt.reportText).digest('hex')
+  ) {
+    // @sync-invariant none:local-only a report cannot change its exact worker identity or original bytes
+    throw new Error('Worker report identity or digest does not match its record.');
+  }
+  const db = await getDb(cwd);
+  return db.transaction((tx) => {
+    const row = tx
+      .select()
+      .from(tasksAgentInstances)
+      .where(eq(tasksAgentInstances.id, record.recordId))
+      .get();
+    const meta = row ? parseWorkerMetadata(row) : null;
+    if (
+      !row ||
+      !meta ||
+      row.stoppedAt !== null ||
+      JSON.stringify(meta.execution) !== JSON.stringify(execution)
+    ) {
+      // @sync-invariant none:local-only retired or concurrently changed custody cannot receive a stale report
+      throw new Error('Worker execution changed; reload the exact record before report ingestion.');
+    }
+    if (meta.report) {
+      if (
+        meta.report.reportDigest !== receipt.reportDigest ||
+        meta.report.manifestId !== receipt.manifestId ||
+        meta.report.manifestDigest !== receipt.manifestDigest
+      ) {
+        // @sync-invariant none:local-only a second delivery cannot replace the settled logical report
+        throw new Error('A different worker report is already settled for this Dispatch.');
+      }
+      return toWorkerRecord(row, meta);
+    }
+    const task = tx.select().from(tasksTasks).where(eq(tasksTasks.id, record.taskId)).get();
+    const claim = task ? claimFromColumns(task) : undefined;
+    if (
+      !isLiveClaim(claim) ||
+      claim?.sessionId !== record.sessionId ||
+      claim?.agentId !== record.agentId
+    ) {
+      // @sync-invariant none:local-only report settlement must still own the exact claim at commit time
+      throw new Error('Worker task claim changed before report settlement.');
+    }
+    const metadata = { ...meta, report: receipt };
+    const updated = tx
+      .update(tasksAgentInstances)
+      .set({ metadataJson: JSON.stringify(metadata) })
+      .where(
+        and(
+          eq(tasksAgentInstances.id, record.recordId),
+          eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+          isNull(tasksAgentInstances.stoppedAt),
+        ),
+      )
+      .run();
+    if (Number(updated.changes) !== 1) {
+      // @sync-invariant none:local-only report settlement has one winner and never changes task or resource state
+      throw new Error('Worker report settlement lost; reload the exact record.');
+    }
+    return toWorkerRecord(row, metadata);
+  });
+}
+
+/**
+ * Retire a confirmed `agent_unconfigured` refusal that created no Dispatch.
+ * @remarks This releases no task, session or filesystem resource and emits no exit hook.
+ * @param record - Exact persisted refusal, after recording its unusable route.
+ * @param cwd - Owning project root.
+ * @returns The archived pre-dispatch attempt, still readable for audit.
+ */
+export async function retireUnconfiguredOrcaWorker(
+  record: WorkerRecord,
+  cwd: string,
+): Promise<WorkerRecord> {
+  const execution = record.execution;
+  if (
+    execution?.startRefusal !== 'agent_unconfigured' ||
+    execution.state !== 'failed' ||
+    execution.resourceState !== 'stopped' ||
+    execution.dispatchId !== null ||
+    execution.orcaTaskId !== null ||
+    execution.retryOf !== null ||
+    execution.failureCount !== 0
+  ) {
+    // @sync-invariant none:local-only only a confirmed pre-dispatch route refusal can be retired without exit proof
+    throw new Error('Cannot retire an unresolved or dispatched Orca attempt.');
+  }
+  const db = await getDb(cwd);
+  const row = db
+    .select()
+    .from(tasksAgentInstances)
+    .where(eq(tasksAgentInstances.id, record.recordId))
+    .get();
+  const meta = row ? parseWorkerMetadata(row) : null;
+  if (!row || !meta || JSON.stringify(meta.execution) !== JSON.stringify(execution)) {
+    // @sync-invariant none:local-only stale refusal receipts cannot retire newer custody
+    throw new Error('Orca refusal changed; reload its exact record.');
+  }
+  const stoppedAt = new Date().toISOString();
+  const result = db
+    .update(tasksAgentInstances)
+    .set({ stoppedAt, status: 'stopped' })
+    .where(
+      and(
+        eq(tasksAgentInstances.id, record.recordId),
+        eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+        isNull(tasksAgentInstances.stoppedAt),
+      ),
+    )
+    .run();
+  if (Number(result.changes) !== 1) {
+    // @sync-invariant none:local-only one caller owns retirement of a confirmed refusal
+    throw new Error('Orca refusal retirement lost; no replacement is authorized.');
+  }
+  return { ...record, stoppedAt };
 }
 
 /**

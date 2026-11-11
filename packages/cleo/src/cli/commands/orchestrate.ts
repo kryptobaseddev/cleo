@@ -22,6 +22,7 @@
  *   cleo orchestrate spawn-execute <taskId> — adapter-registry spawn
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
  *   cleo orchestrate worker-exit          — worker completion signal (SessionEnd hook)
+ *   cleo orchestrate worker <action> <recordId> — inspect/recover an exact Orca attempt
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
  *   cleo orchestrate lead <epicId> [--detached] — the no-hands lead (orchestrate.leadWorker.v1, T14363)
  *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
@@ -771,7 +772,10 @@ const handoffCommand = defineCommand({
 const spawnExecuteCommand = defineCommand({
   meta: { name: 'spawn-execute', description: 'Execute spawn for a task via the adapter registry' },
   args: {
-    adapter: { type: 'string', description: 'Spawn adapter id (default: first capable adapter)' },
+    adapter: {
+      type: 'string',
+      description: 'Explicit harness (default: verified Orca rotation, otherwise native selection)',
+    },
     taskId: {
       type: 'positional',
       description: 'Task ID to execute spawn for',
@@ -839,6 +843,54 @@ const workerExitCommand = defineCommand({
       : { sessionId: process.env.CLEO_SESSION_ID };
     const data = await markWorkerExited(target, status, getProjectRoot());
     cliOutput({ success: true, data }, { command: 'orchestrate worker-exit' });
+  },
+});
+
+/** Thin supervision dispatch; core reloads and fences the exact saved Orca attempt. */
+const workerCommand = defineCommand({
+  meta: { name: 'worker', description: 'Inspect or recover an exact recorded Orca worker' },
+  args: {
+    action: {
+      type: 'positional',
+      description: 'show | read | recover-start | recover-stop | retry | stop | ingest-report',
+      required: true,
+    },
+    recordId: {
+      type: 'positional',
+      description: 'Exact worker recordId from status',
+      required: true,
+    },
+    cursor: { type: 'string', description: 'Source-pinned worker-read cursor (read only)' },
+    'message-id': { type: 'string', description: 'Exact worker_done id (ingest-report only)' },
+  },
+  async run({ args }) {
+    const { orcaWorkerRequestSchema } = await import('@cleocode/contracts/orca-execution.js');
+    const parsed = orcaWorkerRequestSchema.safeParse({ ...args, messageId: args['message-id'] });
+    if (!parsed.success) {
+      cliError(parsed.error.message, 'E_INVALID_INPUT', {
+        fix: 'Use cleo orchestrate worker --help.',
+      });
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+      return;
+    }
+    const [{ OrcaExecutionBackend }, { orchestrateOrcaWorker }] = await Promise.all([
+      import('@cleocode/adapters/orca-execution'),
+      import('@cleocode/core/orchestrate/orca-execution'),
+    ]);
+    const result = await orchestrateOrcaWorker(
+      parsed.data,
+      getProjectRoot(),
+      new OrcaExecutionBackend(),
+    );
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, {
+        fix: result.error.fix,
+        details: result.error.details,
+      });
+      process.exitCode = result.error.exitCode ?? ExitCode.SPAWN_VALIDATION_FAILED;
+      return;
+    }
+    cliOutput(result.data, { command: 'orchestrate worker' });
   },
 });
 
@@ -1077,8 +1129,10 @@ const leadCommand = defineCommand({
   },
   async run({ args }) {
     const { orchestrateLead } = await import('@cleocode/core/orchestrate/lead');
+    const { OrcaExecutionBackend } = await import('@cleocode/adapters/orca-execution');
     const result = await orchestrateLead(args.epicId, {
       projectRoot: getProjectRoot(),
+      orca: new OrcaExecutionBackend(),
       mode: args.detached === true ? 'detached' : 'interactive',
       ...(args.adapter !== undefined ? { adapterId: args.adapter } : {}),
     });
@@ -1146,6 +1200,7 @@ export const orchestrateCommand = defineCommand({
     'spawn-execute': spawnExecuteCommand,
     fanout: fanoutCommand,
     'worker-exit': workerExitCommand,
+    worker: workerCommand,
     prune: pruneCommand,
     'worktree-complete': worktreeCompleteCommand,
     // T935: HITL playbook approval gates

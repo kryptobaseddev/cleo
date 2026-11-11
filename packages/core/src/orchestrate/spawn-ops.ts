@@ -72,13 +72,16 @@ import type {
   SpawnWorkerSession,
   WorktreeHook,
 } from '@cleocode/contracts';
+import type { OrcaRoutingAdapter } from '@cleocode/contracts/orca-execution.js';
 import {
   RESOURCE_DEFERRED_CODE,
   RESOURCE_EXTERNAL_PRESSURE_CODE,
 } from '@cleocode/contracts/resource-governor.js';
+import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import {
   acquireWorktreeTaskLock,
   destroyWorktree,
+  disposeOwnedWorktree,
   isWorktreeLockedError,
   releaseWorktreeTaskLock,
   runWorktreeHooks,
@@ -86,10 +89,13 @@ import {
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
 import { type EngineResult, engineError } from '../engine-result.js';
+import { CleoError } from '../errors.js';
+import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { selectHarnessSpawnProvider } from '../harness/spawn-provider-selection.js';
 import type { HarnessSpawnCapability } from '../harness/types.js';
 import { hooks } from '../hooks/registry.js';
 import { getLogger } from '../logger.js';
+import type { HarnessHint } from '../orchestration/harness-hint.js';
 import type { SpawnPayload } from '../orchestration/spawn.js';
 import { composeSpawnPayload } from '../orchestration/spawn.js';
 import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
@@ -227,21 +233,32 @@ export interface TimeoutCleanupResult {
   branchDeleted: boolean;
   /** Captured error message when cleanup failed or exceeded its own budget. */
   error?: string;
+  /**
+   * Set when cleanup was skipped because the worktree or its task lock is no
+   * longer the one this spawn created: a newer spawn owns it (T14483).
+   */
+  notOwned?: boolean;
   /** Milliseconds the cleanup pass took. */
   elapsedMs: number;
 }
 
 /**
- * Best-effort, bounded cleanup of a partially-provisioned worktree after the
- * spawn supervisor fires. Idempotent: re-running against an absent worktree
- * returns `worktreeRemoved: true` without erroring. Wrapped in its own
- * `setTimeout` so cleanup itself can never wedge the timeout envelope.
+ * The worktree and per-task lock one spawn created, which
+ * {@link runTimeoutCleanup} may remove (T14483).
  *
- * @param projectRoot - Absolute path to the project root.
- * @param taskId      - Task ID whose worktree is being cleaned up.
- * @returns Structured cleanup outcome (never throws).
- * @task T9545
+ * @task T14483
  */
+export interface OwnedSpawnWorktree {
+  /** Absolute path of the worktree this spawn freshly created. */
+  worktreePath: string;
+  /** Branch this spawn created the worktree on. */
+  branch: string;
+  /** Project hash scoping the per-task lock. */
+  projectHash: string;
+  /** Token of the per-task lock acquisition this spawn holds. */
+  lockToken: string;
+}
+
 /**
  * Map a {@link SpawnResult} status onto the `SubagentStop` payload vocabulary.
  *
@@ -299,13 +316,63 @@ function failedProvisionCleanup(err: unknown): Omit<TimeoutCleanupResult, 'elaps
   };
 }
 
+/**
+ * Best-effort, bounded cleanup of a partially-provisioned worktree after the
+ * spawn supervisor fires. Idempotent: re-running against an absent worktree
+ * returns `worktreeRemoved: true` without erroring. Wrapped in its own
+ * `setTimeout` so cleanup itself can never wedge the timeout envelope.
+ *
+ * With `owned`, removal goes through `disposeOwnedWorktree`: nothing is
+ * removed unless, under the task lock's mutex, the lock still carries the
+ * token this spawn acquired and the task's checkout is the exact path and
+ * branch this spawn created (T14483). After a supervisor timeout or a session
+ * abandonment a newer spawn of the same task may have reclaimed the lock and
+ * now owns that checkout. The branch is kept.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId      - Task ID whose worktree is being cleaned up.
+ * @param owned       - The exact worktree path and lock token this spawn created.
+ * @returns Structured cleanup outcome (never throws).
+ * @task T9545
+ * @task T14483
+ */
 export async function runTimeoutCleanup(
   projectRoot: string,
   taskId: string,
+  owned?: OwnedSpawnWorktree,
 ): Promise<TimeoutCleanupResult> {
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined;
   try {
+    if (owned) {
+      // T14483: token, canonical path, branch and removal are all checked
+      // under the task lock's mutex, so a re-spawn never loses its worktree.
+      const disposed = disposeOwnedWorktree({
+        projectHash: owned.projectHash,
+        taskId,
+        worktreePath: owned.worktreePath,
+        branch: owned.branch,
+        lockToken: owned.lockToken,
+        projectRoot,
+        reason: 'spawn-timeout-cleanup',
+        force: true,
+      });
+      return disposed.outcome === 'removed'
+        ? {
+            attempted: true,
+            worktreeRemoved: true,
+            branchDeleted: false,
+            elapsedMs: Date.now() - startedAt,
+          }
+        : {
+            attempted: false,
+            worktreeRemoved: false,
+            branchDeleted: false,
+            notOwned: true,
+            error: `Cleanup skipped: ${disposed.reason}; nothing was removed`,
+            elapsedMs: Date.now() - startedAt,
+          };
+    }
     const result = await Promise.race<TimeoutCleanupResult>([
       destroyWorktree(projectRoot, {
         taskId,
@@ -599,6 +666,8 @@ export async function composeSpawnForTask(
     coordinatorSessionId?: string | null;
     role?: AgentSpawnCapability;
     protocol?: string;
+    /** Portable prompt composition when execution may rotate harnesses. */
+    harnessHint?: HarnessHint;
     skipAtomicityCheck?: boolean;
     /** Pre-provisioned worktree path — emits Worktree Setup section (T1140). */
     worktreePath?: string;
@@ -660,6 +729,7 @@ export async function composeSpawnForTask(
       coordinatorSessionId: options.coordinatorSessionId,
       role: inferredRole,
       protocol: options.protocol,
+      harnessHint: options.harnessHint,
       pipelineStageSource: await getTaskPipelineStageSource(task, accessor),
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
@@ -723,6 +793,10 @@ export async function orchestrateSpawnSelectProvider(
  * @task T9548
  */
 export interface OrchestrateSpawnExecuteOpts {
+  /** Host execution port supplied by product dispatch; absence preserves native SDK behavior. */
+  orca?: OrcaRoutingAdapter;
+  /** Exact account constraints refuse on Orca; its public launch API cannot enforce them. */
+  accountId?: string;
   /**
    * When `true` (default), auto-invoke {@link completeWorktreeForTask} after
    * a successful worker spawn returns. Idempotent — re-running on an already
@@ -815,6 +889,8 @@ export interface LeadSpawnOptions {
  * (`git merge --no-ff` per ADR-062) back into the project default branch
  * and pruned. The behaviour is idempotent and can be disabled by passing
  * `autoComplete: false` in {@link OrchestrateSpawnExecuteOpts}.
+ * A supplied Orca port selects supervised execution only after local context
+ * verification; those launches retain custody and never integrate at spawn.
  *
  * @param taskId - Task to spawn.
  * @param adapterId - Optional adapter id to use. Auto-selects if not provided.
@@ -885,20 +961,33 @@ export async function orchestrateSpawnExecute(
       'validate-readiness',
     ).finally(() => clearTimeout(custodyTimer));
     if (external) return orcaCustodyRefusal(external);
+    // A lead's own restricted launch remains native; its worker dispatches use this port.
+    const orca = opts.lead === undefined ? await opts.orca?.discover(cwd) : null;
+    if (orca && opts.accountId !== undefined) {
+      // @sync-invariant none:input-shape unsupported account placement cannot silently become the host's active account
+      return engineError(
+        'E_ORCA_ACCOUNT_UNSUPPORTED',
+        'Exact per-worker account placement is unavailable.',
+        {
+          exitCode: 63,
+          fix: 'Omit the account constraint to use Orca’s active account for an agent in orchestrate.orca.agents.',
+        },
+      );
+    }
     // Get spawn registry
-    await initializeDefaultAdapters();
+    if (!orca) await initializeDefaultAdapters();
 
     // Find adapter
     let adapter: CLEOSpawnAdapter | undefined;
-    if (adapterId) {
+    if (!orca && adapterId) {
       adapter = spawnRegistry.get(adapterId);
-    } else {
+    } else if (!orca) {
       // Auto-select first capable adapter
       const capable = await spawnRegistry.listSpawnCapable();
       adapter = capable[0];
     }
 
-    if (!adapter) {
+    if (!orca && !adapter) {
       return {
         success: false,
         error: {
@@ -912,7 +1001,7 @@ export async function orchestrateSpawnExecute(
 
     // Verify provider supports subagents using providerSupportsById
     const { providerSupportsById } = await import('@cleocode/caamp');
-    if (!providerSupportsById(adapter.providerId, 'spawn.supportsSubagents')) {
+    if (adapter && !providerSupportsById(adapter.providerId, 'spawn.supportsSubagents')) {
       return {
         success: false,
         error: {
@@ -964,6 +1053,7 @@ export async function orchestrateSpawnExecute(
       workerSession,
       coordinatorSessionId,
       protocol: protocolType,
+      ...(orca ? { harnessHint: 'generic' as const } : {}),
       ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
       // T14363 — a lead is told it is one: the ct-lead excerpt and dispatch rules load.
       ...(opts.lead !== undefined ? { role: 'lead' as const } : {}),
@@ -991,9 +1081,11 @@ export async function orchestrateSpawnExecute(
     // Build CLEO spawn context from core spawn payload
     const { getSpawnCapableProviders } = await import('@cleocode/caamp');
     const providers = getSpawnCapableProviders();
-    const provider = providers.find((p: { id: string }) => p.id === adapter.providerId);
+    const provider = adapter
+      ? providers.find((p: { id: string }) => p.id === adapter.providerId)
+      : undefined;
 
-    if (!provider) {
+    if (adapter && !provider) {
       return {
         success: false,
         error: {
@@ -1069,7 +1161,7 @@ export async function orchestrateSpawnExecute(
       opts.lead !== undefined
         ? ({ kind: 'lead' } as const)
         : await resolveIsolation(provisionWorktree, {
-            failClosed: leadWorkerV1 || opts.baseRef !== undefined,
+            failClosed: Boolean(orca) || leadWorkerV1 || opts.baseRef !== undefined,
           });
     if (isolationResolution.kind === 'isolated') {
       const { worktreeResult, isolation } = isolationResolution.result;
@@ -1086,6 +1178,7 @@ export async function orchestrateSpawnExecute(
         workerSession,
         coordinatorSessionId,
         protocol: protocolType,
+        ...(orca ? { harnessHint: 'generic' as const } : {}),
         worktreePath: worktreeResult.path,
         worktreeBranch: worktreeResult.branch,
         ...(opts.leadMailbox ? { leadMailbox: opts.leadMailbox } : {}),
@@ -1124,6 +1217,14 @@ export async function orchestrateSpawnExecute(
           fix: `Check that '${opts.baseRef}' resolves to a commit and that no worktree or branch for ${taskId} exists on another base.`,
         });
       }
+      if (orca) {
+        // @sync-invariant none:local-only a verified Orca context requires canonical isolation even with leadWorker.v1 off
+        return engineError(code, message, {
+          exitCode: 63,
+          details: { taskId, isolation: 'refused', ...cleanupDetails },
+          fix: `Repair canonical worktree provisioning for ${taskId}; the Orca backend requires its exact task checkout and lock.`,
+        });
+      }
       // T14358: orchestrate.leadWorker.v1 is on — no agent runs in the project root.
       // @sync-invariant none:local-only fail-closed isolation refuses; the finally hands the claim back
       return engineError(code, message, {
@@ -1151,6 +1252,122 @@ export async function orchestrateSpawnExecute(
     const rawPrompt = opts.lead?.promptAppendix
       ? `${composedPrompt}\n\n${opts.lead.promptAppendix}`
       : composedPrompt;
+    if (orca && opts.orca) {
+      const identity = readDeclaredProjectIdentity(cwd);
+      if (!identity || !execLock || isolationResolution.kind !== 'isolated') {
+        // @sync-invariant none:local-only Orca never creates another checkout or launches without canonical custody
+        return engineError(
+          'E_ORCA_WORKSPACE',
+          'The canonical CLEO project, worktree or lock is unproven.',
+          {
+            exitCode: 63,
+            fix: 'Repair the declared CLEO project identity and canonical task worktree before retrying this dispatch.',
+          },
+        );
+      }
+      try {
+        const { launchRoutedOrcaWorker } = await import('./orca-routing.js');
+        const record = await launchRoutedOrcaWorker(
+          {
+            projectId: identity.projectId,
+            projectRoot: cwd,
+            taskId,
+            workerSessionId: activeSessionId,
+            agentId: spawnAgentId,
+            role: 'worker',
+            protocol: protocolType ?? payload.meta.protocol,
+            worktreePath: agentWorkingDirectory,
+            worktreeBranch: isolationResolution.result.worktreeResult.branch,
+            projectHash: execLock.projectHash,
+            lockToken: execLock.token,
+            prompt: rawPrompt,
+            leadMailbox: (await resolveLeadMailbox(cwd, opts.leadMailbox)) ?? null,
+          },
+          orca,
+          opts.orca,
+          adapterId,
+        );
+        const execution = record.execution;
+        // @sync-invariant none:local-only admission requires the persisted external binding
+        if (!execution) throw new Error('The Orca worker has no durable execution binding.');
+        if (!['ready', 'turn_unobserved'].includes(execution.state)) {
+          // @sync-invariant none:local-only uncertain launch receipts retain their exact worker record and task claim
+          return engineError('E_ORCA_ATTEMPT_FENCED', `Orca launch remains ${execution.state}.`, {
+            exitCode: 63,
+            details: {
+              recordId: record.recordId,
+              state: execution.state,
+              dispatchId: execution.dispatchId,
+            },
+            fix: `Inspect cleo orchestrate worker show ${record.recordId}; recover its original issued request before dispatching another editor.`,
+          });
+        }
+        return {
+          success: true,
+          data: {
+            backend: 'orca',
+            instanceId: record.instanceId,
+            recordId: record.recordId,
+            status: execution.state === 'ready' ? 'running' : 'pending',
+            providerId: record.provider,
+            taskId,
+            agentId: spawnAgentId,
+            persona: payload.agentId,
+            role: payload.role,
+            tier: tier ?? null,
+            atomicity: payload.atomicity,
+            execution: {
+              runtimeId: execution.context.runtimeId,
+              runId: execution.runId,
+              orcaTaskId: execution.orcaTaskId,
+              dispatchId: execution.dispatchId,
+              workspaceId: execution.workspaceId,
+              state: execution.state,
+            },
+            meta: {
+              ...payload.meta,
+              autoComplete: { ran: false, reason: 'Orca launch is not worker completion' },
+            },
+          },
+        };
+      } catch (error) {
+        const retained = await findOrcaWorker(taskId, cwd);
+        if (retained) {
+          // @sync-invariant none:local-only every post-launch refusal must retain exact recovery addressing
+          return engineError(
+            'E_ORCA_ATTEMPT_FENCED',
+            error instanceof Error ? error.message : String(error),
+            {
+              exitCode: 63,
+              details: {
+                recordId: retained.recordId,
+                state: retained.execution?.state,
+                dispatchId: retained.execution?.dispatchId,
+              },
+              fix: `Inspect cleo orchestrate worker show ${retained.recordId}; preserve its claim and worktree while reconciling the original Run.`,
+            },
+          );
+        }
+        if (error instanceof CleoError) {
+          // @sync-invariant none:local-only routing refusals preserve the repair instruction and release only proven unsent custody
+          return engineError(error.toLAFSError().code, error.message, {
+            exitCode: error.code,
+            fix: error.fix,
+            details: error.details,
+          });
+        }
+        throw error;
+      } finally {
+        // A failure after persistence cannot release custody, even if receipt storage threw.
+        dispatched = true;
+        keepExecLock = true;
+        const retained = await findOrcaWorker(taskId, cwd);
+        dispatched = retained !== null;
+        keepExecLock = dispatched;
+      }
+    }
+    // @sync-invariant none:local-only native execution requires its previously selected provider and adapter
+    if (!adapter || !provider) throw new Error('The native spawn adapter is unavailable.');
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: payload.taskId,
       protocol: protocolType || payload.meta.protocol,
@@ -1433,6 +1650,11 @@ export async function orchestrateSpawnExecute(
   } catch (error) {
     // T14359 — the spawn threw, so the pre-spawn record's worker never ran.
     if (pendingWorker) await abandonWorkerRecord(pendingWorker, cwd).catch(() => undefined);
+    // T14490 — a thrown CleoError keeps its own code name, exit code and fix.
+    // The custody read opens the store before adapter preflight, so a store
+    // refusal (E_STORE_RESTORING, E_WORKTREE_BUILD_SCHEMA) reaches this catch:
+    // it must not collapse to E_SPAWN_FAILED with its fix dropped.
+    if (error instanceof CleoError) return cleoErrorToEngineResult(error);
     // T14363 — keep a coded refusal's own code (e.g. E_LEAD_TOOLS_UNSTRIPPED).
     const coded = codedError(error);
     // @sync-invariant none:local-only the spawn threw before an agent ran; the finally hands the claim back
@@ -1609,12 +1831,31 @@ export async function orchestrateSpawn(
     // Run bounded cleanup ONLY when a worktree was actually provisioned —
     // skip otherwise so we don't churn against absent state. destroyWorktree
     // is idempotent (returns worktreeRemoved=true when the path is already
-    // gone) so repeated invocations are safe. T14407: `spawnLock` is still
-    // held here (released in `finally`), so no re-spawn can own the worktree.
+    // gone) so repeated invocations are safe.
+    // T14483: `spawnLock` may no longer be ours. A session abandonment or a
+    // lock reclaim may have handed the task to a newer spawn while this one
+    // was stuck, so only the exact worktree, branch and lock token this spawn
+    // created are removed, checked under the lock (disposeOwnedWorktree).
     let cleanup: TimeoutCleanupResult | undefined;
     if (partialState.worktreePath && partialState.rootResolved) {
       try {
-        cleanup = await runTimeoutCleanup(partialState.rootResolved, taskId);
+        cleanup =
+          spawnLock && partialState.worktreeBranch
+            ? await runTimeoutCleanup(partialState.rootResolved, taskId, {
+                worktreePath: partialState.worktreePath,
+                branch: partialState.worktreeBranch,
+                projectHash: spawnLock.projectHash,
+                lockToken: spawnLock.token,
+              })
+            : {
+                attempted: false,
+                worktreeRemoved: false,
+                branchDeleted: false,
+                notOwned: true,
+                error:
+                  'Cleanup skipped: this spawn holds no task lock token or branch; nothing was removed',
+                elapsedMs: 0,
+              };
         spawnLogger.info({ taskId, cleanup }, 'T9545 auto-cleanup completed after spawn timeout');
       } catch (cleanupErr) {
         // runTimeoutCleanup never throws, but guard anyway so the envelope
@@ -1641,8 +1882,9 @@ export async function orchestrateSpawn(
           partial,
           ...(cleanup ? { cleanup } : {}),
         },
-        fix:
-          cleanup && !cleanup.worktreeRemoved
+        fix: cleanup?.notOwned
+          ? `Nothing was removed: the worktree for ${taskId} may belong to a newer spawn. Check \`cleo worktree list\` before retrying.`
+          : cleanup && !cleanup.worktreeRemoved
             ? 'Auto-cleanup did not remove the worktree — run `cleo worktree prune --taskId <id>` to force-remove the orphan, then retry the spawn.'
             : 'Auto-cleanup removed the partial worktree — safe to retry the spawn directly.',
       },
@@ -2158,6 +2400,11 @@ export async function orchestrateSpawn(
       },
     };
   } catch (err: unknown) {
+    // T14490 — a thrown CleoError keeps its own code name, exit code and fix.
+    // The custody read opens the store before any pipeline step, so a store
+    // refusal (E_STORE_RESTORING, E_WORKTREE_BUILD_SCHEMA) reaches this catch:
+    // it must not surface as a bare numeric code with its fix dropped.
+    if (err instanceof CleoError) return cleoErrorToEngineResult(err);
     const code = (err as { code?: string }).code ?? 'E_GENERAL';
     // T9545 — when our budget supervisor aborts a step, the helper throws
     // an Error with `code === 'E_TIMEOUT'`. Surface a structured envelope

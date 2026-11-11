@@ -194,6 +194,7 @@ function markerRefusal(dbPath: string, marker: RestoreMarker | 'unreadable' | nu
       ExitCode.LOCK_TIMEOUT,
       `E_STORE_GENESIS: ${dbPath} is being snapshotted for a sync genesis checkpoint (${who}); its writes are paused until the snapshot finishes`,
       {
+        codeName: 'E_STORE_GENESIS',
         fix: `run the command again once the genesis cut finishes. If none is running, remove ${dbPath}${RESTORE_MARKER_SUFFIX}`,
       },
     );
@@ -203,6 +204,9 @@ function markerRefusal(dbPath: string, marker: RestoreMarker | 'unreadable' | nu
     ExitCode.LOCK_TIMEOUT,
     `E_STORE_RESTORING: ${dbPath} is being replaced by a restore (${who}); opening it now could corrupt the restored store`,
     {
+      // T14490: the refusal keeps its own name; LOCK_TIMEOUT alone would
+      // surface every caller's envelope as the generic lock timeout.
+      codeName: 'E_STORE_RESTORING',
       fix: `wait for the restore to finish and run the command again. If no restore is running, remove ${dbPath}${RESTORE_MARKER_SUFFIX}`,
     },
   );

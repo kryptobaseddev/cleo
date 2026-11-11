@@ -80,6 +80,25 @@ describe('cleoErrorToEngineResult (T9940 — canonical engine-error wrapper)', (
         expect(result.error.exitCode).toBe(ExitCode.INVALID_INPUT);
       }
     });
+
+    it('prefers a refusal codeName over the exit class LAFS code (T14490)', () => {
+      // A store refusal shares LOCK_TIMEOUT with every other lock timeout; its
+      // own name is what an operator and an agent branch on.
+      const err = new CleoError(
+        ExitCode.LOCK_TIMEOUT,
+        'E_STORE_RESTORING: the store is being replaced by a restore',
+        { codeName: 'E_STORE_RESTORING', fix: 'wait for the restore to finish, then retry' },
+      );
+      const result = cleoErrorToEngineResult(err);
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('E_STORE_RESTORING');
+        expect(result.error.code).not.toBe(err.toLAFSError().code);
+        expect(result.error.exitCode).toBe(ExitCode.LOCK_TIMEOUT);
+        expect(result.error.fix).toBe('wait for the restore to finish, then retry');
+      }
+    });
   });
 
   describe('AC2 — non-CleoError values fall through to fallback', () => {

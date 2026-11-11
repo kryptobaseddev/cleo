@@ -2,17 +2,69 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.9.0
+  version: 4.15.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-11-10
+    - packages/core/src/orchestrate/orca-routing.ts
+    - packages/core/src/orchestrate/spawn-ops.ts
+  lastReviewed: 2026-11-11
   stability: stable
 ---
 
 # Orchestrator Protocol
+
+Worker execution (`spawn-execute`, fanout and lead-dispatched workers) selects
+Orca automatically when the local runtime proves the session's coordinator
+handle. Outside Orca, native execution is unchanged; `TERM_PROGRAM` alone is
+insufficient. Partial or unavailable Orca contexts refuse with a repair instruction.
+`orchestrate.orca.agents` orders rotation (default: codex, opencode2, claude).
+Only providers with an active account or system sign-in are eligible; explicit
+Grok uses its server sign-in. Inspect `orca account list --json` locally; keep
+emails, account homes and other private inventory out of reports. Project rotation
+advances only after a confirmed start receipt. Confirmed `agent_unconfigured`
+exclusions apply to the coordinator's current Run; `orca orchestration run-current`
+proves rebinding and clears the old exclusions. Enable the agent, then use
+`orca orchestration run-create --from <coordinator> --objective <new-goal>` to bind
+a fresh Run. Before a Run exists, exclusions last only for that dispatch invocation.
+Fanout serializes Orca admissions so followers use the first proven Run; workers
+still execute concurrently. An unknown first start fences further unbound starts.
+Unknown launch outcomes retain their exact record ID and custody and never
+advance rotation or select another harness.
+Exact per-account placement refuses. A lead's own restricted launch remains
+native, including inside Orca; supplying the host port does not select Orca
+for a lead or require its account inventory. An explicit Orca lead launch
+through adapter preflight/start refuses before any account/process query:
+its public APIs cannot carry the tool/permission argv, strict MCP configuration
+or owner channel/session binding. Keep `orchestrate.leadWorker.v1` enabled
+and use the native Claude lead, with validated user-scope mbx for detached mode.
+Prompt instructions or `--model` are insufficient evidence of restricted launch.
+
+For a retained Orca attempt, copy its exact `workers[].recordId` from
+`cleo orchestrate status`. Use `cleo orchestrate worker show <recordId>` for
+its observation and `cleo orchestrate worker read <recordId>` for one output
+page; pass only that page's source-pinned `--cursor` to continue. Retired
+predecessors remain readable; every other action requires an open record. After a CLI
+restart, `cleo orchestrate worker recover-start <recordId>` or
+`cleo orchestrate worker recover-stop <recordId>` replays the saved operation.
+`cleo orchestrate worker stop <recordId>` requests a guarded stop;
+`cleo orchestrate worker retry <recordId>` requires a confirmed resource-free
+failure or stop and respects the original circuit breaker. Unknown outcomes
+retain the claim and checkout; no command completes or integrates the task.
+
+After a `worker_done` wake, ingest its exact message with
+`cleo orchestrate worker ingest-report <recordId> --message-id <messageId>`.
+The worker must supply `--report-path` to a file inside its assigned checkout
+containing the original <=100-word CLEO report, including manifest, conclusion,
+blocker and proof. Orca's three-sentence body remains transport text. Ingestion
+checks the original runtime, Run, current Task/Dispatch, sender, CLEO claim and
+manifest; failed, stale or invalid delivery refuses. Repeated delivery retains
+the first report on the worker record, including after CLI restart. This settles
+only the report: acceptance, independent review, evidence and physical resource
+release remain separate. AgentMBX relay and provider-handle resource reconciliation
+are not implemented by this ingress command.
 
 ## Trustworthy project knowledge
 
@@ -175,6 +227,8 @@ then `full`. At `off` the block is omitted, so set the level before spawning, no
 The spawn provisions the worker's worktree, and its `pnpm install` is admitted through the heavy queue or deferred to the worker; the envelope's `install.status` says which. `cleo orchestrate spawn T1586 --no-install` provisions without installing, and the envelope names the command the worker runs instead (T13524).
 
 To start a worker from its dependencies' work, `cleo orchestrate spawn T1586 --base task/T1585` creates the task branch from that ref (branch, tag or sha) instead of HEAD; everything else (lock, session, guards) matches a normal spawn. The ref is resolved to a commit first and must exist (`E_WORKTREE_BASE_INVALID`), the primary checkout never moves, and the sha is recorded as `baseSha` in `.cleo/audit/worktree-lifecycle.jsonl`. An existing worktree or branch for the task with another base is refused with `E_WORKTREE_BASE_MISMATCH` and left untouched (T14027). `cleo orchestrate spawn-execute T1586 --base task/T1585` takes the same flag; a provisioning failure under `--base` refuses the spawn instead of running the agent in the project root (T14046). `--include-deps` (T14045) starts the branch from a `--no-ff` merge of each dependency's `task/<id>` branch onto the base (HEAD, or `--base`), built in a temporary worktree under the canonical worktree root: the primary checkout never moves, a dependency with no branch (`E_INCLUDE_DEPS_MISSING`) or one that does not merge cleanly (`E_INCLUDE_DEPS_DIVERGED`) refuses the spawn, and the base and dependency shas are recorded in `.cleo/audit/worktree-integration.jsonl`.
+
+A spawn refused before an agent runs keeps the refusal's own code, message and `fix` on both `spawn` and `spawn-execute`. That includes a store refusal raised while the custody read opens the project store: `E_STORE_RESTORING` while another process replaces it, or `E_WORKTREE_BUILD_SCHEMA` when the worktree build would migrate a store it does not own. Report those codes verbatim and follow the `fix`; they are never a generic spawn failure (T14490).
 
 ### Step 2: Execute (Provider-Specific)
 

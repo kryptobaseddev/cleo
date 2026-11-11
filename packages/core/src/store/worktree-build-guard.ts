@@ -292,6 +292,9 @@ export function schemaWritesAllowed(nativeDb: DatabaseSync): boolean {
 export class WorktreeBuildSchemaError extends CleoError {
   constructor(message: string) {
     super(ExitCode.CONFIG_ERROR, `${E_WORKTREE_BUILD_SCHEMA}: ${message}`, {
+      // T14490: CONFIG_ERROR alone would surface this refusal in every caller's
+      // envelope as the generic config error; keep its own name.
+      codeName: E_WORKTREE_BUILD_SCHEMA,
       fix:
         'Use the released `cleo` for this store, run the build against a store inside its own ' +
         `worktree, or set ${ALLOW_WORKTREE_BUILD_MIGRATIONS_ENV}=1 to accept the schema change.`,

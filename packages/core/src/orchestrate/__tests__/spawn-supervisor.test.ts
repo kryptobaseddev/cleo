@@ -20,10 +20,18 @@
  */
 
 import { ISOLATION_ENV_KEYS } from '@cleocode/contracts/branch-lock.js';
+import type { EngineResult } from '@cleocode/contracts/engine-result.js';
 import type { OrchestrateSpawnResult } from '@cleocode/contracts/operations/orchestrate.js';
 import type { Task } from '@cleocode/contracts/task.js';
+import type { DisposeOwnedWorktreeOptions, disposeOwnedWorktree } from '@cleocode/worktree';
 import { describe, expect, it, vi } from 'vitest';
+import { CleoError } from '../../errors.js';
 import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
+import { assertStoreNotRestoring } from '../../store/restore-marker.js';
+import {
+  E_WORKTREE_BUILD_SCHEMA,
+  WorktreeBuildSchemaError,
+} from '../../store/worktree-build-guard.js';
 import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
 import type { WorkerRecord } from '../worker-records.js';
 
@@ -42,6 +50,21 @@ const execFileMock = vi.fn();
 const existsSyncMock = vi.fn();
 const acquireWorktreeTaskLockMock = vi.fn();
 const releaseWorktreeTaskLockMock = vi.fn();
+/**
+ * T14483: the task lock's current token. The `disposeOwnedWorktree` stand-in
+ * removes only while the caller's token still holds the lock, as the real one
+ * does under the lock's mutex (covered in the worktree package).
+ */
+let currentLockToken: string | undefined;
+const disposeOwnedWorktreeMock = vi.fn<typeof disposeOwnedWorktree>((opts) =>
+  opts.lockToken === currentLockToken
+    ? { outcome: 'removed', reason: 'removed', lockReleased: true }
+    : {
+        outcome: 'kept',
+        reason: 'worktree kept: the lock is held by another token',
+        lockReleased: false,
+      },
+);
 const endSessionMock = vi.fn(async (..._args: unknown[]) => null);
 const findOrcaWorkerMock = vi.fn<(taskId: string, cwd: string) => Promise<WorkerRecord | null>>(
   async () => null,
@@ -72,6 +95,7 @@ vi.mock('@cleocode/worktree', async () => {
     destroyWorktree: (...args: unknown[]) => destroyWorktreeMock(...args),
     acquireWorktreeTaskLock: (...args: unknown[]) => acquireWorktreeTaskLockMock(...args),
     releaseWorktreeTaskLock: (...args: unknown[]) => releaseWorktreeTaskLockMock(...args),
+    disposeOwnedWorktree: (opts: DisposeOwnedWorktreeOptions) => disposeOwnedWorktreeMock(opts),
   };
 });
 
@@ -153,11 +177,25 @@ vi.mock('../../resources/governor.js', async () => {
   return {
     ...actual,
     takeAgentSessionLease: async () => ({ lease: null, reused: false }),
+    // T14490: orchestrateSpawnExecute takes its own agent-session slot directly
+    // before the custody read. Admission is not under test — the slot is granted
+    // so a store-refusal case reaches the catch it targets.
+    governor: {
+      tryAcquire: async () => ({
+        deferred: false,
+        class: 'agent-session',
+        slot: 0,
+        acquiredAtMs: Date.now(),
+        release: async () => undefined,
+      }),
+    },
   };
 });
 
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.
-const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
+const { orchestrateSpawn, orchestrateSpawnExecute, runLintChangesets } = await import(
+  '../spawn-ops.js'
+);
 
 // ---------------------------------------------------------------------------
 // runLintChangesets — T10448 pre-spawn hygiene gate
@@ -464,7 +502,11 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
       envVars: {},
       preamble: '',
       appliedExcludePatterns: [],
+      lock: { status: 'acquired', lockPath: '/x.lock', record: { token: 'tok-timeout' } },
     });
+    // T14483: the spawn still holds the lock it created the worktree under.
+    currentLockToken = 'tok-timeout';
+    disposeOwnedWorktreeMock.mockClear();
 
     // T13510: the pre-provision atomicity check composes first and passes.
     composeSpawnPayloadMock.mockResolvedValueOnce({
@@ -485,15 +527,6 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
       throw err;
     });
 
-    destroyWorktreeMock.mockResolvedValueOnce({
-      taskId: 'T9999',
-      worktreeRemoved: true,
-      branchDeleted: true,
-      dirty: false,
-      force: true,
-      hookResults: [],
-    });
-
     const result = await orchestrateSpawn('T9999');
 
     expect(result.success).toBe(false);
@@ -512,12 +545,18 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
     expect(details.cleanup).toBeDefined();
     expect(details.cleanup?.attempted).toBe(true);
     expect(details.cleanup?.worktreeRemoved).toBe(true);
-    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
-    expect(destroyWorktreeMock).toHaveBeenCalledWith('/tmp/cleo-spawn-test-root', {
+    // T14483: the exact path, branch and token this spawn created, never by task id.
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    expect(disposeOwnedWorktreeMock).toHaveBeenCalledTimes(1);
+    expect(disposeOwnedWorktreeMock).toHaveBeenCalledWith({
+      projectHash: 'deadbeef',
       taskId: 'T9999',
-      deleteBranch: true,
-      force: true,
+      worktreePath: '/tmp/wt/T9999',
+      branch: 'task/T9999',
+      lockToken: 'tok-timeout',
+      projectRoot: '/tmp/cleo-spawn-test-root',
       reason: 'spawn-timeout-cleanup',
+      force: true,
     });
   });
 });
@@ -571,6 +610,8 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     ]) {
       m.mockReset();
     }
+    disposeOwnedWorktreeMock.mockClear();
+    currentLockToken = 'tok-1';
     getTaskAccessorMock.mockResolvedValue(stubAccessor());
     getActiveSessionMock.mockResolvedValue({ id: 'sess-1' });
     validateSpawnReadinessMock.mockResolvedValue({ ready: true, issues: [] });
@@ -724,6 +765,38 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     );
   });
 
+  it('a late timeout after a re-spawn took the task lock removes nothing (T14483)', async () => {
+    reset();
+    // This spawn created the worktree under lock tok-1, then stalled.
+    spawnWorktreeMock.mockResolvedValue(wtResult());
+    composeSpawnPayloadMock.mockResolvedValueOnce({
+      ...atomicityRefusal,
+      atomicity: { allowed: true },
+    });
+    composeSpawnPayloadMock.mockImplementationOnce(() => {
+      throw Object.assign(new Error(`E_TIMEOUT: step 'compose-prompt' aborted`), {
+        code: 'E_TIMEOUT',
+      });
+    });
+    // Meanwhile its session was abandoned and a newer spawn re-spawned the
+    // task: it holds the lock (tok-2) and works in the same checkout.
+    currentLockToken = 'tok-2';
+
+    const result = await orchestrateSpawn('T9999');
+
+    expect(result.error?.code).toBe('E_TIMEOUT');
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    expect(disposeOwnedWorktreeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreePath: '/tmp/wt/T9999', lockToken: 'tok-1' }),
+    );
+    expect(result.error?.details).toMatchObject({
+      cleanup: { attempted: false, worktreeRemoved: false, notOwned: true },
+    });
+    // Only its own token is released, which leaves the re-spawn's lock alone.
+    expect(releaseWorktreeTaskLockMock).toHaveBeenCalledWith('deadbeef', 'T9999', 'tok-1');
+    expect(releaseWorktreeTaskLockMock).toHaveBeenCalledTimes(1);
+  });
+
   it('T14126: a --resume packet carries every isolation variable its prompt exports', async () => {
     reset();
     composeSpawnPayloadMock.mockImplementation(
@@ -820,5 +893,76 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     expect(result.error?.code).toBe('E_WORKTREE_LOCKED');
     expect(result.error?.exitCode).toBe(25);
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Store refusals reach the spawn envelope (T14490)
+// ---------------------------------------------------------------------------
+
+describe('store refusals keep their own code and fix (T14490)', () => {
+  /**
+   * The real `E_STORE_RESTORING` refusal a store open raises while another
+   * process replaces it (T13258). The fs mock reports the marker present and
+   * the marker file is unreadable, which {@link assertStoreNotRestoring} treats
+   * as held — the refusal keeps its own message and fix.
+   */
+  const storeRestoringRefusal = (): CleoError => {
+    existsSyncMock.mockReturnValue(true);
+    try {
+      assertStoreNotRestoring('/tmp/cleo-spawn-test-root/.cleo/cleo.db', 0);
+    } catch (err) {
+      if (!(err instanceof CleoError)) throw err;
+      return err;
+    } finally {
+      existsSyncMock.mockReset();
+    }
+    throw new Error('assertStoreNotRestoring did not refuse');
+  };
+
+  /** Both store refusals the custody read can raise before adapter preflight. */
+  const storeRefusals = (): Array<{ codeName: string; refusal: CleoError }> => [
+    { codeName: 'E_STORE_RESTORING', refusal: storeRestoringRefusal() },
+    {
+      codeName: E_WORKTREE_BUILD_SCHEMA,
+      refusal: new WorktreeBuildSchemaError(
+        'the store is missing pending migration 20260929000000_slice-2-union-shape',
+      ),
+    },
+  ];
+
+  /**
+   * Assert the envelope carries the refusal's own code name, message, exit
+   * code and fix — never the generic catalog code, `E_SPAWN_FAILED` or
+   * `E_GENERAL`.
+   */
+  const expectStoreRefusal = (result: EngineResult, refusal: CleoError, codeName: string): void => {
+    expect(result.success, codeName).toBe(false);
+    if (result.success) return;
+    expect(result.error.code, codeName).toBe(codeName);
+    expect(result.error.code, codeName).not.toBe('E_SPAWN_FAILED');
+    expect(result.error.code, codeName).not.toBe('E_GENERAL');
+    expect(result.error.code, codeName).not.toBe(refusal.toLAFSError().code);
+    expect(result.error.exitCode, codeName).toBe(refusal.code);
+    expect(result.error.message, codeName).toBe(refusal.message);
+    expect(result.error.message, codeName).toContain(codeName);
+    expect(result.error.fix, codeName).toBe(refusal.fix);
+    expect(result.error.fix, codeName).toBeTruthy();
+  };
+
+  it('orchestrateSpawn returns the custody read store refusal (AC1)', async () => {
+    for (const { codeName, refusal } of storeRefusals()) {
+      findOrcaWorkerMock.mockRejectedValueOnce(refusal);
+      const result = await orchestrateSpawn('T9999');
+      expectStoreRefusal(result, refusal, codeName);
+    }
+  });
+
+  it('orchestrateSpawnExecute returns the custody read store refusal (AC1)', async () => {
+    for (const { codeName, refusal } of storeRefusals()) {
+      findOrcaWorkerMock.mockRejectedValueOnce(refusal);
+      const result = await orchestrateSpawnExecute('T9999');
+      expectStoreRefusal(result, refusal, codeName);
+    }
   });
 });
