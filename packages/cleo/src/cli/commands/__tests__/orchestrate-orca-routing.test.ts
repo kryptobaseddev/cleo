@@ -20,6 +20,7 @@ import { hooks } from '../../../../../core/src/hooks/registry.js';
 import { orchestrateSpawnExecute } from '../../../../../core/src/orchestrate/spawn-ops.js';
 import { listWorkerRecords } from '../../../../../core/src/orchestrate/worker-records.js';
 import { buildSpawnPrompt } from '../../../../../core/src/orchestration/spawn-prompt.js';
+import { governor } from '../../../../../core/src/resources/governor.js';
 import {
   createTestDb,
   seedTasks,
@@ -172,6 +173,19 @@ describe('Orca AC1 routing across product worker entry points', () => {
     state = 'ready';
     disabled.clear();
     nativeSpawn.mockClear();
+    // Routing fixtures have no agents; admission must not depend on the CI host's CPU count.
+    const acquire = governor.tryAcquire.bind(governor);
+    vi.spyOn(governor, 'tryAcquire').mockImplementation(async (resourceClass, options) =>
+      resourceClass === 'agent-session'
+        ? {
+            deferred: false,
+            class: resourceClass,
+            slot: -1,
+            acquiredAtMs: Date.now(),
+            release: async () => undefined,
+          }
+        : acquire(resourceClass, options),
+    );
     provision.mockReset().mockImplementation(async (root, options) => {
       if (!options.holder) throw new Error('Missing allocated worker lock holder');
       const projectHash = computeProjectHash(root);
@@ -308,7 +322,10 @@ describe('Orca AC1 routing across product worker entry points', () => {
     const result = await new OrchestrateHandler().mutate('fanout', {
       items: ['T001', 'T002', 'T003'].map((taskId) => ({ taskId, team: 'engineering' })),
     });
-    expect(result).toMatchObject({ success: true, data: { spawned: 3, failed: 0 } });
+    expect(result, JSON.stringify(result)).toMatchObject({
+      success: true,
+      data: { spawned: 3, failed: 0 },
+    });
     expect(selectedAgents().sort()).toEqual(['claude', 'codex', 'opencode2']);
     expect(await spawn('T004')).toMatchObject({ success: true, data: { providerId: 'codex' } });
     expect(starts().at(-1)?.[1]).toContain('run_fixture');
@@ -490,5 +507,34 @@ describe('Orca AC1 routing across product worker entry points', () => {
     });
     expect(starts()).toHaveLength(0);
     expect(nativeSpawn).not.toHaveBeenCalled();
+  });
+
+  it('preserves an agent-session deferral in fanout before any Orca preparation or process call', async () => {
+    vi.mocked(governor.tryAcquire).mockResolvedValueOnce({
+      deferred: true,
+      class: 'agent-session',
+      retryAfterMs: 800,
+      reason: 'fixture agent-session budget exhausted',
+    });
+    const result = await new OrchestrateHandler().mutate('fanout', {
+      items: [{ taskId: 'T001', team: 'engineering' }],
+    });
+    expect(result).toMatchObject({
+      success: true,
+      data: {
+        spawned: 0,
+        failed: 1,
+        results: [
+          {
+            taskId: 'T001',
+            status: 'failed',
+            refusal: { code: 'E_RESOURCE_DEFERRED', exitCode: 75, details: { retryAfterMs: 800 } },
+          },
+        ],
+      },
+    });
+    expect(provision).not.toHaveBeenCalled();
+    expect(fixtureRunner).not.toHaveBeenCalled();
+    expect((await env.accessor.loadSingleTask('T001'))?.claim).toBeUndefined();
   });
 });
