@@ -17,8 +17,10 @@ import { randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  CreateWorktreeFailure,
   CreateWorktreeOptions,
   CreateWorktreeResult,
+  DestroyWorktreeResult,
   WorktreeHook,
   WorktreeInstallOutcome,
   WorktreeLockAcquisition,
@@ -52,8 +54,14 @@ import {
   addWorktreeToSentinelIndex,
   appendWorktreeAuditLog,
   readRecordedWorktreeBase,
+  removeWorktreeFromSentinelIndex,
 } from './worktree-audit.js';
-import { acquireWorktreeTaskLock, releaseWorktreeTaskLock } from './worktree-lock.js';
+import { disposeWorktree } from './worktree-dispose.js';
+import {
+  acquireWorktreeTaskLock,
+  readWorktreeTaskLock,
+  releaseWorktreeTaskLock,
+} from './worktree-lock.js';
 import { assertNoWorktreeConfigLeak, ensureWorktreeBuildReady } from './worktree-preflight.js';
 
 /**
@@ -442,7 +450,9 @@ export function buildWorktreeEnvVars(
  * @param projectRoot - Absolute path to the project root directory.
  * @param options - Options controlling the worktree creation.
  * @returns The created worktree result with env vars and preamble.
- * @throws Error if git worktree add fails.
+ * @throws Error if git worktree add fails. Every rethrown error carries
+ *   {@link CreateWorktreeFailure}: a worktree this call created is already
+ *   removed, under the per-task lock, and the outcome is in `cleanup` (T14407).
  *
  * @task T1161
  * @task T1878
@@ -509,15 +519,98 @@ export async function createWorktree(
   try {
     return await provisionUnderLock(projectRoot, options, ctx);
   } catch (err) {
-    releaseWorktreeTaskLock(projectHash, taskId, lock.record.token);
-    // T12506: tell callers whether THIS call created the worktree directory.
-    // Only then may they clean it up; any other failure left a pre-existing
-    // (possibly live) worktree that must never be destroyed.
-    if (err !== null && typeof err === 'object') {
-      Object.assign(err, { freshWorktreeCreated: ctx.freshWorktreeCreated });
+    // T12506: only a worktree THIS call created may go; any other failure left
+    // a pre-existing (possibly live) worktree that must never be destroyed.
+    // T14407: it is removed here, before the lock is released. Afterwards a
+    // concurrent re-spawn may own the path, so no caller may clean up.
+    const failure: CreateWorktreeFailure = { freshWorktreeCreated: ctx.freshWorktreeCreated };
+    if (ctx.freshWorktreeCreated) {
+      try {
+        failure.cleanup = removeFailedProvision(projectRoot, taskId, ctx);
+      } catch (cleanupErr) {
+        failure.cleanup = {
+          taskId,
+          worktreeRemoved: false,
+          branchDeleted: false,
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        };
+      }
     }
+    releaseWorktreeTaskLock(projectHash, taskId, lock.record.token);
+    if (err !== null && typeof err === 'object') Object.assign(err, failure);
     throw err;
   }
+}
+
+/**
+ * Remove the worktree a failed {@link createWorktree} call created (T14407).
+ *
+ * It removes exactly `ctx.worktreePath` and `ctx.branch`, never whatever
+ * checkout of the task git lists first, and only while `ctx.lock` still holds
+ * the task lock: a same-holder re-spawn that re-entered replaced the token and
+ * owns the worktree now, so it is kept. Synchronous on purpose: nothing in
+ * this process can re-enter between the token check and the removal, and
+ * another process cannot take a lock whose holder is alive.
+ *
+ * @internal
+ */
+function removeFailedProvision(
+  projectRoot: string,
+  taskId: string,
+  ctx: ProvisionContext,
+): DestroyWorktreeResult {
+  const { gitRoot, projectHash, worktreePath, branch, lock } = ctx;
+  const reason = 'failed-provision-cleanup';
+  const result: DestroyWorktreeResult = {
+    taskId,
+    worktreeRemoved: false,
+    branchDeleted: false,
+    force: true,
+  };
+  if (readWorktreeTaskLock(projectHash, taskId)?.token !== lock.record.token) {
+    result.error = `Worktree kept: the task lock passed to another acquisition, which owns ${worktreePath} now.`;
+  } else {
+    const disposal = disposeWorktree({
+      worktreePath,
+      gitRoot,
+      projectRoot,
+      taskId,
+      reason,
+      force: true,
+    });
+    if (disposal.archive) result.archive = disposal.archive;
+    if (disposal.kept) result.kept = disposal.kept;
+    result.dirty = disposal.unpreserved !== undefined;
+    if (!disposal.removed) {
+      result.error = `Worktree kept: ${disposal.keptReason ?? 'not proven preserved'}`;
+    } else {
+      result.worktreeRemoved = true;
+      gitSilent(['worktree', 'prune'], gitRoot);
+      try {
+        const exists = gitSync(['branch', '--list', branch], gitRoot).trim() !== '';
+        const unmerged = exists ? countUnmergedCommits(gitRoot, branch, ['HEAD']) : 0;
+        if (unmerged > 0) {
+          result.error = `Branch '${branch}' kept: ${unmerged} commit(s) are on neither origin/main nor HEAD.`;
+        } else if (exists) {
+          gitSync(['branch', '-D', branch], gitRoot);
+          result.branchDeleted = true;
+        }
+      } catch (err) {
+        result.error = `Failed to delete branch: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+  }
+  appendWorktreeAuditLog(projectRoot, {
+    action: 'destroy',
+    xdgPath: worktreePath,
+    taskId,
+    branch,
+    reason,
+    success: result.worktreeRemoved && result.error === undefined,
+    ...(result.error !== undefined ? { error: result.error } : {}),
+  });
+  if (result.worktreeRemoved) removeWorktreeFromSentinelIndex(gitRoot, taskId);
+  return result;
 }
 
 /** Resolved inputs shared by {@link createWorktree} and {@link provisionUnderLock}. */

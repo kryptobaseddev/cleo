@@ -65,6 +65,7 @@ import type {
   AgentSpawnCapability,
   CLEOSpawnAdapter,
   CLEOSpawnContext,
+  CreateWorktreeFailure,
   LeadDeniedTool,
   LeadMode,
   SpawnResult,
@@ -276,23 +277,26 @@ export function toSubagentStopStatus(
 }
 
 /**
- * Decide whether a failed `spawnWorktree` may be answered with
- * {@link runTimeoutCleanup} (T12506). Only a worktree the failing call itself
- * created (`freshWorktreeCreated === true`, set by `createWorktree`) is ours
- * to destroy; every other failure — including every lock error — is a
- * refusal that leaves the existing worktree untouched.
+ * The cleanup `createWorktree` already ran for a worktree its failed call
+ * freshly created (T12506). It runs there, while the per-task lock is still
+ * held: once the lock is released a concurrent re-spawn may own the path, so
+ * a failed provision is never cleaned up from here (T14407). Every other
+ * failure, including every lock error, carries none and left the existing
+ * worktree untouched.
  *
  * @param err - The error thrown by `spawnWorktree` / `createWorktree`.
- * @returns True only when cleanup is safe.
- * @task T12506
+ * @returns The cleanup outcome, or `undefined` when no worktree was created.
+ * @task T14407
  */
-export function shouldCleanUpFailedProvision(err: unknown): boolean {
-  if (isWorktreeLockedError(err)) return false;
-  return (
-    err !== null &&
-    typeof err === 'object' &&
-    (err as { freshWorktreeCreated?: unknown }).freshWorktreeCreated === true
-  );
+function failedProvisionCleanup(err: unknown): Omit<TimeoutCleanupResult, 'elapsedMs'> | undefined {
+  const cleanup = (err as Partial<CreateWorktreeFailure> | null)?.cleanup;
+  if (!cleanup) return undefined;
+  return {
+    attempted: true,
+    worktreeRemoved: cleanup.worktreeRemoved,
+    branchDeleted: cleanup.branchDeleted,
+    ...(cleanup.error !== undefined ? { error: cleanup.error } : {}),
+  };
 }
 
 export async function runTimeoutCleanup(
@@ -1107,11 +1111,9 @@ export async function orchestrateSpawnExecute(
           ? refusalCode
           : 'E_WORKTREE_PROVISION_FAILED';
       const message = wtErr instanceof Error ? wtErr.message : String(wtErr);
-      // T14396: like orchestrateSpawn, remove a worktree THIS call freshly
-      // created before refusing; any other failure leaves the worktree alone.
-      const cleanup = shouldCleanUpFailedProvision(wtErr)
-        ? await runTimeoutCleanup(cwd, taskId)
-        : undefined;
+      // T14396: like orchestrateSpawn, report the removal of a worktree THIS
+      // call freshly created; any other failure left the worktree alone.
+      const cleanup = failedProvisionCleanup(wtErr);
       const cleanupDetails = cleanup ? { cleanup } : {};
       // T14046: a bad --base ref or a worktree on another base. Running the
       // agent in the project root would ignore the base it was asked for.
@@ -1607,7 +1609,8 @@ export async function orchestrateSpawn(
     // Run bounded cleanup ONLY when a worktree was actually provisioned —
     // skip otherwise so we don't churn against absent state. destroyWorktree
     // is idempotent (returns worktreeRemoved=true when the path is already
-    // gone) so repeated invocations are safe.
+    // gone) so repeated invocations are safe. T14407: `spawnLock` is still
+    // held here (released in `finally`), so no re-spawn can own the worktree.
     let cleanup: TimeoutCleanupResult | undefined;
     if (partialState.worktreePath && partialState.rootResolved) {
       try {
@@ -1992,13 +1995,13 @@ export async function orchestrateSpawn(
           `T1878 worktree provisioning failed for ${taskId}: ${message}`,
         );
 
-        // T12506 — cleanup runs ONLY for a worktree THIS invocation freshly
-        // created (createWorktree flags it). Every other failure — a lock
-        // refusal, a lock I/O error, a dirty branch, an invalid path, a
-        // failure while re-attaching — left a pre-existing, possibly live
-        // worktree behind, and destroyWorktree(force, deleteBranch) would
-        // delete its holder's work.
-        if (!shouldCleanUpFailedProvision(wtErr)) {
+        // T12506 — only a worktree THIS invocation freshly created is removed,
+        // by createWorktree itself under the task lock (T14407). Every other
+        // failure — a lock refusal, a lock I/O error, a dirty branch, an
+        // invalid path, a failure while re-attaching — left a pre-existing,
+        // possibly live worktree behind that holds its holder's work.
+        const cleanup = failedProvisionCleanup(wtErr);
+        if (cleanup === undefined) {
           const refusalCode = (wtErr as { code?: unknown } | null)?.code;
           const code =
             typeof refusalCode === 'string' && refusalCode.startsWith('E_')
@@ -2019,21 +2022,10 @@ export async function orchestrateSpawn(
           });
         }
 
-        // T10078 — best-effort cleanup of any partially-provisioned worktree.
-        // If createWorktree partially succeeded (e.g. git worktree add ran but
-        // a later step failed), an orphan worktree + task branch would remain.
-        // destroyWorktree is idempotent — it safely no-ops when nothing exists.
-        let cleanupNote: string | undefined;
-        try {
-          const cleanupResult = await runTimeoutCleanup(root, taskId);
-          cleanupNote = cleanupResult.worktreeRemoved
-            ? 'Orphan worktree cleaned up'
-            : cleanupResult.error
-              ? `Cleanup attempted but may be incomplete: ${cleanupResult.error}`
-              : 'No orphan worktree found';
-        } catch {
-          cleanupNote = 'Cleanup attempt failed';
-        }
+        // T10078 — an orphan worktree + task branch would otherwise remain.
+        const cleanupNote = cleanup.worktreeRemoved
+          ? 'Orphan worktree cleaned up'
+          : `Cleanup attempted but may be incomplete: ${cleanup.error ?? 'worktree kept'}`;
 
         return engineError('E_WORKTREE_PROVISION_FAILED', message, {
           details: { taskId, cause: message, cleanup: cleanupNote },

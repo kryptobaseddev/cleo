@@ -2130,6 +2130,7 @@ export type {
 export type {
   AdoptWorktreeOpts,
   AdoptWorktreeResult,
+  CreateWorktreeFailure,
   CreateWorktreeOptions,
   CreateWorktreeResult,
   DestroyWorktreeOptions,
