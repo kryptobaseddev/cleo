@@ -878,9 +878,15 @@ const workerCommand = defineCommand({
       getProjectRoot(),
       new OrcaExecutionBackend(),
     );
-    cliOutput(result, { command: 'orchestrate worker' });
-    if (!result.success)
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, {
+        fix: result.error.fix,
+        details: result.error.details,
+      });
       process.exitCode = result.error.exitCode ?? ExitCode.SPAWN_VALIDATION_FAILED;
+      return;
+    }
+    cliOutput(result.data, { command: 'orchestrate worker' });
   },
 });
 

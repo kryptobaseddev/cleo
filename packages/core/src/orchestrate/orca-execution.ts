@@ -255,7 +255,8 @@ export async function retryOrcaWorker(
 
 /**
  * Read one archived or live output page.
- * @remarks Does not consume coordinator mail; callers retain the source-pinned cursor.
+ * @remarks Retired predecessors remain readable without changing custody.
+ * Does not consume coordinator mail; callers retain the source-pinned cursor.
  * @param recordId - Exact worker record id.
  * @param cwd - Owning CLEO project root.
  * @param backend - Process adapter for the recorded runtime.
@@ -272,7 +273,7 @@ export async function readOrcaWorker(
   backend: OrcaExecutionAdapter,
   cursor?: string,
 ): Promise<string> {
-  return backend.read(requireExecution(await loadOrcaWorker(recordId, cwd)), cursor);
+  return backend.read(requireExecution(await loadOrcaWorker(recordId, cwd, true)), cursor);
 }
 
 /**
@@ -424,15 +425,19 @@ export async function orchestrateOrcaWorker(
   }
 }
 
-async function loadOrcaWorker(recordId: string, cwd: string): Promise<WorkerRecord> {
+async function loadOrcaWorker(
+  recordId: string,
+  cwd: string,
+  includeRetired = false,
+): Promise<WorkerRecord> {
   const record = (await listWorkerRecords(cwd, true)).find(
     (candidate) => candidate.recordId === recordId,
   );
-  if (!record?.execution || record.stoppedAt !== null) {
-    // @sync-invariant none:local-only recovery requires an open durable external attempt
+  if (!record?.execution || (!includeRetired && record.stoppedAt !== null)) {
+    // @sync-invariant none:local-only only archived output reads may address a retired attempt
     throw new CleoError(
       ExitCode.SPAWN_VALIDATION_FAILED,
-      'No open Orca worker record matches that id.',
+      `No ${includeRetired ? '' : 'open '}Orca worker record matches that id.`,
       { fix: 'Inspect the existing worker records and use the exact record id.' },
     );
   }

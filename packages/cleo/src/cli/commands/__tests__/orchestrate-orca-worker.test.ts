@@ -31,13 +31,10 @@ import {
   type TestDbEnv,
 } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 
-const { cliOutput, cliError, project } = vi.hoisted(() => ({
-  cliOutput: vi.fn<typeof import('../../renderers/index.js').cliOutput>(),
-  cliError: vi.fn<typeof import('../../renderers/index.js').cliError>(),
+const { project } = vi.hoisted(() => ({
   project: { root: '' },
 }));
 
-vi.mock('../../renderers/index.js', () => ({ cliOutput, cliError }));
 vi.mock('@cleocode/core/project-scope', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@cleocode/core/project-scope')>()),
   getProjectRoot: () => project.root,
@@ -108,8 +105,6 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
       nextCursor: 'source-pinned-cursor',
     });
     fixtureRunner.mockReset().mockImplementation(runOrcaFixture);
-    cliOutput.mockClear();
-    cliError.mockClear();
     process.exitCode = 0;
   });
 
@@ -119,8 +114,18 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     vi.unstubAllEnvs();
   });
 
-  async function run(...args: string[]): Promise<void> {
-    await runCommand(orchestrateCommand, { rawArgs: ['worker', ...args] });
+  async function run(...args: string[]): Promise<string> {
+    let output = '';
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      output += String(chunk);
+      return true;
+    });
+    try {
+      await runCommand(orchestrateCommand, { rawArgs: ['worker', ...args] });
+      return output;
+    } finally {
+      write.mockRestore();
+    }
   }
 
   async function start() {
@@ -139,22 +144,16 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
   it('shows the stored dispatch and forwards a source-pinned read cursor without consuming mail', async () => {
     const record = await start();
     fixtureRunner.mockClear();
-    await run('show', record.recordId);
-    expect(cliOutput).toHaveBeenLastCalledWith(
-      {
-        success: true,
-        data: expect.objectContaining({
-          recordId: record.recordId,
-          execution: expect.objectContaining({ dispatchId: 'ctx_fixture' }),
-        }),
+    const shown = await run('show', record.recordId);
+    expect(JSON.parse(shown)).toMatchObject({
+      success: true,
+      data: {
+        recordId: record.recordId,
+        execution: { dispatchId: 'ctx_fixture' },
       },
-      { command: 'orchestrate worker' },
-    );
-    await run('read', record.recordId, '--cursor', 'source-pinned-cursor');
-    expect(cliOutput).toHaveBeenLastCalledWith(
-      { success: true, data: orcaFixture.read.stdout },
-      { command: 'orchestrate worker' },
-    );
+    });
+    const read = await run('read', record.recordId, '--cursor', 'source-pinned-cursor');
+    expect(JSON.parse(read)).toMatchObject({ success: true, data: orcaFixture.read.stdout });
     expect(fixtureRunner.mock.calls.map(([, args]) => args)).toEqual([
       [
         'orchestration',
@@ -240,18 +239,17 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     orcaFixture.start = { stdout: '', stderr: 'transport lost', exitCode: null };
     const record = await start();
     fixtureRunner.mockClear();
-    await run('recover-start', record.recordId);
-    expect(cliOutput).toHaveBeenLastCalledWith(
-      {
-        success: false,
-        error: expect.objectContaining({
-          fix: expect.stringContaining('absent receipt'),
-          details: { recordId: record.recordId, action: 'recover-start' },
-        }),
+    const output = await run('recover-start', record.recordId);
+    expect(JSON.parse(output)).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_CLEO_SPAWN_FAILED',
+        message: 'No recoverable start request is stored for this attempt.',
+        fix: expect.stringContaining('absent receipt'),
+        details: { recordId: record.recordId, action: 'recover-start' },
       },
-      { command: 'orchestrate worker' },
-    );
-    expect(process.exitCode).not.toBe(0);
+    });
+    expect(process.exitCode).toBe(63);
     expect(fixtureRunner).not.toHaveBeenCalled();
     await expectCustody();
   });
@@ -327,8 +325,12 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     fixtureRunner.mockClear();
     await run('stop', record.recordId);
     expect((await listWorkerRecords(env.tempDir))[0]?.execution?.state).toBe('stop_unknown');
-    await run('stop', record.recordId);
-    expect(process.exitCode).not.toBe(0);
+    const refused = await run('stop', record.recordId);
+    expect(JSON.parse(refused)).toMatchObject({
+      success: false,
+      error: { code: 'E_CLEO_SPAWN_FAILED', fix: expect.stringContaining('do not repeat') },
+    });
+    expect(process.exitCode).toBe(63);
     expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
       1,
     );
@@ -363,11 +365,17 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     const record = await start();
     orcaFixture.show = fixtureReleasedShow('ctx_fixture', 3);
     fixtureRunner.mockClear();
-    await run('retry', record.recordId);
-    expect(cliOutput).toHaveBeenLastCalledWith(
-      { success: false, error: expect.objectContaining({ fix: expect.any(String) }) },
-      { command: 'orchestrate worker' },
-    );
+    const output = await run('retry', record.recordId);
+    expect(JSON.parse(output)).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_CLEO_SPAWN_FAILED',
+        message:
+          'The predecessor has no confirmed resource-free failure or stop eligible for retry.',
+        fix: expect.stringContaining('Inspect its exact Dispatch'),
+      },
+    });
+    expect(process.exitCode).toBe(63);
     expect(fixtureRunner.mock.calls.map(([, args]) => args[1])).toEqual(['worker-show']);
     expect((await listWorkerRecords(env.tempDir))[0]?.execution).toMatchObject({
       state: 'circuit_broken',
@@ -379,18 +387,66 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
   it('does not guess a record from a task id or accept an invalid operation/cursor', async () => {
     await start();
     fixtureRunner.mockClear();
-    await run('show', 'T001');
-    expect(process.exitCode).not.toBe(0);
+    const missing = await run('show', 'T001');
+    expect(JSON.parse(missing)).toMatchObject({
+      success: false,
+      error: { code: 'E_CLEO_SPAWN_FAILED', fix: expect.stringContaining('exact record id') },
+    });
+    expect(process.exitCode).toBe(63);
     expect(fixtureRunner).not.toHaveBeenCalled();
-    await run('restart', 'T001');
-    expect(cliError).toHaveBeenCalledWith(
-      expect.any(String),
-      'E_INVALID_INPUT',
-      expect.objectContaining({ fix: expect.any(String) }),
-    );
-    await run('retry', 'T001', '--cursor', 'source-pinned-cursor');
-    expect(cliError).toHaveBeenCalledTimes(2);
+    for (const argv of [
+      ['restart', 'T001'],
+      ['retry', 'T001', '--cursor', 'source-pinned-cursor'],
+    ]) {
+      const invalid = await run(...argv);
+      expect(JSON.parse(invalid)).toMatchObject({
+        success: false,
+        error: { code: 'E_INVALID_INPUT', fix: 'Use cleo orchestrate worker --help.' },
+      });
+      expect(process.exitCode).toBe(6);
+    }
     expect(fixtureRunner).not.toHaveBeenCalled();
+    await expectCustody();
+  });
+
+  it('reads a retired predecessor without changing custody or permitting another operation on it', async () => {
+    orcaFixture.start = fixtureStart('failed', 1);
+    const predecessor = await start();
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    await run('retry', predecessor.recordId);
+    const before = await listWorkerRecords(env.tempDir, true);
+    expect(before.find((r) => r.recordId === predecessor.recordId)?.stoppedAt).not.toBeNull();
+    fixtureRunner.mockClear();
+    const output = await run('read', predecessor.recordId, '--cursor', 'source-pinned-cursor');
+    expect(JSON.parse(output)).toMatchObject({ success: true, data: orcaFixture.read.stdout });
+    expect(fixtureRunner.mock.calls).toHaveLength(1);
+    expect(fixtureRunner.mock.calls[0]?.[1]).toEqual([
+      'orchestration',
+      'worker-read',
+      '--dispatch',
+      'ctx_fixture',
+      '--source',
+      'auto',
+      '--limit',
+      '200',
+      '--cursor',
+      'source-pinned-cursor',
+      '--environment',
+      'local',
+      '--json',
+      '--full',
+    ]);
+    for (const action of ['show', 'stop', 'retry', 'recover-start', 'recover-stop']) {
+      const refused = await run(action, predecessor.recordId);
+      expect(JSON.parse(refused)).toMatchObject({
+        success: false,
+        error: { code: 'E_CLEO_SPAWN_FAILED', fix: expect.stringContaining('exact record id') },
+      });
+      expect(process.exitCode).toBe(63);
+    }
+    expect(fixtureRunner.mock.calls).toHaveLength(1);
+    expect(await listWorkerRecords(env.tempDir, true)).toEqual(before);
     await expectCustody();
   });
 });
