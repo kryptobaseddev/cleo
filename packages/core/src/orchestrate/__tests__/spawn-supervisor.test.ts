@@ -25,6 +25,7 @@ import type { Task } from '@cleocode/contracts/task.js';
 import { describe, expect, it, vi } from 'vitest';
 import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
 import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
+import type { WorkerRecord } from '../worker-records.js';
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must be declared before the import under test loads.
@@ -42,6 +43,9 @@ const existsSyncMock = vi.fn();
 const acquireWorktreeTaskLockMock = vi.fn();
 const releaseWorktreeTaskLockMock = vi.fn();
 const endSessionMock = vi.fn(async (..._args: unknown[]) => null);
+const findOrcaWorkerMock = vi.fn<(taskId: string, cwd: string) => Promise<WorkerRecord | null>>(
+  async () => null,
+);
 
 vi.mock('node:child_process', () => ({
   execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
@@ -101,6 +105,22 @@ vi.mock('../../paths.js', async () => {
   return {
     ...actual,
     getProjectRoot: (root?: string) => root ?? '/tmp/cleo-spawn-test-root',
+  };
+});
+
+// T14455 — both spawn entry points now read the stored Orca custody record
+// (`findOrcaWorker`) before they provision anything. That read opens the
+// project store, and this file's `existsSync` mock reports the vitest sandbox
+// marker (`.cleo-test-sandbox`) absent unless a case arms it, so the
+// worktree-build guard refuses the migration and spawn fails early. Custody
+// refusal itself is covered end-to-end by orca-worker-custody.test.ts, where
+// the record store is a real sandbox store; here it is a dependency to stub.
+vi.mock('../worker-records.js', async () => {
+  const actual =
+    await vi.importActual<typeof import('../worker-records.js')>('../worker-records.js');
+  return {
+    ...actual,
+    findOrcaWorker: (taskId: string, cwd: string) => findOrcaWorkerMock(taskId, cwd),
   };
 });
 
