@@ -15,11 +15,19 @@
  * @task T14363
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  fixtureContext,
+  fixtureRunner,
+  runOrcaFixture,
+} from '../../../../adapters/src/__tests__/orca-execution-fixture.js';
+import { prepareLeadMcp } from '../../../../adapters/src/providers/claude-code/lead-mcp.js';
+import { buildClaudeArgs } from '../../../../adapters/src/providers/claude-code/spawn.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { AgentMbxClient, MbxSession } from '../agentmbx.js';
 
@@ -202,6 +210,68 @@ describe('orchestrateLead (T14363)', () => {
     expect(result).toMatchObject({ success: false, error: { code: 'E_LEAD_WORKER_DISABLED' } });
     expect(provider.state.seen).toHaveLength(0);
     expect(mbx.claims).toHaveLength(0);
+  });
+
+  it.each([
+    'interactive',
+    'detached',
+  ] as const)('launches guarded native %s leads inside a verified Orca context', async (mode) => {
+    withMailbox();
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+    fixtureRunner.mockReset().mockImplementation(runOrcaFixture);
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    expect(await backend.discover(env.tempDir)).toMatchObject({ context: fixtureContext });
+    fixtureRunner.mockClear();
+    const { orchestrateLead } = await import('../lead.js');
+    const { LEAD_DENIED_TOOLS } = await import('@cleocode/contracts/operations/orchestrate.js');
+    const mbx = fakeMbx(true);
+    const user = mkdtempSync(join(tmpdir(), 'lead-user-'));
+    const bin = join(user, 'agentmbx');
+    writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    const config = join(user, 'claude.json');
+    writeFileSync(config, JSON.stringify({ mcpServers: { mbx: { command: bin, args: ['mcp'] } } }));
+    try {
+      const mcp = await prepareLeadMcp(env.tempDir, env.tempDir, { claudeJsonPath: config });
+      expect(mcp.report.mailbox).toBe('loaded');
+      const launched: string[][] = [];
+      const native = provider.delegate.spawn;
+      vi.spyOn(provider.delegate, 'spawn').mockImplementation(async (context) => {
+        launched.push(buildClaudeArgs(context, '/fixture/prompt', [], mcp));
+        return native(context);
+      });
+      const result = await orchestrateLead('T100', {
+        projectRoot: env.tempDir,
+        mbxClient: mbx.client,
+        mode,
+        orca: backend,
+      });
+      expect(result.success).toBe(true);
+      expect(provider.state.seen).toHaveLength(1);
+      expect(provider.state.seen[0]).toMatchObject({
+        leadDeniedTools: [...LEAD_DENIED_TOOLS],
+        options: { leadMode: mode, leadSessionId: expect.any(String) },
+      });
+      expect(mbx.claims).toHaveLength(1);
+      expect(fixtureRunner).not.toHaveBeenCalled();
+      const args = launched[0] ?? [];
+      const value = (flag: string) => args[args.indexOf(flag) + 1];
+      expect(args).toContain('--restricted');
+      expect(args).toContain('--strict-mcp-config');
+      expect(args).not.toContain('--dangerously-skip-permissions');
+      expect(value('--tools')).toBe(mode === 'interactive' ? 'AskUserQuestion' : '');
+      expect(value('--permission-mode')).toBe(mode === 'interactive' ? 'default' : 'dontAsk');
+      expect(value('--setting-sources')).toBe('');
+      expect(value('--mcp-config')).toBe(mcp.config);
+      expect(value('--session-id')).toBe(provider.state.seen[0]?.options?.leadSessionId);
+      expect(value('--disallowedTools')).toContain('Bash,Edit,Write');
+      expect(value('--allowedTools')).toContain('mcp__mbx');
+      expect(
+        JSON.parse(readFileSync(join(env.cleoDir, 'config.json'), 'utf8')).orchestrate.leadWorker
+          .v1,
+      ).toBe(true);
+    } finally {
+      rmSync(user, { recursive: true, force: true });
+    }
   });
 
   it('refuses a task that is not an epic', async () => {
