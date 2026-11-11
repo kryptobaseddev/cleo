@@ -365,7 +365,6 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
   const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
-  const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -594,11 +593,9 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   }));
   const branchesOf =
     opts.branchesOf ?? ((projectRoot: string) => mergedBranchCounts(projectRoot, deadline));
-  const rollups = await projectRollups(
-    rows,
-    registeredRollups,
-    branchesOf,
-    projectStoreReadVerdict,
+  const { projectStatusReadLabel } = await import('../worktree/list.js');
+  const rollups = await projectRollups(rows, registeredRollups, branchesOf, (projectRoot) =>
+    projectStatusReadLabel(projectRoot),
   );
   const store = opts.pnpmStore === undefined ? pnpmStoreCensus(deadline) : null;
   outOfTime();
@@ -654,10 +651,13 @@ async function projectRollups(
     mergedLocal: number | null;
     mergedRemote: number | null;
   }>,
-  verdictOf: (projectRoot: string) => string,
+  verdictOf: (projectRoot: string) => Promise<string>,
 ): Promise<{ rollups: ProjectCensusRollup[]; orphans: OrphanHashDir[] }> {
   const byHash = new Map<string, ProjectCensusRollup>();
-  const seed = (project: string | null, projectHash: string): ProjectCensusRollup => {
+  const seed = async (
+    project: string | null,
+    projectHash: string,
+  ): Promise<ProjectCensusRollup> => {
     const existing = byHash.get(projectHash);
     if (existing) return existing;
     const rollup: ProjectCensusRollup = {
@@ -668,19 +668,14 @@ async function projectRollups(
       mergedLocalBranches: null,
       mergedRemoteBranches: null,
       orphan: project === null,
-      storeRead:
-        project === null
-          ? 'not read: orphan directory'
-          : verdictOf(project) === 'readable'
-            ? 'read'
-            : verdictOf(project),
+      storeRead: project === null ? 'not read: orphan directory' : await verdictOf(project),
     };
     byHash.set(projectHash, rollup);
     return rollup;
   };
-  for (const entry of registered) seed(entry.project, entry.projectHash);
+  for (const entry of registered) await seed(entry.project, entry.projectHash);
   for (const row of rows) {
-    const rollup = seed(row.project, row.projectHash);
+    const rollup = await seed(row.project, row.projectHash);
     if (!row.removed) {
       rollup.worktrees += 1;
       rollup.apparentBytes += row.apparentBytes;
@@ -742,8 +737,10 @@ export async function prunePlanBounded(
   repoRoot: string,
   integrationTarget: string,
   deadline: number,
-  /** Test hook: the worker writes this file only if the walk completes. */
+  /** Test hook: the worker writes this file markerDelayMs after the walk. */
   markerPath?: string,
+  /** Test hook: the marker delay (ms) after the walk completes. */
+  markerDelayMs?: number,
 ): Promise<BoundedPrunePlan | null> {
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) return null;
@@ -761,6 +758,7 @@ export async function prunePlanBounded(
       repoRoot,
       integrationTarget,
       markerPath,
+      markerDelayMs,
     },
   });
   // Resolution contract: the plan resolves on `message`; a deadline

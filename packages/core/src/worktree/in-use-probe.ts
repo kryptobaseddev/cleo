@@ -108,49 +108,19 @@ export async function worktreeReaperInUseProbe(
   worktreePath: string,
 ): Promise<NonNullable<DisposeWorktreeOptions['inUse']>> {
   try {
-    // T14440 (census AC3, round-5 design) — fail closed for foreign stores:
-    // a removal is never authorized from a read that can be stale.
-    //  - A WARM, OPEN binding for the exact store reads fresh (it sees this
-    //    process's own WAL-resident writes) and opens nothing new: use it.
-    //  - Otherwise OWN project: the normal accessor (fresh reads).
-    //  - Otherwise foreign:
-    //      · a `-wal` with nonzero size, or an unreadable store → keep with
-    //        an explicit unknown reason;
-    //      · otherwise the immutable read may answer 'not in use'.
-    const { isOwnProjectStore, peekProjectTasksNative, projectStoreWalPending } = await import(
-      '../store/sqlite.js'
-    );
-    const warm = peekProjectTasksNative(projectRoot);
-    if (warm === null && !isOwnProjectStore(projectRoot)) {
-      if (projectStoreWalPending(projectRoot)) {
-        return () => 'unknown: store has uncommitted WAL or could not be read without writing';
-      }
-      const { listWorkerRecordsReadOnly } = await import('../orchestrate/worker-records.js');
-      const workers = await listWorkerRecordsReadOnly(projectRoot, true);
-      if (
-        workers.some(
-          (worker) =>
-            worker.stoppedAt === null &&
-            (worker.taskId === taskId || inside(worktreePath, worker.worktree)),
-        )
-      ) {
-        return () => 'a worker record has not been closed';
-      }
-    } else {
-      const { listWorkerRecords } = await import('../orchestrate/worker-records.js');
-      const workers = await listWorkerRecords(projectRoot, true);
-      if (
-        workers.some(
-          (worker) =>
-            worker.stoppedAt === null &&
-            (worker.taskId === taskId || inside(worktreePath, worker.worktree)),
-        )
-      ) {
-        return () => 'a worker record has not been closed';
-      }
+    const { listWorkerRecords } = await import('../orchestrate/worker-records.js');
+    const workers = await listWorkerRecords(projectRoot, true);
+    if (
+      workers.some(
+        (worker) =>
+          worker.stoppedAt === null &&
+          (worker.taskId === taskId || inside(worktreePath, worker.worktree)),
+      )
+    ) {
+      return () => 'a worker record has not been closed';
     }
   } catch {
-    return () => 'unknown: store has uncommitted WAL or could not be read without writing';
+    return () => 'worker record probe unavailable';
   }
   return () => {
     try {

@@ -211,23 +211,25 @@ describe('census visibility fields (T14440 AC1)', () => {
     expect(counts.mergedRemote).toBe(1); // origin/ship; origin/HEAD excluded
   });
 
-  it('terminates a slow probe at the deadline; the completion marker never appears', async () => {
+  it('terminates a slow probe at the deadline; the timer marker never appears', async () => {
     // The running cleocode checkout: hundreds of branches make the SDK walk
     // outlive a 5 ms deadline, so the worker is terminated mid-run. The
-    // worker writes its marker only after the walk COMPLETES — an absent
-    // marker proves the termination happened before the walk finished, and
-    // the promise resolves on the worker's `exit` (after `terminate()`).
+    // worker writes its marker on a 300 ms timer it can only reach AFTER the
+    // walk — the test waits past that delay before asserting absence, so a
+    // premature resolution cannot fake the pass (round-6 review).
     const repo = process.cwd();
     const marker = join(base, 'killed.marker');
-    const plan = await prunePlanBounded(repo, 'main', Date.now() + 5, marker);
+    const plan = await prunePlanBounded(repo, 'main', Date.now() + 5, marker, 300);
     expect(plan).toBeNull();
+    await new Promise((r) => setTimeout(r, 450));
     expect(existsSync(marker)).toBe(false);
   });
 
-  it('control: an unconstrained probe completes and writes the marker', async () => {
+  it('control: an unconstrained probe completes and its timer fires the marker', async () => {
     const repo = process.cwd();
     const marker = join(base, 'completed.marker');
-    await prunePlanBounded(repo, 'main', Number.POSITIVE_INFINITY, marker);
+    await prunePlanBounded(repo, 'main', Number.POSITIVE_INFINITY, marker, 50);
+    await new Promise((r) => setTimeout(r, 250));
     expect(existsSync(marker)).toBe(true);
   });
 

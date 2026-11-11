@@ -47,8 +47,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import type {
   DisposeWorktreeResult,
   EngineResult,
@@ -59,7 +60,9 @@ import type {
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
-import { resolveOrCwd } from '../paths.js';
+import { getProjectRoot, resolveOrCwd } from '../paths.js';
+import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
+import { peekDomainAtPath } from '../store/ports/domain-binding.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
 import { worktreeInUseProbe } from './in-use-probe.js';
 import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
@@ -559,72 +562,63 @@ export async function loadOwningTaskStatuses(
   // skipped with an error result; the listing degrades to
   // `owningTaskStatus: null` and rows classified `unknown`.
   try {
-    // T14440 (census AC3, round-5 design): decide OWN once, up front.
-    // - Own project: the normal accessor — this process's own store, its
-    //   warm binding sees fresh writes and opens nothing new.
-    // - Foreign store with an uncheckpointed WAL: an immutable read cannot
-    //   see transactions still living in the WAL, so the statuses would be
-    //   stale and must not authorize anything — error, rows stay `unknown`.
-    // - Otherwise foreign: the strictly read-only immutable snapshot.
-    const { isOwnProjectStore, peekProjectTasksNative } = await import('../store/sqlite.js');
-    // A warm, OPEN binding for this exact store reads fresh (it sees this
-    // process's own writes) and opens nothing new — check it FIRST and take
-    // the handle from the same peek, so no await-then-getDb eviction race
-    // exists (T14440 round 5).
-    const warm = peekProjectTasksNative(projectRoot);
-    if (warm === null && !isOwnProjectStore(projectRoot)) {
-      const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
-      const verdict = projectStoreReadVerdict(projectRoot);
-      if (verdict === 'not read: missing store') {
-        // A missing store is definitive absence, not unavailability: the
-        // project never initialised CLEO, so there is provably no task row
-        // for any taskId and the taskless-candidate flow (T14274) applies.
-        // Success with an empty map — and nothing was opened or created.
-        return engineSuccess(out);
-      }
-      if (verdict !== 'readable') {
+    // T14440 (census AC3, round-6 rescope): foreign task statuses are
+    // DISPLAY-ONLY snapshots. The own project reads through the normal
+    // accessor (fresh); a foreign store is read through the strictly
+    // read-only immutable snapshot — no sidecars, no migration — and the
+    // output labels it as possibly lagging uncommitted writes. No removal
+    // decision consumes these reads: the reaper's probe and disposal behave
+    // exactly as on main.
+    const warm = peekWarmTasksNative(projectRoot);
+    if (warm !== null) {
+      const placeholders = taskIds.map(() => '?').join(', ');
+      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+      const rows = warm.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+        id: string;
+        status: string;
+      }>;
+      for (const row of rows) out.set(row.id, row.status);
+      return engineSuccess(out);
+    }
+    if (isOwnProjectRoot(projectRoot)) {
+      const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
+      await getDb(projectRoot);
+      const db = getNativeTasksDb(projectRoot);
+      if (!db) {
         // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
-        return engineError('E_TASK_STATE_UNAVAILABLE', `Task store ${verdict}`, {
+        return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
           fix: 'Run cleo doctor to diagnose the task store.',
         });
       }
-      const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
-      const snap = openProjectTasksReadOnly(projectRoot);
-      if (snap === null) {
-        // The store vanished between the verdict and the open: definitive
-        // absence at read time, no statuses — not a failure.
-        return engineSuccess(out);
-      }
-      try {
-        const placeholders = taskIds.map(() => '?').join(', ');
-        const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-        const rows = snap.db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-          id: string;
-          status: string;
-        }>;
-        for (const row of rows) out.set(row.id, row.status);
-        return engineSuccess(out);
-      } finally {
-        snap.close();
-      }
+      const placeholders = taskIds.map(() => '?').join(', ');
+      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+      const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+        id: string;
+        status: string;
+      }>;
+      for (const row of rows) out.set(row.id, row.status);
+      return engineSuccess(out);
     }
-    const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
-    if (warm === null) await getDb(projectRoot);
-    const db = warm ?? getNativeTasksDb(projectRoot);
-    if (!db) {
-      // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
-      return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
-        fix: 'Run cleo doctor to diagnose the task store.',
-      });
+    // Foreign: display-only immutable snapshot. A failed read shows
+    // 'status unknown' via an empty map (rows fall back to
+    // `owning task state unavailable`).
+    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
+    if (projectStoreReadVerdict(projectRoot) !== 'readable') return engineSuccess(out);
+    const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
+    const snap = openProjectTasksReadOnly(projectRoot);
+    if (snap === null) return engineSuccess(out);
+    try {
+      const placeholders = taskIds.map(() => '?').join(', ');
+      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+      const rows = snap.db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+        id: string;
+        status: string;
+      }>;
+      for (const row of rows) out.set(row.id, row.status);
+      return engineSuccess(out);
+    } finally {
+      snap.close();
     }
-    const placeholders = taskIds.map(() => '?').join(', ');
-    const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-    const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-      id: string;
-      status: string;
-    }>;
-    for (const row of rows) out.set(row.id, row.status);
-    return engineSuccess(out);
   } catch (err) {
     // @sync-invariant none:local-only incomplete task-state coverage forbids local worktree disposal
     return engineError(
@@ -632,6 +626,92 @@ export async function loadOwningTaskStatuses(
       `Task lookup failed: ${err instanceof Error ? err.message : String(err)}`,
       { fix: 'Run cleo doctor to diagnose the task store.' },
     );
+  }
+}
+
+/**
+ * The warm, OPEN tasks binding of THIS process for the exact store path —
+ * taken without creating one, so no restore, seed or migration can run
+ * (T14440, round 6). Reads through it see the process's own fresh writes.
+ * Returns `null` when no warm binding exists.
+ *
+ * @param projectRoot - Absolute path to the project whose store to peek.
+ * @returns The live native handle, or `null`.
+ */
+function peekWarmTasksNative(projectRoot: string): DatabaseSync | null {
+  try {
+    const dbPath = resolvePath(resolveDualScopeDbPath('project', projectRoot));
+    const binding = peekDomainAtPath('project', dbPath, 'tasks');
+    if (binding === null || !binding.native.isOpen) return null;
+    return binding.native as DatabaseSync;
+  } catch {
+    return null;
+  }
+}
+
+/** The write-once `.cleo/project.json` id of a project, or `null` when absent/unreadable. */
+function readProjectIdentityId(projectRoot: string): string | null {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(
+        join(resolveDualScopeDbPath('project', projectRoot), '..', 'project.json'),
+        'utf-8',
+      ),
+    ) as { id?: string };
+    return typeof parsed.id === 'string' ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the target project is the CURRENT process's own project, decided
+ * by realpath and `.cleo/project.json` identity — never a binding cache and
+ * never an ambient pin: both store paths, both realpaths and both declared
+ * ids must agree (T14440, round 6). Any doubt answers `false`.
+ *
+ * @param projectRoot - Absolute path to the project in question.
+ * @returns True when the target IS the own project.
+ */
+function isOwnProjectRoot(projectRoot: string): boolean {
+  try {
+    const own = getProjectRoot();
+    const ownStore = resolvePath(resolveDualScopeDbPath('project', own));
+    const targetStore = resolvePath(resolveDualScopeDbPath('project', projectRoot));
+    if (ownStore !== targetStore) return false;
+    if (realpathSync(projectRoot) !== realpathSync(own)) return false;
+    const targetId = readProjectIdentityId(projectRoot);
+    const ownId = readProjectIdentityId(own);
+    // Strict: a missing identity on either side is any doubt → foreign.
+    if (targetId === null || ownId === null || targetId !== ownId) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How the listing reads task statuses for one project — also the census
+ * rollup's display label (T14440, round 6).
+ *
+ * - `'read'` — the own project (or this process's warm binding): fresh.
+ * - `'snapshot: may lag uncommitted writes'` — a foreign store read through
+ *   the immutable, sidecar-free snapshot; display-only.
+ * - `'status unknown'` — the snapshot is unavailable; the census shows no
+ *   statuses.
+ *
+ * @param projectRoot - Absolute path to the project.
+ * @returns The display label.
+ */
+export async function projectStatusReadLabel(projectRoot: string): Promise<string> {
+  try {
+    if (peekWarmTasksNative(projectRoot) !== null || isOwnProjectRoot(projectRoot)) return 'read';
+    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
+    return projectStoreReadVerdict(projectRoot) === 'readable'
+      ? 'snapshot: may lag uncommitted writes'
+      : 'status unknown';
+  } catch {
+    return 'status unknown';
   }
 }
 

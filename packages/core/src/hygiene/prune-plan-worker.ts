@@ -25,8 +25,10 @@ interface PrunePlanWorkerData {
   repoRoot: string;
   /** The branch "merged" is tested against. */
   integrationTarget: string;
-  /** Test hook: written after the walk completes; absent when terminated. */
+  /** Test hook: written markerDelayMs after the walk; absent when terminated. */
   markerPath?: string;
+  /** Test hook: how long after the walk the marker is written. */
+  markerDelayMs?: number;
 }
 
 interface PrunePlanCandidate {
@@ -50,12 +52,15 @@ try {
   };
   const plan = worktree.buildGitAwarePrunePlan(data.repoRoot, data.integrationTarget);
   parentPort.postMessage({ plan });
-  // Test hook (T14440 round 5): written only when the walk COMPLETED — a
-  // deadline-terminated worker never gets here, so an absent marker proves
-  // the termination happened before the walk finished.
+  // Test hook (T14440 round 6): the marker sits behind a timer the worker
+  // only reaches after its walk AND the configured delay — a
+  // deadline-terminated worker never fires it, and the test waits past the
+  // delay before asserting absence.
   if (typeof data.markerPath === 'string') {
     const { writeFileSync } = await import('node:fs');
-    writeFileSync(data.markerPath, 'done');
+    const delay = typeof data.markerDelayMs === 'number' ? data.markerDelayMs : 0;
+    // No unref: the timer must fire for the test hook; terminate() still kills it.
+    setTimeout(() => writeFileSync(data.markerPath as string, 'done'), delay);
   }
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);

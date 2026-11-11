@@ -21,7 +21,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { type DualScope, resolveDualScopeDbPath } from '../store/dual-scope-db.js';
@@ -315,13 +315,9 @@ export function projectStoreReadVerdict(projectRoot: string): string {
     return 'not read: unreadable store';
   }
   if (!existsSync(dbPath)) return 'not read: missing store';
-  // Round 5: an immutable read cannot see transactions still living in the
-  // WAL, so a foreign store with an uncheckpointed WAL is skipped outright —
-  // its statuses must not authorize anything.
-  const wal = `${dbPath}-wal`;
-  if (existsSync(wal) && statSync(wal).size > 0) {
-    return 'not read: uncommitted WAL';
-  }
+  // Round 6: an immutable read may lag uncheckpointed WAL writes — that is a
+  // LABEL on the display snapshot ('snapshot: may lag uncommitted writes'),
+  // not a skip; no removal decision consumes these reads.
   // Immutable, like the read it gates: the verdict must not create sidecars
   // on a foreign WAL-mode store either.
   let snap: ReturnType<typeof openCleoDbImmutable>;

@@ -131,7 +131,7 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
 
     // The rollup names why the store was not read...
     const rollup = record.projects.find((p) => p.project === projectRoot);
-    expect(rollup?.storeRead).toBe('not read: tasks schema missing');
+    expect(rollup?.storeRead).toBe('status unknown');
     // ...so the row's task status is null (nothing was read)...
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBeNull();
@@ -146,89 +146,27 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     expect(journalRows).toBe(1);
   });
 
-  it('a live WAL (uncheckpointed active worker) keeps the checkout and is not read', async () => {
-    // Round 5: the store stays in WAL mode and a raw writable connection —
-    // held open, never checkpointed — commits an OPEN worker record into the
-    // WAL. An immutable read cannot see that record, so the census must not
-    // trust its statuses here: the store is skipped outright and the
-    // checkout is kept.
+  it('a live WAL: the census reads a display snapshot, creates no sidecars, migrates nothing', async () => {
+    // Round 6: the store stays in WAL mode with an UNCHECKPOINTED commit (a
+    // raw writable connection is held open across the census). The census's
+    // foreign status read is an immutable, sidecar-free snapshot that may lag
+    // these writes — labelled as such — and the non-terminal task means the
+    // census touches nothing else: no probe, no sidecars, no migration.
     const { getDb } = await import('../../store/sqlite.js');
     await getDb(projectRoot);
     const db = new DatabaseSync(dbPath);
     db.prepare(
-      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
-    ).run();
-    db.close();
-    const { closeAllDatabases } = await import('../../store/sqlite.js');
-    await closeAllDatabases();
-    // The live WAL: a writable connection that stays open, committing an
-    // open worker record without a checkpoint.
-    const live = new DatabaseSync(dbPath);
-    live.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    live
-      .prepare(
-        `INSERT INTO tasks_agent_instances
-           (id, agent_type, status, task_id, started_at, metadata_json)
-         VALUES ('w-live', 'executor', 'starting', 'T1', datetime('now'), ?)`,
-      )
-      .run(
-        JSON.stringify({
-          kind: 'worker',
-          instanceId: 'i-live',
-          agentId: 'a-live',
-          provider: 'test',
-          pid: null,
-          pgid: null,
-          worktree: '/elsewhere/none',
-        }),
-      );
-    const walPath = `${dbPath}-wal`;
-    expect(existsSync(walPath)).toBe(true);
-
-    const before = storeFingerprint(dbPath);
-    const out = await runWorktreeCensus({
-      projects: [projectRoot],
-      recordDir,
-      pnpmStore: null,
-    });
-    if ('skipped' in out) throw new Error(out.skipped);
-    const { record } = out;
-
-    const rollup = record.projects.find((p) => p.project === projectRoot);
-    expect(rollup?.storeRead).toBe('not read: uncommitted WAL');
-    // The row's task state is untrusted: unknown, never a removal candidate...
-    const row = record.rows.find((r) => r.path.endsWith('T1'));
-    expect(row?.category).toBe('unknown');
-    expect(row?.keepReason).toContain('owning task state unavailable');
-    // ...the checkout is kept...
-    expect(row?.removed).toBeUndefined();
-    // ...and the store is untouched (sidecars included).
-    expect(storeFingerprint(dbPath)).toBe(before);
-    live.close();
-  });
-
-  it('reads a readable store and probes in-use records read-only from cold state: sidecars unchanged', async () => {
-    // Fixture construction: build the store with the REAL migrator (a write,
-    // before any measurement), seed one done task AND one open worker record.
-    // The terminal row routes the census through the reaper's in-use probe,
-    // and the open record makes a SUCCESSFUL probe read observable: the row
-    // is kept with 'a worker record has not been closed' (a failed read would
-    // say 'worker record probe unavailable' instead).
-    const { getDb } = await import('../../store/sqlite.js');
-    await getDb(projectRoot);
-    const db = new DatabaseSync(dbPath);
-    db.prepare(
-      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
+      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'pending', 'implementation')",
     ).run();
     db.prepare(
       `INSERT INTO tasks_agent_instances
          (id, agent_type, status, task_id, started_at, metadata_json)
-       VALUES ('w1', 'executor', 'starting', 'T1', datetime('now'), ?)`,
+       VALUES ('w-live', 'executor', 'starting', 'T1', datetime('now'), ?)`,
     ).run(
       JSON.stringify({
         kind: 'worker',
-        instanceId: 'i1',
-        agentId: 'a1',
+        instanceId: 'i-live',
+        agentId: 'a-live',
         provider: 'test',
         pid: null,
         pgid: null,
@@ -236,24 +174,32 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
       }),
     );
     db.close();
-    // The fixture STAYS in WAL mode (round 4): an ordinary read-only open of
-    // a WAL store writes its sidecars, so only an immutable open keeps the
-    // fingerprint stable. Cold process state: drop every warmed binding.
     const { closeAllDatabases } = await import('../../store/sqlite.js');
     await closeAllDatabases();
+    // The live WAL: a writable connection that stays open, committing an
+    // open worker record WITHOUT a checkpoint.
+    const live = new DatabaseSync(dbPath);
+    live.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    live
+      .prepare(
+        `INSERT INTO tasks_agent_instances
+           (id, agent_type, status, task_id, started_at, metadata_json)
+         VALUES ('w-live2', 'executor', 'starting', 'T1', datetime('now'), ?)`,
+      )
+      .run(
+        JSON.stringify({
+          kind: 'worker',
+          instanceId: 'i-live2',
+          agentId: 'a-live2',
+          provider: 'test',
+          pid: null,
+          pgid: null,
+          worktree: '/elsewhere/none2',
+        }),
+      );
+    expect(existsSync(`${dbPath}-wal`)).toBe(true);
 
     const before = storeFingerprint(dbPath);
-    for (const suffix of ['', '-wal', '-shm']) {
-      const f = `${dbPath}${suffix}`;
-      console.log(
-        'DEBUG-before',
-        suffix || 'main',
-        existsSync(f),
-        existsSync(f)
-          ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8)
-          : 'none',
-      );
-    }
     const out = await runWorktreeCensus({
       projects: [projectRoot],
       recordDir,
@@ -261,30 +207,44 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
+
     const rollup = record.projects.find((p) => p.project === projectRoot);
-    expect(rollup?.storeRead).toBe('read');
-    // The read-only enrichment actually read the row — an opener that failed
-    // early (caught) would leave this null and fail the test.
+    expect(rollup?.storeRead).toBe('snapshot: may lag uncommitted writes');
+    // The snapshot's task state is display-only: the row is active (kept),
+    // never a removal candidate.
+    const row = record.rows.find((r) => r.path.endsWith('T1'));
+    expect(row?.removed).toBeUndefined();
+    // And the store is untouched: no sidecars created, no migration run.
+    expect(storeFingerprint(dbPath)).toBe(before);
+    live.close();
+  });
+
+  it('reads a readable foreign store as a display snapshot: statuses flow, labelled', async () => {
+    // Fixture construction: build the store with the REAL migrator (a write,
+    // before any measurement) and seed one done task. Cold state afterwards.
+    const { getDb } = await import('../../store/sqlite.js');
+    await getDb(projectRoot);
+    const db = new DatabaseSync(dbPath);
+    db.prepare(
+      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
+    ).run();
+    db.close();
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
+    await closeAllDatabases();
+
+    const out = await runWorktreeCensus({
+      projects: [projectRoot],
+      recordDir,
+      pnpmStore: null,
+    });
+    if ('skipped' in out) throw new Error(out.skipped);
+    const { record } = out;
+
+    const rollup = record.projects.find((p) => p.project === projectRoot);
+    expect(rollup?.storeRead).toBe('snapshot: may lag uncommitted writes');
+    // The snapshot actually read the row — an opener that failed early
+    // (caught) would leave this null and fail the test.
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBe('done');
-    // The terminal row went through the in-use probe, which READ the open
-    // worker record (not 'probe unavailable') and kept the checkout.
-    expect(row?.category).toBe('keep');
-    expect(row?.keepReason).toContain('a worker record has not been closed');
-    // Status read, evidence read, worker records read — all read-only: the
-    // store AND its sidecars are unchanged from cold state.
-    // DEBUG
-    for (const suffix of ['', '-wal', '-shm']) {
-      const f = `${dbPath}${suffix}`;
-      console.log(
-        'DEBUG',
-        suffix || 'main',
-        existsSync(f),
-        existsSync(f)
-          ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8)
-          : 'none',
-      );
-    }
-    expect(storeFingerprint(dbPath)).toBe(before);
   });
 });
