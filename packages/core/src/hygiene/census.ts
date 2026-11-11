@@ -750,10 +750,10 @@ async function prunePlanBounded(
     }, remainingMs);
     worker.once('message', (message: { plan?: unknown }) => {
       clearTimeout(timer);
+      const plan = message as { plan?: { candidates?: Array<{ kind: string; branch?: string }> } };
       resolvePromise(
-        message && typeof message === 'object' && 'plan' in message
-          ? ((message.plan as { candidates?: Array<{ kind: string; branch?: string }> } | null) ??
-              null)
+        message && typeof message === 'object' && Array.isArray(plan?.plan?.candidates)
+          ? { candidates: plan.plan?.candidates ?? [] }
           : null,
       );
     });
