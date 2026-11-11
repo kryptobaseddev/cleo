@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureContext,
   fixtureLaunch,
+  fixtureReleasedShow,
   fixtureReply,
   fixtureRunner,
   fixtureShow,
@@ -27,6 +28,8 @@ import {
   launchOrcaWorker,
   observeOrcaWorker,
   recoverOrcaWorkerStart,
+  recoverOrcaWorkerStop,
+  retryOrcaWorker,
   stopOrcaWorker,
 } from '../orca-execution.js';
 import {
@@ -274,6 +277,265 @@ describe('durable Orca execution custody', () => {
     expect((await env.accessor.loadSingleTask('T001'))?.claim?.agentId).toBe(launch.agentId);
     expect(readFileSync(join(launch.worktreePath, 'dirty.txt'), 'utf8')).toBe(
       'uncommitted owner work',
+    );
+  });
+
+  it('reserves exactly one successor on the same Task and retains its predecessor history', async () => {
+    orcaFixture.start = fixtureStart('failed', 1);
+    const predecessor = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(predecessor.execution).toMatchObject({ state: 'failed', resourceState: 'unknown' });
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    fixtureRunner.mockImplementation(async (...args) => {
+      if (args[1][1] === 'worker-start') {
+        const records = await listWorkerRecords(env.tempDir);
+        expect(records.filter((record) => record.stoppedAt === null)).toMatchObject([
+          { execution: { state: 'launching', retryOf: 'ctx_fixture', dispatchId: null } },
+        ]);
+      }
+      return runOrcaFixture(...args);
+    });
+    const results = await Promise.allSettled([
+      retryOrcaWorker(predecessor.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+      retryOrcaWorker(predecessor.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const records = await listWorkerRecords(env.tempDir);
+    expect(records).toHaveLength(2);
+    const previous = records.find((record) => record.recordId === predecessor.recordId);
+    expect(previous?.execution).toMatchObject({
+      launch: predecessor.execution?.launch,
+      dispatchId: 'ctx_fixture',
+      failureCount: 1,
+      state: 'failed',
+      resourceState: 'stopped',
+    });
+    expect(previous?.stoppedAt).not.toBeNull();
+    expect(records.find((record) => record.stoppedAt === null)).toMatchObject({
+      sessionId: launch.workerSessionId,
+      agentId: launch.agentId,
+      execution: {
+        state: 'ready',
+        runId: 'run_fixture',
+        orcaTaskId: 'task_fixture',
+        dispatchId: 'ctx_retry',
+        retryOf: 'ctx_fixture',
+        failureCount: 1,
+      },
+    });
+    const starts = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start');
+    expect(starts).toHaveLength(2);
+    expect(starts[1]?.[1]).toContain('--retry-of');
+    expect(starts[1]?.[1]).toContain('ctx_fixture');
+    expect(starts[1]?.[1]).not.toContain('--spec-file');
+    expect(starts[1]?.[3]).toBeUndefined();
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.agentId).toBe(launch.agentId);
+    expect(readFileSync(join(launch.worktreePath, 'dirty.txt'), 'utf8')).toBe(
+      'uncommitted owner work',
+    );
+  });
+
+  it('fences a lost successor receipt across restarts without reopening its predecessor', async () => {
+    orcaFixture.start = fixtureStart('failed', 1);
+    const predecessor = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    orcaFixture.start = { stdout: '', stderr: 'reply lost after dispatch', exitCode: null };
+    orcaFixture.show = fixtureReleasedShow();
+    const successor = await retryOrcaWorker(
+      predecessor.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(successor.execution).toMatchObject({
+      state: 'outcome_unknown',
+      retryOf: 'ctx_fixture',
+      failureCount: 1,
+    });
+    await expect(
+      retryOrcaWorker(predecessor.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('No open');
+    await expect(
+      retryOrcaWorker(successor.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('No complete Dispatch');
+    await expect(
+      launchOrcaWorker(launch, fixtureContext, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('custody already exists');
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
+      2,
+    );
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.agentId).toBe(launch.agentId);
+  });
+
+  it('retries a previously unobserved turn only after exact released-failure proof', async () => {
+    orcaFixture.start = fixtureStart('outcome_unknown', 1);
+    const unobserved = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(unobserved.execution?.state).toBe('turn_unobserved');
+    orcaFixture.show = fixtureReleasedShow('ctx_fixture', 1);
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    const successor = await retryOrcaWorker(
+      unobserved.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(successor.execution).toMatchObject({
+      state: 'ready',
+      retryOf: 'ctx_fixture',
+      dispatchId: 'ctx_retry',
+      failureCount: 1,
+    });
+    expect((await env.accessor.loadSingleTask('T001'))?.status).not.toBe('done');
+  });
+
+  it('carries the breaker count through successive attempts and refuses a fourth start', async () => {
+    orcaFixture.start = fixtureStart('failed', 1);
+    const first = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    orcaFixture.start = fixtureStart('failed', 2, 'ctx_retry_two');
+    orcaFixture.show = fixtureReleasedShow('ctx_fixture', 1);
+    const second = await retryOrcaWorker(
+      first.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    orcaFixture.start = fixtureStart('failed', 3, 'ctx_retry_three');
+    orcaFixture.show = fixtureReleasedShow('ctx_retry_two', 2);
+    const third = await retryOrcaWorker(
+      second.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(third.execution).toMatchObject({ state: 'circuit_broken', failureCount: 3 });
+    orcaFixture.show = fixtureReleasedShow('ctx_retry_three', 3);
+    await expect(
+      retryOrcaWorker(third.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('no confirmed');
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
+      3,
+    );
+    expect(await listWorkerRecords(env.tempDir)).toHaveLength(3);
+  });
+
+  it('retains a failed start with residual resources instead of replacing its custody', async () => {
+    orcaFixture.start = fixtureReply({
+      state: 'failed',
+      failureCount: 1,
+      dispatchId: 'ctx_fixture',
+      runId: 'run_fixture',
+      taskId: 'task_fixture',
+      effects: [{ kind: 'worktree', id: 'workspace-fixture' }],
+      residualResources: [{ kind: 'terminal', id: 'term_retained' }],
+      launch: { effective: { agent: 'codex' } },
+    });
+    const predecessor = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    await expect(
+      retryOrcaWorker(predecessor.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('no confirmed');
+    expect((await listWorkerRecords(env.tempDir))[0]?.stoppedAt).toBeNull();
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
+      1,
+    );
+  });
+
+  it('replays an issued stop after restart once, without releasing claims or disposing the checkout', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    orcaFixture.stop = {
+      stdout: JSON.stringify({
+        ok: false,
+        _meta: { runtimeId: fixtureContext.runtimeId },
+        error: {
+          code: 'runtime_timeout',
+          message: 'stop receipt lost',
+          data: { orchestrationRequestId: 'request-fixture' },
+        },
+      }),
+      stderr: '',
+      exitCode: 1,
+    };
+    const pending = await stopOrcaWorker(
+      record.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(pending.execution).toMatchObject({
+      state: 'stop_unknown',
+      stopRequestId: 'request-fixture',
+    });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await Promise.allSettled([
+      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ]);
+    expect(recovered.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect((await listWorkerRecords(env.tempDir))[0]).toMatchObject({
+      stoppedAt: null,
+      execution: { state: 'stopped', stopRequestId: 'request-fixture' },
+    });
+    const stops = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(stops).toHaveLength(2);
+    expect(stops[1]?.[1]).toContain('--retry-request');
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.agentId).toBe(launch.agentId);
+    expect(readFileSync(join(launch.worktreePath, 'dirty.txt'), 'utf8')).toBe(
+      'uncommitted owner work',
+    );
+  });
+
+  it('keeps stop uncertainty durable when request recovery fails or no replay id exists', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    const pending = await stopOrcaWorker(
+      record.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    await expect(
+      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('No recoverable');
+    if (!pending.execution) throw new Error('Missing execution fixture');
+    await updateWorkerExecution(
+      pending,
+      { ...pending.execution, stopRequestId: 'request-fixture' },
+      env.tempDir,
+    );
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: 'request-fixture' });
+    await expect(
+      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('absence');
+    expect((await listWorkerRecords(env.tempDir))[0]?.execution).toMatchObject({
+      state: 'stop_unknown',
+      stopRequestId: 'request-fixture',
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      1,
     );
   });
 

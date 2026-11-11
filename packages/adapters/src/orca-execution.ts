@@ -214,7 +214,12 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
 
   /** Start only a persisted launching attempt; no exit code is worker completion. */
   async start(attempt: OrcaAttempt): Promise<OrcaAttempt> {
-    if (attempt.state !== 'launching' || attempt.failureCount >= 3) {
+    if (
+      attempt.state !== 'launching' ||
+      attempt.startRequestId ||
+      attempt.dispatchId ||
+      attempt.failureCount >= 3
+    ) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
         'This attempt cannot start another worker.',
@@ -229,6 +234,7 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
     if (
       attempt.state !== 'outcome_unknown' ||
       !attempt.startRequestId ||
+      !attempt.startBinding ||
       attempt.failureCount >= 3
     ) {
       throw new OrcaExecutionError(
@@ -237,18 +243,7 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         'Inspect the original operation; never substitute a fresh Run, Task or launch.',
       );
     }
-    const receipt = await this.query(
-      ['orchestration', 'request-show', '--request', attempt.startRequestId],
-      attempt.launch.projectRoot,
-      attempt.context,
-    );
-    if (!['pending', 'completed'].includes(receipt.result?.state ?? '')) {
-      throw new OrcaExecutionError(
-        'E_ORCA_ATTEMPT_FENCED',
-        'Request absence does not prove that nothing launched.',
-        'Retain the claim and inspect the exact original operation before owner-directed recovery.',
-      );
-    }
+    await this.verifyRequest(attempt, attempt.startRequestId);
     return this.startCommand(attempt, attempt.startRequestId);
   }
 
@@ -278,15 +273,25 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       );
     }
     const failureCount = Math.max(attempt.failureCount, value.dispatch.failureCount);
+    const resource = value.projection?.resource;
+    const released =
+      value.observation?.exactWorker === true &&
+      value.observation.status === 'exited' &&
+      resource?.ownerDispatchId === dispatchId &&
+      resource.state === 'released' &&
+      resource.releaseState === 'released' &&
+      resource.terminalState === 'released';
     return {
       ...attempt,
       state: ['stop_pending', 'stop_unknown', 'stopped'].includes(attempt.state)
         ? attempt.state
         : failureCount >= 3
           ? 'circuit_broken'
-          : attempt.state,
+          : released && value.worker.state === 'failed'
+            ? 'failed'
+            : attempt.state,
       failureCount,
-      resourceState: value.projection?.resource?.state ?? 'unknown',
+      resourceState: released ? 'stopped' : resource?.state === 'owned' ? 'owned' : 'unknown',
       lastReceipt: reply.rawReceipt,
       observedAt: new Date().toISOString(),
     };
@@ -315,18 +320,42 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
 
   /** Request guarded cancellation; a closed terminal action alone is not exit proof. */
   async stop(attempt: OrcaAttempt): Promise<OrcaAttempt> {
-    const dispatchId = this.requireDispatch(attempt);
-    if (attempt.state !== 'stop_pending') {
+    if (attempt.state !== 'stop_pending' || attempt.stopRequestId) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
         'Stop must be durably reserved before it is sent.',
         'Inspect stop_unknown with worker-show; do not blindly repeat a stop.',
       );
     }
+    return this.stopCommand(attempt);
+  }
+
+  /** Recover an issued cancellation without sending an unkeyed second stop. */
+  async replayStop(attempt: OrcaAttempt): Promise<OrcaAttempt> {
+    this.requireDispatch(attempt);
+    if (attempt.state !== 'stop_unknown' || !attempt.stopRequestId) {
+      throw new OrcaExecutionError(
+        'E_ORCA_ATTEMPT_FENCED',
+        'No replayable uncertain stop request is retained.',
+        'Inspect the exact Dispatch and original stop receipt; never repeat an unkeyed stop.',
+      );
+    }
+    await this.verifyRequest(attempt, attempt.stopRequestId);
+    return this.stopCommand(attempt, attempt.stopRequestId);
+  }
+
+  private async stopCommand(attempt: OrcaAttempt, requestId?: string): Promise<OrcaAttempt> {
+    const dispatchId = this.requireDispatch(attempt);
     try {
       await this.verifyRuntime(attempt.launch.projectRoot, attempt.context);
       const result = await this.invoke(
-        ['orchestration', 'worker-stop', '--dispatch', dispatchId],
+        [
+          'orchestration',
+          'worker-stop',
+          '--dispatch',
+          dispatchId,
+          ...(requestId ? ['--retry-request', requestId] : []),
+        ],
         attempt.launch.projectRoot,
       );
       const value = result.result;
@@ -341,7 +370,11 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       return {
         ...attempt,
         state: confirmed ? 'stopped' : 'stop_unknown',
-        stopRequestId: result.error?.data?.orchestrationRequestId ?? attempt.stopRequestId,
+        stopRequestId:
+          attempt.stopRequestId ??
+          (result._meta?.runtimeId === attempt.context.runtimeId
+            ? (result.error?.data?.orchestrationRequestId ?? null)
+            : null),
         resourceState: confirmed ? 'stopped' : 'unknown',
         lastReceipt: result.rawReceipt,
         lastError: result.error?.message ?? value?.lastError ?? null,
@@ -371,6 +404,7 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         'Use a supervised terminal adoption path.',
       );
     }
+    const binding = attempt.startBinding ?? attempt;
     const args = [
       'orchestration',
       'worker-start',
@@ -380,16 +414,16 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       attempt.workspaceSelector,
       '--agent',
       AGENTS[launch.harness],
-      ...(attempt.orcaTaskId
-        ? ['--task', attempt.orcaTaskId]
+      ...(binding.orcaTaskId
+        ? ['--task', binding.orcaTaskId]
         : [
             '--spec-file',
             '-',
             '--task-title',
             `${launch.projectId}:${launch.taskId}:${launch.instanceId}`,
           ]),
-      ...(attempt.runId ? ['--run', attempt.runId] : []),
-      ...(attempt.retryOf ? ['--retry-of', attempt.retryOf] : []),
+      ...(binding.runId ? ['--run', binding.runId] : []),
+      ...(binding.retryOf ? ['--retry-of', binding.retryOf] : []),
       ...(launch.model ? ['--model', launch.model] : []),
       ...(launch.effort ? ['--effort', launch.effort] : []),
       ...(requestId ? ['--retry-request', requestId] : []),
@@ -399,7 +433,7 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
       const reply = await this.invoke(
         args,
         launch.projectRoot,
-        attempt.orcaTaskId ? undefined : launch.prompt,
+        binding.orcaTaskId ? undefined : launch.prompt,
       );
       const value = reply.result;
       const workspace = value?.effects?.filter((effect) => effect.kind === 'worktree');
@@ -408,6 +442,8 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         value?.dispatchId &&
         value.taskId &&
         (value.runId || value.run?.id) &&
+        value.dispatchId !== attempt.retryOf &&
+        (!attempt.dispatchId || attempt.dispatchId === value.dispatchId) &&
         (!attempt.orcaTaskId || attempt.orcaTaskId === value.taskId) &&
         (!attempt.runId || attempt.runId === (value.runId ?? value.run?.id));
       const matches =
@@ -434,7 +470,11 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         runId: bound ? (value.runId ?? value.run?.id ?? null) : attempt.runId,
         orcaTaskId: bound ? (value.taskId ?? null) : attempt.orcaTaskId,
         dispatchId: bound ? (value.dispatchId ?? null) : attempt.dispatchId,
-        startRequestId: reply.error?.data?.orchestrationRequestId ?? attempt.startRequestId,
+        startRequestId:
+          attempt.startRequestId ??
+          (reply._meta?.runtimeId === attempt.context.runtimeId
+            ? (reply.error?.data?.orchestrationRequestId ?? null)
+            : null),
         failureCount,
         resourceState: matches && state === 'ready' ? 'owned' : 'unknown',
         lastReceipt: reply.rawReceipt,
@@ -455,6 +495,25 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
             : attempt.lastReceipt,
         observedAt: new Date().toISOString(),
       };
+    }
+  }
+
+  private async verifyRequest(attempt: OrcaAttempt, requestId: string): Promise<void> {
+    await this.verifyRuntime(attempt.launch.projectRoot, attempt.context);
+    const receipt = await this.query(
+      ['orchestration', 'request-show', '--request', requestId],
+      attempt.launch.projectRoot,
+      attempt.context,
+    );
+    if (
+      receipt.result?.requestId !== requestId ||
+      !['pending', 'completed'].includes(receipt.result.state ?? '')
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_ATTEMPT_FENCED',
+        'Request absence or a mismatched receipt does not prove that nothing happened.',
+        'Retain custody and inspect the original request on its original runtime and caller.',
+      );
     }
   }
 
