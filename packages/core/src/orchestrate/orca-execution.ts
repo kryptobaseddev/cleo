@@ -10,7 +10,9 @@ import {
   type OrcaContext,
   type OrcaExecutionAdapter,
   type OrcaLaunch,
+  type OrcaWorkerRequest,
   orcaLaunchSchema,
+  orcaWorkerRequestSchema,
 } from '@cleocode/contracts/orca-execution.js';
 import {
   computeProjectHash,
@@ -18,6 +20,7 @@ import {
   resolveTaskWorktreePath,
 } from '@cleocode/paths';
 import { readWorktreeTaskLock } from '@cleocode/worktree';
+import { type EngineResult, engineError } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { isLiveClaim } from '../store/task-claim.js';
@@ -360,6 +363,64 @@ export async function recoverOrcaWorkerStop(
       cwd,
     );
     throw error;
+  }
+}
+
+/**
+ * Inspect or recover an exact durable worker through the supplied execution port.
+ * @remarks Every invocation reloads the record; no current environment, newest
+ * Run, native PID or launch status can replace its saved dispatch addressing.
+ * @param request - Exact record, operation and optional source-pinned read cursor.
+ * @param cwd - Owning CLEO project root.
+ * @param backend - Process adapter, injected at the CLI boundary.
+ * @returns The persisted record or original output receipt, or an actionable refusal.
+ * @example
+ * ```ts
+ * const request: OrcaWorkerRequest = { action: 'show', recordId };
+ * const result = await orchestrateOrcaWorker(request, root, backend);
+ * ```
+ */
+export async function orchestrateOrcaWorker(
+  request: OrcaWorkerRequest,
+  cwd: string,
+  backend: OrcaExecutionAdapter,
+): Promise<EngineResult<WorkerRecord | string>> {
+  const parsed = orcaWorkerRequestSchema.safeParse(request);
+  if (!parsed.success) {
+    // @sync-invariant none:input-shape an invalid supervision request cannot reach the execution port
+    return engineError('E_INVALID_INPUT', parsed.error.message, {
+      exitCode: ExitCode.VALIDATION_ERROR,
+      fix: 'Use cleo orchestrate worker --help; read alone accepts a source-pinned cursor.',
+    });
+  }
+  const { action, recordId, cursor } = parsed.data;
+  const operations = {
+    show: observeOrcaWorker,
+    read: readOrcaWorker,
+    'recover-start': recoverOrcaWorkerStart,
+    'recover-stop': recoverOrcaWorkerStop,
+    retry: retryOrcaWorker,
+    stop: stopOrcaWorker,
+  };
+  try {
+    return { success: true, data: await operations[action](recordId, cwd, backend, cursor) };
+  } catch (error) {
+    const code =
+      error instanceof CleoError
+        ? error.toLAFSError().code
+        : error instanceof Error && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : 'E_ORCA_WORKER_FAILED';
+    const fix =
+      error instanceof Error && 'fix' in error && typeof error.fix === 'string'
+        ? error.fix
+        : `Inspect the stored record ${recordId} with cleo orchestrate status; retain its claim and worktree until its exact operation is resolved.`;
+    // @sync-invariant none:local-only refused recovery retains the original durable custody
+    return engineError(code, error instanceof Error ? error.message : String(error), {
+      exitCode: error instanceof CleoError ? error.code : ExitCode.SPAWN_VALIDATION_FAILED,
+      fix,
+      details: { recordId, action },
+    });
   }
 }
 

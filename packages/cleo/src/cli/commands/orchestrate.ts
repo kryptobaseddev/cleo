@@ -22,6 +22,7 @@
  *   cleo orchestrate spawn-execute <taskId> — adapter-registry spawn
  *   cleo orchestrate fanout <epicId>      — parallel fan-out spawn
  *   cleo orchestrate worker-exit          — worker completion signal (SessionEnd hook)
+ *   cleo orchestrate worker <action> <recordId> — inspect/recover an exact Orca attempt
  *   cleo orchestrate worktree-complete <taskId> — canonical git merge --no-ff integration (ADR-062)
  *   cleo orchestrate lead <epicId> [--detached] — the no-hands lead (orchestrate.leadWorker.v1, T14363)
  *   cleo orchestrate lead-runner          — MCP stdio command runner for the no-hands lead (T14374)
@@ -842,6 +843,47 @@ const workerExitCommand = defineCommand({
   },
 });
 
+/** Thin supervision dispatch; core reloads and fences the exact saved Orca attempt. */
+const workerCommand = defineCommand({
+  meta: { name: 'worker', description: 'Inspect or recover an exact recorded Orca worker' },
+  args: {
+    action: {
+      type: 'positional',
+      description: 'show | read | recover-start | recover-stop | retry | stop',
+      required: true,
+    },
+    recordId: {
+      type: 'positional',
+      description: 'Exact worker recordId from status',
+      required: true,
+    },
+    cursor: { type: 'string', description: 'Source-pinned worker-read cursor (read only)' },
+  },
+  async run({ args }) {
+    const { orcaWorkerRequestSchema } = await import('@cleocode/contracts/orca-execution.js');
+    const parsed = orcaWorkerRequestSchema.safeParse(args);
+    if (!parsed.success) {
+      cliError(parsed.error.message, 'E_INVALID_INPUT', {
+        fix: 'Use cleo orchestrate worker --help.',
+      });
+      process.exitCode = ExitCode.VALIDATION_ERROR;
+      return;
+    }
+    const [{ OrcaExecutionBackend }, { orchestrateOrcaWorker }] = await Promise.all([
+      import('@cleocode/adapters/orca-execution'),
+      import('@cleocode/core/orchestrate/orca-execution'),
+    ]);
+    const result = await orchestrateOrcaWorker(
+      parsed.data,
+      getProjectRoot(),
+      new OrcaExecutionBackend(),
+    );
+    cliOutput(result, { command: 'orchestrate worker' });
+    if (!result.success)
+      process.exitCode = result.error.exitCode ?? ExitCode.SPAWN_VALIDATION_FAILED;
+  },
+});
+
 /** cleo orchestrate fanout — fan out tasks for an epic using parallel spawn */
 const fanoutCommand = defineCommand({
   meta: { name: 'fanout', description: 'Fan out tasks for an epic using parallel spawn' },
@@ -1146,6 +1188,7 @@ export const orchestrateCommand = defineCommand({
     'spawn-execute': spawnExecuteCommand,
     fanout: fanoutCommand,
     'worker-exit': workerExitCommand,
+    worker: workerCommand,
     prune: pruneCommand,
     'worktree-complete': worktreeCompleteCommand,
     // T935: HITL playbook approval gates

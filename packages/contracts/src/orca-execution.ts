@@ -94,6 +94,21 @@ export const orcaAttemptSchema = z.object({
 /** An exact execution attempt; uncertain states always retain worker custody. */
 export type OrcaAttempt = z.infer<typeof orcaAttemptSchema>;
 
+/** Exact-record supervision request; recovery never chooses a task's newest attempt. */
+export const orcaWorkerRequestSchema = z
+  .object({
+    action: z.enum(['show', 'read', 'recover-start', 'recover-stop', 'retry', 'stop']),
+    recordId: identifier,
+    cursor: identifier.optional(),
+  })
+  .refine(({ action, cursor }) => cursor === undefined || action === 'read', {
+    message: 'A source-pinned cursor is accepted only for read.',
+    path: ['cursor'],
+  });
+
+/** CLI and SDK input for inspecting or recovering one durable Orca attempt. */
+export type OrcaWorkerRequest = z.infer<typeof orcaWorkerRequestSchema>;
+
 /**
  * Process-side execution port. Core owns persistence and receives this port from
  * its caller, so it never imports an adapter that builds after core.
