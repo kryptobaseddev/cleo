@@ -20,11 +20,18 @@
  */
 
 import { ISOLATION_ENV_KEYS } from '@cleocode/contracts/branch-lock.js';
+import type { EngineResult } from '@cleocode/contracts/engine-result.js';
 import type { OrchestrateSpawnResult } from '@cleocode/contracts/operations/orchestrate.js';
 import type { Task } from '@cleocode/contracts/task.js';
 import type { DisposeOwnedWorktreeOptions, disposeOwnedWorktree } from '@cleocode/worktree';
 import { describe, expect, it, vi } from 'vitest';
+import { CleoError } from '../../errors.js';
 import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
+import { assertStoreNotRestoring } from '../../store/restore-marker.js';
+import {
+  E_WORKTREE_BUILD_SCHEMA,
+  WorktreeBuildSchemaError,
+} from '../../store/worktree-build-guard.js';
 import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
 import type { WorkerRecord } from '../worker-records.js';
 
@@ -170,11 +177,25 @@ vi.mock('../../resources/governor.js', async () => {
   return {
     ...actual,
     takeAgentSessionLease: async () => ({ lease: null, reused: false }),
+    // T14490: orchestrateSpawnExecute takes its own agent-session slot directly
+    // before the custody read. Admission is not under test — the slot is granted
+    // so a store-refusal case reaches the catch it targets.
+    governor: {
+      tryAcquire: async () => ({
+        deferred: false,
+        class: 'agent-session',
+        slot: 0,
+        acquiredAtMs: Date.now(),
+        release: async () => undefined,
+      }),
+    },
   };
 });
 
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.
-const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
+const { orchestrateSpawn, orchestrateSpawnExecute, runLintChangesets } = await import(
+  '../spawn-ops.js'
+);
 
 // ---------------------------------------------------------------------------
 // runLintChangesets — T10448 pre-spawn hygiene gate
@@ -872,5 +893,76 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     expect(result.error?.code).toBe('E_WORKTREE_LOCKED');
     expect(result.error?.exitCode).toBe(25);
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Store refusals reach the spawn envelope (T14490)
+// ---------------------------------------------------------------------------
+
+describe('store refusals keep their own code and fix (T14490)', () => {
+  /**
+   * The real `E_STORE_RESTORING` refusal a store open raises while another
+   * process replaces it (T13258). The fs mock reports the marker present and
+   * the marker file is unreadable, which {@link assertStoreNotRestoring} treats
+   * as held — the refusal keeps its own message and fix.
+   */
+  const storeRestoringRefusal = (): CleoError => {
+    existsSyncMock.mockReturnValue(true);
+    try {
+      assertStoreNotRestoring('/tmp/cleo-spawn-test-root/.cleo/cleo.db', 0);
+    } catch (err) {
+      if (!(err instanceof CleoError)) throw err;
+      return err;
+    } finally {
+      existsSyncMock.mockReset();
+    }
+    throw new Error('assertStoreNotRestoring did not refuse');
+  };
+
+  /** Both store refusals the custody read can raise before adapter preflight. */
+  const storeRefusals = (): Array<{ codeName: string; refusal: CleoError }> => [
+    { codeName: 'E_STORE_RESTORING', refusal: storeRestoringRefusal() },
+    {
+      codeName: E_WORKTREE_BUILD_SCHEMA,
+      refusal: new WorktreeBuildSchemaError(
+        'the store is missing pending migration 20260929000000_slice-2-union-shape',
+      ),
+    },
+  ];
+
+  /**
+   * Assert the envelope carries the refusal's own code name, message, exit
+   * code and fix — never the generic catalog code, `E_SPAWN_FAILED` or
+   * `E_GENERAL`.
+   */
+  const expectStoreRefusal = (result: EngineResult, refusal: CleoError, codeName: string): void => {
+    expect(result.success, codeName).toBe(false);
+    if (result.success) return;
+    expect(result.error.code, codeName).toBe(codeName);
+    expect(result.error.code, codeName).not.toBe('E_SPAWN_FAILED');
+    expect(result.error.code, codeName).not.toBe('E_GENERAL');
+    expect(result.error.code, codeName).not.toBe(refusal.toLAFSError().code);
+    expect(result.error.exitCode, codeName).toBe(refusal.code);
+    expect(result.error.message, codeName).toBe(refusal.message);
+    expect(result.error.message, codeName).toContain(codeName);
+    expect(result.error.fix, codeName).toBe(refusal.fix);
+    expect(result.error.fix, codeName).toBeTruthy();
+  };
+
+  it('orchestrateSpawn returns the custody read store refusal (AC1)', async () => {
+    for (const { codeName, refusal } of storeRefusals()) {
+      findOrcaWorkerMock.mockRejectedValueOnce(refusal);
+      const result = await orchestrateSpawn('T9999');
+      expectStoreRefusal(result, refusal, codeName);
+    }
+  });
+
+  it('orchestrateSpawnExecute returns the custody read store refusal (AC1)', async () => {
+    for (const { codeName, refusal } of storeRefusals()) {
+      findOrcaWorkerMock.mockRejectedValueOnce(refusal);
+      const result = await orchestrateSpawnExecute('T9999');
+      expectStoreRefusal(result, refusal, codeName);
+    }
   });
 });
