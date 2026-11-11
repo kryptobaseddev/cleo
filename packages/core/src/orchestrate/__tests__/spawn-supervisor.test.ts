@@ -933,14 +933,16 @@ describe('store refusals keep their own code and fix (T14490)', () => {
 
   /**
    * Assert the envelope carries the refusal's own code name, message, exit
-   * code and fix — never the spawn catch-all `E_SPAWN_FAILED` / `E_GENERAL`.
+   * code and fix — never the generic catalog code, `E_SPAWN_FAILED` or
+   * `E_GENERAL`.
    */
   const expectStoreRefusal = (result: EngineResult, refusal: CleoError, codeName: string): void => {
     expect(result.success, codeName).toBe(false);
     if (result.success) return;
-    expect(result.error.code, codeName).toBe(refusal.toLAFSError().code);
+    expect(result.error.code, codeName).toBe(codeName);
     expect(result.error.code, codeName).not.toBe('E_SPAWN_FAILED');
     expect(result.error.code, codeName).not.toBe('E_GENERAL');
+    expect(result.error.code, codeName).not.toBe(refusal.toLAFSError().code);
     expect(result.error.exitCode, codeName).toBe(refusal.code);
     expect(result.error.message, codeName).toBe(refusal.message);
     expect(result.error.message, codeName).toContain(codeName);
