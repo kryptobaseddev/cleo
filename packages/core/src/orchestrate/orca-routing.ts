@@ -7,6 +7,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   ORCA_AGENT_HARNESSES,
   ORCA_AGENT_PROVIDERS,
+  type OrcaAgent,
   type OrcaDiscovery,
   type OrcaLaunch,
   type OrcaRoutingAdapter,
@@ -20,6 +21,7 @@ import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { launchOrcaWorker } from './orca-execution.js';
 import {
+  listWorkerRecords,
   newWorkerInstanceId,
   retireUnconfiguredOrcaWorker,
   type WorkerRecord,
@@ -81,6 +83,38 @@ export async function launchRoutedOrcaWorker(
     }
     return saved.data;
   };
+  const currentRunId = await backend.currentRun(prepared.projectRoot, discovery.context);
+  if (currentRunId === null) {
+    const pending = (await listWorkerRecords(prepared.projectRoot, true)).find(
+      ({ execution, stoppedAt }) =>
+        stoppedAt === null &&
+        execution &&
+        execution.runId === null &&
+        !execution.startRefusal &&
+        execution.context.runtimeId === discovery.context.runtimeId &&
+        execution.context.coordinatorHandle === discovery.context.coordinatorHandle &&
+        execution.context.executionHostId === discovery.context.executionHostId,
+    );
+    if (pending) {
+      // @sync-invariant none:local-only an unresolved first launch may still create this coordinator's Run
+      throw new CleoError(
+        ExitCode.SPAWN_VALIDATION_FAILED,
+        'The coordinator has an unresolved start with no proven Run.',
+        {
+          details: { field: 'recordId', recordId: pending.recordId },
+          fix: `Recover the original start for ${pending.recordId} before another dispatch; preserve its claim and worktree.`,
+        },
+      );
+    }
+  }
+  await accessor.transaction(async (tx) => {
+    const run = await readRun();
+    if (run.runId !== currentRunId || currentRunId === null) {
+      await tx.setMetaValue(runKey, { runId: currentRunId, unconfiguredAgents: [] });
+    }
+  });
+  // Refusals before any Run exists belong only to this invocation.
+  const refused = new Set<OrcaAgent>();
   for (;;) {
     const route = await accessor.transaction(async (tx) => {
       const run = await readRun();
@@ -103,7 +137,10 @@ export async function launchRoutedOrcaWorker(
         ...config.data.agents.slice(0, lastIndex + 1),
       ];
       const agent = ordered.find(
-        (candidate) => agents.includes(candidate) && !run.unconfiguredAgents.includes(candidate),
+        (candidate) =>
+          agents.includes(candidate) &&
+          !refused.has(candidate) &&
+          !run.unconfiguredAgents.includes(candidate),
       );
       if (!agent) {
         // @sync-invariant none:local-only account or configured server-route unavailability cannot authorize another backend
@@ -111,11 +148,10 @@ export async function launchRoutedOrcaWorker(
           ExitCode.SPAWN_VALIDATION_FAILED,
           'No usable configured Orca agent is available for this Run.',
           {
-            fix: `Inspect orca account list --json and orchestrate.orca.agents; select an active account or system sign-in for a configured enabled agent${adapterId ? ` matching the explicit ${adapterId} harness` : ''}. Confirmed agent_unconfigured refusals remain disabled for this Run.`,
+            fix: `Inspect orca account list --json and orchestrate.orca.agents; select an active account or system sign-in for a configured enabled agent${adapterId ? ` matching the explicit ${adapterId} harness` : ''}. Bound-Run exclusions clear when orca orchestration run-current reports a different Run: use orca orchestration run-create --from ${discovery.context.coordinatorHandle} --objective <new-goal> after enabling the agent. Refusals with no bound Run apply only to this dispatch.`,
           },
         );
       }
-      await tx.setMetaValue('orchestrate.orca.lastAgent', agent);
       return { agent, runId: run.runId };
     });
     const harness = ORCA_AGENT_HARNESSES[route.agent];
@@ -140,19 +176,29 @@ export async function launchRoutedOrcaWorker(
           ExitCode.SPAWN_VALIDATION_FAILED,
           'The Orca coordinator Run binding changed.',
           {
-            fix: 'Inspect the stored exact worker and original coordinator; retain its claim and worktree while reconciling the Run.',
+            details: { field: 'recordId', recordId: record.recordId },
+            fix: `Inspect the exact worker ${record.recordId} and original coordinator; retain its claim and worktree while reconciling the Run.`,
           },
         );
       }
       await tx.setMetaValue(runKey, {
         runId: execution.runId ?? run.runId,
         unconfiguredAgents:
-          execution.startRefusal === 'agent_unconfigured'
+          run.runId !== null && execution.startRefusal === 'agent_unconfigured'
             ? [...new Set([...run.unconfiguredAgents, route.agent])]
             : run.unconfiguredAgents,
       });
+      if (
+        ['ready', 'turn_unobserved'].includes(execution.state) &&
+        execution.runId &&
+        execution.orcaTaskId &&
+        execution.dispatchId
+      ) {
+        await tx.setMetaValue('orchestrate.orca.lastAgent', route.agent);
+      }
     });
     if (execution.startRefusal !== 'agent_unconfigured') return record;
+    refused.add(route.agent);
     // Record the unusable route before retiring custody; a crash between them stays fenced.
     await retireUnconfiguredOrcaWorker(record, prepared.projectRoot);
   }

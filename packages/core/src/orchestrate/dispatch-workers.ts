@@ -2,7 +2,8 @@
  * Fan-out worker dispatch (T409 · T433, moved from the CLI in T14359).
  *
  * Spawns one worker per item through {@link orchestrateSpawnExecute} with
- * `Promise.allSettled`, so one failed spawn never aborts the others. Every
+ * `Promise.allSettled`, so one failed spawn never aborts the others. Orca
+ * admissions serialize to bind the first Run before subsequent starts. Every
  * worker left running gets a durable record (see `worker-records.ts`).
  *
  * @module orchestrate/dispatch-workers
@@ -52,7 +53,7 @@ export interface DispatchWorkersData {
 }
 
 /**
- * Dispatch one worker per item in parallel.
+ * Dispatch workers concurrently, serializing admission when Orca hints exist.
  *
  * @param items - Workers to dispatch.
  * @param projectRoot - Project root.
@@ -67,30 +68,42 @@ export async function dispatchWorkers(
   const manifestEntryId = `fanout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
+    // Hint-only scheduling preserves resource admission before any host process.
+    const serial = options.orca?.hasContextHints() ?? false;
+    let previous = Promise.resolve();
     const settled = await Promise.allSettled(
-      items.map(async (item): Promise<DispatchWorkerResult> => {
-        const spawnResult = await orchestrateSpawnExecute(
-          item.taskId,
-          undefined,
-          undefined,
-          projectRoot,
-          undefined,
-          options,
-        );
-        if (!spawnResult.success) {
+      items.map((item) => {
+        const launch = async (): Promise<DispatchWorkerResult> => {
+          const spawnResult = await orchestrateSpawnExecute(
+            item.taskId,
+            undefined,
+            undefined,
+            projectRoot,
+            undefined,
+            options,
+          );
+          if (!spawnResult.success) {
+            return {
+              taskId: item.taskId,
+              status: 'failed',
+              error: spawnResult.error?.message ?? `Spawn failed for task ${item.taskId}`,
+              refusal: spawnResult.error,
+            };
+          }
+          const data = spawnResult.data as Record<string, unknown> | undefined;
           return {
             taskId: item.taskId,
-            status: 'failed',
-            error: spawnResult.error?.message ?? `Spawn failed for task ${item.taskId}`,
-            refusal: spawnResult.error,
+            status: 'spawned',
+            instanceId: typeof data?.instanceId === 'string' ? data.instanceId : undefined,
           };
-        }
-        const data = spawnResult.data as Record<string, unknown> | undefined;
-        return {
-          taskId: item.taskId,
-          status: 'spawned',
-          instanceId: typeof data?.instanceId === 'string' ? data.instanceId : undefined,
         };
+        const worker = serial ? previous.then(launch) : launch();
+        if (serial)
+          previous = worker.then(
+            () => undefined,
+            () => undefined,
+          );
+        return worker;
       }),
     );
 

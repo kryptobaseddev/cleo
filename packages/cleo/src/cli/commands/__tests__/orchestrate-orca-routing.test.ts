@@ -1,4 +1,5 @@
 /** Product dispatch and real custody stores with an injected, offline Orca process boundary. */
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
@@ -17,6 +18,7 @@ import {
 } from '../../../../../adapters/src/__tests__/orca-execution-fixture.js';
 import { getConfigValue } from '../../../../../core/src/config/registry.js';
 import { hooks } from '../../../../../core/src/hooks/registry.js';
+import * as spawnOps from '../../../../../core/src/orchestrate/spawn-ops.js';
 import { orchestrateSpawnExecute } from '../../../../../core/src/orchestrate/spawn-ops.js';
 import { listWorkerRecords } from '../../../../../core/src/orchestrate/worker-records.js';
 import { buildSpawnPrompt } from '../../../../../core/src/orchestration/spawn-prompt.js';
@@ -127,6 +129,7 @@ import { OrchestrateHandler } from '../../../dispatch/domains/orchestrate.js';
 describe('Orca AC1 routing across product worker entry points', () => {
   let env: TestDbEnv;
   let state: OrcaAttempt['state'];
+  let currentRun: string | null;
   const disabled = new Set<OrcaAgent>();
 
   function configure(orchestrate: object): void {
@@ -171,6 +174,7 @@ describe('Orca AC1 routing across product worker entry points', () => {
     vi.stubEnv('CLEO_SESSION_ID', 'ses_fixture_lead');
     vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
     state = 'ready';
+    currentRun = 'run_fixture';
     disabled.clear();
     nativeSpawn.mockClear();
     // Routing fixtures have no agents; admission must not depend on the CI host's CPU count.
@@ -227,6 +231,8 @@ describe('Orca AC1 routing across product worker entry points', () => {
       claude: { accounts: [], activeAccountId: 'system' },
     });
     fixtureRunner.mockReset().mockImplementation(async (executable, args, cwd, input) => {
+      if (args[1] === 'run-current')
+        return fixtureReply({ run: currentRun === null ? null : { id: currentRun } });
       if (args[0] === 'worktree') {
         const path = args[args.indexOf('--worktree') + 1]?.replace(/^path:/, '') ?? '';
         return fixtureReply({
@@ -263,12 +269,17 @@ describe('Orca AC1 routing across product worker entry points', () => {
         if (state === 'outcome_unknown')
           return { stdout: '', stderr: 'lost receipt', exitCode: null };
         const taskId = args[args.indexOf('--task-title') + 1]?.split(':').at(-2);
+        const boundRun = args.includes('--run')
+          ? args[args.indexOf('--run') + 1]
+          : (currentRun ?? 'run_fixture');
+        if (!boundRun) throw new Error('Missing fixture Run');
+        currentRun = boundRun;
         return fixtureReply(
           {
             state: state === 'turn_unobserved' ? 'outcome_unknown' : state,
             stage: state === 'turn_unobserved' ? 'turn_start_unobserved' : 'input_accepted',
             dispatchId: `ctx_${taskId}`,
-            runId: 'run_fixture',
+            runId: boundRun,
             taskId: `task_${taskId}`,
             effects: [{ kind: 'worktree', action: 'reused', id: `workspace-${taskId}` }],
             residualResources: [],
@@ -536,5 +547,141 @@ describe('Orca AC1 routing across product worker entry points', () => {
     expect(provision).not.toHaveBeenCalled();
     expect(fixtureRunner).not.toHaveBeenCalled();
     expect((await env.accessor.loadSingleTask('T001'))?.claim).toBeUndefined();
+  });
+
+  it('expires disabled routes when this same coordinator binds a different Run', async () => {
+    configure({ orca: { agents: ['codex'] } });
+    currentRun = 'run_old';
+    disabled.add('codex');
+    const refusal = await spawn();
+    expect(refusal).toMatchObject({ success: false });
+    currentRun = 'run_new';
+    disabled.clear();
+    expect(await spawn('T002')).toMatchObject({
+      success: true,
+      data: { providerId: 'codex', execution: { runId: 'run_new' } },
+    });
+    expect(refusal).toMatchObject({
+      error: { fix: expect.stringContaining('orca orchestration run-create') },
+    });
+    expect(starts().at(-1)?.[1]).toContain('run_new');
+  });
+
+  it('does not persist an unbound agent refusal beyond the dispatch invocation', async () => {
+    configure({ orca: { agents: ['codex'] } });
+    currentRun = null;
+    disabled.add('codex');
+    expect(await spawn()).toMatchObject({ success: false });
+    disabled.clear();
+    expect(await spawn('T002')).toMatchObject({ success: true, data: { providerId: 'codex' } });
+    expect(selectedAgents()).toEqual(['codex', 'codex']);
+  });
+
+  it('fences other tasks until an unknown first launch has a proven Run', async () => {
+    currentRun = null;
+    state = 'outcome_unknown';
+    const first = await spawn();
+    const [record] = await listWorkerRecords(env.tempDir);
+    expect(first).toMatchObject({
+      success: false,
+      error: { details: { recordId: record?.recordId } },
+    });
+    expect(await spawn('T002')).toMatchObject({
+      success: false,
+      error: {
+        details: { recordId: record?.recordId },
+        fix: expect.stringContaining(record?.recordId ?? 'missing'),
+      },
+    });
+    expect(starts()).toHaveLength(1);
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(record?.sessionId);
+    expect((await env.accessor.loadSingleTask('T002'))?.claim).toBeUndefined();
+  });
+
+  it.each([
+    'preflight',
+    'outcome_unknown',
+  ] as const)('keeps last confirmed rotation after %s', async (failure) => {
+    expect(await spawn()).toMatchObject({ success: true, data: { providerId: 'codex' } });
+    const invoke = fixtureRunner.getMockImplementation();
+    if (!invoke) throw new Error('Missing fixture process runner');
+    if (failure === 'preflight')
+      fixtureRunner.mockImplementation(async (...args) =>
+        args[1][0] === 'worktree'
+          ? { stdout: '', stderr: 'preflight unavailable', exitCode: null }
+          : invoke(...args),
+      );
+    else state = 'outcome_unknown';
+    expect(await spawn('T002')).toMatchObject({ success: false });
+    expect(await env.accessor.getMetaValue('orchestrate.orca.lastAgent')).toBe('codex');
+    fixtureRunner.mockImplementation(invoke);
+    state = 'ready';
+    expect(await spawn('T003')).toMatchObject({ success: true, data: { providerId: 'opencode' } });
+  });
+
+  it.each([
+    true,
+    false,
+  ])('orders fanout admission only with Orca context hints: %s', async (insideOrca) => {
+    if (!insideOrca) vi.stubEnv('ORCA_TERMINAL_HANDLE', undefined);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let bound: string | null = null;
+    const usedRuns: string[] = [];
+    const execute = vi
+      .spyOn(spawnOps, 'orchestrateSpawnExecute')
+      .mockImplementation(async (taskId) => {
+        const known = bound;
+        entered.resolve();
+        await release.promise;
+        const runId = known ?? `run_${taskId}`;
+        bound = runId;
+        usedRuns.push(runId);
+        return { success: true, data: { instanceId: `worker-${taskId}` } };
+      });
+    const pending = new OrchestrateHandler().mutate('fanout', {
+      items: ['T001', 'T002', 'T003'].map((taskId) => ({ taskId, team: 'engineering' })),
+    });
+    await entered.promise;
+    const startedBeforeReceipt = execute.mock.calls.length;
+    release.resolve();
+    expect(await pending).toMatchObject({ success: true, data: { spawned: 3, failed: 0 } });
+    expect(startedBeforeReceipt).toBe(insideOrca ? 1 : 3);
+    expect(usedRuns).toEqual(
+      insideOrca ? ['run_T001', 'run_T001', 'run_T001'] : ['run_T001', 'run_T002', 'run_T003'],
+    );
+  });
+
+  it('returns the retained record id if the Run binding changes after a worker starts', async () => {
+    expect(await spawn()).toMatchObject({ success: true });
+    const invoke = fixtureRunner.getMockImplementation();
+    if (!invoke) throw new Error('Missing fixture process runner');
+    fixtureRunner.mockImplementation(async (...args) => {
+      const result = await invoke(...args);
+      if (args[1][1] === 'worker-start') {
+        const key = `orchestrate.orca.run:${createHash('sha256').update(JSON.stringify(fixtureContext)).digest('hex')}`;
+        await env.accessor.setMetaValue(key, {
+          runId: 'run_changed_concurrently',
+          unconfiguredAgents: [],
+        });
+      }
+      return result;
+    });
+    const result = await spawn('T002');
+    const record = (await listWorkerRecords(env.tempDir)).find(
+      (worker) => worker.taskId === 'T002',
+    );
+    expect(record).toMatchObject({
+      stoppedAt: null,
+      execution: { runId: 'run_fixture', dispatchId: 'ctx_T002' },
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: {
+        details: { recordId: record?.recordId },
+        fix: expect.stringContaining(record?.recordId ?? 'missing'),
+      },
+    });
+    expect(readWorktreeTaskLock(computeProjectHash(env.tempDir), 'T002')).not.toBeNull();
   });
 });

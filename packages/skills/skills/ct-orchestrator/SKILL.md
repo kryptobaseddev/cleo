@@ -2,14 +2,14 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.11.0
+  version: 4.12.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
     - packages/core/src/orchestrate/orca-routing.ts
-  lastReviewed: 2026-11-10
+  lastReviewed: 2026-11-11
   stability: stable
 ---
 
@@ -22,9 +22,16 @@ insufficient. Partial or unavailable Orca contexts refuse with a repair instruct
 `orchestrate.orca.agents` orders rotation (default: codex, opencode2, claude).
 Only providers with an active account or system sign-in are eligible; explicit
 Grok uses its server sign-in. Inspect `orca account list --json` locally; keep
-emails, account homes and other private inventory out of reports. Rotation and
-confirmed `agent_unconfigured` exclusions persist per project and owning Run.
-Unknown launch outcomes retain custody and never advance to another harness.
+emails, account homes and other private inventory out of reports. Project rotation
+advances only after a confirmed start receipt. Confirmed `agent_unconfigured`
+exclusions apply to the coordinator's current Run; `orca orchestration run-current`
+proves rebinding and clears the old exclusions. Enable the agent, then use
+`orca orchestration run-create --from <coordinator> --objective <new-goal>` to bind
+a fresh Run. Before a Run exists, exclusions last only for that dispatch invocation.
+Fanout serializes Orca admissions so followers use the first proven Run; workers
+still execute concurrently. An unknown first start fences further unbound starts.
+Unknown launch outcomes retain their exact record ID and custody and never
+advance rotation or select another harness.
 Exact per-account placement refuses. A lead's own restricted launch remains
 on the existing native path; Orca lead enforcement is separate work.
 

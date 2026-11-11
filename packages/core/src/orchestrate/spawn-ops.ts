@@ -1330,11 +1330,29 @@ export async function orchestrateSpawnExecute(
           },
         };
       } catch (error) {
+        const retained = await findOrcaWorker(taskId, cwd);
+        if (retained) {
+          // @sync-invariant none:local-only every post-launch refusal must retain exact recovery addressing
+          return engineError(
+            'E_ORCA_ATTEMPT_FENCED',
+            error instanceof Error ? error.message : String(error),
+            {
+              exitCode: 63,
+              details: {
+                recordId: retained.recordId,
+                state: retained.execution?.state,
+                dispatchId: retained.execution?.dispatchId,
+              },
+              fix: `Inspect cleo orchestrate worker show ${retained.recordId}; preserve its claim and worktree while reconciling the original Run.`,
+            },
+          );
+        }
         if (error instanceof CleoError) {
           // @sync-invariant none:local-only routing refusals preserve the repair instruction and release only proven unsent custody
           return engineError(error.toLAFSError().code, error.message, {
             exitCode: error.code,
             fix: error.fix,
+            details: error.details,
           });
         }
         throw error;

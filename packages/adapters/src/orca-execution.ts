@@ -41,6 +41,7 @@ const REQUIRED_COMMANDS = {
   'orchestration worker-read': ['dispatch', 'source', 'limit', 'cursor', 'full'],
   'orchestration worker-stop': ['dispatch', 'retry-request', 'full'],
   'orchestration request-show': ['request', 'full'],
+  'orchestration run-current': ['from', 'full'],
   'worktree show': ['worktree'],
 };
 
@@ -106,17 +107,21 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     this.executable = executable;
   }
 
+  /** Inspect hints without spawning a process; this cannot select an execution backend. */
+  hasContextHints(): boolean {
+    return Boolean(
+      process.env.ORCA_TERMINAL_HANDLE ||
+        process.env.ORCA_WORKTREE_ID ||
+        process.env.ORCA_WORKSPACE_ID ||
+        process.env.ORCA_RUNTIME_SOURCE_ID ||
+        process.env.ORCA_APP_VERSION,
+    );
+  }
+
   /** Verify the local caller before returning a sanitized account inventory. */
   async discover(projectRoot: string): Promise<OrcaDiscovery | null> {
+    if (!this.hasContextHints()) return null;
     const handle = process.env.ORCA_TERMINAL_HANDLE;
-    if (
-      !handle &&
-      !process.env.ORCA_WORKTREE_ID &&
-      !process.env.ORCA_WORKSPACE_ID &&
-      !process.env.ORCA_RUNTIME_SOURCE_ID &&
-      !process.env.ORCA_APP_VERSION
-    )
-      return null;
     if (!handle) {
       throw new OrcaExecutionError(
         'E_ORCA_CONTEXT',
@@ -178,6 +183,25 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         'Inspect orca account list --json locally and select an active account for an agent in orchestrate.orca.agents.',
       );
     }
+  }
+
+  /** Read the Run currently bound to the original local coordinator, without mutation. */
+  async currentRun(projectRoot: string, context: OrcaContext): Promise<string | null> {
+    await this.verifyRuntime(projectRoot, context);
+    const reply = await this.query(
+      ['orchestration', 'run-current', '--from', context.coordinatorHandle],
+      projectRoot,
+      context,
+    );
+    const run = reply.result?.run;
+    if (run === undefined) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca did not prove the coordinator Run binding.',
+        'Inspect orca orchestration run-current --from <handle> --json in the original local runtime before dispatch.',
+      );
+    }
+    return run?.id ?? null;
   }
 
   /** Verify supported commands, exact runtime and existing canonical workspace. */

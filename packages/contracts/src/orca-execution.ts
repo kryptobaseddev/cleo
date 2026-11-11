@@ -201,8 +201,12 @@ export interface OrcaExecutionAdapter {
 
 /** Host discovery port injected by product dispatch, outside the model registry. */
 export interface OrcaRoutingAdapter extends OrcaExecutionAdapter {
+  /** Process-free admission hint; backend selection still requires verified discovery. */
+  hasContextHints(): boolean;
   /** Null outside Orca; partial, unavailable or ambiguous contexts throw a refusal. */
   discover(projectRoot: string): Promise<OrcaDiscovery | null>;
+  /** Inspect the exact coordinator's current Run; explicit null proves no binding. */
+  currentRun(projectRoot: string, context: OrcaContext): Promise<string | null>;
 }
 
 /** Result from one bounded subprocess invocation, including nonzero JSON receipts. */
@@ -263,7 +267,7 @@ export const orcaReplySchema = z.object({
       stage: z.string().optional(),
       turnStart: z.string().optional(),
       runId: identifier.optional(),
-      run: z.object({ id: identifier }).optional(),
+      run: z.object({ id: identifier }).nullable().optional(),
       taskId: identifier.optional(),
       dispatchId: identifier.optional(),
       failureCount: z.number().int().nonnegative().optional(),

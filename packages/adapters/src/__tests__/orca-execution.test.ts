@@ -31,6 +31,7 @@ describe('Orca execution process boundary', () => {
       1,
     );
     orcaFixture.request = fixtureReply({ state: 'completed', requestId: 'request-fixture' });
+    orcaFixture.currentRun = fixtureReply({ run: { id: 'run_fixture' } });
     orcaFixture.accounts = fixtureReply({
       codex: {
         accounts: [{ email: 'private@example.invalid', home: '/private/account' }],
@@ -62,9 +63,11 @@ describe('Orca execution process boundary', () => {
       vi.stubEnv(key, undefined);
     vi.stubEnv('TERM_PROGRAM', 'Orca');
     const backend = new OrcaExecutionBackend(fixtureRunner, '/fixture/orca');
+    expect(backend.hasContextHints()).toBe(false);
     expect(await backend.discover(fixtureLaunch.projectRoot)).toBeNull();
     expect(fixtureRunner).not.toHaveBeenCalled();
     vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+    expect(backend.hasContextHints()).toBe(true);
     const discovery = await backend.discover(fixtureLaunch.projectRoot);
     expect(discovery).toEqual({
       context: fixtureContext,
@@ -89,6 +92,47 @@ describe('Orca execution process boundary', () => {
       'list',
       '--json',
     ]);
+  });
+
+  it.each([
+    'run_fixture',
+    null,
+  ])('proves the coordinator Run binding %s without mutation', async (runId) => {
+    orcaFixture.currentRun = fixtureReply({ run: runId === null ? null : { id: runId } });
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    expect(await backend.currentRun(fixtureLaunch.projectRoot, fixtureContext)).toBe(runId);
+    expect(fixtureRunner.mock.calls.map(([, args]) => args)).toContainEqual([
+      'orchestration',
+      'run-current',
+      '--from',
+      fixtureContext.coordinatorHandle,
+      '--environment',
+      'local',
+      '--json',
+      '--full',
+    ]);
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
+  });
+
+  it.each(['missing', 'wrong-runtime'])('refuses an unproven %s Run binding', async (condition) => {
+    orcaFixture.currentRun =
+      condition === 'missing'
+        ? fixtureReply({})
+        : {
+            stdout: JSON.stringify({
+              ok: true,
+              result: { run: null },
+              _meta: { runtimeId: 'other' },
+            }),
+            stderr: '',
+            exitCode: 0,
+          };
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).currentRun(fixtureLaunch.projectRoot, fixtureContext),
+    ).rejects.toMatchObject({
+      code: 'E_ORCA_CONTEXT',
+      fix: expect.any(String),
+    });
   });
 
   it.each([
