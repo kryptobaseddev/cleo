@@ -155,20 +155,31 @@ export function isPhantomCancelJob(job) {
 }
 
 /**
- * Decide whether `run` is the latest run for its (workflow, branch, sha)
- * tuple within `allRuns`. Never re-run a superseded run — a newer attempt of
- * the same commit already exists.
+ * Decide whether `run` is the latest run for its (workflow, ref, sha) tuple
+ * within `allRuns`. Never re-run a superseded run — a newer attempt of the
+ * same commit on the same ref already exists.
+ *
+ * The ref is {@link headIdentityOf}, never the branch name: two PRs can share
+ * a branch name AND a head sha (the same commit opened against two different
+ * bases) while occupying different concurrency groups
+ * (`refs/pull/<n>/merge`). Comparing the branch alone makes the newer PR's
+ * run suppress the older PR's recovery.
+ *
+ * A run with no resolvable ref identity has no tuple to match; it is not
+ * superseded here (the unknown-head guard skips it before any re-run).
  *
  * @param {GhRun} run
  * @param {GhRun[]} allRuns
  * @returns {boolean}
  */
 export function isLatestForTuple(run, allRuns) {
+  const identity = headIdentityOf(run);
+  if (identity === null) return true;
   for (const other of allRuns) {
     if (other.databaseId === run.databaseId) continue;
     if (
       other.workflowDatabaseId === run.workflowDatabaseId &&
-      other.headBranch === run.headBranch &&
+      headIdentityOf(other) === identity &&
       other.headSha === run.headSha &&
       other.number > run.number
     ) {

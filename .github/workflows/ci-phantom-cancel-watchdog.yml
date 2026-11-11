@@ -18,9 +18,8 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: read # also serves the PR head lookup: `pulls/<n>` is public read (T14488)
   actions: write # required for `gh run rerun`
-  pull-requests: read # head-sha freshness guard (T14488)
 
 jobs:
   watchdog:

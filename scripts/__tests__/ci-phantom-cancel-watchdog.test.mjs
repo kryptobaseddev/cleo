@@ -2,12 +2,12 @@
  * Tests for scripts/ci-phantom-cancel-watchdog.mjs (T12103, T14488).
  *
  * Covers the phantom-cancel detection signature, the superseded-run guards
- * (same-sha attempts, a moved ref head, PR/branch identity), the head
- * resolution through the REAL resolver with an injected `gh` fetch, the
- * "unknown head means skip" rule, the 7-day age guard, dry-run mutation
- * safety, and a replay of the 2026-11-11 #2788 phantom re-run. All `gh`
- * interaction is dependency-injected via a fake exec function — no network, no
- * CLI, and never a real rerun.
+ * (same-sha attempts, a moved ref head, PR/branch identity, two PRs sharing a
+ * branch name and a head sha), the head resolution through the REAL resolver
+ * with an injected `gh` fetch, the "unknown head means skip" rule, the 7-day
+ * age guard, dry-run mutation safety, and a replay of the 2026-11-11 #2788
+ * phantom re-run. All `gh` interaction is dependency-injected via a fake exec
+ * function — no network, no CLI, and never a real rerun.
  *
  * @task T12103
  * @task T14488
@@ -198,7 +198,7 @@ describe('isPostJobCleanupStep', () => {
 // ---------------------------------------------------------------------------
 
 describe('isLatestForTuple', () => {
-  it('accepts the newest run for its (workflow, branch, sha) tuple', () => {
+  it('accepts the newest run for its (workflow, ref, sha) tuple', () => {
     const older = makeRun({ databaseId: 1001, number: 5 });
     const newer = makeRun({ databaseId: 1002, number: 6 });
     expect(isLatestForTuple(newer, [older, newer])).toBe(true);
@@ -215,6 +215,70 @@ describe('isLatestForTuple', () => {
     const otherSha = makeRun({ databaseId: 1002, number: 6, headSha: 'def456' });
     const otherWorkflow = makeRun({ databaseId: 1003, number: 7, workflowDatabaseId: 99 });
     expect(isLatestForTuple(run, [run, otherSha, otherWorkflow])).toBe(true);
+  });
+
+  it('does not treat another PR at the same branch AND sha as superseding', () => {
+    // The same commit opened against two different bases: shared branch name
+    // and shared head sha, but separate refs (and concurrency groups). The
+    // newer PR's run must not suppress the older PR's recovery.
+    const pr11 = makeRun({
+      databaseId: 1001,
+      number: 5,
+      headBranch: 'task/shared',
+      headSha: 'aaa111',
+      event: 'pull_request',
+      pullRequests: [11],
+    });
+    const pr12 = makeRun({
+      databaseId: 1002,
+      number: 6,
+      headBranch: 'task/shared',
+      headSha: 'aaa111',
+      event: 'pull_request',
+      pullRequests: [12],
+    });
+    expect(isLatestForTuple(pr11, [pr11, pr12])).toBe(true);
+    expect(isLatestForTuple(pr12, [pr11, pr12])).toBe(true);
+  });
+
+  it('does not treat another repository at the same branch AND sha as superseding', () => {
+    const baseRun = makeRun({
+      databaseId: 1001,
+      number: 5,
+      headBranch: 'task/shared',
+      headSha: 'aaa111',
+      headRepository: REPO,
+    });
+    const forkRun = makeRun({
+      databaseId: 1002,
+      number: 6,
+      headBranch: 'task/shared',
+      headSha: 'aaa111',
+      headRepository: 'contributor/cleo',
+    });
+    expect(isLatestForTuple(baseRun, [baseRun, forkRun])).toBe(true);
+    expect(isLatestForTuple(forkRun, [baseRun, forkRun])).toBe(true);
+  });
+
+  it('does not treat an unidentified run as superseding anything', () => {
+    const unknown = makeRun({
+      databaseId: 1002,
+      number: 6,
+      headBranch: 'task/shared',
+      headSha: 'aaa111',
+      event: 'pull_request',
+      pullRequests: [],
+    });
+    const identified = makeRun({
+      databaseId: 1001,
+      number: 5,
+      headBranch: 'task/shared',
+      headSha: 'aaa111',
+      event: 'pull_request',
+      pullRequests: [11],
+    });
+    expect(isLatestForTuple(identified, [identified, unknown])).toBe(true);
+    expect(isLatestForTuple(unknown, [identified, unknown])).toBe(true);
   });
 });
 
@@ -644,6 +708,43 @@ describe('runWatchdog — PR identity (T14488)', () => {
     expect(summary.skippedHeadUnknown).toEqual([2002]);
     expect(summary.rerun).toEqual([]);
     expect(rerunIds(calls)).toEqual([]);
+  });
+
+  it('keeps two PRs that share a branch name and a head sha independent', async () => {
+    // The same commit opened against two bases (or two forks whose heads point
+    // at the same tree): identical branch AND sha, but separate refs. Before
+    // the ref-keyed tuple guard, run 3002 (higher run number) suppressed run
+    // 3001 → skippedSuperseded:[3001], rerun:[3002]. Both are recoverable.
+    const pr11 = makeRun({
+      databaseId: 3001,
+      number: 5,
+      headBranch: branch,
+      headSha: 'aaa111',
+      event: 'pull_request',
+      headRepository: 'alice/cleo',
+      pullRequests: [11],
+    });
+    const pr12 = makeRun({
+      databaseId: 3002,
+      number: 6,
+      headBranch: branch,
+      headSha: 'aaa111',
+      event: 'pull_request',
+      headRepository: 'bob/cleo',
+      pullRequests: [12],
+    });
+    const { exec, calls } = makeFakeExec({
+      runs: [pr11, pr12],
+      jobsByRunId: phantomJobsFor(3001, 3002),
+      heads: { 'pulls/11': 'aaa111', 'pulls/12': 'aaa111' },
+    });
+
+    const summary = await runWatchdog({ exec, dryRun: false, limit: 30, now: NOW, repo: REPO });
+
+    expect(summary.skippedSuperseded).toEqual([]);
+    expect(summary.phantomRuns.map((p) => p.id)).toEqual([3001, 3002]);
+    expect(summary.rerun).toEqual([3001, 3002]);
+    expect(rerunIds(calls)).toEqual([3001, 3002]);
   });
 
   it('keeps two PRs that share a branch name independent', async () => {
