@@ -22,6 +22,7 @@
 import { ISOLATION_ENV_KEYS } from '@cleocode/contracts/branch-lock.js';
 import type { OrchestrateSpawnResult } from '@cleocode/contracts/operations/orchestrate.js';
 import type { Task } from '@cleocode/contracts/task.js';
+import type { DisposeOwnedWorktreeOptions, disposeOwnedWorktree } from '@cleocode/worktree';
 import { describe, expect, it, vi } from 'vitest';
 import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
 import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
@@ -48,7 +49,7 @@ const releaseWorktreeTaskLockMock = vi.fn();
  * does under the lock's mutex (covered in the worktree package).
  */
 let currentLockToken: string | undefined;
-const disposeOwnedWorktreeMock = vi.fn((opts: { lockToken: string }) =>
+const disposeOwnedWorktreeMock = vi.fn<typeof disposeOwnedWorktree>((opts) =>
   opts.lockToken === currentLockToken
     ? { outcome: 'removed', reason: 'removed', lockReleased: true }
     : {
@@ -87,7 +88,7 @@ vi.mock('@cleocode/worktree', async () => {
     destroyWorktree: (...args: unknown[]) => destroyWorktreeMock(...args),
     acquireWorktreeTaskLock: (...args: unknown[]) => acquireWorktreeTaskLockMock(...args),
     releaseWorktreeTaskLock: (...args: unknown[]) => releaseWorktreeTaskLockMock(...args),
-    disposeOwnedWorktree: (opts: { lockToken: string }) => disposeOwnedWorktreeMock(opts),
+    disposeOwnedWorktree: (opts: DisposeOwnedWorktreeOptions) => disposeOwnedWorktreeMock(opts),
   };
 });
 
