@@ -106,7 +106,7 @@ export interface OrcaExecutionAdapter {
   ): Promise<Pick<OrcaAttempt, 'workspaceId' | 'workspaceSelector'>>;
   /** Start a durably reserved attempt, preserving uncertain outcomes. */
   start(attempt: OrcaAttempt): Promise<OrcaAttempt>;
-  /** Replay only the original issued mutation request. */
+  /** Replay only the original mutation identity, including a pre-reserved retry. */
   replayStart(attempt: OrcaAttempt): Promise<OrcaAttempt>;
   /** Read the exact stored Dispatch identity. */
   show(attempt: OrcaAttempt): Promise<OrcaAttempt>;

@@ -121,7 +121,8 @@ export async function observeOrcaWorker(
 
 /**
  * Replay an issued or pre-reserved start request after a durable reservation.
- * @remarks A missing request receipt never authorizes an unkeyed replacement.
+ * @remarks A missing receipt never authorizes an unkeyed replacement; reserved
+ * retries must still hold the original live claim and canonical checkout lock.
  * @param recordId - Exact pending worker record id.
  * @param cwd - Owning CLEO project root.
  * @param backend - Process adapter for the original runtime and caller.
@@ -144,7 +145,7 @@ export async function recoverOrcaWorkerStart(
     !execution.startBinding ||
     execution.failureCount >= 3
   ) {
-    // @sync-invariant none:local-only only an issued unresolved operation may be replayed
+    // @sync-invariant none:local-only only an issued or pre-reserved unresolved operation may be replayed
     throw new CleoError(
       ExitCode.SPAWN_VALIDATION_FAILED,
       'No recoverable start request is stored for this attempt.',
@@ -153,6 +154,7 @@ export async function recoverOrcaWorkerStart(
       },
     );
   }
+  if (execution.startRequestKey) await validatePreparedAssignment(execution.launch);
   const reserved = await updateWorkerExecution(record, { ...execution, state: 'launching' }, cwd);
   try {
     const result = await backend.replayStart({ ...execution, state: 'outcome_unknown' });

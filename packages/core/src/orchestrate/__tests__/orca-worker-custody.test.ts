@@ -450,6 +450,18 @@ describe('durable Orca execution custody', () => {
         env.tempDir,
       ),
     ).rejects.toThrow('identity');
+    if (crashPoint === 'reservation') {
+      setClaimClock(() => Date.now() + 24 * 60 * 60 * 1000);
+      await expect(
+        recoverOrcaWorkerStart(
+          successor.recordId,
+          env.tempDir,
+          new OrcaExecutionBackend(fixtureRunner),
+        ),
+      ).rejects.toThrow('unproven');
+      expect(launches).toBe(0);
+      setClaimClock(null);
+    }
     const recovered = await recoverOrcaWorkerStart(
       successor.recordId,
       env.tempDir,
