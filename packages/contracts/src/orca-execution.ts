@@ -168,16 +168,99 @@ export const orcaAttemptSchema = z.object({
 /** An exact execution attempt; uncertain states always retain worker custody. */
 export type OrcaAttempt = z.infer<typeof orcaAttemptSchema>;
 
+/** Selected worker_done transport, independent of the canonical CLEO report bytes. */
+export const orcaWorkerDoneSchema = z.object({
+  messageId: identifier,
+  runtimeId: identifier,
+  runId: identifier,
+  orcaTaskId: identifier,
+  dispatchId: identifier,
+  senderHandle: identifier,
+  outcome: z.enum(['succeeded', 'failed']),
+  body: z.string(),
+  reportPath: identifier,
+});
+
+/** Provenance returned by the read-only Orca report transport. */
+export type OrcaWorkerDone = z.infer<typeof orcaWorkerDoneSchema>;
+
+/** Durable report settlement; no task acceptance or process-release state is implied. */
+export const orcaWorkerReportSchema = z.object({
+  event: orcaWorkerDoneSchema,
+  manifestId: identifier,
+  manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  reportText: z.string().min(1).max(65_536),
+  reportDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  ingestedAt: z.string().datetime(),
+});
+
+/** Validated original report and manifest link, stored on the local worker record. */
+export type OrcaWorkerReport = z.infer<typeof orcaWorkerReportSchema>;
+
+/** Full inbox rows; unrelated message bodies are discarded after selecting the requested id. */
+export const orcaReportSourceSchema = z.object({
+  ok: z.literal(true),
+  _meta: z.object({ runtimeId: identifier }),
+  result: z.object({
+    messages: z
+      .array(
+        z.object({
+          id: identifier,
+          run_id: z.string().nullable(),
+          delivery_contract: z.string(),
+          from_handle: z.string(),
+          to_handle: z.string(),
+          type: z.string(),
+          body: z.string(),
+          payload: z.string().nullable(),
+          sender_pane_key: z.string().nullable(),
+        }),
+      )
+      .optional(),
+    dispatch: z
+      .object({
+        id: identifier,
+        run_id: identifier,
+        task_id: identifier,
+        assignee_handle: identifier,
+        assignee_pane_key: z.string().nullable(),
+        status: z.string(),
+      })
+      .optional(),
+  }),
+});
+
+/** Fields Orca records from worker_done flags; prose never supplies a report or proof. */
+export const orcaWorkerDonePayloadSchema = z.object({
+  taskId: identifier,
+  dispatchId: identifier,
+  outcome: z.enum(['succeeded', 'failed']),
+  reportPath: identifier,
+});
+
 /** Exact-record supervision request; recovery never chooses a task's newest attempt. */
 export const orcaWorkerRequestSchema = z
   .object({
-    action: z.enum(['show', 'read', 'recover-start', 'recover-stop', 'retry', 'stop']),
+    action: z.enum([
+      'show',
+      'read',
+      'recover-start',
+      'recover-stop',
+      'retry',
+      'stop',
+      'ingest-report',
+    ]),
     recordId: identifier,
     cursor: identifier.optional(),
+    messageId: identifier.optional(),
   })
   .refine(({ action, cursor }) => cursor === undefined || action === 'read', {
     message: 'A source-pinned cursor is accepted only for read.',
     path: ['cursor'],
+  })
+  .refine(({ action, messageId }) => (action === 'ingest-report') === (messageId !== undefined), {
+    message: 'ingest-report requires an exact message id; other actions do not accept one.',
+    path: ['messageId'],
   });
 
 /** CLI and SDK input for inspecting or recovering one durable Orca attempt. */
@@ -201,6 +284,8 @@ export interface OrcaExecutionAdapter {
   show(attempt: OrcaAttempt): Promise<OrcaAttempt>;
   /** Read a bounded output page without consuming coordinator mail. */
   read(attempt: OrcaAttempt, cursor?: string): Promise<string>;
+  /** Fetch one current-dispatch worker_done without consuming coordinator mail. */
+  readReport(attempt: OrcaAttempt, messageId: string): Promise<OrcaWorkerDone>;
   /** Request guarded cancellation after core reserves it durably. */
   stop(attempt: OrcaAttempt): Promise<OrcaAttempt>;
   /** Replay only the issued stop request on its original exact Dispatch. */

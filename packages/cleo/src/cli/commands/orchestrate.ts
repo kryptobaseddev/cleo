@@ -852,7 +852,7 @@ const workerCommand = defineCommand({
   args: {
     action: {
       type: 'positional',
-      description: 'show | read | recover-start | recover-stop | retry | stop',
+      description: 'show | read | recover-start | recover-stop | retry | stop | ingest-report',
       required: true,
     },
     recordId: {
@@ -861,10 +861,11 @@ const workerCommand = defineCommand({
       required: true,
     },
     cursor: { type: 'string', description: 'Source-pinned worker-read cursor (read only)' },
+    'message-id': { type: 'string', description: 'Exact worker_done id (ingest-report only)' },
   },
   async run({ args }) {
     const { orcaWorkerRequestSchema } = await import('@cleocode/contracts/orca-execution.js');
-    const parsed = orcaWorkerRequestSchema.safeParse(args);
+    const parsed = orcaWorkerRequestSchema.safeParse({ ...args, messageId: args['message-id'] });
     if (!parsed.success) {
       cliError(parsed.error.message, 'E_INVALID_INPUT', {
         fix: 'Use cleo orchestrate worker --help.',

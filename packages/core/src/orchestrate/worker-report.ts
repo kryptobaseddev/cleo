@@ -98,6 +98,7 @@ export function checkWorkerReport(text: string): WorkerReportCheck {
   if (words > WORKER_REPORT_MAX_WORDS) {
     return {
       ok: false,
+      // @sync-invariant none:input-shape report length is an input contract, never acceptance evidence
       code: 'E_VALIDATION',
       exitCode: ExitCode.VALIDATION_ERROR,
       message: `Worker report is ${words} words; the limit is ${WORKER_REPORT_MAX_WORDS}`,

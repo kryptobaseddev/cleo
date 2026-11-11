@@ -13,6 +13,7 @@ import type {
   OrcaDiscovery,
   OrcaLaunch,
   OrcaRoutingAdapter,
+  OrcaWorkerDone,
 } from '@cleocode/contracts/orca-execution.js';
 import {
   ORCA_LEAD_LAUNCH_REFUSAL,
@@ -21,6 +22,8 @@ import {
   orcaContextSchema,
   orcaLaunchSchema,
   orcaReplySchema,
+  orcaReportSourceSchema,
+  orcaWorkerDonePayloadSchema,
 } from '@cleocode/contracts/orca-execution.js';
 
 const AGENTS = { 'claude-code': 'claude', codex: 'codex', opencode: 'opencode2', grok: 'grok' };
@@ -428,6 +431,95 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     return reply.rawReceipt;
   }
 
+  /** Fetch one full report pointer after a wake; never acknowledge or poll coordinator mail. */
+  async readReport(attempt: OrcaAttempt, messageId: string): Promise<OrcaWorkerDone> {
+    const dispatchId = this.requireDispatch(attempt);
+    const { runId, orcaTaskId } = attempt;
+    if (!runId || !orcaTaskId) {
+      throw new OrcaExecutionError(
+        'E_ORCA_IDENTITY',
+        'No complete report binding is stored.',
+        'Recover the original start receipt before ingesting a worker report.',
+      );
+    }
+    // shortcut: inspect the newest 200 Run messages; use exact lookup when Orca exposes it.
+    const source = await this.reportSource(
+      ['orchestration', 'inbox', '--terminal', `run:${runId}`, '--limit', '200'],
+      attempt,
+    );
+    const message = source.result.messages?.find((entry) => entry.id === messageId);
+    if (
+      !message ||
+      message.type !== 'worker_done' ||
+      message.delivery_contract !== 'current_delivery' ||
+      message.run_id !== runId ||
+      message.to_handle !== `run:${runId}` ||
+      !message.payload
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_SOURCE',
+        'No current worker_done matches that message id in the bounded Run inbox.',
+        'Use the exact worker_done id from the original Run; a wake or prose body is not a report.',
+      );
+    }
+    let payload: ReturnType<typeof orcaWorkerDonePayloadSchema.parse>;
+    try {
+      payload = orcaWorkerDonePayloadSchema.parse(JSON.parse(message.payload));
+    } catch {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_SOURCE',
+        'worker_done has no valid report-path payload.',
+        'Supply the original canonical report through worker_done --report-path.',
+      );
+    }
+    if (payload.taskId !== orcaTaskId || payload.dispatchId !== dispatchId) {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_IDENTITY',
+        'The report pointer does not match this exact Task and Dispatch.',
+        'Retain stale delivery as history; use the current worker record and its report-path.',
+      );
+    }
+    const current = await this.reportSource(
+      [
+        'orchestration',
+        'dispatch-show',
+        '--task',
+        orcaTaskId,
+        '--from',
+        attempt.context.coordinatorHandle,
+      ],
+      attempt,
+    );
+    const dispatch = current.result.dispatch;
+    if (
+      dispatch?.id !== dispatchId ||
+      dispatch.run_id !== runId ||
+      dispatch.task_id !== orcaTaskId ||
+      dispatch.status !== 'completed' ||
+      !(
+        message.from_handle === dispatch.assignee_handle ||
+        (message.sender_pane_key && message.sender_pane_key === dispatch.assignee_pane_key)
+      )
+    ) {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_IDENTITY',
+        'The current Dispatch and its report sender are unproven or unsettled.',
+        'Inspect the exact current Dispatch; old, cancelled or superseded deliveries cannot settle this worker.',
+      );
+    }
+    return {
+      messageId,
+      runtimeId: attempt.context.runtimeId,
+      runId,
+      orcaTaskId,
+      dispatchId,
+      senderHandle: message.from_handle,
+      outcome: payload.outcome,
+      body: message.body,
+      reportPath: payload.reportPath,
+    };
+  }
+
   /** Request guarded cancellation; a closed terminal action alone is not exit proof. */
   async stop(attempt: OrcaAttempt): Promise<OrcaAttempt> {
     if (attempt.state !== 'stop_pending' || attempt.stopRequestId) {
@@ -726,6 +818,29 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         'Inspect Orca status and retain unresolved attempts; explicitly reconcile their original runtime before relaunch.',
       );
     }
+  }
+
+  private async reportSource(
+    args: string[],
+    attempt: OrcaAttempt,
+  ): Promise<ReturnType<typeof orcaReportSourceSchema.parse>> {
+    const reply = await this.runner(
+      this.executable,
+      [...args, '--environment', 'local', '--json', '--full'],
+      attempt.launch.projectRoot,
+    );
+    try {
+      const source = orcaReportSourceSchema.parse(JSON.parse(reply.stdout));
+      if (reply.exitCode === 0 && source._meta.runtimeId === attempt.context.runtimeId)
+        return source;
+    } catch {
+      // Malformed output is never converted into a report or lifecycle observation.
+    }
+    throw new OrcaExecutionError(
+      'E_ORCA_REPORT_SOURCE',
+      'Orca returned no verified report source.',
+      'Inspect the original runtime and full Run inbox; retain the worker record.',
+    );
   }
 
   private async query(
