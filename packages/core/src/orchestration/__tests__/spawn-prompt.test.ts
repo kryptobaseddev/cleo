@@ -521,6 +521,8 @@ describe('buildSpawnPrompt — agent coordination over AgentMBX (T13943)', () =>
       leadMailbox: 'lead-t9000',
     });
     expect(result.prompt).toContain("Your lead's mailbox: `lead-t9000`");
+    expect(result.prompt).toContain('worker_done --report-path');
+    expect(result.prompt).toContain('do not separately send it through AgentMBX');
     expect(result.prompt).not.toContain('No lead mailbox was given at spawn');
   });
 
@@ -553,6 +555,8 @@ describe('buildSpawnPrompt — tier-0 lead report line under leadWorker.v1 (T144
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(LINE);
     expect(lines[0]).toContain('at most 100 words: conclusion, blocker, proof');
+    expect(lines[0]).toContain('worker_done --report-path');
+    expect(lines[0]).toContain('do not separately send it through AgentMBX');
     expect(prompt).not.toContain('## Agent Coordination (AgentMBX)');
   });
 

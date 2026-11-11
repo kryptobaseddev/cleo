@@ -205,6 +205,36 @@ export const orcaWorkerReportSchema = z.object({
 /** Validated original report and manifest link, stored on the local worker record. */
 export type OrcaWorkerReport = z.infer<typeof orcaWorkerReportSchema>;
 
+/** Durable AgentMBX outbox state for the first validated report of one Dispatch. */
+export const orcaReportDeliverySchema = z.object({
+  key: identifier,
+  mailbox: identifier.nullable(),
+  state: z.enum(['pending', 'delivered']),
+  messageId: identifier.nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+  lastError: z.string().nullable(),
+});
+
+/** Independent report transport acknowledgement; never CLEO acceptance evidence. */
+export type OrcaReportDelivery = z.infer<typeof orcaReportDeliverySchema>;
+
+/** Separate physical exit, execution retirement and logical report delivery receipts. */
+export const orcaWorkerSettlementSchema = z.object({
+  resourceRelease: z
+    .object({
+      dispatchId: identifier,
+      releasedAt: z.string().datetime(),
+      receiptDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      receipt: identifier,
+    })
+    .optional(),
+  retiredAt: z.string().datetime().optional(),
+  reportDelivery: orcaReportDeliverySchema.optional(),
+});
+
+/** Local-only settlement fields carried by the existing CLEO worker record. */
+export type OrcaWorkerSettlement = z.infer<typeof orcaWorkerSettlementSchema>;
+
 /** Full transport fields validated only for the requested inbox message id. */
 export const orcaReportMessageSchema = z.object({
   id: identifier,
@@ -261,6 +291,7 @@ export const orcaWorkerRequestSchema = z
       'retry',
       'stop',
       'ingest-report',
+      'relay-report',
     ]),
     recordId: identifier,
     cursor: identifier.optional(),

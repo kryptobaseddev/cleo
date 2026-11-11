@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
 import type { OrcaLaunch } from '@cleocode/contracts/orca-execution.js';
 import {
+  orcaReplySchema,
   orcaReportMessageSchema,
   orcaReportSourceSchema,
 } from '@cleocode/contracts/orca-execution.js';
@@ -18,12 +19,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureContext,
   fixtureLaunch,
+  fixtureMail,
+  fixtureMbxRunner,
+  fixtureReleasedShow,
+  fixtureReply,
   fixtureReportDispatch,
   fixtureReportInbox,
   fixtureRunner,
   fixtureShow,
   fixtureStart,
   orcaFixture,
+  runMbxFixture,
   runOrcaFixture,
 } from '../../../../adapters/src/__tests__/orca-execution-fixture.js';
 import { hooks } from '../../hooks/registry.js';
@@ -31,11 +37,14 @@ import { pipelineManifestAppend } from '../../memory/pipeline-manifest-sqlite.js
 import { requireSpawnSession } from '../../spawn/agent-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { setClaimClock } from '../../store/task-claim.js';
+import { createAgentMbxClient } from '../agentmbx.js';
 import {
   ingestOrcaWorkerReport,
   launchOrcaWorker,
   observeOrcaWorker,
   orchestrateOrcaWorker,
+  relayOrcaWorkerReport,
+  retryOrcaWorker,
 } from '../orca-execution.js';
 import {
   listWorkerRecords,
@@ -90,6 +99,10 @@ describe('Orca canonical worker report ingress', () => {
     orcaFixture.inbox = fixtureReportInbox();
     orcaFixture.currentDispatch = fixtureReportDispatch();
     fixtureRunner.mockReset().mockImplementation(runOrcaFixture);
+    fixtureMail.bodies.clear();
+    fixtureMail.failBefore = false;
+    fixtureMail.loseAck = false;
+    fixtureMbxRunner.mockReset().mockImplementation(runMbxFixture);
     record = await launchOrcaWorker(
       launch,
       fixtureContext,
@@ -126,6 +139,7 @@ describe('Orca canonical worker report ingress', () => {
       env.tempDir,
       new OrcaExecutionBackend(fixtureRunner),
       'msg_report',
+      createAgentMbxClient(fixtureMbxRunner),
     );
   }
 
@@ -314,6 +328,7 @@ describe('Orca canonical worker report ingress', () => {
       env.tempDir,
       new OrcaExecutionBackend(fixtureRunner),
       'msg_duplicate',
+      createAgentMbxClient(fixtureMbxRunner),
     );
     expect(duplicate.report).toEqual(first.report);
     const observed = await observeOrcaWorker(
@@ -424,6 +439,7 @@ describe('Orca canonical worker report ingress', () => {
         env.tempDir,
         new OrcaExecutionBackend(fixtureRunner),
         'msg_changed',
+        createAgentMbxClient(fixtureMbxRunner),
       ),
     ).rejects.toThrow('different worker report');
     expect((await listWorkerRecords(env.tempDir))[0]?.report).toEqual(first.report);
@@ -534,6 +550,215 @@ describe('Orca canonical worker report ingress', () => {
     await expect(ingest()).rejects.toMatchObject({ code: 'E_ORCA_REPORT_IDENTITY' });
     expect((await listWorkerRecords(env.tempDir))[0]?.report).toBeUndefined();
     await expectCustody();
+  });
+
+  it.each([
+    'report-first',
+    'release-first',
+  ])('settles PID-less resource exit and report independently: %s', async (order) => {
+    const stop = vi.spyOn(hooks, 'dispatch');
+    if (order === 'report-first') await ingest();
+    orcaFixture.show = fixtureReleasedShow();
+    const exited = await observeOrcaWorker(
+      record.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(exited).toMatchObject({
+      pid: null,
+      pgid: null,
+      resourceRelease: { dispatchId: 'ctx_fixture' },
+      execution: { resourceState: 'stopped' },
+    });
+    expect(exited.stoppedAt).toBe(exited.resourceRelease?.releasedAt);
+    expect(exited.resourceRelease?.receipt).toBe(orcaFixture.show.stdout);
+    if (order === 'release-first') expect(exited.report).toBeUndefined();
+    const settled = await ingest();
+    expect(settled.report?.reportText).toBe(REPORT);
+    expect(settled.reportDelivery?.state).toBe('delivered');
+    await observeOrcaWorker(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner));
+    const stops = stop.mock.calls.filter(([event]) => event === 'SubagentStop');
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.[2]).toMatchObject({
+      taskId: 'T001',
+      status: 'partial',
+      metadata: { pid: null, backend: 'orca', dispatchId: 'ctx_fixture' },
+    });
+    expect((await env.accessor.loadSingleTask('T001'))?.status).toBe('active');
+    expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(
+      launch.workerSessionId,
+    );
+    expect(readWorktreeTaskLock(launch.projectHash, 'T001')?.token).toBe(launch.lockToken);
+    expect(readFileSync(join(launch.worktreePath, 'dirty.txt'), 'utf8')).toBe('owner work');
+    expect(fixtureMail.bodies.size).toBe(1);
+  });
+
+  it.each([
+    'owned',
+    'retained',
+    'unknown',
+    'foreign-release',
+  ])('keeps a done chat worker open without exact resource exit proof: %s', async (state) => {
+    await ingest();
+    const stop = vi.spyOn(hooks, 'dispatch');
+    const source = orcaReplySchema.parse(JSON.parse(fixtureReleasedShow().stdout));
+    if (!source.result?.worker || !source.result.projection?.resource || !source.result.observation)
+      throw new Error('Incomplete release fixture');
+    source.result.worker.state = 'completed';
+    if (state === 'foreign-release')
+      source.result.projection.resource.ownerDispatchId = 'ctx_foreign';
+    else {
+      source.result.projection.resource.state = state;
+      source.result.observation.status = 'live';
+    }
+    orcaFixture.show = fixtureReply(source.result);
+    const observed = await observeOrcaWorker(
+      record.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(observed.stoppedAt).toBeNull();
+    expect(observed.resourceRelease).toBeUndefined();
+    expect(stop.mock.calls.filter(([event]) => event === 'SubagentStop')).toHaveLength(0);
+    expect(observed.reportDelivery?.state).toBe('delivered');
+  });
+
+  it('retains custody after physical exit and retires it atomically for an exact retry', async () => {
+    orcaFixture.show = fixtureReleasedShow();
+    const exited = await observeOrcaWorker(
+      record.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    await expect(
+      launchOrcaWorker(launch, fixtureContext, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('custody already exists');
+    orcaFixture.start = fixtureStart('ready', 0, 'ctx_retry');
+    const retry = await retryOrcaWorker(
+      record.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    const predecessor = (await listWorkerRecords(env.tempDir)).find(
+      (worker) => worker.recordId === record.recordId,
+    );
+    expect(predecessor?.stoppedAt).toBe(exited.stoppedAt);
+    expect(predecessor?.retiredAt).toBeDefined();
+    expect(retry.execution?.retryOf).toBe('ctx_fixture');
+    expect(retry.resourceRelease).toBeUndefined();
+    expect(retry.reportDelivery).toBeUndefined();
+  });
+
+  it.each([
+    'Orca',
+    'AgentMBX',
+  ])('delivers one logical report when %s wakes first, then both notify again', async (firstWake) => {
+    if (firstWake === 'AgentMBX') {
+      const result = await orchestrateOrcaWorker(
+        { action: 'ingest-report', recordId: record.recordId, messageId: 'msg_report' },
+        env.tempDir,
+        new OrcaExecutionBackend(fixtureRunner),
+        createAgentMbxClient(fixtureMbxRunner),
+      );
+      expect(result.success).toBe(true);
+    } else await ingest();
+    const [first] = await listWorkerRecords(env.tempDir);
+    if (!first) throw new Error('Missing stored report fixture');
+    const key = `cleo-orca-report:${createHash('sha256')
+      .update(
+        JSON.stringify([fixtureContext.runtimeId, 'run_fixture', 'ctx_fixture', 'msg_report']),
+      )
+      .digest('hex')}`;
+    expect(first.reportDelivery).toMatchObject({
+      key,
+      mailbox: 'fixture-lead',
+      state: 'delivered',
+      messageId: 'mbx-1',
+    });
+    await relayOrcaWorkerReport(
+      record.recordId,
+      env.tempDir,
+      createAgentMbxClient(fixtureMbxRunner),
+    );
+    await ingest();
+    expect(fixtureMbxRunner).toHaveBeenCalledTimes(1);
+    expect([...fixtureMail.bodies.values()]).toEqual([REPORT]);
+    const args = fixtureMbxRunner.mock.calls[0]?.[0];
+    expect(args).toContain(key);
+    expect(args?.slice(0, 5)).toEqual(['send', '--as', 'fixture-lead', '--to', 'fixture-lead']);
+    await expectCustody();
+  });
+
+  it.each([
+    'mailbox unavailable',
+    'acknowledgement lost',
+  ])('retries %s from the outbox after CLI restart and resource exit', async (failure) => {
+    fixtureMail.failBefore = failure === 'mailbox unavailable';
+    fixtureMail.loseAck = failure === 'acknowledgement lost';
+    const first = await ingest();
+    expect(first.reportDelivery?.state).toBe('pending');
+    expect(first.reportDelivery?.lastError).toContain(failure);
+    orcaFixture.show = fixtureReleasedShow();
+    await observeOrcaWorker(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner));
+    rmSync(join(launch.worktreePath, 'worker-report.txt'));
+    fixtureRunner.mockClear();
+    fixtureMail.failBefore = false;
+    fixtureMail.loseAck = false;
+    const delivered = await relayOrcaWorkerReport(
+      record.recordId,
+      env.tempDir,
+      createAgentMbxClient(fixtureMbxRunner),
+    );
+    expect(delivered.reportDelivery).toMatchObject({
+      state: 'delivered',
+      key: first.reportDelivery?.key,
+      lastError: null,
+    });
+    expect(delivered.resourceRelease).toBeDefined();
+    expect(fixtureRunner).not.toHaveBeenCalled();
+    expect(fixtureMail.bodies.size).toBe(1);
+    expect(
+      fixtureMbxRunner.mock.calls.map(([args]) => args[args.indexOf('--idempotency-key') + 1]),
+    ).toEqual([first.reportDelivery?.key, first.reportDelivery?.key]);
+  });
+
+  it('replays the provider key after a crash between mail acceptance and saving its acknowledgement', async () => {
+    const workers = await import('../worker-records.js');
+    const crash = vi
+      .spyOn(workers, 'recordWorkerReportDelivery')
+      .mockRejectedValueOnce(new Error('simulated CLI crash'));
+    await expect(ingest()).rejects.toThrow('simulated CLI crash');
+    expect(fixtureMail.bodies.size).toBe(1);
+    expect((await listWorkerRecords(env.tempDir))[0]?.reportDelivery?.state).toBe('pending');
+    crash.mockRestore();
+    const restored = await relayOrcaWorkerReport(
+      record.recordId,
+      env.tempDir,
+      createAgentMbxClient(fixtureMbxRunner),
+    );
+    expect(restored.reportDelivery?.state).toBe('delivered');
+    expect(fixtureMail.bodies.size).toBe(1);
+    const delivery = restored.reportDelivery;
+    if (!delivery) throw new Error('Missing delivery receipt');
+    const unchanged = await workers.recordWorkerReportDelivery(
+      record.recordId,
+      {
+        ...delivery,
+        state: 'pending',
+        messageId: null,
+        deliveredAt: null,
+        lastError: 'late failed acknowledgement',
+      },
+      env.tempDir,
+    );
+    expect(unchanged.reportDelivery).toEqual(delivery);
+    await expect(
+      workers.recordWorkerReportDelivery(
+        record.recordId,
+        { ...delivery, mailbox: 'another-lead' },
+        env.tempDir,
+      ),
+    ).rejects.toThrow('does not match');
   });
 
   it('requires message ids only for ingest-report requests', async () => {

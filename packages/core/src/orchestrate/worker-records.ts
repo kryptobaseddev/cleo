@@ -35,9 +35,13 @@ import { isAbsolute } from 'node:path';
 import type { AgentSuiteOwnership } from '@cleocode/contracts';
 import {
   type OrcaAttempt,
+  type OrcaReportDelivery,
   type OrcaWorkerReport,
+  type OrcaWorkerSettlement,
   orcaAttemptSchema,
+  orcaReportDeliverySchema,
   orcaWorkerReportSchema,
+  orcaWorkerSettlementSchema,
 } from '@cleocode/contracts/orca-execution.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { generateAgentId } from '../agents/registry.js';
@@ -66,7 +70,7 @@ export function newWorkerInstanceId(providerId: string): string {
 type AgentInstanceRow = typeof tasksAgentInstances.$inferSelect;
 
 /** A persisted record of one spawned worker process. */
-export interface WorkerRecord {
+export interface WorkerRecord extends OrcaWorkerSettlement {
   /** `tasks_agent_instances.id` of the record. */
   recordId: string;
   /** Task the worker runs. */
@@ -98,10 +102,13 @@ export interface WorkerRecord {
 }
 
 /** Input for {@link recordWorker}: a {@link WorkerRecord} before it is stored. */
-export type NewWorkerRecord = Omit<WorkerRecord, 'recordId' | 'startedAt' | 'stoppedAt' | 'report'>;
+export type NewWorkerRecord = Omit<
+  WorkerRecord,
+  'recordId' | 'startedAt' | 'stoppedAt' | 'report' | keyof OrcaWorkerSettlement
+>;
 
 /** Metadata keys stored in `agent_instances.metadata_json` for a worker. */
-interface WorkerMetadata {
+interface WorkerMetadata extends OrcaWorkerSettlement {
   kind: 'worker';
   instanceId: string;
   agentId: string;
@@ -132,6 +139,7 @@ function parseWorkerMetadata(row: AgentInstanceRow): WorkerMetadata | null {
   // Invalid external custody must fail a read, never disappear from the census.
   if (meta.execution !== undefined) meta.execution = orcaAttemptSchema.parse(meta.execution);
   if (meta.report !== undefined) meta.report = orcaWorkerReportSchema.parse(meta.report);
+  Object.assign(meta, orcaWorkerSettlementSchema.parse(meta));
   return meta as WorkerMetadata;
 }
 
@@ -152,6 +160,7 @@ function toWorkerRecord(row: AgentInstanceRow, meta: WorkerMetadata): WorkerReco
     stoppedAt: row.stoppedAt,
     ...(meta.execution ? { execution: meta.execution } : {}),
     ...(meta.report ? { report: meta.report } : {}),
+    ...orcaWorkerSettlementSchema.parse(meta),
   };
 }
 
@@ -258,10 +267,15 @@ export async function recordWorker(
     const open = tx
       .select()
       .from(tasksAgentInstances)
-      .where(
-        and(eq(tasksAgentInstances.taskId, worker.taskId), isNull(tasksAgentInstances.stoppedAt)),
-      )
-      .all();
+      .where(eq(tasksAgentInstances.taskId, worker.taskId))
+      .all()
+      .filter((existing) => {
+        const meta = parseWorkerMetadata(existing);
+        return (
+          existing.stoppedAt === null ||
+          (meta !== null && isCurrentOrcaWorker(toWorkerRecord(existing, meta)))
+        );
+      });
     if (predecessor) {
       const previous = open.find((existing) => existing.id === predecessor.recordId);
       if (
@@ -275,12 +289,18 @@ export async function recordWorker(
       }
       const retired = tx
         .update(tasksAgentInstances)
-        .set({ status: 'stopped', stoppedAt: now })
+        .set({
+          status: 'stopped',
+          stoppedAt: previous.stoppedAt ?? now,
+          metadataJson: JSON.stringify({ ...parseWorkerMetadata(previous), retiredAt: now }),
+        })
         .where(
           and(
             eq(tasksAgentInstances.id, predecessor.recordId),
             eq(tasksAgentInstances.metadataJson, previous.metadataJson ?? '{}'),
-            isNull(tasksAgentInstances.stoppedAt),
+            previous.stoppedAt === null
+              ? isNull(tasksAgentInstances.stoppedAt)
+              : eq(tasksAgentInstances.stoppedAt, previous.stoppedAt),
           ),
         )
         .run();
@@ -353,7 +373,12 @@ export async function updateWorkerExecution(
     .where(eq(tasksAgentInstances.id, record.recordId))
     .get();
   const meta = row ? parseWorkerMetadata(row) : null;
-  if (!row || !meta || JSON.stringify(meta.execution) !== JSON.stringify(expected)) {
+  if (
+    !row ||
+    !meta ||
+    !isCurrentOrcaWorker(toWorkerRecord(row, meta)) ||
+    JSON.stringify(meta.execution) !== JSON.stringify(expected)
+  ) {
     // @sync-invariant none:local-only stale external custody updates cannot overwrite a newer observation
     throw new Error('Worker execution changed; reload the exact record before recovery.');
   }
@@ -364,7 +389,9 @@ export async function updateWorkerExecution(
       and(
         eq(tasksAgentInstances.id, record.recordId),
         eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
-        isNull(tasksAgentInstances.stoppedAt),
+        row.stoppedAt === null
+          ? isNull(tasksAgentInstances.stoppedAt)
+          : eq(tasksAgentInstances.stoppedAt, row.stoppedAt),
       ),
     )
     .run();
@@ -417,7 +444,7 @@ export async function recordWorkerReport(
     if (
       !row ||
       !meta ||
-      row.stoppedAt !== null ||
+      !isCurrentOrcaWorker(toWorkerRecord(row, meta)) ||
       JSON.stringify(meta.execution) !== JSON.stringify(execution)
     ) {
       // @sync-invariant none:local-only retired or concurrently changed custody cannot receive a stale report
@@ -432,19 +459,36 @@ export async function recordWorkerReport(
         // @sync-invariant none:local-only a second delivery cannot replace the settled logical report
         throw new Error('A different worker report is already settled for this Dispatch.');
       }
-      return toWorkerRecord(row, meta);
+      if (meta.reportDelivery) return toWorkerRecord(row, meta);
     }
-    const task = tx.select().from(tasksTasks).where(eq(tasksTasks.id, record.taskId)).get();
-    const claim = task ? claimFromColumns(task) : undefined;
-    if (
-      !isLiveClaim(claim) ||
-      claim?.sessionId !== record.sessionId ||
-      claim?.agentId !== record.agentId
-    ) {
-      // @sync-invariant none:local-only report settlement must still own the exact claim at commit time
-      throw new Error('Worker task claim changed before report settlement.');
+    if (!meta.report) {
+      const task = tx.select().from(tasksTasks).where(eq(tasksTasks.id, record.taskId)).get();
+      const claim = task ? claimFromColumns(task) : undefined;
+      if (
+        !isLiveClaim(claim) ||
+        claim?.sessionId !== record.sessionId ||
+        claim?.agentId !== record.agentId
+      ) {
+        // @sync-invariant none:local-only report settlement must still own the exact claim at commit time
+        throw new Error('Worker task claim changed before report settlement.');
+      }
     }
-    const metadata = { ...meta, report: receipt };
+    const canonical = meta.report ?? receipt;
+    const event = canonical.event;
+    const metadata: WorkerMetadata = {
+      ...meta,
+      report: canonical,
+      reportDelivery: {
+        key: `cleo-orca-report:${createHash('sha256')
+          .update(JSON.stringify([event.runtimeId, event.runId, event.dispatchId, event.messageId]))
+          .digest('hex')}`,
+        mailbox: meta.leadMailbox,
+        state: 'pending',
+        messageId: null,
+        deliveredAt: null,
+        lastError: null,
+      },
+    };
     const updated = tx
       .update(tasksAgentInstances)
       .set({ metadataJson: JSON.stringify(metadata) })
@@ -452,7 +496,9 @@ export async function recordWorkerReport(
         and(
           eq(tasksAgentInstances.id, record.recordId),
           eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
-          isNull(tasksAgentInstances.stoppedAt),
+          row.stoppedAt === null
+            ? isNull(tasksAgentInstances.stoppedAt)
+            : eq(tasksAgentInstances.stoppedAt, row.stoppedAt),
         ),
       )
       .run();
@@ -535,24 +581,169 @@ export async function findOrcaWorker(taskId: string, cwd: string): Promise<Worke
     .select()
     .from(tasksAgentInstances)
     .where(
-      and(
-        eq(tasksAgentInstances.taskId, taskId),
-        eq(tasksAgentInstances.agentType, 'executor'),
-        isNull(tasksAgentInstances.stoppedAt),
-      ),
+      and(eq(tasksAgentInstances.taskId, taskId), eq(tasksAgentInstances.agentType, 'executor')),
     )
     .all();
   for (const row of rows) {
     const meta = parseWorkerMetadata(row);
+    if (!meta && row.stoppedAt !== null) continue;
     if (!meta) {
       // @sync-invariant none:local-only unreadable custody for the same task cannot authorize another editor
       throw new Error(
         `Worker ownership unavailable for ${row.id}; inspect it before spawning ${taskId}.`,
       );
     }
-    if (meta.execution) return toWorkerRecord(row, meta);
+    const record = toWorkerRecord(row, meta);
+    if (isCurrentOrcaWorker(record)) return record;
   }
   return null;
+}
+
+/**
+ * Whether an Orca assignment still owns its execution mapping, even after physical exit.
+ * @param record - Worker record to inspect.
+ * @returns False for explicit retirement and legacy retired predecessors.
+ * @remarks Physical exit does not authorize a replacement Run or Task.
+ * @example
+ * ```ts
+ * if (isCurrentOrcaWorker(record)) retainItsExactDispatch(record);
+ * ```
+ */
+export function isCurrentOrcaWorker(record: WorkerRecord): boolean {
+  return Boolean(
+    record.execution && !record.retiredAt && (record.stoppedAt === null || record.resourceRelease),
+  );
+}
+
+/**
+ * Record an AgentMBX send result without changing report, task or resource settlement.
+ * @param recordId - Worker holding the durable outbox entry.
+ * @param delivery - Result for its immutable logical key and lead mailbox.
+ * @param cwd - Owning project root.
+ * @returns The current worker; delivery acknowledgements never regress.
+ * @remarks A lost acknowledgement is replayed through the same provider idempotency key.
+ * @example
+ * ```ts
+ * await recordWorkerReportDelivery(recordId, acknowledged, projectRoot);
+ * ```
+ */
+export async function recordWorkerReportDelivery(
+  recordId: string,
+  delivery: OrcaReportDelivery,
+  cwd: string,
+): Promise<WorkerRecord> {
+  const next = orcaReportDeliverySchema.parse(delivery);
+  const db = await getDb(cwd);
+  return db.transaction((tx) => {
+    const row = tx
+      .select()
+      .from(tasksAgentInstances)
+      .where(eq(tasksAgentInstances.id, recordId))
+      .get();
+    const meta = row ? parseWorkerMetadata(row) : null;
+    if (
+      !row ||
+      !meta?.report ||
+      !meta.reportDelivery ||
+      meta.reportDelivery.key !== next.key ||
+      meta.reportDelivery.mailbox !== next.mailbox ||
+      (next.state === 'delivered' && (!next.messageId || !next.deliveredAt))
+    ) {
+      // @sync-invariant none:local-only only the stored report's exact outbox entry may be acknowledged
+      throw new Error('Worker report delivery does not match its durable outbox.');
+    }
+    if (meta.reportDelivery.state === 'delivered') return toWorkerRecord(row, meta);
+    const metadata = { ...meta, reportDelivery: next };
+    const updated = tx
+      .update(tasksAgentInstances)
+      .set({ metadataJson: JSON.stringify(metadata) })
+      .where(
+        and(
+          eq(tasksAgentInstances.id, recordId),
+          eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+        ),
+      )
+      .run();
+    if (Number(updated.changes) !== 1) {
+      // @sync-invariant none:local-only concurrent transport acknowledgements cannot replace newer settlement
+      throw new Error('Worker report delivery changed; retry its stored logical key.');
+    }
+    return toWorkerRecord(row, metadata);
+  });
+}
+
+/**
+ * Close physical Orca resources only after an exact provider observation proves release.
+ * @param record - Worker after the adapter's verified worker-show observation.
+ * @param cwd - Owning project root.
+ * @returns Its physical exit receipt; concurrent observations emit one stop hook.
+ * @remarks Keeps report, claim, checkout and retry-chain custody independent of exit.
+ * @example
+ * ```ts
+ * const exited = await settleOrcaWorkerResource(observed, projectRoot);
+ * ```
+ */
+export async function settleOrcaWorkerResource(
+  record: WorkerRecord,
+  cwd: string,
+): Promise<WorkerRecord> {
+  const execution = record.execution;
+  if (record.resourceRelease || execution?.resourceState !== 'stopped') return record;
+  const dispatchId = execution.dispatchId;
+  const receipt = execution.lastReceipt;
+  if (!dispatchId || !receipt || !isCurrentOrcaWorker(record)) {
+    // @sync-invariant none:local-only only a current provider-proven exact resource exit can close a worker
+    throw new Error('No exact Orca resource release proof is stored.');
+  }
+  const db = await getDb(cwd);
+  const releasedAt = new Date().toISOString();
+  const closed = db.transaction((tx) => {
+    const row = tx
+      .select()
+      .from(tasksAgentInstances)
+      .where(eq(tasksAgentInstances.id, record.recordId))
+      .get();
+    const meta = row ? parseWorkerMetadata(row) : null;
+    if (
+      !row ||
+      !meta ||
+      JSON.stringify(meta.execution) !== JSON.stringify(execution) ||
+      !isCurrentOrcaWorker(toWorkerRecord(row, meta))
+    ) {
+      // @sync-invariant none:local-only stale release observations cannot close replacement custody
+      throw new Error('Orca resource observation changed; reload the exact worker.');
+    }
+    if (meta.resourceRelease) return null;
+    const metadata = {
+      ...meta,
+      resourceRelease: {
+        dispatchId,
+        releasedAt,
+        receiptDigest: createHash('sha256').update(receipt).digest('hex'),
+        receipt,
+      },
+    };
+    const updated = tx
+      .update(tasksAgentInstances)
+      .set({ status: 'stopped', stoppedAt: releasedAt, metadataJson: JSON.stringify(metadata) })
+      .where(
+        and(
+          eq(tasksAgentInstances.id, row.id),
+          eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+          isNull(tasksAgentInstances.stoppedAt),
+        ),
+      )
+      .run();
+    if (Number(updated.changes) !== 1) return null;
+    return toWorkerRecord({ ...row, stoppedAt: releasedAt }, metadata);
+  });
+  if (!closed)
+    return (
+      (await listWorkerRecords(cwd, true)).find((worker) => worker.recordId === record.recordId) ??
+      record
+    );
+  await dispatchWorkerStop(closed, releasedAt, undefined, cwd);
+  return closed;
 }
 
 /**
@@ -741,6 +932,17 @@ async function closeWorker(
 ): Promise<WorkerRecord | null> {
   const stoppedAt = await claimWorkerStop(record.recordId, cwd);
   if (stoppedAt === null) return null;
+  await dispatchWorkerStop(record, stoppedAt, explicitStatus, cwd);
+  return { ...record, stoppedAt };
+}
+
+/** Send the existing lifecycle hook after the relevant durable exit CAS wins. */
+async function dispatchWorkerStop(
+  record: WorkerRecord,
+  stoppedAt: string,
+  explicitStatus: WorkerExitStatus | undefined,
+  cwd: string,
+): Promise<void> {
   const status = explicitStatus ?? (await deriveWorkerExitStatus(record.taskId, cwd));
   await hooks
     .dispatch('SubagentStop', cwd, {
@@ -748,7 +950,17 @@ async function closeWorker(
       taskId: record.taskId,
       agentId: record.agentId,
       status,
-      metadata: { instanceId: record.instanceId, pid: record.pid },
+      metadata: {
+        instanceId: record.instanceId,
+        pid: record.pid,
+        ...(record.execution
+          ? {
+              backend: 'orca',
+              dispatchId: record.execution.dispatchId,
+              runtimeId: record.execution.context.runtimeId,
+            }
+          : {}),
+      },
     })
     .catch((err) => {
       getLogger('engine:orchestrate').warn(
@@ -756,7 +968,6 @@ async function closeWorker(
         'SubagentStop hook failed for an exited worker',
       );
     });
-  return { ...record, stoppedAt };
 }
 
 /** Which worker a {@link markWorkerExited} call names. */

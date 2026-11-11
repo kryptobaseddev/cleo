@@ -9,6 +9,40 @@ import type {
 } from '@cleocode/contracts/orca-execution.js';
 import { orcaReplySchema, orcaReportSourceSchema } from '@cleocode/contracts/orca-execution.js';
 import { vi } from 'vitest';
+import type { MbxRunner } from '../../../core/src/orchestrate/agentmbx.js';
+
+/** Fake durable provider mailbox; retained while a fresh client simulates CLI restart. */
+export const fixtureMail = { bodies: new Map<string, string>(), failBefore: false, loseAck: false };
+
+/** AgentMBX's existing idempotent send contract, with no network or real mailbox access. */
+export const runMbxFixture: MbxRunner = async (args) => {
+  if (args[0] !== 'send') throw new Error(`Unexpected mailbox fixture command: ${args[0]}`);
+  const key = args[args.indexOf('--idempotency-key') + 1];
+  const body = args[args.indexOf('-m') + 1];
+  if (!args.includes('--idempotency-key') || !key || !body)
+    throw new Error('Missing logical mailbox key or canonical report');
+  if (fixtureMail.failBefore)
+    return { missing: false, exitCode: 1, stdout: '', stderr: 'mailbox unavailable' };
+  if (fixtureMail.bodies.has(key) && fixtureMail.bodies.get(key) !== body)
+    throw new Error('A logical mailbox key changed its report');
+  fixtureMail.bodies.set(key, body);
+  if (fixtureMail.loseAck)
+    return {
+      missing: false,
+      exitCode: null,
+      stdout: '',
+      stderr: 'acknowledgement lost after durable send',
+    };
+  return {
+    missing: false,
+    exitCode: 0,
+    stdout: JSON.stringify({ id: `mbx-${[...fixtureMail.bodies.keys()].indexOf(key) + 1}` }),
+    stderr: '',
+  };
+};
+
+/** Injected mailbox process boundary; never invokes the installed AgentMBX CLI. */
+export const fixtureMbxRunner = vi.fn<MbxRunner>(runMbxFixture);
 
 /** Explicit fictitious caller, independent of the developer's running Orca. */
 export const fixtureContext: OrcaContext = {
