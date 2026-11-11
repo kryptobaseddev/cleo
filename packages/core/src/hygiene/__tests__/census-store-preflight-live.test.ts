@@ -13,12 +13,8 @@
  *   pending). The census must skip it entirely. Replacing the read-only
  *   accessor with `getDb` fails this test: the writable open would migrate
  *   the store and change its bytes.
- * - readable current: the journal is fully applied (the fixture store was
- *   built by the real migrator, then every binding was closed). The census
- *   reads task status through the read-only accessor AND runs the reaper's
- *   in-use probe for the terminal row — both read-only. Replacing either
- *   with `getDb` reopens the store writable from cold state, which restores,
- *   seeds or migrates, and the sidecar hashes move.
+ * - readable current: task statuses are immutable display snapshots. Even a
+ *   terminal task never reaches a writable accessor, reaper probe or disposal.
  *
  * @task T14440
  */
@@ -43,6 +39,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
 
 import { runWorktreeCensus } from '../census.js';
+
+const getDbCalls = vi.hoisted(() => ({ calls: [] as string[] }));
+vi.mock('../../store/sqlite.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../store/sqlite.js')>();
+  return {
+    ...actual,
+    getDb: vi.fn(async (cwd?: string) => {
+      getDbCalls.calls.push(cwd ?? '<ambient>');
+      return actual.getDb(cwd);
+    }),
+  };
+});
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
@@ -129,6 +137,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  const { closeAllDatabases } = await import('../../store/sqlite.js');
+  await closeAllDatabases();
   if (prevHome === undefined) delete process.env['CLEO_HOME'];
   else process.env['CLEO_HOME'] = prevHome;
   if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
@@ -155,10 +165,7 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     // ...so the row's task status is null (nothing was read)...
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBeNull();
-    // ...and no migration ran: the journal is unchanged. (Byte-identity is
-    // not asserted here — main's listWorktrees enrichment opens the store
-    // through getDb as on main; the AC is no unreleased-build open and no
-    // migration.)
+    expect(storeFingerprint(dbPath)).toBe(before);
     const after = new DatabaseSync(dbPath);
     const journalRows = (
       after.prepare('SELECT count(*) AS n FROM __drizzle_migrations').all() as Array<{ n: number }>
@@ -232,10 +239,10 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
 
     const rollup = record.projects.find((p) => p.project === projectRoot);
     expect(rollup?.storeRead).toBe('snapshot: may lag uncommitted writes');
-    // The snapshot's task state is display-only: the row is active (kept),
-    // never a removal candidate.
+    // The snapshot's task state is display-only, never a removal candidate.
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.removed).toBeUndefined();
+    expect(storeFingerprint(dbPath)).toBe(before);
     // And no migration ran on the foreign store.
     expect(journalCount(dbPath)).toBe(journalBefore);
     live.close();
@@ -247,17 +254,6 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     // store (spied), (b) create no sidecars and run no migration, (c) report
     // liveness 'unknown (foreign project)', and (d) never mark the row a
     // removal candidate.
-    const getDbCalls = vi.hoisted(() => ({ calls: [] as string[] }));
-    vi.mock('../../store/sqlite.js', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('../../store/sqlite.js')>();
-      return {
-        ...actual,
-        getDb: vi.fn(async (cwd?: string) => {
-          getDbCalls.calls.push(cwd ?? '<ambient>');
-          return actual.getDb(cwd);
-        }),
-      };
-    });
     // Fixture: build via the REAL migrator, seed a DONE task, then hold a
     // raw writable connection open with an uncheckpointed worker commit.
     const { getDb } = await import('../../store/sqlite.js');
@@ -276,11 +272,13 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     // only in the WAL), so the immutable display snapshot truly sees the
     // terminal status.
     live.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    // Keep a committed change in the WAL while the immutable snapshot sees done.
+    live.prepare("UPDATE tasks_tasks SET title = 'live WAL' WHERE id = 'T1'").run();
     expect(existsSync(`${dbPath}-wal`)).toBe(true);
-    const journalBefore = journalCount(dbPath);
 
     getDbCalls.calls.length = 0;
     const journalBeforeTerm = journalCount(dbPath);
+    const before = storeFingerprint(dbPath);
     const out = await runWorktreeCensus({
       projects: [projectRoot],
       recordDir,
@@ -289,30 +287,25 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
 
-    // (a) no getDb reached the foreign store during the census...
-    // At most main's single listWorktrees enrichment getDb — no probe or
-    // census-only re-open.
+    // No writable open, including through listing or liveness enrichment.
     expect(
       getDbCalls.calls.filter((p) => p.startsWith(projectRoot) || p === '<ambient>').length,
-    ).toBeLessThanOrEqual(1);
-    // (b) ...no migration ran on the foreign store (sidecars may be touched
-    // by main's listWorktrees enrichment, which behaves as on main)...
+    ).toBe(0);
+    expect(storeFingerprint(dbPath)).toBe(before);
     expect(journalCount(dbPath)).toBe(journalBeforeTerm);
     // (c)+(d) liveness 'unknown (foreign project)', never a candidate.
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.category).toBe('unknown');
+    expect(row?.taskStatus).toBe('done');
     expect(row?.keepReason).toBe('unknown (foreign project)');
+    expect(row?.selected).toBeUndefined();
     expect(row?.removed).toBeUndefined();
     expect(record.rows.some((r) => r.category === 'redundant')).toBe(false);
     live.close();
   });
 
   it('reads a readable foreign store as a display snapshot: statuses flow, labelled', async () => {
-    // Fixture construction: build the store with the REAL migrator (a write,
-    // before any measurement) and seed one NON-terminal task, so the census's
-    // walk stays on the display-only snapshot path (a terminal row would run
-    // main's reaper probe, which opens the store as on main — separate task).
-    // Cold state afterwards.
+    // Build with the real migrator before measurement, then close every binding.
     const { getDb } = await import('../../store/sqlite.js');
     await getDb(projectRoot);
     const db = new DatabaseSync(dbPath);
@@ -337,5 +330,34 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     // (caught) would leave this null and fail the test.
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBe('pending');
+  });
+
+  it('reads the named foreign project even when CLEO_DIR pins a different store', async () => {
+    const { getDb, closeAllDatabases } = await import('../../store/sqlite.js');
+    await getDb(projectRoot);
+    const db = new DatabaseSync(dbPath);
+    db.prepare(
+      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
+    ).run();
+    db.close();
+    await closeAllDatabases();
+    const pinned = join(base, 'pinned');
+    mkdirSync(pinned);
+    const pinnedDb = join(pinned, 'cleo.db');
+    writeFileSync(pinnedDb, readFileSync(dbPath));
+    const other = new DatabaseSync(pinnedDb);
+    other.prepare("UPDATE tasks_tasks SET status = 'pending' WHERE id = 'T1'").run();
+    other.close();
+    process.env['CLEO_DIR'] = pinned;
+    const before = storeFingerprint(dbPath);
+    const pinnedBefore = storeFingerprint(pinnedDb);
+    getDbCalls.calls.length = 0;
+
+    const out = await runWorktreeCensus({ projects: [projectRoot], recordDir, pnpmStore: null });
+    if ('skipped' in out) throw new Error(out.skipped);
+    expect(out.record.rows.find((r) => r.taskId === 'T1')?.taskStatus).toBe('done');
+    expect(getDbCalls.calls).toEqual([]);
+    expect(storeFingerprint(dbPath)).toBe(before);
+    expect(storeFingerprint(pinnedDb)).toBe(pinnedBefore);
   });
 });

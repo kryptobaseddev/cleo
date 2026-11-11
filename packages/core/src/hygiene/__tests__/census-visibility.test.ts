@@ -21,22 +21,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
-// The foreign-store verdict is stubbed readable: these fixtures' project
-// roots are tmpdirs with no `.cleo/`, and the real probe would skip the
-// (mocked) store. The live, mock-free preflight test is
-// census-store-preflight-live.test.ts (T14440 review P1a).
-vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
-  projectStoreReadVerdict: vi.fn(() => 'readable'),
-}));
-
 // Round 7: census fixtures classify as OWN (main's behaviour).
-vi.mock('../own-project.js', () => ({
+vi.mock('../../worktree/own-project.js', () => ({
   isOwnProjectStore: vi.fn(() => true),
 }));
 
@@ -221,19 +213,10 @@ describe('census visibility fields (T14440 AC1)', () => {
     const repo = process.cwd();
     const marker = join(base, 'killed.marker');
     let exited = false;
-    const exitPromise = new Promise<void>((r) => {
-      const check = setInterval(() => {
-        if (exited) {
-          clearInterval(check);
-          r();
-        }
-      }, 5);
-    });
     const plan = await prunePlanBounded(repo, 'main', Date.now() + 5, marker, 300, () => {
       exited = true;
     });
     expect(plan).toBeNull();
-    await exitPromise;
     expect(exited).toBe(true);
     await new Promise((r) => setTimeout(r, 450));
     expect(existsSync(marker)).toBe(false);
@@ -252,23 +235,19 @@ describe('census visibility fields (T14440 AC1)', () => {
     expect(exited).toBe(true);
   });
 
-  it('(4) the real worker file runs from a parent started with --input-type=module (execArgv: [])', async () => {
+  it('(4) the production wrapper runs from a parent started with --input-type=module', async () => {
     // Reproduces the round-7 P2: the lazy census child spawns node with
     // --input-type=module; a Worker inheriting that flag throws
     // ERR_INPUT_TYPE_NOT_ALLOWED. The child below IS such a parent; the
-    // worker must still complete.
-    const { fileURLToPath } = await import('node:url');
-    const workerFile = join(
-      dirname(fileURLToPath(import.meta.url)),
-      '../../hygiene/prune-plan-worker.ts',
-    );
+    // production wrapper must still complete using its own Worker configuration.
+    const censusFile = fileURLToPath(new URL('../../../dist/hygiene/census.js', import.meta.url));
     const script = [
-      `const { Worker } = await import('node:worker_threads');`,
-      `const w = new Worker(process.env.WORKER_FILE, { execArgv: [], workerData: {`,
-      `  requireFrom: process.env.REQUIRE_FROM,`,
-      `  repoRoot: process.cwd(), integrationTarget: 'main' } });`,
-      `w.on('message', (m) => { console.log('RESULT', JSON.stringify(m)); });`,
-      `w.on('error', (e) => { console.log('ERR', String(e && e.message || e)); process.exitCode = 1; });`,
+      `const { pathToFileURL } = await import('node:url');`,
+      `const { prunePlanBounded } = await import(pathToFileURL(process.env.CENSUS_FILE));`,
+      `let exited = false;`,
+      `const plan = await prunePlanBounded(process.cwd(), 'main', Infinity, undefined, undefined, () => { exited = true; });`,
+      `if (plan === null || !exited) throw new Error('production worker did not complete');`,
+      `process.stdout.write('RESULT ' + JSON.stringify(plan));`,
     ].join('\n');
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
       cwd: process.cwd(),
@@ -277,8 +256,7 @@ describe('census visibility fields (T14440 AC1)', () => {
       timeout: 60_000,
       env: {
         ...process.env,
-        WORKER_FILE: workerFile,
-        REQUIRE_FROM: join(process.cwd(), 'src', 'hygiene', 'census.ts'),
+        CENSUS_FILE: censusFile,
       },
     });
     expect(out).toContain('RESULT');

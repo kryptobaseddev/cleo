@@ -5,11 +5,6 @@
  * never a binding cache, never an ambient pin. A symlink or alias to a
  * foreign store must not count as own, and a missing identity is any doubt.
  *
- * The decision is exercised through the exported display label
- * (`projectStatusReadLabel`), whose fixture projects are always foreign here
- * (the vitest process runs in the cleocode checkout) and therefore never
- * claim a fresh read.
- *
  * @task T14440
  */
 
@@ -18,7 +13,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { isOwnProjectStore } from '../../hygiene/own-project.js';
+import { isOwnProjectStore } from '../own-project.js';
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
@@ -68,6 +63,11 @@ afterEach(() => {
 describe('isOwnProjectStore — strict own decision (T14440 rounds 6-7)', () => {
   it('an identical realpath and matching id is own', () => {
     expect(isOwnProjectStore(own, own)).toBe(true);
+  });
+
+  it('a matching realpath without a declared id is foreign', () => {
+    rmSync(join(own, '.cleo', 'project.json'));
+    expect(isOwnProjectStore(own, own)).toBe(false);
   });
 
   it('a foreign project is not own', () => {

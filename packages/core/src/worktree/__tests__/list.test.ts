@@ -363,6 +363,24 @@ describe('listWorktrees — status classification', () => {
     expect(wt?.isLocked).toBe(false);
   });
 
+  it('metadata-only mode reads no task store and runs no disposal proof, including idle taskless rows', async () => {
+    const { getDb, getNativeTasksDb } = await import('../../store/sqlite.js');
+    installGitMock({
+      porcelainOutput: porcelain([
+        { path: '/tmp/wt/T100', branch: 'task/T100' },
+        { path: '/tmp/wt/scratch', branch: 'scratch' },
+      ]),
+      branchTimestamps: { 'task/T100': nowIso(30), scratch: nowIso(30) },
+    });
+    const result = await listWorktrees({ projectRoot: '/tmp/project', staleDays: 0 }, false);
+    if (!result.success) throw new Error('expected success');
+    expect(getDb).not.toHaveBeenCalled();
+    expect(getNativeTasksDb).not.toHaveBeenCalled();
+    expect(result.data.worktrees).toHaveLength(2);
+    expect(result.data.worktrees.every((w) => w.owningTaskStatus === null)).toBe(true);
+    expect(result.data.worktrees.every((w) => w.statusCategory === 'active')).toBe(true);
+  });
+
   it('a done task idle > 7 days is a candidate: redundant, with the stale annotation', async () => {
     MOCK_TASK_ROWS.set('T100', 'done');
     installGitMock({

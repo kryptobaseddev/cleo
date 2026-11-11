@@ -14,26 +14,19 @@
  * snapshot reads.
  *
  * @task T14440
+ * @packageDocumentation
  */
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
+import { readProjectManifest } from '@cleocode/paths';
 import { getProjectRoot } from '../paths.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 
 /** The write-once `.cleo/project.json` id of a project, or `null` when absent/unreadable. */
 function readProjectIdentityId(projectRoot: string): string | null {
-  try {
-    const parsed = JSON.parse(
-      readFileSync(
-        resolvePath(resolveDualScopeDbPath('project', projectRoot), '..', 'project.json'),
-        'utf-8',
-      ),
-    ) as { id?: string };
-    return typeof parsed.id === 'string' ? parsed.id : null;
-  } catch {
-    return null;
-  }
+  const manifest = readProjectManifest(projectRoot);
+  return manifest.status === 'valid' ? manifest.manifest.id : null;
 }
 
 /**
@@ -43,14 +36,19 @@ function readProjectIdentityId(projectRoot: string): string | null {
  * @param ownRoot - The current process's project root (tests inject it;
  *   default: the process's resolved project).
  * @returns True when the target IS the own project.
+ * @remarks Missing or invalid project identity fails closed, even for an identical realpath.
+ * @example
+ * ```ts
+ * const own = isOwnProjectStore('/workspace/project');
+ * ```
  */
 export function isOwnProjectStore(projectRoot: string, ownRoot?: string): boolean {
   try {
     const own = ownRoot ?? getProjectRoot();
+    if (realpathSync(projectRoot) !== realpathSync(own)) return false;
     const ownStore = resolvePath(resolveDualScopeDbPath('project', own));
     const targetStore = resolvePath(resolveDualScopeDbPath('project', projectRoot));
     if (ownStore !== targetStore) return false;
-    if (realpathSync(projectRoot) !== realpathSync(own)) return false;
     const targetId = readProjectIdentityId(projectRoot);
     const ownId = readProjectIdentityId(own);
     // Strict: a missing identity on either side is any doubt → foreign.

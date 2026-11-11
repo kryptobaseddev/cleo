@@ -365,7 +365,8 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
   const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
-  const { isOwnProjectStore } = await import('./own-project.js');
+  const { isOwnProjectStore } = await import('../worktree/own-project.js');
+  const { loadCensusTaskStatuses } = await import('./task-status.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -398,6 +399,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
 
   const rows: CensusRow[] = [];
   const meta = new Map<CensusRow, WorktreeInfo>();
+  const statusReadByProject = new Map<string, string>();
   const seen = new Set<string>();
   // Git's registry covers adopted AND unadopted external worktrees, including
   // projects that have never had a canonical hash directory on this machine.
@@ -408,15 +410,27 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       projectErrors.push({ project, error: 'registered project path is unavailable' });
       continue;
     }
-    const result = await listWorktrees({
-      projectRoot: project,
-      exemptRegenerable: opts.exemptRegenerable === true,
-    });
+    const own = isOwnProjectStore(project);
+    const result = await listWorktrees(
+      {
+        projectRoot: project,
+        exemptRegenerable: opts.exemptRegenerable === true,
+      },
+      false,
+    );
     if (!result.success) {
       partial = true;
       projectErrors.push({ project, error: result.error.message });
       continue;
     }
+    const taskIds = [
+      ...new Set(result.data.worktrees.flatMap((w) => (w.taskId === null ? [] : [w.taskId]))),
+    ];
+    const statuses = await loadCensusTaskStatuses(taskIds, project, own);
+    statusReadByProject.set(
+      project,
+      statuses.success ? (own ? 'read' : 'snapshot: may lag uncommitted writes') : 'status unknown',
+    );
     const primary = resolvePrimaryWorktreePath(project);
     for (const worktree of result.data.worktrees) {
       if (outOfTime()) break;
@@ -427,7 +441,9 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       // probe, disposal or any store-opening liveness code — its liveness is
       // 'unknown (foreign project)' and it is never a removal candidate. Own
       // rows keep main's behaviour exactly.
-      const own = isOwnProjectStore(project);
+      worktree.owningTaskStatus = statuses.success
+        ? (statuses.data.get(worktree.taskId ?? '') ?? null)
+        : null;
       const terminal =
         own &&
         worktree.taskId !== null &&
@@ -608,8 +624,11 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   }));
   const branchesOf =
     opts.branchesOf ?? ((projectRoot: string) => mergedBranchCounts(projectRoot, deadline));
-  const rollups = await projectRollups(rows, registeredRollups, branchesOf, async (projectRoot) =>
-    statusReadLabel(projectRoot).catch(() => 'status unknown'),
+  const rollups = await projectRollups(
+    rows,
+    registeredRollups,
+    branchesOf,
+    async (projectRoot) => statusReadByProject.get(projectRoot) ?? 'status unknown',
   );
   const store = opts.pnpmStore === undefined ? pnpmStoreCensus(deadline) : null;
   outOfTime();
@@ -657,29 +676,6 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
  * @param verdictOf - The foreign-store read verdict (tests stub it).
  * @returns Rollups keyed by hash dir and the orphan directories among them.
  */
-/**
- * The census-only status-read label for one project (T14440, round 8): the
- * own project reads through the normal accessor ('read'); a FOREIGN store is
- * read only through the immutable, sidecar-free snapshot — labelled as a
- * display snapshot that may lag uncommitted writes; an unavailable snapshot
- * shows 'status unknown'. No removal decision consumes these reads.
- *
- * @param projectRoot - Absolute path to the project.
- * @returns The display label.
- */
-async function statusReadLabel(projectRoot: string): Promise<string> {
-  try {
-    const { isOwnProjectStore } = await import('./own-project.js');
-    if (isOwnProjectStore(projectRoot)) return 'read';
-    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
-    return projectStoreReadVerdict(projectRoot) === 'readable'
-      ? 'snapshot: may lag uncommitted writes'
-      : 'status unknown';
-  } catch {
-    return 'status unknown';
-  }
-}
-
 async function projectRollups(
   rows: readonly CensusRow[],
   registered: ReadonlyArray<{ project: string; projectHash: string }>,
