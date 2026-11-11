@@ -317,7 +317,8 @@ describe('Orca execution process boundary', () => {
 
   it.each(
     Object.values(ORCA_AGENT_HARNESSES),
-  )('refuses a %s lead with the missing guards before preflight or start', async (harness) => {
+  )('refuses an explicit Orca %s lead before a failed account inventory can mask its guard', async (harness) => {
+    orcaFixture.accounts = { stdout: '', stderr: 'inventory unavailable', exitCode: 1 };
     const launch = { ...fixtureLaunch, role: 'lead' as const, harness };
     const backend = new OrcaExecutionBackend(fixtureRunner);
     expect(backend.leadToolStrip).toBe('unsupported');

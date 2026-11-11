@@ -693,7 +693,7 @@ describe('Orca AC1 routing across product worker entry points', () => {
   it.each([
     'interactive',
     'detached',
-  ])('refuses an Orca %s lead before admission without weakening its guards', async (mode) => {
+  ])('keeps the %s lead native inside Orca without weakening its guards', async (mode) => {
     configure({ leadWorker: { v1: true } });
     await seedTasks(env.accessor, [{ id: 'T100', title: 'Guarded lead', type: 'epic' }]);
     const configBefore = readFileSync(join(env.cleoDir, 'config.json'), 'utf8');
@@ -716,24 +716,22 @@ describe('Orca AC1 routing across product worker entry points', () => {
       write.mockRestore();
     }
     expect(JSON.parse(output)).toMatchObject({
-      success: false,
-      error: {
-        code: 'E_LEAD_TOOLS_UNSTRIPPED',
-        message: expect.stringContaining('strict MCP'),
-        fix: expect.stringContaining('keep orchestrate.leadWorker.v1 enabled'),
-      },
+      success: true,
+      data: { data: { lead: { deniedTools: [...LEAD_DENIED_TOOLS], mode } } },
     });
-    expect(process.exitCode).toBe(63);
-    expect(fixtureRunner.mock.calls.some(([, args]) => args[0] === 'status')).toBe(true);
+    expect(process.exitCode).toBe(0);
+    expect(fixtureRunner).not.toHaveBeenCalled();
     expect(starts()).toHaveLength(0);
-    expect(nativeSpawn).not.toHaveBeenCalled();
+    expect(nativeSpawn).toHaveBeenCalledOnce();
+    expect(nativeSpawn.mock.calls[0]?.[0]).toMatchObject({
+      leadDeniedTools: [...LEAD_DENIED_TOOLS],
+    });
     expect(provision).not.toHaveBeenCalled();
     expect(await listWorkerRecords(env.tempDir)).toEqual([]);
-    expect((await env.accessor.loadSingleTask('T100'))?.claim).toBeUndefined();
     expect(readFileSync(join(env.cleoDir, 'config.json'), 'utf8')).toBe(configBefore);
   });
 
-  it('does not fall back to a native lead when Orca context verification fails', async () => {
+  it('keeps native lead startup independent of unusable Orca context markers', async () => {
     vi.stubEnv('ORCA_TERMINAL_HANDLE', undefined);
     vi.stubEnv('ORCA_WORKTREE_ID', 'unproven-caller');
     expect(
@@ -742,10 +740,11 @@ describe('Orca AC1 routing across product worker entry points', () => {
         lead: { deniedTools: LEAD_DENIED_TOOLS },
       }),
     ).toMatchObject({
-      success: false,
-      error: { code: 'E_ORCA_CONTEXT', fix: expect.stringContaining('ORCA_TERMINAL_HANDLE') },
+      success: true,
+      data: { providerId: 'codex' },
     });
-    expect(nativeSpawn).not.toHaveBeenCalled();
+    expect(nativeSpawn).toHaveBeenCalledOnce();
+    expect(fixtureRunner).not.toHaveBeenCalled();
     expect(provision).not.toHaveBeenCalled();
     expect(starts()).toHaveLength(0);
   });

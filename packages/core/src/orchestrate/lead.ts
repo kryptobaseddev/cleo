@@ -67,7 +67,7 @@ export interface OrchestrateLeadOptions {
   readonly projectRoot?: string;
   /** Spawn adapter id. @defaultValue the first spawn-capable adapter */
   readonly adapterId?: string;
-  /** Host port from product dispatch; verified Orca leads refuse until their guards are enforceable. */
+  /** Host port from product dispatch; automatic lead launches remain native in every context. */
   readonly orca?: OrcaRoutingAdapter;
   /** AgentMBX adapter. @defaultValue {@link createAgentMbxClient} */
   readonly mbxClient?: AgentMbxClient;
