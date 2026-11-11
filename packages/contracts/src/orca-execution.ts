@@ -154,7 +154,15 @@ export const orcaAttemptSchema = z.object({
   /** UUID reserved before committing a retry; its first send and every replay use this key. */
   startRequestKey: z.string().uuid().optional(),
   startRequestId: identifier.nullable(),
+  /** UUID reserved before committing a stop; its first send and every replay use this key. */
+  stopRequestKey: z.string().uuid().optional(),
+  /** Orca-issued stop request id, retained only when the stop receipt was received. */
   stopRequestId: identifier.nullable(),
+  /**
+   * Set when the worker-stop reply came from a runtime that proved it enumerates
+   * every helper it stopped, so an omitted helper list means the worker had none.
+   */
+  stopHelperEvidence: z.literal('enumerated').optional(),
   failureCount: z.number().int().nonnegative(),
   resourceState: z.string(),
   /** Full receipts retain effects, residual resources and recovery advice. */
@@ -361,6 +369,18 @@ export const orcaReplySchema = z.object({
     .object({
       state: z.string().optional(),
       requestId: identifier.optional(),
+      /**
+       * Mutation ledger identity Orca stamps on every successful mutation result.
+       * @remarks Installed Orca 1.4.255 attaches `{ requestId, replayed }` to the
+       * result it records (`Jy` in the retained source), so a successful stop can
+       * be bound to the request key this attempt issued.
+       */
+      mutation: z
+        .object({
+          requestId: identifier.optional(),
+          replayed: z.boolean().optional(),
+        })
+        .optional(),
       stage: z.string().optional(),
       turnStart: z.string().optional(),
       runId: identifier.optional(),
@@ -373,7 +393,18 @@ export const orcaReplySchema = z.object({
       launch: z.object({ effective: selectionSchema.optional() }).optional(),
       lastError: z.string().nullable().optional(),
       processAction: z.string().optional(),
-      helpers: z.array(z.object({ outcome: z.string() })).optional(),
+      helpers: z
+        .array(
+          z.object({
+            dispatchId: identifier.optional(),
+            creatorDispatchId: identifier.optional(),
+            outcome: z.string(),
+            keptOpenBy: identifier.optional(),
+            state: z.string().optional(),
+            lastError: z.string().nullable().optional(),
+          }),
+        )
+        .optional(),
       helperStopError: z.string().nullable().optional(),
       status: z.string().optional(),
       terminal: z
@@ -406,6 +437,8 @@ export const orcaReplySchema = z.object({
           id: identifier,
           runId: identifier,
           taskId: identifier,
+          /** Direct creator Dispatch that started this one; null for a Run root. */
+          creatorDispatchId: identifier.nullable().optional(),
           failureCount: z.number().int().nonnegative(),
         })
         .optional(),

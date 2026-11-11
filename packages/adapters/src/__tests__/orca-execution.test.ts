@@ -1,9 +1,11 @@
+import type { OrcaAttempt, OrcaReply } from '@cleocode/contracts/orca-execution.js';
 import { ORCA_AGENT_HARNESSES, orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionBackend } from '../orca-execution.js';
 import {
   fixtureAttempt,
   fixtureContext,
+  fixtureHelperExited,
   fixtureLaunch,
   fixturePendingStart,
   fixtureReleasedShow,
@@ -21,6 +23,11 @@ describe('Orca execution process boundary', () => {
     orcaFixture.launch = { ...fixtureLaunch };
     orcaFixture.start = fixtureStart();
     orcaFixture.show = fixtureShow();
+    orcaFixture.helperShows = {};
+    orcaFixture.capabilities = [
+      'orchestration.contract.v1',
+      'orchestration.worker-stop-helpers.v1',
+    ];
     orcaFixture.stop = fixtureReply(
       {
         dispatchId: 'ctx_fixture',
@@ -791,6 +798,174 @@ describe('Orca execution process boundary', () => {
     ]);
   });
 
+  it('settles a durable stop_pending only from release proof plus affirmative helper evidence', async () => {
+    const pending = (lastReceipt: string | null): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000001',
+        lastReceipt,
+      });
+    const stopReceipt = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+      mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000001', replayed: false },
+    }).stdout;
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    orcaFixture.show = fixtureReleasedShow();
+    expect(await backend.show(pending(stopReceipt))).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+      lastReceipt: orcaFixture.show.stdout,
+    });
+    // A lost receipt is not helper evidence: exact parent release alone never settles,
+    // and the record keeps whatever receipt it had for later recovery.
+    expect(await backend.show(pending(null))).toMatchObject({
+      state: 'stop_unknown',
+      resourceState: 'unknown',
+      lastReceipt: null,
+    });
+    // A non-stop receipt proves nothing about helpers either.
+    const startReceipt = fixtureStart().stdout;
+    expect(await backend.show(pending(startReceipt))).toMatchObject({
+      state: 'stop_unknown',
+      resourceState: 'unknown',
+      lastReceipt: startReceipt,
+    });
+    orcaFixture.show = fixtureShow();
+    expect(await backend.show(pending(stopReceipt))).toMatchObject({
+      state: 'stop_unknown',
+      resourceState: 'owned',
+    });
+    expect(
+      await backend.show(fixtureAttempt({ ...pending(stopReceipt), state: 'stop_unknown' })),
+    ).toMatchObject({ state: 'stop_unknown' });
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it('treats an omitted helper list as affirmative only when the stop recorded helper enumeration', async () => {
+    const pending = (stopHelperEvidence?: 'enumerated'): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000011',
+        // Installed Orca omits the list when the worker started no helper.
+        lastReceipt: fixtureReply({
+          dispatchId: 'ctx_fixture',
+          state: 'stopped',
+          processAction: 'closed_agent_terminal',
+          mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000011', replayed: false },
+        }).stdout,
+        stopHelperEvidence,
+      });
+    orcaFixture.show = fixtureReleasedShow();
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    expect(await backend.show(pending('enumerated'))).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+    });
+    // Without the stop-time proof an omitted list stays an unknown helper tree.
+    expect(await backend.show(pending())).toMatchObject({
+      state: 'stop_unknown',
+      resourceState: 'unknown',
+    });
+  });
+
+  it('records helper enumeration only when a capable stop reply omits the helper list', async () => {
+    const stop = (): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000012',
+      });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+    });
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    expect(await backend.stop(stop())).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+      stopHelperEvidence: 'enumerated',
+    });
+    // A failed parent stop may still start helpers, so it never records enumeration.
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stop_unknown',
+      processAction: 'closed_agent_terminal',
+    });
+    expect((await backend.stop(stop())).stopHelperEvidence).toBeUndefined();
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+    });
+    orcaFixture.capabilities = ['orchestration.contract.v1'];
+    const unproven = await backend.stop(stop());
+    expect(unproven).toMatchObject({ state: 'stop_unknown', resourceState: 'unknown' });
+    expect(unproven.stopHelperEvidence).toBeUndefined();
+  });
+
+  it('replays a lost stop by its reserved key and fences a stop with neither key nor id', async () => {
+    const key = '4f7d2f8e-0000-4000-8000-000000000002';
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    orcaFixture.stop = {
+      stdout: JSON.stringify({
+        ok: false,
+        _meta: { runtimeId: fixtureContext.runtimeId },
+        error: { code: 'runtime_timeout', message: 'lost stop reply' },
+      }),
+      stderr: '',
+      exitCode: 1,
+    };
+    const unknown = await backend.stop(
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: key,
+      }),
+    );
+    expect(unknown).toMatchObject({
+      state: 'stop_unknown',
+      stopRequestId: null,
+      stopRequestKey: key,
+    });
+    const [first] = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(first?.[1]).toEqual(expect.arrayContaining(['--retry-request', key]));
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await backend.replayStop({ ...unknown, state: 'stop_pending' });
+    expect(recovered).toMatchObject({ state: 'stopped', resourceState: 'stopped' });
+    const stops = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(stops[1]?.[1]).toEqual(expect.arrayContaining(['--retry-request', key]));
+    await expect(
+      backend.replayStop(
+        fixtureAttempt({
+          state: 'stop_pending',
+          dispatchId: 'ctx_fixture',
+          orcaTaskId: 'task_fixture',
+          runId: 'run_fixture',
+        }),
+      ),
+    ).rejects.toThrow('No replayable');
+  });
+
   it('retains an unknown receipt when workspace or effective harness is unproven', async () => {
     orcaFixture.start = fixtureReply({
       state: 'ready',
@@ -905,5 +1080,278 @@ describe('Orca execution process boundary', () => {
       helpers: [],
     });
     expect((await new OrcaExecutionBackend(fixtureRunner).stop(attempt)).state).toBe('stopped');
+  });
+
+  it('does not settle a released parent while its stop receipt leaves a helper unresolved', async () => {
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    const stopReceipt = (helpers: string[], helperStopError?: string): string =>
+      fixtureReply({
+        dispatchId: 'ctx_fixture',
+        state: 'stopped',
+        processAction: 'closed_agent_terminal',
+        helpers: helpers.map((outcome) => ({ outcome })),
+        mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000003', replayed: false },
+        ...(helperStopError ? { helperStopError } : {}),
+      }).stdout;
+    orcaFixture.show = fixtureReleasedShow();
+    const pending = (lastReceipt: string): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000003',
+        lastReceipt,
+      });
+    for (const unresolved of [
+      stopReceipt(['kept_open']),
+      stopReceipt(['unconfirmed']),
+      stopReceipt([], 'helper stop error'),
+    ]) {
+      expect(await backend.show(pending(unresolved))).toMatchObject({
+        state: 'stop_unknown',
+        resourceState: 'unknown',
+        lastReceipt: unresolved,
+      });
+    }
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it('settles a stop once its kept-open helper finishes later, without replaying the stop', async () => {
+    const helper = 'ctx_helper';
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    const stopReceipt = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [
+        {
+          dispatchId: helper,
+          creatorDispatchId: 'ctx_fixture',
+          outcome: 'kept_open',
+          state: 'ready',
+        },
+      ],
+      mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000003', replayed: false },
+    }).stdout;
+    const pending = (lastReceipt: string): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000003',
+        lastReceipt,
+      });
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.helperShows = { [helper]: fixtureShow(helper) };
+    expect(await backend.show(pending(stopReceipt))).toMatchObject({
+      state: 'stop_unknown',
+      resourceState: 'unknown',
+      lastReceipt: stopReceipt,
+    });
+    // The completed stop key would replay the same kept-open outcome forever, so the
+    // helper's own current state settles the stop instead.
+    orcaFixture.helperShows = { [helper]: fixtureHelperExited(helper) };
+    expect(await backend.show(pending(stopReceipt))).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+      lastReceipt: orcaFixture.show.stdout,
+    });
+    expect(
+      fixtureRunner.mock.calls.some(
+        ([, args]) => args[1] === 'worker-show' && args.includes(helper),
+      ),
+    ).toBe(true);
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it('ignores a stop receipt that belongs to another dispatch, run or request key', async () => {
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    orcaFixture.show = fixtureReleasedShow();
+    const pending = (lastReceipt: string): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000031',
+        lastReceipt,
+      });
+    const stopReply = (overrides: Partial<NonNullable<OrcaReply['result']>> = {}): string =>
+      fixtureReply({
+        dispatchId: 'ctx_fixture',
+        state: 'stopped',
+        processAction: 'closed_agent_terminal',
+        helpers: [],
+        mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000031', replayed: false },
+        ...overrides,
+      }).stdout;
+    const foreign = [
+      // Another Dispatch in the same Run.
+      stopReply({ dispatchId: 'ctx_other' }),
+      // The same Dispatch id, but another Run.
+      stopReply({ runId: 'run_other' }),
+      // This Dispatch refused under a stop key this attempt never issued.
+      JSON.stringify({
+        ok: false,
+        _meta: { runtimeId: fixtureContext.runtimeId },
+        error: {
+          code: 'operation_unknown',
+          message: 'another attempt cancelled this Dispatch',
+          data: {
+            dispatchId: 'ctx_fixture',
+            orchestrationRequestId: '4f7d2f8e-0000-4000-8000-000000000032',
+          },
+        },
+      }),
+      // This Dispatch stopped successfully under a stop key this attempt never issued.
+      stopReply({
+        mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000032', replayed: false },
+      }),
+      // This Dispatch stopped on another runtime epoch.
+      JSON.stringify({
+        ok: true,
+        _meta: { runtimeId: 'runtime-other' },
+        result: {
+          dispatchId: 'ctx_fixture',
+          state: 'stopped',
+          processAction: 'closed_agent_terminal',
+          helpers: [],
+          mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000031', replayed: false },
+        },
+      }),
+    ];
+    for (const receipt of foreign) {
+      expect(await backend.show(pending(receipt))).toMatchObject({
+        state: 'stop_unknown',
+        resourceState: 'unknown',
+        lastReceipt: receipt,
+      });
+      // Repeated reads never promote a mismatched receipt by a later release.
+      expect(await backend.show(pending(receipt))).toMatchObject({ state: 'stop_unknown' });
+    }
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it('does not settle a stop from an exited helper that another Dispatch created', async () => {
+    const helper = 'ctx_unrelated';
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    const stopReceipt = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [
+        {
+          dispatchId: helper,
+          creatorDispatchId: 'ctx_other',
+          outcome: 'kept_open',
+          state: 'ready',
+        },
+      ],
+      mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000033', replayed: false },
+    }).stdout;
+    const pending = (lastReceipt: string): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000033',
+        lastReceipt,
+      });
+    orcaFixture.show = fixtureReleasedShow();
+    // The helper exited, but its creator chain never reaches this worker.
+    orcaFixture.helperShows = {
+      [helper]: fixtureHelperExited(helper, 'ctx_other'),
+      ctx_other: fixtureShow('ctx_other'),
+    };
+    expect(await backend.show(pending(stopReceipt))).toMatchObject({
+      state: 'stop_unknown',
+      resourceState: 'unknown',
+      lastReceipt: stopReceipt,
+    });
+    // A nested helper whose chain does reach this worker still settles the stop.
+    const nested = 'ctx_nested';
+    orcaFixture.helperShows = {
+      [nested]: fixtureHelperExited(nested, helper),
+      [helper]: fixtureShow(helper, 0, 'ctx_fixture'),
+    };
+    expect(
+      await backend.show(
+        pending(
+          fixtureReply({
+            dispatchId: 'ctx_fixture',
+            state: 'stopped',
+            processAction: 'closed_agent_terminal',
+            helpers: [
+              {
+                dispatchId: nested,
+                creatorDispatchId: helper,
+                outcome: 'kept_open',
+                state: 'ready',
+              },
+            ],
+            mutation: { requestId: '4f7d2f8e-0000-4000-8000-000000000033', replayed: false },
+          }).stdout,
+        ),
+      ),
+    ).toMatchObject({ state: 'stopped', resourceState: 'stopped' });
+  });
+
+  it('records helper enumeration only from a proven stop reply from this exact runtime', async () => {
+    const stop = (): OrcaAttempt =>
+      fixtureAttempt({
+        state: 'stop_pending',
+        dispatchId: 'ctx_fixture',
+        orcaTaskId: 'task_fixture',
+        runId: 'run_fixture',
+        stopRequestKey: '4f7d2f8e-0000-4000-8000-000000000034',
+      });
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    const stoppedReply = {
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+    };
+    // A refused reply that still carried a stopped result never proves enumeration.
+    orcaFixture.stop = {
+      stdout: JSON.stringify({
+        ok: false,
+        _meta: { runtimeId: fixtureContext.runtimeId },
+        this: 'not-a-reply-field',
+        result: stoppedReply,
+      }),
+      stderr: '',
+      exitCode: 1,
+    };
+    // Unparseable extras are ignored by the wire schema, so the refusal alone must not mint.
+    expect((await backend.stop(stop())).stopHelperEvidence).toBeUndefined();
+    // Another runtime epoch is not this attempt's proof.
+    orcaFixture.stop = {
+      stdout: JSON.stringify({
+        ok: true,
+        _meta: { runtimeId: 'runtime-other' },
+        result: stoppedReply,
+      }),
+      stderr: '',
+      exitCode: 0,
+    };
+    expect(await backend.stop(stop())).toMatchObject({
+      state: 'stop_unknown',
+      stopHelperEvidence: undefined,
+    });
+    // A reply for another Dispatch is not this attempt's proof either.
+    orcaFixture.stop = fixtureReply({ ...stoppedReply, dispatchId: 'ctx_other' });
+    expect(await backend.stop(stop())).toMatchObject({
+      state: 'stop_unknown',
+      stopHelperEvidence: undefined,
+    });
+    // Only the exact runtime, Dispatch and stopped parent records enumeration.
+    orcaFixture.stop = fixtureReply(stoppedReply);
+    expect(await backend.stop(stop())).toMatchObject({
+      state: 'stopped',
+      stopHelperEvidence: 'enumerated',
+    });
   });
 });

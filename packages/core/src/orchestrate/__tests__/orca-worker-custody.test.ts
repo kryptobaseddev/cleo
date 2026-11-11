@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
@@ -11,6 +12,7 @@ import { acquireWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureContext,
+  fixtureHelperExited,
   fixtureLaunch,
   fixturePendingStart,
   fixtureReleasedShow,
@@ -79,6 +81,11 @@ describe('durable Orca execution custody', () => {
     orcaFixture.launch = launch;
     orcaFixture.start = fixtureStart();
     orcaFixture.show = fixtureShow();
+    orcaFixture.helperShows = {};
+    orcaFixture.capabilities = [
+      'orchestration.contract.v1',
+      'orchestration.worker-stop-helpers.v1',
+    ];
     orcaFixture.request = fixtureReply({ state: 'completed', requestId: 'request-fixture' });
     orcaFixture.stop = fixtureReply(
       {
@@ -685,6 +692,10 @@ describe('durable Orca execution custody', () => {
       state: 'stop_unknown',
       stopRequestId: 'request-fixture',
     });
+    orcaFixture.request = fixtureReply({
+      state: 'completed',
+      requestId: pending.execution?.stopRequestKey,
+    });
     orcaFixture.stop = fixtureReply({
       dispatchId: 'ctx_fixture',
       state: 'stopped',
@@ -709,7 +720,7 @@ describe('durable Orca execution custody', () => {
     );
   });
 
-  it('keeps stop uncertainty durable when request recovery fails or no replay id exists', async () => {
+  it('replays a stop whose reply was lost without an id by its reserved key', async () => {
     const record = await launchOrcaWorker(
       launch,
       fixtureContext,
@@ -720,25 +731,382 @@ describe('durable Orca execution custody', () => {
       env.tempDir,
       new OrcaExecutionBackend(fixtureRunner),
     );
-    await expect(
-      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
-    ).rejects.toThrow('No recoverable');
-    if (!pending.execution) throw new Error('Missing execution fixture');
-    await updateWorkerExecution(
-      pending,
-      { ...pending.execution, stopRequestId: 'request-fixture' },
+    // The default fixture reply carries no issued id; the reserved key survives.
+    expect(pending.execution).toMatchObject({ state: 'stop_unknown', stopRequestId: null });
+    const key = pending.execution?.stopRequestKey;
+    expect(key).toEqual(expect.any(String));
+    const sent = fixtureRunner.mock.calls.find(([, args]) => args[1] === 'worker-stop')?.[1];
+    expect(sent).toEqual(expect.arrayContaining(['--retry-request', key]));
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await recoverOrcaWorkerStop(
+      record.recordId,
       env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
     );
-    orcaFixture.request = fixtureReply({ state: 'absent', requestId: 'request-fixture' });
-    await expect(
-      recoverOrcaWorkerStop(record.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
-    ).rejects.toThrow('absence');
-    expect((await listWorkerRecords(env.tempDir))[0]?.execution).toMatchObject({
-      state: 'stop_unknown',
-      stopRequestId: 'request-fixture',
+    expect(recovered.execution).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+      stopRequestKey: key,
     });
     expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      2,
+    );
+  });
+
+  it('fences a legacy stop_pending with no key or id, and show settles it to stop_unknown', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const legacy = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending' },
+      env.tempDir,
+    );
+    await expect(
+      recoverOrcaWorkerStop(legacy.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('No recoverable');
+    orcaFixture.show = fixtureShow();
+    const observed = await observeOrcaWorker(
+      legacy.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(observed.execution).toMatchObject({ state: 'stop_unknown', resourceState: 'owned' });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      0,
+    );
+  });
+
+  it('settles a durable stop_pending from release proof plus an affirmative stop receipt so retry proceeds', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const stopRequestKey = randomUUID();
+    const stopReceipt = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+      mutation: { requestId: stopRequestKey, replayed: false },
+    }).stdout;
+    // A crash between the durable stop reservation and its reply leaves stop_pending,
+    // with the receipt that proved every helper stopped.
+    const pending = await updateWorkerExecution(
+      record,
+      {
+        ...record.execution,
+        state: 'stop_pending',
+        stopRequestKey,
+        lastReceipt: stopReceipt,
+      },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    const successor = await retryOrcaWorker(
+      pending.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(successor.execution).toMatchObject({
+      state: 'ready',
+      retryOf: 'ctx_fixture',
+      dispatchId: 'ctx_retry',
+    });
+    const records = await listWorkerRecords(env.tempDir);
+    expect(records.find((candidate) => candidate.recordId === pending.recordId)).toMatchObject({
+      execution: { state: 'stopped', resourceState: 'stopped' },
+    });
+    expect(
+      records.find((candidate) => candidate.recordId === pending.recordId)?.stoppedAt,
+    ).not.toBeNull();
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      0,
+    );
+  });
+
+  it('refuses retry when the parent released but the stop left no helper evidence', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    // The receipt was lost, so only the start receipt survives; a released parent
+    // alone can never prove its helpers stopped.
+    const pending = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending', stopRequestKey: randomUUID() },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    await expect(
+      retryOrcaWorker(pending.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toMatchObject({
+      fix: expect.stringContaining(`cleo orchestrate worker recover-stop ${pending.recordId}`),
+    });
+    const [stored] = await listWorkerRecords(env.tempDir);
+    expect(stored).toMatchObject({
+      stoppedAt: null,
+      execution: { state: 'stop_unknown', resourceState: 'unknown' },
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
       1,
+    );
+  });
+
+  it('refuses retry when the parent released but the stop receipt kept a helper open', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const helper = 'ctx_helper';
+    const stopRequestKey = randomUUID();
+    const stopReceipt = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [
+        {
+          dispatchId: helper,
+          creatorDispatchId: 'ctx_fixture',
+          outcome: 'kept_open',
+          state: 'ready',
+        },
+      ],
+      mutation: { requestId: stopRequestKey, replayed: false },
+    }).stdout;
+    const pending = await updateWorkerExecution(
+      record,
+      {
+        ...record.execution,
+        state: 'stop_pending',
+        stopRequestKey,
+        lastReceipt: stopReceipt,
+      },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.helperShows = { [helper]: fixtureShow(helper) };
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    await expect(
+      retryOrcaWorker(pending.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toMatchObject({
+      fix: expect.stringContaining(`cleo orchestrate worker show ${pending.recordId}`),
+    });
+    const [stored] = await listWorkerRecords(env.tempDir);
+    expect(stored).toMatchObject({
+      stoppedAt: null,
+      execution: { state: 'stop_unknown', lastReceipt: stopReceipt },
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
+      1,
+    );
+    // The helper finishes after the original stop; its current Orca state settles the
+    // stop, so retry is admitted without replaying the completed stop key.
+    orcaFixture.helperShows = { [helper]: fixtureHelperExited(helper) };
+    const successor = await retryOrcaWorker(
+      pending.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(successor.execution).toMatchObject({ state: 'ready', dispatchId: 'ctx_retry' });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      0,
+    );
+  });
+
+  it('refuses retry when the stored stop receipt belongs to another attempt', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    // The receipt carries this attempt's own issued key, so only its Dispatch
+    // identity can refuse it: a receipt from another Dispatch in the same Run
+    // proves nothing about this attempt's helpers, so a released parent can never
+    // promote it to stopped.
+    const stopRequestKey = randomUUID();
+    const foreignReceipt = fixtureReply({
+      dispatchId: 'ctx_other',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+      mutation: { requestId: stopRequestKey, replayed: false },
+    }).stdout;
+    const pending = await updateWorkerExecution(
+      record,
+      {
+        ...record.execution,
+        state: 'stop_pending',
+        stopRequestKey,
+        lastReceipt: foreignReceipt,
+      },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    await expect(
+      retryOrcaWorker(pending.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toMatchObject({
+      fix: expect.stringContaining(`cleo orchestrate worker recover-stop ${pending.recordId}`),
+    });
+    const [stored] = await listWorkerRecords(env.tempDir);
+    expect(stored).toMatchObject({
+      stoppedAt: null,
+      execution: { state: 'stop_unknown', lastReceipt: foreignReceipt },
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
+      1,
+    );
+  });
+
+  it('refuses retry when an unrelated exited helper in the same Run is named', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const helper = 'ctx_unrelated';
+    const stopRequestKey = randomUUID();
+    const stopReceipt = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [
+        {
+          dispatchId: helper,
+          creatorDispatchId: 'ctx_other',
+          outcome: 'kept_open',
+          state: 'ready',
+        },
+      ],
+      mutation: { requestId: stopRequestKey, replayed: false },
+    }).stdout;
+    const pending = await updateWorkerExecution(
+      record,
+      {
+        ...record.execution,
+        state: 'stop_pending',
+        stopRequestKey,
+        lastReceipt: stopReceipt,
+      },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureReleasedShow();
+    // The helper has exited, but another parent Dispatch created it.
+    orcaFixture.helperShows = {
+      [helper]: fixtureHelperExited(helper, 'ctx_other'),
+      ctx_other: fixtureShow('ctx_other'),
+    };
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    await expect(
+      retryOrcaWorker(pending.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toMatchObject({
+      fix: expect.stringContaining(`cleo orchestrate worker show ${pending.recordId}`),
+    });
+    const [stored] = await listWorkerRecords(env.tempDir);
+    expect(stored).toMatchObject({
+      stoppedAt: null,
+      execution: { state: 'stop_unknown', lastReceipt: stopReceipt },
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
+      1,
+    );
+    // The exited helper was actually inspected and its creator chain walked: it is
+    // rejected for ancestry (it never descends from this attempt), not because the
+    // receipt was discarded before the ancestry check could run.
+    const observedDispatches = fixtureRunner.mock.calls
+      .filter(([, args]) => args[1] === 'worker-show')
+      .map(([, args]) => args[args.indexOf('--dispatch') + 1]);
+    expect(observedDispatches).toContain(helper);
+    expect(observedDispatches).toContain('ctx_other');
+  });
+
+  it('replays a lost stop by its reserved key, then admits the retry', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const key = randomUUID();
+    const pending = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending', stopRequestKey: key },
+      env.tempDir,
+    );
+    orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await recoverOrcaWorkerStop(
+      pending.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(recovered.execution).toMatchObject({
+      state: 'stopped',
+      resourceState: 'stopped',
+      stopRequestKey: key,
+    });
+    const stops = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.[1]).toEqual(expect.arrayContaining(['--retry-request', key]));
+    orcaFixture.show = fixtureReleasedShow();
+    orcaFixture.start = fixtureStart('ready', 1, 'ctx_retry');
+    const successor = await retryOrcaWorker(
+      pending.recordId,
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(successor.execution).toMatchObject({ state: 'ready', dispatchId: 'ctx_retry' });
+  });
+
+  it('refuses retry for an unresolved stop with the exact recovery commands', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    if (!record.execution) throw new Error('Missing execution fixture');
+    const pending = await updateWorkerExecution(
+      record,
+      { ...record.execution, state: 'stop_pending', stopRequestKey: randomUUID() },
+      env.tempDir,
+    );
+    orcaFixture.show = fixtureShow();
+    await expect(
+      retryOrcaWorker(pending.recordId, env.tempDir, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toMatchObject({
+      fix: expect.stringContaining(`cleo orchestrate worker recover-stop ${pending.recordId}`),
+    });
+    // show settled the reservation to stop_unknown instead of leaving it pending.
+    expect((await listWorkerRecords(env.tempDir))[0]?.execution).toMatchObject({
+      state: 'stop_unknown',
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop')).toHaveLength(
+      0,
     );
   });
 
