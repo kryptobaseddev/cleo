@@ -66,6 +66,7 @@ import {
 import type { ResourceSample } from '../backend.js';
 import {
   commandChargeKey,
+  gitAlias,
   MEASURED_MIN_RUNS,
   MEASURED_MIN_SAMPLES,
   MEASURED_PEAK_MARGIN,
@@ -2939,6 +2940,10 @@ describe('a git push is charged by what actually runs (T13452)', () => {
         return true;
       },
       unmeasured,
+      undefined,
+      undefined,
+      // T14405: /wt does not exist, so a real alias probe fails heavy first.
+      { gitAlias: () => null },
     );
     expect(calls).toEqual([['pre-push', ['-C', '/wt']]]);
     expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
@@ -2993,6 +2998,170 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       expect(plan.resources, argv.join(' ')).not.toBeNull();
       expect(plan.footprintReason, argv.join(' ')).toMatch(/^scoped-build plan: git .* runs /);
     }
+  });
+
+  it('a git shell alias and an inline command key are charged the class plan (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.t14405', '!pnpm test'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.co14405', 'checkout'], { cwd: repo });
+      expect(gitAlias(repo, 't14405')).toBe('!pnpm test');
+      expect(gitAlias(repo, 'co14405')).toBe('checkout');
+      expect(gitAlias(repo, 'no14405')).toBeNull();
+      expect(gitAlias(repo, 'no_14405')).toBeNull(); // not a config variable name
+      // The command's own globals count: -C picks the repository, -c sets an alias.
+      expect(gitAlias(tmpdir(), 't14405', ['-C', repo])).toBe('!pnpm test');
+      expect(gitAlias(repo, 'x14405', ['-c', 'alias.x14405=!make'])).toBe('!make');
+      // T14405 round 1: a probe git cannot answer throws; it is never read as no alias.
+      expect(() => gitAlias(repo, 't14405', ['-C', join(repo, 'missing')])).toThrow();
+      const plan = (argv: readonly string[]) =>
+        planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
+      for (const [argv, reason] of [
+        [['git', 't14405'], 'git t14405 is a shell alias'],
+        [['git', '-c', 'alias.x14405=!make', 'x14405'], 'git -c alias.x14405 runs another command'],
+        [
+          ['git', '-c', 'core.sshCommand=make', 'fetch'],
+          'git -c core.sshCommand runs another command',
+        ],
+        [
+          ['git', '-c', 'core.fsmonitor=make', 'status'],
+          'git -c core.fsmonitor runs another command',
+        ],
+      ] as const) {
+        expect(plan(argv).footprintBytes, argv.join(' ')).toBeGreaterThan(GIB);
+        expect(plan(argv).resources, argv.join(' ')).not.toBeNull();
+        expect(plan(argv).footprintReason, argv.join(' ')).toBe(`scoped-build plan: ${reason}`);
+      }
+      expect(plan(['git', 'co14405', 'main']).footprintBytes).toBe(GIB);
+      expect(plan(['git', 'status']).footprintBytes).toBe(GIB);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('a later alias.<name>.command shell alias is not masked by alias.<name> (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.m14405', 'status'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.m14405.command', '!make'], { cwd: repo });
+      expect(gitAlias(repo, 'm14405')).toBe('!make');
+      const plan = planRunFootprint(
+        'scoped-build',
+        ['git', 'm14405'],
+        {},
+        RAM,
+        () => false,
+        unmeasured,
+        repo,
+      );
+      expect(plan.footprintBytes).toBeGreaterThan(GIB);
+      expect(plan.footprintReason).toBe('scoped-build plan: git m14405 is a shell alias');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('imap.tunnel, tar.<fmt>.command and helper-name keys keep the class plan (T14405)', () => {
+    for (const [argv, key] of [
+      [['git', '-c', 'tar.x.command=make', 'archive', '--format=x', 'HEAD'], 'tar.x.command'],
+      [['git', '-c', 'imap.tunnel=make', 'imap-send'], 'imap.tunnel'],
+      // git runs `git-credential-cat` and `git-remote-cat`, not cat.
+      [['git', '-c', 'credential.helper=cat', 'fetch'], 'credential.helper'],
+      [['git', '-c', 'remote.origin.vcs=cat', 'fetch'], 'remote.origin.vcs'],
+    ] as const) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured);
+      expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(GIB);
+      expect(plan.footprintReason, argv.join(' ')).toBe(
+        `scoped-build plan: git -c ${key} runs another command`,
+      );
+    }
+    // An empty helper list runs nothing.
+    const cleared = planRunFootprint(
+      'scoped-build',
+      ['git', '-c', 'credential.helper=', 'fetch'],
+      {},
+      RAM,
+      () => false,
+      unmeasured,
+    );
+    expect(cleared.footprintBytes).toBe(GIB);
+  });
+
+  it('an alias over a missing external git command keeps the class plan (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    const empty = mkdtempSync(join(tmpdir(), 'cleo-t14405-exec-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.mergetool', '!make'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.status', '!make'], { cwd: repo });
+      // git-mergetool is no built-in: outside its exec path git runs the alias.
+      expect(gitAlias(repo, 'mergetool', [`--exec-path=${empty}`])).toBe('!make');
+      // A built-in runs instead of the alias; an external git finds may not
+      // run (see the broken-shebang case below), so its alias is still read.
+      expect(gitAlias(repo, 'status', [`--exec-path=${empty}`])).toBeNull();
+      expect(gitAlias(repo, 'mergetool')).toBe('!make');
+      const plan = (argv: readonly string[]) =>
+        planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
+      const shadowed = plan(['git', `--exec-path=${empty}`, 'mergetool']);
+      expect(shadowed.footprintBytes).toBeGreaterThan(GIB);
+      expect(shadowed.footprintReason).toBe('scoped-build plan: git mergetool is a shell alias');
+      expect(plan(['git', `--exec-path=${empty}`, 'status']).footprintBytes).toBe(GIB);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('an alias over a listed external git cannot run keeps the class plan (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    const exec = mkdtempSync(join(tmpdir(), 'cleo-t14405-exec-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.mergetool', '!printf marker'], { cwd: repo });
+      // git lists git-mergetool, cannot exec it, and falls back to the alias.
+      writeFileSync(join(exec, 'git-mergetool'), '#!/missing/interpreter\n', { mode: 0o755 });
+      const argv = ['git', `--exec-path=${exec}`, 'mergetool'];
+      expect(execFileSync(argv[0], argv.slice(1), { cwd: repo, encoding: 'utf8' })).toBe('marker');
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
+      expect(plan.footprintBytes).toBeGreaterThan(GIB);
+      expect(plan.footprintReason).toBe('scoped-build plan: git mergetool is a shell alias');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(exec, { recursive: true, force: true });
+    }
+  });
+
+  it('a failed or timed-out alias probe keeps the class plan (T14405)', () => {
+    const asked: string[] = [];
+    const failing = (name: string): string | null => {
+      asked.push(name);
+      throw Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    };
+    const plan = (argv: readonly string[]) =>
+      planRunFootprint(
+        'scoped-build',
+        argv,
+        {},
+        RAM,
+        () => false,
+        unmeasured,
+        tmpdir(),
+        undefined,
+        {
+          gitAlias: failing,
+        },
+      );
+    const unknown = plan(['git', 'mystery14405']);
+    expect(unknown.footprintBytes).toBeGreaterThan(GIB);
+    expect(unknown.footprintReason).toBe(
+      'scoped-build plan: git mystery14405 may be an alias git could not be asked about',
+    );
+    // No static list vouches for a git command: the probe decides, so one it
+    // cannot answer for keeps the class plan too.
+    expect(plan(['git', 'mergetool']).footprintBytes).toBeGreaterThan(GIB);
+    expect(asked).toEqual(['mystery14405', 'mergetool']);
   });
 
   it('a git rebase with a post-checkout hook installed keeps the class plan (T14398)', () => {
