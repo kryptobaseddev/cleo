@@ -22,6 +22,7 @@ import {
 import { hooks } from '../../hooks/registry.js';
 import { requireSpawnSession } from '../../spawn/agent-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { setClaimClock } from '../../store/task-claim.js';
 import {
   launchOrcaWorker,
   observeOrcaWorker,
@@ -88,6 +89,7 @@ describe('durable Orca execution custody', () => {
   });
 
   afterEach(async () => {
+    setClaimClock(null);
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     await env.cleanup();
@@ -292,6 +294,28 @@ describe('durable Orca execution custody', () => {
       ),
     ).rejects.toThrow('unproven');
     expect(fixtureRunner).not.toHaveBeenCalled();
+    expect(await listWorkerRecords(env.tempDir)).toHaveLength(0);
+  });
+
+  it('refuses an expired allocated claim before invoking Orca', async () => {
+    setClaimClock(() => Date.now() + 24 * 60 * 60 * 1000);
+    await expect(
+      launchOrcaWorker(launch, fixtureContext, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('unproven');
+    expect(fixtureRunner).not.toHaveBeenCalled();
+    expect(await listWorkerRecords(env.tempDir)).toHaveLength(0);
+  });
+
+  it('rechecks the claim after host preflight before reserving a launch', async () => {
+    fixtureRunner.mockImplementation(async (...args) => {
+      const result = await runOrcaFixture(...args);
+      if (args[1][0] === 'worktree') setClaimClock(() => Date.now() + 24 * 60 * 60 * 1000);
+      return result;
+    });
+    await expect(
+      launchOrcaWorker(launch, fixtureContext, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toThrow('unproven');
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
     expect(await listWorkerRecords(env.tempDir)).toHaveLength(0);
   });
 });

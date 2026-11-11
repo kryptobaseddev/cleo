@@ -20,7 +20,7 @@ import {
 import { readWorktreeTaskLock } from '@cleocode/worktree';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { isClaimExpired } from '../store/task-claim.js';
+import { isLiveClaim } from '../store/task-claim.js';
 import {
   listWorkerRecords,
   recordWorker,
@@ -48,37 +48,9 @@ export async function launchOrcaWorker(
   backend: OrcaExecutionAdapter,
 ): Promise<WorkerRecord> {
   const launch = orcaLaunchSchema.parse(input);
-  const expectedPath = resolveTaskWorktreePath(
-    computeProjectHash(launch.projectRoot),
-    launch.taskId,
-  );
-  const lock = readWorktreeTaskLock(launch.projectHash, launch.taskId);
-  const task = await (await getTaskAccessor(launch.projectRoot)).loadSingleTask(launch.taskId);
-  if (
-    readDeclaredProjectIdentity(launch.projectRoot)?.projectId !== launch.projectId ||
-    launch.worktreePath !== expectedPath ||
-    realpathSync(launch.worktreePath) !== expectedPath ||
-    launch.projectHash !== computeProjectHash(launch.projectRoot) ||
-    launch.worktreeBranch !== `task/${launch.taskId}` ||
-    !lock ||
-    lock.token !== launch.lockToken ||
-    lock.sessionId !== launch.workerSessionId ||
-    lock.agentId !== launch.agentId ||
-    !task?.claim ||
-    isClaimExpired(task.claim) ||
-    task.claim.sessionId !== launch.workerSessionId ||
-    task.claim.agentId !== launch.agentId
-  ) {
-    // @sync-invariant none:local-only an Orca launch must retain the canonical checkout and its allocated claim
-    throw new CleoError(
-      ExitCode.SPAWN_VALIDATION_FAILED,
-      'The canonical worktree, lock or allocated task claim is unproven.',
-      {
-        fix: 'Prepare the task once through cleo orchestrate spawn and pass its exact worker identity and lock receipt.',
-      },
-    );
-  }
+  await validatePreparedAssignment(launch);
   const workspace = await backend.preflight(launch, context);
+  await validatePreparedAssignment(launch);
   const execution: OrcaAttempt = {
     backend: 'orca',
     version: 1,
@@ -294,4 +266,38 @@ function requireExecution(record: WorkerRecord): OrcaAttempt {
     );
   }
   return record.execution;
+}
+
+/** Recheck custody after read-only host preflight, which may outlive a claim. */
+async function validatePreparedAssignment(launch: OrcaLaunch): Promise<void> {
+  const expectedPath = resolveTaskWorktreePath(
+    computeProjectHash(launch.projectRoot),
+    launch.taskId,
+  );
+  const lock = readWorktreeTaskLock(launch.projectHash, launch.taskId);
+  const task = await (await getTaskAccessor(launch.projectRoot)).loadSingleTask(launch.taskId);
+  if (
+    readDeclaredProjectIdentity(launch.projectRoot)?.projectId !== launch.projectId ||
+    launch.worktreePath !== expectedPath ||
+    realpathSync(launch.worktreePath) !== expectedPath ||
+    launch.projectHash !== computeProjectHash(launch.projectRoot) ||
+    launch.worktreeBranch !== `task/${launch.taskId}` ||
+    !lock ||
+    lock.token !== launch.lockToken ||
+    lock.sessionId !== launch.workerSessionId ||
+    lock.agentId !== launch.agentId ||
+    !task?.claim ||
+    !isLiveClaim(task.claim) ||
+    task.claim.sessionId !== launch.workerSessionId ||
+    task.claim.agentId !== launch.agentId
+  ) {
+    // @sync-invariant none:local-only an Orca launch must retain the canonical checkout and its allocated claim
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
+      'The canonical worktree, lock or allocated task claim is unproven.',
+      {
+        fix: 'Prepare the task once through cleo orchestrate spawn and pass its exact worker identity and lock receipt.',
+      },
+    );
+  }
 }
