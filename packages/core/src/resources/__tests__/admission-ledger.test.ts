@@ -3098,9 +3098,10 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       execFileSync('git', ['config', 'alias.status', '!make'], { cwd: repo });
       // git-mergetool is no built-in: outside its exec path git runs the alias.
       expect(gitAlias(repo, 'mergetool', [`--exec-path=${empty}`])).toBe('!make');
-      // A built-in, and an external git finds, run instead of the alias.
+      // A built-in runs instead of the alias; an external git finds may not
+      // run (see the broken-shebang case below), so its alias is still read.
       expect(gitAlias(repo, 'status', [`--exec-path=${empty}`])).toBeNull();
-      expect(gitAlias(repo, 'mergetool')).toBeNull();
+      expect(gitAlias(repo, 'mergetool')).toBe('!make');
       const plan = (argv: readonly string[]) =>
         planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
       const shadowed = plan(['git', `--exec-path=${empty}`, 'mergetool']);
@@ -3110,6 +3111,25 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
       rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('an alias over a listed external git cannot run keeps the class plan (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    const exec = mkdtempSync(join(tmpdir(), 'cleo-t14405-exec-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.mergetool', '!printf marker'], { cwd: repo });
+      // git lists git-mergetool, cannot exec it, and falls back to the alias.
+      writeFileSync(join(exec, 'git-mergetool'), '#!/missing/interpreter\n', { mode: 0o755 });
+      const argv = ['git', `--exec-path=${exec}`, 'mergetool'];
+      expect(execFileSync(argv[0], argv.slice(1), { cwd: repo, encoding: 'utf8' })).toBe('marker');
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
+      expect(plan.footprintBytes).toBeGreaterThan(GIB);
+      expect(plan.footprintReason).toBe('scoped-build plan: git mergetool is a shell alias');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(exec, { recursive: true, force: true });
     }
   });
 

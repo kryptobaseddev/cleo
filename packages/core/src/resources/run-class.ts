@@ -1662,8 +1662,8 @@ export function parseGitInvocation(argv: readonly string[]): GitInvocation | nul
 
 /**
  * What git says an alias expands to (`alias.<name>`), or `null` when `name`
- * is no alias or a command git has (a built-in, or an external in its exec
- * path), which git runs instead. Given the command's git global options
+ * is no alias or a git built-in, which git runs instead (an external may fail
+ * to exec, and then git runs the alias). Given the command's git global options
  * (`-C`, `-c`, `--exec-path`). Throws when git cannot answer.
  */
 export type GitAliasLookup = (name: string, globals: readonly string[]) => string | null;
@@ -1739,9 +1739,10 @@ function gitCommandKey(globals: readonly string[]): string | null {
  * so does an inline config key git runs ({@link gitCommandKey}) and an alias
  * that is a shell command (`alias.t = !pnpm test`), or a name the alias probe
  * could not answer for (a failure or timeout is never read as "no alias").
- * The lookup answers `null` for a command git has, which it runs instead of
- * the alias; no static list stands in for that, since a list cannot know a
- * missing external (`git-mergetool` outside `--exec-path`).
+ * The lookup answers `null` only for a built-in, which git runs instead of
+ * the alias; no static list stands in for that, and an external never does,
+ * since git runs the alias when it cannot exec the external (missing from
+ * `--exec-path`, or a broken shebang).
  *
  * @param git - From {@link parseGitInvocation}.
  * @param aliasOf - What a git alias expands to.
