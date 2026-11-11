@@ -46,7 +46,7 @@ describe('claude-code lead tool strip', () => {
     expect(flag).toBeGreaterThanOrEqual(0);
     const denied = (args[flag + 1] ?? '').split(',');
     expect(denied).toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write']));
-    expect(denied).toEqual([...LEAD_DENIED_TOOLS]);
+    expect(denied).toEqual(['Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch']);
     // The prompt file is the appended system prompt; the lead cannot Read files.
     expect(args[args.indexOf('--append-system-prompt-file') + 1]).toBe('/tmp/prompt.md');
   });

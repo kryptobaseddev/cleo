@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.8.0
+  version: 4.9.0
   tier: core
   install: harness
   covers:
@@ -313,10 +313,15 @@ types to it and it asks with `AskUserQuestion`); `--detached` runs it in the bac
 owner decisions to the `owner` AgentMBX mailbox as a `hitl.request`
 `{question, options[{label, description}], recommended}` and waits there, acting only on a reply
 whose mbx header shows `authority: OWNER`. `--detached` refuses to start without a loaded mbx
-server (`E_LEAD_NO_OWNER_CHANNEL`); interactive may start without one. On claude-code the
+server (`E_LEAD_NO_OWNER_CHANNEL`); interactive may start without one, but needs terminal
+stdin/stdout and a harness with an owner input channel. A non-terminal interactive run
+or claude-sdk refuses and names `--detached --adapter claude-code` with mbx configured.
+On claude-code the
 lead's tools are an ALLOW list: its only built-in tool is `AskUserQuestion` (interactive) or none
-(detached) (`--restricted --tools`), `--permission-mode dontAsk`, `--setting-sources ""`
-(a user's `bypassPermissions` cannot apply), `LEAD_DENIED_TOOLS` denied as a second layer, and
+(detached) (`--restricted --tools`), Manual (`--permission-mode default`) for interactive
+answers and `dontAsk` for detached runs, `--setting-sources ""` (a user's `bypassPermissions`
+cannot apply), current `LEAD_DENIED_TOOLS` names denied as a second layer (the retired
+`MultiEdit` name is omitted), and
 `--strict-mcp-config` with exactly two MCP servers: the command runner below and the user-level
 `mbx` server (T14423). mbx comes only from `~/.claude.json` user scope and must be the `agentmbx`
 binary on an absolute path outside the project with args `mcp`, so a repo's `.mcp.json` cannot

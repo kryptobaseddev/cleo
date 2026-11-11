@@ -37,6 +37,7 @@ import {
   LEAD_KICKOFF_PROMPT,
   leadSessionSettings,
   resolveAbsoluteBinary,
+  runInteractiveLead,
 } from '../lead-session.js';
 import { buildClaudeArgs, ClaudeCodeSpawnProvider } from '../spawn.js';
 
@@ -94,12 +95,12 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
       '--allowedTools',
       allowed,
       '--disallowedTools',
-      LEAD_DENIED_TOOLS.join(','),
+      'Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch',
       '--mcp-config',
       join(spawnDir, LEAD_MCP_FILE),
       '--strict-mcp-config',
       '--permission-mode',
-      'dontAsk',
+      tools === 'AskUserQuestion' ? 'default' : 'dontAsk',
       '--setting-sources',
       '',
       '--session-id',
@@ -122,6 +123,8 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
       ]);
       expect(args).not.toContain('--print');
       expect(args).not.toContain('--dangerously-skip-permissions');
+      expect(args).not.toContain('dontAsk');
+      expect(args.join(',')).not.toContain('MultiEdit');
     }
   });
 
@@ -142,6 +145,27 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
       LEAD_KICKOFF_PROMPT,
     ]);
     expect(args.join(' ')).not.toContain('AskUserQuestion');
+  });
+
+  it.each([
+    [false, true],
+    [true, false],
+    [undefined, undefined],
+  ])('refuses interactive stdin=%s, stdout=%s before spawning, naming --detached', async (stdin, stdout) => {
+    const original = { stdin: process.stdin.isTTY, stdout: process.stdout.isTTY };
+    Object.defineProperty(process.stdin, 'isTTY', { value: stdin, configurable: true });
+    Object.defineProperty(process.stdout, 'isTTY', { value: stdout, configurable: true });
+    try {
+      await expect(runInteractiveLead('/nonexistent/claude', [], {})).rejects.toThrow(
+        `${E_LEAD_NO_OWNER_CHANNEL}: interactive AskUserQuestion needs terminal stdin and stdout; use --detached`,
+      );
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', { value: original.stdin, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: original.stdout,
+        configurable: true,
+      });
+    }
   });
 
   it('the config holds exactly the runner (lead identity, given cleo) and mbx; no other user server', async () => {
@@ -271,6 +295,7 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
         binaries: { cleo: join(bin, 'cleo'), agentmbx: join(bin, 'agentmbx') },
       }),
     );
+    expect(Object.keys(settings)).toEqual(['hooks']);
     const run = (event: 'SessionStart' | 'SessionEnd') =>
       execFileSync('/bin/sh', ['-c', settings.hooks[event][0].hooks[0].command], {
         env: { PATH: '/usr/bin:/bin' },
