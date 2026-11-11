@@ -6,6 +6,10 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
+    "./orca-execution": {
+      "types": "./dist/orca-execution.d.ts",
+      "import": "./dist/orca-execution.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"

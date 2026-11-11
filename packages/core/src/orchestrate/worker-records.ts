@@ -26,11 +26,13 @@
  * SubagentStop, so it fires exactly once whichever path wins.
  *
  * @module orchestrate/worker-records
+ * @packageDocumentation
  * @task T14359
  */
 
 import { isAbsolute } from 'node:path';
 import type { AgentSuiteOwnership } from '@cleocode/contracts';
+import { type OrcaAttempt, orcaAttemptSchema } from '@cleocode/contracts/orca-execution.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { generateAgentId } from '../agents/registry.js';
 import { hooks } from '../hooks/registry.js';
@@ -79,8 +81,10 @@ export interface WorkerRecord {
   sessionId: string | null;
   /** ISO time the worker was spawned. */
   startedAt: string;
-  /** ISO time the worker's exit was observed (SubagentStop emitted), else null. */
+  /** ISO time of observed exit or atomic retirement of a resource-free Orca predecessor. */
   stoppedAt: string | null;
+  /** External execution custody; a nullable PID never settles this attempt. */
+  execution?: OrcaAttempt;
 }
 
 /** Input for {@link recordWorker}: a {@link WorkerRecord} before it is stored. */
@@ -96,18 +100,27 @@ interface WorkerMetadata {
   pgid: number | null;
   worktree: string;
   leadMailbox: string | null;
+  execution?: OrcaAttempt;
 }
 
 /** Parse a worker row's metadata; null for any non-worker agent instance. */
 function parseWorkerMetadata(row: AgentInstanceRow): WorkerMetadata | null {
+  let meta: Partial<WorkerMetadata>;
   try {
-    const meta = JSON.parse(row.metadataJson ?? '{}') as Partial<WorkerMetadata>;
-    return meta.kind === 'worker' && typeof meta.instanceId === 'string'
-      ? (meta as WorkerMetadata)
-      : null;
+    meta = JSON.parse(row.metadataJson ?? '{}') as Partial<WorkerMetadata>;
   } catch {
     return null;
   }
+  if (
+    meta === null ||
+    typeof meta !== 'object' ||
+    meta.kind !== 'worker' ||
+    typeof meta.instanceId !== 'string'
+  )
+    return null;
+  // Invalid external custody must fail a read, never disappear from the census.
+  if (meta.execution !== undefined) meta.execution = orcaAttemptSchema.parse(meta.execution);
+  return meta as WorkerMetadata;
 }
 
 /** Project an agent instance row onto a {@link WorkerRecord}. */
@@ -125,6 +138,7 @@ function toWorkerRecord(row: AgentInstanceRow, meta: WorkerMetadata): WorkerReco
     sessionId: row.sessionId,
     startedAt: row.startedAt,
     stoppedAt: row.stoppedAt,
+    ...(meta.execution ? { execution: meta.execution } : {}),
   };
 }
 
@@ -133,9 +147,14 @@ function toWorkerRecord(row: AgentInstanceRow, meta: WorkerMetadata): WorkerReco
  *
  * @param worker - The worker to record.
  * @param cwd - Project root.
+ * @param predecessor - Exact resource-free Orca attempt atomically replaced by its retry.
  * @returns The stored record.
  */
-export async function recordWorker(worker: NewWorkerRecord, cwd?: string): Promise<WorkerRecord> {
+export async function recordWorker(
+  worker: NewWorkerRecord,
+  cwd?: string,
+  predecessor?: WorkerRecord,
+): Promise<WorkerRecord> {
   const metadata: WorkerMetadata = {
     kind: 'worker',
     instanceId: worker.instanceId,
@@ -145,7 +164,61 @@ export async function recordWorker(worker: NewWorkerRecord, cwd?: string): Promi
     pgid: worker.pgid,
     worktree: worker.worktree,
     leadMailbox: worker.leadMailbox,
+    ...(worker.execution ? { execution: orcaAttemptSchema.parse(worker.execution) } : {}),
   };
+  if (
+    metadata.execution &&
+    (metadata.execution.launch.taskId !== worker.taskId ||
+      metadata.execution.launch.instanceId !== worker.instanceId ||
+      metadata.execution.launch.agentId !== worker.agentId ||
+      metadata.execution.launch.workerSessionId !== worker.sessionId ||
+      metadata.execution.launch.harness !== worker.provider ||
+      metadata.execution.launch.worktreePath !== worker.worktree ||
+      worker.pid !== null ||
+      worker.pgid !== null)
+  ) {
+    // @sync-invariant none:local-only external resource custody cannot acquire native PID ownership or another worker identity
+    throw new Error('Orca attempt does not match its worker record.');
+  }
+  if (predecessor) {
+    const previous = predecessor.execution;
+    const next = metadata.execution;
+    if (
+      !previous ||
+      !next ||
+      predecessor.taskId !== worker.taskId ||
+      !previous.dispatchId ||
+      !previous.runId ||
+      !previous.orcaTaskId ||
+      !['failed', 'stopped'].includes(previous.state) ||
+      previous.resourceState !== 'stopped' ||
+      previous.failureCount >= 3 ||
+      next.failureCount !== previous.failureCount ||
+      next.state !== 'launching' ||
+      next.dispatchId !== null ||
+      next.startRequestId !== null ||
+      next.stopRequestId !== null ||
+      next.retryOf !== previous.dispatchId ||
+      next.runId !== previous.runId ||
+      next.orcaTaskId !== previous.orcaTaskId ||
+      next.launch.instanceId === previous.launch.instanceId ||
+      next.promptDigest !== previous.promptDigest ||
+      next.workspaceId !== previous.workspaceId ||
+      next.workspaceSelector !== previous.workspaceSelector ||
+      JSON.stringify(next.context) !== JSON.stringify(previous.context) ||
+      JSON.stringify({ ...next.launch, instanceId: previous.launch.instanceId }) !==
+        JSON.stringify(previous.launch) ||
+      JSON.stringify(next.startBinding) !==
+        JSON.stringify({
+          runId: previous.runId,
+          orcaTaskId: previous.orcaTaskId,
+          retryOf: previous.dispatchId,
+        })
+    ) {
+      // @sync-invariant none:local-only replacement custody requires a resource-free exact predecessor and the same Task retry chain
+      throw new Error('Orca retry cannot replace unresolved custody or change its assignment.');
+    }
+  }
   const now = new Date().toISOString();
   const row: AgentInstanceRow = {
     id: generateAgentId(),
@@ -164,8 +237,156 @@ export async function recordWorker(worker: NewWorkerRecord, cwd?: string): Promi
     parentAgentId: null,
   };
   const db = await getDb(cwd);
-  await db.insert(tasksAgentInstances).values(row).run();
+  db.transaction((tx) => {
+    const open = tx
+      .select()
+      .from(tasksAgentInstances)
+      .where(
+        and(eq(tasksAgentInstances.taskId, worker.taskId), isNull(tasksAgentInstances.stoppedAt)),
+      )
+      .all();
+    if (predecessor) {
+      const previous = open.find((existing) => existing.id === predecessor.recordId);
+      if (
+        open.length !== 1 ||
+        !previous ||
+        JSON.stringify(parseWorkerMetadata(previous)?.execution) !==
+          JSON.stringify(predecessor.execution)
+      ) {
+        // @sync-invariant none:local-only a concurrent retry or observation invalidates this replacement reservation
+        throw new Error('Orca predecessor changed; reload its exact worker record before retry.');
+      }
+      const retired = tx
+        .update(tasksAgentInstances)
+        .set({ status: 'stopped', stoppedAt: now })
+        .where(
+          and(
+            eq(tasksAgentInstances.id, predecessor.recordId),
+            eq(tasksAgentInstances.metadataJson, previous.metadataJson ?? '{}'),
+            isNull(tasksAgentInstances.stoppedAt),
+          ),
+        )
+        .run();
+      if (Number(retired.changes) !== 1) {
+        // @sync-invariant none:local-only only one successor may acquire this exact predecessor's custody
+        throw new Error('Orca retry reservation lost; no new launch is authorized.');
+      }
+    } else if (
+      open.some((existing) => worker.execution || parseWorkerMetadata(existing)?.execution)
+    ) {
+      // @sync-invariant none:local-only duplicate local execution custody cannot start another editor
+      throw new Error(
+        `Execution custody already exists for ${worker.taskId}; inspect its worker record before recovery.`,
+      );
+    }
+    tx.insert(tasksAgentInstances).values(row).run();
+  });
   return toWorkerRecord(row, metadata);
+}
+
+/**
+ * Compare-and-set external custody on an existing worker row. Concurrent CLI
+ * calls cannot both reserve a stop or replay, or overwrite a newer receipt.
+ * @remarks Preserves assignment identity and monotonic circuit-breaker history.
+ * @param record - Last read worker record and expected CAS revision.
+ * @param execution - New observation or operation reservation for the same attempt.
+ * @param cwd - Owning CLEO project root.
+ * @returns The updated record with its next local CAS revision.
+ * @example
+ * ```ts
+ * const reserved = await updateWorkerExecution(record, pendingStop, projectRoot);
+ * ```
+ */
+export async function updateWorkerExecution(
+  record: WorkerRecord,
+  execution: OrcaAttempt,
+  cwd: string,
+): Promise<WorkerRecord> {
+  const expected = record.execution;
+  const next = orcaAttemptSchema.parse({ ...execution, revision: (expected?.revision ?? 0) + 1 });
+  if (
+    !expected ||
+    JSON.stringify(expected.launch) !== JSON.stringify(next.launch) ||
+    JSON.stringify(expected.context) !== JSON.stringify(next.context) ||
+    expected.promptDigest !== next.promptDigest ||
+    expected.workspaceId !== next.workspaceId ||
+    expected.workspaceSelector !== next.workspaceSelector ||
+    next.failureCount < expected.failureCount ||
+    expected.retryOf !== next.retryOf ||
+    JSON.stringify(expected.startBinding) !== JSON.stringify(next.startBinding) ||
+    (expected.startRequestId !== null && next.startRequestId !== expected.startRequestId) ||
+    (expected.stopRequestId !== null && next.stopRequestId !== expected.stopRequestId) ||
+    (expected.runId !== null && next.runId !== expected.runId) ||
+    (expected.orcaTaskId !== null && next.orcaTaskId !== expected.orcaTaskId) ||
+    (expected.dispatchId !== null && next.dispatchId !== expected.dispatchId)
+  ) {
+    // @sync-invariant none:local-only external attempt identity and breaker history are immutable
+    throw new Error('Cannot replace the identity or breaker history of an Orca attempt.');
+  }
+  const db = await getDb(cwd);
+  const row = db
+    .select()
+    .from(tasksAgentInstances)
+    .where(eq(tasksAgentInstances.id, record.recordId))
+    .get();
+  const meta = row ? parseWorkerMetadata(row) : null;
+  if (!row || !meta || JSON.stringify(meta.execution) !== JSON.stringify(expected)) {
+    // @sync-invariant none:local-only stale external custody updates cannot overwrite a newer observation
+    throw new Error('Worker execution changed; reload the exact record before recovery.');
+  }
+  const result = db
+    .update(tasksAgentInstances)
+    .set({ metadataJson: JSON.stringify({ ...meta, execution: next }) })
+    .where(
+      and(
+        eq(tasksAgentInstances.id, record.recordId),
+        eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+        isNull(tasksAgentInstances.stoppedAt),
+      ),
+    )
+    .run();
+  if (Number(result.changes) !== 1) {
+    // @sync-invariant none:local-only only one caller may reserve an external execution mutation
+    throw new Error('Worker execution reservation lost; no new operation is authorized.');
+  }
+  return { ...record, execution: next };
+}
+
+/**
+ * Find external custody that forbids another spawn, including uncertain attempts.
+ * @remarks Unreadable ownership for the same task refuses dispatch.
+ * @param taskId - CLEO task whose external custody must be checked.
+ * @param cwd - Owning CLEO project root.
+ * @returns The retained Orca worker, or null when none exists.
+ * @example
+ * ```ts
+ * const retained = await findOrcaWorker('T14455', projectRoot);
+ * ```
+ */
+export async function findOrcaWorker(taskId: string, cwd: string): Promise<WorkerRecord | null> {
+  const db = await getDb(cwd);
+  const rows = db
+    .select()
+    .from(tasksAgentInstances)
+    .where(
+      and(
+        eq(tasksAgentInstances.taskId, taskId),
+        eq(tasksAgentInstances.agentType, 'executor'),
+        isNull(tasksAgentInstances.stoppedAt),
+      ),
+    )
+    .all();
+  for (const row of rows) {
+    const meta = parseWorkerMetadata(row);
+    if (!meta) {
+      // @sync-invariant none:local-only unreadable custody for the same task cannot authorize another editor
+      throw new Error(
+        `Worker ownership unavailable for ${row.id}; inspect it before spawning ${taskId}.`,
+      );
+    }
+    if (meta.execution) return toWorkerRecord(row, meta);
+  }
+  return null;
 }
 
 /**
@@ -275,6 +496,7 @@ export async function settleWorkerAtSpawn(
   spawned: SpawnedWorker,
   cwd: string,
 ): Promise<boolean> {
+  if (record.execution) return true;
   const pid = spawned.ownership?.pid ?? null;
   const hasExitHook = spawned.instanceId === record.instanceId;
   const updated = await updateWorkerSpawn(
@@ -294,6 +516,7 @@ export async function settleWorkerAtSpawn(
  * @param cwd - Project root.
  */
 export async function abandonWorkerRecord(record: WorkerRecord, cwd: string): Promise<void> {
+  if (record.execution) return;
   await closeWorker(record, 'failed', cwd);
 }
 
@@ -410,7 +633,8 @@ export async function markWorkerExited(
     (target.instanceId !== undefined
       ? records.find((r) => r.instanceId === target.instanceId)
       : records.find((r) => r.stoppedAt === null && r.sessionId === target.sessionId)) ?? null;
-  if (record === null || record.stoppedAt !== null) return { record, emitted: false };
+  if (record === null || record.stoppedAt !== null || record.execution)
+    return { record, emitted: false };
   const closed = await closeWorker(record, status, cwd);
   return closed ? { record: closed, emitted: true } : { record, emitted: false };
 }
@@ -451,7 +675,8 @@ export async function reconcileWorkerExits(
 ): Promise<WorkerRecord[]> {
   const closed: WorkerRecord[] = [];
   for (const record of await listWorkerRecords(cwd)) {
-    if (record.stoppedAt !== null || record.pid === null || isAlive(record.pid)) continue;
+    if (record.execution || record.stoppedAt !== null || record.pid === null || isAlive(record.pid))
+      continue;
     const done = await closeWorker(record, undefined, cwd);
     if (done) closed.push(done);
   }

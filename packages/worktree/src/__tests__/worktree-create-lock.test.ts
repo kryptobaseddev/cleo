@@ -14,25 +14,112 @@
  */
 
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  type PathLike,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { WorktreeLockRecord } from '@cleocode/contracts';
 import { BRANCH_LOCK_ERROR_CODES, ExitCode } from '@cleocode/contracts';
 import { resolveWorktreeTaskLockPath } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeProjectHash, resolveTaskWorktreePath } from '../paths.js';
 import { createWorktree } from '../worktree-create.js';
 import { destroyWorktree } from '../worktree-destroy.js';
+import { disposeOwnedWorktree } from '../worktree-dispose.js';
 import {
   acquireWorktreeTaskLock,
+  heartbeatWorktreeTaskLock,
   isWorktreeLockedError,
   readProcessStartTime,
   readWorktreeTaskLock,
   releaseWorktreeTaskLock,
   releaseWorktreeTaskLocksForSession,
+  sameFileIdentity,
 } from '../worktree-lock.js';
+
+/**
+ * T14407: runs once, right before the next `disposeWorktree` does its work,
+ * or, for `disposeOwnedWorktree`, under the lock right before the removal (T14489).
+ */
+const beforeNextDispose = vi.hoisted(() => ({ run: null as (() => void) | null }));
+
+/**
+ * T14407: runs once, right after a file read returns text containing `marker`
+ * (the source's mutex holder read), before the reader's next step.
+ */
+const afterMutexRead = vi.hoisted(() => ({
+  marker: null as string | null,
+  run: null as (() => void) | null,
+}));
+
+/**
+ * T14407: runs after every source `unlinkSync`/`renameSync`/`linkSync` (each
+ * moment a path may have just become free) while set; models a contender
+ * that tries to take the mutex at that instant.
+ */
+const afterFsMutation = vi.hoisted(() => ({ run: null as (() => void) | null }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const readFileSync = ((...args: Parameters<typeof actual.readFileSync>) => {
+    const out = actual.readFileSync(...args);
+    const { marker, run } = afterMutexRead;
+    if (run !== null && marker !== null && String(out).includes(marker)) {
+      afterMutexRead.run = null;
+      run();
+    }
+    return out;
+  }) as typeof actual.readFileSync;
+  const wrap =
+    <A extends PathLike[]>(fn: (...args: A) => void) =>
+    (...args: A): void => {
+      try {
+        fn(...args);
+      } finally {
+        afterFsMutation.run?.();
+      }
+    };
+  const unlinkSync = wrap(actual.unlinkSync);
+  const renameSync = wrap(actual.renameSync);
+  const linkSync = wrap(actual.linkSync);
+  const overrides = { readFileSync, unlinkSync, renameSync, linkSync };
+  return { ...actual, default: { ...actual, ...overrides }, ...overrides };
+});
+
+vi.mock('../worktree-dispose.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../worktree-dispose.js')>();
+  return {
+    ...actual,
+    disposeWorktree: (...args: Parameters<typeof actual.disposeWorktree>) => {
+      const run = beforeNextDispose.run;
+      beforeNextDispose.run = null;
+      run?.();
+      return actual.disposeWorktree(...args);
+    },
+    disposeOwnedWorktree: (opts: Parameters<typeof actual.disposeOwnedWorktree>[0]) =>
+      actual.disposeOwnedWorktree({
+        ...opts,
+        inUse: () => {
+          const run = beforeNextDispose.run;
+          beforeNextDispose.run = null;
+          run?.();
+          return opts.inUse ? opts.inUse() : null;
+        },
+      }),
+  };
+});
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -346,6 +433,161 @@ describe('createWorktree — per-task lock (T12506)', () => {
     // Branch untouched.
     expect(git(['log', '--format=%s', 'task/T7006'], projectRoot)).toContain('orphan');
   });
+
+  it('a failed provision removes its fresh worktree before the lock goes, so a concurrent re-spawn is refused and its own worktree is never removed (T14407)', async () => {
+    writeFileSync(join(projectRoot, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    git(['add', 'pnpm-lock.yaml'], projectRoot);
+    git(['commit', '-m', 'lockfile'], projectRoot);
+    const projectHash = computeProjectHash(projectRoot);
+    const worktreePath = resolveTaskWorktreePath(projectHash, 'T7011');
+    const respawn = () =>
+      createWorktree(projectRoot, {
+        taskId: 'T7011',
+        lockWorktree: false,
+        skipInstall: true,
+        holder: { sessionId: 'ses_respawn', agentId: 'agent-respawn' },
+      });
+
+    // A re-spawn arrives while the failed call is cleaning up.
+    let duringCleanup: Promise<unknown> | undefined;
+    beforeNextDispose.run = () => {
+      expect(existsSync(worktreePath)).toBe(true);
+      duringCleanup = respawn().catch((e: unknown) => e);
+    };
+    const err = await createWorktree(projectRoot, {
+      taskId: 'T7011',
+      lockWorktree: false,
+      admitInstall: async () => {
+        throw new Error('admission failed');
+      },
+    }).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({
+      message: 'admission failed',
+      freshWorktreeCreated: true,
+      cleanup: { worktreeRemoved: true },
+    });
+    // Refused, not re-attached to the worktree being removed.
+    expect(isWorktreeLockedError(await duringCleanup)).toBe(true);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(readWorktreeTaskLock(projectHash, 'T7011')).toBeNull();
+
+    // The retry gets its own fresh worktree, and no cleanup is left to remove it.
+    const second = await respawn();
+    expect(second.reused).toBe(false);
+    expect(existsSync(second.path)).toBe(true);
+    expect(readWorktreeTaskLock(projectHash, 'T7011')?.token).toBe(second.lock?.record.token);
+  });
+
+  it('a failed provision disposes under the lock, so a same-holder re-entry cannot take the worktree it is removing (T14489)', async () => {
+    writeFileSync(join(projectRoot, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    git(['add', 'pnpm-lock.yaml'], projectRoot);
+    git(['commit', '-m', 'lockfile'], projectRoot);
+    const projectHash = computeProjectHash(projectRoot);
+    const worktreePath = resolveTaskWorktreePath(projectHash, 'T7014');
+    const holder = { sessionId: 'ses_same', agentId: 'agent-same' };
+
+    // Between the ownership check and the removal, the same caller re-enters
+    // the lock. Without the mutex it would get a new token and the removal
+    // would still take the worktree its re-entered lock now owns.
+    let reentered: string | undefined;
+    let reentryErr: unknown;
+    const err = await createWorktree(projectRoot, {
+      taskId: 'T7014',
+      lockWorktree: false,
+      holder,
+      admitInstall: async () => {
+        beforeNextDispose.run = () => {
+          expect(existsSync(worktreePath)).toBe(true);
+          try {
+            reentered = acquireWorktreeTaskLock({ projectHash, taskId: 'T7014', holder }).status;
+          } catch (e) {
+            reentryErr = e;
+          }
+        };
+        throw new Error('admission failed');
+      },
+    }).catch((e: unknown) => e);
+
+    expect(reentered).toBeUndefined();
+    expect(isWorktreeLockedError(reentryErr)).toBe(true);
+    expect(err).toMatchObject({
+      message: 'admission failed',
+      freshWorktreeCreated: true,
+      cleanup: { worktreeRemoved: true, branchDeleted: true },
+    });
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(readWorktreeTaskLock(projectHash, 'T7014')).toBeNull();
+  });
+
+  it('a failed provision keeps the worktree a same-holder retry re-attached meanwhile, and its lock (T14407)', async () => {
+    writeFileSync(join(projectRoot, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    git(['add', 'pnpm-lock.yaml'], projectRoot);
+    git(['commit', '-m', 'lockfile'], projectRoot);
+    const projectHash = computeProjectHash(projectRoot);
+    const holder = { sessionId: 'ses_same', agentId: 'agent-same' };
+
+    // While the first attempt waits on admission, the same caller retries,
+    // re-enters the lock (new token) and re-attaches the worktree.
+    let retry: Awaited<ReturnType<typeof createWorktree>> | undefined;
+    const err = await createWorktree(projectRoot, {
+      taskId: 'T7012',
+      lockWorktree: false,
+      holder,
+      admitInstall: async () => {
+        retry = await createWorktree(projectRoot, {
+          taskId: 'T7012',
+          lockWorktree: false,
+          skipInstall: true,
+          holder,
+        });
+        throw new Error('admission failed');
+      },
+    }).catch((e: unknown) => e);
+
+    expect(retry?.lock?.status).toBe('reentered');
+    expect(retry?.reused).toBe(true);
+    expect(err).toMatchObject({
+      message: 'admission failed',
+      freshWorktreeCreated: true,
+      cleanup: { worktreeRemoved: false, branchDeleted: false },
+    });
+    // The retry's checkout, branch and lock all survive the first attempt's failure.
+    expect(existsSync(retry?.path ?? '')).toBe(true);
+    expect(git(['branch', '--list', 'task/T7012'], projectRoot).trim()).not.toBe('');
+    expect(readWorktreeTaskLock(projectHash, 'T7012')?.token).toBe(retry?.lock?.record.token);
+  });
+
+  it('a failed provision removes exactly the worktree it created, never an older checkout of the task (T14407)', async () => {
+    writeFileSync(join(projectRoot, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    git(['add', 'pnpm-lock.yaml'], projectRoot);
+    git(['commit', '-m', 'lockfile'], projectRoot);
+    // An older checkout of the same task under another project hash and branch.
+    // `-` sorts before any hex hash, so git lists it first, as a task-id lookup would pick it.
+    const older = join(cleoHome, 'worktrees', '-olderhash', 'T7013');
+    mkdirSync(dirname(older), { recursive: true });
+    git(['worktree', 'add', '-b', 'task/T7013-older', older, 'main'], projectRoot);
+    const olderHead = commitIn(older, 'older.txt', 'older work\n');
+    const fresh = resolveTaskWorktreePath(computeProjectHash(projectRoot), 'T7013');
+
+    const err = await createWorktree(projectRoot, {
+      taskId: 'T7013',
+      lockWorktree: false,
+      admitInstall: async () => {
+        throw new Error('admission failed');
+      },
+    }).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({
+      freshWorktreeCreated: true,
+      cleanup: { worktreeRemoved: true, branchDeleted: true },
+    });
+    expect(existsSync(fresh)).toBe(false);
+    expect(git(['branch', '--list', 'task/T7013'], projectRoot).trim()).toBe('');
+    // The older checkout and its branch are untouched.
+    expect(existsSync(join(older, 'older.txt'))).toBe(true);
+    expect(git(['rev-parse', 'task/T7013-older'], projectRoot).trim()).toBe(olderHead);
+  });
 });
 
 describe('acquireWorktreeTaskLock — holder liveness (T12506)', () => {
@@ -574,5 +816,319 @@ describe('acquireWorktreeTaskLock — holder liveness (T12506)', () => {
       expect(outcomes.filter((o) => o === 'E_WORKTREE_LOCKED')).toHaveLength(5);
     },
     20_000,
+  );
+});
+
+describe('disposeOwnedWorktree — dispose under the task lock (T14407)', () => {
+  let projectRoot: string;
+  let cleoHome: string;
+  let originalCleoHome: string | undefined;
+  let hash: string;
+  const children: ChildProcess[] = [];
+  const holder = { sessionId: 'ses_owner', agentId: 'agent-owner' };
+
+  beforeEach(() => {
+    projectRoot = initTempRepo();
+    cleoHome = mkdtempSync(join(tmpdir(), 'cleo-home-own-'));
+    originalCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_HOME'] = cleoHome;
+    hash = computeProjectHash(projectRoot);
+  });
+
+  afterEach(() => {
+    for (const c of children.splice(0)) c.kill('SIGKILL');
+    if (originalCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = originalCleoHome;
+    rmSync(cleoHome, { recursive: true, force: true });
+    rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  /** Lock the task, then add its worktree on `task/<id>`, as createWorktree does. */
+  function provision(taskId: string): { path: string; branch: string; token: string } {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId, holder });
+    const path = resolveTaskWorktreePath(hash, taskId);
+    const branch = `task/${taskId}`;
+    git(['worktree', 'add', '-b', branch, path, 'main'], projectRoot);
+    return { path, branch, token: lock.record.token };
+  }
+
+  it('a successor cannot re-enter between the check and the disposal', () => {
+    const { path, branch, token } = provision('T7101');
+    let successorErr: unknown;
+    let successorStatus: string | undefined;
+    const result = disposeOwnedWorktree({
+      projectHash: hash,
+      taskId: 'T7101',
+      worktreePath: path,
+      branch,
+      lockToken: token,
+      reason: 'failed-provision-cleanup',
+      force: true,
+      // Runs after the ownership check, right before the removal: the same
+      // caller re-spawns the task, 60 s later by its clock.
+      inUse: () => {
+        try {
+          successorStatus = acquireWorktreeTaskLock({
+            projectHash: hash,
+            taskId: 'T7101',
+            holder,
+            now: () => Date.now() + 60_000,
+          }).status;
+        } catch (err) {
+          successorErr = err;
+        }
+        return null;
+      },
+    });
+    expect(successorStatus).toBeUndefined();
+    expect(isWorktreeLockedError(successorErr)).toBe(true);
+    expect(result).toMatchObject({ outcome: 'removed', lockReleased: true });
+    expect(existsSync(path)).toBe(false);
+    expect(readWorktreeTaskLock(hash, 'T7101')).toBeNull();
+  });
+
+  it('keeps the worktree when the lock passed to another acquisition', () => {
+    const { path, branch, token } = provision('T7102');
+    releaseWorktreeTaskLock(hash, 'T7102', token);
+    const successor = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7102', holder });
+    const result = disposeOwnedWorktree({
+      projectHash: hash,
+      taskId: 'T7102',
+      worktreePath: path,
+      branch,
+      lockToken: token,
+      reason: 'failed-provision-cleanup',
+      force: true,
+    });
+    expect(result).toMatchObject({ outcome: 'kept', lockReleased: false });
+    expect(result.reason).toContain('passed to another acquisition');
+    expect(existsSync(path)).toBe(true);
+    expect(readWorktreeTaskLock(hash, 'T7102')?.token).toBe(successor.record.token);
+  });
+
+  it('keeps the worktree on a path or branch mismatch', () => {
+    const { path, branch, token } = provision('T7103');
+    const base = { projectHash: hash, taskId: 'T7103', lockToken: token, reason: 'r', force: true };
+    const wrongPath = disposeOwnedWorktree({ ...base, worktreePath: projectRoot, branch });
+    expect(wrongPath.outcome).toBe('kept');
+    expect(wrongPath.reason).toContain("is not the task's worktree path");
+    const wrongBranch = disposeOwnedWorktree({ ...base, worktreePath: path, branch: 'task/other' });
+    expect(wrongBranch.outcome).toBe('kept');
+    expect(wrongBranch.reason).toContain("not 'task/other'");
+    expect(existsSync(path)).toBe(true);
+    expect(readWorktreeTaskLock(hash, 'T7103')?.token).toBe(token);
+  });
+
+  it("never breaks a live holder's mutex as stale; breaks a dead holder's", () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7104', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7104')}.reclaim`;
+    const plantMutex = (pid: number, processStartedAt: string | null) => {
+      writeFileSync(
+        mutexPath,
+        JSON.stringify({ token: 'held', pid, processStartedAt, threadId: 0 }),
+      );
+      const old = new Date(Date.now() - 120_000);
+      utimesSync(mutexPath, old, old);
+    };
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    plantMutex(live.pid, readProcessStartTime(live.pid));
+    expect(heartbeatWorktreeTaskLock(hash, 'T7104', lock.record.token)).toBeNull();
+    expect(existsSync(mutexPath)).toBe(true);
+    plantMutex(deadPid(), 'Thu Jan  1 00:00:00 1970');
+    expect(heartbeatWorktreeTaskLock(hash, 'T7104', lock.record.token)?.token).toBe(
+      lock.record.token,
+    );
+  });
+
+  it("never breaks a live holder's mutex whose start time is unknown (T14407)", () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7105', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7105')}.reclaim`;
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    // Windows, or a failed `ps`: the holder recorded no start time.
+    writeFileSync(
+      mutexPath,
+      JSON.stringify({ token: 'held', pid: live.pid, processStartedAt: null, threadId: 0 }),
+    );
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(mutexPath, old, old);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7105', lock.record.token)).toBeNull();
+    expect(existsSync(mutexPath)).toBe(true);
+  });
+
+  it('never breaks a live mutex that replaced the dead one between the holder read and the stat (T14407)', () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7107', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7107')}.reclaim`;
+    const old = new Date(Date.now() - 120_000);
+    // Dead mutex X, stale by age.
+    writeFileSync(
+      mutexPath,
+      JSON.stringify({ token: 'dead-x', pid: deadPid(), processStartedAt: null, threadId: 0 }),
+    );
+    utimesSync(mutexPath, old, old);
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    const liveMutex = JSON.stringify({
+      token: 'live-y',
+      pid: live.pid,
+      processStartedAt: readProcessStartTime(live.pid),
+      threadId: 0,
+    });
+    // Right after the contender reads X's dead holder, another contender
+    // replaces X with live mutex Y (a new inode), already older than the
+    // stale age.
+    afterMutexRead.marker = 'dead-x';
+    afterMutexRead.run = () => {
+      rmSync(mutexPath);
+      writeFileSync(mutexPath, liveMutex);
+      utimesSync(mutexPath, old, old);
+    };
+    expect(heartbeatWorktreeTaskLock(hash, 'T7107', lock.record.token)).toBeNull();
+    expect(afterMutexRead.run).toBeNull(); // the swap happened
+    expect(readFileSync(mutexPath, 'utf-8')).toBe(liveMutex);
+  });
+
+  /** Plant a mutex-shaped file at `path` naming `pid`, aged past the stale threshold. */
+  function plantHolder(path: string, token: string, pid: number, startedAt: string | null): string {
+    const raw = JSON.stringify({ token, pid, processStartedAt: startedAt, threadId: 0 });
+    writeFileSync(path, raw);
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(path, old, old);
+    return raw;
+  }
+
+  /** A live process and its recorded start time. */
+  function liveProcess(): { pid: number; startedAt: string | null } {
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    return { pid: live.pid, startedAt: readProcessStartTime(live.pid) };
+  }
+
+  it('a contender acquiring after a dead mutex is broken never has its mutex moved or deleted (T14407)', () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7108', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7108')}.reclaim`;
+    plantHolder(mutexPath, 'dead-x', deadPid(), null);
+    const c = liveProcess();
+    let liveC = '';
+    let dEntered = false;
+    // A reads dead X. Before A acts, another breaker removes X and C acquires
+    // live Z. From then on, a contender D tries O_EXCL every time A frees a path.
+    afterMutexRead.marker = 'dead-x';
+    afterMutexRead.run = () => {
+      rmSync(mutexPath);
+      liveC = plantHolder(mutexPath, 'live-z', c.pid, c.startedAt);
+      afterFsMutation.run = () => {
+        try {
+          closeSync(openSync(mutexPath, 'wx'));
+          dEntered = true;
+        } catch {
+          /* still held */
+        }
+      };
+    };
+    try {
+      expect(heartbeatWorktreeTaskLock(hash, 'T7108', lock.record.token)).toBeNull();
+    } finally {
+      afterFsMutation.run = null;
+    }
+    expect(afterMutexRead.run).toBeNull();
+    expect(dEntered).toBe(false);
+    expect(readFileSync(mutexPath, 'utf-8')).toBe(liveC);
+  });
+
+  it('a live breaker serialises breaks: a second breaker of the same dead mutex never deletes it (T14407)', () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7109', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7109')}.reclaim`;
+    const deadX = plantHolder(mutexPath, 'dead-x', deadPid(), null);
+    // Breaker B (live) is mid-break of X: A must not break X too.
+    const b = liveProcess();
+    const breakerB = plantHolder(`${mutexPath}.break`, 'breaker-b', b.pid, b.startedAt);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7109', lock.record.token)).toBeNull();
+    expect(readFileSync(mutexPath, 'utf-8')).toBe(deadX);
+    expect(readFileSync(`${mutexPath}.break`, 'utf-8')).toBe(breakerB);
+    // B dies mid-break: its breaker is removed, then exactly one break of X wins.
+    plantHolder(`${mutexPath}.break`, 'breaker-b', deadPid(), null);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7109', lock.record.token)?.token).toBe(
+      lock.record.token,
+    );
+    expect(existsSync(mutexPath)).toBe(false);
+    expect(existsSync(`${mutexPath}.break`)).toBe(false);
+  });
+
+  it('compares file identity as bigint dev+ino, so 64-bit ids that collide as Numbers differ (T14407)', () => {
+    const a = { dev: 1n, ino: 2n ** 63n };
+    const b = { dev: 1n, ino: 2n ** 63n + 1n };
+    expect(Number(a.ino)).toBe(Number(b.ino)); // a Number cannot tell them apart
+    expect(sameFileIdentity(a, b)).toBe(false);
+    expect(sameFileIdentity(a, { dev: 1n, ino: 2n ** 63n })).toBe(true);
+    expect(sameFileIdentity(a, { dev: 2n, ino: 2n ** 63n })).toBe(false);
+  });
+
+  it('a session-end release cannot free the lock for a successor while a dispose holds it (T14407)', () => {
+    const { path, branch, token } = provision('T7106');
+    let released: WorktreeLockRecord[] | undefined;
+    let successorErr: unknown;
+    let successorToken: string | undefined;
+    const result = disposeOwnedWorktree({
+      projectHash: hash,
+      taskId: 'T7106',
+      worktreePath: path,
+      branch,
+      lockToken: token,
+      reason: 'failed-provision-cleanup',
+      force: true,
+      // Right before the removal: the owner's session ends, then another
+      // session spawns the task.
+      inUse: () => {
+        released = releaseWorktreeTaskLocksForSession(hash, holder.sessionId);
+        try {
+          successorToken = acquireWorktreeTaskLock({
+            projectHash: hash,
+            taskId: 'T7106',
+            holder: { sessionId: 'ses_next', agentId: 'agent-next' },
+          }).record.token;
+        } catch (err) {
+          successorErr = err;
+        }
+        return null;
+      },
+    });
+    expect(released).toEqual([]);
+    expect(successorToken).toBeUndefined();
+    expect(isWorktreeLockedError(successorErr)).toBe(true);
+    expect(result).toMatchObject({ outcome: 'removed', lockReleased: true });
+    expect(readWorktreeTaskLock(hash, 'T7106')).toBeNull();
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'an EACCES lookup keeps the worktree and its lock instead of reporting it gone (T14407)',
+    () => {
+      const { path, branch, token } = provision('T7107');
+      const parent = dirname(path);
+      chmodSync(parent, 0o000);
+      let result: ReturnType<typeof disposeOwnedWorktree>;
+      try {
+        result = disposeOwnedWorktree({
+          projectHash: hash,
+          taskId: 'T7107',
+          worktreePath: path,
+          branch,
+          lockToken: token,
+          reason: 'failed-provision-cleanup',
+          force: true,
+        });
+      } finally {
+        chmodSync(parent, 0o755);
+      }
+      expect(result).toMatchObject({ outcome: 'kept', lockReleased: false });
+      expect(result.reason).toContain('could not be looked up');
+      expect(existsSync(path)).toBe(true);
+      expect(readWorktreeTaskLock(hash, 'T7107')?.token).toBe(token);
+    },
   );
 });

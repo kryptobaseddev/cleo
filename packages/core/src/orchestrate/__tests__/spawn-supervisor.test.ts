@@ -25,6 +25,7 @@ import type { Task } from '@cleocode/contracts/task.js';
 import { describe, expect, it, vi } from 'vitest';
 import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
 import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
+import type { WorkerRecord } from '../worker-records.js';
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must be declared before the import under test loads.
@@ -41,9 +42,25 @@ const execFileMock = vi.fn();
 const existsSyncMock = vi.fn();
 const acquireWorktreeTaskLockMock = vi.fn();
 const releaseWorktreeTaskLockMock = vi.fn();
-const readWorktreeTaskLockMock = vi.fn();
-const locateTaskWorktreeMock = vi.fn();
+/**
+ * T14483: the task lock's current token. The `disposeOwnedWorktree` stand-in
+ * removes only while the caller's token still holds the lock, as the real one
+ * does under the lock's mutex (covered in the worktree package).
+ */
+let currentLockToken: string | undefined;
+const disposeOwnedWorktreeMock = vi.fn((opts: { lockToken: string }) =>
+  opts.lockToken === currentLockToken
+    ? { outcome: 'removed', reason: 'removed', lockReleased: true }
+    : {
+        outcome: 'kept',
+        reason: 'worktree kept: the lock is held by another token',
+        lockReleased: false,
+      },
+);
 const endSessionMock = vi.fn(async (..._args: unknown[]) => null);
+const findOrcaWorkerMock = vi.fn<(taskId: string, cwd: string) => Promise<WorkerRecord | null>>(
+  async () => null,
+);
 
 vi.mock('node:child_process', () => ({
   execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
@@ -70,8 +87,7 @@ vi.mock('@cleocode/worktree', async () => {
     destroyWorktree: (...args: unknown[]) => destroyWorktreeMock(...args),
     acquireWorktreeTaskLock: (...args: unknown[]) => acquireWorktreeTaskLockMock(...args),
     releaseWorktreeTaskLock: (...args: unknown[]) => releaseWorktreeTaskLockMock(...args),
-    readWorktreeTaskLock: (...args: unknown[]) => readWorktreeTaskLockMock(...args),
-    locateTaskWorktree: (...args: unknown[]) => locateTaskWorktreeMock(...args),
+    disposeOwnedWorktree: (opts: { lockToken: string }) => disposeOwnedWorktreeMock(opts),
   };
 });
 
@@ -108,6 +124,22 @@ vi.mock('../../paths.js', async () => {
   };
 });
 
+// T14455 — both spawn entry points now read the stored Orca custody record
+// (`findOrcaWorker`) before they provision anything. That read opens the
+// project store, and this file's `existsSync` mock reports the vitest sandbox
+// marker (`.cleo-test-sandbox`) absent unless a case arms it, so the
+// worktree-build guard refuses the migration and spawn fails early. Custody
+// refusal itself is covered end-to-end by orca-worker-custody.test.ts, where
+// the record store is a real sandbox store; here it is a dependency to stub.
+vi.mock('../worker-records.js', async () => {
+  const actual =
+    await vi.importActual<typeof import('../worker-records.js')>('../worker-records.js');
+  return {
+    ...actual,
+    findOrcaWorker: (taskId: string, cwd: string) => findOrcaWorkerMock(taskId, cwd),
+  };
+});
+
 vi.mock('../../logger.js', () => ({
   getLogger: () => ({
     info: vi.fn(),
@@ -141,9 +173,7 @@ vi.mock('../../resources/governor.js', async () => {
 });
 
 // Imported AFTER the mocks so the orchestrate spawn binding uses them.
-const { orchestrateSpawn, runLintChangesets, shouldCleanUpFailedProvision } = await import(
-  '../spawn-ops.js'
-);
+const { orchestrateSpawn, runLintChangesets } = await import('../spawn-ops.js');
 
 // ---------------------------------------------------------------------------
 // runLintChangesets — T10448 pre-spawn hygiene gate
@@ -343,6 +373,40 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
     claimTask: vi.fn(async () => null),
   });
 
+  it('returns E_TIMEOUT within the spawn budget when the custody read hangs', async () => {
+    findOrcaWorkerMock.mockClear();
+    getTaskAccessorMock.mockClear();
+    spawnWorktreeMock.mockClear();
+    destroyWorktreeMock.mockClear();
+    const readStarted = new Promise<void>((resolve) => {
+      findOrcaWorkerMock.mockImplementationOnce(() => {
+        resolve();
+        return new Promise<never>(() => undefined);
+      });
+    });
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    try {
+      let settled = false;
+      const startedAt = Date.now();
+      const pending = orchestrateSpawn('T9999').then((result) => {
+        settled = true;
+        return result;
+      });
+      await readStarted;
+      await vi.advanceTimersByTimeAsync(SPAWN_BUDGET_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      expect(await pending).toMatchObject({ success: false, error: { code: 'E_TIMEOUT' } });
+      expect(Date.now() - startedAt).toBe(SPAWN_BUDGET_MS);
+      expect(getTaskAccessorMock).not.toHaveBeenCalled();
+      expect(spawnWorktreeMock).not.toHaveBeenCalled();
+      expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('completes under the spawn budget and returns a success envelope (happy path)', async () => {
     destroyWorktreeMock.mockReset();
     spawnWorktreeMock.mockReset();
@@ -418,11 +482,9 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
       appliedExcludePatterns: [],
       lock: { status: 'acquired', lockPath: '/x.lock', record: { token: 'tok-timeout' } },
     });
-    // T14483: the spawn still holds its lock, and git has the worktree it created.
-    readWorktreeTaskLockMock.mockReset();
-    readWorktreeTaskLockMock.mockReturnValue({ token: 'tok-timeout' });
-    locateTaskWorktreeMock.mockReset();
-    locateTaskWorktreeMock.mockReturnValue({ path: '/tmp/wt/T9999', branch: 'task/T9999' });
+    // T14483: the spawn still holds the lock it created the worktree under.
+    currentLockToken = 'tok-timeout';
+    disposeOwnedWorktreeMock.mockClear();
 
     // T13510: the pre-provision atomicity check composes first and passes.
     composeSpawnPayloadMock.mockResolvedValueOnce({
@@ -443,15 +505,6 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
       throw err;
     });
 
-    destroyWorktreeMock.mockResolvedValueOnce({
-      taskId: 'T9999',
-      worktreeRemoved: true,
-      branchDeleted: true,
-      dirty: false,
-      force: true,
-      hookResults: [],
-    });
-
     const result = await orchestrateSpawn('T9999');
 
     expect(result.success).toBe(false);
@@ -470,12 +523,18 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
     expect(details.cleanup).toBeDefined();
     expect(details.cleanup?.attempted).toBe(true);
     expect(details.cleanup?.worktreeRemoved).toBe(true);
-    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
-    expect(destroyWorktreeMock).toHaveBeenCalledWith('/tmp/cleo-spawn-test-root', {
+    // T14483: the exact path, branch and token this spawn created, never by task id.
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    expect(disposeOwnedWorktreeMock).toHaveBeenCalledTimes(1);
+    expect(disposeOwnedWorktreeMock).toHaveBeenCalledWith({
+      projectHash: 'deadbeef',
       taskId: 'T9999',
-      deleteBranch: true,
-      force: true,
+      worktreePath: '/tmp/wt/T9999',
+      branch: 'task/T9999',
+      lockToken: 'tok-timeout',
+      projectRoot: '/tmp/cleo-spawn-test-root',
       reason: 'spawn-timeout-cleanup',
+      force: true,
     });
   });
 });
@@ -524,13 +583,13 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
       getActiveSessionMock,
       acquireWorktreeTaskLockMock,
       releaseWorktreeTaskLockMock,
-      readWorktreeTaskLockMock,
-      locateTaskWorktreeMock,
       execFileSyncMock,
       existsSyncMock,
     ]) {
       m.mockReset();
     }
+    disposeOwnedWorktreeMock.mockClear();
+    currentLockToken = 'tok-1';
     getTaskAccessorMock.mockResolvedValue(stubAccessor());
     getActiveSessionMock.mockResolvedValue({ id: 'sess-1' });
     validateSpawnReadinessMock.mockResolvedValue({ ready: true, issues: [] });
@@ -550,24 +609,6 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     meta: { protocol: 'rcasd', composerVersion: '3.0.0' },
     taskId: 'T9999',
   };
-
-  it('shouldCleanUpFailedProvision: only a worktree this call freshly created', () => {
-    expect(
-      shouldCleanUpFailedProvision(Object.assign(new Error('x'), { freshWorktreeCreated: true })),
-    ).toBe(true);
-    expect(
-      shouldCleanUpFailedProvision(Object.assign(new Error('x'), { freshWorktreeCreated: false })),
-    ).toBe(false);
-    expect(shouldCleanUpFailedProvision(new Error('EACCES: link failed'))).toBe(false);
-    expect(
-      shouldCleanUpFailedProvision(
-        Object.assign(new Error('E_WORKTREE_LOCKED'), {
-          code: 'E_WORKTREE_LOCKED',
-          freshWorktreeCreated: true,
-        }),
-      ),
-    ).toBe(false);
-  });
 
   it('a lock I/O failure (e.g. link ENOTSUP/EACCES) never triggers destroyWorktree (item 1)', async () => {
     reset();
@@ -610,22 +651,20 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 
-  it('cleanup still runs for a worktree this call freshly created', async () => {
+  it('reports the cleanup createWorktree ran under the lock and never removes after it (T14407)', async () => {
     reset();
+    // createWorktree removed its fresh worktree before releasing the task
+    // lock; by now a concurrent re-spawn may own the path.
     spawnWorktreeMock.mockRejectedValue(
-      Object.assign(new Error('post-create hook failed'), { freshWorktreeCreated: true }),
+      Object.assign(new Error('post-create hook failed'), {
+        freshWorktreeCreated: true,
+        cleanup: { taskId: 'T9999', worktreeRemoved: true, branchDeleted: true },
+      }),
     );
-    destroyWorktreeMock.mockResolvedValue({
-      taskId: 'T9999',
-      worktreeRemoved: true,
-      branchDeleted: true,
-      dirty: false,
-      force: true,
-      hookResults: [],
-    });
     const result = await orchestrateSpawn('T9999');
     expect(result.error?.code).toBe('E_WORKTREE_PROVISION_FAILED');
-    expect(destroyWorktreeMock).toHaveBeenCalledTimes(1);
+    expect(result.error?.details).toMatchObject({ cleanup: 'Orphan worktree cleaned up' });
+    expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 
   it('releases the lock when the spawn fails after provisioning, so a retry is not exit 25 (item 2a)', async () => {
@@ -719,32 +758,21 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     });
     // Meanwhile its session was abandoned and a newer spawn re-spawned the
     // task: it holds the lock (tok-2) and works in the same checkout.
-    readWorktreeTaskLockMock.mockReturnValue({ token: 'tok-2' });
-    locateTaskWorktreeMock.mockReturnValue({ path: '/tmp/wt/T9999', branch: 'task/T9999' });
+    currentLockToken = 'tok-2';
 
     const result = await orchestrateSpawn('T9999');
 
     expect(result.error?.code).toBe('E_TIMEOUT');
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
+    expect(disposeOwnedWorktreeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreePath: '/tmp/wt/T9999', lockToken: 'tok-1' }),
+    );
     expect(result.error?.details).toMatchObject({
       cleanup: { attempted: false, worktreeRemoved: false, notOwned: true },
     });
     // Only its own token is released, which leaves the re-spawn's lock alone.
     expect(releaseWorktreeTaskLockMock).toHaveBeenCalledWith('deadbeef', 'T9999', 'tok-1');
     expect(releaseWorktreeTaskLockMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('runTimeoutCleanup keeps a worktree git reports at another path than the one it created (T14483)', async () => {
-    reset();
-    readWorktreeTaskLockMock.mockReturnValue({ token: 'tok-1' });
-    locateTaskWorktreeMock.mockReturnValue({ path: '/tmp/other/T9999', branch: 'task/T9999' });
-    const result = await runTimeoutCleanup('/tmp/cleo-spawn-test-root', 'T9999', {
-      worktreePath: '/tmp/wt/T9999',
-      projectHash: 'deadbeef',
-      lockToken: 'tok-1',
-    });
-    expect(result).toMatchObject({ attempted: false, worktreeRemoved: false, notOwned: true });
-    expect(destroyWorktreeMock).not.toHaveBeenCalled();
   });
 
   it('T14126: a --resume packet carries every isolation variable its prompt exports', async () => {

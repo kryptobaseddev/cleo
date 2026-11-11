@@ -18,6 +18,7 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MbxRunner } from '../orchestrate/agentmbx.js';
 import { getCleoHome } from '../paths.js';
 import { acquireLock } from '../store/lock.js';
 import { checkStorageMigration } from '../system/storage-preflight.js';
@@ -447,6 +448,108 @@ describe('runUpgrade structural parity', () => {
     expect(result.actions.some((a) => a.action === 'config_file' && a.status === 'applied')).toBe(
       true,
     );
+  });
+
+  it('records the lead mailbox for an already-initialized project (T14448)', async () => {
+    // An initialized project: `cleo init` refuses here, so `cleo upgrade`
+    // records the mailbox instead. The fake runner stands in for agentmbx.
+    writeFileSync(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({ orchestrate: { leadWorker: { v1: true } } }),
+    );
+    let probes = 0;
+    const runner: MbxRunner = async (args) => {
+      if (args[0] === '--version') {
+        probes += 1;
+        return { missing: false, exitCode: 0, stdout: '0.5.58', stderr: '' };
+      }
+      return { missing: false, exitCode: 2, stdout: '', stderr: 'unknown command\n' };
+    };
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: runner });
+    expect(result.success).toBe(true);
+    const action = result.actions.find((a) => a.action === 'lead_mailbox');
+    expect(action?.status).toBe('applied');
+    expect(action?.details).toMatch(/Recorded lead mailbox: .+-lead$/);
+    const config = JSON.parse(readFileSync(join(cleoDir, 'config.json'), 'utf-8'));
+    expect(config.orchestrate.leadMailbox.name).toMatch(/-lead$/);
+    expect(typeof config.orchestrate.leadMailbox.projectId).toBe('string');
+
+    // Idempotent: the existing record is kept and agentmbx is not probed again.
+    const probesAfterFirst = probes;
+    const again = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: runner });
+    expect(again.actions.some((a) => a.action === 'lead_mailbox')).toBe(false);
+    expect(probes).toBe(probesAfterFirst);
+  });
+
+  it('with orchestrate.leadWorker.v1 off, upgrade records no lead mailbox and never probes agentmbx', async () => {
+    writeFileSync(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({ orchestrate: { leadWorker: { v1: false } } }),
+    );
+    let probes = 0;
+    const runner: MbxRunner = async (args) => {
+      if (args[0] === '--version') {
+        probes += 1;
+        return { missing: false, exitCode: 0, stdout: '0.5.58', stderr: '' };
+      }
+      return { missing: false, exitCode: 2, stdout: '', stderr: 'unknown command\n' };
+    };
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: runner });
+    expect(result.success).toBe(true);
+    expect(result.actions.some((a) => a.action === 'lead_mailbox')).toBe(false);
+    expect(probes).toBe(0);
+  });
+
+  it('without agentmbx, upgrade surfaces the skipped warning naming `cleo upgrade` (T14448)', async () => {
+    writeFileSync(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({ orchestrate: { leadWorker: { v1: true } } }),
+    );
+    const absent: MbxRunner = async () => ({
+      missing: true,
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+    });
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: absent });
+    const action = result.actions.find((a) => a.action === 'lead_mailbox');
+    expect(action?.status).toBe('skipped');
+    expect(action?.details).toContain('`cleo upgrade`');
+    expect(
+      JSON.parse(readFileSync(join(cleoDir, 'config.json'), 'utf-8')).orchestrate.leadMailbox,
+    ).toBeUndefined();
+  });
+
+  it('a lead-mailbox failure surfaces as an error action, not a swallowed success (T14448)', async () => {
+    writeFileSync(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({ orchestrate: { leadWorker: { v1: true } } }),
+    );
+    const throwing: MbxRunner = async () => {
+      throw new Error('mbx exploded');
+    };
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: throwing });
+    const action = result.actions.find((a) => a.action === 'lead_mailbox');
+    expect(action?.status).toBe('error');
+    expect(action?.details).toContain('mbx exploded');
+  });
+
+  it('an unreadable config file surfaces as a lead-mailbox error action too (T14448)', async () => {
+    writeFileSync(join(cleoDir, 'config.json'), '{not json');
+    const runner: MbxRunner = async (args) => {
+      if (args[0] === '--version')
+        return { missing: false, exitCode: 0, stdout: '0.5.58', stderr: '' };
+      return { missing: false, exitCode: 2, stdout: '', stderr: 'unknown command\n' };
+    };
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, agentMbxRunner: runner });
+    const action = result.actions.find((a) => a.action === 'lead_mailbox');
+    expect(action?.status).toBe('error');
+    expect(action?.details).toContain('Lead mailbox:');
   });
 
   it('installs the heavy-command hook as its own step and reports a blocked provider (T13124)', async () => {

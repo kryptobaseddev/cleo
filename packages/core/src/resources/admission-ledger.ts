@@ -108,6 +108,7 @@ import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { ResourceSample } from './backend.js';
 import {
   commandChargeKey,
+  gitAlias,
   gitHookPath,
   hookFootprintKey,
   MEASURED_MIN_RUNS,
@@ -133,6 +134,7 @@ import {
 } from './run-admission.js';
 import {
   canonicalForClass,
+  type GitAliasLookup,
   gitHookFor,
   heavyScriptReason,
   lightCommandReason,
@@ -422,6 +424,11 @@ export interface RunFootprintOptions {
    * @defaultValue reads the measured-charge store
    */
   readonly commandPeak?: (key: string) => number | null;
+  /**
+   * What a git alias expands to (T14405): a `!` shell alias keeps the class
+   * plan. @defaultValue asks git in the run's cwd
+   */
+  readonly gitAlias?: GitAliasLookup;
 }
 
 /**
@@ -507,7 +514,9 @@ export function planRunFootprint(
   },
   options: RunFootprintOptions = {},
 ): RunFootprintPlan {
-  let scope = cls === 'full-build' ? null : runFootprint(argv);
+  const aliasOf: GitAliasLookup =
+    options.gitAlias ?? ((name, globals) => gitAlias(cwd, name, globals));
+  let scope = cls === 'full-build' ? null : runFootprint(argv, aliasOf);
   const sized = cls === 'scoped-build' && scope?.size === 'class';
   // T14050: a node script that hosts a heavy tool (its path names one, or it
   // loads a compiler or test runner in-process) is never light. T14079: so

@@ -10,7 +10,8 @@ session had been abandoned or its lock reclaimed in the meantime, a newer spawn
 of the same task owned that lock and worked in that checkout, and the late
 cleanup removed it.
 
-`runTimeoutCleanup` now takes the exact worktree path and lock token the spawn
-created. It removes nothing, and reports `notOwned`, unless the task lock still
-carries that token and git still has the task's worktree at that path. A spawn
-holding no lock token removes nothing either.
+`runTimeoutCleanup` now takes the exact worktree path, branch and lock token the
+spawn created and removes through `disposeOwnedWorktree`, which checks the
+token, path and branch and removes under the task lock's mutex. Otherwise it
+removes nothing and reports `notOwned`. A spawn holding no lock token removes
+nothing either. The branch is kept.

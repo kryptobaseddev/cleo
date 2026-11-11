@@ -921,6 +921,73 @@ describe('git is charged light; its hook decides (T13452)', () => {
     }
   });
 
+  it('a git shell alias keeps its class, inline or configured (T14405)', () => {
+    expect(runFootprint(['git', '-c', 'alias.t=!pnpm test', 't'])).toEqual({
+      size: 'class',
+      reason: 'git -c alias.t runs another command',
+    });
+    // Configured: what git says the alias is, asked with the command's globals.
+    const configured = new Map([
+      ['t', '!pnpm test'],
+      ['co', 'checkout'],
+    ]);
+    const asked: Array<readonly string[]> = [];
+    const aliasOf = (name: string, globals: readonly string[]): string | null => {
+      asked.push([name, ...globals]);
+      return configured.get(name) ?? null;
+    };
+    expect(runFootprint(['git', '-C', '/r', 't'], aliasOf)).toEqual({
+      size: 'class',
+      reason: 'git t is a shell alias',
+    });
+    expect(asked).toEqual([['t', '-C', '/r']]);
+    // An alias for another git command, and no alias at all, stay light.
+    expect(runFootprint(['git', 'co', 'main'], aliasOf).size).toBe('light');
+    expect(runFootprint(['git', 'status'], aliasOf).size).toBe('light');
+    expect(runFootprint(['git', '-c', 'alias.co=checkout', 'co', 'main']).size).toBe('light');
+  });
+
+  it('an inline config key whose value git runs keeps its class (T14405)', () => {
+    for (const [globals, key] of [
+      [['-c', 'core.sshCommand=pnpm test'], 'core.sshCommand'],
+      [['-c', 'core.fsmonitor=pnpm build'], 'core.fsmonitor'],
+      [['-C', '/r', '-c', 'CORE.PAGER=less -R'], 'CORE.PAGER'],
+      [['-c', 'core.editor=code --wait'], 'core.editor'],
+      [['-c', 'sequence.editor=make'], 'sequence.editor'],
+      [['-c', 'pager.log=make'], 'pager.log'],
+      [['-c', 'diff.external=make'], 'diff.external'],
+      [['-c', 'credential.helper=!make'], 'credential.helper'],
+      [['-c', 'credential.https://x.dev.helper=make'], 'credential.https://x.dev.helper'],
+      [['-c', 'filter.lfs.smudge=make'], 'filter.lfs.smudge'],
+      [['-c', 'merge.ours.driver=make'], 'merge.ours.driver'],
+      [['-c', 'hook.t.command=make'], 'hook.t.command'],
+      [['-c', 'remote.origin.uploadpack=make'], 'remote.origin.uploadpack'],
+      [['-c', 'gpg.ssh.program=make'], 'gpg.ssh.program'],
+      [['-c', 'submodule.a.update=!make'], 'submodule.a.update'],
+      // --config-env: the value is not on the command line.
+      [['--config-env=core.sshCommand=CMD'], 'core.sshCommand'],
+      [['--config-env', 'alias.t=CMD'], 'alias.t'],
+    ] as const) {
+      expect(runFootprint(['git', ...globals, 'status']), globals.join(' ')).toEqual({
+        size: 'class',
+        reason: `git -c ${key} runs another command`,
+      });
+    }
+    // A key git runs nothing from, an empty value and a light utility stay light.
+    for (const globals of [
+      ['-c', 'user.name=x', '-c', 'core.hooksPath=.h'],
+      ['-c', 'core.fsmonitor=false'],
+      ['-c', 'core.fsmonitor'],
+      ['-c', 'core.editor=true'],
+      ['-c', 'core.pager=cat'],
+      ['-c', 'credential.helper='],
+      ['-c', 'submodule.a.update=rebase'],
+      ['-C', '-c', 'status'],
+    ]) {
+      expect(runFootprint(['git', ...globals, 'status']).size, globals.join(' ')).toBe('light');
+    }
+  });
+
   it('git rebase may run the post-checkout hook (T14398)', () => {
     expect(gitHookFor(['git', 'rebase', 'main'])?.hooks).toEqual([
       'pre-rebase',
