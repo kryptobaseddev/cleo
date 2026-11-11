@@ -6,6 +6,7 @@ import type {
   OrcaContext,
   OrcaLaunch,
 } from '@cleocode/contracts/orca-execution.js';
+import { orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { vi } from 'vitest';
 
 /** Explicit fictitious caller, independent of the developer's running Orca. */
@@ -44,13 +45,17 @@ export function fixtureReply(result: object, exitCode = 0): OrcaCommandResult {
 }
 
 /** Full worker-start response fields from the installed CLI contract. */
-export function fixtureStart(state = 'ready', failureCount = 0): OrcaCommandResult {
+export function fixtureStart(
+  state = 'ready',
+  failureCount = 0,
+  dispatchId = 'ctx_fixture',
+): OrcaCommandResult {
   return fixtureReply(
     {
       state,
       failureCount,
       stage: state === 'outcome_unknown' ? 'turn_start_unobserved' : 'input_accepted',
-      dispatchId: 'ctx_fixture',
+      dispatchId,
       runId: 'run_fixture',
       taskId: 'task_fixture',
       effects: [{ kind: 'worktree', action: 'reused', id: 'workspace-fixture' }],
@@ -77,6 +82,27 @@ export function fixtureShow(dispatchId = 'ctx_fixture', failureCount = 0): OrcaC
   });
 }
 
+/** Recorded resource-release proof, independent of worker launch and Task status. */
+export function fixtureReleasedShow(
+  dispatchId = 'ctx_fixture',
+  failureCount = 0,
+): OrcaCommandResult {
+  const original = orcaReplySchema.parse(JSON.parse(fixtureShow(dispatchId, failureCount).stdout));
+  return fixtureReply({
+    ...original.result,
+    worker: { ...original.result?.worker, state: 'failed', stage: 'settled' },
+    observation: { status: 'exited', exactWorker: true },
+    projection: {
+      resource: {
+        state: 'released',
+        terminalState: 'released',
+        releaseState: 'released',
+        ownerDispatchId: dispatchId,
+      },
+    },
+  });
+}
+
 /** Durable attempt suitable for testing supervision independently of the store. */
 export function fixtureAttempt(overrides: Partial<OrcaAttempt> = {}): OrcaAttempt {
   return {
@@ -93,6 +119,7 @@ export function fixtureAttempt(overrides: Partial<OrcaAttempt> = {}): OrcaAttemp
     orcaTaskId: null,
     dispatchId: null,
     retryOf: null,
+    startBinding: { runId: null, orcaTaskId: null, retryOf: null },
     startRequestId: null,
     stopRequestId: null,
     failureCount: 0,

@@ -1,9 +1,11 @@
+import { orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { OrcaExecutionBackend } from '../orca-execution.js';
 import {
   fixtureAttempt,
   fixtureContext,
   fixtureLaunch,
+  fixtureReleasedShow,
   fixtureReply,
   fixtureRunner,
   fixtureShow,
@@ -245,6 +247,225 @@ describe('Orca execution process boundary', () => {
         startRequestId: 'request-fixture',
       }),
     ).rejects.toThrow('No replayable');
+  });
+
+  it('replays original spec argv even when a partial receipt supplied Run, Task and Dispatch ids', async () => {
+    const partial = orcaReplySchema.parse(JSON.parse(fixtureStart('outcome_unknown').stdout));
+    orcaFixture.start = {
+      ...orcaFixture.start,
+      stdout: JSON.stringify({
+        ...partial,
+        ok: false,
+        error: {
+          code: 'runtime_timeout',
+          message: 'receipt lost after dispatch',
+          data: { orchestrationRequestId: 'request-fixture' },
+        },
+      }),
+      exitCode: 1,
+    };
+    const unknown = await new OrcaExecutionBackend(fixtureRunner).start(fixtureAttempt());
+    expect(unknown).toMatchObject({
+      state: 'outcome_unknown',
+      dispatchId: 'ctx_fixture',
+      startRequestId: 'request-fixture',
+      startBinding: { runId: null, orcaTaskId: null, retryOf: null },
+    });
+    orcaFixture.start = fixtureStart();
+    const recovered = await new OrcaExecutionBackend(fixtureRunner).replayStart(unknown);
+    expect(recovered.state).toBe('ready');
+    const starts = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start');
+    expect(starts[1]?.[1]).toEqual([
+      ...starts[0]![1].slice(0, -4),
+      '--retry-request',
+      'request-fixture',
+      '--environment',
+      'local',
+      '--json',
+      '--full',
+    ]);
+    expect(starts[1]?.[3]).toBe(fixtureLaunch.prompt);
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).start({ ...unknown, state: 'launching' }),
+    ).rejects.toThrow('cannot start');
+  });
+
+  it('starts a retry on the same Run and Task with explicit placement and its predecessor', async () => {
+    const result = await new OrcaExecutionBackend(fixtureRunner).start(
+      fixtureAttempt({
+        runId: 'run_fixture',
+        orcaTaskId: 'task_fixture',
+        retryOf: 'ctx_predecessor',
+        failureCount: 2,
+        startBinding: {
+          runId: 'run_fixture',
+          orcaTaskId: 'task_fixture',
+          retryOf: 'ctx_predecessor',
+        },
+      }),
+    );
+    expect(result).toMatchObject({ state: 'ready', failureCount: 2, retryOf: 'ctx_predecessor' });
+    expect(fixtureRunner.mock.calls.at(-1)).toEqual([
+      expect.any(String),
+      [
+        'orchestration',
+        'worker-start',
+        '--from',
+        'term_fixture',
+        '--worktree',
+        'identity:workspace-fixture',
+        '--agent',
+        'codex',
+        '--task',
+        'task_fixture',
+        '--run',
+        'run_fixture',
+        '--retry-of',
+        'ctx_predecessor',
+        '--environment',
+        'local',
+        '--json',
+        '--full',
+      ],
+      fixtureLaunch.projectRoot,
+      undefined,
+    ]);
+  });
+
+  it('refuses legacy launch replay when the original argv binding was not persisted', async () => {
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).replayStart(
+        fixtureAttempt({
+          state: 'outcome_unknown',
+          startRequestId: 'request-fixture',
+          startBinding: undefined,
+        }),
+      ),
+    ).rejects.toThrow('No replayable');
+    expect(fixtureRunner).not.toHaveBeenCalled();
+  });
+
+  it('does not adopt a different Dispatch from a replayed launch receipt', async () => {
+    orcaFixture.start = fixtureStart('ready', 0, 'ctx_other');
+    const result = await new OrcaExecutionBackend(fixtureRunner).replayStart(
+      fixtureAttempt({
+        state: 'outcome_unknown',
+        runId: 'run_fixture',
+        orcaTaskId: 'task_fixture',
+        dispatchId: 'ctx_fixture',
+        startRequestId: 'request-fixture',
+      }),
+    );
+    expect(result).toMatchObject({ state: 'outcome_unknown', dispatchId: 'ctx_fixture' });
+  });
+
+  it.each([
+    'owner',
+    'observation',
+    'terminal',
+    'release',
+    'state',
+    'none',
+  ])('requires exact exited and released resource proof before retry eligibility (%s)', async (missing) => {
+    const reply = orcaReplySchema.parse(JSON.parse(fixtureReleasedShow().stdout));
+    const resource = reply.result?.projection?.resource;
+    const observation = reply.result?.observation;
+    if (!resource || !observation) throw new Error('Missing resource fixture');
+    if (missing === 'owner') resource.ownerDispatchId = 'ctx_other';
+    if (missing === 'observation') observation.exactWorker = false;
+    if (missing === 'terminal') resource.terminalState = 'release_unknown';
+    if (missing === 'release') resource.releaseState = 'release_unknown';
+    if (missing === 'state') resource.state = 'stopped';
+    orcaFixture.show = { stdout: JSON.stringify(reply), stderr: '', exitCode: 0 };
+    const result = await new OrcaExecutionBackend(fixtureRunner).show(
+      fixtureAttempt({
+        state: 'failed',
+        runId: 'run_fixture',
+        orcaTaskId: 'task_fixture',
+        dispatchId: 'ctx_fixture',
+      }),
+    );
+    expect(result.resourceState).toBe(missing === 'none' ? 'stopped' : 'unknown');
+  });
+
+  it.each([
+    'absent',
+    'wrong_request',
+    'wrong_runtime',
+  ])('fences stop replay on %s without sending another cancellation', async (reason) => {
+    orcaFixture.request =
+      reason === 'wrong_runtime'
+        ? {
+            stdout: JSON.stringify({
+              ok: true,
+              _meta: { runtimeId: 'other-runtime' },
+              result: { state: 'completed', requestId: 'request-fixture' },
+            }),
+            stderr: '',
+            exitCode: 0,
+          }
+        : fixtureReply({
+            state: reason === 'absent' ? 'absent' : 'completed',
+            requestId: reason === 'wrong_request' ? 'request-other' : 'request-fixture',
+          });
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).replayStop(
+        fixtureAttempt({
+          state: 'stop_unknown',
+          runId: 'run_fixture',
+          orcaTaskId: 'task_fixture',
+          dispatchId: 'ctx_fixture',
+          stopRequestId: 'request-fixture',
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it('replays only the original cancellation request after a lost stop receipt', async () => {
+    orcaFixture.stop = {
+      stdout: JSON.stringify({
+        ok: false,
+        _meta: { runtimeId: fixtureContext.runtimeId },
+        error: {
+          code: 'runtime_timeout',
+          message: 'lost stop reply',
+          data: { orchestrationRequestId: 'request-fixture' },
+        },
+      }),
+      stderr: '',
+      exitCode: 1,
+    };
+    const unknown = await new OrcaExecutionBackend(fixtureRunner).stop(
+      fixtureAttempt({
+        state: 'stop_pending',
+        runId: 'run_fixture',
+        orcaTaskId: 'task_fixture',
+        dispatchId: 'ctx_fixture',
+      }),
+    );
+    expect(unknown).toMatchObject({ state: 'stop_unknown', stopRequestId: 'request-fixture' });
+    orcaFixture.stop = fixtureReply({
+      dispatchId: 'ctx_fixture',
+      state: 'stopped',
+      processAction: 'closed_agent_terminal',
+      helpers: [],
+    });
+    const recovered = await new OrcaExecutionBackend(fixtureRunner).replayStop(unknown);
+    expect(recovered).toMatchObject({ state: 'stopped', resourceState: 'stopped' });
+    const stops = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-stop');
+    expect(stops[1]?.[1]).toEqual([
+      'orchestration',
+      'worker-stop',
+      '--dispatch',
+      'ctx_fixture',
+      '--retry-request',
+      'request-fixture',
+      '--environment',
+      'local',
+      '--json',
+      '--full',
+    ]);
   });
 
   it('retains an unknown receipt when workspace or effective harness is unproven', async () => {

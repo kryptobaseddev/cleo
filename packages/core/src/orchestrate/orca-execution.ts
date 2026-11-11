@@ -23,6 +23,7 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import { isLiveClaim } from '../store/task-claim.js';
 import {
   listWorkerRecords,
+  newWorkerInstanceId,
   recordWorker,
   updateWorkerExecution,
   type WorkerRecord,
@@ -64,6 +65,7 @@ export async function launchOrcaWorker(
     orcaTaskId: null,
     dispatchId: null,
     retryOf: null,
+    startBinding: { runId: null, orcaTaskId: null, retryOf: null },
     startRequestId: null,
     stopRequestId: null,
     failureCount: 0,
@@ -139,6 +141,7 @@ export async function recoverOrcaWorkerStart(
   if (
     !['outcome_unknown', 'launching'].includes(execution.state) ||
     !execution.startRequestId ||
+    !execution.startBinding ||
     execution.failureCount >= 3
   ) {
     // @sync-invariant none:local-only only an issued unresolved operation may be replayed
@@ -162,6 +165,86 @@ export async function recoverOrcaWorkerStart(
     );
     throw error;
   }
+}
+
+/**
+ * Retry a confirmed failed or stopped attempt on the same Orca Task and Run.
+ * @remarks Atomically retires the predecessor and reserves its successor before launch;
+ * uncertain outcomes and breaker history retain custody, claims and the checkout.
+ * @param recordId - Exact predecessor record, with no remaining agent resources.
+ * @param cwd - Owning CLEO project root.
+ * @param backend - Adapter for the predecessor's runtime and caller.
+ * @returns The durably reserved successor and its full launch receipt.
+ * @example
+ * ```ts
+ * const successor = await retryOrcaWorker(record.recordId, projectRoot, backend);
+ * ```
+ */
+export async function retryOrcaWorker(
+  recordId: string,
+  cwd: string,
+  backend: OrcaExecutionAdapter,
+): Promise<WorkerRecord> {
+  const predecessor = await observeOrcaWorker(recordId, cwd, backend);
+  const execution = requireExecution(predecessor);
+  if (
+    !execution.dispatchId ||
+    !execution.runId ||
+    !execution.orcaTaskId ||
+    !['failed', 'stopped'].includes(execution.state) ||
+    execution.resourceState !== 'stopped' ||
+    execution.failureCount >= 3
+  ) {
+    // @sync-invariant none:local-only a retry cannot evade uncertain custody or the original Task's breaker
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
+      'The predecessor has no confirmed resource-free failure or stop eligible for retry.',
+      {
+        fix: 'Inspect its exact Dispatch and recover any issued stop; retain custody until confirmed.',
+      },
+    );
+  }
+  await validatePreparedAssignment(execution.launch);
+  const workspace = await backend.preflight(execution.launch, execution.context);
+  if (
+    workspace.workspaceId !== execution.workspaceId ||
+    workspace.workspaceSelector !== execution.workspaceSelector
+  ) {
+    // @sync-invariant none:local-only retries must attach the original exact canonical workspace
+    throw new CleoError(ExitCode.SPAWN_VALIDATION_FAILED, 'The retry workspace binding changed.', {
+      fix: 'Resolve the original workspace explicitly; do not substitute another checkout.',
+    });
+  }
+  await validatePreparedAssignment(execution.launch);
+  const launch = {
+    ...execution.launch,
+    instanceId: newWorkerInstanceId(execution.launch.harness),
+  };
+  const retry: OrcaAttempt = {
+    ...execution,
+    revision: 0,
+    launch,
+    state: 'launching',
+    dispatchId: null,
+    retryOf: execution.dispatchId,
+    startBinding: {
+      runId: execution.runId,
+      orcaTaskId: execution.orcaTaskId,
+      retryOf: execution.dispatchId,
+    },
+    startRequestId: null,
+    stopRequestId: null,
+    resourceState: 'unknown',
+    lastReceipt: null,
+    lastError: null,
+    observedAt: new Date().toISOString(),
+  };
+  const reserved = await recordWorker(
+    { ...predecessor, instanceId: launch.instanceId, execution: retry },
+    cwd,
+    predecessor,
+  );
+  return updateWorkerExecution(reserved, await backend.start(retry), cwd);
 }
 
 /**
@@ -230,6 +313,51 @@ export async function stopOrcaWorker(
     cwd,
   );
   return updateWorkerExecution(reserved, await backend.stop(requireExecution(reserved)), cwd);
+}
+
+/**
+ * Replay a previously issued uncertain cancellation after a CLI restart.
+ * @remarks Missing request ids remain fenced; recovery never sends a fresh stop.
+ * @param recordId - Exact open worker record containing the issued stop request.
+ * @param cwd - Owning CLEO project root.
+ * @param backend - Adapter for the original runtime and caller.
+ * @returns The same record with its replayed stop receipt.
+ * @example
+ * ```ts
+ * const recovered = await recoverOrcaWorkerStop(record.recordId, projectRoot, backend);
+ * ```
+ */
+export async function recoverOrcaWorkerStop(
+  recordId: string,
+  cwd: string,
+  backend: OrcaExecutionAdapter,
+): Promise<WorkerRecord> {
+  const record = await loadOrcaWorker(recordId, cwd);
+  const execution = requireExecution(record);
+  if (!['stop_unknown', 'stop_pending'].includes(execution.state) || !execution.stopRequestId) {
+    // @sync-invariant none:local-only only the original issued cancellation may be replayed
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
+      'No recoverable stop request is stored for this attempt.',
+      { fix: 'Inspect the exact Dispatch and original receipt; do not repeat an unkeyed stop.' },
+    );
+  }
+  const reserved = await updateWorkerExecution(
+    record,
+    { ...execution, state: 'stop_pending' },
+    cwd,
+  );
+  try {
+    const result = await backend.replayStop({ ...execution, state: 'stop_unknown' });
+    return await updateWorkerExecution(reserved, result, cwd);
+  } catch (error) {
+    await updateWorkerExecution(
+      reserved,
+      { ...execution, state: 'stop_unknown', lastError: String(error) },
+      cwd,
+    );
+    throw error;
+  }
 }
 
 async function loadOrcaWorker(recordId: string, cwd: string): Promise<WorkerRecord> {

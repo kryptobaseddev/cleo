@@ -81,7 +81,7 @@ export interface WorkerRecord {
   sessionId: string | null;
   /** ISO time the worker was spawned. */
   startedAt: string;
-  /** ISO time the worker's exit was observed (SubagentStop emitted), else null. */
+  /** ISO time of observed exit or atomic retirement of a resource-free Orca predecessor. */
   stoppedAt: string | null;
   /** External execution custody; a nullable PID never settles this attempt. */
   execution?: OrcaAttempt;
@@ -147,9 +147,14 @@ function toWorkerRecord(row: AgentInstanceRow, meta: WorkerMetadata): WorkerReco
  *
  * @param worker - The worker to record.
  * @param cwd - Project root.
+ * @param predecessor - Exact resource-free Orca attempt atomically replaced by its retry.
  * @returns The stored record.
  */
-export async function recordWorker(worker: NewWorkerRecord, cwd?: string): Promise<WorkerRecord> {
+export async function recordWorker(
+  worker: NewWorkerRecord,
+  cwd?: string,
+  predecessor?: WorkerRecord,
+): Promise<WorkerRecord> {
   const metadata: WorkerMetadata = {
     kind: 'worker',
     instanceId: worker.instanceId,
@@ -174,6 +179,45 @@ export async function recordWorker(worker: NewWorkerRecord, cwd?: string): Promi
   ) {
     // @sync-invariant none:local-only external resource custody cannot acquire native PID ownership or another worker identity
     throw new Error('Orca attempt does not match its worker record.');
+  }
+  if (predecessor) {
+    const previous = predecessor.execution;
+    const next = metadata.execution;
+    if (
+      !previous ||
+      !next ||
+      predecessor.taskId !== worker.taskId ||
+      !previous.dispatchId ||
+      !previous.runId ||
+      !previous.orcaTaskId ||
+      !['failed', 'stopped'].includes(previous.state) ||
+      previous.resourceState !== 'stopped' ||
+      previous.failureCount >= 3 ||
+      next.failureCount !== previous.failureCount ||
+      next.state !== 'launching' ||
+      next.dispatchId !== null ||
+      next.startRequestId !== null ||
+      next.stopRequestId !== null ||
+      next.retryOf !== previous.dispatchId ||
+      next.runId !== previous.runId ||
+      next.orcaTaskId !== previous.orcaTaskId ||
+      next.launch.instanceId === previous.launch.instanceId ||
+      next.promptDigest !== previous.promptDigest ||
+      next.workspaceId !== previous.workspaceId ||
+      next.workspaceSelector !== previous.workspaceSelector ||
+      JSON.stringify(next.context) !== JSON.stringify(previous.context) ||
+      JSON.stringify({ ...next.launch, instanceId: previous.launch.instanceId }) !==
+        JSON.stringify(previous.launch) ||
+      JSON.stringify(next.startBinding) !==
+        JSON.stringify({
+          runId: previous.runId,
+          orcaTaskId: previous.orcaTaskId,
+          retryOf: previous.dispatchId,
+        })
+    ) {
+      // @sync-invariant none:local-only replacement custody requires a resource-free exact predecessor and the same Task retry chain
+      throw new Error('Orca retry cannot replace unresolved custody or change its assignment.');
+    }
   }
   const now = new Date().toISOString();
   const row: AgentInstanceRow = {
@@ -201,7 +245,35 @@ export async function recordWorker(worker: NewWorkerRecord, cwd?: string): Promi
         and(eq(tasksAgentInstances.taskId, worker.taskId), isNull(tasksAgentInstances.stoppedAt)),
       )
       .all();
-    if (open.some((existing) => worker.execution || parseWorkerMetadata(existing)?.execution)) {
+    if (predecessor) {
+      const previous = open.find((existing) => existing.id === predecessor.recordId);
+      if (
+        open.length !== 1 ||
+        !previous ||
+        JSON.stringify(parseWorkerMetadata(previous)?.execution) !==
+          JSON.stringify(predecessor.execution)
+      ) {
+        // @sync-invariant none:local-only a concurrent retry or observation invalidates this replacement reservation
+        throw new Error('Orca predecessor changed; reload its exact worker record before retry.');
+      }
+      const retired = tx
+        .update(tasksAgentInstances)
+        .set({ status: 'stopped', stoppedAt: now })
+        .where(
+          and(
+            eq(tasksAgentInstances.id, predecessor.recordId),
+            eq(tasksAgentInstances.metadataJson, previous.metadataJson ?? '{}'),
+            isNull(tasksAgentInstances.stoppedAt),
+          ),
+        )
+        .run();
+      if (Number(retired.changes) !== 1) {
+        // @sync-invariant none:local-only only one successor may acquire this exact predecessor's custody
+        throw new Error('Orca retry reservation lost; no new launch is authorized.');
+      }
+    } else if (
+      open.some((existing) => worker.execution || parseWorkerMetadata(existing)?.execution)
+    ) {
       // @sync-invariant none:local-only duplicate local execution custody cannot start another editor
       throw new Error(
         `Execution custody already exists for ${worker.taskId}; inspect its worker record before recovery.`,
@@ -241,6 +313,9 @@ export async function updateWorkerExecution(
     expected.workspaceSelector !== next.workspaceSelector ||
     next.failureCount < expected.failureCount ||
     expected.retryOf !== next.retryOf ||
+    JSON.stringify(expected.startBinding) !== JSON.stringify(next.startBinding) ||
+    (expected.startRequestId !== null && next.startRequestId !== expected.startRequestId) ||
+    (expected.stopRequestId !== null && next.stopRequestId !== expected.stopRequestId) ||
     (expected.runId !== null && next.runId !== expected.runId) ||
     (expected.orcaTaskId !== null && next.orcaTaskId !== expected.orcaTaskId) ||
     (expected.dispatchId !== null && next.dispatchId !== expected.dispatchId)

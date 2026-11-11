@@ -43,6 +43,13 @@ export const orcaLaunchSchema = z.object({
 /** Input from canonical CLEO spawn preparation; Orca does not create its checkout. */
 export type OrcaLaunch = z.infer<typeof orcaLaunchSchema>;
 
+/** Original launch addressing, retained even when a partial receipt supplies ids. */
+export const orcaStartBindingSchema = z.object({
+  runId: identifier.nullable(),
+  orcaTaskId: identifier.nullable(),
+  retryOf: identifier.nullable(),
+});
+
 /** Durable attempt, stored in the existing local worker record before launch. */
 export const orcaAttemptSchema = z.object({
   backend: z.literal('orca'),
@@ -70,6 +77,8 @@ export const orcaAttemptSchema = z.object({
   orcaTaskId: identifier.nullable(),
   dispatchId: identifier.nullable(),
   retryOf: identifier.nullable(),
+  /** Absent on legacy records, whose original argv cannot safely be reconstructed. */
+  startBinding: orcaStartBindingSchema.optional(),
   startRequestId: identifier.nullable(),
   stopRequestId: identifier.nullable(),
   failureCount: z.number().int().nonnegative(),
@@ -103,6 +112,8 @@ export interface OrcaExecutionAdapter {
   read(attempt: OrcaAttempt, cursor?: string): Promise<string>;
   /** Request guarded cancellation after core reserves it durably. */
   stop(attempt: OrcaAttempt): Promise<OrcaAttempt>;
+  /** Replay only the issued stop request on its original exact Dispatch. */
+  replayStop(attempt: OrcaAttempt): Promise<OrcaAttempt>;
 }
 
 /** Result from one bounded subprocess invocation, including nonzero JSON receipts. */
@@ -158,6 +169,7 @@ export const orcaReplySchema = z.object({
   result: z
     .object({
       state: z.string().optional(),
+      requestId: identifier.optional(),
       stage: z.string().optional(),
       turnStart: z.string().optional(),
       runId: identifier.optional(),
@@ -210,7 +222,14 @@ export const orcaReplySchema = z.object({
       observation: z.object({ status: z.string(), exactWorker: z.boolean().optional() }).optional(),
       projection: z
         .object({
-          resource: z.object({ state: z.string(), terminalState: z.string() }).optional(),
+          resource: z
+            .object({
+              state: z.string(),
+              terminalState: z.string(),
+              ownerDispatchId: identifier.optional(),
+              releaseState: z.string().optional(),
+            })
+            .optional(),
         })
         .optional(),
     })
