@@ -7,7 +7,7 @@ import type {
   OrcaLaunch,
   OrcaWorkerDone,
 } from '@cleocode/contracts/orca-execution.js';
-import { orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
+import { orcaReplySchema, orcaReportSourceSchema } from '@cleocode/contracts/orca-execution.js';
 import { vi } from 'vitest';
 
 /** Explicit fictitious caller, independent of the developer's running Orca. */
@@ -136,7 +136,10 @@ export function fixtureReleasedShow(
 }
 
 /** Full inbox worker_done shape, with the canonical report carried only by a file pointer. */
-export function fixtureReportInbox(overrides: Partial<OrcaWorkerDone> = {}): OrcaCommandResult {
+export function fixtureReportInbox(
+  overrides: Partial<OrcaWorkerDone> = {},
+  newerMessages = 0,
+): OrcaCommandResult {
   const event: OrcaWorkerDone = {
     messageId: 'msg_report',
     runtimeId: fixtureContext.runtimeId,
@@ -156,24 +159,22 @@ export function fixtureReportInbox(overrides: Partial<OrcaWorkerDone> = {}): Orc
       ok: true,
       _meta: { runtimeId: event.runtimeId },
       result: {
-        messages: [
-          {
-            id: event.messageId,
-            run_id: event.runId,
-            delivery_contract: 'current_delivery',
-            from_handle: event.senderHandle,
-            to_handle: `run:${event.runId}`,
-            type: 'worker_done',
-            body: event.body,
-            payload: JSON.stringify({
-              taskId: event.orcaTaskId,
-              dispatchId: event.dispatchId,
-              outcome: event.outcome,
-              reportPath: event.reportPath,
-            }),
-            sender_pane_key: 'pane_worker',
-          },
-        ],
+        messages: Array.from({ length: newerMessages + 1 }, (_, index) => ({
+          id: index === newerMessages ? event.messageId : `msg_newer_${index}`,
+          run_id: event.runId,
+          delivery_contract: 'current_delivery',
+          from_handle: event.senderHandle,
+          to_handle: `run:${event.runId}`,
+          type: 'worker_done',
+          body: event.body,
+          payload: JSON.stringify({
+            taskId: event.orcaTaskId,
+            dispatchId: event.dispatchId,
+            outcome: event.outcome,
+            reportPath: event.reportPath,
+          }),
+          sender_pane_key: 'pane_worker',
+        })),
       },
     }),
   };
@@ -330,7 +331,14 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
     case 'worker-read':
       return orcaFixture.read;
     case 'inbox':
-      return orcaFixture.inbox;
+      try {
+        const source = orcaReportSourceSchema.parse(JSON.parse(orcaFixture.inbox.stdout));
+        const limit = Number(args[args.indexOf('--limit') + 1]);
+        if (source.result.messages) source.result.messages = source.result.messages.slice(0, limit);
+        return { ...orcaFixture.inbox, stdout: JSON.stringify(source) };
+      } catch {
+        return orcaFixture.inbox;
+      }
     case 'dispatch-show':
       return orcaFixture.currentDispatch;
     default:

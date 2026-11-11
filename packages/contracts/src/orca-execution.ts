@@ -197,26 +197,25 @@ export const orcaWorkerReportSchema = z.object({
 /** Validated original report and manifest link, stored on the local worker record. */
 export type OrcaWorkerReport = z.infer<typeof orcaWorkerReportSchema>;
 
-/** Full inbox rows; unrelated message bodies are discarded after selecting the requested id. */
+/** Full transport fields validated only for the requested inbox message id. */
+export const orcaReportMessageSchema = z.object({
+  id: identifier,
+  run_id: z.string().nullable(),
+  delivery_contract: z.string(),
+  from_handle: z.string(),
+  to_handle: z.string(),
+  type: z.string(),
+  body: z.string(),
+  payload: z.string().nullable(),
+  sender_pane_key: z.string().nullable(),
+});
+
+/** Full report source envelope; unrelated inbox rows remain unvalidated JSON. */
 export const orcaReportSourceSchema = z.object({
   ok: z.literal(true),
   _meta: z.object({ runtimeId: identifier }),
   result: z.object({
-    messages: z
-      .array(
-        z.object({
-          id: identifier,
-          run_id: z.string().nullable(),
-          delivery_contract: z.string(),
-          from_handle: z.string(),
-          to_handle: z.string(),
-          type: z.string(),
-          body: z.string(),
-          payload: z.string().nullable(),
-          sender_pane_key: z.string().nullable(),
-        }),
-      )
-      .optional(),
+    messages: z.array(z.json()).optional(),
     dispatch: z
       .object({
         id: identifier,
@@ -229,6 +228,11 @@ export const orcaReportSourceSchema = z.object({
       .optional(),
   }),
 });
+
+/** Parsed report source with subprocess diagnostics retained for target validation. */
+export type OrcaReportSource = z.infer<typeof orcaReportSourceSchema> & {
+  command: OrcaCommandResult;
+};
 
 /** Fields Orca records from worker_done flags; prose never supplies a report or proof. */
 export const orcaWorkerDonePayloadSchema = z.object({

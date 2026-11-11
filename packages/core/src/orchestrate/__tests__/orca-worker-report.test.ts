@@ -4,7 +4,10 @@ import { mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSy
 import { join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
 import type { OrcaLaunch } from '@cleocode/contracts/orca-execution.js';
-import { orcaReportSourceSchema } from '@cleocode/contracts/orca-execution.js';
+import {
+  orcaReportMessageSchema,
+  orcaReportSourceSchema,
+} from '@cleocode/contracts/orca-execution.js';
 import {
   computeProjectHash,
   readDeclaredProjectIdentity,
@@ -177,6 +180,128 @@ describe('Orca canonical worker report ingress', () => {
     await expectCustody();
   });
 
+  it.each([
+    199, 200, 529,
+  ])('ingests the exact report behind %i newer inbox messages', async (newerMessages) => {
+    orcaFixture.inbox = fixtureReportInbox({}, newerMessages);
+    expect((await ingest()).report?.event.messageId).toBe('msg_report');
+    const inboxCalls = fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'inbox');
+    expect(inboxCalls.map(([, args]) => args[args.indexOf('--limit') + 1])).toEqual(
+      newerMessages < 200 ? ['200'] : newerMessages < 400 ? ['200', '400'] : ['200', '400', '800'],
+    );
+    await expectCustody();
+  });
+
+  it('exhausts history before refusing a message id that is absent', async () => {
+    orcaFixture.inbox = fixtureReportInbox({ messageId: 'msg_other' }, 529);
+    await expect(ingest()).rejects.toMatchObject({
+      code: 'E_ORCA_REPORT_SOURCE',
+      message: expect.stringContaining('absent from the exhausted Run inbox'),
+      fix: expect.stringContaining('run:run_fixture'),
+    });
+    expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'inbox')).toHaveLength(3);
+    await expectCustody();
+  });
+
+  it('does not claim absence when its bounded history search is incomplete', async () => {
+    fixtureRunner.mockImplementation(async (...args) => {
+      if (args[1][1] !== 'inbox') return runOrcaFixture(...args);
+      const source = orcaReportSourceSchema.parse(JSON.parse(orcaFixture.inbox.stdout));
+      const limit = Number(args[1][args[1].indexOf('--limit') + 1]);
+      source.result.messages = Array.from({ length: limit }, (_, index) => ({
+        id: `noise_${index}`,
+      }));
+      return { ...orcaFixture.inbox, stdout: JSON.stringify(source) };
+    });
+    await expect(ingest()).rejects.toMatchObject({
+      code: 'E_ORCA_REPORT_SOURCE',
+      message: expect.stringContaining('older history remains unsearched'),
+      fix: expect.stringContaining('--limit 25600'),
+    });
+    expect(fixtureRunner.mock.calls).toHaveLength(7);
+    await expectCustody();
+  });
+
+  it('ignores unrelated malformed inbox rows but validates the target row', async () => {
+    const source = orcaReportSourceSchema.parse(JSON.parse(orcaFixture.inbox.stdout));
+    source.result.messages?.unshift(
+      null,
+      42,
+      'unrelated',
+      {},
+      { id: 'msg_unrelated', body: false },
+    );
+    orcaFixture.inbox = { ...orcaFixture.inbox, stdout: JSON.stringify(source) };
+    expect((await ingest()).report?.event.messageId).toBe('msg_report');
+    source.result.messages = [{ id: 'msg_report', body: false }];
+    orcaFixture.inbox = { ...orcaFixture.inbox, stdout: JSON.stringify(source) };
+    await expect(ingest()).rejects.toMatchObject({
+      code: 'E_ORCA_REPORT_SOURCE',
+      message: expect.stringContaining('body'),
+    });
+    await expectCustody();
+  });
+
+  it.each([
+    'command failure',
+    'invalid JSON',
+    'schema issues',
+    'runtime drift',
+    'missing messages',
+    'malformed target',
+    'malformed payload',
+    'transport failure',
+  ])('retains subprocess diagnostics in the public refusal for %s', async (reason) => {
+    orcaFixture.inbox = { ...orcaFixture.inbox, stderr: 'source diagnostic', exitCode: 17 };
+    let issue = 'did not exit successfully';
+    if (reason === 'invalid JSON') {
+      orcaFixture.inbox.stdout = '{broken';
+      issue = 'JSON';
+    } else if (reason === 'schema issues') {
+      orcaFixture.inbox.stdout = JSON.stringify({ ok: true, _meta: { runtimeId: 42 }, result: {} });
+      issue = 'runtimeId';
+    } else if (reason === 'runtime drift') {
+      orcaFixture.inbox = {
+        ...fixtureReportInbox({ runtimeId: 'runtime_other' }),
+        stderr: 'source diagnostic',
+      };
+      issue = 'runtime_other';
+    } else if (reason === 'missing messages') {
+      const source = orcaReportSourceSchema.parse(JSON.parse(orcaFixture.inbox.stdout));
+      delete source.result.messages;
+      orcaFixture.inbox = { ...orcaFixture.inbox, stdout: JSON.stringify(source), exitCode: 0 };
+      issue = 'messages array';
+    } else if (reason === 'malformed target' || reason === 'malformed payload') {
+      const source = orcaReportSourceSchema.parse(JSON.parse(orcaFixture.inbox.stdout));
+      const message = orcaReportMessageSchema.parse(source.result.messages?.[0]);
+      source.result.messages =
+        reason === 'malformed target'
+          ? [{ id: 'msg_report', body: false }]
+          : [{ ...message, payload: '{broken' }];
+      orcaFixture.inbox = { ...orcaFixture.inbox, stdout: JSON.stringify(source), exitCode: 0 };
+      issue = reason === 'malformed target' ? 'body' : 'report-path payload';
+    } else if (reason === 'transport failure') {
+      orcaFixture.inbox.exitCode = null;
+    }
+    const refused = await orchestrateOrcaWorker(
+      { action: 'ingest-report', recordId: record.recordId, messageId: 'msg_report' },
+      env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(refused).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_ORCA_REPORT_SOURCE',
+        message: expect.stringContaining(`"exitCode":${orcaFixture.inbox.exitCode}`),
+      },
+    });
+    expect(refused).toMatchObject({
+      error: { message: expect.stringContaining('source diagnostic') },
+    });
+    expect(refused).toMatchObject({ error: { message: expect.stringContaining(issue) } });
+    await expectCustody();
+  });
+
   it('deduplicates concurrent delivery, CLI restart and a second event for the same logical report', async () => {
     const [first, concurrent] = await Promise.all([ingest(), ingest()]);
     expect(concurrent.report).toEqual(first.report);
@@ -255,8 +380,7 @@ describe('Orca canonical worker report ingress', () => {
       orcaFixture.inbox = { stdout: '{broken', stderr: '', exitCode: 0 };
     else {
       const source = orcaReportSourceSchema.parse(JSON.parse(orcaFixture.inbox.stdout));
-      const message = source.result.messages?.[0];
-      if (!message) throw new Error('Missing fixture message');
+      const message = orcaReportMessageSchema.parse(source.result.messages?.[0]);
       if (reason === 'wrong-sender') {
         message.from_handle = 'term_other';
         message.sender_pane_key = 'pane_other';
@@ -268,6 +392,7 @@ describe('Orca canonical worker report ingress', () => {
           dispatchId: 'ctx_fixture',
           outcome: 'succeeded',
         });
+      source.result.messages = [message];
       orcaFixture.inbox = { stdout: JSON.stringify(source), stderr: '', exitCode: 0 };
     }
     await expect(ingest()).rejects.toThrow();
@@ -329,7 +454,36 @@ describe('Orca canonical worker report ingress', () => {
       join(launch.worktreePath, 'worker-report.txt'),
       REPORT.replace('report-fixture', 'wrong-report'),
     );
-    await expect(ingest()).rejects.toMatchObject({ code: 'E_ORCA_REPORT_MANIFEST' });
+    await expect(ingest()).rejects.toMatchObject({
+      code: 'E_ORCA_REPORT_MANIFEST',
+      fix: expect.stringContaining(
+        'completed implementation manifest whose linked_tasks includes T001',
+      ),
+    });
+    await expectCustody();
+  });
+
+  it('accepts the assigned task anywhere in the manifest linked_tasks', async () => {
+    const manifest = await pipelineManifestAppend(
+      {
+        id: 'multi-task-report',
+        file: 'multi-task-report.md',
+        title: 'Multiple task result',
+        date: '2026-11-11',
+        status: 'completed',
+        agent_type: 'implementation',
+        topics: ['orca'],
+        actionable: false,
+        linked_tasks: ['T002', 'T001'],
+      },
+      env.tempDir,
+    );
+    expect(manifest.success).toBe(true);
+    writeFileSync(
+      join(launch.worktreePath, 'worker-report.txt'),
+      REPORT.replace('report-fixture', 'multi-task-report'),
+    );
+    expect((await ingest()).report?.manifestId).toBe('multi-task-report');
     await expectCustody();
   });
 
