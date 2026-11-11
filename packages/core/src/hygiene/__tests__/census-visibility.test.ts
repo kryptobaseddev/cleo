@@ -36,29 +36,22 @@ vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
 }));
 
 // Round 7: census fixtures classify as OWN (main's behaviour).
-vi.mock('../../worktree/list.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../worktree/list.js')>()),
-  isOwnProjectRoot: vi.fn(() => true),
+vi.mock('../own-project.js', () => ({
+  isOwnProjectStore: vi.fn(() => true),
 }));
 
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  // T14440 round 5: the fixtures are foreign and cold, so the listing takes
-  // the immutable read-only path; the warm peek answers null.
-  isOwnProjectStore: vi.fn(() => false),
-  peekProjectTasksNative: vi.fn(() => null),
-  // The enrichment reads through the strictly read-only accessor.
-  openProjectTasksReadOnly: vi.fn(
+  // Round 6: the listing reads task statuses through getDb/getNativeTasksDb
+  // (main behaviour); the stub yields the rows the test set in TASKS.
+  getDb: vi.fn(async () => ({}) as never),
+  getNativeTasksDb: vi.fn(
     () =>
       ({
-        db: {
-          prepare: () => ({
-            all: (...ids: string[]) =>
-              ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) })),
-          }),
-        },
-        path: 'stub',
-        close: vi.fn(),
+        prepare: () => ({
+          all: (...ids: string[]) =>
+            ids.filter((id) => TASKS.has(id)).map((id) => ({ id, status: TASKS.get(id) })),
+        }),
       }) as never,
   ),
 }));

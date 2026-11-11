@@ -365,8 +365,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
   const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
-  const { projectStatusReadLabel } = await import('../worktree/list.js');
-  const { isOwnProjectStore } = await import('../worktree/own-project.js');
+  const { isOwnProjectStore } = await import('./own-project.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -609,8 +608,8 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   }));
   const branchesOf =
     opts.branchesOf ?? ((projectRoot: string) => mergedBranchCounts(projectRoot, deadline));
-  const rollups = await projectRollups(rows, registeredRollups, branchesOf, (projectRoot) =>
-    projectStatusReadLabel(projectRoot),
+  const rollups = await projectRollups(rows, registeredRollups, branchesOf, async (projectRoot) =>
+    statusReadLabel(projectRoot).catch(() => 'status unknown'),
   );
   const store = opts.pnpmStore === undefined ? pnpmStoreCensus(deadline) : null;
   outOfTime();
@@ -649,9 +648,8 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
  * review P2e), plus the orphan hash directories.
  *
  * Merged-branch probes run once per registered project (never for orphans);
- * a probe failure records `null`, never a zero. The store verdict is the
- * same read-only probe the listing's enrichment used, so `storeRead` names
- * exactly why task statuses are present or absent.
+ * a probe failure records `null`, never a zero. `storeRead` is the census's
+ * own status-read label ('read' / display snapshot / 'status unknown').
  *
  * @param rows - The census rows.
  * @param registered - Every registered project root and its hash.
@@ -659,6 +657,29 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
  * @param verdictOf - The foreign-store read verdict (tests stub it).
  * @returns Rollups keyed by hash dir and the orphan directories among them.
  */
+/**
+ * The census-only status-read label for one project (T14440, round 8): the
+ * own project reads through the normal accessor ('read'); a FOREIGN store is
+ * read only through the immutable, sidecar-free snapshot — labelled as a
+ * display snapshot that may lag uncommitted writes; an unavailable snapshot
+ * shows 'status unknown'. No removal decision consumes these reads.
+ *
+ * @param projectRoot - Absolute path to the project.
+ * @returns The display label.
+ */
+async function statusReadLabel(projectRoot: string): Promise<string> {
+  try {
+    const { isOwnProjectStore } = await import('./own-project.js');
+    if (isOwnProjectStore(projectRoot)) return 'read';
+    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
+    return projectStoreReadVerdict(projectRoot) === 'readable'
+      ? 'snapshot: may lag uncommitted writes'
+      : 'status unknown';
+  } catch {
+    return 'status unknown';
+  }
+}
+
 async function projectRollups(
   rows: readonly CensusRow[],
   registered: ReadonlyArray<{ project: string; projectHash: string }>,

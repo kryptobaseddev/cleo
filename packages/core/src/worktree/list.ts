@@ -49,7 +49,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
 import type {
   DisposeWorktreeResult,
   EngineResult,
@@ -61,11 +60,8 @@ import type {
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
-import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
-import { peekDomainAtPath } from '../store/ports/domain-binding.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
 import { worktreeInUseProbe } from './in-use-probe.js';
-import { isOwnProjectStore } from './own-project.js';
 import { readSentinelIndex, taskIdFromBranch, taskIdFromWorktreeDir } from './sentinel-index.js';
 
 export { taskIdFromBranch } from './sentinel-index.js';
@@ -255,9 +251,6 @@ export async function listWorktrees(
       taskId !== null && !taskStatusResult.success
         ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
         : classifyStatus(candidate ? proveRedundant(entry.path, taskId, isMerged) : null);
-    // T14440 (round 7): a FOREIGN project's statuses are display snapshots —
-    // they never make a row a disposal candidate here. The reaper runs
-    // own-project, so own rows keep main's behaviour exactly.
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -555,74 +548,24 @@ export async function loadOwningTaskStatuses(
   // drizzle-tasks migrations against the consolidated project `cleo.db` and
   // therefore guarantees the `tasks` family exists. The dual-scope consolidated
   // schema alone (openDualScopeDb) creates only `tasks_tasks`, not bare `tasks`.
-  // The listing still succeeds when the store fails, but the affected rows
-  // are unknown and can never become automatic deletion candidates.
-  //
-  // T14440 (census AC3): the census (and any caller) may list ANOTHER
-  // project's worktrees. The read goes through the strictly read-only
-  // accessor — `getDb` restores, seeds and migrates on open, a write — and
-  // only when the verdict says the schema is fully known and applied, so
-  // this query cannot even misread a foreign schema. Every other store is
-  // skipped with an error result; the listing degrades to
-  // `owningTaskStatus: null` and rows classified `unknown`.
   try {
-    // T14440 (census AC3, round-6 rescope): foreign task statuses are
-    // DISPLAY-ONLY snapshots. The own project reads through the normal
-    // accessor (fresh); a foreign store is read through the strictly
-    // read-only immutable snapshot — no sidecars, no migration — and the
-    // output labels it as possibly lagging uncommitted writes. No removal
-    // decision consumes these reads: the reaper's probe and disposal behave
-    // exactly as on main.
-    const warm = peekProjectTasksNative(projectRoot);
-    if (warm !== null) {
-      const placeholders = taskIds.map(() => '?').join(', ');
-      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-      const rows = warm.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-        id: string;
-        status: string;
-      }>;
-      for (const row of rows) out.set(row.id, row.status);
-      return engineSuccess(out);
+    const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
+    await getDb(projectRoot);
+    const db = getNativeTasksDb(projectRoot);
+    if (!db) {
+      // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
+      return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
+        fix: 'Run cleo doctor to diagnose the task store.',
+      });
     }
-    if (isOwnProjectStore(projectRoot)) {
-      const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
-      await getDb(projectRoot);
-      const db = getNativeTasksDb(projectRoot);
-      if (!db) {
-        // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
-        return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
-          fix: 'Run cleo doctor to diagnose the task store.',
-        });
-      }
-      const placeholders = taskIds.map(() => '?').join(', ');
-      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-      const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-        id: string;
-        status: string;
-      }>;
-      for (const row of rows) out.set(row.id, row.status);
-      return engineSuccess(out);
-    }
-    // Foreign: display-only immutable snapshot. A failed read shows
-    // 'status unknown' via an empty map (rows fall back to
-    // `owning task state unavailable`).
-    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
-    if (projectStoreReadVerdict(projectRoot) !== 'readable') return engineSuccess(out);
-    const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
-    const snap = openProjectTasksReadOnly(projectRoot);
-    if (snap === null) return engineSuccess(out);
-    try {
-      const placeholders = taskIds.map(() => '?').join(', ');
-      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-      const rows = snap.db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-        id: string;
-        status: string;
-      }>;
-      for (const row of rows) out.set(row.id, row.status);
-      return engineSuccess(out);
-    } finally {
-      snap.close();
-    }
+    const placeholders = taskIds.map(() => '?').join(', ');
+    const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+    const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+      id: string;
+      status: string;
+    }>;
+    for (const row of rows) out.set(row.id, row.status);
+    return engineSuccess(out);
   } catch (err) {
     // @sync-invariant none:local-only incomplete task-state coverage forbids local worktree disposal
     return engineError(
@@ -630,52 +573,6 @@ export async function loadOwningTaskStatuses(
       `Task lookup failed: ${err instanceof Error ? err.message : String(err)}`,
       { fix: 'Run cleo doctor to diagnose the task store.' },
     );
-  }
-}
-
-/**
- * The warm, OPEN tasks binding of THIS process for the exact store path —
- * taken without creating one, so no restore, seed or migration can run
- * (T14440, round 6). Reads through it see the process's own fresh writes.
- * Returns `null` when no warm binding exists.
- *
- * @param projectRoot - Absolute path to the project whose store to peek.
- * @returns The live native handle, or `null`.
- */
-function peekProjectTasksNative(projectRoot: string): DatabaseSync | null {
-  try {
-    const dbPath = resolvePath(resolveDualScopeDbPath('project', projectRoot));
-    const binding = peekDomainAtPath('project', dbPath, 'tasks');
-    if (binding === null || !binding.native.isOpen) return null;
-    return binding.native as DatabaseSync;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * How the listing reads task statuses for one project — also the census
- * rollup's display label (T14440, round 6).
- *
- * - `'read'` — the own project (or this process's warm binding): fresh.
- * - `'snapshot: may lag uncommitted writes'` — a foreign store read through
- *   the immutable, sidecar-free snapshot; display-only.
- * - `'status unknown'` — the snapshot is unavailable; the census shows no
- *   statuses.
- *
- * @param projectRoot - Absolute path to the project.
- * @returns The display label.
- */
-export async function projectStatusReadLabel(projectRoot: string): Promise<string> {
-  try {
-    if (peekProjectTasksNative(projectRoot) !== null || isOwnProjectStore(projectRoot))
-      return 'read';
-    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
-    return projectStoreReadVerdict(projectRoot) === 'readable'
-      ? 'snapshot: may lag uncommitted writes'
-      : 'status unknown';
-  } catch {
-    return 'status unknown';
   }
 }
 
