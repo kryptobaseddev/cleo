@@ -1662,7 +1662,9 @@ export function parseGitInvocation(argv: readonly string[]): GitInvocation | nul
 
 /**
  * What git says an alias expands to (`alias.<name>`), or `null` when `name`
- * is no alias. Given the command's git global options (`-C`, `-c`).
+ * is no alias or a command git has (a built-in, or an external in its exec
+ * path), which git runs instead. Given the command's git global options
+ * (`-C`, `-c`, `--exec-path`). Throws when git cannot answer.
  */
 export type GitAliasLookup = (name: string, globals: readonly string[]) => string | null;
 
@@ -1737,8 +1739,9 @@ function gitCommandKey(globals: readonly string[]): string | null {
  * so does an inline config key git runs ({@link gitCommandKey}) and an alias
  * that is a shell command (`alias.t = !pnpm test`), or a name the alias probe
  * could not answer for (a failure or timeout is never read as "no alias").
- * A git command ({@link GIT_COMMANDS}) is not probed: git ignores an alias
- * that hides one.
+ * The lookup answers `null` for a command git has, which it runs instead of
+ * the alias; no static list stands in for that, since a list cannot know a
+ * missing external (`git-mergetool` outside `--exec-path`).
  *
  * @param git - From {@link parseGitInvocation}.
  * @param aliasOf - What a git alias expands to.
@@ -1756,7 +1759,7 @@ function gitRunsCommand(git: GitInvocation, aliasOf: GitAliasLookup): string | n
     return 'git submodule foreach runs another command';
   }
   if (sub === 'filter-branch') return 'git filter-branch runs its filter commands';
-  if (sub === null || GIT_COMMANDS.has(sub)) return null;
+  if (sub === null) return null;
   let alias: string | null;
   try {
     alias = aliasOf(sub, git.globals);
@@ -1765,90 +1768,6 @@ function gitRunsCommand(git: GitInvocation, aliasOf: GitAliasLookup): string | n
   }
   return alias?.trimStart().startsWith('!') ? `git ${sub} is a shell alias` : null;
 }
-
-/**
- * Git's own commands (T14405). Git ignores an alias that hides one, so these
- * skip the alias probe, which keeps it off ordinary git runs. A command
- * missing here is only probed, never undercharged.
- */
-const GIT_COMMANDS: ReadonlySet<string> = new Set([
-  'add',
-  'am',
-  'apply',
-  'archive',
-  'bisect',
-  'blame',
-  'branch',
-  'bundle',
-  'cat-file',
-  'check-ignore',
-  'checkout',
-  'cherry',
-  'cherry-pick',
-  'clean',
-  'clone',
-  'commit',
-  'commit-tree',
-  'config',
-  'count-objects',
-  'describe',
-  'diff',
-  'diff-files',
-  'diff-index',
-  'diff-tree',
-  'difftool',
-  'fetch',
-  'for-each-ref',
-  'format-patch',
-  'fsck',
-  'gc',
-  'grep',
-  'hash-object',
-  'help',
-  'init',
-  'log',
-  'ls-files',
-  'ls-remote',
-  'ls-tree',
-  'maintenance',
-  'merge',
-  'merge-base',
-  'mergetool',
-  'mv',
-  'notes',
-  'prune',
-  'pull',
-  'push',
-  'range-diff',
-  'read-tree',
-  'rebase',
-  'reflog',
-  'remote',
-  'repack',
-  'replace',
-  'reset',
-  'restore',
-  'rev-list',
-  'rev-parse',
-  'revert',
-  'rm',
-  'shortlog',
-  'show',
-  'show-ref',
-  'sparse-checkout',
-  'stash',
-  'status',
-  'submodule',
-  'switch',
-  'symbolic-ref',
-  'tag',
-  'update-index',
-  'update-ref',
-  'var',
-  'version',
-  'worktree',
-  'write-tree',
-]);
 
 /** Client-side hooks a git subcommand runs that may do heavy work (T13452, T13458). */
 const GIT_HOOKS: Readonly<Record<string, readonly string[]>> = {

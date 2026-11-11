@@ -206,13 +206,17 @@ export function gitHookPath(cwd: string, hook: string, globals: readonly string[
  * --get-regexp` call. Git runs the last definition in config order; a shell
  * (`!`) definition anywhere is returned, so a configured `alias.x=status`
  * never masks a later `alias.x.command=!make`. The command's own global
- * options are passed through, so `-C <dir>` and an inline `-c alias.x=…`
- * count.
+ * options are passed through, so `-C <dir>`, `--exec-path` and an inline
+ * `-c alias.x=…` count. Git runs its own command before an alias of the same
+ * name, so the alias is read only when `git --list-cmds=main` (the built-ins
+ * and the commands in the exec path git would use) does not name `name`: an
+ * alias over a missing external such as `git-mergetool` is read and runs.
  *
  * @param cwd - Where the command runs.
  * @param name - The git subcommand that may be an alias.
  * @param globals - The command's git global options.
- * @returns The expansion, or `null` when git reports no such key.
+ * @returns The expansion, or `null` when git has a command `name` or reports
+ *   no such key.
  * @throws When git cannot answer (unreadable config, missing `-C` directory,
  *   timeout): the caller must not read that as "no alias".
  */
@@ -221,6 +225,8 @@ export function gitAlias(
   name: string,
   globals: readonly string[] = [],
 ): string | null {
+  const commands = git(cwd, globals, ['--list-cmds=main'], ALIAS_PROBE_TIMEOUT_MS);
+  if (commands.split('\n').includes(name)) return null;
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // The variable name is case-insensitive; a subsection is not.
   const pattern = `^alias\\.(${escaped.toLowerCase()}|${escaped}\\.command)$`;

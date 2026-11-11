@@ -2940,6 +2940,10 @@ describe('a git push is charged by what actually runs (T13452)', () => {
         return true;
       },
       unmeasured,
+      undefined,
+      undefined,
+      // T14405: /wt does not exist, so a real alias probe fails heavy first.
+      { gitAlias: () => null },
     );
     expect(calls).toEqual([['pre-push', ['-C', '/wt']]]);
     expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
@@ -3085,7 +3089,31 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     expect(cleared.footprintBytes).toBe(GIB);
   });
 
-  it('a failed or timed-out alias probe keeps the class plan, and git commands skip it (T14405)', () => {
+  it('an alias over a missing external git command keeps the class plan (T14405)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t14405-'));
+    const empty = mkdtempSync(join(tmpdir(), 'cleo-t14405-exec-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.mergetool', '!make'], { cwd: repo });
+      execFileSync('git', ['config', 'alias.status', '!make'], { cwd: repo });
+      // git-mergetool is no built-in: outside its exec path git runs the alias.
+      expect(gitAlias(repo, 'mergetool', [`--exec-path=${empty}`])).toBe('!make');
+      // A built-in, and an external git finds, run instead of the alias.
+      expect(gitAlias(repo, 'status', [`--exec-path=${empty}`])).toBeNull();
+      expect(gitAlias(repo, 'mergetool')).toBeNull();
+      const plan = (argv: readonly string[]) =>
+        planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, repo);
+      const shadowed = plan(['git', `--exec-path=${empty}`, 'mergetool']);
+      expect(shadowed.footprintBytes).toBeGreaterThan(GIB);
+      expect(shadowed.footprintReason).toBe('scoped-build plan: git mergetool is a shell alias');
+      expect(plan(['git', `--exec-path=${empty}`, 'status']).footprintBytes).toBe(GIB);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('a failed or timed-out alias probe keeps the class plan (T14405)', () => {
     const asked: string[] = [];
     const failing = (name: string): string | null => {
       asked.push(name);
@@ -3110,11 +3138,10 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     expect(unknown.footprintReason).toBe(
       'scoped-build plan: git mystery14405 may be an alias git could not be asked about',
     );
-    // A git command shadows any alias of its name, so it is never probed.
-    for (const sub of ['status', 'push', 'commit', 'fetch', 'log', 'diff', 'checkout']) {
-      expect(plan(['git', sub]).footprintBytes, sub).toBe(GIB);
-    }
-    expect(asked).toEqual(['mystery14405']);
+    // No static list vouches for a git command: the probe decides, so one it
+    // cannot answer for keeps the class plan too.
+    expect(plan(['git', 'mergetool']).footprintBytes).toBeGreaterThan(GIB);
+    expect(asked).toEqual(['mystery14405', 'mergetool']);
   });
 
   it('a git rebase with a post-checkout hook installed keeps the class plan (T14398)', () => {
