@@ -40,6 +40,10 @@ interface PrunePlan {
 
 const data = workerData as PrunePlanWorkerData;
 
+if (parentPort === null) {
+  throw new Error('prune-plan-worker requires a parent port');
+}
+
 try {
   const worktree = createRequire(data.requireFrom)('@cleocode/worktree') as {
     buildGitAwarePrunePlan: (repoRoot: string, integrationTarget: string) => PrunePlan | null;
@@ -54,5 +58,6 @@ try {
     writeFileSync(data.markerPath, 'done');
   }
 } catch (err) {
-  parentPort.postMessage({ error: String((err && err.message) || err) });
+  const message = err instanceof Error ? err.message : String(err);
+  parentPort.postMessage({ error: message });
 }
