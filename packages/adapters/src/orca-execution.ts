@@ -482,12 +482,27 @@ export class OrcaExecutionBackend implements OrcaExecutionAdapter {
         else if (value.state === 'failed') state = 'failed';
       }
       const failureCount = Math.max(attempt.failureCount, value?.failureCount ?? 0);
+      const pending = reply.error?.data;
+      const recoveredDispatchId =
+        !reply.ok &&
+        reply.error?.code === 'operation_unknown' &&
+        reply._meta?.runtimeId === attempt.context.runtimeId &&
+        requestId &&
+        requestId === (attempt.startRequestKey ?? attempt.startRequestId) &&
+        pending?.requestId === requestId &&
+        pending.orchestrationRequestId === requestId &&
+        pending.dispatchId !== attempt.retryOf &&
+        (!attempt.dispatchId || attempt.dispatchId === pending.dispatchId)
+          ? pending.dispatchId
+          : null;
       return {
         ...attempt,
         state: failureCount >= 3 ? 'circuit_broken' : state,
         runId: bound ? (value.runId ?? value.run?.id ?? null) : attempt.runId,
         orcaTaskId: bound ? (value.taskId ?? null) : attempt.orcaTaskId,
-        dispatchId: bound ? (value.dispatchId ?? null) : attempt.dispatchId,
+        dispatchId: bound
+          ? (value.dispatchId ?? null)
+          : (recoveredDispatchId ?? attempt.dispatchId),
         startRequestId:
           attempt.startRequestKey ??
           attempt.startRequestId ??
