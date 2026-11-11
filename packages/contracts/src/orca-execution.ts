@@ -6,6 +6,14 @@
  */
 import { z } from 'zod';
 
+/** Current public Orca launch APIs cannot carry the native lead's enforced guards. */
+export const ORCA_LEAD_LAUNCH_REFUSAL = {
+  code: 'E_LEAD_TOOLS_UNSTRIPPED',
+  message:
+    'Orca cannot enforce lead tool/permission restrictions (--restricted, --tools, --allowedTools, --disallowedTools, --permission-mode, --setting-sources), strict MCP isolation (--mcp-config, --strict-mcp-config), or the owner channel and own session (--session-id, --settings, inherited owner terminal or validated user-only mbx) before launch.',
+  fix: 'Run cleo orchestrate lead <epicId> --adapter claude-code for the enforced native lead route, including inside Orca, with validated user-scope mbx for --detached; keep orchestrate.leadWorker.v1 enabled. The Orca backend needs a constrained launch API carrying these argv/settings before it can start a lead.',
+} as const;
+
 const identifier = z.string().min(1);
 
 /** Orca server agent ids supported by the local routing contract. */

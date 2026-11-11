@@ -16,6 +16,7 @@ import type {
   OrcaRoutingAdapter,
 } from '@cleocode/contracts/orca-execution.js';
 import {
+  ORCA_LEAD_LAUNCH_REFUSAL,
   orcaAccountReplySchema,
   orcaCommandRegistrySchema,
   orcaContextSchema,
@@ -386,9 +387,9 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     }
     if (launch.role === 'lead') {
       throw new OrcaExecutionError(
-        'E_LEAD_TOOLS_UNSTRIPPED',
-        'Orca cannot enforce the lead denied tools, strict MCP allowlist and owner channel before launch.',
-        'Use an enforced native lead route until Orca exposes constrained launch; keep leadWorker.v1 enabled.',
+        ORCA_LEAD_LAUNCH_REFUSAL.code,
+        ORCA_LEAD_LAUNCH_REFUSAL.message,
+        ORCA_LEAD_LAUNCH_REFUSAL.fix,
       );
     }
     if (launch.accountId !== undefined) {

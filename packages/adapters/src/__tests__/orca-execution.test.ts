@@ -1,5 +1,5 @@
 import type { OrcaAttempt } from '@cleocode/contracts/orca-execution.js';
-import { orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
+import { ORCA_AGENT_HARNESSES, orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionBackend } from '../orca-execution.js';
 import {
@@ -320,6 +320,29 @@ describe('Orca execution process boundary', () => {
     expect(fixtureRunner.mock.calls.find(([, args]) => args[1] === 'worker-start')?.[1]).toContain(
       'opencode2',
     );
+  });
+
+  it.each(
+    Object.values(ORCA_AGENT_HARNESSES),
+  )('refuses an explicit Orca %s lead before a failed account inventory can mask its guard', async (harness) => {
+    orcaFixture.accounts = { stdout: '', stderr: 'inventory unavailable', exitCode: 1 };
+    const launch = { ...fixtureLaunch, role: 'lead' as const, harness };
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    expect(backend.leadToolStrip).toBe('unsupported');
+    for (const invoke of [
+      () => backend.preflight(launch, fixtureContext),
+      () => backend.start(fixtureAttempt({ launch })),
+    ]) {
+      await expect(invoke()).rejects.toMatchObject({
+        code: 'E_LEAD_TOOLS_UNSTRIPPED',
+        exitCode: 63,
+        message: expect.stringMatching(
+          /--tools.*--permission-mode.*strict MCP.*owner channel.*--session-id/,
+        ),
+        fix: expect.stringContaining('keep orchestrate.leadWorker.v1 enabled'),
+      });
+    }
+    expect(fixtureRunner).not.toHaveBeenCalled();
   });
 
   it('refuses a changed runtime and an incomplete command registry before launch', async () => {
