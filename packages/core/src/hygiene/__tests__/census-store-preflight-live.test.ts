@@ -93,6 +93,7 @@ function journalCount(path: string): number {
 
 const prevHome = process.env['CLEO_HOME'];
 const prevCleoDir = process.env['CLEO_DIR'];
+const prevCleoRoot = process.env['CLEO_ROOT'];
 let base: string;
 let recordDir: string;
 let projectRoot: string;
@@ -143,6 +144,8 @@ afterEach(async () => {
   else process.env['CLEO_HOME'] = prevHome;
   if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
   else process.env['CLEO_DIR'] = prevCleoDir;
+  if (prevCleoRoot === undefined) delete process.env['CLEO_ROOT'];
+  else process.env['CLEO_ROOT'] = prevCleoRoot;
   rmSync(base, { recursive: true, force: true });
 });
 
@@ -348,6 +351,11 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     const other = new DatabaseSync(pinnedDb);
     other.prepare("UPDATE tasks_tasks SET status = 'pending' WHERE id = 'T1'").run();
     other.close();
+    writeFileSync(
+      join(projectRoot, '.cleo', 'project.json'),
+      JSON.stringify({ schemaVersion: 1, id: 'fixture-project', name: 'proj' }),
+    );
+    process.env['CLEO_ROOT'] = projectRoot;
     process.env['CLEO_DIR'] = pinned;
     const before = storeFingerprint(dbPath);
     const pinnedBefore = storeFingerprint(pinnedDb);
@@ -356,6 +364,9 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     const out = await runWorktreeCensus({ projects: [projectRoot], recordDir, pnpmStore: null });
     if ('skipped' in out) throw new Error(out.skipped);
     expect(out.record.rows.find((r) => r.taskId === 'T1')?.taskStatus).toBe('done');
+    expect(out.record.rows.find((r) => r.taskId === 'T1')?.keepReason).toBe(
+      'unknown (foreign project)',
+    );
     expect(getDbCalls.calls).toEqual([]);
     expect(storeFingerprint(dbPath)).toBe(before);
     expect(storeFingerprint(pinnedDb)).toBe(pinnedBefore);

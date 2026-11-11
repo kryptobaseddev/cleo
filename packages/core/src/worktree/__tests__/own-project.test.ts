@@ -63,6 +63,32 @@ afterEach(() => {
 describe('isOwnProjectStore — strict own decision (T14440 rounds 6-7)', () => {
   it('an identical realpath and matching id is own', () => {
     expect(isOwnProjectStore(own, own)).toBe(true);
+    writeFileSync(join(own, '.cleo', 'cleo.db'), 'own store');
+    expect(isOwnProjectStore(own, own)).toBe(true);
+  });
+
+  it('a conflicting CLEO_DIR cannot redirect the own project to a foreign store', () => {
+    const previousRoot = process.env['CLEO_ROOT'];
+    process.env['CLEO_ROOT'] = own;
+    process.env['CLEO_DIR'] = join(foreign, '.cleo');
+    try {
+      expect(isOwnProjectStore(own)).toBe(false);
+    } finally {
+      if (previousRoot === undefined) delete process.env['CLEO_ROOT'];
+      else process.env['CLEO_ROOT'] = previousRoot;
+    }
+  });
+
+  it('a store file symlink to foreign metadata is not own', () => {
+    const foreignStore = join(foreign, '.cleo', 'cleo.db');
+    writeFileSync(foreignStore, 'foreign store');
+    symlinkSync(foreignStore, join(own, '.cleo', 'cleo.db'));
+    expect(isOwnProjectStore(own, own)).toBe(false);
+  });
+
+  it('a dangling store symlink cannot authorize creating a foreign store', () => {
+    symlinkSync(join(foreign, '.cleo', 'missing.db'), join(own, '.cleo', 'cleo.db'));
+    expect(isOwnProjectStore(own, own)).toBe(false);
   });
 
   it('a matching realpath without a declared id is foreign', () => {

@@ -17,9 +17,9 @@
  * @packageDocumentation
  */
 
-import { realpathSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
-import { readProjectManifest } from '@cleocode/paths';
+import { lstatSync, realpathSync } from 'node:fs';
+import { dirname, resolve as resolvePath } from 'node:path';
+import { projectManifestPath, readProjectManifest } from '@cleocode/paths';
 import { getProjectRoot } from '../paths.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 
@@ -49,6 +49,11 @@ export function isOwnProjectStore(projectRoot: string, ownRoot?: string): boolea
     const ownStore = resolvePath(resolveDualScopeDbPath('project', own));
     const targetStore = resolvePath(resolveDualScopeDbPath('project', projectRoot));
     if (ownStore !== targetStore) return false;
+    // Overrides and file symlinks must not redirect an own project to foreign metadata.
+    const storeDirectory = lstatSync(ownStore, { throwIfNoEntry: false })
+      ? dirname(realpathSync(ownStore))
+      : realpathSync(dirname(ownStore));
+    if (storeDirectory !== realpathSync(dirname(projectManifestPath(own)))) return false;
     const targetId = readProjectIdentityId(projectRoot);
     const ownId = readProjectIdentityId(own);
     // Strict: a missing identity on either side is any doubt → foreign.
