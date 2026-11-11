@@ -135,6 +135,7 @@ import { isLeadWorkerV1Enabled, resolveIsolation } from './isolation-policy.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
 import {
   abandonWorkerRecord,
+  findOrcaWorker,
   newWorkerInstanceId,
   recordWorker,
   settleWorkerAtSpawn,
@@ -142,6 +143,24 @@ import {
 } from './worker-records.js';
 
 export type { EngineResult };
+
+/** Refuse every spawn entry point while an external attempt retains custody. */
+function orcaCustodyRefusal(record: WorkerRecord): EngineResult {
+  // @sync-invariant none:local-only an external editor may still run even after its launch CLI disappeared
+  return engineError(
+    'E_ORCA_ATTEMPT_FENCED',
+    `Task ${record.taskId} has a retained Orca execution attempt.`,
+    {
+      details: {
+        recordId: record.recordId,
+        state: record.execution?.state,
+        dispatchId: record.execution?.dispatchId,
+        runtimeId: record.execution?.context.runtimeId,
+      },
+      fix: 'Inspect the stored runtime, Dispatch and issued request; recover that exact attempt before dispatching another editor.',
+    },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // T9545 — Spawn pipeline timeout supervisor
@@ -854,6 +873,14 @@ export async function orchestrateSpawnExecute(
   /** T14359 — worker record written before spawn (only with `orchestrate.leadWorker.v1`). */
   let pendingWorker: WorkerRecord | null = null;
   try {
+    const custodyBudget = new AbortController();
+    const custodyTimer = setTimeout(() => custodyBudget.abort(), SPAWN_BUDGET_MS);
+    const external = await raceAgainstAbort(
+      findOrcaWorker(taskId, cwd),
+      custodyBudget.signal,
+      'validate-readiness',
+    ).finally(() => clearTimeout(custodyTimer));
+    if (external) return orcaCustodyRefusal(external);
     // Get spawn registry
     await initializeDefaultAdapters();
 
@@ -1621,6 +1648,12 @@ export async function orchestrateSpawn(
 
   try {
     const root = getProjectRoot(projectRoot);
+    const external = await raceAgainstAbort(
+      findOrcaWorker(taskId, root),
+      budgetCtrl.signal,
+      'validate-readiness',
+    );
+    if (external) return orcaCustodyRefusal(external);
     partialState.rootResolved = root;
     spawnLogger.info(
       { taskId, tier, noWorktree, budgetMs: SPAWN_BUDGET_MS },

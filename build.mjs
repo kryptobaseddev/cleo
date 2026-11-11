@@ -573,6 +573,7 @@ const adaptersBuildOptions = {
   entryPoints: [
     'packages/adapters/src/index.ts',
     'packages/adapters/src/manifests.ts',
+    'packages/adapters/src/orca-execution.ts',
     'packages/adapters/src/heavy-command-hook.ts',
     'packages/adapters/src/project-hook-delivery.ts',
     'packages/adapters/src/project-hook-native.ts',
