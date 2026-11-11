@@ -33,10 +33,10 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 // ---------------------------------------------------------------------------
-// Mock the project tasks store (E6-L6 / T11526): loadOwningTaskStatuses reads
-// task statuses through the strictly read-only accessor (T14440) against the
-// consolidated project cleo.db. We stub the accessor so it yields the rows the
-// current test configured via `MOCK_TASK_ROWS`.
+// Mock the project tasks store (E6-L6 / T11526): loadOwningTaskStatuses now
+// resolves task statuses via getDb()/getNativeTasksDb() against the consolidated
+// project cleo.db (which carries the legacy `tasks` table). We stub the native
+// handle so it yields the rows the current test configured via `MOCK_TASK_ROWS`.
 // ---------------------------------------------------------------------------
 const MOCK_TASK_ROWS = new Map<string, string>();
 const stubNativeTasksDb = {
@@ -47,27 +47,12 @@ const stubNativeTasksDb = {
         .map((id) => ({ id, status: MOCK_TASK_ROWS.get(id) })),
   }),
 };
-// The foreign-store verdict is stubbed readable: these fixtures' project
-// roots are fake paths with no `.cleo/`, and the real probe would skip the
-// (mocked) store (T14440 review P1a). The live, mock-free preflight test is
-// census-store-preflight-live.test.ts.
-vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../doctor/migrations.js')>()),
-  projectStoreReadVerdict: vi.fn(() => 'readable'),
-}));
-
 vi.mock('../../store/sqlite.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../store/sqlite.js')>();
   return {
     ...actual,
-    openProjectTasksReadOnly: vi.fn(
-      () =>
-        ({
-          db: stubNativeTasksDb,
-          path: 'stub',
-          close: vi.fn(),
-        }) as never,
-    ),
+    getDb: vi.fn(async () => ({}) as never),
+    getNativeTasksDb: vi.fn(() => stubNativeTasksDb as never),
   };
 });
 
