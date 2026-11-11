@@ -11,7 +11,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
@@ -29,7 +37,11 @@ vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
 
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  // T14440: the enrichment reads through the strictly read-only accessor.
+  // T14440 round 5: the fixtures are foreign and cold, so the listing takes
+  // the immutable read-only path; the warm peek answers null.
+  isOwnProjectStore: vi.fn(() => false),
+  peekProjectTasksNative: vi.fn(() => null),
+  // The enrichment reads through the strictly read-only accessor.
   openProjectTasksReadOnly: vi.fn(
     () =>
       ({
@@ -199,16 +211,24 @@ describe('census visibility fields (T14440 AC1)', () => {
     expect(counts.mergedRemote).toBe(1); // origin/ship; origin/HEAD excluded
   });
 
-  it('terminates a slow probe at the deadline and resolves only after the worker exits', async () => {
+  it('terminates a slow probe at the deadline; the completion marker never appears', async () => {
     // The running cleocode checkout: hundreds of branches make the SDK walk
     // outlive a 5 ms deadline, so the worker is terminated mid-run. The
-    // promise resolves on the worker's `exit` — after `terminate()` completes
-    // — so the caller never releases a lock over a live native walk.
+    // worker writes its marker only after the walk COMPLETES — an absent
+    // marker proves the termination happened before the walk finished, and
+    // the promise resolves on the worker's `exit` (after `terminate()`).
     const repo = process.cwd();
-    const t0 = Date.now();
-    const plan = await prunePlanBounded(repo, 'main', Date.now() + 5);
+    const marker = join(base, 'killed.marker');
+    const plan = await prunePlanBounded(repo, 'main', Date.now() + 5, marker);
     expect(plan).toBeNull();
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(5);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('control: an unconstrained probe completes and writes the marker', async () => {
+    const repo = process.cwd();
+    const marker = join(base, 'completed.marker');
+    await prunePlanBounded(repo, 'main', Number.POSITIVE_INFINITY, marker);
+    expect(existsSync(marker)).toBe(true);
   });
 
   it('an infinite deadline sets no timer: the probe runs to completion', async () => {

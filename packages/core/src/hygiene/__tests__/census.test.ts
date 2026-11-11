@@ -46,7 +46,11 @@ vi.mock('../../orchestrate/worker-records.js', () => ({
 }));
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
-  // T14440: the enrichment reads through the strictly read-only accessor.
+  // T14440 round 5: the fixtures are foreign and cold, so the listing takes
+  // the immutable read-only path; the warm peek answers null.
+  isOwnProjectStore: vi.fn(() => false),
+  peekProjectTasksNative: vi.fn(() => null),
+  // The enrichment reads through the strictly read-only accessor.
   openProjectTasksReadOnly: vi.fn(
     () =>
       ({

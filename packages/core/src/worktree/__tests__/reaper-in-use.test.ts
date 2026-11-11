@@ -20,6 +20,14 @@ vi.mock('../../orchestrate/worker-records.js', () => ({
   listWorkerRecords: vi.fn(),
   listWorkerRecordsReadOnly: vi.fn(),
 }));
+// The own-project and WAL checks are stubbed so the fixture tmpdir (whose
+// `.cleo` resolution would fall through to the running checkout) stays
+// foreign and read-safe; the store-read failure path is the rejected mock.
+vi.mock('../../store/sqlite.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../store/sqlite.js')>()),
+  isOwnProjectStore: vi.fn(() => false),
+  projectStoreWalPending: vi.fn(() => false),
+}));
 vi.mock('node:child_process', async (original) => {
   const actual = await original<typeof import('node:child_process')>();
   return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
@@ -99,7 +107,10 @@ describe('reaper inactivity proof', () => {
     vi.mocked(listWorkerRecordsReadOnly).mockResolvedValue([worker]);
     expect((await worktreeReaperInUseProbe(base, 'T1', path))()).toContain('worker record');
     vi.mocked(listWorkerRecordsReadOnly).mockRejectedValueOnce(new Error('store unreadable'));
-    expect((await worktreeReaperInUseProbe(base, 'T1', path))()).toContain('unavailable');
+    // Round 5: every failed foreign read fails closed under one reason.
+    expect((await worktreeReaperInUseProbe(base, 'T1', path))()).toContain(
+      'unknown: store has uncommitted WAL or could not be read without writing',
+    );
   });
 
   it('keeps a live session lease and fails closed on malformed lease ownership without deleting it', async () => {

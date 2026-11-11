@@ -559,64 +559,72 @@ export async function loadOwningTaskStatuses(
   // skipped with an error result; the listing degrades to
   // `owningTaskStatus: null` and rows classified `unknown`.
   try {
-    const { hasProjectTasksBinding } = await import('../store/sqlite.js');
-    if (hasProjectTasksBinding(projectRoot)) {
-      // A warm binding exists: this process already opened that store through
-      // the chokepoint (a same-process flow such as a completion releasing its
-      // own worktree). Reading through it writes nothing new and — unlike an
-      // immutable snapshot — sees this process's own fresh writes.
-      const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
-      await getDb(projectRoot);
-      const db = getNativeTasksDb(projectRoot);
-      if (!db) {
+    // T14440 (census AC3, round-5 design): decide OWN once, up front.
+    // - Own project: the normal accessor — this process's own store, its
+    //   warm binding sees fresh writes and opens nothing new.
+    // - Foreign store with an uncheckpointed WAL: an immutable read cannot
+    //   see transactions still living in the WAL, so the statuses would be
+    //   stale and must not authorize anything — error, rows stay `unknown`.
+    // - Otherwise foreign: the strictly read-only immutable snapshot.
+    const { isOwnProjectStore, peekProjectTasksNative } = await import('../store/sqlite.js');
+    // A warm, OPEN binding for this exact store reads fresh (it sees this
+    // process's own writes) and opens nothing new — check it FIRST and take
+    // the handle from the same peek, so no await-then-getDb eviction race
+    // exists (T14440 round 5).
+    const warm = peekProjectTasksNative(projectRoot);
+    if (warm === null && !isOwnProjectStore(projectRoot)) {
+      const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
+      const verdict = projectStoreReadVerdict(projectRoot);
+      if (verdict === 'not read: missing store') {
+        // A missing store is definitive absence, not unavailability: the
+        // project never initialised CLEO, so there is provably no task row
+        // for any taskId and the taskless-candidate flow (T14274) applies.
+        // Success with an empty map — and nothing was opened or created.
+        return engineSuccess(out);
+      }
+      if (verdict !== 'readable') {
         // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
-        return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
+        return engineError('E_TASK_STATE_UNAVAILABLE', `Task store ${verdict}`, {
           fix: 'Run cleo doctor to diagnose the task store.',
         });
       }
-      const placeholders = taskIds.map(() => '?').join(', ');
-      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-      const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-        id: string;
-        status: string;
-      }>;
-      for (const row of rows) out.set(row.id, row.status);
-      return engineSuccess(out);
+      const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
+      const snap = openProjectTasksReadOnly(projectRoot);
+      if (snap === null) {
+        // The store vanished between the verdict and the open: definitive
+        // absence at read time, no statuses — not a failure.
+        return engineSuccess(out);
+      }
+      try {
+        const placeholders = taskIds.map(() => '?').join(', ');
+        const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+        const rows = snap.db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+          id: string;
+          status: string;
+        }>;
+        for (const row of rows) out.set(row.id, row.status);
+        return engineSuccess(out);
+      } finally {
+        snap.close();
+      }
     }
-    const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
-    const verdict = projectStoreReadVerdict(projectRoot);
-    if (verdict === 'not read: missing store') {
-      // A missing store is definitive absence, not unavailability: the project
-      // never initialised CLEO, so there is provably no task row for any
-      // taskId and the taskless-candidate flow (T14274) applies. Success with
-      // an empty map — and, per AC3, nothing was opened or created.
-      return engineSuccess(out);
-    }
-    if (verdict !== 'readable') {
+    const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
+    if (warm === null) await getDb(projectRoot);
+    const db = warm ?? getNativeTasksDb(projectRoot);
+    if (!db) {
       // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
-      return engineError('E_TASK_STATE_UNAVAILABLE', `Task store ${verdict}`, {
+      return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
         fix: 'Run cleo doctor to diagnose the task store.',
       });
     }
-    const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
-    const snap = openProjectTasksReadOnly(projectRoot);
-    if (snap === null) {
-      // The store vanished between the verdict and the open: definitive
-      // absence at read time, no statuses — not a failure.
-      return engineSuccess(out);
-    }
-    try {
-      const placeholders = taskIds.map(() => '?').join(', ');
-      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
-      const rows = snap.db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
-        id: string;
-        status: string;
-      }>;
-      for (const row of rows) out.set(row.id, row.status);
-      return engineSuccess(out);
-    } finally {
-      snap.close();
-    }
+    const placeholders = taskIds.map(() => '?').join(', ');
+    const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+    const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+      id: string;
+      status: string;
+    }>;
+    for (const row of rows) out.set(row.id, row.status);
+    return engineSuccess(out);
   } catch (err) {
     // @sync-invariant none:local-only incomplete task-state coverage forbids local worktree disposal
     return engineError(

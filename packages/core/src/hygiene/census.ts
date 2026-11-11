@@ -57,7 +57,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, setPriority } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import type { WorktreeInfo, WorktreeStatusCategory } from '@cleocode/contracts';
@@ -703,12 +703,35 @@ async function projectRollups(
   return { rollups: [...byHash.values()], orphans };
 }
 
+/** The plan shape the worker returns (a subset of the SDK prune plan). */
+export interface BoundedPrunePlan {
+  candidates: Array<{ kind: string; branch?: string | undefined }>;
+}
+
+/** Where the compiled worker file lives, or `null` (resolveWorkerPath pattern). */
+function resolvePrunePlanWorkerPath(): string | null {
+  try {
+    const currentDir = dirname(fileURLToPath(import.meta.url));
+    // dist build: the compiled .js next to census.js; vitest/source: the .ts
+    // sibling (Node 24 type stripping runs it, and it exists in the checkout).
+    for (const name of ['prune-plan-worker.js', 'prune-plan-worker.ts']) {
+      const candidate = join(currentDir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The SDK integration probe, run in a worker thread that the shared deadline
- * TERMINATES (T14440 review round 3): the napi `pruneWorktrees` walk over a
- * large repository is synchronous and uninterruptible in-process, so it runs
- * off-thread and a deadline overrun kills it. Any failure yields `null` - a
- * failed probe is never a zero.
+ * The SDK integration probe, run in a Worker built from a REAL module file
+ * (never eval — an eval worker inherits the parent's `--input-type=module`
+ * and cannot bootstrap) that the shared deadline TERMINATES (T14440, round 5).
+ * The napi `pruneWorktrees` walk over a large repository is synchronous and
+ * uninterruptible in-process, so it runs off-thread and a deadline overrun
+ * kills it before the census releases its lock. Any failure yields `null` —
+ * a failed probe is never a zero.
  *
  * @param repoRoot - The repository root to probe.
  * @param integrationTarget - The branch "merged" is tested against.
@@ -719,30 +742,27 @@ export async function prunePlanBounded(
   repoRoot: string,
   integrationTarget: string,
   deadline: number,
-): Promise<{ candidates: Array<{ kind: string; branch?: string | undefined }> } | null> {
+  /** Test hook: the worker writes this file only if the walk completes. */
+  markerPath?: string,
+): Promise<BoundedPrunePlan | null> {
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) return null;
-  // `require` from this module's directory so the worker resolves the
-  // workspace package the same way the census does (eval workers resolve from
-  // cwd otherwise).
-  const requireFrom = fileURLToPath(import.meta.url);
-  const worker = new Worker(
-    `const { parentPort, workerData } = require('node:worker_threads');
-(async () => {
-  try {
-    const { createRequire } = require('node:module');
-    const wt = createRequire(workerData.requireFrom)('@cleocode/worktree');
-    const plan = wt.buildGitAwarePrunePlan(workerData.repoRoot, workerData.integrationTarget);
-    parentPort.postMessage({ plan });
-  } catch (err) {
-    parentPort.postMessage({ error: String((err && err.message) || err) });
+  const workerPath = resolvePrunePlanWorkerPath();
+  if (workerPath === null) {
+    // No worker file (unexpected — the build emits it next to this module):
+    // fall back in-process. Not interruptible; the census re-checks the
+    // deadline afterwards and marks the record partial.
+    const { buildGitAwarePrunePlan } = await import('@cleocode/worktree');
+    return buildGitAwarePrunePlan(repoRoot, integrationTarget) as BoundedPrunePlan | null;
   }
-})();`,
-    {
-      eval: true,
-      workerData: { repoRoot, integrationTarget, requireFrom },
+  const worker = new Worker(workerPath, {
+    workerData: {
+      requireFrom: fileURLToPath(import.meta.url),
+      repoRoot,
+      integrationTarget,
+      markerPath,
     },
-  );
+  });
   // Resolution contract: the plan resolves on `message`; a deadline
   // termination resolves only on `exit` — which fires after `terminate()`
   // completes — so the census never releases its lock while the worker's
@@ -754,7 +774,7 @@ export async function prunePlanBounded(
   let received: PrunePlanWorkerMessage | null = null;
   return new Promise((resolvePromise) => {
     let settled = false;
-    const settle = (value: { candidates: Array<{ kind: string; branch?: string }> } | null) => {
+    const settle = (value: BoundedPrunePlan | null) => {
       if (settled) return;
       settled = true;
       if (timer !== null) clearTimeout(timer);
@@ -799,7 +819,7 @@ export async function mergedBranchCounts(
     repoRoot: string,
     integrationTarget: string,
     deadline: number,
-  ) => Promise<{ candidates: Array<{ kind: string; branch?: string }> } | null> = prunePlanBounded,
+  ) => Promise<BoundedPrunePlan | null> = prunePlanBounded,
 ): Promise<{ mergedLocal: number | null; mergedRemote: number | null }> {
   if (Date.now() > deadline) return { mergedLocal: null, mergedRemote: null };
   let mergedLocal: number | null = null;

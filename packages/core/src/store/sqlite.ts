@@ -22,8 +22,16 @@
  * @task T11521 - E6-L1: route getDb through openDualScopeDb (SG-DB-SUBSTRATE-V2)
  */
 
-import { copyFileSync, existsSync, realpathSync, renameSync, unlinkSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 // T11280: `drizzle` is loaded LAZILY (see ./drizzle-node-sqlite.ts) rather than
 // via a top-level value import. drizzle-orm/node-sqlite/driver.js statically
@@ -34,6 +42,7 @@ import { eq } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { getProjectRoot } from '../paths.js';
 import { loadNodeSqliteDrizzle } from './drizzle-node-sqlite.js';
 // T11521: dual-scope chokepoint — all tasks.db opens now flow through here.
 // openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
@@ -1023,43 +1032,112 @@ export function getNativeTasksDb(cwd?: string): DatabaseSync | null {
 }
 
 /**
- * Whether THIS process already holds a warm writable tasks binding for the
- * project's store (T14440, census AC3).
+ * Whether the target project is the CURRENT process's own project (T14440,
+ * census AC3, round-5 design): decided once, up front, by comparing the
+ * target's realpath and its `.cleo/project.json` identity with the current
+ * process's resolved project — never a binding-cache lookup, never through
+ * ALS/CLEO_DIR pins, which can redirect an explicit root. Only the own
+ * project may use the normal store accessor; every other store goes through
+ * {@link openProjectTasksReadOnly}. Any doubt (unresolvable path, missing
+ * identity, mismatched ids) answers `false` — fail closed.
  *
- * Same-process flows (a completion releasing its own worktree, an in-use
- * probe for the current project) read through that binding: it is already
- * open — no restore, seed or migration can run — and it sees their own
- * fresh writes, which an immutable snapshot would miss. A COLD store,
- * especially another project's, must go through
- * {@link openProjectTasksReadOnly} instead.
+ * @param projectRoot - Absolute path to the project whose store is wanted.
+ * @param ownRoot - The current process's project root (tests inject it;
+ *   default: the process's resolved project).
+ * @returns True when the target IS the own project.
+ */
+export function isOwnProjectStore(projectRoot: string, ownRoot?: string): boolean {
+  try {
+    const own = ownRoot ?? getProjectRoot();
+    const ownStore = resolve(resolveDualScopeDbPath('project', own));
+    const targetStore = resolve(resolveDualScopeDbPath('project', projectRoot));
+    if (ownStore !== targetStore) return false;
+    // Same store path; still require the realpath and the project identity to
+    // agree, so an alias or symlink to a foreign store never counts as own.
+    if (realpathSync(projectRoot) !== realpathSync(own)) return false;
+    const targetId = readProjectIdentityId(projectRoot);
+    const ownId = readProjectIdentityId(own);
+    if (targetId !== null && ownId !== null && targetId !== ownId) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The write-once `.cleo/project.json` id of a project, or `null` when absent/unreadable. */
+function readProjectIdentityId(projectRoot: string): string | null {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(
+        join(resolveDualScopeDbPath('project', projectRoot), '..', 'project.json'),
+        'utf-8',
+      ),
+    ) as { id?: string };
+    return typeof parsed.id === 'string' ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a project's store has an uncheckpointed WAL (a `-wal` file with
+ * nonzero size). An immutable read cannot see transactions still living in
+ * the WAL, so a foreign store in this state is skipped and the in-use probe
+ * fails closed (T14440, census AC3, round-5 design).
  *
  * @param projectRoot - Absolute path to the project whose store to check.
- * @returns True when a warm writable tasks binding exists.
+ * @returns True when uncheckpointed WAL frames exist.
  */
-export function hasProjectTasksBinding(projectRoot: string): boolean {
+/**
+ * The native tasks handle of THIS process's warm, OPEN binding for the
+ * project's store — without creating one (T14440, census AC3, round 5).
+ *
+ * A warm binding is already open (no restore, seed or migration can run) and
+ * sees this process's own fresh writes, so same-process flows read through
+ * it; everything cold goes through {@link openProjectTasksReadOnly} or the
+ * normal accessor for the own project.
+ *
+ * @param projectRoot - Absolute path to the project whose binding to peek.
+ * @returns The live native handle, or `null` when no warm binding exists.
+ */
+export function peekProjectTasksNative(projectRoot: string): DatabaseSync | null {
   let dbPath: string;
   try {
     dbPath = resolveDualScopeDbPath('project', projectRoot);
   } catch {
+    return null;
+  }
+  const binding = peekDomainAtPath('project', resolve(dbPath), 'tasks');
+  if (binding === null || !binding.native.isOpen) return null;
+  return binding.native as DatabaseSync;
+}
+
+export function projectStoreWalPending(projectRoot: string): boolean {
+  try {
+    const dbPath = resolveDualScopeDbPath('project', projectRoot);
+    const wal = `${dbPath}-wal`;
+    return existsSync(wal) && statSync(wal).size > 0;
+  } catch {
     return false;
   }
-  return peekDomainAtPath('project', dbPath, 'tasks') !== null;
 }
 
 /**
  * Open a project's tasks store strictly read-only, for cross-project reads
  * that must never write (T14440, census AC3).
  *
- * `getDb` restores, seeds and migrates on open — a write — so the census (and
- * any worktree listing that enriches task status for ANOTHER project) reads
- * through this instead: a read-only snapshot handle from the store chokepoint,
- * no restore, no seed, no migration. The caller closes the handle.
+ * `getDb` restores, seeds and migrates on open — a write — so foreign stores
+ * are read through this instead: an IMMUTABLE snapshot from the store
+ * chokepoint that creates no `-wal`/`-shm` sidecars even on a WAL-mode
+ * database. The caller closes the handle.
  *
  * @param projectRoot - Absolute path to the project whose store to read.
- * @returns The read-only snapshot handle, or `null` when the store file does
- *   not exist (definitive absence — there is nothing to read). A store that
- *   exists but cannot be opened THROWS, so fail-closed callers can
- *   distinguish absence from a failed read.
+ * @returns The immutable snapshot handle, or `null` when the store file does
+ *   not exist (definitive absence). A store that exists but cannot be opened
+ *   THROWS, so fail-closed callers can distinguish absence from a failed
+ *   read. Un-checkpointed WAL transactions are not visible; callers that
+ *   authorize removal must treat a pending WAL as unreadable (see
+ *   {@link projectStoreWalPending}).
  */
 export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHandle | null {
   let dbPath: string;
@@ -1070,12 +1148,6 @@ export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHan
     throw new Error(`Task store path could not be resolved for ${projectRoot}`);
   }
   if (!existsSync(dbPath)) return null;
-  // A store that exists but cannot be opened THROWS, so fail-closed callers
-  // can distinguish definitive absence from a failed read. IMMUTABLE, per
-  // AC3 (round 4): an ordinary read-only open of a WAL-mode store still
-  // writes its -wal/-shm sidecars; immutable creates none. Trade-off:
-  // un-checkpointed WAL transactions are not visible — these reads are
-  // advisory and every removal path re-proves through the disposal engine.
   return openCleoDbImmutable(dbPath);
 }
 

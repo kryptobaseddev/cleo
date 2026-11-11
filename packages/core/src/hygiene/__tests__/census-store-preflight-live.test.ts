@@ -146,6 +146,67 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     expect(journalRows).toBe(1);
   });
 
+  it('a live WAL (uncheckpointed active worker) keeps the checkout and is not read', async () => {
+    // Round 5: the store stays in WAL mode and a raw writable connection —
+    // held open, never checkpointed — commits an OPEN worker record into the
+    // WAL. An immutable read cannot see that record, so the census must not
+    // trust its statuses here: the store is skipped outright and the
+    // checkout is kept.
+    const { getDb } = await import('../../store/sqlite.js');
+    await getDb(projectRoot);
+    const db = new DatabaseSync(dbPath);
+    db.prepare(
+      "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
+    ).run();
+    db.close();
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
+    await closeAllDatabases();
+    // The live WAL: a writable connection that stays open, committing an
+    // open worker record without a checkpoint.
+    const live = new DatabaseSync(dbPath);
+    live.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    live
+      .prepare(
+        `INSERT INTO tasks_agent_instances
+           (id, agent_type, status, task_id, started_at, metadata_json)
+         VALUES ('w-live', 'executor', 'starting', 'T1', datetime('now'), ?)`,
+      )
+      .run(
+        JSON.stringify({
+          kind: 'worker',
+          instanceId: 'i-live',
+          agentId: 'a-live',
+          provider: 'test',
+          pid: null,
+          pgid: null,
+          worktree: '/elsewhere/none',
+        }),
+      );
+    const walPath = `${dbPath}-wal`;
+    expect(existsSync(walPath)).toBe(true);
+
+    const before = storeFingerprint(dbPath);
+    const out = await runWorktreeCensus({
+      projects: [projectRoot],
+      recordDir,
+      pnpmStore: null,
+    });
+    if ('skipped' in out) throw new Error(out.skipped);
+    const { record } = out;
+
+    const rollup = record.projects.find((p) => p.project === projectRoot);
+    expect(rollup?.storeRead).toBe('not read: uncommitted WAL');
+    // The row's task state is untrusted: unknown, never a removal candidate...
+    const row = record.rows.find((r) => r.path.endsWith('T1'));
+    expect(row?.category).toBe('unknown');
+    expect(row?.keepReason).toContain('owning task state unavailable');
+    // ...the checkout is kept...
+    expect(row?.removed).toBeUndefined();
+    // ...and the store is untouched (sidecars included).
+    expect(storeFingerprint(dbPath)).toBe(before);
+    live.close();
+  });
+
   it('reads a readable store and probes in-use records read-only from cold state: sidecars unchanged', async () => {
     // Fixture construction: build the store with the REAL migrator (a write,
     // before any measurement), seed one done task AND one open worker record.
@@ -200,7 +261,6 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
-
     const rollup = record.projects.find((p) => p.project === projectRoot);
     expect(rollup?.storeRead).toBe('read');
     // The read-only enrichment actually read the row — an opener that failed

@@ -108,16 +108,23 @@ export async function worktreeReaperInUseProbe(
   worktreePath: string,
 ): Promise<NonNullable<DisposeWorktreeOptions['inUse']>> {
   try {
-    // T14440 (census AC3): the probe runs for every listed project, so the
-    // worker-record read must never open a FOREIGN store through `getDb`
-    // (which restores, seeds and migrates). A warm binding for THIS
-    // process's own store is fine — already open, sees fresh writes, writes
-    // nothing new; a cold store goes through the strictly read-only
-    // accessor. Fail-closed is preserved: a missing store yields an empty
-    // list (provably no records), an unreadable one keeps the checkout via
-    // the catch below.
-    const { hasProjectTasksBinding } = await import('../store/sqlite.js');
-    if (!hasProjectTasksBinding(projectRoot)) {
+    // T14440 (census AC3, round-5 design) — fail closed for foreign stores:
+    // a removal is never authorized from a read that can be stale.
+    //  - A WARM, OPEN binding for the exact store reads fresh (it sees this
+    //    process's own WAL-resident writes) and opens nothing new: use it.
+    //  - Otherwise OWN project: the normal accessor (fresh reads).
+    //  - Otherwise foreign:
+    //      · a `-wal` with nonzero size, or an unreadable store → keep with
+    //        an explicit unknown reason;
+    //      · otherwise the immutable read may answer 'not in use'.
+    const { isOwnProjectStore, peekProjectTasksNative, projectStoreWalPending } = await import(
+      '../store/sqlite.js'
+    );
+    const warm = peekProjectTasksNative(projectRoot);
+    if (warm === null && !isOwnProjectStore(projectRoot)) {
+      if (projectStoreWalPending(projectRoot)) {
+        return () => 'unknown: store has uncommitted WAL or could not be read without writing';
+      }
       const { listWorkerRecordsReadOnly } = await import('../orchestrate/worker-records.js');
       const workers = await listWorkerRecordsReadOnly(projectRoot, true);
       if (
@@ -143,7 +150,7 @@ export async function worktreeReaperInUseProbe(
       }
     }
   } catch {
-    return () => 'worker record probe unavailable';
+    return () => 'unknown: store has uncommitted WAL or could not be read without writing';
   }
   return () => {
     try {
