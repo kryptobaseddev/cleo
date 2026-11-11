@@ -3183,13 +3183,15 @@ function holderReport(
 const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS];
 
 /**
- * How long the awaited removal attempt may wait for the ledger lock when the
- * admission is already aborted (T14495).
+ * How long the whole awaited removal attempt may take when the admission is
+ * already aborted (T14495): the initial read, the lock acquisition (which
+ * retries for about 15 s, {@link LOCK_ATTEMPTS}), the write and the unlock.
  *
- * The lock retries for about 15 s ({@link LOCK_ATTEMPTS}), so an abort that
- * was already enqueued must not wait out a contended or stalled lock: past
- * this bound the removal is handed to the background retry, which keeps
- * trying until the entry is retired.
+ * An abort that was already enqueued must not wait out a contended lock or a
+ * stalled unlock — proper-lockfile removes the lock directory asynchronously,
+ * so an awaited {@link lockLedger} unlock can hang past the deadline. Past this
+ * bound the caller stops waiting and the attempt plus the background retry
+ * carry on until the entry is retired.
  */
 const RELEASE_AWAITED_MS = 250;
 
@@ -3239,8 +3241,8 @@ async function rechargeLedgerEntry(
 /**
  * Retire an admission, retrying unavailable storage without keeping the runner
  * alive. When the admission was aborted, the one attempt the caller waits for
- * is bounded by {@link RELEASE_AWAITED_MS}; a contended lock hands the entry to
- * the retry instead of holding the abort.
+ * is bounded by {@link RELEASE_AWAITED_MS}; a contended lock or a stalled
+ * unlock hands the entry to the retry instead of holding the abort.
  */
 async function releaseLedgerEntry(
   entry: LedgerEntry,
@@ -3248,8 +3250,13 @@ async function releaseLedgerEntry(
   opts: AdmitOptions,
 ): Promise<void> {
   const now = opts.now ?? Date.now;
-  /** Remove the entry and schedule the queue. Only a successful read can establish absence. */
-  const removeOnce = async (): Promise<boolean> => {
+  /**
+   * Remove the entry and schedule the queue. Only a successful read can
+   * establish absence. `signal` marks the attempt as already given up: its
+   * caller's wait is bounded by {@link releaseLedgerEntry}, and a pending lock
+   * attempt gives up on abort instead of retrying.
+   */
+  const removeAttempt = async (signal?: AbortSignal): Promise<boolean> => {
     try {
       const before = readLedgerDoc(dir, true);
       if (
@@ -3257,35 +3264,20 @@ async function releaseLedgerEntry(
         !before.foreign.some((e) => e.id === entry.id)
       )
         return true;
-      if (opts.signal?.aborted) {
-        // The caller has already given up (abort or deadline): bound the one
-        // removal attempt it waits for, so a contended or stalled lock cannot
-        // hold the abort past {@link RELEASE_AWAITED_MS}. A timed-out attempt
-        // returns `false` and hands the entry to the retry below, which still
-        // retires it — no queue slot is leaked.
-        const bounded = new AbortController();
-        const deadline = setTimeout(
-          () => bounded.abort(new Error('admission release deadline')),
-          RELEASE_AWAITED_MS,
+      if (signal) {
+        await withLedger(
+          dir,
+          (doc) => ({
+            doc: {
+              ...doc,
+              entries: doc.entries.filter((e) => e.id !== entry.id),
+              foreign: doc.foreign.filter((e) => e.id !== entry.id),
+            },
+            result: undefined,
+          }),
+          signal,
+          true,
         );
-        deadline.unref();
-        try {
-          await withLedger(
-            dir,
-            (doc) => ({
-              doc: {
-                ...doc,
-                entries: doc.entries.filter((e) => e.id !== entry.id),
-                foreign: doc.foreign.filter((e) => e.id !== entry.id),
-              },
-              result: undefined,
-            }),
-            bounded.signal,
-            true,
-          );
-        } finally {
-          clearTimeout(deadline);
-        }
         return true;
       }
       const nowMs = now();
@@ -3318,17 +3310,57 @@ async function releaseLedgerEntry(
       return false;
     }
   };
+  /**
+   * One removal attempt. When the caller has already given up, the whole
+   * attempt — initial read, lock acquisition, write and unlock — is raced
+   * against a single {@link RELEASE_AWAITED_MS} deadline: a stalled unlock
+   * (proper-lockfile's removal is asynchronous) must not hold an aborted admit
+   * past it. A timed-out attempt keeps running — its write and unlock still
+   * complete — and the caller stops waiting; `false` hands the entry to the
+   * retry, so no queue slot leaks. The retry itself is not bounded.
+   */
+  const removeOnce = async (boundedAttempt: boolean): Promise<boolean> => {
+    if (!boundedAttempt || opts.signal?.aborted !== true) return removeAttempt();
+    const attempt = new AbortController();
+    let deadline: NodeJS.Timeout | undefined;
+    // Started before the initial read so one budget covers the whole attempt.
+    const deadlineHit = new Promise<'deadline'>((resolve) => {
+      deadline = setTimeout(() => {
+        // A pending lock attempt observes this; a stalled unlock does not, and
+        // is left to finish on its own.
+        attempt.abort(new Error('admission release deadline'));
+        resolve('deadline');
+      }, RELEASE_AWAITED_MS);
+      deadline.unref();
+    });
+    const running = removeAttempt(attempt.signal);
+    // The attempt outlives this wait: its eventual failure is handled below.
+    void running.catch(() => {});
+    try {
+      const outcome = await Promise.race([running, deadlineHit]);
+      if (outcome === 'deadline') {
+        log().warn(
+          { id: entry.id },
+          'admission release did not finish within its bound; it and the retry finish in the background',
+        );
+        return false;
+      }
+      return outcome;
+    } finally {
+      clearTimeout(deadline);
+    }
+  };
   /** Keep trying in the background (never keeping the process alive) until removed. */
   const retry = (delayMs: number): void => {
     const t = setTimeout(() => {
-      void removeOnce().then((done) => {
+      void removeOnce(false).then((done) => {
         if (!done) retry(Math.min(delayMs * 2, RELEASE_RETRY_MS[1]));
       });
     }, delayMs);
     t.unref();
   };
 
-  if (!(await removeOnce())) retry(RELEASE_RETRY_MS[0]);
+  if (!(await removeOnce(true))) retry(RELEASE_RETRY_MS[0]);
 }
 
 /** Hold an admitted entry: heartbeat, follow tool groups, release. */

@@ -1674,6 +1674,88 @@ describe('admit (one ledger, real critical section)', () => {
     }
   });
 
+  it('an aborted admit returns within the bound when an acquired lock never unlocks, and the entry is retired (T14495)', {
+    timeout: 20_000,
+  }, async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    const stop = new AbortController();
+    // Park the waiter's poll loop so the only lock the aborted path touches is
+    // the removal's own; anything else would blur which unlock stalled.
+    let wake: () => void = () => {};
+    const parked = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 600_000, signal: stop.signal, sleep: () => parked },
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      readLedger(dir)
+        .map((e) => e.state)
+        .sort(),
+    ).toEqual(['admitted', 'waiting']);
+    // The removal acquires the ledger lock, then its in-lock read fails (a
+    // transient I/O error) and it awaits an unlock that never settles:
+    // proper-lockfile removes the lock directory asynchronously, so the
+    // awaited unlock itself can hang indefinitely. Nothing is written, so the
+    // entry stays queued for the retry.
+    const file = join(dir, 'ledger.json');
+    const { readFileSync: originalRead } =
+      await vi.importActual<typeof import('node:fs')>('node:fs');
+    let ledgerReads = 0;
+    const readSpy = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((path, options) => {
+      if (String(path) === file && ++ledgerReads === 2) {
+        throw Object.assign(new Error('ledger is unreadable'), { code: 'EACCES' });
+      }
+      return originalRead(path, options);
+    });
+    const realLock = lockfile.lock;
+    let stalled = false;
+    const lockSpy = vi.spyOn(lockfile, 'lock').mockImplementation((lockPath, options) => {
+      if (!stalled) {
+        stalled = true;
+        return Promise.resolve(async () => {
+          await new Promise<void>(() => {});
+        });
+      }
+      return realLock(lockPath, options);
+    });
+    try {
+      const abortedAt = Date.now();
+      stop.abort();
+      const b = await waiting;
+      const elapsed = Date.now() - abortedAt;
+      expect(b.admitted).toBe(false);
+      // Bound is RELEASE_AWAITED_MS (250 ms): returned at the deadline, not
+      // after a fast removal (>= 200) nor after a hung unlock (< 3 s, slack
+      // for CI scheduling).
+      expect(elapsed).toBeGreaterThanOrEqual(200);
+      expect(elapsed).toBeLessThan(3_000);
+      expect(stalled).toBe(true);
+      // Deferred, not lost: the entry is still queued and handed to the retry.
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      // The retry still retires it once the lock and storage are usable.
+      await vi.waitFor(() => expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']), {
+        timeout: 10_000,
+        interval: 50,
+      });
+    } finally {
+      lockSpy.mockRestore();
+      readSpy.mockRestore();
+      wake();
+      await a.grant.release();
+    }
+  });
+
   it('the memory gate refuses with the readings; a waiter says so and starts when pressure falls', async () => {
     // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const refused = await admit(
