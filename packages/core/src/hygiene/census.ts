@@ -58,6 +58,8 @@ import {
 } from 'node:fs';
 import { homedir, setPriority } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import type { WorktreeInfo, WorktreeStatusCategory } from '@cleocode/contracts';
 import type { WorktreeLockRecord } from '@cleocode/contracts/operations/worktree.js';
 import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
@@ -228,6 +230,14 @@ export interface WorktreeCensusOptions {
    * real store (`pnpm store path`); `null` records none; tests stub a value.
    */
   pnpmStore?: PnpmStoreCensus | null;
+  /**
+   * Merged-branch counter override (tests). Default: {@link mergedBranchCounts}
+   * with the walk deadline and the worker-bounded SDK probe.
+   */
+  branchesOf?: (projectRoot: string) => Promise<{
+    mergedLocal: number | null;
+    mergedRemote: number | null;
+  }>;
 }
 
 /** Where the census keeps its record, claim and lock. */
@@ -582,10 +592,12 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     project: root,
     projectHash: hash,
   }));
+  const branchesOf =
+    opts.branchesOf ?? ((projectRoot: string) => mergedBranchCounts(projectRoot, deadline));
   const rollups = await projectRollups(
     rows,
     registeredRollups,
-    (projectRoot) => mergedBranchCounts(projectRoot, deadline),
+    branchesOf,
     projectStoreReadVerdict,
   );
   const store = opts.pnpmStore === undefined ? pnpmStoreCensus(deadline) : null;
@@ -692,29 +704,98 @@ async function projectRollups(
 }
 
 /**
- * Merged-branch counts for one project: local via the SDK integration probe
- * (`buildGitAwarePrunePlan`, primary checkout and target excluded), remote via
- * `git for-each-ref --merged` with HEAD refs excluded. `null` per side when
- * its probe fails - a failed probe is never a zero (T14440).
+ * The SDK integration probe, run in a worker thread that the shared deadline
+ * TERMINATES (T14440 review round 3): the napi `pruneWorktrees` walk over a
+ * large repository is synchronous and uninterruptible in-process, so it runs
+ * off-thread and a deadline overrun kills it. Any failure yields `null` - a
+ * failed probe is never a zero.
+ *
+ * @param repoRoot - The repository root to probe.
+ * @param integrationTarget - The branch "merged" is tested against.
+ * @param deadline - Wall-clock ms epoch; past it the worker is terminated.
+ * @returns The prune plan, or `null`.
+ */
+async function prunePlanBounded(
+  repoRoot: string,
+  integrationTarget: string,
+  deadline: number,
+): Promise<{ candidates: Array<{ kind: string; branch?: string }> } | null> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return null;
+  // `require` from this module's directory so the worker resolves the
+  // workspace package the same way the census does (eval workers resolve from
+  // cwd otherwise).
+  const requireFrom = fileURLToPath(import.meta.url);
+  const worker = new Worker(
+    `const { parentPort, workerData } = require('node:worker_threads');
+(async () => {
+  try {
+    const { createRequire } = require('node:module');
+    const wt = createRequire(workerData.requireFrom)('@cleocode/worktree');
+    const plan = wt.buildGitAwarePrunePlan(workerData.repoRoot, workerData.integrationTarget);
+    parentPort.postMessage({ plan });
+  } catch (err) {
+    parentPort.postMessage({ error: String((err && err.message) || err) });
+  }
+})();`,
+    {
+      eval: true,
+      workerData: { repoRoot, integrationTarget, requireFrom },
+    },
+  );
+  return new Promise((resolvePromise) => {
+    const timer = setTimeout(() => {
+      void worker.terminate();
+      resolvePromise(null);
+    }, remainingMs);
+    worker.once('message', (message: { plan?: unknown }) => {
+      clearTimeout(timer);
+      resolvePromise(
+        message && typeof message === 'object' && 'plan' in message
+          ? ((message.plan as { candidates?: Array<{ kind: string; branch?: string }> } | null) ??
+              null)
+          : null,
+      );
+    });
+    worker.once('error', () => {
+      clearTimeout(timer);
+      resolvePromise(null);
+    });
+    worker.once('exit', (code) => {
+      if (code !== 0) {
+        clearTimeout(timer);
+        resolvePromise(null);
+      }
+    });
+  });
+}
+
+/**
+ * Merged-branch counts for one project: local via the worker-bounded SDK
+ * integration probe (primary checkout and target excluded), remote via
+ * `git for-each-ref --merged` with HEAD refs excluded, all under the shared
+ * walk deadline. `null` per side when its probe fails or the deadline ends -
+ * a failed probe is never a zero (T14440).
  *
  * @param projectRoot - The registered project's repository root.
  * @param deadline - Wall-clock ms epoch past which probes stop.
+ * @param planOf - The SDK probe (tests stub it; default {@link prunePlanBounded}).
  * @returns Merged local and remote branch counts.
  */
 export async function mergedBranchCounts(
   projectRoot: string,
   deadline = Number.POSITIVE_INFINITY,
+  planOf: (
+    repoRoot: string,
+    integrationTarget: string,
+    deadline: number,
+  ) => Promise<{ candidates: Array<{ kind: string; branch?: string }> } | null> = prunePlanBounded,
 ): Promise<{ mergedLocal: number | null; mergedRemote: number | null }> {
   if (Date.now() > deadline) return { mergedLocal: null, mergedRemote: null };
   let mergedLocal: number | null = null;
   let mergedRemote: number | null = null;
   try {
-    const { buildGitAwarePrunePlan } = await import('@cleocode/worktree');
-    // The probe is a synchronous SDK call and cannot be interrupted mid-run;
-    // it is only STARTED inside the shared walk deadline (the check above),
-    // and the census re-checks the deadline after it, so overrun marks the
-    // record partial.
-    const plan = buildGitAwarePrunePlan(projectRoot, 'main');
+    const plan = await planOf(projectRoot, 'main', deadline);
     if (plan !== null) {
       mergedLocal = new Set(
         plan.candidates

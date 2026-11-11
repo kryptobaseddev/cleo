@@ -182,6 +182,68 @@ export async function listWorkerRecords(cwd?: string, strict = false): Promise<W
     .from(tasksAgentInstances)
     .where(eq(tasksAgentInstances.agentType, 'executor'))
     .all();
+  return recordsFromRows(rows, strict);
+}
+
+/**
+ * List every persisted worker record through the strictly read-only store
+ * accessor (T14440, census AC3): the census's in-use probe calls this for
+ * EVERY listed project, and `getDb` restores, seeds and migrates on open — a
+ * write to another project's store. The read-only snapshot cannot write; a
+ * missing or unreadable store yields an empty list and the caller's
+ * fail-closed contract decides.
+ *
+ * @param cwd - Project root.
+ * @param strict - Refuse incomplete ownership metadata before destructive cleanup.
+ * @returns All worker records, open and stopped.
+ */
+export async function listWorkerRecordsReadOnly(
+  cwd: string,
+  strict = false,
+): Promise<WorkerRecord[]> {
+  const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
+  const snap = openProjectTasksReadOnly(cwd);
+  if (snap === null) return [];
+  try {
+    const raw = snap.db
+      .prepare(
+        `SELECT id, agent_type, status, session_id, task_id, started_at, last_heartbeat, stopped_at, metadata_json
+         FROM tasks_agent_instances WHERE agent_type = 'executor'`,
+      )
+      .all() as Array<{
+      id: string;
+      agent_type: string;
+      status: string;
+      session_id: string | null;
+      task_id: string | null;
+      started_at: string;
+      last_heartbeat: string;
+      stopped_at: string | null;
+      metadata_json: string | null;
+    }>;
+    const rows = raw.map((r) => ({
+      id: r.id,
+      agentType: r.agent_type,
+      status: r.status,
+      sessionId: r.session_id,
+      taskId: r.task_id,
+      startedAt: r.started_at,
+      lastHeartbeat: r.last_heartbeat,
+      stoppedAt: r.stopped_at,
+      errorCount: 0,
+      totalTasksCompleted: 0,
+      capacity: '1.0',
+      metadataJson: r.metadata_json,
+      parentAgentId: null,
+    }));
+    return recordsFromRows(rows, strict);
+  } finally {
+    snap.close();
+  }
+}
+
+/** Shared projection of executor rows onto worker records, newest first. */
+function recordsFromRows(rows: AgentInstanceRow[], strict: boolean): WorkerRecord[] {
   const records: WorkerRecord[] = [];
   for (const row of rows) {
     const meta = parseWorkerMetadata(row);

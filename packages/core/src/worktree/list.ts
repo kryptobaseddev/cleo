@@ -577,10 +577,9 @@ export async function loadOwningTaskStatuses(
     const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
     const snap = openProjectTasksReadOnly(projectRoot);
     if (snap === null) {
-      // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
-      return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store could not be opened read-only', {
-        fix: 'Run cleo doctor to diagnose the task store.',
-      });
+      // The store vanished between the verdict and the open: definitive
+      // absence at read time, no statuses — not a failure.
+      return engineSuccess(out);
     }
     try {
       const placeholders = taskIds.map(() => '?').join(', ');

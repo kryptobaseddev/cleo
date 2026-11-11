@@ -1,19 +1,24 @@
 /**
- * The census never opens a foreign store it cannot read without writing
- * (T14440 review P1a, census AC3), and never writes a store it MAY read.
+ * The census never opens a foreign store it cannot read without writing, and
+ * never writes a store it MAY read — on every path, the in-use probe
+ * included (T14440 review round 3, census AC3).
  *
  * Two REAL fixture stores, the real store layer underneath the census — no
- * mocks between the census and the files:
+ * mocks between the census and the files, and NO warmed `getDb` binding (the
+ * suite closes every database after fixture setup, so the census starts from
+ * a cold process state). Each test hashes the main database file AND its
+ * `-wal` and `-shm` sidecars before and after:
  *
  * - old floor: the journal holds one installed hash (later migrations
- *   pending). The census must skip it entirely; the fixture is byte-identical
- *   after. Removing the gate fails this test: the writable open would
- *   migrate the store and change its bytes.
+ *   pending). The census must skip it entirely. Replacing the read-only
+ *   accessor with `getDb` fails this test: the writable open would migrate
+ *   the store and change its bytes.
  * - readable current: the journal is fully applied (the fixture store was
- *   built by the real migrator in setup). The census reads task status
- *   through the read-only accessor and the store is STILL byte-identical —
- *   routing the read through the writable `getDb` instead would fail, since
- *   that open restores/seeds even when the journal is current.
+ *   built by the real migrator, then every binding was closed). The census
+ *   reads task status through the read-only accessor AND runs the reaper's
+ *   in-use probe for the terminal row — both read-only. Replacing either
+ *   with `getDb` reopens the store writable from cold state, which restores,
+ *   seeds or migrates, and the sidecar hashes move.
  *
  * @task T14440
  */
@@ -21,6 +26,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -33,19 +39,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
-
-// The merged-branch probe goes through the napi worktrunk binding; stub the
-// plan so no native build is needed. The lock reader and disposal engine stay
-// real, and — the point of this file — the store layer stays real.
-vi.mock('@cleocode/worktree', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@cleocode/worktree')>()),
-  buildGitAwarePrunePlan: vi.fn(() => ({
-    integrationTarget: 'main',
-    candidates: [],
-  })),
-}));
 
 import { runWorktreeCensus } from '../census.js';
 
@@ -56,8 +51,17 @@ const git = (cwd: string, ...args: string[]): string =>
     stdio: 'pipe',
   }).trim();
 
-const sha256File = (path: string): string =>
-  createHash('sha256').update(readFileSync(path)).digest('hex');
+/** Hash the main database file and its WAL/SHM sidecars (missing → 'none'). */
+function storeFingerprint(path: string): string {
+  const hash = createHash('sha256');
+  for (const suffix of ['', '-wal', '-shm']) {
+    const file = `${path}${suffix}`;
+    hash.update(`${suffix}:`);
+    hash.update(existsSync(file) ? readFileSync(file) : 'none');
+    hash.update('\n');
+  }
+  return hash.digest('hex');
+}
 
 const prevHome = process.env['CLEO_HOME'];
 const prevCleoDir = process.env['CLEO_DIR'];
@@ -103,7 +107,7 @@ beforeEach(() => {
   fixture();
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (prevHome === undefined) delete process.env['CLEO_HOME'];
   else process.env['CLEO_HOME'] = prevHome;
   if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
@@ -112,9 +116,9 @@ afterEach(() => {
 });
 
 describe('census foreign-store gate against real stores (T14440 P1a)', () => {
-  it('skips an old-floor store without migrating it: bytes and journal unchanged after the census', async () => {
+  it('skips an old-floor store without migrating it: bytes, sidecars and journal unchanged', async () => {
     seedOldFloorStore();
-    const shaBefore = sha256File(dbPath);
+    const before = storeFingerprint(dbPath);
 
     const out = await runWorktreeCensus({
       projects: [projectRoot],
@@ -130,9 +134,9 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     // ...so the row's task status is null (nothing was read)...
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBeNull();
-    // ...and the fixture store is byte-identical: no migration ran. Removing
-    // the gate fails here — the writable open would migrate the store.
-    expect(sha256File(dbPath)).toBe(shaBefore);
+    // ...and the store is byte-identical including its sidecars: no migration
+    // ran. Removing the gate fails here — the writable open would migrate.
+    expect(storeFingerprint(dbPath)).toBe(before);
     const after = new DatabaseSync(dbPath);
     const journalRows = (
       after.prepare('SELECT count(*) AS n FROM __drizzle_migrations').all() as Array<{ n: number }>
@@ -141,18 +145,49 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     expect(journalRows).toBe(1);
   });
 
-  it('reads a readable current store through the read-only accessor: statuses flow, bytes unchanged', async () => {
+  it('reads a readable store and probes in-use records read-only from cold state: sidecars unchanged', async () => {
     // Fixture construction: build the store with the REAL migrator (a write,
-    // before any measurement) and seed one done task.
+    // before any measurement), seed one done task AND one open worker record.
+    // The terminal row routes the census through the reaper's in-use probe,
+    // and the open record makes a SUCCESSFUL probe read observable: the row
+    // is kept with 'a worker record has not been closed' (a failed read would
+    // say 'worker record probe unavailable' instead).
     const { getDb } = await import('../../store/sqlite.js');
     await getDb(projectRoot);
     const db = new DatabaseSync(dbPath);
     db.prepare(
       "INSERT INTO tasks_tasks (id, title, status, pipeline_stage) VALUES ('T1', 't', 'done', 'contribution')",
     ).run();
+    db.prepare(
+      `INSERT INTO tasks_agent_instances
+         (id, agent_type, status, task_id, started_at, metadata_json)
+       VALUES ('w1', 'executor', 'starting', 'T1', datetime('now'), ?)`,
+    ).run(
+      JSON.stringify({
+        kind: 'worker',
+        instanceId: 'i1',
+        agentId: 'a1',
+        provider: 'test',
+        pid: null,
+        pgid: null,
+        worktree: '/elsewhere/none',
+      }),
+    );
     db.close();
+    // Cold process state first: drop every warmed binding, so nothing holds
+    // the file when the journal mode is normalized.
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
+    await closeAllDatabases();
+    // Normalize the fixture out of WAL mode: a read-only open of a WAL
+    // database legitimately touches its -shm sidecar, which would blur the
+    // fingerprint. In DELETE mode a read-only census creates no sidecars at
+    // all, so any sidecar after the census means a writable open happened.
+    const normalize = new DatabaseSync(dbPath);
+    normalize.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    normalize.exec('PRAGMA journal_mode=DELETE');
+    normalize.close();
 
-    const shaBefore = sha256File(dbPath);
+    const before = storeFingerprint(dbPath);
     const out = await runWorktreeCensus({
       projects: [projectRoot],
       recordDir,
@@ -167,7 +202,12 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     // early (caught) would leave this null and fail the test.
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBe('done');
-    // And the store is byte-identical: the readable path restored/seeded nothing.
-    expect(sha256File(dbPath)).toBe(shaBefore);
+    // The terminal row went through the in-use probe, which READ the open
+    // worker record (not 'probe unavailable') and kept the checkout.
+    expect(row?.category).toBe('keep');
+    expect(row?.keepReason).toContain('a worker record has not been closed');
+    // Status read, evidence read, worker records read — all read-only: the
+    // store AND its sidecars are unchanged from cold state.
+    expect(storeFingerprint(dbPath)).toBe(before);
   });
 });

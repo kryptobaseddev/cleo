@@ -47,23 +47,6 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
 
 import { mergedBranchCounts, runWorktreeCensus } from '../census.js';
 
-// The merged-branch probe goes through the napi worktrunk binding; stub the
-// plan so the rollup is deterministic without a native build.
-vi.mock('@cleocode/worktree', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@cleocode/worktree')>()),
-  buildGitAwarePrunePlan: vi.fn(() => ({
-    integrationTarget: 'main',
-    candidates: [
-      {
-        branch: 'task/merged-x',
-        label: 'task/merged-x',
-        kind: 'branch_only',
-        reason: 'integrated',
-      },
-    ],
-  })),
-}));
-
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
     cwd,
@@ -131,6 +114,7 @@ describe('census visibility fields (T14440 AC1)', () => {
       projects: [a],
       recordDir,
       pnpmStore: { path: join(base, 'store'), apparentBytes: 1234 },
+      branchesOf: async () => ({ mergedLocal: 1, mergedRemote: 0 }),
     });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
@@ -166,7 +150,12 @@ describe('census visibility fields (T14440 AC1)', () => {
     const c = repo('c');
     worktree(c, 'T9');
     const b = repo('b');
-    const out = await runWorktreeCensus({ projects: [a, b], recordDir, pnpmStore: null });
+    const out = await runWorktreeCensus({
+      projects: [a, b],
+      recordDir,
+      pnpmStore: null,
+      branchesOf: async () => ({ mergedLocal: 1, mergedRemote: 0 }),
+    });
     if ('skipped' in out) throw new Error(out.skipped);
     const { record } = out;
 

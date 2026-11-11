@@ -8,7 +8,7 @@ import { computeProjectHash } from '@cleocode/paths';
 import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerRecord } from '../../orchestrate/worker-records.js';
-import { listWorkerRecords } from '../../orchestrate/worker-records.js';
+import { listWorkerRecordsReadOnly } from '../../orchestrate/worker-records.js';
 import { agentLeaseDir, releaseAgentLease, writeAgentLease } from '../../resources/agent-lease.js';
 import {
   worktreeInUseProbe,
@@ -16,7 +16,10 @@ import {
   worktreeReaperInUseProbe,
 } from '../in-use-probe.js';
 
-vi.mock('../../orchestrate/worker-records.js', () => ({ listWorkerRecords: vi.fn() }));
+vi.mock('../../orchestrate/worker-records.js', () => ({
+  listWorkerRecords: vi.fn(),
+  listWorkerRecordsReadOnly: vi.fn(),
+}));
 vi.mock('node:child_process', async (original) => {
   const actual = await original<typeof import('node:child_process')>();
   return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
@@ -30,7 +33,7 @@ beforeEach(() => {
   mkdirSync(path);
   writeFileSync(join(path, 'open.txt'), 'keep');
   vi.stubEnv('CLEO_HOME', join(base, 'home'));
-  vi.mocked(listWorkerRecords).mockResolvedValue([]);
+  vi.mocked(listWorkerRecordsReadOnly).mockResolvedValue([]);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -93,9 +96,9 @@ describe('reaper inactivity proof', () => {
       startedAt: new Date().toISOString(),
       stoppedAt: null,
     };
-    vi.mocked(listWorkerRecords).mockResolvedValue([worker]);
+    vi.mocked(listWorkerRecordsReadOnly).mockResolvedValue([worker]);
     expect((await worktreeReaperInUseProbe(base, 'T1', path))()).toContain('worker record');
-    vi.mocked(listWorkerRecords).mockRejectedValueOnce(new Error('store unreadable'));
+    vi.mocked(listWorkerRecordsReadOnly).mockRejectedValueOnce(new Error('store unreadable'));
     expect((await worktreeReaperInUseProbe(base, 'T1', path))()).toContain('unavailable');
   });
 

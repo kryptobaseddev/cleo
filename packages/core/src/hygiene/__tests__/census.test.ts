@@ -39,7 +39,10 @@ vi.mock('../../doctor/migrations.js', async (importOriginal) => ({
 
 let taskQueryFails = false;
 vi.mock('../../orchestrate/worker-records.js', () => ({
+  // T14440: the in-use probe reads worker records through the read-only
+  // variant; keep both names mocked so every caller gets the stub.
   listWorkerRecords: vi.fn(async () => []),
+  listWorkerRecordsReadOnly: vi.fn(async () => []),
 }));
 vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/sqlite.js')>()),

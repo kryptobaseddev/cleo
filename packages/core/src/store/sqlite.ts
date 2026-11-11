@@ -1028,25 +1028,25 @@ export function getNativeTasksDb(cwd?: string): DatabaseSync | null {
  * `getDb` restores, seeds and migrates on open — a write — so the census (and
  * any worktree listing that enriches task status for ANOTHER project) reads
  * through this instead: a read-only snapshot handle from the store chokepoint,
- * no restore, no seed, no migration. The caller closes the handle. `null`
- * when the store file does not exist or cannot be opened.
+ * no restore, no seed, no migration. The caller closes the handle.
  *
  * @param projectRoot - Absolute path to the project whose store to read.
- * @returns The read-only snapshot handle, or `null`.
+ * @returns The read-only snapshot handle, or `null` when the store file does
+ *   not exist (definitive absence — there is nothing to read). A store that
+ *   exists but cannot be opened THROWS, so fail-closed callers can
+ *   distinguish absence from a failed read.
  */
 export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHandle | null {
   let dbPath: string;
   try {
     dbPath = resolveDualScopeDbPath('project', projectRoot);
   } catch {
-    return null;
+    throw new Error(`Task store path could not be resolved for ${projectRoot}`);
   }
   if (!existsSync(dbPath)) return null;
-  try {
-    return openCleoDbSnapshot(dbPath, { readOnly: true });
-  } catch {
-    return null;
-  }
+  // A store that exists but cannot be opened THROWS, so fail-closed callers
+  // can distinguish definitive absence from a failed read.
+  return openCleoDbSnapshot(dbPath, { readOnly: true });
 }
 
 export type { NodeSQLiteDatabase };

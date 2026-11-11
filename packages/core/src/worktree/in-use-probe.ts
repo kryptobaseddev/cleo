@@ -108,8 +108,14 @@ export async function worktreeReaperInUseProbe(
   worktreePath: string,
 ): Promise<NonNullable<DisposeWorktreeOptions['inUse']>> {
   try {
-    const { listWorkerRecords } = await import('../orchestrate/worker-records.js');
-    const workers = await listWorkerRecords(projectRoot, true);
+    // T14440 (census AC3): the probe runs for every listed project, so the
+    // worker-record read goes through the strictly read-only accessor —
+    // `listWorkerRecords` would reach `getDb`, which restores, seeds and
+    // migrates on open. Fail-closed is preserved: a missing store yields an
+    // empty list (provably no records), an unreadable one keeps the checkout
+    // via the catch below.
+    const { listWorkerRecordsReadOnly } = await import('../orchestrate/worker-records.js');
+    const workers = await listWorkerRecordsReadOnly(projectRoot, true);
     if (
       workers.some(
         (worker) =>
