@@ -188,7 +188,9 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
         'DEBUG-before',
         suffix || 'main',
         existsSync(f),
-        existsSync(f) ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8) : 'none',
+        existsSync(f)
+          ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8)
+          : 'none',
       );
     }
     const out = await runWorktreeCensus({
@@ -218,7 +220,9 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
         'DEBUG',
         suffix || 'main',
         existsSync(f),
-        existsSync(f) ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8) : 'none',
+        existsSync(f)
+          ? createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 8)
+          : 'none',
       );
     }
     expect(storeFingerprint(dbPath)).toBe(before);

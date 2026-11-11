@@ -25,7 +25,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { type DualScope, resolveDualScopeDbPath } from '../store/dual-scope-db.js';
-import { openCleoDbImmutable } from '../store/open-cleo-db.js';
+import { openCleoDbImmutable, openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import {
   CONSOLIDATED_JOURNAL_LINEAGES,
   resolveCorePackageMigrationsFolder,

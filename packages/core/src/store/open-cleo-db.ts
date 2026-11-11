@@ -430,8 +430,9 @@ export function openCleoDbImmutable(path: string): CleoDbSnapshotHandle {
   };
 
   // T13258: never open a store file a restore is replacing (before and after the open).
-  const db = openUnlessRestoring(path, () =>
-    new DatabaseSyncCtor(`file:${path}?immutable=1`, { readOnly: true }),
+  const db = openUnlessRestoring(
+    path,
+    () => new DatabaseSyncCtor(`file:${path}?immutable=1`, { readOnly: true }),
   );
   // No pragmas: an immutable handle cannot write, and setting one would fail.
 
