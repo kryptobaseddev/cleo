@@ -14,7 +14,15 @@
  */
 
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,8 +33,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeProjectHash, resolveTaskWorktreePath } from '../paths.js';
 import { createWorktree } from '../worktree-create.js';
 import { destroyWorktree } from '../worktree-destroy.js';
+import { disposeOwnedWorktree } from '../worktree-dispose.js';
 import {
   acquireWorktreeTaskLock,
+  heartbeatWorktreeTaskLock,
   isWorktreeLockedError,
   readProcessStartTime,
   readWorktreeTaskLock,
@@ -705,4 +715,128 @@ describe('acquireWorktreeTaskLock — holder liveness (T12506)', () => {
     },
     20_000,
   );
+});
+
+describe('disposeOwnedWorktree — dispose under the task lock (T14407)', () => {
+  let projectRoot: string;
+  let cleoHome: string;
+  let originalCleoHome: string | undefined;
+  let hash: string;
+  const children: ChildProcess[] = [];
+  const holder = { sessionId: 'ses_owner', agentId: 'agent-owner' };
+
+  beforeEach(() => {
+    projectRoot = initTempRepo();
+    cleoHome = mkdtempSync(join(tmpdir(), 'cleo-home-own-'));
+    originalCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_HOME'] = cleoHome;
+    hash = computeProjectHash(projectRoot);
+  });
+
+  afterEach(() => {
+    for (const c of children.splice(0)) c.kill('SIGKILL');
+    if (originalCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = originalCleoHome;
+    rmSync(cleoHome, { recursive: true, force: true });
+    rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  /** Lock the task, then add its worktree on `task/<id>`, as createWorktree does. */
+  function provision(taskId: string): { path: string; branch: string; token: string } {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId, holder });
+    const path = resolveTaskWorktreePath(hash, taskId);
+    const branch = `task/${taskId}`;
+    git(['worktree', 'add', '-b', branch, path, 'main'], projectRoot);
+    return { path, branch, token: lock.record.token };
+  }
+
+  it('a successor cannot re-enter between the check and the disposal', () => {
+    const { path, branch, token } = provision('T7101');
+    let successorErr: unknown;
+    let successorStatus: string | undefined;
+    const result = disposeOwnedWorktree({
+      projectHash: hash,
+      taskId: 'T7101',
+      worktreePath: path,
+      branch,
+      lockToken: token,
+      reason: 'failed-provision-cleanup',
+      force: true,
+      // Runs after the ownership check, right before the removal: the same
+      // caller re-spawns the task, 60 s later by its clock.
+      inUse: () => {
+        try {
+          successorStatus = acquireWorktreeTaskLock({
+            projectHash: hash,
+            taskId: 'T7101',
+            holder,
+            now: () => Date.now() + 60_000,
+          }).status;
+        } catch (err) {
+          successorErr = err;
+        }
+        return null;
+      },
+    });
+    expect(successorStatus).toBeUndefined();
+    expect(isWorktreeLockedError(successorErr)).toBe(true);
+    expect(result).toMatchObject({ outcome: 'removed', lockReleased: true });
+    expect(existsSync(path)).toBe(false);
+    expect(readWorktreeTaskLock(hash, 'T7101')).toBeNull();
+  });
+
+  it('keeps the worktree when the lock passed to another acquisition', () => {
+    const { path, branch, token } = provision('T7102');
+    releaseWorktreeTaskLock(hash, 'T7102', token);
+    const successor = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7102', holder });
+    const result = disposeOwnedWorktree({
+      projectHash: hash,
+      taskId: 'T7102',
+      worktreePath: path,
+      branch,
+      lockToken: token,
+      reason: 'failed-provision-cleanup',
+      force: true,
+    });
+    expect(result).toMatchObject({ outcome: 'kept', lockReleased: false });
+    expect(result.reason).toContain('passed to another acquisition');
+    expect(existsSync(path)).toBe(true);
+    expect(readWorktreeTaskLock(hash, 'T7102')?.token).toBe(successor.record.token);
+  });
+
+  it('keeps the worktree on a path or branch mismatch', () => {
+    const { path, branch, token } = provision('T7103');
+    const base = { projectHash: hash, taskId: 'T7103', lockToken: token, reason: 'r', force: true };
+    const wrongPath = disposeOwnedWorktree({ ...base, worktreePath: projectRoot, branch });
+    expect(wrongPath.outcome).toBe('kept');
+    expect(wrongPath.reason).toContain("is not the task's worktree path");
+    const wrongBranch = disposeOwnedWorktree({ ...base, worktreePath: path, branch: 'task/other' });
+    expect(wrongBranch.outcome).toBe('kept');
+    expect(wrongBranch.reason).toContain("not 'task/other'");
+    expect(existsSync(path)).toBe(true);
+    expect(readWorktreeTaskLock(hash, 'T7103')?.token).toBe(token);
+  });
+
+  it("never breaks a live holder's mutex as stale; breaks a dead holder's", () => {
+    const lock = acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7104', holder });
+    const mutexPath = `${resolveWorktreeTaskLockPath(hash, 'T7104')}.reclaim`;
+    const plantMutex = (pid: number, processStartedAt: string | null) => {
+      writeFileSync(
+        mutexPath,
+        JSON.stringify({ token: 'held', pid, processStartedAt, threadId: 0 }),
+      );
+      const old = new Date(Date.now() - 120_000);
+      utimesSync(mutexPath, old, old);
+    };
+    const live = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(live);
+    if (live.pid === undefined) throw new Error('could not spawn');
+    plantMutex(live.pid, readProcessStartTime(live.pid));
+    expect(heartbeatWorktreeTaskLock(hash, 'T7104', lock.record.token)).toBeNull();
+    expect(existsSync(mutexPath)).toBe(true);
+    plantMutex(deadPid(), 'Thu Jan  1 00:00:00 1970');
+    expect(heartbeatWorktreeTaskLock(hash, 'T7104', lock.record.token)?.token).toBe(
+      lock.record.token,
+    );
+  });
 });

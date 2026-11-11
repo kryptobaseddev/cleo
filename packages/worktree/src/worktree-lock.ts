@@ -60,6 +60,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname } from 'node:path';
+import { threadId } from 'node:worker_threads';
 import type {
   WorktreeLockAcquisition,
   WorktreeLockHolder,
@@ -464,33 +465,80 @@ function breakStaleMutex(mutexPath: string, staleIno: number): void {
   unlinkQuiet(graveyard);
 }
 
+/** Who holds a lock mutex: written into `<lock>.reclaim` (T14407). */
+interface MutexHolder {
+  token: string;
+  pid: number;
+  processStartedAt: string | null;
+  threadId: number;
+}
+
+/** This process's start time, read once (a `ps` call). */
+let ownStartTime: string | null | undefined;
+
+/** Read the holder a mutex file names, or `null` when it is missing or not a record. */
+function readMutexHolder(mutexPath: string): MutexHolder | null {
+  try {
+    const parsed = JSON.parse(readFileSync(mutexPath, 'utf-8')) as Partial<MutexHolder>;
+    if (typeof parsed.token === 'string' && typeof parsed.pid === 'number') {
+      return {
+        token: parsed.token,
+        pid: parsed.pid,
+        processStartedAt:
+          typeof parsed.processStartedAt === 'string' ? parsed.processStartedAt : null,
+        threadId: typeof parsed.threadId === 'number' ? parsed.threadId : -1,
+      };
+    }
+  } catch {
+    /* missing, or a bare-token mutex from an older writer */
+  }
+  return null;
+}
+
 /**
- * Take the per-lock mutex (`<lock>.reclaim`, O_EXCL, content = our token). It
- * serialises every non-create transition of the lock file (reclaim, re-entry,
- * heartbeat). A mutex older than {@link RECLAIM_MUTEX_STALE_MS} belongs to a
- * crashed holder and is broken by inode.
+ * Take the per-lock mutex (`<lock>.reclaim`, O_EXCL). It serialises every
+ * non-create transition of the lock file (reclaim, re-entry, heartbeat) and
+ * the whole of {@link withWorktreeTaskLockHeld}.
+ *
+ * The file names its holder (pid, start time, thread). A mutex older than
+ * {@link RECLAIM_MUTEX_STALE_MS} is broken by inode only when that holder is
+ * not provably alive, so a long hold by a live process (a forced dispose) is
+ * never broken as stale (T14407). A mutex this very thread holds is reported
+ * busy at once: waiting would block the holder, which can never release it.
  *
  * @returns A release function (removes the mutex only if it is still ours),
  *   or `null` when the mutex stayed busy.
  */
 function takeLockMutex(lockPath: string, now: () => number): (() => void) | null {
   const mutexPath = `${lockPath}.reclaim`;
-  const token = randomUUID();
+  if (ownStartTime === undefined) ownStartTime = readProcessStartTime(process.pid);
+  const content = JSON.stringify({
+    token: randomUUID(),
+    pid: process.pid,
+    processStartedAt: ownStartTime,
+    threadId,
+  } satisfies MutexHolder);
   for (let attempt = 0; attempt < RECLAIM_ATTEMPTS; attempt++) {
     try {
-      writeExclusive(mutexPath, token);
+      writeExclusive(mutexPath, content);
       return () => {
         try {
-          if (readFileSync(mutexPath, 'utf-8') === token) unlinkSync(mutexPath);
+          if (readFileSync(mutexPath, 'utf-8') === content) unlinkSync(mutexPath);
         } catch {
           /* already gone */
         }
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      const holder = readMutexHolder(mutexPath);
+      if (holder !== null && holder.pid === process.pid && holder.threadId === threadId) {
+        return null; // held by this thread: re-entrant from inside a hold
+      }
       try {
         const st = statSync(mutexPath);
-        if (now() - st.mtimeMs > RECLAIM_MUTEX_STALE_MS) breakStaleMutex(mutexPath, st.ino);
+        if (now() - st.mtimeMs > RECLAIM_MUTEX_STALE_MS && !isMutexHolderAlive(holder)) {
+          breakStaleMutex(mutexPath, st.ino);
+        }
       } catch {
         /* vanished between open and stat — retry */
       }
@@ -498,6 +546,67 @@ function takeLockMutex(lockPath: string, now: () => number): (() => void) | null
     }
   }
   return null;
+}
+
+/** True when the mutex holder's pid is alive with the start time it recorded. */
+function isMutexHolderAlive(holder: MutexHolder | null): boolean {
+  if (holder === null || holder.processStartedAt === null) return false;
+  const liveness = probeProcess(holder.pid);
+  return liveness.alive && liveness.startedAt === holder.processStartedAt;
+}
+
+/** Outcome of {@link withWorktreeTaskLockHeld}. */
+export type WorktreeTaskLockHold<T> = { held: true; value: T } | { held: false; reason: string };
+
+/**
+ * Run `fn` while `token` provably holds the task lock (T14407).
+ *
+ * Takes the same mutex every lock transition takes, re-reads the lock under
+ * it, and runs `fn` only when the record on disk carries `token`; the mutex is
+ * held until `fn` returns, so no re-entry or reclaim can replace the lock in
+ * between. Fails closed: a busy mutex, a missing, unreadable or foreign lock,
+ * or a read error means `fn` never runs. `fn` must not take the lock mutex
+ * itself (a token-bound {@link releaseWorktreeTaskLock} does not).
+ *
+ * @param projectHash - Project hash.
+ * @param taskId - Task id.
+ * @param token - Token of the acquisition that must hold the lock.
+ * @param fn - Work to do while the lock is held; receives the record.
+ * @param now - Clock (default `Date.now`).
+ * @returns `fn`'s value, or why it did not run.
+ */
+export function withWorktreeTaskLockHeld<T>(
+  projectHash: string,
+  taskId: string,
+  token: string,
+  fn: (record: WorktreeLockRecord) => T,
+  now: () => number = Date.now,
+): WorktreeTaskLockHold<T> {
+  const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
+  let release: (() => void) | null;
+  try {
+    release = takeLockMutex(lockPath, now);
+  } catch (err) {
+    return { held: false, reason: `the lock mutex could not be taken (${String(err)})` };
+  }
+  if (release === null) return { held: false, reason: 'the lock mutex stayed busy' };
+  try {
+    let current: LockRead;
+    try {
+      current = readLockAt(lockPath, now());
+    } catch (err) {
+      return { held: false, reason: `the task lock could not be read (${String(err)})` };
+    }
+    if (current.kind === 'absent') return { held: false, reason: 'the task lock was released' };
+    if (current.kind === 'unreadable')
+      return { held: false, reason: 'the task lock is unreadable' };
+    if (current.record.token !== token) {
+      return { held: false, reason: 'the task lock passed to another acquisition' };
+    }
+    return { held: true, value: fn(current.record) };
+  } finally {
+    release();
+  }
 }
 
 /** Build the typed E_WORKTREE_LOCKED error naming the holder. */
