@@ -10,6 +10,7 @@ import type {
   OrcaCommandResult,
   OrcaCommandRunner,
   OrcaContext,
+  OrcaExecutionAdapter,
   OrcaLaunch,
 } from '@cleocode/contracts/orca-execution.js';
 import {
@@ -83,7 +84,7 @@ export const runOrcaCommand: OrcaCommandRunner = (executable, args, cwd, input) 
  * Execution backend around a selected harness, deliberately absent from the
  * provider registry. Core persists each operation before invoking these methods.
  */
-export class OrcaExecutionBackend {
+export class OrcaExecutionBackend implements OrcaExecutionAdapter {
   /** Public launch APIs cannot enforce denied tools or a strict MCP allowlist. */
   readonly leadToolStrip = 'unsupported';
   private readonly executable: string;

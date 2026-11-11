@@ -83,6 +83,28 @@ export const orcaAttemptSchema = z.object({
 /** An exact execution attempt; uncertain states always retain worker custody. */
 export type OrcaAttempt = z.infer<typeof orcaAttemptSchema>;
 
+/**
+ * Process-side execution port. Core owns persistence and receives this port from
+ * its caller, so it never imports an adapter that builds after core.
+ */
+export interface OrcaExecutionAdapter {
+  /** Verify installed commands, runtime and existing workspace before admission. */
+  preflight(
+    launch: OrcaLaunch,
+    context: OrcaContext,
+  ): Promise<Pick<OrcaAttempt, 'workspaceId' | 'workspaceSelector'>>;
+  /** Start a durably reserved attempt, preserving uncertain outcomes. */
+  start(attempt: OrcaAttempt): Promise<OrcaAttempt>;
+  /** Replay only the original issued mutation request. */
+  replayStart(attempt: OrcaAttempt): Promise<OrcaAttempt>;
+  /** Read the exact stored Dispatch identity. */
+  show(attempt: OrcaAttempt): Promise<OrcaAttempt>;
+  /** Read a bounded output page without consuming coordinator mail. */
+  read(attempt: OrcaAttempt, cursor?: string): Promise<string>;
+  /** Request guarded cancellation after core reserves it durably. */
+  stop(attempt: OrcaAttempt): Promise<OrcaAttempt>;
+}
+
 /** Result from one bounded subprocess invocation, including nonzero JSON receipts. */
 export interface OrcaCommandResult {
   /** Entire stdout, with no shell or human-output parsing. */

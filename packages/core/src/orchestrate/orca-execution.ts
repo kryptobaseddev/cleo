@@ -4,10 +4,11 @@
  */
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { OrcaExecutionBackend, OrcaExecutionError } from '@cleocode/adapters/orca-execution';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   type OrcaAttempt,
   type OrcaContext,
+  type OrcaExecutionAdapter,
   type OrcaLaunch,
   orcaLaunchSchema,
 } from '@cleocode/contracts/orca-execution.js';
@@ -17,6 +18,7 @@ import {
   resolveTaskWorktreePath,
 } from '@cleocode/paths';
 import { readWorktreeTaskLock } from '@cleocode/worktree';
+import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { isClaimExpired } from '../store/task-claim.js';
 import {
@@ -37,13 +39,13 @@ import {
  * @returns The durable attempt after recording its start receipt.
  * @example
  * ```ts
- * const record = await launchOrcaWorker(prepared, context);
+ * const record = await launchOrcaWorker(prepared, context, backend);
  * ```
  */
 export async function launchOrcaWorker(
   input: OrcaLaunch,
   context: OrcaContext,
-  backend: OrcaExecutionBackend = new OrcaExecutionBackend(),
+  backend: OrcaExecutionAdapter,
 ): Promise<WorkerRecord> {
   const launch = orcaLaunchSchema.parse(input);
   const expectedPath = resolveTaskWorktreePath(
@@ -68,10 +70,12 @@ export async function launchOrcaWorker(
     task.claim.agentId !== launch.agentId
   ) {
     // @sync-invariant none:local-only an Orca launch must retain the canonical checkout and its allocated claim
-    throw new OrcaExecutionError(
-      'E_ORCA_PREPARATION',
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
       'The canonical worktree, lock or allocated task claim is unproven.',
-      'Prepare the task once through cleo orchestrate spawn and pass its exact worker identity and lock receipt.',
+      {
+        fix: 'Prepare the task once through cleo orchestrate spawn and pass its exact worker identity and lock receipt.',
+      },
     );
   }
   const workspace = await backend.preflight(launch, context);
@@ -129,13 +133,13 @@ export async function launchOrcaWorker(
  * @returns The record with a validated observation and a new CAS revision.
  * @example
  * ```ts
- * const observed = await observeOrcaWorker(record.recordId, projectRoot);
+ * const observed = await observeOrcaWorker(record.recordId, projectRoot, backend);
  * ```
  */
 export async function observeOrcaWorker(
   recordId: string,
   cwd: string,
-  backend: OrcaExecutionBackend = new OrcaExecutionBackend(),
+  backend: OrcaExecutionAdapter,
 ): Promise<WorkerRecord> {
   const record = await loadOrcaWorker(recordId, cwd);
   return updateWorkerExecution(record, await backend.show(requireExecution(record)), cwd);
@@ -150,13 +154,13 @@ export async function observeOrcaWorker(
  * @returns The same worker record with the replayed receipt.
  * @example
  * ```ts
- * const recovered = await recoverOrcaWorkerStart(record.recordId, projectRoot);
+ * const recovered = await recoverOrcaWorkerStart(record.recordId, projectRoot, backend);
  * ```
  */
 export async function recoverOrcaWorkerStart(
   recordId: string,
   cwd: string,
-  backend: OrcaExecutionBackend = new OrcaExecutionBackend(),
+  backend: OrcaExecutionAdapter,
 ): Promise<WorkerRecord> {
   const record = await loadOrcaWorker(recordId, cwd);
   const execution = requireExecution(record);
@@ -166,10 +170,12 @@ export async function recoverOrcaWorkerStart(
     execution.failureCount >= 3
   ) {
     // @sync-invariant none:local-only only an issued unresolved operation may be replayed
-    throw new OrcaExecutionError(
-      'E_ORCA_ATTEMPT_FENCED',
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
       'No recoverable start request is stored for this attempt.',
-      'Inspect its original receipt; an absent receipt never authorizes a replacement worker.',
+      {
+        fix: 'Inspect its original receipt; an absent receipt never authorizes a replacement worker.',
+      },
     );
   }
   const reserved = await updateWorkerExecution(record, { ...execution, state: 'launching' }, cwd);
@@ -191,19 +197,19 @@ export async function recoverOrcaWorkerStart(
  * @remarks Does not consume coordinator mail; callers retain the source-pinned cursor.
  * @param recordId - Exact worker record id.
  * @param cwd - Owning CLEO project root.
- * @param cursor - Cursor from the preceding output page, if any.
  * @param backend - Process adapter for the recorded runtime.
+ * @param cursor - Cursor from the preceding output page, if any.
  * @returns Original bounded JSON receipt, including output and pagination.
  * @example
  * ```ts
- * const page = await readOrcaWorker(record.recordId, projectRoot);
+ * const page = await readOrcaWorker(record.recordId, projectRoot, backend, undefined);
  * ```
  */
 export async function readOrcaWorker(
   recordId: string,
   cwd: string,
+  backend: OrcaExecutionAdapter,
   cursor?: string,
-  backend: OrcaExecutionBackend = new OrcaExecutionBackend(),
 ): Promise<string> {
   return backend.read(requireExecution(await loadOrcaWorker(recordId, cwd)), cursor);
 }
@@ -218,30 +224,32 @@ export async function readOrcaWorker(
  * @returns The persisted stop receipt, including an unresolved stop_unknown.
  * @example
  * ```ts
- * const stopped = await stopOrcaWorker(record.recordId, projectRoot);
+ * const stopped = await stopOrcaWorker(record.recordId, projectRoot, backend);
  * ```
  */
 export async function stopOrcaWorker(
   recordId: string,
   cwd: string,
-  backend: OrcaExecutionBackend = new OrcaExecutionBackend(),
+  backend: OrcaExecutionAdapter,
 ): Promise<WorkerRecord> {
   const record = await loadOrcaWorker(recordId, cwd);
   const execution = requireExecution(record);
   if (!execution.dispatchId || !execution.runId || !execution.orcaTaskId) {
     // @sync-invariant none:local-only an unresolved start with no exact dispatch cannot authorize cancellation
-    throw new OrcaExecutionError(
-      'E_ORCA_IDENTITY',
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
       'No exact Dispatch binding is stored for cancellation.',
-      'Recover the original issued start request before requesting a guarded stop.',
+      { fix: 'Recover the original issued start request before requesting a guarded stop.' },
     );
   }
   if (['stop_pending', 'stop_unknown', 'stopped'].includes(execution.state)) {
     // @sync-invariant none:local-only an uncertain stop cannot be replaced by another unkeyed stop
-    throw new OrcaExecutionError(
-      'E_ORCA_ATTEMPT_FENCED',
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
       'The stored stop is already sent or settled.',
-      'Inspect the exact Dispatch and original stop request; do not repeat cancellation blindly.',
+      {
+        fix: 'Inspect the exact Dispatch and original stop request; do not repeat cancellation blindly.',
+      },
     );
   }
   const reserved = await updateWorkerExecution(
@@ -258,10 +266,10 @@ async function loadOrcaWorker(recordId: string, cwd: string): Promise<WorkerReco
   );
   if (!record?.execution || record.stoppedAt !== null) {
     // @sync-invariant none:local-only recovery requires an open durable external attempt
-    throw new OrcaExecutionError(
-      'E_ORCA_IDENTITY',
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
       'No open Orca worker record matches that id.',
-      'Inspect the existing worker records and use the exact record id.',
+      { fix: 'Inspect the existing worker records and use the exact record id.' },
     );
   }
   return record;
@@ -270,21 +278,19 @@ async function loadOrcaWorker(recordId: string, cwd: string): Promise<WorkerReco
 function requireExecution(record: WorkerRecord): OrcaAttempt {
   if (!record.execution) {
     // @sync-invariant none:local-only native process records are never adopted as Orca attempts
-    throw new OrcaExecutionError(
-      'E_ORCA_IDENTITY',
-      'Worker record has no Orca binding.',
-      'Use its recorded execution backend.',
-    );
+    throw new CleoError(ExitCode.SPAWN_VALIDATION_FAILED, 'Worker record has no Orca binding.', {
+      fix: 'Use its recorded execution backend.',
+    });
   }
   if (
     createHash('sha256').update(record.execution.launch.prompt).digest('hex') !==
     record.execution.promptDigest
   ) {
     // @sync-invariant none:local-only recovery must replay the original prepared prompt bytes
-    throw new OrcaExecutionError(
-      'E_ORCA_IDENTITY',
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
       'The stored prompt no longer matches its launch digest.',
-      'Retain custody and inspect the original prepared assignment before recovery.',
+      { fix: 'Retain custody and inspect the original prepared assignment before recovery.' },
     );
   }
   return record.execution;
