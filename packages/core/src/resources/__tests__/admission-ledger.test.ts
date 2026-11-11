@@ -1616,6 +1616,64 @@ describe('admit (one ledger, real critical section)', () => {
     await a.grant.release();
   });
 
+  it('an aborted admit returns within the bound when the ledger lock is stalled, and the entry is retired (T14495)', async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    const stop = new AbortController();
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 600_000, signal: stop.signal },
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      readLedger(dir)
+        .map((e) => e.state)
+        .sort(),
+    ).toEqual(['admitted', 'waiting']);
+    // Stall the ledger lock: the aborted removal cannot take it, so the abort
+    // must return without waiting out the lock's ~15 s retry budget.
+    const file = join(dir, 'ledger.json');
+    const held = await lockfile.lock(file, {
+      lockfilePath: `${file}.lock`,
+      realpath: false,
+      retries: 0,
+      stale: 600_000,
+    });
+    let released = false;
+    const releaseLock = async (): Promise<void> => {
+      if (released) return;
+      released = true;
+      await held().catch(() => undefined);
+    };
+    try {
+      const abortedAt = Date.now();
+      stop.abort();
+      const b = await waiting;
+      const elapsed = Date.now() - abortedAt;
+      expect(b.admitted).toBe(false);
+      // Bound is RELEASE_AWAITED_MS (250 ms); allow CI scheduling slack.
+      expect(elapsed).toBeLessThan(3_000);
+      // Deferred, not lost: the entry is still queued and handed to the retry.
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      await releaseLock();
+      // As soon as the lock is free, the background retry retires the entry.
+      await vi.waitFor(() => expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']), {
+        timeout: 10_000,
+        interval: 50,
+      });
+    } finally {
+      await releaseLock();
+      await a.grant.release();
+    }
+  });
+
   it('the memory gate refuses with the readings; a waiter says so and starts when pressure falls', async () => {
     // 4 GiB: above the small-run floor, so the latch holds it (T14206).
     const refused = await admit(

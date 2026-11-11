@@ -3038,8 +3038,9 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       // Awaited (T14495): the removal writes the ledger, so no writer may outlive
       // this call — a caller that removes the ledger dir after the refusal (a
       // test tearing down its tmpdir) raced an un-awaited write and saw
-      // ENOTEMPTY. The first attempt is bounded; an unavailable ledger still
-      // retries in the background without keeping the process alive.
+      // ENOTEMPTY. The first attempt is bounded (RELEASE_AWAITED_MS): a busy or
+      // stalled lock hands the entry to the background retry instead of holding
+      // an already-aborted admit for the lock's ~15 s retry budget.
       await releaseLedgerEntry(entry, dir, { ...opts, signal: stop.signal });
     }
   }
@@ -3182,6 +3183,17 @@ function holderReport(
 const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS];
 
 /**
+ * How long the awaited removal attempt may wait for the ledger lock when the
+ * admission is already aborted (T14495).
+ *
+ * The lock retries for about 15 s ({@link LOCK_ATTEMPTS}), so an abort that
+ * was already enqueued must not wait out a contended or stalled lock: past
+ * this bound the removal is handed to the background retry, which keeps
+ * trying until the entry is retired.
+ */
+const RELEASE_AWAITED_MS = 250;
+
+/**
  * Change an admitted entry's charge and schedule in the same pass (T14116):
  * budget a lowered charge frees admits waiters at once. Best effort: a failed
  * write keeps the old charge, and the next measurement tries again.
@@ -3224,7 +3236,12 @@ async function rechargeLedgerEntry(
   }
 }
 
-/** Retire an admission, retrying unavailable storage without keeping the runner alive. */
+/**
+ * Retire an admission, retrying unavailable storage without keeping the runner
+ * alive. When the admission was aborted, the one attempt the caller waits for
+ * is bounded by {@link RELEASE_AWAITED_MS}; a contended lock hands the entry to
+ * the retry instead of holding the abort.
+ */
 async function releaseLedgerEntry(
   entry: LedgerEntry,
   dir: string,
@@ -3241,19 +3258,34 @@ async function releaseLedgerEntry(
       )
         return true;
       if (opts.signal?.aborted) {
-        await withLedger(
-          dir,
-          (doc) => ({
-            doc: {
-              ...doc,
-              entries: doc.entries.filter((e) => e.id !== entry.id),
-              foreign: doc.foreign.filter((e) => e.id !== entry.id),
-            },
-            result: undefined,
-          }),
-          undefined,
-          true,
+        // The caller has already given up (abort or deadline): bound the one
+        // removal attempt it waits for, so a contended or stalled lock cannot
+        // hold the abort past {@link RELEASE_AWAITED_MS}. A timed-out attempt
+        // returns `false` and hands the entry to the retry below, which still
+        // retires it — no queue slot is leaked.
+        const bounded = new AbortController();
+        const deadline = setTimeout(
+          () => bounded.abort(new Error('admission release deadline')),
+          RELEASE_AWAITED_MS,
         );
+        deadline.unref();
+        try {
+          await withLedger(
+            dir,
+            (doc) => ({
+              doc: {
+                ...doc,
+                entries: doc.entries.filter((e) => e.id !== entry.id),
+                foreign: doc.foreign.filter((e) => e.id !== entry.id),
+              },
+              result: undefined,
+            }),
+            bounded.signal,
+            true,
+          );
+        } finally {
+          clearTimeout(deadline);
+        }
         return true;
       }
       const nowMs = now();
