@@ -64,6 +64,7 @@ import {
   bindProjectDomain,
   boundProjectNative,
   type DomainBinding,
+  peekDomainAtPath,
   releaseDomainBindings,
   resetCleoRuntime,
 } from './ports/domain-binding.js';
@@ -1019,6 +1020,30 @@ export function getNativeDb(cwd?: string): DatabaseSync | null {
  */
 export function getNativeTasksDb(cwd?: string): DatabaseSync | null {
   return boundProjectNative('tasks', cwd);
+}
+
+/**
+ * Whether THIS process already holds a warm writable tasks binding for the
+ * project's store (T14440, census AC3).
+ *
+ * Same-process flows (a completion releasing its own worktree, an in-use
+ * probe for the current project) read through that binding: it is already
+ * open — no restore, seed or migration can run — and it sees their own
+ * fresh writes, which an immutable snapshot would miss. A COLD store,
+ * especially another project's, must go through
+ * {@link openProjectTasksReadOnly} instead.
+ *
+ * @param projectRoot - Absolute path to the project whose store to check.
+ * @returns True when a warm writable tasks binding exists.
+ */
+export function hasProjectTasksBinding(projectRoot: string): boolean {
+  let dbPath: string;
+  try {
+    dbPath = resolveDualScopeDbPath('project', projectRoot);
+  } catch {
+    return false;
+  }
+  return peekDomainAtPath('project', dbPath, 'tasks') !== null;
 }
 
 /**

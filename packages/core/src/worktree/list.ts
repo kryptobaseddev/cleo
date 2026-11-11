@@ -559,6 +559,30 @@ export async function loadOwningTaskStatuses(
   // skipped with an error result; the listing degrades to
   // `owningTaskStatus: null` and rows classified `unknown`.
   try {
+    const { hasProjectTasksBinding } = await import('../store/sqlite.js');
+    if (hasProjectTasksBinding(projectRoot)) {
+      // A warm binding exists: this process already opened that store through
+      // the chokepoint (a same-process flow such as a completion releasing its
+      // own worktree). Reading through it writes nothing new and — unlike an
+      // immutable snapshot — sees this process's own fresh writes.
+      const { getDb, getNativeTasksDb } = await import('../store/sqlite.js');
+      await getDb(projectRoot);
+      const db = getNativeTasksDb(projectRoot);
+      if (!db) {
+        // @sync-invariant none:local-only missing task-state coverage forbids local worktree disposal
+        return engineError('E_TASK_STATE_UNAVAILABLE', 'Task store unavailable', {
+          fix: 'Run cleo doctor to diagnose the task store.',
+        });
+      }
+      const placeholders = taskIds.map(() => '?').join(', ');
+      const sql = `SELECT id, ${DERIVED_STATUS_SQL} AS status FROM tasks_tasks WHERE id IN (${placeholders})`;
+      const rows = db.prepare(sql).all(claimClockNow(), ...taskIds) as Array<{
+        id: string;
+        status: string;
+      }>;
+      for (const row of rows) out.set(row.id, row.status);
+      return engineSuccess(out);
+    }
     const { projectStoreReadVerdict } = await import('../doctor/migrations.js');
     const verdict = projectStoreReadVerdict(projectRoot);
     if (verdict === 'not read: missing store') {
