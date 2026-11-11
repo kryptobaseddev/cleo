@@ -3035,7 +3035,13 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     opts.signal?.removeEventListener('abort', onAbort);
     if (stop.signal.aborted) {
       // A bounded deferral does not prove removal while the ledger is unavailable.
-      void releaseLedgerEntry(entry, dir, { ...opts, signal: stop.signal });
+      // Awaited (T14495): the removal writes the ledger, so no writer may outlive
+      // this call — a caller that removes the ledger dir after the refusal (a
+      // test tearing down its tmpdir) raced an un-awaited write and saw
+      // ENOTEMPTY. The first attempt is bounded (RELEASE_AWAITED_MS): a busy or
+      // stalled lock hands the entry to the background retry instead of holding
+      // an already-aborted admit for the lock's ~15 s retry budget.
+      await releaseLedgerEntry(entry, dir, { ...opts, signal: stop.signal });
     }
   }
 }
@@ -3177,6 +3183,27 @@ function holderReport(
 const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS];
 
 /**
+ * How long the awaited removal of an already aborted admission may wait on
+ * **asynchronous** work (T14495): the lock acquisition (which retries for about
+ * 15 s, {@link LOCK_ATTEMPTS}), the awaited {@link lockLedger} unlock, and the
+ * scheduling of the attempt itself.
+ *
+ * An abort that was already enqueued must not wait out a contended lock or a
+ * stalled unlock — proper-lockfile removes the lock directory asynchronously,
+ * so an awaited unlock can hang past the deadline. Past this bound the caller
+ * stops waiting and the attempt plus the background retry carry on until the
+ * entry is retired.
+ *
+ * The bound is cooperative, not absolute: the ledger is a plain file read and
+ * written synchronously ({@link readLedgerDoc}, {@link writeLedgerDoc}), and a
+ * synchronous read or write blocks the event loop, so the deadline timer
+ * cannot fire until it returns. A blocked or very slow filesystem therefore
+ * extends the caller's wait past this bound; only asynchronous waits are
+ * preemptible.
+ */
+const RELEASE_AWAITED_MS = 250;
+
+/**
  * Change an admitted entry's charge and schedule in the same pass (T14116):
  * budget a lowered charge frees admits waiters at once. Best effort: a failed
  * write keeps the old charge, and the next measurement tries again.
@@ -3219,15 +3246,30 @@ async function rechargeLedgerEntry(
   }
 }
 
-/** Retire an admission, retrying unavailable storage without keeping the runner alive. */
+/**
+ * Retire an admission, retrying unavailable storage without keeping the runner
+ * alive. When the admission was aborted, the one attempt the caller waits for
+ * is bounded by {@link RELEASE_AWAITED_MS}; a contended lock or a stalled
+ * unlock hands the entry to the retry instead of holding the abort. An aborted
+ * entry's retirement never samples pressure, on the awaited attempt or on any
+ * retry: sampling can stall in the monitor, and nothing waits on the verdict
+ * for a run that never started.
+ */
 async function releaseLedgerEntry(
   entry: LedgerEntry,
   dir: string,
   opts: AdmitOptions,
 ): Promise<void> {
   const now = opts.now ?? Date.now;
-  /** Remove the entry and schedule the queue. Only a successful read can establish absence. */
-  const removeOnce = async (): Promise<boolean> => {
+  /**
+   * Remove the entry and schedule the queue. Only a successful read can
+   * establish absence. `signal` bounds the attempt's asynchronous waits (the
+   * bounded attempt passes its deadline; the retry passes none and keeps
+   * retrying the lock). Whether the entry is aborted — and so must skip
+   * sampling — is decided from `opts.signal`, never from that deadline signal:
+   * the retry has no deadline signal but still belongs to an aborted admit.
+   */
+  const removeAttempt = async (signal?: AbortSignal): Promise<boolean> => {
     try {
       const before = readLedgerDoc(dir, true);
       if (
@@ -3235,7 +3277,11 @@ async function releaseLedgerEntry(
         !before.foreign.some((e) => e.id === entry.id)
       )
         return true;
-      if (opts.signal?.aborted) {
+      if (opts.signal?.aborted === true) {
+        // The waiter has already given up (abort or deadline): remove the entry
+        // and reschedule, but never sample. A stalled sampler must not keep an
+        // aborted entry — or its background retry — queued forever, even after
+        // the lock recovers.
         await withLedger(
           dir,
           (doc) => ({
@@ -3246,7 +3292,7 @@ async function releaseLedgerEntry(
             },
             result: undefined,
           }),
-          undefined,
+          signal,
           true,
         );
         return true;
@@ -3281,17 +3327,62 @@ async function releaseLedgerEntry(
       return false;
     }
   };
+  /**
+   * One removal attempt. When the caller has already given up, the whole
+   * attempt's asynchronous work — lock acquisition, write and unlock — is
+   * raced against a single {@link RELEASE_AWAITED_MS} deadline: a stalled lock
+   * or unlock (proper-lockfile's removal is asynchronous) must not hold an
+   * aborted admit past it. The race is installed before the attempt starts so
+   * no asynchronous step runs unwatched; the attempt's synchronous read and
+   * write are not preemptible and can outlast the deadline. A timed-out
+   * attempt keeps running — its read, write and unlock still complete — and the
+   * caller stops waiting; `false` hands the entry to the retry, so no queue
+   * slot leaks. The retry itself is not bounded.
+   */
+  const removeOnce = async (boundedAttempt: boolean): Promise<boolean> => {
+    if (!boundedAttempt || opts.signal?.aborted !== true) return removeAttempt();
+    const attempt = new AbortController();
+    let deadline: NodeJS.Timeout | undefined;
+    // Started before the initial read so one budget covers the whole attempt.
+    const deadlineHit = new Promise<'deadline'>((resolve) => {
+      deadline = setTimeout(() => {
+        // A pending lock attempt observes this; a stalled unlock does not, and
+        // is left to finish on its own.
+        attempt.abort(new Error('admission release deadline'));
+        resolve('deadline');
+      }, RELEASE_AWAITED_MS);
+      deadline.unref();
+    });
+    // Deferred a microtask so the race is installed before the attempt does its
+    // first I/O.
+    const running = Promise.resolve().then(() => removeAttempt(attempt.signal));
+    // The attempt outlives this wait: its eventual failure is handled below.
+    void running.catch(() => {});
+    try {
+      const outcome = await Promise.race([running, deadlineHit]);
+      if (outcome === 'deadline') {
+        log().warn(
+          { id: entry.id },
+          'admission release did not finish within its bound; it and the retry finish in the background',
+        );
+        return false;
+      }
+      return outcome;
+    } finally {
+      clearTimeout(deadline);
+    }
+  };
   /** Keep trying in the background (never keeping the process alive) until removed. */
   const retry = (delayMs: number): void => {
     const t = setTimeout(() => {
-      void removeOnce().then((done) => {
+      void removeOnce(false).then((done) => {
         if (!done) retry(Math.min(delayMs * 2, RELEASE_RETRY_MS[1]));
       });
     }, delayMs);
     t.unref();
   };
 
-  if (!(await removeOnce())) retry(RELEASE_RETRY_MS[0]);
+  if (!(await removeOnce(true))) retry(RELEASE_RETRY_MS[0]);
 }
 
 /** Hold an admitted entry: heartbeat, follow tool groups, release. */

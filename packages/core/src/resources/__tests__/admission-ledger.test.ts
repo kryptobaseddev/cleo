@@ -1609,10 +1609,239 @@ describe('admit (one ledger, real critical section)', () => {
     stop.abort();
     const b = await waiting;
     expect(b.admitted).toBe(false);
-    await vi.waitFor(() => {
-      expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
-    });
+    // Removed before `admit` returns (T14495): the deferred removal is awaited,
+    // so no ledger writer outlives the call and a caller that removes the dir
+    // right after the refusal cannot race it (ENOTEMPTY).
+    expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
     await a.grant.release();
+  });
+
+  it('an aborted admit returns within the bound when the ledger lock is stalled, and the entry is retired (T14495)', async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    const stop = new AbortController();
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 600_000, signal: stop.signal },
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      readLedger(dir)
+        .map((e) => e.state)
+        .sort(),
+    ).toEqual(['admitted', 'waiting']);
+    // Stall the ledger lock: the aborted removal cannot take it, so the abort
+    // must return without waiting out the lock's ~15 s retry budget.
+    const file = join(dir, 'ledger.json');
+    const held = await lockfile.lock(file, {
+      lockfilePath: `${file}.lock`,
+      realpath: false,
+      retries: 0,
+      stale: 600_000,
+    });
+    let released = false;
+    const releaseLock = async (): Promise<void> => {
+      if (released) return;
+      released = true;
+      await held().catch(() => undefined);
+    };
+    try {
+      const abortedAt = Date.now();
+      stop.abort();
+      const b = await waiting;
+      const elapsed = Date.now() - abortedAt;
+      expect(b.admitted).toBe(false);
+      // Bound is RELEASE_AWAITED_MS (250 ms); allow CI scheduling slack.
+      expect(elapsed).toBeLessThan(3_000);
+      // Deferred, not lost: the entry is still queued and handed to the retry.
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      await releaseLock();
+      // As soon as the lock is free, the background retry retires the entry.
+      await vi.waitFor(() => expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']), {
+        timeout: 10_000,
+        interval: 50,
+      });
+    } finally {
+      await releaseLock();
+      await a.grant.release();
+    }
+  });
+
+  it('an aborted admit returns within the bound when an acquired lock never unlocks, and the entry is retired (T14495)', {
+    timeout: 20_000,
+  }, async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    const stop = new AbortController();
+    // Park the waiter's poll loop so the only lock the aborted path touches is
+    // the removal's own; anything else would blur which unlock stalled.
+    let wake: () => void = () => {};
+    const parked = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 600_000, signal: stop.signal, sleep: () => parked },
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      readLedger(dir)
+        .map((e) => e.state)
+        .sort(),
+    ).toEqual(['admitted', 'waiting']);
+    // The removal acquires the ledger lock, then its in-lock read fails (a
+    // transient I/O error) and it awaits an unlock that never settles:
+    // proper-lockfile removes the lock directory asynchronously, so the
+    // awaited unlock itself can hang indefinitely. Nothing is written, so the
+    // entry stays queued for the retry.
+    const file = join(dir, 'ledger.json');
+    const { readFileSync: originalRead } =
+      await vi.importActual<typeof import('node:fs')>('node:fs');
+    let ledgerReads = 0;
+    const readSpy = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((path, options) => {
+      if (String(path) === file && ++ledgerReads === 2) {
+        throw Object.assign(new Error('ledger is unreadable'), { code: 'EACCES' });
+      }
+      return originalRead(path, options);
+    });
+    const realLock = lockfile.lock;
+    let stalled = false;
+    const lockSpy = vi.spyOn(lockfile, 'lock').mockImplementation((lockPath, options) => {
+      if (!stalled) {
+        stalled = true;
+        return Promise.resolve(async () => {
+          await new Promise<void>(() => {});
+        });
+      }
+      return realLock(lockPath, options);
+    });
+    try {
+      const abortedAt = Date.now();
+      stop.abort();
+      const b = await waiting;
+      const elapsed = Date.now() - abortedAt;
+      expect(b.admitted).toBe(false);
+      // Bound is RELEASE_AWAITED_MS (250 ms): returned at the deadline, not
+      // after a fast removal (>= 200) nor after a hung unlock (< 3 s, slack
+      // for CI scheduling).
+      expect(elapsed).toBeGreaterThanOrEqual(200);
+      expect(elapsed).toBeLessThan(3_000);
+      expect(stalled).toBe(true);
+      // Deferred, not lost: the entry is still queued and handed to the retry.
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      // The retry still retires it once the lock and storage are usable.
+      await vi.waitFor(() => expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']), {
+        timeout: 10_000,
+        interval: 50,
+      });
+    } finally {
+      lockSpy.mockRestore();
+      readSpy.mockRestore();
+      wake();
+      await a.grant.release();
+    }
+  });
+
+  it('an aborted entry whose first removal timed out is retired by the retry without sampling (T14495)', {
+    timeout: 20_000,
+  }, async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    const stop = new AbortController();
+    // Park the waiter's poll loop so nothing but the removal path runs after
+    // the abort — in particular, nothing else can call the sampler.
+    let wake: () => void = () => {};
+    const parked = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    let sampleCalls = 0;
+    let samplerStalls = false;
+    const sample = async (): Promise<ResourceSample> => {
+      sampleCalls++;
+      if (samplerStalls) return new Promise<ResourceSample>(() => {});
+      return sampleAt(0);
+    };
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 600_000,
+        signal: stop.signal,
+        sleep: () => parked,
+        sample,
+      },
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      readLedger(dir)
+        .map((e) => e.state)
+        .sort(),
+    ).toEqual(['admitted', 'waiting']);
+    // Hold the ledger lock so the aborted removal's first attempt times out at
+    // the bound and the entry goes to the background retry.
+    const file = join(dir, 'ledger.json');
+    const held = await lockfile.lock(file, {
+      lockfilePath: `${file}.lock`,
+      realpath: false,
+      retries: 0,
+      stale: 600_000,
+    });
+    let released = false;
+    const releaseLock = async (): Promise<void> => {
+      if (released) return;
+      released = true;
+      await held().catch(() => undefined);
+    };
+    try {
+      const abortedAt = Date.now();
+      stop.abort();
+      const b = await waiting;
+      expect(b.admitted).toBe(false);
+      expect(Date.now() - abortedAt).toBeLessThan(3_000);
+      // Deferred, not lost: the entry is queued and the retry owns it now.
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      // From here on the sampler never answers. An aborted entry's retirement
+      // must not sample — on the raced attempt or on the retry — so the entry
+      // is retired once the lock is free even though sampling would hang
+      // forever. Before the fix the retry took the sampling branch (it passes
+      // no deadline signal) and the entry was never retired.
+      sampleCalls = 0;
+      samplerStalls = true;
+      await releaseLock();
+      await vi.waitFor(() => expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']), {
+        timeout: 10_000,
+        interval: 50,
+      });
+      expect(sampleCalls).toBe(0);
+    } finally {
+      samplerStalls = false;
+      await releaseLock();
+      wake();
+      await a.grant.release();
+    }
   });
 
   it('the memory gate refuses with the readings; a waiter says so and starts when pressure falls', async () => {
@@ -1695,6 +1924,9 @@ describe('admit (one ledger, real critical section)', () => {
     expect(notices[0]).toMatch(/this wait gives up in \d+s\.$/);
     // One probe per 30 s window while the gate keeps refusing (90 s of waiting), not one per pass.
     expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
+    // Every child and waiter is settled here: `admit` awaits the removal of an
+    // aborted queue entry (T14495), so afterEach can remove `dir` without a
+    // deferred ledger write racing it (ENOTEMPTY).
   });
 
   it('held above the refuse line with CLEO idle, a waiter gets the external-pressure verdict naming the programs (T14282)', async () => {
