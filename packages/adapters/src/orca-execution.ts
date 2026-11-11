@@ -13,6 +13,7 @@ import type {
   OrcaDiscovery,
   OrcaLaunch,
   OrcaReply,
+  OrcaReportSource,
   OrcaRoutingAdapter,
   OrcaWorkerDone,
 } from '@cleocode/contracts/orca-execution.js';
@@ -23,6 +24,7 @@ import {
   orcaContextSchema,
   orcaLaunchSchema,
   orcaReplySchema,
+  orcaReportMessageSchema,
   orcaReportSourceSchema,
   orcaWorkerDonePayloadSchema,
 } from '@cleocode/contracts/orca-execution.js';
@@ -587,33 +589,68 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         'Recover the original start receipt before ingesting a worker report.',
       );
     }
-    // shortcut: inspect the newest 200 Run messages; use exact lookup when Orca exposes it.
-    const source = await this.reportSource(
-      ['orchestration', 'inbox', '--terminal', `run:${runId}`, '--limit', '200'],
-      attempt,
-    );
-    const message = source.result.messages?.find((entry) => entry.id === messageId);
+    let message: ReturnType<typeof orcaReportMessageSchema.parse> | undefined;
+    let source: OrcaReportSource | undefined;
+    let exhausted = false;
+    // shortcut: Orca has no inbox cursor; widen up to 12,800 rows until it offers paging or exact lookup.
+    for (let limit = 200; limit <= 12_800; limit *= 2) {
+      source = await this.reportSource(
+        ['orchestration', 'inbox', '--terminal', `run:${runId}`, '--limit', String(limit)],
+        attempt,
+      );
+      const rows = source.result.messages ?? [];
+      const row = rows.find(
+        (entry) =>
+          entry !== null &&
+          typeof entry === 'object' &&
+          !Array.isArray(entry) &&
+          entry.id === messageId,
+      );
+      if (row) {
+        const parsed = orcaReportMessageSchema.safeParse(row);
+        if (!parsed.success) {
+          throw this.reportSourceRefusal(
+            source.command,
+            `The requested inbox row is malformed: ${parsed.error.message}`,
+            'Inspect the exact message in the original full Run inbox and restore its transport fields before retrying.',
+          );
+        }
+        message = parsed.data;
+        break;
+      }
+      exhausted = rows.length < limit;
+      if (exhausted) break;
+    }
+    if (!message || !source) {
+      throw new OrcaExecutionError(
+        'E_ORCA_REPORT_SOURCE',
+        exhausted
+          ? `Message ${messageId} is absent from the exhausted Run inbox.`
+          : `The Run inbox lookup reached 12,800 messages without finding ${messageId}; older history remains unsearched.`,
+        exhausted
+          ? `Inspect orca orchestration inbox --terminal run:${runId} --limit 12800 --environment local --json --full and use the original worker_done id for this Run.`
+          : `Inspect orca orchestration inbox --terminal run:${runId} --limit 25600 --environment local --json --full for the exact id; update Orca to support paged or exact lookup before retrying older history. Retain the worker record.`,
+      );
+    }
     if (
-      !message ||
       message.type !== 'worker_done' ||
       message.delivery_contract !== 'current_delivery' ||
       message.run_id !== runId ||
-      message.to_handle !== `run:${runId}` ||
-      !message.payload
+      message.to_handle !== `run:${runId}`
     ) {
       throw new OrcaExecutionError(
         'E_ORCA_REPORT_SOURCE',
-        'No current worker_done matches that message id in the bounded Run inbox.',
+        'The requested message is not a current worker_done for this Run.',
         'Use the exact worker_done id from the original Run; a wake or prose body is not a report.',
       );
     }
     let payload: ReturnType<typeof orcaWorkerDonePayloadSchema.parse>;
     try {
-      payload = orcaWorkerDonePayloadSchema.parse(JSON.parse(message.payload));
-    } catch {
-      throw new OrcaExecutionError(
-        'E_ORCA_REPORT_SOURCE',
-        'worker_done has no valid report-path payload.',
+      payload = orcaWorkerDonePayloadSchema.parse(JSON.parse(message.payload ?? 'null'));
+    } catch (error) {
+      throw this.reportSourceRefusal(
+        source.command,
+        `worker_done has no valid report-path payload: ${error instanceof Error ? error.message : String(error)}`,
         'Supply the original canonical report through worker_done --report-path.',
       );
     }
@@ -1070,10 +1107,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     return runtime.capabilities;
   }
 
-  private async reportSource(
-    args: string[],
-    attempt: OrcaAttempt,
-  ): Promise<ReturnType<typeof orcaReportSourceSchema.parse>> {
+  private async reportSource(args: string[], attempt: OrcaAttempt): Promise<OrcaReportSource> {
     const reply = await this.runner(
       this.executable,
       [...args, '--environment', 'local', '--json', '--full'],
@@ -1081,15 +1115,38 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     );
     try {
       const source = orcaReportSourceSchema.parse(JSON.parse(reply.stdout));
-      if (reply.exitCode === 0 && source._meta.runtimeId === attempt.context.runtimeId)
-        return source;
-    } catch {
-      // Malformed output is never converted into a report or lifecycle observation.
+      if (reply.exitCode !== 0)
+        throw new Error('The report source command did not exit successfully.');
+      if (source._meta.runtimeId !== attempt.context.runtimeId)
+        throw new Error(
+          `Report source runtime ${source._meta.runtimeId} differs from ${attempt.context.runtimeId}.`,
+        );
+      if (args[1] === 'inbox' && !source.result.messages)
+        throw new Error('The Run inbox omitted its messages array.');
+      return { ...source, command: reply };
+    } catch (error) {
+      throw this.reportSourceRefusal(
+        reply,
+        error instanceof Error ? error.message : String(error),
+        'Inspect the original runtime and full Run inbox; retain the worker record.',
+      );
     }
-    throw new OrcaExecutionError(
+  }
+
+  private reportSourceRefusal(
+    command: OrcaCommandResult,
+    issues: string,
+    fix: string,
+  ): OrcaExecutionError {
+    return new OrcaExecutionError(
       'E_ORCA_REPORT_SOURCE',
-      'Orca returned no verified report source.',
-      'Inspect the original runtime and full Run inbox; retain the worker record.',
+      `Orca returned no verified report source: ${JSON.stringify({
+        exitCode: command.exitCode,
+        stderr: command.stderr,
+        issues,
+      })}`,
+      fix,
+      command.stdout,
     );
   }
 

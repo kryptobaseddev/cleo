@@ -390,8 +390,7 @@ export async function ingestOrcaWorkerReport(
   }
   const [manifest] = await readManifestEntries(cwd, parsed.entryId);
   if (
-    !manifest ||
-    manifest.linked_tasks?.[0] !== record.taskId ||
+    !manifest?.linked_tasks?.includes(record.taskId) ||
     manifest.status !== 'completed' ||
     manifest.agent_type !== contract.manifestType
   ) {
@@ -399,7 +398,7 @@ export async function ingestOrcaWorkerReport(
     throw new EngineResultError({
       code: 'E_ORCA_REPORT_MANIFEST',
       message: 'No matching completed worker manifest backs this report.',
-      fix: 'Read back the report manifest for this CLEO task and protocol; do not infer it from Orca prose.',
+      fix: `Read back a completed ${contract.manifestType} manifest whose linked_tasks includes ${record.taskId}, and use its id in the report.`,
     });
   }
   return recordWorkerReport(
