@@ -116,7 +116,7 @@ export async function launchRoutedOrcaWorker(
   // Refusals before any Run exists belong only to this invocation.
   const refused = new Set<OrcaAgent>();
   for (;;) {
-    const route = await accessor.transaction(async (tx) => {
+    const route = await accessor.transaction(async () => {
       const run = await readRun();
       const last = orcaAgentSchema
         .nullable()
