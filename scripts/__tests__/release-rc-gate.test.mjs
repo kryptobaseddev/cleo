@@ -280,6 +280,76 @@ describe('supervisor-attach follows the GitHub Release, not the whole publish jo
   });
 });
 
+describe('macOS supervisor release binaries (T14436)', () => {
+  const prebuild = parseYaml(
+    readFileSync(path.join(WORKFLOWS, 'cleo-supervisor-prebuild.yml'), 'utf8'),
+  );
+
+  it.each([
+    ['darwin-x64', 'x86_64-apple-darwin', 'macos-15-intel'],
+    ['darwin-arm64', 'aarch64-apple-darwin', 'macos-15'],
+  ])('builds and smokes %s on a supported native runner', (triple, target, runner) => {
+    expect(prebuild.jobs.build.strategy.matrix.include).toContainEqual({
+      target,
+      runner,
+      triple,
+      cross: false,
+      ext: '',
+    });
+    const smoke = prebuild.jobs.build.steps.find(
+      (s) => s.name === 'Smoke test --version (native targets only)',
+    );
+    expect(smoke.if).toBe('matrix.cross == false');
+  });
+
+  it.each(['failure', 'cancelled'])('rejects a %s prebuild', (result) => {
+    const gate = prebuild.jobs.publish;
+    const verify = gate.steps.find((s) => s.name === 'Verify all 5 platform builds passed');
+    const run = spawnSync(
+      'bash',
+      ['-eo', 'pipefail', '-c', verify.run.replaceAll(`\${{ needs.build.result }}`, result)],
+      { encoding: 'utf8' },
+    );
+    expect(gate.if).toBe('always()');
+    expect(run.status).toBe(1);
+    expect(run.stdout).toContain(`result: ${result}`);
+  });
+
+  it.each([
+    ['success', 'success'],
+    ['failure', 'skipped'],
+    ['cancelled', 'skipped'],
+    ['success', 'failure'],
+  ])('reports prebuild %s and attachment %s in the release summary', (prebuild, attach) => {
+    const verdict = releaseYaml.jobs['release-verdict'];
+    expect(verdict.needs).toContain('supervisor-prebuild');
+    expect(verdict.needs).toContain('supervisor-attach');
+    expect(verdict.if).toBe('always()');
+    const step = verdict.steps.find((s) => s.name === 'Summarize cleo-supervisor binaries');
+    expect(step.env.PREBUILD_RESULT).toBe(`\${{ needs.supervisor-prebuild.result }}`);
+    expect(step.env.ATTACH_RESULT).toBe(`\${{ needs.supervisor-attach.result }}`);
+    const summary = path.join(dir, 'supervisor-summary.md');
+    const run = spawnSync('bash', ['-eo', 'pipefail', '-c', step.run], {
+      env: {
+        PATH: process.env.PATH,
+        PREBUILD_RESULT: prebuild,
+        ATTACH_RESULT: attach,
+        GITHUB_STEP_SUMMARY: summary,
+      },
+      encoding: 'utf8',
+    });
+    expect(run.status).toBe(0);
+    const text = readFileSync(summary, 'utf8');
+    expect(text).toContain(`| Prebuild gate (5 targets) | ${prebuild} |`);
+    expect(text).toContain(`| Attach binaries and manifest | ${attach} |`);
+    if (prebuild !== 'success' || attach !== 'success') {
+      expect(run.stdout).toContain('::warning title=SUPERVISOR BINARIES MISSING::');
+    } else {
+      expect(run.stdout).not.toContain('::warning');
+    }
+  });
+});
+
 describe('the version step derives the tag and the candidate', () => {
   const step = releaseYaml.jobs['build-verify'].steps.find((s) => s.id === 'version');
   const run = (version) => {
