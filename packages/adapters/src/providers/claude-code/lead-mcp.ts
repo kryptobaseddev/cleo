@@ -123,12 +123,13 @@ function envTruthy(value: string | undefined): boolean {
  * under `CLAUDE_CODE_CUSTOM_OAUTH_URL`.
  */
 function claudeUserConfigPath(projectDir: string, home: string, env: NodeJS.ProcessEnv): string {
-  const configDir = env.CLAUDE_CONFIG_DIR
-    ? resolve(projectDir, env.CLAUDE_CONFIG_DIR)
-    : join(home, '.claude');
+  // Claude reads an empty CLAUDE_CONFIG_DIR as set for `.config.json` (relative
+  // to its cwd, the project) but as unset for the legacy file (`??` vs `||`).
+  const dirVar = env.CLAUDE_CONFIG_DIR;
+  const configDir = dirVar !== undefined ? resolve(projectDir, dirVar) : join(home, '.claude');
   const migrated = join(configDir.normalize('NFC'), '.config.json');
   const suffix = env.CLAUDE_CODE_CUSTOM_OAUTH_URL ? '-custom-oauth' : '';
-  const legacy = join(env.CLAUDE_CONFIG_DIR ? configDir : home, `.claude${suffix}.json`);
+  const legacy = join(dirVar ? resolve(projectDir, dirVar) : home, `.claude${suffix}.json`);
   const enoent = (err: unknown): boolean =>
     err instanceof Error && 'code' in err && err.code === 'ENOENT';
   try {
@@ -155,6 +156,43 @@ function claudeUserConfigPath(projectDir: string, home: string, env: NodeJS.Proc
   }
 }
 
+/** Every variable {@link requireLeadProjectTrust} reads from the lead environment. */
+export const LEAD_TRUST_ENV_KEYS = [
+  'HOME',
+  'USERPROFILE',
+  'CLAUDE_CONFIG_DIR',
+  'CLAUDE_CODE_CUSTOM_OAUTH_URL',
+  'CLAUDE_CODE_SANDBOXED',
+  'CLAUDE_CODE_IGNORE_PERSISTED_TRUST',
+] as const;
+
+/** The environment an Orca lead terminal receives, as {@link orcaLeadEnv} pins it. */
+export interface OrcaLeadEnv {
+  /** Exported in the terminal, and the environment its trust is judged from. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Trust variables absent from `env`, unset in the terminal. */
+  readonly unset: readonly string[];
+}
+
+/**
+ * Pin the trust-relevant environment of an Orca lead terminal. The terminal
+ * inherits Orca's environment, not CLEO's, so the spawn's own variables and
+ * CLEO's HOME are exported and every other trust variable is unset: the
+ * preflight and the lead's Claude then read the same values, and a variable
+ * only CLEO or Orca holds cannot change either.
+ *
+ * @param spawnEnv - The spawn's own variables (`options.env`).
+ * @param base - CLEO's environment, read for HOME only.
+ * @returns The variables to export, also passed to the preflight, and those to unset.
+ */
+export function orcaLeadEnv(
+  spawnEnv: Readonly<Record<string, string>>,
+  base: NodeJS.ProcessEnv = process.env,
+): OrcaLeadEnv {
+  const env = { HOME: base.HOME || homedir(), ...spawnEnv };
+  return { env, unset: LEAD_TRUST_ENV_KEYS.filter((key) => !(key in env)) };
+}
+
 /**
  * Require the owner's saved Claude Code folder trust before a lead can launch.
  * Returns the user config path so MCP selection uses the same account state.
@@ -169,7 +207,7 @@ function claudeUserConfigPath(projectDir: string, home: string, env: NodeJS.Proc
  * See https://code.claude.com/docs/en/security#additional-safeguards.
  *
  * @param projectDir - The lead's working directory.
- * @param env - The environment the lead will inherit, including spawn overrides.
+ * @param env - Exactly the environment the lead's Claude process receives.
  * @returns The verified Claude Code user config path.
  * @throws OrcaExecutionError when persisted trust cannot be verified.
  */
