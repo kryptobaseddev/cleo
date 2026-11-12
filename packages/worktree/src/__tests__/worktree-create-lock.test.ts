@@ -23,7 +23,6 @@ import {
   openSync,
   readFileSync,
   rmSync,
-  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
@@ -53,6 +52,35 @@ import {
  * or, for `disposeOwnedWorktree`, under the lock right before the removal (T14489).
  */
 const beforeNextDispose = vi.hoisted(() => ({ run: null as (() => void) | null }));
+
+/**
+ * T14491: runs once, right after a file read returns text containing `marker`
+ * (the legacy holder read), before the reader's next step.
+ */
+const afterLegacyRead = vi.hoisted(() => ({
+  marker: null as string | null,
+  /** Matching reads to let pass before `run` fires. */
+  skip: 0,
+  run: null as (() => void) | null,
+}));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const readFileSync = ((...args: Parameters<typeof actual.readFileSync>) => {
+    const out = actual.readFileSync(...args);
+    const { marker, run } = afterLegacyRead;
+    if (run !== null && marker !== null && String(out).includes(marker)) {
+      if (afterLegacyRead.skip > 0) {
+        afterLegacyRead.skip -= 1;
+      } else {
+        afterLegacyRead.run = null;
+        run();
+      }
+    }
+    return out;
+  }) as typeof actual.readFileSync;
+  return { ...actual, default: { ...actual, readFileSync }, readFileSync };
+});
 
 vi.mock('../worktree-dispose.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../worktree-dispose.js')>();
@@ -875,67 +903,157 @@ describe('disposeOwnedWorktree — dispose under the task lock (T14407)', () => 
     expect(readWorktreeTaskLock(hash, 'T7103')?.token).toBe(token);
   });
 
-  /** Plant an old-release `.reclaim` mutex (CLEO v2026.11.1 format) naming `pid`. */
-  function plantLegacyMutex(taskId: string, pid: number, ageMs = 0): string {
-    const legacyPath = `${resolveWorktreeTaskLockPath(hash, taskId)}.reclaim`;
+  /** Plant an old-release file (CLEO v2026.11.1 holder format) naming `pid`. */
+  function plantLegacy(path: string, pid: number, token = 'old-release'): string {
     const raw = JSON.stringify({
-      token: 'old-release',
+      token,
       pid,
       processStartedAt: readProcessStartTime(pid),
       threadId: 0,
     });
-    writeFileSync(legacyPath, raw);
-    if (ageMs > 0) {
-      const old = new Date(Date.now() - ageMs);
-      utimesSync(legacyPath, old, old);
-    }
-    return legacyPath;
+    writeFileSync(path, raw);
+    return raw;
   }
 
-  it('an old-release holder of .reclaim blocks a new-release transition and is never removed (T14491)', () => {
+  /** `.reclaim` path of a task's lock. */
+  const reclaimOf = (taskId: string): string =>
+    `${resolveWorktreeTaskLockPath(hash, taskId)}.reclaim`;
+
+  /** A live process's pid (killed after the test). */
+  function livePid(): number {
+    const p = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(p);
+    if (p.pid === undefined) throw new Error('could not spawn');
+    return p.pid;
+  }
+
+  it('a live old-release .reclaim blocks a new-release transition and is never removed (T14491)', () => {
     const { token } = provision('T7104');
-    const old = spawn('sleep', ['60'], { stdio: 'ignore' });
-    children.push(old);
-    if (old.pid === undefined) throw new Error('could not spawn');
-    // Old by age, but its holder lives: an old release mid-dispose.
-    const legacyPath = plantLegacyMutex('T7104', old.pid, 120_000);
-    const raw = readFileSync(legacyPath, 'utf-8');
+    const raw = plantLegacy(reclaimOf('T7104'), livePid());
     let ran = false;
     const hold = withWorktreeTaskLockHeld(hash, 'T7104', token, () => {
       ran = true;
     });
     expect(hold).toMatchObject({ held: false });
     expect(ran).toBe(false);
-    expect(heartbeatWorktreeTaskLock(hash, 'T7104', token)).toBeNull();
-    expect(readFileSync(legacyPath, 'utf-8')).toBe(raw);
+    expect(readFileSync(reclaimOf('T7104'), 'utf-8')).toBe(raw);
   });
 
-  it("a dead old-release holder's stale .reclaim is removed, then the new release proceeds (T14491)", () => {
+  it('a dead .reclaim is broken through the old breaker protocol, then the new release proceeds (T14491)', () => {
     const { token } = provision('T7106b');
-    const legacyPath = plantLegacyMutex('T7106b', deadPid(), 120_000);
+    plantLegacy(reclaimOf('T7106b'), deadPid());
     expect(heartbeatWorktreeTaskLock(hash, 'T7106b', token)?.token).toBe(token);
-    expect(existsSync(legacyPath)).toBe(false);
+    expect(existsSync(reclaimOf('T7106b'))).toBe(false);
+    expect(existsSync(`${reclaimOf('T7106b')}.break`)).toBe(false);
+  });
+
+  it('a live old-release breaker blocks the break: neither file is removed (T14491)', () => {
+    const { token } = provision('T7109');
+    // Old breaker B is mid-break of dead X (it compared X and is about to unlink it).
+    const deadX = plantLegacy(reclaimOf('T7109'), deadPid(), 'dead-x');
+    const breakerB = plantLegacy(`${reclaimOf('T7109')}.break`, livePid(), 'breaker-b');
+    expect(withWorktreeTaskLockHeld(hash, 'T7109', token, () => 1)).toMatchObject({
+      held: false,
+    });
+    expect(readFileSync(reclaimOf('T7109'), 'utf-8')).toBe(deadX);
+    expect(readFileSync(`${reclaimOf('T7109')}.break`, 'utf-8')).toBe(breakerB);
+    // B finishes its break (unlinks X, then its breaker): the new release proceeds,
+    // and B's earlier comparison was of X, never of a file the new release created.
+    rmSync(reclaimOf('T7109'));
+    rmSync(`${reclaimOf('T7109')}.break`);
+    expect(withWorktreeTaskLockHeld(hash, 'T7109', token, () => 1)).toMatchObject({
+      held: true,
+    });
+  });
+
+  it('a dead foreign breaker refuses with an actionable fix and both files are kept (T14491)', () => {
+    const lockPath = resolveWorktreeTaskLockPath(hash, 'T7110');
+    mkdirSync(dirname(lockPath), { recursive: true });
+    const deadX = plantLegacy(reclaimOf('T7110'), deadPid(), 'dead-x');
+    const deadB = plantLegacy(`${reclaimOf('T7110')}.break`, deadPid(), 'dead-b');
+    let caught: unknown;
+    try {
+      acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T7110', holder });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isWorktreeLockedError(caught)).toBe(true);
+    if (isWorktreeLockedError(caught)) {
+      expect(caught.reason).toBe('lock-unavailable');
+      expect(caught.fix).toContain(`rm '${reclaimOf('T7110')}.break'`);
+      expect(caught.fix).toContain('Stop every older CLEO process');
+    }
+    expect(readFileSync(reclaimOf('T7110'), 'utf-8')).toBe(deadX);
+    expect(readFileSync(`${reclaimOf('T7110')}.break`, 'utf-8')).toBe(deadB);
+  });
+
+  it('a live replacement of a dead .reclaim made after the dead check is never unlinked (T14491)', () => {
+    const { token } = provision('T7111');
+    plantLegacy(reclaimOf('T7111'), deadPid(), 'dead-x');
+    let liveZ = '';
+    // Right after the new release reads dead X: an old breaker breaks X and an
+    // old process creates live Z (a new inode) before the new release acts.
+    afterLegacyRead.marker = 'dead-x';
+    afterLegacyRead.skip = 0;
+    afterLegacyRead.run = () => {
+      rmSync(reclaimOf('T7111'));
+      liveZ = plantLegacy(reclaimOf('T7111'), livePid(), 'live-z');
+    };
+    expect(withWorktreeTaskLockHeld(hash, 'T7111', token, () => 1)).toMatchObject({
+      held: false,
+    });
+    expect(afterLegacyRead.run).toBeNull(); // the swap happened
+    expect(readFileSync(reclaimOf('T7111'), 'utf-8')).toBe(liveZ);
+    expect(existsSync(`${reclaimOf('T7111')}.break`)).toBe(false);
+  });
+
+  it('between the re-check under the breaker and the unlink, no old process can replace the dead .reclaim (T14491)', () => {
+    const { token } = provision('T7112');
+    plantLegacy(reclaimOf('T7112'), deadPid(), 'dead-x');
+    const attempts: string[] = [];
+    const oldTake = (path: string): void => {
+      try {
+        closeSync(openSync(path, 'wx'));
+        attempts.push(`created ${path}`);
+      } catch (err) {
+        attempts.push((err as NodeJS.ErrnoException).code ?? 'error');
+      }
+    };
+    // The second read of dead X is the re-check under this release's breaker;
+    // right after it, an old breaker and an old acquirer try their protocol steps.
+    afterLegacyRead.marker = 'dead-x';
+    afterLegacyRead.skip = 1;
+    afterLegacyRead.run = () => {
+      oldTake(`${reclaimOf('T7112')}.break`); // an old breaker
+      oldTake(reclaimOf('T7112')); // an old acquirer
+    };
+    expect(heartbeatWorktreeTaskLock(hash, 'T7112', token)?.token).toBe(token);
+    expect(afterLegacyRead.run).toBeNull();
+    expect(attempts).toEqual(['EEXIST', 'EEXIST']);
   });
 
   it('a new-release hold owns .reclaim the way an old release takes it, so an old release is refused (T14491)', () => {
     const { token } = provision('T7108');
-    const legacyPath = `${resolveWorktreeTaskLockPath(hash, 'T7108')}.reclaim`;
+    const legacyPath = reclaimOf('T7108');
     let oldReleaseCode: string | undefined;
-    let holder: { pid?: number; processStartedAt?: string | null } | undefined;
-    const hold = withWorktreeTaskLockHeld(hash, 'T7108', token, () => {
+    let held: WorktreeLockRecord | undefined;
+    let holderRaw = '';
+    const hold = withWorktreeTaskLockHeld(hash, 'T7108', token, (record) => {
+      held = record;
       // What v2026.11.1 does to take its mutex: O_EXCL create.
       try {
         closeSync(openSync(legacyPath, 'wx'));
       } catch (err) {
         oldReleaseCode = (err as NodeJS.ErrnoException).code;
       }
-      // ...and what it reads to judge the holder: a live pid with its start time.
-      holder = JSON.parse(readFileSync(legacyPath, 'utf-8'));
+      // ...and what it reads to judge the holder: this live pid and its start time.
+      holderRaw = readFileSync(legacyPath, 'utf-8');
     });
     expect(hold.held).toBe(true);
+    expect(held?.token).toBe(token);
     expect(oldReleaseCode).toBe('EEXIST');
-    expect(holder?.pid).toBe(process.pid);
-    expect(holder?.processStartedAt).toBe(readProcessStartTime(process.pid));
+    expect(holderRaw).toContain(`"pid":${process.pid}`);
+    expect(holderRaw).toContain(JSON.stringify(readProcessStartTime(process.pid)));
     expect(existsSync(legacyPath)).toBe(false); // released with the hold
   });
 

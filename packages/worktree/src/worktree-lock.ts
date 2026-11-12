@@ -53,6 +53,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
+  fstatSync,
   fsyncSync,
   linkSync,
   mkdirSync,
@@ -455,101 +456,217 @@ function legacyMutexPathFor(lockPath: string): string {
   return `${lockPath}.reclaim`;
 }
 
-/** Age past which an older CLEO treated its O_EXCL mutex as abandoned. */
-const LEGACY_MUTEX_STALE_MS = 30_000;
-
 /** This process's start time, read once (a `ps` call). */
 let ownStartTime: string | null | undefined;
 
 /**
- * Take the legacy `<lock>.reclaim` mutex the way CLEO v2026.11.1 and older do
- * (O_EXCL create, holder record as content), so old and new processes exclude
- * each other while both run on one machine (T14491). The caller holds the OS
- * lock, so new-version processes never race each other here.
- *
- * An existing file is removed only when an older CLEO itself would remove it:
- * older than {@link LEGACY_MUTEX_STALE_MS}, its holder dead by that release's
- * rule ({@link isLegacyHolderAlive}), and still the same content when re-read.
- * A live holder, or one whose start time cannot be read, is never removed.
- * A file this release wrote (`osLock: true`) is removed at once: its writer
- * held the OS lock throughout, and the caller holds that lock now.
- *
- * TRANSITIONAL: delete this with the last supported release that predates
- * T14491; the OS lock alone is the mutex.
- *
- * @returns A release function, or `null` when a live (or unprovably dead) legacy holder has it.
- * @throws Any I/O error other than EEXIST (fail closed).
+ * Content of a pre-T14491 `.reclaim` mutex or `.reclaim.break` breaker file,
+ * as CLEO v2026.11.1 writes it. Every field is optional on read: older writers
+ * left a bare token.
  */
-function takeLegacyMutex(legacyPath: string): (() => void) | null {
+interface LegacyMutexFile {
+  token: string;
+  pid: number;
+  processStartedAt: string | null;
+  threadId: number;
+}
+
+/** A legacy file as read through one descriptor: content and identity belong together. */
+interface LegacyFileSnapshot {
+  raw: string;
+  dev: bigint;
+  ino: bigint;
+}
+
+/** Liveness of a legacy file's holder by the old release's own rule. */
+type LegacyHolderState = 'alive' | 'dead' | 'unknown';
+
+/**
+ * Raised when a legacy breaker file names a dead holder: only a human (or the
+ * old release itself) may remove it, never this release (T14491).
+ */
+export class LegacyMutexStaleError extends Error {
+  /** Always `E_WORKTREE_LEGACY_MUTEX_STALE`. */
+  readonly code = 'E_WORKTREE_LEGACY_MUTEX_STALE';
+  /** Absolute path of the abandoned file. */
+  readonly stalePath: string;
+  /** Remediation for the operator. */
+  readonly fix: string;
+
+  /**
+   * @param stalePath - The abandoned legacy file.
+   * @param pid - The dead holder's pid, when the file names one.
+   */
+  constructor(stalePath: string, pid: number | null) {
+    super(
+      `an older CLEO left an abandoned worktree lock breaker at ${stalePath}` +
+        `${pid === null ? '' : ` (holder pid ${pid} is gone)`}`,
+    );
+    this.name = 'LegacyMutexStaleError';
+    this.stalePath = stalePath;
+    this.fix =
+      `An older CLEO (v2026.11.1 or earlier) crashed while breaking a worktree lock and left ${stalePath}. ` +
+      'Stop every older CLEO process on this machine (or upgrade it), then remove the file by hand: ' +
+      `rm '${stalePath}' — and retry. This release never removes another process's breaker.`;
+  }
+}
+
+/** Read a legacy file's content and identity through one descriptor, or `null` when missing. */
+function readLegacySnapshot(path: string): LegacyFileSnapshot | null {
+  let fd: number;
+  try {
+    fd = openSync(path, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const raw = readFileSync(fd, 'utf-8');
+    const st = fstatSync(fd, { bigint: true });
+    return { raw, dev: st.dev, ino: st.ino };
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** True when `b` is still the very file `a` read: same identity and content. */
+function sameLegacyFile(a: LegacyFileSnapshot, b: LegacyFileSnapshot): boolean {
+  return a.dev === b.dev && a.ino === b.ino && a.raw === b.raw;
+}
+
+/** The holder pid a legacy file names, or `null` (bare token, partial write). */
+function legacyHolderPid(raw: string): { pid: number; processStartedAt: string | null } | null {
+  let parsed: Partial<LegacyMutexFile>;
+  try {
+    parsed = JSON.parse(raw) as Partial<LegacyMutexFile>;
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || typeof parsed.pid !== 'number') return null;
+  return {
+    pid: parsed.pid,
+    processStartedAt: typeof parsed.processStartedAt === 'string' ? parsed.processStartedAt : null,
+  };
+}
+
+/**
+ * Judge a legacy file's holder. `dead` only when its pid is gone, or alive with
+ * a different start time (recycled). A live pid whose start time cannot be
+ * compared is `alive`; a file naming no pid is `unknown` (it may be mid-write).
+ */
+function legacyHolderState(raw: string): LegacyHolderState {
+  const holder = legacyHolderPid(raw);
+  if (holder === null) return 'unknown';
+  const liveness = probeProcess(holder.pid);
+  if (!liveness.alive) return 'dead';
+  if (
+    holder.processStartedAt !== null &&
+    liveness.startedAt !== null &&
+    liveness.startedAt !== holder.processStartedAt
+  ) {
+    return 'dead';
+  }
+  return 'alive';
+}
+
+/** This process's holder record for a legacy file (live pid, so an old breaker never removes it). */
+function ownLegacyContent(): string {
   if (ownStartTime === undefined) ownStartTime = readProcessStartTime(process.pid);
-  const content = JSON.stringify({
+  return JSON.stringify({
     token: randomUUID(),
     pid: process.pid,
     processStartedAt: ownStartTime,
     threadId,
-    osLock: true,
-  });
-  try {
-    writeExclusive(legacyPath, content);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    removeDeadLegacyMutex(legacyPath);
-    return null;
-  }
-  return () => {
-    try {
-      if (readFileSync(legacyPath, 'utf-8') === content) unlinkSync(legacyPath);
-    } catch {
-      /* already gone */
-    }
-  };
+  } satisfies LegacyMutexFile);
 }
 
-/** Remove a legacy mutex whose holder is provably dead (see {@link takeLegacyMutex}). */
-function removeDeadLegacyMutex(legacyPath: string): void {
+/** Remove `path` only while it still holds `content` (a file this process created). */
+function removeOwnLegacyFile(path: string, content: string): void {
   try {
-    const raw = readFileSync(legacyPath, 'utf-8');
-    // A new-release writer holds the OS lock for as long as its `.reclaim`
-    // exists, and the caller holds that lock now: the writer is gone.
-    if (!isNewReleaseLegacyMutex(raw)) {
-      if (Date.now() - statSync(legacyPath).mtimeMs <= LEGACY_MUTEX_STALE_MS) return;
-      if (isLegacyHolderAlive(raw)) return;
-    }
-    if (readFileSync(legacyPath, 'utf-8') === raw) unlinkSync(legacyPath);
+    if (readFileSync(path, 'utf-8') === content) unlinkSync(path);
   } catch {
-    /* unreadable or gone: leave it */
-  }
-}
-
-/** True when a `.reclaim` file was written by a release that also holds the OS lock (`osLock: true`). */
-function isNewReleaseLegacyMutex(raw: string): boolean {
-  try {
-    return (JSON.parse(raw) as { osLock?: unknown }).osLock === true;
-  } catch {
-    return false;
+    /* already gone */
   }
 }
 
 /**
- * The old release's own liveness rule for a `.reclaim` holder: a file naming no
- * holder (a bare-token writer) is dead once stale; a named pid is dead when gone
- * or recycled; an unknown start time keeps it alive.
+ * Take the legacy `<lock>.reclaim` mutex the way CLEO v2026.11.1 and older do
+ * (O_EXCL create, live holder record as content), so old and new processes
+ * exclude each other while both run on one machine (T14491). The caller holds
+ * the OS lock, so new-release processes never race each other here.
+ *
+ * A `.reclaim` that exists is never removed while its holder lives. A dead one
+ * (pid gone or recycled, which is how a SIGKILLed holder of either release
+ * leaves it) is broken only through the old release's own break protocol:
+ * {@link breakDeadLegacyMutex}.
+ *
+ * TRANSITIONAL: delete with the interlock once no CLEO older than T14491 can run.
+ *
+ * @returns A release function (removes only the file this call created), or
+ *   `null` when the legacy mutex is held or was just broken (retry).
+ * @throws {@link LegacyMutexStaleError} on an abandoned foreign breaker; any
+ *   I/O error other than EEXIST (fail closed).
  */
-function isLegacyHolderAlive(raw: string): boolean {
-  let holder: { pid?: unknown; processStartedAt?: unknown };
+function takeLegacyMutex(legacyPath: string): (() => void) | null {
+  const content = ownLegacyContent();
   try {
-    holder = JSON.parse(raw) as { pid?: unknown; processStartedAt?: unknown };
-  } catch {
-    return false;
+    writeExclusive(legacyPath, content);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    const seen = readLegacySnapshot(legacyPath);
+    if (seen !== null && legacyHolderState(seen.raw) === 'dead') {
+      breakDeadLegacyMutex(legacyPath, seen);
+    }
+    return null;
   }
-  if (typeof holder !== 'object' || holder === null || typeof holder.pid !== 'number') return false;
-  const liveness = probeProcess(holder.pid);
-  if (!liveness.alive) return false;
-  return (
-    typeof holder.processStartedAt !== 'string' ||
-    liveness.startedAt === null ||
-    liveness.startedAt === holder.processStartedAt
-  );
+  return () => removeOwnLegacyFile(legacyPath, content);
+}
+
+/**
+ * Break a dead `.reclaim` under the old release's breaker lock
+ * `<lock>.reclaim.break` (T14491). The breaker is created with O_EXCL and names
+ * this live process, so an old breaker never removes it; under it `.reclaim`
+ * is re-read through one descriptor and unlinked only while it is still the
+ * same dead file. `.reclaim` can only disappear under a breaker and O_EXCL
+ * never replaces it, so a live replacement can never be unlinked here, and
+ * this release never unlinks a live file of any process. Only the breaker this
+ * call created is removed. A foreign breaker is never removed: a live one means
+ * wait, a dead one is reported with {@link LegacyMutexStaleError}.
+ *
+ * Residual race (accepted for the transition, owner decision D11244): two OLD
+ * processes recovering the same dead foreign breaker can, between them, unlink
+ * the breaker this call has just created; that needs a crashed old breaker and
+ * two old contenders, and is the race old releases already have among
+ * themselves.
+ *
+ * @throws {@link LegacyMutexStaleError} when a dead foreign breaker blocks the break.
+ */
+function breakDeadLegacyMutex(legacyPath: string, seen: LegacyFileSnapshot): void {
+  const breakerPath = `${legacyPath}.break`;
+  const content = ownLegacyContent();
+  try {
+    writeExclusive(breakerPath, content);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    const breaker = readLegacySnapshot(breakerPath);
+    if (breaker !== null && legacyHolderState(breaker.raw) === 'dead') {
+      throw new LegacyMutexStaleError(breakerPath, legacyHolderPid(breaker.raw)?.pid ?? null);
+    }
+    return; // a live (or mid-write) breaker: wait
+  }
+  try {
+    const current = readLegacySnapshot(legacyPath);
+    if (
+      current !== null &&
+      sameLegacyFile(current, seen) &&
+      legacyHolderState(current.raw) === 'dead'
+    ) {
+      unlinkQuiet(legacyPath);
+    }
+  } finally {
+    removeOwnLegacyFile(breakerPath, content);
+  }
 }
 
 /**
@@ -759,7 +876,10 @@ function unavailableError(taskId: string, lockPath: string, cause: unknown): Wor
       holder: null,
       reason: 'lock-unavailable' as const,
       lockPath,
-      fix: `Make ${dirname(lockPath)} writable (check permissions, free space and the CLEO_HOME filesystem), then retry the spawn.`,
+      fix:
+        cause instanceof LegacyMutexStaleError
+          ? cause.fix
+          : `Make ${dirname(lockPath)} writable (check permissions, free space and the CLEO_HOME filesystem), then retry the spawn.`,
       cause,
     },
   );

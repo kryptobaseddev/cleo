@@ -21,6 +21,9 @@ instead of proceeding unlocked.
 
 While CLEO v2026.11.1 and older may still run on the same machine, the new
 release also takes their `<lock>.reclaim` mutex under the OS lock, the same
-way they do, so an old-release dispose and a new-release reclaim never
-overlap. A live old-release holder is never removed; a dead one is removed
-only by the old release's own rule (stale, pid gone or recycled).
+way they do, and removes only the file it created. A dead `.reclaim` (a
+crashed holder of either release) is broken only through the old release's
+own breaker, `<lock>.reclaim.break`, taken with O_EXCL; a live file of any
+process is never removed, and an abandoned foreign breaker is never removed
+either: the spawn refuses and names the file to delete once older CLEO
+processes are stopped.
