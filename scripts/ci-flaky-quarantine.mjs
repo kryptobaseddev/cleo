@@ -104,7 +104,9 @@ export const keyOf = (/** @type {TestRef} */ t) => `${t.file}\u0000${t.test}`;
  * @param {string} repoRoot - Absolute repository root; file paths become relative to it.
  * @returns {{ failures: TestRef[], passed: TestRef[], messages: Map<string, string> } | null}
  *   `null` when the report is not a vitest JSON report. `passed` holds the tests
- *   that ran and passed, plus a {@link WHOLE_FILE} entry for a file that passed.
+ *   that ran and passed, plus a {@link WHOLE_FILE} entry for a file that ran at
+ *   least one passing test and failed none (a file whose tests were all
+ *   skipped did not pass).
  */
 export function parseVitestReport(raw, repoRoot) {
   let report;
@@ -127,10 +129,13 @@ export function parseVitestReport(raw, repoRoot) {
     const file = rel.split(path.sep).join('/');
     const asserts = Array.isArray(result.assertionResults) ? result.assertionResults : [];
     const failed = asserts.filter((a) => a && a.status === 'failed');
-    for (const a of asserts.filter((x) => x && x.status === 'passed')) {
-      passed.push({ file, test: testName(a) });
+    const ran = asserts.filter((x) => x && x.status === 'passed');
+    for (const a of ran) passed.push({ file, test: testName(a) });
+    // vitest reports an all-skipped file as 'passed': the whole file counts as
+    // passing only when it executed a passing test and failed none (T14521).
+    if (ran.length > 0 && failed.length === 0 && result.status === 'passed') {
+      passed.push({ file, test: WHOLE_FILE });
     }
-    if (result.status === 'passed') passed.push({ file, test: WHOLE_FILE });
     for (const a of failed) {
       const ref = { file, test: testName(a) };
       failures.push(ref);

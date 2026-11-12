@@ -84,6 +84,24 @@ describe('parseVitestReport', () => {
     expect(parsed?.messages.get(keyOf(A))).toBe('Error: boom');
   });
 
+  it('an all-skipped file vitest calls passed is no pass of the whole file (T14521)', () => {
+    const raw = JSON.stringify({
+      testResults: [
+        {
+          name: path.join(ROOT, B.file),
+          status: 'passed',
+          assertionResults: [{ fullName: B.test, title: B.test, status: 'skipped' }],
+        },
+        {
+          name: path.join(ROOT, A.file),
+          status: 'passed',
+          assertionResults: [{ fullName: A.test, title: A.test, status: 'passed' }],
+        },
+      ],
+    });
+    expect(parseVitestReport(raw, ROOT)?.passed).toEqual([A, { file: A.file, test: WHOLE_FILE }]);
+  });
+
   it('returns null for anything that is not a vitest report', () => {
     expect(parseVitestReport('not json', ROOT)).toBeNull();
     expect(parseVitestReport('{"numTotalTests":1}', ROOT)).toBeNull();
@@ -822,6 +840,37 @@ test('flaky once', () => {
     expect(r.code).toBe(0);
     expect(r.report.observations).toEqual([
       expect.objectContaining({ kind: 'flaky', file: 'flaky.test.mjs', test: 'flaky once' }),
+    ]);
+  }, 120_000);
+
+  /** A file that throws at import on its first run, then defines `body` (T14521). */
+  function collectFailsOnce(body) {
+    writeFileSync(
+      path.join(dir, 'collect.test.mjs'),
+      `import { existsSync, writeFileSync } from 'node:fs';
+const seen = ${JSON.stringify(path.join(dir, 'collect-seen'))};
+if (!existsSync(seen)) { writeFileSync(seen, ''); throw new Error('import failed'); }
+${body}
+`,
+    );
+  }
+
+  it('a collection failure whose re-run skips every test blocks, never a flake', () => {
+    collectFailsOnce("test.skip('collect skipped', () => {});\ntest('collect other', () => {});");
+    // -t matches nothing in collect.test.mjs: the re-run executes no test there.
+    const r = run(['--shard=1/1', '-t', 'skipped', 'collect.test.mjs', 'fine.test.mjs']);
+    expect(r.out).toContain('Re-running 1 file(s)');
+    expect(r.out).toContain('failed on the re-run too');
+    expect(r.code).toBe(1);
+    expect(r.report).toBeNull();
+  }, 120_000);
+
+  it('a collection failure whose re-run passes a test is a flake', () => {
+    collectFailsOnce("test('collect passes', () => {});");
+    const r = run(['--shard=1/1', 'collect.test.mjs', 'fine.test.mjs']);
+    expect(r.code).toBe(0);
+    expect(r.report.observations).toEqual([
+      expect.objectContaining({ kind: 'flaky', file: 'collect.test.mjs', test: WHOLE_FILE }),
     ]);
   }, 120_000);
 
