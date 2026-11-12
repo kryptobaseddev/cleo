@@ -729,13 +729,13 @@ describe('Orca execution process boundary', () => {
   });
 
   it.each([
-    null,
-    'malformed',
-    [],
-    { dispatchId: '' },
-    { requestId: '' },
-    { orchestrationRequestId: '' },
-  ])('keeps malformed pending error.data fenced (%j)', async (data) => {
+    { data: null },
+    { data: 'malformed' },
+    { data: [] },
+    { data: { dispatchId: '' } },
+    { data: { requestId: '' } },
+    { data: { orchestrationRequestId: '' } },
+  ])('keeps malformed pending error.data fenced (%j)', async ({ data }) => {
     const key = '00000000-0000-4000-8000-000000000001';
     orcaFixture.request = fixtureReply({ state: 'pending', requestId: key });
     orcaFixture.start = {
@@ -796,7 +796,7 @@ describe('Orca execution process boundary', () => {
   });
 
   it('bounds refusal diagnostics and refuses oversized receipts without adopting them', async () => {
-    const oversized = 'x'.repeat(100_000);
+    const oversized = fixtureStart().stdout + ' '.repeat(100_000);
     const backend = new OrcaExecutionBackend(fixtureRunner);
     orcaFixture.start = { stdout: oversized, stderr: oversized, exitCode: 1 };
     const result = await backend.start(fixtureAttempt());
@@ -809,6 +809,9 @@ describe('Orca execution process boundary', () => {
     expect(result.lastReceipt).toMatch(/^\[truncated\]/);
     expect(() => JSON.parse(result.lastReceipt ?? '')).toThrow();
     orcaFixture.inbox = { stdout: oversized, stderr: oversized, exitCode: 1 };
+    fixtureRunner.mockImplementation(async (...args) =>
+      args[1][1] === 'inbox' ? orcaFixture.inbox : runOrcaFixture(...args),
+    );
     await expect(
       backend.readReport(
         fixtureAttempt({
@@ -821,7 +824,7 @@ describe('Orca execution process boundary', () => {
     ).rejects.toMatchObject({
       code: 'E_ORCA_REPORT_SOURCE',
       message: expect.stringMatching(/^Orca returned no verified report source:[\s\S]{0,4058}$/),
-      receipt: result.lastReceipt,
+      receipt: expect.stringMatching(/^\[truncated\]/),
     });
   });
 
