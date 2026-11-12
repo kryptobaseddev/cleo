@@ -1031,9 +1031,9 @@ export function getNativeTasksDb(cwd?: string): DatabaseSync | null {
  * database (sqlite.org/wal.html#read_only_databases). The caller closes the
  * handle.
  *
- * Round 6 rescope: these snapshot reads are DISPLAY-ONLY — they may lag
- * uncommitted WAL writes, so no removal decision consumes them. The own
- * project uses the normal accessor.
+ * Snapshots can omit committed rows still in the WAL. Display callers label
+ * that limitation; reaper liveness callers must keep the checkout on a
+ * nonempty WAL or failed read. The own project uses the normal accessor.
  *
  * @param projectRoot - Absolute path to the project whose store to read.
  * @returns The immutable snapshot handle, or `null` when the store file does

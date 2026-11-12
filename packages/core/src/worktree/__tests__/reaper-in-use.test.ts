@@ -1,15 +1,26 @@
 /** Fail-closed reaper inactivity proof: real child cwd/open files, worker records and leases. */
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { computeProjectHash } from '@cleocode/paths';
 import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerRecord } from '../../orchestrate/worker-records.js';
 import { listWorkerRecords } from '../../orchestrate/worker-records.js';
 import { agentLeaseDir, releaseAgentLease, writeAgentLease } from '../../resources/agent-lease.js';
+import * as sqlite from '../../store/sqlite.js';
 import {
   worktreeInUseProbe,
   worktreeProcessUse,
@@ -28,11 +39,19 @@ beforeEach(() => {
   base = realpathSync(mkdtempSync(join(tmpdir(), 'reaper-use-')));
   path = join(base, 'checkout');
   mkdirSync(path);
+  mkdirSync(join(base, '.cleo'));
+  writeFileSync(
+    join(base, '.cleo', 'project.json'),
+    JSON.stringify({ schemaVersion: 1, id: 'reaper-own-project', name: 'own' }),
+  );
   writeFileSync(join(path, 'open.txt'), 'keep');
   vi.stubEnv('CLEO_HOME', join(base, 'home'));
+  vi.stubEnv('CLEO_ROOT', base);
+  vi.stubEnv('CLEO_DIR', join(base, '.cleo'));
   vi.mocked(listWorkerRecords).mockResolvedValue([]);
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.clearAllMocks();
   rmSync(base, { recursive: true, force: true });
@@ -95,8 +114,79 @@ describe('reaper inactivity proof', () => {
     };
     vi.mocked(listWorkerRecords).mockResolvedValue([worker]);
     expect((await worktreeReaperInUseProbe(base, 'T1', path))()).toContain('worker record');
+    expect(listWorkerRecords).toHaveBeenCalledWith(base, true);
     vi.mocked(listWorkerRecords).mockRejectedValueOnce(new Error('store unreadable'));
     expect((await worktreeReaperInUseProbe(base, 'T1', path))()).toContain('unavailable');
+  });
+
+  it.each([
+    'wal',
+    'checkpointed',
+    'empty',
+    'missing',
+    'unreadable',
+    'schema missing',
+  ])('probes a foreign %s store without writable opens or file changes', async (state) => {
+    const foreign = join(base, 'foreign');
+    mkdirSync(join(foreign, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(foreign, '.cleo', 'project.json'),
+      JSON.stringify({ schemaVersion: 1, id: 'reaper-foreign-project', name: 'foreign' }),
+    );
+    const dbPath = join(foreign, '.cleo', 'cleo.db');
+    const db = state === 'missing' || state === 'unreadable' ? null : new DatabaseSync(dbPath);
+    try {
+      if (db !== null) {
+        db.exec(`
+            PRAGMA journal_mode = WAL;
+            PRAGMA wal_autocheckpoint = 0;
+            CREATE TABLE tasks_agent_instances (
+              id TEXT PRIMARY KEY, agent_type TEXT, task_id TEXT,
+              stopped_at TEXT, metadata_json TEXT
+            );
+            PRAGMA wal_checkpoint(TRUNCATE);
+          `);
+        if (state === 'wal' || state === 'checkpointed') {
+          db.prepare(
+            "INSERT INTO tasks_agent_instances VALUES ('worker', 'executor', 'T1', NULL, ?)",
+          ).run(JSON.stringify({ kind: 'worker', instanceId: 'i1', worktree: path }));
+          if (state === 'wal') expect(statSync(`${dbPath}-wal`).size).toBeGreaterThan(0);
+        }
+        if (state === 'schema missing') db.exec('DROP TABLE tasks_agent_instances');
+        if (state !== 'wal') db.close();
+      } else if (state === 'unreadable') writeFileSync(dbPath, 'not a database');
+
+      const actualWorkers = await vi.importActual<
+        typeof import('../../orchestrate/worker-records.js')
+      >('../../orchestrate/worker-records.js');
+      vi.mocked(listWorkerRecords).mockImplementation(actualWorkers.listWorkerRecords);
+      const writable = vi
+        .spyOn(sqlite, 'getDb')
+        .mockRejectedValue(new Error('unexpected writable open'));
+      if (state === 'empty')
+        writeAgentLease({
+          id: 'foreign-lease',
+          taskId: 'T1',
+          projectRoot: foreign,
+          sessionId: 's1',
+          takenAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+        });
+      const files = () =>
+        ['', '-wal', '-shm'].map((suffix) =>
+          existsSync(`${dbPath}${suffix}`) ? readFileSync(`${dbPath}${suffix}`) : null,
+        );
+      const before = files();
+      const probe = await worktreeReaperInUseProbe(foreign, 'T1', path);
+      expect(probe()).toBe(
+        state === 'empty' ? 'an agent-session lease is still live' : 'unknown (foreign project)',
+      );
+      expect(writable).not.toHaveBeenCalled();
+      expect(listWorkerRecords).not.toHaveBeenCalled();
+      expect(files()).toEqual(before);
+    } finally {
+      if (db?.isOpen) db.close();
+    }
   });
 
   it('keeps a live session lease and fails closed on malformed lease ownership without deleting it', async () => {
