@@ -1,7 +1,7 @@
 /**
  * The own/foreign decision behind the census's display-only status reads
  * (T14440, round 6): the own project is decided by realpath and
- * `.cleo/project.json` identity against the process's resolved project —
+ * portable identity against the process's resolved project —
  * never a binding cache, never an ambient pin. A symlink or alias to a
  * foreign store must not count as own, and a missing identity is any doubt.
  *
@@ -69,6 +69,32 @@ describe('isOwnProjectStore — strict own decision (T14440 rounds 6-7)', () => 
     expect(isOwnProjectStore(own, own)).toBe(true);
   });
 
+  it('an identical realpath with only a valid legacy id is own', () => {
+    rmSync(join(own, '.cleo', 'project.json'));
+    writeFileSync(join(own, '.cleo', 'project-id'), 'own-project-id-1\n');
+    expect(isOwnProjectStore(own, own)).toBe(true);
+  });
+
+  it.each(['', 'invalid/id'])('an invalid legacy id %j stays foreign', (id) => {
+    rmSync(join(own, '.cleo', 'project.json'));
+    writeFileSync(join(own, '.cleo', 'project-id'), id);
+    expect(isOwnProjectStore(own, own)).toBe(false);
+  });
+
+  it('different legacy ids at the same realpath stay foreign', () => {
+    rmSync(join(own, '.cleo', 'project.json'));
+    writeFileSync(join(own, '.cleo', 'project-id'), 'own-project-id-1\n');
+    const readIdentity = projectPaths.readPortableProjectId;
+    const read = vi.spyOn(projectPaths, 'readPortableProjectId').mockImplementationOnce((root) => {
+      const original = readIdentity(root);
+      writeFileSync(join(own, '.cleo', 'project-id'), 'other-id\n');
+      return original;
+    });
+    expect(isOwnProjectStore(own, own)).toBe(false);
+    expect(read).toHaveBeenNthCalledWith(1, own);
+    expect(read).toHaveBeenNthCalledWith(2, own);
+  });
+
   it('a conflicting CLEO_DIR cannot redirect the own project to a foreign store', () => {
     const previousRoot = process.env['CLEO_ROOT'];
     process.env['CLEO_ROOT'] = own;
@@ -111,13 +137,14 @@ describe('isOwnProjectStore — strict own decision (T14440 rounds 6-7)', () => 
 
   it('an invalid identity at the same realpath is foreign', () => {
     writeFileSync(join(own, '.cleo', 'project.json'), '{ invalid project identity');
+    writeFileSync(join(own, '.cleo', 'project-id'), 'own-project-id-1\n');
     expect(isOwnProjectStore(own, own)).toBe(false);
   });
 
   it('different declared ids at the same realpath are foreign', () => {
-    const readManifest = projectPaths.readProjectManifest;
-    const read = vi.spyOn(projectPaths, 'readProjectManifest').mockImplementationOnce((root) => {
-      const original = readManifest(root);
+    const readIdentity = projectPaths.readPortableProjectId;
+    const read = vi.spyOn(projectPaths, 'readPortableProjectId').mockImplementationOnce((root) => {
+      const original = readIdentity(root);
       writeFileSync(
         join(own, '.cleo', 'project.json'),
         JSON.stringify({ schemaVersion: 1, id: 'other-id', name: 'own' }),

@@ -1,7 +1,7 @@
 /**
  * The once-up-front own-project decision for the census's status reads
  * (T14440, round 6/7): the target is OWN only when its realpath and its
- * `.cleo/project.json` identity match the current process's resolved
+ * portable identity (`.cleo/project.json`, legacy `.cleo/project-id`) match the process's resolved
  * project — never a binding cache and never an ambient pin; both store
  * paths, both realpaths and both declared ids must agree. Any doubt
  * (unresolvable path, missing identity, mismatched ids) answers `false` —
@@ -19,14 +19,14 @@
 
 import { lstatSync, realpathSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
-import { projectManifestPath, readProjectManifest } from '@cleocode/paths';
+import { projectManifestPath, readPortableProjectId } from '@cleocode/paths';
 import { getProjectRoot } from '../paths.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 
-/** The write-once `.cleo/project.json` id of a project, or `null` when absent/unreadable. */
+/** The project's portable id, or `null` when absent/invalid. */
 function readProjectIdentityId(projectRoot: string): string | null {
-  const manifest = readProjectManifest(projectRoot);
-  return manifest.status === 'valid' ? manifest.manifest.id : null;
+  const identity = readPortableProjectId(projectRoot);
+  return identity.status === 'valid' ? identity.projectId : null;
 }
 
 /**
