@@ -83,6 +83,25 @@ function readJson(file: string): unknown {
   }
 }
 
+/** Claude's canonical root requires a worktrees entry with a matching backlink. */
+function linkedWorktreeTrustRoot(dir: string): string | null {
+  const link = readFileSync(join(dir, '.git'), 'utf8').trim();
+  if (!link.startsWith('gitdir:')) return null;
+  const gitDir = realpathSync(resolve(dir, link.slice(7).trim()));
+  const commonFile = join(gitDir, 'commondir');
+  const backFile = join(gitDir, 'gitdir');
+  if (![commonFile, backFile].every((file) => lstatSync(file, { throwIfNoEntry: false })?.isFile()))
+    return null;
+  const commonDir = realpathSync(resolve(gitDir, readFileSync(commonFile, 'utf8').trim()));
+  if (
+    dirname(gitDir) !== join(commonDir, 'worktrees') ||
+    realpathSync(resolve(gitDir, readFileSync(backFile, 'utf8').trim())) !== join(dir, '.git')
+  )
+    return null;
+  if (basename(commonDir) !== '.git' && existsSync(join(commonDir, '.git'))) return null;
+  return basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
+}
+
 /**
  * Require the owner's saved Claude Code folder trust before a lead can launch.
  * Returns the user config path so MCP selection uses the same account state.
@@ -90,7 +109,8 @@ function readJson(file: string): unknown {
  *
  * @remarks
  * Claude Code 2.1.322 stores `projects[path].hasTrustDialogAccepted` in its
- * user config. Trust can descend within a repository, never from outside it.
+ * user config, including the canonical main checkout for linked worktrees.
+ * Trust can descend within a repository, never from outside it.
  * See https://code.claude.com/docs/en/security#additional-safeguards.
  *
  * @param projectDir - The lead's working directory.
@@ -119,12 +139,20 @@ export function requireLeadProjectTrust(
     } else if (dir === realpathSync(home)) {
       fixPrefix = 'Choose a project subdirectory: Claude Code never persists home-folder trust. ';
     } else if (config.success) {
+      const trusted = (folder: string): boolean => {
+        const key = (
+          process.platform === 'win32' ? folder.replaceAll('\\', '/') : folder
+        ).normalize('NFC');
+        return config.data.projects?.[key]?.hasTrustDialogAccepted === true;
+      };
       for (;;) {
-        const key = (process.platform === 'win32' ? dir.replaceAll('\\', '/') : dir).normalize(
-          'NFC',
-        );
-        if (config.data.projects?.[key]?.hasTrustDialogAccepted === true) return configPath;
-        if (lstatSync(join(dir, '.git'), { throwIfNoEntry: false }) || dirname(dir) === dir) break;
+        if (trusted(dir)) return configPath;
+        const gitEntry = lstatSync(join(dir, '.git'), { throwIfNoEntry: false });
+        if (gitEntry || dirname(dir) === dir) {
+          const mainRoot = gitEntry?.isFile() ? linkedWorktreeTrustRoot(dir) : null;
+          if (mainRoot && mainRoot !== realpathSync(home) && trusted(mainRoot)) return configPath;
+          break;
+        }
         dir = dirname(dir);
       }
     }
