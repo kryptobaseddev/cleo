@@ -78,8 +78,10 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'lead-mcp-'));
     vi.stubEnv('HOME', root);
-    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    vi.stubEnv('CLAUDE_CONFIG_DIR', undefined);
     vi.stubEnv('CLAUDE_CODE_IGNORE_PERSISTED_TRUST', '');
+    vi.stubEnv('CLAUDE_CODE_CUSTOM_OAUTH_URL', '');
+    vi.stubEnv('CLAUDE_CODE_SANDBOXED', '');
     project = join(root, 'project');
     spawnDir = join(root, 'spawn');
     bin = join(root, 'bin');
@@ -105,7 +107,7 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     'detached',
   ] as const)('refuses an untrusted %s lead before preparing MCP or opening an Orca terminal', async (mode) => {
     vi.stubEnv('HOME', root);
-    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    vi.stubEnv('CLAUDE_CONFIG_DIR', undefined);
     const prepare = vi.spyOn(leadMcpModule, 'prepareLeadMcp');
     const launcher = vi.fn<OrcaLeadTerminalLauncher>();
     const started = vi.fn<(pid: number) => void>();
@@ -143,7 +145,7 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
 
   it('refuses an untrusted native lead with the same one-time trust instructions', async () => {
     vi.stubEnv('HOME', root);
-    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    vi.stubEnv('CLAUDE_CONFIG_DIR', undefined);
     await expect(
       new ClaudeCodeSpawnProvider().spawn({ ...lead(), workingDirectory: project }),
     ).rejects.toMatchObject({
@@ -166,6 +168,69 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
       symlinkSync(project, alias);
       expect(requireLeadProjectTrust(alias)).toBe(claudeJson);
     }
+  });
+
+  /** Create a real linked worktree with isolated account state and no user hooks. */
+  function linkedWorktree(): string {
+    const git = (...args: string[]): string =>
+      execFileSync('git', ['-C', project, '-c', 'core.hooksPath=', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    git('init', '--quiet', '--template=');
+    git(
+      '-c',
+      'user.name=Trust Test',
+      '-c',
+      'user.email=trust@example.test',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--quiet',
+      '--allow-empty',
+      '-m',
+      'fixture',
+    );
+    const worktree = join(root, 'linked');
+    git('worktree', 'add', '--quiet', '--detach', worktree);
+    return worktree;
+  }
+
+  it('accepts main-checkout trust from a real linked worktree and its subdirectories', () => {
+    const worktree = linkedWorktree();
+    const child = join(worktree, 'src');
+    mkdirSync(child);
+    const config = JSON.stringify({
+      projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } },
+    });
+    writeFileSync(claudeJson, config);
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+    expect(requireLeadProjectTrust(child)).toBe(claudeJson);
+    expect(readFileSync(claudeJson, 'utf8')).toBe(config);
+  });
+
+  it('refuses missing main-checkout trust and trust outside the linked repository', () => {
+    const worktree = linkedWorktree();
+    for (const config of [
+      {},
+      { [realpathSync(project)]: { hasTrustDialogAccepted: false } },
+      { [realpathSync(root)]: { hasTrustDialogAccepted: true } },
+      { [`${realpathSync(project)}-other`]: { hasTrustDialogAccepted: true } },
+    ]) {
+      writeFileSync(claudeJson, JSON.stringify({ projects: config }));
+      expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+    }
+  });
+
+  it.each(['commondir', 'gitdir'])('refuses inconsistent worktree %s metadata', (file) => {
+    const worktree = linkedWorktree();
+    const gitDir = readFileSync(join(worktree, '.git'), 'utf8').trim().slice(7).trim();
+    writeFileSync(join(gitDir, file), file === 'commondir' ? project : join(project, '.git'));
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({ projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } } }),
+    );
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
   });
 
   it('does not inherit trust across a repository boundary or from a similarly named folder', () => {
@@ -225,6 +290,116 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     vi.stubEnv('CLAUDE_CODE_IGNORE_PERSISTED_TRUST', '1');
     expect(() => requireLeadProjectTrust(project)).toThrow('the lead was not launched');
   });
+
+  it('reads the config file Claude 2.1.322 picks: empty .config.json, custom OAuth, sandboxed (T14515)', () => {
+    const trusted = JSON.stringify({
+      projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } },
+    });
+    mkdirSync(join(root, '.claude'));
+    const migrated = join(root, '.claude', '.config.json');
+    // An empty .config.json beside a legacy file: Claude keeps reading .claude.json.
+    writeFileSync(claudeJson, trusted);
+    writeFileSync(migrated, '');
+    expect(requireLeadProjectTrust(project)).toBe(claudeJson);
+    // With no legacy file, the empty writable .config.json is Claude's config: untrusted.
+    rmSync(claudeJson);
+    expect(() => requireLeadProjectTrust(project)).toThrow(migrated);
+    // Read-only and empty, it is never Claude's config.
+    if (process.platform !== 'win32') {
+      chmodSync(migrated, 0o444);
+      expect(() => requireLeadProjectTrust(project)).toThrow(claudeJson);
+    }
+    rmSync(migrated);
+
+    // CLAUDE_CODE_CUSTOM_OAUTH_URL: Claude reads .claude-custom-oauth.json instead.
+    const customJson = join(root, '.claude-custom-oauth.json');
+    writeFileSync(claudeJson, trusted);
+    const custom = { CLAUDE_CODE_CUSTOM_OAUTH_URL: 'https://oauth.example.test' };
+    expect(() => requireLeadProjectTrust(project, { HOME: root, ...custom })).toThrow(customJson);
+    writeFileSync(customJson, trusted);
+    rmSync(claudeJson);
+    expect(requireLeadProjectTrust(project, { HOME: root, ...custom })).toBe(customJson);
+    rmSync(customJson);
+
+    // CLAUDE_CODE_SANDBOXED (Claude's truthy parse): every folder is trusted, no dialog.
+    expect(() =>
+      requireLeadProjectTrust(project, { HOME: root, CLAUDE_CODE_SANDBOXED: '0' }),
+    ).toThrow('the lead was not launched');
+    for (const value of ['1', ' TRUE ', 'yes', 'on']) {
+      expect(requireLeadProjectTrust(project, { HOME: root, CLAUDE_CODE_SANDBOXED: value })).toBe(
+        claudeJson,
+      );
+    }
+    expect(() =>
+      requireLeadProjectTrust(project, {
+        HOME: root,
+        CLAUDE_CODE_SANDBOXED: '1',
+        CLAUDE_CODE_IGNORE_PERSISTED_TRUST: '1',
+      }),
+    ).toThrow('the lead was not launched');
+  });
+
+  it('an empty CLAUDE_CONFIG_DIR reads .config.json from the project but the legacy file from HOME, as Claude does', () => {
+    const trusted = JSON.stringify({
+      projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } },
+    });
+    writeFileSync(claudeJson, trusted);
+    expect(requireLeadProjectTrust(project, { HOME: root, CLAUDE_CONFIG_DIR: '' })).toBe(
+      claudeJson,
+    );
+    const projectConfig = join(project, '.config.json');
+    writeFileSync(projectConfig, '{}');
+    expect(() => requireLeadProjectTrust(project, { HOME: root, CLAUDE_CONFIG_DIR: '' })).toThrow(
+      projectConfig,
+    );
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'an Orca lead is judged from exactly the environment its terminal receives (T14515)',
+    async () => {
+      for (const name of ['claude', 'cleo']) fakeBinary(join(bin, name), join(root, 'calls.log'));
+      vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
+      const trust = vi.spyOn(leadMcpModule, 'requireLeadProjectTrust');
+      const launcher = vi.fn<OrcaLeadTerminalLauncher>().mockResolvedValue({
+        runtimeId: 'runtime-fixture',
+        terminalHandle: 'term_lead',
+        pid: 12345,
+      });
+      const spawnLead = (env: Record<string, string>) =>
+        new ClaudeCodeSpawnProvider().spawn({
+          ...lead(),
+          workingDirectory: project,
+          options: { ...lead().options, env: { ...IDENTITY, ...env } },
+          leadTerminalLauncher: launcher,
+          onLeadStarted: vi.fn(),
+        });
+      // Only CLEO's environment says sandboxed, or points at a trusted account: never admitted.
+      const account = join(root, 'account');
+      mkdirSync(account);
+      writeFileSync(
+        join(account, '.claude.json'),
+        JSON.stringify({ projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } } }),
+      );
+      vi.stubEnv('CLAUDE_CODE_SANDBOXED', '1');
+      vi.stubEnv('CLAUDE_CONFIG_DIR', account);
+      await expect(spawnLead({})).rejects.toMatchObject({ code: 'E_LEAD_PROJECT_UNTRUSTED' });
+      expect(trust.mock.calls.at(-1)?.[1]).toEqual({ HOME: root, ...IDENTITY });
+      expect(launcher).not.toHaveBeenCalled();
+      // The spawn's own variables reach both the preflight and the terminal.
+      for (const env of [{ CLAUDE_CODE_SANDBOXED: '1' }, { CLAUDE_CONFIG_DIR: account }]) {
+        const result = await spawnLead(env);
+        expect(result.status).toBe('running');
+        const launch = launcher.mock.calls.at(-1)?.[0];
+        expect(launch?.env).toEqual({ HOME: root, ...IDENTITY, ...env });
+        expect(trust.mock.calls.at(-1)?.[1]).toEqual(launch?.env);
+        for (const key of Object.keys(env)) expect(launch?.unsetEnv).not.toContain(key);
+        expect(launch?.unsetEnv).toContain(
+          'CLAUDE_CODE_SANDBOXED' in env ? 'CLAUDE_CONFIG_DIR' : 'CLAUDE_CODE_SANDBOXED',
+        );
+        rmSync(result.leadTempDir ?? '', { recursive: true, force: true });
+      }
+    },
+  );
 
   it('refuses home-folder trust, which Claude does not persist across sessions', () => {
     writeFileSync(
@@ -316,7 +491,14 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
       const launcher = vi.fn<OrcaLeadTerminalLauncher>(async (launch, onStarted) => {
         const value = (flag: string) => launch.args[launch.args.indexOf(flag) + 1] ?? '';
         expect(launch.command).toBe(join(bin, 'claude'));
-        expect(launch.env).toEqual(IDENTITY);
+        expect(launch.env).toEqual({ HOME: root, ...IDENTITY });
+        expect(launch.unsetEnv).toEqual([
+          'USERPROFILE',
+          'CLAUDE_CONFIG_DIR',
+          'CLAUDE_CODE_CUSTOM_OAUTH_URL',
+          'CLAUDE_CODE_SANDBOXED',
+          'CLAUDE_CODE_IGNORE_PERSISTED_TRUST',
+        ]);
         expect(launch.args).toContain('--restricted');
         expect(launch.args).toContain('--strict-mcp-config');
         expect(launch.args).not.toContain('--dangerously-skip-permissions');

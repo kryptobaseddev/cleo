@@ -19,7 +19,15 @@
  * @epic T14351
  */
 
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  type Stats,
+  statSync,
+} from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -83,6 +91,108 @@ function readJson(file: string): unknown {
   }
 }
 
+/** Claude's canonical root requires a worktrees entry with a matching backlink. */
+function linkedWorktreeTrustRoot(dir: string): string | null {
+  const link = readFileSync(join(dir, '.git'), 'utf8').trim();
+  if (!link.startsWith('gitdir:')) return null;
+  const gitDir = realpathSync(resolve(dir, link.slice(7).trim()));
+  const commonFile = join(gitDir, 'commondir');
+  const backFile = join(gitDir, 'gitdir');
+  if (![commonFile, backFile].every((file) => lstatSync(file, { throwIfNoEntry: false })?.isFile()))
+    return null;
+  const commonDir = realpathSync(resolve(gitDir, readFileSync(commonFile, 'utf8').trim()));
+  if (
+    dirname(gitDir) !== join(commonDir, 'worktrees') ||
+    realpathSync(resolve(gitDir, readFileSync(backFile, 'utf8').trim())) !== join(dir, '.git')
+  )
+    return null;
+  if (basename(commonDir) !== '.git' && existsSync(join(commonDir, '.git'))) return null;
+  return basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
+}
+
+/** Claude Code's truthy env parse: `1`, `true`, `yes` or `on`, any case, trimmed. */
+function envTruthy(value: string | undefined): boolean {
+  return ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
+}
+
+/**
+ * The user config file Claude Code 2.1.322 reads (its `getGlobalClaudeFile`):
+ * `<configDir>/.config.json` when it is a non-empty file Claude sees under that
+ * exact name, or an empty writable file with no usable legacy file beside it;
+ * otherwise the legacy `.claude<suffix>.json`, whose suffix is `-custom-oauth`
+ * under `CLAUDE_CODE_CUSTOM_OAUTH_URL`.
+ */
+function claudeUserConfigPath(projectDir: string, home: string, env: NodeJS.ProcessEnv): string {
+  // Claude reads an empty CLAUDE_CONFIG_DIR as set for `.config.json` (relative
+  // to its cwd, the project) but as unset for the legacy file (`??` vs `||`).
+  const dirVar = env.CLAUDE_CONFIG_DIR;
+  const configDir = dirVar !== undefined ? resolve(projectDir, dirVar) : join(home, '.claude');
+  const migrated = join(configDir.normalize('NFC'), '.config.json');
+  const suffix = env.CLAUDE_CODE_CUSTOM_OAUTH_URL ? '-custom-oauth' : '';
+  const legacy = join(dirVar ? resolve(projectDir, dirVar) : home, `.claude${suffix}.json`);
+  const enoent = (err: unknown): boolean =>
+    err instanceof Error && 'code' in err && err.code === 'ENOENT';
+  try {
+    const stat = statSync(migrated);
+    // 0o222: any write bit. An empty read-only file is never Claude's config.
+    if (!stat.isFile() || (stat.size === 0 && (stat.mode & 0o222) === 0)) return legacy;
+    let legacyStat: Stats | undefined;
+    try {
+      legacyStat = statSync(legacy);
+    } catch (err) {
+      if (enoent(err) || stat.size === 0) return migrated;
+    }
+    if (stat.size === 0) return legacy;
+    if (legacyStat && (!legacyStat.isFile() || legacyStat.size === 0)) return migrated;
+    try {
+      // A case-insensitive volume matching `.CONFIG.json` is not the migrated file.
+      if (!readdirSync(dirname(migrated)).includes(basename(migrated))) return legacy;
+    } catch (err) {
+      if (enoent(err)) return legacy;
+    }
+    return migrated;
+  } catch {
+    return legacy;
+  }
+}
+
+/** Every variable {@link requireLeadProjectTrust} reads from the lead environment. */
+export const LEAD_TRUST_ENV_KEYS = [
+  'HOME',
+  'USERPROFILE',
+  'CLAUDE_CONFIG_DIR',
+  'CLAUDE_CODE_CUSTOM_OAUTH_URL',
+  'CLAUDE_CODE_SANDBOXED',
+  'CLAUDE_CODE_IGNORE_PERSISTED_TRUST',
+] as const;
+
+/** The environment an Orca lead terminal receives, as {@link orcaLeadEnv} pins it. */
+export interface OrcaLeadEnv {
+  /** Exported in the terminal, and the environment its trust is judged from. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Trust variables absent from `env`, unset in the terminal. */
+  readonly unset: readonly string[];
+}
+
+/**
+ * Pin the trust-relevant environment of an Orca lead terminal. The terminal
+ * inherits Orca's environment, not CLEO's, so the spawn's own variables and
+ * CLEO's HOME are exported and every other trust variable is unset: the
+ * preflight and the lead's Claude then read the same values, and a variable
+ * only CLEO or Orca holds cannot change either.
+ *
+ * @param spawnEnv - The spawn's own variables (`options.env`).
+ * @param base - CLEO's environment, read for HOME only.
+ * @returns The variables to export, also passed to the preflight, and those to unset.
+ */
+export function orcaLeadEnv(
+  spawnEnv: Readonly<Record<string, string>>,
+  base: NodeJS.ProcessEnv = process.env,
+): OrcaLeadEnv {
+  const env = { HOME: base.HOME || homedir(), ...spawnEnv };
+  return { env, unset: LEAD_TRUST_ENV_KEYS.filter((key) => !(key in env)) };
+}
+
 /**
  * Require the owner's saved Claude Code folder trust before a lead can launch.
  * Returns the user config path so MCP selection uses the same account state.
@@ -90,11 +200,14 @@ function readJson(file: string): unknown {
  *
  * @remarks
  * Claude Code 2.1.322 stores `projects[path].hasTrustDialogAccepted` in its
- * user config. Trust can descend within a repository, never from outside it.
+ * user config, including the canonical main checkout for linked worktrees.
+ * Trust can descend within a repository, never from outside it.
+ * A truthy `CLAUDE_CODE_SANDBOXED` makes Claude trust every folder, so it
+ * admits too; `CLAUDE_CODE_IGNORE_PERSISTED_TRUST` still refuses.
  * See https://code.claude.com/docs/en/security#additional-safeguards.
  *
  * @param projectDir - The lead's working directory.
- * @param env - The environment the lead will inherit, including spawn overrides.
+ * @param env - Exactly the environment the lead's Claude process receives.
  * @returns The verified Claude Code user config path.
  * @throws OrcaExecutionError when persisted trust cannot be verified.
  */
@@ -103,28 +216,33 @@ export function requireLeadProjectTrust(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const home = resolve(projectDir, env.HOME || env.USERPROFILE || homedir());
-  const configDir = env.CLAUDE_CONFIG_DIR
-    ? resolve(projectDir, env.CLAUDE_CONFIG_DIR)
-    : join(home, '.claude');
-  const migratedConfig = join(configDir, '.config.json');
-  const configPath = existsSync(migratedConfig)
-    ? migratedConfig
-    : join(env.CLAUDE_CONFIG_DIR ? configDir : home, '.claude.json');
+  const configPath = claudeUserConfigPath(projectDir, home, env);
   let fixPrefix = '';
   try {
     const config = claudeCodeTrustConfigSchema.safeParse(readJson(configPath));
     let dir = realpathSync(projectDir);
     if (env.CLAUDE_CODE_IGNORE_PERSISTED_TRUST) {
       fixPrefix = 'Unset CLAUDE_CODE_IGNORE_PERSISTED_TRUST in the lead environment. ';
+    } else if (envTruthy(env.CLAUDE_CODE_SANDBOXED)) {
+      // Claude trusts every folder in a sandboxed session and shows no dialog.
+      return configPath;
     } else if (dir === realpathSync(home)) {
       fixPrefix = 'Choose a project subdirectory: Claude Code never persists home-folder trust. ';
     } else if (config.success) {
+      const trusted = (folder: string): boolean => {
+        const key = (
+          process.platform === 'win32' ? folder.replaceAll('\\', '/') : folder
+        ).normalize('NFC');
+        return config.data.projects?.[key]?.hasTrustDialogAccepted === true;
+      };
       for (;;) {
-        const key = (process.platform === 'win32' ? dir.replaceAll('\\', '/') : dir).normalize(
-          'NFC',
-        );
-        if (config.data.projects?.[key]?.hasTrustDialogAccepted === true) return configPath;
-        if (lstatSync(join(dir, '.git'), { throwIfNoEntry: false }) || dirname(dir) === dir) break;
+        if (trusted(dir)) return configPath;
+        const gitEntry = lstatSync(join(dir, '.git'), { throwIfNoEntry: false });
+        if (gitEntry || dirname(dir) === dir) {
+          const mainRoot = gitEntry?.isFile() ? linkedWorktreeTrustRoot(dir) : null;
+          if (mainRoot && mainRoot !== realpathSync(home) && trusted(mainRoot)) return configPath;
+          break;
+        }
         dir = dirname(dir);
       }
     }

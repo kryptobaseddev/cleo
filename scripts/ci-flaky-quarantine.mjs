@@ -15,7 +15,8 @@
  *     - --timings: writes the first run's per-file durations there (T14369).
  *     - Exit 0 from vitest: pass.
  *     - A failing test listed in the quarantine: reported, not blocking.
- *     - Any other failing test: its FILES are re-run once (without --shard).
+ *     - Any other failing test: its FILES are re-run once (without --shard
+ *       or the first run's file filters).
  *       If every one of those tests passes on the re-run it is a flake:
  *       reported, not blocking. A test that fails twice blocks.
  *     - vitest failed without a readable report, or with no failing test in
@@ -101,8 +102,11 @@ export const keyOf = (/** @type {TestRef} */ t) => `${t.file}\u0000${t.test}`;
  *
  * @param {string} raw - The report file's contents.
  * @param {string} repoRoot - Absolute repository root; file paths become relative to it.
- * @returns {{ failures: TestRef[], messages: Map<string, string> } | null} `null` when
- *   the report is not a vitest JSON report.
+ * @returns {{ failures: TestRef[], passed: TestRef[], messages: Map<string, string> } | null}
+ *   `null` when the report is not a vitest JSON report. `passed` holds the tests
+ *   that ran and passed, plus a {@link WHOLE_FILE} entry for a file that ran at
+ *   least one passing test and failed none (a file whose tests were all
+ *   skipped did not pass).
  */
 export function parseVitestReport(raw, repoRoot) {
   let report;
@@ -116,6 +120,8 @@ export function parseVitestReport(raw, repoRoot) {
   }
   /** @type {TestRef[]} */
   const failures = [];
+  /** @type {TestRef[]} */
+  const passed = [];
   const messages = new Map();
   for (const result of report.testResults) {
     if (result === null || typeof result !== 'object' || typeof result.name !== 'string') continue;
@@ -123,10 +129,15 @@ export function parseVitestReport(raw, repoRoot) {
     const file = rel.split(path.sep).join('/');
     const asserts = Array.isArray(result.assertionResults) ? result.assertionResults : [];
     const failed = asserts.filter((a) => a && a.status === 'failed');
+    const ran = asserts.filter((x) => x && x.status === 'passed');
+    for (const a of ran) passed.push({ file, test: testName(a) });
+    // vitest reports an all-skipped file as 'passed': the whole file counts as
+    // passing only when it executed a passing test and failed none (T14521).
+    if (ran.length > 0 && failed.length === 0 && result.status === 'passed') {
+      passed.push({ file, test: WHOLE_FILE });
+    }
     for (const a of failed) {
-      const test =
-        typeof a.fullName === 'string' && a.fullName !== '' ? a.fullName : String(a.title);
-      const ref = { file, test };
+      const ref = { file, test: testName(a) };
       failures.push(ref);
       const msg = Array.isArray(a.failureMessages) ? String(a.failureMessages[0] ?? '') : '';
       messages.set(keyOf(ref), msg.split('\n')[0].slice(0, 300));
@@ -142,7 +153,12 @@ export function parseVitestReport(raw, repoRoot) {
       );
     }
   }
-  return { failures, messages };
+  return { failures, passed, messages };
+}
+
+/** A report assertion's test name: its full name, else its title. */
+function testName(/** @type {{ fullName?: unknown, title?: unknown }} */ a) {
+  return typeof a.fullName === 'string' && a.fullName !== '' ? a.fullName : String(a.title);
 }
 
 /**
@@ -162,8 +178,10 @@ export function isQuarantined(failure, quarantine) {
  * re-run of the failing files. Every failing test is re-run, quarantined or
  * not (T13145 review):
  *
- * - failed, then passed → `flaky` (a confirmed flake: not blocking; it files
- *   or renews the test's quarantine);
+ * - failed, then PASSED in the re-run's report → `flaky` (a confirmed flake:
+ *   not blocking; it files or renews the test's quarantine). A test the re-run
+ *   skipped, filtered out or never reported did not pass: it counts as failing
+ *   twice, so a re-run that runs nothing can never turn a failure green (T14521);
  * - failed twice and quarantined → `quarantined` (not blocking, but it does
  *   NOT renew the quarantine, so a test that is broken rather than flaky
  *   leaves quarantine within {@link EXPIRE_AFTER_DAYS} days and then blocks);
@@ -171,17 +189,21 @@ export function isQuarantined(failure, quarantine) {
  *
  * @param {TestRef[]} first - Failing tests of the first run.
  * @param {readonly TestRef[]} quarantine - Quarantined tests.
- * @param {TestRef[] | null} rerun - Failing tests of the re-run; `null` when there was none
- *   or its report was unreadable (then every failure counts as failing twice).
+ * @param {{ failures: TestRef[], passed: TestRef[] } | null} rerun - The re-run's failing
+ *   and passing tests; `null` when there was none or its report was unreadable (then
+ *   every failure counts as failing twice).
  * @returns {{ blocking: TestRef[], flaky: TestRef[], quarantined: TestRef[] }}
  */
 export function classify(first, quarantine, rerun) {
-  const still = rerun === null ? new Set(first.map(keyOf)) : new Set(rerun.map(keyOf));
-  const flaky = first.filter((f) => !still.has(keyOf(f)));
-  const failing = first.filter((f) => still.has(keyOf(f)));
+  const failedAgain = new Set((rerun?.failures ?? []).map(keyOf));
+  const passedAgain = new Set((rerun?.passed ?? []).map(keyOf));
+  const isFlake = (/** @type {TestRef} */ f) =>
+    passedAgain.has(keyOf(f)) && !failedAgain.has(keyOf(f));
+  const flaky = first.filter(isFlake);
+  const failing = first.filter((f) => !isFlake(f));
   // A test that failed only in the re-run was not in the first failure set;
   // it failed, so it counts as failing.
-  for (const f of rerun ?? []) {
+  for (const f of rerun?.failures ?? []) {
     if (!first.some((r) => keyOf(r) === keyOf(f))) failing.push(f);
   }
   return {
@@ -192,19 +214,76 @@ export function classify(first, quarantine, rerun) {
 }
 
 /**
- * Drop a `--shard=<n>/<m>` (or `--shard <n>/<m>`) argument: the re-run names files.
+ * The vitest options a shard may pass, by shape: `value` options take a value
+ * (`--opt value` or `--opt=value`), `flag` options take none. Each entry is
+ * checked against vitest's own parser (`parseCLI`) in the tests. Anything else
+ * is refused by {@link rerunArgs}: vitest's parser lets an unknown option
+ * swallow the next word, so guessing could turn a file into an option value or
+ * the reverse (T14521).
+ */
+export const VITEST_OPTIONS = /** @type {const} */ ({
+  value: [
+    '--bail',
+    '--config',
+    '-c',
+    '--dir',
+    '--environment',
+    '--hookTimeout',
+    '--maxWorkers',
+    '--mode',
+    '--pool',
+    '--project',
+    '--reporter',
+    '--retry',
+    '--root',
+    '-r',
+    '--shard',
+    '--testNamePattern',
+    '-t',
+    '--testTimeout',
+  ],
+  flag: ['--allowOnly', '--globals', '--hideSkippedTests', '--passWithNoTests', '--run'],
+});
+
+const VALUE_OPTIONS = new Set(VITEST_OPTIONS.value);
+const FLAG_OPTIONS = new Set(VITEST_OPTIONS.flag);
+
+/**
+ * The first run's vitest args for the re-run: every option with its value,
+ * minus `--shard` (either form) and minus the positional file filters, since
+ * the re-run names its own files. Keeping the first run's filters re-ran the
+ * whole file-level affected set (T14366) on one runner, unsharded, for every
+ * flake (T14521).
  *
  * @param {readonly string[]} args
+ * @returns {string[]}
+ * @throws {Error} on an option outside {@link VITEST_OPTIONS}, a value option
+ *   without its value, or `--`: the args cannot be split safely.
  */
-export function withoutShard(args) {
+export function rerunArgs(args) {
   const out = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith('--shard=')) continue;
-    if (args[i] === '--shard') {
-      i++;
+    const a = args[i];
+    if (!a.startsWith('-')) continue; // a positional file filter
+    const eq = a.startsWith('--') ? a.indexOf('=') : -1;
+    const name = eq === -1 ? a : a.slice(0, eq);
+    if (VALUE_OPTIONS.has(name)) {
+      const parts = eq === -1 ? [a, args[i + 1]] : [a];
+      if (eq === -1) {
+        if (i + 1 >= args.length || args[i + 1].startsWith('-'))
+          throw new Error(`vitest option ${a} has no value`);
+        i++;
+      }
+      if (name !== '--shard') out.push(...parts);
       continue;
     }
-    out.push(args[i]);
+    if (FLAG_OPTIONS.has(name) && eq === -1) {
+      out.push(a);
+      continue;
+    }
+    throw new Error(
+      `cannot split vitest argument ${a} for the re-run: not a known option shape (VITEST_OPTIONS)`,
+    );
   }
   return out;
 }
@@ -606,13 +685,18 @@ async function runCommand(/** @type {string[]} */ argv) {
   console.log(
     `\nRe-running ${files.length} file(s) with failing tests once (T13145):\n${files.join('\n')}\n`,
   );
+  /** @type {string[]} */
+  let kept;
+  try {
+    kept = rerunArgs(vitestArgs);
+  } catch (err) {
+    summary(
+      `### The failing files could not be re-run\n\n${err instanceof Error ? err.message : String(err)}. Not retried, so the failures block.\n\n${list(first.failures)}`,
+    );
+    return firstRun.code === 0 ? 1 : firstRun.code;
+  }
   const rerunReport = path.join(work, 'rerun.json');
-  const rerunRun = await runVitest(
-    command,
-    [...withoutShard(vitestArgs), ...files],
-    rerunReport,
-    undefined,
-  );
+  const rerunRun = await runVitest(command, [...kept, ...files], rerunReport, undefined);
   if (rerunRun.unhandled) {
     summary(
       '### The re-run reported an error outside any test\n\nNot attributable to a test, so it blocks.',
@@ -622,7 +706,7 @@ async function runCommand(/** @type {string[]} */ argv) {
   const rerun = existsSync(rerunReport)
     ? parseVitestReport(readFileSync(rerunReport, 'utf8'), repoRoot)
     : null;
-  const outcome = classify(first.failures, quarantine, rerun?.failures ?? null);
+  const outcome = classify(first.failures, quarantine, rerun);
   const messages = new Map([...first.messages, ...(rerun?.messages ?? [])]);
 
   /** @type {Observation[]} */

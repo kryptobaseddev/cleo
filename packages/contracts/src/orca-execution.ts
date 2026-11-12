@@ -359,6 +359,8 @@ export interface OrcaLeadTerminalLaunch {
   readonly tempDir: string;
   /** Allocated lead identity, overriding the new terminal's inherited session. */
   readonly env: Readonly<Record<string, string>>;
+  /** Variables the terminal must not inherit, unset before `env` is exported. */
+  readonly unsetEnv?: readonly string[];
 }
 
 /** Verified local terminal and its supervisor, retained for exact-handle supervision. */
