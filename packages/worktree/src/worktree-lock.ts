@@ -35,11 +35,13 @@
  *   reclaimed on age. Anything else is `E_WORKTREE_LOCKED`.
  * - **Re-entry:** the same caller (session id, agent id, owner pid and start
  *   time all equal) re-enters its own lock, so an orchestrator can retry.
- * - **Every lock-file write is serialised** through a second O_EXCL mutex file
- *   (`<lock>.reclaim`): publish, re-entry, reclaim, heartbeat, release and
- *   session-end release (T14407). A holder of the mutex (a dispose under
- *   {@link withWorktreeTaskLockHeld}) therefore sees no lock transition at all
- *   until it lets go.
+ * - **Every lock-file write is serialised** through a mutex: an exclusive OS
+ *   advisory lock on an open descriptor of `<lock>.flock` (T14491, via the
+ *   worktree-napi `tryLockFile` binding): publish, re-entry, reclaim,
+ *   heartbeat, release and session-end release (T14407). A holder of the mutex
+ *   (a dispose under {@link withWorktreeTaskLockHeld}) therefore sees no lock
+ *   transition at all until it lets go. The OS frees the mutex when its holder
+ *   exits, so it has no staleness test and is never broken.
  *
  * @module worktree-lock
  * @task T12506
@@ -49,7 +51,6 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   closeSync,
-  fstatSync,
   fsyncSync,
   linkSync,
   mkdirSync,
@@ -63,7 +64,6 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname } from 'node:path';
-import { threadId } from 'node:worker_threads';
 import type {
   WorktreeLockAcquisition,
   WorktreeLockHolder,
@@ -74,6 +74,7 @@ import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
 import { resolveStableDeviceIdPath, resolveWorktreeTaskLockPath } from '@cleocode/paths';
+import { tryLockFile } from './napi-binding.js';
 
 /** Default heartbeat TTL: 4 hours. Override with `CLEO_WORKTREE_LOCK_TTL_MS`. */
 export const DEFAULT_WORKTREE_LOCK_TTL_MS = 4 * 60 * 60 * 1000;
@@ -81,10 +82,7 @@ export const DEFAULT_WORKTREE_LOCK_TTL_MS = 4 * 60 * 60 * 1000;
 /** Environment variable overriding {@link DEFAULT_WORKTREE_LOCK_TTL_MS}. */
 export const WORKTREE_LOCK_TTL_ENV = 'CLEO_WORKTREE_LOCK_TTL_MS';
 
-/** A reclaim mutex older than this is abandoned (its owner crashed mid-reclaim). */
-const RECLAIM_MUTEX_STALE_MS = 30_000;
-
-/** Attempts to obtain the reclaim mutex before re-evaluating the lock. */
+/** Attempts to obtain the lock mutex before reporting it busy. */
 const RECLAIM_ATTEMPTS = 50;
 
 /** A record younger than this that does not parse is still being written (O_EXCL fallback). */
@@ -96,7 +94,7 @@ const MAX_ACQUIRE_PASSES = 400;
 /** `link(2)` errnos that mean "hard links unsupported here", not "lock held". */
 const LINK_UNSUPPORTED = new Set(['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'ENOSYS', 'EXDEV', 'EMLINK']);
 
-/** Sleep between reclaim-mutex attempts. */
+/** Sleep between lock-mutex attempts. */
 const RECLAIM_BACKOFF_MS = 20;
 
 /** Liveness snapshot of one process. */
@@ -434,229 +432,53 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** Who holds a lock mutex: written into `<lock>.reclaim` (T14407). */
-interface MutexHolder {
-  token: string;
-  pid: number;
-  processStartedAt: string | null;
-  threadId: number;
-}
-
-/** This process's start time, read once (a `ps` call). */
-let ownStartTime: string | null | undefined;
+/** Mutex paths this thread holds now (a nested take reports busy at once). */
+const heldMutexes = new Set<string>();
 
 /**
- * A file's identity: device and inode as `bigint` (T14407). A `Number` cannot
- * hold every 64-bit file id (Windows), so two files could compare equal.
+ * Path of the mutex guarding `lockPath`. It is a different file from the
+ * pre-T14491 O_EXCL mutex (`<lock>.reclaim`), so a stale one of those never
+ * blocks the OS lock. The file is never deleted (see {@link tryLockFile}).
  */
-export interface FileIdentity {
-  dev: bigint;
-  ino: bigint;
+function mutexPathFor(lockPath: string): string {
+  return `${lockPath}.flock`;
 }
 
 /**
- * True when two identities name the same file (`dev` and `ino` compared as `bigint`).
+ * Take the per-lock mutex: an exclusive OS advisory lock held on an open file
+ * descriptor of `<lock>.flock` (T14491). It serialises every write of the lock
+ * file (publish, reclaim, re-entry, heartbeat, release) and the whole of
+ * {@link withWorktreeTaskLockHeld}.
  *
- * @param a - First identity.
- * @param b - Second identity.
- * @returns Whether both name one file.
+ * The OS releases it when the holder releases it or exits, however it exits,
+ * so there is no staleness test, no break and no breaker: a crashed holder
+ * frees the mutex by dying, and a live one is never displaced. A mutex this
+ * very thread holds is reported busy at once: waiting would block the holder,
+ * which can never release it.
+ *
+ * @returns A release function, or `null` when the mutex stayed busy.
+ * @throws When the lock file cannot be opened or locked, or the native binding
+ *   lacks the lock (fail closed: callers refuse, they never proceed unlocked).
  */
-export function sameFileIdentity(a: FileIdentity, b: FileIdentity): boolean {
-  return a.dev === b.dev && a.ino === b.ino;
-}
-
-/** One mutex file as read through a single descriptor: content, holder, identity and mtime belong together. */
-interface MutexSnapshot {
-  raw: string;
-  holder: MutexHolder | null;
-  id: FileIdentity;
-  mtimeMs: number;
-}
-
-/** Parse a mutex file's holder, or `null` when it is not a record. */
-function parseMutexHolder(raw: string): MutexHolder | null {
-  try {
-    const parsed = JSON.parse(raw) as Partial<MutexHolder>;
-    if (typeof parsed.token === 'string' && typeof parsed.pid === 'number') {
-      return {
-        token: parsed.token,
-        pid: parsed.pid,
-        processStartedAt:
-          typeof parsed.processStartedAt === 'string' ? parsed.processStartedAt : null,
-        threadId: typeof parsed.threadId === 'number' ? parsed.threadId : -1,
-      };
-    }
-  } catch {
-    /* a bare-token mutex from an older writer */
-  }
-  return null;
-}
-
-/**
- * Read a mutex file's holder and identity from ONE open descriptor (`fstat` on
- * the fd that was read), so a mutex replaced between the read and the stat can
- * never pair the old holder with the new file (T14407).
- *
- * @returns The snapshot, or `null` when the file is missing.
- */
-function readMutexSnapshot(mutexPath: string): MutexSnapshot | null {
-  let fd: number;
-  try {
-    fd = openSync(mutexPath, 'r');
-  } catch {
-    return null;
-  }
-  try {
-    const raw = readFileSync(fd, 'utf-8');
-    const st = fstatSync(fd, { bigint: true });
-    return {
-      raw,
-      holder: parseMutexHolder(raw),
-      id: { dev: st.dev, ino: st.ino },
-      mtimeMs: Number(st.mtimeMs),
-    };
-  } catch {
-    return null;
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/**
- * Take the per-lock mutex (`<lock>.reclaim`, O_EXCL). It serialises every
- * write of the lock file (publish, reclaim, re-entry, heartbeat, release) and
- * the whole of {@link withWorktreeTaskLockHeld}.
- *
- * The file names its holder (pid, start time, thread). A mutex older than
- * {@link RECLAIM_MUTEX_STALE_MS} is broken, under the breaker lock, only when that holder is
- * provably dead and the file is still the one read (holder and identity read from one descriptor), so a long hold by a live process (a forced dispose) is never
- * broken as stale, even where its start time cannot be read (T14407). A mutex this very thread holds is reported
- * busy at once: waiting would block the holder, which can never release it.
- *
- * @returns A release function (removes the mutex only if it is still ours),
- *   or `null` when the mutex stayed busy.
- */
-function takeLockMutex(lockPath: string, now: () => number): (() => void) | null {
-  const mutexPath = `${lockPath}.reclaim`;
-  if (ownStartTime === undefined) ownStartTime = readProcessStartTime(process.pid);
-  const content = JSON.stringify({
-    token: randomUUID(),
-    pid: process.pid,
-    processStartedAt: ownStartTime,
-    threadId,
-  } satisfies MutexHolder);
+function takeLockMutex(lockPath: string): (() => void) | null {
+  const mutexPath = mutexPathFor(lockPath);
+  if (heldMutexes.has(mutexPath)) return null;
   for (let attempt = 0; attempt < RECLAIM_ATTEMPTS; attempt++) {
-    try {
-      writeExclusive(mutexPath, content);
+    const handle = tryLockFile(mutexPath);
+    if (handle !== null) {
+      heldMutexes.add(mutexPath);
       return () => {
+        heldMutexes.delete(mutexPath);
         try {
-          if (readFileSync(mutexPath, 'utf-8') === content) unlinkSync(mutexPath);
+          handle.release();
         } catch {
-          /* already gone */
+          /* the descriptor is closed either way, which releases the lock */
         }
       };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      const snap = readMutexSnapshot(mutexPath);
-      if (snap !== null) {
-        const { holder } = snap;
-        if (holder !== null && holder.pid === process.pid && holder.threadId === threadId) {
-          return null; // held by this thread: re-entrant from inside a hold
-        }
-        // Breaks are serialised under `<mutex>.break`; the file is unlinked
-        // only while it is still the one whose holder was judged dead.
-        const nowMs = now();
-        if (isStaleMutex(snap, nowMs)) breakStaleMutex(mutexPath, snap, nowMs);
-      }
-      sleepSync(RECLAIM_BACKOFF_MS);
     }
+    sleepSync(RECLAIM_BACKOFF_MS);
   }
   return null;
-}
-
-/** A mutex (or breaker) past {@link RECLAIM_MUTEX_STALE_MS} whose holder is provably dead. */
-function isStaleMutex(snap: MutexSnapshot, nowMs: number): boolean {
-  return nowMs - snap.mtimeMs > RECLAIM_MUTEX_STALE_MS && !isMutexHolderAlive(snap.holder);
-}
-
-/** True when `current` is still the very file `snap` read: same identity and content. */
-function isSameMutex(current: MutexSnapshot, snap: MutexSnapshot): boolean {
-  return sameFileIdentity(current.id, snap.id) && current.raw === snap.raw;
-}
-
-/**
- * Take the breaker lock `<mutex>.break` (O_EXCL). A breaker whose holder is
- * provably dead is removed (only while it is still the file judged dead) and
- * the caller retries on its next attempt; a live one is never touched.
- *
- * @returns A release function, or `null` when another breaker holds it.
- */
-function takeBreaker(breakerPath: string, content: string, nowMs: number): (() => void) | null {
-  try {
-    writeExclusive(breakerPath, content);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    const snap = readMutexSnapshot(breakerPath);
-    if (snap !== null && isStaleMutex(snap, nowMs)) {
-      const current = readMutexSnapshot(breakerPath);
-      if (current !== null && isSameMutex(current, snap)) unlinkQuiet(breakerPath);
-    }
-    return null;
-  }
-  return () => {
-    try {
-      if (readFileSync(breakerPath, 'utf-8') === content) unlinkSync(breakerPath);
-    } catch {
-      /* already gone */
-    }
-  };
-}
-
-/**
- * Remove an abandoned mutex (T14407). A path cannot be compared-and-deleted
- * atomically, so every break runs under the breaker lock: under it the mutex
- * is re-read through one descriptor and unlinked only if it is still the file
- * `stale` read. Acquisition is O_EXCL, which never replaces an existing mutex,
- * so with breaks serialised a live mutex is never moved or deleted.
- *
- * Residual: two contenders that both find the same DEAD breaker can race to
- * remove it; that needs a breaker that died mid-break and stayed stale.
- */
-function breakStaleMutex(mutexPath: string, stale: MutexSnapshot, nowMs: number): void {
-  const release = takeBreaker(
-    `${mutexPath}.break`,
-    JSON.stringify({
-      token: randomUUID(),
-      pid: process.pid,
-      processStartedAt: ownStartTime ?? null,
-      threadId,
-    } satisfies MutexHolder),
-    nowMs,
-  );
-  if (release === null) return;
-  try {
-    const current = readMutexSnapshot(mutexPath);
-    if (current !== null && isSameMutex(current, stale)) unlinkQuiet(mutexPath);
-  } finally {
-    release();
-  }
-}
-
-/**
- * False only when the mutex holder is provably dead: its pid is gone, or alive
- * with a different start time (recycled). An unknown start time on either side
- * (Windows, a failed `ps`) keeps it alive (T14407). A mutex naming no holder
- * (an older bare-token writer) is treated as dead once stale.
- */
-function isMutexHolderAlive(holder: MutexHolder | null): boolean {
-  if (holder === null) return false;
-  const liveness = probeProcess(holder.pid);
-  if (!liveness.alive) return false;
-  return (
-    holder.processStartedAt === null ||
-    liveness.startedAt === null ||
-    liveness.startedAt === holder.processStartedAt
-  );
 }
 
 /**
@@ -683,7 +505,7 @@ function unlinkLockIf(lockPath: string, matches: (read: LockRead) => boolean): L
 function releaseLockIf(lockPath: string, matches: (read: LockRead) => boolean): LockRead | null {
   let release: (() => void) | null;
   try {
-    release = takeLockMutex(lockPath, Date.now);
+    release = takeLockMutex(lockPath);
   } catch {
     return null;
   }
@@ -728,7 +550,7 @@ export function withWorktreeTaskLockHeld<T>(
   const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
   let release: (() => void) | null;
   try {
-    release = takeLockMutex(lockPath, now);
+    release = takeLockMutex(lockPath);
   } catch (err) {
     return { held: false, reason: `the lock mutex could not be taken (${String(err)})` };
   }
@@ -891,7 +713,7 @@ function acquireUnchecked(
     if (backoff) sleepSync(RECLAIM_BACKOFF_MS); // O_EXCL fallback writer mid-write
     backoff = false;
     // Every write of the lock file happens under its mutex (T14407).
-    const release = takeLockMutex(lockPath, now);
+    const release = takeLockMutex(lockPath);
     if (release === null) {
       // Someone is transitioning or disposing the lock: refuse, naming its holder.
       const busy = readLockAt(lockPath, now());
@@ -964,7 +786,7 @@ export function heartbeatWorktreeTaskLock(
   now: () => number = Date.now,
 ): WorktreeLockRecord | null {
   const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
-  const release = takeLockMutex(lockPath, now);
+  const release = takeLockMutex(lockPath);
   if (release === null) return null;
   try {
     const current = readLockAt(lockPath, now());

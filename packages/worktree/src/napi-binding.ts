@@ -271,6 +271,18 @@ interface IntegrateResultNapi {
 }
 
 /**
+ * Handle of an exclusive OS advisory lock returned by the napi `tryLockFile`
+ * binding (T14491). The OS releases the lock on {@link FileLockHandleNapi.release},
+ * when the handle is garbage-collected, or when the process exits.
+ */
+interface FileLockHandleNapi {
+  /** Release the lock (idempotent). */
+  release(): void;
+  /** True while the handle still holds the lock. */
+  readonly held: boolean;
+}
+
+/**
  * Shape of the native module exported by the bundled Node-API binding.
  *
  * Mirrors the napi-rs `index.d.ts` but mapped into TS-friendly types that
@@ -299,6 +311,8 @@ interface WorktreeNapiModule {
   removeDir(opts: RemoveDirOptsNapi): RemoveDirResultNapi;
   provisionWorktree(opts: ProvisionOptsNapi): WorktreeHandleNapi;
   integrateWorktree(opts: IntegrateOptsNapi): IntegrateResultNapi;
+  /** Absent from addons built before T14491; callers must fail closed. */
+  tryLockFile?: (path: string) => FileLockHandleNapi | null;
 }
 
 /**
@@ -496,11 +510,34 @@ export const provisionWorktree: WorktreeNapiModule['provisionWorktree'] = (opts)
 export const integrateWorktree: WorktreeNapiModule['integrateWorktree'] = (opts) =>
   getNative().integrateWorktree(opts);
 
+/**
+ * Try to take an exclusive OS advisory lock on `path` without blocking (T14491).
+ * The file is created when missing and is never deleted.
+ *
+ * Fails closed: an addon without the binding (one built before T14491, or the
+ * test fallback) throws instead of reporting the lock free.
+ *
+ * @param path - Absolute path of the lock file; its directory must exist.
+ * @returns The held lock, or `null` when another open file holds it.
+ * @throws When the binding is missing or the OS cannot open or lock the file.
+ */
+export function tryLockFile(path: string): FileLockHandleNapi | null {
+  const native = getNative();
+  if (typeof native.tryLockFile !== 'function') {
+    throw new Error(
+      '@cleocode/worktree: the loaded worktree-napi addon has no tryLockFile (built before T14491); ' +
+        'rebuild crates/worktree-napi or reinstall @cleocode/worktree. Refusing to lock without it.',
+    );
+  }
+  return native.tryLockFile(path);
+}
+
 export type {
   CopyOptsNapi,
   CopyResultNapi,
   DestroyOptsNapi,
   DestroyResultNapi,
+  FileLockHandleNapi,
   IncludePatternNapi,
   IntegrateOptsNapi,
   IntegrateResultNapi,

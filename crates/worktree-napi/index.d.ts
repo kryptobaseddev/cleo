@@ -30,6 +30,20 @@ export declare function applyInclude(patterns: Array<IncludePatternNapi>, srcDir
  */
 export declare function copyIgnored(opts: CopyIgnoredOpts): CopyIgnoredOutcomeNapi
 
+/**
+ * Exclusive OS advisory lock on an open file, returned by [`try_lock_file`].
+ *
+ * Wraps [`worktrunk_core::file_lock::FileLock`]. The OS releases the lock
+ * when the holder calls [`FileLockHandle::release`], when the handle is
+ * garbage-collected, or when the process exits for any reason.
+ */
+export declare class FileLockHandle {
+  /** Release the lock. Idempotent: a second call does nothing. */
+  release(): void
+  /** True while this handle still holds the lock. */
+  get held(): boolean
+}
+
 /** JS-facing copy-ignored plan entry: `[relative_path, is_dir]`. */
 export interface CopyIgnoredEntryNapi {
   /** Source-relative path of the entry. */
@@ -571,6 +585,16 @@ export interface SyncWorktreeResult {
    */
   patternsApplied: number
 }
+
+/**
+ * Try to take an exclusive OS advisory lock on `path` without blocking,
+ * creating the file when missing (via
+ * [`worktrunk_core::file_lock::try_lock_exclusive`]).
+ *
+ * Returns the held handle, or `null` when another open file (in this or any
+ * other process) holds the lock.
+ */
+export declare function tryLockFile(path: string): FileLockHandle | null
 
 /**
  * Return the native source this binary was built from, e.g.

@@ -27,6 +27,7 @@
 //! - [`relocate_worktree`] — build a [`worktrunk_core::step::relocate::RelocatePlan`].
 //! - [`copy_ignored`] — plan + execute the `[copy-ignored]` step in one call.
 //! - [`remove_dir`] — recursive parallel directory removal with counts.
+//! - [`try_lock_file`] — exclusive OS advisory lock on an open file (T14491).
 //! - [`sync_worktree`] — seed a freshly-provisioned worktree from a source
 //!   tree, honouring `<source>/.worktreeinclude` when present.
 //! - [`run_step`] — generic dispatcher that routes a discriminated
@@ -43,6 +44,9 @@ use napi_derive::napi;
 use std::collections::HashMap;
 
 use worktrunk_core::copy::{copy_dir_recursive, copy_leaf};
+use worktrunk_core::file_lock::{
+    FileLock as CoreFileLock, try_lock_exclusive as core_try_lock_exclusive,
+};
 use worktrunk_core::git::{ProcessRepo, Repo};
 use worktrunk_core::git_wt::{
     WorktreeHandle, WorktreeInfo, destroy_worktree as core_destroy_worktree,
@@ -995,6 +999,59 @@ pub fn remove_dir(opts: RemoveDirOpts) -> napi::Result<RemoveDirResult> {
         files: u32::try_from(files).unwrap_or(u32::MAX),
         bytes: u32::try_from(bytes.min(u64::from(u32::MAX))).unwrap_or(u32::MAX),
     })
+}
+
+// ── file lock (T14491) ──────────────────────────────────────────────
+
+/// Exclusive OS advisory lock on an open file, returned by [`try_lock_file`].
+///
+/// Wraps [`worktrunk_core::file_lock::FileLock`]. The OS releases the lock
+/// when the holder calls [`FileLockHandle::release`], when the handle is
+/// garbage-collected, or when the process exits for any reason.
+#[napi]
+pub struct FileLockHandle {
+    lock: Option<CoreFileLock>,
+}
+
+#[napi]
+impl FileLockHandle {
+    /// Release the lock. Idempotent: a second call does nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`napi::Error`] when the OS unlock call fails; the
+    /// descriptor is closed regardless, which also releases the lock.
+    #[napi]
+    pub fn release(&mut self) -> napi::Result<()> {
+        match self.lock.take() {
+            Some(lock) => lock.release().map_err(napi_err),
+            None => Ok(()),
+        }
+    }
+
+    /// True while this handle still holds the lock.
+    #[napi(getter)]
+    pub fn held(&self) -> bool {
+        self.lock.is_some()
+    }
+}
+
+/// Try to take an exclusive OS advisory lock on `path` without blocking,
+/// creating the file when missing (via
+/// [`worktrunk_core::file_lock::try_lock_exclusive`]).
+///
+/// Returns the held handle, or `null` when another open file (in this or any
+/// other process) holds the lock.
+///
+/// # Errors
+///
+/// Returns a [`napi::Error`] when the file cannot be opened or the platform
+/// cannot lock it; callers must treat that as a refusal, never as free.
+#[napi]
+pub fn try_lock_file(path: String) -> napi::Result<Option<FileLockHandle>> {
+    core_try_lock_exclusive(Path::new(&path))
+        .map(|held| held.map(|lock| FileLockHandle { lock: Some(lock) }))
+        .map_err(napi_err)
 }
 
 // ── sync_worktree ───────────────────────────────────────────────────
