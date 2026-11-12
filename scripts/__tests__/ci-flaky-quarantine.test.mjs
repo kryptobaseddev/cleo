@@ -24,12 +24,12 @@ import {
   parseVitestReport,
   planExpiry,
   planFiling,
+  rerunArgs,
   rowsFromGraphql,
   titleOf,
   trustedIssues,
   UNHANDLED_LINE,
   WHOLE_FILE,
-  withoutShard,
 } from '../ci-flaky-quarantine.mjs';
 
 /** The author `gh issue list --json author` reports for an issue GitHub Actions filed. */
@@ -124,9 +124,25 @@ describe('classify', () => {
 });
 
 describe('helpers', () => {
-  it('withoutShard drops both spellings of --shard', () => {
-    expect(withoutShard(['--shard=2/4', '--retry=2'])).toEqual(['--retry=2']);
-    expect(withoutShard(['--shard', '2/4', '--retry=2'])).toEqual(['--retry=2']);
+  it('rerunArgs drops both spellings of --shard', () => {
+    expect(rerunArgs(['--shard=2/4', '--retry=2'])).toEqual(['--retry=2']);
+    expect(rerunArgs(['--shard', '2/4', '--retry=2'])).toEqual(['--retry=2']);
+  });
+
+  it('rerunArgs drops the first run file filters and keeps --project scoping (T14521)', () => {
+    // File-level affected selection passes hundreds of test paths; keeping them
+    // made one flake re-run the whole affected set unsharded on one runner.
+    expect(
+      rerunArgs([
+        '--shard=3/8',
+        'packages/a/src/x.test.ts',
+        'packages/b/src/y.test.ts',
+        '--passWithNoTests',
+      ]),
+    ).toEqual(['--passWithNoTests']);
+    expect(
+      rerunArgs(['--shard=1/8', '--retry=2', '--project', '@cleocode/core', '--passWithNoTests']),
+    ).toEqual(['--retry=2', '--project', '@cleocode/core', '--passWithNoTests']);
   });
 
   it('an issue body carries its state, and titles are bounded', () => {

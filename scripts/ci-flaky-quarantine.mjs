@@ -15,7 +15,8 @@
  *     - --timings: writes the first run's per-file durations there (T14369).
  *     - Exit 0 from vitest: pass.
  *     - A failing test listed in the quarantine: reported, not blocking.
- *     - Any other failing test: its FILES are re-run once (without --shard).
+ *     - Any other failing test: its FILES are re-run once (without --shard
+ *       or the first run's file filters).
  *       If every one of those tests passes on the re-run it is a flake:
  *       reported, not blocking. A test that fails twice blocks.
  *     - vitest failed without a readable report, or with no failing test in
@@ -191,20 +192,30 @@ export function classify(first, quarantine, rerun) {
   };
 }
 
+/** vitest flags whose value is the next argument; any other bare word is a file filter. */
+const VALUE_FLAGS = new Set(['--project', '--shard', '--config', '-c', '--root', '-r', '--dir']);
+
 /**
- * Drop a `--shard=<n>/<m>` (or `--shard <n>/<m>`) argument: the re-run names files.
+ * The first run's vitest args for the re-run: no `--shard` (either spelling)
+ * and no file filters, since the re-run names its own files. Keeping the
+ * first run's filters re-ran the whole file-level affected set (T14366) on
+ * one runner, unsharded, for every flake (T14521).
  *
  * @param {readonly string[]} args
+ * @returns {string[]}
  */
-export function withoutShard(args) {
+export function rerunArgs(args) {
   const out = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith('--shard=')) continue;
-    if (args[i] === '--shard') {
+    const a = args[i];
+    if (a.startsWith('--shard=')) continue;
+    if (a === '--shard') {
       i++;
       continue;
     }
-    out.push(args[i]);
+    if (!a.startsWith('-')) continue;
+    out.push(a);
+    if (VALUE_FLAGS.has(a) && i + 1 < args.length) out.push(args[++i]);
   }
   return out;
 }
@@ -609,7 +620,7 @@ async function runCommand(/** @type {string[]} */ argv) {
   const rerunReport = path.join(work, 'rerun.json');
   const rerunRun = await runVitest(
     command,
-    [...withoutShard(vitestArgs), ...files],
+    [...rerunArgs(vitestArgs), ...files],
     rerunReport,
     undefined,
   );
