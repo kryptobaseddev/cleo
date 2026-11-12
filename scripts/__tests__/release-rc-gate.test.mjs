@@ -69,6 +69,7 @@ afterEach(() => {
  * @param {string} opts.rc - RC_VERSION ('' for a prerelease).
  * @param {string} [opts.tag] - TAG.
  * @param {number} [opts.payloadExit] - Exit code of the post-deploy check.
+ * @param {number} [opts.stablePayloadExit] - Exit code of the stable dependency check.
  * @param {string} [opts.payloadVerdict] - Verdict the check writes to its deploy summary (T14192).
  * @param {number} [opts.soakExit] - Exit code of the soak.
  * @param {string[]} [opts.published] - `pkg@version` already on npm.
@@ -78,6 +79,7 @@ function runPublish({
   rc,
   tag = 'latest',
   payloadExit = 0,
+  stablePayloadExit = 0,
   payloadVerdict,
   soakExit = 0,
   published = [],
@@ -100,7 +102,7 @@ function runPublish({
   );
   script(
     'execute-payload.mjs',
-    `import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, 'payload ' + a.join(' ') + '\\n');\nconst out = a[a.indexOf('--output-dir') + 1];\nconst v = a[a.indexOf('--version') + 1];\nif (${JSON.stringify(payloadVerdict ?? '')}) { mkdirSync(out, { recursive: true }); writeFileSync(out + '/deploy-summary-' + v + '.json', JSON.stringify({ verdict: ${JSON.stringify(payloadVerdict ?? '')} })); }\nprocess.exit(${payloadExit});\n`,
+    `import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, 'payload ' + a.join(' ') + '\\n');\nconst out = a[a.indexOf('--output-dir') + 1];\nconst v = a[a.indexOf('--version') + 1];\nif (${JSON.stringify(payloadVerdict ?? '')}) { mkdirSync(out, { recursive: true }); writeFileSync(out + '/deploy-summary-' + v + '.json', JSON.stringify({ verdict: ${JSON.stringify(payloadVerdict ?? '')} })); }\nprocess.exit(a.includes('--before-package') ? ${stablePayloadExit} : ${payloadExit});\n`,
   );
   script(
     'release-canary-soak.mjs',
@@ -199,11 +201,10 @@ describe('the Publish step runs the release candidate gate (T13181)', () => {
       published: PACKAGES.map((p) => `${p}@${VERSION}`),
     });
     expect(status, log.join('\n')).toBe(0);
-    expect(
-      log.filter(
-        (l) => l.startsWith('publish ') || l.startsWith('payload ') || l.startsWith('soak '),
-      ),
-    ).toEqual([]);
+    expect(log.filter((l) => l.startsWith('publish ') || l.startsWith('soak '))).toEqual([]);
+    expect(log.filter((l) => l.startsWith('payload '))).toEqual([
+      `payload --version ${VERSION} --dist-tag latest --before-package cleo --output-dir /tmp/stable-dependencies`,
+    ]);
   });
 
   it('a re-run with the candidate already on npm skips its publishes but still gates', () => {
@@ -263,6 +264,43 @@ describe('the Publish step runs the release candidate gate (T13181)', () => {
     const { status, log } = runPublish({ rc: '', tag: 'canary', soakExit: 1 });
     expect(status).not.toBe(0);
     expect(publishes(log, 'latest')).toHaveLength(0);
+  });
+});
+
+describe('T14516 — stable dependencies are installable before the CLI reaches latest', () => {
+  it.each([RC, ''])('checks all earlier waves before publishing the CLI (candidate %j)', (rc) => {
+    const { status, log } = runPublish({ rc });
+    expect(status, log.join('\n')).toBe(0);
+    const gate = log.indexOf(
+      `payload --version ${VERSION} --dist-tag latest --before-package cleo --output-dir /tmp/stable-dependencies`,
+    );
+    expect(gate).toBeGreaterThan(-1);
+    const latest = publishes(log, 'latest');
+    expect(latest).toHaveLength(PACKAGES.length);
+    for (const pkg of PACKAGES.filter((p) => p !== 'cleo')) {
+      expect(
+        log.findIndex((l) => l.startsWith(`publish ${pkg} `) && l.includes('--tag latest ')),
+      ).toBeLessThan(gate);
+    }
+    expect(log.indexOf(latest.find((l) => l.startsWith('publish cleo ')))).toBeGreaterThan(gate);
+  });
+
+  it('a failed or timed-out stable check never publishes the CLI to latest', () => {
+    const { status, log } = runPublish({ rc: RC, stablePayloadExit: 1 });
+    expect(status).not.toBe(0);
+    expect(publishes(log, 'latest')).toHaveLength(PACKAGES.length - 1);
+    expect(publishes(log, 'latest').some((l) => l.startsWith('publish cleo '))).toBe(false);
+  });
+
+  it('retains dependency timings even when the gate fails', () => {
+    const upload = releaseYaml.jobs.publish.steps.find(
+      (s) => s.name === 'Upload publish timeline and dependency verification',
+    );
+    expect(upload.if).toBe('always()');
+    expect(upload.with.path).toContain('/tmp/stable-dependencies/');
+    expect(publishStep.run).toContain(
+      'POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs',
+    );
   });
 });
 

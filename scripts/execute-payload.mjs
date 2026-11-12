@@ -61,7 +61,8 @@
  *   2 — the check could not run (SSoT unreadable, or it named zero packages)
  *
  * Usage:
- *   node scripts/execute-payload.mjs --version 2026.4.xxx [--output-dir /tmp]
+ *   node scripts/execute-payload.mjs --version 2026.4.xxx --dist-tag latest [--output-dir /tmp]
+ *   Add --before-package cleo to gate the CLI on the earlier publish waves.
  *
  * Environment:
  *   POSTDEPLOY_TIMEOUT_MS   total propagation budget (default 900000 = 15 min)
@@ -94,12 +95,19 @@ export const REGISTRY = 'https://registry.npmjs.org';
  * keeping it in step.
  *
  * @param {string} [root] - Repo root to resolve release.yml against.
+ * @param {string} [beforePackage] - Verify only entries before this package (pre-publish gate).
  * @returns {Promise<string[]>} Package short-names, in publish order.
  * @throws {Error} When release.yml cannot be read — callers must fail closed.
  */
-export async function readPublishedPackages(root = REPO_ROOT) {
+export async function readPublishedPackages(root = REPO_ROOT, beforePackage = '') {
   const yml = await readFile(path.join(root, '.github/workflows/release.yml'), 'utf8');
-  return [...new Set([...yml.matchAll(/^\s*publish_pkg ([a-z0-9-]+)\s*$/gm)].map((m) => m[1]))];
+  const packages = [
+    ...new Set([...yml.matchAll(/^\s*publish_pkg ([a-z0-9-]+)\s*$/gm)].map((m) => m[1])),
+  ];
+  if (!beforePackage) return packages;
+  const boundary = packages.indexOf(beforePackage);
+  if (boundary <= 0) throw new Error(`No publish packages precede ${beforePackage} in release.yml`);
+  return packages.slice(0, boundary);
 }
 
 // ---------------------------------------------------------------------------
@@ -487,7 +495,7 @@ export async function verifyAll(packages, ver, opts = {}) {
 /**
  * Parse CLI arguments into a flat key/value map.
  * @param {string[]} argv
- * @returns {{ version: string; outputDir: string }}
+ * @returns {{ version: string; outputDir: string; distTag: string; beforePackage?: string }}
  */
 export function parseArgs(argv) {
   const result = { version: '', outputDir: '/tmp/postdeploy-artifacts', distTag: '' };
@@ -499,6 +507,10 @@ export function parseArgs(argv) {
       result.outputDir = argv[++i];
     } else if (arg === '--dist-tag' && argv[i + 1]) {
       result.distTag = argv[++i];
+    } else if (arg === '--before-package') {
+      const pkg = argv[++i];
+      if (!pkg || pkg.startsWith('--')) throw new Error('--before-package needs a package name');
+      result.beforePackage = pkg;
     }
   }
   return result;
@@ -509,7 +521,7 @@ export function parseArgs(argv) {
  * @returns {Promise<number>} Process exit code.
  */
 export async function main() {
-  const { version, outputDir, distTag } = parseArgs(process.argv.slice(2));
+  const { version, outputDir, distTag, beforePackage } = parseArgs(process.argv.slice(2));
   if (!version) {
     console.error('ERROR: --version <VERSION> is required');
     return 1;
@@ -529,7 +541,7 @@ export async function main() {
   /** @type {string[]} */
   let packages;
   try {
-    packages = await readPublishedPackages();
+    packages = await readPublishedPackages(REPO_ROOT, beforePackage);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`::error::execute-payload could not read the publish SSoT: ${msg}`);

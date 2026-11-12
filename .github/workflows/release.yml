@@ -903,8 +903,8 @@ jobs:
       # ── npm Publish (OIDC Trusted Publishing) ─────────────────────────────────
       # Publish in dependency WAVES: every package in a wave depends only on
       # packages in earlier waves, so a wave publishes concurrently and the
-      # waves run in order. A consumer installing mid-release can still only
-      # resolve a @cleocode/* dependency that was accepted before it.
+      # waves run in order. Before the stable CLI reaches latest, its earlier
+      # waves must be installable, not merely accepted by npm.
 
       # npm Trusted Publishing via OIDC — no NPM_TOKEN secret needed.
       # Requires: each @cleocode/* package on npmjs.com configured with
@@ -1102,6 +1102,14 @@ jobs:
             publish_pkg playbooks
             publish_pkg cleo-os
             run_wave 5
+            # T14516: npm accepting a dependency does not make it installable.
+            # Reuse the candidate's metadata + tarball + dist-tag verifier;
+            # one shared budget covers all earlier waves, including cycles.
+            if [[ "$TAG" == "latest" && "$PUBLISH_HALTED" == "0" ]]; then
+              POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs \
+                --version "$VERSION" --dist-tag "$TAG" --before-package cleo \
+                --output-dir /tmp/stable-dependencies
+            fi
             # Wave 6 — the CLI depends on playbooks + runtime (wave 5).
             publish_pkg cleo
             run_wave 6
@@ -1202,12 +1210,14 @@ jobs:
 
       # Consumed by release-verdict to render the call -> created -> delay table
       # alongside the registry's own creation timestamps (gh#1479).
-      - name: Upload publish timeline
+      - name: Upload publish timeline and dependency verification
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: publish-timeline-${{ needs.build-verify.outputs.version }}
-          path: /tmp/publish-timeline-*.tsv
+          path: |
+            /tmp/publish-timeline-*.tsv
+            /tmp/stable-dependencies/
           if-no-files-found: warn
           retention-days: 30
 
