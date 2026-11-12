@@ -10,7 +10,7 @@
  */
 
 import { type SpawnSyncOptionsWithStringEncoding, spawnSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { DisposeWorktreeOptions } from '@cleocode/contracts';
 import { computeProjectHash } from '@cleocode/paths';
@@ -97,6 +97,8 @@ export function worktreeProcessUse(worktreePath: string): string | null {
  * The reaper's separate proof of inactivity. Task locks identify a spawner,
  * so they are never worker liveness evidence. Open worker records, live
  * session leases, or any unreadable source keep the checkout.
+ * Foreign stores use only immutable snapshots: a nonempty WAL or any open
+ * executor leaves liveness unknown and keeps the checkout.
  * @param projectRoot - Owning project.
  * @param taskId - Terminal task that owns the checkout.
  * @param worktreePath - Checkout to protect.
@@ -107,22 +109,61 @@ export async function worktreeReaperInUseProbe(
   taskId: string,
   worktreePath: string,
 ): Promise<NonNullable<DisposeWorktreeOptions['inUse']>> {
-  try {
-    const { listWorkerRecords } = await import('../orchestrate/worker-records.js');
-    const workers = await listWorkerRecords(projectRoot, true);
-    if (
-      workers.some(
-        (worker) =>
-          worker.stoppedAt === null &&
-          (worker.taskId === taskId || inside(worktreePath, worker.worktree)),
-      )
-    ) {
-      return () => 'a worker record has not been closed';
+  const { isOwnProjectStore } = await import('./own-project.js');
+  let foreignWorkerUse: NonNullable<DisposeWorktreeOptions['inUse']> | undefined;
+  if (isOwnProjectStore(projectRoot)) {
+    try {
+      const { listWorkerRecords } = await import('../orchestrate/worker-records.js');
+      const workers = await listWorkerRecords(projectRoot, true);
+      if (
+        workers.some(
+          (worker) =>
+            worker.stoppedAt === null &&
+            (worker.taskId === taskId || inside(worktreePath, worker.worktree)),
+        )
+      ) {
+        return () => 'a worker record has not been closed';
+      }
+    } catch {
+      return () => 'worker record probe unavailable';
     }
-  } catch {
-    return () => 'worker record probe unavailable';
+  } else {
+    const { worktreeScope } = await import('../project-scope.js');
+    const { openProjectTasksReadOnly } = await import('../store/sqlite.js');
+    foreignWorkerUse = () =>
+      worktreeScope.run(
+        { worktreeRoot: projectRoot, projectHash: computeProjectHash(projectRoot) },
+        () => {
+          try {
+            const snapshot = openProjectTasksReadOnly(projectRoot);
+            if (snapshot === null) return 'unknown (foreign project)';
+            try {
+              if (statSync(`${snapshot.path}-wal`, { throwIfNoEntry: false })?.size)
+                return 'unknown (foreign project)';
+              // Only an executor-free foreign snapshot proves worker inactivity.
+              const open = snapshot.db
+                .prepare(
+                  "SELECT 1 FROM main.tasks_agent_instances WHERE agent_type = 'executor' AND stopped_at IS NULL LIMIT 1",
+                )
+                .get();
+              if (
+                open !== undefined ||
+                statSync(`${snapshot.path}-wal`, { throwIfNoEntry: false })?.size
+              )
+                return 'unknown (foreign project)';
+            } finally {
+              snapshot.close();
+            }
+          } catch {
+            return 'unknown (foreign project)';
+          }
+          return null;
+        },
+      );
   }
   return () => {
+    const foreign = foreignWorkerUse?.();
+    if (foreign) return foreign;
     try {
       const now = Date.now();
       const leases = readAgentLeasesForCleanup();
