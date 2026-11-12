@@ -627,6 +627,8 @@ describe('orchestrateLead (T14363)', () => {
         'session unreadable',
       ],
       [{ endSession: async () => Promise.reject(new Error('store locked')) }, 'session end failed'],
+      [{ readSession: async () => null }, 'not found'],
+      [{ endSession: async () => null }, 'end returned no session'],
     ] as const) {
       writeLeadRecord(env.tempDir, deadRecord());
       const mbx = fakeMbx(true);
@@ -646,6 +648,43 @@ describe('orchestrateLead (T14363)', () => {
       expect(readLeadRecord(env.tempDir, 'T100')).not.toBeNull();
       expect(mbx.releases).toHaveLength(0);
     }
+  });
+
+  it('a kept dead record makes the next orchestrate lead refuse with E_LEAD_RECORD_KEPT and its fix (T14513)', async () => {
+    withMailbox();
+    const { writeLeadRecord, readLeadRecord } = await import('../lead-records.js');
+    // The session the record names is not in the store: not proven ended.
+    writeLeadRecord(env.tempDir, { ...deadRecord(), cleoSessionId: 'ses_20261112000000_missin' });
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      probe: () => ({ alive: false, startedAt: null }),
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_LEAD_RECORD_KEPT',
+        fix: 'Run cleo orchestrate lead T100 again once session ses_20261112000000_missin can be read and ended.',
+        details: {
+          epicId: 'T100',
+          reaped: [
+            {
+              epicId: 'T100',
+              recordRemoved: false,
+              keptReason: expect.stringContaining('not found'),
+              mailboxReleased: false,
+              tempDirRemoved: false,
+            },
+          ],
+        },
+      },
+    });
+    expect(readLeadRecord(env.tempDir, 'T100')).not.toBeNull();
+    expect(mbx.claims).toHaveLength(0);
+    expect(mbx.releases).toHaveLength(0);
+    expect(provider.state.seen).toHaveLength(0);
   });
 
   it('a reap is reported on the failure when the new lead is then refused (T14513)', async () => {

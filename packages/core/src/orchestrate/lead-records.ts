@@ -220,7 +220,7 @@ export interface ReapedLead {
   readonly epicId: string;
   /**
    * The record was deleted: its processes are dead AND its session is proven
-   * ended (already, by the reaper, or gone from the store). `false` keeps the
+   * ended (it had already ended, or the reaper's end returned it ended). `false` keeps the
    * record, with the reason in {@link ReapedLead.keptReason} (T14513).
    */
   readonly recordRemoved: boolean;
@@ -266,19 +266,26 @@ async function settleLeadSession(
   } catch (err) {
     return { alreadyEnded: false, ended: false, keptReason: `session unreadable: ${String(err)}` };
   }
-  // No such session: nothing holds the epic claim.
-  if (session === null) return { alreadyEnded: false, ended: false, keptReason: null };
+  // No session found is not proof it ended (wrong store, a lagging read): keep the record.
+  if (session === null) {
+    return {
+      alreadyEnded: false,
+      ended: false,
+      keptReason: `session ${record.cleoSessionId} not found, so not proven ended`,
+    };
+  }
   // T14513: a session that already ended keeps its own end time and notes.
   if (session.status === 'ended') return { alreadyEnded: true, ended: false, keptReason: null };
   try {
     const after = await end(record.cleoSessionId, 'lead died; reaped', projectRoot);
-    if (after === null || after.status === 'ended') {
-      return { alreadyEnded: false, ended: true, keptReason: null };
-    }
+    if (after?.status === 'ended') return { alreadyEnded: false, ended: true, keptReason: null };
     return {
       alreadyEnded: false,
       ended: false,
-      keptReason: `session ${record.cleoSessionId} is still ${after.status}`,
+      keptReason:
+        after === null
+          ? `session ${record.cleoSessionId} end returned no session, so not proven ended`
+          : `session ${record.cleoSessionId} is still ${after.status}`,
     };
   } catch (err) {
     return { alreadyEnded: false, ended: false, keptReason: `session end failed: ${String(err)}` };
