@@ -247,6 +247,34 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
             leadMcp: leadMcp.report,
           };
         }
+        if (context.leadTerminalLauncher) {
+          const command = resolveAbsoluteBinary('claude');
+          if (!command || !context.onLeadStarted) {
+            throw new Error(
+              'The guarded Orca lead needs an absolute claude binary and a lifecycle recorder.',
+            );
+          }
+          const terminal = await context.leadTerminalLauncher(
+            {
+              command,
+              args: buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp),
+              cwd: context.workingDirectory ?? process.cwd(),
+              tempDir: dir,
+              env: envStrings(context.options),
+            },
+            context.onLeadStarted,
+          );
+          return {
+            instanceId,
+            taskId: context.taskId,
+            providerId: 'claude-code',
+            status: 'running',
+            startTime,
+            leadMcp: leadMcp.report,
+            leadTempDir: dir,
+            leadTerminal: terminal,
+          };
+        }
         if (leadModeOf(context.options) === 'interactive') {
           // T14363: the owner's terminal — stdio inherited, awaited, not detached.
           const env = envStrings(context.options);

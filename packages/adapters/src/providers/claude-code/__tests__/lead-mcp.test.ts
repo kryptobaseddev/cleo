@@ -31,7 +31,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpawnContext } from '@cleocode/contracts';
 import { E_LEAD_NO_OWNER_CHANNEL, LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts';
+import type { OrcaLeadTerminalLauncher } from '@cleocode/contracts/orca-execution.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as leadMcpModule from '../lead-mcp.js';
 import { LEAD_MCP_FILE, prepareLeadMcp, resolveMbxMcpServer } from '../lead-mcp.js';
 import {
   LEAD_KICKOFF_PROMPT,
@@ -83,6 +85,8 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -146,6 +150,65 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     ]);
     expect(args.join(' ')).not.toContain('AskUserQuestion');
   });
+
+  it.skipIf(process.platform === 'win32').each(['interactive', 'detached'] as const)(
+    'hands the production %s guards and settings to Orca before starting',
+    async (mode) => {
+      writeFileSync(claudeJson, JSON.stringify({ mcpServers: { mbx, shell: SHELL_SERVER } }));
+      for (const name of ['claude', 'cleo']) fakeBinary(join(bin, name), join(root, 'calls.log'));
+      vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
+      const prepare = prepareLeadMcp;
+      vi.spyOn(leadMcpModule, 'prepareLeadMcp').mockImplementation((dir, cwd, options) =>
+        prepare(dir, cwd, { ...options, claudeJsonPath: claudeJson }),
+      );
+      const started = vi.fn<(pid: number) => void>();
+      let promptFile = '';
+      const launcher = vi.fn<OrcaLeadTerminalLauncher>(async (launch, onStarted) => {
+        const value = (flag: string) => launch.args[launch.args.indexOf(flag) + 1] ?? '';
+        expect(launch.command).toBe(join(bin, 'claude'));
+        expect(launch.env).toEqual(IDENTITY);
+        expect(launch.args).toContain('--restricted');
+        expect(launch.args).toContain('--strict-mcp-config');
+        expect(launch.args).not.toContain('--dangerously-skip-permissions');
+        expect(value('--tools')).toBe(mode === 'interactive' ? 'AskUserQuestion' : '');
+        expect(value('--permission-mode')).toBe(mode === 'interactive' ? 'default' : 'dontAsk');
+        expect(value('--setting-sources')).toBe('');
+        expect(value('--session-id')).toBe(SESSION);
+        expect(value('--disallowedTools')).toBe('Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch');
+        expect(value('--allowedTools')).toBe(
+          `${LEAD_RUNNER_TOOL},mcp__mbx${mode === 'interactive' ? ',AskUserQuestion' : ''}`,
+        );
+        const config = JSON.parse(readFileSync(value('--mcp-config'), 'utf8'));
+        expect(Object.keys(config.mcpServers).sort()).toEqual(['cleo-lead', 'mbx']);
+        expect(config.mcpServers['cleo-lead'].env).toEqual(IDENTITY);
+        const settings = JSON.parse(readFileSync(value('--settings'), 'utf8'));
+        expect(settings.hooks.SessionStart[0].hooks[0].command).toContain(value('--mcp-config'));
+        expect(settings.hooks.SessionEnd[0].hooks[0].command).toContain(`--session ${SESSION}`);
+        expect(statSync(value('--settings')).mode & 0o077).toBe(0);
+        promptFile = value('--append-system-prompt-file');
+        expect(readFileSync(promptFile, 'utf8')).toContain('plan');
+        expect(started).not.toHaveBeenCalled();
+        onStarted(12345);
+        return { runtimeId: 'runtime-fixture', terminalHandle: 'term_lead', pid: 12345 };
+      });
+      try {
+        const result = await new ClaudeCodeSpawnProvider().spawn({
+          ...lead(mode),
+          workingDirectory: project,
+          options: { ...lead(mode).options, env: IDENTITY },
+          leadTerminalLauncher: launcher,
+          onLeadStarted: started,
+        });
+        expect(result.status).toBe('running');
+        expect(result.leadTerminal?.terminalHandle).toBe('term_lead');
+        expect(result.leadTempDir).toBeTruthy();
+        expect(launcher).toHaveBeenCalledOnce();
+        expect(started).toHaveBeenCalledWith(12345);
+      } finally {
+        if (promptFile) rmSync(join(promptFile, '..'), { recursive: true, force: true });
+      }
+    },
+  );
 
   it.each([
     [false, true],

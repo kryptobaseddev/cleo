@@ -15,7 +15,7 @@
  * @task T14363
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
@@ -26,8 +26,6 @@ import {
   fixtureRunner,
   runOrcaFixture,
 } from '../../../../adapters/src/__tests__/orca-execution-fixture.js';
-import { prepareLeadMcp } from '../../../../adapters/src/providers/claude-code/lead-mcp.js';
-import { buildClaudeArgs } from '../../../../adapters/src/providers/claude-code/spawn.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { AgentMbxClient, MbxSession } from '../agentmbx.js';
 
@@ -59,7 +57,21 @@ const { provider } = vi.hoisted(() => {
       state.events.push('spawn');
       // The provider reports the lead's pid as it starts (the lead record names it).
       if (state.pid !== undefined) ctx.onLeadStarted?.(state.pid);
+      const terminal =
+        ctx.leadTerminalLauncher && ctx.onLeadStarted
+          ? await ctx.leadTerminalLauncher(
+              {
+                command: '/fixture/claude',
+                args: [],
+                cwd: ctx.workingDirectory ?? '',
+                tempDir: '/tmp/none',
+                env: {},
+              },
+              ctx.onLeadStarted,
+            )
+          : undefined;
       return {
+        ...(terminal ? { leadTerminal: terminal, leadTempDir: '/tmp/none' } : {}),
         instanceId: 'lead-1',
         taskId: ctx.taskId,
         providerId: 'fake-provider',
@@ -80,7 +92,7 @@ const { provider } = vi.hoisted(() => {
 
 vi.mock('../../spawn/adapter-registry.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../spawn/adapter-registry.js')>();
-  const adapter = () => actual.bridgeSpawnAdapter('fake-provider', provider.delegate);
+  const adapter = (id = 'fake-provider') => actual.bridgeSpawnAdapter(id, provider.delegate);
   return {
     ...actual,
     initializeDefaultAdapters: async () => undefined,
@@ -91,7 +103,7 @@ vi.mock('../../spawn/adapter-registry.js', async (importOriginal) => {
 vi.mock('@cleocode/caamp', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@cleocode/caamp')>()),
   providerSupportsById: () => true,
-  getSpawnCapableProviders: () => [{ id: 'fake-provider' }],
+  getSpawnCapableProviders: () => [{ id: 'fake-provider' }, { id: 'claude-code' }],
 }));
 
 vi.mock('../plan.js', async (importOriginal) => ({
@@ -215,63 +227,80 @@ describe('orchestrateLead (T14363)', () => {
   it.each([
     'interactive',
     'detached',
-  ] as const)('launches guarded native %s leads inside a verified Orca context', async (mode) => {
+  ] as const)('routes %s leads to the guarded Orca terminal port and keeps their claim', async (mode) => {
     withMailbox();
     vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
     fixtureRunner.mockReset().mockImplementation(runOrcaFixture);
     const backend = new OrcaExecutionBackend(fixtureRunner);
-    expect(await backend.discover(env.tempDir)).toMatchObject({ context: fixtureContext });
+    const terminal = {
+      runtimeId: fixtureContext.runtimeId,
+      terminalHandle: 'term_lead',
+      pid: process.pid,
+    };
+    const launch = vi
+      .spyOn(backend, 'startLead')
+      .mockImplementation(async (_command, onStarted) => {
+        onStarted(process.pid);
+        return terminal;
+      });
+    const { orchestrateLead } = await import('../lead.js');
+    const { readLeadRecord } = await import('../lead-records.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      mode,
+      orca: backend,
+    });
+    expect(result, JSON.stringify(result)).toMatchObject({
+      success: true,
+      data: { leadTerminal: terminal },
+    });
+    expect(provider.state.seen[0]?.leadTerminalLauncher).toBeTypeOf('function');
+    expect(launch).toHaveBeenCalledOnce();
+    expect(fixtureRunner).not.toHaveBeenCalled();
+    expect(mbx.claims).toHaveLength(1);
+    expect(mbx.releases).toHaveLength(0);
+    expect(readLeadRecord(env.tempDir, 'T100')).toMatchObject({
+      mode,
+      tempDir: '/tmp/none',
+      processes: expect.arrayContaining([
+        expect.objectContaining({ role: 'lead', pid: process.pid }),
+      ]),
+    });
+    const ctx = provider.state.seen[0];
+    const leadEnv = ctx?.options?.['env'];
+    expect(leadEnv).toMatchObject({
+      CLEO_AGENT_ROLE: 'lead',
+      CLEO_SESSION_ID: expect.stringMatching(/^ses_/),
+    });
+    expect(leadEnv).not.toMatchObject({ CLEO_SESSION_ID: SES });
+  });
+
+  it.each([
+    'codex',
+    'opencode',
+    'claude-sdk',
+  ])('refuses an unsupported Orca %s lead before querying the host', async (adapterId) => {
+    withMailbox();
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
     fixtureRunner.mockClear();
     const { orchestrateLead } = await import('../lead.js');
-    const { LEAD_DENIED_TOOLS } = await import('@cleocode/contracts/operations/orchestrate.js');
     const mbx = fakeMbx(true);
-    const user = mkdtempSync(join(tmpdir(), 'lead-user-'));
-    const bin = join(user, 'agentmbx');
-    writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
-    const config = join(user, 'claude.json');
-    writeFileSync(config, JSON.stringify({ mcpServers: { mbx: { command: bin, args: ['mcp'] } } }));
-    try {
-      const mcp = await prepareLeadMcp(env.tempDir, env.tempDir, { claudeJsonPath: config });
-      expect(mcp.report.mailbox).toBe('loaded');
-      const launched: string[][] = [];
-      const native = provider.delegate.spawn;
-      vi.spyOn(provider.delegate, 'spawn').mockImplementation(async (context) => {
-        launched.push(buildClaudeArgs(context, '/fixture/prompt', [], mcp));
-        return native(context);
-      });
-      const result = await orchestrateLead('T100', {
+    expect(
+      await orchestrateLead('T100', {
         projectRoot: env.tempDir,
         mbxClient: mbx.client,
-        mode,
-        orca: backend,
-      });
-      expect(result.success).toBe(true);
-      expect(provider.state.seen).toHaveLength(1);
-      expect(provider.state.seen[0]).toMatchObject({
-        leadDeniedTools: [...LEAD_DENIED_TOOLS],
-        options: { leadMode: mode, leadSessionId: expect.any(String) },
-      });
-      expect(mbx.claims).toHaveLength(1);
-      expect(fixtureRunner).not.toHaveBeenCalled();
-      const args = launched[0] ?? [];
-      const value = (flag: string) => args[args.indexOf(flag) + 1];
-      expect(args).toContain('--restricted');
-      expect(args).toContain('--strict-mcp-config');
-      expect(args).not.toContain('--dangerously-skip-permissions');
-      expect(value('--tools')).toBe(mode === 'interactive' ? 'AskUserQuestion' : '');
-      expect(value('--permission-mode')).toBe(mode === 'interactive' ? 'default' : 'dontAsk');
-      expect(value('--setting-sources')).toBe('');
-      expect(value('--mcp-config')).toBe(mcp.config);
-      expect(value('--session-id')).toBe(provider.state.seen[0]?.options?.leadSessionId);
-      expect(value('--disallowedTools')).toContain('Bash,Edit,Write');
-      expect(value('--allowedTools')).toContain('mcp__mbx');
-      expect(
-        JSON.parse(readFileSync(join(env.cleoDir, 'config.json'), 'utf8')).orchestrate.leadWorker
-          .v1,
-      ).toBe(true);
-    } finally {
-      rmSync(user, { recursive: true, force: true });
-    }
+        adapterId,
+        orca: new OrcaExecutionBackend(fixtureRunner),
+      }),
+    ).toMatchObject({
+      success: false,
+      error: { code: 'E_LEAD_TOOLS_UNSTRIPPED' },
+    });
+    expect(fixtureRunner).not.toHaveBeenCalled();
+    expect(provider.state.seen).toHaveLength(0);
+    expect(mbx.claims).toHaveLength(0);
   });
 
   it('refuses a task that is not an epic', async () => {

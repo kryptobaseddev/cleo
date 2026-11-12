@@ -13,6 +13,7 @@ import type {
   LeadMcpReport,
   LeadToolStripSupport,
 } from './operations/orchestrate.js';
+import type { OrcaLeadTerminal, OrcaLeadTerminalLauncher } from './orca-execution.js';
 import type { SpawnProtocolResolution, SpawnWorkerSession } from './spawn-types.js';
 
 // =============================================================================
@@ -142,6 +143,8 @@ export interface SpawnContext {
    * the lead record can name it (T14363). Lead spawns only.
    */
   onLeadStarted?: (pid: number) => void;
+  /** Host the already guarded Claude Code lead in a verified Orca terminal. */
+  leadTerminalLauncher?: OrcaLeadTerminalLauncher;
 }
 
 export interface SpawnResult {
@@ -170,11 +173,13 @@ export interface SpawnResult {
    */
   leadMcp?: LeadMcpReport;
   /**
-   * Private temp directory of a detached lead's run (it may hold the mbx
+   * Private temp directory of a background or Orca-hosted lead's run (it may hold the mbx
    * env), so a reaper can remove it when the lead died without its hooks
-   * (T14363). Absent for every other spawn.
+   * (T14363). Absent for worker spawns.
    */
   leadTempDir?: string;
+  /** Exact local Orca terminal hosting a guarded lead. */
+  leadTerminal?: OrcaLeadTerminal;
 }
 
 // =============================================================================

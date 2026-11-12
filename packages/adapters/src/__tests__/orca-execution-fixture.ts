@@ -363,6 +363,8 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
           { command: 'orchestration request-show', flags: ['request', 'full'] },
           { command: 'orchestration run-current', flags: ['from', 'full'] },
           { command: 'worktree show', flags: ['worktree'] },
+          { command: 'terminal create', flags: ['command', 'worktree', 'title', 'environment'] },
+          { command: 'terminal show', flags: ['terminal', 'environment'] },
         ],
       }),
     };

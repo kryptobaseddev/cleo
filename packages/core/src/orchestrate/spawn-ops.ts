@@ -72,7 +72,10 @@ import type {
   SpawnWorkerSession,
   WorktreeHook,
 } from '@cleocode/contracts';
-import type { OrcaRoutingAdapter } from '@cleocode/contracts/orca-execution.js';
+import {
+  ORCA_LEAD_LAUNCH_REFUSAL,
+  type OrcaRoutingAdapter,
+} from '@cleocode/contracts/orca-execution.js';
 import {
   RESOURCE_DEFERRED_CODE,
   RESOURCE_EXTERNAL_PRESSURE_CODE,
@@ -961,9 +964,17 @@ export async function orchestrateSpawnExecute(
       'validate-readiness',
     ).finally(() => clearTimeout(custodyTimer));
     if (external) return orcaCustodyRefusal(external);
-    // A lead's own restricted launch remains native; its worker dispatches use this port.
+    const leadInOrca = opts.lead !== undefined && opts.orca?.hasContextHints() === true;
+    if (leadInOrca && (!opts.orca?.startLead || (adapterId && adapterId !== 'claude-code'))) {
+      // @sync-invariant none:input-shape only the guarded Claude Code terminal route can host an Orca lead
+      return engineError(ORCA_LEAD_LAUNCH_REFUSAL.code, ORCA_LEAD_LAUNCH_REFUSAL.message, {
+        exitCode: 63,
+        fix: 'Use --adapter claude-code for the guarded Orca terminal route; keep orchestrate.leadWorker.v1 enabled.',
+      });
+    }
+    // Lead terminals reuse the native provider's guard builder, never worker-start or account rotation.
     const orca = opts.lead === undefined ? await opts.orca?.discover(cwd) : null;
-    if (orca && opts.accountId !== undefined) {
+    if ((orca || leadInOrca) && opts.accountId !== undefined) {
       // @sync-invariant none:input-shape unsupported account placement cannot silently become the host's active account
       return engineError(
         'E_ORCA_ACCOUNT_UNSUPPORTED',
@@ -979,8 +990,8 @@ export async function orchestrateSpawnExecute(
 
     // Find adapter
     let adapter: CLEOSpawnAdapter | undefined;
-    if (!orca && adapterId) {
-      adapter = spawnRegistry.get(adapterId);
+    if (!orca && (adapterId || leadInOrca)) {
+      adapter = spawnRegistry.get(adapterId ?? 'claude-code');
     } else if (!orca) {
       // Auto-select first capable adapter
       const capable = await spawnRegistry.listSpawnCapable();
@@ -1390,6 +1401,9 @@ export async function orchestrateSpawnExecute(
       // provider that cannot strip them (T14357).
       ...(opts.lead !== undefined ? { leadDeniedTools: opts.lead.deniedTools } : {}),
       ...(opts.lead?.onStarted ? { onLeadStarted: opts.lead.onStarted } : {}),
+      ...(leadInOrca && opts.orca?.startLead
+        ? { leadTerminalLauncher: opts.orca.startLead.bind(opts.orca) }
+        : {}),
     };
     if (opts.lead?.sessionId !== undefined) {
       cleoSpawnContext.options = {
@@ -1645,6 +1659,7 @@ export async function orchestrateSpawnExecute(
         ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
         // T14363 — a detached lead's temp dir, for its lead record.
         ...(result.leadTempDir ? { leadTempDir: result.leadTempDir } : {}),
+        ...(result.leadTerminal ? { leadTerminal: result.leadTerminal } : {}),
       },
     };
   } catch (error) {

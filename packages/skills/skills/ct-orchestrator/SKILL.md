@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.16.0
+  version: 4.17.0
   tier: core
   install: harness
   covers:
@@ -10,7 +10,7 @@ metadata:
     - packages/core/src/orchestration/spawn-prompt.ts
     - packages/core/src/orchestrate/orca-routing.ts
     - packages/core/src/orchestrate/spawn-ops.ts
-  lastReviewed: 2026-11-11
+  lastReviewed: 2026-11-12
   stability: stable
 ---
 
@@ -33,14 +33,15 @@ Fanout serializes Orca admissions so followers use the first proven Run; workers
 still execute concurrently. An unknown first start fences further unbound starts.
 Unknown launch outcomes retain their exact record ID and custody and never
 advance rotation or select another harness.
-Exact per-account placement refuses. A lead's own restricted launch remains
-native, including inside Orca; supplying the host port does not select Orca
-for a lead or require its account inventory. An explicit Orca lead launch
-through adapter preflight/start refuses before any account/process query:
-its public APIs cannot carry the tool/permission argv, strict MCP configuration
-or owner channel/session binding. Keep `orchestrate.leadWorker.v1` enabled
-and use the native Claude lead, with validated user-scope mbx for detached mode.
-Prompt instructions or `--model` are insufficient evidence of restricted launch.
+Exact per-account placement refuses. Inside Orca, a Claude Code lead uses a new
+local POSIX terminal with its native guarded argv, strict MCP file, settings and
+own CLEO identity. The terminal waits behind a private startup gate until its
+runtime, workspace, connected writable owner channel and PID are verified and
+recorded. The result's `leadTerminal` names the exact runtime and terminal handle
+for `orca terminal show` / `read` supervision. This route does not query accounts;
+unsupported harnesses, Windows hosts and the generic worker-start/preflight lead
+route still refuse before a model turn. Outside Orca the native route is unchanged.
+Keep `orchestrate.leadWorker.v1` enabled. Model or prompt instructions cannot replace guards.
 
 For a retained Orca attempt, copy its exact `workers[].recordId` from
 `cleo orchestrate status`. Use `cleo orchestrate worker show <recordId>` for

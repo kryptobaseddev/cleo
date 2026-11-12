@@ -345,6 +345,117 @@ describe('Orca execution process boundary', () => {
     expect(fixtureRunner).not.toHaveBeenCalled();
   });
 
+  it
+    .skipIf(process.platform === 'win32')
+    .each(['ready', 'disconnected', 'background', 'wrong-runtime', 'lost-receipt'] as const)(
+    'gates the exact terminal argv before a model turn: %s (inert executable only)',
+    async (condition) => {
+      vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+      const root = mkdtempSync(join(tmpdir(), 'orca-lead-fixture-'));
+      const cwd = join(root, "project ' `literal` $(literal)");
+      mkdirSync(cwd);
+      const capture = join(root, 'captured.json');
+      const binary = join(root, 'claude');
+      writeFileSync(
+        binary,
+        `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';\nwriteFileSync(${JSON.stringify(capture)}, JSON.stringify({args:process.argv.slice(2),session:process.env.CLEO_SESSION_ID,role:process.env.CLEO_AGENT_ROLE,cwd:process.cwd()}));\n`,
+        { mode: 0o700 },
+      );
+      const args = [
+        '--restricted',
+        '--setting-sources',
+        '',
+        "literal ' `backticks` $(touch injected)",
+      ];
+      let child: ChildProcess | undefined;
+      let exit: Promise<void> | undefined;
+      const started = vi.fn<(pid: number) => void>(() => expect(existsSync(capture)).toBe(false));
+      fixtureRunner.mockImplementation(async (...params) => {
+        const argv = params[1];
+        if (argv[0] === 'worktree')
+          return fixtureReply({
+            worktree: { id: 'workspace-fixture', path: cwd, branch: 'main', hostId: 'local' },
+          });
+        if (argv[0] === 'terminal' && argv[1] === 'create') {
+          const command = argv[argv.indexOf('--command') + 1];
+          child = spawn('/bin/sh', ['-c', command ?? 'exit 99'], { stdio: 'ignore' });
+          exit = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
+          if (condition === 'lost-receipt') return { stdout: '', stderr: 'lost', exitCode: null };
+          return fixtureReply({
+            terminal: {
+              handle: 'term_lead',
+              processId: child.pid,
+              executionHostId: 'local',
+              hostPlatform: process.platform,
+              surface: condition === 'background' ? 'background' : 'visible',
+            },
+          });
+        }
+        if (argv[0] === 'terminal' && argv.includes('term_lead')) {
+          const reply = fixtureReply({
+            terminal: {
+              handle: 'term_lead',
+              connected: true,
+              writable: condition !== 'disconnected',
+              executionHostId: 'local',
+              worktreePath: cwd,
+            },
+          });
+          return condition === 'wrong-runtime'
+            ? { ...reply, stdout: reply.stdout.replace(fixtureContext.runtimeId, 'other-runtime') }
+            : reply;
+        }
+        return runOrcaFixture(...params);
+      });
+      try {
+        const result = new OrcaExecutionBackend(fixtureRunner).startLead(
+          {
+            command: binary,
+            args,
+            cwd,
+            tempDir: root,
+            env: {
+              CLEO_SESSION_ID: 'ses_own',
+              CLEO_AGENT_ID: 'agent-own',
+              CLEO_AGENT_ROLE: 'lead',
+            },
+          },
+          started,
+        );
+        if (condition !== 'ready') {
+          await expect(result).rejects.toThrow();
+          expect(started).not.toHaveBeenCalled();
+          expect(existsSync(capture)).toBe(false);
+        } else {
+          expect(await result).toMatchObject({
+            terminalHandle: 'term_lead',
+            pid: child?.pid,
+            runtimeId: fixtureContext.runtimeId,
+          });
+          expect(started).toHaveBeenCalledOnce();
+          await exit;
+          expect(JSON.parse(readFileSync(capture, 'utf8'))).toEqual({
+            args,
+            session: 'ses_own',
+            role: 'lead',
+            cwd,
+          });
+          expect(existsSync(join(cwd, 'injected'))).toBe(false);
+        }
+        expect(
+          fixtureRunner.mock.calls.some(
+            ([, argv]) => argv[0] === 'account' || argv[1] === 'worker-start',
+          ),
+        ).toBe(false);
+        expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'create')).toHaveLength(1);
+      } finally {
+        child?.kill('SIGTERM');
+        await exit;
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('refuses a changed runtime and an incomplete command registry before launch', async () => {
     fixtureRunner.mockImplementation(async (...args) =>
       args[1][0] === 'status'
@@ -1494,3 +1605,8 @@ describe('Orca execution process boundary', () => {
     });
   });
 });
+
+import { type ChildProcess, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
