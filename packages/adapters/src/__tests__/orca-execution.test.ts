@@ -354,6 +354,11 @@ describe('Orca execution process boundary', () => {
     .each([
       'ready',
       'login-wrapper',
+      'ps-from-path',
+      'ps-fallback',
+      'ps-newer-parent',
+      'ps-invalid-start',
+      'ps-failed',
       'disconnected',
       'background',
       'hidden-after-create',
@@ -371,6 +376,31 @@ describe('Orca execution process boundary', () => {
       const root = mkdtempSync(join(tmpdir(), 'orca-lead-fixture-'));
       const cwd = join(root, "project ' `literal` $(literal)");
       mkdirSync(cwd);
+      const psCapture = join(root, 'ps-calls.json');
+      if (condition.startsWith('ps-')) {
+        const bin = join(root, 'bin');
+        mkdirSync(bin);
+        for (const name of ['sleep', 'rm']) symlinkSync(`/bin/${name}`, join(bin, name));
+        if (condition !== 'ps-fallback')
+          writeFileSync(
+            join(bin, 'ps'),
+            `#!${process.execPath}
+import {execFileSync} from 'node:child_process';
+import {writeFileSync} from 'node:fs';
+writeFileSync(${JSON.stringify(psCapture)}, JSON.stringify({TZ:process.env.TZ, LC_ALL:process.env.LC_ALL, LANG:process.env.LANG}));
+const condition = ${JSON.stringify(condition)};
+if (condition === 'ps-failed') process.exit(1);
+if (condition === 'ps-from-path') process.stdout.write(execFileSync('/bin/ps', process.argv.slice(2), {encoding:'utf8'}));
+else {
+  const [pid, terminal] = process.argv.at(-1).split(',');
+  const start = condition === 'ps-invalid-start' ? 'unreadable' : 'Thu Jan 01 00:00:00 2026';
+  process.stdout.write(pid+' '+terminal+' '+start+'\\n'+terminal+' 1 Fri Jan 02 00:00:00 2026\\n');
+}
+`,
+            { mode: 0o700 },
+          );
+        vi.stubEnv('PATH', condition === 'ps-fallback' ? bin : `${bin}:${process.env.PATH}`);
+      }
       const capture = join(root, 'captured.json');
       const binary = join(root, 'claude');
       writeFileSync(
@@ -403,7 +433,12 @@ describe('Orca execution process boundary', () => {
           const command = argv[argv.indexOf('--command') + 1];
           child = spawn(
             '/bin/sh',
-            ['-c', condition === 'login-wrapper' ? `${command} & wait` : (command ?? 'exit 99')],
+            [
+              '-c',
+              condition === 'login-wrapper' || condition === 'ps-newer-parent'
+                ? `${command} & wait`
+                : (command ?? 'exit 99'),
+            ],
             { stdio: 'ignore' },
           );
           exit = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
@@ -479,7 +514,8 @@ describe('Orca execution process boundary', () => {
           },
           started,
         );
-        if (condition !== 'ready' && condition !== 'login-wrapper') {
+        const ready = ['ready', 'login-wrapper', 'ps-from-path', 'ps-fallback'].includes(condition);
+        if (!ready) {
           await expect(result).rejects.toThrow();
           if (condition === 'pid-mismatch')
             await expect(result).rejects.toMatchObject({
@@ -524,6 +560,12 @@ describe('Orca execution process boundary', () => {
           });
           expect(existsSync(join(cwd, 'injected'))).toBe(false);
         }
+        if (condition.startsWith('ps-') && condition !== 'ps-fallback')
+          expect(JSON.parse(readFileSync(psCapture, 'utf8'))).toEqual({
+            TZ: 'UTC',
+            LC_ALL: 'C',
+            LANG: 'C',
+          });
         expect(
           fixtureRunner.mock.calls.some(
             ([, argv]) => argv[0] === 'account' || argv[1] === 'worker-start',
@@ -531,9 +573,7 @@ describe('Orca execution process boundary', () => {
         ).toBe(false);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'create')).toHaveLength(1);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'close')).toHaveLength(
-          condition === 'ready' || condition === 'login-wrapper' || condition === 'lost-receipt'
-            ? 0
-            : 1,
+          ready || condition === 'lost-receipt' ? 0 : 1,
         );
         if (condition === 'lost-receipt')
           await expect.poll(() => child?.exitCode, { timeout: 1500 }).toBeTypeOf('number');
@@ -1751,6 +1791,14 @@ describe('Orca execution process boundary', () => {
 });
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

@@ -21,6 +21,8 @@ Orca lead admission records the verified owner terminal and guarded shell PID
 before releasing the first turn. The shell must be Orca's reported process or
 its OS-proven direct child (macOS uses a login parent); a mismatch refuses with
 the terminal handle and reported, supervisor and parent PIDs in error details.
+The terminal's start time must not follow the shell's; missing OS evidence refuses.
+Coded refusal diagnostics survive separately bundled provider entrypoints.
 
 > **The Mantra**: *Aggregate, don't expose. Name your mailbox before spawn. Convergence over polling. Roll up in one contract.*
 

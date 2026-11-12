@@ -153,7 +153,7 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
   });
 
   it.skipIf(process.platform === 'win32').each(['interactive', 'detached'] as const)(
-    'hands the production %s guards and settings to Orca before starting',
+    'hands the production %s guards to Orca and preserves cross-bundle refusals',
     async (mode) => {
       writeFileSync(claudeJson, JSON.stringify({ mcpServers: { mbx, shell: SHELL_SERVER } }));
       for (const name of ['claude', 'cleo']) fakeBinary(join(bin, name), join(root, 'calls.log'));
@@ -209,6 +209,14 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
           'E_ORCA_CONTEXT',
           'The owner terminal was refused.',
           'Restore the owner channel.',
+          null,
+          {
+            runtimeId: 'runtime-fixture',
+            terminalHandle: 'term_lead',
+            expectedTerminalPid: 354,
+            observedSupervisorPid: 365,
+            observedParentPid: 353,
+          },
         );
         launcher.mockRejectedValueOnce(refusal);
         await expect(
@@ -223,6 +231,24 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
         const refusedDir = launcher.mock.calls.at(-1)?.[0].tempDir;
         expect(refusedDir).toBeTruthy();
         expect(existsSync(refusedDir ?? '')).toBe(false);
+        // Separately bundled entrypoints carry the same fields with a different constructor.
+        class BundledOrcaExecutionError extends Error {}
+        const bundledRefusal = Object.assign(
+          new BundledOrcaExecutionError(refusal.message),
+          refusal,
+        );
+        expect(bundledRefusal).not.toBeInstanceOf(OrcaExecutionError);
+        launcher.mockRejectedValueOnce(bundledRefusal);
+        await expect(
+          new ClaudeCodeSpawnProvider().spawn({
+            ...lead(mode),
+            workingDirectory: project,
+            options: { ...lead(mode).options, env: IDENTITY },
+            leadTerminalLauncher: launcher,
+            onLeadStarted: started,
+          }),
+        ).rejects.toBe(bundledRefusal);
+        expect(bundledRefusal.details).toEqual(refusal.details);
         launcher.mockRejectedValueOnce(new Error('Terminal preparation failed.'));
         await expect(
           new ClaudeCodeSpawnProvider().spawn({

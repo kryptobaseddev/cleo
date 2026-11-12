@@ -33,6 +33,8 @@ import {
   orcaReportSourceSchema,
   orcaWorkerDonePayloadSchema,
 } from '@cleocode/contracts/orca-execution.js';
+import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
+import { findOnPath, pathDelimiterFor, splitPathEnv } from '@cleocode/paths';
 
 const AGENTS = { 'claude-code': 'claude', codex: 'codex', opencode: 'opencode2', grok: 'grok' };
 const MAX_DIAGNOSTIC_LENGTH = 4_096;
@@ -430,15 +432,36 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         await delay(100);
       }
       let parentPid: number | null = null;
+      let supervisorStartedAt: string | null = null;
+      let terminalStartedAt: string | null = null;
       if (Number.isSafeInteger(pid) && pid > 0) {
         try {
-          const parent = execFileSync('/bin/ps', ['-o', 'ppid=', '-p', String(pid)], {
-            encoding: 'utf8',
-            timeout: 2_000,
-            stdio: ['ignore', 'pipe', 'ignore'],
-          }).trim();
+          const ps =
+            findOnPath('ps', {
+              env: {
+                ...process.env,
+                PATH: splitPathEnv(process.env.PATH).filter(isAbsolute).join(pathDelimiterFor()),
+              },
+            }) ?? '/bin/ps';
+          const rows = execFileSync(
+            ps,
+            ['-o', 'pid=,ppid=,lstart=', '-p', `${pid},${terminal.processId ?? pid}`],
+            {
+              encoding: 'utf8',
+              timeout: 2_000,
+              stdio: ['ignore', 'pipe', 'ignore'],
+              env: { ...process.env, ...PS_STABLE_ENV },
+            },
+          )
+            .split('\n')
+            .map((line) => /^\s*([0-9]+)\s+([0-9]+)\s+(.+?)\s*$/.exec(line));
+          const supervisor = rows.find((row) => Number(row?.[1]) === pid);
+          const terminalProcess = rows.find((row) => Number(row?.[1]) === terminal.processId);
+          const parent = supervisor?.[2] ?? '';
           if (/^[1-9][0-9]*$/.test(parent) && Number.isSafeInteger(Number(parent)))
             parentPid = Number(parent);
+          supervisorStartedAt = supervisor?.[3] ?? null;
+          terminalStartedAt = terminalProcess?.[3] ?? null;
         } catch {
           // A failed OS probe cannot prove the private PID belongs to this terminal.
         }
@@ -449,11 +472,21 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         expectedTerminalPid: terminal.processId ?? null,
         observedSupervisorPid: pid > 0 ? pid : null,
         observedParentPid: parentPid,
+        supervisorStartedAt,
+        terminalStartedAt,
       };
       // macOS Orca reports /usr/bin/login, whose direct child execs the guarded shell.
-      if (parentPid === null || (pid !== terminal.processId && parentPid !== terminal.processId)) {
+      const supervisorStart = Date.parse(`${supervisorStartedAt} UTC`);
+      const terminalStart = Date.parse(`${terminalStartedAt} UTC`);
+      if (
+        parentPid === null ||
+        (pid !== terminal.processId && parentPid !== terminal.processId) ||
+        !Number.isFinite(supervisorStart) ||
+        !Number.isFinite(terminalStart) ||
+        supervisorStart < terminalStart
+      ) {
         throw refuse(
-          'The guarded terminal supervisor did not prove its startup PID as the Orca process or its direct child.',
+          'The guarded terminal supervisor did not prove its startup PID as the Orca process or its direct child with a valid start order.',
         );
       }
       // Older Orca show replies omit surface; an affirmative UI navigation proves visibility now.

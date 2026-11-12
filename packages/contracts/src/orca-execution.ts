@@ -386,6 +386,10 @@ export interface OrcaLeadStartupDiagnostic {
   readonly observedSupervisorPid: number | null;
   /** OS-observed parent of the supervisor, or null if the probe failed. */
   readonly observedParentPid: number | null;
+  /** Supervisor start time from the same stable-locale OS snapshot, when probed. */
+  readonly supervisorStartedAt?: string | null;
+  /** Reported terminal process start time, which must not follow the supervisor's. */
+  readonly terminalStartedAt?: string | null;
 }
 
 /** Record the supervisor before releasing the terminal's first-turn gate. */
