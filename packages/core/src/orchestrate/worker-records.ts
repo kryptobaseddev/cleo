@@ -164,6 +164,26 @@ function toWorkerRecord(row: AgentInstanceRow, meta: WorkerMetadata): WorkerReco
   };
 }
 
+/** Test-only pause point inside the retry reservation; `null` in production. */
+let retryReservationProbe: (() => void) | null = null;
+
+/**
+ * Install a synchronous pause point that runs inside the retry reservation
+ * transaction, after the predecessor check and immediately before the
+ * `metadataJson` + `stoppedAt` CAS that retires the predecessor.
+ *
+ * @remarks Test seam only (T14494): a multi-process test parks two processes
+ * here so both are about to run the CAS. Production code never installs one.
+ * @param probe - Synchronous callback, or `null` to remove it.
+ * @example
+ * ```ts
+ * setRetryReservationProbe(() => waitForBarrierSync());
+ * ```
+ */
+export function setRetryReservationProbe(probe: (() => void) | null): void {
+  retryReservationProbe = probe;
+}
+
 /**
  * Persist a record for a worker the adapter left running.
  *
@@ -263,6 +283,48 @@ export async function recordWorker(
     parentAgentId: null,
   };
   const db = await getDb(cwd);
+  try {
+    reserveWorkerRow(db, worker, row, predecessor, now);
+  } catch (err) {
+    if (predecessor && isSqliteSnapshotConflict(err)) {
+      // @sync-invariant none:local-only another process committed after this reservation read; its retry owns the predecessor
+      throw new Error('Orca retry reservation lost; no new launch is authorized.', { cause: err });
+    }
+    throw err;
+  }
+  return toWorkerRecord(row, metadata);
+}
+
+/** SQLITE_BUSY_SNAPSHOT: a read transaction's snapshot went stale before its first write. */
+const SQLITE_BUSY_SNAPSHOT = 517;
+
+/**
+ * Whether an error, or the driver error it wraps, is a WAL snapshot conflict.
+ * @param err - Thrown value; drizzle wraps the node:sqlite error in `cause`.
+ * @returns `true` for `SQLITE_BUSY_SNAPSHOT`.
+ */
+function isSqliteSnapshotConflict(err: unknown): boolean {
+  for (let current = err, depth = 0; current instanceof Error && depth < 3; depth++) {
+    if ((current as { errcode?: number }).errcode === SQLITE_BUSY_SNAPSHOT) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+/**
+ * Insert one worker row in a single transaction, retiring the exact predecessor
+ * first when this is a retry.
+ * @remarks Runs as a deferred transaction: a process whose read snapshot goes
+ * stale before its first write is refused by SQLite with `SQLITE_BUSY_SNAPSHOT`,
+ * which {@link recordWorker} reports as a lost reservation.
+ */
+function reserveWorkerRow(
+  db: Awaited<ReturnType<typeof getDb>>,
+  worker: NewWorkerRecord,
+  row: AgentInstanceRow,
+  predecessor: WorkerRecord | undefined,
+  now: string,
+): void {
   db.transaction((tx) => {
     const open = tx
       .select()
@@ -287,6 +349,7 @@ export async function recordWorker(
         // @sync-invariant none:local-only a concurrent retry or observation invalidates this replacement reservation
         throw new Error('Orca predecessor changed; reload its exact worker record before retry.');
       }
+      retryReservationProbe?.();
       const retired = tx
         .update(tasksAgentInstances)
         .set({
@@ -318,7 +381,6 @@ export async function recordWorker(
     }
     tx.insert(tasksAgentInstances).values(row).run();
   });
-  return toWorkerRecord(row, metadata);
 }
 
 /**

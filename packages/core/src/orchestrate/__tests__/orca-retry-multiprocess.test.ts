@@ -10,13 +10,21 @@
  * log, so no real Orca worker is ever started.
  *
  * Exactly one retry may reserve the successor and launch; the other must be
- * refused by a custody fence before it reaches Orca:
- * - free race: the two observations collide, and the observation CAS in
- *   `updateWorkerExecution` refuses the later writer;
- * - staged race: both processes finish their observation first (the second
- *   observing after the first), then enter the reservation together, so the
- *   predecessor check in `recordWorker`'s transaction (exact execution, then
- *   the `metadataJson` + `stoppedAt` CAS) decides between two live processes.
+ * refused by a documented custody fence before it reaches Orca:
+ * - free races: whichever fence the timing reaches (the observation CAS in
+ *   `updateWorkerExecution`, settlement, or the reservation) refuses the loser;
+ * - staged race: both processes are parked by `setRetryReservationProbe`
+ *   INSIDE their reservation transactions, past the predecessor check and
+ *   immediately before the retiring `UPDATE`, then released together. The
+ *   first is parked on its read snapshot while the second observes (a write),
+ *   so when both run the `UPDATE`, SQLite refuses the stale snapshot with
+ *   `SQLITE_BUSY_SNAPSHOT`, which `recordWorker` reports as a lost reservation.
+ *
+ * Removing the `metadataJson` + `stoppedAt` predicate from that `UPDATE` leaves
+ * this suite green (checked by hand for T14494): across processes, SQLite's WAL
+ * snapshot isolation refuses the stale writer before the predicate is
+ * evaluated. The predicate is defence in depth; the cross-process fence this
+ * suite proves is the reservation transaction itself.
  *
  * The children import the COMPILED modules from `packages/core/dist/` and
  * `packages/adapters/dist/` (build first); without a build the suite is skipped
@@ -81,17 +89,28 @@ const CHILD_TIMEOUT_MS = 45_000;
 /** Bound on every barrier wait; below the lifetime so a stuck child reports its barrier. */
 const BARRIER_TIMEOUT_MS = 20_000;
 
-/**
- * Every refusal a losing retry may receive in a free race. Each is a
- * fail-closed custody fence raised before `worker-start`, never a raw SQLite or
- * runner error.
- */
-const FENCE_REFUSAL =
-  /^(Worker execution changed; reload the exact record before recovery\.|Worker execution reservation lost; no new operation is authorized\.|Orca predecessor changed; reload its exact worker record before retry\.|Orca retry reservation lost; no new launch is authorized\.|No open Orca worker record matches that id\.)$/;
+/** The reservation fence in `recordWorker`: another process won the predecessor. */
+const RESERVATION_REFUSAL = 'Orca retry reservation lost; no new launch is authorized.';
 
-/** The reservation fence in `recordWorker`: the predecessor moved under this retry. */
-const RESERVATION_REFUSAL =
-  'Orca predecessor changed; reload its exact worker record before retry.';
+/**
+ * Every documented custody refusal a losing retry may receive, by the fence
+ * that raises it. Each fails closed before `worker-start`; a raw SQLite or
+ * runner error is never one of them.
+ */
+const CUSTODY_REFUSALS: readonly string[] = [
+  // loadOrcaWorker: the winner already retired the predecessor.
+  'No open Orca worker record matches that id.',
+  // updateWorkerExecution: the observation read or CAS lost to the other process.
+  'Worker execution changed; reload the exact record before recovery.',
+  'Worker execution reservation lost; no new operation is authorized.',
+  // settleOrcaWorkerResource: the other process wrote between observation and settlement.
+  'Orca resource observation changed; reload the exact worker.',
+  // retryOrcaWorker: the observed predecessor is no longer eligible.
+  'The predecessor has no confirmed resource-free failure or stop eligible for retry.',
+  // recordWorker: the predecessor check, the CAS, or a stale snapshot at the CAS.
+  'Orca predecessor changed; reload its exact worker record before retry.',
+  RESERVATION_REFUSAL,
+];
 
 /** One child's exit and output. */
 interface ChildOutcome {
@@ -122,11 +141,10 @@ interface LaunchEntry {
  * signal readiness, wait for the start barrier, then retry with an injected
  * runner that answers from recorded replies and logs every launch.
  *
- * With `ROLE` set (staged race), the observations are ordered: the `second`
- * child starts its retry only once the `first` child finished observing, and
- * each child, on its first post-observation command (preflight), marks itself
- * observed and waits until both are, so both enter the reservation together
- * holding different observations.
+ * With `ROLE` set (staged race), each child installs a reservation probe that
+ * marks it parked at the CAS and blocks synchronously, inside the transaction,
+ * until both are parked. The `second` child starts its retry only once the
+ * `first` is parked there.
  */
 const CHILD = `
   const fs = require('node:fs');
@@ -144,17 +162,19 @@ const CHILD = `
     };
     tick();
   });
-  const marker = (role) => path.join(env.STAGE_DIR, role + '-observed');
-  let observed = false;
+  const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const waitForSync = (files) => {
+    const deadline = Date.now() + limit;
+    while (!files.every((f) => fs.existsSync(f))) {
+      if (Date.now() > deadline) throw new Error('barrier timeout: ' + files.join(', '));
+      sleep(2);
+    }
+  };
+  const marker = (role) => path.join(env.STAGE_DIR, role + '-at-cas');
   const runner = async (_executable, args) => {
     const key = ['account', 'terminal', 'agent-context', 'status', 'worktree'].includes(args[0])
       ? args[0]
       : args[1];
-    if (env.ROLE && !observed && key !== 'worker-show') {
-      observed = true;
-      fs.writeFileSync(marker(env.ROLE), '');
-      await waitFor([marker('first'), marker('second')]);
-    }
     if (key === 'worker-start') {
       fs.appendFileSync(env.LAUNCH_LOG, JSON.stringify({ pid: process.pid, args }) + '\\n');
     }
@@ -165,14 +185,22 @@ const CHILD = `
   (async () => {
     const { retryOrcaWorker } = await import(pathToFileURL(env.ORCA_EXECUTION_DIST).href);
     const { OrcaExecutionBackend } = await import(pathToFileURL(env.ORCA_BACKEND_DIST).href);
-    const { listWorkerRecords } = await import(
+    const { listWorkerRecords, setRetryReservationProbe } = await import(
       pathToFileURL(path.join(path.dirname(env.ORCA_EXECUTION_DIST), 'worker-records.js')).href
     );
     await listWorkerRecords(env.PROJECT_ROOT);
     fs.writeFileSync(path.join(env.READY_DIR, String(process.pid)), '');
     await waitFor([env.GO_FILE]);
     const role = env.ROLE || 'free';
-    if (role === 'second') await waitFor([marker('first')]);
+    if (env.ROLE) {
+      // Park inside the reservation transaction, just before the CAS, until
+      // both processes are there.
+      setRetryReservationProbe(() => {
+        fs.writeFileSync(marker(role), '');
+        waitForSync([marker('first'), marker('second')]);
+      });
+      if (role === 'second') await waitFor([marker('first')]);
+    }
     try {
       const record = await retryOrcaWorker(
         env.RECORD_ID,
@@ -416,10 +444,10 @@ describe.skipIf(DIST_MISSING)('Orca retry reservation — real processes (T14494
     const { predecessor, childEnv, workDir, launchLog } = await prepareRace(`free-${round}`);
     const outcomes = await raceChildren([childEnv, childEnv], workDir);
     const { loser } = await expectSingleReservation(outcomes.map(lastJson), launchLog, predecessor);
-    expect(loser.message).toMatch(FENCE_REFUSAL);
+    expect(CUSTODY_REFUSALS).toContain(loser.message);
   }, 90_000);
 
-  it('staged race: both processes observe, then reserve together; the stale reservation is refused', async () => {
+  it('staged race: both processes park at the reservation CAS; exactly one UPDATE wins', async () => {
     const { predecessor, childEnv, workDir, launchLog } = await prepareRace('staged');
     const outcomes = await raceChildren(
       [
@@ -433,8 +461,8 @@ describe.skipIf(DIST_MISSING)('Orca retry reservation — real processes (T14494
       launchLog,
       predecessor,
     );
-    // The second observation superseded the first, so only the second process
-    // holds the predecessor's exact stored execution when both reserve.
+    // Both were parked at the CAS together. The first's read snapshot predates
+    // the second's observation write, so SQLite refuses the first's UPDATE.
     expect(winner.role).toBe('second');
     expect(loser.role).toBe('first');
     expect(loser.message).toBe(RESERVATION_REFUSAL);
