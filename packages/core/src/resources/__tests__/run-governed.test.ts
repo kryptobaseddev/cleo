@@ -40,6 +40,7 @@ import {
   admissionIoError,
   admit,
   footprintForClass,
+  readLedger,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
@@ -622,6 +623,7 @@ describe('T13889 queue deadlines', () => {
     await vi.advanceTimersByTimeAsync(1_799_999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(250);
     expect((await running).kind).toBe('deferred');
     expect(h.spawned).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
@@ -649,6 +651,7 @@ describe('T13889 queue deadlines', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(notices.some((line) => line.startsWith('waiting: memory pressure'))).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(250);
     const result = await running;
     expect(result.kind).toBe('deferred');
     if (result.kind !== 'deferred') throw new Error('expected timed-out admission');
@@ -743,6 +746,7 @@ describe('T13889 queue deadlines', () => {
     await vi.advanceTimersByTimeAsync(0);
     if (stop === 'signal') h.forward('SIGTERM');
     else await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(250);
     expect((await running).kind).toBe(stop === 'signal' ? 'interrupted' : 'deferred');
     if (cls === 'test-run') {
       resolveLedger({
@@ -764,6 +768,72 @@ describe('T13889 queue deadlines', () => {
     expect(release).toHaveBeenCalledTimes(1);
     expect(h.spawned).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    'signal',
+    'deadline',
+  ] as const)('retires its real ledger waiter before returning after %s (T14498)', async (stop) => {
+    const ledgerDir = join(dir, 'admission');
+    const ledgerOpts = {
+      dir: ledgerDir,
+      capacityBytes: 10 * 1024 ** 3,
+      sample: async () => sampleOf('ok'),
+      env: {},
+      topMemory: () => [],
+    };
+    const holder = await admit(
+      { label: 'holder', footprintBytes: ledgerOpts.capacityBytes },
+      { ...ledgerOpts, wait: false },
+    );
+    if (!holder.admitted) throw new Error('expected holder');
+    const h = harness({});
+    const running = runGoverned({
+      ...base(h, { wait: true, timeoutMs: 500 }),
+      deps: {
+        ...h.deps,
+        now: Date.now,
+        admit: (req, opts) => admit(req, { ...opts, ...ledgerOpts }),
+      },
+    });
+    try {
+      await vi.waitFor(() => expect(readLedger(ledgerDir)).toHaveLength(2), { interval: 5 });
+      if (stop === 'signal') h.forward('SIGTERM');
+      expect((await running).kind).toBe(stop === 'signal' ? 'interrupted' : 'deferred');
+      expect(readLedger(ledgerDir).map((entry) => entry.label)).toEqual(['holder']);
+      expect(existsSync(join(ledgerDir, 'ledger.json.lock'))).toBe(false);
+      expect(h.spawned).toEqual([]);
+    } finally {
+      await holder.grant.release();
+    }
+  });
+
+  it('retires a late real ledger grant before returning (T14498)', async () => {
+    const ledgerDir = join(dir, 'admission');
+    const h = harness({});
+    const result = await runGoverned({
+      ...base(h, { wait: true }),
+      deps: {
+        ...h.deps,
+        now: Date.now,
+        admit: async (req, opts) => {
+          const out = await admit(req, {
+            ...opts,
+            dir: ledgerDir,
+            capacityBytes: 10 * 1024 ** 3,
+            sample: async () => sampleOf('ok'),
+            env: {},
+            topMemory: () => [],
+          });
+          h.forward('SIGTERM');
+          return out;
+        },
+      },
+    });
+    expect(result.kind).toBe('interrupted');
+    expect(readLedger(ledgerDir)).toEqual([]);
+    expect(existsSync(join(ledgerDir, 'ledger.json.lock'))).toBe(false);
+    expect(h.spawned).toEqual([]);
   });
 
   it.each([

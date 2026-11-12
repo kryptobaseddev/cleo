@@ -1112,6 +1112,7 @@ async function withLedger<T>(
   signal?: AbortSignal,
   strictRead = false,
 ): Promise<T> {
+  signal?.throwIfAborted();
   mkdirSync(dir, { recursive: true });
   const file = ledgerFile(dir);
   const unlock = await lockLedger(file, signal);
@@ -2391,7 +2392,11 @@ export interface AdmissionGrant {
    * while held. Absent or a no-op on a pass-through grant.
    */
   observeRss?(rssBytes: number): void;
-  /** Give the share back. Idempotent. */
+  /**
+   * Drain queued updates and give the share back within the cleanup bound.
+   * On timeout the retry, or the reaper after process exit, owns retirement.
+   * Concurrent calls await the same cleanup. Idempotent.
+   */
   release(): Promise<void>;
   /**
    * Record the process the holder spawned, called right after the spawn
@@ -2881,14 +2886,18 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   };
 
   const leave = async (): Promise<LedgerEntry | null> =>
-    withLedger(dir, (doc) => {
-      const mine = doc.entries.find((e) => e.id === entry.id) ?? null;
-      if (mine?.state === 'admitted') return { doc: null, result: mine };
-      return {
-        doc: { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
-        result: null,
-      };
-    });
+    withLedger(
+      dir,
+      (doc) => {
+        const mine = doc.entries.find((e) => e.id === entry.id) ?? null;
+        if (mine?.state === 'admitted') return { doc: null, result: mine };
+        return {
+          doc: { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
+          result: null,
+        };
+      },
+      stop.signal,
+    );
 
   const refusal = (doc: LedgerDoc, reading: MemoryPressureReading | null): AdmissionRefusal => {
     const nowMs = now();
@@ -3183,10 +3192,10 @@ function holderReport(
 const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS];
 
 /**
- * How long the awaited removal of an already aborted admission may wait on
+ * How long admission cleanup may wait on
  * **asynchronous** work (T14495): the lock acquisition (which retries for about
  * 15 s, {@link LOCK_ATTEMPTS}), the awaited {@link lockLedger} unlock, and the
- * scheduling of the attempt itself.
+ * pending grant updates and scheduling of the attempt itself.
  *
  * An abort that was already enqueued must not wait out a contended lock or a
  * stalled unlock — proper-lockfile removes the lock directory asynchronously,
@@ -3204,6 +3213,37 @@ const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS]
 const RELEASE_AWAITED_MS = 250;
 
 /**
+ * Await admission cleanup within one cooperative 250 ms deadline (T14498).
+ * Work must check the supplied signal before writing after an asynchronous wait.
+ * A timeout leaves retirement to the retry and, after process exit, the reaper;
+ * synchronous filesystem operations cannot be preempted by this deadline.
+ *
+ * @param work - Cleanup that observes cancellation before starting another write.
+ * @returns Whether cleanup finished before the deadline.
+ */
+export async function awaitAdmissionCleanup(
+  work: (signal: AbortSignal) => Promise<void>,
+): Promise<boolean> {
+  const attempt = new AbortController();
+  let deadline: NodeJS.Timeout | undefined;
+  const deadlineHit = new Promise<false>((resolve) => {
+    deadline = setTimeout(() => {
+      attempt.abort(new Error('admission cleanup deadline'));
+      resolve(false);
+    }, RELEASE_AWAITED_MS);
+    deadline.unref();
+  });
+  const running = Promise.resolve()
+    .then(() => work(attempt.signal))
+    .then(() => true);
+  try {
+    return await Promise.race([running, deadlineHit]);
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
+/**
  * Change an admitted entry's charge and schedule in the same pass (T14116):
  * budget a lowered charge frees admits waiters at once. Best effort: a failed
  * write keeps the old charge, and the next measurement tries again.
@@ -3215,28 +3255,34 @@ async function rechargeLedgerEntry(
   dir: string,
   opts: AdmitOptions,
   patch: (e: LedgerEntry) => LedgerEntry,
+  signal: AbortSignal,
 ): Promise<boolean> {
   const now = opts.now ?? Date.now;
   try {
+    signal.throwIfAborted();
     const before = readLedgerDoc(dir);
     if (!before.entries.some((e) => e.id === entry.id && e.state === 'admitted')) return false;
     const nowMs = now();
     const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
     const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
-    return await withLedger(dir, (doc) => {
-      if (!doc.entries.some((e) => e.id === entry.id && e.state === 'admitted')) {
-        return { doc: null, result: false };
-      }
-      return {
-        doc: reapAndSchedule(
-          { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
-          NO_DEAD,
-          { capacityBytes, share, lightShare, nowMs },
-          sampled,
-        ),
-        result: true,
-      };
-    });
+    return await withLedger(
+      dir,
+      (doc) => {
+        if (!doc.entries.some((e) => e.id === entry.id && e.state === 'admitted')) {
+          return { doc: null, result: false };
+        }
+        return {
+          doc: reapAndSchedule(
+            { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
+            NO_DEAD,
+            { capacityBytes, share, lightShare, nowMs },
+            sampled,
+          ),
+          result: true,
+        };
+      },
+      signal,
+    );
   } catch (err) {
     log().warn(
       { err: err instanceof Error ? err.message : String(err), id: entry.id },
@@ -3248,9 +3294,9 @@ async function rechargeLedgerEntry(
 
 /**
  * Retire an admission, retrying unavailable storage without keeping the runner
- * alive. When the admission was aborted, the one attempt the caller waits for
- * is bounded by {@link RELEASE_AWAITED_MS}; a contended lock or a stalled
- * unlock hands the entry to the retry instead of holding the abort. An aborted
+ * alive. Pending updates and removal share one {@link RELEASE_AWAITED_MS}
+ * deadline; a contended lock, sampler or unlock hands the entry to the retry
+ * and the reaper after process exit. An aborted
  * entry's retirement never samples pressure, on the awaited attempt or on any
  * retry: sampling can stall in the monitor, and nothing waits on the verdict
  * for a run that never started.
@@ -3259,6 +3305,7 @@ async function releaseLedgerEntry(
   entry: LedgerEntry,
   dir: string,
   opts: AdmitOptions,
+  settleWrites?: (signal: AbortSignal) => Promise<void>,
 ): Promise<void> {
   const now = opts.now ?? Date.now;
   /**
@@ -3315,7 +3362,7 @@ async function releaseLedgerEntry(
           ),
           result: undefined,
         }),
-        undefined,
+        signal,
         true,
       );
       return true;
@@ -3328,49 +3375,31 @@ async function releaseLedgerEntry(
     }
   };
   /**
-   * One removal attempt. When the caller has already given up, the whole
-   * attempt's asynchronous work — lock acquisition, write and unlock — is
+   * One removal attempt. Pending updates, sampling, lock acquisition and unlock are
    * raced against a single {@link RELEASE_AWAITED_MS} deadline: a stalled lock
    * or unlock (proper-lockfile's removal is asynchronous) must not hold an
    * aborted admit past it. The race is installed before the attempt starts so
    * no asynchronous step runs unwatched; the attempt's synchronous read and
    * write are not preemptible and can outlast the deadline. A timed-out
-   * attempt keeps running — its read, write and unlock still complete — and the
-   * caller stops waiting; `false` hands the entry to the retry, so no queue
+   * attempt cannot start another write after cancellation; an unlock already
+   * running still completes. `false` hands the entry to the retry, so no queue
    * slot leaks. The retry itself is not bounded.
    */
   const removeOnce = async (boundedAttempt: boolean): Promise<boolean> => {
-    if (!boundedAttempt || opts.signal?.aborted !== true) return removeAttempt();
-    const attempt = new AbortController();
-    let deadline: NodeJS.Timeout | undefined;
-    // Started before the initial read so one budget covers the whole attempt.
-    const deadlineHit = new Promise<'deadline'>((resolve) => {
-      deadline = setTimeout(() => {
-        // A pending lock attempt observes this; a stalled unlock does not, and
-        // is left to finish on its own.
-        attempt.abort(new Error('admission release deadline'));
-        resolve('deadline');
-      }, RELEASE_AWAITED_MS);
-      deadline.unref();
+    if (!boundedAttempt) return removeAttempt();
+    let removed = false;
+    const finished = await awaitAdmissionCleanup(async (signal) => {
+      await settleWrites?.(signal);
+      signal.throwIfAborted();
+      removed = await removeAttempt(signal);
     });
-    // Deferred a microtask so the race is installed before the attempt does its
-    // first I/O.
-    const running = Promise.resolve().then(() => removeAttempt(attempt.signal));
-    // The attempt outlives this wait: its eventual failure is handled below.
-    void running.catch(() => {});
-    try {
-      const outcome = await Promise.race([running, deadlineHit]);
-      if (outcome === 'deadline') {
-        log().warn(
-          { id: entry.id },
-          'admission release did not finish within its bound; it and the retry finish in the background',
-        );
-        return false;
-      }
-      return outcome;
-    } finally {
-      clearTimeout(deadline);
+    if (!finished) {
+      log().warn(
+        { id: entry.id },
+        'admission release did not finish within its bound; the retry or reaper owns retirement',
+      );
     }
+    return finished && removed;
   };
   /** Keep trying in the background (never keeping the process alive) until removed. */
   const retry = (delayMs: number): void => {
@@ -3392,16 +3421,31 @@ function holdGrant(
   waitedMs: number,
   opts: AdmitOptions,
 ): AdmissionGrant {
-  const update = (patch: (e: LedgerEntry) => LedgerEntry): Promise<void> =>
-    withLedger(dir, (doc) => {
-      if (!doc.entries.some((e) => e.id === entry.id)) return { doc: null, result: undefined };
-      return {
-        doc: { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
-        result: undefined,
-      };
-    }).catch(() => {
-      // Best effort: a missed heartbeat only means the next probe asks ps.
-    });
+  let released = false;
+  let releasing: Promise<void> | undefined;
+  let writes: Promise<void> = Promise.resolve();
+  const stopWrites = new AbortController();
+  const update = (patch: (e: LedgerEntry) => LedgerEntry): void => {
+    if (released) return;
+    writes = writes
+      .then(() =>
+        withLedger(
+          dir,
+          (doc) => {
+            if (!doc.entries.some((e) => e.id === entry.id))
+              return { doc: null, result: undefined };
+            return {
+              doc: { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
+              result: undefined,
+            };
+          },
+          stopWrites.signal,
+        ),
+      )
+      .catch(() => {
+        // Best effort: a missed heartbeat only means the next probe asks ps.
+      });
+  };
   const now = opts.now ?? Date.now;
   // T14116: what the run's tree measured, and the charge it holds now.
   let peakBytes = 0;
@@ -3413,20 +3457,17 @@ function holdGrant(
   // while held).
   let chargedBytes = entry.footprintBytes;
   let writtenBytes = entry.footprintBytes;
-  let writes: Promise<void> = Promise.resolve();
   const measured = (e: LedgerEntry): LedgerEntry =>
     samples > 0 ? { ...e, measuredPeakBytes: peakBytes } : e;
   const timer = setInterval(() => {
-    void update((e) => measured({ ...e, heartbeatAtMs: now() }));
+    update((e) => measured({ ...e, heartbeatAtMs: now() }));
   }, LEDGER_HEARTBEAT_MS);
   timer.unref();
   const following = followToolGroups((groups) => {
-    void update((e) => ({ ...e, toolGroups: [...groups] }));
+    const snapshot = [...groups];
+    update((e) => ({ ...e, toolGroups: snapshot }));
   });
-  if (following.groups.length > 0)
-    void update((e) => ({ ...e, toolGroups: [...following.groups] }));
-
-  let released = false;
+  if (following.groups.length > 0) update((e) => ({ ...e, toolGroups: [...following.groups] }));
   return {
     id: entry.id,
     token: admissionToken(entry),
@@ -3448,20 +3489,30 @@ function holdGrant(
       const patch = (e: LedgerEntry): LedgerEntry => ({ ...measured(e), chargedBytes: next });
       chargedBytes = next;
       writes = writes.then(async () => {
-        if (await rechargeLedgerEntry(entry, dir, opts, patch)) writtenBytes = next;
+        if (await rechargeLedgerEntry(entry, dir, opts, patch, stopWrites.signal))
+          writtenBytes = next;
         // A failed write keeps the ledger's charge; the next measurement decides again.
         else if (chargedBytes === next) chargedBytes = writtenBytes;
       });
     },
     recordChild: (child) => {
-      void update((e) => ({ ...e, child }));
+      update((e) => ({ ...e, child }));
     },
-    release: async () => {
-      if (released) return;
+    release: () => {
+      if (releasing) return releasing;
       released = true;
       clearInterval(timer);
       following.stop();
-      await releaseLedgerEntry(entry, dir, opts);
+      releasing = releaseLedgerEntry(entry, dir, opts, async (signal) => {
+        const stop = (): void => stopWrites.abort(signal.reason);
+        signal.addEventListener('abort', stop, { once: true });
+        try {
+          await writes;
+        } finally {
+          signal.removeEventListener('abort', stop);
+        }
+      });
+      return releasing;
     },
   };
 }
