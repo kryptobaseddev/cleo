@@ -8,8 +8,8 @@ import type {
   OrcaWorkerDone,
 } from '@cleocode/contracts/orca-execution.js';
 import { orcaReplySchema, orcaReportSourceSchema } from '@cleocode/contracts/orca-execution.js';
+import type { MbxRunner } from '@cleocode/core/orchestrate/agentmbx';
 import { vi } from 'vitest';
-import type { MbxRunner } from '../../../core/src/orchestrate/agentmbx.js';
 
 /** Fake durable provider mailbox; retained while a fresh client simulates CLI restart. */
 export const fixtureMail = { bodies: new Map<string, string>(), failBefore: false, loseAck: false };

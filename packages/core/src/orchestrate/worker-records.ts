@@ -116,7 +116,7 @@ interface WorkerMetadata extends OrcaWorkerSettlement {
   pid: number | null;
   pgid: number | null;
   worktree: string;
-  leadMailbox: string | null;
+  leadMailbox?: string | null;
   execution?: OrcaAttempt;
   report?: OrcaWorkerReport;
 }
@@ -482,7 +482,7 @@ export async function recordWorkerReport(
         key: `cleo-orca-report:${createHash('sha256')
           .update(JSON.stringify([event.runtimeId, event.runId, event.dispatchId, event.messageId]))
           .digest('hex')}`,
-        mailbox: meta.leadMailbox,
+        mailbox: meta.leadMailbox ?? null,
         state: 'pending',
         messageId: null,
         deliveredAt: null,

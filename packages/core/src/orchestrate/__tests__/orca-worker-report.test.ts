@@ -15,6 +15,7 @@ import {
   resolveTaskWorktreePath,
 } from '@cleocode/paths';
 import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
+import { eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureContext,
@@ -36,6 +37,8 @@ import { hooks } from '../../hooks/registry.js';
 import { pipelineManifestAppend } from '../../memory/pipeline-manifest-sqlite.js';
 import { requireSpawnSession } from '../../spawn/agent-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { tasksAgentInstances } from '../../store/schema/cleo-project/runtime.js';
+import { getDb } from '../../store/sqlite.js';
 import { setClaimClock } from '../../store/task-claim.js';
 import { createAgentMbxClient } from '../agentmbx.js';
 import {
@@ -647,6 +650,22 @@ describe('Orca canonical worker report ingress', () => {
     expect(retry.execution?.retryOf).toBe('ctx_fixture');
     expect(retry.resourceRelease).toBeUndefined();
     expect(retry.reportDelivery).toBeUndefined();
+  });
+
+  it('keeps a legacy worker without leadMailbox readable after report ingestion', async () => {
+    (await getDb(env.tempDir))
+      .update(tasksAgentInstances)
+      .set({ metadataJson: sql`json_remove(${tasksAgentInstances.metadataJson}, '$.leadMailbox')` })
+      .where(eq(tasksAgentInstances.id, record.recordId))
+      .run();
+    expect((await listWorkerRecords(env.tempDir))[0]?.leadMailbox).toBeNull();
+
+    const settled = await ingest();
+    expect(settled.reportDelivery).toMatchObject({ mailbox: null, state: 'pending' });
+    expect(settled.reportDelivery?.lastError).toContain('No valid lead mailbox');
+    expect(settled.report?.reportText).toBe(REPORT);
+    expect(await listWorkerRecords(env.tempDir)).toEqual([settled]);
+    expect(fixtureMbxRunner).not.toHaveBeenCalled();
   });
 
   it.each([
