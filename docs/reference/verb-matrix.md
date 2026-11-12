@@ -2,6 +2,8 @@
 covers:
   - packages/cleo/src/cli/commands/release.ts
   - packages/core/src/release/open.ts
+  - packages/core/src/release/cut.ts
+  - packages/core/src/release/smoke-receipt.ts
 ---
 # CLEO Release Verb Matrix
 
@@ -17,9 +19,45 @@ After T10103 + T10104 + T10105 land, every state transition in the
 release lifecycle is owned by exactly **one** verb (or one CI workflow).
 No overlaps, no gaps.
 
-## Lifecycle states
+## Current entry point: `cut`
 
-The release pipeline tracks state on a `releases` row keyed by version.
+`cleo release cut <ver>` is the normal release path (T14102 / ADR-099).
+It selects the newest first-parent commit of `origin/main` with passing required
+push checks, or verifies the supplied `--sha`, and previews the notes, packages,
+migrations and task status. Without `--yes` it creates no tag. A confirmed cut
+requires release authorization, configured `release.agentCut` permission or
+terminal confirmation, creates an annotated tag
+through the GitHub API, and lets `release.yml` publish and prepare the subsequent
+CHANGELOG/version PR. The plan/open flow below remains a fallback.
+
+A real cut requires the invoking checkout to be at `origin/main`. Stable cuts
+also require `cleo docs rot --strict` to be clean and a passing real-store smoke
+receipt for the exact selected commit; prereleases report those two findings as
+warnings. A lower release still running blocks the cut unless explicitly allowed
+with `--allow-in-flight`.
+
+### Stable `open` smoke gate (T14250)
+
+The fallback `open` path also enforces the smoke gate for versions without a
+prerelease suffix. Before committing the plan or dispatching the workflow, it
+resolves the remote head of `--ref` or the default dispatch branch through
+`gh api` and reads `.cleo/release-smoke/<sha12>/results.json` under the canonical
+project root. The receipt must contain that full `sha` and `passed: true`.
+An unresolved head, missing or unreadable receipt, SHA mismatch, or failed smoke
+returns `E_RELEASE_SMOKE_MISSING` without dispatching. A receipt for another
+commit and green CI alone do not satisfy this gate. Prerelease `open` skips it.
+On an already `pr-opened` row, a queued, running or successful recorded run still
+returns the existing idempotent result; a failed run must clear the gate again
+before re-dispatch.
+
+Run `node scripts/release-mac-smoke.mjs --sha <full-sha>` on the owner's Mac at
+that commit, fix forward if it fails, and retry against the resulting passing
+commit. This receipt check is shared by `open` and `cut` in
+`packages/core/src/release/smoke-receipt.ts`.
+
+## Fallback lifecycle states
+
+The plan/open fallback tracks state on a `releases` row keyed by version.
 Valid `status` values (in lifecycle order):
 
 | Order | `releases.status`   | Set by                                                          | Meaning |
@@ -42,6 +80,10 @@ in-memory plan envelope.
 
 | Verb (`cleo release …`) | Owns transition           | Workflow it dispatches            | DB writes                                            | Side-effects                                                                 | Notes |
 |-------------------------|---------------------------|------------------------------------|-------------------------------------------------------|------------------------------------------------------------------------------|-------|
+| `cut <ver>` | Green default-branch commit → release tag | Tag creation triggers `release.yml` | Merge sweep and release-authorization bookkeeping; no plan row required | Previews by default; `--yes` creates the annotated tag, records the cut audit and runs merged-work cleanup | Normal path. Stable releases require clean docs rot and an exact-SHA passing smoke; required CI is rechecked immediately before tagging. |
+| `write-changelog <ver>` | Tag changesets → CHANGELOG section | _(none; invoked by `release.yml`)_ | _(none)_ | Writes the missing version section in `CHANGELOG.md`, led by the tag annotation | Existing sections are left alone. `--ref` selects the release commit. |
+| `verify-tag <ver>` | _(read-only validator)_ | _(none; invoked by `release.yml`)_ | _(none)_ | Verifies the tag is a green first-parent commit of the default branch | Refuses publication of a tag without the required passing push checks. |
+| `authorize` | _(release permission, no lifecycle transition)_ | _(none)_ | Owner decision and signed grant/revocation records | Owner-only grant/revoke uses TTY authentication; `--list` reads grants | Scoped, expiring authorization permits a non-interactive `cut --yes`; it does not waive release gates. |
 | `plan <ver> --epic` / `--saga` / `--tasks` | _(none)_ → `planned`      | _(none — read-mostly)_             | `releases` UPSERT (`status=planned`)                  | Writes `.cleo/release/<ver>.plan.json`; auto-writes `## [<ver>]` to `CHANGELOG.md` unless `--no-changelog` | Use `--tasks T9961,T9962` for cross-Epic release windows where one release intentionally spans multiple parent Epics (T10088). Owner of "always-write CHANGELOG" gap is **T10105**. A version that already shipped (`tagged`, `pushed`, `published`, `reconciled`) is refused, and the upsert never moves a row in an absorbing status (`RELEASE_ABSORBING_STATUSES`) back to `planned` even when a peer ships it mid-plan (T12943). |
 | `open <ver>`            | `planned` → `pr-opened`   | `release-prepare.yml`              | `releases` UPDATE (`status=pr-opened`)                | **Commits the plan file** (`git add -f` past the `.cleo/` ignore), verifies it is present on the branch `workflow_dispatch` will check out, then `gh workflow run release-prepare.yml` with `version`, the scope, and `plan-blob-sha256`. | **The plan MUST be committed and pushed, and that is now the default (T12309).** The workflow's other branch regenerates the plan by running `cleo release plan --tasks|--epic` *on the runner* — and `.cleo/cleo.db` is untracked by design (ADR-013 §9), so a fresh checkout has no tasks and it exits `E_NOT_FOUND`, at `Prepare bump-PR`, after a full green preflight. `--no-commit-plan` opts out and is only correct when the plan is already on that branch. A `dispatch-preconditions` job now rejects the impossible combination in seconds rather than after ~20 minutes. **`--ref release/plan-<ver>` (T13825):** dispatch on the plan branch instead of the default branch, so ONE release PR carries the plan, CHANGELOG and version bump; implies `--no-commit-plan`. **Preflight reuse (T13140 · T13823):** `open` forwards `skip-tests` only with `reused-ci-run=<id>` and `verified-sha`, after finding a green main `ci.yml` push run for HEAD or a test-equivalent ancestor (release-plan files only); it waits up to 10 minutes for a queued run, and `release-prepare` re-reads that run before skipping the Linux shards. **Re-dispatch (T14077):** on a `pr-opened` row, a recorded run that failed, was cancelled, timed out or failed to start is dispatched again; a queued, running or green run stays idempotent (`priorRun` reports which). Owner of the `gh` schema mismatch gap is **T10105**. |
 | `pr-status <ver>`       | _(read-only query)_       | _(none)_                           | _(none)_                                              | Calls `gh pr checks <num>` for the PR opened on `release/v<ver>`              | Polling helper — useful while `release-prepare.yml` is in-flight. |
@@ -59,7 +101,9 @@ in-memory plan envelope.
 
 `release-prepare` runs no macOS test shards, and `open` sends no macOS skip
 (T14104): macOS is validated on main by `macos-main.yml` and on the owner's
-Mac by `node scripts/release-mac-smoke.mjs` before the tag.
+Mac by `node scripts/release-mac-smoke.mjs --sha <full-sha>`. Since T14250, a
+stable `open` requires the matching passing receipt before dispatch, and a
+stable `cut` requires it before tagging.
 
 ## What was removed (DO NOT use)
 
@@ -68,7 +112,7 @@ still reference them.
 
 | Removed verb                  | Removed in | Replacement                                                              |
 |-------------------------------|-----------:|--------------------------------------------------------------------------|
-| `cleo release ship`           |   T10103   | `cleo release plan <ver> --epic <id>` then `cleo release open <ver>`     |
+| `cleo release ship`           |   T10103   | `cleo release cut <ver>`; plan/open remains the fallback     |
 | `cleo release start`          |   T9540    | `cleo release plan` (Phase 1 of SPEC-T9345)                              |
 | `cleo release verify`         |   T9540    | Per-task `cleo verify <task> --gate <g> --evidence …` (ADR-051)          |
 | `cleo release publish`        |   T9540    | `release-publish.yml` GHA workflow (triggered by release-PR merge)       |
@@ -97,10 +141,10 @@ Adjacent audits:
 - **T10106** — CI parity audit (verifies the GHA workflow surface
   matches the verb-matrix expectations job-by-job).
 
-## Smoke walker — `cleo release ship-e2e-smoke`
+## Fallback smoke walker — `cleo release ship-e2e-smoke`
 
 The smoke is dry-run by default. It walks every step of the release
-lifecycle and reports per-step status + duration so the operator can
+fallback lifecycle and reports per-step status + duration so the operator can
 diff a preview against a real run. Idempotent — re-runnable from any
 failure point.
 
@@ -120,8 +164,8 @@ cleo release ship-e2e-smoke v2026.6.0 --epic T10099 --execute \
 Steps (in order):
 
 1. `plan` — `cleo release plan <ver> --epic <id>` (writes `.cleo/release/<ver>.plan.json`)
-2. `open` — `cleo release open <ver>` (commits + pushes the plan, then dispatches `release-prepare.yml`).
-   The plan file must reach `origin` before the dispatch: the runner reads it from its own
+2. `open` — `cleo release open <ver>` (commits the plan by default, verifies the remote copy, then dispatches `release-prepare.yml`).
+   `open` does not push. The plan file must already reach `origin` before dispatch: the runner reads it from its own
    checkout, and it cannot rebuild one because the task store is untracked (T12309).
 3. `wait-for-pr` — polls `gh pr list --head release/<ver> --state merged`
 4. `wait-for-tag` — polls `git ls-remote --tags origin <ver>`
