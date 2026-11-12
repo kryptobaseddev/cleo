@@ -261,19 +261,13 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
 
   it('replays a lost start receipt from storage using the original caller and request id', async () => {
     orcaFixture.start = {
-      exitCode: 1,
-      stderr: '',
-      stdout: JSON.stringify({
-        ok: false,
-        _meta: { runtimeId: fixtureContext.runtimeId },
-        error: {
-          code: 'runtime_timeout',
-          message: 'lost reply',
-          data: { orchestrationRequestId: 'request-fixture' },
-        },
-      }),
+      exitCode: null,
+      stderr: 'lost reply',
+      stdout: '',
     };
     const record = await start();
+    const key = record.execution?.startRequestKey;
+    orcaFixture.request = fixtureReply({ state: 'completed', requestId: key });
     expect(record.execution?.state).toBe('outcome_unknown');
     orcaFixture.start = fixtureStart();
     fixtureRunner.mockClear();
@@ -282,7 +276,7 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     expect(saved).toMatchObject({
       recordId: record.recordId,
       sessionId: launch.workerSessionId,
-      execution: { state: 'ready', dispatchId: 'ctx_fixture', startRequestId: 'request-fixture' },
+      execution: { state: 'ready', dispatchId: 'ctx_fixture', startRequestId: key },
     });
     const call = fixtureRunner.mock.calls.find(([, args]) => args[1] === 'worker-start');
     expect(call?.[1]).toEqual([
@@ -299,7 +293,7 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
       '--task-title',
       `${launch.projectId}:T001:${launch.instanceId}`,
       '--retry-request',
-      'request-fixture',
+      key,
       '--environment',
       'local',
       '--json',
@@ -309,7 +303,16 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
     await expectCustody();
   });
 
-  it('refuses recovery without a saved replay identity and never falls back to a fresh launch', async () => {
+  it('refuses legacy recovery without a saved replay identity and never falls back to a fresh launch', async () => {
+    const workers = await import('../../../../../core/src/orchestrate/worker-records.js');
+    const persist = workers.recordWorker;
+    vi.spyOn(workers, 'recordWorker').mockImplementationOnce((worker, ...args) => {
+      if (!worker.execution) throw new Error('Missing legacy Orca fixture');
+      return persist(
+        { ...worker, execution: { ...worker.execution, startRequestKey: undefined } },
+        ...args,
+      );
+    });
     orcaFixture.start = { stdout: '', stderr: 'transport lost', exitCode: null };
     const record = await start();
     fixtureRunner.mockClear();
