@@ -1483,16 +1483,31 @@ function branchOwnPaths(root: string, baseRef: string, ref: string): Set<string>
 /**
  * Refuse tracked edits in the evidence checkout, allowing untracked worktree-include files.
  *
+ * The remedy depends on what `implemented` cites. On the task's own branch the
+ * edits may be committed: the new tip becomes the change set. When it cites
+ * work that already landed (a merged PR or a landed commit), a local commit on
+ * top still passes the ancestry check, so the tools would measure unreviewed
+ * edits; the edits must be stashed or restored instead (T14523).
+ *
  * @param root - Checkout where evidence tools run.
+ * @param landed - True when the evidence cites a merged PR or a landed commit.
  * @returns The dirty-tree refusal when git reports tracked edits, otherwise null.
  * @example
- * const refusal = dirtyTreeBlocker('/path/to/checkout');
+ * const refusal = dirtyTreeBlocker('/path/to/checkout', true);
  */
-export function dirtyTreeBlocker(root: string): DonePlanBlocker | null {
+export function dirtyTreeBlocker(root: string, landed = false): DonePlanBlocker | null {
   if (!git(root, ['status', '--porcelain', '--untracked-files=no'])) return null;
+  const message = `${root} has uncommitted tracked changes; evidence must describe a commit.`;
+  if (landed)
+    return blocker(
+      'dirty-tree',
+      message,
+      `git -C '${root}' stash push -m "unreviewed edits"`,
+      'Stash (or git restore) the edits: the evidence cites reviewed, landed work, and a local commit on top would let the tools measure unreviewed edits.',
+    );
   return blocker(
     'dirty-tree',
-    `${root} has uncommitted tracked changes; evidence must describe a commit.`,
+    message,
     `git -C '${root}' commit -am "<message>"`,
     'Commit (or stash) the changes so the recorded commit is the code under test.',
   );

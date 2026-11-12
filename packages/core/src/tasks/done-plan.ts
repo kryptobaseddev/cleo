@@ -258,8 +258,9 @@ function gitRead(cwd: string, args: readonly string[]): string | null {
  * - branch: the checked-out HEAD must BE the change-set commit, whatever ref
  *   holds it (T14059: a clean checkout detached at the task branch's tip
  *   measures the same tree; a dirty tree is already a plan blocker);
- * - pr: the merge commit must be an ancestor of the checked-out HEAD, and
- *   the checkout must have no uncommitted tracked edits.
+ * - commit, pr: the landed commit (every merge commit) must be an ancestor of
+ *   the checked-out HEAD, and the checkout must have no uncommitted tracked
+ *   edits; the remedy stashes them, never commits them (T14523).
  */
 function checkoutBlocker(
   taskId: string,
@@ -285,11 +286,13 @@ function checkoutBlocker(
   }
   if (cs.source === 'commit' && cs.commitSha) {
     // T13799: a landed commit, like a merge, must be in the tested tree.
+    // T14523: and, like the PR source, a clean tree: tracked edits would be
+    // measured as if they were the landed commit.
     if (
       head !== null &&
       gitRead(root, ['merge-base', '--is-ancestor', cs.commitSha, 'HEAD']) !== null
     )
-      return null;
+      return dirtyTreeBlocker(root, true);
     return {
       code: 'checkout-required',
       message: `${root} has ${short(head)} checked out, which does not contain ${taskId}'s commit ${short(cs.commitSha)}; the tools would measure a tree without the change.`,
@@ -311,7 +314,7 @@ function checkoutBlocker(
       (m) =>
         head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
     );
-    if (!missing) return dirtyTreeBlocker(root);
+    if (!missing) return dirtyTreeBlocker(root, true);
     // T13429: intended, not a bug — the tools must measure the MERGED tree
     // (the default branch with the change). A squash- or rebase-merged task
     // branch never contains the merge commit even when its diff is the same,

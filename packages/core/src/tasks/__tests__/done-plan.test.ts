@@ -515,10 +515,14 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     });
     expect(plan.changeSet).toMatchObject({ source: 'pr', mergeCommitSha: merge });
     expect(plan.blockers.map((b) => b.code)).not.toContain('checkout-required');
-    expect(plan.blockers.find((b) => b.code === 'dirty-tree')).toMatchObject({
+    const dirty = plan.blockers.find((b) => b.code === 'dirty-tree');
+    expect(dirty).toMatchObject({
       message: expect.stringContaining('uncommitted tracked changes'),
-      next: { command: expect.stringContaining('commit -am') },
+      // T14523: a local commit would still contain the merge, so the remedy
+      // stashes the unreviewed edits rather than committing them.
+      next: { command: expect.stringContaining('stash push') },
     });
+    expect(dirty?.next?.command).not.toContain('commit');
     expect(plan.ready).toBe(false);
   });
 

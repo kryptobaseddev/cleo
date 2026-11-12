@@ -119,6 +119,28 @@ describe('cleo done --commit (T13799)', () => {
     expect(plan.blockers.map((b) => b.code)).not.toContain('checkout-required');
   });
 
+  it.each([
+    'unstaged',
+    'staged',
+  ])('T14523: refuses a %s tracked edit on top of the landed commit, with a stash remedy', async (edit) => {
+    const id = await seed(['Change src/a.ts to return 2']);
+    const sha = landUncited(id);
+    git(['switch', '-q', '--detach', sha]);
+    writeFileSync(join(root, '.npmrc'), 'registry=https://registry.npmjs.org/\n');
+    const clean = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps, commit: sha });
+    expect(clean.blockers.map((b) => b.code)).not.toContain('dirty-tree');
+
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 9;\n');
+    if (edit === 'staged') git(['add', 'src/a.ts']);
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps, commit: sha });
+    expect(plan.changeSet).toMatchObject({ source: 'commit', commitSha: sha });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('checkout-required');
+    const dirty = plan.blockers.find((b) => b.code === 'dirty-tree');
+    expect(dirty?.next?.command).toContain('stash push');
+    expect(dirty?.next?.command).not.toContain('commit');
+    expect(plan.ready).toBe(false);
+  });
+
   it('refuses a commit that does not exist, has not landed, or names no change', async () => {
     const id = await seed(['Change src/a.ts to return 2']);
     const why = async (commit: string) =>
