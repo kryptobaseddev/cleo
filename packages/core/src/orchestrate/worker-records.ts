@@ -305,7 +305,13 @@ const SQLITE_BUSY_SNAPSHOT = 517;
  */
 function isSqliteSnapshotConflict(err: unknown): boolean {
   for (let current = err, depth = 0; current instanceof Error && depth < 3; depth++) {
-    if ((current as { errcode?: number }).errcode === SQLITE_BUSY_SNAPSHOT) return true;
+    if (
+      'errcode' in current &&
+      typeof current.errcode === 'number' &&
+      current.errcode === SQLITE_BUSY_SNAPSHOT
+    ) {
+      return true;
+    }
     current = current.cause;
   }
   return false;
