@@ -17,7 +17,9 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -78,6 +80,24 @@ afterEach(() => {
 });
 
 describe('disposeWorktree proof (T13924)', () => {
+  it('a report-only proof leaves the Git index unchanged when file metadata changes', () => {
+    const wt = worktree('T20');
+    const tracked = join(wt, 'a.ts');
+    const stat = statSync(tracked);
+    utimesSync(tracked, stat.atime, new Date(stat.mtimeMs - 60_000));
+    const index = git(wt, 'rev-parse', '--path-format=absolute', '--git-path', 'index');
+    const before = readFileSync(index);
+    const result = disposeWorktree({
+      worktreePath: wt,
+      taskId: 'T20',
+      reason: 'test',
+      dryRun: true,
+    });
+    expect(result).toEqual({ worktreePath: wt, removed: false });
+    expect(readFileSync(index)).toEqual(before);
+    expect(existsSync(wt)).toBe(true);
+  });
+
   it('removes a clean worktree whose commits are on another branch, node_modules and all', () => {
     const wt = worktree('T1');
     mkdirSync(join(wt, 'node_modules', 'dep'), { recursive: true });

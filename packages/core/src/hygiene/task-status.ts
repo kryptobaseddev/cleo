@@ -19,7 +19,7 @@ import { loadOwningTaskStatuses } from '../worktree/list.js';
  * @param taskIds - Tasks named by the project's worktrees.
  * @param projectRoot - The project whose store will be read.
  * @param own - Ownership decided before any store access.
- * @returns Task statuses, or a failure that the census labels status unknown.
+ * @returns Task statuses, or a failure carrying the store-read refusal reason.
  * @remarks Foreign snapshots may omit uncheckpointed WAL writes and never authorize disposal.
  * @example
  * ```ts
@@ -32,15 +32,20 @@ export async function loadCensusTaskStatuses(
   own: boolean,
 ): Promise<EngineResult<Map<string, string>>> {
   if (own) return loadOwningTaskStatuses(taskIds, projectRoot);
+  let reason = 'Foreign immutable snapshot unavailable';
   try {
     // Scope the explicit foreign target so an ambient CLEO_DIR cannot redirect it.
-    const snapshot = worktreeScope.run(
+    const { snapshot, verdict } = worktreeScope.run(
       { worktreeRoot: projectRoot, projectHash: computeProjectHash(projectRoot) },
-      () =>
-        projectStoreReadVerdict(projectRoot) === 'readable'
-          ? openProjectTasksReadOnly(projectRoot)
-          : null,
+      () => {
+        const verdict = projectStoreReadVerdict(projectRoot);
+        return {
+          verdict,
+          snapshot: verdict === 'readable' ? openProjectTasksReadOnly(projectRoot) : null,
+        };
+      },
     );
+    if (verdict !== 'readable') reason = verdict;
     if (snapshot !== null) {
       try {
         const statuses = new Map<string, string>();
@@ -61,11 +66,12 @@ export async function loadCensusTaskStatuses(
         snapshot.close();
       }
     }
-  } catch {
+  } catch (error) {
     // An incompatible or unavailable foreign snapshot never falls back to getDb.
+    if (error instanceof Error) reason = error.message;
   }
   // @sync-invariant none:local-only foreign census snapshots provide display status only
-  return engineError('E_TASK_STATE_UNAVAILABLE', 'Foreign task snapshot unavailable', {
+  return engineError('E_TASK_STATE_UNAVAILABLE', reason, {
     fix: 'Run cleo doctor in the owning project to diagnose its store.',
   });
 }

@@ -164,7 +164,7 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
 
     // The rollup names why the store was not read...
     const rollup = record.projects.find((p) => p.project === projectRoot);
-    expect(rollup?.storeRead).toBe('status unknown');
+    expect(rollup?.storeRead).toBe('status unknown: not read: tasks schema missing');
     // ...so the row's task status is null (nothing was read)...
     const row = record.rows.find((r) => r.path.endsWith('T1'));
     expect(row?.taskStatus).toBeNull();

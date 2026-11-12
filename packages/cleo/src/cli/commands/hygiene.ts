@@ -47,7 +47,7 @@ export const hygieneCommand = defineCommand({
       meta: {
         name: 'census',
         description:
-          'Report worktree retention and usage; --apply reaps proven-safe terminal worktrees, --all-projects includes every registered project. Branches are kept.',
+          "Report worktree retention and usage across registered projects; --apply reaps only the current project's proven-safe terminal worktrees. Foreign projects and branches stay report-only.",
       },
       args: {
         report: {
@@ -59,7 +59,7 @@ export const hygieneCommand = defineCommand({
         apply: {
           type: 'boolean',
           description:
-            "Remove this project's proven-redundant terminal worktrees; other projects stay report-only unless --all-projects",
+            "Remove only this project's proven-redundant terminal worktrees; foreign projects remain report-only",
           default: false,
         },
         'dry-run': {
@@ -70,8 +70,7 @@ export const hygieneCommand = defineCommand({
         },
         'all-projects': {
           type: 'boolean',
-          description:
-            'Allow removal across every registered project, including external git worktrees.',
+          description: 'Report all registered projects; foreign worktrees remain report-only.',
           default: false,
         },
         'ttl-days': {

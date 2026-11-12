@@ -12,7 +12,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as projectPaths from '@cleocode/paths';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isOwnProjectStore } from '../own-project.js';
 
 const git = (cwd: string, ...args: string[]): string =>
@@ -55,6 +56,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
   else process.env['CLEO_DIR'] = prevCleoDir;
   rmSync(base, { recursive: true, force: true });
@@ -107,24 +109,24 @@ describe('isOwnProjectStore — strict own decision (T14440 rounds 6-7)', () => 
     expect(isOwnProjectStore(alias, own)).toBe(false);
   });
 
-  it('a missing target identity is any doubt: foreign (round-7 P2)', () => {
-    const anon = join(base, 'anon');
-    mkdirSync(join(anon, '.cleo'), { recursive: true });
-    expect(isOwnProjectStore(anon, own)).toBe(false);
+  it('an invalid identity at the same realpath is foreign', () => {
+    writeFileSync(join(own, '.cleo', 'project.json'), '{ invalid project identity');
+    expect(isOwnProjectStore(own, own)).toBe(false);
   });
 
-  it('a mismatched id is foreign (round-7 P2)', () => {
-    const twin = join(base, 'twin');
-    mkdirSync(join(twin, '.cleo'), { recursive: true });
-    writeFileSync(
-      join(twin, '.cleo', 'project.json'),
-      JSON.stringify({ schemaVersion: 1, id: 'other-id', name: 'twin' }),
-    );
-    // Same realpath cannot be tested with a different id (the id lives in the
-    // directory); the CLEO_DIR-pin redirect case is covered by the store-path
-    // comparison. Here the pin redirect is simulated by pointing the target's
-    // store path at the own store via a project.json mismatch on the own dir.
-    expect(isOwnProjectStore(twin, own)).toBe(false);
+  it('different declared ids at the same realpath are foreign', () => {
+    const readManifest = projectPaths.readProjectManifest;
+    const read = vi.spyOn(projectPaths, 'readProjectManifest').mockImplementationOnce((root) => {
+      const original = readManifest(root);
+      writeFileSync(
+        join(own, '.cleo', 'project.json'),
+        JSON.stringify({ schemaVersion: 1, id: 'other-id', name: 'own' }),
+      );
+      return original;
+    });
+    expect(isOwnProjectStore(own, own)).toBe(false);
+    expect(read).toHaveBeenNthCalledWith(1, own);
+    expect(read).toHaveBeenNthCalledWith(2, own);
   });
 
   it('any doubt (unresolvable target) is foreign', () => {

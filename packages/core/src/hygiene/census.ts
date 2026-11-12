@@ -18,7 +18,7 @@
  *   list as a worktree, is reported `unknown`, report only.
  *
  * The CLI reports by default. `--apply` removes only `redundant` terminal
- * worktrees of the allowed projects (current project unless `--all-projects`);
+ * worktrees of the current project; foreign projects remain report-only;
  * automatic completion and scheduled cleanup opt in explicitly, each re-proved by
  * `disposeWorktree` with the task's evidence. Every run writes one census
  * record (counts, apparent bytes, bytes reclaimed, the free-space delta and
@@ -63,6 +63,7 @@ import { Worker } from 'node:worker_threads';
 import type { WorktreeInfo, WorktreeStatusCategory } from '@cleocode/contracts';
 import type { WorktreeLockRecord } from '@cleocode/contracts/operations/worktree.js';
 import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
+import { gitDefaultBranchRefs } from '../git/work-tree.js';
 import { acquireHeartbeatLock, claimAtMostEvery } from '../tasks/merge-close.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 
@@ -209,7 +210,7 @@ export interface WorktreeCensusOptions {
   apply?: boolean;
   /** Projects `apply` may act on (default: none; the CLI passes the current project). */
   applyProjects?: readonly string[];
-  /** Explicitly allow removal in every registered project. */
+  /** Report every registered project; foreign projects remain ineligible for removal. */
   allProjects?: boolean;
   /** Minimum idle age in days (default: zero); a budget never overrides it. */
   ttlDays?: number;
@@ -429,7 +430,11 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     const statuses = await loadCensusTaskStatuses(taskIds, project, own);
     statusReadByProject.set(
       project,
-      statuses.success ? (own ? 'read' : 'snapshot: may lag uncommitted writes') : 'status unknown',
+      statuses.success
+        ? own
+          ? 'read'
+          : 'snapshot: may lag uncommitted writes'
+        : `status unknown: ${statuses.error.message}`,
     );
     const primary = resolvePrimaryWorktreePath(project);
     for (const worktree of result.data.worktrees) {
@@ -859,10 +864,13 @@ export async function mergedBranchCounts(
   ) => Promise<BoundedPrunePlan | null> = prunePlanBounded,
 ): Promise<{ mergedLocal: number | null; mergedRemote: number | null }> {
   if (Date.now() > deadline) return { mergedLocal: null, mergedRemote: null };
+  const defaultRefs = gitDefaultBranchRefs(projectRoot);
+  const integrationTarget = defaultRefs.find((ref) => !ref.startsWith('origin/')) ?? defaultRefs[0];
+  if (integrationTarget === undefined) return { mergedLocal: null, mergedRemote: null };
   let mergedLocal: number | null = null;
   let mergedRemote: number | null = null;
   try {
-    const plan = await planOf(projectRoot, 'main', deadline);
+    const plan = await planOf(projectRoot, integrationTarget, deadline);
     if (plan !== null) {
       mergedLocal = new Set(
         plan.candidates
@@ -878,7 +886,14 @@ export async function mergedBranchCounts(
   try {
     const out = execFileSync(
       'git',
-      ['for-each-ref', '--merged', 'main', '--format=%(refname:short)', 'refs/remotes'],
+      [
+        '--no-optional-locks',
+        'for-each-ref',
+        '--merged',
+        integrationTarget,
+        '--format=%(refname:short)',
+        'refs/remotes',
+      ],
       { cwd: projectRoot, timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
     );
     mergedRemote = out
@@ -888,7 +903,10 @@ export async function mergedBranchCounts(
       // aliases are not branches, and the target's own remote ref is trivially
       // merged.
       .filter(
-        (ref) => ref.includes('/') && !ref.endsWith('/HEAD') && !ref.endsWith('/main'),
+        (ref) =>
+          ref.includes('/') &&
+          !ref.endsWith('/HEAD') &&
+          !ref.endsWith(`/${integrationTarget.replace(/^origin\//, '')}`),
       ).length;
   } catch {
     mergedRemote = null;
@@ -914,7 +932,7 @@ function classifyNodeModules(worktreePath: string): 'absent' | 'symlink' | 'real
 }
 
 /**
- * Changed + untracked entry count from `git status --porcelain` (T14440).
+ * Changed + untracked entry count without optional Git index writes (T14440).
  *
  * @param worktreePath - The worktree directory.
  * @param deadline - Past it, `null` (an undercount is never a zero).
@@ -923,7 +941,7 @@ function classifyNodeModules(worktreePath: string): 'absent' | 'symlink' | 'real
 function dirtyFileCount(worktreePath: string, deadline: number): number | null {
   if (Date.now() > deadline) return null;
   try {
-    const out = execFileSync('git', ['status', '--porcelain'], {
+    const out = execFileSync('git', ['--no-optional-locks', 'status', '--porcelain'], {
       cwd: worktreePath,
       timeout: 10_000,
       stdio: ['pipe', 'pipe', 'pipe'],

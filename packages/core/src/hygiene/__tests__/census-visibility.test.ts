@@ -27,6 +27,10 @@ import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const TASKS = new Map<string, string>();
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, execFileSync: vi.fn(actual.execFileSync) };
+});
 // Round 7: census fixtures classify as OWN (main's behaviour).
 vi.mock('../../worktree/own-project.js', () => ({
   isOwnProjectStore: vi.fn(() => true),
@@ -48,6 +52,7 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ),
 }));
 
+import { isOwnProjectStore } from '../../worktree/own-project.js';
 import { mergedBranchCounts, prunePlanBounded, runWorktreeCensus } from '../census.js';
 
 const git = (cwd: string, ...args: string[]): string =>
@@ -89,6 +94,7 @@ beforeEach(() => {
   process.env['CLEO_HOME'] = join(base, 'cleo-home');
   recordDir = join(base, 'census');
   TASKS.clear();
+  vi.mocked(isOwnProjectStore).mockReturnValue(true);
   a = repo('a');
   paths = {
     clean: worktree(a, 'T1'), // done, clean
@@ -147,6 +153,39 @@ describe('census visibility fields (T14440 AC1)', () => {
     expect(record.pnpmStore).toEqual({ path: join(base, 'store'), apparentBytes: 1234 });
   });
 
+  it('disables optional locks for Git reads, including status in foreign worktrees', async () => {
+    vi.mocked(isOwnProjectStore).mockReturnValueOnce(false);
+    vi.mocked(execFileSync).mockClear();
+    const out = await runWorktreeCensus({
+      projects: [a],
+      recordDir,
+      pnpmStore: null,
+      branchesOf: (root) => mergedBranchCounts(root, Infinity, async () => ({ candidates: [] })),
+    });
+    if ('skipped' in out) throw new Error(out.skipped);
+    for (const path of Object.values(paths)) {
+      expect(execFileSync).toHaveBeenCalledWith(
+        'git',
+        ['--no-optional-locks', 'status', '--porcelain'],
+        expect.objectContaining({ cwd: path }),
+      );
+    }
+    expect(execFileSync).toHaveBeenCalledWith(
+      'git',
+      [
+        '--no-optional-locks',
+        'for-each-ref',
+        '--merged',
+        'main',
+        '--format=%(refname:short)',
+        'refs/remotes',
+      ],
+      expect.objectContaining({ cwd: a }),
+    );
+    expect(out.record.rows.find((row) => row.path === paths.clean)?.dirtyFiles).toBe(0);
+    expect(out.record.rows.find((row) => row.path === paths.dirty)?.dirtyFiles).toBe(1);
+  });
+
   it('rolls worktrees and bytes up per project, and names orphan hash directories', async () => {
     // An unregistered project: an orphan hash dir. A registered project with
     // NO worktrees still gets its rollup and branch counts (P2e).
@@ -200,6 +239,20 @@ describe('census visibility fields (T14440 AC1)', () => {
 
     const counts = await mergedBranchCounts(a);
     expect(counts.mergedRemote).toBe(1); // origin/ship; origin/HEAD excluded
+  });
+
+  it('counts merged branches against the repository default branch instead of main', async () => {
+    const root = repo('master-project');
+    git(root, 'branch', '-m', 'master');
+    const sha = git(root, 'rev-parse', 'master');
+    git(root, 'update-ref', 'refs/remotes/origin/master', sha);
+    git(root, 'update-ref', 'refs/remotes/origin/ship', sha);
+    const planOf = vi.fn(async () => ({
+      candidates: [{ kind: 'branch_only', branch: 'landed' }],
+    }));
+    const counts = await mergedBranchCounts(root, Infinity, planOf);
+    expect(planOf).toHaveBeenCalledWith(root, 'master', Infinity);
+    expect(counts).toEqual({ mergedLocal: 1, mergedRemote: 1 });
   });
 
   it('terminates a slow probe at the deadline; the worker EXITED before the census resolves and the timer marker never appears', async () => {
