@@ -369,8 +369,10 @@ describe('Orca execution process boundary', () => {
       'recorder-failed',
       'wrong-runtime',
       'lost-receipt',
+      'lost-receipt-before-start',
     ] as const)(
     'gates the exact terminal argv before a model turn: %s (inert executable only)',
+    { repeats: 2 },
     async (condition) => {
       vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
       // The terminal's inherited environment holds a trust variable the launch unsets (T14515).
@@ -433,18 +435,45 @@ else {
           });
         if (argv[0] === 'terminal' && argv[1] === 'create') {
           const command = argv[argv.indexOf('--command') + 1];
+          const directory = readdirSync(root).find((name) => name.startsWith('orca-terminal-'));
+          if (!directory) throw new Error('Missing guarded launch directory');
+          const startup = watch(join(root, directory));
+          const pidWritten = once(startup, 'change');
           child = spawn(
             '/bin/sh',
             [
               '-c',
-              condition === 'login-wrapper' || condition === 'ps-newer-parent'
-                ? `${command} & wait`
-                : (command ?? 'exit 99'),
+              condition === 'lost-receipt-before-start'
+                ? `read -r release; ${command}`
+                : condition === 'login-wrapper' || condition === 'ps-newer-parent'
+                  ? `${command} & wait`
+                  : (command ?? 'exit 99'),
             ],
-            { stdio: 'ignore' },
+            {
+              stdio: [
+                condition === 'lost-receipt-before-start' ? 'pipe' : 'ignore',
+                'ignore',
+                'ignore',
+              ],
+            },
           );
-          exit = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
-          if (condition === 'lost-receipt') return { stdout: '', stderr: 'lost', exitCode: null };
+          exit = new Promise<void>((resolve, reject) =>
+            child?.once('exit', () => resolve()).once('error', reject),
+          );
+          try {
+            // A receipt after startup must not race PID creation against directory cleanup.
+            if (condition !== 'lost-receipt-before-start')
+              await Promise.race([
+                pidWritten,
+                exit.then(() => {
+                  throw new Error('Guarded shell exited before publishing its PID');
+                }),
+              ]);
+          } finally {
+            startup.close();
+          }
+          if (condition.startsWith('lost-receipt'))
+            return { stdout: '', stderr: 'lost', exitCode: null };
           return fixtureReply({
             terminal: {
               handle: 'term_lead',
@@ -577,10 +606,15 @@ else {
         ).toBe(false);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'create')).toHaveLength(1);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'close')).toHaveLength(
-          ready || condition === 'lost-receipt' ? 0 : 1,
+          ready || condition.startsWith('lost-receipt') ? 0 : 1,
         );
-        if (condition === 'lost-receipt')
-          await expect.poll(() => child?.exitCode, { timeout: 1500 }).toBeTypeOf('number');
+        if (condition.startsWith('lost-receipt')) {
+          if (condition === 'lost-receipt-before-start') child?.stdin?.end('\n');
+          await exit;
+          expect(child?.exitCode).toBeTypeOf('number');
+          expect(child?.exitCode).not.toBe(0);
+          expect(existsSync(capture)).toBe(false);
+        }
       } finally {
         child?.kill('SIGTERM');
         await exit;
@@ -1795,13 +1829,16 @@ else {
 });
 
 import { type ChildProcess, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
+  watch,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
