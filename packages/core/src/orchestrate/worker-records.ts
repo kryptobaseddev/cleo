@@ -164,6 +164,26 @@ function toWorkerRecord(row: AgentInstanceRow, meta: WorkerMetadata): WorkerReco
   };
 }
 
+/** Test-only pause point inside the retry reservation; `null` in production. */
+let retryReservationProbe: (() => void) | null = null;
+
+/**
+ * Install a synchronous pause point that runs inside the retry reservation
+ * transaction, after the predecessor check and immediately before the
+ * `metadataJson` + `stoppedAt` CAS that retires the predecessor.
+ *
+ * @remarks Test seam only (T14494): a multi-process test parks two processes
+ * here so both are about to run the CAS. Production code never installs one.
+ * @param probe - Synchronous callback, or `null` to remove it.
+ * @example
+ * ```ts
+ * setRetryReservationProbe(() => waitForBarrierSync());
+ * ```
+ */
+export function setRetryReservationProbe(probe: (() => void) | null): void {
+  retryReservationProbe = probe;
+}
+
 /**
  * Persist a record for a worker the adapter left running.
  *
@@ -263,6 +283,64 @@ export async function recordWorker(
     parentAgentId: null,
   };
   const db = await getDb(cwd);
+  try {
+    reserveWorkerRow(db, worker, row, predecessor, now);
+  } catch (err) {
+    if (predecessor && isSqliteWriteConflict(err)) {
+      // @sync-invariant none:local-only another process wrote after this reservation read; its retry owns the predecessor
+      throw new Error('Orca retry reservation lost; no new launch is authorized.', { cause: err });
+    }
+    throw err;
+  }
+  return toWorkerRecord(row, metadata);
+}
+
+/**
+ * SQLITE_BUSY, the primary result code shared by its extended forms:
+ * SQLITE_BUSY_SNAPSHOT (517, a read snapshot went stale before its first write),
+ * SQLITE_BUSY_RECOVERY (261) and SQLITE_BUSY_TIMEOUT (773).
+ */
+const SQLITE_BUSY = 5;
+
+/**
+ * Whether an error, or any error in its `cause` chain, is a SQLite write
+ * conflict: SQLITE_BUSY or one of its extended codes. Which one a losing
+ * writer gets depends on timing: 517 when the winner already committed, 5 when
+ * the winner still held the write lock as the loser tried to upgrade.
+ * @param err - Thrown value; drizzle wraps the node:sqlite error in `cause`.
+ * @returns `true` for the SQLITE_BUSY family only; every other error is `false`.
+ */
+function isSqliteWriteConflict(err: unknown): boolean {
+  const seen = new Set<Error>();
+  for (let current = err; current instanceof Error && !seen.has(current); ) {
+    seen.add(current);
+    if (
+      'errcode' in current &&
+      typeof current.errcode === 'number' &&
+      (current.errcode & 0xff) === SQLITE_BUSY
+    ) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
+}
+
+/**
+ * Insert one worker row in a single transaction, retiring the exact predecessor
+ * first when this is a retry.
+ * @remarks Runs as a deferred transaction: a process that loses the write to
+ * another after its read is refused by SQLite with `SQLITE_BUSY` or
+ * `SQLITE_BUSY_SNAPSHOT`, which {@link recordWorker} reports as a lost
+ * reservation.
+ */
+function reserveWorkerRow(
+  db: Awaited<ReturnType<typeof getDb>>,
+  worker: NewWorkerRecord,
+  row: AgentInstanceRow,
+  predecessor: WorkerRecord | undefined,
+  now: string,
+): void {
   db.transaction((tx) => {
     const open = tx
       .select()
@@ -287,6 +365,7 @@ export async function recordWorker(
         // @sync-invariant none:local-only a concurrent retry or observation invalidates this replacement reservation
         throw new Error('Orca predecessor changed; reload its exact worker record before retry.');
       }
+      retryReservationProbe?.();
       const retired = tx
         .update(tasksAgentInstances)
         .set({
@@ -318,7 +397,6 @@ export async function recordWorker(
     }
     tx.insert(tasksAgentInstances).values(row).run();
   });
-  return toWorkerRecord(row, metadata);
 }
 
 /**
