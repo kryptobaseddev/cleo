@@ -98,7 +98,8 @@ export function worktreeProcessUse(worktreePath: string): string | null {
  * so they are never worker liveness evidence. Open worker records, live
  * session leases, or any unreadable source keep the checkout.
  * Foreign stores use only immutable snapshots: a nonempty WAL or any open
- * executor leaves liveness unknown and keeps the checkout.
+ * executor leaves liveness unknown and keeps the checkout. Snapshot close
+ * rejects main-file changes, including checkpoints between the WAL stats.
  * @param projectRoot - Owning project.
  * @param taskId - Terminal task that owns the checkout.
  * @param worktreePath - Checkout to protect.

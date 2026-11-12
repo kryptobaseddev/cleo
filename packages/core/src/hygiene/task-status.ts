@@ -21,6 +21,7 @@ import { loadOwningTaskStatuses } from '../worktree/list.js';
  * @param own - Ownership decided before any store access.
  * @returns Task statuses, or a failure carrying the store-read refusal reason.
  * @remarks Foreign snapshots may omit uncheckpointed WAL writes and never authorize disposal.
+ *   A main-file change detected on close discards the status result.
  * @example
  * ```ts
  * const result = await loadCensusTaskStatuses(['T1'], '/workspace/project', false);

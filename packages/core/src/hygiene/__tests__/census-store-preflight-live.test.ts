@@ -371,4 +371,44 @@ describe('census foreign-store gate against real stores (T14440 P1a)', () => {
     expect(storeFingerprint(dbPath)).toBe(before);
     expect(storeFingerprint(pinnedDb)).toBe(pinnedBefore);
   });
+
+  it('rejects a foreign status snapshot checkpointed before close', async () => {
+    const sqlite = await import('../../store/sqlite.js');
+    const { loadCensusTaskStatuses } = await import('../task-status.js');
+    await sqlite.getDb(projectRoot);
+    await sqlite.closeAllDatabases();
+    const live = new DatabaseSync(dbPath);
+    live.exec(`
+      PRAGMA wal_autocheckpoint = 0;
+      INSERT INTO tasks_tasks (id, title, status, pipeline_stage)
+      VALUES ('T1', 'before checkpoint', 'done', 'contribution');
+      PRAGMA wal_checkpoint(TRUNCATE);
+    `);
+    const openSnapshot = sqlite.openProjectTasksReadOnly;
+    const read = vi.spyOn(sqlite, 'openProjectTasksReadOnly').mockImplementationOnce((root) => {
+      const snapshot = openSnapshot(root);
+      if (snapshot === null) throw new Error('missing fixture snapshot');
+      const close = snapshot.close;
+      snapshot.close = () => {
+        live.exec(`
+          UPDATE tasks_tasks SET title = 'after checkpoint' WHERE id = 'T1';
+          PRAGMA wal_checkpoint(TRUNCATE);
+        `);
+        close();
+      };
+      return snapshot;
+    });
+    try {
+      expect(await loadCensusTaskStatuses(['T1'], projectRoot, false)).toMatchObject({
+        success: false,
+        error: {
+          code: 'E_TASK_STATE_UNAVAILABLE',
+          message: 'Foreign task snapshot changed while reading',
+        },
+      });
+    } finally {
+      read.mockRestore();
+      live.close();
+    }
+  });
 });

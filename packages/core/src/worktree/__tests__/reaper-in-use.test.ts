@@ -126,7 +126,8 @@ describe('reaper inactivity proof', () => {
     'missing',
     'unreadable',
     'schema missing',
-  ])('probes a foreign %s store without writable opens or file changes', async (state) => {
+    'checkpoint during read',
+  ])('probes a foreign %s store without reader writes', async (state) => {
     const foreign = join(base, 'foreign');
     mkdirSync(join(foreign, '.cleo'), { recursive: true });
     writeFileSync(
@@ -153,7 +154,7 @@ describe('reaper inactivity proof', () => {
           if (state === 'wal') expect(statSync(`${dbPath}-wal`).size).toBeGreaterThan(0);
         }
         if (state === 'schema missing') db.exec('DROP TABLE tasks_agent_instances');
-        if (state !== 'wal') db.close();
+        if (state !== 'wal' && state !== 'checkpoint during read') db.close();
       } else if (state === 'unreadable') writeFileSync(dbPath, 'not a database');
 
       const actualWorkers = await vi.importActual<
@@ -176,14 +177,41 @@ describe('reaper inactivity proof', () => {
         ['', '-wal', '-shm'].map((suffix) =>
           existsSync(`${dbPath}${suffix}`) ? readFileSync(`${dbPath}${suffix}`) : null,
         );
-      const before = files();
+      let expectedFiles = files();
+      if (state === 'checkpoint during read' && db !== null) {
+        expect(statSync(`${dbPath}-wal`).size).toBe(0);
+        const openSnapshot = sqlite.openProjectTasksReadOnly;
+        vi.spyOn(sqlite, 'openProjectTasksReadOnly').mockImplementationOnce((root) => {
+          const snapshot = openSnapshot(root);
+          if (snapshot === null) throw new Error('missing fixture snapshot');
+          const prepare = snapshot.db.prepare.bind(snapshot.db);
+          vi.spyOn(snapshot.db, 'prepare').mockImplementation((sql) => {
+            const statement = prepare(sql);
+            const get = statement.get.bind(statement);
+            vi.spyOn(statement, 'get').mockImplementationOnce(() => {
+              const row = get();
+              expect(row).toBeUndefined();
+              db.exec(`
+                INSERT INTO tasks_agent_instances (id, agent_type, task_id)
+                VALUES ('new-worker', 'executor', 'T1');
+                PRAGMA wal_checkpoint(TRUNCATE);
+              `);
+              expect(statSync(`${dbPath}-wal`).size).toBe(0);
+              expectedFiles = files();
+              return row;
+            });
+            return statement;
+          });
+          return snapshot;
+        });
+      }
       const probe = await worktreeReaperInUseProbe(foreign, 'T1', path);
       expect(probe()).toBe(
         state === 'empty' ? 'an agent-session lease is still live' : 'unknown (foreign project)',
       );
       expect(writable).not.toHaveBeenCalled();
       expect(listWorkerRecords).not.toHaveBeenCalled();
-      expect(files()).toEqual(before);
+      expect(files()).toEqual(expectedFiles);
     } finally {
       if (db?.isOpen) db.close();
     }
