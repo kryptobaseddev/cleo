@@ -859,6 +859,12 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
         expect(plan.next?.command).toContain(`cd ${stale} && cleo done ${id}`);
         expect(plan.next?.command).toContain('--pr 42 --run-typed');
       }
+      const discovered = await deriveTaskEvidence(id, {
+        ...options,
+        cwd: root,
+        prNumber: undefined,
+      });
+      expect(discovered.next?.command).not.toContain('--pr');
 
       git(stale, ['switch', '-q', '--detach', merge]);
       process.chdir(stale);

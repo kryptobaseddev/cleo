@@ -265,6 +265,7 @@ function checkoutBlocker(
   cs: TaskChangeSet,
   ciSatisfies: boolean,
   runTyped: boolean,
+  prNumber?: number,
 ): DonePlanBlocker | null {
   const root = cs.executionRoot;
   const head = gitRead(root, ['rev-parse', 'HEAD']);
@@ -333,7 +334,7 @@ function checkoutBlocker(
           ? '; evidence.ciSatisfies is set, so ci:<pr> needs no local run.'
           : '. (Setting evidence.ciSatisfies would let ci:<pr>, the merged CI, stand in.)'),
       next: {
-        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cd ${shellQuote(root)} && cleo done ${taskId} --pr ${cs.componentPrNumber ?? cs.prNumber}${runTyped ? ' --run-typed' : ''}`,
+        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cd ${shellQuote(root)} && cleo done ${taskId}${prNumber === undefined ? '' : ` --pr ${prNumber}`}${runTyped ? ' --run-typed' : ''}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
       },
     };
@@ -358,6 +359,7 @@ async function readinessBlockers(input: {
   changeSet: TaskChangeSet;
   needsTree: boolean;
   runTyped: boolean;
+  prNumber?: number;
   gates: readonly DonePlanGate[];
   additionalImplemented: readonly string[];
   blocked: boolean;
@@ -366,7 +368,13 @@ async function readinessBlockers(input: {
   const { taskId, changeSet: cs } = input;
   if (input.needsTree) {
     // A stale task worktree needs the merged checkout, not just a change of directory.
-    const checkout = checkoutBlocker(taskId, cs, readCiSatisfies(input.storeRoot), input.runTyped);
+    const checkout = checkoutBlocker(
+      taskId,
+      cs,
+      readCiSatisfies(input.storeRoot),
+      input.runTyped,
+      input.prNumber,
+    );
     if (checkout) return [checkout];
     if (cs.rootSource === 'task-worktree') {
       return [
@@ -1628,6 +1636,7 @@ export async function deriveTaskEvidence(
           changeSet,
           needsTree: toolRuns.length > 0 || typedGates.length > 0,
           runTyped: opts.runTyped === true,
+          prNumber: opts.prNumber,
           gates,
           additionalImplemented,
           blocked: derivedBlockers.length > 0,
