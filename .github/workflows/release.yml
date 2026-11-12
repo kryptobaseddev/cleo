@@ -1406,7 +1406,7 @@ jobs:
   release-verdict:
     name: Release Verdict
     runs-on: ubuntu-latest
-    needs: [build-verify, publish, execute-payload]
+    needs: [build-verify, publish, execute-payload, supervisor-prebuild, supervisor-attach]
     if: always()
     timeout-minutes: 10
     permissions:
@@ -1415,6 +1415,23 @@ jobs:
       actions: write  # kicks the watcher immediately rather than waiting for cron
 
     steps:
+      - name: Summarize cleo-supervisor binaries
+        env:
+          PREBUILD_RESULT: ${{ needs.supervisor-prebuild.result }}
+          ATTACH_RESULT: ${{ needs.supervisor-attach.result }}
+        run: |
+          {
+            echo '## cleo-supervisor binaries'
+            echo ''
+            echo '| Job | Result |'
+            echo '| --- | --- |'
+            echo "| Prebuild gate (5 targets) | ${PREBUILD_RESULT} |"
+            echo "| Attach binaries and manifest | ${ATTACH_RESULT} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$PREBUILD_RESULT" != 'success' || "$ATTACH_RESULT" != 'success' ]]; then
+            echo "::warning title=SUPERVISOR BINARIES MISSING::Prebuild: ${PREBUILD_RESULT}; attachment: ${ATTACH_RESULT}. Release binaries are missing or unverified."
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
 

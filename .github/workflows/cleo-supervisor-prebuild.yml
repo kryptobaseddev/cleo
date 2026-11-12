@@ -12,8 +12,8 @@ name: cleo-supervisor prebuild
 #
 # The supervisor is a STANDALONE executable ([[bin]]), not a napi `.node`
 # addon, so the build step is `cargo build --release --target` (with `cross`
-# for the Linux arm64 cross-compile) rather than `napi build`. The matrix,
-# runners, and cross handling mirror worktree-napi-prebuild.yml exactly.
+# for the Linux arm64 cross-compile) rather than `napi build`. The matrix and
+# Linux cross handling mirror worktree-napi-prebuild.yml; macOS uses native runners.
 #
 # A standalone `pull_request` workflow, not a job called from ci.yml (T13279):
 # its build is covered on PRs by cleo-supervisor smoke, which IS called from
@@ -67,12 +67,12 @@ jobs:
             cross: true
             ext: ''
           - target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-15-intel
             triple: darwin-x64
             cross: false
             ext: ''
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             triple: darwin-arm64
             cross: false
             ext: ''
@@ -109,7 +109,7 @@ jobs:
           ls -la "$DEST"
 
       - name: Smoke test --version (native targets only)
-        if: matrix.cross == false && matrix.triple != 'darwin-x64'
+        if: matrix.cross == false
         shell: bash
         run: |
           set -euo pipefail
