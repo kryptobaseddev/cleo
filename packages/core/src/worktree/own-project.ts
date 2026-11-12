@@ -1,17 +1,16 @@
 /**
- * The once-up-front own-project decision for the census's status reads
+ * The once-up-front own-project decision for census status and reaper liveness reads
  * (T14440, round 6/7): the target is OWN only when its realpath and its
- * portable identity (`.cleo/project.json`, legacy `.cleo/project-id`) match the process's resolved
- * project — never a binding cache and never an ambient pin; both store
+ * portable identity (`.cleo/project.json`, legacy `.cleo/project-id`) match
+ * the process's resolved project — never a binding cache and never an ambient pin; both store
  * paths, both realpaths and both declared ids must agree. Any doubt
  * (unresolvable path, missing identity, mismatched ids) answers `false` —
  * fail closed, the target is treated as foreign.
  *
- * Own projects read task status through the normal accessor (fresh); every
+ * Own projects read task and worker state through normal accessors (fresh); every
  * other store is read only through the immutable, sidecar-free snapshot
- * (`openProjectTasksReadOnly`), whose output is labelled as a display
- * snapshot that may lag uncommitted writes. No removal decision consumes
- * snapshot reads.
+ * (`openProjectTasksReadOnly`). Display callers label its WAL lag; reapers
+ * reject nonempty WALs, open executors and snapshots changed during the read.
  *
  * @task T14440
  * @packageDocumentation

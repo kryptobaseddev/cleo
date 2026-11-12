@@ -22,7 +22,7 @@
  * @task T11521 - E6-L1: route getDb through openDualScopeDb (SG-DB-SUBSTRATE-V2)
  */
 
-import { copyFileSync, existsSync, realpathSync, renameSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, realpathSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
 // T11280: `drizzle` is loaded LAZILY (see ./drizzle-node-sqlite.ts) rather than
@@ -1039,6 +1039,8 @@ export function getNativeTasksDb(cwd?: string): DatabaseSync | null {
  * @returns The immutable snapshot handle, or `null` when the store file does
  *   not exist (definitive absence). A store that exists but cannot be opened
  *   THROWS.
+ * @remarks Closing rejects the snapshot if the main file changed during the read;
+ *   callers must close before accepting any result and propagate close failures.
  */
 export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHandle | null {
   let dbPath: string;
@@ -1049,7 +1051,29 @@ export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHan
     throw new Error(`Task store path could not be resolved for ${projectRoot}`);
   }
   if (!existsSync(dbPath)) return null;
-  return openCleoDbImmutable(dbPath);
+  const before = statSync(dbPath, { bigint: true });
+  const snapshot = openCleoDbImmutable(dbPath);
+  let closed = false;
+  return {
+    ...snapshot,
+    close() {
+      if (closed) return;
+      closed = true;
+      snapshot.close();
+      // A TRUNCATE checkpoint can empty the WAL again while rewriting the main file.
+      const after = statSync(dbPath, { bigint: true });
+      if (
+        before.dev !== after.dev ||
+        before.ino !== after.ino ||
+        before.size !== after.size ||
+        before.mtimeNs !== after.mtimeNs ||
+        before.ctimeNs !== after.ctimeNs
+      ) {
+        // @sync-invariant none:local-only changed foreign snapshots cannot authorize cleanup
+        throw new Error('Foreign task snapshot changed while reading');
+      }
+    },
+  };
 }
 
 export type { NodeSQLiteDatabase };
