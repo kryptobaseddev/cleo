@@ -276,6 +276,9 @@ jobs:
         timeout-minutes: 10
 
       # R-226(b): npm publish — gated on PUBLISHERS env containing "npm".
+      # A workspace publish command must verify version metadata and tarballs
+      # of dependencies before publishing its entry package to latest. The
+      # cleocode-specific release.yml uses execute-payload before its CLI wave.
       - name: Publish npm packages
         if: contains(env.PUBLISHERS, 'npm')
         run: {{NPM_PUBLISH_CMD}}

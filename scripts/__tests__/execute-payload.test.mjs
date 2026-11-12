@@ -13,15 +13,16 @@
  * @task gh#1377
  */
 
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   checkMetadata,
   checkPackage,
   checkTarball,
   converge,
+  main,
   parseArgs,
   readCreatedAt,
   readPublishedPackages,
@@ -235,6 +236,19 @@ describe('gh#1377 — the package list comes from the SSoT, and an empty scan fa
     expect(pkgs.length).toBeGreaterThan(0);
     expect(pkgs).toContain('cleo');
   });
+
+  it('the pre-CLI gate checks every earlier package from the same SSoT', async () => {
+    const all = await readPublishedPackages();
+    expect(await readPublishedPackages(undefined, 'cleo')).toEqual(
+      all.slice(0, all.indexOf('cleo')),
+    );
+  });
+
+  it.each(['missing-package', 'paths'])('refuses an empty or unknown boundary: %s', async (pkg) => {
+    await expect(readPublishedPackages(undefined, pkg)).rejects.toThrow(
+      'No publish packages precede',
+    );
+  });
 });
 
 describe('arg parsing', () => {
@@ -257,6 +271,17 @@ describe('arg parsing', () => {
   // second copy that let this job verify `latest` during a `beta` release.
   it('leaves --dist-tag empty rather than guessing it', () => {
     expect(parseArgs(['--version', '2026.9.2-beta.1']).distTag).toBe('');
+  });
+
+  it('reads --before-package for the pre-publish gate', () => {
+    expect(parseArgs(['--before-package', 'cleo']).beforePackage).toBe('cleo');
+  });
+
+  it.each([
+    ['--before-package'],
+    ['--before-package', '--version', '2026.11.3'],
+  ])('refuses a missing pre-publish package name: %j', (...args) => {
+    expect(() => parseArgs(args)).toThrow('--before-package needs a package name');
   });
 });
 
@@ -306,6 +331,44 @@ function stubFetch4({
     };
   };
 }
+
+describe('T14516 — the stable dependency gate retains per-package convergence times', () => {
+  it('writes and logs every earlier package, without waiting for the unpublished CLI', async () => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'ep-before-cli-'));
+    const argv = process.argv;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(stubFetch4());
+    process.argv = [
+      process.execPath,
+      'execute-payload.mjs',
+      '--version',
+      '2026.9.8',
+      '--dist-tag',
+      'latest',
+      '--before-package',
+      'cleo',
+      '--output-dir',
+      outputDir,
+    ];
+    try {
+      expect(await main()).toBe(0);
+      const summary = JSON.parse(
+        await readFile(path.join(outputDir, 'deploy-summary-2026.9.8.json'), 'utf8'),
+      );
+      const packages = await readPublishedPackages(undefined, 'cleo');
+      expect(summary.verdict).toBe('installable');
+      expect(summary.packages.map((p) => p.name)).toEqual(packages.map((p) => `@cleocode/${p}`));
+      expect(summary.packages.every((p) => p.verified && p.convergedAfterMs >= 0)).toBe(true);
+      expect(log.mock.calls.filter(([line]) => line.includes('installable at +'))).toHaveLength(
+        packages.length,
+      );
+    } finally {
+      process.argv = argv;
+      vi.restoreAllMocks();
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('gh#1474 — dist-tags is a third document and nothing checked it', () => {
   it('REGRESSION: metadata 200 + tarball 200 + STALE dist-tag is NOT installable', async () => {
