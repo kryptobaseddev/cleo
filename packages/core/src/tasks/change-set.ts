@@ -1480,6 +1480,24 @@ function branchOwnPaths(root: string, baseRef: string, ref: string): Set<string>
   return paths;
 }
 
+/**
+ * Refuse tracked edits in the evidence checkout, allowing untracked worktree-include files.
+ *
+ * @param root - Checkout where evidence tools run.
+ * @returns The dirty-tree refusal when git reports tracked edits, otherwise null.
+ * @example
+ * const refusal = dirtyTreeBlocker('/path/to/checkout');
+ */
+export function dirtyTreeBlocker(root: string): DonePlanBlocker | null {
+  if (!git(root, ['status', '--porcelain', '--untracked-files=no'])) return null;
+  return blocker(
+    'dirty-tree',
+    `${root} has uncommitted tracked changes; evidence must describe a commit.`,
+    `git -C '${root}' commit -am "<message>"`,
+    'Commit (or stash) the changes so the recorded commit is the code under test.',
+  );
+}
+
 function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
   const root = cs.executionRoot;
   const current = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -1518,17 +1536,8 @@ function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
   // T14059: a root checked out at the commit by another ref (detached at the
   // task branch's tip) is the tree the tools measure, so it must be clean too.
   if (headRef === 'HEAD' || git(root, ['rev-parse', 'HEAD']) === commitSha) {
-    const dirty = git(root, ['status', '--porcelain', '--untracked-files=no']);
-    if (dirty) {
-      cs.blockers.push(
-        blocker(
-          'dirty-tree',
-          `${root} has uncommitted tracked changes; evidence must describe a commit.`,
-          `git -C '${root}' commit -am "<message>"`,
-          'Commit (or stash) the changes so the recorded commit is the code under test.',
-        ),
-      );
-    }
+    const dirty = dirtyTreeBlocker(root);
+    if (dirty) cs.blockers.push(dirty);
   }
   cs.implementedEvidence =
     files.length > 0

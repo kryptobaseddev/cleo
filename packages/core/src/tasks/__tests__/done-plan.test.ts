@@ -493,6 +493,42 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     return { id, prDeps };
   }
 
+  it.each([
+    'unstaged',
+    'staged',
+  ])('T14517: refuses a detached merge checkout with a %s tracked edit', async (edit) => {
+    const { id, prDeps } = await mergedPrSetup(false);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '--detach', merge]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 4;\n');
+    if (edit === 'staged') git(root, ['add', 'src/a.ts']);
+
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: prDeps,
+    });
+    expect(plan.changeSet).toMatchObject({ source: 'pr', mergeCommitSha: merge });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('checkout-required');
+    expect(plan.blockers.find((b) => b.code === 'dirty-tree')).toMatchObject({
+      message: expect.stringContaining('uncommitted tracked changes'),
+      next: { command: expect.stringContaining('commit -am') },
+    });
+    expect(plan.ready).toBe(false);
+  });
+
+  it('T14517: allows untracked worktree-include files in a detached merge checkout', async () => {
+    const { id, prDeps } = await mergedPrSetup(false);
+    git(root, ['switch', '-q', '--detach', 'HEAD']);
+    writeFileSync(join(root, '.npmrc'), 'registry=https://registry.npmjs.org/\n');
+
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps: prDeps });
+    expect(plan.changeSet.source).toBe('pr');
+    expect(plan.blockers.map((b) => b.code)).not.toContain('checkout-required');
+    expect(plan.blockers.map((b) => b.code)).not.toContain('dirty-tree');
+  });
+
   describe('T13495: a tree-pinned scoped testsPassed after the merge', () => {
     async function record(id: string, treeHash: string | null): Promise<void> {
       // T14037: the plan re-validates recorded atoms as complete does, so the
