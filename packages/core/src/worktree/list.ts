@@ -98,6 +98,7 @@ function taskIdOf(branch: string, path: string): string | null {
  * by activity / merge / lock / orphan state, and return a structured envelope.
  *
  * @param opts - Listing options including project root, filter, and stale-days threshold.
+ * @param loadTaskStatuses - When false, skip task-store reads and disposal proofs (census metadata only).
  * @returns EngineResult containing a {@link ListWorktreesResult} on success.
  *
  * @example
@@ -112,6 +113,7 @@ function taskIdOf(branch: string, path: string): string | null {
  */
 export async function listWorktrees(
   opts: ListWorktreesOpts = {},
+  loadTaskStatuses = true,
 ): Promise<EngineResult<ListWorktreesResult>> {
   const projectRoot = resolveOrCwd(opts.projectRoot);
   const staleDays = opts.staleDays ?? DEFAULT_STALE_DAYS;
@@ -186,7 +188,9 @@ export async function listWorktrees(
   const taskIds = Array.from(taskIdByPath.values()).filter(
     (id): id is string => id !== null && (opts.taskId === undefined || id === opts.taskId),
   );
-  const taskStatusResult = await loadOwningTaskStatuses(taskIds, projectRoot);
+  const taskStatusResult = loadTaskStatuses
+    ? await loadOwningTaskStatuses(taskIds, projectRoot)
+    : engineSuccess(new Map<string, string>());
   const taskStatusByid = taskStatusResult.success
     ? taskStatusResult.data
     : new Map<string, string>();
@@ -250,7 +254,9 @@ export async function listWorktrees(
     const classified =
       taskId !== null && !taskStatusResult.success
         ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
-        : classifyStatus(candidate ? proveRedundant(entry.path, taskId, isMerged) : null);
+        : classifyStatus(
+            candidate && loadTaskStatuses ? proveRedundant(entry.path, taskId, isMerged) : null,
+          );
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -309,7 +315,9 @@ export async function listWorktrees(
     const classified =
       taskId !== null && !taskStatusResult.success
         ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
-        : classifyStatus(candidate ? proveRedundant(sentinel.path, taskId, false) : null);
+        : classifyStatus(
+            candidate && loadTaskStatuses ? proveRedundant(sentinel.path, taskId, false) : null,
+          );
 
     worktrees.push({
       path: sentinel.path,

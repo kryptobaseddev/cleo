@@ -18,7 +18,7 @@
  *   list as a worktree, is reported `unknown`, report only.
  *
  * The CLI reports by default. `--apply` removes only `redundant` terminal
- * worktrees of the allowed projects (current project unless `--all-projects`);
+ * worktrees of the current project; foreign projects remain report-only;
  * automatic completion and scheduled cleanup opt in explicitly, each re-proved by
  * `disposeWorktree` with the task's evidence. Every run writes one census
  * record (counts, apparent bytes, bytes reclaimed, the free-space delta and
@@ -28,10 +28,19 @@
  * claims at most one run per project per 24 h; it never starts in CI, under vitest, or in
  * a process git started (T14189).
  *
+ * Every row also carries the visibility fields the machine-hygiene epic needs
+ * (T14440): the owning task's status, last activity and creation time, git and
+ * task locks, the dirty-entry count, and the `node_modules` kind and size.
+ * Per project the record rolls up worktree counts, bytes and merged local and
+ * remote branches, and names why each project's store was or was not read;
+ * machine-wide it names the orphan hash directories and the global pnpm
+ * store's size.
+ *
  * @task T14275
+ * @task T14440
  */
 
-import { type SpawnOptions, spawn } from 'node:child_process';
+import { execFileSync, type SpawnOptions, spawn } from 'node:child_process';
 import {
   appendFileSync,
   closeSync,
@@ -47,10 +56,14 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { setPriority } from 'node:os';
-import { join, resolve } from 'node:path';
+import { homedir, setPriority } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import type { WorktreeInfo, WorktreeStatusCategory } from '@cleocode/contracts';
+import type { WorktreeLockRecord } from '@cleocode/contracts/operations/worktree.js';
 import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
+import { gitDefaultBranchRefs } from '../git/work-tree.js';
 import { acquireHeartbeatLock, claimAtMostEvery } from '../tasks/merge-close.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 
@@ -82,16 +95,75 @@ export interface CensusRow {
   lastActivity?: string;
   /** Task state at discovery; only done and cancelled tasks are removal candidates. */
   taskStatus?: string | null;
+  /** ISO creation time (git admin file, adopt sentinel or dir mtime); `null` when unknown (T14440). */
+  createdAt: string | null;
+  /** `git worktree list --porcelain` lock state (T14440). */
+  gitLocked: boolean;
+  /** A CLEO task lock is held on this worktree's task (T14440). */
+  taskLocked: boolean;
+  /** Changed + untracked entries from `git status --porcelain`; `null` when git failed or time ran out (T14440). */
+  dirtyFiles: number | null;
+  /** The worktree's `node_modules`: `absent`, a `symlink`, or a `real` directory (T14440). */
+  nodeModules: 'absent' | 'symlink' | 'real';
+  /** Apparent bytes of a `real` `node_modules` (symlinks count as 0); 0 otherwise (T14440). */
+  nodeModulesBytes: number;
   /** Selected by the TTL and retained-size budget, including in a dry run. */
   selected?: boolean;
   /** Set when `--apply` removed it. */
   removed?: boolean;
 }
 
+/**
+ * Per-project rollup of one census run (T14440).
+ */
+export interface ProjectCensusRollup {
+  /** Registered project root, or `null` when the hash dir matches no registered project. */
+  project: string | null;
+  /** The hash directory. */
+  projectHash: string;
+  /** Worktrees found under it. */
+  worktrees: number;
+  /** Their apparent bytes. */
+  apparentBytes: number;
+  /**
+   * Local branches the SDK integration probe classifies as merged into the
+   * integration target (primary checkout and the target itself excluded);
+   * `null` when the probe failed (T14440).
+   */
+  mergedLocalBranches: number | null;
+  /** Remote branches merged into the target (HEAD refs excluded); `null` when git failed (T14440). */
+  mergedRemoteBranches: number | null;
+  /** True when no registered project owns this hash directory. */
+  orphan: boolean;
+  /**
+   * The foreign-store verdict behind this rollup's task statuses: `read` when
+   * the store was opened, otherwise why it was skipped (T14440 AC3).
+   */
+  storeRead: string;
+}
+
+/** A worktrees-home hash directory that matches no registered project (T14440). */
+export interface OrphanHashDir {
+  /** The directory name under the worktrees home. */
+  projectHash: string;
+  /** Worktree-like directories found under it. */
+  worktrees: number;
+  /** Their apparent bytes. */
+  apparentBytes: number;
+}
+
+/** The global pnpm content-addressable store and its size (T14440). */
+export interface PnpmStoreCensus {
+  /** The store directory (`pnpm store path`). */
+  path: string;
+  /** Apparent bytes of the store. */
+  apparentBytes: number;
+}
+
 /** The record one census run writes. */
 export interface CensusRecord {
   /** Record format version. */
-  schemaVersion: 1;
+  schemaVersion: 2;
   /** `report` reads only; `apply` removed proven-redundant worktrees. */
   mode: 'report' | 'apply';
   /** ISO time the run started. */
@@ -124,6 +196,12 @@ export interface CensusRecord {
   maxBytes?: number;
   /** Registered projects that could not be assessed; never eligible for removal. */
   projectErrors?: Array<{ project: string; error: string }>;
+  /** Per-project rollup: worktree count, bytes, merged branches, store verdict (T14440). */
+  projects: ProjectCensusRollup[];
+  /** Hash directories under the machine root that no registered project owns (T14440). */
+  orphanFolders: OrphanHashDir[];
+  /** The global pnpm store and its apparent size, when it could be resolved (T14440). */
+  pnpmStore: PnpmStoreCensus | null;
 }
 
 /** Options of {@link runWorktreeCensus}. */
@@ -132,7 +210,7 @@ export interface WorktreeCensusOptions {
   apply?: boolean;
   /** Projects `apply` may act on (default: none; the CLI passes the current project). */
   applyProjects?: readonly string[];
-  /** Explicitly allow removal in every registered project. */
+  /** Report every registered project; foreign projects remain ineligible for removal. */
   allProjects?: boolean;
   /** Minimum idle age in days (default: zero); a budget never overrides it. */
   ttlDays?: number;
@@ -148,6 +226,19 @@ export interface WorktreeCensusOptions {
   machineRoot?: string;
   /** Wall-clock deadline (ms epoch): past it the walk stops and the record is `partial`. */
   deadline?: number;
+  /**
+   * The global pnpm store census to embed. `undefined` resolves and sizes the
+   * real store (`pnpm store path`); `null` records none; tests stub a value.
+   */
+  pnpmStore?: PnpmStoreCensus | null;
+  /**
+   * Merged-branch counter override (tests). Default: {@link mergedBranchCounts}
+   * with the walk deadline and the worker-bounded SDK probe.
+   */
+  branchesOf?: (projectRoot: string) => Promise<{
+    mergedLocal: number | null;
+    mergedRemote: number | null;
+  }>;
 }
 
 /** Where the census keeps its record, claim and lock. */
@@ -274,7 +365,9 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   } = await import('../worktree/list.js');
   const { worktreeReaperInUseProbe } = await import('../worktree/in-use-probe.js');
   const { loadTaskEvidence } = await import('../worktree/prune.js');
-  const { disposeWorktree } = await import('@cleocode/worktree');
+  const { disposeWorktree, readWorktreeTaskLock } = await import('@cleocode/worktree');
+  const { isOwnProjectStore } = await import('../worktree/own-project.js');
+  const { loadCensusTaskStatuses } = await import('./task-status.js');
   const startedAt = new Date().toISOString();
   const machineRoot = opts.machineRoot ?? getCleoWorktreesRoot();
   const apply = opts.apply === true;
@@ -307,6 +400,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
 
   const rows: CensusRow[] = [];
   const meta = new Map<CensusRow, WorktreeInfo>();
+  const statusReadByProject = new Map<string, string>();
   const seen = new Set<string>();
   // Git's registry covers adopted AND unadopted external worktrees, including
   // projects that have never had a canonical hash directory on this machine.
@@ -317,26 +411,51 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       projectErrors.push({ project, error: 'registered project path is unavailable' });
       continue;
     }
-    const result = await listWorktrees({
-      projectRoot: project,
-      exemptRegenerable: opts.exemptRegenerable === true,
-    });
+    const own = isOwnProjectStore(project);
+    const result = await listWorktrees(
+      {
+        projectRoot: project,
+        exemptRegenerable: opts.exemptRegenerable === true,
+      },
+      own,
+    );
     if (!result.success) {
       partial = true;
       projectErrors.push({ project, error: result.error.message });
       continue;
     }
+    const taskIds = [
+      ...new Set(result.data.worktrees.flatMap((w) => (w.taskId === null ? [] : [w.taskId]))),
+    ];
+    const statuses = await loadCensusTaskStatuses(taskIds, project, own);
+    statusReadByProject.set(
+      project,
+      statuses.success
+        ? own
+          ? 'read'
+          : 'snapshot: may lag uncommitted writes'
+        : `status unknown: ${statuses.error.message}`,
+    );
     const primary = resolvePrimaryWorktreePath(project);
     for (const worktree of result.data.worktrees) {
       if (outOfTime()) break;
       const path = canonical(worktree.path);
       if (isPrimaryWorktree(path, primary) || path === project || seen.has(path)) continue;
       seen.add(path);
+      // T14440 (round 7): a FOREIGN project's row never reaches the reaper's
+      // probe, disposal or any store-opening liveness code — its liveness is
+      // 'unknown (foreign project)' and it is never a removal candidate. Own
+      // rows keep main's behaviour exactly.
+      worktree.owningTaskStatus = statuses.success
+        ? (statuses.data.get(worktree.taskId ?? '') ?? null)
+        : null;
       const terminal =
+        own &&
         worktree.taskId !== null &&
         (worktree.owningTaskStatus === 'done' || worktree.owningTaskStatus === 'cancelled');
-      const classified =
-        terminal && worktree.taskId !== null
+      const classified = !own
+        ? { statusCategory: 'unknown' as const, keepReason: 'unknown (foreign project)' }
+        : terminal && worktree.taskId !== null
           ? classifyStatus(
               disposeWorktree({
                 worktreePath: path,
@@ -350,9 +469,11 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
               }),
             )
           : { statusCategory: worktree.statusCategory, keepReason: worktree.keepReason };
+      const rowProjectHash = computeProjectHash(project);
+      const nm = classifyNodeModules(path);
       const row: CensusRow = {
         project,
-        projectHash: computeProjectHash(project),
+        projectHash: rowProjectHash,
         path,
         taskId: worktree.taskId,
         category: classified.statusCategory,
@@ -361,6 +482,13 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
         branch: worktree.branch,
         lastActivity: worktree.lastActivity,
         taskStatus: worktree.owningTaskStatus,
+        // T14440 visibility fields, off the classifier and the filesystem.
+        createdAt: worktree.createdAt ?? null,
+        gitLocked: worktree.lockState === 'locked',
+        taskLocked: readTaskLockSafe(readWorktreeTaskLock, rowProjectHash, worktree.taskId),
+        dirtyFiles: dirtyFileCount(path, deadline),
+        nodeModules: nm,
+        nodeModulesBytes: nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
       };
       // A known task id without readable task state is not a taskless orphan.
       if (row.taskStatus === null && (row.taskId !== null || row.category === 'redundant')) {
@@ -369,6 +497,13 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
           row.taskId === null
             ? 'task ownership unavailable (report only)'
             : 'owning task state unavailable (report only)';
+      }
+      // Round 7: the foreign liveness label wins over the null-status
+      // relabel above — the snapshot could not see the WAL, which is exactly
+      // why the row is not a candidate.
+      if (!own) {
+        row.category = 'unknown';
+        row.keepReason = 'unknown (foreign project)';
       }
       rows.push(row);
       meta.set(row, worktree);
@@ -394,6 +529,7 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
       if (outOfTime()) break;
       const path = join(hashDir, name);
       if (seen.has(canonical(path))) continue;
+      const nm = classifyNodeModules(path);
       const row: CensusRow = {
         project,
         projectHash,
@@ -405,6 +541,12 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
             ? 'no registered project owns this hash directory (report only)'
             : 'git does not list this directory as a worktree of its project (report only)',
         apparentBytes: apparentBytes(path, deadline),
+        createdAt: null,
+        gitLocked: false,
+        taskLocked: false,
+        dirtyFiles: null,
+        nodeModules: nm,
+        nodeModulesBytes: nm === 'real' ? apparentBytes(join(path, 'node_modules'), deadline) : 0,
       };
       rows.push(row);
     }
@@ -479,8 +621,24 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   };
   for (const row of rows) if (!row.removed) counts[row.category] += 1;
   outOfTime();
+  // T14440: one overall deadline — every measurement below shares the walk's,
+  // so a truncation is always visible in `partial`.
+  const registeredRollups = [...projectByHash.entries()].map(([hash, root]) => ({
+    project: root,
+    projectHash: hash,
+  }));
+  const branchesOf =
+    opts.branchesOf ?? ((projectRoot: string) => mergedBranchCounts(projectRoot, deadline));
+  const rollups = await projectRollups(
+    rows,
+    registeredRollups,
+    branchesOf,
+    async (projectRoot) => statusReadByProject.get(projectRoot) ?? 'status unknown',
+  );
+  const store = opts.pnpmStore === undefined ? pnpmStoreCensus(deadline) : null;
+  outOfTime();
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mode: apply ? 'apply' : 'report',
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -500,7 +658,342 @@ async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
     ttlDays,
     maxBytes,
     projectErrors,
+    projects: rollups.rollups,
+    orphanFolders: rollups.orphans,
+    pnpmStore: opts.pnpmStore === undefined ? store : opts.pnpmStore,
   };
+}
+
+/** Wall-clock budget note: the merged-branch and pnpm measurements share the walk deadline. */
+
+/**
+ * Per-project rollups over the census rows, seeded with every registered
+ * project (a project with zero worktrees keeps its branch counts, T14440
+ * review P2e), plus the orphan hash directories.
+ *
+ * Merged-branch probes run once per registered project (never for orphans);
+ * a probe failure records `null`, never a zero. `storeRead` is the census's
+ * own status-read label ('read' / display snapshot / 'status unknown').
+ *
+ * @param rows - The census rows.
+ * @param registered - Every registered project root and its hash.
+ * @param branchesOf - Merged-branch counter (tests stub it).
+ * @param verdictOf - The foreign-store read verdict (tests stub it).
+ * @returns Rollups keyed by hash dir and the orphan directories among them.
+ */
+async function projectRollups(
+  rows: readonly CensusRow[],
+  registered: ReadonlyArray<{ project: string; projectHash: string }>,
+  branchesOf: (projectRoot: string) => Promise<{
+    mergedLocal: number | null;
+    mergedRemote: number | null;
+  }>,
+  verdictOf: (projectRoot: string) => Promise<string>,
+): Promise<{ rollups: ProjectCensusRollup[]; orphans: OrphanHashDir[] }> {
+  const byHash = new Map<string, ProjectCensusRollup>();
+  const seed = async (
+    project: string | null,
+    projectHash: string,
+  ): Promise<ProjectCensusRollup> => {
+    const existing = byHash.get(projectHash);
+    if (existing) return existing;
+    const rollup: ProjectCensusRollup = {
+      project,
+      projectHash,
+      worktrees: 0,
+      apparentBytes: 0,
+      mergedLocalBranches: null,
+      mergedRemoteBranches: null,
+      orphan: project === null,
+      storeRead: project === null ? 'not read: orphan directory' : await verdictOf(project),
+    };
+    byHash.set(projectHash, rollup);
+    return rollup;
+  };
+  for (const entry of registered) await seed(entry.project, entry.projectHash);
+  for (const row of rows) {
+    const rollup = await seed(row.project, row.projectHash);
+    if (!row.removed) {
+      rollup.worktrees += 1;
+      rollup.apparentBytes += row.apparentBytes;
+    }
+  }
+  const orphans: OrphanHashDir[] = [];
+  for (const rollup of byHash.values()) {
+    if (rollup.orphan) {
+      orphans.push({
+        projectHash: rollup.projectHash,
+        worktrees: rollup.worktrees,
+        apparentBytes: rollup.apparentBytes,
+      });
+    } else if (rollup.project !== null) {
+      const counts = await branchesOf(rollup.project);
+      rollup.mergedLocalBranches = counts.mergedLocal;
+      rollup.mergedRemoteBranches = counts.mergedRemote;
+    }
+  }
+  return { rollups: [...byHash.values()], orphans };
+}
+
+/** The plan shape the worker returns (a subset of the SDK prune plan). */
+export interface BoundedPrunePlan {
+  candidates: Array<{ kind: string; branch?: string | undefined }>;
+}
+
+/** Where the compiled worker file lives, or `null` (resolveWorkerPath pattern). */
+function resolvePrunePlanWorkerPath(): string | null {
+  try {
+    const currentDir = dirname(fileURLToPath(import.meta.url));
+    // dist build: the compiled .js next to census.js; vitest/source: the .ts
+    // sibling (Node 24 type stripping runs it, and it exists in the checkout).
+    for (const name of ['prune-plan-worker.js', 'prune-plan-worker.ts']) {
+      const candidate = join(currentDir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The SDK integration probe, run in a Worker built from a REAL module file
+ * (never eval — an eval worker inherits the parent's `--input-type=module`
+ * and cannot bootstrap) that the shared deadline TERMINATES (T14440, round 5).
+ * The napi `pruneWorktrees` walk over a large repository is synchronous and
+ * uninterruptible in-process, so it runs off-thread and a deadline overrun
+ * kills it before the census releases its lock. Any failure yields `null` —
+ * a failed probe is never a zero.
+ *
+ * @param repoRoot - The repository root to probe.
+ * @param integrationTarget - The branch "merged" is tested against.
+ * @param deadline - Wall-clock ms epoch; past it the worker is terminated.
+ * @returns The prune plan, or `null`.
+ */
+export async function prunePlanBounded(
+  repoRoot: string,
+  integrationTarget: string,
+  deadline: number,
+  /** Test hook: the worker writes this file markerDelayMs after the walk. */
+  markerPath?: string,
+  /** Test hook: the marker delay (ms) after the walk completes. */
+  markerDelayMs?: number,
+  /** Test hook: invoked when the worker has fully exited (round 7, item 5). */
+  onWorkerExit?: () => void,
+): Promise<BoundedPrunePlan | null> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return null;
+  const workerPath = resolvePrunePlanWorkerPath();
+  if (workerPath === null) {
+    // No worker file (unexpected — the build emits it next to this module):
+    // fall back in-process. Not interruptible; the census re-checks the
+    // deadline afterwards and marks the record partial.
+    const { buildGitAwarePrunePlan } = await import('@cleocode/worktree');
+    return buildGitAwarePrunePlan(repoRoot, integrationTarget) as BoundedPrunePlan | null;
+  }
+  const worker = new Worker(workerPath, {
+    // Round 7 (item 4): execArgv literally [] — the parent may run with
+    // --input-type=module (the lazy census child spawns that way), and an
+    // inherited --input-type makes the Worker throw ERR_INPUT_TYPE_NOT_ALLOWED.
+    execArgv: [],
+    workerData: {
+      requireFrom: fileURLToPath(import.meta.url),
+      repoRoot,
+      integrationTarget,
+      markerPath,
+      markerDelayMs,
+    },
+  });
+  // Resolution contract: the plan resolves on `message`; a deadline
+  // termination resolves only on `exit` — which fires after `terminate()`
+  // completes — so the census never releases its lock while the worker's
+  // native git walk is still running (T14440 review round 4).
+  interface PrunePlanWorkerMessage {
+    plan?: { candidates?: Array<{ kind: string; branch?: string | undefined }> };
+    error?: string;
+  }
+  let received: PrunePlanWorkerMessage | null = null;
+  return new Promise((resolvePromise) => {
+    let settled = false;
+    const settle = (value: BoundedPrunePlan | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      resolvePromise(value);
+    };
+    // AC1 (round 4): no deadline means no timer — `Infinity` clamps to 1 ms
+    // and would kill every probe while it still runs.
+    const timer = Number.isFinite(remainingMs)
+      ? setTimeout(() => {
+          void worker.terminate();
+        }, remainingMs)
+      : null;
+    worker.once('message', (message: PrunePlanWorkerMessage) => {
+      received = message;
+    });
+    worker.once('error', (error: Error) => {
+      received = { error: error.message };
+    });
+    worker.once('exit', () => {
+      onWorkerExit?.();
+      const plan = received?.plan;
+      settle(plan && Array.isArray(plan.candidates) ? { candidates: plan.candidates } : null);
+    });
+  });
+}
+
+/**
+ * Merged-branch counts for one project: local via the worker-bounded SDK
+ * integration probe (primary checkout and target excluded), remote via
+ * `git for-each-ref --merged` with HEAD refs excluded, all under the shared
+ * walk deadline. `null` per side when its probe fails or the deadline ends -
+ * a failed probe is never a zero (T14440).
+ *
+ * @param projectRoot - The registered project's repository root.
+ * @param deadline - Wall-clock ms epoch past which probes stop.
+ * @param planOf - The SDK probe (tests stub it; default {@link prunePlanBounded}).
+ * @returns Merged local and remote branch counts.
+ */
+export async function mergedBranchCounts(
+  projectRoot: string,
+  deadline = Number.POSITIVE_INFINITY,
+  planOf: (
+    repoRoot: string,
+    integrationTarget: string,
+    deadline: number,
+  ) => Promise<BoundedPrunePlan | null> = prunePlanBounded,
+): Promise<{ mergedLocal: number | null; mergedRemote: number | null }> {
+  if (Date.now() > deadline) return { mergedLocal: null, mergedRemote: null };
+  const defaultRefs = gitDefaultBranchRefs(projectRoot);
+  const integrationTarget = defaultRefs.find((ref) => !ref.startsWith('origin/')) ?? defaultRefs[0];
+  if (integrationTarget === undefined) return { mergedLocal: null, mergedRemote: null };
+  let mergedLocal: number | null = null;
+  let mergedRemote: number | null = null;
+  try {
+    const plan = await planOf(projectRoot, integrationTarget, deadline);
+    if (plan !== null) {
+      mergedLocal = new Set(
+        plan.candidates
+          .filter((c) => c.kind === 'worktree' || c.kind === 'branch_only')
+          .map((c) => c.branch)
+          .filter((b): b is string => b !== undefined),
+      ).size;
+    }
+  } catch {
+    mergedLocal = null;
+  }
+  if (Date.now() > deadline) return { mergedLocal, mergedRemote };
+  try {
+    const out = execFileSync(
+      'git',
+      [
+        '--no-optional-locks',
+        'for-each-ref',
+        '--merged',
+        integrationTarget,
+        '--format=%(refname:short)',
+        'refs/remotes',
+      ],
+      { cwd: projectRoot, timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+    );
+    mergedRemote = out
+      .split('\n')
+      .map((line) => line.trim())
+      // A remote branch is `<remote>/<name>`; the bare remote line and HEAD
+      // aliases are not branches, and the target's own remote ref is trivially
+      // merged.
+      .filter(
+        (ref) =>
+          ref.includes('/') &&
+          !ref.endsWith('/HEAD') &&
+          !ref.endsWith(`/${integrationTarget.replace(/^origin\//, '')}`),
+      ).length;
+  } catch {
+    mergedRemote = null;
+  }
+  return { mergedLocal, mergedRemote };
+}
+
+/**
+ * The `node_modules` classification for one worktree (T14440).
+ *
+ * @param worktreePath - The worktree directory.
+ * @returns `absent`, `symlink` or `real`.
+ */
+function classifyNodeModules(worktreePath: string): 'absent' | 'symlink' | 'real' {
+  try {
+    const st = lstatSync(join(worktreePath, 'node_modules'));
+    if (st.isSymbolicLink()) return 'symlink';
+    if (st.isDirectory()) return 'real';
+    return 'absent';
+  } catch {
+    return 'absent';
+  }
+}
+
+/**
+ * Changed + untracked entry count without optional Git index writes (T14440).
+ *
+ * @param worktreePath - The worktree directory.
+ * @param deadline - Past it, `null` (an undercount is never a zero).
+ * @returns The dirty entry count, or `null`.
+ */
+function dirtyFileCount(worktreePath: string, deadline: number): number | null {
+  if (Date.now() > deadline) return null;
+  try {
+    const out = execFileSync('git', ['--no-optional-locks', 'status', '--porcelain'], {
+      cwd: worktreePath,
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    });
+    return out.split('\n').filter((line) => line.trim() !== '').length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * CLEO task-lock state for one worktree's task (T14440).
+ *
+ * @param read - The lock reader (`readWorktreeTaskLock`).
+ * @param projectHash - The project hash directory.
+ * @param taskId - The owning task, or `null`.
+ * @returns True when a live task lock record exists.
+ */
+function readTaskLockSafe(
+  read: (projectHash: string, taskId: string) => WorktreeLockRecord | null,
+  projectHash: string,
+  taskId: string | null,
+): boolean {
+  if (taskId === null) return false;
+  return read(projectHash, taskId) !== null;
+}
+
+/**
+ * The global pnpm content-addressable store and its apparent size (T14440).
+ * `pnpm store path` resolves the location from the home dir (an inherited
+ * per-worktree cwd would honour that worktree's `.npmrc` store-dir); any
+ * failure yields `null`, never a zero-sized store.
+ *
+ * @param deadline - Past it, `null`.
+ * @returns The store census, or `null`.
+ */
+export function pnpmStoreCensus(deadline = Number.POSITIVE_INFINITY): PnpmStoreCensus | null {
+  if (Date.now() > deadline) return null;
+  let storePath: string;
+  try {
+    storePath = execFileSync('pnpm', ['store', 'path'], {
+      cwd: homedir(),
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    }).trim();
+  } catch {
+    return null;
+  }
+  if (storePath === '' || !existsSync(storePath)) return null;
+  return { path: storePath, apparentBytes: apparentBytes(storePath, deadline) };
 }
 
 /** The lazy census child's wall-clock budget: past it, a partial record and exit. */

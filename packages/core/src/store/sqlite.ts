@@ -57,6 +57,7 @@ import {
   tableExists,
 } from './migration-manager.js';
 import { lineageAtHead } from './migration-runner.js';
+import { type CleoDbSnapshotHandle, openCleoDbImmutable } from './open-cleo-db.js';
 // T12037: the tasks domain no longer owns a singleton — the path-keyed binding
 // registry does. This module contributes only `establishTasksSchema`.
 import {
@@ -1018,6 +1019,37 @@ export function getNativeDb(cwd?: string): DatabaseSync | null {
  */
 export function getNativeTasksDb(cwd?: string): DatabaseSync | null {
   return boundProjectNative('tasks', cwd);
+}
+
+/**
+ * Open a project's tasks store strictly read-only, for cross-project reads
+ * that must never write (T14440, census AC3).
+ *
+ * `getDb` restores, seeds and migrates on open — a write — so foreign stores
+ * are read through this instead: an IMMUTABLE snapshot from the store
+ * chokepoint that creates no `-wal`/`-shm` sidecars even on a WAL-mode
+ * database (sqlite.org/wal.html#read_only_databases). The caller closes the
+ * handle.
+ *
+ * Round 6 rescope: these snapshot reads are DISPLAY-ONLY — they may lag
+ * uncommitted WAL writes, so no removal decision consumes them. The own
+ * project uses the normal accessor.
+ *
+ * @param projectRoot - Absolute path to the project whose store to read.
+ * @returns The immutable snapshot handle, or `null` when the store file does
+ *   not exist (definitive absence). A store that exists but cannot be opened
+ *   THROWS.
+ */
+export function openProjectTasksReadOnly(projectRoot: string): CleoDbSnapshotHandle | null {
+  let dbPath: string;
+  try {
+    dbPath = resolveDualScopeDbPath('project', projectRoot);
+  } catch {
+    // @sync-invariant none:local-only a cross-project read-only snapshot never writes a store
+    throw new Error(`Task store path could not be resolved for ${projectRoot}`);
+  }
+  if (!existsSync(dbPath)) return null;
+  return openCleoDbImmutable(dbPath);
 }
 
 export type { NodeSQLiteDatabase };

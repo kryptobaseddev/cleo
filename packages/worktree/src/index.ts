@@ -148,4 +148,4 @@ export {
   detectAndHealCoreWorktreeLeak,
   ensureWorktreeBuildReady,
 } from './worktree-preflight.js';
-export { pruneWorktrees } from './worktree-prune.js';
+export { buildGitAwarePrunePlan, pruneWorktrees } from './worktree-prune.js';

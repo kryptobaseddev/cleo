@@ -245,6 +245,7 @@ async function darwinSnapshot(over: Partial<SystemSnapshot> = {}): Promise<Syste
       spotlightCount: '1234\n',
     },
     memoryGuard: null,
+    worktreeCensus: null,
     ...over,
   };
 }
@@ -297,6 +298,7 @@ async function linuxSnapshot(over: Partial<SystemSnapshot> = {}): Promise<System
     docker: null,
     indexing: null,
     memoryGuard: UNGUARDED,
+    worktreeCensus: null,
     ...over,
   };
 }
@@ -424,6 +426,7 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
       containers: 'ok',
       indexing: 'ok',
       'memory-guard': 'skipped',
+      worktrees: 'skipped',
     });
   });
 

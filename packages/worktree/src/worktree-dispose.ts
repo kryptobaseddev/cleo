@@ -87,10 +87,10 @@ function gitEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return { ...env, ...extra };
 }
 
-/** Run git in `cwd`; untrimmed stdout, or `null` on any failure. */
+/** Run git without optional index writes; untrimmed stdout, or `null` on any failure. */
 function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | null {
   try {
-    return execFileSync('git', ['-C', cwd, ...args], {
+    return execFileSync('git', ['--no-optional-locks', '-C', cwd, ...args], {
       env: env ?? gitEnv(),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],

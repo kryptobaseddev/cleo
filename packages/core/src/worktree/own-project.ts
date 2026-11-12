@@ -1,0 +1,65 @@
+/**
+ * The once-up-front own-project decision for the census's status reads
+ * (T14440, round 6/7): the target is OWN only when its realpath and its
+ * `.cleo/project.json` identity match the current process's resolved
+ * project — never a binding cache and never an ambient pin; both store
+ * paths, both realpaths and both declared ids must agree. Any doubt
+ * (unresolvable path, missing identity, mismatched ids) answers `false` —
+ * fail closed, the target is treated as foreign.
+ *
+ * Own projects read task status through the normal accessor (fresh); every
+ * other store is read only through the immutable, sidecar-free snapshot
+ * (`openProjectTasksReadOnly`), whose output is labelled as a display
+ * snapshot that may lag uncommitted writes. No removal decision consumes
+ * snapshot reads.
+ *
+ * @task T14440
+ * @packageDocumentation
+ */
+
+import { lstatSync, realpathSync } from 'node:fs';
+import { dirname, resolve as resolvePath } from 'node:path';
+import { projectManifestPath, readProjectManifest } from '@cleocode/paths';
+import { getProjectRoot } from '../paths.js';
+import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
+
+/** The write-once `.cleo/project.json` id of a project, or `null` when absent/unreadable. */
+function readProjectIdentityId(projectRoot: string): string | null {
+  const manifest = readProjectManifest(projectRoot);
+  return manifest.status === 'valid' ? manifest.manifest.id : null;
+}
+
+/**
+ * Whether the target project is the CURRENT process's own project.
+ *
+ * @param projectRoot - Absolute path to the project in question.
+ * @param ownRoot - The current process's project root (tests inject it;
+ *   default: the process's resolved project).
+ * @returns True when the target IS the own project.
+ * @remarks Missing or invalid project identity fails closed, even for an identical realpath.
+ * @example
+ * ```ts
+ * const own = isOwnProjectStore('/workspace/project', '/workspace/project');
+ * ```
+ */
+export function isOwnProjectStore(projectRoot: string, ownRoot?: string): boolean {
+  try {
+    const own = ownRoot ?? getProjectRoot();
+    if (realpathSync(projectRoot) !== realpathSync(own)) return false;
+    const ownStore = resolvePath(resolveDualScopeDbPath('project', own));
+    const targetStore = resolvePath(resolveDualScopeDbPath('project', projectRoot));
+    if (ownStore !== targetStore) return false;
+    // Overrides and file symlinks must not redirect an own project to foreign metadata.
+    const storeDirectory = lstatSync(ownStore, { throwIfNoEntry: false })
+      ? dirname(realpathSync(ownStore))
+      : realpathSync(dirname(ownStore));
+    if (storeDirectory !== realpathSync(dirname(projectManifestPath(own)))) return false;
+    const targetId = readProjectIdentityId(projectRoot);
+    const ownId = readProjectIdentityId(own);
+    // Strict: a missing identity on either side is any doubt → foreign.
+    if (targetId === null || ownId === null || targetId !== ownId) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}

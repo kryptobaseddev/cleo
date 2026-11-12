@@ -185,7 +185,16 @@ describe('reasonForStatus (T14274)', () => {
 
 describe('pruneOrphanedWorktreesByStatus — nothing unproven is force-removed (T14142)', () => {
   const statusKey = (path: string) =>
-    ['-C', path, 'status', '--porcelain', '-z', '-uall', '--ignored=matching'].join(' ');
+    [
+      '--no-optional-locks',
+      '-C',
+      path,
+      'status',
+      '--porcelain',
+      '-z',
+      '-uall',
+      '--ignored=matching',
+    ].join(' ');
 
   it('keeps a worktree with uncommitted changes, and one whose git status fails', async () => {
     const dirty = mkdtempSync(join(tmpdir(), 'cleo-prune-dirty-'));

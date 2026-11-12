@@ -25,7 +25,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { type DualScope, resolveDualScopeDbPath } from '../store/dual-scope-db.js';
-import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
+import { openCleoDbImmutable, openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import {
   CONSOLIDATED_JOURNAL_LINEAGES,
   resolveCorePackageMigrationsFolder,
@@ -267,4 +267,95 @@ export function inspectMigrations(projectRoot: string): MigrationsReport {
       inspectJournal('global', resolveDualScopeDbPath('global'), GLOBAL_LINEAGES),
     ],
   };
+}
+
+/** Memoized hashes of this build's installed project-lineage migrations (T14440). */
+let installedProjectMigrationHashes: Set<string> | null = null;
+
+/**
+ * The hashes of every migration file this build installs across the
+ * consolidated journal lineages (project and global sets — both may appear in
+ * a journal), computed once per process (an installed build's migration files
+ * do not change under it).
+ *
+ * @returns The known journal-row hashes.
+ */
+function installedProjectMigrationHashSet(): Set<string> {
+  if (installedProjectMigrationHashes === null) {
+    installedProjectMigrationHashes = new Set<string>();
+    for (const lineage of CONSOLIDATED_JOURNAL_LINEAGES) {
+      for (const m of localMigrations(resolveCorePackageMigrationsFolder(lineage))) {
+        installedProjectMigrationHashes.add(m.hash);
+      }
+    }
+  }
+  return installedProjectMigrationHashes;
+}
+
+/**
+ * Whether the census's task-status enrichment may read a project's store —
+ * read-only, without opening anything through the migrator (T14440, AC3).
+ *
+ * The enrichment opens each listed project's store through
+ * {@link openProjectTasksReadOnly}, which cannot write; the verdict guards
+ * only against MISREADING a store this build does not understand: a journal
+ * row no installed lineage defines was written by a newer, unreleased build.
+ * It also requires the `tasks_tasks` columns the query reads to exist. Every
+ * other case names the reason; the caller skips the store and reports it as
+ * `not read`.
+ *
+ * @param projectRoot - Absolute path to the project root whose store to judge.
+ * @returns `'readable'`, or `not read: <reason>`.
+ */
+export function projectStoreReadVerdict(projectRoot: string): string {
+  let dbPath: string;
+  try {
+    dbPath = resolveDualScopeDbPath('project', projectRoot);
+  } catch {
+    return 'not read: unreadable store';
+  }
+  if (!existsSync(dbPath)) return 'not read: missing store';
+  // Round 6: an immutable read may lag uncheckpointed WAL writes — that is a
+  // LABEL on the display snapshot ('snapshot: may lag uncommitted writes'),
+  // not a skip; no removal decision consumes these reads.
+  // Immutable, like the read it gates: the verdict must not create sidecars
+  // on a foreign WAL-mode store either.
+  let snap: ReturnType<typeof openCleoDbImmutable>;
+  try {
+    snap = openCleoDbImmutable(dbPath);
+  } catch {
+    return 'not read: unreadable store';
+  }
+  try {
+    const hasJournal =
+      snap.db
+        .prepare(
+          "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
+        )
+        .get() !== undefined;
+    if (!hasJournal) return 'not read: journal missing';
+    const rows = snap.db.prepare('SELECT hash FROM main."__drizzle_migrations"').all() as Array<{
+      hash: string;
+    }>;
+    const known = installedProjectMigrationHashSet();
+    if (rows.some((r) => !known.has(r.hash))) {
+      return 'not read: store written by a newer build';
+    }
+    // The columns the enrichment's query reads.
+    const columns = new Set(
+      (
+        snap.db.prepare('PRAGMA main.table_info("tasks_tasks")').all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name),
+    );
+    for (const needed of ['id', 'status', 'verification_json']) {
+      if (!columns.has(needed)) return 'not read: tasks schema missing';
+    }
+    return 'readable';
+  } catch {
+    return 'not read: unreadable store';
+  } finally {
+    snap.close();
+  }
 }
