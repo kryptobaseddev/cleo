@@ -1467,6 +1467,95 @@ describe('admit (one ledger, real critical section)', () => {
     }
   });
 
+  it('a release frees its slot to a waiter without sampling, even with the sampler stalled (T14508)', async () => {
+    let stall = false;
+    const sample = vi.fn(async (): Promise<ResourceSample> => {
+      if (stall) return new Promise<ResourceSample>(() => {});
+      return sampleAt(0);
+    });
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false, sample },
+    );
+    if (!holder.admitted) throw new Error('expected an admission');
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 60_000 },
+    );
+    await vi.waitFor(
+      () =>
+        expect(
+          readLedger(dir)
+            .map((e) => e.state)
+            .sort(),
+        ).toEqual(['admitted', 'waiting']),
+      { interval: 5 },
+    );
+    stall = true;
+    const calls = sample.mock.calls.length;
+    await holder.grant.release();
+    // The release itself handed the slot on: no retry, no waiter pass needed.
+    expect(sample).toHaveBeenCalledTimes(calls);
+    expect(readLedger(dir).map((e) => [e.label, e.state])).toEqual([['tool:build', 'admitted']]);
+    const next = await waiting;
+    expect(next.admitted).toBe(true);
+    if (next.admitted) await next.grant.release();
+  });
+
+  it('a release on a stale ok verdict admits nobody while pressure is now critical (T14508)', async () => {
+    let clock = Date.now();
+    let memSome = 0;
+    const sample = vi.fn(async () => sampleAt(memSome));
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false, now: () => clock, sample },
+    );
+    if (!holder.admitted) throw new Error('expected an admission');
+    let wake: () => void = () => {};
+    const parked = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    let sleeps = 0;
+    const stop = new AbortController();
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 600_000,
+        now: () => clock,
+        sample,
+        signal: stop.signal,
+        sleep: () => (++sleeps === 1 ? parked : new Promise((r) => setTimeout(r, 5))),
+      },
+    );
+    await vi.waitFor(
+      () =>
+        expect(
+          readLedger(dir)
+            .map((e) => e.state)
+            .sort(),
+        ).toEqual(['admitted', 'waiting']),
+      { interval: 5 },
+    );
+    // The ledger's last verdict says ok, but it is stale; memory is now critical.
+    clock += 60_000;
+    memSome = 90;
+    await holder.grant.release();
+    // The slot is freed at once, and the stale verdict admits nobody.
+    expect(readLedger(dir).map((e) => [e.label, e.state])).toEqual([['tool:build', 'waiting']]);
+    // The waiter's own pass samples the critical pressure and keeps waiting.
+    const calls = sample.mock.calls.length;
+    wake();
+    await vi.waitFor(() => expect(sample.mock.calls.length).toBeGreaterThan(calls), {
+      interval: 5,
+    });
+    expect(readLedger(dir).map((e) => e.state)).toEqual(['waiting']);
+    stop.abort();
+    expect((await waiting).admitted).toBe(false);
+  });
+
   it('bounds a stalled charge write and cancels it before caller teardown (T14498)', async () => {
     let clock = Date.now();
     let completeSample: (sample: ResourceSample) => void = () => {};
@@ -2835,6 +2924,26 @@ describe('admit (one ledger, real critical section)', () => {
       expect(readLedger(dir)).toEqual([]);
       expect(intervals).not.toHaveBeenCalled();
       expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      0, 1, 2, 3, 4, 5,
+    ])('an abort %i microtasks after the lock settles still unlocks it exactly once (T14508)', async (ticks) => {
+      const unlock = vi.fn(async () => {});
+      const signal = new AbortController();
+      vi.mocked(lockfile.lock).mockImplementationOnce(() => {
+        let gap = Promise.resolve();
+        for (let i = 0; i < ticks; i++) gap = gap.then(() => {});
+        void gap.then(() => signal.abort());
+        return Promise.resolve(unlock);
+      });
+      const out = await admit(
+        { label: 'abort-window', footprintBytes: GIB },
+        { ...base, dir, wait: true, timeoutMs: 60_000, signal: signal.signal },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(unlock).toHaveBeenCalledTimes(1);
+      if (out.admitted) await out.grant.release();
     });
 
     it('rejects a peer admission observed after expiry without starting a heartbeat', async () => {

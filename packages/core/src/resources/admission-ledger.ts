@@ -1051,32 +1051,46 @@ async function lockLedger(file: string, signal?: AbortSignal): Promise<() => Pro
   });
   try {
     for (let attempt = 1; ; attempt++) {
+      // The lock call in flight. Exactly one path owns its unlock (T14508): the
+      // caller when it wins the race unaborted, the awaited unlock below when
+      // it wins and the signal fired since, or the abort handler registered
+      // synchronously in the catch when the abort wins. No microtask sits
+      // between the acquisition and the race, so no abort can fall between them.
+      let pending: Promise<() => Promise<void>> | null = null;
+      let won = false;
       try {
-        const pending = lockfile
-          .lock(file, {
-            lockfilePath: `${file}.lock`,
-            realpath: false,
-            stale: LEDGER_CRITICAL_STALE_MS,
-            retries: 0,
-            onCompromised: (err: Error) => {
-              log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
-            },
-          })
-          .then((unlock) => {
-            if (signal?.aborted) {
-              void unlock().catch(() => {});
-              signal.throwIfAborted();
-            }
-            return unlock;
-          });
+        pending = lockfile.lock(file, {
+          lockfilePath: `${file}.lock`,
+          realpath: false,
+          stale: LEDGER_CRITICAL_STALE_MS,
+          retries: 0,
+          onCompromised: (err: Error) => {
+            log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
+          },
+        });
         const unlock = await Promise.race([pending, aborted]);
+        won = true;
         if (signal?.aborted) {
-          void unlock().catch(() => {});
+          // Acquired, then aborted: unlock before rejecting, so the caller's
+          // own deadline race bounds the wait and no unlock outlives it.
+          await unlock().catch(() => {});
           signal.throwIfAborted();
         }
         return unlock;
       } catch (err) {
-        signal?.throwIfAborted();
+        if (signal?.aborted) {
+          // The abort won the race (or the lock failed after it): a lock that
+          // is still acquired is unlocked the moment it settles. Nobody awaits
+          // it — the caller left at its deadline — which is harmless: nothing
+          // is written, and an unlock failure is swallowed.
+          if (pending !== null && !won) {
+            void pending.then(
+              (unlock) => unlock().catch(() => {}),
+              () => {},
+            );
+          }
+          signal.throwIfAborted();
+        }
         const code = (err as NodeJS.ErrnoException | null)?.code;
         if (code !== 'ELOCKED' || attempt >= LOCK_ATTEMPTS) throw err;
         const backoff = Math.min(LOCK_BACKOFF_MS[1], LOCK_BACKOFF_MS[0] * 1.2 ** attempt);
@@ -3295,11 +3309,14 @@ async function rechargeLedgerEntry(
 /**
  * Retire an admission, retrying unavailable storage without keeping the runner
  * alive. Pending updates and removal share one {@link RELEASE_AWAITED_MS}
- * deadline; a contended lock, sampler or unlock hands the entry to the retry
- * and the reaper after process exit. An aborted
- * entry's retirement never samples pressure, on the awaited attempt or on any
- * retry: sampling can stall in the monitor, and nothing waits on the verdict
- * for a run that never started.
+ * deadline; a contended lock or unlock hands the entry to the retry and the
+ * reaper after process exit. Retirement never samples pressure, on the
+ * awaited attempt or on any retry (T14508): sampling can stall in the monitor
+ * under exactly the memory pressure that makes a freed slot matter. The slot
+ * is always freed at once; the queue is scheduled only on a verdict still
+ * within {@link PRESSURE_REUSE_MS}. A stale verdict never admits anyone
+ * (it could say "ok" during critical pressure): the waiters' next pass
+ * samples afresh and schedules.
  */
 async function releaseLedgerEntry(
   entry: LedgerEntry,
@@ -3309,12 +3326,10 @@ async function releaseLedgerEntry(
 ): Promise<void> {
   const now = opts.now ?? Date.now;
   /**
-   * Remove the entry and schedule the queue. Only a successful read can
-   * establish absence. `signal` bounds the attempt's asynchronous waits (the
-   * bounded attempt passes its deadline; the retry passes none and keeps
-   * retrying the lock). Whether the entry is aborted — and so must skip
-   * sampling — is decided from `opts.signal`, never from that deadline signal:
-   * the retry has no deadline signal but still belongs to an aborted admit.
+   * Remove the entry and, on a fresh verdict, schedule the queue. Only a
+   * successful read can establish absence. `signal` bounds the attempt's
+   * asynchronous waits (the bounded attempt passes its deadline; the retry
+   * passes none and keeps retrying the lock).
    */
   const removeAttempt = async (signal?: AbortSignal): Promise<boolean> => {
     try {
@@ -3324,44 +3339,35 @@ async function releaseLedgerEntry(
         !before.foreign.some((e) => e.id === entry.id)
       )
         return true;
-      if (opts.signal?.aborted === true) {
-        // The waiter has already given up (abort or deadline): remove the entry
-        // and reschedule, but never sample. A stalled sampler must not keep an
-        // aborted entry — or its background retry — queued forever, even after
-        // the lock recovers.
-        await withLedger(
-          dir,
-          (doc) => ({
-            doc: {
-              ...doc,
-              entries: doc.entries.filter((e) => e.id !== entry.id),
-              foreign: doc.foreign.filter((e) => e.id !== entry.id),
-            },
-            result: undefined,
-          }),
-          signal,
-          true,
-        );
-        return true;
-      }
-      const nowMs = now();
-      const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
       const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
       await withLedger(
         dir,
-        (doc) => ({
-          doc: reapAndSchedule(
-            {
-              ...doc,
-              entries: doc.entries.filter((e) => e.id !== entry.id),
-              foreign: doc.foreign.filter((e) => e.id !== entry.id),
-            },
-            NO_DEAD,
-            { capacityBytes, share, lightShare, nowMs },
-            sampled,
-          ),
-          result: undefined,
-        }),
+        (doc) => {
+          const removed: LedgerDoc = {
+            ...doc,
+            entries: doc.entries.filter((e) => e.id !== entry.id),
+            foreign: doc.foreign.filter((e) => e.id !== entry.id),
+          };
+          const nowMs = now();
+          const verdict = doc.pressure;
+          return {
+            doc:
+              verdict !== null && isFresh(verdict, nowMs)
+                ? reapAndSchedule(
+                    removed,
+                    NO_DEAD,
+                    {
+                      capacityBytes,
+                      share: verdict.share,
+                      lightShare: verdict.lightShare ?? verdict.share,
+                      nowMs,
+                    },
+                    null,
+                  )
+                : removed,
+            result: undefined,
+          };
+        },
         signal,
         true,
       );
@@ -3375,7 +3381,7 @@ async function releaseLedgerEntry(
     }
   };
   /**
-   * One removal attempt. Pending updates, sampling, lock acquisition and unlock are
+   * One removal attempt. Pending updates, lock acquisition and unlock are
    * raced against a single {@link RELEASE_AWAITED_MS} deadline: a stalled lock
    * or unlock (proper-lockfile's removal is asynchronous) must not hold an
    * aborted admit past it. The race is installed before the attempt starts so

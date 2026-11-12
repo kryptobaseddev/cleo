@@ -111,8 +111,9 @@ describe.skipIf(DIST_MISSING)('admission ledger — 20 real processes (T13133)',
     rmSync(work, { recursive: true, force: true });
   });
 
+  // T14508: a release no longer samples pressure, so only a charge write can
+  // stall on the sampler; the release case is covered in admission-ledger.test.ts.
   it.each([
-    'release',
     'charge',
   ] as const)('the reaper frees a timed-out %s after immediate process exit (T14498)', (kind) => {
     const ledgerDir = join(work, 'admission');

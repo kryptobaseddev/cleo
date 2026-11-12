@@ -382,9 +382,9 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
     expect(isResourceGrant(r)).toBe(true);
     if (isResourceGrant(r)) await r.release();
     // 40 and 30 refuse; 20 is still refused (latched: not yet down to 15, and
-    // the run does not fit the reclaimable memory); 12 admits; the release
-    // samples once more for its scheduling pass.
-    expect(calls()).toBe(5);
+    // the run does not fit the reclaimable memory); 12 admits. The release
+    // schedules with the last verdict and never samples (T14508).
+    expect(calls()).toBe(4);
     expect(
       lines.filter((l) => l.startsWith('waiting: memory pressure')).length,
     ).toBeGreaterThanOrEqual(3);
