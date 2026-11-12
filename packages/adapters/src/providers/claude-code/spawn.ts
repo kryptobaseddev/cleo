@@ -30,7 +30,12 @@ import { OrcaExecutionError } from '../../orca-execution.js';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
-import { type LeadMcpSetup, prepareLeadMcp, runnerOnlyLeadMcp } from './lead-mcp.js';
+import {
+  type LeadMcpSetup,
+  prepareLeadMcp,
+  requireLeadProjectTrust,
+  runnerOnlyLeadMcp,
+} from './lead-mcp.js';
 import {
   buildLeadArgs,
   leadModeOf,
@@ -170,6 +175,13 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
    * @returns Spawn result with instance ID and status
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
+    const claudeJsonPath =
+      leadDeniedTools(context) !== null
+        ? requireLeadProjectTrust(context.workingDirectory ?? process.cwd(), {
+            ...process.env,
+            ...envStrings(context.options),
+          })
+        : undefined;
     // T14359: a tracked worker keeps the instance id its record was stored under.
     const trackedId = trackedWorkerInstanceId(context.options);
     const instanceId =
@@ -218,6 +230,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         };
         leadMcp = await prepareLeadMcp(dir, context.workingDirectory ?? process.cwd(), {
           identityEnv: envStrings(context.options),
+          ...(claudeJsonPath !== undefined ? { claudeJsonPath } : {}),
           ...(binaries.cleo ? { cleoBin: binaries.cleo } : {}),
         });
         const settingsFile = join(dir, 'lead-settings.json');

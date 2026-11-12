@@ -22,6 +22,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -35,7 +36,12 @@ import type { OrcaLeadTerminalLauncher } from '@cleocode/contracts/orca-executio
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionError } from '../../../orca-execution.js';
 import * as leadMcpModule from '../lead-mcp.js';
-import { LEAD_MCP_FILE, prepareLeadMcp, resolveMbxMcpServer } from '../lead-mcp.js';
+import {
+  LEAD_MCP_FILE,
+  prepareLeadMcp,
+  requireLeadProjectTrust,
+  resolveMbxMcpServer,
+} from '../lead-mcp.js';
 import {
   LEAD_KICKOFF_PROMPT,
   leadSessionSettings,
@@ -71,6 +77,9 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'lead-mcp-'));
+    vi.stubEnv('HOME', root);
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    vi.stubEnv('CLAUDE_CODE_IGNORE_PERSISTED_TRUST', '');
     project = join(root, 'project');
     spawnDir = join(root, 'spawn');
     bin = join(root, 'bin');
@@ -89,6 +98,140 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it.each([
+    'interactive',
+    'detached',
+  ] as const)('refuses an untrusted %s lead before preparing MCP or opening an Orca terminal', async (mode) => {
+    vi.stubEnv('HOME', root);
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    const prepare = vi.spyOn(leadMcpModule, 'prepareLeadMcp');
+    const launcher = vi.fn<OrcaLeadTerminalLauncher>();
+    const started = vi.fn<(pid: number) => void>();
+    writeFileSync(
+      join(project, '.claude.json'),
+      JSON.stringify({ projects: { [project]: { hasTrustDialogAccepted: true } } }),
+    );
+    for (const config of [
+      undefined,
+      '{invalid JSON',
+      'null',
+      JSON.stringify({ projects: { [project]: { hasTrustDialogAccepted: false } } }),
+      JSON.stringify({ projects: { [project]: { hasTrustDialogAccepted: 'true' } } }),
+      JSON.stringify({ projects: { [`${project}-other`]: { hasTrustDialogAccepted: true } } }),
+    ]) {
+      if (config !== undefined) writeFileSync(claudeJson, config);
+      await expect(
+        new ClaudeCodeSpawnProvider().spawn({
+          ...lead(mode),
+          workingDirectory: project,
+          leadTerminalLauncher: launcher,
+          onLeadStarted: started,
+        }),
+      ).rejects.toMatchObject({
+        code: 'E_LEAD_PROJECT_UNTRUSTED',
+        fix: expect.stringContaining(project),
+      });
+      if (config !== undefined) expect(readFileSync(claudeJson, 'utf8')).toBe(config);
+      else expect(existsSync(claudeJson)).toBe(false);
+    }
+    expect(prepare).not.toHaveBeenCalled();
+    expect(launcher).not.toHaveBeenCalled();
+    expect(started).not.toHaveBeenCalled();
+  });
+
+  it('refuses an untrusted native lead with the same one-time trust instructions', async () => {
+    vi.stubEnv('HOME', root);
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    await expect(
+      new ClaudeCodeSpawnProvider().spawn({ ...lead(), workingDirectory: project }),
+    ).rejects.toMatchObject({
+      code: 'E_LEAD_PROJECT_UNTRUSTED',
+      fix: expect.stringContaining('accept the folder-trust dialog'),
+    });
+  });
+
+  it('recognizes canonical folder trust and trusted ancestors within a repository', () => {
+    const child = join(project, 'src');
+    mkdirSync(child);
+    mkdirSync(join(project, '.git'));
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({ projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } } }),
+    );
+    expect(requireLeadProjectTrust(child)).toBe(claudeJson);
+    if (process.platform !== 'win32') {
+      const alias = join(root, 'alias');
+      symlinkSync(project, alias);
+      expect(requireLeadProjectTrust(alias)).toBe(claudeJson);
+    }
+  });
+
+  it('does not inherit trust across a repository boundary or from a similarly named folder', () => {
+    mkdirSync(join(project, '.git'));
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({ projects: { [realpathSync(root)]: { hasTrustDialogAccepted: true } } }),
+    );
+    expect(() => requireLeadProjectTrust(project)).toThrow(OrcaExecutionError);
+  });
+
+  it('checks the effective account config, including spawn HOME and CLAUDE_CONFIG_DIR overrides', async () => {
+    const account = join(root, 'account');
+    mkdirSync(account);
+    const accountJson = join(account, '.claude.json');
+    writeFileSync(
+      accountJson,
+      JSON.stringify({ projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } } }),
+    );
+    expect(requireLeadProjectTrust(project, { HOME: account })).toBe(accountJson);
+    const launcher = vi.fn<OrcaLeadTerminalLauncher>().mockResolvedValue({
+      runtimeId: 'runtime-fixture',
+      terminalHandle: 'term_lead',
+      pid: 12345,
+    });
+    fakeBinary(join(bin, 'claude'), join(root, 'calls.log'));
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
+    const prepare = vi.spyOn(leadMcpModule, 'prepareLeadMcp');
+    const result = await new ClaudeCodeSpawnProvider().spawn({
+      ...lead(),
+      workingDirectory: project,
+      options: { env: { CLAUDE_CONFIG_DIR: account } },
+      leadTerminalLauncher: launcher,
+      onLeadStarted: vi.fn(),
+    });
+    expect(result.status).toBe('running');
+    expect(prepare).toHaveBeenCalledWith(
+      expect.any(String),
+      project,
+      expect.objectContaining({ claudeJsonPath: accountJson }),
+    );
+    expect(readFileSync(accountJson, 'utf8')).toContain('"hasTrustDialogAccepted":true');
+    expect(existsSync(claudeJson)).toBe(false);
+    rmSync(result.leadTempDir ?? '', { recursive: true, force: true });
+  });
+
+  it('refuses stale legacy trust when Claude uses a migrated config, or ignores saved trust', () => {
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({ projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } } }),
+    );
+    mkdirSync(join(root, '.claude'));
+    const migrated = join(root, '.claude', '.config.json');
+    writeFileSync(migrated, '{}');
+    expect(() => requireLeadProjectTrust(project)).toThrow(migrated);
+    rmSync(migrated);
+    vi.stubEnv('CLAUDE_CODE_IGNORE_PERSISTED_TRUST', '1');
+    expect(() => requireLeadProjectTrust(project)).toThrow('the lead was not launched');
+  });
+
+  it('refuses home-folder trust, which Claude does not persist across sessions', () => {
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({ projects: { [realpathSync(root)]: { hasTrustDialogAccepted: true } } }),
+    );
+    expect(() => requireLeadProjectTrust(root)).toThrow('the lead was not launched');
   });
 
   /** Common allow-list layers of both modes, from `--restricted` to `--setting-sources ""`. */
@@ -155,7 +298,13 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
   it.skipIf(process.platform === 'win32').each(['interactive', 'detached'] as const)(
     'hands the production %s guards to Orca and preserves cross-bundle refusals',
     async (mode) => {
-      writeFileSync(claudeJson, JSON.stringify({ mcpServers: { mbx, shell: SHELL_SERVER } }));
+      writeFileSync(
+        claudeJson,
+        JSON.stringify({
+          mcpServers: { mbx, shell: SHELL_SERVER },
+          projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } },
+        }),
+      );
       for (const name of ['claude', 'cleo']) fakeBinary(join(bin, name), join(root, 'calls.log'));
       vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
       const prepare = prepareLeadMcp;
@@ -454,7 +603,13 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     ['not configured', null],
     ['refused (a shell)', { command: '/bin/sh', args: ['mcp'] }],
   ])('a detached lead with mbx %s does not start: E_LEAD_NO_OWNER_CHANNEL', async (_label, entry) => {
-    writeFileSync(claudeJson, JSON.stringify({ mcpServers: entry ? { mbx: entry } : {} }));
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({
+        mcpServers: entry ? { mbx: entry } : {},
+        projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } },
+      }),
+    );
     vi.stubEnv('HOME', root); // ~/.claude.json is this test's file
     try {
       const result = await new ClaudeCodeSpawnProvider().spawn({

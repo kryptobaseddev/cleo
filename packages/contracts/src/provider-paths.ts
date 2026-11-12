@@ -4,6 +4,15 @@
  * @task T5240
  */
 
+import { z } from 'zod';
+
+/** Saved Claude Code folder-trust decisions; unrelated user state is ignored. */
+export const claudeCodeTrustConfigSchema = z.object({
+  projects: z
+    .record(z.string(), z.object({ hasTrustDialogAccepted: z.boolean().optional() }))
+    .optional(),
+});
+
 export interface AdapterPathProvider {
   /** Get the provider's global config directory (e.g., ~/.claude/) */
   getProviderDir(): string;

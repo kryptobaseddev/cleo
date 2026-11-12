@@ -19,16 +19,18 @@
  * @epic T14351
  */
 
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { LeadMcpReport } from '@cleocode/contracts';
 import {
   LEAD_MAILBOX_MCP_SERVER,
   LEAD_RUNNER_MCP_SERVER,
   LEAD_RUNNER_TOOL,
 } from '@cleocode/contracts/operations/orchestrate.js';
+import { claudeCodeTrustConfigSchema } from '@cleocode/contracts/provider-paths.js';
+import { OrcaExecutionError } from '../../orca-execution.js';
 
 /** One Claude Code MCP server entry, kept verbatim. */
 export type McpServerEntry = Readonly<Record<string, unknown>>;
@@ -79,6 +81,61 @@ function readJson(file: string): unknown {
   } catch {
     return null;
   }
+}
+
+/**
+ * Require the owner's saved Claude Code folder trust before a lead can launch.
+ * Returns the user config path so MCP selection uses the same account state.
+ * Missing, malformed or unreadable state refuses; no trust record is written.
+ *
+ * @remarks
+ * Claude Code 2.1.322 stores `projects[path].hasTrustDialogAccepted` in its
+ * user config. Trust can descend within a repository, never from outside it.
+ * See https://code.claude.com/docs/en/security#additional-safeguards.
+ *
+ * @param projectDir - The lead's working directory.
+ * @param env - The environment the lead will inherit, including spawn overrides.
+ * @returns The verified Claude Code user config path.
+ * @throws OrcaExecutionError when persisted trust cannot be verified.
+ */
+export function requireLeadProjectTrust(
+  projectDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const home = resolve(projectDir, env.HOME || env.USERPROFILE || homedir());
+  const configDir = env.CLAUDE_CONFIG_DIR
+    ? resolve(projectDir, env.CLAUDE_CONFIG_DIR)
+    : join(home, '.claude');
+  const migratedConfig = join(configDir, '.config.json');
+  const configPath = existsSync(migratedConfig)
+    ? migratedConfig
+    : join(env.CLAUDE_CONFIG_DIR ? configDir : home, '.claude.json');
+  let fixPrefix = '';
+  try {
+    const config = claudeCodeTrustConfigSchema.safeParse(readJson(configPath));
+    let dir = realpathSync(projectDir);
+    if (env.CLAUDE_CODE_IGNORE_PERSISTED_TRUST) {
+      fixPrefix = 'Unset CLAUDE_CODE_IGNORE_PERSISTED_TRUST in the lead environment. ';
+    } else if (dir === realpathSync(home)) {
+      fixPrefix = 'Choose a project subdirectory: Claude Code never persists home-folder trust. ';
+    } else if (config.success) {
+      for (;;) {
+        const key = (process.platform === 'win32' ? dir.replaceAll('\\', '/') : dir).normalize(
+          'NFC',
+        );
+        if (config.data.projects?.[key]?.hasTrustDialogAccepted === true) return configPath;
+        if (lstatSync(join(dir, '.git'), { throwIfNoEntry: false }) || dirname(dir) === dir) break;
+        dir = dirname(dir);
+      }
+    }
+  } catch {
+    // A failed path/config probe is not evidence that the owner trusted this folder.
+  }
+  throw new OrcaExecutionError(
+    'E_LEAD_PROJECT_UNTRUSTED',
+    `Cannot verify saved Claude Code folder trust for ${projectDir} in ${configPath}; the lead was not launched.`,
+    `${fixPrefix}Open a terminal in ${JSON.stringify(projectDir)} with the same HOME and CLAUDE_CONFIG_DIR, run claude, accept the folder-trust dialog only if you trust this project, then /exit and retry cleo orchestrate lead. Restore readable valid user config first if needed.`,
+  );
 }
 
 /** `realpath`, or the resolved path when it cannot be resolved. */
