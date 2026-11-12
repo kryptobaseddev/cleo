@@ -434,13 +434,17 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     return deriveTaskEvidence(id, { projectRoot: root, cwd: root, satisfies: 'all', deps: prDeps });
   }
 
-  async function mergedPrSetup(optIn: boolean, prepare?: (id: string) => Promise<void>) {
+  async function mergedPrSetup(
+    optIn: boolean,
+    prepare?: (id: string) => Promise<void>,
+    mergeMode: '--squash' | '--no-ff' = '--squash',
+  ) {
     const id = await seedTask(['Change src/a.ts to return 2']);
     if (prepare) await prepare(id);
     commitOnTaskBranch(id);
     git(root, ['switch', '-q', 'main']);
-    git(root, ['merge', '-q', '--squash', `task/${id}`]);
-    git(root, ['commit', '-q', '-m', `${id}: squash (#42)`]);
+    git(root, ['merge', '-q', mergeMode, `task/${id}`, '-m', `${id}: merge (#42)`]);
+    if (mergeMode === '--squash') git(root, ['commit', '-q', '-m', `${id}: squash (#42)`]);
     const merge = git(root, ['rev-parse', 'HEAD']);
     const ctxPath = join(root, '.cleo', 'project-context.json');
     const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
@@ -813,6 +817,64 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
       expect(r.success && r.data.toolResults).toEqual([]);
       expect(writes[0]).toMatch(/ci:42/);
     } finally {
+      git(root, ['worktree', 'remove', '--force', stale]);
+    }
+  });
+
+  it.each([
+    '--squash',
+    '--no-ff',
+  ] as const)('T14512: a stale %s task worktree has one accepted checkout remedy from either tree', async (mergeMode) => {
+    const { id, prDeps } = await mergedPrSetup(true, undefined, mergeMode);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    const stale = `${root}-wt`;
+    git(root, ['worktree', 'add', '-q', stale, `task/${id}`]);
+    const before = process.cwd();
+    try {
+      await reqAdd(
+        root,
+        id,
+        {
+          kind: 'command',
+          cmd: 'git',
+          args: ['merge-base', '--is-ancestor', merge, 'HEAD'],
+          exitCode: 0,
+          description: 'The typed gate runs on the merged tree',
+          req: 'MERGED-TREE',
+        },
+        env.accessor,
+      );
+      const options = {
+        projectRoot: root,
+        satisfies: 'all' as const,
+        prNumber: 42,
+        runTyped: true,
+        deps: prDeps,
+        previewEvidence: async () => ({ ok: true as const }),
+      };
+      for (const cwd of [root, stale]) {
+        const plan = await deriveTaskEvidence(id, { ...options, cwd });
+        expect(plan.blockers.map((b) => b.code)).toEqual(['checkout-required']);
+        expect(plan.next?.command).toContain(`switch --detach ${merge}`);
+        expect(plan.next?.command).toContain(`cd ${stale} && cleo done ${id}`);
+        expect(plan.next?.command).toContain('--pr 42 --run-typed');
+      }
+
+      git(stale, ['switch', '-q', '--detach', merge]);
+      process.chdir(stale);
+      const result = await recordTaskDone(id, {
+        ...options,
+        cwd: stale,
+        steps: { write: async () => engineSuccess({ passed: true }) },
+      });
+      expect(result.success, JSON.stringify(result)).toBe(true);
+      if (result.success) {
+        expect(result.data.plan.changeSet.executionRoot).toBe(stale);
+        expect(result.data.typedGateCount).toBe(1);
+        expect(result.data.toolResults).toEqual([]);
+      }
+    } finally {
+      process.chdir(before);
       git(root, ['worktree', 'remove', '--force', stale]);
     }
   });
