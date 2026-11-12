@@ -168,6 +168,69 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     }
   });
 
+  /** Create a real linked worktree with isolated account state and no user hooks. */
+  function linkedWorktree(): string {
+    const git = (...args: string[]): string =>
+      execFileSync('git', ['-C', project, '-c', 'core.hooksPath=', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    git('init', '--quiet', '--template=');
+    git(
+      '-c',
+      'user.name=Trust Test',
+      '-c',
+      'user.email=trust@example.test',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--quiet',
+      '--allow-empty',
+      '-m',
+      'fixture',
+    );
+    const worktree = join(root, 'linked');
+    git('worktree', 'add', '--quiet', '--detach', worktree);
+    return worktree;
+  }
+
+  it('accepts main-checkout trust from a real linked worktree and its subdirectories', () => {
+    const worktree = linkedWorktree();
+    const child = join(worktree, 'src');
+    mkdirSync(child);
+    const config = JSON.stringify({
+      projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } },
+    });
+    writeFileSync(claudeJson, config);
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+    expect(requireLeadProjectTrust(child)).toBe(claudeJson);
+    expect(readFileSync(claudeJson, 'utf8')).toBe(config);
+  });
+
+  it('refuses missing main-checkout trust and trust outside the linked repository', () => {
+    const worktree = linkedWorktree();
+    for (const config of [
+      {},
+      { [realpathSync(project)]: { hasTrustDialogAccepted: false } },
+      { [realpathSync(root)]: { hasTrustDialogAccepted: true } },
+      { [`${realpathSync(project)}-other`]: { hasTrustDialogAccepted: true } },
+    ]) {
+      writeFileSync(claudeJson, JSON.stringify({ projects: config }));
+      expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+    }
+  });
+
+  it.each(['commondir', 'gitdir'])('refuses inconsistent worktree %s metadata', (file) => {
+    const worktree = linkedWorktree();
+    const gitDir = readFileSync(join(worktree, '.git'), 'utf8').trim().slice(7).trim();
+    writeFileSync(join(gitDir, file), file === 'commondir' ? project : join(project, '.git'));
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({ projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } } }),
+    );
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+  });
+
   it('does not inherit trust across a repository boundary or from a similarly named folder', () => {
     mkdirSync(join(project, '.git'));
     writeFileSync(
