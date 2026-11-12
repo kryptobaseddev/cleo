@@ -1051,40 +1051,46 @@ async function lockLedger(file: string, signal?: AbortSignal): Promise<() => Pro
   });
   try {
     for (let attempt = 1; ; attempt++) {
+      // The lock call in flight. Exactly one path owns its unlock (T14508): the
+      // caller when it wins the race unaborted, the awaited unlock below when
+      // it wins and the signal fired since, or the abort handler registered
+      // synchronously in the catch when the abort wins. No microtask sits
+      // between the acquisition and the race, so no abort can fall between them.
+      let pending: Promise<() => Promise<void>> | null = null;
+      let won = false;
       try {
-        const pending = lockfile
-          .lock(file, {
-            lockfilePath: `${file}.lock`,
-            realpath: false,
-            stale: LEDGER_CRITICAL_STALE_MS,
-            retries: 0,
-            onCompromised: (err: Error) => {
-              log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
-            },
-          })
-          .then(async (unlock) => {
-            if (signal?.aborted) {
-              // Acquired after the caller gave up (T14508): the unlock starts
-              // in the same turn as the acquisition and this chain settles only
-              // once it has finished. Nobody awaits it — the caller left at its
-              // deadline — which is harmless: the lock is released without a
-              // ledger write, an unlock failure is swallowed, and only a test
-              // tearing its tmpdir down mid-acquisition could see the window.
-              await unlock().catch(() => {});
-              signal.throwIfAborted();
-            }
-            return unlock;
-          });
+        pending = lockfile.lock(file, {
+          lockfilePath: `${file}.lock`,
+          realpath: false,
+          stale: LEDGER_CRITICAL_STALE_MS,
+          retries: 0,
+          onCompromised: (err: Error) => {
+            log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
+          },
+        });
         const unlock = await Promise.race([pending, aborted]);
+        won = true;
         if (signal?.aborted) {
-          // Acquired, then aborted (T14508): unlock before rejecting, so the
-          // caller's own deadline race bounds the wait and no unlock outlives it.
+          // Acquired, then aborted: unlock before rejecting, so the caller's
+          // own deadline race bounds the wait and no unlock outlives it.
           await unlock().catch(() => {});
           signal.throwIfAborted();
         }
         return unlock;
       } catch (err) {
-        signal?.throwIfAborted();
+        if (signal?.aborted) {
+          // The abort won the race (or the lock failed after it): a lock that
+          // is still acquired is unlocked the moment it settles. Nobody awaits
+          // it — the caller left at its deadline — which is harmless: nothing
+          // is written, and an unlock failure is swallowed.
+          if (pending !== null && !won) {
+            void pending.then(
+              (unlock) => unlock().catch(() => {}),
+              () => {},
+            );
+          }
+          signal.throwIfAborted();
+        }
         const code = (err as NodeJS.ErrnoException | null)?.code;
         if (code !== 'ELOCKED' || attempt >= LOCK_ATTEMPTS) throw err;
         const backoff = Math.min(LOCK_BACKOFF_MS[1], LOCK_BACKOFF_MS[0] * 1.2 ** attempt);
@@ -2569,20 +2575,6 @@ async function sampleShare(
 }
 
 /**
- * The shares of the last pressure verdict in the ledger, stale or not, for a
- * pass that must not wait on a sample (T14508). With no verdict yet, the full
- * share — the same answer as a sample that fails ({@link sampleShare}).
- */
-function lastVerdict(cached: CachedPressure | null): {
-  readonly share: BudgetShare;
-  readonly lightShare: BudgetShare;
-} {
-  return cached === null
-    ? { share: 'full', lightShare: 'full' }
-    : { share: cached.share, lightShare: cached.lightShare ?? cached.share };
-}
-
-/**
  * A refusing reading with the host's largest memory users (T13914), reusing
  * the last probe for {@link TOP_MEMORY_REUSE_MS} (a failed one for
  * {@link TOP_MEMORY_FAILED_REUSE_MS}) so a long refusal costs one probe per
@@ -3320,9 +3312,11 @@ async function rechargeLedgerEntry(
  * deadline; a contended lock or unlock hands the entry to the retry and the
  * reaper after process exit. Retirement never samples pressure, on the
  * awaited attempt or on any retry (T14508): sampling can stall in the monitor
- * under exactly the memory pressure that makes a freed slot matter. It
- * schedules the queue with the last verdict in the ledger instead
- * ({@link lastVerdict}); every waiter's own pass samples afresh.
+ * under exactly the memory pressure that makes a freed slot matter. The slot
+ * is always freed at once; the queue is scheduled only on a verdict still
+ * within {@link PRESSURE_REUSE_MS}. A stale verdict never admits anyone
+ * (it could say "ok" during critical pressure): the waiters' next pass
+ * samples afresh and schedules.
  */
 async function releaseLedgerEntry(
   entry: LedgerEntry,
@@ -3332,7 +3326,7 @@ async function releaseLedgerEntry(
 ): Promise<void> {
   const now = opts.now ?? Date.now;
   /**
-   * Remove the entry and schedule the queue with the last verdict. Only a
+   * Remove the entry and, on a fresh verdict, schedule the queue. Only a
    * successful read can establish absence. `signal` bounds the attempt's
    * asynchronous waits (the bounded attempt passes its deadline; the retry
    * passes none and keeps retrying the lock).
@@ -3348,19 +3342,32 @@ async function releaseLedgerEntry(
       const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
       await withLedger(
         dir,
-        (doc) => ({
-          doc: reapAndSchedule(
-            {
-              ...doc,
-              entries: doc.entries.filter((e) => e.id !== entry.id),
-              foreign: doc.foreign.filter((e) => e.id !== entry.id),
-            },
-            NO_DEAD,
-            { capacityBytes, ...lastVerdict(doc.pressure), nowMs: now() },
-            null,
-          ),
-          result: undefined,
-        }),
+        (doc) => {
+          const removed: LedgerDoc = {
+            ...doc,
+            entries: doc.entries.filter((e) => e.id !== entry.id),
+            foreign: doc.foreign.filter((e) => e.id !== entry.id),
+          };
+          const nowMs = now();
+          const verdict = doc.pressure;
+          return {
+            doc:
+              verdict !== null && isFresh(verdict, nowMs)
+                ? reapAndSchedule(
+                    removed,
+                    NO_DEAD,
+                    {
+                      capacityBytes,
+                      share: verdict.share,
+                      lightShare: verdict.lightShare ?? verdict.share,
+                      nowMs,
+                    },
+                    null,
+                  )
+                : removed,
+            result: undefined,
+          };
+        },
         signal,
         true,
       );
