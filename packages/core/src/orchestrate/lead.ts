@@ -48,6 +48,7 @@ import {
   isLeadAlive,
   type LeadProcess,
   type LeadRecord,
+  type ReapedLead,
   readLeadRecord,
   reapDeadLeads,
   removeLeadRecord,
@@ -142,6 +143,11 @@ export interface OrchestrateLeadInfo {
   readonly mcp: LeadMcpReport | null;
   /** Set when the lead runs without the mbx server: it cannot read worker mail. */
   readonly mcpWarning?: string;
+  /**
+   * A dead lead's record this call found for the epic and removed before the
+   * new lead started (T14513): its processes were gone. Absent when none.
+   */
+  readonly reaped?: readonly ReapedLead[];
 }
 
 /** The provider's {@link LeadMcpReport} from a spawn's data, if it sent one. */
@@ -208,7 +214,7 @@ export async function orchestrateLead(
   // T14363 — one lead per epic, for as long as the lead process lives: reap a
   // dead lead's leftovers first, then refuse while a live lead's record stands.
   const client = options.mbxClient ?? createAgentMbxClient();
-  await reapDeadLeads(root, {
+  const reaped = await reapDeadLeads(root, {
     epicId,
     mbxClient: client,
     ...(options.probe ? { probe: options.probe } : {}),
@@ -332,6 +338,7 @@ export async function orchestrateLead(
     mode,
     mailbox,
     mcp,
+    ...(reaped.length > 0 ? { reaped } : {}),
     ...(mcp?.mailbox === 'not-configured'
       ? {
           mcpWarning:

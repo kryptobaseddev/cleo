@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers in one `cleo orchestrate fanout` call, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.8.0
+  version: 1.9.0
   tier: core
   install: harness
   covers:
@@ -55,7 +55,7 @@ above are enforced by your tool list, not by your discipline (T14363):
 | Your instructions | Your prompt is the appended system prompt (you cannot Read files) |
 | Your session | You run under your OWN CLEO session (`CLEO_SESSION_ID`, also passed to the runner), so `review verdict` and `merge train` act as you. Ending the run ends that session and frees the epic |
 | One command tool | `mcp__cleo-lead__cleo_run` runs one argv (never a shell string) when it matches the lead allow-list: read, plan, dispatch and review verbs of `cleo` and `gh`. Anything else, including pipes and redirection, is refused before a process starts |
-| Your mailbox | The project lead mailbox is claimed for your session once your spawn is admitted (right before you start) and released when you exit. A lead record keeps one lead per epic while your `claude` process or the `cleo` CLI lives (each recorded with its start time, so a reused pid never counts) (`E_LEAD_RUNNING` for a second one, however long you run); a lead killed before its hooks ran is reaped (mailbox, session, temp dir) by the next `cleo orchestrate lead` or `cleo orchestrate status`. `data.lead.mailbox` says whether the claim held |
+| Your mailbox | The project lead mailbox is claimed for your session once your spawn is admitted (right before you start) and released when you exit. A lead record keeps one lead per epic while your `claude` process or the `cleo` CLI lives (each recorded with its start time, so a reused pid never counts) (`E_LEAD_RUNNING` for a second one, however long you run); a dead lead's record (killed before its hooks ran, or its Orca terminal closed after its session ended) is reaped (mailbox, session unless already ended, temp dir, record) by the next `cleo orchestrate lead`, which reports it under `data.lead.reaped`, or by `cleo orchestrate status`. `data.lead.mailbox` says whether the claim held |
 | Background dispatch | `cleo orchestrate fanout` / `spawn-execute` start workers in the background. Each worker gets its own worktree (a provisioning failure refuses the spawn, never the project root), a durable worker record, and your mailbox in its prompt |
 | Report contract | A worker returns the Return Format Contract: `conclusion:`, `blocker:` and one `proof:` line per item, 100 words at most. A report with no proof is not a completion; detail belongs in the PR body |
 

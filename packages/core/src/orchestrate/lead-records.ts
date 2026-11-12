@@ -10,11 +10,13 @@
  * lease that only mutations renew), and a reused pid, whose start time
  * differs, never blocks the epic.
  *
- * A lead killed before its `SessionEnd` hook ran (SIGKILL, OOM) leaves its
- * record behind. {@link reapDeadLeads}, run by the next `cleo orchestrate
- * lead` and by `cleo orchestrate status`, releases such a lead's mailbox,
- * ends its CLEO session (freeing the epic claim), removes its temp directory
- * (which may hold the mbx env) and deletes the record.
+ * A lead killed before its `SessionEnd` hook ran (SIGKILL, OOM), or one whose
+ * Orca terminal was closed after its session ended (T14513), leaves its record
+ * behind. {@link reapDeadLeads}, run by the next `cleo orchestrate lead` (which
+ * reports what it reaped under `data.lead.reaped`) and by `cleo orchestrate
+ * status`, releases such a lead's mailbox, ends its CLEO session unless it has
+ * already ended (freeing the epic claim), removes its temp directory (which
+ * may hold the mbx env) and deletes the record.
  *
  * The file is local runtime state (a pid means nothing on another device).
  *
@@ -31,7 +33,7 @@ import {
   orcaLeadTerminalSchema,
 } from '@cleocode/contracts/orca-execution.js';
 import { type ProcessLiveness, probeProcess } from '@cleocode/worktree';
-import { endSession } from '../store/session-store.js';
+import { endSession, getSession } from '../store/session-store.js';
 import { type AgentMbxClient, createAgentMbxClient } from './agentmbx.js';
 import { leadRecordsDir } from './lead-records-dir.js';
 
@@ -211,8 +213,15 @@ function isSpawnTempDir(dir: string): boolean {
 /** What {@link reapDeadLeads} did for one dead lead. */
 export interface ReapedLead {
   readonly epicId: string;
+  /** Pids the record named, all of them gone (or reused). */
+  readonly pids: readonly number[];
+  /** The lead's CLEO session. */
+  readonly cleoSessionId: string;
   readonly mailboxReleased: boolean;
+  /** The reaper ended the lead's session (it was still open). */
   readonly sessionEnded: boolean;
+  /** The session had already ended (the lead's `SessionEnd` hook ran); left as it was (T14513). */
+  readonly sessionAlreadyEnded: boolean;
   readonly tempDirRemoved: boolean;
 }
 
@@ -251,9 +260,14 @@ export async function reapDeadLeads(
     const release = record.mailbox
       ? await client.release({ cli: record.providerCli, session: record.providerSessionId })
       : null;
-    const ended = await endSession(record.cleoSessionId, 'lead died; reaped', projectRoot)
-      .then(() => true)
-      .catch(() => false);
+    // T14513: a session that already ended keeps its own end time and notes.
+    const session = await getSession(record.cleoSessionId, projectRoot).catch(() => null);
+    const sessionAlreadyEnded = session?.status === 'ended';
+    const ended =
+      !sessionAlreadyEnded &&
+      (await endSession(record.cleoSessionId, 'lead died; reaped', projectRoot)
+        .then(() => true)
+        .catch(() => false));
     let tempDirRemoved = false;
     if (record.tempDir && isSpawnTempDir(record.tempDir)) {
       rmSync(record.tempDir, { recursive: true, force: true });
@@ -262,8 +276,11 @@ export async function reapDeadLeads(
     removeLeadRecord(projectRoot, record.epicId);
     reaped.push({
       epicId: record.epicId,
+      pids: record.processes.map((p) => p.pid),
+      cleoSessionId: record.cleoSessionId,
       mailboxReleased: release?.ok === true,
       sessionEnded: ended,
+      sessionAlreadyEnded,
       tempDirRemoved,
     });
   }

@@ -512,6 +512,57 @@ describe('orchestrateLead (T14363)', () => {
     expect(provider.state.seen).toHaveLength(1);
   });
 
+  it('a closed lead (processes dead, session already ended) is reported and replaced, its session left as it ended (T14513)', async () => {
+    withMailbox();
+    const endedAt = '2026-11-12T19:45:00.000Z';
+    const leadSes = 'ses_20261112193956_f64652';
+    await env.accessor.upsertSingleSession({
+      id: leadSes,
+      name: 'lead',
+      status: 'ended',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: '2026-11-12T19:39:56.000Z',
+      endedAt,
+    });
+    const { writeLeadRecord, readLeadRecord } = await import('../lead-records.js');
+    // The shape the closed Orca lead left in cleo-lead-livecheck (.cleo/leads/T002.json).
+    writeLeadRecord(env.tempDir, {
+      ...twoProcessRecord(34_248, 35_292, 'Thu Nov 12 19:39:59 2026'),
+      cleoSessionId: leadSes,
+      tempDir: join(tmpdir(), 'cleo-claude-spawn-closed-lead'),
+    });
+    provider.state.status = 'completed';
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      probe: () => ({ alive: false, startedAt: null }),
+    });
+    // Not treated as live: the new lead runs and the dead one is reported.
+    expect(result.success).toBe(true);
+    expect(provider.state.seen).toHaveLength(1);
+    expect((result.success ? (result.data as LeadData) : null)?.lead.reaped).toEqual([
+      {
+        epicId: 'T100',
+        pids: [34_248, 35_292],
+        cleoSessionId: leadSes,
+        mailboxReleased: true,
+        sessionEnded: false,
+        sessionAlreadyEnded: true,
+        tempDirRemoved: true,
+      },
+    ]);
+    // The ended session keeps its own end time, with no reaper note.
+    const { getSession } = await import('../../store/session-store.js');
+    const stored = await getSession(leadSes, env.tempDir);
+    expect(stored).toMatchObject({ status: 'ended', endedAt });
+    expect(stored?.notes ?? []).not.toContain('lead died; reaped');
+    // The dead record is gone; a new lead ran and settled, so none stands.
+    expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
+  });
+
   it('orchestrate status reaps a dead lead too', async () => {
     const { writeLeadRecord, readLeadRecord } = await import('../lead-records.js');
     writeLeadRecord(env.tempDir, {
