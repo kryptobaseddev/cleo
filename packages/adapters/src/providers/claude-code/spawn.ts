@@ -26,6 +26,7 @@ import type {
 import { getErrorMessage } from '@cleocode/contracts';
 import { E_LEAD_NO_OWNER_CHANNEL } from '@cleocode/contracts/operations/orchestrate.js';
 import { findOnPath } from '@cleocode/paths';
+import { OrcaExecutionError } from '../../orca-execution.js';
 import { buildAgentSpawnArgs } from '../shared/agent-spawn-wrapper.js';
 import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
@@ -382,12 +383,19 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         ...(leadMcp ? { leadMcp: leadMcp.report, leadTempDir: dirname(tmpFile) } : {}),
       };
     } catch (error) {
-      // Log spawn failure for debugging
-      console.error(`[ClaudeCodeSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
-
       if (tmpFile) {
         await removeSpawnPromptFile(tmpFile);
       }
+      if (context.leadTerminalLauncher) {
+        if (error instanceof OrcaExecutionError) throw error;
+        throw new OrcaExecutionError(
+          'E_LEAD_TOOLS_UNSTRIPPED',
+          getErrorMessage(error),
+          'Inspect the guarded Orca terminal setup and use --adapter claude-code; keep orchestrate.leadWorker.v1 enabled.',
+        );
+      }
+      // Log spawn failure for debugging
+      console.error(`[ClaudeCodeSpawnProvider] Failed to spawn: ${getErrorMessage(error)}`);
 
       return {
         instanceId,

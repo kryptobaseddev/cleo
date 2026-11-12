@@ -263,18 +263,24 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
    */
   async startLead(
     launch: OrcaLeadTerminalLaunch,
-    onStarted: (pid: number) => void,
+    onStarted: (pid: number) => void | Promise<void>,
   ): Promise<OrcaLeadTerminal> {
     const refuse = (message: string) =>
       new OrcaExecutionError(
         ORCA_LEAD_LAUNCH_REFUSAL.code,
         message,
-        'Restore a connected local Orca terminal and use --adapter claude-code; keep orchestrate.leadWorker.v1 enabled.',
+        'Restore a visible connected local Orca terminal and use --adapter claude-code; update the CLI and runtime together if required terminal commands are unavailable; keep orchestrate.leadWorker.v1 enabled.',
       );
     const handle = process.env.ORCA_TERMINAL_HANDLE;
+    if (!handle) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca context hints have no ORCA_TERMINAL_HANDLE; a guarded lead cannot select its owner terminal.',
+        'Run in the intended Orca terminal with its ORCA_TERMINAL_HANDLE, or remove stale ORCA_* hints outside Orca to use the native route; keep orchestrate.leadWorker.v1 enabled.',
+      );
+    }
     if (
       process.platform === 'win32' ||
-      !handle ||
       !isAbsolute(launch.command) ||
       !isAbsolute(launch.tempDir) ||
       !launch.env.CLEO_SESSION_ID ||
@@ -293,6 +299,8 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     const registry = orcaCommandRegistrySchema.parse(JSON.parse(registryResult.stdout));
     const create = registry.commands.find((entry) => entry.command === 'terminal create');
     const show = registry.commands.find((entry) => entry.command === 'terminal show');
+    const close = registry.commands.find((entry) => entry.command === 'terminal close');
+    const focus = registry.commands.find((entry) => entry.command === 'terminal switch');
     if (
       registryResult.exitCode !== 0 ||
       !create ||
@@ -300,7 +308,11 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         create.flags.includes(flag),
       ) ||
       !show ||
-      !['terminal', 'environment'].every((flag) => show.flags.includes(flag))
+      !['terminal', 'environment'].every((flag) => show.flags.includes(flag)) ||
+      !close ||
+      !['terminal', 'environment'].every((flag) => close.flags.includes(flag)) ||
+      !focus ||
+      !['terminal', 'environment'].every((flag) => focus.flags.includes(flag))
     ) {
       throw refuse('Orca does not declare the guarded terminal command transport.');
     }
@@ -339,6 +351,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     const script = join(dir, 'launch.sh');
     const pidFile = join(dir, 'pid');
     const release = join(dir, 'release');
+    let terminalHandle: string | undefined;
     try {
       await writeFile(
         script,
@@ -349,6 +362,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
           `printf '%s' "$$" > ${quote(pidFile)}`,
           'attempt=0',
           `while [ ! -f ${quote(release)} ]; do`,
+          `  [ -d ${quote(dir)} ] || exit 1`,
           '  attempt=$((attempt + 1)); [ "$attempt" -le 600 ] || exit 1',
           '  sleep 0.1',
           'done',
@@ -374,6 +388,9 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         context,
       );
       const terminal = created.result?.terminal;
+      if (terminal && terminal.handle !== handle && terminal.executionHostId === 'local') {
+        terminalHandle = terminal.handle;
+      }
       if (
         !terminal ||
         terminal.handle === handle ||
@@ -395,6 +412,10 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       if (!Number.isSafeInteger(pid) || pid <= 0 || pid !== terminal.processId) {
         throw refuse('The guarded terminal supervisor did not prove its startup PID.');
       }
+      // Older Orca show replies omit surface; an affirmative UI navigation proves visibility now.
+      const focused = (
+        await this.query(['terminal', 'switch', '--terminal', terminal.handle], launch.cwd, context)
+      ).result?.focus;
       const owner = (
         await this.query(['terminal', 'show', '--terminal', terminal.handle], launch.cwd, context)
       ).result?.terminal;
@@ -402,17 +423,43 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         owner?.handle !== terminal.handle ||
         !owner.connected ||
         !owner.writable ||
+        (owner.surface !== undefined && owner.surface !== 'visible') ||
+        focused?.handle !== terminal.handle ||
+        !focused.navigated ||
+        focused.worktreeId !== workspace.id ||
+        owner.tabId !== focused.tabId ||
         owner.executionHostId !== 'local' ||
         owner.worktreePath !== launch.cwd
       ) {
         throw refuse('The lead has no verified owner terminal; its first-turn gate stays closed.');
       }
-      onStarted(pid);
+      await onStarted(pid);
       await writeFile(`${release}.tmp`, '', { mode: 0o600 });
       await rename(`${release}.tmp`, release);
       return { runtimeId, terminalHandle: terminal.handle, pid };
     } catch (error) {
       await rm(dir, { recursive: true, force: true });
+      if (terminalHandle) {
+        try {
+          await this.verifyRuntime(launch.cwd, context);
+          const closed = (
+            await this.query(
+              ['terminal', 'close', '--terminal', terminalHandle],
+              launch.cwd,
+              context,
+            )
+          ).result?.close;
+          if (closed?.handle !== terminalHandle || !closed.ptyKilled)
+            throw refuse('Orca did not prove terminal cleanup.');
+        } catch (cleanupError) {
+          throw new OrcaExecutionError(
+            error instanceof OrcaExecutionError ? error.code : ORCA_LEAD_LAUNCH_REFUSAL.code,
+            `${error instanceof Error ? error.message : String(error)}; terminal ${terminalHandle} cleanup is unverified: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+            `${error instanceof OrcaExecutionError ? error.fix : 'Restore the guarded terminal transport.'} Inspect orca terminal show --terminal ${terminalHandle} before closing that exact terminal.`,
+            error instanceof OrcaExecutionError ? error.receipt : null,
+          );
+        }
+      }
       throw error;
     }
   }

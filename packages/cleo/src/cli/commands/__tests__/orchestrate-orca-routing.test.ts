@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
+import { OrcaExecutionBackend, OrcaExecutionError } from '@cleocode/adapters/orca-execution';
 import type { CLEOSpawnAdapter, CLEOSpawnContext } from '@cleocode/contracts';
 import { LEAD_DENIED_TOOLS } from '@cleocode/contracts/operations/orchestrate.js';
 import type { OrcaAgent, OrcaAttempt } from '@cleocode/contracts/orca-execution.js';
@@ -32,25 +32,49 @@ import {
 } from '../../../../../core/src/store/__tests__/test-db-helper.js';
 
 const { project, nativeSpawn, nativeAdapter, provision } = vi.hoisted(() => {
-  const spawn = vi.fn(async (context: CLEOSpawnContext) => ({
-    instanceId: 'native-fixture',
-    taskId: context.taskId,
-    providerId: 'codex',
-    status: 'running' as const,
-    exitCode: 1,
-    output: '',
-    timing: { startTime: new Date().toISOString() },
-  }));
+  const project = { root: '', nativeProvider: 'codex' };
+  const spawn = vi.fn(async (context: CLEOSpawnContext) => {
+    const terminal = context.leadTerminalLauncher
+      ? await context.leadTerminalLauncher(
+          {
+            command: '/fixture/claude',
+            args: [],
+            cwd: context.workingDirectory ?? '',
+            tempDir: context.workingDirectory ?? '/fixture',
+            env: {
+              CLEO_SESSION_ID: context.workerSession?.sessionId ?? 'ses_fixture',
+              CLEO_AGENT_ID: context.workerSession?.agentId ?? 'agent-fixture',
+              CLEO_AGENT_ROLE: 'lead',
+            },
+          },
+          (pid) => context.onLeadStarted?.(pid),
+        )
+      : undefined;
+    return {
+      instanceId: 'native-fixture',
+      taskId: context.taskId,
+      providerId: context.provider,
+      status: 'running' as const,
+      exitCode: 1,
+      output: '',
+      timing: { startTime: new Date().toISOString() },
+      ...(terminal ? { leadTerminal: terminal, leadTempDir: '/tmp/none' } : {}),
+    };
+  });
   const adapter: CLEOSpawnAdapter = {
-    id: 'codex',
-    providerId: 'codex',
+    get id() {
+      return project.nativeProvider;
+    },
+    get providerId() {
+      return project.nativeProvider;
+    },
     canSpawn: async () => true,
     spawn,
     listRunning: async () => [],
     terminate: async () => undefined,
   };
   return {
-    project: { root: '' },
+    project,
     nativeSpawn: spawn,
     nativeAdapter: adapter,
     provision:
@@ -83,7 +107,7 @@ vi.mock('../../../../../core/src/spawn/adapter-registry.js', () => ({
 vi.mock('@cleocode/caamp', async (original) => ({
   ...(await original<typeof import('@cleocode/caamp')>()),
   providerSupportsById: () => true,
-  getSpawnCapableProviders: () => [{ id: 'codex' }],
+  getSpawnCapableProviders: () => [{ id: 'codex' }, { id: 'claude-code' }],
 }));
 // The public subpath maps to pipeline/, not the generic test resolver's src/ root.
 vi.mock(
@@ -157,6 +181,7 @@ describe('Orca AC1 routing across product worker entry points', () => {
     vi.stubEnv('CLEO_AGENT_ID', 'fixture-lead');
     env = await createTestDb();
     project.root = env.tempDir;
+    project.nativeProvider = 'codex';
     vi.stubEnv('CLEO_HOME', realpathSync(join(env.tempDir, '.cleo-home')));
     await seedTasks(
       env.accessor,
@@ -693,9 +718,21 @@ describe('Orca AC1 routing across product worker entry points', () => {
   it.each([
     'interactive',
     'detached',
-  ])('keeps the %s lead native inside Orca without weakening its guards', async (mode) => {
+  ])('routes the %s lead through the guarded Orca terminal port', async (mode) => {
     configure({ leadWorker: { v1: true } });
     await seedTasks(env.accessor, [{ id: 'T100', title: 'Guarded lead', type: 'epic' }]);
+    project.nativeProvider = 'claude-code';
+    const launch = vi
+      .spyOn(OrcaExecutionBackend.prototype, 'startLead')
+      .mockImplementation(async (_launch, onStarted) => {
+        await onStarted(process.pid);
+        return {
+          runtimeId: fixtureContext.runtimeId,
+          terminalHandle: 'term_lead',
+          pid: process.pid,
+        };
+      });
+
     const configBefore = readFileSync(join(env.cleoDir, 'config.json'), 'utf8');
     let output = '';
     const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
@@ -725,13 +762,56 @@ describe('Orca AC1 routing across product worker entry points', () => {
     expect(nativeSpawn).toHaveBeenCalledOnce();
     expect(nativeSpawn.mock.calls[0]?.[0]).toMatchObject({
       leadDeniedTools: [...LEAD_DENIED_TOOLS],
+      leadTerminalLauncher: expect.any(Function),
     });
+    expect(launch).toHaveBeenCalledOnce();
     expect(provision).not.toHaveBeenCalled();
     expect(await listWorkerRecords(env.tempDir)).toEqual([]);
     expect(readFileSync(join(env.cleoDir, 'config.json'), 'utf8')).toBe(configBefore);
   });
 
-  it('keeps native lead startup independent of unusable Orca context markers', async () => {
+  it.each([
+    'Windows',
+    'missing-handle',
+    'remote-workspace',
+    'hidden',
+    'disconnected',
+    'pid-mismatch',
+    'lost-receipt',
+  ])('CLI exits nonzero and preserves the Orca refusal: %s', async (reason) => {
+    configure({ leadWorker: { v1: true } });
+    project.nativeProvider = 'claude-code';
+    await seedTasks(env.accessor, [{ id: 'T100', title: 'Guarded lead', type: 'epic' }]);
+    const refusal = new OrcaExecutionError(
+      'E_LEAD_TOOLS_UNSTRIPPED',
+      reason,
+      'Restore the guarded owner terminal.',
+    );
+    vi.spyOn(OrcaExecutionBackend.prototype, 'startLead').mockRejectedValue(refusal);
+    let output = '';
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      output += String(chunk);
+      return true;
+    });
+    try {
+      await runCommand(orchestrateCommand, {
+        rawArgs: ['lead', 'T100', '--adapter', 'claude-code'],
+      });
+    } finally {
+      write.mockRestore();
+    }
+    expect(JSON.parse(output)).toMatchObject({ success: false });
+    expect(output).toContain(refusal.code);
+    expect(output).toContain(refusal.message);
+    expect(output).toContain(refusal.fix);
+    expect(process.exitCode).toBe(63);
+    const { readLeadRecord } = await import('../../../../../core/src/orchestrate/lead-records.js');
+    expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
+    expect(starts()).toHaveLength(0);
+  });
+
+  it('refuses partial Orca context markers loudly with a repair instruction', async () => {
+    project.nativeProvider = 'claude-code';
     vi.stubEnv('ORCA_TERMINAL_HANDLE', undefined);
     vi.stubEnv('ORCA_WORKTREE_ID', 'unproven-caller');
     expect(
@@ -740,8 +820,12 @@ describe('Orca AC1 routing across product worker entry points', () => {
         lead: { deniedTools: LEAD_DENIED_TOOLS },
       }),
     ).toMatchObject({
-      success: true,
-      data: { providerId: 'codex' },
+      success: false,
+      error: {
+        code: 'E_ORCA_CONTEXT',
+        exitCode: 63,
+        fix: expect.stringContaining('ORCA_TERMINAL_HANDLE'),
+      },
     });
     expect(nativeSpawn).toHaveBeenCalledOnce();
     expect(fixtureRunner).not.toHaveBeenCalled();

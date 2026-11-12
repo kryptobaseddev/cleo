@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
+import { OrcaExecutionBackend, OrcaExecutionError } from '@cleocode/adapters/orca-execution';
 import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -240,7 +240,7 @@ describe('orchestrateLead (T14363)', () => {
     const launch = vi
       .spyOn(backend, 'startLead')
       .mockImplementation(async (_command, onStarted) => {
-        onStarted(process.pid);
+        await onStarted(process.pid);
         return terminal;
       });
     const { orchestrateLead } = await import('../lead.js');
@@ -301,6 +301,47 @@ describe('orchestrateLead (T14363)', () => {
     expect(fixtureRunner).not.toHaveBeenCalled();
     expect(provider.state.seen).toHaveLength(0);
     expect(mbx.claims).toHaveLength(0);
+  });
+
+  it.each([
+    'Windows',
+    'missing-handle',
+    'remote-workspace',
+    'hidden',
+    'disconnected',
+    'pid-mismatch',
+    'lost-receipt',
+    'after-admission',
+  ])('returns an actionable nonzero Orca refusal and releases admission: %s', async (stage) => {
+    withMailbox();
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+    const refusal = new OrcaExecutionError(
+      'E_LEAD_TOOLS_UNSTRIPPED',
+      stage,
+      'Restore the guarded local owner terminal.',
+    );
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    vi.spyOn(backend, 'startLead').mockImplementation(async (_launch, onStarted) => {
+      if (stage === 'after-admission') await onStarted(process.pid);
+      throw refusal;
+    });
+    const { orchestrateLead } = await import('../lead.js');
+    const { readLeadRecord } = await import('../lead-records.js');
+    const mbx = fakeMbx(true);
+    expect(
+      await orchestrateLead('T100', {
+        projectRoot: env.tempDir,
+        mbxClient: mbx.client,
+        orca: backend,
+      }),
+    ).toMatchObject({
+      success: false,
+      error: { code: refusal.code, message: stage, fix: refusal.fix, exitCode: 63 },
+    });
+    expect(mbx.claims).toHaveLength(stage === 'after-admission' ? 1 : 0);
+    expect(mbx.releases).toHaveLength(stage === 'after-admission' ? 1 : 0);
+    expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
+    expect((await env.accessor.loadSingleTask('T100'))?.status).toBe('pending');
   });
 
   it('refuses a task that is not an epic', async () => {

@@ -374,7 +374,7 @@ export interface OrcaLeadTerminal {
 /** Record the supervisor before releasing the terminal's first-turn gate. */
 export type OrcaLeadTerminalLauncher = (
   launch: OrcaLeadTerminalLaunch,
-  onStarted: (pid: number) => void,
+  onStarted: (pid: number) => void | Promise<void>,
 ) => Promise<OrcaLeadTerminal>;
 
 /** Result from one bounded subprocess invocation, including nonzero JSON receipts. */
@@ -480,8 +480,18 @@ export const orcaReplySchema = z.object({
           processId: z.number().int().positive().optional(),
           hostPlatform: z.string().optional(),
           surface: z.string().optional(),
+          tabId: identifier.optional(),
         })
         .optional(),
+      focus: z
+        .object({
+          handle: identifier,
+          tabId: identifier,
+          worktreeId: identifier,
+          navigated: z.boolean(),
+        })
+        .optional(),
+      close: z.object({ handle: identifier, ptyKilled: z.boolean() }).optional(),
       runtime: z
         .object({
           runtimeId: identifier,

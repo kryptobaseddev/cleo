@@ -37,7 +37,7 @@ Exact per-account placement refuses. Inside Orca, a Claude Code lead uses a new
 local POSIX terminal with its native guarded argv, strict MCP file, settings and
 own CLEO identity. The terminal waits behind a private startup gate until its
 runtime, workspace, connected writable owner channel and PID are verified and
-recorded. The result's `leadTerminal` names the exact runtime and terminal handle
+recorded. Mailbox admission is deferred until the gated terminal is ready; refusals preserve code, message and fix with a nonzero exit and release any admission. Fresh UI navigation and a matching connected terminal prove current visibility; known refused terminals are closed, and a lost receipt aborts the gated shell without guessing a handle. Partial Orca session/workspace `ORCA_*` hints without a handle refuse loudly with a repair instruction. Inside Orca, `--detached` runs `--print` in a visible terminal and retains mbx for owner decisions. The result's `leadTerminal` names the exact runtime and terminal handle
 for `orca terminal show` / `read` supervision. This route does not query accounts;
 unsupported harnesses, Windows hosts and the generic worker-start/preflight lead
 route still refuse before a model turn. Outside Orca the native route is unchanged.

@@ -365,6 +365,8 @@ export const runOrcaFixture: OrcaCommandRunner = async (_executable, args) => {
           { command: 'worktree show', flags: ['worktree'] },
           { command: 'terminal create', flags: ['command', 'worktree', 'title', 'environment'] },
           { command: 'terminal show', flags: ['terminal', 'environment'] },
+          { command: 'terminal close', flags: ['terminal', 'environment'] },
+          { command: 'terminal switch', flags: ['terminal', 'environment'] },
         ],
       }),
     };

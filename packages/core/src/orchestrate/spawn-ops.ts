@@ -74,6 +74,7 @@ import type {
 } from '@cleocode/contracts';
 import {
   ORCA_LEAD_LAUNCH_REFUSAL,
+  type OrcaLeadTerminalLauncher,
   type OrcaRoutingAdapter,
 } from '@cleocode/contracts/orca-execution.js';
 import {
@@ -871,8 +872,8 @@ export interface LeadSpawnOptions {
   /** Mode-specific instructions appended to the lead's prompt. */
   readonly promptAppendix?: string;
   /**
-   * Called once the lead is admitted, right before the adapter starts it
-   * (an interactive lead's spawn only returns when it exits). A throw refuses
+   * Called once the lead is admitted, before its first model turn
+   * (a native interactive lead's spawn only returns when it exits). A throw refuses
    * the spawn. `cleo orchestrate lead` claims the mailbox and writes the lead
    * record here.
    */
@@ -1379,6 +1380,17 @@ export async function orchestrateSpawnExecute(
     }
     // @sync-invariant none:local-only native execution requires its previously selected provider and adapter
     if (!adapter || !provider) throw new Error('The native spawn adapter is unavailable.');
+    const startOrcaLead = leadInOrca ? opts.orca?.startLead?.bind(opts.orca) : undefined;
+    const leadTerminalLauncher: OrcaLeadTerminalLauncher | undefined = startOrcaLead
+      ? (launch, onStarted) =>
+          startOrcaLead(launch, async (pid) => {
+            await opts.lead?.onAdmitted?.({
+              cleoSessionId: activeSessionId,
+              agentId: spawnAgentId ?? null,
+            });
+            await onStarted(pid);
+          })
+      : undefined;
     const cleoSpawnContext: CLEOSpawnContext = {
       taskId: payload.taskId,
       protocol: protocolType || payload.meta.protocol,
@@ -1401,9 +1413,7 @@ export async function orchestrateSpawnExecute(
       // provider that cannot strip them (T14357).
       ...(opts.lead !== undefined ? { leadDeniedTools: opts.lead.deniedTools } : {}),
       ...(opts.lead?.onStarted ? { onLeadStarted: opts.lead.onStarted } : {}),
-      ...(leadInOrca && opts.orca?.startLead
-        ? { leadTerminalLauncher: opts.orca.startLead.bind(opts.orca) }
-        : {}),
+      ...(leadTerminalLauncher ? { leadTerminalLauncher } : {}),
     };
     if (opts.lead?.sessionId !== undefined) {
       cleoSpawnContext.options = {
@@ -1483,8 +1493,8 @@ export async function orchestrateSpawnExecute(
     }
 
     // T14363 — the lead is admitted (resource grant, task claim, prompt): let
-    // the caller claim its mailbox and record it before it starts.
-    if (opts.lead?.onAdmitted) {
+    // the caller claim its mailbox and record it before it starts. Orca defers this until its gate is ready.
+    if (opts.lead?.onAdmitted && !leadInOrca) {
       await opts.lead.onAdmitted({ cleoSessionId: activeSessionId, agentId: spawnAgentId ?? null });
     }
 

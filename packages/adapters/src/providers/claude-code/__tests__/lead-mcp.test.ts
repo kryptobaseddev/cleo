@@ -33,6 +33,7 @@ import type { SpawnContext } from '@cleocode/contracts';
 import { E_LEAD_NO_OWNER_CHANNEL, LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts';
 import type { OrcaLeadTerminalLauncher } from '@cleocode/contracts/orca-execution.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { OrcaExecutionError } from '../../../orca-execution.js';
 import * as leadMcpModule from '../lead-mcp.js';
 import { LEAD_MCP_FILE, prepareLeadMcp, resolveMbxMcpServer } from '../lead-mcp.js';
 import {
@@ -204,6 +205,39 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
         expect(result.leadTempDir).toBeTruthy();
         expect(launcher).toHaveBeenCalledOnce();
         expect(started).toHaveBeenCalledWith(12345);
+        const refusal = new OrcaExecutionError(
+          'E_ORCA_CONTEXT',
+          'The owner terminal was refused.',
+          'Restore the owner channel.',
+        );
+        launcher.mockRejectedValueOnce(refusal);
+        await expect(
+          new ClaudeCodeSpawnProvider().spawn({
+            ...lead(mode),
+            workingDirectory: project,
+            options: { ...lead(mode).options, env: IDENTITY },
+            leadTerminalLauncher: launcher,
+            onLeadStarted: started,
+          }),
+        ).rejects.toBe(refusal);
+        const refusedDir = launcher.mock.calls.at(-1)?.[0].tempDir;
+        expect(refusedDir).toBeTruthy();
+        expect(existsSync(refusedDir ?? '')).toBe(false);
+        launcher.mockRejectedValueOnce(new Error('Terminal preparation failed.'));
+        await expect(
+          new ClaudeCodeSpawnProvider().spawn({
+            ...lead(mode),
+            workingDirectory: project,
+            options: { ...lead(mode).options, env: IDENTITY },
+            leadTerminalLauncher: launcher,
+            onLeadStarted: started,
+          }),
+        ).rejects.toMatchObject({
+          code: 'E_LEAD_TOOLS_UNSTRIPPED',
+          message: 'Terminal preparation failed.',
+          exitCode: 63,
+          fix: expect.stringContaining('keep orchestrate.leadWorker.v1 enabled'),
+        });
       } finally {
         if (promptFile) rmSync(join(promptFile, '..'), { recursive: true, force: true });
       }
