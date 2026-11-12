@@ -78,7 +78,7 @@ import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
 import { resolveStableDeviceIdPath, resolveWorktreeTaskLockPath } from '@cleocode/paths';
-import { tryLockFile } from './napi-binding.js';
+import { type FileLockHandleNapi, tryLockFile } from './napi-binding.js';
 
 /** Default heartbeat TTL: 4 hours. Override with `CLEO_WORKTREE_LOCK_TTL_MS`. */
 export const DEFAULT_WORKTREE_LOCK_TTL_MS = 4 * 60 * 60 * 1000;
@@ -471,6 +471,9 @@ interface LegacyMutexFile {
   threadId: number;
 }
 
+/** The holder a legacy file names: the {@link LegacyMutexFile} fields liveness is judged by. */
+type LegacyHolder = Pick<LegacyMutexFile, 'pid' | 'processStartedAt'>;
+
 /** A legacy file as read through one descriptor: content and identity belong together. */
 interface LegacyFileSnapshot {
   raw: string;
@@ -536,7 +539,7 @@ function sameLegacyFile(a: LegacyFileSnapshot, b: LegacyFileSnapshot): boolean {
 }
 
 /** The holder pid a legacy file names, or `null` (bare token, partial write). */
-function legacyHolderPid(raw: string): { pid: number; processStartedAt: string | null } | null {
+function legacyHolderPid(raw: string): LegacyHolder | null {
   let parsed: Partial<LegacyMutexFile>;
   try {
     parsed = JSON.parse(raw) as Partial<LegacyMutexFile>;
@@ -719,7 +722,7 @@ function takeLockMutex(lockPath: string): (() => void) | null {
 }
 
 /** Release an OS lock handle; a failed unlock still closes the descriptor, which releases it. */
-function releaseOsLock(handle: { release(): void }): void {
+function releaseOsLock(handle: FileLockHandleNapi): void {
   try {
     handle.release();
   } catch {
