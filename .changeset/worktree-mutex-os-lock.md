@@ -18,3 +18,9 @@ exits, so the stale break, the breaker lock and the pid and start-time
 staleness test are gone, along with the unbounded hold of a mutex whose
 holder's start time could not be read. A missing binding refuses the lock
 instead of proceeding unlocked.
+
+While CLEO v2026.11.1 and older may still run on the same machine, the new
+release also takes their `<lock>.reclaim` mutex under the OS lock, the same
+way they do, so an old-release dispose and a new-release reclaim never
+overlap. A live old-release holder is never removed; a dead one is removed
+only by the old release's own rule (stale, pid gone or recycled).

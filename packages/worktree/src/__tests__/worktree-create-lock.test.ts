@@ -16,11 +16,14 @@
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
@@ -42,6 +45,7 @@ import {
   readWorktreeTaskLock,
   releaseWorktreeTaskLock,
   releaseWorktreeTaskLocksForSession,
+  withWorktreeTaskLockHeld,
 } from '../worktree-lock.js';
 
 /**
@@ -871,24 +875,68 @@ describe('disposeOwnedWorktree — dispose under the task lock (T14407)', () => 
     expect(readWorktreeTaskLock(hash, 'T7103')?.token).toBe(token);
   });
 
-  it('a heartbeat cannot rewrite the lock while a dispose holds the mutex (T14491)', () => {
-    const { path, branch, token } = provision('T7104');
-    let beat: WorktreeLockRecord | null | undefined;
-    const result = disposeOwnedWorktree({
-      projectHash: hash,
-      taskId: 'T7104',
-      worktreePath: path,
-      branch,
-      lockToken: token,
-      reason: 'failed-provision-cleanup',
-      force: true,
-      inUse: () => {
-        beat = heartbeatWorktreeTaskLock(hash, 'T7104', token);
-        return null;
-      },
+  /** Plant an old-release `.reclaim` mutex (CLEO v2026.11.1 format) naming `pid`. */
+  function plantLegacyMutex(taskId: string, pid: number, ageMs = 0): string {
+    const legacyPath = `${resolveWorktreeTaskLockPath(hash, taskId)}.reclaim`;
+    const raw = JSON.stringify({
+      token: 'old-release',
+      pid,
+      processStartedAt: readProcessStartTime(pid),
+      threadId: 0,
     });
-    expect(beat).toBeNull();
-    expect(result).toMatchObject({ outcome: 'removed', lockReleased: true });
+    writeFileSync(legacyPath, raw);
+    if (ageMs > 0) {
+      const old = new Date(Date.now() - ageMs);
+      utimesSync(legacyPath, old, old);
+    }
+    return legacyPath;
+  }
+
+  it('an old-release holder of .reclaim blocks a new-release transition and is never removed (T14491)', () => {
+    const { token } = provision('T7104');
+    const old = spawn('sleep', ['60'], { stdio: 'ignore' });
+    children.push(old);
+    if (old.pid === undefined) throw new Error('could not spawn');
+    // Old by age, but its holder lives: an old release mid-dispose.
+    const legacyPath = plantLegacyMutex('T7104', old.pid, 120_000);
+    const raw = readFileSync(legacyPath, 'utf-8');
+    let ran = false;
+    const hold = withWorktreeTaskLockHeld(hash, 'T7104', token, () => {
+      ran = true;
+    });
+    expect(hold).toMatchObject({ held: false });
+    expect(ran).toBe(false);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7104', token)).toBeNull();
+    expect(readFileSync(legacyPath, 'utf-8')).toBe(raw);
+  });
+
+  it("a dead old-release holder's stale .reclaim is removed, then the new release proceeds (T14491)", () => {
+    const { token } = provision('T7106b');
+    const legacyPath = plantLegacyMutex('T7106b', deadPid(), 120_000);
+    expect(heartbeatWorktreeTaskLock(hash, 'T7106b', token)?.token).toBe(token);
+    expect(existsSync(legacyPath)).toBe(false);
+  });
+
+  it('a new-release hold owns .reclaim the way an old release takes it, so an old release is refused (T14491)', () => {
+    const { token } = provision('T7108');
+    const legacyPath = `${resolveWorktreeTaskLockPath(hash, 'T7108')}.reclaim`;
+    let oldReleaseCode: string | undefined;
+    let holder: { pid?: number; processStartedAt?: string | null } | undefined;
+    const hold = withWorktreeTaskLockHeld(hash, 'T7108', token, () => {
+      // What v2026.11.1 does to take its mutex: O_EXCL create.
+      try {
+        closeSync(openSync(legacyPath, 'wx'));
+      } catch (err) {
+        oldReleaseCode = (err as NodeJS.ErrnoException).code;
+      }
+      // ...and what it reads to judge the holder: a live pid with its start time.
+      holder = JSON.parse(readFileSync(legacyPath, 'utf-8'));
+    });
+    expect(hold.held).toBe(true);
+    expect(oldReleaseCode).toBe('EEXIST');
+    expect(holder?.pid).toBe(process.pid);
+    expect(holder?.processStartedAt).toBe(readProcessStartTime(process.pid));
+    expect(existsSync(legacyPath)).toBe(false); // released with the hold
   });
 
   // T14491: the mutex is an OS lock on an open descriptor. These run a real
