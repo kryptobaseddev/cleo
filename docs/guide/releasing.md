@@ -1,5 +1,10 @@
 # Release Process
 
+> **Historical guide.** The start/ship pipeline below is superseded and its
+> commands have been removed. Use the [release verb matrix](../reference/verb-matrix.md)
+> for the current `cleo release cut` path and the supported plan/open fallback.
+> This document is retained for its release-incident and migration history.
+
 This document describes the canonical release process for `@cleocode/monorepo` and all packages.
 
 ## TL;DR: The Canonical Path (v2026.5.43+)

@@ -2,7 +2,7 @@
 
 **A short top-down reading guide for humans and LLMs**
 
-All core canon documents now live in this `concepts/` folder. This index gives a simple read order, what each document is for, and where to go next.
+Core canon documents live in this `concept/` folder, with contracts in `spec/` and operating instructions in `guide/`. This index gives a simple read order, what each document is for, and where to go next.
 
 ---
 
@@ -77,6 +77,61 @@ Full rationale: `.cleo/adrs/ADR-044-canon-reconciliation.md`.
 - **Workshop vocabulary and live orchestration language**: [NEXUS-CORE-ASPECTS.md](nexus-core-aspects.md)
 - **Founder origin**: [CLEO-FOUNDING-STORY.md](cleo-founding-story.md)
 - **CLEO origin**: [CLEO-AWAKENING-STORY.md](cleo-awakening-story.md)
+
+---
+
+## Related implementation and operations
+
+These links retain the supporting contracts, design work, operational guidance and
+research behind the canon. Read each document's status and provenance before
+using it: dated schema/API inventories and planned designs describe their recorded
+revision, while current code and CLI help remain the implementation authority.
+
+### Runtime, data and contracts
+
+- [Database ERDs](database-erds.md) — historical schema diagrams and relationships from the database hardening work.
+- [Type contracts](type-contracts.md) — public API and schema inventory at the recorded core-hardening revision.
+- [Brain package](../spec/cleo-brain-package.md) — the five-substrate package and query contract.
+- [NEXUS architecture](../spec/cleo-nexus-architecture.md) — cross-project identity, registration and discovery design.
+- [Dispatch adapter](../spec/cleo-dispatch-adapter.md) — the typed boundary between registry parameters and domain handlers.
+- [Runtime logging](../spec/cleo-logging-contract.md) — diagnostics, audit ownership and retention rules.
+- [JSON storage decisions](../spec/json-storage-jsonb-decision-matrix.md) — per-column JSONB, text and denormalization choices.
+- [Sync change journal](../spec/sync-change-journal.md) — replication metadata, capture, signed outbox and apply-boundary design.
+
+### Agents, harness and integration design
+
+- [Pi harness architecture](cleo-pi-harness-architecture.md) — the Hearth UI's component and role design.
+- [Pi harness wireframes](cleo-pi-harness-wireframes.md) — proposed layouts, interactions and accessibility behavior.
+- [Pi extension mapping](pi-extension-mapping.md) — which UI designs the extension API can support and its limitations.
+- [CAAMP integration](../spec/caamp-integration.md) — provider capabilities, spawn adapters and hooks, including target features.
+- [CANT persona MVI](../spec/cant-persona-mvi.md) — draft tiered persona-loading rules.
+- [Autonomous runtime](../spec/cleo-autonomous-runtime.md) — planned Hearth, Impulse and Watcher behavior.
+- [Conduit protocol](../spec/cleo-conduit-protocol.md) — the planned agent relay contract and its implementation-status caveats.
+- [Creating custom agents](../guide/creating-custom-agents.md) — CANT definitions and agent-platform setup.
+- [Lead and worker roles](../guide/lead-vs-worker-roles.md) — role-specific injection, tool access and enforcement.
+- [Subagent injection](../guide/subagent-injection-pipeline.md) — the path from agent definition to spawned process.
+- [Token replacement](../spec/token-replacement-contract.md) — prompt-token resolution and spawn-time validation.
+
+### Operations, releases and verification
+
+- [CI and hooks taxonomy](../guide/ci-hooks-taxonomy-runbook.md) — consumer versus repository workflows and branch-protection checks.
+- [Release verb matrix](../reference/verb-matrix.md) — current release entry points and gates.
+- [Historical release process](../guide/releasing.md) — the superseded start/ship pipeline, retained as incident and migration history.
+- [Template and config inventory](../reference/template-config-inventory.md) — the recorded template/config audit, precedence and drift contracts.
+- [Gate integrity](../spec/gate-integrity.md) — evidence grammar and completion re-verification.
+- [PR cadence](../spec/pr-cadence.md) — task-to-PR-to-release traceability under ADR-099.
+
+### Documentation and classification
+
+- [Docs interaction contract](../spec/docs-interaction-contract.md) — update, version and supersession behavior.
+- [Canonical taxonomy](../taxonomy.md) — shared classification axes for decisions, documents and tasks.
+
+### Recovery and research
+
+- [Brain recovery runbook](../note/brain-recovery-runbook.md) — recovery prerequisites, data-loss expectations and fallback procedure.
+- [Agent memory architecture notes](../research/agent-memory-architecture-notes.md) — external research, explicitly separate from CLEO decisions and measurements.
+- [Hermes provider architecture](../research/hermes-llm-provider-architecture.md) — external provider/credential design inspiration.
+- [Machine worktree census](../research/machine-worktree-census.md) — the evidence and integration map behind machine-hygiene reporting.
 
 ---
 
