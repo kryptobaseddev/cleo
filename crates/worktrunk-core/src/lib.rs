@@ -99,6 +99,7 @@ pub mod cache;
 pub mod config;
 pub mod copy;
 pub mod diff;
+pub mod file_lock;
 pub mod git;
 pub mod git_wt;
 pub mod path;

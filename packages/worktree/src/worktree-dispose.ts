@@ -634,8 +634,8 @@ export interface DisposeOwnedWorktreeResult {
  * (T14407). For a caller that created the worktree under the lock and must
  * now remove it (a failed provision or spawn).
  *
- * Under the lock's own mutex, held for the whole check and disposal (a live
- * holder's mutex is never broken as stale), it checks that `lockToken` still
+ * Under the lock's own mutex (an OS lock on an open descriptor, freed by the OS
+ * if this process dies; T14491), held for the whole check and disposal, it checks that `lockToken` still
  * holds the lock, that `worktreePath` is the task's canonical path and that
  * the checkout there is on `branch`, then runs {@link disposeWorktree}'s proof
  * and removal, then releases the lock with `lockToken`. A concurrent re-spawn
