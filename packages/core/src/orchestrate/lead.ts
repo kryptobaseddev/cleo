@@ -67,7 +67,7 @@ export interface OrchestrateLeadOptions {
   readonly projectRoot?: string;
   /** Spawn adapter id. @defaultValue the first spawn-capable adapter */
   readonly adapterId?: string;
-  /** Host port from product dispatch; automatic lead launches remain native in every context. */
+  /** Host port: Claude Code leads use a guarded Orca terminal when context hints are present. */
   readonly orca?: OrcaRoutingAdapter;
   /** AgentMBX adapter. @defaultValue {@link createAgentMbxClient} */
   readonly mbxClient?: AgentMbxClient;
@@ -304,7 +304,7 @@ export async function orchestrateLead(
         },
       );
     }
-  } else if (mode === 'interactive') {
+  } else if (mode === 'interactive' && 'status' in data && data.status === 'completed') {
     // The interactive spawn returns when the owner ends the session.
     await settle(true);
   } else {

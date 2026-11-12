@@ -3,7 +3,9 @@
  * @packageDocumentation
  */
 import { execFile } from 'node:child_process';
-import { isAbsolute } from 'node:path';
+import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import type {
   OrcaAttempt,
   OrcaCommandReply,
@@ -12,6 +14,8 @@ import type {
   OrcaContext,
   OrcaDiscovery,
   OrcaLaunch,
+  OrcaLeadTerminal,
+  OrcaLeadTerminalLaunch,
   OrcaReply,
   OrcaReportSource,
   OrcaRoutingAdapter,
@@ -221,7 +225,7 @@ export const runOrcaCommand: OrcaCommandRunner = (executable, args, cwd, input) 
  * provider registry. Core persists each operation before invoking these methods.
  */
 export class OrcaExecutionBackend implements OrcaRoutingAdapter {
-  /** Public launch APIs cannot enforce denied tools or a strict MCP allowlist. */
+  /** Worker launch APIs cannot enforce denied tools or a strict MCP allowlist. */
   readonly leadToolStrip = 'unsupported';
   private readonly executable: string;
 
@@ -247,6 +251,217 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         process.env.ORCA_RUNTIME_SOURCE_ID ||
         process.env.ORCA_APP_VERSION,
     );
+  }
+
+  /**
+   * Host Claude Code's prepared guard argv in a local Orca terminal. The shell
+   * waits for a private release file, so a missing receipt, wrong runtime or
+   * disconnected owner terminal cannot start a model turn. Never retry create.
+   * @param launch - The provider's guarded command and private startup directory.
+   * @param onStarted - Persists the PID before any model turn is allowed.
+   * @returns The verified terminal handle and provider PID.
+   */
+  async startLead(
+    launch: OrcaLeadTerminalLaunch,
+    onStarted: (pid: number) => void | Promise<void>,
+  ): Promise<OrcaLeadTerminal> {
+    const refuse = (message: string) =>
+      new OrcaExecutionError(
+        ORCA_LEAD_LAUNCH_REFUSAL.code,
+        message,
+        'Restore a visible connected local Orca terminal and use --adapter claude-code; update the CLI and runtime together if required terminal commands are unavailable; keep orchestrate.leadWorker.v1 enabled.',
+      );
+    const handle = process.env.ORCA_TERMINAL_HANDLE;
+    if (!handle) {
+      throw new OrcaExecutionError(
+        'E_ORCA_CONTEXT',
+        'Orca context hints have no ORCA_TERMINAL_HANDLE; a guarded lead cannot select its owner terminal.',
+        'Run in the intended Orca terminal with its ORCA_TERMINAL_HANDLE, or remove stale ORCA_* hints outside Orca to use the native route; keep orchestrate.leadWorker.v1 enabled.',
+      );
+    }
+    if (
+      process.platform === 'win32' ||
+      !isAbsolute(launch.command) ||
+      !isAbsolute(launch.tempDir) ||
+      !launch.env.CLEO_SESSION_ID ||
+      !launch.env.CLEO_AGENT_ID ||
+      launch.env.CLEO_AGENT_ROLE !== 'lead'
+    ) {
+      throw refuse(
+        'The guarded Orca lead requires a local POSIX terminal and an absolute provider binary.',
+      );
+    }
+    const registryResult = await this.runner(
+      this.executable,
+      ['agent-context', '--json'],
+      launch.cwd,
+    );
+    const registry = orcaCommandRegistrySchema.parse(JSON.parse(registryResult.stdout));
+    const create = registry.commands.find((entry) => entry.command === 'terminal create');
+    const show = registry.commands.find((entry) => entry.command === 'terminal show');
+    const close = registry.commands.find((entry) => entry.command === 'terminal close');
+    const focus = registry.commands.find((entry) => entry.command === 'terminal switch');
+    if (
+      registryResult.exitCode !== 0 ||
+      !create ||
+      !['command', 'worktree', 'title', 'environment'].every((flag) =>
+        create.flags.includes(flag),
+      ) ||
+      !show ||
+      !['terminal', 'environment'].every((flag) => show.flags.includes(flag)) ||
+      !close ||
+      !['terminal', 'environment'].every((flag) => close.flags.includes(flag)) ||
+      !focus ||
+      !['terminal', 'environment'].every((flag) => focus.flags.includes(flag))
+    ) {
+      throw refuse('Orca does not declare the guarded terminal command transport.');
+    }
+    const status = await this.invoke(['status'], launch.cwd);
+    const runtimeId = status._meta?.runtimeId;
+    if (!status.ok || !runtimeId) throw refuse('Orca did not prove a local runtime.');
+    const context: OrcaContext = { runtimeId, coordinatorHandle: handle, executionHostId: 'local' };
+    await this.verifyRuntime(launch.cwd, context);
+    const caller = (
+      await this.query(['terminal', 'show', '--terminal', handle], launch.cwd, context)
+    ).result?.terminal;
+    const workspace = (
+      await this.query(
+        ['worktree', 'show', '--worktree', `path:${launch.cwd}`],
+        launch.cwd,
+        context,
+      )
+    ).result?.worktree;
+    if (
+      caller?.handle !== handle ||
+      !caller.connected ||
+      !caller.writable ||
+      caller.executionHostId !== 'local' ||
+      !workspace ||
+      workspace.path !== launch.cwd ||
+      workspace.hostId !== 'local'
+    ) {
+      throw refuse('Orca did not prove the local caller and existing lead workspace.');
+    }
+
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    for (const key of Object.keys(launch.env)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw refuse('Invalid lead environment key.');
+    }
+    const dir = await mkdtemp(join(launch.tempDir, 'orca-terminal-'));
+    const script = join(dir, 'launch.sh');
+    const pidFile = join(dir, 'pid');
+    const release = join(dir, 'release');
+    let terminalHandle: string | undefined;
+    try {
+      await writeFile(
+        script,
+        [
+          '#!/bin/sh',
+          'umask 077',
+          `trap ${quote(`rm -rf -- ${quote(dir)}`)} EXIT`,
+          `printf '%s' "$$" > ${quote(pidFile)}`,
+          'attempt=0',
+          `while [ ! -f ${quote(release)} ]; do`,
+          `  [ -d ${quote(dir)} ] || exit 1`,
+          '  attempt=$((attempt + 1)); [ "$attempt" -le 600 ] || exit 1',
+          '  sleep 0.1',
+          'done',
+          `cd ${quote(launch.cwd)} || exit 1`,
+          ...Object.entries(launch.env).map(([key, value]) => `export ${quote(`${key}=${value}`)}`),
+          `exec ${[launch.command, ...launch.args].map(quote).join(' ')}`,
+          '',
+        ].join('\n'),
+        { mode: 0o600 },
+      );
+      const created = await this.query(
+        [
+          'terminal',
+          'create',
+          '--worktree',
+          workspace.address?.worktree ?? `id:${workspace.id}`,
+          '--title',
+          'CLEO no-hands lead',
+          '--command',
+          `exec /bin/sh ${quote(script)}`,
+        ],
+        launch.cwd,
+        context,
+      );
+      const terminal = created.result?.terminal;
+      if (terminal && terminal.handle !== handle && terminal.executionHostId === 'local') {
+        terminalHandle = terminal.handle;
+      }
+      if (
+        !terminal ||
+        terminal.handle === handle ||
+        terminal.executionHostId !== 'local' ||
+        terminal.surface !== 'visible' ||
+        terminal.hostPlatform !== process.platform
+      ) {
+        throw refuse('Orca returned no new local lead terminal; its first-turn gate stays closed.');
+      }
+      let pid = 0;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const text = await readFile(pidFile, 'utf8').catch(() => '');
+        if (/^[1-9][0-9]*$/.test(text)) {
+          pid = Number(text);
+          break;
+        }
+        await delay(100);
+      }
+      if (!Number.isSafeInteger(pid) || pid <= 0 || pid !== terminal.processId) {
+        throw refuse('The guarded terminal supervisor did not prove its startup PID.');
+      }
+      // Older Orca show replies omit surface; an affirmative UI navigation proves visibility now.
+      const focused = (
+        await this.query(['terminal', 'switch', '--terminal', terminal.handle], launch.cwd, context)
+      ).result?.focus;
+      const owner = (
+        await this.query(['terminal', 'show', '--terminal', terminal.handle], launch.cwd, context)
+      ).result?.terminal;
+      if (
+        owner?.handle !== terminal.handle ||
+        !owner.connected ||
+        !owner.writable ||
+        (owner.surface !== undefined && owner.surface !== 'visible') ||
+        focused?.handle !== terminal.handle ||
+        !focused.navigated ||
+        focused.worktreeId !== workspace.id ||
+        owner.tabId !== focused.tabId ||
+        owner.executionHostId !== 'local' ||
+        owner.worktreePath !== launch.cwd
+      ) {
+        throw refuse('The lead has no verified owner terminal; its first-turn gate stays closed.');
+      }
+      await onStarted(pid);
+      await writeFile(`${release}.tmp`, '', { mode: 0o600 });
+      await rename(`${release}.tmp`, release);
+      return { runtimeId, terminalHandle: terminal.handle, pid };
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true });
+      if (terminalHandle) {
+        try {
+          await this.verifyRuntime(launch.cwd, context);
+          const closed = (
+            await this.query(
+              ['terminal', 'close', '--terminal', terminalHandle],
+              launch.cwd,
+              context,
+            )
+          ).result?.close;
+          if (closed?.handle !== terminalHandle || !closed.ptyKilled)
+            throw refuse('Orca did not prove terminal cleanup.');
+        } catch (cleanupError) {
+          throw new OrcaExecutionError(
+            error instanceof OrcaExecutionError ? error.code : ORCA_LEAD_LAUNCH_REFUSAL.code,
+            `${error instanceof Error ? error.message : String(error)}; terminal ${terminalHandle} cleanup is unverified: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+            `${error instanceof OrcaExecutionError ? error.fix : 'Restore the guarded terminal transport.'} Inspect orca terminal show --terminal ${terminalHandle} before closing that exact terminal.`,
+            error instanceof OrcaExecutionError ? error.receipt : null,
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   /** Verify the local caller before returning a sanitized account inventory. */

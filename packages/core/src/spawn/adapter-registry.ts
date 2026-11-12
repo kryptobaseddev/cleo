@@ -233,7 +233,11 @@ export function bridgeSpawnAdapter(
     async spawn(context: CLEOSpawnContext): Promise<CLEOSpawnResult> {
       const denied = context.leadDeniedTools;
       const isLead = denied !== undefined && denied.length > 0;
-      if (isLead && delegate.leadToolStrip !== 'enforced') {
+      if (
+        isLead &&
+        (delegate.leadToolStrip !== 'enforced' ||
+          (context.leadTerminalLauncher && providerId !== 'claude-code'))
+      ) {
         // @sync-invariant none:input-shape a lead spawn on a provider that cannot strip its tools is refused before anything runs
         throw new LeadToolsUnstrippedError(providerId, denied);
       }
@@ -249,6 +253,9 @@ export function bridgeSpawnAdapter(
         ...(context.protocolResolution ? { protocolResolution: context.protocolResolution } : {}),
         ...(isLead ? { leadDeniedTools: denied } : {}),
         ...(isLead && context.onLeadStarted ? { onLeadStarted: context.onLeadStarted } : {}),
+        ...(isLead && context.leadTerminalLauncher
+          ? { leadTerminalLauncher: context.leadTerminalLauncher }
+          : {}),
       };
       const result: SpawnResult = await delegate.spawn(contractContext);
       return {
@@ -267,6 +274,7 @@ export function bridgeSpawnAdapter(
         // T14423 — which MCP servers a lead loaded.
         ...(result.leadMcp ? { leadMcp: result.leadMcp } : {}),
         ...(result.leadTempDir ? { leadTempDir: result.leadTempDir } : {}),
+        ...(result.leadTerminal ? { leadTerminal: result.leadTerminal } : {}),
       };
     },
 

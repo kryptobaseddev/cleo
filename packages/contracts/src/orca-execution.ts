@@ -10,7 +10,7 @@ import { z } from 'zod';
 export const ORCA_LEAD_LAUNCH_REFUSAL = {
   code: 'E_LEAD_TOOLS_UNSTRIPPED',
   message:
-    'Orca cannot enforce lead tool/permission restrictions (--restricted, --tools, --allowedTools, --disallowedTools, --permission-mode, --setting-sources), strict MCP isolation (--mcp-config, --strict-mcp-config), or the owner channel and own session (--session-id, --settings, inherited owner terminal or validated user-only mbx) before launch.',
+    'Orca worker-start/agent launch cannot enforce lead tool/permission restrictions (--restricted, --tools, --allowedTools, --disallowedTools, --permission-mode, --setting-sources), strict MCP isolation (--mcp-config, --strict-mcp-config), or the owner channel and own session (--session-id, --settings, inherited owner terminal or validated user-only mbx) before launch.',
   fix: 'Run cleo orchestrate lead <epicId> --adapter claude-code for the enforced native lead route, including inside Orca, with validated user-scope mbx for --detached; keep orchestrate.leadWorker.v1 enabled. The Orca backend needs a constrained launch API carrying these argv/settings before it can start a lead.',
 } as const;
 
@@ -343,7 +343,39 @@ export interface OrcaRoutingAdapter extends OrcaExecutionAdapter {
   discover(projectRoot: string): Promise<OrcaDiscovery | null>;
   /** Inspect the exact coordinator's current Run; explicit null proves no binding. */
   currentRun(projectRoot: string, context: OrcaContext): Promise<string | null>;
+  /** Host a provider's prepared guarded argv; unavailable ports must refuse leads. */
+  startLead?: OrcaLeadTerminalLauncher;
 }
+
+/** Provider-prepared lead command; no shell text or account selection is accepted. */
+export interface OrcaLeadTerminalLaunch {
+  /** Absolute provider binary, resolved before the terminal starts. */
+  readonly command: string;
+  /** Complete guarded provider argv, including settings and strict MCP configuration. */
+  readonly args: readonly string[];
+  /** Existing local project directory. */
+  readonly cwd: string;
+  /** Provider-owned private directory, also removed by the lead's hooks and reaper. */
+  readonly tempDir: string;
+  /** Allocated lead identity, overriding the new terminal's inherited session. */
+  readonly env: Readonly<Record<string, string>>;
+}
+
+/** Verified local terminal and its supervisor, retained for exact-handle supervision. */
+export interface OrcaLeadTerminal {
+  /** Runtime that issued the terminal handle. */
+  readonly runtimeId: string;
+  /** Handle for Orca terminal read/show/interrupt supervision. */
+  readonly terminalHandle: string;
+  /** Shell PID, preserved by exec into the guarded provider. */
+  readonly pid: number;
+}
+
+/** Record the supervisor before releasing the terminal's first-turn gate. */
+export type OrcaLeadTerminalLauncher = (
+  launch: OrcaLeadTerminalLaunch,
+  onStarted: (pid: number) => void | Promise<void>,
+) => Promise<OrcaLeadTerminal>;
 
 /** Result from one bounded subprocess invocation, including nonzero JSON receipts. */
 export interface OrcaCommandResult {
@@ -441,11 +473,25 @@ export const orcaReplySchema = z.object({
       terminal: z
         .object({
           handle: identifier,
-          connected: z.boolean(),
-          writable: z.boolean(),
+          connected: z.boolean().optional(),
+          writable: z.boolean().optional(),
           executionHostId: identifier,
+          worktreePath: identifier.optional(),
+          processId: z.number().int().positive().optional(),
+          hostPlatform: z.string().optional(),
+          surface: z.string().optional(),
+          tabId: identifier.optional(),
         })
         .optional(),
+      focus: z
+        .object({
+          handle: identifier,
+          tabId: identifier,
+          worktreeId: identifier,
+          navigated: z.boolean(),
+        })
+        .optional(),
+      close: z.object({ handle: identifier, ptyKilled: z.boolean() }).optional(),
       runtime: z
         .object({
           runtimeId: identifier,

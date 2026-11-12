@@ -11,6 +11,7 @@
 
 import type { AgentSpawnCapability } from './agent-registry-v3.js';
 import type { LeadDeniedTool, LeadMcpReport } from './operations/orchestrate.js';
+import type { OrcaLeadTerminal, OrcaLeadTerminalLauncher } from './orca-execution.js';
 import type { AgentSuiteOwnership } from './spawn.js';
 import type { TaskPipelineStageSource } from './task.js';
 
@@ -127,6 +128,8 @@ export interface CLEOSpawnContext {
    * the lead record can name it (T14363). Lead spawns only.
    */
   onLeadStarted?: (pid: number) => void;
+  /** Host the provider's guarded lead argv after verifying its local owner terminal. */
+  leadTerminalLauncher?: OrcaLeadTerminalLauncher;
 }
 
 /**
@@ -171,8 +174,10 @@ export interface CLEOSpawnResult extends CAAMPSpawnResult {
   /** MCP servers a lead spawn loaded, passed on from `SpawnResult` (T14423). */
   leadMcp?: LeadMcpReport;
 
-  /** A detached lead's private temp directory, from `SpawnResult` (T14363). */
+  /** A running lead's private temp directory, from `SpawnResult` (T14363). */
   leadTempDir?: string;
+  /** Exact local Orca terminal hosting a guarded lead. */
+  leadTerminal?: OrcaLeadTerminal;
 
   /** Reference to manifest entry if output was captured */
   manifestEntryId?: string;
