@@ -112,12 +112,12 @@ jobs:
             runner: ubuntu-latest
             triple: linux-arm64-musl
             mode: zig
-          # Both darwin triples on ONE Apple Silicon job: darwin-x64 is
-          # cross-compiled by Xcode (the macos-13 Intel pool queues
-          # indefinitely, T10479). One macOS job instead of two halves the
-          # macOS queue exposure of every release.
+          # Both darwin triples on ONE Apple Silicon job (macos-15): darwin-x64
+          # is cross-compiled by Xcode. One macOS build job instead of two halves
+          # the macOS queue exposure of every release; the x64 binary is loaded
+          # on a native Intel runner in `runtime` below (T14505).
           - target: aarch64-apple-darwin x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             triple: darwin
             mode: darwin
           - target: x86_64-pc-windows-msvc
@@ -274,8 +274,8 @@ jobs:
 
   # Load each native binary on real hardware for that triple (musl through an
   # Alpine container) and prove the loader picks it, not the WASI fallback.
-  # darwin-x64 has no reliably schedulable runner (T10479); it is built and
-  # stamp-checked above, and WASI covers it if the binary is ever unusable.
+  # darwin-x64 loads on macos-15-intel, the supported Intel image (T14505;
+  # macos-13 and macos-14 are retired).
   runtime:
     name: load ${{ matrix.triple }}
     needs: [source-hash, build]
@@ -289,7 +289,8 @@ jobs:
           - { triple: linux-arm64-gnu, runner: ubuntu-24.04-arm, container: '' }
           - { triple: linux-x64-musl, runner: ubuntu-latest, container: 'node:24-alpine' }
           - { triple: linux-arm64-musl, runner: ubuntu-24.04-arm, container: 'node:24-alpine' }
-          - { triple: darwin-arm64, runner: macos-14, container: '' }
+          - { triple: darwin-arm64, runner: macos-15, container: '' }
+          - { triple: darwin-x64, runner: macos-15-intel, container: '' }
           - { triple: win32-x64-msvc, runner: windows-latest, container: '' }
           - { triple: win32-arm64-msvc, runner: windows-11-arm, container: '' }
     steps:
