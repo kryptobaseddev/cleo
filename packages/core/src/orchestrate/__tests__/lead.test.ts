@@ -512,6 +512,59 @@ describe('orchestrateLead (T14363)', () => {
     expect(provider.state.seen).toHaveLength(1);
   });
 
+  it('a closed lead (processes dead, session already ended) is reported and replaced, its session left as it ended (T14513)', async () => {
+    withMailbox();
+    const endedAt = '2026-11-12T19:45:00.000Z';
+    const leadSes = 'ses_20261112193956_f64652';
+    await env.accessor.upsertSingleSession({
+      id: leadSes,
+      name: 'lead',
+      status: 'ended',
+      scope: { type: 'global' },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: '2026-11-12T19:39:56.000Z',
+      endedAt,
+    });
+    const { writeLeadRecord, readLeadRecord } = await import('../lead-records.js');
+    // The shape the closed Orca lead left in cleo-lead-livecheck (.cleo/leads/T002.json).
+    writeLeadRecord(env.tempDir, {
+      ...twoProcessRecord(34_248, 35_292, 'Thu Nov 12 19:39:59 2026'),
+      cleoSessionId: leadSes,
+      tempDir: join(tmpdir(), 'cleo-claude-spawn-closed-lead'),
+    });
+    provider.state.status = 'completed';
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      probe: () => ({ alive: false, startedAt: null }),
+    });
+    // Not treated as live: the new lead runs and the dead one is reported.
+    expect(result.success).toBe(true);
+    expect(provider.state.seen).toHaveLength(1);
+    expect((result.success ? (result.data as LeadData) : null)?.lead.reaped).toEqual([
+      {
+        epicId: 'T100',
+        recordRemoved: true,
+        keptReason: null,
+        pids: [34_248, 35_292],
+        cleoSessionId: leadSes,
+        mailboxReleased: true,
+        sessionEnded: false,
+        sessionAlreadyEnded: true,
+        tempDirRemoved: true,
+      },
+    ]);
+    // The ended session keeps its own end time, with no reaper note.
+    const { getSession } = await import('../../store/session-store.js');
+    const stored = await getSession(leadSes, env.tempDir);
+    expect(stored).toMatchObject({ status: 'ended', endedAt });
+    expect(stored?.notes ?? []).not.toContain('lead died; reaped');
+    // The dead record is gone; a new lead ran and settled, so none stands.
+    expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
+  });
+
   it('orchestrate status reaps a dead lead too', async () => {
     const { writeLeadRecord, readLeadRecord } = await import('../lead-records.js');
     writeLeadRecord(env.tempDir, {
@@ -526,8 +579,133 @@ describe('orchestrateLead (T14363)', () => {
       startedAt: new Date().toISOString(),
     });
     const { orchestrateStatus } = await import('../query-ops.js');
-    await orchestrateStatus(undefined, env.tempDir);
+    const status = await orchestrateStatus(undefined, env.tempDir);
     expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
+    // T14513: the cleanup is reported, never silent.
+    expect(status).toMatchObject({
+      success: true,
+      data: { reapedLeads: [{ epicId: 'T100', recordRemoved: true, sessionEnded: true }] },
+    });
+  });
+
+  /** A dead detached lead's record on T100 under the orchestrator session. */
+  const deadRecord = (startedAt: string | null = null) => ({
+    epicId: 'T100',
+    processes: [{ role: 'lead' as const, pid: 2_147_483_000, startedAt }],
+    mode: 'detached' as const,
+    cleoSessionId: SES,
+    providerSessionId: '0b9a1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d',
+    providerCli: 'claude',
+    mailbox: MAILBOX,
+    tempDir: null,
+    startedAt: new Date().toISOString(),
+  });
+
+  it('a live pid whose start time cannot be read counts as alive: the record is kept (T14513)', async () => {
+    withMailbox();
+    const { writeLeadRecord, readLeadRecord } = await import('../lead-records.js');
+    writeLeadRecord(env.tempDir, deadRecord('Thu Nov 12 19:39:59 2026'));
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      probe: () => ({ alive: true, startedAt: null }),
+    });
+    expect(result).toMatchObject({ success: false, error: { code: 'E_LEAD_RUNNING' } });
+    expect(readLeadRecord(env.tempDir, 'T100')).not.toBeNull();
+    expect(mbx.releases).toHaveLength(0);
+    expect(provider.state.seen).toHaveLength(0);
+  });
+
+  it('a session that cannot be read or ended keeps the dead record, reported with the reason (T14513)', async () => {
+    const { writeLeadRecord, readLeadRecord, reapDeadLeads } = await import('../lead-records.js');
+    const dead = () => ({ alive: false, startedAt: null });
+    for (const [deps, reason] of [
+      [
+        { readSession: async () => Promise.reject(new Error('store locked')) },
+        'session unreadable',
+      ],
+      [{ endSession: async () => Promise.reject(new Error('store locked')) }, 'session end failed'],
+      [{ readSession: async () => null }, 'not found'],
+      [{ endSession: async () => null }, 'end returned no session'],
+    ] as const) {
+      writeLeadRecord(env.tempDir, deadRecord());
+      const mbx = fakeMbx(true);
+      const reaped = await reapDeadLeads(env.tempDir, {
+        ...deps,
+        probe: dead,
+        mbxClient: mbx.client,
+      });
+      expect(reaped).toEqual([
+        expect.objectContaining({
+          epicId: 'T100',
+          recordRemoved: false,
+          keptReason: expect.stringContaining(reason),
+          mailboxReleased: false,
+        }),
+      ]);
+      expect(readLeadRecord(env.tempDir, 'T100')).not.toBeNull();
+      expect(mbx.releases).toHaveLength(0);
+    }
+  });
+
+  it('a kept dead record makes the next orchestrate lead refuse with E_LEAD_RECORD_KEPT and its fix (T14513)', async () => {
+    withMailbox();
+    const { writeLeadRecord, readLeadRecord } = await import('../lead-records.js');
+    // The session the record names is not in the store: not proven ended.
+    writeLeadRecord(env.tempDir, { ...deadRecord(), cleoSessionId: 'ses_20261112000000_missin' });
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      probe: () => ({ alive: false, startedAt: null }),
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_LEAD_RECORD_KEPT',
+        fix: 'Run cleo orchestrate lead T100 again once session ses_20261112000000_missin can be read and ended.',
+        details: {
+          epicId: 'T100',
+          reaped: [
+            {
+              epicId: 'T100',
+              recordRemoved: false,
+              keptReason: expect.stringContaining('not found'),
+              mailboxReleased: false,
+              tempDirRemoved: false,
+            },
+          ],
+        },
+      },
+    });
+    expect(readLeadRecord(env.tempDir, 'T100')).not.toBeNull();
+    expect(mbx.claims).toHaveLength(0);
+    expect(mbx.releases).toHaveLength(0);
+    expect(provider.state.seen).toHaveLength(0);
+  });
+
+  it('a reap is reported on the failure when the new lead is then refused (T14513)', async () => {
+    withMailbox();
+    const { writeLeadRecord } = await import('../lead-records.js');
+    writeLeadRecord(env.tempDir, deadRecord());
+    provider.state.strip = 'unsupported';
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const result = await orchestrateLead('T100', {
+      projectRoot: env.tempDir,
+      mbxClient: mbx.client,
+      probe: () => ({ alive: false, startedAt: null }),
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_LEAD_TOOLS_UNSTRIPPED',
+        details: { reaped: [{ epicId: 'T100', recordRemoved: true, mailboxReleased: true }] },
+      },
+    });
   });
 
   it('a lead refused after admission gives the mailbox straight back; one refused before admission never claims', async () => {

@@ -38,6 +38,7 @@ import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
 import { loadRankingContext } from '../tasks/task-next.js';
 import { computeAgentAdmission } from './admission.js';
+import type { ReapedLead } from './lead-records.js';
 import { hasLeadRecords } from './lead-records-dir.js';
 import { listWorkerRecords, reconcileWorkerExits, type WorkerRecord } from './worker-records.js';
 
@@ -171,10 +172,16 @@ export async function loadTasks(projectRoot?: string): Promise<Task[]> {
 
 /**
  * Close the records of exited workers (emitting their SubagentStop) and reap
- * dead leads (T14363), then list every worker record. Best-effort: a store failure yields an empty list
- * rather than failing the status read.
+ * dead leads (T14363), then list every worker record. Best-effort: a store
+ * failure yields an empty list rather than failing the status read.
+ *
+ * @returns The worker records, and every dead lead record the reap found,
+ *   removed or kept (T14513), so a cleanup is never silent.
  */
-async function loadWorkerRecords(root: string): Promise<WorkerRecord[]> {
+async function loadWorkerRecords(
+  root: string,
+): Promise<{ workers: WorkerRecord[]; reapedLeads: ReapedLead[] }> {
+  let reapedLeads: ReapedLead[] = [];
   try {
     await reconcileWorkerExits(root);
     // T14363 — a lead killed before its hooks ran gives back its mailbox,
@@ -182,15 +189,21 @@ async function loadWorkerRecords(root: string): Promise<WorkerRecord[]> {
     // Loaded only when a record exists, so status stays inside its gate-39 budget.
     if (hasLeadRecords(root)) {
       const { reapDeadLeads } = await import('./lead-records.js');
-      await reapDeadLeads(root).catch((err) =>
-        getLogger('engine:orchestrate').warn({ err: String(err) }, 'lead reap failed'),
-      );
+      reapedLeads = await reapDeadLeads(root).catch((err) => {
+        getLogger('engine:orchestrate').warn({ err: String(err) }, 'lead reap failed');
+        return [];
+      });
     }
-    return await listWorkerRecords(root);
+    return { workers: await listWorkerRecords(root), reapedLeads };
   } catch (err) {
     getLogger('engine:orchestrate').warn({ err: String(err) }, 'worker records unavailable');
-    return [];
+    return { workers: [], reapedLeads };
   }
+}
+
+/** `reapedLeads` for a status payload, only when the reap found a dead lead. */
+function reapReport(reapedLeads: ReapedLead[]): { reapedLeads?: ReapedLead[] } {
+  return reapedLeads.length > 0 ? { reapedLeads } : {};
 }
 
 /**
@@ -199,7 +212,8 @@ async function loadWorkerRecords(root: string): Promise<WorkerRecord[]> {
  * @param epicId - Optional epic id to scope status to a single epic.
  * @param projectRoot - Optional project root path.
  * @returns Engine result with status data, plus `workers`: the durable worker
- *   records (T14359), after emitting SubagentStop for any that have exited.
+ *   records (T14359), after emitting SubagentStop for any that have exited, and
+ *   `reapedLeads` when a dead lead record was found, removed or kept (T14513).
  * @task T4478
  */
 export async function orchestrateStatus(
@@ -229,14 +243,19 @@ export async function orchestrateStatus(
         );
         const status = computeEpicStatus(epicId, epic.title, children, waves);
         const childIds = new Set(children.map((t) => t.id));
-        const workers = (await loadWorkerRecords(root)).filter((w) => childIds.has(w.taskId));
+        const loaded = await loadWorkerRecords(root);
+        const workers = loaded.workers.filter((w) => childIds.has(w.taskId));
 
-        return { success: true, data: { ...status, workers } };
+        return { success: true, data: { ...status, workers, ...reapReport(loaded.reapedLeads) } };
       }
 
       // No epicId - return overall status
       const status = computeOverallStatus(tasks);
-      return { success: true, data: { ...status, workers: await loadWorkerRecords(root) } };
+      const loaded = await loadWorkerRecords(root);
+      return {
+        success: true,
+        data: { ...status, workers: loaded.workers, ...reapReport(loaded.reapedLeads) },
+      };
     });
   } catch (err: unknown) {
     return engineError('E_GENERAL', (err as Error).message);

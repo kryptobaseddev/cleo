@@ -10,11 +10,13 @@
  * lease that only mutations renew), and a reused pid, whose start time
  * differs, never blocks the epic.
  *
- * A lead killed before its `SessionEnd` hook ran (SIGKILL, OOM) leaves its
- * record behind. {@link reapDeadLeads}, run by the next `cleo orchestrate
- * lead` and by `cleo orchestrate status`, releases such a lead's mailbox,
- * ends its CLEO session (freeing the epic claim), removes its temp directory
- * (which may hold the mbx env) and deletes the record.
+ * A lead killed before its `SessionEnd` hook ran (SIGKILL, OOM), or one whose
+ * Orca terminal was closed after its session ended (T14513), leaves its record
+ * behind. {@link reapDeadLeads}, run by the next `cleo orchestrate lead` (which
+ * reports what it reaped under `data.lead.reaped`) and by `cleo orchestrate
+ * status`, releases such a lead's mailbox, ends its CLEO session unless it has
+ * already ended (freeing the epic claim), removes its temp directory (which
+ * may hold the mbx env) and deletes the record.
  *
  * The file is local runtime state (a pid means nothing on another device).
  *
@@ -31,7 +33,7 @@ import {
   orcaLeadTerminalSchema,
 } from '@cleocode/contracts/orca-execution.js';
 import { type ProcessLiveness, probeProcess } from '@cleocode/worktree';
-import { endSession } from '../store/session-store.js';
+import { endSession, getSession } from '../store/session-store.js';
 import { type AgentMbxClient, createAgentMbxClient } from './agentmbx.js';
 import { leadRecordsDir } from './lead-records-dir.js';
 
@@ -180,8 +182,10 @@ export function listLeadRecords(projectRoot: string): LeadRecord[] {
 
 /**
  * Whether a lead is alive: ANY of its processes runs with the start time
- * recorded for it. A process whose start time was not recorded counts on its
- * pid alone; a live pid with a different start time is a reused pid.
+ * recorded for it. A process whose start time was not recorded, or whose
+ * current start time cannot be read, counts on its pid alone (never reaped
+ * without proof, T14513); a live pid with a different start time is a reused
+ * pid.
  *
  * @param record - The lead record.
  * @param probe - Process probe. @defaultValue `probeProcess` (`@cleocode/worktree`)
@@ -194,7 +198,10 @@ export function isLeadAlive(
 ): boolean {
   return record.processes.some((p) => {
     const live = probe(p.pid);
-    return live.alive && (p.startedAt === null || live.startedAt === p.startedAt);
+    return (
+      live.alive &&
+      (p.startedAt === null || live.startedAt === null || live.startedAt === p.startedAt)
+    );
   });
 }
 
@@ -211,8 +218,23 @@ function isSpawnTempDir(dir: string): boolean {
 /** What {@link reapDeadLeads} did for one dead lead. */
 export interface ReapedLead {
   readonly epicId: string;
+  /**
+   * The record was deleted: its processes are dead AND its session is proven
+   * ended (it had already ended, or the reaper's end returned it ended). `false` keeps the
+   * record, with the reason in {@link ReapedLead.keptReason} (T14513).
+   */
+  readonly recordRemoved: boolean;
+  /** Why a dead lead's record was kept, or `null` when it was removed. */
+  readonly keptReason: string | null;
+  /** Pids the record named, all of them gone (or reused). */
+  readonly pids: readonly number[];
+  /** The lead's CLEO session. */
+  readonly cleoSessionId: string;
   readonly mailboxReleased: boolean;
+  /** The reaper ended the lead's session (it was still open). */
   readonly sessionEnded: boolean;
+  /** The session had already ended (the lead's `SessionEnd` hook ran); left as it was (T14513). */
+  readonly sessionAlreadyEnded: boolean;
   readonly tempDirRemoved: boolean;
 }
 
@@ -224,16 +246,61 @@ export interface ReapDeps {
   readonly probe?: (pid: number) => ProcessLiveness;
   /** Only this epic's record. */
   readonly epicId?: string;
+  /** Session reader. @defaultValue `getSession` (session store) */
+  readonly readSession?: typeof getSession;
+  /** Session ender. @defaultValue `endSession` (session store) */
+  readonly endSession?: typeof endSession;
+}
+
+/** Proof that a dead lead's session no longer holds its epic claim, or why there is none. */
+async function settleLeadSession(
+  record: LeadRecord,
+  projectRoot: string,
+  deps: ReapDeps,
+): Promise<{ alreadyEnded: boolean; ended: boolean; keptReason: string | null }> {
+  const read = deps.readSession ?? getSession;
+  const end = deps.endSession ?? endSession;
+  let session: Awaited<ReturnType<typeof getSession>>;
+  try {
+    session = await read(record.cleoSessionId, projectRoot);
+  } catch (err) {
+    return { alreadyEnded: false, ended: false, keptReason: `session unreadable: ${String(err)}` };
+  }
+  // No session found is not proof it ended (wrong store, a lagging read): keep the record.
+  if (session === null) {
+    return {
+      alreadyEnded: false,
+      ended: false,
+      keptReason: `session ${record.cleoSessionId} not found, so not proven ended`,
+    };
+  }
+  // T14513: a session that already ended keeps its own end time and notes.
+  if (session.status === 'ended') return { alreadyEnded: true, ended: false, keptReason: null };
+  try {
+    const after = await end(record.cleoSessionId, 'lead died; reaped', projectRoot);
+    if (after?.status === 'ended') return { alreadyEnded: false, ended: true, keptReason: null };
+    return {
+      alreadyEnded: false,
+      ended: false,
+      keptReason:
+        after === null
+          ? `session ${record.cleoSessionId} end returned no session, so not proven ended`
+          : `session ${record.cleoSessionId} is still ${after.status}`,
+    };
+  } catch (err) {
+    return { alreadyEnded: false, ended: false, keptReason: `session end failed: ${String(err)}` };
+  }
 }
 
 /**
- * Release what a dead lead left behind: its mailbox, its CLEO session (and
- * so its epic claim), its temp directory and its record. A live lead is
- * never touched.
+ * Release what a dead lead left behind: its CLEO session (and so its epic
+ * claim), its mailbox, its temp directory and its record. A live lead is
+ * never touched, and a dead lead whose session cannot be proven ended keeps
+ * its record (reported with `recordRemoved: false` and the reason).
  *
  * @param projectRoot - Project root.
  * @param deps - See {@link ReapDeps}.
- * @returns One entry per reaped lead.
+ * @returns One entry per dead lead found, removed or kept.
  * @task T14363
  */
 export async function reapDeadLeads(
@@ -247,13 +314,25 @@ export async function reapDeadLeads(
   const reaped: ReapedLead[] = [];
   for (const record of records) {
     if (isLeadAlive(record, deps.probe)) continue;
+    const session = await settleLeadSession(record, projectRoot, deps);
+    if (session.keptReason !== null) {
+      reaped.push({
+        epicId: record.epicId,
+        recordRemoved: false,
+        keptReason: session.keptReason,
+        pids: record.processes.map((p) => p.pid),
+        cleoSessionId: record.cleoSessionId,
+        mailboxReleased: false,
+        sessionEnded: false,
+        sessionAlreadyEnded: false,
+        tempDirRemoved: false,
+      });
+      continue;
+    }
     const client = deps.mbxClient ?? createAgentMbxClient();
     const release = record.mailbox
       ? await client.release({ cli: record.providerCli, session: record.providerSessionId })
       : null;
-    const ended = await endSession(record.cleoSessionId, 'lead died; reaped', projectRoot)
-      .then(() => true)
-      .catch(() => false);
     let tempDirRemoved = false;
     if (record.tempDir && isSpawnTempDir(record.tempDir)) {
       rmSync(record.tempDir, { recursive: true, force: true });
@@ -262,8 +341,13 @@ export async function reapDeadLeads(
     removeLeadRecord(projectRoot, record.epicId);
     reaped.push({
       epicId: record.epicId,
+      recordRemoved: true,
+      keptReason: null,
+      pids: record.processes.map((p) => p.pid),
+      cleoSessionId: record.cleoSessionId,
       mailboxReleased: release?.ok === true,
-      sessionEnded: ended,
+      sessionEnded: session.ended,
+      sessionAlreadyEnded: session.alreadyEnded,
       tempDirRemoved,
     });
   }
