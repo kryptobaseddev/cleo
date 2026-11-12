@@ -8,6 +8,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
@@ -59,6 +60,56 @@ describe('Brain Search', () => {
   });
 
   describe('searchBrain', () => {
+    it.each([
+      'missing',
+      'stale',
+    ] as const)('disables busy retries for %s FTS repair and restores the writer timeout', async (state) => {
+      const { searchBrain, resetFts5Cache } = await import('../brain-search.js');
+      const { getBrainDbPath, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      const accessor = await getBrainAccessor(tempDir);
+      await accessor.addDecision({
+        id: 'D-retention',
+        type: 'technical',
+        decision: 'Backup retention keeps ten snapshots',
+        rationale: 'Enough history.',
+        confidence: 'high',
+      });
+      expect((await searchBrain(tempDir, 'retention')).decisions).toHaveLength(1);
+      const db = getBrainNativeDb(tempDir)!;
+      if (state === 'missing') db.exec('DROP TABLE brain_decisions_fts');
+      else {
+        db.exec('DROP TRIGGER brain_decisions_ai');
+        await accessor.addDecision({
+          id: 'D-unindexed',
+          type: 'technical',
+          decision: 'Unindexed backup policy',
+          rationale: 'Written without the sync trigger.',
+          confidence: 'high',
+        });
+      }
+      resetFts5Cache();
+      db.exec('PRAGMA busy_timeout = 4321');
+      const prepare = db.prepare.bind(db);
+      const timeouts = vi.fn(() => prepare('PRAGMA busy_timeout').get());
+      const spy = vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+        if (sql.trimStart().startsWith('CREATE ')) timeouts();
+        return prepare(sql);
+      });
+      const locker = new DatabaseSync(getBrainDbPath(tempDir));
+      try {
+        locker.exec('BEGIN IMMEDIATE');
+        expect((await searchBrain(tempDir, 'retention')).decisions).toHaveLength(1);
+        expect(timeouts).toHaveBeenCalled();
+        for (const result of timeouts.mock.results) expect(result.value).toEqual({ timeout: 0 });
+        expect(db.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 4321 });
+      } finally {
+        locker.exec('ROLLBACK');
+        locker.close();
+        spy.mockRestore();
+      }
+    });
+
     it.each([
       'fts',
       'fallback',

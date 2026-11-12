@@ -315,17 +315,17 @@ export function staleFts5Tables(nativeDb: DatabaseSync): string[] {
 }
 
 /**
- * How long a search waits for the write lock before it searches without
- * repairing a missing or stale FTS index (T14202): a read never blocks behind
- * another writer.
+ * Disable busy retries during opportunistic FTS repair: a read never waits
+ * behind another writer. A positive SQLite timeout budgets requested sleeps,
+ * not elapsed time, so scheduling can stretch it beyond the read budget.
  */
-export const BRAIN_FTS_READ_BUSY_TIMEOUT_MS = 250;
+export const BRAIN_FTS_READ_BUSY_TIMEOUT_MS = 0;
 
 /**
  * Make the brain FTS5 indexes searchable for a read (T14202). A store whose
  * indexes are present and in step is left untouched: the search writes
- * nothing. A missing or stale index is created and rebuilt, waiting at most
- * {@link BRAIN_FTS_READ_BUSY_TIMEOUT_MS} for the write lock; when the store
+ * nothing. A missing or stale index is created and rebuilt with busy retries
+ * disabled ({@link BRAIN_FTS_READ_BUSY_TIMEOUT_MS}); when the store
  * cannot be written now, the indexes are left as they are and the caller
  * searches without FTS5 (LIKE) only if an index is missing. Never throws.
  *
