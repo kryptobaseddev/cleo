@@ -324,6 +324,12 @@ function checkoutBlocker(
       missing.sha === cs.mergeCommitSha
         ? ''
         : ` The command switches to PR #${cs.prNumber}'s merge commit ${short(cs.mergeCommitSha)}, which contains it.`;
+    const gitDir = gitRead(root, ['rev-parse', '--absolute-git-dir']);
+    const commonDir = gitRead(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    const enterTree =
+      gitDir !== null && commonDir !== null && gitDir !== commonDir
+        ? `cd ${shellQuote(root)} && `
+        : '';
     return {
       code: 'checkout-required',
       message:
@@ -334,7 +340,7 @@ function checkoutBlocker(
           ? '; evidence.ciSatisfies is set, so ci:<pr> needs no local run.'
           : '. (Setting evidence.ciSatisfies would let ci:<pr>, the merged CI, stand in.)'),
       next: {
-        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cd ${shellQuote(root)} && cleo done ${taskId}${prNumber === undefined ? '' : ` --pr ${prNumber}`}${runTyped ? ' --run-typed' : ''}`,
+        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && ${enterTree}cleo done ${taskId}${prNumber === undefined ? '' : ` --pr ${prNumber}`}${runTyped ? ' --run-typed' : ''}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
       },
     };
