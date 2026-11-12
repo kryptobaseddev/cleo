@@ -1484,6 +1484,10 @@ describe('admit (one ledger, real critical section)', () => {
     out.grant.observeRss?.(2 * GIB);
     await vi.waitFor(() => expect(sample).toHaveBeenCalledTimes(2), { interval: 5 });
     try {
+      out.grant.recordChild?.({ pid: 4_000_002, startedAt: 'child' });
+      await vi.waitFor(() => expect(readLedger(dir)[0]?.child?.pid).toBe(4_000_002), {
+        interval: 5,
+      });
       const started = Date.now();
       await out.grant.release();
       expect(Date.now() - started).toBeGreaterThanOrEqual(200);

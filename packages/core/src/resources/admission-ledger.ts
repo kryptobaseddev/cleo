@@ -3424,27 +3424,28 @@ function holdGrant(
   let released = false;
   let releasing: Promise<void> | undefined;
   let writes: Promise<void> = Promise.resolve();
+  const updates = new Set<Promise<void>>();
   const stopWrites = new AbortController();
   const update = (patch: (e: LedgerEntry) => LedgerEntry): void => {
     if (released) return;
-    writes = writes
-      .then(() =>
-        withLedger(
-          dir,
-          (doc) => {
-            if (!doc.entries.some((e) => e.id === entry.id))
-              return { doc: null, result: undefined };
-            return {
-              doc: { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
-              result: undefined,
-            };
-          },
-          stopWrites.signal,
-        ),
-      )
+    const pending = withLedger(
+      dir,
+      (doc) => {
+        if (!doc.entries.some((e) => e.id === entry.id)) return { doc: null, result: undefined };
+        return {
+          doc: { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
+          result: undefined,
+        };
+      },
+      stopWrites.signal,
+    )
       .catch(() => {
         // Best effort: a missed heartbeat only means the next probe asks ps.
+      })
+      .finally(() => {
+        updates.delete(pending);
       });
+    updates.add(pending);
   };
   const now = opts.now ?? Date.now;
   // T14116: what the run's tree measured, and the charge it holds now.
@@ -3464,8 +3465,7 @@ function holdGrant(
   }, LEDGER_HEARTBEAT_MS);
   timer.unref();
   const following = followToolGroups((groups) => {
-    const snapshot = [...groups];
-    update((e) => ({ ...e, toolGroups: snapshot }));
+    update((e) => ({ ...e, toolGroups: [...groups] }));
   });
   if (following.groups.length > 0) update((e) => ({ ...e, toolGroups: [...following.groups] }));
   return {
@@ -3507,7 +3507,7 @@ function holdGrant(
         const stop = (): void => stopWrites.abort(signal.reason);
         signal.addEventListener('abort', stop, { once: true });
         try {
-          await writes;
+          await Promise.all([...updates, writes]);
         } finally {
           signal.removeEventListener('abort', stop);
         }
