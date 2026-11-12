@@ -8,10 +8,12 @@
 
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parseCLI } from 'vitest/node';
 import { parse as parseYaml } from 'yaml';
 import {
   bodyOf,
@@ -29,6 +31,7 @@ import {
   titleOf,
   trustedIssues,
   UNHANDLED_LINE,
+  VITEST_OPTIONS,
   WHOLE_FILE,
 } from '../ci-flaky-quarantine.mjs';
 
@@ -87,24 +90,41 @@ describe('parseVitestReport', () => {
   });
 });
 
+/** A re-run outcome: `failures` failed, `passed` passed. */
+const again = (failures, passed = []) => ({ failures, passed });
+
 describe('classify', () => {
   it('a failure that passes on the re-run is a flake; one that fails again blocks', () => {
-    expect(classify([A, B], [], [B])).toMatchObject({ flaky: [A], blocking: [B], quarantined: [] });
+    expect(classify([A, B], [], again([B], [A]))).toMatchObject({
+      flaky: [A],
+      blocking: [B],
+      quarantined: [],
+    });
+  });
+
+  it('a failure the re-run did not report as passed is never a flake (T14521)', () => {
+    // A re-run that skipped or filtered the test out reports no failure, and no pass.
+    expect(classify([A], [], again([], []))).toMatchObject({ flaky: [], blocking: [A] });
+    expect(classify([A], [], again([], [B]))).toMatchObject({ flaky: [], blocking: [A] });
   });
 
   it('a quarantined test that fails its re-run too does not block; one that passes on it is a flake', () => {
-    expect(classify([A, B], [A], [A])).toMatchObject({
+    expect(classify([A, B], [A], again([A], [B]))).toMatchObject({
       quarantined: [A],
       flaky: [B],
       blocking: [],
     });
-    expect(classify([A], [A], [])).toMatchObject({ quarantined: [], flaky: [A], blocking: [] });
+    expect(classify([A], [A], again([], [A]))).toMatchObject({
+      quarantined: [],
+      flaky: [A],
+      blocking: [],
+    });
   });
 
   it('a whole-file entry excuses only a whole-file failure, never a test added to that file', () => {
     const whole = { file: B.file, test: WHOLE_FILE };
-    expect(classify([B], [whole], [B])).toMatchObject({ blocking: [B], quarantined: [] });
-    expect(classify([whole], [whole], [whole])).toMatchObject({
+    expect(classify([B], [whole], again([B]))).toMatchObject({ blocking: [B], quarantined: [] });
+    expect(classify([whole], [whole], again([whole]))).toMatchObject({
       blocking: [],
       quarantined: [whole],
     });
@@ -119,7 +139,7 @@ describe('classify', () => {
   });
 
   it('a test that fails only in the re-run blocks', () => {
-    expect(classify([A], [], [B]).blocking).toEqual([B]);
+    expect(classify([A], [], again([B], [A])).blocking).toEqual([B]);
   });
 });
 
@@ -127,6 +147,50 @@ describe('helpers', () => {
   it('rerunArgs drops both spellings of --shard', () => {
     expect(rerunArgs(['--shard=2/4', '--retry=2'])).toEqual(['--retry=2']);
     expect(rerunArgs(['--shard', '2/4', '--retry=2'])).toEqual(['--retry=2']);
+  });
+
+  it('rerunArgs keeps space-separated option values and drops only positional files (T14521)', () => {
+    expect(
+      rerunArgs([
+        '--retry',
+        '2',
+        '--testNamePattern',
+        'a b',
+        '-t',
+        'x.test.ts',
+        '--project=@cleocode/core',
+        'packages/a/src/x.test.ts',
+      ]),
+    ).toEqual([
+      '--retry',
+      '2',
+      '--testNamePattern',
+      'a b',
+      '-t',
+      'x.test.ts',
+      '--project=@cleocode/core',
+    ]);
+  });
+
+  it('rerunArgs refuses an argument it cannot split safely (T14521)', () => {
+    expect(() => rerunArgs(['--bogus', 'a.test.ts'])).toThrow(/not a known option shape/);
+    expect(() => rerunArgs(['-tx', 'a.test.ts'])).toThrow(/not a known option shape/);
+    expect(() => rerunArgs(['--', 'a.test.ts'])).toThrow(/not a known option shape/);
+    expect(() => rerunArgs(['--passWithNoTests=true'])).toThrow(/not a known option shape/);
+    expect(() => rerunArgs(['--retry'])).toThrow(/has no value/);
+    expect(() => rerunArgs(['-t', '--retry=2'])).toThrow(/has no value/);
+  });
+
+  it("VITEST_OPTIONS agrees with vitest's own parser on which options take a value", () => {
+    for (const opt of VITEST_OPTIONS.value) {
+      const shard = opt === '--shard' ? '1/1' : '7';
+      expect(parseCLI(['vitest', 'run', opt, shard, 'f.test.ts']).filter, opt).toEqual([
+        'f.test.ts',
+      ]);
+    }
+    for (const opt of VITEST_OPTIONS.flag) {
+      expect(parseCLI(['vitest', 'run', opt, 'f.test.ts']).filter, opt).toEqual(['f.test.ts']);
+    }
   });
 
   it('rerunArgs drops the first run file filters and keeps --project scoping (T14521)', () => {
@@ -678,6 +742,95 @@ if (process.argv[2] === 'api' && process.argv[3] === 'graphql') process.stdout.w
     ]);
     expect(r.stdout).toContain('1 filed, 1 updated, 1 expired');
   });
+});
+
+describe('the run subcommand against a real vitest (T14521)', () => {
+  const VITEST_BIN = path.join(
+    path.dirname(createRequire(import.meta.url).resolve('vitest/package.json')),
+    'vitest.mjs',
+  );
+  let dir;
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), 'flaky-real-vitest-'));
+    writeFileSync(
+      path.join(dir, 'vitest.config.mjs'),
+      'export default { test: { globals: true } };\n',
+    );
+    writeFileSync(
+      path.join(dir, 'broken.test.mjs'),
+      "test('broken fails', () => { throw new Error('a real failure'); });\ntest('broken other', () => {});\n",
+    );
+    writeFileSync(path.join(dir, 'fine.test.mjs'), "test('fine passes', () => {});\n");
+    // Fails on its first run only: a flake.
+    writeFileSync(
+      path.join(dir, 'flaky.test.mjs'),
+      `import { existsSync, writeFileSync } from 'node:fs';
+test('flaky once', () => {
+  const seen = ${JSON.stringify(path.join(dir, 'seen'))};
+  if (!existsSync(seen)) { writeFileSync(seen, ''); throw new Error('first run'); }
+});
+`,
+    );
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  function run(vitestArgs) {
+    const out = path.join(dir, 'flaky.json');
+    const r = spawnSync(
+      process.execPath,
+      [SCRIPT, 'run', '--log', path.join(dir, 'log'), '--report', out, '--', ...vitestArgs],
+      {
+        cwd: dir,
+        encoding: 'utf8',
+        timeout: 120_000,
+        env: {
+          ...process.env,
+          FLAKY_VITEST_COMMAND: JSON.stringify([process.execPath, VITEST_BIN, 'run']),
+          FLAKY_QUARANTINE_GH: path.join(dir, 'no-gh'),
+          GITHUB_STEP_SUMMARY: '',
+          GITHUB_EVENT_NAME: '',
+        },
+      },
+    );
+    return {
+      code: r.status,
+      out: r.stdout + r.stderr,
+      report: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null,
+    };
+  }
+
+  const files = ['broken.test.mjs', 'fine.test.mjs'];
+  it.each([
+    ['--testNamePattern <pattern>', ['--testNamePattern', 'fails']],
+    ['-t <pattern>', ['-t', 'fails']],
+    ['--retry <n>', ['--retry', '2']],
+    ['--testNamePattern=<pattern>', ['--testNamePattern=fails']],
+  ])(
+    'a real failure under %s fails its re-run too and blocks, never a flake',
+    (_, opts) => {
+      const r = run(['--shard=1/1', ...opts, ...files]);
+      expect(r.out).toContain('Re-running 1 file(s)');
+      expect(r.out).toContain('failed on the re-run too');
+      expect(r.code).toBe(1);
+      expect(r.report).toBeNull();
+    },
+    120_000,
+  );
+
+  it('a real flake under -t <pattern> passes its re-run and is reported flaky', () => {
+    const r = run(['--shard=1/1', '-t', 'once', 'flaky.test.mjs', 'fine.test.mjs']);
+    expect(r.code).toBe(0);
+    expect(r.report.observations).toEqual([
+      expect.objectContaining({ kind: 'flaky', file: 'flaky.test.mjs', test: 'flaky once' }),
+    ]);
+  }, 120_000);
+
+  it('an argument the re-run cannot split blocks instead of guessing', () => {
+    const r = run(['--shard=1/1', '--sequence.shuffle', ...files]);
+    expect(r.out).toContain('could not be re-run');
+    expect(r.code).toBe(1);
+    expect(r.report).toBeNull();
+  }, 120_000);
 });
 
 describe('ci.yml wiring (T13145)', () => {
