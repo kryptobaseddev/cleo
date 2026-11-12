@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.11.3] (2026-11-12)
+
+### Added
+
+- Launch guarded Claude Code leads in verified local Orca terminals. _(provenance: [T14500](https://github.com/kryptobaseddev/cleo/search?q=T14500&type=commits))_
+
+### Fixed
+
+- an admission release frees its slot without waiting for a pressure sample, never admits on a stale verdict, and an aborted lock is always unlocked _(provenance: [T14508](https://github.com/kryptobaseddev/cleo/search?q=T14508&type=commits))_
+- BRAIN search: skip FTS repair immediately when another writer holds the store _(provenance: [T14509](https://github.com/kryptobaseddev/cleo/search?q=T14509&type=commits))_
+- Prove guarded Orca lead supervisors beneath macOS login processes and retain PID refusal details. _(provenance: [T14510](https://github.com/kryptobaseddev/cleo/search?q=T14510&type=commits))_
+- Orca retry: a cross-process reservation loser gets the documented refusal _(provenance: [T14494](https://github.com/kryptobaseddev/cleo/search?q=T14494&type=commits))_
+
 ## [2026.11.2] (2026-11-12)
 
 ### Fixed
