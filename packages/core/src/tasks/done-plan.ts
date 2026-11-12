@@ -65,7 +65,7 @@ import {
   standalonePackage,
 } from './affected-packages.js';
 import { type TaskMergeInfo, taskChangeMergeState } from './affected-scope.js';
-import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
+import { type ChangeSetDeps, deriveTaskChangeSet, dirtyTreeBlocker } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
   type classifyEvidenceTask,
@@ -258,7 +258,8 @@ function gitRead(cwd: string, args: readonly string[]): string | null {
  * - branch: the checked-out HEAD must BE the change-set commit, whatever ref
  *   holds it (T14059: a clean checkout detached at the task branch's tip
  *   measures the same tree; a dirty tree is already a plan blocker);
- * - pr: the merge commit must be an ancestor of the checked-out HEAD.
+ * - pr: the merge commit must be an ancestor of the checked-out HEAD, and
+ *   the checkout must have no uncommitted tracked edits.
  */
 function checkoutBlocker(
   taskId: string,
@@ -310,7 +311,7 @@ function checkoutBlocker(
       (m) =>
         head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
     );
-    if (!missing) return null;
+    if (!missing) return dirtyTreeBlocker(root);
     // T13429: intended, not a bug — the tools must measure the MERGED tree
     // (the default branch with the change). A squash- or rebase-merged task
     // branch never contains the merge commit even when its diff is the same,
