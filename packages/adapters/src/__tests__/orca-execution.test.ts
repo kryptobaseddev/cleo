@@ -373,6 +373,8 @@ describe('Orca execution process boundary', () => {
     'gates the exact terminal argv before a model turn: %s (inert executable only)',
     async (condition) => {
       vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+      // The terminal's inherited environment holds a trust variable the launch unsets (T14515).
+      vi.stubEnv('CLAUDE_CODE_SANDBOXED', '1');
       const root = mkdtempSync(join(tmpdir(), 'orca-lead-fixture-'));
       const cwd = join(root, "project ' `literal` $(literal)");
       mkdirSync(cwd);
@@ -405,7 +407,7 @@ else {
       const binary = join(root, 'claude');
       writeFileSync(
         binary,
-        `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';\nwriteFileSync(${JSON.stringify(capture)}, JSON.stringify({args:process.argv.slice(2),session:process.env.CLEO_SESSION_ID,role:process.env.CLEO_AGENT_ROLE,cwd:process.cwd()}));\n`,
+        `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';\nwriteFileSync(${JSON.stringify(capture)}, JSON.stringify({args:process.argv.slice(2),session:process.env.CLEO_SESSION_ID,role:process.env.CLEO_AGENT_ROLE,sandboxed:process.env.CLAUDE_CODE_SANDBOXED??null,cwd:process.cwd()}));\n`,
         { mode: 0o700 },
       );
       const args = [
@@ -511,6 +513,7 @@ else {
               CLEO_AGENT_ID: 'agent-own',
               CLEO_AGENT_ROLE: 'lead',
             },
+            unsetEnv: ['CLAUDE_CODE_SANDBOXED'],
           },
           started,
         );
@@ -556,6 +559,7 @@ else {
             args,
             session: 'ses_own',
             role: 'lead',
+            sandboxed: null,
             cwd,
           });
           expect(existsSync(join(cwd, 'injected'))).toBe(false);

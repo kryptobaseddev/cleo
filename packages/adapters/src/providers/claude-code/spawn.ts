@@ -32,6 +32,7 @@ import { leadDeniedTools } from '../shared/lead-tool-strip.js';
 import { removeSpawnPromptFile, writeSpawnPromptFile } from '../shared/prompt-file.js';
 import {
   type LeadMcpSetup,
+  orcaLeadEnv,
   prepareLeadMcp,
   requireLeadProjectTrust,
   runnerOnlyLeadMcp,
@@ -175,13 +176,18 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
    * @returns Spawn result with instance ID and status
    */
   async spawn(context: SpawnContext): Promise<SpawnResult> {
-    const claudeJsonPath =
-      leadDeniedTools(context) !== null
-        ? requireLeadProjectTrust(context.workingDirectory ?? process.cwd(), {
-            ...process.env,
-            ...envStrings(context.options),
-          })
-        : undefined;
+    // T14515: trust is judged from exactly the environment the lead receives.
+    // An Orca terminal inherits Orca's environment, so its trust variables are
+    // pinned; every other lead path inherits CLEO's with the spawn overrides.
+    const isLead = leadDeniedTools(context) !== null;
+    const orcaEnv =
+      isLead && context.leadTerminalLauncher ? orcaLeadEnv(envStrings(context.options)) : undefined;
+    const claudeJsonPath = isLead
+      ? requireLeadProjectTrust(
+          context.workingDirectory ?? process.cwd(),
+          orcaEnv?.env ?? { ...process.env, ...envStrings(context.options) },
+        )
+      : undefined;
     // T14359: a tracked worker keeps the instance id its record was stored under.
     const trackedId = trackedWorkerInstanceId(context.options);
     const instanceId =
@@ -261,7 +267,7 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
             leadMcp: leadMcp.report,
           };
         }
-        if (context.leadTerminalLauncher) {
+        if (context.leadTerminalLauncher && orcaEnv) {
           const command = resolveAbsoluteBinary('claude');
           if (!command || !context.onLeadStarted) {
             throw new Error(
@@ -274,7 +280,8 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
               args: buildClaudeArgs(context, tmpFile, settingsArgs, leadMcp),
               cwd: context.workingDirectory ?? process.cwd(),
               tempDir: dir,
-              env: envStrings(context.options),
+              env: orcaEnv.env,
+              unsetEnv: orcaEnv.unset,
             },
             context.onLeadStarted,
           );

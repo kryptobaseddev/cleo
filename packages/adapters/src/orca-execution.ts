@@ -359,7 +359,8 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     }
 
     const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    for (const key of Object.keys(launch.env)) {
+    const unsetEnv = launch.unsetEnv ?? [];
+    for (const key of [...Object.keys(launch.env), ...unsetEnv]) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw refuse('Invalid lead environment key.');
     }
     const dir = await mkdtemp(join(launch.tempDir, 'orca-terminal-'));
@@ -382,6 +383,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
           '  sleep 0.1',
           'done',
           `cd ${quote(launch.cwd)} || exit 1`,
+          ...unsetEnv.map((key) => `unset ${key}`),
           ...Object.entries(launch.env).map(([key, value]) => `export ${quote(`${key}=${value}`)}`),
           `exec ${[launch.command, ...launch.args].map(quote).join(' ')}`,
           '',
