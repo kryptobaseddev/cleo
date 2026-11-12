@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers in one `cleo orchestrate fanout` call, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.7.0
+  version: 1.8.0
   tier: core
   install: harness
   covers:
@@ -16,6 +16,11 @@ metadata:
 ---
 
 # Phase Lead Protocol (ct-lead)
+
+Orca lead admission records the verified owner terminal and guarded shell PID
+before releasing the first turn. The shell must be Orca's reported process or
+its OS-proven direct child (macOS uses a login parent); a mismatch refuses with
+the terminal handle and reported, supervisor and parent PIDs in error details.
 
 > **The Mantra**: *Aggregate, don't expose. Name your mailbox before spawn. Convergence over polling. Roll up in one contract.*
 

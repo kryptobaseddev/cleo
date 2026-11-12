@@ -240,7 +240,14 @@ describe('orchestrateLead (T14363)', () => {
     const launch = vi
       .spyOn(backend, 'startLead')
       .mockImplementation(async (_command, onStarted) => {
-        await onStarted(process.pid);
+        await onStarted(process.pid, terminal);
+        const { readLeadRecord } = await import('../lead-records.js');
+        expect(readLeadRecord(env.tempDir, 'T100')).toMatchObject({
+          terminal,
+          processes: expect.arrayContaining([
+            expect.objectContaining({ role: 'lead', pid: terminal.pid }),
+          ]),
+        });
         return terminal;
       });
     const { orchestrateLead } = await import('../lead.js');
@@ -263,6 +270,7 @@ describe('orchestrateLead (T14363)', () => {
     expect(mbx.releases).toHaveLength(0);
     expect(readLeadRecord(env.tempDir, 'T100')).toMatchObject({
       mode,
+      terminal,
       tempDir: '/tmp/none',
       processes: expect.arrayContaining([
         expect.objectContaining({ role: 'lead', pid: process.pid }),
@@ -319,6 +327,14 @@ describe('orchestrateLead (T14363)', () => {
       'E_LEAD_TOOLS_UNSTRIPPED',
       stage,
       'Restore the guarded local owner terminal.',
+      null,
+      {
+        runtimeId: fixtureContext.runtimeId,
+        terminalHandle: 'term_lead',
+        expectedTerminalPid: 354,
+        observedSupervisorPid: 365,
+        observedParentPid: 353,
+      },
     );
     const backend = new OrcaExecutionBackend(fixtureRunner);
     vi.spyOn(backend, 'startLead').mockImplementation(async (_launch, onStarted) => {
@@ -336,7 +352,13 @@ describe('orchestrateLead (T14363)', () => {
       }),
     ).toMatchObject({
       success: false,
-      error: { code: refusal.code, message: stage, fix: refusal.fix, exitCode: 63 },
+      error: {
+        code: refusal.code,
+        message: stage,
+        fix: refusal.fix,
+        exitCode: 63,
+        details: refusal.details,
+      },
     });
     expect(mbx.claims).toHaveLength(stage === 'after-admission' ? 1 : 0);
     expect(mbx.releases).toHaveLength(stage === 'after-admission' ? 1 : 0);

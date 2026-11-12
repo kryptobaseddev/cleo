@@ -30,7 +30,7 @@ import {
   LEAD_OWNER_MAILBOX,
   LEAD_RUNNER_TOOL,
 } from '@cleocode/contracts/operations/orchestrate.js';
-import type { OrcaRoutingAdapter } from '@cleocode/contracts/orca-execution.js';
+import type { OrcaLeadTerminal, OrcaRoutingAdapter } from '@cleocode/contracts/orca-execution.js';
 import { type ProcessLiveness, readProcessStartTime } from '@cleocode/worktree';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
@@ -232,7 +232,10 @@ export async function orchestrateLead(
   };
   // Claim the mailbox and record the lead only once the spawn is admitted:
   // a refused spawn never takes either.
-  const onAdmitted = async (lead: { cleoSessionId: string }): Promise<void> => {
+  const onAdmitted = async (lead: {
+    cleoSessionId: string;
+    terminal?: OrcaLeadTerminal;
+  }): Promise<void> => {
     const claim = await claimLeadMailbox(
       root,
       { cli: LEAD_PROVIDER_CLI, session: sessionId },
@@ -244,6 +247,7 @@ export async function orchestrateLead(
       // This CLI (it waits in the owner's terminal for an interactive lead);
       // the lead's own process joins once it starts (onStarted).
       processes: [{ role: 'cli', pid: process.pid, startedAt: readProcessStartTime(process.pid) }],
+      ...(lead.terminal ? { terminal: lead.terminal } : {}),
       mode,
       cleoSessionId: lead.cleoSessionId,
       providerSessionId: sessionId,
