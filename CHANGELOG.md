@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026.11.2] (2026-11-12)
+
+### Fixed
+
+- Worktree cleanup: recognize own projects with legacy identity files _(provenance: [T14506](https://github.com/kryptobaseddev/cleo/search?q=T14506&type=commits))_
+- Worktree reaper: keep foreign checkouts when immutable worker liveness is uncertain _(provenance: [T14499](https://github.com/kryptobaseddev/cleo/search?q=T14499&type=commits))_
+- Orca execution: reserve first-launch keys and verify recovered request identity _(provenance: [T14497](https://github.com/kryptobaseddev/cleo/search?q=T14497&type=commits))_
+- Admission cleanup awaits pending ledger writes within one deadline before returning _(provenance: [T14498](https://github.com/kryptobaseddev/cleo/search?q=T14498&type=commits))_
+- the worktree task-lock mutex is now an OS lock on an open file, which the OS frees when its holder dies, so no stale-mutex break can ever remove a live holder's mutex _(provenance: [T14491](https://github.com/kryptobaseddev/cleo/search?q=T14491&type=commits))_
+
 ## [2026.11.1] (2026-11-12)
 
 ### Added
