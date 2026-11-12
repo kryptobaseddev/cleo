@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readProjectInfoAtDirectorySync } from '../../project-scope.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { completeTask } from '../complete.js';
 import { coreTaskCancel } from '../engine-wrap.js';
@@ -24,6 +25,15 @@ describe('terminal task worktree release', () => {
   beforeEach(async () => {
     env = await createTestDb();
     vi.stubEnv('CLEO_DIR', env.cleoDir);
+    vi.stubEnv('CLEO_ROOT', env.tempDir);
+    writeFileSync(
+      join(env.cleoDir, 'project.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: readProjectInfoAtDirectorySync(env.tempDir, env.cleoDir).projectId,
+        name: 'terminal-release',
+      }),
+    );
     writeFileSync(
       join(env.cleoDir, 'config.json'),
       JSON.stringify({
