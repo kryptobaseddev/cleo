@@ -30,6 +30,8 @@ import {
 } from '@cleocode/contracts/orca-execution.js';
 
 const AGENTS = { 'claude-code': 'claude', codex: 'codex', opencode: 'opencode2', grok: 'grok' };
+const MAX_DIAGNOSTIC_LENGTH = 4_096;
+const MAX_RECEIPT_LENGTH = 65_536;
 const REQUIRED_COMMANDS = {
   'orchestration worker-start': [
     'from',
@@ -178,16 +180,20 @@ export class OrcaExecutionError extends Error {
   readonly code: string;
   /** Recovery instruction that never disables the lead policy. */
   readonly fix: string;
-  /** Original unparseable receipt, when available. */
+  /** Bounded original receipt, when available; oversized receipts are diagnostic only. */
   readonly receipt: string | null;
 
   /** Construct a refusal before any unsupported operation runs. */
   constructor(code: string, message: string, fix: string, receipt: string | null = null) {
-    super(message);
+    super(message.slice(0, MAX_DIAGNOSTIC_LENGTH));
     this.name = 'OrcaExecutionError';
     this.code = code;
     this.fix = fix;
-    this.receipt = receipt;
+    const truncated = '[truncated]\n';
+    this.receipt =
+      receipt !== null && receipt.length > MAX_RECEIPT_LENGTH
+        ? truncated + receipt.slice(0, MAX_RECEIPT_LENGTH - truncated.length)
+        : receipt;
   }
 }
 
@@ -462,7 +468,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     return this.startCommand(attempt, attempt.startRequestKey);
   }
 
-  /** Replay an issued or pre-reserved retry key on the same runtime and caller. */
+  /** Replay an issued or pre-reserved launch key on the same runtime and caller. */
   async replayStart(attempt: OrcaAttempt): Promise<OrcaAttempt> {
     const requestId = attempt.startRequestKey ?? attempt.startRequestId;
     if (
@@ -738,6 +744,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     const dispatchId = this.requireDispatch(attempt);
     try {
       const capabilities = await this.verifyRuntime(attempt.launch.projectRoot, attempt.context);
+      await this.show(attempt);
       const result = await this.invoke(
         [
           'orchestration',
@@ -786,7 +793,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       return {
         ...attempt,
         state: 'stop_unknown',
-        lastError: String(error),
+        lastError: String(error).slice(0, MAX_DIAGNOSTIC_LENGTH),
         lastReceipt:
           error instanceof OrcaExecutionError
             ? (error.receipt ?? attempt.lastReceipt)
@@ -809,18 +816,17 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     const binding = attempt.startBinding ?? attempt;
     if (
       attempt.startRequestKey &&
-      (!binding.runId ||
-        !binding.orcaTaskId ||
-        !binding.retryOf ||
-        binding.runId !== attempt.runId ||
-        binding.orcaTaskId !== attempt.orcaTaskId ||
+      (!attempt.startBinding ||
+        (binding.retryOf !== null && (!binding.runId || !binding.orcaTaskId)) ||
+        (binding.runId !== null && binding.runId !== attempt.runId) ||
+        (binding.orcaTaskId !== null && binding.orcaTaskId !== attempt.orcaTaskId) ||
         binding.retryOf !== attempt.retryOf ||
         requestId !== attempt.startRequestKey ||
         (attempt.startRequestId !== null && attempt.startRequestId !== attempt.startRequestKey))
     ) {
       throw new OrcaExecutionError(
         'E_ORCA_ATTEMPT_FENCED',
-        'A reserved start key requires the original exact retry binding.',
+        'A reserved start key requires the original exact launch binding.',
         'Retain custody and inspect the reserved key, Run, Task and predecessor; never send an unkeyed replacement.',
       );
     }
@@ -855,6 +861,22 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         binding.orcaTaskId ? undefined : launch.prompt,
       );
       if (
+        requestId &&
+        [
+          reply.result?.requestId,
+          reply.result?.mutation?.requestId,
+          reply.error?.data?.requestId,
+          reply.error?.data?.orchestrationRequestId,
+        ].some((returnedId) => returnedId !== undefined && returnedId !== requestId)
+      ) {
+        throw new OrcaExecutionError(
+          'E_ORCA_REQUEST_MISMATCH',
+          'Orca returned a different start request id from the reserved or issued key.',
+          'Retain custody and inspect the original request on its original runtime; do not adopt this receipt or start a replacement.',
+          reply.rawReceipt,
+        );
+      }
+      if (
         !reply.ok &&
         reply.error?.code === 'agent_unconfigured' &&
         reply._meta?.runtimeId === attempt.context.runtimeId &&
@@ -880,7 +902,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
           state: 'failed',
           resourceState: 'stopped',
           startRefusal: 'agent_unconfigured',
-          startRequestId: reply.error.data?.orchestrationRequestId ?? null,
+          startRequestId: requestId ?? reply.error.data?.orchestrationRequestId ?? null,
           lastReceipt: reply.rawReceipt,
           lastError: 'agent_unconfigured',
           observedAt: new Date().toISOString(),
@@ -952,10 +974,12 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         observedAt: new Date().toISOString(),
       };
     } catch (error) {
+      if (error instanceof OrcaExecutionError && error.code === 'E_ORCA_REQUEST_MISMATCH')
+        throw error;
       return {
         ...attempt,
         state: 'outcome_unknown',
-        lastError: String(error),
+        lastError: String(error).slice(0, MAX_DIAGNOSTIC_LENGTH),
         lastReceipt:
           error instanceof OrcaExecutionError
             ? (error.receipt ?? attempt.lastReceipt)
@@ -1142,8 +1166,8 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       'E_ORCA_REPORT_SOURCE',
       `Orca returned no verified report source: ${JSON.stringify({
         exitCode: command.exitCode,
-        stderr: command.stderr,
-        issues,
+        stderr: command.stderr.slice(0, MAX_DIAGNOSTIC_LENGTH / 2),
+        issues: issues.slice(0, MAX_DIAGNOSTIC_LENGTH / 2),
       })}`,
       fix,
       command.stdout,
@@ -1179,6 +1203,14 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       cwd,
       input,
     );
+    if (result.stdout.length > MAX_RECEIPT_LENGTH) {
+      throw new OrcaExecutionError(
+        'E_ORCA_RECEIPT',
+        'Orca returned an oversized receipt; its retained prefix is diagnostic only.',
+        'Inspect the full original operation in Orca; retain custody until a bounded exact receipt can be verified.',
+        result.stdout,
+      );
+    }
     try {
       return { ...orcaReplySchema.parse(JSON.parse(result.stdout)), rawReceipt: result.stdout };
     } catch {

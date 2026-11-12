@@ -477,16 +477,18 @@ describe('Orca execution process boundary', () => {
     ).rejects.toThrow('No replayable');
   });
 
-  it('fences a reserved key without an exact retry binding even when its request is absent', async () => {
+  it('fences a reserved key without its original launch binding even when its request is absent', async () => {
     const key = '00000000-0000-4000-8000-000000000000';
     orcaFixture.request = fixtureReply({ state: 'absent', requestId: key });
     const backend = new OrcaExecutionBackend(fixtureRunner);
-    await expect(backend.start(fixtureAttempt({ startRequestKey: key }))).rejects.toThrow(
-      'exact retry binding',
-    );
     await expect(
-      backend.replayStart(fixtureAttempt({ state: 'outcome_unknown', startRequestKey: key })),
-    ).rejects.toThrow('exact retry binding');
+      backend.start(fixtureAttempt({ startRequestKey: key, startBinding: undefined })),
+    ).rejects.toThrow('exact launch binding');
+    await expect(
+      backend.replayStart(
+        fixtureAttempt({ state: 'outcome_unknown', startRequestKey: key, startBinding: undefined }),
+      ),
+    ).rejects.toThrow('No replayable');
     expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
   });
 
@@ -665,7 +667,7 @@ describe('Orca execution process boundary', () => {
     orcaFixture.start = { stdout: JSON.stringify(reply), stderr: '', exitCode: 1 };
     orcaFixture.request = fixtureReply({ state: 'pending', requestId: key });
     const dispatchId = mismatch === 'dispatch' ? 'ctx_original' : null;
-    const result = await new OrcaExecutionBackend(fixtureRunner).replayStart(
+    const recovery = new OrcaExecutionBackend(fixtureRunner).replayStart(
       fixtureAttempt({
         state: 'outcome_unknown',
         runId: 'run_fixture',
@@ -681,11 +683,148 @@ describe('Orca execution process boundary', () => {
         },
       }),
     );
+    if (mismatch === 'request' || mismatch === 'recovery_request') {
+      await expect(recovery).rejects.toMatchObject({
+        code: 'E_ORCA_REQUEST_MISMATCH',
+        receipt: orcaFixture.start.stdout,
+      });
+      return;
+    }
+    const result = await recovery;
     expect(result).toMatchObject({
       state: 'outcome_unknown',
       resourceState: 'unknown',
       dispatchId,
       startRequestId: key,
+    });
+  });
+
+  it.each([
+    'request',
+    'mutation',
+    'error_request',
+    'error_recovery',
+  ])('rejects a differing returned %s id instead of assigning the reserved key to its receipt', async (field) => {
+    const key = '00000000-0000-4000-8000-000000000001';
+    const reply = orcaReplySchema.parse(JSON.parse(fixtureStart().stdout));
+    if (!reply.result) throw new Error('Missing launch fixture');
+    if (field === 'request') reply.result.requestId = 'other-request';
+    if (field === 'mutation') reply.result.mutation = { requestId: 'other-request' };
+    if (field === 'error_request')
+      reply.error = {
+        code: 'operation_unknown',
+        message: 'pending',
+        data: { requestId: 'other-request' },
+      };
+    if (field === 'error_recovery')
+      reply.error = {
+        code: 'operation_unknown',
+        message: 'pending',
+        data: { orchestrationRequestId: 'other-request' },
+      };
+    orcaFixture.start = { stdout: JSON.stringify(reply), stderr: '', exitCode: 0 };
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).start(fixtureAttempt({ startRequestKey: key })),
+    ).rejects.toMatchObject({ code: 'E_ORCA_REQUEST_MISMATCH', receipt: orcaFixture.start.stdout });
+  });
+
+  it.each([
+    { data: null },
+    { data: 'malformed' },
+    { data: [] },
+    { data: { dispatchId: '' } },
+    { data: { requestId: '' } },
+    { data: { orchestrationRequestId: '' } },
+  ])('keeps malformed pending error.data fenced (%j)', async ({ data }) => {
+    const key = '00000000-0000-4000-8000-000000000001';
+    orcaFixture.request = fixtureReply({ state: 'pending', requestId: key });
+    orcaFixture.start = {
+      stdout: JSON.stringify({
+        ok: false,
+        error: { code: 'operation_unknown', message: 'pending', data },
+        _meta: { runtimeId: fixtureContext.runtimeId },
+      }),
+      stderr: '',
+      exitCode: 1,
+    };
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    const result = await backend.replayStart(
+      fixtureAttempt({ state: 'outcome_unknown', startRequestKey: key, startRequestId: key }),
+    );
+    expect(result).toMatchObject({
+      state: 'outcome_unknown',
+      dispatchId: null,
+      resourceState: 'unknown',
+      startRequestId: key,
+      lastReceipt: orcaFixture.start.stdout,
+    });
+    await expect(backend.show(result)).rejects.toThrow('No complete Dispatch binding');
+    await expect(backend.stop({ ...result, state: 'stop_pending' })).rejects.toThrow(
+      'No complete Dispatch binding',
+    );
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it.each([
+    'runId',
+    'taskId',
+  ] as const)('revalidates %s before stopping an adopted Dispatch', async (field) => {
+    const key = '00000000-0000-4000-8000-000000000001';
+    orcaFixture.request = fixtureReply({ state: 'pending', requestId: key });
+    orcaFixture.start = fixturePendingStart('ctx_retry', key);
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    const adopted = await backend.replayStart(
+      fixtureAttempt({
+        state: 'outcome_unknown',
+        runId: 'run_fixture',
+        orcaTaskId: 'task_fixture',
+        retryOf: 'ctx_fixture',
+        startRequestKey: key,
+        startBinding: { runId: 'run_fixture', orcaTaskId: 'task_fixture', retryOf: 'ctx_fixture' },
+      }),
+    );
+    const foreign = orcaReplySchema.parse(JSON.parse(fixtureShow('ctx_retry').stdout));
+    if (!foreign.result?.dispatch) throw new Error('Missing Dispatch fixture');
+    foreign.result.dispatch[field] = 'other-binding';
+    orcaFixture.show = { stdout: JSON.stringify(foreign), stderr: '', exitCode: 0 };
+    await expect(backend.show(adopted)).rejects.toThrow('does not match');
+    expect(await backend.stop({ ...adopted, state: 'stop_pending' })).toMatchObject({
+      state: 'stop_unknown',
+      lastError: expect.stringContaining('does not match'),
+    });
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-stop')).toBe(false);
+  });
+
+  it('bounds refusal diagnostics and refuses oversized receipts without adopting them', async () => {
+    const oversized = fixtureStart().stdout + ' '.repeat(100_000);
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    orcaFixture.start = { stdout: oversized, stderr: oversized, exitCode: 1 };
+    const result = await backend.start(fixtureAttempt());
+    expect(result).toMatchObject({
+      state: 'outcome_unknown',
+      dispatchId: null,
+      lastError: expect.stringContaining('oversized receipt'),
+    });
+    expect(result.lastReceipt?.length).toBeLessThanOrEqual(65_536);
+    expect(result.lastReceipt).toMatch(/^\[truncated\]/);
+    expect(() => JSON.parse(result.lastReceipt ?? '')).toThrow();
+    orcaFixture.inbox = { stdout: oversized, stderr: oversized, exitCode: 1 };
+    fixtureRunner.mockImplementation(async (...args) =>
+      args[1][1] === 'inbox' ? orcaFixture.inbox : runOrcaFixture(...args),
+    );
+    await expect(
+      backend.readReport(
+        fixtureAttempt({
+          runId: 'run_fixture',
+          orcaTaskId: 'task_fixture',
+          dispatchId: 'ctx_fixture',
+        }),
+        'msg_report',
+      ),
+    ).rejects.toMatchObject({
+      code: 'E_ORCA_REPORT_SOURCE',
+      message: expect.stringMatching(/^Orca returned no verified report source:[\s\S]{0,4058}$/),
+      receipt: expect.stringMatching(/^\[truncated\]/),
     });
   });
 

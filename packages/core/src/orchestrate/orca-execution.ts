@@ -77,12 +77,13 @@ export async function launchOrcaWorker(
     launch,
     promptDigest: createHash('sha256').update(launch.prompt).digest('hex'),
     ...workspace,
-    state: 'prepared',
+    state: 'launching',
     runId,
     orcaTaskId: null,
     dispatchId: null,
     retryOf: null,
     startBinding: { runId, orcaTaskId: null, retryOf: null },
+    startRequestKey: randomUUID(),
     startRequestId: null,
     stopRequestId: null,
     failureCount: 0,
@@ -106,13 +107,8 @@ export async function launchOrcaWorker(
     },
     launch.projectRoot,
   );
-  const reserved = await updateWorkerExecution(
-    record,
-    { ...execution, state: 'launching' },
-    launch.projectRoot,
-  );
-  const result = await backend.start(requireExecution(reserved));
-  return updateWorkerExecution(reserved, result, launch.projectRoot);
+  const result = await backend.start(requireExecution(record));
+  return updateWorkerExecution(record, result, launch.projectRoot);
 }
 
 /**
@@ -144,7 +140,7 @@ export async function observeOrcaWorker(
 /**
  * Replay an issued or pre-reserved start request after a durable reservation.
  * @remarks A missing receipt never authorizes an unkeyed replacement; reserved
- * retries must still hold the original live claim and canonical checkout lock.
+ * launches must still hold the original live claim and canonical checkout lock.
  * @param recordId - Exact pending worker record id.
  * @param cwd - Owning CLEO project root.
  * @param backend - Process adapter for the original runtime and caller.
@@ -176,7 +172,7 @@ export async function recoverOrcaWorkerStart(
       },
     );
   }
-  if (execution.startRequestKey) await validatePreparedAssignment(execution.launch);
+  if (execution.startRequestKey) await validatePreparedAssignment(execution.launch, recordId);
   const reserved = await updateWorkerExecution(record, { ...execution, state: 'launching' }, cwd);
   try {
     const result = await backend.replayStart({ ...execution, state: 'outcome_unknown' });
@@ -713,7 +709,7 @@ function requireExecution(record: WorkerRecord): OrcaAttempt {
 }
 
 /** Recheck custody after read-only host preflight, which may outlive a claim. */
-async function validatePreparedAssignment(launch: OrcaLaunch): Promise<void> {
+async function validatePreparedAssignment(launch: OrcaLaunch, recordId?: string): Promise<void> {
   const expectedPath = resolveTaskWorktreePath(
     computeProjectHash(launch.projectRoot),
     launch.taskId,
@@ -740,7 +736,9 @@ async function validatePreparedAssignment(launch: OrcaLaunch): Promise<void> {
       ExitCode.SPAWN_VALIDATION_FAILED,
       'The canonical worktree, lock or allocated task claim is unproven.',
       {
-        fix: 'Prepare the task once through cleo orchestrate spawn and pass its exact worker identity and lock receipt.',
+        fix: recordId
+          ? `Retain this reserved dispatch and its checkout. If only the lease expired, renew the original holder with CLEO_SESSION_ID=${launch.workerSessionId} cleo claim ${launch.taskId} --renew --agent ${launch.agentId}, then run cleo orchestrate worker recover-start ${recordId}. If the claim or lock changed, reconcile the original assignment before recovery; do not spawn a replacement.`
+          : 'Prepare the task once through cleo orchestrate spawn and pass its exact worker identity and lock receipt.',
       },
     );
   }
