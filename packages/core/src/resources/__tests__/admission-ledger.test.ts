@@ -1467,6 +1467,41 @@ describe('admit (one ledger, real critical section)', () => {
     }
   });
 
+  it('a release frees its slot to a waiter without sampling, even with the sampler stalled (T14508)', async () => {
+    let stall = false;
+    const sample = vi.fn(async (): Promise<ResourceSample> => {
+      if (stall) return new Promise<ResourceSample>(() => {});
+      return sampleAt(0);
+    });
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false, sample },
+    );
+    if (!holder.admitted) throw new Error('expected an admission');
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 60_000 },
+    );
+    await vi.waitFor(
+      () =>
+        expect(
+          readLedger(dir)
+            .map((e) => e.state)
+            .sort(),
+        ).toEqual(['admitted', 'waiting']),
+      { interval: 5 },
+    );
+    stall = true;
+    const calls = sample.mock.calls.length;
+    await holder.grant.release();
+    // The release itself handed the slot on: no retry, no waiter pass needed.
+    expect(sample).toHaveBeenCalledTimes(calls);
+    expect(readLedger(dir).map((e) => [e.label, e.state])).toEqual([['tool:build', 'admitted']]);
+    const next = await waiting;
+    expect(next.admitted).toBe(true);
+    if (next.admitted) await next.grant.release();
+  });
+
   it('bounds a stalled charge write and cancels it before caller teardown (T14498)', async () => {
     let clock = Date.now();
     let completeSample: (sample: ResourceSample) => void = () => {};

@@ -1062,16 +1062,24 @@ async function lockLedger(file: string, signal?: AbortSignal): Promise<() => Pro
               log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
             },
           })
-          .then((unlock) => {
+          .then(async (unlock) => {
             if (signal?.aborted) {
-              void unlock().catch(() => {});
+              // Acquired after the caller gave up (T14508): the unlock starts
+              // in the same turn as the acquisition and this chain settles only
+              // once it has finished. Nobody awaits it — the caller left at its
+              // deadline — which is harmless: the lock is released without a
+              // ledger write, an unlock failure is swallowed, and only a test
+              // tearing its tmpdir down mid-acquisition could see the window.
+              await unlock().catch(() => {});
               signal.throwIfAborted();
             }
             return unlock;
           });
         const unlock = await Promise.race([pending, aborted]);
         if (signal?.aborted) {
-          void unlock().catch(() => {});
+          // Acquired, then aborted (T14508): unlock before rejecting, so the
+          // caller's own deadline race bounds the wait and no unlock outlives it.
+          await unlock().catch(() => {});
           signal.throwIfAborted();
         }
         return unlock;
@@ -2561,6 +2569,20 @@ async function sampleShare(
 }
 
 /**
+ * The shares of the last pressure verdict in the ledger, stale or not, for a
+ * pass that must not wait on a sample (T14508). With no verdict yet, the full
+ * share — the same answer as a sample that fails ({@link sampleShare}).
+ */
+function lastVerdict(cached: CachedPressure | null): {
+  readonly share: BudgetShare;
+  readonly lightShare: BudgetShare;
+} {
+  return cached === null
+    ? { share: 'full', lightShare: 'full' }
+    : { share: cached.share, lightShare: cached.lightShare ?? cached.share };
+}
+
+/**
  * A refusing reading with the host's largest memory users (T13914), reusing
  * the last probe for {@link TOP_MEMORY_REUSE_MS} (a failed one for
  * {@link TOP_MEMORY_FAILED_REUSE_MS}) so a long refusal costs one probe per
@@ -3295,11 +3317,12 @@ async function rechargeLedgerEntry(
 /**
  * Retire an admission, retrying unavailable storage without keeping the runner
  * alive. Pending updates and removal share one {@link RELEASE_AWAITED_MS}
- * deadline; a contended lock, sampler or unlock hands the entry to the retry
- * and the reaper after process exit. An aborted
- * entry's retirement never samples pressure, on the awaited attempt or on any
- * retry: sampling can stall in the monitor, and nothing waits on the verdict
- * for a run that never started.
+ * deadline; a contended lock or unlock hands the entry to the retry and the
+ * reaper after process exit. Retirement never samples pressure, on the
+ * awaited attempt or on any retry (T14508): sampling can stall in the monitor
+ * under exactly the memory pressure that makes a freed slot matter. It
+ * schedules the queue with the last verdict in the ledger instead
+ * ({@link lastVerdict}); every waiter's own pass samples afresh.
  */
 async function releaseLedgerEntry(
   entry: LedgerEntry,
@@ -3309,12 +3332,10 @@ async function releaseLedgerEntry(
 ): Promise<void> {
   const now = opts.now ?? Date.now;
   /**
-   * Remove the entry and schedule the queue. Only a successful read can
-   * establish absence. `signal` bounds the attempt's asynchronous waits (the
-   * bounded attempt passes its deadline; the retry passes none and keeps
-   * retrying the lock). Whether the entry is aborted — and so must skip
-   * sampling — is decided from `opts.signal`, never from that deadline signal:
-   * the retry has no deadline signal but still belongs to an aborted admit.
+   * Remove the entry and schedule the queue with the last verdict. Only a
+   * successful read can establish absence. `signal` bounds the attempt's
+   * asynchronous waits (the bounded attempt passes its deadline; the retry
+   * passes none and keeps retrying the lock).
    */
   const removeAttempt = async (signal?: AbortSignal): Promise<boolean> => {
     try {
@@ -3324,28 +3345,6 @@ async function releaseLedgerEntry(
         !before.foreign.some((e) => e.id === entry.id)
       )
         return true;
-      if (opts.signal?.aborted === true) {
-        // The waiter has already given up (abort or deadline): remove the entry
-        // and reschedule, but never sample. A stalled sampler must not keep an
-        // aborted entry — or its background retry — queued forever, even after
-        // the lock recovers.
-        await withLedger(
-          dir,
-          (doc) => ({
-            doc: {
-              ...doc,
-              entries: doc.entries.filter((e) => e.id !== entry.id),
-              foreign: doc.foreign.filter((e) => e.id !== entry.id),
-            },
-            result: undefined,
-          }),
-          signal,
-          true,
-        );
-        return true;
-      }
-      const nowMs = now();
-      const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
       const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
       await withLedger(
         dir,
@@ -3357,8 +3356,8 @@ async function releaseLedgerEntry(
               foreign: doc.foreign.filter((e) => e.id !== entry.id),
             },
             NO_DEAD,
-            { capacityBytes, share, lightShare, nowMs },
-            sampled,
+            { capacityBytes, ...lastVerdict(doc.pressure), nowMs: now() },
+            null,
           ),
           result: undefined,
         }),
@@ -3375,7 +3374,7 @@ async function releaseLedgerEntry(
     }
   };
   /**
-   * One removal attempt. Pending updates, sampling, lock acquisition and unlock are
+   * One removal attempt. Pending updates, lock acquisition and unlock are
    * raced against a single {@link RELEASE_AWAITED_MS} deadline: a stalled lock
    * or unlock (proper-lockfile's removal is asynchronous) must not hold an
    * aborted admit past it. The race is installed before the attempt starts so
