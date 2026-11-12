@@ -387,7 +387,16 @@ export class ClaudeCodeSpawnProvider implements AdapterSpawnProvider {
         await removeSpawnPromptFile(tmpFile);
       }
       if (context.leadTerminalLauncher) {
-        if (error instanceof OrcaExecutionError) throw error;
+        // Public adapter entries are bundled separately, so constructor identity is not shared.
+        if (
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          typeof error.code === 'string' &&
+          'fix' in error &&
+          typeof error.fix === 'string'
+        )
+          throw error;
         throw new OrcaExecutionError(
           'E_LEAD_TOOLS_UNSTRIPPED',
           getErrorMessage(error),

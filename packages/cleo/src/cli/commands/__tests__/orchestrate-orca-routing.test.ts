@@ -786,6 +786,14 @@ describe('Orca AC1 routing across product worker entry points', () => {
       'E_LEAD_TOOLS_UNSTRIPPED',
       reason,
       'Restore the guarded owner terminal.',
+      null,
+      {
+        runtimeId: fixtureContext.runtimeId,
+        terminalHandle: 'term_lead',
+        expectedTerminalPid: 354,
+        observedSupervisorPid: 365,
+        observedParentPid: 353,
+      },
     );
     vi.spyOn(OrcaExecutionBackend.prototype, 'startLead').mockRejectedValue(refusal);
     let output = '';
@@ -800,7 +808,10 @@ describe('Orca AC1 routing across product worker entry points', () => {
     } finally {
       write.mockRestore();
     }
-    expect(JSON.parse(output)).toMatchObject({ success: false });
+    expect(JSON.parse(output)).toMatchObject({
+      success: false,
+      error: { details: refusal.details },
+    });
     expect(output).toContain(refusal.code);
     expect(output).toContain(refusal.message);
     expect(output).toContain(refusal.fix);

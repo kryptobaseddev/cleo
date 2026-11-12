@@ -362,19 +362,40 @@ export interface OrcaLeadTerminalLaunch {
 }
 
 /** Verified local terminal and its supervisor, retained for exact-handle supervision. */
-export interface OrcaLeadTerminal {
+export const orcaLeadTerminalSchema = z.object({
+  /** Runtime that issued the terminal handle. */
+  runtimeId: identifier,
+  /** Handle for Orca terminal read/show/interrupt supervision. */
+  terminalHandle: identifier,
+  /** Shell PID, preserved by exec into the guarded provider. */
+  pid: z.number().int().positive(),
+});
+
+/** Verified local terminal identity recorded before the first model turn. */
+export type OrcaLeadTerminal = Readonly<z.infer<typeof orcaLeadTerminalSchema>>;
+
+/** Nonsecret OS evidence retained when the guarded terminal cannot start. */
+export interface OrcaLeadStartupDiagnostic {
   /** Runtime that issued the terminal handle. */
   readonly runtimeId: string;
-  /** Handle for Orca terminal read/show/interrupt supervision. */
+  /** Exact terminal that failed its startup gate. */
   readonly terminalHandle: string;
-  /** Shell PID, preserved by exec into the guarded provider. */
-  readonly pid: number;
+  /** Orca's PTY process, which may be a login parent rather than the shell. */
+  readonly expectedTerminalPid: number | null;
+  /** PID read from the private supervisor file, or null if none was proven. */
+  readonly observedSupervisorPid: number | null;
+  /** OS-observed parent of the supervisor, or null if the probe failed. */
+  readonly observedParentPid: number | null;
+  /** Supervisor start time from the same stable-locale OS snapshot, when probed. */
+  readonly supervisorStartedAt?: string | null;
+  /** Reported terminal process start time, which must not follow the supervisor's. */
+  readonly terminalStartedAt?: string | null;
 }
 
 /** Record the supervisor before releasing the terminal's first-turn gate. */
 export type OrcaLeadTerminalLauncher = (
   launch: OrcaLeadTerminalLaunch,
-  onStarted: (pid: number) => void | Promise<void>,
+  onStarted: (pid: number, terminal?: OrcaLeadTerminal) => void | Promise<void>,
 ) => Promise<OrcaLeadTerminal>;
 
 /** Result from one bounded subprocess invocation, including nonzero JSON receipts. */

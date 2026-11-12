@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.17.0
+  version: 4.18.0
   tier: core
   install: harness
   covers:
@@ -37,7 +37,14 @@ Exact per-account placement refuses. Inside Orca, a Claude Code lead uses a new
 local POSIX terminal with its native guarded argv, strict MCP file, settings and
 own CLEO identity. The terminal waits behind a private startup gate until its
 runtime, workspace, connected writable owner channel and PID are verified and
-recorded. Mailbox admission is deferred until the gated terminal is ready; refusals preserve code, message and fix with a nonzero exit and release any admission. Fresh UI navigation and a matching connected terminal prove current visibility; known refused terminals are closed, and a lost receipt aborts the gated shell without guessing a handle. Partial Orca session/workspace `ORCA_*` hints without a handle refuse loudly with a repair instruction. Inside Orca, `--detached` runs `--print` in a visible terminal and retains mbx for owner decisions. The result's `leadTerminal` names the exact runtime and terminal handle
+recorded. On macOS, Orca can report the login parent's PID; an OS probe must prove
+the gated shell is that process or its direct child.
+The OS snapshot also checks the terminal process started no later than the shell;
+missing or invalid start times refuse. Separately bundled provider entries preserve
+coded refusal fields structurally rather than comparing error constructors.
+Admission records the owner terminal and shell PID before release; PID refusals retain the terminal handle,
+reported PID, supervisor PID and observed parent in the CLI error details.
+Mailbox admission is deferred until the gated terminal is ready; refusals preserve code, message and fix with a nonzero exit and release any admission. Fresh UI navigation and a matching connected terminal prove current visibility; known refused terminals are closed, and a lost receipt aborts the gated shell without guessing a handle. Partial Orca session/workspace `ORCA_*` hints without a handle refuse loudly with a repair instruction. Inside Orca, `--detached` runs `--print` in a visible terminal and retains mbx for owner decisions. The result's `leadTerminal` names the exact runtime and terminal handle
 for `orca terminal show` / `read` supervision. This route does not query accounts;
 unsupported harnesses, Windows hosts and the generic worker-start/preflight lead
 route still refuse before a model turn. Outside Orca the native route is unchanged.

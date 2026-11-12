@@ -74,6 +74,7 @@ import type {
 } from '@cleocode/contracts';
 import {
   ORCA_LEAD_LAUNCH_REFUSAL,
+  type OrcaLeadTerminal,
   type OrcaLeadTerminalLauncher,
   type OrcaRoutingAdapter,
 } from '@cleocode/contracts/orca-execution.js';
@@ -92,7 +93,7 @@ import {
 } from '@cleocode/worktree';
 import { findLeastLoadedAgent } from '../agents/capacity.js';
 import { substituteCantAgentBody } from '../agents/variable-substitution.js';
-import { type EngineResult, engineError } from '../engine-result.js';
+import { type EngineErrorPayload, type EngineResult, engineError } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { selectHarnessSpawnProvider } from '../harness/spawn-provider-selection.js';
@@ -834,23 +835,27 @@ export interface OrchestrateSpawnExecuteOpts {
 }
 
 /**
- * The stable code, optional repair and numeric exit code of a thrown coded refusal such
+ * The stable code, optional repair, details and numeric exit code of a thrown coded refusal such
  * as `LeadToolsUnstrippedError`; `null` for any other throw.
  *
  * @param error - What the spawn threw.
- * @returns The code, optional exit code and repair command, or `null`.
+ * @returns The code, optional exit code, repair command and details, or `null`.
  * @task T14363
  */
-function codedError(error: unknown): { code: string; exitCode?: number; fix?: string } | null {
+function codedError(
+  error: unknown,
+): Pick<EngineErrorPayload, 'code' | 'exitCode' | 'fix' | 'details'> | null {
   if (!(error instanceof Error) || !('code' in error)) return null;
   const { code } = error;
   if (typeof code !== 'string' || !code.startsWith('E_')) return null;
   const exitCode = 'exitCode' in error ? error.exitCode : undefined;
   const fix = 'fix' in error ? error.fix : undefined;
+  const details = 'details' in error ? error.details : undefined;
   return {
     code,
     ...(typeof exitCode === 'number' ? { exitCode } : {}),
     ...(typeof fix === 'string' ? { fix } : {}),
+    ...(details !== undefined ? { details } : {}),
   };
 }
 
@@ -880,6 +885,8 @@ export interface LeadSpawnOptions {
   readonly onAdmitted?: (lead: {
     readonly cleoSessionId: string;
     readonly agentId: string | null;
+    /** Verified Orca owner terminal, persisted before the startup gate opens. */
+    readonly terminal?: OrcaLeadTerminal;
   }) => Promise<void>;
   /** Called with the lead process's pid once the provider started it. */
   readonly onStarted?: (pid: number) => void;
@@ -1383,10 +1390,11 @@ export async function orchestrateSpawnExecute(
     const startOrcaLead = leadInOrca ? opts.orca?.startLead?.bind(opts.orca) : undefined;
     const leadTerminalLauncher: OrcaLeadTerminalLauncher | undefined = startOrcaLead
       ? (launch, onStarted) =>
-          startOrcaLead(launch, async (pid) => {
+          startOrcaLead(launch, async (pid, terminal) => {
             await opts.lead?.onAdmitted?.({
               cleoSessionId: activeSessionId,
               agentId: spawnAgentId ?? null,
+              ...(terminal ? { terminal } : {}),
             });
             await onStarted(pid);
           })
@@ -1690,6 +1698,7 @@ export async function orchestrateSpawnExecute(
         message: error instanceof Error ? error.message : 'Unknown spawn error',
         exitCode: coded?.exitCode ?? 60,
         ...(coded?.fix ? { fix: coded.fix } : {}),
+        ...(coded?.details !== undefined ? { details: coded.details } : {}),
       },
     };
   } finally {

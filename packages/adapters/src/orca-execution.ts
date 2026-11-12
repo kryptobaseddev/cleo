@@ -2,7 +2,7 @@
  * Local Orca execution, with no task-store, claim or filesystem disposal authority.
  * @packageDocumentation
  */
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -14,6 +14,7 @@ import type {
   OrcaContext,
   OrcaDiscovery,
   OrcaLaunch,
+  OrcaLeadStartupDiagnostic,
   OrcaLeadTerminal,
   OrcaLeadTerminalLaunch,
   OrcaReply,
@@ -32,6 +33,8 @@ import {
   orcaReportSourceSchema,
   orcaWorkerDonePayloadSchema,
 } from '@cleocode/contracts/orca-execution.js';
+import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
+import { findOnPath, pathDelimiterFor, splitPathEnv } from '@cleocode/paths';
 
 const AGENTS = { 'claude-code': 'claude', codex: 'codex', opencode: 'opencode2', grok: 'grok' };
 const MAX_DIAGNOSTIC_LENGTH = 4_096;
@@ -186,13 +189,22 @@ export class OrcaExecutionError extends Error {
   readonly fix: string;
   /** Bounded original receipt, when available; oversized receipts are diagnostic only. */
   readonly receipt: string | null;
+  /** Nonsecret terminal/PID evidence for a guarded lead refusal. */
+  readonly details?: OrcaLeadStartupDiagnostic;
 
   /** Construct a refusal before any unsupported operation runs. */
-  constructor(code: string, message: string, fix: string, receipt: string | null = null) {
+  constructor(
+    code: string,
+    message: string,
+    fix: string,
+    receipt: string | null = null,
+    details?: OrcaLeadStartupDiagnostic,
+  ) {
     super(message.slice(0, MAX_DIAGNOSTIC_LENGTH));
     this.name = 'OrcaExecutionError';
     this.code = code;
     this.fix = fix;
+    this.details = details;
     const truncated = '[truncated]\n';
     this.receipt =
       receipt !== null && receipt.length > MAX_RECEIPT_LENGTH
@@ -258,18 +270,21 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
    * waits for a private release file, so a missing receipt, wrong runtime or
    * disconnected owner terminal cannot start a model turn. Never retry create.
    * @param launch - The provider's guarded command and private startup directory.
-   * @param onStarted - Persists the PID before any model turn is allowed.
+   * @param onStarted - Persists the terminal and PID before any model turn is allowed.
    * @returns The verified terminal handle and provider PID.
    */
   async startLead(
     launch: OrcaLeadTerminalLaunch,
-    onStarted: (pid: number) => void | Promise<void>,
+    onStarted: (pid: number, terminal?: OrcaLeadTerminal) => void | Promise<void>,
   ): Promise<OrcaLeadTerminal> {
+    let diagnostic: OrcaLeadStartupDiagnostic | undefined;
     const refuse = (message: string) =>
       new OrcaExecutionError(
         ORCA_LEAD_LAUNCH_REFUSAL.code,
         message,
-        'Restore a visible connected local Orca terminal and use --adapter claude-code; update the CLI and runtime together if required terminal commands are unavailable; keep orchestrate.leadWorker.v1 enabled.',
+        `${diagnostic ? 'Compare the terminal/PID error details: the guarded shell must be the reported process or its OS-proven direct child. ' : ''}Restore a visible connected local Orca terminal and use --adapter claude-code; update the CLI and runtime together if required terminal commands are unavailable; keep orchestrate.leadWorker.v1 enabled.`,
+        null,
+        diagnostic,
       );
     const handle = process.env.ORCA_TERMINAL_HANDLE;
     if (!handle) {
@@ -390,6 +405,13 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       const terminal = created.result?.terminal;
       if (terminal && terminal.handle !== handle && terminal.executionHostId === 'local') {
         terminalHandle = terminal.handle;
+        diagnostic = {
+          runtimeId,
+          terminalHandle,
+          expectedTerminalPid: terminal.processId ?? null,
+          observedSupervisorPid: null,
+          observedParentPid: null,
+        };
       }
       if (
         !terminal ||
@@ -409,8 +431,63 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         }
         await delay(100);
       }
-      if (!Number.isSafeInteger(pid) || pid <= 0 || pid !== terminal.processId) {
-        throw refuse('The guarded terminal supervisor did not prove its startup PID.');
+      let parentPid: number | null = null;
+      let supervisorStartedAt: string | null = null;
+      let terminalStartedAt: string | null = null;
+      if (Number.isSafeInteger(pid) && pid > 0) {
+        try {
+          const ps =
+            findOnPath('ps', {
+              env: {
+                ...process.env,
+                PATH: splitPathEnv(process.env.PATH).filter(isAbsolute).join(pathDelimiterFor()),
+              },
+            }) ?? '/bin/ps';
+          const rows = execFileSync(
+            ps,
+            ['-o', 'pid=,ppid=,lstart=', '-p', `${pid},${terminal.processId ?? pid}`],
+            {
+              encoding: 'utf8',
+              timeout: 2_000,
+              stdio: ['ignore', 'pipe', 'ignore'],
+              env: { ...process.env, ...PS_STABLE_ENV },
+            },
+          )
+            .split('\n')
+            .map((line) => /^\s*([0-9]+)\s+([0-9]+)\s+(.+?)\s*$/.exec(line));
+          const supervisor = rows.find((row) => Number(row?.[1]) === pid);
+          const terminalProcess = rows.find((row) => Number(row?.[1]) === terminal.processId);
+          const parent = supervisor?.[2] ?? '';
+          if (/^[1-9][0-9]*$/.test(parent) && Number.isSafeInteger(Number(parent)))
+            parentPid = Number(parent);
+          supervisorStartedAt = supervisor?.[3] ?? null;
+          terminalStartedAt = terminalProcess?.[3] ?? null;
+        } catch {
+          // A failed OS probe cannot prove the private PID belongs to this terminal.
+        }
+      }
+      diagnostic = {
+        runtimeId,
+        terminalHandle: terminal.handle,
+        expectedTerminalPid: terminal.processId ?? null,
+        observedSupervisorPid: pid > 0 ? pid : null,
+        observedParentPid: parentPid,
+        supervisorStartedAt,
+        terminalStartedAt,
+      };
+      // macOS Orca reports /usr/bin/login, whose direct child execs the guarded shell.
+      const supervisorStart = Date.parse(`${supervisorStartedAt} UTC`);
+      const terminalStart = Date.parse(`${terminalStartedAt} UTC`);
+      if (
+        parentPid === null ||
+        (pid !== terminal.processId && parentPid !== terminal.processId) ||
+        !Number.isFinite(supervisorStart) ||
+        !Number.isFinite(terminalStart) ||
+        supervisorStart < terminalStart
+      ) {
+        throw refuse(
+          'The guarded terminal supervisor did not prove its startup PID as the Orca process or its direct child with a valid start order.',
+        );
       }
       // Older Orca show replies omit surface; an affirmative UI navigation proves visibility now.
       const focused = (
@@ -433,10 +510,11 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       ) {
         throw refuse('The lead has no verified owner terminal; its first-turn gate stays closed.');
       }
-      await onStarted(pid);
+      const started = { runtimeId, terminalHandle: terminal.handle, pid };
+      await onStarted(pid, started);
       await writeFile(`${release}.tmp`, '', { mode: 0o600 });
       await rename(`${release}.tmp`, release);
-      return { runtimeId, terminalHandle: terminal.handle, pid };
+      return started;
     } catch (error) {
       await rm(dir, { recursive: true, force: true });
       if (terminalHandle) {
@@ -457,6 +535,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
             `${error instanceof Error ? error.message : String(error)}; terminal ${terminalHandle} cleanup is unverified: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
             `${error instanceof OrcaExecutionError ? error.fix : 'Restore the guarded terminal transport.'} Inspect orca terminal show --terminal ${terminalHandle} before closing that exact terminal.`,
             error instanceof OrcaExecutionError ? error.receipt : null,
+            error instanceof OrcaExecutionError ? (error.details ?? diagnostic) : diagnostic,
           );
         }
       }

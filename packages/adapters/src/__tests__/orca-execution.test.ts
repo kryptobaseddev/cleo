@@ -1,4 +1,8 @@
-import type { OrcaAttempt, OrcaReply } from '@cleocode/contracts/orca-execution.js';
+import type {
+  OrcaAttempt,
+  OrcaLeadTerminal,
+  OrcaReply,
+} from '@cleocode/contracts/orca-execution.js';
 import { ORCA_AGENT_HARNESSES, orcaReplySchema } from '@cleocode/contracts/orca-execution.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionBackend } from '../orca-execution.js';
@@ -349,12 +353,20 @@ describe('Orca execution process boundary', () => {
     .skipIf(process.platform === 'win32')
     .each([
       'ready',
+      'login-wrapper',
+      'ps-from-path',
+      'ps-fallback',
+      'ps-newer-parent',
+      'ps-invalid-start',
+      'ps-failed',
       'disconnected',
       'background',
       'hidden-after-create',
       'cleanup-unverified',
       'not-navigated',
       'pid-mismatch',
+      'missing-terminal-pid',
+      'recorder-failed',
       'wrong-runtime',
       'lost-receipt',
     ] as const)(
@@ -364,6 +376,31 @@ describe('Orca execution process boundary', () => {
       const root = mkdtempSync(join(tmpdir(), 'orca-lead-fixture-'));
       const cwd = join(root, "project ' `literal` $(literal)");
       mkdirSync(cwd);
+      const psCapture = join(root, 'ps-calls.json');
+      if (condition.startsWith('ps-')) {
+        const bin = join(root, 'bin');
+        mkdirSync(bin);
+        for (const name of ['sleep', 'rm']) symlinkSync(`/bin/${name}`, join(bin, name));
+        if (condition !== 'ps-fallback')
+          writeFileSync(
+            join(bin, 'ps'),
+            `#!${process.execPath}
+import {execFileSync} from 'node:child_process';
+import {writeFileSync} from 'node:fs';
+writeFileSync(${JSON.stringify(psCapture)}, JSON.stringify({TZ:process.env.TZ, LC_ALL:process.env.LC_ALL, LANG:process.env.LANG}));
+const condition = ${JSON.stringify(condition)};
+if (condition === 'ps-failed') process.exit(1);
+if (condition === 'ps-from-path') process.stdout.write(execFileSync('/bin/ps', process.argv.slice(2), {encoding:'utf8'}));
+else {
+  const [pid, terminal] = process.argv.at(-1).split(',');
+  const start = condition === 'ps-invalid-start' ? 'unreadable' : 'Thu Jan 01 00:00:00 2026';
+  process.stdout.write(pid+' '+terminal+' '+start+'\\n'+terminal+' 1 Fri Jan 02 00:00:00 2026\\n');
+}
+`,
+            { mode: 0o700 },
+          );
+        vi.stubEnv('PATH', condition === 'ps-fallback' ? bin : `${bin}:${process.env.PATH}`);
+      }
       const capture = join(root, 'captured.json');
       const binary = join(root, 'claude');
       writeFileSync(
@@ -379,10 +416,13 @@ describe('Orca execution process boundary', () => {
       ];
       let child: ChildProcess | undefined;
       let exit: Promise<void> | undefined;
-      const started = vi.fn<(pid: number) => Promise<void>>(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        expect(existsSync(capture)).toBe(false);
-      });
+      const started = vi.fn<(pid: number, terminal?: OrcaLeadTerminal) => Promise<void>>(
+        async () => {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          expect(existsSync(capture)).toBe(false);
+          if (condition === 'recorder-failed') throw new Error('Lifecycle recorder unavailable');
+        },
+      );
       fixtureRunner.mockImplementation(async (...params) => {
         const argv = params[1];
         if (argv[0] === 'worktree')
@@ -391,14 +431,35 @@ describe('Orca execution process boundary', () => {
           });
         if (argv[0] === 'terminal' && argv[1] === 'create') {
           const command = argv[argv.indexOf('--command') + 1];
-          child = spawn('/bin/sh', ['-c', command ?? 'exit 99'], { stdio: 'ignore' });
+          child = spawn(
+            '/bin/sh',
+            [
+              '-c',
+              condition === 'login-wrapper' || condition === 'ps-newer-parent'
+                ? `${command} & wait`
+                : (command ?? 'exit 99'),
+            ],
+            { stdio: 'ignore' },
+          );
           exit = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
           if (condition === 'lost-receipt') return { stdout: '', stderr: 'lost', exitCode: null };
           return fixtureReply({
             terminal: {
               handle: 'term_lead',
-              processId: condition === 'pid-mismatch' ? (child.pid ?? 100) + 1 : child.pid,
+              processId:
+                condition === 'missing-terminal-pid'
+                  ? undefined
+                  : condition === 'pid-mismatch'
+                    ? (child.pid ?? 100) + 1
+                    : child.pid,
+              // Orca 1.4.256 live reply: processId is /usr/bin/login, parent of the exec'd shell.
+              tabId: 'tab-lead',
+              paneKey: 'tab-lead:leaf-lead',
+              ptyId: 'workspace-fixture@@lead',
+              worktreeId: 'workspace-fixture',
+              title: 'CLEO no-hands lead',
               executionHostId: 'local',
+              incarnationId: 'incarnation-lead',
               hostPlatform: process.platform,
               surface: condition === 'background' ? 'background' : 'visible',
             },
@@ -453,23 +514,43 @@ describe('Orca execution process boundary', () => {
           },
           started,
         );
-        if (condition !== 'ready') {
+        const ready = ['ready', 'login-wrapper', 'ps-from-path', 'ps-fallback'].includes(condition);
+        if (!ready) {
           await expect(result).rejects.toThrow();
+          if (condition === 'pid-mismatch')
+            await expect(result).rejects.toMatchObject({
+              details: {
+                terminalHandle: 'term_lead',
+                expectedTerminalPid: (child?.pid ?? 100) + 1,
+                observedSupervisorPid: child?.pid,
+                observedParentPid: process.pid,
+              },
+            });
           if (condition === 'cleanup-unverified')
             await expect(result).rejects.toMatchObject({
               code: 'E_LEAD_TOOLS_UNSTRIPPED',
               message: expect.stringContaining('cleanup is unverified'),
               fix: expect.stringContaining('term_lead'),
+              details: expect.objectContaining({
+                terminalHandle: 'term_lead',
+                observedSupervisorPid: child?.pid,
+              }),
             });
-          expect(started).not.toHaveBeenCalled();
+          expect(started).toHaveBeenCalledTimes(condition === 'recorder-failed' ? 1 : 0);
           expect(existsSync(capture)).toBe(false);
         } else {
           expect(await result).toMatchObject({
             terminalHandle: 'term_lead',
-            pid: child?.pid,
+            pid: started.mock.calls[0]?.[0],
             runtimeId: fixtureContext.runtimeId,
           });
           expect(started).toHaveBeenCalledOnce();
+          expect(started.mock.calls[0]?.[1]).toMatchObject({
+            terminalHandle: 'term_lead',
+            pid: started.mock.calls[0]?.[0],
+          });
+          if (condition === 'login-wrapper')
+            expect(started.mock.calls[0]?.[0]).not.toBe(child?.pid);
           await exit;
           expect(JSON.parse(readFileSync(capture, 'utf8'))).toEqual({
             args,
@@ -479,6 +560,12 @@ describe('Orca execution process boundary', () => {
           });
           expect(existsSync(join(cwd, 'injected'))).toBe(false);
         }
+        if (condition.startsWith('ps-') && condition !== 'ps-fallback')
+          expect(JSON.parse(readFileSync(psCapture, 'utf8'))).toEqual({
+            TZ: 'UTC',
+            LC_ALL: 'C',
+            LANG: 'C',
+          });
         expect(
           fixtureRunner.mock.calls.some(
             ([, argv]) => argv[0] === 'account' || argv[1] === 'worker-start',
@@ -486,7 +573,7 @@ describe('Orca execution process boundary', () => {
         ).toBe(false);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'create')).toHaveLength(1);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'close')).toHaveLength(
-          condition === 'ready' || condition === 'lost-receipt' ? 0 : 1,
+          ready || condition === 'lost-receipt' ? 0 : 1,
         );
         if (condition === 'lost-receipt')
           await expect.poll(() => child?.exitCode, { timeout: 1500 }).toBeTypeOf('number');
@@ -1704,6 +1791,14 @@ describe('Orca execution process boundary', () => {
 });
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

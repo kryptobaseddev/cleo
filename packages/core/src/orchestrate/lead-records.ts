@@ -26,6 +26,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { LeadMode } from '@cleocode/contracts';
+import {
+  type OrcaLeadTerminal,
+  orcaLeadTerminalSchema,
+} from '@cleocode/contracts/orca-execution.js';
 import { type ProcessLiveness, probeProcess } from '@cleocode/worktree';
 import { endSession } from '../store/session-store.js';
 import { type AgentMbxClient, createAgentMbxClient } from './agentmbx.js';
@@ -46,6 +50,8 @@ export interface LeadRecord {
   readonly epicId: string;
   /** Processes that keep the lead alive: the CLI and the lead, with start times. */
   readonly processes: readonly LeadProcess[];
+  /** Verified Orca owner terminal, recorded with its supervisor before release. */
+  readonly terminal?: OrcaLeadTerminal;
   /** How the lead runs. */
   readonly mode: LeadMode;
   /** The lead's own CLEO session (holds the epic claim). */
@@ -90,6 +96,7 @@ function parseRecord(text: string): LeadRecord | null {
       return null;
     }
     const processes: LeadProcess[] = [];
+    const terminal = orcaLeadTerminalSchema.safeParse(get('terminal'));
     for (const p of rawProcesses) {
       if (typeof p !== 'object' || p === null) continue;
       const pid: unknown = Reflect.get(p, 'pid');
@@ -104,6 +111,7 @@ function parseRecord(text: string): LeadRecord | null {
     return {
       epicId,
       processes,
+      ...(terminal.success ? { terminal: terminal.data } : {}),
       mode: get('mode') === 'detached' ? 'detached' : 'interactive',
       cleoSessionId,
       providerSessionId,
