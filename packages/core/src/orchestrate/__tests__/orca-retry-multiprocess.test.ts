@@ -128,6 +128,8 @@ interface RetryResult {
   readonly recordId?: string;
   readonly dispatchId?: string | null;
   readonly message?: string;
+  /** `errcode` (else `code`) of the thrown error and each `cause`, for diagnosis. */
+  readonly errcodes?: readonly (number | string | null)[];
 }
 
 /** One `worker-start` the injected runner received. */
@@ -220,6 +222,11 @@ const CHILD = `
         pid: process.pid,
         role,
         message: String((e && e.message) || e),
+        errcodes: (() => {
+          const codes = [];
+          for (let c = e, d = 0; c && d < 10; c = c.cause, d++) codes.push(c.errcode ?? c.code ?? null);
+          return codes;
+        })(),
       }) + '\\n');
     }
   })().then(
@@ -444,7 +451,9 @@ describe.skipIf(DIST_MISSING)('Orca retry reservation — real processes (T14494
     const { predecessor, childEnv, workDir, launchLog } = await prepareRace(`free-${round}`);
     const outcomes = await raceChildren([childEnv, childEnv], workDir);
     const { loser } = await expectSingleReservation(outcomes.map(lastJson), launchLog, predecessor);
-    expect(CUSTODY_REFUSALS).toContain(loser.message);
+    expect(CUSTODY_REFUSALS, `loser errcodes ${JSON.stringify(loser.errcodes)}`).toContain(
+      loser.message,
+    );
   }, 90_000);
 
   it('staged race: both processes park at the reservation CAS; exactly one UPDATE wins', async () => {
@@ -465,6 +474,8 @@ describe.skipIf(DIST_MISSING)('Orca retry reservation — real processes (T14494
     // the second's observation write, so SQLite refuses the first's UPDATE.
     expect(winner.role).toBe('second');
     expect(loser.role).toBe('first');
-    expect(loser.message).toBe(RESERVATION_REFUSAL);
+    expect(loser.message, `loser errcodes ${JSON.stringify(loser.errcodes)}`).toBe(
+      RESERVATION_REFUSAL,
+    );
   }, 90_000);
 });

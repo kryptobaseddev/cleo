@@ -286,8 +286,8 @@ export async function recordWorker(
   try {
     reserveWorkerRow(db, worker, row, predecessor, now);
   } catch (err) {
-    if (predecessor && isSqliteSnapshotConflict(err)) {
-      // @sync-invariant none:local-only another process committed after this reservation read; its retry owns the predecessor
+    if (predecessor && isSqliteWriteConflict(err)) {
+      // @sync-invariant none:local-only another process wrote after this reservation read; its retry owns the predecessor
       throw new Error('Orca retry reservation lost; no new launch is authorized.', { cause: err });
     }
     throw err;
@@ -295,20 +295,29 @@ export async function recordWorker(
   return toWorkerRecord(row, metadata);
 }
 
-/** SQLITE_BUSY_SNAPSHOT: a read transaction's snapshot went stale before its first write. */
-const SQLITE_BUSY_SNAPSHOT = 517;
+/**
+ * SQLITE_BUSY, the primary result code shared by its extended forms:
+ * SQLITE_BUSY_SNAPSHOT (517, a read snapshot went stale before its first write),
+ * SQLITE_BUSY_RECOVERY (261) and SQLITE_BUSY_TIMEOUT (773).
+ */
+const SQLITE_BUSY = 5;
 
 /**
- * Whether an error, or the driver error it wraps, is a WAL snapshot conflict.
+ * Whether an error, or any error in its `cause` chain, is a SQLite write
+ * conflict: SQLITE_BUSY or one of its extended codes. Which one a losing
+ * writer gets depends on timing: 517 when the winner already committed, 5 when
+ * the winner still held the write lock as the loser tried to upgrade.
  * @param err - Thrown value; drizzle wraps the node:sqlite error in `cause`.
- * @returns `true` for `SQLITE_BUSY_SNAPSHOT`.
+ * @returns `true` for the SQLITE_BUSY family only; every other error is `false`.
  */
-function isSqliteSnapshotConflict(err: unknown): boolean {
-  for (let current = err, depth = 0; current instanceof Error && depth < 3; depth++) {
+function isSqliteWriteConflict(err: unknown): boolean {
+  const seen = new Set<Error>();
+  for (let current = err; current instanceof Error && !seen.has(current); ) {
+    seen.add(current);
     if (
       'errcode' in current &&
       typeof current.errcode === 'number' &&
-      current.errcode === SQLITE_BUSY_SNAPSHOT
+      (current.errcode & 0xff) === SQLITE_BUSY
     ) {
       return true;
     }
@@ -320,9 +329,10 @@ function isSqliteSnapshotConflict(err: unknown): boolean {
 /**
  * Insert one worker row in a single transaction, retiring the exact predecessor
  * first when this is a retry.
- * @remarks Runs as a deferred transaction: a process whose read snapshot goes
- * stale before its first write is refused by SQLite with `SQLITE_BUSY_SNAPSHOT`,
- * which {@link recordWorker} reports as a lost reservation.
+ * @remarks Runs as a deferred transaction: a process that loses the write to
+ * another after its read is refused by SQLite with `SQLITE_BUSY` or
+ * `SQLITE_BUSY_SNAPSHOT`, which {@link recordWorker} reports as a lost
+ * reservation.
  */
 function reserveWorkerRow(
   db: Awaited<ReturnType<typeof getDb>>,
