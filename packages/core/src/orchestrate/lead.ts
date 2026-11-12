@@ -229,6 +229,37 @@ export async function orchestrateLead(
       fix: `Wait for the running lead to exit (pid ${pids}); a dead one is reaped on the next cleo orchestrate lead or status.`,
     });
   }
+  // T14513 — a dead lead whose session could not be proven ended keeps its
+  // record (and its claim); never start a second lead over it.
+  const kept = reaped.find((r) => !r.recordRemoved);
+  if (kept) {
+    // @sync-invariant none:local-only a dead lead's unproven record blocks a new lead before a spawn
+    return engineError(
+      'E_LEAD_RECORD_KEPT',
+      `The dead lead of ${epicId} keeps its record: ${kept.keptReason ?? 'its session is not proven ended'}`,
+      {
+        exitCode: 6,
+        details: { epicId, reaped },
+        fix: `Run cleo orchestrate lead ${epicId} again once session ${kept.cleoSessionId} can be read and ended.`,
+      },
+    );
+  }
+  /** A failure that carries this call's reap report, so a cleanup never goes unreported. */
+  const withReaped = (failure: EngineResult): EngineResult =>
+    failure.success || reaped.length === 0
+      ? failure
+      : {
+          ...failure,
+          error: {
+            ...failure.error,
+            details: {
+              ...(typeof failure.error.details === 'object' && failure.error.details !== null
+                ? failure.error.details
+                : {}),
+              reaped,
+            },
+          },
+        };
 
   const mode = options.mode ?? 'interactive';
   const sessionId = randomUUID();
@@ -300,18 +331,20 @@ export async function orchestrateLead(
   if (!started) {
     // Refused or failed after admission: the spawn already handed the claim back.
     await settle(false);
-    if (!result.success) return result;
+    if (!result.success) return withReaped(result);
     const refusedMcp = leadMcpOf(data);
     if (mode === 'detached' && refusedMcp !== null && refusedMcp.mailbox !== 'loaded') {
-      // @sync-invariant none:local-only a detached lead with no owner channel never starts
-      return engineError(
-        E_LEAD_NO_OWNER_CHANNEL,
-        `A detached lead needs the mbx MCP server to ask the owner, and it is ${refusedMcp.mailbox === 'refused' ? `refused: ${refusedMcp.warning ?? 'it failed the checks'}` : 'not configured'}`,
-        {
-          exitCode: 6,
-          details: { epicId, mcp: refusedMcp },
-          fix: 'Configure the mbx MCP server at user scope in ~/.claude.json (an absolute path to the agentmbx binary, args ["mcp"]), e.g. `agentmbx setup --only claude`; or run the lead interactively (drop --detached), where it asks with AskUserQuestion.',
-        },
+      return withReaped(
+        // @sync-invariant none:local-only a detached lead with no owner channel never starts
+        engineError(
+          E_LEAD_NO_OWNER_CHANNEL,
+          `A detached lead needs the mbx MCP server to ask the owner, and it is ${refusedMcp.mailbox === 'refused' ? `refused: ${refusedMcp.warning ?? 'it failed the checks'}` : 'not configured'}`,
+          {
+            exitCode: 6,
+            details: { epicId, mcp: refusedMcp },
+            fix: 'Configure the mbx MCP server at user scope in ~/.claude.json (an absolute path to the agentmbx binary, args ["mcp"]), e.g. `agentmbx setup --only claude`; or run the lead interactively (drop --detached), where it asks with AskUserQuestion.',
+          },
+        ),
       );
     }
   } else if (mode === 'interactive' && 'status' in data && data.status === 'completed') {
