@@ -80,6 +80,8 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     vi.stubEnv('HOME', root);
     vi.stubEnv('CLAUDE_CONFIG_DIR', '');
     vi.stubEnv('CLAUDE_CODE_IGNORE_PERSISTED_TRUST', '');
+    vi.stubEnv('CLAUDE_CODE_CUSTOM_OAUTH_URL', '');
+    vi.stubEnv('CLAUDE_CODE_SANDBOXED', '');
     project = join(root, 'project');
     spawnDir = join(root, 'spawn');
     bin = join(root, 'bin');
@@ -287,6 +289,54 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     rmSync(migrated);
     vi.stubEnv('CLAUDE_CODE_IGNORE_PERSISTED_TRUST', '1');
     expect(() => requireLeadProjectTrust(project)).toThrow('the lead was not launched');
+  });
+
+  it('reads the config file Claude 2.1.322 picks: empty .config.json, custom OAuth, sandboxed (T14515)', () => {
+    const trusted = JSON.stringify({
+      projects: { [realpathSync(project)]: { hasTrustDialogAccepted: true } },
+    });
+    mkdirSync(join(root, '.claude'));
+    const migrated = join(root, '.claude', '.config.json');
+    // An empty .config.json beside a legacy file: Claude keeps reading .claude.json.
+    writeFileSync(claudeJson, trusted);
+    writeFileSync(migrated, '');
+    expect(requireLeadProjectTrust(project)).toBe(claudeJson);
+    // With no legacy file, the empty writable .config.json is Claude's config: untrusted.
+    rmSync(claudeJson);
+    expect(() => requireLeadProjectTrust(project)).toThrow(migrated);
+    // Read-only and empty, it is never Claude's config.
+    if (process.platform !== 'win32') {
+      chmodSync(migrated, 0o444);
+      expect(() => requireLeadProjectTrust(project)).toThrow(claudeJson);
+    }
+    rmSync(migrated);
+
+    // CLAUDE_CODE_CUSTOM_OAUTH_URL: Claude reads .claude-custom-oauth.json instead.
+    const customJson = join(root, '.claude-custom-oauth.json');
+    writeFileSync(claudeJson, trusted);
+    const custom = { CLAUDE_CODE_CUSTOM_OAUTH_URL: 'https://oauth.example.test' };
+    expect(() => requireLeadProjectTrust(project, { HOME: root, ...custom })).toThrow(customJson);
+    writeFileSync(customJson, trusted);
+    rmSync(claudeJson);
+    expect(requireLeadProjectTrust(project, { HOME: root, ...custom })).toBe(customJson);
+    rmSync(customJson);
+
+    // CLAUDE_CODE_SANDBOXED (Claude's truthy parse): every folder is trusted, no dialog.
+    expect(() =>
+      requireLeadProjectTrust(project, { HOME: root, CLAUDE_CODE_SANDBOXED: '0' }),
+    ).toThrow('the lead was not launched');
+    for (const value of ['1', ' TRUE ', 'yes', 'on']) {
+      expect(requireLeadProjectTrust(project, { HOME: root, CLAUDE_CODE_SANDBOXED: value })).toBe(
+        claudeJson,
+      );
+    }
+    expect(() =>
+      requireLeadProjectTrust(project, {
+        HOME: root,
+        CLAUDE_CODE_SANDBOXED: '1',
+        CLAUDE_CODE_IGNORE_PERSISTED_TRUST: '1',
+      }),
+    ).toThrow('the lead was not launched');
   });
 
   it('refuses home-folder trust, which Claude does not persist across sessions', () => {

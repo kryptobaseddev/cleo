@@ -19,7 +19,15 @@
  * @epic T14351
  */
 
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  type Stats,
+  statSync,
+} from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -102,6 +110,51 @@ function linkedWorktreeTrustRoot(dir: string): string | null {
   return basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
 }
 
+/** Claude Code's truthy env parse: `1`, `true`, `yes` or `on`, any case, trimmed. */
+function envTruthy(value: string | undefined): boolean {
+  return ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
+}
+
+/**
+ * The user config file Claude Code 2.1.322 reads (its `getGlobalClaudeFile`):
+ * `<configDir>/.config.json` when it is a non-empty file Claude sees under that
+ * exact name, or an empty writable file with no usable legacy file beside it;
+ * otherwise the legacy `.claude<suffix>.json`, whose suffix is `-custom-oauth`
+ * under `CLAUDE_CODE_CUSTOM_OAUTH_URL`.
+ */
+function claudeUserConfigPath(projectDir: string, home: string, env: NodeJS.ProcessEnv): string {
+  const configDir = env.CLAUDE_CONFIG_DIR
+    ? resolve(projectDir, env.CLAUDE_CONFIG_DIR)
+    : join(home, '.claude');
+  const migrated = join(configDir.normalize('NFC'), '.config.json');
+  const suffix = env.CLAUDE_CODE_CUSTOM_OAUTH_URL ? '-custom-oauth' : '';
+  const legacy = join(env.CLAUDE_CONFIG_DIR ? configDir : home, `.claude${suffix}.json`);
+  const enoent = (err: unknown): boolean =>
+    err instanceof Error && 'code' in err && err.code === 'ENOENT';
+  try {
+    const stat = statSync(migrated);
+    // 0o222: any write bit. An empty read-only file is never Claude's config.
+    if (!stat.isFile() || (stat.size === 0 && (stat.mode & 0o222) === 0)) return legacy;
+    let legacyStat: Stats | undefined;
+    try {
+      legacyStat = statSync(legacy);
+    } catch (err) {
+      if (enoent(err) || stat.size === 0) return migrated;
+    }
+    if (stat.size === 0) return legacy;
+    if (legacyStat && (!legacyStat.isFile() || legacyStat.size === 0)) return migrated;
+    try {
+      // A case-insensitive volume matching `.CONFIG.json` is not the migrated file.
+      if (!readdirSync(dirname(migrated)).includes(basename(migrated))) return legacy;
+    } catch (err) {
+      if (enoent(err)) return legacy;
+    }
+    return migrated;
+  } catch {
+    return legacy;
+  }
+}
+
 /**
  * Require the owner's saved Claude Code folder trust before a lead can launch.
  * Returns the user config path so MCP selection uses the same account state.
@@ -111,6 +164,8 @@ function linkedWorktreeTrustRoot(dir: string): string | null {
  * Claude Code 2.1.322 stores `projects[path].hasTrustDialogAccepted` in its
  * user config, including the canonical main checkout for linked worktrees.
  * Trust can descend within a repository, never from outside it.
+ * A truthy `CLAUDE_CODE_SANDBOXED` makes Claude trust every folder, so it
+ * admits too; `CLAUDE_CODE_IGNORE_PERSISTED_TRUST` still refuses.
  * See https://code.claude.com/docs/en/security#additional-safeguards.
  *
  * @param projectDir - The lead's working directory.
@@ -123,19 +178,16 @@ export function requireLeadProjectTrust(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const home = resolve(projectDir, env.HOME || env.USERPROFILE || homedir());
-  const configDir = env.CLAUDE_CONFIG_DIR
-    ? resolve(projectDir, env.CLAUDE_CONFIG_DIR)
-    : join(home, '.claude');
-  const migratedConfig = join(configDir, '.config.json');
-  const configPath = existsSync(migratedConfig)
-    ? migratedConfig
-    : join(env.CLAUDE_CONFIG_DIR ? configDir : home, '.claude.json');
+  const configPath = claudeUserConfigPath(projectDir, home, env);
   let fixPrefix = '';
   try {
     const config = claudeCodeTrustConfigSchema.safeParse(readJson(configPath));
     let dir = realpathSync(projectDir);
     if (env.CLAUDE_CODE_IGNORE_PERSISTED_TRUST) {
       fixPrefix = 'Unset CLAUDE_CODE_IGNORE_PERSISTED_TRUST in the lead environment. ';
+    } else if (envTruthy(env.CLAUDE_CODE_SANDBOXED)) {
+      // Claude trusts every folder in a sandboxed session and shows no dialog.
+      return configPath;
     } else if (dir === realpathSync(home)) {
       fixPrefix = 'Choose a project subdirectory: Claude Code never persists home-folder trust. ';
     } else if (config.success) {
