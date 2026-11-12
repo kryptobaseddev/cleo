@@ -852,7 +852,8 @@ const workerCommand = defineCommand({
   args: {
     action: {
       type: 'positional',
-      description: 'show | read | recover-start | recover-stop | retry | stop | ingest-report',
+      description:
+        'show | read | recover-start | recover-stop | retry | stop | ingest-report | relay-report',
       required: true,
     },
     recordId: {

@@ -1606,12 +1606,13 @@ function buildDashboardContextBlock(summary: string): string {
  */
 function buildAgentCoordinationBlock(taskId: string, leadMailbox?: string): string {
   const lead = leadMailbox
-    ? `Your lead's mailbox: \`${leadMailbox}\`. Send your reports and your completion message there.`
+    ? `Your lead's mailbox: \`${leadMailbox}\`. Native workers send reports and completion messages there.`
     : `No lead mailbox was given at spawn: look for it in the task notes (\`cleo show ${taskId} --full\`), otherwise name the gap in your return.`;
   return [
     '## Agent Coordination (AgentMBX)',
     '',
     `Talk to your lead and other agents over AgentMBX, citing \`${taskId}\` in every message. ${lead}`,
+    ORCA_REPORT_TRANSPORT,
     '',
     "1. Identity first: `mbx_whoami`. If it shows no identity, claim one with `mbx_identity` before any other mbx tool. Claude Code Agent-tool subagents share their parent session's identity.",
     '2. `mbx_inbox` at start and after every wait; `mbx_send` to your lead; `mbx_reply` in a thread; `mbx_ack` what you acted on.',
@@ -1631,8 +1632,12 @@ function buildAgentCoordinationBlock(taskId: string, leadMailbox?: string): stri
  * @task T14429
  */
 function buildTier0LeadReportLine(taskId: string, leadMailbox: string): string {
-  return `**Report to your lead:** \`mbx_send\` to \`${leadMailbox}\` (without the MCP server: \`agentmbx send --as <you> --to ${leadMailbox} --subject "${taskId}" -m "<report>"\`) a report of at most 100 words: conclusion, blocker, proof.`;
+  return `Native workers: **Report to your lead:** \`mbx_send\` to \`${leadMailbox}\` (without the MCP server: \`agentmbx send --as <you> --to ${leadMailbox} --subject "${taskId}" -m "<report>"\`) a report of at most 100 words: conclusion, blocker, proof. ${ORCA_REPORT_TRANSPORT}`;
 }
+
+/** Orca transports wake notifications; the durable CLEO outbox owns its sole mailbox report. */
+const ORCA_REPORT_TRANSPORT =
+  'Orca workers: save the exact Return Format Contract in temp/cleo-worker-report.txt, pass its absolute path to worker_done --report-path, and do not separately send it through AgentMBX; the CLEO bridge owns that delivery.';
 
 /** Build the anti-pattern reference. */
 function buildAntiPatternBlock(): string {

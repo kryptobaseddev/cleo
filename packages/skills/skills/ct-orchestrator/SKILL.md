@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.15.0
+  version: 4.16.0
   tier: core
   install: harness
   covers:
@@ -46,7 +46,8 @@ For a retained Orca attempt, copy its exact `workers[].recordId` from
 `cleo orchestrate status`. Use `cleo orchestrate worker show <recordId>` for
 its observation and `cleo orchestrate worker read <recordId>` for one output
 page; pass only that page's source-pinned `--cursor` to continue. Retired
-predecessors remain readable; every other action requires an open record. After a CLI
+predecessors remain readable; supervision requires the current execution mapping,
+which remains retained after a proven physical exit until an explicit retry retires it. After a CLI
 restart, `cleo orchestrate worker recover-start <recordId>` or
 `cleo orchestrate worker recover-stop <recordId>` replays the saved operation.
 `cleo orchestrate worker stop <recordId>` requests a guarded stop;
@@ -63,8 +64,23 @@ checks the original runtime, Run, current Task/Dispatch, sender, CLEO claim and
 manifest; failed, stale or invalid delivery refuses. Repeated delivery retains
 the first report on the worker record, including after CLI restart. This settles
 only the report: acceptance, independent review, evidence and physical resource
-release remain separate. AgentMBX relay and provider-handle resource reconciliation
-are not implemented by this ingress command.
+release remain separate. Ingestion also reserves its AgentMBX outbox atomically.
+Run the relay as the holder of the recorded lead mailbox; it sends the original
+report to that mailbox with one runtime/Run/Dispatch/source-message key. A lost
+acknowledgement reuses that key. Inspect `reportDelivery` for explicit pending
+transport failures and retry with `cleo orchestrate worker relay-report <recordId>`;
+this reads the stored report even if Orca or its original report file is gone.
+Treat Orca and AgentMBX wakes as hints to the same canonical record and source id,
+never as separate reports. Orca workers supply the report artifact and do not
+independently send another AgentMBX completion report.
+
+`worker show` reconciles PID-less resources through the exact Orca Dispatch.
+Only affirmative release proof (including stopped helpers where required) records
+`resourceRelease` and emits one `SubagentStop`; done, retained, missing or unknown
+observations keep custody. Physical exit can precede or follow report ingestion.
+Neither releases the CLEO task claim or worktree, changes acceptance gates or
+creates a replacement Orca Task. An explicit resource-free retry retires the
+predecessor mapping separately from its original physical exit timestamp.
 
 ## Trustworthy project knowledge
 

@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureContext,
   fixtureLaunch,
+  fixtureMail,
+  fixtureMbxRunner,
   fixtureReleasedShow,
   fixtureReply,
   fixtureReportDispatch,
@@ -22,6 +24,7 @@ import {
   fixtureShow,
   fixtureStart,
   orcaFixture,
+  runMbxFixture,
   runOrcaFixture,
 } from '../../../../../adapters/src/__tests__/orca-execution-fixture.js';
 import { pipelineManifestAppend } from '../../../../../core/src/memory/pipeline-manifest-sqlite.js';
@@ -55,6 +58,15 @@ vi.mock('@cleocode/adapters/orca-execution', async (importOriginal) => {
       }
     },
   };
+});
+
+vi.mock('../../../../../core/src/orchestrate/agentmbx.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../../../core/src/orchestrate/agentmbx.js')>();
+  const { fixtureMbxRunner } = await import(
+    '../../../../../adapters/src/__tests__/orca-execution-fixture.js'
+  );
+  return { ...actual, createAgentMbxClient: () => actual.createAgentMbxClient(fixtureMbxRunner) };
 });
 
 import { orchestrateCommand } from '../orchestrate.js';
@@ -108,6 +120,10 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
       nextCursor: 'source-pinned-cursor',
     });
     fixtureRunner.mockReset().mockImplementation(runOrcaFixture);
+    fixtureMail.bodies.clear();
+    fixtureMail.failBefore = false;
+    fixtureMail.loseAck = false;
+    fixtureMbxRunner.mockReset().mockImplementation(runMbxFixture);
     process.exitCode = 0;
   });
 
@@ -174,6 +190,7 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
         data: {
           recordId: record.recordId,
           stoppedAt: null,
+          reportDelivery: { state: 'delivered', messageId: 'mbx-1' },
           report: {
             manifestId: 'cli-report',
             reportText: report,
@@ -183,6 +200,9 @@ describe('orchestrate worker — restart recovery through the CLI', () => {
       });
       expect(process.exitCode).toBe(0);
     }
+    await run('relay-report', record.recordId);
+    expect(fixtureMail.bodies.size).toBe(1);
+    expect(fixtureMbxRunner).toHaveBeenCalledTimes(1);
     expect(fixtureRunner.mock.calls.map(([, args]) => args[1])).toEqual([
       'inbox',
       'dispatch-show',

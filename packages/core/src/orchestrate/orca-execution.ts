@@ -30,11 +30,15 @@ import { resolveSpawnReturnContract } from '../orchestration/spawn-prompt.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { isLiveClaim } from '../store/task-claim.js';
 import { parseReturnMessage } from '../validation/protocol-common.js';
+import { type AgentMbxClient, createAgentMbxClient, MBX_NAME } from './agentmbx.js';
 import {
+  isCurrentOrcaWorker,
   listWorkerRecords,
   newWorkerInstanceId,
   recordWorker,
   recordWorkerReport,
+  recordWorkerReportDelivery,
+  settleOrcaWorkerResource,
   updateWorkerExecution,
   type WorkerRecord,
 } from './worker-records.js';
@@ -113,7 +117,7 @@ export async function launchOrcaWorker(
 
 /**
  * Observe a stored exact Dispatch after a CLI restart.
- * @remarks Status hints never close the record or settle a CLEO task.
+ * @remarks Only exact provider release proof closes physical resources; it never settles a CLEO task.
  * @param recordId - Existing local worker record id.
  * @param cwd - Owning CLEO project root.
  * @param backend - Process adapter for the recorded runtime.
@@ -129,7 +133,12 @@ export async function observeOrcaWorker(
   backend: OrcaExecutionAdapter,
 ): Promise<WorkerRecord> {
   const record = await loadOrcaWorker(recordId, cwd);
-  return updateWorkerExecution(record, await backend.show(requireExecution(record)), cwd);
+  const observed = await updateWorkerExecution(
+    record,
+    await backend.show(requireExecution(record)),
+    cwd,
+  );
+  return settleOrcaWorkerResource(observed, cwd);
 }
 
 /**
@@ -293,6 +302,7 @@ export async function readOrcaWorker(
  * @param cwd - Owning project root.
  * @param backend - Read-only report transport, injectable for fixtures.
  * @param messageId - Exact worker_done id supplied by the coordinator's wake.
+ * @param mailboxClient - Report delivery port, injected by offline fixtures.
  * @returns The worker with its first durable canonical report and manifest link.
  * @throws For stale provenance, missing proof, unsuccessful work or an invalid manifest.
  * @remarks Report settlement never changes task gates, invokes integration or emits SubagentStop.
@@ -306,6 +316,7 @@ export async function ingestOrcaWorkerReport(
   cwd: string,
   backend: OrcaExecutionAdapter,
   messageId: string,
+  mailboxClient: AgentMbxClient = createAgentMbxClient(),
 ): Promise<WorkerRecord> {
   const record = await loadOrcaWorker(recordId, cwd);
   const execution = requireExecution(record);
@@ -335,7 +346,8 @@ export async function ingestOrcaWorkerReport(
         fix: 'Inspect the original durable report; do not overwrite it with a repeated event id.',
       });
     }
-    return recordWorkerReport(record, record.report, cwd);
+    await recordWorkerReport(record, record.report, cwd);
+    return relayOrcaWorkerReport(recordId, cwd, mailboxClient);
   }
   const task = await (await getTaskAccessor(cwd)).loadSingleTask(record.taskId);
   if (
@@ -401,7 +413,7 @@ export async function ingestOrcaWorkerReport(
       fix: `Read back a completed ${contract.manifestType} manifest whose linked_tasks includes ${record.taskId}, and use its id in the report.`,
     });
   }
-  return recordWorkerReport(
+  await recordWorkerReport(
     record,
     {
       event,
@@ -410,6 +422,81 @@ export async function ingestOrcaWorkerReport(
       reportText: read.content,
       reportDigest: createHash('sha256').update(read.content).digest('hex'),
       ingestedAt: new Date().toISOString(),
+    },
+    cwd,
+  );
+  return relayOrcaWorkerReport(recordId, cwd, mailboxClient);
+}
+
+/**
+ * Deliver a stored canonical report to its lead using the same durable AgentMBX key.
+ * @param recordId - Worker whose original report and outbox are already persisted.
+ * @param cwd - Owning project root.
+ * @param client - Injected mailbox client; tests never contact a real mailbox.
+ * @returns Its delivered receipt, or explicit pending delivery with a retry diagnostic.
+ * @remarks Does not consume wakes, require live resources, accept work or release custody.
+ * @example
+ * ```ts
+ * const delivered = await relayOrcaWorkerReport(recordId, root, mailboxClient);
+ * ```
+ */
+export async function relayOrcaWorkerReport(
+  recordId: string,
+  cwd: string,
+  client: AgentMbxClient = createAgentMbxClient(),
+): Promise<WorkerRecord> {
+  let record = await loadOrcaWorker(recordId, cwd, true);
+  if (
+    !record.report ||
+    readDeclaredProjectIdentity(cwd)?.projectId !== record.execution?.launch.projectId
+  ) {
+    // @sync-invariant none:local-only only a validated report in the owning portable project can reach its lead
+    throw new EngineResultError({
+      code: 'E_ORCA_REPORT_DELIVERY',
+      message: 'No validated report exists for this worker and project.',
+      fix: 'Ingest the exact current worker_done before retrying report delivery.',
+    });
+  }
+  if (!record.reportDelivery) record = await recordWorkerReport(record, record.report, cwd);
+  const delivery = record.reportDelivery;
+  if (!delivery || !record.report) {
+    // @sync-invariant none:local-only no mailbox side effect is allowed without a durable outbox reservation
+    throw new Error('No durable report delivery reservation exists.');
+  }
+  if (delivery.state === 'delivered') return record;
+  let lastError: string | null = null;
+  let messageId: string | null = null;
+  try {
+    if (!delivery.mailbox || !MBX_NAME.test(delivery.mailbox)) {
+      lastError =
+        'No valid lead mailbox was recorded; retain the report and restore its original lead routing.';
+    } else {
+      const result = await client.send({
+        as: delivery.mailbox,
+        to: delivery.mailbox,
+        subject: `${record.taskId} worker report (${record.recordId}; ${record.report.event.messageId})`,
+        body: record.report.reportText,
+        kind: 'message',
+        idempotencyKey: delivery.key,
+      });
+      if (result.ok) messageId = result.value.id;
+      lastError = result.ok
+        ? messageId
+          ? null
+          : 'AgentMBX returned no message id; retry the stored idempotency key.'
+        : result.warning;
+    }
+  } catch (error) {
+    lastError = String(error);
+  }
+  return recordWorkerReportDelivery(
+    recordId,
+    {
+      ...delivery,
+      state: messageId ? 'delivered' : 'pending',
+      messageId,
+      deliveredAt: messageId ? new Date().toISOString() : null,
+      lastError,
     },
     cwd,
   );
@@ -519,6 +606,7 @@ export async function recoverOrcaWorkerStop(
  * @param request - Exact record, operation and optional source-pinned read cursor.
  * @param cwd - Owning CLEO project root.
  * @param backend - Process adapter, injected at the CLI boundary.
+ * @param mailboxClient - AgentMBX port for the recorded lead's logical report delivery.
  * @returns The persisted record or original output receipt, or an actionable refusal.
  * @example
  * ```ts
@@ -530,6 +618,7 @@ export async function orchestrateOrcaWorker(
   request: OrcaWorkerRequest,
   cwd: string,
   backend: OrcaExecutionAdapter,
+  mailboxClient: AgentMbxClient = createAgentMbxClient(),
 ): Promise<EngineResult<WorkerRecord | string>> {
   const parsed = orcaWorkerRequestSchema.safeParse(request);
   if (!parsed.success) {
@@ -552,9 +641,11 @@ export async function orchestrateOrcaWorker(
     if (action === 'ingest-report') {
       return {
         success: true,
-        data: await ingestOrcaWorkerReport(recordId, cwd, backend, messageId ?? ''),
+        data: await ingestOrcaWorkerReport(recordId, cwd, backend, messageId ?? '', mailboxClient),
       };
     }
+    if (action === 'relay-report')
+      return { success: true, data: await relayOrcaWorkerReport(recordId, cwd, mailboxClient) };
     return { success: true, data: await operations[action](recordId, cwd, backend, cursor) };
   } catch (error) {
     const code =
@@ -589,7 +680,7 @@ async function loadOrcaWorker(
   const record = (await listWorkerRecords(cwd, true)).find(
     (candidate) => candidate.recordId === recordId,
   );
-  if (!record?.execution || (!includeRetired && record.stoppedAt !== null)) {
+  if (!record?.execution || (!includeRetired && !isCurrentOrcaWorker(record))) {
     // @sync-invariant none:local-only only archived output reads may address a retired attempt
     throw new CleoError(
       ExitCode.SPAWN_VALIDATION_FAILED,
