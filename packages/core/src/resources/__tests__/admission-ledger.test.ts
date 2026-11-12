@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import * as fileSystem from 'node:fs';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -42,6 +43,7 @@ import {
   gitHookInstalled,
   HEAVY_FOOTPRINT_BYTES,
   isLatchedBelowRefuse,
+  LEDGER_HEARTBEAT_MS,
   LEDGER_HEARTBEAT_STALE_MS,
   LEDGER_ORPHAN_MS,
   LEDGER_RESERVATION_MS,
@@ -1400,6 +1402,106 @@ describe('admit (one ledger, real critical section)', () => {
 
   // No real `top`/`ps` probe in these tests: a refusal names an empty list.
   const base = { capacityBytes, sample: calm, env: {}, pollMs: 5, topMemory: () => [] };
+
+  it.each([
+    'child',
+    'groups',
+    'seed',
+    'heartbeat',
+    'charge',
+  ] as const)('release drains a pending %s write before returning (T14498)', async (kind) => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const untrackSeed = kind === 'seed' ? trackToolGroup(4_000_001) : () => {};
+    let unblock = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    let started = (): void => {};
+    const pending = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const originalLock = lockfile.lock.bind(lockfile);
+    let calls = 0;
+    const spy = vi.spyOn(lockfile, 'lock').mockImplementation(async (file, options) => {
+      if (++calls === 2) {
+        started();
+        await gate;
+      }
+      return originalLock(file, options);
+    });
+    let releasing: Promise<void> | undefined;
+    let untrack = (): void => {};
+    try {
+      const out = await admit(
+        { label: 'run:test-run', footprintBytes: GIB, planBytes: 8 * GIB },
+        { ...base, dir, wait: false },
+      );
+      if (!out.admitted) throw new Error('expected admission');
+      if (kind === 'child') out.grant.recordChild?.({ pid: 4_000_002, startedAt: 'child' });
+      if (kind === 'groups') untrack = trackToolGroup(4_000_002);
+      if (kind === 'heartbeat') await vi.advanceTimersByTimeAsync(LEDGER_HEARTBEAT_MS);
+      if (kind === 'charge') out.grant.observeRss?.(2 * GIB);
+      await pending;
+      let returned = false;
+      releasing = out.grant.release().then(() => {
+        returned = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(returned).toBe(false);
+      unblock();
+      await releasing;
+      expect(readLedger(dir)).toEqual([]);
+      expect(existsSync(join(dir, 'ledger.json.lock'))).toBe(false);
+      rmSync(dir, { recursive: true });
+      out.grant.recordChild?.({ pid: 4_000_003, startedAt: 'late' });
+      out.grant.observeRss?.(4 * GIB);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(existsSync(dir)).toBe(false);
+    } finally {
+      unblock();
+      await releasing;
+      spy.mockRestore();
+      untrack();
+      untrackSeed();
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds a stalled charge write and cancels it before caller teardown (T14498)', async () => {
+    let clock = Date.now();
+    let completeSample: (sample: ResourceSample) => void = () => {};
+    const pendingSample = new Promise<ResourceSample>((resolve) => {
+      completeSample = resolve;
+    });
+    const sample = vi.fn(calm);
+    const out = await admit(
+      { label: 'run:test-run', footprintBytes: GIB, planBytes: 8 * GIB },
+      { ...base, dir, wait: false, now: () => clock, sample },
+    );
+    if (!out.admitted || out.grant.id === null) throw new Error('expected held admission');
+    clock += 60_000;
+    sample.mockImplementation(() => pendingSample);
+    out.grant.observeRss?.(2 * GIB);
+    await vi.waitFor(() => expect(sample).toHaveBeenCalledTimes(2), { interval: 5 });
+    try {
+      out.grant.recordChild?.({ pid: 4_000_002, startedAt: 'child' });
+      await vi.waitFor(() => expect(readLedger(dir)[0]?.child?.pid).toBe(4_000_002), {
+        interval: 5,
+      });
+      const started = Date.now();
+      await out.grant.release();
+      expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(readLedger(dir)).toHaveLength(1);
+      await removeLedgerEntry(out.grant.id, { ...base, dir, now: () => clock });
+      rmSync(dir, { recursive: true });
+      completeSample(sampleAt(0));
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(existsSync(dir)).toBe(false);
+    } finally {
+      completeSample(sampleAt(0));
+    }
+  });
 
   it('a run started as env SECRET_KEY=abc cmd neither stores nor prints abc (T14208)', async () => {
     const holder = await admit(

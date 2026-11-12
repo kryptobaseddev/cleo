@@ -60,6 +60,7 @@ import {
   type AdmissionScope,
   type AdmitOptions,
   admit,
+  awaitAdmissionCleanup,
   describeAdmissionIoError,
   footprintForClass,
   gitHookInstalled,
@@ -586,13 +587,16 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (opts.wait && d.now() >= deadline) queueAbort.abort();
     return queueAbort.signal.aborted;
   };
+  let pendingAdmission: Promise<void> = Promise.resolve();
+  let cleanupWrites: Promise<void> = Promise.resolve();
   const releaseLate = (release: () => Promise<void>): void => {
-    void release().catch((err) => {
+    const pending = release().catch((err) => {
       notice(
         `admission cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
         'warn',
       );
     });
+    cleanupWrites = Promise.all([cleanupWrites, pending]).then(() => {});
   };
   let waitingPressure: MemoryPressureReading | null = null;
   const pressureReporter = memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
@@ -696,6 +700,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
           }
           return out;
         });
+      pendingAdmission = pending.then(
+        () => {},
+        () => {},
+      );
       const out = await Promise.race([pending, queueStopped]);
       if (out === null) return endQueue();
       if (queuedSignal !== null) {
@@ -775,6 +783,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
             if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
             return r.admission;
           });
+          pendingAdmission = pending.then(
+            () => {},
+            () => {},
+          );
           return Promise.race([pending, queueStopped]);
         };
         let result = await tryAcquire(sample);
@@ -844,6 +856,14 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     clearTimeout(queueTimer);
     // Every admission path, a throw or a nested ride included, drops the queue handler.
     uninstallQueue();
+    if (queueEnded()) {
+      // The aborted admit owns cancellation; drain its retirement and any late
+      // grant before returning, then leave unavailable storage to the reaper.
+      await awaitAdmissionCleanup(async () => {
+        await pendingAdmission;
+        await cleanupWrites;
+      });
+    }
   }
   const grant = admission;
   const waitedMs = d.now() - t0;

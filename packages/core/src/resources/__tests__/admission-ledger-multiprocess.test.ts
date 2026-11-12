@@ -16,7 +16,7 @@
  * @task T13133
  */
 
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -109,6 +109,67 @@ describe.skipIf(DIST_MISSING)('admission ledger — 20 real processes (T13133)',
   });
   afterEach(() => {
     rmSync(work, { recursive: true, force: true });
+  });
+
+  it.each([
+    'release',
+    'charge',
+  ] as const)('the reaper frees a timed-out %s after immediate process exit (T14498)', (kind) => {
+    const ledgerDir = join(work, 'admission');
+    const url = JSON.stringify(pathToFileURL(LEDGER_DIST).href);
+    const options = `{
+        wait: false, capacityBytes: ${GIB}, dir: process.env.LEDGER_DIR, env: {},
+        sample: async () => { throw new Error('no pressure signal'); },
+      }`;
+    const env = { ...process.env, LEDGER_DIR: ledgerDir, CLEO_HOME: join(work, 'home') };
+    const abandoned = execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `
+        import(${url}).then(async ({ admit, readLedger }) => {
+          let clock = Date.now();
+          let stalled = false;
+          const out = await admit(
+            { label: 'exiting', footprintBytes: ${GIB}, planBytes: ${8 * GIB} },
+            { ...${options}, now: () => clock, sample: async () => {
+              if (stalled) return new Promise(() => {});
+              throw new Error('no pressure signal');
+            } },
+          );
+          if (!out.admitted) process.exit(3);
+          clock += 60_000;
+          stalled = true;
+          if (${JSON.stringify(kind)} === 'charge') out.grant.observeRss(2 * ${GIB});
+          // Keep the event loop alive until the unref'ed cleanup deadline fires.
+          const keepAlive = setInterval(() => {}, 1_000);
+          await out.grant.release();
+          clearInterval(keepAlive);
+          process.stdout.write(String(readLedger(process.env.LEDGER_DIR).length));
+          process.exit(0);
+        }).catch((err) => { console.error(err); process.exit(4); });
+      `,
+      ],
+      { cwd: work, env, encoding: 'utf8', timeout: 10_000 },
+    );
+    expect(abandoned).toBe('1');
+    const afterExit = execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `
+        import(${url}).then(async ({ admit, readLedger }) => {
+          const out = await admit({ label: 'next', footprintBytes: ${GIB} }, ${options});
+          if (!out.admitted || readLedger(process.env.LEDGER_DIR).length !== 1) process.exit(3);
+          await out.grant.release();
+          process.stdout.write(String(readLedger(process.env.LEDGER_DIR).length));
+          process.exit(0);
+        }).catch((err) => { console.error(err); process.exit(4); });
+      `,
+      ],
+      { cwd: work, env, encoding: 'utf8', timeout: 10_000 },
+    );
+    expect(afterExit).toBe('0');
   });
 
   it('no lost update, no deadlock, never more admitted than the budget holds', async () => {
