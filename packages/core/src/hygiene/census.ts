@@ -378,10 +378,29 @@ export async function reportWorktreeCensus(
       process.send(record, () => process.exit(0));
     `;
     let reason: string | undefined;
-    const empty = async () => ({
-      ...(await collectWorktreeCensus({ ...inputs, projects: [], pnpmStore: null, deadline: 0 })),
+    const empty = (): CensusRecord => ({
+      schemaVersion: 2,
+      mode: 'report',
       startedAt: new Date(started).toISOString(),
+      finishedAt: new Date().toISOString(),
+      machineRoot: opts.machineRoot ?? getCleoWorktreesRoot(),
+      applyProjects: [...(opts.applyProjects ?? [])],
+      counts: { active: 0, redundant: 0, keep: 0, unknown: 0 },
+      apparentBytes: 0,
+      reclaimedApparentBytes: 0,
+      dfFreeBefore: null,
+      dfFreeAfter: null,
+      dfDelta: null,
+      kept: [],
+      rows: [],
+      partial: true,
       partialReason: reason,
+      ttlDays: opts.ttlDays ?? 0,
+      maxBytes: opts.maxBytes ?? 0,
+      projectErrors: [],
+      projects: [],
+      orphanFolders: [],
+      pnpmStore: null,
     });
     if (signal.aborted || Date.now() >= deadline) {
       reason = signal.aborted ? 'Census cancelled.' : 'Census time bound reached; scan incomplete.';

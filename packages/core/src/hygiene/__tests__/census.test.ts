@@ -650,6 +650,7 @@ describe('bounded census reports (T14538)', () => {
     mkdirSync(output, { recursive: true });
     for (let i = 0; i < 2_000; i++) writeFileSync(join(output, `${i}.js`), 'build output');
     const marker = join(base, 'scanning');
+    const parentWalk = join(base, 'unexpected-parent-walk');
     const preload = join(base, 'slow-fs.mjs');
     // Model a slow filesystem without making the test depend on disk speed.
     writeFileSync(
@@ -658,6 +659,7 @@ describe('bounded census reports (T14538)', () => {
         import fs from 'node:fs';
         import { syncBuiltinESMExports } from 'node:module';
         const original = fs.lstatSync;
+        const originalRead = fs.readdirSync;
         const wait = new Int32Array(new SharedArrayBuffer(4));
         fs.lstatSync = function(path, ...args) {
           if (String(path).startsWith(${JSON.stringify(output)})) {
@@ -666,12 +668,20 @@ describe('bounded census reports (T14538)', () => {
           }
           return original.call(this, path, ...args);
         };
+        fs.readdirSync = function(path, ...args) {
+          if (String(path) === ${JSON.stringify(machineRoot)} &&
+              String(process.pid) === process.env.CENSUS_TEST_PARENT) {
+            fs.writeFileSync(${JSON.stringify(parentWalk)}, 'walked');
+          }
+          return originalRead.call(this, path, ...args);
+        };
         syncBuiltinESMExports();
       `,
     );
     const script = `
         const { reportWorktreeCensus } = await import(process.argv[1]);
         const controller = new AbortController();
+        process.env.CENSUS_TEST_PARENT = String(process.pid);
         for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
           process.on(signal, () => { process.exitCode = code; controller.abort(); });
         }
@@ -726,6 +736,7 @@ describe('bounded census reports (T14538)', () => {
         signal === 'deadline' ? /time bound/ : /cancelled/,
       );
       expect(existsSync(join(recordDir, 'census.lock'))).toBe(false);
+      expect(existsSync(parentWalk)).toBe(false);
       expect(() => process.kill(scanningPid, 0)).toThrow();
       expect(existsSync(join(output, '1999.js'))).toBe(true);
     } finally {
