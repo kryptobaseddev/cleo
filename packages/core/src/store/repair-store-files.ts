@@ -60,6 +60,23 @@ function linuxLockIdentity(file: string): string {
   return `${major}:${minor}:${ino}`;
 }
 
+/** A process can expose its fd directory while denying inspection of individual descriptors. */
+function skipInaccessibleProcess(pid: string, error: Error, diagnostics: string[]): boolean {
+  if (
+    Number(pid) === process.pid ||
+    !('code' in error) ||
+    (error.code !== 'EACCES' && error.code !== 'EPERM')
+  )
+    return false;
+  const comm = readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
+  if (!comm || /^(?:node(?:js)?|cleo|bun|deno|sqlite3?)(?:$|[ .-])/i.test(comm))
+    // @sync-invariant none:local-only an uninspectable possible store holder excludes repair
+    throw new Error(`Cannot inspect possible store holder pid ${pid} (${comm || 'unnamed'})`);
+  const message = `Skipped inaccessible descriptors for non-store process pid ${pid} (${comm})`;
+  if (!diagnostics.includes(message)) diagnostics.push(message);
+  return true;
+}
+
 /**
  * Prove quiescence without opening the damaged SQLite file. A normal lock
  * probe can checkpoint or delete a live WAL on close, destroying evidence.
@@ -115,22 +132,7 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
         descriptors = readdirSync(`/proc/${pid}/fd`);
       } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
-        if (
-          Number(pid) !== process.pid &&
-          error instanceof Error &&
-          'code' in error &&
-          (error.code === 'EACCES' || error.code === 'EPERM')
-        ) {
-          const comm = readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
-          if (!comm || /^(?:node(?:js)?|cleo|bun|deno|sqlite3?)(?:$|[ .-])/i.test(comm))
-            // @sync-invariant none:local-only an uninspectable possible store holder excludes repair
-            throw new Error(
-              `Cannot inspect possible store holder pid ${pid} (${comm || 'unnamed'})`,
-            );
-          const message = `Skipped inaccessible descriptors for non-store process pid ${pid} (${comm})`;
-          if (!diagnostics.includes(message)) diagnostics.push(message);
-          continue;
-        }
+        if (error instanceof Error && skipInaccessibleProcess(pid, error, diagnostics)) continue;
         // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
         throw new Error(`Cannot inspect open store handles for pid ${pid}`);
       }
@@ -142,6 +144,7 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
         } catch (error) {
           if (error instanceof Error && /Store is open/.test(error.message)) throw error;
           if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
+          if (error instanceof Error && skipInaccessibleProcess(pid, error, diagnostics)) break;
           throw error;
         }
       }

@@ -31,20 +31,32 @@ import { loadSqliteVecExtension } from '../sqlite-native.js';
 import { OWNER_STORE_REWRITE_AUDIT_FILE } from '../worktree-isolation-guard.js';
 import { createTestDb, type TestDbEnv } from './test-db-helper.js';
 
-const proc = vi.hoisted(() => ({ enabled: false, comm: 'systemd', code: 'EACCES', statPath: '' }));
+const proc = vi.hoisted(() => ({
+  enabled: false,
+  comm: 'systemd',
+  code: 'EACCES',
+  statPath: '',
+  stage: 'directory',
+}));
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
   return {
     ...fs,
     readdirSync: (...args: Parameters<typeof fs.readdirSync>) => {
       if (proc.enabled && args[0] === '/proc') return ['424242'];
-      if (proc.enabled && args[0] === '/proc/424242/fd')
+      if (proc.enabled && args[0] === '/proc/424242/fd') {
+        if (proc.stage === 'descriptor') return ['0'];
         throw Object.assign(new Error('injected descriptor permission refusal'), {
           code: proc.code,
         });
+      }
       return fs.readdirSync(...args);
     },
     statSync: (...args: Parameters<typeof fs.statSync>) => {
+      if (proc.enabled && args[0] === '/proc/424242/fd/0')
+        throw Object.assign(new Error('injected descriptor entry permission refusal'), {
+          code: proc.code,
+        });
       if (proc.enabled && (args[0] === '/proc/self' || args[0] === '/proc/424242'))
         return fs.statSync(proc.statPath);
       return fs.statSync(...args);
@@ -125,15 +137,18 @@ afterEach(async () => {
 });
 
 it.each([
-  'EACCES',
-  'EPERM',
-])('records %s for an inaccessible non-store Linux process', async (code) => {
+  ['EACCES', 'directory'],
+  ['EPERM', 'directory'],
+  ['EACCES', 'descriptor'],
+  ['EPERM', 'descriptor'],
+])('records %s for an inaccessible non-store Linux process %s', async (code, stage) => {
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   if (!platform) throw new Error('platform descriptor missing');
   const diagnostics: string[] = [];
   proc.enabled = true;
   proc.comm = 'systemd';
   proc.code = code;
+  proc.stage = stage;
   proc.statPath = env.tempDir;
   Object.defineProperty(process, 'platform', { value: 'linux' });
   try {
@@ -148,14 +163,17 @@ it.each([
 });
 
 it.each([
-  'EACCES',
-  'EPERM',
-])('refuses %s for an inaccessible possible Linux store holder', async (code) => {
+  ['EACCES', 'directory'],
+  ['EPERM', 'directory'],
+  ['EACCES', 'descriptor'],
+  ['EPERM', 'descriptor'],
+])('refuses %s for an inaccessible possible Linux store holder %s', async (code, stage) => {
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   if (!platform) throw new Error('platform descriptor missing');
   proc.enabled = true;
   proc.comm = 'node';
   proc.code = code;
+  proc.stage = stage;
   proc.statPath = env.tempDir;
   Object.defineProperty(process, 'platform', { value: 'linux' });
   try {
