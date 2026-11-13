@@ -3,8 +3,12 @@
  * @task T5001
  */
 
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { CleoConfig, Task } from '@cleocode/contracts';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig, setConfigValue } from '../../config.js';
 import type { HierarchyPolicy } from '../hierarchy-policy.js';
 import {
   assertNoCycle,
@@ -170,6 +174,105 @@ describe('resolveHierarchyPolicy', () => {
     });
     const policy = resolveHierarchyPolicy(config);
     expect(policy.countDoneInLimit).toBe(true);
+  });
+});
+
+describe('resolveHierarchyPolicy with loaded configuration', () => {
+  let projectDir: string;
+
+  beforeEach(async () => {
+    projectDir = await mkdtemp(join(tmpdir(), 'cleo-hierarchy-policy-'));
+    vi.stubEnv('CLEO_DIR', join(projectDir, '.cleo'));
+    vi.stubEnv('CLEO_HOME', join(projectDir, 'global'));
+    vi.stubEnv('CLEO_HIERARCHY_ENFORCEMENT_PROFILE', undefined);
+    vi.stubEnv('CLEO_HIERARCHY_MAX_DEPTH', undefined);
+    vi.stubEnv('CLEO_HIERARCHY_MAX_SIBLINGS', undefined);
+    vi.stubEnv('CLEO_HIERARCHY_MAX_ACTIVE_SIBLINGS', undefined);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(projectDir, { recursive: true, force: true });
+  });
+
+  it.each([
+    { hierarchy: { enforcementProfile: 'human-cognitive' }, siblings: 7, active: 3 },
+    {
+      hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 12, maxActiveSiblings: 5 },
+      siblings: 12,
+      active: 5,
+    },
+    {
+      hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 0, maxActiveSiblings: 0 },
+      siblings: 0,
+      active: 0,
+    },
+    {
+      hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 0 },
+      siblings: 0,
+      active: 3,
+    },
+    { hierarchy: {}, siblings: 0, active: 0 },
+  ])('resolves $hierarchy to $siblings/$active caps', async ({ hierarchy, siblings, active }) => {
+    await setConfigValue('hierarchy', hierarchy, projectDir);
+    const config = await loadConfig(projectDir);
+    expect(config.hierarchy).toMatchObject({ maxSiblings: siblings, maxActiveSiblings: active });
+    expect(resolveHierarchyPolicy(config)).toMatchObject({
+      maxSiblings: siblings,
+      maxActiveSiblings: active,
+    });
+  });
+
+  it('enforces both human-cognitive preset caps after loading', async () => {
+    await setConfigValue('hierarchy.enforcementProfile', 'human-cognitive', projectDir);
+    const policy = resolveHierarchyPolicy(await loadConfig(projectDir));
+    const parent = makeTask({ id: 'T001', type: 'epic' });
+    const children = Array.from({ length: 7 }, (_, i) =>
+      makeTask({ id: `T${i + 2}`, parentId: parent.id, status: 'cancelled' }),
+    );
+    expect(validateHierarchyPlacement(parent.id, [parent, ...children], policy).error?.code).toBe(
+      'E_SIBLING_LIMIT',
+    );
+    expect(
+      validateHierarchyPlacement(
+        parent.id,
+        [parent, ...children.slice(0, 3).map((task) => ({ ...task, status: 'pending' as const }))],
+        policy,
+      ).error?.code,
+    ).toBe('E_ACTIVE_SIBLING_LIMIT');
+  });
+
+  it('preserves global caps while a project selects the profile and overrides one cap', async () => {
+    const globalDir = join(projectDir, 'global');
+    await mkdir(globalDir, { recursive: true });
+    await writeFile(
+      join(globalDir, 'config.json'),
+      JSON.stringify({ hierarchy: { maxSiblings: 11, maxActiveSiblings: 4 } }),
+    );
+    await setConfigValue(
+      'hierarchy',
+      { enforcementProfile: 'human-cognitive', maxSiblings: 0 },
+      projectDir,
+    );
+    expect((await loadConfig(projectDir)).hierarchy).toMatchObject({
+      maxSiblings: 0,
+      maxActiveSiblings: 4,
+    });
+  });
+
+  it('applies an environment-selected preset and explicit environment caps', async () => {
+    vi.stubEnv('CLEO_HIERARCHY_ENFORCEMENT_PROFILE', 'human-cognitive');
+    expect((await loadConfig(projectDir)).hierarchy).toMatchObject({
+      maxSiblings: 7,
+      maxActiveSiblings: 3,
+    });
+    await setConfigValue('hierarchy', { maxSiblings: 2, maxActiveSiblings: 1 }, projectDir);
+    vi.stubEnv('CLEO_HIERARCHY_MAX_SIBLINGS', '0');
+    vi.stubEnv('CLEO_HIERARCHY_MAX_ACTIVE_SIBLINGS', '5');
+    expect((await loadConfig(projectDir)).hierarchy).toMatchObject({
+      maxSiblings: 0,
+      maxActiveSiblings: 5,
+    });
   });
 });
 

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { AcceptanceGate, Task, TasksAddParams } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setConfigValue } from '../../config.js';
 import { CleoError } from '../../errors.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
@@ -515,6 +516,32 @@ describe('addTask (integration)', () => {
     );
     expect(child.task.parentId).toBe('T001');
     expect(child.task.type).toBe('task');
+  });
+
+  it.each([
+    { name: 'preset only', hierarchy: { enforcementProfile: 'human-cognitive' }, limited: true },
+    {
+      name: 'explicit unlimited caps',
+      hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 0, maxActiveSiblings: 0 },
+      limited: false,
+    },
+    { name: 'no profile', hierarchy: {}, limited: false },
+  ])('honors loaded hierarchy caps for $name', async ({ hierarchy, limited }) => {
+    await setConfigValue('hierarchy', hierarchy, env.tempDir);
+    const parent = await addTask(
+      { title: 'Profile parent', type: 'epic', skipContainmentInvariant: true },
+      env.tempDir,
+      accessor,
+    );
+    for (const title of ['Alpha', 'Bravo', 'Charlie']) {
+      await addTask({ title, parentId: parent.task.id }, env.tempDir, accessor);
+    }
+    const next = addTask({ title: 'Delta', parentId: parent.task.id }, env.tempDir, accessor);
+    if (limited) {
+      await expect(next).rejects.toMatchObject({ code: ExitCode.SIBLING_LIMIT });
+    } else {
+      expect((await next).task.parentId).toBe(parent.task.id);
+    }
   });
 
   it('preserves typed parent gates when a later child adds its projection', async () => {

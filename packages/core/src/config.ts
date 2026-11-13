@@ -22,6 +22,7 @@ import { GLOBAL_CONFIG_FILE_MODE } from './llm/global-config-migration.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
 import { atomicWriteJson } from './store/atomic.js';
 import { readJson, saveJson } from './store/json.js';
+import { resolveHierarchyPolicy } from './tasks/hierarchy-policy.js';
 
 /** Default configuration values. */
 const DEFAULTS: CleoConfig = {
@@ -272,8 +273,9 @@ function parseEnvValue(value: string): unknown {
  *   SSoT for cascade resolution. Tracked for rewire under T9879.
  */
 export async function loadConfig(cwd?: string): Promise<CleoConfig> {
-  // Start with defaults
+  // Resolve profile defaults only after merging explicit configuration.
   let merged: Record<string, unknown> = JSON.parse(JSON.stringify(DEFAULTS));
+  merged.hierarchy = { cascadeDelete: DEFAULTS.hierarchy.cascadeDelete };
 
   // Layer 1: Global config
   const globalConfig = await readJson<Record<string, unknown>>(getGlobalConfigPath());
@@ -304,9 +306,11 @@ export async function loadConfig(cwd?: string): Promise<CleoConfig> {
     }
   }
 
-  // merged starts from DEFAULTS (CleoConfig) and is built via deep merge.
+  // merged starts from DEFAULTS and is built via deep merge, then profile resolution.
   // Partial<CleoConfig> provides the structural overlap for a safe assertion.
-  return merged as Partial<CleoConfig> as CleoConfig;
+  const config = merged as Partial<CleoConfig> as CleoConfig;
+  config.hierarchy = { ...resolveHierarchyPolicy(config), ...config.hierarchy };
+  return config;
 }
 
 /**

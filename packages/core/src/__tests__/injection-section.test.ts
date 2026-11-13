@@ -77,7 +77,8 @@ describe('readInjectionSection (T12580)', () => {
     expect(shipped.content).toContain('`hierarchy.maxSiblings`');
     expect(shipped.content).toContain('`hierarchy.maxActiveSiblings`');
     expect(shipped.content).toContain('complete or cancel an active sibling');
-    expect(shipped.content).toContain('0 = unlimited, the effective default');
+    expect(shipped.content).toContain('`human-cognitive`: 7/3');
+    expect(shipped.content).toContain('Explicit caps, including 0, override the profile');
     expect(shipped.content).toContain('escape `$` as `\\$`');
     expect(getInjectionTemplateContent()?.length).toBeLessThanOrEqual(14_600);
   });
