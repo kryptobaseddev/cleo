@@ -68,7 +68,7 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 | Exit | Code | Fix |
 |:----:|------|-----|
 | 11 | `E_DEPTH_EXCEEDED` | Reparent under a shallower parent within `hierarchy.maxDepth` (inclusive; default 3 = saga 0, epic 1, task 2, subtask 3). |
-| 12 | `E_SIBLING_LIMIT` | Over `hierarchy.maxSiblings`: group related tasks under another parent. Over `hierarchy.maxActiveSiblings` (non-terminal children): complete or cancel an active sibling first. Defaults by `hierarchy.enforcementProfile`: `llm-agent-first` 0/0 (0 = unlimited), `human-cognitive` 7/3. |
+| 12 | `E_SIBLING_LIMIT` | A configured `hierarchy.maxSiblings` or `hierarchy.maxActiveSiblings` cap was reached (0 = unlimited, the effective default). Raise the cap or group the tasks under another parent; for the active cap (non-terminal children), complete or cancel an active sibling. |
 
 For literal `$` in task text, use single-quoted shell arguments or escape `$` as `\$` inside double quotes so the shell does not expand it before CLEO receives it.
 <!-- /CLEO-INJECTION:section=task-creation -->
