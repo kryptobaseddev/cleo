@@ -19,6 +19,8 @@
  * @task T12718
  */
 
+import type { TestGate } from '@cleocode/contracts/acceptance-gate.js';
+
 /** Characters that only mean something to a shell, which gate commands never get. */
 const SHELL_OPERATORS = new Set(['|', '&', ';', '<', '>', '(', ')', '`', '$']);
 
@@ -171,10 +173,7 @@ export function joinCommandLine(words: readonly string[]): string {
  * ```
  * @task T14526
  */
-export function testGateArgv(gate: {
-  readonly command: string;
-  readonly args?: readonly string[];
-}): string[] {
+export function testGateArgv(gate: Readonly<Pick<TestGate, 'command' | 'args'>>): string[] {
   const [command, ...inline] = splitCommandLine(gate.command);
   // @sync-invariant none:input-shape an empty test gate command is refused before it spawns or is written
   if (command === undefined) throw new Error('Test gate command is empty');
