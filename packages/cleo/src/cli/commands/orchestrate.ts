@@ -4,7 +4,7 @@
  * Exposes all orchestration operations as a native citty subcommand group:
  *
  *   cleo orchestrate start <epicId>       — start orchestrator session
- *   cleo orchestrate status               — epic/project status
+ *   cleo orchestrate status [epicId]      — epic/project status
  *   cleo orchestrate analyze <epicId>     — dependency structure analysis
  *   cleo orchestrate ready <epicId>       — parallel-safe ready tasks
  *   cleo orchestrate next <epicId>        — next task to spawn
@@ -156,6 +156,11 @@ const startCommand = defineCommand({
 const statusCommand = defineCommand({
   meta: { name: 'status', description: 'Get orchestration status for an epic or overall project' },
   args: {
+    epicId: {
+      type: 'positional',
+      description: 'Epic ID to scope status to (omit for overall project)',
+      required: false,
+    },
     epic: {
       type: 'string',
       description: 'Epic ID to scope status to',
@@ -195,7 +200,7 @@ const statusCommand = defineCommand({
       'query',
       'orchestrate',
       'status',
-      { epicId: args.epic },
+      { epicId: args.epicId ?? args.epic },
       { command: 'orchestrate' },
     );
   },
