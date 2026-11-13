@@ -7,10 +7,9 @@
  * @task T532
  */
 
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
-import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
+import { cleoWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 
 export default defineConfig({
   test: {
@@ -30,11 +29,8 @@ export default defineConfig({
       'tests/**/*.test.ts',
     ],
     exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
-    // T13126: core imports contracts LEAF modules (`@cleocode/contracts/exit-codes.js`).
-    // The bare alias alone is a prefix match and rewrites those to
-    // `index.ts/exit-codes.js` (ENOTDIR); the generic subpath resolver wins first.
-    alias: withWorkspaceSubpathAliases({
-      '@cleocode/contracts': fileURLToPath(new URL('../../packages/contracts/src/index.ts', import.meta.url)),
-    }),
+    // Every `@cleocode/<pkg>[/<subpath>]` import resolves to TypeScript source
+    // through the shared resolver (vitest-workspace-resolver.ts, T11953 · T14525).
+    alias: cleoWorkspaceSubpathAliases(),
   },
 });

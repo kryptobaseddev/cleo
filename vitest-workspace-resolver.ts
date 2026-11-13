@@ -23,19 +23,27 @@
  *
  * The fix is ONE generic alias entry instead of dozens of literals. Vite's
  * `resolve.alias` evaluates an ARRAY of `{ find, replacement, customResolver }`
- * entries top-to-bottom, first match wins. A single regex entry — placed at the
- * FRONT of each config's alias array so it beats the bare-package object
- * aliases — maps any `@cleocode/<pkg>/<subpath>` import through its declared
+ * entries top-to-bottom and uses ONLY the first entry whose `find` matches. A
+ * single regex entry — placed at the FRONT of each config's alias array — maps
+ * every `@cleocode/<pkg>` import, bare root or subpath, through its declared
  * package export to the corresponding TypeScript source. The `customResolver`
  * maps `dist/` and `dist/src/` targets back to `src/`, retains the conventional
  * `.js → .ts` and directory→`index.ts` fallbacks for internal imports, and returns
- * `null` for anything without an on-disk source so default resolution still
- * handles it (e.g. a genuinely external specifier).
+ * `null` for anything without an on-disk source. A `null` goes straight to
+ * Vite's default resolution: no later alias entry is consulted, so a
+ * `@cleocode/*` literal alias placed after this entry can never apply, and
+ * {@link withWorkspaceSubpathAliases} rejects one (T14525).
+ *
+ * Because the resolver follows each package's `exports` map, two specifiers get
+ * one module id exactly when their exports name one file. `@cleocode/core/paths`
+ * (`paths-export.ts`) and `@cleocode/core/paths.js` (`paths.ts`) are different
+ * modules here as in the published package, so a `vi.mock` of one form does not
+ * mock the other: mock the specifier the code under test imports.
  *
  * Using an alias ARRAY entry (rather than a `resolveId` plugin) is deliberate:
  * in Vite 8 `resolve.alias` is applied earlier than user `enforce:'pre'`
  * `resolveId` hooks, so an alias entry is the only place that reliably wins
- * over the existing bare-package aliases.
+ * over Vite's default package resolution (which would load `dist/`).
  *
  * @task T11953
  * @epic T11679
@@ -144,14 +152,14 @@ export interface WorkspaceAliasEntry {
 }
 
 /**
- * Build the single generic alias entry that maps every
- * `@cleocode/<pkg>/<subpath>` import to its TypeScript source. Spread this at
- * the FRONT of a vitest config's `test.alias` ARRAY so it wins over the
- * bare-package object aliases.
+ * Build the single generic alias entry that maps every `@cleocode/<pkg>` import,
+ * bare root or subpath, to its TypeScript source. Use it as a vitest config's
+ * whole `test.alias`, or through {@link withWorkspaceSubpathAliases} when the
+ * config also needs non-workspace aliases.
  *
  * @example
  * ```ts
- * test: { alias: [...cleoWorkspaceSubpathAliases(), { find: '@cleocode/core', replacement: … }] }
+ * test: { alias: cleoWorkspaceSubpathAliases() }
  * ```
  */
 export function cleoWorkspaceSubpathAliases(): WorkspaceAliasEntry[] {
@@ -175,21 +183,26 @@ export type AliasArrayEntry =
   | { find: string; replacement: string };
 
 /**
- * Compose a vitest `test.alias` ARRAY from an existing object alias map,
- * prepending the generic `@cleocode/<pkg>/<subpath>` resolver so it wins over
- * every bare-package alias. Converting the object's entries to `{ find,
- * replacement }` string entries preserves Vite's exact-or-prefix matching
- * semantics one-to-one, so existing aliases keep behaving identically.
+ * Compose a vitest `test.alias` ARRAY from a map of NON-workspace aliases
+ * (`$lib`, a pinned third-party file, …), prepending the generic `@cleocode/*`
+ * resolver. Converting the object's entries to `{ find, replacement }` string
+ * entries preserves Vite's exact-or-prefix matching semantics one-to-one.
  *
- * This is the SINGLE seam each vitest config wires in; the per-subpath alias
- * literals (`@cleocode/core/store/sqlite.js`, …) become redundant and can be
- * deleted incrementally without re-introducing the DHQ-070 stall point.
+ * The resolver is the only `@cleocode/*` mapping: an entry the resolver's
+ * pattern matches would sit behind it and never apply, so one throws (T14525).
  *
- * @param objectAliases - the legacy object alias map (string → string)
+ * @param objectAliases - non-workspace aliases (specifier → replacement)
+ * @throws {Error} when a key is a `@cleocode/*` specifier
  */
 export function withWorkspaceSubpathAliases(
   objectAliases: Record<string, string>,
 ): AliasArrayEntry[] {
+  const shadowed = Object.keys(objectAliases).filter((find) => WORKSPACE_PACKAGE_RE.test(find));
+  if (shadowed.length > 0) {
+    throw new Error(
+      `vitest alias ${shadowed.join(', ')} can never apply: the workspace resolver matches it first. Remove it; the resolver maps it from the package exports.`,
+    );
+  }
   const converted: AliasArrayEntry[] = Object.entries(objectAliases).map(
     ([find, replacement]) => ({ find, replacement }),
   );

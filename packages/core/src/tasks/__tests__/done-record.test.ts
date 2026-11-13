@@ -362,7 +362,7 @@ describe('slow work finishes before the write (AC2)', () => {
     // T13655: the plan already sees the uncached typed gate (as completion
     // would refuse it), so cleo done stops before any write.
     expect(details.blocker).toBe('typed-gate-not-run');
-    expect(details.next.command).toBe(`cleo verify ${id} --run && cleo done ${id}`);
+    expect(details.next.command).toBe(`cleo verify ${id} --run && cleo done ${id} --satisfies all`);
   });
 
   it('a failing tool stops before test and before any write', async () => {

@@ -7,11 +7,10 @@
  * @task T566
  */
 
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
 import { repoGuardsUnder } from '../../vitest.repo-guards.js';
-import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
+import { cleoWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 
 export default defineConfig({
   test: {
@@ -41,12 +40,8 @@ export default defineConfig({
       // repo root: pnpm exec vitest run --project repo-guards <file>
       ...repoGuardsUnder('packages/contracts/'),
     ],
-    // Tests that load core source reach contracts leaf modules
-    // (`@cleocode/contracts/changesets.js`). The bare alias alone is a prefix
-    // match and rewrites those to `index.ts/changesets.js`; the generic
-    // subpath resolver wins first (as in brain and nexus).
-    alias: withWorkspaceSubpathAliases({
-      '@cleocode/contracts': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
-    }),
+    // Every `@cleocode/<pkg>[/<subpath>]` import resolves to TypeScript source
+    // through the shared resolver (vitest-workspace-resolver.ts, T11953 · T14525).
+    alias: cleoWorkspaceSubpathAliases(),
   },
 });
