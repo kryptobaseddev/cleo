@@ -214,6 +214,28 @@ describe('evaluateMergeCommitChecks', () => {
     ).toBe(false);
   });
 
+  it('a workflow-name pin matches the workflow name, never the job name (T14535)', () => {
+    const pins = { 'PR checks': { app: 'github-actions', workflow: 'CI / checks' } };
+    const job = check('PR checks', {
+      workflowPath: '.github/workflows/ci.yml',
+      workflowName: 'CI / checks',
+    });
+    expect(evaluateMergeCommitChecks(['PR checks'], [job], MERGE, { pins }).ok).toBe(true);
+    expect(
+      evaluateMergeCommitChecks(['PR checks'], [{ ...job, workflowName: 'Other CI' }], MERGE, {
+        pins,
+      }).ok,
+    ).toBe(false);
+    expect(hasIncompleteIdentity([{ ...job, workflowName: undefined }], ['PR checks'], pins)).toBe(
+      true,
+    );
+    expect(
+      evaluateMergeCommitChecks(['CI / checks'], [check('CI / checks')], MERGE, {
+        pins: { 'CI / checks': pins['PR checks'] },
+      }).ok,
+    ).toBe(false);
+  });
+
   it('refuses an empty required set rather than accepting vacuously', () => {
     expect(evaluateMergeCommitChecks([], allGreen, MERGE).ok).toBe(false);
   });
@@ -325,6 +347,39 @@ describe('resolveCiEvidenceAtom', () => {
       app: 'github-actions',
       workflow: '.github/workflows/ci.yml',
     });
+  });
+
+  it.each([
+    ['ci.yml', 'CI'],
+    ['CI', 'CI'],
+    ['CI / checks', 'CI / checks'],
+  ])('accepts green checks and jobs pinned to workflow %s (T14535)', async (workflow, workflowName) => {
+    writeContext(optedIn);
+    const r = await resolve({
+      context: context('T1', ['testsPassed', 'qaPassed']),
+      projectContext: {
+        release: {
+          prRequiredWorkflows: PINNED.release.prRequiredWorkflows.map((entry) =>
+            entry.workflow === '.github/workflows/ci.yml' ? { ...entry, workflow } : entry,
+          ),
+        },
+      },
+      resolvePr: async () => ({
+        ...merged,
+        changedPaths: ['packages/core/src/a.ts', '.github/workflows/ci.yml'],
+        changedFileCount: 2,
+      }),
+      treeOf: () => TREE,
+      isAncestor: () => true,
+      fetchChecks: async () => ({
+        ok: true,
+        checks: allGreen.map((c) =>
+          c.workflowPath === '.github/workflows/ci.yml' ? { ...c, workflowName } : c,
+        ),
+      }),
+    });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(r.ok && r.atom.kind === 'ci' && r.atom.mainOnly).toBe(true);
   });
 
   it('a scheduled run on the merge commit never decides its verdict (T13623)', async () => {

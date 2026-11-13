@@ -602,12 +602,23 @@ function extractProjectContextRequiredWorkflows(
     .filter((s) => s.length > 0);
 }
 
-/** The app (slug or id) and workflow file a required check must come from. */
+/** The app (slug or id) and workflow a required check must come from. */
 export interface RequiredCheckPinSpec {
   /** GitHub App slug or numeric id. */
   readonly app?: string | number;
-  /** Workflow file path, for workflow-run checks. */
+  /** Workflow file path or workflow name. */
   readonly workflow?: string;
+}
+
+/**
+ * Resolve a workflow file selector to its repository path; names stay names.
+ *
+ * @param workflow - A workflow file path, filename or name, as `gh` accepts it.
+ * @returns The repository path for a YAML file selector, else undefined.
+ */
+export function requiredWorkflowFile(workflow: string): string | undefined {
+  if (!/\.ya?ml$/i.test(workflow)) return undefined;
+  return workflow.includes('/') ? workflow : `.github/workflows/${workflow}`;
 }
 
 /**

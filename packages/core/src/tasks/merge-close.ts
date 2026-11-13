@@ -220,8 +220,8 @@ export interface MergeCloseDeps {
   reviewVerdicts?(storeRoot: string, taskId: string, prNumber: number): Promise<ReviewVerdict[]>;
   /**
    * The workflow whose push run on a merge commit stands for a required check
-   * (T14535): the `workflow` file of the check's `release.prRequiredWorkflows`
-   * entry (its basename, which `gh run list --workflow` accepts), else the
+   * (T14535): the `workflow` of the check's `release.prRequiredWorkflows`
+   * entry (a file's basename, or a workflow name unchanged), else the
    * check name itself. A check is a job name; it names a workflow only when
    * the two coincide. Unset: the check name.
    */
@@ -269,7 +269,7 @@ export interface MergeCiRun {
 }
 
 /** `gh`'s answer when `--workflow` names no workflow of the repository. */
-const GH_NO_SUCH_WORKFLOW = /could not find any workflows named/i;
+const GH_NO_SUCH_WORKFLOW = /could not find any workflows named|HTTP 404\b/i;
 
 /** The commit status the pre-merge verdict check sets on an open PR's head. */
 export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
@@ -887,8 +887,8 @@ async function mergeCiWait(
         reason:
           `cannot find the run of required check "${check}" on merge commit ${short}: ` +
           `\`gh run list --workflow ${workflow}\` found no such workflow (${run.error.trim()}). ` +
-          `Fix: give that check's release.prRequiredWorkflows entry in .cleo/project-context.json ` +
-          `the workflow file that runs it, e.g. {"name":"${check}","workflow":".github/workflows/ci.yml"}, ` +
+          `Fix: set release.prRequiredWorkflows[].workflow for that check in .cleo/project-context.json ` +
+          `to its workflow file or name, e.g. {"name":"${check}","workflow":".github/workflows/ci.yml"}, ` +
           `then \`cleo done --from-merge ${pr.number}\``,
         reran: false,
         final: true,
@@ -1851,7 +1851,12 @@ async function ghOrError(
       }),
     };
   } catch (err) {
-    const stderr = (err as { stderr?: string | Buffer }).stderr?.toString().trim();
+    const stderr =
+      err instanceof Error &&
+      'stderr' in err &&
+      (typeof err.stderr === 'string' || Buffer.isBuffer(err.stderr))
+        ? err.stderr.toString().trim()
+        : '';
     return { error: stderr || (err instanceof Error ? err.message : String(err)) };
   }
 }
@@ -1987,10 +1992,14 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   },
   async requiredCheckWorkflow(storeRoot, check) {
     const { loadProjectContext } = await import('../agents/variable-substitution.js');
-    const { readRequiredCheckPins } = await import('../release/pr-evidence.js');
+    const { readRequiredCheckPins, requiredWorkflowFile } = await import(
+      '../release/pr-evidence.js'
+    );
     const ctx = loadProjectContext(storeRoot);
-    const file = readRequiredCheckPins(ctx.loaded ? ctx.context : null)[check]?.workflow;
-    return file ? basename(file) : check;
+    const workflow =
+      readRequiredCheckPins(ctx.loaded ? ctx.context : null)[check]?.workflow ?? check;
+    const file = requiredWorkflowFile(workflow);
+    return file ? basename(file) : workflow;
   },
   async mergeCiRun(root, sha, workflow) {
     const args = ['run', 'list', '--commit', sha, '--workflow', workflow, '--limit', '1'];

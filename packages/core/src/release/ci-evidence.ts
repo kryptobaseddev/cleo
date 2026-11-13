@@ -78,6 +78,7 @@ import {
   type PrAtomResolution,
   type RequiredCheckPinSpec,
   readRequiredCheckPins,
+  requiredWorkflowFile,
   resolvePrEvidenceAtom,
   resolveRequiredWorkflowsDetailed,
 } from './pr-evidence.js';
@@ -102,6 +103,8 @@ export interface CommitCheck {
   appId?: number;
   /** Workflow file that produced the run, when known. */
   workflowPath?: string;
+  /** Name of the workflow that produced the run, when known. */
+  workflowName?: string;
   /** Triggering event (`push`, `pull_request`, …), when known. */
   event?: string;
   /** Workflow attempt (1 = first run, above 1 = a re-run), when known (T14026). */
@@ -554,8 +557,7 @@ export function evaluateFilterSkippedJobs(
     (c) =>
       c.source === 'check-run' &&
       c.headSha === sha &&
-      c.workflowPath !== undefined &&
-      scope.workflows.includes(c.workflowPath) &&
+      scope.workflows.some((workflow) => workflowMatch(c, workflow) === 'match') &&
       (scope.app === undefined ||
         (typeof scope.app === 'number' ? c.appId === scope.app : c.appSlug === scope.app)),
   );
@@ -620,8 +622,7 @@ export function evaluateJobs(
       c.source === 'check-run' &&
       c.headSha === sha &&
       (onlyEvent === undefined || c.event === onlyEvent) &&
-      c.workflowPath !== undefined &&
-      scope.workflows.includes(c.workflowPath) &&
+      scope.workflows.some((workflow) => workflowMatch(c, workflow) === 'match') &&
       (scope.app === undefined ||
         (typeof scope.app === 'number' ? c.appId === scope.app : c.appSlug === scope.app)),
   );
@@ -656,6 +657,15 @@ export function evaluateJobs(
   return reasons.length > 0 ? { ok: false, reasons } : { ok: true, jobs };
 }
 
+/** Match a workflow file against its path, or a workflow name against its name. */
+function workflowMatch(check: CommitCheck, workflow: string): 'match' | 'mismatch' | 'unknown' {
+  const file = requiredWorkflowFile(workflow);
+  const actual = file
+    ? check.workflowPath
+    : (check.workflowName ?? (check.source === 'workflow-run' ? check.name : undefined));
+  return actual === undefined ? 'unknown' : actual === (file ?? workflow) ? 'match' : 'mismatch';
+}
+
 /**
  * Whether a run comes from a check's pinned app and workflow (T13017):
  * `unknown` when the response left out an identity field the pin names (a
@@ -674,8 +684,9 @@ function pinMatch(
     else if (actual !== pin.app) return 'mismatch';
   }
   if (pin.workflow !== undefined) {
-    if (check.workflowPath === undefined) unknown = true;
-    else if (check.workflowPath !== pin.workflow) return 'mismatch';
+    const match = workflowMatch(check, pin.workflow);
+    if (match === 'unknown') unknown = true;
+    else if (match === 'mismatch') return 'mismatch';
   }
   return unknown ? 'unknown' : 'match';
 }
@@ -878,7 +889,8 @@ function pinnedScope(
 /** Whether a run belongs to a required check or to a job of a pinned workflow. */
 function inPinnedScope(check: CommitCheck, scope: PinnedScope): boolean {
   if (scope.required.includes(check.name) && pinMatches(check, scope.pins[check.name])) return true;
-  if (check.workflowPath === undefined || !scope.workflows.has(check.workflowPath)) return false;
+  if (![...scope.workflows].some((workflow) => workflowMatch(check, workflow) === 'match'))
+    return false;
   if (scope.apps.size === 0) return true;
   return (
     (check.appSlug !== undefined && scope.apps.has(check.appSlug)) ||
@@ -984,11 +996,7 @@ function neverRanInSupersededRun(
   if (pin?.workflow === undefined) return false;
   const runs = checks.filter(
     (c) =>
-      c.headSha === sha &&
-      c.source === 'workflow-run' &&
-      c.workflowPath === pin.workflow &&
-      c.event === 'push' &&
-      pinMatches(c, pin),
+      c.headSha === sha && c.source === 'workflow-run' && c.event === 'push' && pinMatches(c, pin),
   );
   if (runs.length === 0) return false;
   const latest = runs.reduce((a, b) => (b.id > a.id ? b : a));
@@ -1789,7 +1797,8 @@ function ciDefinitionPaths(
   pins: Record<string, RequiredCheckPinSpec>,
 ): string[] {
   const paths = new Set<string>();
-  for (const name of required) paths.add(pins[name]?.workflow ?? '.github/workflows');
+  for (const name of required)
+    paths.add(requiredWorkflowFile(pins[name]?.workflow ?? '') ?? '.github/workflows');
   paths.add('.github/actions');
   return [...paths];
 }
@@ -2707,8 +2716,8 @@ export function withoutScheduledRuns(
 
 /**
  * Default {@link ResolveCiEvidenceOptions.fetchChecks}: check runs + workflow
- * runs for a SHA. Workflow runs carry their event and workflow file; a check
- * run inherits both from the workflow run of its check suite.
+ * runs for a SHA. Workflow runs carry their event, file and name; a check
+ * run inherits them from the workflow run of its check suite.
  */
 export async function defaultFetchChecks(
   sha: string,
@@ -2724,15 +2733,22 @@ export async function defaultFetchChecks(
   const checks: CommitCheck[] = [];
   const bySuite = new Map<
     number,
-    { event?: string; path?: string; attempt?: number; startedAt?: string }
+    Pick<CommitCheck, 'event' | 'workflowPath' | 'workflowName' | 'runAttempt' | 'startedAt'>
   >();
   for (const r of wf.workflow_runs ?? []) {
     const event = typeof r.event === 'string' ? r.event : undefined;
     const path = typeof r.path === 'string' ? r.path.replace(/@.*$/, '') : undefined;
+    const workflowName = typeof r.name === 'string' ? r.name : undefined;
     const attempt = typeof r.run_attempt === 'number' ? r.run_attempt : undefined;
     const startedAt = typeof r.run_started_at === 'string' ? r.run_started_at : undefined;
     if (typeof r.check_suite_id === 'number')
-      bySuite.set(r.check_suite_id, { event, path, attempt, startedAt });
+      bySuite.set(r.check_suite_id, {
+        event,
+        workflowPath: path,
+        workflowName,
+        runAttempt: attempt,
+        startedAt,
+      });
     checks.push({
       name: String(r.name ?? ''),
       source: 'workflow-run',
@@ -2742,6 +2758,7 @@ export async function defaultFetchChecks(
       id: Number(r.id ?? 0),
       appSlug: 'github-actions',
       ...(path ? { workflowPath: path } : {}),
+      ...(workflowName ? { workflowName } : {}),
       ...(event ? { event } : {}),
       ...(attempt !== undefined ? { runAttempt: attempt } : {}),
       ...(startedAt ? { startedAt } : {}),
@@ -2761,11 +2778,11 @@ export async function defaultFetchChecks(
       const startedAt = typeof r.started_at === 'string' ? r.started_at : undefined;
       // A job started before its workflow's latest attempt belongs to an earlier one.
       const attempt =
-        origin?.attempt !== undefined &&
+        origin?.runAttempt !== undefined &&
         startedAt &&
         origin.startedAt &&
         Date.parse(startedAt) >= Date.parse(origin.startedAt)
-          ? origin.attempt
+          ? origin.runAttempt
           : undefined;
       checks.push({
         name: String(r.name ?? ''),
@@ -2776,7 +2793,8 @@ export async function defaultFetchChecks(
         id: Number(r.id ?? 0),
         ...(typeof app?.slug === 'string' ? { appSlug: app.slug } : {}),
         ...(typeof app?.id === 'number' ? { appId: app.id } : {}),
-        ...(origin?.path ? { workflowPath: origin.path } : {}),
+        ...(origin?.workflowPath ? { workflowPath: origin.workflowPath } : {}),
+        ...(origin?.workflowName ? { workflowName: origin.workflowName } : {}),
         ...(origin?.event ? { event: origin.event } : {}),
         ...(attempt !== undefined ? { runAttempt: attempt } : {}),
         ...(startedAt ? { startedAt } : {}),
@@ -2817,6 +2835,7 @@ export async function defaultFetchRunAttemptJobs(
     const runId = Number(run.id ?? 0);
     const attempts = typeof run.run_attempt === 'number' ? run.run_attempt : 1;
     const path = typeof run.path === 'string' ? run.path.replace(/@.*$/, '') : undefined;
+    const workflowName = typeof run.name === 'string' ? run.name : undefined;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       for (let page = 1; page <= 5; page++) {
         const body = ghApi(
@@ -2839,6 +2858,7 @@ export async function defaultFetchRunAttemptJobs(
             runId,
             runAttempt: typeof j.run_attempt === 'number' ? j.run_attempt : attempt,
             ...(path ? { workflowPath: path } : {}),
+            ...(workflowName ? { workflowName } : {}),
             ...(typeof j.started_at === 'string' ? { startedAt: j.started_at } : {}),
             ...(typeof j.completed_at === 'string' ? { completedAt: j.completed_at } : {}),
           });
@@ -3131,7 +3151,12 @@ export async function resolveCiEvidenceAtom(
   const pinnedWorkflows = [
     ...new Set(mapped.flatMap((name) => (pins[name]?.workflow ? [pins[name]!.workflow!] : []))),
   ];
-  const editedWorkflows = pinnedWorkflows.filter((w) => pr.changedPaths.includes(w));
+  const editedWorkflows = pr.changedPaths.filter((path) =>
+    pinnedWorkflows.some((workflow) => {
+      const file = requiredWorkflowFile(workflow);
+      return file ? path === file : path.startsWith('.github/workflows/');
+    }),
+  );
   const mainOnly = editedWorkflows.length > 0;
 
   const fetchChecks = refetchIncompleteIdentity(
