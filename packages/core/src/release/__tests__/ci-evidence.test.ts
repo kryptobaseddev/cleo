@@ -43,6 +43,7 @@ import {
   isSetupStepFailureLog,
   isWorkerCrashOnlyLog,
   jobNameMatches,
+  listAllWorkflows,
   listMainDescendants,
   listPathTouchingMainCommits,
   missingPrHunk,
@@ -51,6 +52,7 @@ import {
   readCiSatisfies,
   recheckCiDescendantAtom,
   resolveCiEvidenceAtom,
+  resolveWorkflowNamePins,
 } from '../ci-evidence.js';
 import type { PrAtomResolution } from '../pr-evidence.js';
 
@@ -371,6 +373,13 @@ describe('resolveCiEvidenceAtom', () => {
       }),
       treeOf: () => TREE,
       isAncestor: () => true,
+      listWorkflows: async () => ({
+        ok: true,
+        workflows: [
+          { name: workflowName, path: '.github/workflows/ci.yml' },
+          { name: 'Lockfile Check', path: '.github/workflows/lockfile-check.yml' },
+        ],
+      }),
       fetchChecks: async () => ({
         ok: true,
         checks: allGreen.map((c) =>
@@ -380,6 +389,112 @@ describe('resolveCiEvidenceAtom', () => {
     });
     expect(r.ok, JSON.stringify(r)).toBe(true);
     expect(r.ok && r.atom.kind === 'ci' && r.atom.mainOnly).toBe(true);
+  });
+
+  it.each([
+    [
+      'two workflows carry the name',
+      [
+        { name: 'CI', path: '.github/workflows/ci.yml' },
+        { name: 'CI', path: '.github/workflows/impostor.yml' },
+      ],
+      /which 2 workflows carry \(\.github\/workflows\/ci\.yml, \.github\/workflows\/impostor\.yml\), so it is ambiguous/,
+    ],
+    [
+      'no workflow carries the name',
+      [{ name: 'Other', path: '.github/workflows/ci.yml' }],
+      /which no workflow of the repository carries/,
+    ],
+  ])('refuses a workflow-name pin when %s, with a fix to pin the file (T14540)', async (_why, workflows, why) => {
+    writeContext(optedIn);
+    // The impostor's runs are green and named like the pin: they must not count.
+    const impostor = allGreen.map((c) => ({
+      ...c,
+      id: c.id + 1000,
+      workflowPath: '.github/workflows/impostor.yml',
+      workflowName: 'CI',
+    }));
+    const r = await resolve({
+      context: context('T1', ['testsPassed', 'qaPassed']),
+      projectContext: {
+        release: {
+          prRequiredWorkflows: PINNED.release.prRequiredWorkflows.map((entry) =>
+            entry.workflow === '.github/workflows/ci.yml' ? { ...entry, workflow: 'CI' } : entry,
+          ),
+        },
+      },
+      listWorkflows: async () => ({ ok: true, workflows }),
+      fetchChecks: async () => ({ ok: true, checks: impostor }),
+    });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
+    expect(!r.ok && r.reason).toMatch(why);
+    expect(!r.ok && r.reason).toContain('"workflow": ".github/workflows/<file>.yml"');
+  });
+
+  it('the workflow listing reads every page and fails closed when incomplete (T14540)', async () => {
+    const page = (n: number, count: number, total: number) => ({
+      total_count: total,
+      workflows: Array.from({ length: count }, (_, i) => ({
+        name: `W${n}-${i}`,
+        path: `.github/workflows/w${n}-${i}.yml`,
+      })),
+    });
+    // Three pages, the duplicate on the last: all read, so the name is ambiguous.
+    const full = await listAllWorkflows(async (n) =>
+      n < 3
+        ? page(n, 100, 201)
+        : { total_count: 201, workflows: [{ name: 'CI', path: '.github/workflows/late.yml' }] },
+    );
+    expect(full.ok && full.workflows.length).toBe(201);
+    const withCi = full.ok
+      ? [{ name: 'CI', path: '.github/workflows/ci.yml' }, ...full.workflows]
+      : [];
+    expect(
+      resolveWorkflowNamePins({ CI: { app: 'github-actions', workflow: 'CI' } }, ['CI'], withCi).ok,
+    ).toBe(false);
+    // A short page before total_count, an unreadable page, and an endless listing all fail.
+    expect((await listAllWorkflows(async () => page(1, 40, 120))).ok).toBe(false);
+    expect((await listAllWorkflows(async (n) => (n === 1 ? page(1, 100, 150) : null))).ok).toBe(
+      false,
+    );
+    const endless = await listAllWorkflows(async (n) => page(n, 100, 1_000_000));
+    expect(!endless.ok && endless.reason).toMatch(/incomplete/);
+  });
+
+  it('a truncated workflow listing refuses a workflow-name pin (T14540)', async () => {
+    writeContext(optedIn);
+    const r = await resolve({
+      context: context('T1', ['testsPassed', 'qaPassed']),
+      projectContext: {
+        release: {
+          prRequiredWorkflows: PINNED.release.prRequiredWorkflows.map((entry) =>
+            entry.workflow === '.github/workflows/ci.yml' ? { ...entry, workflow: 'CI' } : entry,
+          ),
+        },
+      },
+      listWorkflows: async () => ({
+        ok: false,
+        reason: 'gh api actions/workflows listed 100 of 150 workflows',
+      }),
+    });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/listed 100 of 150/);
+  });
+
+  it('a unique workflow-name pin is judged as a pin to its one file (T14540)', () => {
+    const pins = { CI: { app: 'github-actions', workflow: 'CI' } };
+    const workflows = [
+      { name: 'CI', path: '.github/workflows/ci.yml' },
+      { name: 'Release', path: '.github/workflows/release.yml' },
+    ];
+    const r = resolveWorkflowNamePins(pins, ['CI'], workflows);
+    expect(r).toEqual({
+      ok: true,
+      pins: { CI: { app: 'github-actions', workflow: '.github/workflows/ci.yml' } },
+    });
+    const filePin = { CI: { app: 'github-actions', workflow: '.github/workflows/ci.yml' } };
+    expect(resolveWorkflowNamePins(filePin, ['CI'], [])).toEqual({ ok: true, pins: filePin });
   });
 
   it('a scheduled run on the merge commit never decides its verdict (T13623)', async () => {

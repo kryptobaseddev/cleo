@@ -54,6 +54,7 @@ import type {
   TaskAuditLogRow,
 } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
+import type { RepoWorkflow } from '../release/ci-evidence.js';
 
 /** The audit action of an applied `Closes:` / `Refs:` line. */
 export const MERGE_CLOSE_AUDIT_ACTION = 'merge_close';
@@ -235,6 +236,15 @@ export interface MergeCloseDeps {
     sha: string,
     workflow: string,
   ): Promise<MergeCiRun | { error: string } | null>;
+  /**
+   * The repository's complete workflow list (T14540): an HTTP 404 from the run
+   * lookup means a missing workflow only when this list is readable and does
+   * not carry the workflow. A repo, permission or Actions-access 404 (a list
+   * that cannot be read) keeps waiting. Unset: a 404 keeps waiting.
+   */
+  listWorkflows?(
+    root: string,
+  ): Promise<{ ok: true; workflows: RepoWorkflow[] } | { ok: false; reason: string }>;
   /** Rerun a CI run; false when it could not. */
   rerunRun(root: string, runId: number): Promise<boolean>;
   /** The clock (ms), for the run cap, backoff and age-out; tests inject it. */
@@ -269,7 +279,25 @@ export interface MergeCiRun {
 }
 
 /** `gh`'s answer when `--workflow` names no workflow of the repository. */
-const GH_NO_SUCH_WORKFLOW = /could not find any workflows named|HTTP 404\b/i;
+const GH_NO_SUCH_WORKFLOW = /could not find any workflows named/i;
+
+/** `gh`'s HTTP 404: a missing workflow file only when the repository resolves (T14540). */
+const GH_HTTP_404 = /HTTP 404\b/i;
+
+/**
+ * Whether the repository's workflow list is readable and lacks `workflow`
+ * (a file basename or a workflow name), so `gh`'s 404 is a missing workflow
+ * rather than missing access (T14540).
+ */
+async function workflowAbsent(
+  root: string,
+  workflow: string,
+  deps: MergeCloseDeps,
+): Promise<boolean> {
+  const listed = await deps.listWorkflows?.(root);
+  if (!listed?.ok) return false;
+  return !listed.workflows.some((w) => w.name === workflow || basename(w.path) === workflow);
+}
 
 /** The commit status the pre-merge verdict check sets on an open PR's head. */
 export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
@@ -882,7 +910,10 @@ async function mergeCiWait(
   const run = await deps.mergeCiRun(root, sha, workflow);
   const short = sha.slice(0, 12);
   if (run !== null && 'error' in run) {
-    if (GH_NO_SUCH_WORKFLOW.test(run.error))
+    const missing =
+      GH_NO_SUCH_WORKFLOW.test(run.error) ||
+      (GH_HTTP_404.test(run.error) && (await workflowAbsent(root, workflow, deps)));
+    if (missing)
       return {
         reason:
           `cannot find the run of required check "${check}" on merge commit ${short}: ` +
@@ -2013,6 +2044,10 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     return run?.databaseId === undefined
       ? null
       : { runId: run.databaseId, status: run.status ?? '', conclusion: run.conclusion ?? null };
+  },
+  async listWorkflows(root) {
+    const { defaultListWorkflows } = await import('../release/ci-evidence.js');
+    return defaultListWorkflows(root);
   },
   async rerunRun(root, runId) {
     return (await gh(['run', 'rerun', String(runId)], root)) !== null;

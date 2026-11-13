@@ -1032,6 +1032,10 @@ describe("the merge run is found by the required check's workflow, not its name 
         requiredChecks: async () => ['PR checks'],
         requiredCheckWorkflow: async () => workflow,
         mergeCiRun: async () => ({ error }),
+        listWorkflows: async () => ({
+          ok: true,
+          workflows: [{ name: 'CI', path: '.github/workflows/ci.yml' }],
+        }),
       },
     );
     expect(result.waiting).toBe(0);
@@ -1051,6 +1055,94 @@ describe("the merge run is found by the required check's workflow, not its name 
     expect(await defaultMergeCloseDeps.mergeCiRun(root, 'a'.repeat(40), 'missing.yml')).toEqual({
       error: stderr.toString(),
     });
+  });
+
+  /**
+   * The production repository probes of {@link defaultMergeCloseDeps}, picked
+   * by name so the test runs whichever probe this revision ships
+   * (`listWorkflows`; before T14540's review fix, `repoResolves`) and stays
+   * clear of the other defaults' real side effects.
+   */
+  function defaultRepoProbes(): Partial<MergeCloseDeps> {
+    const probes: Partial<MergeCloseDeps> = {};
+    for (const [key, value] of Object.entries(defaultMergeCloseDeps))
+      if (key === 'listWorkflows' || key === 'repoResolves')
+        Object.assign(probes, { [key]: value });
+    return probes;
+  }
+
+  it.each([
+    [
+      'a restricted token reads the repository but not its Actions workflows',
+      () => {
+        throw Object.assign(new Error('gh api failed'), {
+          stderr: 'gh: Not Found (HTTP 404)',
+        });
+      },
+    ],
+    [
+      'the readable workflow list carries the workflow',
+      () =>
+        JSON.stringify({
+          total_count: 1,
+          workflows: [{ name: 'CI', path: '.github/workflows/ci.yml' }],
+        }),
+    ],
+  ])('an HTTP 404 waits when %s, never a missing file (T14540)', async (_why, workflowsApi) => {
+    // The default probes run real gh calls: the repository resolves, and the
+    // Actions workflow listing answers as the case says.
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+    vi.mocked(execFileSync).mockImplementation(((cmd: string, args: readonly string[], opts) => {
+      if (cmd !== 'gh') return actual.execFileSync(cmd, args, opts);
+      if (args[0] === '--version') return 'gh version 2.0.0\n';
+      const path = args[0] === 'api' ? args.find((a) => a.startsWith('repos/')) : undefined;
+      if (path === 'repos/{owner}/{repo}') return 'o/r\n';
+      if (path?.startsWith('repos/{owner}/{repo}/actions/workflows')) return workflowsApi();
+      throw new Error(`unexpected gh ${args.join(' ')}`);
+    }) as typeof execFileSync);
+    try {
+      const id = await seedTask(['only criterion']);
+      const { deps, world } = fakeDeps([pr(48, `Closes: ${id} AC1`, prChecks)]);
+      world.recordRefusal = ciRefusal;
+      const error = 'HTTP 404: Not Found (https://api.github.com/repos/o/r/actions/runs)';
+      const result = await sweepMergedClosures(
+        root,
+        { force: true },
+        {
+          ...deps,
+          ...defaultRepoProbes(),
+          requiredChecks: async () => ['PR checks'],
+          requiredCheckWorkflow: async () => 'ci.yml',
+          mergeCiRun: async () => ({ error }),
+        },
+      );
+      expect(result.refused).toEqual([]);
+      expect(result.prs[0]?.outcomes[0]).toMatchObject({
+        action: 'waiting',
+        reason: /looking up the ci\.yml run on merge commit .* failed \(HTTP 404/,
+      });
+    } finally {
+      vi.mocked(execFileSync).mockImplementation(actual.execFileSync);
+    }
+  });
+
+  it('an HTTP 404 waits when no workflow listing is wired (T14540)', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(49, `Closes: ${id} AC1`, prChecks)]);
+    world.recordRefusal = ciRefusal;
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        requiredChecks: async () => ['PR checks'],
+        requiredCheckWorkflow: async () => 'ci.yml',
+        mergeCiRun: async () => ({ error: 'HTTP 404: Not Found' }),
+      },
+    );
+    expect(result.refused).toEqual([]);
+    expect(result.prs[0]?.outcomes[0]).toMatchObject({ action: 'waiting' });
   });
 
   it('any other gh failure waits and says the lookup failed', async () => {

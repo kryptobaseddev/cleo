@@ -117,6 +117,14 @@ export interface CommitCheck {
   completedAt?: string;
 }
 
+/** One workflow of the repository: its display name and file path (T14540). */
+export interface RepoWorkflow {
+  /** The workflow's `name:`, which need not be unique. */
+  name: string;
+  /** Repository path of the workflow file, e.g. `.github/workflows/ci.yml`. */
+  path: string;
+}
+
 /** A judged check: which run, on which commit, attests a required name. */
 export interface JudgedCheck {
   name: string;
@@ -251,6 +259,13 @@ export interface ResolveCiEvidenceOptions {
     sha: string,
     cwd: string,
   ) => Promise<{ ok: true; checks: CommitCheck[] } | { ok: false; reason: string }>;
+  /**
+   * The repository's workflows, to resolve a pin given as a workflow NAME to
+   * its one file (T14540); defaults to the GitHub REST API via `gh`.
+   */
+  listWorkflows?: (
+    cwd: string,
+  ) => Promise<{ ok: true; workflows: RepoWorkflow[] } | { ok: false; reason: string }>;
   /** Parsed `.cleo/project-context.json`, for the required-check list and pins. */
   projectContext?: Record<string, unknown> | null;
   /** Tree SHA of a commit, or null when the object is not local; defaults to `git rev-parse`. */
@@ -664,6 +679,51 @@ function workflowMatch(check: CommitCheck, workflow: string): 'match' | 'mismatc
     ? check.workflowPath
     : (check.workflowName ?? (check.source === 'workflow-run' ? check.name : undefined));
   return actual === undefined ? 'unknown' : actual === (file ?? workflow) ? 'match' : 'mismatch';
+}
+
+/**
+ * Resolve each named check's workflow-NAME pin to the one workflow file that
+ * carries that name (T14540). Workflow names are not unique, so a name pin
+ * alone would let a second workflow of the same name (with a job named like
+ * the check) satisfy the gate; a name shared by several workflows, or by
+ * none, is refused with a fix to pin the workflow file. File pins and
+ * unpinned checks are returned unchanged. Pure.
+ *
+ * @param pins - Required-name to app/workflow pin.
+ * @param names - The required check names whose pins are judged.
+ * @param workflows - Every workflow of the repository.
+ * @returns The pins with each name pin replaced by its file, or the refusal.
+ * @task T14540
+ */
+export function resolveWorkflowNamePins(
+  pins: Record<string, RequiredCheckPinSpec>,
+  names: readonly string[],
+  workflows: readonly RepoWorkflow[],
+): { ok: true; pins: Record<string, RequiredCheckPinSpec> } | { ok: false; reason: string } {
+  const resolved: Record<string, RequiredCheckPinSpec> = { ...pins };
+  const reasons: string[] = [];
+  for (const name of names) {
+    const pin = pins[name];
+    if (pin?.workflow === undefined || requiredWorkflowFile(pin.workflow)) continue;
+    const files = workflows.filter((w) => w.name === pin.workflow).map((w) => w.path);
+    if (files.length === 1) {
+      resolved[name] = { ...pin, workflow: files[0] };
+      continue;
+    }
+    reasons.push(
+      files.length === 0
+        ? `check "${name}" is pinned to workflow name "${pin.workflow}", which no workflow of the repository carries`
+        : `check "${name}" is pinned to workflow name "${pin.workflow}", which ${files.length} workflows carry (${files.join(', ')}), so it is ambiguous`,
+    );
+  }
+  if (reasons.length === 0) return { ok: true, pins: resolved };
+  return {
+    ok: false,
+    reason:
+      `${reasons.join('; ')}. Fix: pin the workflow FILE in that check's release.prRequiredWorkflows entry ` +
+      'in .cleo/project-context.json, e.g. { "name": "<check>", "app": "github-actions", ' +
+      '"workflow": ".github/workflows/<file>.yml" }.',
+  };
 }
 
 /**
@@ -2647,6 +2707,78 @@ function ghApi(path: string, cwd: string): unknown {
   }
 }
 
+/** Pages {@link listAllWorkflows} reads before it gives up as incomplete. */
+const WORKFLOW_LIST_MAX_PAGES = 50;
+
+/**
+ * Read EVERY page of the repository's workflow list (T14540). The listing
+ * fails closed: an unreadable page, a page cap reached before the last page,
+ * or fewer workflows than `total_count` reports is a failure, never a partial
+ * success, since a duplicate name on an unread page would escape the
+ * ambiguity check of {@link resolveWorkflowNamePins}.
+ *
+ * @param fetchPage - One `actions/workflows` page (100 per page), or null when it failed.
+ * @returns The workflows' names and paths, or why the listing is incomplete.
+ * @task T14540
+ */
+export async function listAllWorkflows(
+  fetchPage: (
+    page: number,
+  ) => Promise<{ total_count?: number; workflows?: Array<Record<string, unknown>> } | null>,
+): Promise<{ ok: true; workflows: RepoWorkflow[] } | { ok: false; reason: string }> {
+  const workflows: RepoWorkflow[] = [];
+  let read = 0;
+  for (let page = 1; page <= WORKFLOW_LIST_MAX_PAGES; page++) {
+    const body = await fetchPage(page);
+    if (body === null) return { ok: false, reason: `gh api actions/workflows page ${page} failed` };
+    const listed = body.workflows ?? [];
+    read += listed.length;
+    for (const w of listed) {
+      if (typeof w.name !== 'string' || typeof w.path !== 'string')
+        return {
+          ok: false,
+          reason: `gh api actions/workflows page ${page} lists a workflow without a name or path`,
+        };
+      workflows.push({ name: w.name, path: w.path });
+    }
+    if (listed.length < 100) {
+      if (typeof body.total_count === 'number' && read < body.total_count)
+        return {
+          ok: false,
+          reason: `gh api actions/workflows listed ${read} of ${body.total_count} workflows`,
+        };
+      return { ok: true, workflows };
+    }
+  }
+  return {
+    ok: false,
+    reason: `gh api actions/workflows has more than ${WORKFLOW_LIST_MAX_PAGES} pages; the listing is incomplete`,
+  };
+}
+
+/**
+ * Default {@link ResolveCiEvidenceOptions.listWorkflows}: every workflow of
+ * the repository via `gh api` (T14540), through {@link listAllWorkflows}.
+ *
+ * @param cwd - A work tree of the repository.
+ * @returns The workflows' names and paths, or why they could not all be listed.
+ * @task T14540
+ */
+export async function defaultListWorkflows(
+  cwd: string,
+): Promise<{ ok: true; workflows: RepoWorkflow[] } | { ok: false; reason: string }> {
+  if (!isGitWorkTree(cwd) || !isGhCliAvailable()) {
+    return { ok: false, reason: `gh cannot list workflows from ${cwd} (no work tree or gh CLI).` };
+  }
+  return listAllWorkflows(
+    async (page) =>
+      ghApi(`repos/{owner}/{repo}/actions/workflows?per_page=100&page=${page}`, cwd) as {
+        total_count?: number;
+        workflows?: Array<Record<string, unknown>>;
+      } | null,
+  );
+}
+
 /** Default {@link ResolveCiEvidenceOptions.fetchJobLog}: the job's plain-text log via `gh` (T13809). */
 export async function defaultFetchJobLog(jobId: number, cwd: string): Promise<string | null> {
   if (!isGitWorkTree(cwd) || !isGhCliAvailable()) return null;
@@ -3128,7 +3260,7 @@ export async function resolveCiEvidenceAtom(
   }
   // Pins: branch protection's app ids when that tier supplied the list,
   // otherwise object entries of release.prRequiredWorkflows.
-  const pins = required.pins ?? readRequiredCheckPins(projectContext);
+  let pins = required.pins ?? readRequiredCheckPins(projectContext);
   // Round 2 (MEDIUM): a check that attests a gate must be pinned to the app
   // that posts it — an unpinned name would match a run from any app.
   const mapped = [...new Set(gateLists.flatMap((g) => g.list ?? []))];
@@ -3142,6 +3274,26 @@ export async function resolveCiEvidenceAtom(
         'release.prRequiredWorkflows as { "name": "<check>", "app": "<app slug or id>", ' +
         '"workflow": ".github/workflows/<file>.yml" } (or pin it in branch protection).',
     };
+  }
+  // T14540: a workflow-NAME pin counts only when exactly one workflow carries
+  // that name; it is then judged as a pin to that workflow's file.
+  if (
+    required.workflows.some((name) => {
+      const workflow = pins[name]?.workflow;
+      return workflow !== undefined && !requiredWorkflowFile(workflow);
+    })
+  ) {
+    const listed = await (opts.listWorkflows ?? defaultListWorkflows)(roots.executionRoot);
+    if (!listed.ok) return { ok: false, reason: listed.reason, codeName: 'E_EVIDENCE_TOOL_FAILED' };
+    const byFile = resolveWorkflowNamePins(pins, required.workflows, listed.workflows);
+    if (!byFile.ok) {
+      return {
+        ok: false,
+        codeName: 'E_EVIDENCE_INSUFFICIENT',
+        reason: `ci:${prNumber} cannot trust a workflow-name pin: ${byFile.reason}`,
+      };
+    }
+    pins = byFile.pins;
   }
   // Round 2: a pull_request run executes the PR's OWN edited workflow, so a PR
   // that touches a pinned workflow file cannot vouch for itself. T13174: it is
