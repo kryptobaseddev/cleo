@@ -63,6 +63,7 @@ import { getProjectInfoSync } from '../project-info.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb } from './dual-scope-db.js';
 import { openUnlessRestoring } from './restore-marker.js';
+import { loadSqliteVecExtension } from './sqlite-native.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
@@ -300,6 +301,8 @@ export async function openCleoDb(role: CleoDbRole, cwd?: string): Promise<CleoDb
 
 /** Options accepted by {@link openCleoDbSnapshot}. */
 export interface CleoDbSnapshotOptions {
+  /** Load the installed optional vector extension when inspecting recovery copies. */
+  loadSqliteVec?: boolean;
   /**
    * Open the file with `readOnly: true`. Default `true` — the snapshot opener
    * is meant for read-only inspection (backup verification, schema queries,
@@ -383,7 +386,31 @@ export function openCleoDbSnapshot(
   };
 
   // T13258: never open a store file a restore is replacing (before and after the open).
-  const db = openUnlessRestoring(path, () => new DatabaseSyncCtor(path, { readOnly }));
+  const db = openUnlessRestoring(
+    path,
+    () => new DatabaseSyncCtor(path, { readOnly, allowExtension: options.loadSqliteVec === true }),
+  );
+  if (options.loadSqliteVec) {
+    db.enableLoadExtension(false);
+    let needed = !readOnly;
+    if (readOnly) {
+      try {
+        needed =
+          db
+            .prepare(
+              "SELECT 1 FROM main.sqlite_schema WHERE type='table' AND sql LIKE '%vec0%' LIMIT 1",
+            )
+            .get() !== undefined;
+      } catch {
+        needed = true;
+      }
+    }
+    if (needed) {
+      db.enableLoadExtension(true);
+      loadSqliteVecExtension(db);
+      db.enableLoadExtension(false);
+    }
+  }
   if (!readOnly) installSchemaWriteGuard(db); // T12687
 
   if (applyPragmas) {

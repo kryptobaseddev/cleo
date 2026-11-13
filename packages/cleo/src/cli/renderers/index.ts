@@ -847,6 +847,13 @@ export function cliError(
   meta?: Partial<CliMeta>,
   options?: CliErrorOptions,
 ): void {
+  if (
+    /E_DB_CORRUPT|SQLITE_CORRUPT|database.*malformed|malformed.*(?:database|schema)/i.test(message)
+  ) {
+    code = 3;
+    // @sync-invariant none:local-only normalize local SQLite failure output without a row write
+    details = { ...details, name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' };
+  }
   const ctx = getFormatContext();
   const outputMode = getOutputMode();
 

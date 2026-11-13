@@ -160,6 +160,23 @@ describe('cliError signature compatibility (T4808 regression)', () => {
     expect(output.error.code).toBe(4);
   });
 
+  it('preserves the one-command corruption fix when a domain wrapped the SQLite error', () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    try {
+      cliError('Task store open failed: database disk image is malformed', 1, {
+        name: 'E_INTERNAL',
+      });
+      const envelope = JSON.parse(String(stdout.mock.calls[0]?.[0]));
+      expect(envelope.error).toMatchObject({
+        code: 3,
+        codeName: 'E_DB_CORRUPT',
+        fix: 'cleo doctor repair-store',
+      });
+    } finally {
+      stdout.mockRestore();
+    }
+  });
+
   // -----------------------------------------------------------------------
   // T336 regression: third argument was previously ignored (_details)
   // -----------------------------------------------------------------------

@@ -662,6 +662,15 @@ export const STAGED_SNAPSHOT = {
       },
     },
   },
+  'packages/core/src/store/repair-store-salvage.ts': {
+    __drizzle_migrations: {
+      mergeRecoveredJournal: {
+        count: 1,
+        reason:
+          'T14548: preserves readable historical stamps in the staged snapshot only, after current-schema migration; canonical store and quarantine originals are refused',
+      },
+    },
+  },
 };
 
 const SCAN_GLOBS = ['*.ts', '*.tsx', '*.mjs', '*.js', '*.rs'];

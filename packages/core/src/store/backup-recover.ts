@@ -29,6 +29,7 @@
 import { copyFileSync, existsSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { BackupRecoverResult, DbRole, StoreRecoverResult } from '@cleocode/contracts';
+import type { StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
 import { CleoError } from '../errors.js';
 import {
   collectSnapshotCandidatesForRole,
@@ -601,6 +602,8 @@ export interface ProjectStoreRecoverOptions {
   /** Pin a snapshot: an absolute path, or a timestamp prefix (`2026-05-23`, `20260523`). */
   readonly fromSnapshot?: string;
   readonly dryRun?: boolean;
+  /** Keep the historical snapshot-only restore instead of salvaging live rows. */
+  readonly noDelta?: boolean;
   /** The live store is unreadable and every cleo process is stopped (`--force`). */
   readonly force?: boolean;
   readonly confirmOwnerStore?: boolean;
@@ -624,7 +627,11 @@ export interface ProjectStoreRecoverOptions {
  */
 export async function recoverProjectStore(
   opts: ProjectStoreRecoverOptions,
-): Promise<StoreRecoverResult> {
+): Promise<StoreRecoverResult | StoreRepairReceipt> {
+  if (opts.noDelta !== true) {
+    const { repairStore } = await import('./repair-store.js');
+    return repairStore({ ...opts, restoreSnapshot: true });
+  }
   const dirs = resolveRoleBackupDirs(opts.role, { projectRoot: opts.projectRoot });
   const candidates = [
     ...collectSnapshotCandidatesForRole({

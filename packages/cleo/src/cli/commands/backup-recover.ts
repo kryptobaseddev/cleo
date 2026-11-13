@@ -140,6 +140,7 @@ async function executeStoreRecover(role: DbRole, args: Record<string, unknown>):
       ...(fromSnapshot.length > 0 ? { fromSnapshot } : {}),
       dryRun: readBoolFlag(args, 'dry-run'),
       force: readBoolFlag(args, 'force'),
+      noDelta: negatedFlag(args, 'delta'),
       confirmOwnerStore: readBoolFlag(args, 'confirm-owner-store'),
       cwd: process.cwd(),
     });
@@ -173,8 +174,7 @@ const STORE_LEAF_ARGS = {
   },
   'no-delta': {
     type: 'boolean',
-    description:
-      'Skip the sqlite3 .recover delta-merge step (reserved — current pipeline does not delta-merge; flag plumbed for forward-compat)',
+    description: 'Restore only the snapshot, discarding readable live rows written since it',
     default: false,
   },
   force: {
@@ -305,8 +305,7 @@ export const backupRecoverSubCommand = defineCommand({
     },
     'no-delta': {
       type: 'boolean',
-      description:
-        'Skip the sqlite3 .recover delta-merge step (reserved — current pipeline does not delta-merge; flag plumbed for forward-compat)',
+      description: 'Restore only the snapshot, discarding readable live rows written since it',
       default: false,
     },
     force: {

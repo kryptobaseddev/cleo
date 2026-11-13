@@ -99,6 +99,7 @@ import {
 } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { isStoreCorruption, storeCorruptError } from './store-corruption.js';
 import { captureOpenPassReadOnly, syncCaptureOpenPass } from './sync/capture.js';
 import { anySyncFlagOn } from './sync/flags.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
@@ -209,6 +210,8 @@ export function getDualScopeNativeDb(handle: DualScopeDbHandle): DatabaseSync {
  * @task T11782 (FIX D — dedicated migrate connection)
  */
 export interface OpenDualScopeAtPathOptions {
+  /** Prevent a failed retry from recursively repairing the same store. @internal */
+  readonly repairOnCorruption?: boolean;
   /** Captured operation lifetime; defaults to the existing async routing scope when present. */
   readonly execution?: OperationExecutionContext;
   /**
@@ -239,6 +242,49 @@ export interface OpenDualScopeAtPathOptions {
 
 /** How a chokepoint open treats sync: see {@link OpenDualScopeAtPathOptions.syncMode}. */
 export type StoreSyncMode = 'live' | 'off';
+
+/** Retry a corrupt canonical store only after the lossless repair proves exclusive access. */
+async function recoverCorruptOpen(
+  scope: DualScope,
+  path: string,
+  cwd: string | undefined,
+  options: OpenDualScopeAtPathOptions | undefined,
+  cause: Error,
+): Promise<DualScopeDbHandle> {
+  const root = cwd ?? dirname(dirname(path));
+  const canonical =
+    scope === 'project'
+      ? resolveDualScopeDbPath('project', root)
+      : resolveDualScopeDbPath('global');
+  if (options?.repairOnCorruption === false || path !== canonical)
+    // @sync-invariant none:local-only corrupt local store opening or recovery was refused
+    throw storeCorruptError(path, cause);
+  try {
+    const { repairStore } = await import('./repair-store.js');
+    const receipt = await repairStore({
+      scope,
+      projectRoot: root,
+      cwd: process.cwd(),
+      onPhase: () => options?.execution?.assertActive(),
+    });
+    // @sync-invariant none:local-only corrupt local store opening or recovery was refused
+    if (!receipt.integrityOK || receipt.status === 'absent') throw storeCorruptError(path, cause);
+    const { pushWarning } = await import('../output.js');
+    pushWarning({
+      code: 'W_DB_REPAIRED',
+      severity: 'warn',
+      message: `Repaired ${path}; receipt: ${receipt.quarantineDir ?? 'concurrent repair'}`,
+      context: { receipt },
+    });
+    const retry = { ...options, repairOnCorruption: false };
+    return scope === 'project'
+      ? await openDualScopeDbAtPath('project', path, cwd, retry)
+      : await openDualScopeDbAtPath('global', path, cwd, retry);
+  } catch (error) {
+    // @sync-invariant none:local-only corrupt local store opening or recovery was refused
+    throw storeCorruptError(path, error instanceof Error ? error : cause);
+  }
+}
 
 /**
  * Whether `normalizedPath` is a canonical store file: the global store at
@@ -1321,7 +1367,14 @@ export async function openDualScopeDbAtPath(
   const syncMode = resolveStoreSyncMode(scope, normalizedPath, options);
 
   if (dedicated) {
-    return openDedicatedDualScopeDb(scope, normalizedPath, log, syncMode, execution);
+    try {
+      return await openDedicatedDualScopeDb(scope, normalizedPath, log, syncMode, execution);
+    } catch (error) {
+      if (error instanceof Error && isStoreCorruption(error)) {
+        return recoverCorruptOpen(scope, normalizedPath, exodusCwd, options, error);
+      }
+      throw error;
+    }
   }
 
   // Create a placeholder entry so concurrent callers wait for the same init.
@@ -1779,6 +1832,17 @@ export async function openDualScopeDbAtPath(
         if (!published && openingNative?.isOpen) openingNative.close();
       } catch (closeError) {
         log.warn({ closeError }, 'failed to close unpublished database initializer');
+      }
+      if (!published && explained instanceof Error && isStoreCorruption(explained)) {
+        if (_cache.get(key)?.initPromise === initPromise) _cache.delete(key);
+        try {
+          initResolve!(
+            await recoverCorruptOpen(scope, normalizedPath, exodusCwd, options, explained),
+          );
+        } catch (recoveryError) {
+          initReject!(recoveryError);
+        }
+        return;
       }
       initReject!(explained);
     }

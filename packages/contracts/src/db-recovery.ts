@@ -28,6 +28,103 @@
 
 import type { DbRole } from './db-inventory.js';
 
+/** Read-only integrity assessment performed on a disposable copy. */
+export interface StoreIntegrityInspection {
+  /** True when integrity_check returns exactly one ok row, or the store is absent. */
+  healthy: boolean;
+  /** Integrity findings, a read failure, or absent. */
+  detail: string;
+}
+
+/** Restartable phases of a whole-store repair; the commit is one atomic rename. */
+export type StoreRepairPhase =
+  | 'quarantine'
+  | 'diagnose'
+  | 'salvage'
+  | 'merge'
+  | 'migrate'
+  | 'validate'
+  | 'commit'
+  | 'receipt';
+
+/** Row accounting for one table, including damage whose extent cannot be counted. */
+export interface StoreRepairTable {
+  /** Rows in the validated base, before the merge or migrations. */
+  snapshot: number;
+  /** Distinct readable keys extracted from the damaged store. */
+  salvaged: number;
+  /** Insertions and newer-timestamp updates applied to the base. */
+  merged: number;
+  /** Unreadable rows, or null when a damaged page hides its row count. */
+  unreadable: number | null;
+  /** Rows in the validated result. */
+  final: number;
+}
+
+/** A byte-for-byte original kept before attempting a repair. */
+export interface StoreRepairFile {
+  /** Original filename, including any SQLite sidecar suffix. */
+  name: string;
+  /** SHA-256 of the original and its quarantine copy. */
+  sha256: string;
+  /** Original size in bytes. */
+  bytes: number;
+}
+
+/** Durable receipt returned by doctor, backup recovery, and automatic recovery. */
+export interface StoreRepairReceipt {
+  /** Version of this receipt format. */
+  version: 1;
+  /** Physical store scope. */
+  scope: 'project' | 'global';
+  /** Canonical path of the store. */
+  target: string;
+  /** UTC time at the start of the attempt. */
+  startedAt: string;
+  /** Healthy and absent stores require no mutation. */
+  status: 'healthy' | 'absent' | 'prepared' | 'repaired' | 'dry-run' | 'failed';
+  /** Immutable original copies; null for a no-op or dry run. */
+  quarantineDir: string | null;
+  /** Validated snapshot used as a base; null means a fresh schema. */
+  snapshot: string | null;
+  /** Timestamp of the chosen snapshot, when known. */
+  snapshotAt: string | null;
+  /** Whether readable live rows were merged. */
+  delta: boolean;
+  /** Preserved original file hashes. */
+  files: StoreRepairFile[];
+  /** Per-table accounting. */
+  tables: Record<string, StoreRepairTable>;
+  /** Commit-message task IDs since the snapshot missing from the repaired store. */
+  missingTaskIds: string[];
+  /** Extraction failures and unavailable optional tools. */
+  diagnostics: string[];
+  /** True only after integrity, foreign-key, and base-count verification. */
+  integrityOK: boolean;
+}
+
+/** Inputs for the lossless, copy-only whole-store recovery pipeline. */
+export interface StoreRepairOptions {
+  /** Project root for path resolution and the report-only git log scan. */
+  projectRoot: string;
+  /** Invocation directory, used by the worktree rewrite guard. */
+  cwd: string;
+  /** Defaults to project scope. */
+  scope?: 'project' | 'global';
+  /** Perform the entire repair on private temporary copies, without a commit. */
+  dryRun?: boolean;
+  /** Optional backup path or timestamp prefix. */
+  fromSnapshot?: string;
+  /** Explicitly retain snapshot-only recovery, discarding readable delta rows. */
+  noDelta?: boolean;
+  /** Confirm a worktree invocation against its owning project's store. */
+  confirmOwnerStore?: boolean;
+  /** Backup recovery may explicitly restore a healthy store. Doctor never does. */
+  restoreSnapshot?: boolean;
+  /** Phase boundary for interruption tests. @internal */
+  onPhase?: (phase: StoreRepairPhase) => void;
+}
+
 /**
  * Best-effort per-table row counts probed from a recovered CLEO database.
  *

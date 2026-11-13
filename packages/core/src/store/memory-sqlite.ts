@@ -40,7 +40,6 @@
  * @task T11522 - E6-L2: route getBrainDb through openDualScopeDb (SG-DB-SUBSTRATE-V2)
  */
 
-import { createRequire } from 'node:module';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
 // by openDualScopeDb() / openNativeDatabase() in their respective leaf modules.
 import type { DatabaseSync } from 'node:sqlite';
@@ -75,9 +74,8 @@ import {
 } from './ports/domain-binding.js';
 import { resolveCorePackageMigrationsFolder } from './resolve-migrations-folder.js';
 import * as brainSchema from './schema/memory-schema.js';
+import { loadSqliteVecExtension } from './sqlite-native.js';
 import { collapseTwinTables, twinTablesCurrent } from './twin-collapse.js';
-
-const _require = createRequire(import.meta.url);
 
 /** Schema version for newly created brain databases. Single source of truth. */
 export const BRAIN_SCHEMA_VERSION = '1.0.0';
@@ -329,26 +327,6 @@ function establishLegacyBrainSchema(
 }
 
 /**
- * Load the sqlite-vec extension into a native DatabaseSync instance.
- * Returns true if the extension loaded successfully, false otherwise.
- *
- * The extension enables vec0 virtual tables for vector similarity search.
- * Requires the database to be opened with allowExtension: true.
- *
- * @task T5157
- */
-function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
-  try {
-    const sqliteVec = _require('sqlite-vec') as { load: (db: DatabaseSync) => void };
-    sqliteVec.load(nativeDb);
-    return true;
-  } catch {
-    // sqlite-vec not available or failed to load — non-fatal
-    return false;
-  }
-}
-
-/**
  * Create the vec0 virtual table for brain embeddings.
  * Called after migrations complete and sqlite-vec extension is loaded.
  *
@@ -525,7 +503,7 @@ export function brainSchemaAtHead(nativeDb: DatabaseSync): boolean {
       twinTablesCurrent(nativeDb) &&
       brainSchemaVersionSeeded(nativeDb) &&
       // The same load establish runs; loading sqlite-vec again is a no-op.
-      (!loadBrainVecExtension(nativeDb) || brainEmbeddingsShape(nativeDb) === 'tagged')
+      (!loadSqliteVecExtension(nativeDb) || brainEmbeddingsShape(nativeDb) === 'tagged')
     );
   } catch {
     return false;
@@ -603,7 +581,7 @@ export async function bindBrainDomain(
       // Load the sqlite-vec extension for vector similarity search (T5157). The
       // dual-scope handle is opened with `allowExtension: true`, so loading is
       // permitted. Non-fatal if unavailable — vec0 tables simply won't be created.
-      const vecLoaded = loadBrainVecExtension(nativeDb);
+      const vecLoaded = loadSqliteVecExtension(nativeDb);
 
       const drizzle = establishBrainSchema(nativeDb, store.dbPath);
 
