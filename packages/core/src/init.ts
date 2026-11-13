@@ -1142,6 +1142,7 @@ function assertInitTargetAllowed(
     // --force would re-initialize over it; the repair is to untrack instead.
     const tracked = listTrackedCleoRuntimeFiles(root) ?? [];
     if (tracked.length > 0) {
+      // @sync-invariant none:local-only refuses on the checkout's git index (tracked .cleo runtime files), before any store write.
       throw initRefusal(
         INIT_ERROR_CODES.alreadyInitialized,
         `Project at ${root} has .cleo runtime files tracked by git (${tracked.join(', ')}), ` +
