@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   root: vi.fn(),
   output: vi.fn(),
   error: vi.fn(),
-  inspect: vi.fn(),
+  preflight: vi.fn(),
   legacyRepair: vi.fn(),
   legacyLoads: 0,
 }));
@@ -24,7 +24,7 @@ vi.mock('@cleocode/core/project-scope', async (original) => ({
 vi.mock('../../renderers/index.js', () => ({ cliOutput: mocks.output, cliError: mocks.error }));
 vi.mock('@cleocode/core/store/open-cleo-db.js', async (original) => ({
   ...(await original<typeof import('@cleocode/core/store/open-cleo-db.js')>()),
-  inspectStoreIntegrity: mocks.inspect,
+  assertDoctorStoreIntegrity: mocks.preflight,
 }));
 
 const receipt: StoreRepairReceipt = {
@@ -47,7 +47,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.root.mockReturnValue('/tmp/project');
   mocks.repair.mockResolvedValue([receipt]);
-  mocks.inspect.mockReturnValue({ healthy: true, detail: 'ok' });
 });
 
 afterEach(() => {
@@ -100,21 +99,25 @@ describe('doctor repair-store', () => {
     await invoke(false, false, true);
     expect(mocks.repair).toHaveBeenCalledWith(expect.objectContaining({ confirmOwnerStore: true }));
   });
-  it('plain doctor reports damaged global storage before any normal health operation', async () => {
-    const { resolveDualScopeDbPath } = await import('@cleocode/core/store/dual-scope-db.js');
-    const global = resolveDualScopeDbPath('global');
-    mocks.inspect.mockImplementation((path: string) => ({
-      healthy: path !== global,
-      detail: path === global ? 'global malformed' : 'ok',
-    }));
-    const { doctorCommand } = await import('../doctor.js');
-    await doctorCommand.run?.({ args: { _: [] }, rawArgs: [], cmd: doctorCommand });
+  it('doctor health reports corruption before dispatch can open or auto-repair a store', async () => {
+    mocks.preflight.mockImplementationOnce(() => {
+      throw Object.assign(new Error('global malformed'), { codeName: 'E_DB_CORRUPT' });
+    });
+    const { dispatchFromCli } = await import('../../../dispatch/adapters/cli.js');
+    await dispatchFromCli(
+      'query',
+      'admin',
+      'health',
+      {},
+      { command: 'doctor', operation: 'admin.health' },
+    );
     expect(mocks.error).toHaveBeenCalledWith(
-      expect.stringContaining('global malformed'),
+      'global malformed',
       3,
       { name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' },
-      { operation: 'doctor' },
+      { command: 'doctor', operation: 'admin.health' },
     );
+    expect(process.exitCode).toBe(3);
     expect(mocks.repair).not.toHaveBeenCalled();
   });
   it('loads legacy repair logic only when that subcommand runs and preserves its flags', async () => {

@@ -76,9 +76,10 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
+import { getProjectRoot, isMissingProjectError } from '../project-scope.js';
 import type { DualScope } from './dual-scope-db.js';
-import { openDualScopeDb } from './dual-scope-db.js';
-import { openUnlessRestoring } from './restore-marker.js';
+import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
+import { openUnlessRestoring, storeCorruptError } from './restore-marker.js';
 import { loadSqliteVecExtension } from './sqlite-native.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
@@ -406,6 +407,7 @@ export function openCleoDbSnapshot(
     path,
     () => new DatabaseSyncCtor(path, { readOnly, allowExtension: options.loadSqliteVec === true }),
   );
+  if (!readOnly) installSchemaWriteGuard(db); // T12687
   if (options.loadSqliteVec) {
     db.enableLoadExtension(false);
     let needed = !readOnly;
@@ -427,7 +429,6 @@ export function openCleoDbSnapshot(
       db.enableLoadExtension(false);
     }
   }
-  if (!readOnly) installSchemaWriteGuard(db); // T12687
 
   if (applyPragmas) {
     // Read-only handles cannot set journal_mode; suppress WAL when readOnly.
@@ -497,6 +498,22 @@ export function openCleoDbImmutable(path: string): CleoDbSnapshotHandle {
 
 /** SQLite sidecars whose exact original bytes belong in quarantine. */
 export const REPAIR_SIDECARS = ['', '-wal', '-shm', '-journal'] as const;
+
+/** Diagnose both physical stores before a doctor health dispatch can open or auto-repair them. */
+export function assertDoctorStoreIntegrity(): void {
+  const targets = [resolveDualScopeDbPath('global')];
+  try {
+    targets.push(resolveDualScopeDbPath('project', getProjectRoot()));
+  } catch (error) {
+    if (!isMissingProjectError(error)) throw error;
+  }
+  for (const target of targets) {
+    const result = inspectStoreIntegrity(target);
+    if (!result.healthy)
+      // @sync-invariant none:local-only doctor reports store damage without opening a live writer
+      throw storeCorruptError(target, new Error(result.detail));
+  }
+}
 
 /** Hash a file without holding the entire store in memory. */
 export function repairFileHash(file: string): string {

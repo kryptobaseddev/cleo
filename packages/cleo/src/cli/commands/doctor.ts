@@ -20,7 +20,7 @@ import type { InvariantAuditResult } from '@cleocode/contracts';
 import type { HookMatrixResult } from '@cleocode/core';
 import { renderInvariantAuditLines } from '@cleocode/core/doctor/invariant-audit-render.js';
 import { pushWarning } from '@cleocode/core/output';
-import { getProjectRoot, isMissingProjectError } from '@cleocode/core/project-scope';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
   quarantineRogueCleoDir,
   scanRogueCleoDirs,
@@ -543,29 +543,6 @@ export const doctorCommand = defineCommand({
     // dispatched, citty fires the parent's `run()` AFTER the child runs.
     // Early-return so the child's envelope is the only output on stdout.
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
-
-    const { inspectStoreIntegrity } = await import('@cleocode/core/store/open-cleo-db.js');
-    const { resolveDualScopeDbPath } = await import('@cleocode/core/store/dual-scope-db.js');
-    const targets = [resolveDualScopeDbPath('global')];
-    try {
-      targets.push(resolveDualScopeDbPath('project', getProjectRoot()));
-    } catch (error) {
-      if (!isMissingProjectError(error)) throw error;
-    }
-    const damage = targets
-      .map((target) => ({ target, ...inspectStoreIntegrity(target) }))
-      .filter((store) => !store.healthy);
-    if (damage.length > 0) {
-      // @sync-invariant none:local-only diagnostic output for a damaged local store
-      cliError(
-        damage.map((store) => `${store.target}: ${store.detail}`).join('\n'),
-        3,
-        { name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' },
-        { operation: 'doctor' },
-      );
-      process.exitCode = 3;
-      return;
-    }
 
     const isHuman = args.human === true || (!!process.stdout.isTTY && args.json !== true);
     const progress = createDoctorProgress(isHuman);
@@ -1120,6 +1097,8 @@ export const doctorCommand = defineCommand({
           { detailed: args.detailed },
           { command: 'doctor', operation: 'admin.health' },
         );
+
+        if (process.exitCode === 3) return;
 
         // MIGRATE-AGENTS-V2-CONFLICT diagnostic: surface any unresolved
         // agent migration conflicts logged by `cleo migrate agents-v2`.

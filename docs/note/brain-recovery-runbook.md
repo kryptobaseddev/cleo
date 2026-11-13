@@ -107,6 +107,10 @@ Repair refuses an open store, including an idle connection. End the processes
 holding it, then rerun the command. A failed liveness probe is not permission to
 overwrite it. Linux checks kernel locks and process file descriptors through
 `/proc`; macOS uses its system `fuser`; Windows probes an exclusive file open.
+CLEO also checks its writer lock and live lease rows on a private copy. On Linux,
+inaccessible descriptors for a possible store holder (`node`, `cleo`, `bun`,
+`deno`, or `sqlite3`) refuse repair and name the PID. Other inaccessible processes
+are identified through `/proc/<pid>/comm` and their skips appear in the receipt.
 No `lsof` installation is required. Do not remove SQLite sidecars to make a
 repair proceed.
 

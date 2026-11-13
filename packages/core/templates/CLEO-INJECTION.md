@@ -96,12 +96,12 @@ Mutations (`add`, `add-batch`, `update`, `complete`, `delete`, `cancel`, `restor
 <!-- CLEO-INJECTION:section=error-handling -->
 ## Error Handling
 
-Check exit code (`0` = success) and `"success"` in JSON output after every command.
+Check exit code and JSON `success` each call.
 
 | Exit | Code | Fix |
 |:----:|------|-----|
 | 4 | `E_NOT_FOUND` | `cleo find` to verify ID |
-| 3 | `E_DB_CORRUPT` | Run `cleo doctor repair-store`; it preserves originals and salvages readable rows before an atomic repair. |
+| 3 | `E_DB_CORRUPT` | `cleo doctor repair-store` |
 | 6 | `E_VALIDATION` | Check field lengths |
 | 6 | `E_GATE_RUN_FAILED` | A typed gate failed: apply each `error.details.failures[].fix`, rerun `cleo verify <id> --run` |
 | 10 | `E_PARENT_NOT_FOUND` | `cleo exists <id>` |

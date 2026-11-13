@@ -469,6 +469,25 @@ export async function dispatchFromCli(
   // so introspection works with no DB or active session.
   if (maybeEmitDescribe(gateway, domain, operation, outputOpts)) return;
 
+  if (gateway === 'query' && domain === 'admin' && operation === 'health') {
+    const { assertDoctorStoreIntegrity } = await import('@cleocode/core/store/open-cleo-db.js');
+    try {
+      assertDoctorStoreIntegrity();
+    } catch (error) {
+      if (!(error instanceof Error && 'codeName' in error && error.codeName === 'E_DB_CORRUPT'))
+        throw error;
+      // @sync-invariant none:local-only read-only doctor preflight reports damage before dispatch
+      cliError(
+        error.message,
+        3,
+        { name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' },
+        outputOpts,
+      );
+      process.exitCode = 3;
+      return;
+    }
+  }
+
   await prepareCoreFor(gateway, domain, operation);
   const dispatcher = getCliDispatcher();
   const projectRoot = getProjectRoot();

@@ -351,14 +351,14 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
           finishCheckpoint(preview, counts);
         } else {
           committed = true;
-          assertRepairQuiescent(target);
+          await assertRepairQuiescent(target, receipt.diagnostics);
           assertCommitGuard();
           finishCheckpoint(target, counts);
         }
         return receipt;
       }
       if (!opts.dryRun) {
-        assertRepairQuiescent(target);
+        await assertRepairQuiescent(target, receipt.diagnostics);
         const root = join(dirname(target), 'quarantine');
         mkdirSync(root, { recursive: true, mode: 0o700 });
         receipt.quarantineDir = mkdtempSync(
@@ -474,7 +474,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       }
       await setImmediate();
       assertCommitGuard();
-      assertRepairQuiescent(target);
+      await assertRepairQuiescent(target, receipt.diagnostics);
       assertRepairOriginals(target, receipt.files);
       receipt.commitWalSha256 = repairFileHash(wal);
       receipt.commitMainSha256 = repairFileHash(staged);

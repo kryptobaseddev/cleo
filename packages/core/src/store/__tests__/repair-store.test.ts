@@ -22,12 +22,40 @@ import {
   openDualScopeDbAtPath,
   resolveDualScopeDbPath,
 } from '../dual-scope-db.js';
+import { acquireLock } from '../lock.js';
+import { assertDoctorStoreIntegrity } from '../open-cleo-db.js';
 import { inspectStoreIntegrity, repairStore } from '../repair-store.js';
-import { repairFileHash } from '../repair-store-files.js';
+import { assertRepairQuiescent, repairFileHash } from '../repair-store-files.js';
 import { getNativeTasksDb, resetDbState } from '../sqlite.js';
 import { loadSqliteVecExtension } from '../sqlite-native.js';
 import { OWNER_STORE_REWRITE_AUDIT_FILE } from '../worktree-isolation-guard.js';
 import { createTestDb, type TestDbEnv } from './test-db-helper.js';
+
+const proc = vi.hoisted(() => ({ enabled: false, comm: 'systemd', code: 'EACCES', statPath: '' }));
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof import('node:fs')>();
+  return {
+    ...fs,
+    readdirSync: (...args: Parameters<typeof fs.readdirSync>) => {
+      if (proc.enabled && args[0] === '/proc') return ['424242'];
+      if (proc.enabled && args[0] === '/proc/424242/fd')
+        throw Object.assign(new Error('injected descriptor permission refusal'), {
+          code: proc.code,
+        });
+      return fs.readdirSync(...args);
+    },
+    statSync: (...args: Parameters<typeof fs.statSync>) => {
+      if (proc.enabled && (args[0] === '/proc/self' || args[0] === '/proc/424242'))
+        return fs.statSync(proc.statPath);
+      return fs.statSync(...args);
+    },
+    readFileSync: (...args: Parameters<typeof fs.readFileSync>) => {
+      if (proc.enabled && args[0] === '/proc/locks') return '';
+      if (proc.enabled && args[0] === '/proc/424242/comm') return proc.comm;
+      return fs.readFileSync(...args);
+    },
+  };
+});
 
 let env: TestDbEnv;
 let live: string;
@@ -91,8 +119,101 @@ beforeEach(async () => {
   resetDbState();
 });
 afterEach(async () => {
+  proc.enabled = false;
   resetDbState();
   await env.cleanup();
+});
+
+it.each([
+  'EACCES',
+  'EPERM',
+])('records %s for an inaccessible non-store Linux process', async (code) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  if (!platform) throw new Error('platform descriptor missing');
+  const diagnostics: string[] = [];
+  proc.enabled = true;
+  proc.comm = 'systemd';
+  proc.code = code;
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  try {
+    await assertRepairQuiescent(live, diagnostics);
+    expect(diagnostics).toContain(
+      'Skipped inaccessible descriptors for non-store process pid 424242 (systemd)',
+    );
+  } finally {
+    proc.enabled = false;
+    Object.defineProperty(process, 'platform', platform);
+  }
+});
+
+it.each([
+  'EACCES',
+  'EPERM',
+])('refuses %s for an inaccessible possible Linux store holder', async (code) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  if (!platform) throw new Error('platform descriptor missing');
+  proc.enabled = true;
+  proc.comm = 'node';
+  proc.code = code;
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toThrow(
+      'possible store holder pid 424242 (node)',
+    );
+  } finally {
+    proc.enabled = false;
+    Object.defineProperty(process, 'platform', platform);
+  }
+});
+
+it('refuses a registered CLEO writer lock before copying the store', async () => {
+  const release = await acquireLock(live, { retries: 0 });
+  const before = repairFileHash(live);
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toThrow(
+      'CLEO writer holds the store lock',
+    );
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    await release();
+  }
+});
+
+it('refuses live foreign writer leases read from a private copy', async () => {
+  const db = new DatabaseSync(live);
+  try {
+    db.prepare(`INSERT INTO _writer_leases
+      (scope,lane,holder_id,holder_pid,epoch,acquired_at,heartbeat_at,ttl_ms,active)
+      VALUES ('project','bulk','repair-foreign-holder',424242,1,?,?,60000,1)`).run(
+      Date.now(),
+      Date.now(),
+    );
+  } finally {
+    db.close();
+  }
+  const before = repairFileHash(live);
+  await expect(assertRepairQuiescent(live, [])).rejects.toThrow('pid 424242 (bulk)');
+  expect(repairFileHash(live)).toBe(before);
+});
+
+it('plain doctor diagnoses global damage without auto-repair or original changes', () => {
+  const global = resolveDualScopeDbPath('global');
+  _resetDualScopeDbCache();
+  rmSync(`${global}-wal`, { force: true });
+  rmSync(`${global}-shm`, { force: true });
+  mkdirSync(join(global, '..'), { recursive: true });
+  writeFileSync(global, 'this is not a sqlite database'.repeat(200));
+  const before = repairFileHash(global);
+  expect(() => assertDoctorStoreIntegrity()).toThrowError(
+    expect.objectContaining({
+      codeName: 'E_DB_CORRUPT',
+      fix: 'cleo doctor repair-store',
+    }),
+  );
+  expect(repairFileHash(global)).toBe(before);
+  expect(existsSync(join(global, '..', 'quarantine'))).toBe(false);
 });
 
 function damageIndex(name = 'repair_value'): void {

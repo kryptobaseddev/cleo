@@ -113,9 +113,7 @@ export interface BackupRecoverOptions {
    */
   fromSnapshot?: string;
   /**
-   * When `true`, skip the future `sqlite3 .recover` delta-merge step.
-   * Reserved for future extension — the current pipeline does not
-   * perform delta-merge.
+   * Keep snapshot-only recovery for project-store roles instead of salvaging live rows.
    */
   noDelta?: boolean;
   /**
@@ -604,7 +602,7 @@ export interface ProjectStoreRecoverOptions {
   readonly dryRun?: boolean;
   /** Keep the historical snapshot-only restore instead of salvaging live rows. */
   readonly noDelta?: boolean;
-  /** The live store is unreadable and every cleo process is stopped (`--force`). */
+  /** Authorize the legacy snapshot-only path when its live-store probe is unreadable (`--force`). */
   readonly force?: boolean;
   readonly confirmOwnerStore?: boolean;
   /** The invocation directory (the worktree guard). */
@@ -612,11 +610,9 @@ export interface ProjectStoreRecoverOptions {
 }
 
 /**
- * Recover the live project store (`.cleo/cleo.db`) from the freshest snapshot
- * that passes `PRAGMA quick_check`, or from a pinned one, through
- * {@link restoreStoreSnapshot}: the snapshot is verified again on a private
- * copy, a live writer refuses it, the replaced store is kept as a
- * `pre-restore-*` backup, and the WAL is handled (T13245).
+ * Repair the live project store losslessly and return its durable receipt.
+ * With `noDelta`, retain the legacy snapshot-only {@link restoreStoreSnapshot}
+ * behavior and result: snapshot selection, live-writer refusal and undo backup.
  *
  * @param opts - The role asked for, the project and the guards.
  * @returns What was verified, kept and placed (or would be, on a dry run).

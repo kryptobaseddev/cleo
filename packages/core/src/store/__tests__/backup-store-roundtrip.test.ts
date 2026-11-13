@@ -128,7 +128,7 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
   it.each([
     'tasks',
     'brain',
-  ])('backup recover %s restores the live cleo.db from the freshest valid session snapshot', async (role) => {
+  ])('backup recover %s --no-delta restores the live cleo.db from the freshest valid session snapshot', async (role) => {
     const snap = sessionSnapshot(role, '20261005-100000');
     const backedUp = fingerprint(snap);
     await seedTasks(env.accessor, [{ id: 'T003', title: 'after', type: 'task' }]);
@@ -137,7 +137,12 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
     writeFileSync(decoy, 'decoy');
     resetDbState();
 
-    const result = await recoverProjectStore({ role, projectRoot: env.tempDir, cwd: env.tempDir });
+    const result = await recoverProjectStore({
+      role,
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+      noDelta: true,
+    });
     expect(result.restored).toBe(true);
     expect(result.target).toBe(live);
     expect(fingerprint(live)).toEqual(backedUp);
@@ -147,7 +152,7 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
   it.each([
     'brain',
     'conduit',
-  ])('backup recover %s picks a newer tasks-* project snapshot over an older %s-* file (T13897)', async (role) => {
+  ])('backup recover %s --no-delta picks a newer tasks-* project snapshot over an older %s-* file (T13897)', async (role) => {
     // An older role-prefixed file (pre-T13891), then the store moves on and a
     // run writes the one unified project snapshot as tasks-*.
     const older = sessionSnapshot(role, '20261005-090000');
@@ -162,13 +167,18 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
     ]);
     resetDbState();
 
-    const result = await recoverProjectStore({ role, projectRoot: env.tempDir, cwd: env.tempDir });
+    const result = await recoverProjectStore({
+      role,
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+      noDelta: true,
+    });
     expect(result.restored).toBe(true);
     expect(result.source.path).toBe(newer);
     expect(fingerprint(live)).toEqual(backedUp);
   });
 
-  it('a corrupt newest snapshot is skipped for the next valid one', async () => {
+  it('--no-delta skips a corrupt newest snapshot for the next valid one', async () => {
     const older = sessionSnapshot('tasks', '20261005-090000');
     const backedUp = fingerprint(older);
     await seedTasks(env.accessor, [{ id: 'T003', title: 'after', type: 'task' }]);
@@ -180,13 +190,14 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
       role: 'tasks',
       projectRoot: env.tempDir,
       cwd: env.tempDir,
+      noDelta: true,
     });
     expect(result.rejected).toEqual([newest]);
     expect(result.source.path).toBe(older);
     expect(fingerprint(live)).toEqual(backedUp);
   });
 
-  it('a damaged live store: refused unless --force says every process is stopped', async () => {
+  it('--no-delta on a damaged live store: refused unless --force says every process is stopped', async () => {
     const snap = sessionSnapshot('tasks', '20261005-100000');
     const backedUp = fingerprint(snap);
     resetDbState();
@@ -197,13 +208,19 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
     for (const s of ['-wal', '-shm']) if (existsSync(live + s)) writeFileSync(live + s, '');
 
     await expect(
-      recoverProjectStore({ role: 'tasks', projectRoot: env.tempDir, cwd: env.tempDir }),
+      recoverProjectStore({
+        role: 'tasks',
+        projectRoot: env.tempDir,
+        cwd: env.tempDir,
+        noDelta: true,
+      }),
     ).rejects.toThrow(/E_RESTORE_STORE_BUSY/);
     const result = await recoverProjectStore({
       role: 'tasks',
       projectRoot: env.tempDir,
       cwd: env.tempDir,
       force: true,
+      noDelta: true,
     });
     expect(result.restored).toBe(true);
     expect(fingerprint(live)).toEqual(backedUp);
@@ -211,7 +228,7 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
     expect(result.kept?.checkpointed).toBe(false);
   });
 
-  it('a dry run picks the snapshot and writes nothing', async () => {
+  it('--no-delta dry run picks the snapshot and writes nothing', async () => {
     sessionSnapshot('tasks', '20261005-100000');
     await seedTasks(env.accessor, [{ id: 'T003', title: 'after', type: 'task' }]);
     resetDbState();
@@ -221,6 +238,7 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
       projectRoot: env.tempDir,
       cwd: env.tempDir,
       dryRun: true,
+      noDelta: true,
     });
     expect(result).toMatchObject({ dryRun: true, restored: false });
     expect(fingerprint(live)).toEqual(before);
@@ -262,7 +280,7 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
     expect(fingerprint(live)).toEqual(backedUp);
   });
 
-  it('backup recover finds a backup-add copy when no session snapshot exists', async () => {
+  it('backup recover --no-delta finds a backup-add copy when no session snapshot exists', async () => {
     const { backupId } = await createBackup(env.tempDir, { type: 'snapshot' });
     const backedUp = fingerprint(join(sqliteDir, `cleo.db.${backupId}`));
     await seedTasks(env.accessor, [{ id: 'T003', title: 'after', type: 'task' }]);
@@ -271,9 +289,36 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
       role: 'brain',
       projectRoot: env.tempDir,
       cwd: env.tempDir,
+      noDelta: true,
     });
     expect(result.source.path).toBe(join(sqliteDir, `cleo.db.${backupId}`));
     expect(fingerprint(live)).toEqual(backedUp);
+  });
+
+  it.each([
+    'tasks',
+    'brain',
+    'conduit',
+  ])('backup recover %s preserves post-snapshot rows by default and returns its receipt', async (role) => {
+    const snap = sessionSnapshot('tasks', '20261005-100000');
+    await seedTasks(env.accessor, [
+      { id: 'T003', title: 'written after the snapshot', type: 'task' },
+    ]);
+    resetDbState();
+    const before = fingerprint(live);
+    const result = await recoverProjectStore({ role, projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result).toMatchObject({
+      status: 'repaired',
+      delta: true,
+      snapshot: snap,
+      integrityOK: true,
+    });
+    expect(fingerprint(live)).toEqual(before);
+    if (!('version' in result) || !result.quarantineDir) throw new Error('repair receipt missing');
+    expect(
+      JSON.parse(readFileSync(join(result.quarantineDir, 'receipt.json'), 'utf8')),
+    ).toMatchObject({ status: 'repaired', delta: true });
+    expect(result.tables.tasks_tasks?.final).toBe(3);
   });
 });
 

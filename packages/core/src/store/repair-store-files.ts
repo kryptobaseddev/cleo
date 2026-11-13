@@ -6,16 +6,20 @@ import {
   constants,
   copyFileSync,
   existsSync,
+  mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
   readSync,
   renameSync,
+  rmSync,
   statSync,
   writeSync,
 } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import type { StoreRepairFile } from '@cleocode/contracts/db-recovery.js';
+import { isLocked } from './lock.js';
 import {
   copyRepairOriginals,
   openCleoDbSnapshot,
@@ -23,6 +27,7 @@ import {
   repairFileHash,
   repairFsync,
 } from './open-cleo-db.js';
+import { foreignWriterLeases } from './writer-lease.js';
 
 /** Shared snapshot-copy primitives remain available to recovery callers. */
 export {
@@ -61,7 +66,31 @@ function linuxLockIdentity(file: string): string {
  * The first-open lock and restore marker exclude racing CLEO opens; this
  * check also refuses pre-existing SQLite handles, including this process's.
  */
-export function assertRepairQuiescent(target: string): void {
+export async function assertRepairQuiescent(target: string, diagnostics: string[]): Promise<void> {
+  // The first-open lock is ours; the ordinary writer lock must be unheld.
+  if (await isLocked(target))
+    // @sync-invariant none:local-only an existing CLEO writer excludes local store replacement
+    throw new Error('Another CLEO writer holds the store lock');
+  const scratch = mkdtempSync(join(tmpdir(), 'cleo-repair-lease-'));
+  let held: ReturnType<typeof foreignWriterLeases> = [];
+  try {
+    const copy = join(scratch, 'lease.db');
+    copyRepairOriginals(target, copy);
+    try {
+      held = foreignWriterLeases(copy);
+    } catch (error) {
+      // A damaged lease table cannot supersede the kernel and process-handle proof below.
+      const message = `Writer lease rows unreadable: ${error instanceof Error ? error.message : String(error)}`;
+      if (!diagnostics.includes(message)) diagnostics.push(message);
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  if (held.length)
+    // @sync-invariant none:local-only live CLEO lease holders exclude local store replacement
+    throw new Error(
+      `Store has live CLEO writer leases: ${held.map((h) => `pid ${h.holderPid} (${h.lane})`).join(', ')}`,
+    );
   const paths = REPAIR_SIDECARS.map((s) => target + s).filter(existsSync);
   if (process.platform === 'linux') {
     const inodes = new Set(paths.map(linuxLockIdentity));
@@ -86,6 +115,22 @@ export function assertRepairQuiescent(target: string): void {
         descriptors = readdirSync(`/proc/${pid}/fd`);
       } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
+        if (
+          Number(pid) !== process.pid &&
+          error instanceof Error &&
+          'code' in error &&
+          (error.code === 'EACCES' || error.code === 'EPERM')
+        ) {
+          const comm = readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
+          if (!comm || /^(?:node(?:js)?|cleo|bun|deno|sqlite3?)(?:$|[ .-])/i.test(comm))
+            // @sync-invariant none:local-only an uninspectable possible store holder excludes repair
+            throw new Error(
+              `Cannot inspect possible store holder pid ${pid} (${comm || 'unnamed'})`,
+            );
+          const message = `Skipped inaccessible descriptors for non-store process pid ${pid} (${comm})`;
+          if (!diagnostics.includes(message)) diagnostics.push(message);
+          continue;
+        }
         // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
         throw new Error(`Cannot inspect open store handles for pid ${pid}`);
       }
