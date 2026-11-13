@@ -24,7 +24,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // session start refreshes GLOBAL provider instruction files; never touch the
 // developer's real files from a test.
-vi.mock('../../injection.js', () => ({
+vi.mock('../../injection.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../injection.js')>()),
   refreshStaleGlobalInstructions: vi.fn().mockResolvedValue({
     status: 'skipped',
     stale: [],
@@ -35,6 +36,7 @@ vi.mock('../../injection.js', () => ({
 
 import { CleoError } from '../../errors.js';
 import { injectTasks } from '../../inject/index.js';
+import * as injectionProtocol from '../../injection.js';
 import { buildBrainState } from '../../orchestration/bootstrap.js';
 import { sessionStart, sessionStatus, taskStop } from '../../session/engine-ops.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
@@ -140,6 +142,40 @@ async function startIn(
     return res.data!.id;
   });
 }
+
+describe('MVI error handling shares the delivered protocol (T14531)', () => {
+  it('renders the canonical error-handling section, including the exact exit table', async () => {
+    const template = readFileSync(
+      new URL('../../../templates/CLEO-INJECTION.md', import.meta.url),
+      'utf8',
+    );
+    const errorHandling = injectionProtocol.extractInjectionSection(template, 'error-handling');
+    expect(errorHandling).toContain('| 6 | `E_GATE_RUN_FAILED` |');
+
+    const result = await generateInjection(root);
+    expect(result.injection).toContain(errorHandling?.replace(/^##/gm, '###'));
+    expect(result.injection.match(/^\| Exit \| Code \| Fix \|$/gm)).toHaveLength(1);
+    expect(result.sizeBytes).toBe(Buffer.byteLength(result.injection, 'utf8'));
+  });
+
+  it('reports missing protocol content instead of emitting a separate fallback table', async () => {
+    const lookup = vi.spyOn(injectionProtocol, 'readInjectionSection').mockReturnValueOnce({
+      section: 'error-handling',
+      content: null,
+      source: null,
+      available: [],
+    });
+    try {
+      await expect(generateInjection(root)).rejects.toMatchObject({
+        code: ExitCode.FILE_ERROR,
+        message: 'CLEO error-handling protocol section is missing',
+        fix: 'Reinstall CLEO to restore its bundled protocol templates, then run cleo upgrade.',
+      });
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+});
 
 describe('one focus-key rule across two terminals (T12501)', () => {
   it('each terminal-bound session reads and writes only its own focus key', async () => {
