@@ -1,4 +1,4 @@
-import type { StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
+import type { DoctorRepairResult, StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doctorRepairStoreCommand } from '../doctor-repair-store.js';
 
@@ -8,15 +8,22 @@ const mocks = vi.hoisted(() => ({
   output: vi.fn(),
   error: vi.fn(),
   inspect: vi.fn(),
+  legacyRepair: vi.fn(),
+  legacyLoads: 0,
 }));
 vi.mock('@cleocode/core/store/repair-store.js', () => ({ repairStoresFromDoctor: mocks.repair }));
+vi.mock('@cleocode/core/store/repair-malformed-dbs.js', () => {
+  mocks.legacyLoads++;
+  return { repairMalformedDbs: mocks.legacyRepair };
+});
 vi.mock('@cleocode/core/project-scope', async (original) => ({
   ...(await original<typeof import('@cleocode/core/project-scope')>()),
   getProjectRoot: mocks.root,
   isMissingProjectError: (error: Error) => error.message.startsWith('Not inside a CLEO project'),
 }));
 vi.mock('../../renderers/index.js', () => ({ cliOutput: mocks.output, cliError: mocks.error }));
-vi.mock('@cleocode/core/store/repair-store-files.js', () => ({
+vi.mock('@cleocode/core/store/open-cleo-db.js', async (original) => ({
+  ...(await original<typeof import('@cleocode/core/store/open-cleo-db.js')>()),
   inspectStoreIntegrity: mocks.inspect,
 }));
 
@@ -109,5 +116,36 @@ describe('doctor repair-store', () => {
       { operation: 'doctor' },
     );
     expect(mocks.repair).not.toHaveBeenCalled();
+  });
+  it('loads legacy repair logic only when that subcommand runs and preserves its flags', async () => {
+    const result: DoctorRepairResult = {
+      dryRun: true,
+      roles: [],
+      malformedCount: 0,
+      repairedCount: 0,
+      failedCount: 0,
+    };
+    mocks.legacyRepair.mockReturnValue(result);
+    const { doctorRepairCommand } = await import('../doctor-repair.js');
+    expect(mocks.legacyLoads).toBe(0);
+    await doctorRepairCommand.run?.({
+      args: { _: [], role: 'tasks', 'dry-run': true, 'confirm-owner-store': false },
+      rawArgs: [],
+      cmd: doctorRepairCommand,
+    });
+    expect(mocks.legacyLoads).toBe(1);
+    expect(mocks.legacyRepair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRoot: '/tmp/project',
+        roles: ['tasks'],
+        dryRun: true,
+        confirmOwnerStore: false,
+        cwd: process.cwd(),
+      }),
+    );
+    expect(mocks.output).toHaveBeenCalledWith(
+      result,
+      expect.objectContaining({ command: 'doctor repair' }),
+    );
   });
 });

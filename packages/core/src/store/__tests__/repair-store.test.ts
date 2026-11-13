@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { drainWarnings } from '../../output.js';
 import {
   _resetDualScopeDbCache,
@@ -191,6 +191,30 @@ describe('copy-only whole-store repair', () => {
     );
     expect(hashes()).toEqual(repaired);
     expect(readdirSync(join(env.cleoDir, 'quarantine'))).toEqual(directories);
+  });
+
+  it('repairs the canonical configured directory used by normal store opens', async () => {
+    damageIndex();
+    const before = hashes();
+    const configured = join(env.tempDir, 'configured-store');
+    mkdirSync(configured);
+    const configuredDb = join(configured, 'cleo.db');
+    copyFileSync(live, configuredDb);
+    vi.stubEnv('CLEO_DIR', configured);
+    try {
+      expect(resolveDualScopeDbPath('project', env.tempDir)).toBe(configuredDb);
+      const result = await repairStore({
+        projectRoot: env.tempDir,
+        cwd: env.tempDir,
+        fromSnapshot: snapshot,
+      });
+      expect(result.target).toBe(configuredDb);
+      expect(result.status).toBe('repaired');
+      expect(values(configuredDb)).toEqual(['base', 'delta']);
+      expect(hashes()).toEqual(before);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('dry-run performs salvage and validation without any .cleo writes', async () => {

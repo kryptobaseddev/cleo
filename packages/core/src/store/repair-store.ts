@@ -27,7 +27,7 @@ import type {
 import { CleoError } from '../errors.js';
 import { lockCompromiseTracker, withLock } from './lock.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
-import { collectSnapshotCandidatesForRole, resolveRoleDbPath } from './recover-malformed-db.js';
+import { collectSnapshotCandidatesForRole } from './recover-malformed-db.js';
 import {
   assertRepairOriginals,
   assertRepairQuiescent,
@@ -276,7 +276,9 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
   const scope = opts.scope ?? 'project';
   const { resolveDualScopeDbPath } = await import('./dual-scope-db.js');
   const target =
-    scope === 'project' ? resolveRoleDbPath('tasks', opts) : resolveDualScopeDbPath('global');
+    scope === 'project'
+      ? resolveDualScopeDbPath('project', opts.projectRoot)
+      : resolveDualScopeDbPath('global');
   let receipt: StoreRepairReceipt = {
     version: 1,
     scope,

@@ -54,8 +54,24 @@
  * @adr ADR-068, ADR-069
  */
 
+import { createHash } from 'node:crypto';
+import {
+  closeSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { StoreIntegrityInspection, StoreRepairFile } from '@cleocode/contracts/db-recovery.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
@@ -477,4 +493,79 @@ export function openCleoDbImmutable(path: string): CleoDbSnapshotHandle {
       }
     },
   };
+}
+
+/** SQLite sidecars whose exact original bytes belong in quarantine. */
+export const REPAIR_SIDECARS = ['', '-wal', '-shm', '-journal'] as const;
+
+/** Hash a file without holding the entire store in memory. */
+export function repairFileHash(file: string): string {
+  const hash = createHash('sha256');
+  const fd = openSync(file, 'r');
+  const buffer = Buffer.alloc(1024 * 1024);
+  try {
+    for (;;) {
+      const n = readSync(fd, buffer, 0, buffer.length, null);
+      if (n === 0) break;
+      hash.update(buffer.subarray(0, n));
+    }
+    return hash.digest('hex');
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Flush a file or its containing directory before publishing a name. */
+export function repairFsync(file: string): void {
+  const fd = openSync(file, process.platform === 'win32' ? 'r+' : 'r');
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Copy and verify originals without opening them through SQLite or reusing a destination. */
+export function copyRepairOriginals(from: string, to: string, sidecars = true): StoreRepairFile[] {
+  const files: StoreRepairFile[] = [];
+  for (const suffix of sidecars ? REPAIR_SIDECARS : ['']) {
+    if (!existsSync(from + suffix)) continue;
+    const before = repairFileHash(from + suffix);
+    copyFileSync(from + suffix, to + suffix, constants.COPYFILE_EXCL);
+    repairFsync(to + suffix);
+    if (before !== repairFileHash(to + suffix) || before !== repairFileHash(from + suffix)) {
+      // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
+      throw new Error(`Store changed while copying ${from + suffix}; repair refused`);
+    }
+    files.push({
+      name: basename(from + suffix),
+      sha256: before,
+      bytes: statSync(from + suffix).size,
+    });
+  }
+  return files;
+}
+
+/** A full integrity probe for doctor and healthy no-op detection, using disposable copies. */
+export function inspectStoreIntegrity(target: string): StoreIntegrityInspection {
+  if (!existsSync(target)) return { healthy: true, detail: 'absent' };
+  const scratch = mkdtempSync(join(tmpdir(), 'cleo-store-probe-'));
+  try {
+    const file = join(scratch, 'store.db');
+    copyRepairOriginals(target, file);
+    const snap = openCleoDbSnapshot(file, { applyPragmas: false, loadSqliteVec: true });
+    try {
+      const result = snap.db.prepare('PRAGMA integrity_check').all();
+      return {
+        healthy: result.length === 1 && result[0]?.integrity_check === 'ok',
+        detail: JSON.stringify(result),
+      };
+    } finally {
+      snap.close();
+    }
+  } catch (error) {
+    return { healthy: false, detail: error instanceof Error ? error.message : String(error) };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }

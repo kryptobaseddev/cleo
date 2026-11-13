@@ -544,12 +544,11 @@ export const doctorCommand = defineCommand({
     // Early-return so the child's envelope is the only output on stdout.
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
 
-    const { inspectStoreIntegrity } = await import('@cleocode/core/store/repair-store-files.js');
-    const { resolveRoleDbPath } = await import('@cleocode/core/store/recover-malformed-db.js');
+    const { inspectStoreIntegrity } = await import('@cleocode/core/store/open-cleo-db.js');
     const { resolveDualScopeDbPath } = await import('@cleocode/core/store/dual-scope-db.js');
     const targets = [resolveDualScopeDbPath('global')];
     try {
-      targets.push(resolveRoleDbPath('tasks', { projectRoot: getProjectRoot() }));
+      targets.push(resolveDualScopeDbPath('project', getProjectRoot()));
     } catch (error) {
       if (!isMissingProjectError(error)) throw error;
     }
