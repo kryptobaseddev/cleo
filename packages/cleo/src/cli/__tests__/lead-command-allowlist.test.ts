@@ -118,12 +118,15 @@ describe('orchestrate status epic scope (T14478)', () => {
     );
   });
 
-  it('refuses a positional epic beside a different --epic (T14533)', async () => {
+  it.each([
+    [['T1', '--epic', 'T2']],
+    [['T1', '--epic', 'T2', '--merge-queue']],
+  ])('refuses a positional epic beside a different --epic: %j (T14533)', async (argv) => {
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const before = process.exitCode;
     try {
-      await runCommand(orchestrateCommand, { rawArgs: ['status', 'T1', '--epic', 'T2'] });
+      await runCommand(orchestrateCommand, { rawArgs: ['status', ...argv] });
       expect(dispatchFromCli).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(ExitCode.INVALID_INPUT);
     } finally {

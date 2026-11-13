@@ -171,6 +171,16 @@ const statusCommand = defineCommand({
     },
   },
   async run({ args }) {
+    // T14533: a positional epic beside a different --epic is ambiguous; never pick one silently.
+    if (args.epicId !== undefined && args.epic !== undefined && args.epicId !== args.epic) {
+      cliError(
+        `Two different epics given: positional ${args.epicId} and --epic ${args.epic}.`,
+        'E_INVALID_INPUT',
+        { fix: `Pass one epic: cleo orchestrate status ${args.epic}` },
+      );
+      process.exitCode = ExitCode.INVALID_INPUT;
+      return;
+    }
     if (args['merge-queue']) {
       const repo = BUILD_CONFIG.repository.fullName;
       let queueDepth = 0;
@@ -196,16 +206,6 @@ const statusCommand = defineCommand({
       return;
     }
 
-    // T14533: a positional epic beside a different --epic is ambiguous; never pick one silently.
-    if (args.epicId !== undefined && args.epic !== undefined && args.epicId !== args.epic) {
-      cliError(
-        `Two different epics given: positional ${args.epicId} and --epic ${args.epic}.`,
-        'E_INVALID_INPUT',
-        { fix: `Pass one epic: cleo orchestrate status ${args.epic}` },
-      );
-      process.exitCode = ExitCode.INVALID_INPUT;
-      return;
-    }
     await dispatchFromCli(
       'query',
       'orchestrate',
