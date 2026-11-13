@@ -565,8 +565,8 @@ const STAGED_STATE_DB_NAMES = new Set(
 /**
  * Staged paths that carry CLEO runtime state, at ANY path: the rule the managed
  * pre-commit hook (`templates/git-hooks/pre-commit` §3 and §4) enforces. A
- * database by name; a `.cleo/` path the EXPLICIT DENY block of the checkout's
- * `.cleo/.gitignore` names (T14549); `project-info.json` whose staged content
+ * database by name; a `.cleo/` path the EXPLICIT DENY block of the shipped
+ * `.cleo/.gitignore` template names (T14549); `project-info.json` whose staged content
  * names a `"projectId"`; a `config.json` at `.cleo/config.json` or
  * byte-identical to it.
  *
@@ -598,12 +598,8 @@ export function stagedCleoStatePaths(root: string): string[] | null {
   const configPath = join(root, '.cleo', 'config.json');
   let configBlob: string | null = null;
   const leaked: string[] = [];
-  // T14549: the hook's §4 reads the deny block of the checkout's own
-  // .cleo/.gitignore; read the same file so the two never disagree.
-  const cleoGitignore = join(root, '.cleo', '.gitignore');
-  const denyPatterns = existsSync(cleoGitignore)
-    ? runtimeDenyPatterns(readFileSync(cleoGitignore, 'utf-8'))
-    : [];
+  // T14549: the shipped deny rules — the hook's §4 embeds the same list.
+  const denyPatterns = runtimeDenyPatterns();
   // -z: `:<modes> <old> <new> <status>\0<path>\0` per entry.
   const fields = raw.split('\0');
   for (let i = 0; i + 1 < fields.length; i += 2) {

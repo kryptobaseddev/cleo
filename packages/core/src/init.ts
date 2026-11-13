@@ -47,6 +47,10 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { GitHookInstallOptions } from '@cleocode/contracts/git-hooks.js';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
+import {
+  listTrackedCleoRuntimeFiles,
+  trackedCleoRuntimeWarning,
+} from './doctor/cleo-runtime-tracking.js';
 import { CleoError } from './errors.js';
 import { resolveGitDir, resolveHooksDir } from './git/hooks-install.js';
 import { ensureGitHooks, MANAGED_HOOKS } from './hooks.js';
@@ -1134,6 +1138,21 @@ function assertInitTargetAllowed(
   if (!alreadyInitialized || opts.force || additiveMapOnly) return;
 
   if (target.isCwd) {
+    // T14549: a clone whose git history tracks the store looks initialized.
+    // --force would re-initialize over it; the repair is to untrack instead.
+    const tracked = listTrackedCleoRuntimeFiles(root) ?? [];
+    if (tracked.length > 0) {
+      throw initRefusal(
+        INIT_ERROR_CODES.alreadyInitialized,
+        `Project at ${root} has .cleo runtime files tracked by git (${tracked.join(', ')}), ` +
+          'which a checkout or pull restored. A checkout or pull can replace the live ' +
+          'database while its WAL stays behind and corrupt the store (ADR-013 §9). Untrack ' +
+          'them (files stay on disk), commit, and use the project as is; do not re-initialize ' +
+          'with --force. Nothing was changed.',
+        'cleo doctor --fix',
+        { resolvedRoot: root, tracked },
+      );
+    }
     throw initRefusal(
       INIT_ERROR_CODES.alreadyInitialized,
       `Project already initialized at ${root}. DANGER ZONE: ${FORCE_RESETS}`,
@@ -1645,7 +1664,6 @@ async function scaffoldInitTarget(
 
   // T14549: git-tracked .cleo runtime files corrupt the store on checkout/pull.
   {
-    const { trackedCleoRuntimeWarning } = await import('./doctor/cleo-runtime-tracking.js');
     const tracked = trackedCleoRuntimeWarning(projRoot);
     if (tracked) warnings.push(tracked);
   }

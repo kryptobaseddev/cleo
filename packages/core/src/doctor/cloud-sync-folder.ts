@@ -12,7 +12,8 @@
  *   (Dropbox, OneDrive, Google Drive, Box) and iCloud Drive
  *   (`~/Library/Mobile Documents`).
  * - macOS iCloud "Desktop & Documents": when on, iCloud Drive holds a
- *   `Desktop` and a `Documents` entry (a link to `~/Desktop` / `~/Documents`).
+ *   `Desktop` and a `Documents` link that resolves to `~/Desktop` /
+ *   `~/Documents`. A plain directory there is retained cloud data, not proof.
  * - Home-folder roots on every platform: `~/Dropbox`, `~/OneDrive*`,
  *   `~/Google Drive`, `~/iCloudDrive`, and the `OneDrive*` environment
  *   variables Windows sets.
@@ -67,34 +68,53 @@ function cloudStorageProvider(entry: string): string {
   return entry.split('-')[0] || entry;
 }
 
-/** Candidate synced roots, most specific first. */
-function candidateRoots(home: string, env: NodeJS.ProcessEnv): CloudSyncedFolder[] {
+/** Candidate synced roots, plus the signals that could not be read. */
+interface CandidateScan {
+  /** Synced roots, most specific first. */
+  candidates: CloudSyncedFolder[];
+  /** Signal paths an error (EACCES, EPERM, ...) kept from being read. */
+  unreadable: string[];
+}
+
+/** Error code of a failed filesystem call, for the unreadable list. */
+function errorCode(err: unknown): string {
+  return err instanceof Error && 'code' in err ? String(err.code) : 'error';
+}
+
+/** Candidate synced roots. Never throws: an unreadable signal is recorded, not fatal. */
+function candidateRoots(home: string, env: NodeJS.ProcessEnv): CandidateScan {
   const candidates: CloudSyncedFolder[] = [];
+  const unreadable: string[] = [];
   const iCloudDocs = join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs');
-  // iCloud Desktop & Documents: the entries exist in iCloud Drive only while
-  // the feature is on. A link points at the real folder; a directory (older
-  // macOS) means the home folder of that name is the synced one.
+  // iCloud Desktop & Documents: while the feature is on, iCloud Drive holds a
+  // LINK named Desktop/Documents that resolves to the home folder. Only that
+  // proves the local folder is the synced one; a plain directory there is
+  // cloud data kept after the feature was turned off (Apple support 109344),
+  // next to a fresh, unsynced local folder.
   for (const name of ['Desktop', 'Documents']) {
     const entry = join(iCloudDocs, name);
-    const stat = lstatSync(entry, { throwIfNoEntry: false });
-    if (!stat) continue;
-    candidates.push({
-      provider: 'iCloud Drive (Desktop & Documents)',
-      syncRoot: stat.isSymbolicLink() ? real(entry) : join(home, name),
-    });
+    try {
+      const stat = lstatSync(entry, { throwIfNoEntry: false });
+      const local = join(home, name);
+      if (stat?.isSymbolicLink() && real(entry) === real(local)) {
+        candidates.push({ provider: 'iCloud Drive (Desktop & Documents)', syncRoot: local });
+      }
+    } catch (err) {
+      unreadable.push(`${entry} (${errorCode(err)})`);
+    }
   }
   const cloudStorage = join(home, 'Library', 'CloudStorage');
-  if (existsSync(cloudStorage)) {
-    try {
+  try {
+    if (existsSync(cloudStorage)) {
       for (const entry of readdirSync(cloudStorage)) {
         candidates.push({
           provider: cloudStorageProvider(entry),
           syncRoot: join(cloudStorage, entry),
         });
       }
-    } catch {
-      // Unreadable: no File Provider signal.
     }
+  } catch (err) {
+    unreadable.push(`${cloudStorage} (${errorCode(err)})`);
   }
   candidates.push({
     provider: 'iCloud Drive',
@@ -109,15 +129,49 @@ function candidateRoots(home: string, env: NodeJS.ProcessEnv): CloudSyncedFolder
       if (/^onedrive\b/i.test(entry))
         candidates.push({ provider: 'OneDrive', syncRoot: join(home, entry) });
     }
-  } catch {
-    // Unreadable home: the fixed names below still apply.
+  } catch (err) {
+    unreadable.push(`${home} (${errorCode(err)})`);
   }
   candidates.push(
     { provider: 'Dropbox', syncRoot: join(home, 'Dropbox') },
     { provider: 'Google Drive', syncRoot: join(home, 'Google Drive') },
     { provider: 'iCloud Drive', syncRoot: join(home, 'iCloudDrive') },
   );
-  return candidates;
+  return { candidates, unreadable };
+}
+
+/** Result of {@link scanCloudSyncedFolder}. */
+export interface CloudSyncScan {
+  /** The synced folder holding the project, or `null` when no signal matched. */
+  found: CloudSyncedFolder | null;
+  /** Signals that could not be read; a `null` `found` is then not proof of absence. */
+  unreadable: string[];
+}
+
+/**
+ * Scan the local cloud-sync signals for `projectRoot`. Never throws.
+ *
+ * @param projectRoot - Project root to test.
+ * @param opts - Injected home and environment.
+ * @returns The match (if any) and every signal that could not be read.
+ * @task T14549
+ */
+export function scanCloudSyncedFolder(
+  projectRoot: string,
+  opts: CloudSyncDetectOptions = {},
+): CloudSyncScan {
+  const home = opts.home ?? homedir();
+  const env = opts.env ?? process.env;
+  const root = real(projectRoot);
+  const { candidates, unreadable } = candidateRoots(home, env);
+  for (const candidate of candidates) {
+    for (const syncRoot of new Set([real(candidate.syncRoot), resolve(candidate.syncRoot)])) {
+      if (within(syncRoot, root)) {
+        return { found: { provider: candidate.provider, syncRoot }, unreadable };
+      }
+    }
+  }
+  return { found: null, unreadable };
 }
 
 /**
@@ -132,15 +186,7 @@ export function detectCloudSyncedFolder(
   projectRoot: string,
   opts: CloudSyncDetectOptions = {},
 ): CloudSyncedFolder | null {
-  const home = opts.home ?? homedir();
-  const env = opts.env ?? process.env;
-  const root = real(projectRoot);
-  for (const candidate of candidateRoots(home, env)) {
-    for (const syncRoot of new Set([real(candidate.syncRoot), resolve(candidate.syncRoot)])) {
-      if (within(syncRoot, root)) return { provider: candidate.provider, syncRoot };
-    }
-  }
-  return null;
+  return scanCloudSyncedFolder(projectRoot, opts).found;
 }
 
 /**
@@ -149,14 +195,28 @@ export function detectCloudSyncedFolder(
  *
  * @param projectRoot - Project root.
  * @param opts - Injected home and environment (tests).
- * @returns `warning` naming the service and folder, else `passed`.
+ * @returns `warning` naming the service and folder, `info` when a signal could
+ *   not be read and nothing matched, else `passed`.
  * @task T14549
  */
 export function checkCloudSyncedProject(
   projectRoot: string,
   opts: CloudSyncDetectOptions = {},
 ): CheckResult {
-  const found = detectCloudSyncedFolder(projectRoot, opts);
+  const { found, unreadable } = scanCloudSyncedFolder(projectRoot, opts);
+  if (!found && unreadable.length > 0) {
+    // Advisory: an unreadable signal never aborts doctor or --fix.
+    return {
+      id: 'cloud_synced_project',
+      category: 'configuration',
+      status: 'info',
+      message:
+        'Cloud-sync check incomplete: could not read ' +
+        `${unreadable.join(', ')}; the project may still be inside a synced folder`,
+      details: { unreadable },
+      fix: null,
+    };
+  }
   if (!found) {
     return {
       id: 'cloud_synced_project',
@@ -175,7 +235,7 @@ export function checkCloudSyncedProject(
       `Project ${projectRoot} is inside a ${found.provider} synced folder (${found.syncRoot}). ` +
       'SQLite WAL files (.cleo/cleo.db, -wal, -shm) corrupt under file sync: the service ' +
       'uploads and restores them separately. Move the project out of the synced folder',
-    details: { provider: found.provider, syncRoot: found.syncRoot },
+    details: { provider: found.provider, syncRoot: found.syncRoot, unreadable },
     fix: `Move the project to a folder ${found.provider} does not sync (for example ~/projects), then run it from there`,
   };
 }

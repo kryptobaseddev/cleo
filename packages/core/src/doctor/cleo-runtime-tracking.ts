@@ -103,6 +103,19 @@ export function isCleoRuntimePath(
   return compileDenyPatterns(patterns)(rel);
 }
 
+/**
+ * Whether a project-relative path is a SQLite store file or sidecar
+ * (`*.db`, `*.db-wal`, `*.db-shm`, `*.db-journal`), the files whose tracking
+ * corrupts the store on checkout.
+ *
+ * @param path - Project-relative path.
+ * @returns `true` for a SQLite database file or sidecar.
+ * @task T14549
+ */
+export function isSqliteStorePath(path: string): boolean {
+  return /\.db(-wal|-shm|-journal)?$/.test(path);
+}
+
 /** Run git in `cwd` with no ambient repo variables; `null` on any failure. */
 function git(cwd: string, args: readonly string[]): string | null {
   try {
@@ -147,8 +160,9 @@ export function trackedCleoRuntimeWarning(projectRoot: string): string | null {
   if (!tracked || tracked.length === 0) return null;
   return (
     `git tracks ${tracked.length} .cleo runtime file(s) (${tracked.join(', ')}); a checkout or ` +
-    'pull can then replace the live database while its WAL stays behind and corrupt the store ' +
-    '(ADR-013 §9). Fix: cleo doctor --fix (untracks them with git rm --cached; files stay on disk)'
+    'pull overwrites them, and for the SQLite store that replaces the live database while ' +
+    'its WAL stays behind (ADR-013 §9). Fix: cleo doctor --fix (untracks them with git rm ' +
+    '--cached; files stay on disk)'
   );
 }
 
@@ -172,15 +186,31 @@ export function checkTrackedCleoRuntime(projectRoot: string): CheckResult {
     };
   }
   if (tracked.length > 0) {
+    const sqlite = tracked.filter(isSqliteStorePath);
+    const other = tracked.filter((path) => !isSqliteStorePath(path));
+    // SQLite store files and sidecars corrupt the store on checkout; other
+    // runtime files (config, logs, metrics) lose local state but cannot
+    // desynchronize a WAL, so they warn.
+    const parts: string[] = [];
+    if (sqlite.length > 0) {
+      parts.push(
+        `git tracks ${sqlite.length} .cleo SQLite store file(s): ${sqlite.join(', ')}. A ` +
+          'checkout or pull can replace the live database while its WAL stays behind and ' +
+          'corrupt the store (ADR-013 §9, T5158)',
+      );
+    }
+    if (other.length > 0) {
+      parts.push(
+        `git tracks ${other.length} other .cleo runtime file(s): ${other.join(', ')}. A ` +
+          'checkout or pull overwrites this local runtime state',
+      );
+    }
     return {
       id: 'tracked_cleo_runtime',
       category: 'configuration',
-      status: 'failed',
-      message:
-        `git tracks ${tracked.length} .cleo runtime file(s): ${tracked.join(', ')}. A checkout ` +
-        'or pull can replace the live database while its WAL stays behind and corrupt the ' +
-        'store (ADR-013 §9, T5158)',
-      details: { tracked },
+      status: sqlite.length > 0 ? 'failed' : 'warning',
+      message: parts.join('. '),
+      details: { tracked, sqlite, other },
       fix: 'cleo doctor --fix',
     };
   }
@@ -230,7 +260,7 @@ export async function untrackCleoRuntimeFiles(
   }
   // The deny rules must be in place before untracking, or the next
   // `git add -A` stages the files again.
-  await ensureGitignore(projectRoot);
+  await ensureGitignore(projectRoot, { checkoutOnly: true });
   // Batched to stay under the argument-length limit on large backup trees.
   for (let i = 0; i < tracked.length; i += 500) {
     const batch = tracked.slice(i, i + 500);

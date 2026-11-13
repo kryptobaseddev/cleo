@@ -114,13 +114,15 @@ naming a `"projectId"`, and `.cleo/config.json` or a byte-identical copy. It lis
 paths and `git reset -q -- <paths>`; `cleo doctor` runs the same rule (`staged_cleo_state`).
 This repository's `.githooks/pre-commit` calls the template rather than copying it.
 
-It also refuses any staged `.cleo/` path the EXPLICIT DENY block of the checkout's
-`.cleo/.gitignore` names (backups, quarantine, logs, caches; T14549), printing
-`git rm --cached -q -- <paths>` and `cleo doctor --fix`; `staged_cleo_state` reads the
-same block. A FOREIGN pre-commit (no CLEO marker) is chained, not skipped: it moves to
-`pre-commit.cleo-chained` and runs after CLEO's checks with its exit status intact. A
-customized CLEO copy is still preserved. `cleo doctor` fails on git-tracked `.cleo`
-runtime files (`tracked_cleo_runtime`; `--fix` runs `git rm --cached` only and prints
+It also refuses any added or modified `.cleo/` path the shipped `.cleo/.gitignore` EXPLICIT
+DENY rules name (backups, quarantine, logs, caches; T14549). The rules are embedded in the
+hook, so a user-edited `.cleo/.gitignore` cannot disable it, and a test keeps them equal to
+the template. It prints `git rm --cached -q -- <paths>` and `cleo doctor --fix`; staged
+deletions (the repair) always pass. A FOREIGN pre-commit (no CLEO marker) is chained, not
+skipped: it moves to `pre-commit.cleo-chained` and runs FIRST, so every check sees the
+index it leaves; its failure stops the commit. A customized CLEO copy is still preserved.
+`cleo doctor` reports git-tracked `.cleo` runtime files (`tracked_cleo_runtime`: error for
+SQLite store files and sidecars, warning for the rest; `--fix` runs `git rm --cached` only and prints
 the commit) and `cleo init`, `cleo upgrade` and `cleo session start` warn about them.
 
 `cleo init` and `cleo upgrade` no longer seed the CleoOS hub (Pi extensions, CANT

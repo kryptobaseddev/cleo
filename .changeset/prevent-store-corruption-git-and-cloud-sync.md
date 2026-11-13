@@ -15,8 +15,9 @@ Two known causes corrupt a project's `.cleo/cleo.db`:
 
 CLEO now prevents both:
 
-- `cleo doctor` fails with the name of each `.cleo/` runtime file git tracks.
-  The runtime set is the EXPLICIT DENY block of the shipped `.cleo/.gitignore`,
+- `cleo doctor` names each `.cleo/` runtime file git tracks: an error for
+  SQLite store files and their sidecars, a warning for other runtime files
+  (config, logs, metrics). The runtime set is the EXPLICIT DENY block of the shipped `.cleo/.gitignore`,
   which now also denies `quarantine/`. The tracked identity files
   (`project.json`, `project-id`) are never flagged.
 - `cleo doctor --fix` untracks those files with `git rm --cached` only.
@@ -25,10 +26,14 @@ CLEO now prevents both:
 - `cleo doctor` warns when git history holds a commit that added a runtime
   file. History is reported, never rewritten.
 - `cleo doctor` warns, and never blocks, when the project root is inside a
-  cloud-synced folder. Detection uses local filesystem signals only.
-- The managed pre-commit hook refuses a commit that stages a `.cleo/` path the
-  deny list names, and names the fix. A foreign pre-commit hook is no longer
-  skipped. It is chained instead: its content is kept and it runs after
-  CLEO's checks.
+  cloud-synced folder. Detection uses local filesystem signals only; an
+  unreadable signal makes the check incomplete, never fatal.
+- The managed pre-commit hook refuses a commit that adds or modifies a
+  `.cleo/` path the deny list names, and names the fix. Staged deletions pass,
+  so the repair commit goes through. A foreign pre-commit hook is no longer
+  skipped. It is chained instead: its content is kept, and it runs first so
+  CLEO checks the index it leaves.
 - `cleo init`, `cleo upgrade` and `cleo session start` warn when git tracks
   runtime files and give the fix. The check costs one `git ls-files` call.
+  `cleo init` on a clone that tracks the store refuses with the untrack fix
+  instead of recommending `--force`.

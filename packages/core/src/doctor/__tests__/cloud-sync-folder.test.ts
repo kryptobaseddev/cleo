@@ -6,11 +6,15 @@
  * @task T14549
  */
 
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { checkCloudSyncedProject, detectCloudSyncedFolder } from '../cloud-sync-folder.js';
+import {
+  checkCloudSyncedProject,
+  detectCloudSyncedFolder,
+  scanCloudSyncedFolder,
+} from '../cloud-sync-folder.js';
 
 let home: string;
 
@@ -50,6 +54,45 @@ describe('T14549: cloud-synced project folders', () => {
     expect(detectCloudSyncedFolder(project, { home, env: {} })).toBeNull();
     expect(checkCloudSyncedProject(project, { home, env: {} }).status).toBe('passed');
   });
+
+  it('does not flag ~/Documents when sync is off but iCloud kept a Documents directory', () => {
+    // Apple support 109344: turning the feature off keeps the cloud copy in
+    // iCloud Drive and creates a fresh, unsynced local ~/Documents.
+    const project = dir('Documents', 'code', 'app');
+    dir('Library', 'Mobile Documents', 'com~apple~CloudDocs', 'Documents', 'old-files');
+    dir('Library', 'Mobile Documents', 'com~apple~CloudDocs', 'Desktop');
+    expect(detectCloudSyncedFolder(project, { home, env: {} })).toBeNull();
+    expect(checkCloudSyncedProject(project, { home, env: {} }).status).toBe('passed');
+  });
+
+  it('does not flag ~/Documents when the iCloud link points somewhere else', () => {
+    const project = dir('Documents', 'code', 'app');
+    const cloudDocs = dir('Library', 'Mobile Documents', 'com~apple~CloudDocs');
+    symlinkSync(dir('elsewhere'), join(cloudDocs, 'Documents'));
+    expect(detectCloudSyncedFolder(project, { home, env: {} })).toBeNull();
+  });
+
+  it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)(
+    'degrades to info, never throws, when a signal is unreadable (EACCES)',
+    () => {
+      const project = dir('Documents', 'code', 'app');
+      const cloudDocs = dir('Library', 'Mobile Documents', 'com~apple~CloudDocs');
+      const cloudStorage = dir('Library', 'CloudStorage');
+      chmodSync(cloudDocs, 0o000);
+      chmodSync(cloudStorage, 0o000);
+      try {
+        const scan = scanCloudSyncedFolder(project, { home, env: {} });
+        expect(scan.found).toBeNull();
+        expect(scan.unreadable.length).toBeGreaterThan(0);
+        const check = checkCloudSyncedProject(project, { home, env: {} });
+        expect(check.status).toBe('info');
+        expect(check.message).toContain('could not read');
+      } finally {
+        chmodSync(cloudDocs, 0o755);
+        chmodSync(cloudStorage, 0o755);
+      }
+    },
+  );
 
   it.each([
     [
