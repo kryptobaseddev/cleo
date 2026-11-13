@@ -1,6 +1,5 @@
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
-import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
+import { cleoWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
 
 export default defineConfig({
@@ -14,7 +13,7 @@ export default defineConfig({
     // project's own root, so tests ran at vitest's 5 s default (see T13625).
     testTimeout: 120_000,
     hookTimeout: 120_000,
-    alias: withWorkspaceSubpathAliases({ '@cleocode/paths': fileURLToPath(new URL('../paths/src/index.ts', import.meta.url)) }),
+    alias: cleoWorkspaceSubpathAliases(),
     name: '@cleocode/worktree',
     globals: true,
     environment: 'node',

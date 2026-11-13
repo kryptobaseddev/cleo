@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cleoWorkspaceSubpathAliases,
   resolveWorkspaceSource,
+  withWorkspaceSubpathAliases,
 } from '../../vitest-workspace-resolver.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -45,6 +46,30 @@ describe('resolveWorkspaceSource', () => {
     const [alias] = cleoWorkspaceSubpathAliases();
     expect(alias.customResolver('@cleocode/nexus/reference-spool')).toBe(
       resolve(ROOT, 'packages/nexus/src/pipeline/reference-spool.ts'),
+    );
+  });
+
+  it('rejects a @cleocode alias the resolver would shadow', () => {
+    expect(() => withWorkspaceSubpathAliases({ '@cleocode/core': '/x.ts' })).toThrow(
+      /@cleocode\/core can never apply/,
+    );
+    expect(withWorkspaceSubpathAliases({ $lib: '/lib' }).at(-1)).toEqual({
+      find: '$lib',
+      replacement: '/lib',
+    });
+  });
+});
+
+// T14525: `@cleocode/core/paths` and `@cleocode/core/paths.js` are two exports
+// naming two files, so they are two module ids. The vi.doMock proof runs under
+// core's alias config: packages/core/src/__tests__/paths-module-identity.test.ts.
+describe('@cleocode/core/paths module identity', () => {
+  it('follows the exports map for both specifiers', () => {
+    expect(resolveWorkspaceSource('@cleocode/core/paths.js', packages)).toBe(
+      resolve(ROOT, 'packages/core/src/paths.ts'),
+    );
+    expect(resolveWorkspaceSource('@cleocode/core/paths', packages)).toBe(
+      resolve(ROOT, 'packages/core/src/paths-export.ts'),
     );
   });
 });
