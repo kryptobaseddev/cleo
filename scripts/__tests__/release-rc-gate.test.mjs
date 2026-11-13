@@ -285,11 +285,15 @@ describe('T14516 — stable dependencies are installable before the CLI reaches 
     expect(log.indexOf(latest.find((l) => l.startsWith('publish cleo ')))).toBeGreaterThan(gate);
   });
 
-  it('a failed or timed-out stable check never publishes the CLI to latest', () => {
-    const { status, log } = runPublish({ rc: RC, stablePayloadExit: 1 });
-    expect(status).not.toBe(0);
+  it.each([1, 2])('retains the timeline and skips the CLI on exit %i', (stablePayloadExit) => {
+    const { status, log } = runPublish({ rc: RC, stablePayloadExit });
+    expect(status).toBe(stablePayloadExit);
     expect(publishes(log, 'latest')).toHaveLength(PACKAGES.length - 1);
     expect(publishes(log, 'latest').some((l) => l.startsWith('publish cleo '))).toBe(false);
+    const summary = readFileSync(path.join(dir, 'summary.md'), 'utf8');
+    expect(summary).toContain(`### npm publish timeline — v${VERSION}\n`);
+    expect(summary).toContain('| `runtime` | PUBLISHED |');
+    expect(summary).toContain('| `cleo` | NOT-ATTEMPTED |');
   });
 
   it('retains dependency timings even when the gate fails', () => {

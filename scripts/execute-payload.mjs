@@ -58,7 +58,7 @@
  * Exit codes:
  *   0 — all steps passed
  *   1 — one or more packages never became installable, or served a wrong version
- *   2 — the check could not run (SSoT unreadable, or it named zero packages)
+ *   2 — invalid arguments, or the check could not run (SSoT unreadable/empty)
  *
  * Usage:
  *   node scripts/execute-payload.mjs --version 2026.4.xxx --dist-tag latest [--output-dir /tmp]
@@ -521,7 +521,15 @@ export function parseArgs(argv) {
  * @returns {Promise<number>} Process exit code.
  */
 export async function main() {
-  const { version, outputDir, distTag, beforePackage } = parseArgs(process.argv.slice(2));
+  /** @type {ReturnType<typeof parseArgs>} */
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    return 2;
+  }
+  const { version, outputDir, distTag, beforePackage } = args;
   if (!version) {
     console.error('ERROR: --version <VERSION> is required');
     return 1;
