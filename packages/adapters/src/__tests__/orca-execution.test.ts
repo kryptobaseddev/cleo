@@ -21,8 +21,14 @@ import {
   runOrcaFixture,
 } from './orca-execution-fixture.js';
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, rm: vi.fn(actual.rm) };
+});
+
 describe('Orca execution process boundary', () => {
   beforeEach(() => {
+    vi.mocked(rm).mockClear();
     fixtureRunner.mockReset().mockImplementation(runOrcaFixture);
     orcaFixture.launch = { ...fixtureLaunch };
     orcaFixture.start = fixtureStart();
@@ -353,6 +359,7 @@ describe('Orca execution process boundary', () => {
     .skipIf(process.platform === 'win32')
     .each([
       'ready',
+      'create-before-start',
       'login-wrapper',
       'ps-from-path',
       'ps-fallback',
@@ -363,14 +370,20 @@ describe('Orca execution process boundary', () => {
       'background',
       'hidden-after-create',
       'cleanup-unverified',
+      'cleanup-race',
+      'cleanup-race-persistent',
+      'cleanup-both-failed',
       'not-navigated',
       'pid-mismatch',
       'missing-terminal-pid',
       'recorder-failed',
       'wrong-runtime',
       'lost-receipt',
+      'lost-receipt-before-start',
+      'lost-receipt-race',
     ] as const)(
     'gates the exact terminal argv before a model turn: %s (inert executable only)',
+    { repeats: 2 },
     async (condition) => {
       vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
       // The terminal's inherited environment holds a trust variable the launch unsets (T14515).
@@ -418,6 +431,13 @@ else {
       ];
       let child: ChildProcess | undefined;
       let exit: Promise<void> | undefined;
+      let startupDir = '';
+      let cleanupAttempts = 0;
+      let closedBeforeCleanup = false;
+      const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      const cleanupRace = condition.includes('race') || condition === 'cleanup-both-failed';
+      const persistentCleanupRace =
+        condition === 'cleanup-race-persistent' || condition === 'cleanup-both-failed';
       const started = vi.fn<(pid: number, terminal?: OrcaLeadTerminal) => Promise<void>>(
         async () => {
           await new Promise((resolve) => setTimeout(resolve, 250));
@@ -433,18 +453,51 @@ else {
           });
         if (argv[0] === 'terminal' && argv[1] === 'create') {
           const command = argv[argv.indexOf('--command') + 1];
+          const directory = readdirSync(root).find((name) => name.startsWith('orca-terminal-'));
+          if (!directory) throw new Error('Missing guarded launch directory');
+          startupDir = join(root, directory);
+          const startup =
+            condition === 'lost-receipt' || condition === 'lost-receipt-race'
+              ? watch(startupDir)
+              : undefined;
+          const pidWritten = startup ? once(startup, 'change') : undefined;
+          const startsLate =
+            condition === 'lost-receipt-before-start' || condition === 'create-before-start';
           child = spawn(
             '/bin/sh',
             [
               '-c',
-              condition === 'login-wrapper' || condition === 'ps-newer-parent'
-                ? `${command} & wait`
-                : (command ?? 'exit 99'),
+              startsLate
+                ? `read -r release; ${command}`
+                : condition === 'login-wrapper' || condition === 'ps-newer-parent'
+                  ? `${command} & wait`
+                  : (command ?? 'exit 99'),
             ],
-            { stdio: 'ignore' },
+            {
+              stdio: [startsLate ? 'pipe' : 'ignore', 'ignore', 'ignore'],
+            },
           );
-          exit = new Promise<void>((resolve) => child?.once('exit', () => resolve()));
-          if (condition === 'lost-receipt') return { stdout: '', stderr: 'lost', exitCode: null };
+          exit = new Promise<void>((resolve, reject) =>
+            child?.once('exit', () => resolve()).once('error', reject),
+          );
+          try {
+            // Explicit after-start receipt loss must leave an already looping shell unowned.
+            if (pidWritten)
+              await Promise.race([
+                pidWritten,
+                exit.then(() => {
+                  throw new Error('Guarded shell exited before publishing its PID');
+                }),
+              ]);
+          } finally {
+            startup?.close();
+          }
+          if (condition === 'create-before-start') {
+            expect(existsSync(join(startupDir, 'pid'))).toBe(false);
+            setImmediate(() => child?.stdin?.end('\n'));
+          }
+          if (condition.startsWith('lost-receipt'))
+            return { stdout: '', stderr: 'lost', exitCode: null };
           return fixtureReply({
             terminal: {
               handle: 'term_lead',
@@ -463,14 +516,21 @@ else {
               executionHostId: 'local',
               incarnationId: 'incarnation-lead',
               hostPlatform: process.platform,
-              surface: condition === 'background' ? 'background' : 'visible',
+              surface:
+                condition === 'background' || condition.startsWith('cleanup-race')
+                  ? 'background'
+                  : 'visible',
             },
           });
         }
         if (argv[0] === 'terminal' && argv[1] === 'close') {
           child?.kill('SIGTERM');
+          await exit;
           return fixtureReply({
-            close: { handle: 'term_lead', ptyKilled: condition !== 'cleanup-unverified' },
+            close: {
+              handle: 'term_lead',
+              ptyKilled: condition !== 'cleanup-unverified' && condition !== 'cleanup-both-failed',
+            },
           });
         }
         if (argv[0] === 'terminal' && argv[1] === 'switch') {
@@ -488,7 +548,10 @@ else {
             terminal: {
               handle: 'term_lead',
               connected: true,
-              writable: condition !== 'disconnected' && condition !== 'cleanup-unverified',
+              writable:
+                condition !== 'disconnected' &&
+                condition !== 'cleanup-unverified' &&
+                condition !== 'cleanup-both-failed',
               executionHostId: 'local',
               worktreePath: cwd,
               tabId: 'tab-lead',
@@ -502,6 +565,22 @@ else {
         return runOrcaFixture(...params);
       });
       try {
+        if (cleanupRace)
+          vi.mocked(rm).mockImplementation(async (path, options) => {
+            expect(path).toBe(startupDir);
+            if (cleanupAttempts === 0)
+              closedBeforeCleanup = fixtureRunner.mock.calls.some(
+                ([, argv]) => argv[1] === 'close',
+              );
+            cleanupAttempts++;
+            if (cleanupAttempts > 1 && !persistentCleanupRace) return actualFs.rm(path, options);
+            // Force rimraf's enumerate -> late PID write -> rmdir interleaving with real I/O.
+            await actualFs.mkdir(startupDir, { recursive: true });
+            for (const name of await actualFs.readdir(startupDir))
+              await actualFs.rm(join(startupDir, name), { recursive: true, force: true });
+            await actualFs.writeFile(join(startupDir, 'pid'), 'late writer');
+            await actualFs.rmdir(startupDir);
+          });
         const result = new OrcaExecutionBackend(fixtureRunner).startLead(
           {
             command: binary,
@@ -517,9 +596,31 @@ else {
           },
           started,
         );
-        const ready = ['ready', 'login-wrapper', 'ps-from-path', 'ps-fallback'].includes(condition);
+        const ready = [
+          'ready',
+          'create-before-start',
+          'login-wrapper',
+          'ps-from-path',
+          'ps-fallback',
+        ].includes(condition);
         if (!ready) {
           await expect(result).rejects.toThrow();
+          if (cleanupRace) {
+            await expect(result).rejects.toMatchObject({
+              code: condition.startsWith('lost-receipt')
+                ? 'E_ORCA_RECEIPT'
+                : 'E_LEAD_TOOLS_UNSTRIPPED',
+            });
+            expect(closedBeforeCleanup).toBe(!condition.startsWith('lost-receipt'));
+            expect(cleanupAttempts).toBe(persistentCleanupRace ? 3 : 2);
+            expect(existsSync(startupDir)).toBe(persistentCleanupRace);
+          }
+          if (persistentCleanupRace)
+            await expect(result).rejects.toMatchObject({
+              message: expect.stringMatching(
+                /startup directory.*cleanup is unverified:.*ENOTEMPTY/,
+              ),
+            });
           if (condition === 'pid-mismatch')
             await expect(result).rejects.toMatchObject({
               details: {
@@ -529,7 +630,7 @@ else {
                 observedParentPid: process.pid,
               },
             });
-          if (condition === 'cleanup-unverified')
+          if (condition === 'cleanup-unverified' || condition === 'cleanup-both-failed')
             await expect(result).rejects.toMatchObject({
               code: 'E_LEAD_TOOLS_UNSTRIPPED',
               message: expect.stringContaining('cleanup is unverified'),
@@ -577,11 +678,17 @@ else {
         ).toBe(false);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'create')).toHaveLength(1);
         expect(fixtureRunner.mock.calls.filter(([, argv]) => argv[1] === 'close')).toHaveLength(
-          ready || condition === 'lost-receipt' ? 0 : 1,
+          ready || condition.startsWith('lost-receipt') ? 0 : 1,
         );
-        if (condition === 'lost-receipt')
-          await expect.poll(() => child?.exitCode, { timeout: 1500 }).toBeTypeOf('number');
+        if (condition.startsWith('lost-receipt')) {
+          if (condition === 'lost-receipt-before-start') child?.stdin?.end('\n');
+          await exit;
+          expect(child?.exitCode).toBeTypeOf('number');
+          expect(child?.exitCode).not.toBe(0);
+          expect(existsSync(capture)).toBe(false);
+        }
       } finally {
+        vi.mocked(rm).mockImplementation(actualFs.rm);
         child?.kill('SIGTERM');
         await exit;
         rmSync(root, { recursive: true, force: true });
@@ -1795,14 +1902,18 @@ else {
 });
 
 import { type ChildProcess, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
+  watch,
   writeFileSync,
 } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

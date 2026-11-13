@@ -269,6 +269,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
    * Host Claude Code's prepared guard argv in a local Orca terminal. The shell
    * waits for a private release file, so a missing receipt, wrong runtime or
    * disconnected owner terminal cannot start a model turn. Never retry create.
+   * Refusals close a known terminal before bounded cleanup and retain their original code.
    * @param launch - The provider's guarded command and private startup directory.
    * @param onStarted - Persists the terminal and PID before any model turn is allowed.
    * @returns The verified terminal handle and provider PID.
@@ -518,7 +519,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       await rename(`${release}.tmp`, release);
       return started;
     } catch (error) {
-      await rm(dir, { recursive: true, force: true });
+      const cleanupFailures: string[] = [];
       if (terminalHandle) {
         try {
           await this.verifyRuntime(launch.cwd, context);
@@ -532,15 +533,38 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
           if (closed?.handle !== terminalHandle || !closed.ptyKilled)
             throw refuse('Orca did not prove terminal cleanup.');
         } catch (cleanupError) {
-          throw new OrcaExecutionError(
-            error instanceof OrcaExecutionError ? error.code : ORCA_LEAD_LAUNCH_REFUSAL.code,
-            `${error instanceof Error ? error.message : String(error)}; terminal ${terminalHandle} cleanup is unverified: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-            `${error instanceof OrcaExecutionError ? error.fix : 'Restore the guarded terminal transport.'} Inspect orca terminal show --terminal ${terminalHandle} before closing that exact terminal.`,
-            error instanceof OrcaExecutionError ? error.receipt : null,
-            error instanceof OrcaExecutionError ? (error.details ?? diagnostic) : diagnostic,
+          cleanupFailures.push(
+            `terminal ${terminalHandle} cleanup is unverified: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
           );
         }
       }
+      // A lost receipt leaves an unowned shell that can publish its PID during removal.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await rm(dir, { recursive: true, force: true });
+          break;
+        } catch (cleanupError) {
+          if (
+            attempt < 2 &&
+            cleanupError instanceof Error &&
+            'code' in cleanupError &&
+            cleanupError.code === 'ENOTEMPTY'
+          )
+            continue;
+          cleanupFailures.push(
+            `startup directory ${dir} cleanup is unverified: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+          );
+          break;
+        }
+      }
+      if (cleanupFailures.length > 0)
+        throw new OrcaExecutionError(
+          error instanceof OrcaExecutionError ? error.code : ORCA_LEAD_LAUNCH_REFUSAL.code,
+          `${error instanceof Error ? error.message : String(error)}; ${cleanupFailures.join('; ')}`,
+          `${error instanceof OrcaExecutionError ? error.fix : 'Restore the guarded terminal transport.'} ${terminalHandle ? `Inspect orca terminal show --terminal ${terminalHandle} before closing that exact terminal. ` : ''}Inspect the private startup directory ${dir} before removing it.`,
+          error instanceof OrcaExecutionError ? error.receipt : null,
+          error instanceof OrcaExecutionError ? (error.details ?? diagnostic) : diagnostic,
+        );
       throw error;
     }
   }
