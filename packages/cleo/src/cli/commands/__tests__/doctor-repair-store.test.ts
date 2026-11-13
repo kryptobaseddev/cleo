@@ -115,7 +115,7 @@ describe('doctor repair-store', () => {
       'global malformed',
       3,
       { name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' },
-      { command: 'doctor', operation: 'admin.health' },
+      { operation: 'admin.health' },
     );
     expect(process.exitCode).toBe(3);
     expect(mocks.repair).not.toHaveBeenCalled();

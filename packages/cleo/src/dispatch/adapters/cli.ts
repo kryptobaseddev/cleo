@@ -481,7 +481,7 @@ export async function dispatchFromCli(
         error.message,
         3,
         { name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' },
-        outputOpts,
+        { operation: outputOpts?.operation ?? `${domain}.${operation}` },
       );
       process.exitCode = 3;
       return;
