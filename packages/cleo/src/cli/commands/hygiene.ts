@@ -128,7 +128,7 @@ export const hygieneCommand = defineCommand({
           process.on('SIGTERM', terminate);
           try {
             return await reportWorktreeCensus(options, controller.signal, (message) => {
-              process.stderr.write(`[cleo hygiene] ${message}\n`);
+              process.stderr.write(`[cleo hygiene] ${message}\n`); // json-stream-hygiene-allowed: T14538 scan progress; stdout carries the result envelope
             });
           } finally {
             process.removeListener('SIGINT', interrupt);
