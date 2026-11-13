@@ -208,7 +208,8 @@ function checkAuditLogAvailability(dbPath: string): HealthCheck {
 
 export interface HealthCheck {
   name: string;
-  status: 'pass' | 'warn' | 'fail';
+  /** `info`: the check could not complete (coverage missing, T14549) — never a pass. */
+  status: 'pass' | 'warn' | 'fail' | 'info';
   message?: string;
   /** Machine-readable detail for checks that carry more than a message (T12886). */
   details?: Record<string, unknown>;
@@ -450,10 +451,19 @@ export async function getSystemHealth(
     checkRuntimeFileHistory(projectRoot),
     checkCloudSyncedProject(projectRoot),
   ]) {
-    if (result.status === 'info') continue;
+    // `info` is either "not a git repository" (nothing to report) or a check
+    // that could not complete (`details.incomplete`), which is surfaced.
+    const incomplete = result.status === 'info' && result.details['incomplete'] === true;
+    if (result.status === 'info' && !incomplete) continue;
     checks.push({
       name: result.id,
-      status: result.status === 'passed' ? 'pass' : result.status === 'warning' ? 'warn' : 'fail',
+      status: incomplete
+        ? 'info'
+        : result.status === 'passed'
+          ? 'pass'
+          : result.status === 'warning'
+            ? 'warn'
+            : 'fail',
       message: result.fix ? `${result.message}. Fix: ${result.fix}` : result.message,
       details: result.details,
     });

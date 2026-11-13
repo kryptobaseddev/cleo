@@ -23,6 +23,7 @@ import {
   checkRuntimeFileHistory,
   checkTrackedCleoRuntime,
   isCleoRuntimePath,
+  type RuntimeFileAddition,
   runtimeDenyPatterns,
   trackedCleoRuntimeWarning,
   untrackCleoRuntimeFiles,
@@ -163,10 +164,35 @@ describe('T14549: git-tracked .cleo runtime files', () => {
     const check = checkRuntimeFileHistory(repo);
     expect(check.status).toBe('warning');
     expect(check.message).toContain(head.slice(0, 12));
-    const additions = check.details['additions'] as Array<{ sha: string; paths: string[] }>;
+    const additions = check.details['additions'] as RuntimeFileAddition[];
     expect(additions).toHaveLength(1);
     expect(additions[0]?.sha).toBe(head);
     expect([...(additions[0]?.paths ?? [])].sort()).toEqual(RUNTIME);
+  });
+
+  it('history counts a runtime file added only on another branch (AC6, all refs)', () => {
+    // HEAD moves to an unrelated root commit; only the original branch still
+    // holds the commit that added the runtime files.
+    git('checkout', '-q', '--orphan', 'clean');
+    git('rm', '-r', '-q', '--cached', '.');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '-q', '--allow-empty', '-m', 'T14549 clean');
+    expect(git('log', '--format=%H').trim().split('\n')).toHaveLength(1);
+    const check = checkRuntimeFileHistory(repo);
+    expect(check.status).toBe('warning');
+    const additions = check.details['additions'] as RuntimeFileAddition[];
+    expect(additions.flatMap((a) => a.paths)).toContain('.cleo/cleo.db');
+    expect(check.message).toContain('all refs');
+  });
+
+  it('reports a failed git read inside a repository as incomplete, never as clean', async () => {
+    writeFileSync(join(repo, '.git', 'index'), 'not an index');
+    const check = checkTrackedCleoRuntime(repo);
+    expect(check.status).toBe('info');
+    expect(check.details['incomplete']).toBe(true);
+    expect(check.message).toContain('Check incomplete');
+    expect(check.message).not.toContain('Not a git repository');
+    const fixed = await untrackCleoRuntimeFiles(repo);
+    expect(fixed.action).toBe('failed');
   });
 
   it('--fix untracks with git rm --cached only, keeps files byte-identical, is idempotent (AC2)', async () => {
@@ -251,6 +277,25 @@ describe('T14549: managed pre-commit refuses staged .cleo runtime files (AC3)', 
       expect(run.output).toContain(path);
       expect(run.output).toContain('git rm --cached -q --');
     }
+  });
+
+  it.each([
+    ['a quote', '.cleo/private"store.db'],
+    ['spaces', '.cleo/backups/my store copy.db'],
+    ['a single quote', ".cleo/quarantine/it's.json"],
+  ])('refuses a runtime name containing %s, with a fix that names it literally', (_label, path) => {
+    write(path, 'x\n');
+    git('add', '-f', '--', path);
+    expect(stagedCleoStatePaths(repo)).toEqual([path]);
+    const run = commit('T14549 leak');
+    expect(run.code).toBe(1);
+    expect(run.output).toContain(`  ${path}\n`);
+    const fix = /^To fix: (git rm --cached -q -- .*)$/m.exec(run.output)?.[1];
+    expect(fix).toBeDefined();
+    // The printed command, run by a shell, untracks exactly that file.
+    execFileSync('sh', ['-c', fix ?? 'false'], { cwd: repo, env: discoveryEnv() });
+    expect(git('diff', '--cached', '--name-only').trim()).toBe('');
+    expect(stagedCleoStatePaths(repo)).toEqual([]);
   });
 
   it('refuses even when the checkout .cleo/.gitignore has no CLEO deny section', () => {

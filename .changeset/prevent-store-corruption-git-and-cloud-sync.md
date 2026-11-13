@@ -23,17 +23,21 @@ CLEO now prevents both:
 - `cleo doctor --fix` untracks those files with `git rm --cached` only.
   Working files stay byte-identical. The fix refreshes `.cleo/.gitignore` and
   prints the commit to make. Running it again changes nothing.
-- `cleo doctor` warns when git history holds a commit that added a runtime
-  file. History is reported, never rewritten.
+- `cleo doctor` warns when a commit on any ref (branch, tag, remote) added a
+  runtime file. History is reported, never rewritten. When git cannot be
+  read inside a real repository, the git checks report "check incomplete"
+  (`info`, also on plain `cleo doctor`) instead of a clean result.
 - `cleo doctor` warns, and never blocks, when the project root is inside a
   cloud-synced folder. Detection uses local filesystem signals only; an
   unreadable signal makes the check incomplete, never fatal.
 - The managed pre-commit hook refuses a commit that adds or modifies a
-  `.cleo/` path the deny list names, and names the fix. Staged deletions pass,
+  `.cleo/` path the deny list names, and names the fix. It reads staged
+  names NUL-separated, so quoted or spaced names cannot slip past. Staged deletions pass,
   so the repair commit goes through. A foreign pre-commit hook is no longer
   skipped. It is chained instead: its content is kept, and it runs first so
   CLEO checks the index it leaves.
 - `cleo init`, `cleo upgrade` and `cleo session start` warn when git tracks
-  runtime files and give the fix. The check costs one `git ls-files` call.
+  runtime files and give the fix (`session start` returns them as
+  `storeSafetyWarnings`, typed by the `SessionStartWarnings` contract). The check costs one `git ls-files` call.
   `cleo init` on a clone that tracks the store refuses with the untrack fix
   instead of recommending `--force`.

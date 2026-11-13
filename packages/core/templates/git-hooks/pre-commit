@@ -23,7 +23,7 @@ if [ -x "$0.cleo-chained" ]; then
 fi
 
 # ── 1. WAL/SHM/journal files ──────────────────────────────────────────
-BAD_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(db-wal|db-shm|db-journal)$' || true)
+BAD_FILES=$(git diff --cached -z --name-only --diff-filter=ACMR | tr '\000' '\n' | grep -E '\.(db-wal|db-shm|db-journal)$' || true)
 
 if [ -n "$BAD_FILES" ]; then
   echo "ERROR: Refusing to commit SQLite WAL/SHM/journal files:"
@@ -113,8 +113,15 @@ fi
 # existed, would otherwise be committed, and a later checkout or pull would
 # replace the live store under its WAL. The identity files stay tracked.
 CLEO_RUNTIME_DENY="*.db *.db-shm *.db-wal *.db-journal config.json project-info.json nexus-link.json log.json tasks-log.jsonl todo-log.jsonl bypass-log.json qa-log.json .deps-cache/ .context-alert-state.json .context-state*.json context-states/ .git-checkpoint-state .migration-state.json migrations.json sync/ metrics/ .backups/ backups/ quarantine/ session-journals/"
-RUNTIME=""
-STAGED_CLEO=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -- .cleo)
+# Names are read NUL-separated (-z): git C-quotes a name holding a quote,
+# backslash or control character in line output, which would slip past the
+# patterns below. Each offending name is kept literal for the report and
+# single-quoted for the fix command.
+RUNTIME_LIST=""
+FIX_ARGS=""
+NL='
+'
+STAGED_CLEO=$(git diff --cached -z --name-only --diff-filter=ACMR -- .cleo | tr '\000' '\n')
 set -f
 while IFS= read -r path; do
   [ -n "$path" ] || continue
@@ -122,10 +129,17 @@ while IFS= read -r path; do
   case "$rel" in project.json|project-id) continue ;; esac
   for pat in $CLEO_RUNTIME_DENY; do
     dir=${pat%/}
+    hit=""
     if [ "$dir" != "$pat" ]; then
-      case "/$rel" in */$dir/*) RUNTIME="$RUNTIME $path"; break ;; esac
+      case "/$rel" in */$dir/*) hit=1 ;; esac
     else
-      case "/$rel" in */$pat|*/$pat/*) RUNTIME="$RUNTIME $path"; break ;; esac
+      case "/$rel" in */$pat|*/$pat/*) hit=1 ;; esac
+    fi
+    if [ -n "$hit" ]; then
+      quoted=$(printf '%s' "$path" | sed "s/'/'\\\\''/g")
+      FIX_ARGS="$FIX_ARGS '$quoted'"
+      RUNTIME_LIST="$RUNTIME_LIST  $path$NL"
+      break
     fi
   done
 done <<EOF_CLEO
@@ -133,14 +147,14 @@ $STAGED_CLEO
 EOF_CLEO
 set +f
 
-if [ -n "$RUNTIME" ]; then
+if [ -n "$RUNTIME_LIST" ]; then
   echo "ERROR: Refusing to commit .cleo runtime files (ADR-013 §9, T14549):"
-  for f in $RUNTIME; do echo "  $f"; done
+  printf '%s' "$RUNTIME_LIST"
   echo ""
   echo "These are .cleo runtime paths (databases, backups, logs, caches)."
   echo "Tracking them lets a checkout or pull replace the live store while its"
   echo "WAL stays behind."
-  echo "To fix: git rm --cached -q --$RUNTIME"
+  echo "To fix: git rm --cached -q --$FIX_ARGS"
   echo "(or run: cleo doctor --fix, which untracks every .cleo runtime file)"
   exit 1
 fi

@@ -40,14 +40,17 @@ export function renderDoctor(data: Record<string, unknown>, quiet: boolean): str
     let passCount = 0;
     let warnCount = 0;
     let failCount = 0;
+    let incompleteCount = 0;
     for (const c of checks) {
       const s = c['status'] as string;
       if (s === 'pass') passCount++;
       else if (s === 'warn' || s === 'warning') warnCount++;
+      else if (s === 'info') incompleteCount++;
       else failCount++;
     }
     lines.push(
-      `  ${DIM}Checks:${NC} ${GREEN}${passCount} pass${NC} · ${YELLOW}${warnCount} warn${NC} · ${RED}${failCount} fail${NC}`,
+      `  ${DIM}Checks:${NC} ${GREEN}${passCount} pass${NC} · ${YELLOW}${warnCount} warn${NC} · ${RED}${failCount} fail${NC}` +
+        (incompleteCount > 0 ? ` · ${DIM}${incompleteCount} incomplete${NC}` : ''),
     );
     lines.push('');
     for (const check of checks) {
@@ -59,7 +62,9 @@ export function renderDoctor(data: Record<string, unknown>, quiet: boolean): str
           ? `${GREEN}✓${NC}`
           : status === 'warn' || status === 'warning'
             ? `${YELLOW}⚠${NC}`
-            : `${RED}✗${NC}`;
+            : status === 'info'
+              ? `${DIM}?${NC}`
+              : `${RED}✗${NC}`;
       const label = name ? `${BOLD}${name}${NC}` : '';
       lines.push(`  ${icon} ${label}${label && message ? ` — ${message}` : message}`);
     }

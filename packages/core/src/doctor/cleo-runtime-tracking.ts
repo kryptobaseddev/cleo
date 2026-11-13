@@ -116,19 +116,52 @@ export function isSqliteStorePath(path: string): boolean {
   return /\.db(-wal|-shm|-journal)?$/.test(path);
 }
 
-/** Run git in `cwd` with no ambient repo variables; `null` on any failure. */
-function git(cwd: string, args: readonly string[]): string | null {
+/** Outcome of one git call. */
+type GitRun = { ok: true; out: string } | { ok: false; error: string };
+
+/** Run git in `cwd` with no ambient repo variables. Never throws. */
+function runGit(cwd: string, args: readonly string[]): GitRun {
   try {
-    return execFileSync('git', ['-c', 'core.quotePath=false', ...args], {
+    const out = execFileSync('git', ['-c', 'core.quotePath=false', ...args], {
       cwd,
       encoding: 'utf-8',
       env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       maxBuffer: 64 * 1024 * 1024,
     });
-  } catch {
-    return null;
+    return { ok: true, out };
+  } catch (err) {
+    const stderr =
+      err instanceof Error && 'stderr' in err && typeof err.stderr === 'string' ? err.stderr : '';
+    const first = (stderr.trim() || (err instanceof Error ? err.message : String(err))).split(
+      '\n',
+    )[0];
+    return { ok: false, error: first ?? 'git failed' };
   }
+}
+
+/** Whether `cwd` is inside a git work tree (distinguishes "no repo" from a failed read). */
+function insideWorkTree(cwd: string): boolean {
+  const r = runGit(cwd, ['rev-parse', '--is-inside-work-tree']);
+  return r.ok && r.out.trim() === 'true';
+}
+
+/**
+ * Outcome of reading git for the runtime checks: no repository, a read that
+ * failed inside a real repository (coverage missing, never a clean result),
+ * or the value read.
+ *
+ * @typeParam T - The value read on success.
+ * @task T14549
+ */
+export type RuntimeGitScan<T> =
+  | { state: 'not-git' }
+  | { state: 'incomplete'; error: string }
+  | { state: 'ok'; value: T };
+
+/** Classify a failed git read as "no repository" or "incomplete". */
+function failedScan<T>(cwd: string, error: string): RuntimeGitScan<T> {
+  return insideWorkTree(cwd) ? { state: 'incomplete', error } : { state: 'not-git' };
 }
 
 /**
@@ -136,15 +169,47 @@ function git(cwd: string, args: readonly string[]): string | null {
  * `git ls-files` call, cheap enough for init, upgrade and session start.
  *
  * @param projectRoot - Project root (the directory holding `.cleo/`).
+ * @returns The tracked runtime paths relative to `projectRoot`, `not-git`
+ *   outside a work tree, or `incomplete` when git failed inside one.
+ * @task T14549
+ */
+export function scanTrackedCleoRuntimeFiles(projectRoot: string): RuntimeGitScan<string[]> {
+  const r = runGit(projectRoot, ['ls-files', '-z', '--', '.cleo']);
+  if (!r.ok) return failedScan(projectRoot, r.error);
+  const patterns = runtimeDenyPatterns();
+  return {
+    state: 'ok',
+    value: r.out.split('\0').filter((path) => path !== '' && isCleoRuntimePath(path, patterns)),
+  };
+}
+
+/**
+ * The `.cleo/` runtime files the project's git index tracks, for the cheap
+ * advisory callers (init, upgrade, session start).
+ *
+ * @param projectRoot - Project root (the directory holding `.cleo/`).
  * @returns Tracked runtime paths relative to `projectRoot`, or `null` when
- *   `projectRoot` is not inside a git work tree.
+ *   git could not be read (no repository, or a failed read; `cleo doctor`
+ *   reports the difference).
  * @task T14549
  */
 export function listTrackedCleoRuntimeFiles(projectRoot: string): string[] | null {
-  const out = git(projectRoot, ['ls-files', '-z', '--', '.cleo']);
-  if (out === null) return null;
-  const patterns = runtimeDenyPatterns();
-  return out.split('\0').filter((path) => path !== '' && isCleoRuntimePath(path, patterns));
+  const scan = scanTrackedCleoRuntimeFiles(projectRoot);
+  return scan.state === 'ok' ? scan.value : null;
+}
+
+/** `info` result for a check whose git read failed inside a real repository. */
+function incompleteResult(id: string, what: string, error: string): CheckResult {
+  return {
+    id,
+    category: 'configuration',
+    status: 'info',
+    message:
+      `Check incomplete: git could not read ${what} (${error}); this is not proof that no ` +
+      '.cleo runtime file is tracked',
+    details: { incomplete: true, error },
+    fix: null,
+  };
 }
 
 /**
@@ -170,12 +235,16 @@ export function trackedCleoRuntimeWarning(projectRoot: string): string | null {
  * Doctor check: git must track no `.cleo/` runtime file (T14549 AC1).
  *
  * @param projectRoot - Project root.
- * @returns `failed` naming each tracked runtime file, `info` outside git, else `passed`.
+ * @returns `failed` for a tracked SQLite store file, `warning` for other runtime
+ *   files, `info` outside git or when git could not be read, else `passed`.
  * @task T14549
  */
 export function checkTrackedCleoRuntime(projectRoot: string): CheckResult {
-  const tracked = listTrackedCleoRuntimeFiles(projectRoot);
-  if (tracked === null) {
+  const scan = scanTrackedCleoRuntimeFiles(projectRoot);
+  if (scan.state === 'incomplete') {
+    return incompleteResult('tracked_cleo_runtime', 'the index', scan.error);
+  }
+  if (scan.state === 'not-git') {
     return {
       id: 'tracked_cleo_runtime',
       category: 'configuration',
@@ -185,6 +254,7 @@ export function checkTrackedCleoRuntime(projectRoot: string): CheckResult {
       fix: null,
     };
   }
+  const tracked = scan.value;
   if (tracked.length > 0) {
     const sqlite = tracked.filter(isSqliteStorePath);
     const other = tracked.filter((path) => !isSqliteStorePath(path));
@@ -249,8 +319,17 @@ export interface UntrackCleoRuntimeResult {
 export async function untrackCleoRuntimeFiles(
   projectRoot: string,
 ): Promise<UntrackCleoRuntimeResult> {
-  const tracked = listTrackedCleoRuntimeFiles(projectRoot);
-  if (tracked === null || tracked.length === 0) {
+  const scan = scanTrackedCleoRuntimeFiles(projectRoot);
+  if (scan.state === 'incomplete') {
+    return {
+      action: 'failed',
+      untracked: [],
+      commitCommand: null,
+      message: `git could not read the index (${scan.error}); nothing was untracked`,
+    };
+  }
+  const tracked = scan.state === 'ok' ? scan.value : [];
+  if (tracked.length === 0) {
     return {
       action: 'skipped',
       untracked: [],
@@ -264,12 +343,20 @@ export async function untrackCleoRuntimeFiles(
   // Batched to stay under the argument-length limit on large backup trees.
   for (let i = 0; i < tracked.length; i += 500) {
     const batch = tracked.slice(i, i + 500);
-    if (git(projectRoot, ['rm', '--cached', '-q', '--ignore-unmatch', '--', ...batch]) === null) {
+    const removed = runGit(projectRoot, [
+      'rm',
+      '--cached',
+      '-q',
+      '--ignore-unmatch',
+      '--',
+      ...batch,
+    ]);
+    if (!removed.ok) {
       return {
         action: 'failed',
         untracked: tracked.slice(0, i),
         commitCommand: i > 0 ? UNTRACK_RUNTIME_COMMIT_COMMAND : null,
-        message: `git rm --cached failed for: ${batch.join(', ')}`,
+        message: `git rm --cached failed (${removed.error}) for: ${batch.join(', ')}`,
       };
     }
   }
@@ -308,18 +395,22 @@ function runtimePathspecs(patterns: readonly string[]): string[] {
 }
 
 /**
- * Commits in history that added a `.cleo/` runtime file (T14549 AC6). One
- * `git log --diff-filter=A` restricted to the runtime pathspecs. History is
- * reported, never rewritten.
+ * Commits on ANY ref (branches, tags, remotes, stash) that added a `.cleo/`
+ * runtime file (T14549 AC6). One `git log --all --diff-filter=A` restricted to
+ * the runtime pathspecs. History is reported, never rewritten.
  *
  * @param projectRoot - Project root.
- * @returns The additions, newest first, or `null` outside git.
+ * @returns The additions, newest first; `not-git` outside a work tree, or
+ *   `incomplete` when git failed inside one.
  * @task T14549
  */
-export function findRuntimeFileAdditions(projectRoot: string): RuntimeFileAddition[] | null {
+export function findRuntimeFileAdditions(
+  projectRoot: string,
+): RuntimeGitScan<RuntimeFileAddition[]> {
   const patterns = runtimeDenyPatterns();
-  const out = git(projectRoot, [
+  const r = runGit(projectRoot, [
     'log',
+    '--all',
     '--diff-filter=A',
     '--relative',
     '--name-only',
@@ -328,9 +419,9 @@ export function findRuntimeFileAdditions(projectRoot: string): RuntimeFileAdditi
     '--',
     ...runtimePathspecs(patterns),
   ]);
-  if (out === null) return null;
+  if (!r.ok) return failedScan(projectRoot, r.error);
   const additions: RuntimeFileAddition[] = [];
-  for (const record of out.split('\x01')) {
+  for (const record of r.out.split('\x01')) {
     if (record.trim() === '') continue;
     const [header = '', ...rest] = record.split('\n');
     const [sha = '', date = '', subject = ''] = header.split('\t');
@@ -341,7 +432,7 @@ export function findRuntimeFileAdditions(projectRoot: string): RuntimeFileAdditi
       .filter((p) => p !== '' && isCleoRuntimePath(p, patterns));
     if (sha && paths.length > 0) additions.push({ sha, date, subject, paths });
   }
-  return additions;
+  return { state: 'ok', value: additions };
 }
 
 /**
@@ -350,12 +441,16 @@ export function findRuntimeFileAdditions(projectRoot: string): RuntimeFileAdditi
  * (or any later commit still tracking the file) swaps the live database.
  *
  * @param projectRoot - Project root.
- * @returns `warning` naming the commits, `info` outside git, else `passed`.
+ * @returns `warning` naming the commits, `info` outside git or when git could
+ *   not be read, else `passed`.
  * @task T14549
  */
 export function checkRuntimeFileHistory(projectRoot: string): CheckResult {
-  const additions = findRuntimeFileAdditions(projectRoot);
-  if (additions === null) {
+  const scan = findRuntimeFileAdditions(projectRoot);
+  if (scan.state === 'incomplete') {
+    return incompleteResult('cleo_runtime_history', 'the history', scan.error);
+  }
+  if (scan.state === 'not-git') {
     return {
       id: 'cleo_runtime_history',
       category: 'configuration',
@@ -365,6 +460,7 @@ export function checkRuntimeFileHistory(projectRoot: string): CheckResult {
       fix: null,
     };
   }
+  const additions = scan.value;
   if (additions.length > 0) {
     const shown = additions
       .slice(0, 5)
@@ -375,7 +471,7 @@ export function checkRuntimeFileHistory(projectRoot: string): CheckResult {
       category: 'configuration',
       status: 'warning',
       message:
-        `git history has ${additions.length} commit(s) that added .cleo runtime files: ${shown}` +
+        `git history (all refs) has ${additions.length} commit(s) that added .cleo runtime files: ${shown}` +
         `${additions.length > 5 ? '; …' : ''}. A likely cause of store corruption: checking out ` +
         'such a commit replaces the live database while its WAL stays behind. History is ' +
         'reported, not rewritten',
@@ -387,7 +483,7 @@ export function checkRuntimeFileHistory(projectRoot: string): CheckResult {
     id: 'cleo_runtime_history',
     category: 'configuration',
     status: 'passed',
-    message: 'git history never added a .cleo runtime file',
+    message: 'No commit on any ref added a .cleo runtime file',
     details: {},
     fix: null,
   };

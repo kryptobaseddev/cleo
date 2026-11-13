@@ -23,7 +23,7 @@
 
 import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, relative, resolve, sep } from 'node:path';
+import path, { join, resolve } from 'node:path';
 import type { CheckResult } from '@cleocode/contracts/scaffold-diagnostics';
 
 /** A detected cloud-synced folder containing the project. */
@@ -51,10 +51,29 @@ function real(path: string): string {
   }
 }
 
-/** Whether `child` is `parent` or beneath it. */
-function within(parent: string, child: string): boolean {
-  const rel = relative(parent, child);
-  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !rel.startsWith(sep));
+/** A `node:path` flavour (`path.posix` or `path.win32`). */
+export type PathApi = typeof path.posix;
+
+/**
+ * Whether `child` is `parent` or beneath it, compared path segment by path
+ * segment. On Windows the comparison folds case, and a different drive or
+ * share never matches (`D:\app` is not inside `C:\Users\me\Dropbox`).
+ *
+ * @param parent - Candidate ancestor directory.
+ * @param child - Path to test.
+ * @param api - Path flavour. @defaultValue the platform's `node:path`
+ * @returns `true` when `child` equals or descends from `parent`.
+ * @task T14549
+ */
+export function isPathWithin(parent: string, child: string, api: PathApi = path): boolean {
+  const windows = api.sep === '\\';
+  const segments = (p: string): string[] => {
+    const resolved = api.resolve(p);
+    return (windows ? resolved.toLowerCase() : resolved).split(api.sep).filter((s) => s !== '');
+  };
+  const ps = segments(parent);
+  const cs = segments(child);
+  return ps.length <= cs.length && ps.every((seg, i) => seg === cs[i]);
 }
 
 /** Readable service name for a `~/Library/CloudStorage` entry. */
@@ -166,7 +185,7 @@ export function scanCloudSyncedFolder(
   const { candidates, unreadable } = candidateRoots(home, env);
   for (const candidate of candidates) {
     for (const syncRoot of new Set([real(candidate.syncRoot), resolve(candidate.syncRoot)])) {
-      if (within(syncRoot, root)) {
+      if (isPathWithin(syncRoot, root)) {
         return { found: { provider: candidate.provider, syncRoot }, unreadable };
       }
     }
@@ -213,7 +232,7 @@ export function checkCloudSyncedProject(
       message:
         'Cloud-sync check incomplete: could not read ' +
         `${unreadable.join(', ')}; the project may still be inside a synced folder`,
-      details: { unreadable },
+      details: { incomplete: true, unreadable },
       fix: null,
     };
   }

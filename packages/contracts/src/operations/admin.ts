@@ -148,8 +148,8 @@ export interface AdminPagination {
 export interface AdminHealthCheck {
   /** Check identifier. */
   name: string;
-  /** Pass/warn/fail outcome. */
-  status: 'pass' | 'warn' | 'fail';
+  /** Pass/warn/fail outcome; `info` when the check could not complete (never a pass, T14549). */
+  status: 'pass' | 'warn' | 'fail' | 'info';
   /** Human-readable message. */
   message?: string;
 }

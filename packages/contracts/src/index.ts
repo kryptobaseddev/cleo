@@ -2501,6 +2501,7 @@ export type {
   Session,
   SessionScope,
   SessionStartResult,
+  SessionStartWarnings,
   SessionStats,
   SessionTaskWork,
 } from './session.js';

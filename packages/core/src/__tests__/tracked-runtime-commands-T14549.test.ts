@@ -124,8 +124,7 @@ describe('T14549: init, upgrade and session start warn about tracked .cleo runti
 
     const started = await sessionStart(project, { scope: 'global', name: 't14549' });
     expect(started.success).toBe(true);
-    const storeSafety = (started.data as { storeSafetyWarnings?: string[] } | undefined)
-      ?.storeSafetyWarnings;
+    const storeSafety = started.data?.storeSafetyWarnings;
     expect(storeSafety?.[0]).toContain('.cleo/cleo.db');
     expect(storeSafety?.[0]).toContain('cleo doctor --fix');
   }, 120_000);

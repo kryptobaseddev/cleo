@@ -12,7 +12,12 @@
  * @epic T1566
  */
 
-import type { Session, SessionSummaryInput, TaskWorkState } from '@cleocode/contracts';
+import type {
+  Session,
+  SessionStartWarnings,
+  SessionSummaryInput,
+  TaskWorkState,
+} from '@cleocode/contracts';
 import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-markers';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts/session-journal.js';
@@ -527,7 +532,7 @@ export async function sessionStart(
      */
     agentHandle?: string;
   },
-): Promise<EngineResult<Session>> {
+): Promise<EngineResult<Session & SessionStartWarnings>> {
   try {
     const accessor = await getTaskAccessor(projectRoot);
 
@@ -755,7 +760,7 @@ export async function sessionStart(
       /* Journal write is best-effort — never block session start */
     });
 
-    return engineSuccess(enrichedSession as Session);
+    return engineSuccess(enrichedSession as Session & SessionStartWarnings);
   } catch (err) {
     // T13167: a write the store refused (legacy migration deferred or aborted)
     // keeps its typed code and remedy.

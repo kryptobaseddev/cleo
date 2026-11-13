@@ -8,11 +8,13 @@
 
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import path, { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getSystemHealth } from '../../system/health.js';
 import {
   checkCloudSyncedProject,
   detectCloudSyncedFolder,
+  isPathWithin,
   scanCloudSyncedFolder,
 } from '../cloud-sync-folder.js';
 
@@ -89,6 +91,35 @@ describe('T14549: cloud-synced project folders', () => {
         expect(check.message).toContain('could not read');
       } finally {
         chmodSync(cloudDocs, 0o755);
+        chmodSync(cloudStorage, 0o755);
+      }
+    },
+  );
+
+  it('compares Windows paths by drive and segment, case-insensitively', () => {
+    const dropbox = 'C:\\Users\\me\\Dropbox';
+    expect(isPathWithin(dropbox, 'D:\\projects\\app', path.win32)).toBe(false);
+    expect(isPathWithin(dropbox, 'D:\\Users\\me\\Dropbox\\app', path.win32)).toBe(false);
+    expect(isPathWithin(dropbox, 'c:\\users\\ME\\dropbox\\app', path.win32)).toBe(true);
+    expect(isPathWithin(dropbox, 'C:\\Users\\me\\Dropbox2\\app', path.win32)).toBe(false);
+    expect(isPathWithin('/home/me/Dropbox', '/home/me/Dropbox2/app', path.posix)).toBe(false);
+    expect(isPathWithin('/home/me/Dropbox', '/home/me/Dropbox/app', path.posix)).toBe(true);
+  });
+
+  it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)(
+    'plain cleo doctor surfaces an incomplete cloud check as info, never as passing',
+    async () => {
+      const project = dir('projects', 'app');
+      const cloudStorage = dir('Library', 'CloudStorage');
+      chmodSync(cloudStorage, 0o000);
+      vi.stubEnv('HOME', home);
+      try {
+        const health = await getSystemHealth(project);
+        const cloud = health.checks.find((c) => c.name === 'cloud_synced_project');
+        expect(cloud?.status).toBe('info');
+        expect(cloud?.message).toContain('could not read');
+      } finally {
+        vi.unstubAllEnvs();
         chmodSync(cloudStorage, 0o755);
       }
     },
