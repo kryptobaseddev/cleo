@@ -66,6 +66,7 @@ import { describeGateNotes } from '../tasks/gate-notes.js';
 import { readAllowCachedGates } from '../tasks/gate-result-cache.js';
 import {
   createTaskGateReceipt,
+  GATE_ADMISSION_REFUSED_PREFIX,
   GATE_CACHE_INVALID_PREFIX,
   GATE_NOT_CACHED_PREFIX,
   revalidateTaskGateResults,
@@ -1179,16 +1180,27 @@ export async function validateGateVerify(
             : [],
         ),
       );
-      const notCached = results
-        .filter(
-          (result) =>
-            result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX) &&
-            result.binding !== undefined &&
-            linked.has(result.binding.criterionId),
-        )
-        .map((result) => result.errorMessage!.replace('<taskId>', taskId));
+      const linkedRefusals = (prefix: string) =>
+        results
+          .filter(
+            (result) =>
+              result.errorMessage?.startsWith(prefix) &&
+              result.binding !== undefined &&
+              linked.has(result.binding.criterionId),
+          )
+          .map((result) => result.errorMessage!.replace('<taskId>', taskId));
+      const notCached = linkedRefusals(GATE_NOT_CACHED_PREFIX);
       if (notCached.length > 0)
         return engineError('E_GATE_NOT_CACHED', notCached.join('\n'), {
+          fix: `cleo verify ${taskId} --run`,
+        });
+      // T14536: a linked gate the machine-wide ledger refused to start has no
+      // verdict; the write is refused with that refusal, never recorded as an error.
+      const admissionRefused = linkedRefusals(GATE_ADMISSION_REFUSED_PREFIX);
+      if (admissionRefused.length > 0)
+        // @sync-invariant none:local-only machine-wide admission refused a typed gate before anything is written
+        return engineError('E_GATE_ADMISSION_REFUSED', admissionRefused.join('\n'), {
+          exitCode: ExitCode.GATE_ADMISSION_REFUSED,
           fix: `cleo verify ${taskId} --run`,
         });
       // T14056: the gates just run may have rewritten a report this write

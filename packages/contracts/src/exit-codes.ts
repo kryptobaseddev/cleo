@@ -86,6 +86,15 @@ export enum ExitCode {
    * details name the live agents. @task T14269
    */
   SESSION_AMBIGUOUS = 27,
+  /**
+   * The machine-wide admission ledger refused to start a typed acceptance
+   * gate an evidence write links (memory budget full or external pressure),
+   * so no process ran and no verdict exists; the write records nothing.
+   * Retry when the machine has headroom (`cleo verify <id> --run`). LAFS code
+   * `E_GATE_ADMISSION_REFUSED`; the message names the ledger's reason and
+   * holders. @task T14536
+   */
+  GATE_ADMISSION_REFUSED = 28,
 
   // === SESSION ERRORS (30-39) ===
   SESSION_EXISTS = 30,

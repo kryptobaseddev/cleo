@@ -107,7 +107,7 @@ export const verifyCommand = defineCommand({
     'run-typed': {
       type: 'boolean',
       description:
-        "With a write (--gate/--all/--evidence) or --auto: execute the task's uncached typed gates during this write. Without it a write executes no typed gate command: it reads passes cached by `cleo verify --run` and refuses a linked gate that has none (T13521).",
+        "With a write (--gate/--all/--evidence) or --auto: execute the task's uncached typed gates during this write. Without it a write executes no typed gate command: it reads passes cached by `cleo verify --run` and refuses a linked gate that has none (T13521). A linked gate the machine-wide admission ledger refused to start fails the write with E_GATE_ADMISSION_REFUSED (exit 28) and records nothing (T14536).",
     },
     req: {
       type: 'string',

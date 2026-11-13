@@ -1288,6 +1288,36 @@ describe('typed requirement persistence', () => {
         }
       });
 
+      it('T14536: a --run-typed write whose linked gate the ledger refused is E_GATE_ADMISSION_REFUSED and persists nothing', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const semaphore = await import('../tool-semaphore.js');
+        const refusal = new semaphore.AdmissionTimeoutError('test', {
+          reason: 'memory budget is full',
+          retryAfterMs: 250,
+          memoryPressure: null,
+          ahead: 0,
+          holders: ['fixture holder'],
+        });
+        const acquire = vi.spyOn(semaphore, 'acquireGlobalSlot').mockRejectedValue(refusal);
+        const before = persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks');
+        try {
+          const refused = await write();
+          expect(acquire).toHaveBeenCalled();
+          expect(refused.success).toBe(false);
+          if (refused.success) throw new Error('expected a refusal');
+          expect(refused.error.code).toBe('E_GATE_ADMISSION_REFUSED');
+          expect(refused.error.exitCode).toBe(28);
+          expect(refused.error.message).toContain(`E_GATE_ADMISSION_REFUSED: ${refusal.message}`);
+          expect(refused.error.fix).toBe('cleo verify T121 --run');
+          expect(runs()).toBe(0);
+          expect(persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks')).toBe(
+            before,
+          );
+        } finally {
+          acquire.mockRestore();
+        }
+      });
+
       it('--run-typed executes on the write; it contradicts --no-run', async () => {
         await cachedGateFixture('process.exit(0);');
         const ran = await write();

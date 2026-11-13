@@ -1373,6 +1373,104 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
     }
   });
 
+  /** Refusal whose wait runs its whole budget before the ledger gives up. */
+  async function refuseAfterFullWait() {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const semaphore = await import('../tool-semaphore.js');
+    const refusal = new semaphore.AdmissionTimeoutError('lint', {
+      reason: 'memory budget is full',
+      retryAfterMs: 250,
+      memoryPressure: null,
+      ahead: 0,
+      holders: ['fixture holder'],
+    });
+    const acquire = vi
+      .spyOn(semaphore, 'acquireGlobalSlot')
+      .mockImplementation(async (_canonical, opts) => {
+        vi.setSystemTime(Date.now() + (opts?.timeoutMs ?? 0));
+        throw refusal;
+      });
+    const capture = vi.spyOn(await import('../../resources/spawn-wrapper.js'), 'captureWrapped');
+    return { refusal, acquire, capture };
+  }
+
+  const lateGate = (description: string): AcceptanceGate => ({
+    kind: 'command',
+    description,
+    cmd: process.execPath,
+    args: ['-e', 'process.exit(0)'],
+    timeoutMs: 1_800_000,
+  });
+
+  it('keeps the batch reserve when a later gate in a batch is refused admission (T14536)', async () => {
+    const { refusal, acquire, capture } = await refuseAfterFullWait();
+    const context = execution({ budgetMs: 30_000 });
+    try {
+      const results = await runGates([lateGate('first'), lateGate('second')], {
+        projectRoot,
+        execution: context,
+      });
+      // T14534's per-call 10% reserve shrank to [27000, 2700], leaving 300 ms.
+      expect(acquire.mock.calls.map(([, opts]) => opts?.timeoutMs)).toEqual([28_000, 0]);
+      expect(results.map((result) => result.errorMessage)).toEqual([
+        `E_GATE_ADMISSION_REFUSED: ${refusal.message}`,
+        `E_GATE_ADMISSION_REFUSED: ${refusal.message}`,
+      ]);
+      expect(capture).not.toHaveBeenCalled();
+      expect(context.deadlineAt - Date.now()).toBeGreaterThanOrEqual(TYPED_GATE_BOOKKEEPING_MS);
+      expect(() => context.assertActive()).not.toThrow();
+    } finally {
+      context.close();
+    }
+  });
+
+  it('runTaskGates fixes one reserve for every gate it runs (T14536)', async () => {
+    const { refusal, acquire, capture } = await refuseAfterFullWait();
+    const task: Task = {
+      id: 'T14536',
+      title: 'late admission',
+      description: 'two gates refused admission under one shared deadline',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-11-13T00:00:00.000Z',
+      acceptance: [lateGate('first'), lateGate('second')],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    const context = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'gate-test',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'gate-fixture-late-admission',
+      },
+      { budgetMs: 30_000 },
+    );
+    try {
+      const results = await runTaskGates(task, rows, { execution: context });
+      expect(acquire.mock.calls.map(([, opts]) => opts?.timeoutMs)).toEqual([28_000, 0]);
+      expect(results.map((result) => result.errorMessage)).toEqual([
+        `E_GATE_ADMISSION_REFUSED: ${refusal.message}`,
+        `E_GATE_ADMISSION_REFUSED: ${refusal.message}`,
+      ]);
+      expect(capture).not.toHaveBeenCalled();
+      expect(context.deadlineAt - Date.now()).toBeGreaterThanOrEqual(TYPED_GATE_BOOKKEEPING_MS);
+      expect(() => context.assertActive()).not.toThrow();
+    } finally {
+      context.close();
+    }
+  });
+
   it('does not renew the shared deadline for subsequent gates', { repeats: 29 }, async () => {
     _forceSystemdRunAvailable(false);
     // Exercise interruption during capture, after worktree resolution and resource admission.

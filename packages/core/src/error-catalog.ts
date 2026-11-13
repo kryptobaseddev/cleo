@@ -374,6 +374,20 @@ export const ERROR_CATALOG: ReadonlyMap<number, ErrorDefinition> = new Map<numbe
       ),
     ],
     [
+      ExitCode.GATE_ADMISSION_REFUSED,
+      def(
+        ExitCode.GATE_ADMISSION_REFUSED,
+        'GATE_ADMISSION_REFUSED',
+        'CONFLICT',
+        'The machine-wide admission ledger refused to start a linked typed gate',
+        409,
+        true,
+        // @sync-invariant none:local-only catalog entry for a machine-wide admission refusal decided before any write
+        'E_GATE_ADMISSION_REFUSED',
+        'Wait for machine headroom, then run cleo verify <taskId> --run (or use ci:<pr> as evidence)',
+      ),
+    ],
+    [
       ExitCode.TASK_RENAMED,
       def(
         ExitCode.TASK_RENAMED,
