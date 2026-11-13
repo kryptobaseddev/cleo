@@ -237,6 +237,101 @@ describe('the agent-session budget is a lease count; only critical memory vetoes
   };
 
   it.each([
+    {
+      pressureLevel: 1,
+      reclaimableBytes: 64 * MB,
+      availableBytes: 64 * MB,
+      criterion: 'kernel level normal',
+    },
+    {
+      pressureLevel: 1,
+      reclaimableBytes: 64 * MB,
+      availableBytes: 22.1 * GIB,
+      criterion: 'kernel level normal',
+    },
+    {
+      pressureLevel: null,
+      reclaimableBytes: 20.6 * GIB,
+      availableBytes: 22.1 * GIB,
+      criterion: 'kernel level UNKNOWN',
+    },
+    {
+      pressureLevel: null,
+      reclaimableBytes: null,
+      availableBytes: null,
+      criterion: 'kernel level UNKNOWN',
+      pressureAvailable: false,
+    },
+    {
+      pressureLevel: 1,
+      reclaimableBytes: null,
+      availableBytes: null,
+      criterion: 'kernel level normal',
+    },
+    {
+      pressureLevel: 1,
+      reclaimableBytes: null,
+      availableBytes: 64 * MB,
+      criterion: 'kernel level normal',
+    },
+  ])('refuses full swap without proven normal-kernel headroom: $pressureLevel/$reclaimableBytes/$availableBytes', async ({
+    pressureLevel,
+    reclaimableBytes,
+    availableBytes,
+    criterion,
+    pressureAvailable = true,
+  }) => {
+    if (!SWAP_HEAVY.darwinMemory) throw new Error('expected darwin signals');
+    const taken = await takeAgentSessionLease('T1', home, 60_000, {
+      ...OPTS,
+      sample: {
+        ...SWAP_HEAVY,
+        pressureAvailable,
+        globalPressure: pressureAvailable ? SWAP_HEAVY.globalPressure : null,
+        memAvailableBytes: availableBytes,
+        darwinMemory: {
+          ...SWAP_HEAVY.darwinMemory,
+          pressureLevel,
+          reclaimableBytes,
+          swapUsedBytes: 8.91 * GIB,
+        },
+      },
+      topMemory: () => [],
+    });
+    if (!('deferral' in taken) || !taken.externalPressure)
+      throw new Error('expected memory deferral');
+    expect(taken.deferral.reason).toContain('99.0%) is at or above 90%');
+    expect(taken.deferral.reason).toContain(criterion);
+    expect(taken.deferral.reason).toContain('ample headroom threshold 12.0 GiB');
+    expect(externalPressureFix(taken.externalPressure)).toContain(criterion);
+    expect(liveAgentLeases()).toEqual([]);
+  });
+
+  it.each([
+    { reclaimableBytes: 12 * GIB, availableBytes: 64 * MB, admitted: true },
+    { reclaimableBytes: 12 * GIB - 1, availableBytes: 64 * MB, admitted: false },
+    { reclaimableBytes: null, availableBytes: 12 * GIB, admitted: true },
+    { reclaimableBytes: null, availableBytes: 12 * GIB - 1, admitted: false },
+  ])('normal-kernel swap exemption requires the headroom floor: $reclaimableBytes/$availableBytes', async ({
+    reclaimableBytes,
+    availableBytes,
+    admitted,
+  }) => {
+    if (!SWAP_HEAVY.darwinMemory) throw new Error('expected darwin signals');
+    const taken = await takeAgentSessionLease('T1', home, 60_000, {
+      ...OPTS,
+      sample: {
+        ...SWAP_HEAVY,
+        memAvailableBytes: availableBytes,
+        darwinMemory: { ...SWAP_HEAVY.darwinMemory, reclaimableBytes },
+      },
+      topMemory: () => [],
+    });
+    expect('lease' in taken).toBe(admitted);
+    expect(liveAgentLeases()).toHaveLength(admitted ? 1 : 0);
+  });
+
+  it.each([
     0, 3.8, 8.9,
   ])('admits old swap at normal kernel pressure with score %s and ample headroom (T14530)', async (score) => {
     const sample: ResourceSample = {

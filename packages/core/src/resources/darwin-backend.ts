@@ -84,7 +84,6 @@
 
 import { execFile } from 'node:child_process';
 import { totalmem } from 'node:os';
-import { GIB_PER_WORKER } from '../tasks/heavy-tool-env.js';
 import type {
   ChildRssEntry,
   ChildRssSweep,
@@ -96,7 +95,10 @@ import type {
   WalSizeObservation,
 } from './backend.js';
 import type { StatFileFn } from './linux-backend.js';
-import { MEMORY_GATE_RESUME_AT_OR_BELOW } from './pressure-gate.js';
+import { darwinHeadroomFloorBytes, MEMORY_GATE_RESUME_AT_OR_BELOW } from './pressure-gate.js';
+
+/** The shared headroom policy, preserved here for existing backend callers. */
+export { darwinHeadroomFloorBytes } from './pressure-gate.js';
 
 /** The sysctl names one sample reads, in one exec. */
 export const DARWIN_SYSCTL_NAMES = [
@@ -269,27 +271,6 @@ const HEADROOM_SCORE_MAX = 30;
  * review).
  */
 export const DARWIN_NORMAL_HEADROOM_CAP = MEMORY_GATE_RESUME_AT_OR_BELOW;
-
-const GIB = 1024 ** 3;
-
-/**
- * The headroom below which memory scores at any kernel level: a quarter of
- * RAM, at least one heavy worker's footprint ({@link GIB_PER_WORKER} GiB), and
- * never more than half of RAM (T13132, after the #1806 review: a fixed 6 GiB
- * was a sliver of a large machine).
- *
- * @param totalBytes - physical RAM in bytes.
- *
- * @example
- * ```ts
- * darwinHeadroomFloorBytes(48 * 1024 ** 3); // 12 GiB
- * darwinHeadroomFloorBytes(16 * 1024 ** 3); // 6 GiB
- * darwinHeadroomFloorBytes(8 * 1024 ** 3);  // 4 GiB
- * ```
- */
-export function darwinHeadroomFloorBytes(totalBytes: number): number {
-  return Math.min(totalBytes / 2, Math.max(totalBytes / 4, GIB_PER_WORKER * GIB));
-}
 
 /**
  * Memory available without compressing or swapping, in bytes: the

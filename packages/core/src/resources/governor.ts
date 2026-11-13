@@ -71,9 +71,9 @@ import { pressureScore, ResourceMonitor } from './monitor.js';
 import {
   _resetMemoryGateForTest,
   checkMemoryGate,
+  criticalMemoryReading,
   evaluateMemoryGate,
   externalPressureFix,
-  isCriticalMemory,
   type MemoryGateReporter,
 } from './pressure-gate.js';
 import { parentRunJob } from './run-admission.js';
@@ -529,28 +529,25 @@ export async function takeAgentSessionLease(
     return { lease: renewed, reused: true };
   }
   const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
-  // T14283: the only memory veto is critical memory (a full stall, the macOS
-  // critical level, nearly full swap during a warning), named with its measured criterion.
-  if (resolveGovernorMode() !== 'off' && isCriticalMemory(sample)) {
-    const reading = evaluateMemoryGate(sample, false).reading;
-    if (reading !== null) {
-      const top = opts.topMemory ?? (() => topMemoryConsumers(TOP_MEMORY_COUNT));
-      const listed = (top() ?? []).filter((p) => p.pid !== process.pid);
-      // Name each one's project (T14206); an injected list holds no real pids.
-      const processes = opts.topMemory === undefined ? withProjects(listed) : listed;
-      const details = externalPressureDetails(
-        { ...reading, topConsumers: { sampledAtMs: Date.now(), processes } },
-        0,
-      );
-      return {
-        deferral: deferral(
-          'agent-session',
-          `memory is critical: ${externalPressureFix(details)}`,
-          DEFAULT_RESOURCE_RETRY_AFTER_MS,
-        ),
-        externalPressure: details,
-      };
-    }
+  const reading = resolveGovernorMode() === 'off' ? null : criticalMemoryReading(sample);
+  // The critical-memory veto has its own criterion, independent of the heavy gate's latch.
+  if (reading !== null) {
+    const top = opts.topMemory ?? (() => topMemoryConsumers(TOP_MEMORY_COUNT));
+    const listed = (top() ?? []).filter((p) => p.pid !== process.pid);
+    // Name each one's project (T14206); an injected list holds no real pids.
+    const processes = opts.topMemory === undefined ? withProjects(listed) : listed;
+    const details = externalPressureDetails(
+      { ...reading, topConsumers: { sampledAtMs: Date.now(), processes } },
+      0,
+    );
+    return {
+      deferral: deferral(
+        'agent-session',
+        `memory is critical: ${externalPressureFix(details)}`,
+        DEFAULT_RESOURCE_RETRY_AFTER_MS,
+      ),
+      externalPressure: details,
+    };
   }
   const { admission, ungoverned } = await admitFailOpen('agent-session', () =>
     governor.tryAcquire('agent-session', { ...opts, sample }),

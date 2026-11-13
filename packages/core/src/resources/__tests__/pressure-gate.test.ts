@@ -107,6 +107,12 @@ describe('evaluateMemoryGate', () => {
       latched: true,
       reason: 'memory full avg10 7 is above 5 (resume threshold)',
     },
+    {
+      some: 0,
+      full: 12,
+      latched: true,
+      reason: 'memory full avg10 12 is above 5 (resume threshold)',
+    },
   ])('names the crossed threshold: $reason (T14530)', ({ some, full, latched, reason }) => {
     const verdict = evaluateMemoryGate(sampleAt(some, { full }), latched);
     expect(verdict.refuse).toBe(true);
@@ -124,6 +130,30 @@ describe('evaluateMemoryGate', () => {
 
   it('CPU saturation alone never refuses', () => {
     expect(evaluateMemoryGate(sampleAt(0, { cpu: 95 }), false).refuse).toBe(false);
+  });
+
+  it.each([
+    1,
+    2,
+    4,
+    null,
+  ])('an admitting gate records no refusal reason at kernel level %s', (pressureLevel) => {
+    const verdict = evaluateMemoryGate(
+      sampleAt(0, {
+        darwin: {
+          pressureLevel,
+          availablePercent: 52,
+          compressorBytes: 20.5 * GIB,
+          reclaimableBytes: 20.6 * GIB,
+          swapUsedBytes: 8.91 * GIB,
+          swapTotalBytes: 9 * GIB,
+          totalBytes: 48 * GIB,
+        },
+      }),
+      false,
+    );
+    expect(verdict.refuse).toBe(false);
+    expect(verdict.reading?.refusalReason).toBeUndefined();
   });
 
   it('a sample without a memory signal never refuses, even latched', () => {
@@ -366,10 +396,15 @@ describe('memoryGateReporter', () => {
       expect(
         isCriticalMemory(
           sampleAt(0, {
-            darwin: darwin({ pressureLevel, swapUsedBytes: 8.2 * GIB, swapTotalBytes: 9 * GIB }),
+            darwin: darwin({
+              pressureLevel,
+              reclaimableBytes: 20.6 * GIB,
+              swapUsedBytes: 8.2 * GIB,
+              swapTotalBytes: 9 * GIB,
+            }),
           }),
         ),
-      ).toBe(false);
+      ).toBe(pressureLevel === null);
     }
     expect(
       isCriticalMemory(
