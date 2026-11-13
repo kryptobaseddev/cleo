@@ -554,6 +554,7 @@ export async function updateWorkerExecution(
  * @returns The stored record; identical duplicate reports retain the first receipt.
  * @throws When identity, content or a concurrent custody change conflicts.
  * @remarks Uses the existing local-only worker metadata transaction; no acceptance or resource hook is emitted.
+ * An immediate transaction serializes report and outbox reservations before reading their current metadata.
  * @example
  * ```ts
  * const settled = await recordWorkerReport(record, validatedReport, projectRoot);
@@ -578,80 +579,87 @@ export async function recordWorkerReport(
     throw new Error('Worker report identity or digest does not match its record.');
   }
   const db = await getDb(cwd);
-  return db.transaction((tx) => {
-    const row = tx
-      .select()
-      .from(tasksAgentInstances)
-      .where(eq(tasksAgentInstances.id, record.recordId))
-      .get();
-    const meta = row ? parseWorkerMetadata(row) : null;
-    if (
-      !row ||
-      !meta ||
-      !isCurrentOrcaWorker(toWorkerRecord(row, meta)) ||
-      JSON.stringify(meta.execution) !== JSON.stringify(execution)
-    ) {
-      // @sync-invariant none:local-only retired or concurrently changed custody cannot receive a stale report
-      throw new Error('Worker execution changed; reload the exact record before report ingestion.');
-    }
-    if (meta.report) {
+  return db.transaction(
+    (tx) => {
+      const row = tx
+        .select()
+        .from(tasksAgentInstances)
+        .where(eq(tasksAgentInstances.id, record.recordId))
+        .get();
+      const meta = row ? parseWorkerMetadata(row) : null;
       if (
-        meta.report.reportDigest !== receipt.reportDigest ||
-        meta.report.manifestId !== receipt.manifestId ||
-        meta.report.manifestDigest !== receipt.manifestDigest
+        !row ||
+        !meta ||
+        !isCurrentOrcaWorker(toWorkerRecord(row, meta)) ||
+        JSON.stringify(meta.execution) !== JSON.stringify(execution)
       ) {
-        // @sync-invariant none:local-only a second delivery cannot replace the settled logical report
-        throw new Error('A different worker report is already settled for this Dispatch.');
+        // @sync-invariant none:local-only retired or concurrently changed custody cannot receive a stale report
+        throw new Error(
+          'Worker execution changed; reload the exact record before report ingestion.',
+        );
       }
-      if (meta.reportDelivery) return toWorkerRecord(row, meta);
-    }
-    if (!meta.report) {
-      const task = tx.select().from(tasksTasks).where(eq(tasksTasks.id, record.taskId)).get();
-      const claim = task ? claimFromColumns(task) : undefined;
-      if (
-        !isLiveClaim(claim) ||
-        claim?.sessionId !== record.sessionId ||
-        claim?.agentId !== record.agentId
-      ) {
-        // @sync-invariant none:local-only report settlement must still own the exact claim at commit time
-        throw new Error('Worker task claim changed before report settlement.');
+      if (meta.report) {
+        if (
+          meta.report.reportDigest !== receipt.reportDigest ||
+          meta.report.manifestId !== receipt.manifestId ||
+          meta.report.manifestDigest !== receipt.manifestDigest
+        ) {
+          // @sync-invariant none:local-only a second delivery cannot replace the settled logical report
+          throw new Error('A different worker report is already settled for this Dispatch.');
+        }
+        if (meta.reportDelivery) return toWorkerRecord(row, meta);
       }
-    }
-    const canonical = meta.report ?? receipt;
-    const event = canonical.event;
-    const metadata: WorkerMetadata = {
-      ...meta,
-      report: canonical,
-      reportDelivery: {
-        key: `cleo-orca-report:${createHash('sha256')
-          .update(JSON.stringify([event.runtimeId, event.runId, event.dispatchId, event.messageId]))
-          .digest('hex')}`,
-        mailbox: meta.leadMailbox ?? null,
-        state: 'pending',
-        messageId: null,
-        deliveredAt: null,
-        lastError: null,
-      },
-    };
-    const updated = tx
-      .update(tasksAgentInstances)
-      .set({ metadataJson: JSON.stringify(metadata) })
-      .where(
-        and(
-          eq(tasksAgentInstances.id, record.recordId),
-          eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
-          row.stoppedAt === null
-            ? isNull(tasksAgentInstances.stoppedAt)
-            : eq(tasksAgentInstances.stoppedAt, row.stoppedAt),
-        ),
-      )
-      .run();
-    if (Number(updated.changes) !== 1) {
-      // @sync-invariant none:local-only report settlement has one winner and never changes task or resource state
-      throw new Error('Worker report settlement lost; reload the exact record.');
-    }
-    return toWorkerRecord(row, metadata);
-  });
+      if (!meta.report) {
+        const task = tx.select().from(tasksTasks).where(eq(tasksTasks.id, record.taskId)).get();
+        const claim = task ? claimFromColumns(task) : undefined;
+        if (
+          !isLiveClaim(claim) ||
+          claim?.sessionId !== record.sessionId ||
+          claim?.agentId !== record.agentId
+        ) {
+          // @sync-invariant none:local-only report settlement must still own the exact claim at commit time
+          throw new Error('Worker task claim changed before report settlement.');
+        }
+      }
+      const canonical = meta.report ?? receipt;
+      const event = canonical.event;
+      const metadata: WorkerMetadata = {
+        ...meta,
+        report: canonical,
+        reportDelivery: {
+          key: `cleo-orca-report:${createHash('sha256')
+            .update(
+              JSON.stringify([event.runtimeId, event.runId, event.dispatchId, event.messageId]),
+            )
+            .digest('hex')}`,
+          mailbox: meta.leadMailbox ?? null,
+          state: 'pending',
+          messageId: null,
+          deliveredAt: null,
+          lastError: null,
+        },
+      };
+      const updated = tx
+        .update(tasksAgentInstances)
+        .set({ metadataJson: JSON.stringify(metadata) })
+        .where(
+          and(
+            eq(tasksAgentInstances.id, record.recordId),
+            eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+            row.stoppedAt === null
+              ? isNull(tasksAgentInstances.stoppedAt)
+              : eq(tasksAgentInstances.stoppedAt, row.stoppedAt),
+          ),
+        )
+        .run();
+      if (Number(updated.changes) !== 1) {
+        // @sync-invariant none:local-only report settlement has one winner and never changes task or resource state
+        throw new Error('Worker report settlement lost; reload the exact record.');
+      }
+      return toWorkerRecord(row, metadata);
+    },
+    { behavior: 'immediate' },
+  );
 }
 
 /**

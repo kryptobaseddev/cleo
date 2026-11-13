@@ -722,15 +722,30 @@ describe('Orca canonical worker report ingress', () => {
     await expectCustody();
   });
 
-  it('delivers exactly once when two processes relay the same pending report', async () => {
+  it.each([
+    'pending',
+    'missing',
+  ])('delivers exactly once when two processes relay a report with a %s outbox', async (outbox) => {
     fixtureMail.failBefore = true;
     const pending = await ingest();
     expect(pending.reportDelivery?.state).toBe('pending');
+    if (outbox === 'missing') {
+      (await getDb(env.tempDir))
+        .update(tasksAgentInstances)
+        .set({
+          metadataJson: sql`json_remove(${tasksAgentInstances.metadataJson}, '$.reportDelivery')`,
+        })
+        .where(eq(tasksAgentInstances.id, record.recordId))
+        .run();
+      expect((await listWorkerRecords(env.tempDir))[0]?.reportDelivery).toBeUndefined();
+    }
     const raceDir = join(env.tempDir, 'report-race');
     const mailboxDir = join(raceDir, 'mailbox');
     const requestsDir = join(raceDir, 'requests');
+    const reservationsDir = join(raceDir, 'reservations');
     mkdirSync(mailboxDir, { recursive: true });
     mkdirSync(requestsDir);
+    mkdirSync(reservationsDir);
     // Resolve source like Vitest so fresh worktrees exercise the race without a build.
     const child = `
       import { existsSync, linkSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -759,7 +774,26 @@ describe('Orca canonical worker report ingress', () => {
       });
       const { relayOrcaWorkerReport } = await import(${JSON.stringify(new URL('../orca-execution.ts', import.meta.url).href)});
       const { createAgentMbxClient } = await import(${JSON.stringify(new URL('../agentmbx.ts', import.meta.url).href)});
+      let sending = false;
+      if (process.env.REPORT_OUTBOX === 'missing') {
+        const { getDb } = await import(${JSON.stringify(new URL('../../store/sqlite.ts', import.meta.url).href)});
+        const db = await getDb(process.env.REPORT_PROJECT);
+        const transaction = db.transaction.bind(db);
+        db.transaction = (...args) => {
+          if (!sending) {
+            // Both relays must reach recordWorkerReport before either transaction begins.
+            writeFileSync(join(process.env.REPORT_RESERVATIONS, String(process.pid)), '');
+            const deadline = Date.now() + 15000;
+            while (readdirSync(process.env.REPORT_RESERVATIONS).length < 2) {
+              if (Date.now() > deadline) throw new Error('Both relays must reserve the missing outbox');
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+            }
+          }
+          return transaction(...args);
+        };
+      }
       const runner = async (args) => {
+        sending = true;
         if (args[0] !== 'send') throw new Error('Unexpected mailbox command: ' + args[0]);
         const key = args[args.indexOf('--idempotency-key') + 1];
         const body = args[args.indexOf('-m') + 1];
@@ -802,6 +836,8 @@ describe('Orca canonical worker report ingress', () => {
             REPORT_PROJECT: env.tempDir,
             REPORT_REQUESTS: requestsDir,
             REPORT_MAILBOX: mailboxDir,
+            REPORT_OUTBOX: outbox,
+            REPORT_RESERVATIONS: reservationsDir,
           },
         }),
       ),
@@ -821,6 +857,7 @@ describe('Orca canonical worker report ingress', () => {
     }
     const requests = readdirSync(requestsDir);
     expect(requests).toHaveLength(2);
+    expect(readdirSync(reservationsDir)).toHaveLength(outbox === 'missing' ? 2 : 0);
     for (const request of requests)
       expect(JSON.parse(readFileSync(join(requestsDir, request), 'utf8'))).toEqual(
         expect.arrayContaining([pending.reportDelivery?.key, REPORT]),
