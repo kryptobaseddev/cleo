@@ -224,7 +224,8 @@ export interface HealthResult {
 
 export interface DiagnosticsCheck {
   name: string;
-  status: 'pass' | 'warn' | 'fail';
+  /** `info`: the check could not complete (counted in `total`, never as passed; T14549). */
+  status: 'pass' | 'warn' | 'fail' | 'info';
   details?: string;
   fix?: string;
 }
