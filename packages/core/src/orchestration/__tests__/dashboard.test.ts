@@ -1,13 +1,88 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
   collectOrchestrateDashboard,
   type DashboardWorktreeState,
   formatDashboardPromptSummary,
 } from '../dashboard.js';
+
+// T14552: count disposal proofs, full listings, git spawns and sync fs calls
+// (the profile's cost centres: lstat, git spawnSync, readdir); statuses come from a stub.
+const { proofs, listings } = vi.hoisted(() => ({
+  proofs: { n: 0 },
+  listings: { n: 0 },
+}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFileSync: vi.fn(actual.execFileSync),
+    spawnSync: vi.fn(actual.spawnSync),
+  };
+});
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const spies = {
+    lstatSync: vi.fn(actual.lstatSync),
+    statSync: vi.fn(actual.statSync),
+    readdirSync: vi.fn(actual.readdirSync),
+  };
+  return { ...actual, ...spies, default: { ...actual, ...spies } };
+});
+vi.mock('@cleocode/worktree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/worktree')>();
+  return {
+    ...actual,
+    disposeWorktree: (...args: Parameters<typeof actual.disposeWorktree>) => {
+      proofs.n += 1;
+      return actual.disposeWorktree(...args);
+    },
+  };
+});
+vi.mock('../../worktree/list.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../worktree/list.js')>();
+  return {
+    ...actual,
+    listWorktrees: (...args: Parameters<typeof actual.listWorktrees>) => {
+      listings.n += 1;
+      return actual.listWorktrees(...args);
+    },
+    // Odd task numbers done, even active; no task store needed.
+    loadOwningTaskStatuses: async (ids: string[]) => ({
+      success: true as const,
+      data: new Map(ids.map((id) => [id, Number(id.slice(1)) % 2 === 1 ? 'done' : 'active'])),
+    }),
+  };
+});
+
+/** Git spawns recorded by the delegating `node:child_process` spies (T14552). */
+function gitCallCount(): number {
+  return [...vi.mocked(execFileSync).mock.calls, ...vi.mocked(spawnSync).mock.calls].filter(
+    (call) => call[0] === 'git',
+  ).length;
+}
+
+/** lstat / stat / readdir calls recorded by the delegating `node:fs` spies (T14552). */
+function fsCallCount(): number {
+  return (
+    vi.mocked(lstatSync).mock.calls.length +
+    vi.mocked(statSync).mock.calls.length +
+    vi.mocked(readdirSync).mock.calls.length
+  );
+}
+
+/** Reset the git and fs counters. */
+function resetCallCounts(): void {
+  for (const spy of [execFileSync, spawnSync, lstatSync, statSync, readdirSync]) {
+    vi.mocked(spy).mockClear();
+  }
+}
 
 function task(id: string, status: Task['status'], depends: string[] = []): Task {
   return {
@@ -171,4 +246,86 @@ describe('collectOrchestrateDashboard', () => {
       'queue=1 ready / 0 active; worktrees=1 active (0 stalled: 0 dirty, 0 unpushed); adminMerge=0/h; forceBypass=0/h (24h)',
     );
   });
+
+  it('T14552 — proveWorktrees:false costs the same for 5 and 185 worktrees: no proof, no per-worktree git or fs', async () => {
+    const base = realpathSync(await mkdtemp(join(tmpdir(), 'dashboard-unproven-')));
+    try {
+      const repo = join(base, 'repo');
+      await mkdir(repo);
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+      git('init', '-q', '-b', 'main');
+      git(
+        '-c',
+        'user.name=T',
+        '-c',
+        'user.email=t@e.x',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'init',
+      );
+      const addWorktrees = (from: number, to: number) => {
+        for (let i = from; i <= to; i++) {
+          git('worktree', 'add', '-q', '-b', `task/T${i}`, join(base, 'wt', `T${i}`));
+        }
+      };
+      const measure = async () => {
+        proofs.n = 0;
+        listings.n = 0;
+        resetCallCounts();
+        const metrics = await collectOrchestrateDashboard(repo, {
+          accessor: accessor([]),
+          now: new Date(),
+          proveWorktrees: false,
+        });
+        return {
+          metrics,
+          proofs: proofs.n,
+          listings: listings.n,
+          git: gitCallCount(),
+          fs: fsCallCount(),
+        };
+      };
+
+      addWorktrees(1, 5);
+      await measure(); // warm module-level caches
+      const small = await measure();
+      addWorktrees(6, 185);
+      const large = await measure();
+
+      for (const run of [small, large]) {
+        expect(run.proofs).toBe(0);
+        expect(run.listings).toBe(0);
+        expect(run.metrics.worktreeProof).toBe('unproven');
+      }
+      // The cost does not grow with the worktree count: 180 more worktrees
+      // add zero git spawns and zero sync fs calls.
+      expect(large.git).toBe(small.git);
+      expect(large.fs).toBe(small.fs);
+      expect(large.git).toBeLessThanOrEqual(5);
+      // One porcelain read (the git counter is live); no lstat/stat/readdir at all.
+      expect(small.git).toBeGreaterThan(0);
+      expect(small.fs).toBe(0);
+      // The primary checkout plus 92 open-task worktrees; 93 finished, unproven.
+      expect(large.metrics.worktrees).toMatchObject({
+        total: 186,
+        active: 93,
+        unproven: 93,
+        redundant: 0,
+      });
+      expect(formatDashboardPromptSummary(large.metrics)).toContain(
+        'worktrees=93 active, 93 finished (unproven: cleo worktree list)',
+      );
+      // The counters are wired: the default (proven) dashboard lists and its
+      // per-worktree probes touch the filesystem.
+      proofs.n = 0;
+      resetCallCounts();
+      await collectOrchestrateDashboard(repo, { accessor: accessor([]) });
+      expect(listings.n).toBe(1);
+      expect(fsCallCount()).toBeGreaterThan(0);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

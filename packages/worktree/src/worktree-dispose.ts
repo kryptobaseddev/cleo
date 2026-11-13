@@ -11,8 +11,9 @@
  * - **not in use**: the caller's in-use probe (a live task lock or claim)
  *   answers `null`; a probe that throws counts as in use;
  * - **content**: no tracked change, and every untracked or ignored path is
- *   either `node_modules`, rebuildable output of a merged checkout, or the
- *   identical tree in the main checkout ({@link unprovenContent});
+ *   either `node_modules`, CLEO's pnpm provisioning (`.pnpm-store/` and the
+ *   unchanged `.npmrc` naming it), rebuildable output of a merged checkout,
+ *   or the identical tree in the main checkout ({@link unprovenContent});
  * - **commits**: every commit HEAD reaches is also held by a remote-tracking
  *   ref or the project's local default branch ({@link unpreservedCommits}).
  *
@@ -58,6 +59,7 @@ import {
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
 import { releaseWorktreeTaskLock, withWorktreeTaskLockHeld } from './worktree-lock.js';
+import { pnpmProvisioningProbe } from './worktree-pnpm.js';
 
 /** A probe that could not answer: git failed (T14274 classifies these `unknown`). */
 const GIT_STATUS_FAILED = 'git status failed';
@@ -245,12 +247,16 @@ export function unprovenContent(
   const exemptNodeModules = opts.exemptNodeModules !== false;
   const entries = statusEntries(path);
   if (entries === null) return GIT_STATUS_FAILED;
+  const provisioning = pnpmProvisioningProbe(path);
   for (const { code, rel } of entries) {
     const untrackedOrIgnored = code === '??' || code === '!!';
     // `node_modules` (a directory, or the symlink a `node_modules/` ignore
     // pattern misses) reinstalls from the lockfile: redundant in a worktree.
     if (untrackedOrIgnored && exemptNodeModules && rel.split('/').includes('node_modules'))
       continue;
+    // CLEO's own pnpm provisioning (a real pnpm store directory, and the
+    // `.npmrc` byte-for-byte as provisioning wrote it) is regenerated on demand (T14552).
+    if (untrackedOrIgnored && provisioning(rel)) continue;
     // A tracked change is never redundant; an untracked or ignored path is
     // when the main checkout holds the identical tree (a copied receipt).
     if (code === '??') {

@@ -674,6 +674,8 @@ export async function composeSpawnForTask(
     /** Portable prompt composition when execution may rotate harnesses. */
     harnessHint?: HarnessHint;
     skipAtomicityCheck?: boolean;
+    /** Compose only the atomicity verdict's inputs (T14552); the prompt is not for dispatch. */
+    verdictOnly?: boolean;
     /** Pre-provisioned worktree path — emits Worktree Setup section (T1140). */
     worktreePath?: string;
     /** Branch name for the worktree (T1140). */
@@ -736,6 +738,7 @@ export async function composeSpawnForTask(
       harnessHint: options.harnessHint,
       pipelineStageSource: await getTaskPipelineStageSource(task, accessor),
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
+      ...(options.verdictOnly ? { verdictOnly: true } : {}),
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
       ...(leadMailbox ? { leadMailbox } : {}),
@@ -1970,10 +1973,13 @@ export async function orchestrateSpawn(
     // a refused spawn leaves nothing behind. The verdict needs the composer's
     // role resolution, so this composes once without session or worktree
     // (no memory retrieval); the real prompt is composed after provisioning.
+    // T14552: verdict only, so no dashboard, attention digest or attachments:
+    // a spawn under --orchestrator-defer never spends its budget here.
     const precheck = await raceAgainstAbort(
       composeSpawnForTask(taskId, root, {
         tier,
         protocol: protocolType,
+        verdictOnly: true,
         ...(atomicityScope ? { atomicityScope } : {}),
       }),
       budgetCtrl.signal,

@@ -105,8 +105,9 @@ describe('createWorktree dependency install (T13524)', () => {
       encoding: 'utf-8',
     });
     expect(untracked).not.toContain('.pnpm-store');
-    // `.npmrc` is NOT excluded: info/exclude is the common .git's, and would hide
-    // a new .npmrc in the main checkout too (T13541).
+    // T14552: the untracked store-dir `.npmrc` is excluded too, so a finished
+    // worktree holds no untracked file and the disposal proof can prune it.
+    expect(untracked).not.toContain('.npmrc');
     const excludePath = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
       cwd: r.path,
       encoding: 'utf-8',
@@ -116,7 +117,7 @@ describe('createWorktree dependency install (T13524)', () => {
       'utf-8',
     );
     expect(exclude).toContain('/.pnpm-store/');
-    expect(exclude).not.toContain('/.npmrc');
+    expect(exclude).toContain('/.npmrc');
     expect(r.install?.command).toBe(workerInstallCommand(r.path));
   });
 

@@ -12,13 +12,16 @@
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -28,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeProjectHash, resolveWorktreeRootForHash } from '../paths.js';
 import { destroyWorktree } from '../worktree-destroy.js';
 import { disposeWorktree, unpreservedCommits } from '../worktree-dispose.js';
+import { configureWorktreePnpmStore, pnpmProvisioningProbe } from '../worktree-pnpm.js';
 import { pruneWorktrees } from '../worktree-prune.js';
 
 function git(cwd: string, ...args: string[]): string {
@@ -264,6 +268,273 @@ describe('disposeWorktree proof (T13924)', () => {
     });
     expect(probe.archive).toBeUndefined();
     expect(existsSync(join(wt, 'new.ts'))).toBe(true);
+  });
+});
+
+describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
+  /** A finished worktree as spawn left it: store-dir `.npmrc` plus a store. */
+  function provisioned(taskId: string): string {
+    const wt = worktree(taskId);
+    expect(configureWorktreePnpmStore(wt)).toBe(join(wt, '.pnpm-store'));
+    const files = join(wt, '.pnpm-store', 'v10', 'files', '0a');
+    const index = join(wt, '.pnpm-store', 'v10', 'index', '2c');
+    mkdirSync(files, { recursive: true });
+    mkdirSync(index, { recursive: true });
+    // Real pnpm names: sha512 split 2/126 hex, index 2/62 hex + package.
+    writeFileSync(join(files, 'a'.repeat(126)), 'cached\n');
+    writeFileSync(join(files, `${'b'.repeat(126)}-exec`), 'cached\n');
+    writeFileSync(join(index, `${'c'.repeat(62)}-parseurl@1.3.3.json`), '{}\n');
+    mkdirSync(join(wt, '.pnpm-store', 'v10', 'projects'));
+    symlinkSync(wt, join(wt, '.pnpm-store', 'v10', 'projects', 'deadbeef'));
+    return wt;
+  }
+
+  it('provisioning leaves no untracked file: git status is clean', () => {
+    const wt = provisioned('T30');
+    expect(readFileSync(join(wt, '.npmrc'), 'utf-8')).toBe(
+      `store-dir=${join(wt, '.pnpm-store')}\n`,
+    );
+    expect(git(wt, 'status', '--porcelain')).toBe('');
+  });
+
+  it('a worktree holding only the store-dir .npmrc and its store is proven redundant', () => {
+    const wt = provisioned('T31');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T31', reason: 'test', dryRun: true });
+    expect(r).toEqual({ worktreePath: wt, removed: false });
+    expect(r.keptReason).toBeUndefined();
+  });
+
+  it('a pre-T14552 untracked .npmrc (not excluded) is proven redundant too', () => {
+    const wt = worktree('T32');
+    writeFileSync(join(wt, '.npmrc'), `store-dir=${join(wt, '.pnpm-store')}\n`);
+    expect(git(wt, 'status', '--porcelain')).toContain('.npmrc');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T32', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeUndefined();
+  });
+
+  it('seeded lines match the recorded bytes, even after the main checkout config changes', () => {
+    writeFileSync(join(repo, '.npmrc'), 'auto-install-peers=true\n');
+    const wt = worktree('T33');
+    writeFileSync(join(wt, '.npmrc'), 'auto-install-peers=true\n');
+    configureWorktreePnpmStore(wt);
+    writeFileSync(join(repo, '.npmrc'), 'strict-peer-dependencies=false\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T33', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeUndefined();
+  });
+
+  it('keeps an unrecorded (pre-record) .npmrc with seeded lines, even when main matches it', () => {
+    writeFileSync(join(repo, '.npmrc'), 'auto-install-peers=true\n');
+    const wt = worktree('T37');
+    writeFileSync(
+      join(wt, '.npmrc'),
+      `auto-install-peers=true\nstore-dir=${join(wt, '.pnpm-store')}\n`,
+    );
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T37', reason: 'test', dryRun: true });
+    expect(r.keptReason).toContain('uncommitted or untracked changes');
+  });
+
+  it.each([
+    ['a blank line added', (store: string) => `\nstore-dir=${store}\n`],
+    ['a trailing blank line', (store: string) => `store-dir=${store}\n\n`],
+    ['the newline dropped', (store: string) => `store-dir=${store}`],
+    ['the store line duplicated', (store: string) => `store-dir=${store}\nstore-dir=${store}\n`],
+  ])('keeps a worktree whose .npmrc differs by %s', (_label, body) => {
+    const wt = provisioned('T38');
+    writeFileSync(join(wt, '.npmrc'), body(join(wt, '.pnpm-store')));
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T38', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+  });
+
+  it('keeps a worktree whose seeded .npmrc lines were reordered', () => {
+    const wt = worktree('T39');
+    writeFileSync(join(wt, '.npmrc'), 'a=1\nb=2\n');
+    configureWorktreePnpmStore(wt);
+    writeFileSync(join(wt, '.npmrc'), `b=2\na=1\nstore-dir=${join(wt, '.pnpm-store')}\n`);
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T39', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+  });
+
+  it('keeps a regular FILE named .pnpm-store (the only copy of its content)', () => {
+    const wt = worktree('T40');
+    configureWorktreePnpmStore(wt);
+    writeFileSync(join(wt, '.pnpm-store'), 'not a store: real notes\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T40', reason: 'test', dryRun: true });
+    expect(r.keptReason).toContain('uncommitted or untracked changes');
+  });
+
+  it.each([
+    [
+      'a stray file at the store root',
+      (store: string) => writeFileSync(join(store, 'notes.md'), 'x\n'),
+    ],
+    [
+      'a stray file in a version dir',
+      (store: string) => writeFileSync(join(store, 'v10', 'plan.txt'), 'x\n'),
+    ],
+    [
+      'a foreign file under projects/',
+      (store: string) => {
+        mkdirSync(join(store, 'v10', 'projects', 'feedface'));
+        writeFileSync(join(store, 'v10', 'projects', 'feedface', 'notes.md'), 'x\n');
+      },
+    ],
+    [
+      'a regular file in place of a projects/ symlink',
+      (store: string) => writeFileSync(join(store, 'v10', 'projects', 'cafe'), 'x\n'),
+    ],
+    [
+      'a file left in tmp/',
+      (store: string) => {
+        mkdirSync(join(store, 'v10', 'tmp'));
+        writeFileSync(join(store, 'v10', 'tmp', 'partial'), 'x\n');
+      },
+    ],
+    [
+      'a directory where a content file belongs',
+      (store: string) => mkdirSync(join(store, 'v10', 'files', '0a', 'd'.repeat(126))),
+    ],
+    [
+      'a short hex name under files/',
+      (store: string) => writeFileSync(join(store, 'v10', 'files', '0a', '57539c3ea497'), 'x\n'),
+    ],
+    ['an unknown section', (store: string) => mkdirSync(join(store, 'v10', 'metadata'))],
+    [
+      'a non-hash name under files/',
+      (store: string) => writeFileSync(join(store, 'v10', 'files', '0a', 'draft.ts'), 'x\n'),
+    ],
+    [
+      'a symlink under tmp/',
+      (store: string) => {
+        mkdirSync(join(store, 'v10', 'tmp'));
+        symlinkSync(join(repo, 'a.ts'), join(store, 'v10', 'tmp', 'link'));
+      },
+    ],
+  ])('keeps a .pnpm-store holding %s', (_label, plant) => {
+    const wt = provisioned('T41');
+    plant(join(wt, '.pnpm-store'));
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T41', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+  });
+
+  it('the foreign file under projects/ survives a real (non-dry-run) disposal', () => {
+    const wt = provisioned('T43');
+    const notes = join(wt, '.pnpm-store', 'v10', 'projects', 'feedface', 'notes.md');
+    mkdirSync(join(wt, '.pnpm-store', 'v10', 'projects', 'feedface'));
+    writeFileSync(notes, 'unique notes\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T43', reason: 'test' });
+    expect(r.removed).toBe(false);
+    expect(readFileSync(notes, 'utf-8')).toBe('unique notes\n');
+  });
+
+  /** The record provisioning wrote in the worktree's git admin dir. */
+  const recordOf = (wt: string) =>
+    join(git(wt, 'rev-parse', '--path-format=absolute', '--git-dir'), 'cleo-provisioned-npmrc');
+
+  it('keeps a .npmrc symlinked to the record, edited through the link', () => {
+    const wt = provisioned('T44');
+    const record = recordOf(wt);
+    expect(readFileSync(record, 'utf-8')).toBe(`store-dir=${join(wt, '.pnpm-store')}\n`);
+    unlinkSync(join(wt, '.npmrc'));
+    symlinkSync(record, join(wt, '.npmrc'));
+    const unique = `store-dir=${join(wt, '.pnpm-store')}\n//r.example/:_authToken=x\n`;
+    writeFileSync(join(wt, '.npmrc'), unique);
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T44', reason: 'test' });
+    expect(r.removed).toBe(false);
+    expect(readFileSync(join(wt, '.npmrc'), 'utf-8')).toBe(unique);
+  });
+
+  it('keeps a .npmrc hardlinked to the record, edited through the link', () => {
+    const wt = provisioned('T45');
+    const record = recordOf(wt);
+    unlinkSync(join(wt, '.npmrc'));
+    linkSync(record, join(wt, '.npmrc'));
+    writeFileSync(join(wt, '.npmrc'), 'registry=https://private.example/\n');
+    expect(readFileSync(record, 'utf-8')).toBe('registry=https://private.example/\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T45', reason: 'test' });
+    expect(r.removed).toBe(false);
+    expect(readFileSync(join(wt, '.npmrc'), 'utf-8')).toBe('registry=https://private.example/\n');
+  });
+
+  it('keeps a worktree whose record was replaced by a symlink into the worktree', () => {
+    const wt = provisioned('T46');
+    const record = recordOf(wt);
+    unlinkSync(record);
+    symlinkSync(join(wt, '.npmrc'), record);
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T46', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+  });
+
+  /**
+   * Move the worktree's git admin dir to `<wt>/<rel>` (re-pointing `.git` and
+   * `commondir`), so `git rev-parse --git-dir` names a record inside the tree.
+   */
+  function moveAdminInto(wt: string, rel: string): string {
+    const admin = recordOf(wt).replace(/[\\/]cleo-provisioned-npmrc$/, '');
+    const common = git(wt, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+    const target = join(wt, rel);
+    mkdirSync(join(target, '..'), { recursive: true });
+    renameSync(admin, target);
+    writeFileSync(join(target, 'commondir'), `${common}\n`);
+    writeFileSync(join(wt, '.git'), `gitdir: ${target}\n`);
+    expect(recordOf(wt)).toBe(join(target, 'cleo-provisioned-npmrc'));
+    return target;
+  }
+
+  it("a record under a '..cache' directory is inside the worktree: the .npmrc is not proven", () => {
+    const wt = provisioned('T47');
+    moveAdminInto(wt, join('..cache', 'node_modules', 'admin'));
+    expect(pnpmProvisioningProbe(wt)('.npmrc')).toBe(false);
+  });
+
+  it('containment compares realpaths: an in-tree record reached through a symlinked parent', () => {
+    const wt = provisioned('T48');
+    moveAdminInto(wt, join('..cache', 'admin'));
+    const alias = join(base, 'alias');
+    symlinkSync(join(wt, '..'), alias);
+    expect(pnpmProvisioningProbe(join(alias, 'T48'))('.npmrc')).toBe(false);
+  });
+
+  it('a record outside the worktree still proves the .npmrc, through a symlinked parent too', () => {
+    const wt = provisioned('T49');
+    expect(pnpmProvisioningProbe(wt)('.npmrc')).toBe(true);
+    const alias = join(base, 'alias-out');
+    symlinkSync(join(wt, '..'), alias);
+    expect(pnpmProvisioningProbe(join(alias, 'T49'))('.npmrc')).toBe(true);
+  });
+
+  it('keeps a .pnpm-store that is a symlink to another directory', () => {
+    const wt = worktree('T42');
+    configureWorktreePnpmStore(wt);
+    const elsewhere = join(base, 'elsewhere');
+    mkdirSync(join(elsewhere, 'v10', 'files'), { recursive: true });
+    symlinkSync(elsewhere, join(wt, '.pnpm-store'));
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T42', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+  });
+
+  it('keeps a worktree with a real untracked file beside the provisioning', () => {
+    const wt = provisioned('T34');
+    writeFileSync(join(wt, 'wip.ts'), 'unsaved work\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T34', reason: 'test', dryRun: true });
+    expect(r.keptReason).toContain('uncommitted or untracked changes');
+  });
+
+  it('keeps a worktree whose .npmrc carries a line CLEO did not write', () => {
+    const wt = provisioned('T35');
+    writeFileSync(
+      join(wt, '.npmrc'),
+      `store-dir=${join(wt, '.pnpm-store')}\n//registry.example/:_authToken=secret\n`,
+    );
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T35', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+    expect(existsSync(wt)).toBe(true);
+  });
+
+  it('keeps a worktree whose .npmrc names another store', () => {
+    const wt = worktree('T36');
+    writeFileSync(join(wt, '.npmrc'), 'store-dir=/shared/store\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T36', reason: 'test', dryRun: true });
+    expect(r.keptReason).toContain('uncommitted or untracked changes');
   });
 });
 

@@ -7,6 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Task, WorktreeInfo } from '@cleocode/contracts';
@@ -14,10 +15,25 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getForceBypassPath } from '../tasks/gate-audit.js';
 import { WORKTREE_LIFECYCLE_AUDIT_FILE } from '../worktree/audit.js';
-import { listWorktrees } from '../worktree/list.js';
+import {
+  enumerateWorktrees,
+  isDisposalCandidate,
+  isPrimaryWorktree,
+  listWorktrees,
+  loadOwningTaskStatuses,
+  resolvePrimaryWorktreePath,
+} from '../worktree/list.js';
+import {
+  readSentinelIndex,
+  taskIdFromBranch,
+  taskIdFromWorktreeDir,
+} from '../worktree/sentinel-index.js';
 
 /** Observation window used for audit-derived rates. */
 export const DASHBOARD_RATE_WINDOW_HOURS = 24;
+
+/** Idle window after which a worktree naming no stored task is a disposal candidate (as `listWorktrees`). */
+const UNPROVEN_TASKLESS_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface DashboardRateMetric {
   count: number;
@@ -56,6 +72,11 @@ export interface OrchestrateDashboardMetrics {
     redundant: number;
     keep: number;
     unknown: number;
+    /**
+     * Disposal candidates the proof did not judge (T14552): only set when the
+     * dashboard ran with `proveWorktrees: false`; `cleo worktree list` proves them.
+     */
+    unproven: number;
     /** Worktrees carrying the `stale` annotation. */
     stale: number;
     dirty: number;
@@ -63,6 +84,11 @@ export interface OrchestrateDashboardMetrics {
     stalled: number;
   };
   stalledWorktrees: DashboardWorktreeState[];
+  /**
+   * Whether worktree categories come from the disposal proof plus dirty and
+   * unpushed probes (`proven`), or from task status alone (`unproven`, T14552).
+   */
+  worktreeProof: 'proven' | 'unproven';
 }
 
 export interface CollectDashboardOptions {
@@ -73,6 +99,13 @@ export interface CollectDashboardOptions {
   worktreeStatusCategories?: readonly string[];
   /** Test hook: skip git worktree enumeration and use these full worktree states. */
   worktreeStates?: readonly DashboardWorktreeState[];
+  /**
+   * Run the disposal proof and the dirty/unpushed probes per worktree
+   * (default `true`). `false` reads one `git worktree list` and the owning
+   * task statuses only, so the cost does not grow with the worktree count:
+   * the spawn prompt summary uses it (T14552).
+   */
+  proveWorktrees?: boolean;
 }
 
 /**
@@ -88,11 +121,14 @@ export async function collectOrchestrateDashboard(
   const { tasks } = await accessor.queryTasks({});
 
   const queue = summarizeQueue(tasks);
+  const prove = options.proveWorktrees !== false;
   const worktreeStates =
     options.worktreeStates ??
     (options.worktreeStatusCategories
       ? statesFromCategories(options.worktreeStatusCategories)
-      : await collectWorktreeStates(projectRoot));
+      : prove
+        ? await collectWorktreeStates(projectRoot)
+        : await collectUnprovenWorktreeStates(projectRoot, now.getTime()));
   const worktrees = summarizeWorktrees(worktreeStates);
   const [adminMergeRate, forceBypassRate] = await Promise.all([
     countJsonlEvents(
@@ -116,12 +152,17 @@ export async function collectOrchestrateDashboard(
     activeWorktreeCount: worktrees.active,
     worktrees,
     stalledWorktrees: worktreeStates.filter((worktree) => worktree.isStalled),
+    worktreeProof: prove ? 'proven' : 'unproven',
   };
 }
 
 /** One-line summary safe for spawn-prompt injection. */
 export function formatDashboardPromptSummary(metrics: OrchestrateDashboardMetrics): string {
-  return `queue=${metrics.queueDepth} ready / ${metrics.queue.active} active; worktrees=${metrics.activeWorktreeCount} active (${metrics.worktrees.stalled} stalled: ${metrics.worktrees.dirty} dirty, ${metrics.worktrees.unpushed} unpushed); adminMerge=${formatRate(metrics.adminMergeRate)}/h; forceBypass=${formatRate(metrics.forceBypassRate)}/h (${metrics.forceBypassRate.windowHours}h)`;
+  const worktrees =
+    metrics.worktreeProof === 'unproven'
+      ? `worktrees=${metrics.activeWorktreeCount} active, ${metrics.worktrees.unproven} finished (unproven: cleo worktree list)`
+      : `worktrees=${metrics.activeWorktreeCount} active (${metrics.worktrees.stalled} stalled: ${metrics.worktrees.dirty} dirty, ${metrics.worktrees.unpushed} unpushed)`;
+  return `queue=${metrics.queueDepth} ready / ${metrics.queue.active} active; ${worktrees}; adminMerge=${formatRate(metrics.adminMergeRate)}/h; forceBypass=${formatRate(metrics.forceBypassRate)}/h (${metrics.forceBypassRate.windowHours}h)`;
 }
 
 function summarizeQueue(tasks: Task[]): OrchestrateDashboardMetrics['queue'] {
@@ -155,6 +196,75 @@ async function collectWorktreeStates(
   return result.data.worktrees.map((worktree) => describeWorktreeState(worktree));
 }
 
+/**
+ * Worktree states from one `git worktree list` and the owning task statuses
+ * (T14552): no disposal proof and no per-worktree git call, so a project with
+ * hundreds of worktrees costs what a project with one does. The primary
+ * checkout and worktrees of open tasks are `active`; a disposal candidate
+ * (task done or cancelled, or no stored task and idle past the window) is
+ * `unproven`, never `redundant`; an unreadable task store makes task
+ * worktrees `unknown`.
+ */
+async function collectUnprovenWorktreeStates(
+  projectRoot: string,
+  nowMs: number,
+): Promise<readonly DashboardWorktreeState[]> {
+  let entries: ReturnType<typeof enumerateWorktrees>;
+  try {
+    entries = enumerateWorktrees(projectRoot);
+  } catch {
+    return [];
+  }
+  const adopted = new Map(readSentinelIndex(projectRoot).map((e) => [e.path, e.taskId]));
+  const primary = resolvePrimaryWorktreePath(projectRoot);
+  const rows = entries.map((entry) => ({
+    entry,
+    taskId:
+      adopted.get(entry.path) ??
+      taskIdFromBranch(entry.branch) ??
+      taskIdFromWorktreeDir(entry.path),
+  }));
+  const ids = [...new Set(rows.flatMap((row) => (row.taskId ? [row.taskId] : [])))];
+  const statuses = await loadOwningTaskStatuses(ids, projectRoot);
+  return rows.map(({ entry, taskId }) => {
+    const owningTaskStatus =
+      taskId && statuses.success ? (statuses.data.get(taskId) ?? null) : null;
+    const isPrimary = isPrimaryWorktree(entry.path, primary);
+    const statusCategory =
+      taskId !== null && !statuses.success
+        ? 'unknown'
+        : isDisposalCandidate({
+              isPrimary,
+              owningTaskStatus,
+              idlePastWindow:
+                owningTaskStatus === null &&
+                !isPrimary &&
+                idleMs(entry.path, nowMs) >= UNPROVEN_TASKLESS_IDLE_MS,
+            })
+          ? 'unproven'
+          : 'active';
+    return {
+      path: entry.path,
+      branch: entry.branch,
+      taskId,
+      statusCategory,
+      isDirty: false,
+      hasUnpushedCommits: false,
+      isStalled: false,
+      reasons: [],
+    };
+  });
+}
+
+/** Milliseconds since the directory last changed; 0 when it cannot be read. */
+function idleMs(path: string, nowMs: number): number {
+  try {
+    return nowMs - statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 function summarizeWorktrees(
   states: readonly DashboardWorktreeState[],
 ): OrchestrateDashboardMetrics['worktrees'] {
@@ -164,6 +274,7 @@ function summarizeWorktrees(
     redundant: 0,
     keep: 0,
     unknown: 0,
+    unproven: 0,
     stale: 0,
     dirty: 0,
     unpushed: 0,
@@ -175,6 +286,7 @@ function summarizeWorktrees(
     else if (category === 'redundant') counts.redundant += 1;
     else if (category === 'keep') counts.keep += 1;
     else if (category === 'unknown') counts.unknown += 1;
+    else if (category === 'unproven') counts.unproven += 1;
     if (state.reasons.includes('stale')) counts.stale += 1;
     if (state.isDirty) counts.dirty += 1;
     if (state.hasUnpushedCommits) counts.unpushed += 1;
