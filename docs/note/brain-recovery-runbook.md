@@ -15,7 +15,8 @@ cleo doctor repair-store
 ```
 
 It preserves the original store and salvages readable data in one operation. A
-healthy store is a no-op, including a second run after repair. `E_DB_CORRUPT`
+healthy store with no pending repair is a no-op, including a second run after
+a successful repair. `E_DB_CORRUPT`
 always supplies `cleo doctor repair-store` as its fix. Ordinary store opens try
 the same repair automatically when they can prove that nobody holds the store;
 the command's warning includes the recovery receipt.
@@ -45,7 +46,9 @@ a current empty schema and adds the readable rows.
 Schema migrations run before and after the data merge so columns added after an
 old snapshot are available before rows are imported. Missing primary keys are
 inserted. Readable damaged-store values win a conflicting key unless timestamps
-prove the snapshot row newer. This also preserves ended sessions in tables
+prove the snapshot row newer. An older main-only fallback keeps the snapshot
+row when no timestamp proves it newer; its alternate values and source view
+are recorded as a conflict. This also preserves ended sessions in tables
 without update timestamps. Columns absent from the current schema are preserved
 in quarantine `recovery.json` instead of silently discarded; salvaged migration
 stamps cannot skip schema upgrades.
@@ -64,11 +67,18 @@ deletions, quarantined snapshot conflicts, and rebuilt derived storage. CLEO the
 validates the exact installable image against a copy of the original main file
 and sidecars. It commits a full-image SQLite WAL with one fsynced atomic rename.
 There is no window with a removed original WAL or an old WAL over a new main.
-SQLite's next ordinary checkpoint folds the committed image into the main file.
-If a damaged page-1 header prevents WAL recovery, CLEO reconstructs disposable
-headers for salvage and can publish a complete main image with one rename. It
-first verifies that exact image with all original sidecars, including a normal
-WAL-mode reopen and a comparison of every logical value.
+The full-image WAL includes page 1, so it also repairs a destroyed main-file
+header without replaying the old WAL. Its page size comes from the staged
+image. Original SHM is included in the install proof; the new WAL salts and
+checksums force SQLite to rebuild a stale WAL index.
+
+Immediately after the rename, still under the repair lock, CLEO runs
+`PRAGMA wal_checkpoint(TRUNCATE)` and verifies a main-only copy with no sidecars.
+Success is reported only after that proof. If the process is killed between
+publication and verification, the full WAL keeps the store valid. The receipt
+has `checkpoint-pending` status and image hashes. Running the same command
+recognizes that published image, finishes the checkpoint and verification, then
+returns a completed receipt. A dry-run previews that completion on copies.
 
 The normal sync repair diff accounts for recovered rows: affected sync tables
 are marked suspect rather than inventing journal sequence numbers during salvage.

@@ -45,6 +45,8 @@ export type StoreRepairPhase =
   | 'migrate'
   | 'validate'
   | 'commit'
+  | 'checkpoint'
+  | 'checkpointed'
   | 'receipt';
 
 /** Row accounting for one table, including damage whose extent cannot be counted. */
@@ -82,6 +84,8 @@ export interface StoreRepairRecoveryRow {
   table: string;
   /** Specific columns, constraint, or incomplete-read finding. */
   reason: string;
+  /** Damaged view that supplied an alternate version, when known. */
+  source?: string;
   /** Original values, including a rowid when the table has one. */
   values: Record<string, StoreRepairValue>;
 }
@@ -115,13 +119,24 @@ export interface StoreRepairReceipt {
   /** UTC time at the start of the attempt. */
   startedAt: string;
   /** Healthy and absent stores require no mutation. */
-  status: 'healthy' | 'absent' | 'prepared' | 'repaired' | 'dry-run' | 'failed';
+  status:
+    | 'healthy'
+    | 'absent'
+    | 'prepared'
+    | 'checkpoint-pending'
+    | 'repaired'
+    | 'dry-run'
+    | 'failed';
   /** Immutable original copies; null for a no-op or dry run. */
   quarantineDir: string | null;
   /** Validated snapshot used as a base; null means a fresh schema. */
   snapshot: string | null;
   /** Timestamp of the chosen snapshot, when known. */
   snapshotAt: string | null;
+  /** SHA-256 of the committed full-image WAL, used to resume an interrupted checkpoint. */
+  commitWalSha256?: string;
+  /** SHA-256 of its fully checkpointed main image. */
+  commitMainSha256?: string;
   /** Whether readable live rows were merged. */
   delta: boolean;
   /** Preserved original file hashes. */

@@ -146,6 +146,14 @@ function hashes(): Record<string, string> {
 
 describe('copy-only whole-store repair', () => {
   it('healthy stores are byte-identical no-ops without quarantine', async () => {
+    const writer = join(env.tempDir, 'healthy-wal.db');
+    copyFileSync(live, writer);
+    const db = new DatabaseSync(writer);
+    db.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; INSERT INTO repair_records VALUES('healthy-wal','normal uncheckpointed data','2026-11-13T00:00:00Z')",
+    );
+    for (const suffix of ['', '-wal', '-shm']) copyFileSync(writer + suffix, live + suffix);
+    db.close();
     const before = hashes();
     const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
     expect(result.status).toBe('healthy');
@@ -158,8 +166,13 @@ describe('copy-only whole-store repair', () => {
     const before = hashes();
     const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
     expect(result.status).toBe('repaired');
+    expect(result.diagnostics).not.toContainEqual(expect.stringMatching(/snapshot .*\.restoring/));
     expect(values()).toEqual(['base', 'delta']);
     expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    expect(repairFileHash(live)).toBe(result.commitMainSha256);
+    const alone = join(env.tempDir, 'repaired-main-only.db');
+    copyFileSync(live, alone);
+    expect(values(alone)).toEqual(['base', 'delta']);
     expect(result.tables.repair_records).toMatchObject({
       snapshot: 1,
       salvaged: 2,
@@ -222,6 +235,51 @@ describe('copy-only whole-store repair', () => {
     expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
       'repaired',
     );
+  });
+
+  it('resumes a committed checkpoint failure and previews it without changing any live bytes', async () => {
+    damagedWal();
+    await expect(
+      repairStore({
+        projectRoot: env.tempDir,
+        cwd: env.tempDir,
+        onPhase(phase) {
+          if (phase === 'checkpoint') throw new Error('injected checkpoint interruption');
+        },
+      }),
+    ).rejects.toMatchObject({ codeName: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' });
+    const before = hashes();
+    const quarantine = join(env.cleoDir, 'quarantine');
+    const dirs = readdirSync(quarantine);
+    const receiptFile = join(quarantine, dirs[0] ?? '', 'receipt.json');
+    const oldReceipt = repairFileHash(receiptFile);
+    expect(JSON.parse(readFileSync(receiptFile, 'utf8')).status).toBe('checkpoint-pending');
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    const preview = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir, dryRun: true });
+    expect(preview.status).toBe('dry-run');
+    expect(hashes()).toEqual(before);
+    expect(repairFileHash(receiptFile)).toBe(oldReceipt);
+    const held = new DatabaseSync(live, { readOnly: true });
+    try {
+      await expect(
+        repairStore({ projectRoot: env.tempDir, cwd: env.tempDir }),
+      ).rejects.toMatchObject({ codeName: 'E_DB_CORRUPT' });
+    } finally {
+      held.close();
+    }
+    expect(JSON.parse(readFileSync(receiptFile, 'utf8')).status).toBe('checkpoint-pending');
+    const resumed = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(resumed.status).toBe('repaired');
+    expect(readdirSync(quarantine)).toEqual(dirs);
+    expect(JSON.parse(readFileSync(receiptFile, 'utf8')).status).toBe('repaired');
+    const mainOnly = join(env.tempDir, 'resumed-main-only.db');
+    copyFileSync(live, mainOnly);
+    expect(values(mainOnly)).toEqual(['base', 'delta', 'wal']);
+    const repaired = hashes();
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+    expect(hashes()).toEqual(repaired);
   });
 
   it('reads both an older main file and the newer committed WAL without losing readable rows', async () => {
@@ -350,7 +408,12 @@ describe('copy-only whole-store repair', () => {
           expect.objectContaining({
             code: 'W_DB_REPAIRED',
             context: expect.objectContaining({
-              receipt: expect.objectContaining({ status: 'repaired' }),
+              receipt: expect.objectContaining({
+                status: 'repaired',
+                tables: expect.objectContaining({
+                  __drizzle_migrations: expect.objectContaining({ unreadable: null }),
+                }),
+              }),
             }),
           }),
         ]),
@@ -448,6 +511,13 @@ describe('copy-only whole-store repair', () => {
   });
 
   it('repairs a damaged page-1 header with the newer WAL retained', async () => {
+    const source = new DatabaseSync(live);
+    source.exec(
+      "CREATE TABLE notes(id TEXT PRIMARY KEY,body TEXT); INSERT INTO notes VALUES('n','v2-snapshot')",
+    );
+    rmSync(snapshot);
+    source.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+    source.close();
     damagedWal();
     const bytes = readFileSync(live);
     bytes.fill(0, 0, 100);
@@ -512,6 +582,8 @@ describe('copy-only whole-store repair', () => {
     'migrate',
     'validate',
     'commit',
+    'checkpoint',
+    'checkpointed',
     'receipt',
   ] as const)('a process killed at %s leaves original bytes or the complete repair, and reruns safely', async (wanted) => {
     damagedWal();
@@ -541,9 +613,26 @@ describe('copy-only whole-store repair', () => {
     if (process.platform === 'win32') expect(exitCode).not.toBe(0);
     else expect(signal, stderr).toBe('SIGKILL');
     if (wanted === 'receipt') expect(values()).toEqual(['base', 'delta', 'wal']);
-    else expect(hashes()).toEqual(before);
+    else if (wanted === 'checkpoint') {
+      const published = hashes();
+      expect(published['']).toBe(before['']);
+      expect(published['-wal']).not.toBe(before['-wal']);
+      expect(published['-shm']).toBe(before['-shm']);
+      expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    } else if (wanted === 'checkpointed') {
+      const mainOnly = join(env.tempDir, 'checkpointed-main.db');
+      copyFileSync(live, mainOnly);
+      expect(values(mainOnly)).toEqual(['base', 'delta', 'wal']);
+    } else expect(hashes()).toEqual(before);
     const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
     expect(['healthy', 'repaired']).toContain(result.status);
+    if (wanted === 'checkpoint' || wanted === 'checkpointed') {
+      expect(result.status).toBe('repaired');
+      expect(result.diagnostics).toContainEqual(expect.stringContaining('Resuming the checkpoint'));
+      const alone = join(env.tempDir, 'resumed-main.db');
+      copyFileSync(live, alone);
+      expect(values(alone)).toEqual(['base', 'delta', 'wal']);
+    }
     expect(values()).toEqual(['base', 'delta', 'wal']);
     expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
       'healthy',

@@ -395,4 +395,116 @@ describe('Node SQLite salvage and merge', () => {
       check.close();
     }
   });
+  it('reports unknown unreadable rows when the migration-journal root is zeroed', () => {
+    const { base, damaged, receipt } = fixture();
+    const source = new DatabaseSync(damaged);
+    source.exec(
+      "CREATE TABLE __drizzle_migrations(id INTEGER PRIMARY KEY,hash TEXT); INSERT INTO __drizzle_migrations VALUES(1,'migration')",
+    );
+    const page = Number(
+      source.prepare("SELECT rootpage FROM sqlite_schema WHERE name='__drizzle_migrations'").get()
+        ?.rootpage,
+    );
+    source.close();
+    const bytes = readFileSync(damaged);
+    bytes.fill(0, (page - 1) * 4096, page * 4096);
+    writeFileSync(damaged, bytes);
+    salvageIntoSnapshot(base, [damaged], receipt);
+    expect(receipt.tables.__drizzle_migrations.unreadable).toBeNull();
+    expect(receipt.diagnostics).toContainEqual(
+      expect.stringContaining('unreadable migration-journal'),
+    );
+  });
+  it.each([
+    4096, 65536,
+  ])('a complete WAL replaces stale schema frames over a destroyed main header (%s-byte pages)', (pageSize) => {
+    const { base, damaged, receipt } = fixture(pageSize);
+    const writer = `${damaged}.writer`;
+    copyFileSync(damaged, writer);
+    const db = new DatabaseSync(writer);
+    db.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE notes(id TEXT PRIMARY KEY, body TEXT); INSERT INTO notes VALUES('n','new schema'); INSERT INTO records VALUES('wal','readable WAL','2026-11-13T00:00:00Z')",
+    );
+    for (const suffix of ['', '-wal', '-shm']) copyFileSync(writer + suffix, damaged + suffix);
+    db.close();
+    const bytes = readFileSync(damaged);
+    bytes.fill(0, 0, 100);
+    writeFileSync(damaged, bytes);
+    const view = `${damaged}.view`;
+    for (const suffix of ['', '-wal', '-shm']) copyFileSync(damaged + suffix, view + suffix);
+    salvageIntoSnapshot(base, [view], receipt);
+    const install = `${base}.complete-wal`;
+    // A valid staged header supplies the page size, not the damaged main header.
+    prepareRepairCommit(base, base, install);
+    commitRepairImage(install, damaged);
+    const check = new DatabaseSync(damaged);
+    try {
+      expect(check.prepare('PRAGMA integrity_check').all()).toEqual([{ integrity_check: 'ok' }]);
+      expect(check.prepare("SELECT value FROM records WHERE id='wal'").get()?.value).toBe(
+        'readable WAL',
+      );
+      expect(check.prepare('SELECT body FROM notes').get()?.body).toBe('new schema');
+    } finally {
+      check.close();
+    }
+  });
+
+  it('keeps a newer snapshot value and records an older fallback version with its source view', () => {
+    const { base, damaged, receipt } = fixture();
+    const older = `${damaged}.older`;
+    copyFileSync(damaged, older);
+    const old = new DatabaseSync(older);
+    old.exec(
+      "CREATE TABLE notes(id TEXT PRIMARY KEY,body TEXT);INSERT INTO notes VALUES('n','v1-older')",
+    );
+    old.close();
+    for (const file of [base, damaged]) {
+      const db = new DatabaseSync(file);
+      db.exec(
+        "CREATE TABLE notes(id TEXT PRIMARY KEY,body TEXT);INSERT INTO notes VALUES('n','v2-snapshot')",
+      );
+      db.close();
+    }
+    const primary = new DatabaseSync(damaged);
+    primary.exec("INSERT INTO sparse VALUES(1,'newest readable')");
+    const page = Number(
+      primary.prepare("SELECT rootpage FROM sqlite_schema WHERE name='notes'").get()?.rootpage,
+    );
+    primary.close();
+    const bytes = readFileSync(damaged);
+    bytes.fill(0, (page - 1) * 4096, page * 4096);
+    writeFileSync(damaged, bytes);
+    salvageIntoSnapshot(base, [damaged, older], receipt);
+    const check = new DatabaseSync(base);
+    try {
+      expect(check.prepare('SELECT body FROM notes').get()?.body).toBe('v2-snapshot');
+      expect(receipt.tables.notes.possiblyResurrected).toBe(1);
+      expect(check.prepare('SELECT value FROM sparse').get()?.value).toBe('newest readable');
+      expect(receipt.recovery?.rows).toContainEqual(
+        expect.objectContaining({
+          kind: 'conflict',
+          table: 'notes',
+          source: older,
+          values: expect.objectContaining({ body: 'v1-older' }),
+        }),
+      );
+    } finally {
+      check.close();
+    }
+  });
+  it('preserves valid SQLite names that coincide with JavaScript prototype properties', () => {
+    const { base, damaged, receipt } = fixture();
+    const source = new DatabaseSync(damaged);
+    source.exec(
+      `CREATE TABLE "__proto__"(id TEXT PRIMARY KEY, value TEXT); INSERT INTO "__proto__" VALUES('p','readable'); ALTER TABLE records ADD COLUMN "__proto__" TEXT; UPDATE records SET "__proto__"='excluded column' WHERE id='base'`,
+    );
+    source.close();
+    salvageIntoSnapshot(base, [damaged], receipt);
+    expect(receipt.tables['__proto__'].salvaged).toBe(1);
+    const recovered = receipt.recovery?.rows.find(
+      (r) => r.kind === 'unmerged-columns' && r.values.id === 'base',
+    );
+    expect(Object.hasOwn(recovered?.values ?? {}, '__proto__')).toBe(true);
+    expect(recovered?.values['__proto__']).toBe('excluded column');
+  });
 });

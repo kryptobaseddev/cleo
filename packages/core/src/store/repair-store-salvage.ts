@@ -263,6 +263,7 @@ function sqliteRecover(file: string, diagnostics: string[]): string | null {
 /** Count all physical tables, including journal and FTS shadow tables. */
 export function repairTableCounts(db: DatabaseSync): Record<string, number> {
   const counts: Record<string, number> = {};
+  Object.setPrototypeOf(counts, null);
   for (const row of db.prepare("SELECT name FROM main.sqlite_schema WHERE type='table'").all()) {
     const table = String(row.name);
     counts[table] = Number(
@@ -279,9 +280,11 @@ function recordRecovery(
   table: string,
   reason: string,
   row: Row,
+  source?: string,
 ): void {
   receipt.recovery ??= { file: null, rows: [] };
   const values: StoreRepairRecoveryRow['values'] = {};
+  Object.setPrototypeOf(values, null);
   for (const [name, value] of Object.entries(row)) {
     values[name] =
       typeof value === 'bigint'
@@ -290,7 +293,7 @@ function recordRecovery(
           ? { type: 'blob', value: Buffer.from(value).toString('base64') }
           : value;
   }
-  receipt.recovery.rows.push({ kind, table, reason, values });
+  receipt.recovery.rows.push({ kind, table, reason, values, ...(source ? { source } : {}) });
 }
 
 function rowKey(row: Row, identity: readonly string[]): string {
@@ -394,6 +397,7 @@ export function salvageIntoSnapshot(
     throw new Error(
       'Salvage writes require a staged snapshot, never a canonical store or quarantine original',
     );
+  Object.setPrototypeOf(receipt.tables, null);
   const journal: Row[] = [];
   const journalKeys = new Set<string>();
   const target = openCleoDbSnapshot(staged, {
@@ -416,9 +420,11 @@ export function salvageIntoSnapshot(
     );
     const keys = new Map<string, Set<string>>();
     const authority = new Map<string, Set<string>>();
+    const newestKeys = new Map<string, Set<string>>();
     const baseKeys = new Map<string, Set<string>>();
     const pending: (() => void)[] = [];
     const deletedKeys = new Map<string, Set<string>>();
+    const alternateVersions = new Set<string>();
     const reportFor = (name: string) => {
       receipt.tables[name] ??= { snapshot: 0, salvaged: 0, merged: 0, unreadable: 0, final: 0 };
       return receipt.tables[name];
@@ -535,7 +541,10 @@ export function salvageIntoSnapshot(
                     targetTables.add(table.name);
                     if (/\bVIRTUAL\s+TABLE\b/i.test(table.sql)) virtual.set(table.name, table);
                   } catch (error) {
-                    readRows(snap.db, source, table, (row) => {
+                    receipt.diagnostics.push(
+                      `${table.name}: cannot recreate schema: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                    const complete = readRows(snap.db, source, table, (row) => {
                       report.salvaged++;
                       report.conflicts = (report.conflicts ?? 0) + 1;
                       recordRecovery(
@@ -546,6 +555,7 @@ export function salvageIntoSnapshot(
                         row,
                       );
                     });
+                    if (!complete) report.unreadable = null;
                     continue;
                   }
                 }
@@ -554,7 +564,7 @@ export function salvageIntoSnapshot(
                   continue;
                 }
                 if (table.name === '__drizzle_migrations') {
-                  readRows(snap.db, source, table, (row) => {
+                  const complete = readRows(snap.db, source, table, (row) => {
                     const key = String(row.id ?? row[ROWID]);
                     if (!journalKeys.has(key)) {
                       journalKeys.add(key);
@@ -562,6 +572,12 @@ export function salvageIntoSnapshot(
                       report.salvaged++;
                     }
                   });
+                  if (!complete) {
+                    report.unreadable = null;
+                    receipt.diagnostics.push(
+                      `${table.name}: unreadable migration-journal ranges; their row count is unknown`,
+                    );
+                  }
                   continue;
                 }
                 const destColumns = columns(db, table.name);
@@ -621,26 +637,44 @@ export function salvageIntoSnapshot(
                     Number.isFinite(incomingAt) && Number.isFinite(oldAt) && oldAt > incomingAt;
                   const provenNewer =
                     Number.isFinite(incomingAt) && Number.isFinite(oldAt) && incomingAt > oldAt;
-                  if (update && !provenOlder && (first || provenNewer)) {
-                    // Equal values need no write (and should not inflate the receipt).
-                    const different = updates.some((c) => {
-                      const a = row[c] ?? null,
-                        b = old[c] ?? null;
-                      return a instanceof Uint8Array && b instanceof Uint8Array
-                        ? !Buffer.from(a).equals(b)
-                        : a !== b;
-                    });
-                    if (different) {
-                      update.run(...updates.map((c) => row[c] ?? null), ...values);
-                      report.merged++;
+                  if (!update || provenOlder) return;
+                  const different = updates.some((c) => {
+                    const a = row[c] ?? null,
+                      b = old[c] ?? null;
+                    return a instanceof Uint8Array && b instanceof Uint8Array
+                      ? !Buffer.from(a).equals(b)
+                      : a !== b;
+                  });
+                  if (!different) return;
+                  if (!provenNewer && (!first || view !== views[0])) {
+                    const version = `${table.name}\0${view}\0${rowKey(row, identity)}`;
+                    if (!alternateVersions.has(version)) {
+                      alternateVersions.add(version);
+                      report.conflicts = (report.conflicts ?? 0) + 1;
+                      recordRecovery(
+                        receipt,
+                        'conflict',
+                        table.name,
+                        'An alternate damaged view disagrees with the retained row; no timestamp proves it newer',
+                        row,
+                        source,
+                      );
                     }
+                    return;
                   }
+                  update.run(...updates.map((c) => row[c] ?? null), ...values);
+                  report.merged++;
                 };
                 let complete = false;
                 try {
                   complete = readRows(snap.db, source, table, (row) => {
                     const key = rowKey(row, identity);
                     thisRead.add(key);
+                    if (view === views[0]) {
+                      const newest = newestKeys.get(table.name) ?? new Set<string>();
+                      newest.add(key);
+                      newestKeys.set(table.name, newest);
+                    }
                     const first = !seen.has(key);
                     if (first) {
                       seen.add(key);
@@ -678,6 +712,7 @@ export function salvageIntoSnapshot(
                             table.name,
                             error instanceof Error ? error.message : String(error),
                             row,
+                            source,
                           );
                         }
                       });
@@ -725,7 +760,7 @@ export function salvageIntoSnapshot(
           const report = reportFor(name);
           for (const row of rows) {
             const key = rowKey(row, identity);
-            if (authoritative ? authoritative.has(key) : keys.get(name)?.has(key)) continue;
+            if (authoritative ? authoritative.has(key) : newestKeys.get(name)?.has(key)) continue;
             if (!base.has(key)) continue;
             if (!authoritative) {
               report.possiblyResurrected = (report.possiblyResurrected ?? 0) + 1;

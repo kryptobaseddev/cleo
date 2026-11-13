@@ -185,14 +185,10 @@ export function assertRepairQuiescent(target: string): void {
  * writes every output page in one transaction. Publishing that WAL is ONE
  * rename: there is no interval with a missing original WAL or an old WAL
  * overlaying a new main file. A subsequent ordinary checkpoint folds it in.
- * A destroyed header uses a complete main image, subject to the caller proving
- * its exact logical contents with all original sidecars before publication.
+ * The WAL supplies page 1 too, so even a destroyed main header is replaced.
+ * Its page size comes from the staged image, never from the damaged header.
  */
-export function prepareRepairCommit(
-  staged: string,
-  original: string,
-  candidate: string,
-): 'wal' | 'main' {
+export function prepareRepairCommit(staged: string, original: string, candidate: string): void {
   const snap = openCleoDbSnapshot(staged, {
     readOnly: false,
     applyPragmas: false,
@@ -200,31 +196,7 @@ export function prepareRepairCommit(
   });
   try {
     snap.db.exec('PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE');
-    const fd = openSync(original, 'r');
-    const header = Buffer.alloc(100);
-    try {
-      readSync(fd, header, 0, 100, 0);
-    } finally {
-      closeSync(fd);
-    }
-    const rawSize = header.readUInt16BE(16);
-    const size = rawSize === 1 ? 65536 : rawSize;
-    if (
-      header.subarray(0, 16).toString('binary') !== 'SQLite format 3\0' ||
-      size < 512 ||
-      size > 65536 ||
-      (size & (size - 1)) !== 0
-    ) {
-      // An unreadable page-1 header may prevent SQLite from consulting a replacement WAL.
-      // The caller proves this complete main image with the exact original sidecars first.
-      copyFileSync(staged, candidate, constants.COPYFILE_EXCL);
-      chmodSync(candidate, statSync(original).mode & 0o777);
-      repairFsync(candidate);
-      return 'main';
-    }
-    snap.db.exec(
-      `PRAGMA page_size=${size}; VACUUM; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; VACUUM`,
-    );
+    snap.db.exec('VACUUM; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; VACUUM');
     copyFileSync(`${staged}-wal`, candidate, constants.COPYFILE_EXCL);
     chmodSync(candidate, statSync(original).mode & 0o777);
     repairFsync(candidate);
@@ -257,20 +229,15 @@ export function prepareRepairCommit(
     } finally {
       closeSync(walFd);
     }
-    return 'wal';
   } finally {
     snap.close();
   }
 }
 
-/** Atomically publish the proven WAL or reconstructed main image with one rename. */
-export function commitRepairImage(
-  candidate: string,
-  target: string,
-  kind: 'wal' | 'main' = 'wal',
-): void {
+/** Atomically replace the old WAL with the validated complete database image. */
+export function commitRepairImage(candidate: string, target: string): void {
   if (process.platform !== 'win32') repairFsync(dirname(candidate));
-  renameSync(candidate, kind === 'wal' ? `${target}-wal` : target);
+  renameSync(candidate, `${target}-wal`);
 }
 
 /** A full integrity probe for doctor and healthy no-op detection, using disposable copies. */
@@ -353,43 +320,4 @@ export function repairSalvageHeader(view: string, staged: string): string | null
     closeSync(out);
   }
   return recovered;
-}
-
-/** Compare logical values as well as counts before publishing a reconstructed main header. */
-export function repairContentHash(file: string): string {
-  const snap = openCleoDbSnapshot(file, { applyPragmas: false, loadSqliteVec: true });
-  const hash = createHash('sha256');
-  try {
-    for (const row of snap.db
-      .prepare('SELECT type,name,tbl_name,sql FROM main.sqlite_schema ORDER BY type,name')
-      .iterate())
-      hash.update(`${JSON.stringify(row)}\n`);
-    for (const table of snap.db
-      .prepare("SELECT name FROM main.sqlite_schema WHERE type='table' ORDER BY name")
-      .all()) {
-      const q = `"${String(table.name).replaceAll('"', '""')}"`;
-      const names = snap.db
-        .prepare(`PRAGMA main.table_info(${q})`)
-        .all()
-        .map((r) => `"${String(r.name).replaceAll('"', '""')}"`);
-      hash.update(`${JSON.stringify(table.name)}\n`);
-      const stmt = snap.db.prepare(
-        `SELECT ${names.join(',')} FROM main.${q} ORDER BY ${names.join(',')}`,
-      );
-      stmt.setReadBigInts(true);
-      for (const row of stmt.iterate()) {
-        const values = Object.values(row).map((v) =>
-          typeof v === 'bigint'
-            ? { integer: v.toString() }
-            : v instanceof Uint8Array
-              ? { blob: Buffer.from(v).toString('base64') }
-              : v,
-        );
-        hash.update(`${JSON.stringify(values)}\n`);
-      }
-    }
-    return hash.digest('hex');
-  } finally {
-    snap.close();
-  }
 }

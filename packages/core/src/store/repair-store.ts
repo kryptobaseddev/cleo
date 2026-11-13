@@ -1,11 +1,16 @@
 /** Lossless whole-store repair: copy, salvage, merge, migrate, validate, atomic commit. */
 import { spawnSync } from 'node:child_process';
 import {
+  closeSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
+  readFileSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -30,7 +35,7 @@ import {
   copyRepairOriginals,
   inspectStoreIntegrity,
   prepareRepairCommit,
-  repairContentHash,
+  repairFileHash,
   repairFsync,
 } from './repair-store-files.js';
 import { repairTableCounts, salvageIntoSnapshot } from './repair-store-salvage.js';
@@ -46,7 +51,8 @@ export async function repairStoresFromDoctor(
   const stores: StoreRepairReceipt[] = [];
   if (opts.scope !== 'global') {
     const { resolveDualScopeDbPath } = await import('./dual-scope-db.js');
-    if (!inspectStoreIntegrity(resolveDualScopeDbPath('global')).healthy) {
+    const global = resolveDualScopeDbPath('global');
+    if (!inspectStoreIntegrity(global).healthy || pendingCheckpoint(global, 'global')) {
       stores.push(await repairStore({ ...opts, scope: 'global' }));
     }
   }
@@ -101,6 +107,92 @@ function receiptFile(receipt: StoreRepairReceipt): void {
   if (process.platform !== 'win32') repairFsync(receipt.quarantineDir);
 }
 
+/** Match only a published image from an interrupted repair, never an ordinary healthy WAL. */
+function pendingCheckpoint(
+  target: string,
+  scope: 'project' | 'global',
+): StoreRepairReceipt | undefined {
+  const root = join(dirname(target), 'quarantine');
+  if (!existsSync(root)) return undefined;
+  for (const name of readdirSync(root).sort().reverse()) {
+    const dir = join(root, name);
+    const file = join(dir, 'receipt.json');
+    try {
+      if (!lstatSync(dir).isDirectory()) continue;
+      // Completed receipts may contain large excluded payloads; read their metadata first.
+      const fd = openSync(file, 'r');
+      const bytes = Buffer.alloc(128 * 1024);
+      let n: number;
+      try {
+        n = readSync(fd, bytes, 0, bytes.length, 0);
+      } finally {
+        closeSync(fd);
+      }
+      const header = bytes.subarray(0, n).toString('utf8');
+      if (!header.includes(`\n  "target": ${JSON.stringify(target)},\n`)) continue;
+      const status = /^ {2}"status": "([^"]+)"/m.exec(header)?.[1];
+      if (status === 'repaired') return undefined;
+      if (status !== 'checkpoint-pending') continue;
+      const receipt = JSON.parse(readFileSync(file, 'utf8')) as StoreRepairReceipt;
+      if (
+        receipt.version !== 1 ||
+        receipt.status !== 'checkpoint-pending' ||
+        receipt.scope !== scope ||
+        receipt.target !== target ||
+        receipt.quarantineDir !== dir ||
+        !Array.isArray(receipt.diagnostics) ||
+        !receipt.tables ||
+        typeof receipt.tables !== 'object' ||
+        Array.isArray(receipt.tables)
+      )
+        continue;
+      if (
+        !Object.values(receipt.tables).every(
+          (t) => t && typeof t.final === 'number' && Number.isSafeInteger(t.final) && t.final >= 0,
+        )
+      )
+        continue;
+      if (
+        typeof receipt.commitWalSha256 !== 'string' ||
+        typeof receipt.commitMainSha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(receipt.commitWalSha256) ||
+        !/^[a-f0-9]{64}$/.test(receipt.commitMainSha256)
+      )
+        continue;
+      if (
+        (existsSync(`${target}-wal`) &&
+          repairFileHash(`${target}-wal`) === receipt.commitWalSha256) ||
+        repairFileHash(target) === receipt.commitMainSha256
+      )
+        return receipt;
+    } catch {
+      /* An unrelated or unfinished receipt cannot authorize a checkpoint. */
+    }
+  }
+  return undefined;
+}
+
+/** Checkpoint only after publication (or on a private dry-run copy), under repair exclusion. */
+function checkpointImage(file: string): void {
+  const handle = openCleoDbSnapshot(file, {
+    readOnly: false,
+    applyPragmas: false,
+    loadSqliteVec: true,
+  });
+  try {
+    const result = handle.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+    if (Number(result?.busy) !== 0)
+      // @sync-invariant none:local-only publication is valid but success waits for a verified checkpoint
+      throw new Error(
+        'Committed repair could not finish its checkpoint; rerun cleo doctor repair-store',
+      );
+  } finally {
+    handle.close();
+  }
+  repairFsync(file);
+  if (process.platform !== 'win32') repairFsync(dirname(file));
+}
+
 /** All historical whole-store snapshot labels, validated by contents before use. */
 function candidates(
   target: string,
@@ -121,7 +213,7 @@ function candidates(
     for (const name of readdirSync(directory)) {
       if (
         !/^(?:cleo|tasks|brain|conduit|nexus|global)(?:\.db[.-]|-.*\.db$)/.test(name) ||
-        /pre-restore|(?:-wal|-shm|-journal|\.json)$/.test(name)
+        /pre-restore|\.restoring(?:\.|$)|(?:-wal|-shm|-journal|\.json)$/.test(name)
       )
         continue;
       const path = join(directory, name);
@@ -185,7 +277,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
   const { resolveDualScopeDbPath } = await import('./dual-scope-db.js');
   const target =
     scope === 'project' ? resolveRoleDbPath('tasks', opts) : resolveDualScopeDbPath('global');
-  const receipt: StoreRepairReceipt = {
+  let receipt: StoreRepairReceipt = {
     version: 1,
     scope,
     target,
@@ -201,12 +293,17 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
     diagnostics: [],
     integrityOK: false,
   };
+  Object.setPrototypeOf(receipt.tables, null);
   if (!existsSync(target)) {
     receipt.status = 'absent';
     receipt.integrityOK = true;
     return receipt;
   }
-  if (opts.restoreSnapshot !== true && inspectStoreIntegrity(target).healthy) {
+  if (
+    opts.restoreSnapshot !== true &&
+    inspectStoreIntegrity(target).healthy &&
+    !pendingCheckpoint(target, scope)
+  ) {
     receipt.status = 'healthy';
     receipt.integrityOK = true;
     return receipt;
@@ -219,11 +316,43 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
   };
   const execute = async (): Promise<StoreRepairReceipt> => {
     let committed = false;
+    let checkpointed = false;
+    const finishCheckpoint = (file: string, expected: Readonly<Record<string, number>>): void => {
+      phase('checkpoint');
+      checkpointImage(file);
+      phase('checkpointed');
+      const alone = join(scratch, 'checkpoint-main.db');
+      copyRepairOriginals(file, alone, false);
+      verify(alone, expected);
+      checkpointed = true;
+      receipt.integrityOK = true;
+      receipt.status = opts.dryRun ? 'dry-run' : 'repaired';
+      phase('receipt');
+    };
     try {
       // Re-check after admission: a different repair may have won the race.
       if (opts.restoreSnapshot !== true && inspectStoreIntegrity(target).healthy) {
-        receipt.status = 'healthy';
-        receipt.integrityOK = true;
+        const pending = pendingCheckpoint(target, scope);
+        if (!pending) {
+          receipt.status = 'healthy';
+          receipt.integrityOK = true;
+          return receipt;
+        }
+        receipt = opts.dryRun ? { ...pending, quarantineDir: null } : pending;
+        receipt.diagnostics.push('Resuming the checkpoint of an already-published repair image');
+        const counts = Object.fromEntries(
+          Object.entries(receipt.tables).map(([table, t]) => [table, t.final]),
+        );
+        if (opts.dryRun) {
+          const preview = join(scratch, 'checkpoint-preview.db');
+          copyRepairOriginals(target, preview);
+          finishCheckpoint(preview, counts);
+        } else {
+          committed = true;
+          assertRepairQuiescent(target);
+          assertCommitGuard();
+          finishCheckpoint(target, counts);
+        }
         return receipt;
       }
       if (!opts.dryRun) {
@@ -328,52 +457,47 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       }
       receipt.missingTaskIds = missingTasks(staged, receipt, opts.projectRoot);
       const wal = join(work, 'install.wal');
-      const commitKind = prepareRepairCommit(staged, original, wal);
+      prepareRepairCommit(staged, original, wal);
       // Validate exactly the bytes that the single rename will make visible,
       // including the original main and SHM, before touching either original.
       const proof = join(scratch, 'commit-proof.db');
       copyRepairOriginals(original, proof);
-      copyFileSync(wal, commitKind === 'wal' ? `${proof}-wal` : proof);
+      copyFileSync(wal, `${proof}-wal`);
       verify(proof, counts);
-      if (commitKind === 'main') {
-        const expected = repairContentHash(staged);
-        if (repairContentHash(proof) !== expected)
-          // @sync-invariant none:local-only old sidecars must never change a repaired main image
-          throw new Error('Original sidecars conflict with the reconstructed main image');
-        const trial = openCleoDbSnapshot(proof, { readOnly: false, loadSqliteVec: true });
-        trial.close();
-        verify(proof, counts);
-        if (repairContentHash(proof) !== expected)
-          // @sync-invariant none:local-only old sidecars must never change a repaired main image
-          throw new Error('Original sidecars conflict with the reconstructed main image');
-        receipt.diagnostics.push(
-          'Reconstructed header: validated main-image rename with original sidecars',
-        );
-      }
       receipt.integrityOK = true;
       phase('validate');
       if (opts.dryRun) {
-        receipt.status = 'dry-run';
+        finishCheckpoint(proof, counts);
         return receipt;
       }
       await setImmediate();
       assertCommitGuard();
       assertRepairQuiescent(target);
       assertRepairOriginals(target, receipt.files);
+      receipt.commitWalSha256 = repairFileHash(wal);
+      receipt.commitMainSha256 = repairFileHash(staged);
+      receipt.status = 'checkpoint-pending';
       phase('commit');
       assertCommitGuard();
-      commitRepairImage(wal, target, commitKind);
+      commitRepairImage(wal, target);
       committed = true;
-      receipt.status = 'repaired';
       if (process.platform !== 'win32') repairFsync(dirname(target));
-      phase('receipt');
+      finishCheckpoint(target, counts);
       return receipt;
     } catch (error) {
       const cause = error instanceof Error ? error : new Error(String(error));
-      if (committed) {
+      if (committed && checkpointed) {
         receipt.status = 'repaired';
-        receipt.diagnostics.push(`Repair committed; receipt finalization: ${cause.message}`);
+        receipt.diagnostics.push(`Repair checkpointed; receipt finalization: ${cause.message}`);
         return receipt;
+      }
+      if (committed) {
+        receipt.status = 'checkpoint-pending';
+        receipt.integrityOK = false;
+        receipt.diagnostics.push(`Repair image committed; checkpoint pending: ${cause.message}`);
+        receiptFile(receipt);
+        // @sync-invariant none:local-only success requires verifying the checkpointed main image
+        throw storeCorruptError(target, cause);
       }
       receipt.status = 'failed';
       receipt.diagnostics.push(cause.message);
