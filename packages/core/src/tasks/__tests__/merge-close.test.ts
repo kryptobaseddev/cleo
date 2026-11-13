@@ -1032,6 +1032,7 @@ describe("the merge run is found by the required check's workflow, not its name 
         requiredChecks: async () => ['PR checks'],
         requiredCheckWorkflow: async () => workflow,
         mergeCiRun: async () => ({ error }),
+        repoResolves: async () => true,
       },
     );
     expect(result.waiting).toBe(0);
@@ -1050,6 +1051,32 @@ describe("the merge run is found by the required check's workflow, not its name 
     });
     expect(await defaultMergeCloseDeps.mergeCiRun(root, 'a'.repeat(40), 'missing.yml')).toEqual({
       error: stderr.toString(),
+    });
+  });
+
+  it.each([
+    ['the repository does not resolve', async () => false],
+    ['no repository probe is wired', undefined],
+  ])('an HTTP 404 waits when %s: a repo or permission 404, never a missing file (T14540)', async (_why, repoResolves) => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(48, `Closes: ${id} AC1`, prChecks)]);
+    world.recordRefusal = ciRefusal;
+    const error = 'HTTP 404: Not Found (https://api.github.com/repos/o/r/actions/runs)';
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        requiredChecks: async () => ['PR checks'],
+        requiredCheckWorkflow: async () => 'ci.yml',
+        mergeCiRun: async () => ({ error }),
+        ...(repoResolves ? { repoResolves } : {}),
+      },
+    );
+    expect(result.refused).toEqual([]);
+    expect(result.prs[0]?.outcomes[0]).toMatchObject({
+      action: 'waiting',
+      reason: /looking up the ci\.yml run on merge commit .* failed \(HTTP 404/,
     });
   });
 

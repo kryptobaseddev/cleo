@@ -235,6 +235,12 @@ export interface MergeCloseDeps {
     sha: string,
     workflow: string,
   ): Promise<MergeCiRun | { error: string } | null>;
+  /**
+   * Whether the repository itself resolves for `gh` (T14540): an HTTP 404 from
+   * the run lookup means a missing workflow file only when it does; a repo or
+   * permission 404 keeps waiting. Unset: never, so a 404 keeps waiting.
+   */
+  repoResolves?(root: string): Promise<boolean>;
   /** Rerun a CI run; false when it could not. */
   rerunRun(root: string, runId: number): Promise<boolean>;
   /** The clock (ms), for the run cap, backoff and age-out; tests inject it. */
@@ -269,7 +275,10 @@ export interface MergeCiRun {
 }
 
 /** `gh`'s answer when `--workflow` names no workflow of the repository. */
-const GH_NO_SUCH_WORKFLOW = /could not find any workflows named|HTTP 404\b/i;
+const GH_NO_SUCH_WORKFLOW = /could not find any workflows named/i;
+
+/** `gh`'s HTTP 404: a missing workflow file only when the repository resolves (T14540). */
+const GH_HTTP_404 = /HTTP 404\b/i;
 
 /** The commit status the pre-merge verdict check sets on an open PR's head. */
 export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
@@ -882,7 +891,10 @@ async function mergeCiWait(
   const run = await deps.mergeCiRun(root, sha, workflow);
   const short = sha.slice(0, 12);
   if (run !== null && 'error' in run) {
-    if (GH_NO_SUCH_WORKFLOW.test(run.error))
+    const missing =
+      GH_NO_SUCH_WORKFLOW.test(run.error) ||
+      (GH_HTTP_404.test(run.error) && (await deps.repoResolves?.(root)) === true);
+    if (missing)
       return {
         reason:
           `cannot find the run of required check "${check}" on merge commit ${short}: ` +
@@ -2013,6 +2025,9 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     return run?.databaseId === undefined
       ? null
       : { runId: run.databaseId, status: run.status ?? '', conclusion: run.conclusion ?? null };
+  },
+  async repoResolves(root) {
+    return (await gh(['api', 'repos/{owner}/{repo}', '--jq', '.full_name'], root)) !== null;
   },
   async rerunRun(root, runId) {
     return (await gh(['run', 'rerun', String(runId)], root)) !== null;
