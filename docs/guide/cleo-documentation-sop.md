@@ -90,6 +90,7 @@ cleo docs doctor    # store health; dry run by default, --apply to repair
 ```
 
 `cleo docs doctor --apply` deletes a publication-ledger row only when its
-mirror is provably gone, because the ledger syncs across devices. A row whose
+mirror is provably gone, or when another row already publishes the same path
+in sync, because the ledger syncs across devices. A row whose
 file exists only on another device's unpushed branch can still read as gone
 here; republishing the doc with `cleo docs publish` restores the row.

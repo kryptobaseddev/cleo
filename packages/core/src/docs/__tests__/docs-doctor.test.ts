@@ -964,6 +964,28 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     expect(existsSync(PRUNE_AUDIT())).toBe(false);
   });
 
+  it('prunes a drifted row whose path another row publishes in sync (T14504)', async () => {
+    await seedSlug('published-doc', '# published\n');
+    mkdirSync(join(tempDir, 'docs'), { recursive: true });
+    writeFileSync(join(tempDir, 'docs', 'renamed.md'), '# current\n');
+    await publish('renamed', 'docs/renamed.md', sha('# current\n'));
+    await publish('renamed.md', 'docs/renamed.md', sha('# published\n'));
+    // Only the ledger holds this blob, so its row is kept for an archive first.
+    writeFileSync(join(tempDir, 'docs', 'twin.md'), '# twin\n');
+    await publish('twin', 'docs/twin.md', sha('# twin\n'));
+    await publish('twin.md', 'docs/twin.md', sha('only the ledger knows me\n'));
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const { readDocsPublications } = await import('../publications-store.js');
+    const rows = (await readDocsPublications(tempDir)).map((r) => r.blobName).sort();
+    expect(rows).toEqual(['renamed', 'twin', 'twin.md']);
+    const audit = readFileSync(PRUNE_AUDIT(), 'utf-8').trim().split('\n');
+    expect(audit).toHaveLength(1);
+    const twin = result.report.repairs.find((r) => r.detail.includes('docs/twin.md'));
+    expect(twin?.action).toBe('republish-or-prune');
+  });
+
   it('a pruned row is restorable from its audit line', async () => {
     await seedLedger();
     await doctor({ apply: true, receipt: makeReceipt() });

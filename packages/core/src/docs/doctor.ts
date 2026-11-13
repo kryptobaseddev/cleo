@@ -790,6 +790,11 @@ async function scanPublicationLedger(
     if (record)
       liveLedgerShas.set(record.lastBlobSha, (liveLedgerShas.get(record.lastBlobSha) ?? 0) + 1);
   }
+  // T14504: a path some other row publishes in sync is that row's mirror, so
+  // a drifted row for the same path (a renamed blob, an older publish) is stale.
+  const inSyncPaths = new Set(
+    status.items.filter((i) => i.drift === 'in-sync').map((i) => i.publishedPath),
+  );
   const findings: LedgerFinding[] = [];
   for (const item of status.items) {
     if (item.drift !== 'deleted' && item.drift !== 'modified') continue;
@@ -798,6 +803,24 @@ async function scanPublicationLedger(
     const absPath = resolvePublishedMirror(projectRoot, checkoutRoot, record.publishedPath);
     const rel = relative(checkoutRoot, absPath);
     const outsideRoot = rel.startsWith('..') || isAbsolute(rel);
+    if (item.drift === 'modified' && inSyncPaths.has(record.publishedPath)) {
+      // Its own lastBlobSha counts once in liveLedgerShas; it must not protect itself.
+      const heldElsewhere = (sha: string): boolean =>
+        attachmentShas.has(sha) ||
+        (liveLedgerShas.get(sha) ?? 0) > (sha === record.lastBlobSha ? 1 : 0);
+      const prunable = heldElsewhere(record.lastBlobSha);
+      findings.push({
+        record,
+        drift: 'modified',
+        outsideRoot,
+        action: prunable ? 'prune-publication' : 'republish-or-prune',
+        prunable,
+        detail: prunable
+          ? `mirror ${record.publishedPath} is published in sync by another ledger row; this row is superseded → delete the ledger row`
+          : `mirror ${record.publishedPath} is published in sync by another ledger row, but this row is the only reference to blob ${record.lastBlobSha.slice(0, 12)}… — archive the doc before pruning`,
+      });
+      continue;
+    }
     if (item.drift === 'modified') {
       const storeMoved = item.fileSha === record.lastBlobSha;
       findings.push({
