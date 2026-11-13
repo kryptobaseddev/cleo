@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.18.0
+  version: 4.19.0
   tier: core
   install: harness
   covers:
@@ -29,6 +29,8 @@ exclusions apply to the coordinator's current Run; `orca orchestration run-curre
 proves rebinding and clears the old exclusions. Enable the agent, then use
 `orca orchestration run-create --from <coordinator> --objective <new-goal>` to bind
 a fresh Run. Before a Run exists, exclusions last only for that dispatch invocation.
+A first start that fails before worker-start is sent records `not_launched` and is
+retired, so it never fences a later spawn; a retry's unsent start stays replayable.
 Fanout serializes Orca admissions so followers use the first proven Run; workers
 still execute concurrently. An unknown first start fences further unbound starts.
 Unknown launch outcomes retain their exact record ID and custody and never

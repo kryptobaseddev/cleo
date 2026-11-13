@@ -168,8 +168,12 @@ export const orcaAttemptSchema = z.object({
   /** Full receipts retain effects, residual resources and recovery advice. */
   lastReceipt: z.string().nullable(),
   lastError: z.string().nullable(),
-  /** Confirmed pre-dispatch refusal; never inferred from a process exit. */
-  startRefusal: z.literal('agent_unconfigured').optional(),
+  /**
+   * Confirmed pre-dispatch refusal; never inferred from a process exit.
+   * `agent_unconfigured` is Orca's own refusal; `not_launched` means a first
+   * start failed before CLEO sent worker-start, so no Orca request exists.
+   */
+  startRefusal: z.enum(['agent_unconfigured', 'not_launched']).optional(),
   observedAt: z.string(),
 });
 

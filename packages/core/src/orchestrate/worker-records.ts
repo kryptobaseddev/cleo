@@ -33,6 +33,7 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { AgentSuiteOwnership } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   type OrcaAttempt,
   type OrcaReportDelivery,
@@ -45,6 +46,7 @@ import {
 } from '@cleocode/contracts/orca-execution.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { generateAgentId } from '../agents/registry.js';
+import { CleoError } from '../errors.js';
 import { hooks } from '../hooks/registry.js';
 import { getLogger } from '../logger.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -137,9 +139,21 @@ function parseWorkerMetadata(row: AgentInstanceRow): WorkerMetadata | null {
   )
     return null;
   // Invalid external custody must fail a read, never disappear from the census.
-  if (meta.execution !== undefined) meta.execution = orcaAttemptSchema.parse(meta.execution);
-  if (meta.report !== undefined) meta.report = orcaWorkerReportSchema.parse(meta.report);
-  Object.assign(meta, orcaWorkerSettlementSchema.parse(meta));
+  try {
+    if (meta.execution !== undefined) meta.execution = orcaAttemptSchema.parse(meta.execution);
+    if (meta.report !== undefined) meta.report = orcaWorkerReportSchema.parse(meta.report);
+    Object.assign(meta, orcaWorkerSettlementSchema.parse(meta));
+  } catch {
+    // @sync-invariant none:local-only corrupt custody refuses every reader instead of authorizing another editor
+    throw new CleoError(
+      ExitCode.SPAWN_VALIDATION_FAILED,
+      `Worker record ${row.id} for ${row.taskId ?? 'an unknown task'} has corrupt Orca execution metadata.`,
+      {
+        details: { field: 'recordId', recordId: row.id, taskId: row.taskId },
+        fix: `Restore the store from a snapshot taken before ${row.id} was corrupted (cleo backup list, then cleo restore backup --id <backupId> --dry-run); reconcile its Orca Dispatch before spawning ${row.taskId ?? 'the task'} again.`,
+      },
+    );
+  }
   return meta as WorkerMetadata;
 }
 
@@ -589,19 +603,21 @@ export async function recordWorkerReport(
 }
 
 /**
- * Retire a confirmed `agent_unconfigured` refusal that created no Dispatch.
+ * Retire a confirmed pre-dispatch refusal that created no Dispatch: Orca's
+ * `agent_unconfigured`, or a first start CLEO never sent (`not_launched`).
  * @remarks This releases no task, session or filesystem resource and emits no exit hook.
- * @param record - Exact persisted refusal, after recording its unusable route.
+ * @param record - Exact persisted refusal, after recording any unusable route.
  * @param cwd - Owning project root.
  * @returns The archived pre-dispatch attempt, still readable for audit.
  */
-export async function retireUnconfiguredOrcaWorker(
+export async function retirePreDispatchOrcaWorker(
   record: WorkerRecord,
   cwd: string,
 ): Promise<WorkerRecord> {
   const execution = record.execution;
   if (
-    execution?.startRefusal !== 'agent_unconfigured' ||
+    execution?.startRefusal === undefined ||
+    (execution.startRefusal === 'not_launched' && execution.startRequestId !== null) ||
     execution.state !== 'failed' ||
     execution.resourceState !== 'stopped' ||
     execution.dispatchId !== null ||

@@ -38,6 +38,7 @@ import {
   recordWorker,
   recordWorkerReport,
   recordWorkerReportDelivery,
+  retirePreDispatchOrcaWorker,
   settleOrcaWorkerResource,
   updateWorkerExecution,
   type WorkerRecord,
@@ -54,6 +55,8 @@ import { checkWorkerReport } from './worker-report.js';
  * @param backend - Process adapter, injectable for offline fixtures.
  * @param runId - Previously persisted Run for this exact coordinator, if known.
  * @returns The durable attempt after recording its start receipt.
+ * @throws CleoError when the first start failed before worker-start was sent;
+ * that attempt is retired, so it never fences a later spawn of the task.
  * @example
  * ```ts
  * const record = await launchOrcaWorker(prepared, context, backend);
@@ -108,7 +111,19 @@ export async function launchOrcaWorker(
     launch.projectRoot,
   );
   const result = await backend.start(requireExecution(record));
-  return updateWorkerExecution(record, result, launch.projectRoot);
+  const updated = await updateWorkerExecution(record, result, launch.projectRoot);
+  if (result.startRefusal !== 'not_launched') return updated;
+  // Nothing reached Orca, so the reservation must not fence later spawns.
+  await retirePreDispatchOrcaWorker(updated, launch.projectRoot);
+  // @sync-invariant none:local-only a start never sent to Orca leaves no custody and refuses with its cause
+  throw new CleoError(
+    ExitCode.SPAWN_VALIDATION_FAILED,
+    `Orca worker-start was never sent: ${result.lastError ?? 'preflight failed'}`,
+    {
+      details: { field: 'recordId', recordId: updated.recordId },
+      fix: 'Inspect orca status --json for the selected runtime and restore it, then spawn again; no Orca worker was launched and no execution custody was retained.',
+    },
+  );
 }
 
 /**

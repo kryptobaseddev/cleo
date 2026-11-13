@@ -223,6 +223,34 @@ describe('Orca execution process boundary', () => {
     });
   });
 
+  it('records a first start that failed before worker-start as not launched (T14486)', async () => {
+    fixtureRunner.mockImplementation(async (...args) =>
+      args[1][0] === 'status'
+        ? { stdout: '', stderr: 'runtime went away', exitCode: 1 }
+        : runOrcaFixture(...args),
+    );
+    const backend = new OrcaExecutionBackend(fixtureRunner);
+    expect(await backend.start(fixtureAttempt())).toMatchObject({
+      state: 'failed',
+      resourceState: 'stopped',
+      startRefusal: 'not_launched',
+      startRequestId: null,
+      dispatchId: null,
+    });
+    // A retry keeps its reserved key replayable under the original Task's breaker.
+    const retry = await backend.start(
+      fixtureAttempt({
+        runId: 'run_fixture',
+        orcaTaskId: 'task_fixture',
+        retryOf: 'ctx_previous',
+        startBinding: { runId: 'run_fixture', orcaTaskId: 'task_fixture', retryOf: 'ctx_previous' },
+      }),
+    );
+    expect(retry).toMatchObject({ state: 'outcome_unknown' });
+    expect(retry.startRefusal).toBeUndefined();
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
+  });
+
   it('refuses ambiguous workspace resolution with an exact-selector fix before launch', async () => {
     fixtureRunner.mockImplementation(async (...args) =>
       args[1][0] === 'worktree'
@@ -749,6 +777,36 @@ else {
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
     }
+  });
+
+  it.each([
+    ['nonzero exit', { stdout: '', stderr: 'unavailable fixture CLI', exitCode: 2 }, 'exited 2'],
+    ['malformed registry', { stdout: '{not json', stderr: '', exitCode: 0 }, 'no valid command'],
+  ] as const)('refuses a lead on a %s from agent-context with a typed fix (T14486)', async (_case, registry, message) => {
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', fixtureContext.coordinatorHandle);
+    fixtureRunner.mockImplementation(async (...args) =>
+      args[1][0] === 'agent-context' ? registry : runOrcaFixture(...args),
+    );
+    const admitted = vi.fn<(pid: number) => void>();
+    await expect(
+      new OrcaExecutionBackend(fixtureRunner).startLead(
+        {
+          command: '/fixture/claude',
+          args: [],
+          cwd: '/fixture/project',
+          tempDir: '/fixture/spawn',
+          env: { CLEO_SESSION_ID: 'ses_own', CLEO_AGENT_ID: 'agent-own', CLEO_AGENT_ROLE: 'lead' },
+        },
+        admitted,
+      ),
+    ).rejects.toMatchObject({
+      name: 'OrcaExecutionError',
+      code: 'E_LEAD_TOOLS_UNSTRIPPED',
+      message: expect.stringContaining(message),
+      fix: expect.stringContaining('update the CLI and runtime together'),
+    });
+    expect(admitted).not.toHaveBeenCalled();
+    expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'create')).toBe(false);
   });
 
   it('refuses a changed runtime and an incomplete command registry before launch', async () => {
