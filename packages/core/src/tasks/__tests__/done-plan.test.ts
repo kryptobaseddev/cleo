@@ -984,6 +984,38 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     expect(ev['qaPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
   });
 
+  it.each([
+    undefined,
+    42,
+  ])('a typed-gate fallback preserves caller --pr %s and multi-alias --satisfies', async (prNumber) => {
+    const { id, prDeps } = await mergedPrSetup(true);
+    await reqAdd(
+      root,
+      id,
+      {
+        kind: 'command',
+        cmd: 'node',
+        args: ['-e', '0'],
+        exitCode: 0,
+        description: 'The typed gate passes',
+        req: 'RETRY-1',
+      },
+      env.accessor,
+    );
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      prNumber,
+      satisfies: ['AC1', 'AC2'],
+      deps: prDeps,
+    });
+    expect(plan.changeSet.prNumber).toBe(42);
+    const blocker = plan.blockers.find((b) => b.code === 'typed-gate-not-run');
+    expect(blocker?.next.command).toBe(
+      `cleo verify ${id} --run && cleo done ${id}${prNumber === undefined ? '' : ' --pr 42'} --satisfies AC1,AC2`,
+    );
+  });
+
   it.each(retryFlagCases)('a PR checkout remedy preserves flags "$flags"', async ({
     runTyped,
     satisfies,

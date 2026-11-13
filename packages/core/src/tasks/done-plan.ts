@@ -367,23 +367,14 @@ async function readinessBlockers(input: {
   storeRoot: string;
   changeSet: TaskChangeSet;
   needsTree: boolean;
-  runTyped: boolean;
-  prNumber?: number;
-  satisfies?: DeriveTaskEvidenceOptions['satisfies'];
+  retry: string;
   gates: readonly DonePlanGate[];
   additionalImplemented: readonly string[];
   blocked: boolean;
   preview: DoneEvidencePreview;
 }): Promise<DonePlanBlocker[]> {
-  const { taskId, changeSet: cs } = input;
+  const { taskId, changeSet: cs, retry } = input;
   if (input.needsTree) {
-    const satisfies = input.satisfies === 'all' ? 'all' : input.satisfies?.join(',');
-    const retry =
-      `cleo done ${taskId}` +
-      (cs.source === 'commit' && cs.commitSha ? ` --commit ${cs.commitSha}` : '') +
-      (input.prNumber === undefined ? '' : ` --pr ${input.prNumber}`) +
-      (input.runTyped ? ' --run-typed' : '') +
-      (satisfies ? ` --satisfies ${shellQuote(satisfies)}` : '');
     // A stale task worktree needs the merged checkout, not just a change of directory.
     const checkout = checkoutBlocker(taskId, cs, readCiSatisfies(input.storeRoot), retry);
     if (checkout) return [checkout];
@@ -794,6 +785,7 @@ function toolAndTypedGateBlockers(
   typedGates: readonly DonePlanTypedGate[],
   root: string,
   runTyped: boolean,
+  retry: string,
 ): DonePlanBlocker[] {
   const out: DonePlanBlocker[] = [];
   for (const run of runs) {
@@ -863,7 +855,7 @@ function toolAndTypedGateBlockers(
               'Re-binds the typed result in this tree and environment; only typed gates with no current pass run again.',
             )
           : step(
-              `cleo verify ${taskId} --run && cleo done ${taskId}`,
+              `cleo verify ${taskId} --run && ${retry}`,
               'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
             ),
       });
@@ -1611,13 +1603,30 @@ export async function deriveTaskEvidence(
     allPassed && task.status !== 'done'
       ? await unboundCriteriaBlocker(task, accessor, changeSet.implementedEvidence)
       : null;
+  const satisfiesFlag = satisfies === 'all' ? 'all' : satisfies?.join(',');
+  const retry =
+    `cleo done ${taskId}` +
+    (changeSet.source === 'commit' && changeSet.commitSha
+      ? ` --commit ${changeSet.commitSha}`
+      : '') +
+    (opts.prNumber === undefined ? '' : ` --pr ${opts.prNumber}`) +
+    (opts.runTyped ? ' --run-typed' : '') +
+    (satisfiesFlag ? ` --satisfies ${shellQuote(satisfiesFlag)}` : '');
   const planned = [
     ...(allPassed
       ? []
       : changeSet.blockers.map((b) =>
           b.code === 'no-change-set' ? noChangeSetBlocker(task, kind, changeSet) : b,
         )),
-    ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
+    ...toolAndTypedGateBlockers(
+      taskId,
+      isCode,
+      toolRuns,
+      typedGates,
+      root,
+      opts.runTyped === true,
+      retry,
+    ),
     ...testRunBlockers,
     ...(coverageBlocker ? [coverageBlocker] : acBlocker ? [acBlocker] : []),
     ...manualGateBlockers(taskId, gates),
@@ -1646,9 +1655,7 @@ export async function deriveTaskEvidence(
           storeRoot,
           changeSet,
           needsTree: toolRuns.length > 0 || typedGates.length > 0,
-          runTyped: opts.runTyped === true,
-          prNumber: opts.prNumber,
-          satisfies,
+          retry,
           gates,
           additionalImplemented,
           blocked: derivedBlockers.length > 0,
