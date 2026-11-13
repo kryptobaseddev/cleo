@@ -102,7 +102,7 @@ export const verifyCommand = defineCommand({
     run: {
       type: 'boolean',
       description:
-        "Execute the task's typed acceptance gates and report the results. Records no verification, so use `--evidence` to attest (T12308); passing results are cached so the attesting write reuses them instead of re-running (T12621). With a write, `--no-run` executes no typed gate and uses only cached passes, refusing with E_GATE_NOT_CACHED when one is missing.",
+        "Execute the task's typed acceptance gates and report the results. A fail or error returns E_GATE_RUN_FAILED (exit 6), with results, evidence and per-failure recovery hints in error.details; advisory warn and manual skipped results remain successful. Records no verification, so use `--evidence` to attest (T12308); passing results are cached so the attesting write reuses them instead of re-running (T12621). With a write, `--no-run` executes no typed gate and uses only cached passes, refusing with E_GATE_NOT_CACHED when one is missing.",
     },
     'run-typed': {
       type: 'boolean',

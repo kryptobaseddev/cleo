@@ -81,6 +81,10 @@ describe('verifyCommand exposes --run (T12308)', () => {
     const runArg = verifyCommand.args?.run;
     expect(runArg).toBeDefined();
     expect(runArg?.type).toBe('boolean');
+    expect(runArg?.description).toContain('E_GATE_RUN_FAILED (exit 6)');
+    expect(runArg?.description).toContain(
+      'advisory warn and manual skipped results remain successful',
+    );
   });
 
   it('says in its own description that it records nothing', () => {

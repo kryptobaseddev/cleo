@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.11.0
+version: 2.11.1
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.11.0
+  version: 2.11.1
   tier: core
   install: harness
   covers:
@@ -137,6 +137,9 @@ A database or service started for a test run must not outlive it. A `docker run`
 ### Post-Execution
 
 1. **Verify against criteria** - Check each acceptance criterion. `cleo verify <id> --run`
+   returns `E_GATE_RUN_FAILED` (exit 6) for error/fail results, with captured evidence
+   and per-failure recovery hints in `error.details`; advisory warn and manual skipped
+   results remain successful. Resolve the reported cause before retrying. This
    is the only command that executes the typed gates; evidence writes, `cleo done` and
    `cleo complete` read the cached passes and execute nothing (pass `--run-typed` to opt
    in). `--run --req REQ-A,REQ-B` runs only those gates and leaves the other gates'

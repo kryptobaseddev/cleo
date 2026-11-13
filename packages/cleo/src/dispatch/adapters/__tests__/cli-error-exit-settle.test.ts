@@ -15,14 +15,17 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hooks } from '@cleocode/core/hooks/registry';
+import { previewTaskGates } from '@cleocode/core/tasks/gate-preview';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@cleocode/core/tasks/gate-preview', () => ({ previewTaskGates: vi.fn() }));
 
 vi.mock('../../../cli/renderers/index.js', () => ({
   cliOutput: vi.fn(),
   cliError: vi.fn(),
 }));
 
-import { cliError } from '../../../cli/renderers/index.js';
+import { cliError, cliOutput } from '../../../cli/renderers/index.js';
 import { dispatchFromCli, dispatchRaw, resetCliDispatcher } from '../cli.js';
 
 /** Register a ResponseComplete hook that finishes after 30 ms, recording into `order`. */
@@ -43,6 +46,7 @@ describe('CLI adapter error exit settles pending hooks (T13164)', () => {
   let unregister: (() => void) | undefined;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     project = mkdtempSync(join(tmpdir(), 'cleo-error-exit-settle-'));
     mkdirSync(join(project, '.cleo'));
     mkdirSync(join(project, '.git'));
@@ -81,5 +85,46 @@ describe('CLI adapter error exit settles pending hooks (T13164)', () => {
 
     expect(response.success).toBe(false);
     expect(order).toEqual(['hook-done']);
+  });
+
+  it.each([
+    { kind: 'manual', result: 'skipped' },
+    { kind: 'test', result: 'warn' },
+  ] as const)('a $kind gate with result $result exits successfully', async ({ kind, result }) => {
+    const results = [
+      {
+        index: 0,
+        kind,
+        result,
+        durationMs: 0,
+        checkedAt: new Date().toISOString(),
+        checkedBy: 'test',
+      },
+    ];
+    vi.mocked(previewTaskGates).mockResolvedValue({
+      taskId: 'T001',
+      gateCount: 1,
+      passed: true,
+      persisted: false,
+      results,
+    });
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('A non-blocking typed gate must not exit with an error');
+    });
+    const previousExitCode = process.exitCode;
+    process.exitCode = 0;
+    try {
+      await dispatchFromCli('query', 'check', 'gate.run', { taskId: 'T001' });
+
+      expect(cliOutput).toHaveBeenCalledWith(
+        expect.objectContaining({ results }),
+        expect.anything(),
+      );
+      expect(cliError).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(0);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
   });
 });

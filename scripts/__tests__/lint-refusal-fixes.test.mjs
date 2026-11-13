@@ -41,6 +41,10 @@ describe('lint-refusal-fixes (gate 42, T14299)', () => {
     expect(judgeRefusalFixes(REPO_ROOT, true).failures).toEqual([]);
     expect(Object.values(PINNED).every((n) => n === 0)).toBe(true);
     for (const entry of REFUSAL_PATHS) expect(PINNED[entry.file], entry.file).toBeDefined();
+    expect(
+      REFUSAL_PATHS.find((entry) => entry.file === 'packages/cleo/src/dispatch/domains/check.ts')
+        ?.functions,
+    ).toContain('gate.run');
   });
 
   it('counts a CleoError, engineError or lafsError with no fix, and accepts one with a fix', () => {

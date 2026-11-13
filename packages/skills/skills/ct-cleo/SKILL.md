@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.25.9
+  version: 2.25.10
   tier: core
   install: harness
   covers:
@@ -153,7 +153,7 @@ Unattributed mutations warn on stderr; `session status` / `briefing` label a gue
 | Find work | `cleo next` → `cleo focus <id>` |
 | Search tasks | `cleo find "query"` |
 | Complete task | PR: `Closes: T### AC1,AC2` in the body, merge on green; the sweep closes it. No PR: `cleo done T### --plan` → `cleo verify …` → `cleo complete T###` |
-| Run typed gates (the only command that executes them; writes read the cache) | `cleo verify T### --run [--req A,B]` |
+| Run typed gates (error/fail: E_GATE_RUN_FAILED, exit 6; warn/skipped stay successful; writes read the cache) | `cleo verify T### --run [--req A,B]` |
 | Save memory | `cleo memory observe "..." --title "..."` |
 | Spawn subagent | `cleo orchestrate spawn <taskId> --tier 2` |
 | Create a Saga | `cleo saga create --title "..." --acceptance "..."` |
