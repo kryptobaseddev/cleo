@@ -23,13 +23,14 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { SpawnContext } from '@cleocode/contracts';
 import { E_LEAD_NO_OWNER_CHANNEL, LEAD_DENIED_TOOLS, LEAD_RUNNER_TOOL } from '@cleocode/contracts';
 import type { OrcaLeadTerminalLauncher } from '@cleocode/contracts/orca-execution.js';
@@ -37,6 +38,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrcaExecutionError } from '../../../orca-execution.js';
 import * as leadMcpModule from '../lead-mcp.js';
 import {
+  claudeUnsafePath,
   LEAD_MCP_FILE,
   prepareLeadMcp,
   requireLeadProjectTrust,
@@ -288,8 +290,66 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     rmSync(join(gitDir, file));
     writeFileSync(join(gitDir, file), readFileSync(copy));
     expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
-    writeFileSync(join(worktree, '.git'), `gitdir: //server/share${gitDir}\n`);
+    // An existing target spelled with a leading `//`: only the unsafe-path rule refuses it.
+    expect(existsSync(`/${gitDir}`)).toBe(true);
+    writeFileSync(join(worktree, '.git'), `gitdir: /${gitDir}\n`);
     expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+  });
+
+  it('refuses a worktrees entry whose raw symlink target is a UNC spelling (T14520)', () => {
+    if (process.platform === 'win32') return;
+    const worktree = linkedWorktree();
+    const gitDir = readFileSync(join(worktree, '.git'), 'utf8').trim().slice(7).trim();
+    trustOnly(realpathSync(project));
+    // A local directory literally named \\server\share, reached through the entry's symlink.
+    const unc = '\\\\server\\share';
+    renameSync(gitDir, join(dirname(gitDir), unc));
+    symlinkSync(unc, gitDir);
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+  });
+
+  it('follows a symlink to / with remaining components, as Claude does (T14520)', () => {
+    if (process.platform === 'win32') return;
+    const worktree = linkedWorktree();
+    const gitDir = readFileSync(join(worktree, '.git'), 'utf8').trim().slice(7).trim();
+    const rootLink = join(realpathSync(root), 'rootlink');
+    symlinkSync('/', rootLink);
+    writeFileSync(join(worktree, '.git'), `gitdir: ${rootLink}${gitDir}\n`);
+    trustOnly(`${rootLink}${realpathSync(project)}`);
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+  });
+
+  it("ports Claude's unsafe-path rule: same-host /net, other hosts, /home automounts (T14520)", () => {
+    const linux = { darwin: false, homeAutomount: false, home: '/home/me' };
+    const mac = { darwin: true, homeAutomount: true, home: '/Users/me' };
+    // Same /net host as the base is allowed; another host, or a base off /net, is not.
+    expect(claudeUnsafePath('/net/host/repo/.git', '/net/host/repo/.git/worktrees/w', linux)).toBe(
+      false,
+    );
+    expect(
+      claudeUnsafePath('../../../../../other/repo', '/net/host/repo/.git/worktrees/w', linux),
+    ).toBe(true);
+    expect(claudeUnsafePath('/net/host/repo/.git', '/srv/repo', linux)).toBe(true);
+    expect(claudeUnsafePath('/net', '/srv', linux)).toBe(true);
+    // macOS with /home automounted: another user's /home is refused, your own is not.
+    expect(claudeUnsafePath('/home/other/repo/.git', '/Users/me/repo', mac)).toBe(true);
+    expect(
+      claudeUnsafePath('/home/other/repo/.git', '/Users/me/repo', { ...mac, homeAutomount: false }),
+    ).toBe(false);
+    expect(
+      claudeUnsafePath('/home/me/repo/.git', '/home/me/repo/.git/worktrees/w', {
+        ...mac,
+        home: '/home/me',
+      }),
+    ).toBe(false);
+    expect(claudeUnsafePath('/home/other/repo/.git', '/Users/me/repo', linux)).toBe(false);
+    // UNC spellings on another server, device paths and volfs roots.
+    expect(claudeUnsafePath('\\\\server\\share', '/srv/repo', linux)).toBe(true);
+    expect(claudeUnsafePath('//server/share/repo', '/srv/repo', linux)).toBe(true);
+    expect(claudeUnsafePath('/??/C:/repo', '/srv/repo', linux)).toBe(true);
+    expect(claudeUnsafePath('/.vol/1/2', '/srv/repo', mac)).toBe(true);
+    expect(claudeUnsafePath('/Network/Servers/h/repo', '/srv/repo', mac)).toBe(true);
+    expect(claudeUnsafePath('../..', '/srv/repo/.git/worktrees/w', mac)).toBe(false);
   });
 
   it('does not inherit trust across a repository boundary or from a similarly named folder', () => {
