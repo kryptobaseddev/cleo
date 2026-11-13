@@ -180,6 +180,11 @@ export const upgradeCommand = defineCommand({
       type: 'boolean',
       description: 'Run full codebase analysis and store findings to brain.db',
     },
+    'migrate-hierarchy-defaults': {
+      type: 'boolean',
+      description:
+        'Back up config and remove zero sibling caps, including explicit unlimited overrides, to restore profile defaults',
+    },
     name: {
       type: 'string',
       description: 'Update project name in project-info and nexus registry',
@@ -256,6 +261,7 @@ export const upgradeCommand = defineCommand({
         forceDetect,
         mapCodebase,
         projectName,
+        migrateHierarchyDefaults: args['migrate-hierarchy-defaults'] === true,
       });
 
       progress.step(4, 'Verifying results');

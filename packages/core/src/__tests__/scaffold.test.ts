@@ -118,6 +118,7 @@ describe('createDefaultConfig', () => {
     expect(config).toHaveProperty('output');
     expect(config).toHaveProperty('backup');
     expect(config).toHaveProperty('hierarchy');
+    expect(config.hierarchy).toEqual({ maxDepth: 3 });
     expect(config).toHaveProperty('session');
     expect(config).toHaveProperty('lifecycle');
   });

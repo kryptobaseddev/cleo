@@ -15,6 +15,7 @@ import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { loadConfig, setConfigValue } from '../config.js';
 import { CLEO_HOOK_NAMES, defaultTemplatesDir } from '../git/hooks-install.js';
 import { initProject } from '../init.js';
 import {
@@ -23,6 +24,7 @@ import {
   getCleoPiExtensionsDir,
 } from '../paths.js';
 import { showSequence } from '../sequence/index.js';
+import { resolveHierarchyPolicy } from '../tasks/hierarchy-policy.js';
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -167,7 +169,21 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(content.output.defaultFormat).toBe('json');
     expect(content.hierarchy).toBeDefined();
     expect(content.hierarchy.maxDepth).toBe(3);
-    expect(content.hierarchy.maxSiblings).toBe(0);
+    expect(content.hierarchy).not.toHaveProperty('maxSiblings');
+    expect(content.hierarchy).not.toHaveProperty('maxActiveSiblings');
+    expect((await loadConfig(testDir)).hierarchy).toMatchObject({
+      maxSiblings: 0,
+      maxActiveSiblings: 0,
+    });
+  });
+
+  it('applies human-cognitive caps when selected after init', async () => {
+    await initProject({ name: 'test-project' });
+    await setConfigValue('hierarchy.enforcementProfile', 'human-cognitive', testDir);
+    expect(resolveHierarchyPolicy(await loadConfig(testDir))).toMatchObject({
+      maxSiblings: 7,
+      maxActiveSiblings: 3,
+    });
   });
 
   it('initializes sequence state in SQLite metadata', async () => {

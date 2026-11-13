@@ -46,8 +46,7 @@
   },
 
   "hierarchy": {
-    "maxDepth": 3,
-    "maxSiblings": 0
+    "maxDepth": 3
   },
 
   "defaults": {

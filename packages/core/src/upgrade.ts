@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { migrateLegacyConfigFile } from './config/legacy-keys.js';
+import { migrateHierarchyDefaults, migrateLegacyConfigFile } from './config/legacy-keys.js';
 import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
 import {
@@ -130,6 +130,7 @@ export interface DiagnoseResult {
  * @param options.forceDetect  Force re-detection of project type (ignore staleness)
  * @param options.mapCodebase  Run full codebase analysis and store to brain.db
  * @param options.projectName  Rename the project (`.cleo/project.json`, registry and Nexus label — T12716)
+ * @param options.migrateHierarchyDefaults  Remove zero sibling caps with a backup and notice, restoring profile defaults
  * @param options.agentMbxRunner  Runner for the `agentmbx` CLI used to record the lead mailbox (T14448).
  *   Tests inject a fake; default is the real CLI.
  * @param options.cwd  Project directory override
@@ -142,6 +143,7 @@ export async function runUpgrade(
     forceDetect?: boolean;
     mapCodebase?: boolean;
     projectName?: string;
+    migrateHierarchyDefaults?: boolean;
     agentMbxRunner?: MbxRunner;
     cwd?: string;
   } = {},
@@ -882,6 +884,23 @@ export async function runUpgrade(
   }
 
   // ── Step 8: Structural maintenance ──────────────────────────────
+  if (options.migrateHierarchyDefaults) {
+    try {
+      const removed = await migrateHierarchyDefaults(getConfigPath(options.cwd), journal, isDryRun);
+      actions.push({
+        action: 'hierarchy_defaults',
+        status: removed.length === 0 ? 'skipped' : isDryRun ? 'preview' : 'applied',
+        details:
+          removed.length === 0
+            ? 'No zero-valued hierarchy sibling caps to remove'
+            : `${isDryRun ? 'Would remove' : 'Removed'} zero-valued ${removed.join(', ')}; profile defaults apply when these caps are unset. This includes intentional unlimited overrides; set a cap to 0 again to retain unlimited. ${isDryRun ? 'The config would be backed up before writing.' : `Previous config backed up under ${journal.backupDir}.`}`,
+      });
+    } catch (err) {
+      const details = `Failed to migrate hierarchy defaults: ${String(err)}`;
+      actions.push({ action: 'hierarchy_defaults', status: 'error', details });
+      errors.push(details);
+    }
+  }
   if (!isDryRun) {
     const projectRootForMaint = getProjectRoot(options.cwd);
 

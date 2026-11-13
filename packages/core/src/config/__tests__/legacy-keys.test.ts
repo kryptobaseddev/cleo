@@ -2,14 +2,17 @@
  * Legacy config key migration: orchestrator.contextThresholds -> orchestrate (T14375).
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getRawConfigValue, setConfigValue } from '../../config.js';
+import { getRawConfigValue, loadConfig, setConfigValue } from '../../config.js';
+import { createUpgradeFileJournal } from '../../scaffold/upgrade-file-journal.js';
 import { getThresholds } from '../../skills/orchestrator/startup.js';
+import { resolveHierarchyPolicy } from '../../tasks/hierarchy-policy.js';
 import {
   configLegacyKeyDeprecations,
+  migrateHierarchyDefaults,
   migrateLegacyConfigFile,
   migrateLegacyConfigKeys,
   resolveLegacyConfigKey,
@@ -87,6 +90,90 @@ describe('migrateLegacyConfigKeys', () => {
       getThresholds({ orchestrate: { contextThresholds: { warning: 55, critical: 90 } } }),
     ).toEqual({ warning: 55, critical: 90 });
     expect(getThresholds({})).toEqual({ warning: 70, critical: 80 });
+  });
+});
+
+describe('migrateHierarchyDefaults', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'cleo-hierarchy-defaults-'));
+    vi.stubEnv('CLEO_DIR', dir);
+    vi.stubEnv('CLEO_HOME', join(dir, 'global'));
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('previews and repairs legacy caps with an exact backup, then applies the selected preset', async () => {
+    const path = join(dir, 'config.json');
+    const original = JSON.stringify({
+      hierarchy: { maxDepth: 3, maxSiblings: 0, maxActiveSiblings: 0 },
+      session: { autoStart: true },
+    });
+    await writeFile(path, original);
+    if (process.platform !== 'win32') await chmod(path, 0o600);
+    const journal = createUpgradeFileJournal(dir, dir);
+    const keys = ['hierarchy.maxSiblings', 'hierarchy.maxActiveSiblings'];
+    expect(await migrateHierarchyDefaults(path, journal, true)).toEqual(keys);
+    expect(await readFile(path, 'utf8')).toBe(original);
+    expect(journal.changes).toEqual([]);
+    expect(await migrateHierarchyDefaults(path, journal)).toEqual(keys);
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
+      hierarchy: { maxDepth: 3 },
+      session: { autoStart: true },
+    });
+    expect(journal.changes).toHaveLength(1);
+    expect(await readFile(journal.changes[0]!.backupPath!, 'utf8')).toBe(original);
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(await migrateHierarchyDefaults(path, journal)).toEqual([]);
+    expect(journal.changes).toHaveLength(1);
+    await setConfigValue('hierarchy.enforcementProfile', 'human-cognitive', dir);
+    expect(resolveHierarchyPolicy(await loadConfig(dir))).toMatchObject({
+      maxSiblings: 7,
+      maxActiveSiblings: 3,
+    });
+  });
+
+  it('retains positive caps and leaves intentional zeros intact until explicitly repaired', async () => {
+    const path = join(dir, 'config.json');
+    await setConfigValue(
+      'hierarchy',
+      { enforcementProfile: 'human-cognitive', maxSiblings: 0, maxActiveSiblings: 5 },
+      dir,
+    );
+    expect(resolveHierarchyPolicy(await loadConfig(dir))).toMatchObject({
+      maxSiblings: 0,
+      maxActiveSiblings: 5,
+    });
+    expect(await migrateHierarchyDefaults(path, createUpgradeFileJournal(dir, dir))).toEqual([
+      'hierarchy.maxSiblings',
+    ]);
+    expect(resolveHierarchyPolicy(await loadConfig(dir))).toMatchObject({
+      maxSiblings: 7,
+      maxActiveSiblings: 5,
+    });
+  });
+
+  it('leaves malformed files untouched and fails without creating a backup', async () => {
+    const path = join(dir, 'config.json');
+    const journal = createUpgradeFileJournal(dir, dir);
+    expect(await migrateHierarchyDefaults(path, journal)).toEqual([]);
+    await writeFile(path, '{not json');
+    await expect(migrateHierarchyDefaults(path, journal)).rejects.toThrow('Invalid JSON');
+    expect(await readFile(path, 'utf8')).toBe('{not json');
+    expect(journal.changes).toEqual([]);
+  });
+
+  it('does not rewrite config when its backup cannot be created', async () => {
+    const path = join(dir, 'config.json');
+    const original = JSON.stringify({ hierarchy: { maxSiblings: 0 } });
+    await writeFile(path, original);
+    const journal = { ...createUpgradeFileJournal(dir, dir), backupDir: join(dir, 'blocked') };
+    await writeFile(journal.backupDir, 'not a directory');
+    await expect(migrateHierarchyDefaults(path, journal)).rejects.toThrow();
+    expect(await readFile(path, 'utf8')).toBe(original);
+    expect(journal.changes).toEqual([]);
   });
 });
 
