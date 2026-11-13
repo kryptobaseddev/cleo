@@ -2,14 +2,14 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.26.0
+  version: 2.27.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-11-12
+  lastReviewed: 2026-11-13
   stability: stable
 ---
 
@@ -239,7 +239,7 @@ This internal budget contract does not add a `--token-budget` flag to add/update
 | `references/memory.md` | recall or record BRAIN memory (progressive disclosure) |
 | `references/sticky-notes.md` | capture a thought before it is a task: `cleo sticky jot "..."`, then `cleo sticky convert <id> --to-task` |
 
-- Task hierarchy, Saga commands, add-batch decomposition, docs policy, and evidence detail live in the on-demand reference; emit `task-creation`, `documents`, and `evidence` when needed.
+- Task hierarchy, depth/sibling errors, shell quoting, Saga commands, add-batch decomposition, docs policy, and evidence detail live in the on-demand reference; emit `task-creation`, `documents`, and `evidence` when needed.
 - For add-batch input, The top-level JSON MUST be an array of task objects, not an object wrapper like `{ "tasks": [...] }`.
 - Dry-run count semantics: `/data/count` and `/data/wouldCreate` predict writes; `/data/insertedCount` must be `0` for dry-run.
 - Mutation output paths: use `/data/created/0`, `/data/updated/0`, and `/data/deleted/0`; never parse legacy full records. `--output id` emits affected IDs once in created/updated/deleted order from these canonical arrays.
