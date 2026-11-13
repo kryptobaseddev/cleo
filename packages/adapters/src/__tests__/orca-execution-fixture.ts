@@ -14,8 +14,46 @@ import { vi } from 'vitest';
 /** Fake durable provider mailbox; retained while a fresh client simulates CLI restart. */
 export const fixtureMail = { bodies: new Map<string, string>(), failBefore: false, loseAck: false };
 
-/** AgentMBX's existing idempotent send contract, with no network or real mailbox access. */
+/** AgentMBX held-identity reads and idempotent sends, with no real mailbox access. */
 export const runMbxFixture: MbxRunner = async (args) => {
+  if (args[0] === 'identity' && args[1] === 'list') {
+    if (!args.includes('--project')) throw new Error('Mailbox inventory needs a project');
+    return {
+      missing: false,
+      exitCode: 0,
+      stderr: '',
+      stdout: JSON.stringify({
+        identities: [
+          {
+            name: 'fixture-lead',
+            registered: true,
+            retired: false,
+            state: 'held',
+            holder: { cli: 'codex', session_id: 'ses_fixture_lead' },
+          },
+        ],
+      }),
+    };
+  }
+  if (args[0] === 'status' || (args[0] === 'identity' && args[1] === 'release')) {
+    const held =
+      args[0] === 'status' &&
+      args[args.indexOf('--cli') + 1] === 'codex' &&
+      args[args.indexOf('--session') + 1] === 'ses_fixture_lead';
+    return {
+      missing: false,
+      exitCode: 0,
+      stderr: '',
+      stdout: JSON.stringify({
+        identity: {
+          name: held ? 'fixture-lead' : null,
+          role: held ? 'lead' : null,
+          state: held ? 'bound' : 'unbound',
+        },
+        unread: 0,
+      }),
+    };
+  }
   if (args[0] !== 'send') throw new Error(`Unexpected mailbox fixture command: ${args[0]}`);
   const key = args[args.indexOf('--idempotency-key') + 1];
   const body = args[args.indexOf('-m') + 1];
