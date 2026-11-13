@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.11.6] (2026-11-13)
+
+### Fixed
+
+- Generate cleo inject error handling from the delivered protocol template _(provenance: [T14531](https://github.com/kryptobaseddev/cleo/search?q=T14531&type=commits))_
+- memory admission names the crossed threshold and admits old swap at normal kernel pressure _(provenance: [T14530](https://github.com/kryptobaseddev/cleo/search?q=T14530&type=commits))_
+- Merge sweep finds the merge commit's CI run by the required check's workflow, not the check name _(provenance: [T14535](https://github.com/kryptobaseddev/cleo/search?q=T14535&type=commits))_
+- Lead findings must be filed under the lead's own epic subtree, and orchestrate status refuses conflicting epic ids _(provenance: [T14533](https://github.com/kryptobaseddev/cleo/search?q=T14533&type=commits))_
+- Typed gates: reserve proportional bookkeeping time and name admission refusals _(provenance: [T14534](https://github.com/kryptobaseddev/cleo/search?q=T14534&type=commits))_
+- Typed gates: a refused admission is its own verify code (exit 28), and later gates keep the batch reserve _(provenance: [T14536](https://github.com/kryptobaseddev/cleo/search?q=T14536&type=commits))_
+- Restore hierarchy error fixes and dollar-escaping guidance in the on-demand task-creation protocol _(provenance: [T14537](https://github.com/kryptobaseddev/cleo/search?q=T14537&type=commits))_
+- Exit 12 E_SIBLING_LIMIT guidance in task-creation now covers the active-sibling cap and the effective unlimited default _(provenance: [T14539](https://github.com/kryptobaseddev/cleo/search?q=T14539&type=commits))_
+
 ## [2026.11.5] (2026-11-13)
 
 ### Changed
