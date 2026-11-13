@@ -11,6 +11,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import type { UpgradeFileJournal } from '../scaffold/upgrade-file-journal.js';
 import { atomicWriteJson } from '../store/atomic.js';
 
 /** Tight type guard for a plain object (excludes arrays and null). */
@@ -120,4 +121,41 @@ export async function migrateLegacyConfigFile(configPath: string): Promise<strin
     await atomicWriteJson(configPath, parsed);
   }
   return migrated;
+}
+
+/**
+ * Remove zero-valued sibling caps only for an explicitly requested upgrade repair.
+ *
+ * Legacy scaffolds and intentional unlimited overrides both used zero, so reads
+ * and ordinary upgrades must preserve them. This opt-in repair backs up the
+ * current bytes before restoring profile defaults; positive caps are retained.
+ *
+ * @param configPath - Project config file to repair.
+ * @param journal - Upgrade journal recording the previous config bytes.
+ * @param dryRun - Preview removed keys without writing or creating a backup.
+ * @returns Removed key paths, or the proposed paths for a dry run.
+ */
+export async function migrateHierarchyDefaults(
+  configPath: string,
+  journal: UpgradeFileJournal,
+  dryRun = false,
+): Promise<string[]> {
+  const { readJson } = await import('../store/json.js');
+  const config = await readJson<Record<string, unknown>>(configPath);
+  const hierarchy = config?.['hierarchy'];
+  if (!config || !isPlainObject(hierarchy)) return [];
+
+  const removed: string[] = [];
+  for (const field of ['maxSiblings', 'maxActiveSiblings'] as const) {
+    if (hierarchy[field] === 0) {
+      delete hierarchy[field];
+      removed.push(`hierarchy.${field}`);
+    }
+  }
+  if (!dryRun && removed.length > 0) {
+    const { backupBeforeChange } = await import('../scaffold/upgrade-file-journal.js');
+    await backupBeforeChange(journal, configPath);
+    await atomicWriteJson(configPath, config);
+  }
+  return removed;
 }

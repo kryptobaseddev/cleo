@@ -238,7 +238,6 @@ export function createDefaultConfig(): Record<string, unknown> {
     },
     hierarchy: {
       maxDepth: 3,
-      maxSiblings: 0,
     },
     session: {
       autoStart: false,

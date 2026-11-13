@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.29.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.30.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -69,6 +69,8 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 |:----:|------|-----|
 | 11 | `E_DEPTH_EXCEEDED` | Reparent under a shallower parent within `hierarchy.maxDepth` (inclusive; default 3 = saga 0, epic 1, task 2, subtask 3). |
 | 12 | `E_SIBLING_LIMIT` | A configured `hierarchy.maxSiblings` or `hierarchy.maxActiveSiblings` cap was reached (no profile or `llm-agent-first`: 0/0 = unlimited; `human-cognitive`: 7/3). Explicit caps, including 0, override the profile. Raise the cap or group the tasks under another parent; for the active cap (non-terminal children), complete or cancel an active sibling. |
+
+Older project configs may contain scaffolded zero sibling caps. Preview `cleo upgrade --migrate-hierarchy-defaults --dry-run`, then run `cleo upgrade --migrate-hierarchy-defaults` to back up config and remove zero-valued caps so profile defaults apply. This opt-in repair also removes intentional unlimited overrides; set a cap to 0 again to retain unlimited. Ordinary upgrades preserve existing caps.
 
 For literal `$` in task text, use single-quoted shell arguments or escape `$` as `\$` inside double quotes so the shell does not expand it before CLEO receives it.
 <!-- /CLEO-INJECTION:section=task-creation -->

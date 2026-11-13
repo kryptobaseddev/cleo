@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.29.0 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.30.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol

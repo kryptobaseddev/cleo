@@ -18,6 +18,7 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig, setConfigValue } from '../config.js';
 import type { MbxRunner } from '../orchestrate/agentmbx.js';
 import { getCleoHome } from '../paths.js';
 import { acquireLock } from '../store/lock.js';
@@ -448,6 +449,53 @@ describe('runUpgrade structural parity', () => {
     expect(result.actions.some((a) => a.action === 'config_file' && a.status === 'applied')).toBe(
       true,
     );
+  });
+
+  it('repairs legacy sibling defaults only with the explicit migration option and reports the backup', async () => {
+    const path = join(cleoDir, 'config.json');
+    writeFileSync(path, JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 0 } }));
+    const options = { cwd: tmpDir, migrateHierarchyDefaults: true };
+    const preview = await runUpgrade({ ...options, dryRun: true });
+    expect(preview.actions).toContainEqual(
+      expect.objectContaining({
+        action: 'hierarchy_defaults',
+        status: 'preview',
+        details: expect.stringContaining('hierarchy.maxSiblings'),
+      }),
+    );
+    expect(preview.fileChanges).toEqual([]);
+    expect(JSON.parse(readFileSync(path, 'utf8')).hierarchy.maxSiblings).toBe(0);
+    const repaired = await runUpgrade(options);
+    expect(repaired.actions).toContainEqual(
+      expect.objectContaining({
+        action: 'hierarchy_defaults',
+        status: 'applied',
+        details: expect.stringContaining('Previous config backed up'),
+      }),
+    );
+    expect(repaired.fileChanges).toContainEqual(
+      expect.objectContaining({ path, backupPath: expect.any(String) }),
+    );
+    await setConfigValue('hierarchy.enforcementProfile', 'human-cognitive', tmpDir);
+    expect((await loadConfig(tmpDir)).hierarchy).toMatchObject({
+      maxSiblings: 7,
+      maxActiveSiblings: 3,
+    });
+  });
+
+  it('preserves explicit unlimited caps during an ordinary upgrade', async () => {
+    writeFileSync(
+      join(cleoDir, 'config.json'),
+      JSON.stringify({
+        hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 0, maxActiveSiblings: 0 },
+      }),
+    );
+    const result = await runUpgrade({ cwd: tmpDir });
+    expect(result.actions.some((action) => action.action === 'hierarchy_defaults')).toBe(false);
+    expect((await loadConfig(tmpDir)).hierarchy).toMatchObject({
+      maxSiblings: 0,
+      maxActiveSiblings: 0,
+    });
   });
 
   it('records the lead mailbox for an already-initialized project (T14448)', async () => {
