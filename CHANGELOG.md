@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.11.4] (2026-11-13)
+
+### Fixed
+
+- Claude Code leads refuse before launch when saved folder trust cannot be verified _(provenance: [T14511](https://github.com/kryptobaseddev/cleo/search?q=T14511&type=commits))_
+- Report a closed lead's dead record on the next orchestrate lead and keep its already-ended session untouched. _(provenance: [T14513](https://github.com/kryptobaseddev/cleo/search?q=T14513&type=commits))_
+- Done: name an accepted merged checkout when the task worktree is stale _(provenance: [T14512](https://github.com/kryptobaseddev/cleo/search?q=T14512&type=commits))_
+- Orca lead refusals close their terminal before retrying startup-directory cleanup _(provenance: [T14522](https://github.com/kryptobaseddev/cleo/search?q=T14522&type=commits))_
+- Claude Code lead preflight accepts saved main-checkout trust from linked worktrees _(provenance: [T14514](https://github.com/kryptobaseddev/cleo/search?q=T14514&type=commits))_
+- Claude Code lead preflight reads the same user config file and environment Claude does _(provenance: [T14515](https://github.com/kryptobaseddev/cleo/search?q=T14515&type=commits))_
+- Wait for stable dependencies to become installable before publishing the CLI to latest. _(provenance: [T14516](https://github.com/kryptobaseddev/cleo/search?q=T14516&type=commits))_
+- Require a clean tracked tree when PR evidence tools run on the merged checkout _(provenance: [T14517](https://github.com/kryptobaseddev/cleo/search?q=T14517&type=commits))_
+- Refuse a dirty checkout for landed-commit evidence; stash, never commit, unreviewed edits _(provenance: [T14523](https://github.com/kryptobaseddev/cleo/search?q=T14523&type=commits))_
+
 ## [2026.11.3] (2026-11-12)
 
 ### Added
