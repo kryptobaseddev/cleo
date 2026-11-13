@@ -102,7 +102,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 |:----:|------|-----|
 | 4 | `E_NOT_FOUND` | `cleo find` to verify ID |
 | 6 | `E_VALIDATION` | Check field lengths |
-| 6 | `E_GATE_RUN_FAILED` | `cleo verify <id> --run` saw a typed gate fail or error: apply each `error.details.failures[].fix`, then rerun |
+| 6 | `E_GATE_RUN_FAILED` | A typed gate failed: apply each `error.details.failures[].fix`, rerun `cleo verify <id> --run` |
 | 10 | `E_PARENT_NOT_FOUND` | `cleo exists <id>` |
 | 80 | `E_LIFECYCLE_GATE_FAILED` | Unproven evidence gates (strict): `cleo done <id> --plan`, record what it names, retry. Names a planning-stage parent epic: tell the lead; never change `lifecycle.stageGate` |
 | — | `E_EVIDENCE_MISSING` / `E_EVIDENCE_INSUFFICIENT` | `cleo verify … --evidence <atoms>` with every atom kind the gate needs (e.g. `commit:<sha>` + `files:<list>` for `implemented`) |
