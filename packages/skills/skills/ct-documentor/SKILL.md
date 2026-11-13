@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.38.0
+version: 3.39.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.38.0
+  version: 3.39.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-11-02
+  lastReviewed: 2026-11-13
   stability: stable
 ---
 
@@ -83,8 +83,11 @@ paths) or stale (T14117) — and with `--apply` repairs them after creating a
 backup automatically. The ledger syncs across devices, so a row is pruned
 only when its mirror is provably gone (absent from HEAD and the default
 branch, or in a removed worktree of this device) and its blob stays
-referenced elsewhere; absolute paths and other devices' paths are only
-reported. Each pruned row is first appended to
+referenced elsewhere, or when a newer row of the same owner publishes the
+same path in sync and the doc's canonical head (conduit head, else registry
+row; unresolvable keeps the row) is already published or never moved (a
+superseded row, T14504). A blob held only by rows pruned in the same run never protects
+them. Absolute paths and other devices' paths are only reported. Each pruned row is first appended to
 `.cleo/audit/docs-publications-prune.jsonl`, and stale mirrors are only
 reported (republish, or ingest the edit with `cleo docs update`). Use it for store
 hygiene checks; it never edits doc content. `--apply` runs every repair class

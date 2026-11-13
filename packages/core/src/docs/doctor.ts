@@ -137,7 +137,7 @@ import {
   isScannableTextMime,
   linksJsonOrNull,
 } from './derive-links.js';
-import type { DocsPublicationRecord } from './docs-ops.js';
+import type { DocsDriftItem, DocsPublicationRecord } from './docs-ops.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
 import { assertCheckoutOfProject } from './modernize/guard.js';
 import { deleteDocsPublication, readDocsPublications } from './publications-store.js';
@@ -783,63 +783,136 @@ async function scanPublicationLedger(
     `${r.ownerId}\u0000${r.blobName}\u0000${r.publishedPath}`;
   const recordByKey = new Map(ledger.map((r) => [key(r), r]));
   const attachmentShas = new Set(rows.map((r) => r.sha256));
-  const liveLedgerShas = new Map<string, number>();
-  for (const item of status.items) {
-    if (item.drift === 'deleted') continue;
-    const record = recordByKey.get(key(item));
-    if (record)
-      liveLedgerShas.set(record.lastBlobSha, (liveLedgerShas.get(record.lastBlobSha) ?? 0) + 1);
-  }
-  const findings: LedgerFinding[] = [];
+  const recordFor = (item: DocsDriftItem): DocsPublicationRecord | undefined =>
+    recordByKey.get(key(item));
+  // T14504: a drifted row is superseded only when its doc's CANONICAL head
+  // (resolved the way slug-rename resolves it: conduit head, else the registry
+  // row) is already published at the same path by a newer in-sync row of the
+  // same owner, or never moved past what this row published. The blob manifest
+  // sha `status` reports is best-effort (sync and SDK updates move the head
+  // without it), so it is never trusted here; a head that does not resolve
+  // keeps the row (fail closed).
+  const { resolveDocRef } = await import('./slug-rename.js');
+  const canonicalHead = async (record: DocsPublicationRecord): Promise<string | null> => {
+    const names = [record.blobName, record.blobName.replace(/\.md$/, '')];
+    for (const name of new Set(names)) {
+      const ref = await resolveDocRef(projectRoot, name, { quiet: true }).catch(() => null);
+      if (ref) return ref.sha256;
+    }
+    return null;
+  };
+  const isSuperseded = async (record: DocsPublicationRecord): Promise<boolean> => {
+    const newerRows = status.items
+      .filter((other) => other.drift === 'in-sync' && other.publishedPath === record.publishedPath)
+      .map(recordFor)
+      .filter(
+        (newer): newer is DocsPublicationRecord =>
+          newer !== undefined &&
+          newer !== record &&
+          newer.ownerId === record.ownerId &&
+          newer.publishedAt >= record.publishedAt,
+      );
+    if (newerRows.length === 0) return false;
+    const head = await canonicalHead(record);
+    if (head === null) return false;
+    return head === record.lastBlobSha || newerRows.some((newer) => newer.lastBlobSha === head);
+  };
+  type Draft = Omit<LedgerFinding, 'action' | 'prunable' | 'detail'> & {
+    readonly shas: ReadonlySet<string>;
+    /** A prune candidate; prunable only if every blob it names stays held by a survivor. */
+    readonly candidate: boolean;
+    /** Plan for a candidate whose blobs a survivor holds / for anything else. */
+    readonly plan: (held: boolean) => Pick<LedgerFinding, 'action' | 'detail'>;
+  };
+  const drafts: Draft[] = [];
   for (const item of status.items) {
     if (item.drift !== 'deleted' && item.drift !== 'modified') continue;
-    const record = recordByKey.get(key(item));
+    const record = recordFor(item);
     if (!record) continue;
     const absPath = resolvePublishedMirror(projectRoot, checkoutRoot, record.publishedPath);
     const rel = relative(checkoutRoot, absPath);
     const outsideRoot = rel.startsWith('..') || isAbsolute(rel);
+    const shas = new Set([record.lastBlobSha, item.blobSha]);
+    const blob = record.lastBlobSha.slice(0, 12);
     if (item.drift === 'modified') {
+      if (await isSuperseded(record)) {
+        drafts.push({
+          record,
+          drift: 'modified',
+          outsideRoot,
+          shas,
+          candidate: true,
+          plan: (held) =>
+            held
+              ? {
+                  action: 'prune-publication',
+                  detail: `mirror ${record.publishedPath} is published in sync by a newer ledger row of the same owner; this row is superseded → delete the ledger row`,
+                }
+              : {
+                  action: 'republish-or-prune',
+                  detail: `mirror ${record.publishedPath} is published in sync by a newer ledger row, but this row is the last reference to blob ${blob}… — archive the doc before pruning`,
+                },
+        });
+        continue;
+      }
       const storeMoved = item.fileSha === record.lastBlobSha;
-      findings.push({
+      drafts.push({
         record,
         drift: 'modified',
         outsideRoot,
-        action: storeMoved ? 'republish' : 'reconcile-edit',
-        prunable: false,
-        detail: storeMoved
-          ? `mirror ${record.publishedPath} holds the last published blob; the store head moved on — run \`cleo docs publish\``
-          : `mirror ${record.publishedPath} was edited outside the store — ingest it with \`cleo docs update\` or republish to overwrite`,
+        shas,
+        candidate: false,
+        plan: () =>
+          storeMoved
+            ? {
+                action: 'republish',
+                detail: `mirror ${record.publishedPath} holds the last published blob; the store head moved on — run \`cleo docs publish\``,
+              }
+            : {
+                action: 'reconcile-edit',
+                detail: `mirror ${record.publishedPath} was edited outside the store — ingest it with \`cleo docs update\` or republish to overwrite`,
+              },
       });
       continue;
     }
-    const shas = new Set([record.lastBlobSha, item.blobSha]);
-    const protectedElsewhere = [...shas].every(
-      (sha) => attachmentShas.has(sha) || (liveLedgerShas.get(sha) ?? 0) > 0,
-    );
     const proof = provePublicationGone(checkoutRoot, record.publishedPath, absPath);
-    const blob = record.lastBlobSha.slice(0, 12);
-    let action: LedgerFinding['action'];
-    let detail: string;
-    if (proof.gone === false) {
-      action = 'report-only';
-      detail = `mirror ${record.publishedPath} is missing here but ${proof.reason} — not pruned (the ledger syncs across devices)`;
-    } else if (!protectedElsewhere) {
-      action = 'republish-or-prune';
-      detail = `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`;
-    } else {
-      action = 'prune-publication';
-      detail = `mirror ${record.publishedPath} is gone (${proof.reason}); blob ${blob}… stays referenced elsewhere → delete the ledger row`;
-    }
-    findings.push({
+    drafts.push({
       record,
       drift: 'deleted',
       outsideRoot,
-      action,
-      prunable: action === 'prune-publication',
-      detail,
+      shas,
+      candidate: proof.gone,
+      plan: (held) =>
+        proof.gone === false
+          ? {
+              action: 'report-only',
+              detail: `mirror ${record.publishedPath} is missing here but ${proof.reason} — not pruned (the ledger syncs across devices)`,
+            }
+          : held
+            ? {
+                action: 'prune-publication',
+                detail: `mirror ${record.publishedPath} is gone (${proof.reason}); blob ${blob}… stays referenced elsewhere → delete the ledger row`,
+              }
+            : {
+                action: 'republish-or-prune',
+                detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
+              },
     });
   }
-  return findings;
+  // A blob is protected only by an attachments row or by a ledger row that
+  // survives this run: two prune candidates never protect each other (T14504),
+  // so the last row naming a blob is never deleted and the blob never exposed to GC.
+  const candidateRecords = new Set(drafts.filter((d) => d.candidate).map((d) => d.record));
+  const survivorShas = new Set(attachmentShas);
+  for (const item of status.items) {
+    if (item.drift === 'deleted') continue;
+    const record = recordFor(item);
+    if (record && !candidateRecords.has(record)) survivorShas.add(record.lastBlobSha);
+  }
+  return drafts.map(({ shas, candidate, plan, ...finding }) => {
+    const held = candidate && [...shas].every((sha) => survivorShas.has(sha));
+    return { ...finding, ...plan(held), prunable: held };
+  });
 }
 
 /**

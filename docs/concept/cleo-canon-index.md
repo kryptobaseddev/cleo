@@ -89,7 +89,7 @@ revision, while current code and CLI help remain the implementation authority.
 
 ### Runtime, data and contracts
 
-- [Database ERDs](database-erds.md) — historical schema diagrams and relationships from the database hardening work.
+- [Database ERDs](database-erds.md) — schema diagrams and relationships, current as of the Core Hardening Waves 0-3 revision it records.
 - [Type contracts](type-contracts.md) — public API and schema inventory at the recorded core-hardening revision.
 - [Brain package](../spec/cleo-brain-package.md) — the five-substrate package and query contract.
 - [NEXUS architecture](../spec/cleo-nexus-architecture.md) — cross-project identity, registration and discovery design.
