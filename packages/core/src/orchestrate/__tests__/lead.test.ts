@@ -2,7 +2,7 @@
  * `cleo orchestrate lead <epic>` (T14363): with `orchestrate.leadWorker.v1`
  * on, the lead reaches its provider through the real spawn bridge with Bash,
  * Edit and Write denied, a pre-assigned session id, and the lead mailbox
- * claimed for that session. Flag off, a non-epic id, or a provider that
+ * bootstrapped through its own MCP endpoint. Flag off, a non-epic id, or a provider that
  * cannot strip tools refuse before any lead runs.
  *
  * Covers both modes (interactive default, `detached`), the lead record (one
@@ -819,6 +819,22 @@ describe('orchestrateLead (T14363)', () => {
     expect(readLeadRecord(env.tempDir, 'T100')?.mailbox).toMatch(/-lead-T100$/);
     expect(provider.state.seen[0]?.prompt).toContain('"action":"register"');
     expect(mbx.claims).toHaveLength(0);
+  });
+
+  it('refuses fresh-project bootstrap without AgentMBX and names the setup command (T14477)', async () => {
+    setOrchestrate(env.tempDir, { leadWorker: { v1: true } });
+    const { orchestrateLead } = await import('../lead.js');
+    const client = { ...fakeMbx(false).client, available: async () => false };
+    expect(
+      await orchestrateLead('T100', { projectRoot: env.tempDir, mbxClient: client }),
+    ).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_LEAD_MAILBOX_UNAVAILABLE',
+        fix: expect.stringContaining('agentmbx setup --only claude'),
+      },
+    });
+    expect(provider.state.seen).toHaveLength(0);
   });
 
   it('keeps one lead per epic with independent mailboxes in the same project (T14477)', async () => {
