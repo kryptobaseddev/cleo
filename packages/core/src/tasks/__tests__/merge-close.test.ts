@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { GhPrViewPayload, MergeSweepResult, ReviewVerdict } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CURRENT_HEAD_STAND_IN_OPEN } from '../../release/ci-evidence.js';
 import { getActiveSessionInfo } from '../../sessions/session-enforcement.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
@@ -50,6 +50,11 @@ import {
   sweepMergedClosures,
   sweepRegisteredProjects,
 } from '../merge-close.js';
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, execFileSync: vi.fn(actual.execFileSync) };
+});
 
 let env: TestDbEnv;
 const HOUR = 60 * 60_000;
@@ -950,6 +955,120 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     });
     expect([result.waiting, result.reran]).toEqual([1, 0]);
     expect(calls.reruns).toEqual([]);
+  });
+});
+
+describe("the merge run is found by the required check's workflow, not its name (T14535)", () => {
+  const ciRefusal = "Required CI on PR #45's merge commit is not green: PR checks: pending";
+  /** A green head whose required check "PR checks" is a job of workflow "CI". */
+  const prChecks: GhPrViewPayload['statusCheckRollup'] = [
+    { name: 'PR checks', workflowName: 'CI', conclusion: 'SUCCESS', status: 'COMPLETED' },
+  ];
+
+  it.each([
+    ['.github/workflows/ci.yml', 'ci.yml'],
+    ['ci.yaml', 'ci.yaml'],
+    ['CI / checks', 'CI / checks'],
+  ])('the default resolves workflow %s as %s, with a check-name fallback', async (workflow, expected) => {
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({
+        release: {
+          prRequiredWorkflows: [{ name: 'PR checks', app: 'github-actions', workflow }],
+        },
+      }),
+    );
+    const workflowOf = defaultMergeCloseDeps.requiredCheckWorkflow;
+    expect(await workflowOf?.(root, 'PR checks')).toBe(expected);
+    expect(await workflowOf?.(root, 'CI')).toBe('CI');
+  });
+
+  it('a check "PR checks" inside workflow "CI" waits on, then closes after, the CI run', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(45, `Closes: ${id} AC1`, prChecks)]);
+    const asked: string[] = [];
+    const byWorkflow: MergeCloseDeps = {
+      ...deps,
+      requiredChecks: async () => ['PR checks'],
+      requiredCheckWorkflow: async (_root, check) => (check === 'PR checks' ? 'ci.yml' : check),
+      mergeCiRun: async (_root, _sha, workflow) => {
+        asked.push(workflow);
+        return workflow === 'ci.yml'
+          ? world.mergeRun
+          : { error: `could not find any workflows named ${workflow}` };
+      },
+    };
+    world.recordRefusal = ciRefusal;
+    world.mergeRun = { runId: 99, status: 'in_progress', conclusion: null };
+    const first = await sweepMergedClosures(root, { force: true }, byWorkflow);
+    expect(asked).toEqual(['ci.yml']);
+    expect(first.prs[0]?.outcomes[0]).toMatchObject({
+      action: 'waiting',
+      reason: /ci\.yml on merge commit .* is in_progress/,
+    });
+    world.mergeRun = { runId: 99, status: 'completed', conclusion: 'success' };
+    world.recordRefusal = null;
+    world.now += HOUR * 7;
+    const second = await sweepMergedClosures(root, { force: true }, byWorkflow);
+    expect(second.closed).toEqual([id]);
+  });
+
+  it.each([
+    ['PR checks', 'could not find any workflows named PR checks'],
+    ['missing.yml', 'HTTP 404: workflow missing.yml not found on the default branch'],
+    [
+      'missing.yml',
+      'HTTP 404: Not Found (https://api.github.com/repos/o/r/actions/workflows/missing.yml)',
+    ],
+  ])('gh failing to find workflow %s refuses with a config fix: %s', async (workflow, error) => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(46, `Closes: ${id} AC1`, prChecks)]);
+    world.recordRefusal = ciRefusal;
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        requiredChecks: async () => ['PR checks'],
+        requiredCheckWorkflow: async () => workflow,
+        mergeCiRun: async () => ({ error }),
+      },
+    );
+    expect(result.waiting).toBe(0);
+    expect(result.refused[0]?.reason).toMatch(/found no such workflow/);
+    expect(result.refused[0]?.reason).toContain('"workflow":".github/workflows/ci.yml"');
+    expect(result.refused[0]?.reason).toContain('release.prRequiredWorkflows[].workflow');
+    expect(result.refused[0]?.reason).not.toMatch(/run on merge commit .* yet/);
+  });
+
+  it.each([
+    'HTTP 404: workflow missing.yml not found on the default branch',
+    Buffer.from('HTTP 404: workflow missing.yml not found on the default branch'),
+  ])('the default preserves gh stderr for a missing workflow file: %s', async (stderr) => {
+    vi.mocked(execFileSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('gh run list failed'), { stderr });
+    });
+    expect(await defaultMergeCloseDeps.mergeCiRun(root, 'a'.repeat(40), 'missing.yml')).toEqual({
+      error: stderr.toString(),
+    });
+  });
+
+  it('any other gh failure waits and says the lookup failed', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(47, `Closes: ${id} AC1`)]);
+    world.recordRefusal = ciRefusal;
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        mergeCiRun: async () => ({ error: 'HTTP 502: Bad Gateway' }),
+      },
+    );
+    expect(result.prs[0]?.outcomes[0]).toMatchObject({
+      action: 'waiting',
+      reason: /looking up the CI run on merge commit .* failed \(HTTP 502: Bad Gateway\)/,
+    });
   });
 });
 
