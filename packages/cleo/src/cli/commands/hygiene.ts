@@ -96,21 +96,46 @@ export const hygieneCommand = defineCommand({
           process.exit(2);
           return;
         }
-        const { runWorktreeCensus } = await import('@cleocode/core/hygiene/census');
+        const { reportWorktreeCensus, runWorktreeCensus } = await import(
+          '@cleocode/core/hygiene/census'
+        );
         let projectRoot: string | null = null;
         try {
           projectRoot = getProjectRoot();
         } catch {
           projectRoot = null;
         }
-        const result = await runWorktreeCensus({
-          apply: args.apply === true,
+        const options = {
           applyProjects: projectRoot !== null ? [projectRoot] : [],
           allProjects: args['all-projects'] === true,
           ttlDays: args['ttl-days'] !== undefined ? Number(args['ttl-days']) : undefined,
           maxBytes: args['max-bytes'] !== undefined ? Number(args['max-bytes']) : undefined,
           exemptRegenerable: args['include-build-output'] === true,
-        });
+        };
+        const result = await (async () => {
+          if (args.apply === true) return runWorktreeCensus({ ...options, apply: true });
+          const controller = new AbortController();
+          let interrupted = 0;
+          const interrupt = () => {
+            interrupted = 130;
+            controller.abort();
+          };
+          const terminate = () => {
+            interrupted = 143;
+            controller.abort();
+          };
+          process.on('SIGINT', interrupt);
+          process.on('SIGTERM', terminate);
+          try {
+            return await reportWorktreeCensus(options, controller.signal, (message) => {
+              process.stderr.write(`[cleo hygiene] ${message}\n`);
+            });
+          } finally {
+            process.removeListener('SIGINT', interrupt);
+            process.removeListener('SIGTERM', terminate);
+            if (interrupted !== 0) process.exitCode = interrupted;
+          }
+        })();
         if ('skipped' in result) {
           cliOutput(result, {
             command: 'hygiene',
@@ -129,6 +154,9 @@ export const hygieneCommand = defineCommand({
               `Worktree census (${mode}): ${counts.active} active, ${counts.redundant} redundant, ` +
               `${counts.keep} keep, ${counts.unknown} unknown` +
               (mode === 'apply' ? `; reclaimed ${reclaimedApparentBytes} bytes (apparent)` : '') +
+              (result.record.partial
+                ? `; partial: ${result.record.partialReason ?? 'scan incomplete'}`
+                : '') +
               `. Record: ${result.recordPath}`,
           },
         );
