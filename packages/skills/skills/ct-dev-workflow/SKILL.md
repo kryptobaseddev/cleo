@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.12.0
+version: 3.13.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.12.0
+  version: 3.13.0
   tier: core
   install: harness
   covers:
@@ -28,7 +28,7 @@ metadata:
     - packages/contracts/src/git-hooks.ts
     - packages/core/src/tasks/merge-train.ts
     - packages/cleo/src/cli/commands/merge.ts
-  lastReviewed: 2026-11-10
+  lastReviewed: 2026-11-13
   stability: stable
 ---
 
@@ -113,6 +113,15 @@ The managed pre-commit refuses CLEO runtime state staged at ANY path (T14189):
 naming a `"projectId"`, and `.cleo/config.json` or a byte-identical copy. It lists the
 paths and `git reset -q -- <paths>`; `cleo doctor` runs the same rule (`staged_cleo_state`).
 This repository's `.githooks/pre-commit` calls the template rather than copying it.
+
+It also refuses any staged `.cleo/` path the EXPLICIT DENY block of the checkout's
+`.cleo/.gitignore` names (backups, quarantine, logs, caches; T14549), printing
+`git rm --cached -q -- <paths>` and `cleo doctor --fix`; `staged_cleo_state` reads the
+same block. A FOREIGN pre-commit (no CLEO marker) is chained, not skipped: it moves to
+`pre-commit.cleo-chained` and runs after CLEO's checks with its exit status intact. A
+customized CLEO copy is still preserved. `cleo doctor` fails on git-tracked `.cleo`
+runtime files (`tracked_cleo_runtime`; `--fix` runs `git rm --cached` only and prints
+the commit) and `cleo init`, `cleo upgrade` and `cleo session start` warn about them.
 
 `cleo init` and `cleo upgrade` no longer seed the CleoOS hub (Pi extensions, CANT
 workflows, justfile) into the global CLEO home (T13994, ADR-098); only the deprecated
