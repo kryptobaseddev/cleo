@@ -19,8 +19,14 @@ On a project with 183 worktrees that took about 200 s and the spawn failed with
 - Provisioning now also excludes the untracked store-dir `.npmrc` through
   `info/exclude`, so a fresh worktree has no untracked file. A tracked `.npmrc`
   is still never edited.
-- The disposal proof treats CLEO's pnpm provisioning as regenerable: the
-  worktree's `.pnpm-store/`, and an `.npmrc` that holds only the main checkout's
-  lines plus `store-dir=<worktree>/.pnpm-store`. Existing finished, merged
-  worktrees whose only extra content is that `.npmrc` become prunable. Any other
-  untracked file, or an `.npmrc` with any other line, still keeps the worktree.
+- The disposal proof treats CLEO's pnpm provisioning as regenerable. The first
+  part is the worktree's `.pnpm-store/`, only when it is a real directory laid
+  out as a pnpm store. A file named `.pnpm-store`, a symlink, or any unexpected
+  name inside the store keeps the worktree. The second part is an `.npmrc` that
+  is byte-for-byte what provisioning wrote for that worktree. Provisioning now
+  records those bytes in the worktree's git admin dir. A worktree provisioned
+  before this change matches only the bare `store-dir=<worktree>/.pnpm-store`
+  line, and the proof never consults the main checkout's current config.
+  Existing finished, merged worktrees whose only extra content is that `.npmrc`
+  become prunable. An edited `.npmrc` or any other untracked file still keeps
+  the worktree.

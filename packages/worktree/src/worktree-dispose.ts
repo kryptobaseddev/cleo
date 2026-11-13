@@ -59,7 +59,7 @@ import {
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
 import { releaseWorktreeTaskLock, withWorktreeTaskLockHeld } from './worktree-lock.js';
-import { isPnpmProvisioningArtefact } from './worktree-pnpm.js';
+import { pnpmProvisioningProbe } from './worktree-pnpm.js';
 
 /** A probe that could not answer: git failed (T14274 classifies these `unknown`). */
 const GIT_STATUS_FAILED = 'git status failed';
@@ -247,15 +247,16 @@ export function unprovenContent(
   const exemptNodeModules = opts.exemptNodeModules !== false;
   const entries = statusEntries(path);
   if (entries === null) return GIT_STATUS_FAILED;
+  const provisioning = pnpmProvisioningProbe(path);
   for (const { code, rel } of entries) {
     const untrackedOrIgnored = code === '??' || code === '!!';
     // `node_modules` (a directory, or the symlink a `node_modules/` ignore
     // pattern misses) reinstalls from the lockfile: redundant in a worktree.
     if (untrackedOrIgnored && exemptNodeModules && rel.split('/').includes('node_modules'))
       continue;
-    // CLEO's own pnpm provisioning (the worktree store and the `.npmrc`
-    // naming it, unchanged) is regenerated on demand (T14552).
-    if (untrackedOrIgnored && isPnpmProvisioningArtefact(path, rel, projectRoot)) continue;
+    // CLEO's own pnpm provisioning (a real pnpm store directory, and the
+    // `.npmrc` byte-for-byte as provisioning wrote it) is regenerated on demand (T14552).
+    if (untrackedOrIgnored && provisioning(rel)) continue;
     // A tracked change is never redundant; an untracked or ignored path is
     // when the main checkout holds the identical tree (a copied receipt).
     if (code === '??') {

@@ -19,6 +19,7 @@
  * @epic T910
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,10 +28,49 @@ import { composeSpawnForTask, orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CollectDashboardOptions } from '../../orchestration/dashboard.js';
 
-// T14552: record every dashboard collection a spawn makes (calls through).
-const { dashboardCalls } = vi.hoisted(() => ({
+// T14552: record every dashboard collection a spawn makes (calls through),
+// and count disposal proofs, git spawns and sync fs calls (the profile's cost
+// centres: lstat, git spawnSync, readdir). Every wrapper delegates.
+const { dashboardCalls, cost } = vi.hoisted(() => ({
   dashboardCalls: [] as Array<CollectDashboardOptions | undefined>,
+  cost: { proofs: 0, git: 0, fs: 0 },
 }));
+vi.mock('@cleocode/worktree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/worktree')>();
+  return {
+    ...actual,
+    disposeWorktree: (...args: Parameters<typeof actual.disposeWorktree>) => {
+      cost.proofs += 1;
+      return actual.disposeWorktree(...args);
+    },
+  };
+});
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  const execFileSync = ((file: string, ...rest: unknown[]) => {
+    if (file === 'git') cost.git += 1;
+    return (actual.execFileSync as (...a: unknown[]) => unknown)(file, ...rest);
+  }) as typeof actual.execFileSync;
+  const spawnSync = ((file: string, ...rest: unknown[]) => {
+    if (file === 'git') cost.git += 1;
+    return (actual.spawnSync as (...a: unknown[]) => unknown)(file, ...rest);
+  }) as typeof actual.spawnSync;
+  return { ...actual, execFileSync, spawnSync };
+});
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const counted = <F extends (...a: never[]) => unknown>(fn: F): F =>
+    ((...a: Parameters<F>) => {
+      cost.fs += 1;
+      return fn(...a);
+    }) as F;
+  const wrapped = {
+    lstatSync: counted(actual.lstatSync),
+    statSync: counted(actual.statSync),
+    readdirSync: counted(actual.readdirSync),
+  };
+  return { ...actual, ...wrapped, default: { ...actual, ...wrapped } };
+});
 vi.mock('../../orchestration/dashboard.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../orchestration/dashboard.js')>();
   return {
@@ -486,4 +526,82 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
       }
     });
   });
+});
+
+describe('T14552 — spawn precheck cost does not grow with the worktree count', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'cleo-t14552-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, stdio: 'pipe' });
+    git('init', '-q', '-b', 'main');
+    git(
+      '-c',
+      'user.name=T',
+      '-c',
+      'user.email=t@e.x',
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'init',
+    );
+    await seedTasks(root, [PARENT_EPIC, LARGE_AC_NO_SCOPE]);
+  });
+
+  afterEach(async () => {
+    const { closeAllDatabases } = await import('@cleocode/core/internal');
+    await closeAllDatabases();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  });
+
+  it('a tier-1 14-AC precheck runs no disposal proof and no per-worktree git/fs calls at 5 and 185 worktrees', async () => {
+    const addWorktrees = (from: number, to: number) => {
+      for (let i = from; i <= to; i++) {
+        execFileSync(
+          'git',
+          ['worktree', 'add', '-q', '-b', `task/T${i}`, join(root, 'wt', `T${i}`)],
+          {
+            cwd: root,
+            stdio: 'pipe',
+          },
+        );
+      }
+    };
+    const precheck = async () => {
+      cost.proofs = 0;
+      cost.git = 0;
+      cost.fs = 0;
+      dashboardCalls.length = 0;
+      const result = await orchestrateSpawn('T9324', undefined, root, 1, true);
+      expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
+      return { ...cost, dashboards: dashboardCalls.length };
+    };
+
+    addWorktrees(1, 5);
+    await precheck(); // warm module-level caches
+    const small = await precheck();
+    addWorktrees(6, 185);
+    const large = await precheck();
+
+    for (const run of [small, large]) {
+      expect(run.proofs).toBe(0);
+      expect(run.dashboards).toBe(0);
+    }
+    // Deterministic bound: 180 more worktrees add less than ONE git spawn or
+    // lstat/stat/readdir call per worktree (the profile's per-worktree costs;
+    // the old precheck paid hundreds each). Module caches may shave a few calls
+    // between runs, so the bound is on growth, not equality.
+    expect(large.git - small.git).toBeLessThan(180);
+    expect(large.fs - small.fs).toBeLessThan(180);
+    expect(large.git).toBeLessThan(180);
+    expect(large.fs).toBeLessThan(180);
+    expect(small.fs).toBeGreaterThan(0);
+    // The git counter is live: one worktree enumeration (through
+    // @cleocode/worktree) is counted, so the precheck's zero is real.
+    cost.git = 0;
+    const { collectOrchestrateDashboard } = await import('../../orchestration/dashboard.js');
+    await collectOrchestrateDashboard(root, { proveWorktrees: false });
+    expect(cost.git).toBeGreaterThan(0);
+  }, 120_000);
 });

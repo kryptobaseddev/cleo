@@ -12,8 +12,42 @@ import {
   formatDashboardPromptSummary,
 } from '../dashboard.js';
 
-// T14552: count disposal proofs and full listings; statuses come from a stub.
-const { proofs, listings } = vi.hoisted(() => ({ proofs: { n: 0 }, listings: { n: 0 } }));
+// T14552: count disposal proofs, full listings, git spawns and sync fs calls
+// (the profile's cost centres: lstat, git spawnSync, readdir); statuses come from a stub.
+const { proofs, listings, gitCalls, fsCalls } = vi.hoisted(() => ({
+  proofs: { n: 0 },
+  listings: { n: 0 },
+  gitCalls: { n: 0 },
+  fsCalls: { n: 0 },
+}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  const execFileSync = ((file: string, ...rest: unknown[]) => {
+    if (file === 'git') gitCalls.n += 1;
+    return (actual.execFileSync as (...a: unknown[]) => unknown)(file, ...rest);
+  }) as typeof actual.execFileSync;
+  const spawnSync = ((file: string, ...rest: unknown[]) => {
+    if (file === 'git') gitCalls.n += 1;
+    return (actual.spawnSync as (...a: unknown[]) => unknown)(file, ...rest);
+  }) as typeof actual.spawnSync;
+  return { ...actual, execFileSync, spawnSync };
+});
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const counted = <F extends (...a: never[]) => unknown>(fn: F): F =>
+    ((...a: Parameters<F>) => {
+      fsCalls.n += 1;
+      return fn(...a);
+    }) as F;
+  const wrapped = {
+    lstatSync: counted(actual.lstatSync),
+    statSync: counted(actual.statSync),
+    readdirSync: counted(actual.readdirSync),
+    existsSync: counted(actual.existsSync),
+    readFileSync: counted(actual.readFileSync),
+  };
+  return { ...actual, ...wrapped, default: { ...actual, ...wrapped } };
+});
 vi.mock('@cleocode/worktree', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@cleocode/worktree')>();
   return {
@@ -32,10 +66,10 @@ vi.mock('../../worktree/list.js', async (importOriginal) => {
       listings.n += 1;
       return actual.listWorktrees(...args);
     },
-    // T1..T20 done, T21..T40 active; no task store needed.
+    // Odd task numbers done, even active; no task store needed.
     loadOwningTaskStatuses: async (ids: string[]) => ({
       success: true as const,
-      data: new Map(ids.map((id) => [id, Number(id.slice(1)) <= 20 ? 'done' : 'active'])),
+      data: new Map(ids.map((id) => [id, Number(id.slice(1)) % 2 === 1 ? 'done' : 'active'])),
     }),
   };
 });
@@ -203,7 +237,7 @@ describe('collectOrchestrateDashboard', () => {
     );
   });
 
-  it('T14552 — proveWorktrees:false classifies 40 worktrees with no disposal proof or full listing', async () => {
+  it('T14552 — proveWorktrees:false costs the same for 5 and 185 worktrees: no proof, no per-worktree git or fs', async () => {
     const base = realpathSync(await mkdtemp(join(tmpdir(), 'dashboard-unproven-')));
     try {
       const repo = join(base, 'repo');
@@ -221,34 +255,59 @@ describe('collectOrchestrateDashboard', () => {
         '-m',
         'init',
       );
-      for (let i = 1; i <= 40; i++) {
-        git('worktree', 'add', '-q', '-b', `task/T${i}`, join(base, 'wt', `T${i}`));
+      const addWorktrees = (from: number, to: number) => {
+        for (let i = from; i <= to; i++) {
+          git('worktree', 'add', '-q', '-b', `task/T${i}`, join(base, 'wt', `T${i}`));
+        }
+      };
+      const measure = async () => {
+        proofs.n = 0;
+        listings.n = 0;
+        gitCalls.n = 0;
+        fsCalls.n = 0;
+        const metrics = await collectOrchestrateDashboard(repo, {
+          accessor: accessor([]),
+          now: new Date(),
+          proveWorktrees: false,
+        });
+        return { metrics, proofs: proofs.n, listings: listings.n, git: gitCalls.n, fs: fsCalls.n };
+      };
+
+      addWorktrees(1, 5);
+      await measure(); // warm module-level caches
+      const small = await measure();
+      addWorktrees(6, 185);
+      const large = await measure();
+
+      for (const run of [small, large]) {
+        expect(run.proofs).toBe(0);
+        expect(run.listings).toBe(0);
+        expect(run.metrics.worktreeProof).toBe('unproven');
       }
-      proofs.n = 0;
-      listings.n = 0;
-      const metrics = await collectOrchestrateDashboard(repo, {
-        accessor: accessor([]),
-        now: new Date(),
-        proveWorktrees: false,
-      });
-      expect(proofs.n).toBe(0);
-      expect(listings.n).toBe(0);
-      expect(metrics.worktreeProof).toBe('unproven');
-      // The primary checkout plus 20 open-task worktrees; 20 finished, unproven.
-      expect(metrics.worktrees).toMatchObject({
-        total: 41,
-        active: 21,
-        unproven: 20,
+      // The cost does not grow with the worktree count: 180 more worktrees
+      // add zero git spawns and zero sync fs calls.
+      expect(large.git).toBe(small.git);
+      expect(large.fs).toBe(small.fs);
+      expect(large.git).toBeLessThanOrEqual(5);
+      // The counters are live (one porcelain read at least).
+      expect(small.git).toBeGreaterThan(0);
+      expect(small.fs).toBeGreaterThan(0);
+      // The primary checkout plus 92 open-task worktrees; 93 finished, unproven.
+      expect(large.metrics.worktrees).toMatchObject({
+        total: 186,
+        active: 93,
+        unproven: 93,
         redundant: 0,
       });
-      expect(formatDashboardPromptSummary(metrics)).toContain(
-        'worktrees=21 active, 20 finished (unproven: cleo worktree list)',
+      expect(formatDashboardPromptSummary(large.metrics)).toContain(
+        'worktrees=93 active, 93 finished (unproven: cleo worktree list)',
       );
-      // The counter is wired: the default (proven) dashboard does list.
+      // The counters are wired: the default (proven) dashboard lists and proves.
+      proofs.n = 0;
       await collectOrchestrateDashboard(repo, { accessor: accessor([]) });
       expect(listings.n).toBe(1);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 });

@@ -17,8 +17,10 @@ import { execFileSync } from 'node:child_process';
 import {
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -175,7 +177,9 @@ export function configureWorktreePnpmStore(worktreePath: string): string | null 
     const kept = existsSync(npmrcPath)
       ? npmrcLinesWithoutStoreDir(readFileSync(npmrcPath, 'utf-8'))
       : [];
-    writeFileSync(npmrcPath, `${[...kept, `store-dir=${storeDir}`].join('\n')}\n`, 'utf-8');
+    const content = `${[...kept, `store-dir=${storeDir}`].join('\n')}\n`;
+    writeFileSync(npmrcPath, content, 'utf-8');
+    recordProvisionedNpmrc(worktreePath, content);
     return storeDir;
   } catch {
     return null;
@@ -187,43 +191,133 @@ function npmrcLinesWithoutStoreDir(text: string): string[] {
   return text.split('\n').filter((line) => line.trim() !== '' && !/^\s*store-dir\s*=/.test(line));
 }
 
-/**
- * Whether a worktree path is a pnpm provisioning artefact CLEO regenerates on
- * demand, so removing it loses nothing (T14552): the worktree's own store
- * (`.pnpm-store/`, a download cache) and an untracked root `.npmrc` that is
- * exactly what {@link configureWorktreePnpmStore} writes, namely the main
- * checkout's `.npmrc` lines (bar `store-dir`) plus `store-dir=<worktree>/.pnpm-store`.
- * An `.npmrc` carrying any other line, or a `store-dir` naming another
- * store, is not proven and stays strict. A read error answers `false`.
- *
- * @param worktreePath - The worktree root.
- * @param rel - Path relative to the worktree root, `/`-separated.
- * @param projectRoot - The main checkout the `.npmrc` was seeded from.
- * @returns Whether the path is a regenerable provisioning artefact.
- * @task T14552
- */
-export function isPnpmProvisioningArtefact(
-  worktreePath: string,
-  rel: string,
-  projectRoot: string,
-): boolean {
-  if (rel === '.pnpm-store' || rel.startsWith('.pnpm-store/')) return true;
-  if (rel !== '.npmrc') return false;
+/** File in the worktree's own git admin dir holding the `.npmrc` bytes provisioning wrote (T14552). */
+const PROVISIONED_NPMRC_RECORD = 'cleo-provisioned-npmrc';
+
+/** The worktree's own git admin dir (`.git/worktrees/<name>`), or `null` when git fails. */
+function worktreeGitDir(worktreePath: string): string | null {
   try {
-    const lines = readFileSync(join(worktreePath, '.npmrc'), 'utf-8')
-      .split('\n')
-      .filter((line) => line.trim() !== '');
-    const ours = `store-dir=${join(worktreePath, '.pnpm-store')}`;
-    if (lines.filter((line) => line === ours).length !== 1) return false;
-    const rest = lines.filter((line) => line !== ours);
-    const mainPath = join(projectRoot, '.npmrc');
-    const seeded = existsSync(mainPath)
-      ? npmrcLinesWithoutStoreDir(readFileSync(mainPath, 'utf-8'))
-      : [];
-    return rest.length === seeded.length && rest.every((line, i) => line === seeded[i]);
+    return execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-dir'], {
+      cwd: worktreePath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record the exact `.npmrc` bytes provisioning wrote, in the worktree's own
+ * git admin dir (removed with the worktree, never in its tree), so the
+ * disposal proof can later prove the file unchanged byte for byte whatever the
+ * main checkout's configuration has become since. Best-effort: without a
+ * record only the bare legacy file is proven.
+ */
+function recordProvisionedNpmrc(worktreePath: string, content: string): void {
+  const gitDir = worktreeGitDir(worktreePath);
+  if (gitDir === null) return;
+  try {
+    writeFileSync(join(gitDir, PROVISIONED_NPMRC_RECORD), content, 'utf-8');
+  } catch {
+    // Best-effort: an unrecorded `.npmrc` with seeded lines is simply kept.
+  }
+}
+
+/**
+ * Whether the worktree's `.npmrc` is byte-for-byte what provisioning wrote for
+ * THIS worktree (T14552): the content recorded in its git admin dir when one
+ * exists, else (a worktree provisioned before the record) the only content
+ * provisioning could have written with nothing to keep,
+ * `store-dir=<worktree>/.pnpm-store` and a newline. Never derived from the
+ * main checkout's current configuration. A read error answers `false`.
+ */
+function isProvisionedNpmrc(worktreePath: string): boolean {
+  try {
+    const actual = readFileSync(join(worktreePath, '.npmrc'));
+    const gitDir = worktreeGitDir(worktreePath);
+    const recordPath = gitDir === null ? null : join(gitDir, PROVISIONED_NPMRC_RECORD);
+    const expected =
+      recordPath !== null && existsSync(recordPath)
+        ? readFileSync(recordPath)
+        : Buffer.from(`store-dir=${join(worktreePath, '.pnpm-store')}\n`, 'utf-8');
+    return actual.equals(expected);
   } catch {
     return false;
   }
+}
+
+/** Names pnpm writes inside a `v<N>` store directory. */
+const STORE_SECTIONS = new Set(['files', 'index', 'projects', 'tmp']);
+
+/**
+ * Whether `<worktree>/.pnpm-store` is a real directory laid out as a pnpm
+ * content-addressed store and nothing else (T14552): only `v<N>/` version
+ * directories; inside them only `files/`, `index/`, `projects/` and `tmp/`;
+ * `files/<2 hex>/<hex>[-exec]` and `index/<2 hex>/<hex>-<pkg>.json` regular
+ * files; `projects/` entries named by hex; `tmp/` holding no symlink. A
+ * symlink, a file in place of the store, or any unexpected name fails, and so
+ * does a read error.
+ */
+function isPnpmStoreDir(worktreePath: string): boolean {
+  const isDir = (p: string) => lstatSync(p).isDirectory();
+  const isFile = (p: string) => lstatSync(p).isFile();
+  const allDirs = (p: string, name: RegExp, each: (child: string) => boolean): boolean =>
+    readdirSync(p).every((n) => name.test(n) && isDir(join(p, n)) && each(join(p, n)));
+  const allFiles = (p: string, name: RegExp): boolean =>
+    readdirSync(p).every((n) => name.test(n) && isFile(join(p, n)));
+  const noSymlinks = (p: string): boolean =>
+    readdirSync(p).every((n) => {
+      const st = lstatSync(join(p, n));
+      return st.isDirectory() ? noSymlinks(join(p, n)) : st.isFile();
+    });
+  const section = (p: string, n: string): boolean => {
+    if (n === 'files')
+      return allDirs(p, /^[0-9a-f]{2}$/, (d) => allFiles(d, /^[0-9a-f]+(-exec|-index\.json)?$/));
+    if (n === 'index')
+      return allDirs(p, /^[0-9a-f]{2}$/, (d) => allFiles(d, /^[0-9a-f]+-.+\.json$/));
+    if (n === 'projects') return readdirSync(p).every((e) => /^[0-9a-f]+$/.test(e));
+    return noSymlinks(p); // tmp
+  };
+  const root = join(worktreePath, '.pnpm-store');
+  try {
+    // The store itself is a real directory, never a symlink or a file.
+    if (!isDir(root)) return false;
+    return allDirs(root, /^v\d+$/, (v) =>
+      readdirSync(v).every(
+        (n) => STORE_SECTIONS.has(n) && isDir(join(v, n)) && section(join(v, n), n),
+      ),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A probe answering whether a worktree path is pnpm provisioning CLEO
+ * regenerates on demand, so removing it loses nothing (T14552): anything
+ * inside `.pnpm-store/` when that is a real pnpm store directory
+ * ({@link isPnpmStoreDir}, checked once per probe), and a root `.npmrc`
+ * byte-for-byte what provisioning wrote for this worktree. Everything else,
+ * including a regular file named `.pnpm-store` and an edited `.npmrc`, stays
+ * strict.
+ *
+ * @param worktreePath - The worktree root.
+ * @returns A predicate over paths relative to the worktree root, `/`-separated.
+ * @task T14552
+ */
+export function pnpmProvisioningProbe(worktreePath: string): (rel: string) => boolean {
+  let store: boolean | undefined;
+  let npmrc: boolean | undefined;
+  return (rel) => {
+    if (rel === '.pnpm-store' || rel.startsWith('.pnpm-store/')) {
+      store ??= isPnpmStoreDir(worktreePath);
+      return store;
+    }
+    if (rel !== '.npmrc') return false;
+    npmrc ??= isProvisionedNpmrc(worktreePath);
+    return npmrc;
+  };
 }
 
 /**
