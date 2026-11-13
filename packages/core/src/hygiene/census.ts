@@ -40,7 +40,7 @@
  * @task T14440
  */
 
-import { execFileSync, type SpawnOptions, spawn } from 'node:child_process';
+import { execFileSync, type SpawnOptions, spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   closeSync,
@@ -188,8 +188,10 @@ export interface CensusRecord {
   kept: Array<{ path: string; category: WorktreeStatusCategory; keepReason: string }>;
   /** Every worktree found. */
   rows: CensusRow[];
-  /** True when the wall-clock budget ran out: rows and bytes are a lower bound. */
+  /** True when collection stopped early: rows and bytes are a lower bound. */
   partial: boolean;
+  /** Why a bounded report stopped before collecting a complete result. */
+  partialReason?: string;
   /** Minimum idle age of eligible worktrees, in days. */
   ttlDays?: number;
   /** Target retained apparent bytes; safety and TTL may prevent reaching it. */
@@ -318,6 +320,14 @@ export async function registeredProjects(
 export async function runWorktreeCensus(
   opts: WorktreeCensusOptions = {},
 ): Promise<{ record: CensusRecord; recordPath: string } | { skipped: string }> {
+  return withCensusLock(opts, () => collectWorktreeCensus(opts));
+}
+
+/** Validate retention inputs and hold the lock until collection has stopped. */
+async function withCensusLock(
+  opts: WorktreeCensusOptions,
+  collect: () => Promise<CensusRecord>,
+): ReturnType<typeof runWorktreeCensus> {
   for (const value of [opts.ttlDays, opts.maxBytes]) {
     if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
       // @sync-invariant none:input-shape invalid local retention limits cannot select worktrees
@@ -331,21 +341,145 @@ export async function runWorktreeCensus(
   // Every exit path releases the lock, a `process.exit` included.
   process.once('exit', release);
   try {
-    return writeRecord(dir, await census(opts));
+    return writeRecord(dir, await collect());
   } finally {
     process.removeListener('exit', release);
     release();
   }
 }
 
-/** Write the record (tmp then rename) and the `latest.json` copy. */
+/**
+ * Collect a read-only report off-process so synchronous filesystem and git
+ * probes cannot block cancellation, progress, or the wall-clock bound.
+ * The parent alone owns the lock and writes the result, after the child exits.
+ *
+ * @param opts - Report inputs; deadline overrides the default three-minute bound.
+ * @param signal - Cancellation requested by the CLI's SIGINT/SIGTERM handlers.
+ * @param progress - Receives progress messages while the scan is running.
+ * @returns A complete report, a partial report with its stop reason, or a lock refusal.
+ */
+export async function reportWorktreeCensus(
+  opts: Omit<WorktreeCensusOptions, 'apply' | 'branchesOf'>,
+  signal: AbortSignal,
+  progress: (message: string) => void,
+): ReturnType<typeof runWorktreeCensus> {
+  const started = Date.now();
+  const deadline = opts.deadline ?? started + LAZY_CENSUS_BUDGET_MS;
+  if (!Number.isSafeInteger(deadline) || deadline - started > 2_147_483_647) {
+    // @sync-invariant none:input-shape report deadlines must fit the process timer
+    throw new RangeError('Census deadline must be an integer timestamp within 2147483647 ms.');
+  }
+  // Leave time to return partial measurements before the parent's hard kill.
+  const scanDeadline = deadline - Math.min(1_000, Math.ceil(Math.max(0, deadline - started) / 10));
+  const inputs = { ...opts, apply: false, deadline: scanDeadline };
+  const boundReason = `Census time bound (${deadline - started} ms) reached; scan incomplete.`;
+  return withCensusLock(inputs, async () => {
+    // There are no removal calls in report mode, so stopping this owned group
+    // cannot interrupt a worktree mutation or leave a census writer behind.
+    const script = `
+      const { collectWorktreeCensus } = await import(process.argv[1]);
+      const record = await collectWorktreeCensus(JSON.parse(process.argv[2]));
+      process.send(record, () => process.exit(0));
+    `;
+    let reason: string | undefined;
+    const empty = (): CensusRecord => ({
+      schemaVersion: 2,
+      mode: 'report',
+      startedAt: new Date(started).toISOString(),
+      finishedAt: new Date().toISOString(),
+      machineRoot: opts.machineRoot ?? getCleoWorktreesRoot(),
+      applyProjects: [...(opts.applyProjects ?? [])],
+      counts: { active: 0, redundant: 0, keep: 0, unknown: 0 },
+      apparentBytes: 0,
+      reclaimedApparentBytes: 0,
+      dfFreeBefore: null,
+      dfFreeAfter: null,
+      dfDelta: null,
+      kept: [],
+      rows: [],
+      partial: true,
+      partialReason: reason,
+      ttlDays: opts.ttlDays ?? 0,
+      maxBytes: opts.maxBytes ?? 0,
+      projectErrors: [],
+      projects: [],
+      orphanFolders: [],
+      pnpmStore: null,
+    });
+    if (signal.aborted || Date.now() >= deadline) {
+      reason = signal.aborted ? 'Census cancelled.' : 'Census time bound reached; scan incomplete.';
+      return empty();
+    }
+    const child = spawn(
+      process.execPath,
+      ['--input-type=module', '-e', script, import.meta.url, JSON.stringify(inputs)],
+      { detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe', 'ipc'] },
+    );
+    let record: CensusRecord | undefined;
+    let diagnostic = '';
+    const stop = (message: string) => {
+      reason ??= message;
+      if (child.pid === undefined) return;
+      if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], {
+          timeout: 1_000,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+        child.kill('SIGKILL');
+      } else {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch (error) {
+          if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
+        }
+      }
+    };
+    const cancel = () => stop('Census cancelled; scan incomplete.');
+    const onExit = () => stop('Census parent exited.');
+    process.once('exit', onExit);
+    const timer = setTimeout(() => stop(boundReason), Math.max(1, deadline - Date.now()));
+    const ticker = setInterval(
+      () => progress(`Census scanning (${Math.floor((Date.now() - started) / 1_000)}s elapsed).`),
+      1_000,
+    );
+    signal.addEventListener('abort', cancel, { once: true });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      diagnostic = (diagnostic + chunk.toString()).slice(-4_096);
+    });
+    child.once('message', (message: CensusRecord) => {
+      record = message;
+    });
+    try {
+      await new Promise<void>((resolveExit, reject) => {
+        child.once('error', reject);
+        child.once('close', (code) => {
+          if (reason !== undefined || (code === 0 && record !== undefined)) resolveExit();
+          // @sync-invariant none:local-only an incomplete read-only report cannot authorize disposal
+          else reject(new Error(`Census scan exited ${code}: ${diagnostic}`));
+        });
+      });
+      const result = record ?? empty();
+      return reason !== undefined || (result.partial && Date.now() >= scanDeadline)
+        ? { ...result, partial: true, partialReason: reason ?? boundReason }
+        : result;
+    } finally {
+      clearTimeout(timer);
+      clearInterval(ticker);
+      signal.removeEventListener('abort', cancel);
+      process.removeListener('exit', onExit);
+    }
+  });
+}
+
+/** Write every run atomically; only a complete census replaces `latest.json`. */
 function writeRecord(
   dir: string,
   record: CensusRecord,
 ): { record: CensusRecord; recordPath: string } {
   const recordPath = join(dir, `census-${record.startedAt.replace(/[:.]/g, '-')}.json`);
   const body = `${JSON.stringify(record, null, 2)}\n`;
-  for (const target of [recordPath, join(dir, 'latest.json')]) {
+  for (const target of record.partial ? [recordPath] : [recordPath, join(dir, 'latest.json')]) {
     const tmp = `${target}.${process.pid}.tmp`;
     writeFileSync(tmp, body);
     renameSync(tmp, target);
@@ -353,8 +487,13 @@ function writeRecord(
   return { record, recordPath };
 }
 
-/** The census proper: classify, optionally apply, and build the record. */
-async function census(opts: WorktreeCensusOptions): Promise<CensusRecord> {
+/**
+ * Classify, optionally apply, and build the census record under the caller's lock.
+ * @param opts - Census inputs.
+ * @returns The collected record.
+ * @internal Child entry; use runWorktreeCensus or reportWorktreeCensus to own the lock.
+ */
+export async function collectWorktreeCensus(opts: WorktreeCensusOptions): Promise<CensusRecord> {
   // Lazy: the CLI imports this module on read commands to claim the daily run.
   const {
     classifyStatus,
@@ -1144,10 +1283,10 @@ export function claimCensus(now = Date.now(), dir = censusDir(), projectRoot?: s
 }
 
 /**
- * The newest census record, or `null` when none was written.
+ * The last complete census record, or `null` when none was written.
  *
  * @param dir - The census directory (tests).
- * @returns The record from `latest.json`.
+ * @returns The last complete record from `latest.json`.
  * @task T14275
  */
 export function readLatestCensus(dir = censusDir()): CensusRecord | null {
@@ -1159,7 +1298,7 @@ export function readLatestCensus(dir = censusDir()): CensusRecord | null {
 }
 
 /**
- * The briefing's one census line (T14275): how many worktrees the last census
+ * The briefing's one census line (T14275): how many worktrees the last complete census
  * kept and their apparent size, or `null` when it kept none (or never ran).
  *
  * @param dir - The census directory (tests).

@@ -23,9 +23,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { build } from 'esbuild';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleoWorkspaceSubpathAliases } from '../../../../../vitest-workspace-resolver.js';
 
 const TASKS = new Map<string, string>();
 let taskQueryFails = false;
@@ -62,7 +65,9 @@ import {
   censusBriefingLine,
   censusSpawnAllowed,
   claimCensus,
+  readLatestCensus,
   registeredProjects,
+  reportWorktreeCensus,
   runWorktreeCensus,
   startLazyCensus,
 } from '../census.js';
@@ -538,6 +543,7 @@ describe('worktree census (T14275)', () => {
     if ('skipped' in out) throw new Error(out.skipped);
     expect(out.record.partial).toBe(true);
     expect(JSON.parse(readFileSync(out.recordPath, 'utf-8')).partial).toBe(true);
+    expect(existsSync(join(recordDir, 'latest.json'))).toBe(false);
   });
 
   it('sizes with lstat only: a symlink to a large tree counts as the link', () => {
@@ -548,5 +554,225 @@ describe('worktree census (T14275)', () => {
     mkdirSync(holder);
     symlinkSync(big, join(holder, 'node_modules'));
     expect(apparentBytes(holder)).toBeLessThan(10_000);
+  });
+});
+
+/** Real subprocesses exercise signals while the scan's filesystem calls block. */
+describe('bounded census reports (T14538)', () => {
+  let fixtureRoot: string;
+  let bundle: string;
+
+  beforeAll(async () => {
+    fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'census-signal-bundle-')));
+    bundle = join(fixtureRoot, 'census.mjs');
+    const entry = fileURLToPath(new URL('../census.ts', import.meta.url));
+    const resolver = cleoWorkspaceSubpathAliases()[0]!;
+    await build({
+      entryPoints: [entry],
+      outfile: bundle,
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      plugins: [
+        {
+          name: 'workspace-source-fixture',
+          setup(builder) {
+            builder.onResolve({ filter: /^@cleocode\// }, (args) => {
+              const path = resolver.customResolver(args.path);
+              if (path !== null) return { path };
+            });
+            builder.onResolve({ filter: /^[^./]/ }, async (args) => {
+              if (args.pluginData === true) return;
+              if (args.path.startsWith('node:')) return { path: args.path, external: true };
+              const resolved = await builder.resolve(args.path, {
+                kind: args.kind,
+                resolveDir: args.resolveDir,
+                pluginData: true,
+              });
+              return { ...resolved, external: true };
+            });
+            builder.onLoad({ filter: /\.ts$/ }, (args) => ({
+              contents:
+                args.path === entry
+                  ? readFileSync(args.path, 'utf8')
+                  : readFileSync(args.path, 'utf8').replaceAll(
+                      'import.meta.url',
+                      JSON.stringify(pathToFileURL(args.path).href),
+                    ),
+              loader: 'ts',
+            }));
+          },
+        },
+      ],
+    });
+  });
+
+  afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER,
+  ])('rejects a deadline %s that cannot safely bound the child', async (deadline) => {
+    await expect(
+      reportWorktreeCensus({ recordDir, deadline }, new AbortController().signal, () => {}),
+    ).rejects.toThrow('integer timestamp');
+  });
+
+  it('returns the collected rows when the report finishes within its bound', () => {
+    const machineRoot = join(base, 'small-worktrees');
+    const path = join(machineRoot, 'unregistered', 'T999');
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, 'output.js'), 'retained build output');
+    const stdout = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+        const { reportWorktreeCensus } = await import(process.argv[1]);
+        const result = await reportWorktreeCensus(${JSON.stringify({
+          projects: [],
+          machineRoot,
+          recordDir,
+          pnpmStore: null,
+        })}, new AbortController().signal, () => {});
+        process.stdout.write(JSON.stringify(result));
+      `,
+        pathToFileURL(bundle).href,
+      ],
+      { encoding: 'utf8', timeout: 10_000, killSignal: 'SIGKILL' },
+    );
+    const result = JSON.parse(stdout) as Awaited<ReturnType<typeof reportWorktreeCensus>>;
+    if ('skipped' in result) throw new Error(result.skipped);
+    expect(result.record.partial).toBe(false);
+    expect(result.record.rows).toHaveLength(1);
+    expect(result.record.rows[0]?.path).toBe(path);
+    expect(result.record.apparentBytes).toBeGreaterThan(0);
+    expect(existsSync(join(path, 'output.js'))).toBe(true);
+  });
+
+  it.each([
+    'SIGINT',
+    'SIGTERM',
+    'deadline',
+  ] as const)('stops a long synthetic build-output scan on %s, reports partial coverage and releases its lock', async (signal) => {
+    const machineRoot = join(base, 'synthetic-worktrees');
+    const output = join(machineRoot, 'unregistered', 'T999', 'dist');
+    mkdirSync(output, { recursive: true });
+    for (let i = 0; i < 2_000; i++) writeFileSync(join(output, `${i}.js`), 'build output');
+    const baseline = await runWorktreeCensus({
+      projects: [],
+      machineRoot,
+      recordDir,
+      pnpmStore: null,
+    });
+    if ('skipped' in baseline) throw new Error(baseline.skipped);
+    expect(baseline.record.partial).toBe(false);
+    const briefing = censusBriefingLine(recordDir);
+    const marker = join(base, 'scanning');
+    const parentWalk = join(base, 'unexpected-parent-walk');
+    const preload = join(base, 'slow-fs.mjs');
+    // Model a slow filesystem without making the test depend on disk speed.
+    writeFileSync(
+      preload,
+      `
+        import fs from 'node:fs';
+        import { syncBuiltinESMExports } from 'node:module';
+        const original = fs.lstatSync;
+        const originalRead = fs.readdirSync;
+        const wait = new Int32Array(new SharedArrayBuffer(4));
+        fs.lstatSync = function(path, ...args) {
+          if (String(path).startsWith(${JSON.stringify(output)})) {
+            fs.writeFileSync(${JSON.stringify(marker)}, String(process.pid));
+            Atomics.wait(wait, 0, 0, 10);
+          }
+          return original.call(this, path, ...args);
+        };
+        fs.readdirSync = function(path, ...args) {
+          if (String(path) === ${JSON.stringify(machineRoot)} &&
+              String(process.pid) === process.env.CENSUS_TEST_PARENT) {
+            fs.writeFileSync(${JSON.stringify(parentWalk)}, 'walked');
+          }
+          return originalRead.call(this, path, ...args);
+        };
+        syncBuiltinESMExports();
+      `,
+    );
+    const script = `
+        const { reportWorktreeCensus } = await import(process.argv[1]);
+        const controller = new AbortController();
+        process.env.CENSUS_TEST_PARENT = String(process.pid);
+        for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+          process.on(signal, () => { process.exitCode = code; controller.abort(); });
+        }
+        const result = await reportWorktreeCensus({
+          machineRoot: ${JSON.stringify(machineRoot)},
+          recordDir: ${JSON.stringify(recordDir)},
+          projects: [], pnpmStore: null, exemptRegenerable: true,
+          ${signal === 'deadline' ? 'deadline: Date.now() + 4_000,' : ''}
+        }, controller.signal, (message) => process.stderr.write(message+'\\n'));
+        if ('record' in result && result.record.partial && !process.exitCode) process.exitCode = 124;
+        process.stdout.write(JSON.stringify(result)+'\\n');
+      `;
+    const child = spawn(
+      process.execPath,
+      ['--input-type=module', '-e', script, pathToFileURL(bundle).href],
+      {
+        env: {
+          ...process.env,
+          NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(preload).href}`,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    const exited = once(child, 'close');
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    const watchdog = setTimeout(() => child.kill('SIGKILL'), 10_000);
+    try {
+      await vi.waitFor(
+        () => {
+          expect(existsSync(marker), stderr).toBe(true);
+          expect(stderr).toContain('Census scanning');
+        },
+        { timeout: 6_000 },
+      );
+      const scanningPid = Number(readFileSync(marker, 'utf8'));
+      const stoppedAt = Date.now();
+      if (signal !== 'deadline') expect(child.kill(signal)).toBe(true);
+      const [code, killedBy] = await exited;
+      expect(killedBy, stderr).toBeNull();
+      expect(code, stderr).toBe(signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 124);
+      if (signal !== 'deadline') expect(Date.now() - stoppedAt).toBeLessThan(2_000);
+      const result = JSON.parse(stdout) as Awaited<ReturnType<typeof reportWorktreeCensus>>;
+      if ('skipped' in result) throw new Error(result.skipped);
+      expect(result.record.partial).toBe(true);
+      expect(result.record.partialReason).toMatch(
+        signal === 'deadline' ? /time bound/ : /cancelled/,
+      );
+      expect(existsSync(join(recordDir, 'census.lock'))).toBe(false);
+      expect(readLatestCensus(recordDir)).toEqual(baseline.record);
+      expect(censusBriefingLine(recordDir)).toBe(briefing);
+      expect(JSON.parse(readFileSync(result.recordPath, 'utf8'))).toEqual(result.record);
+      if (signal === 'deadline') {
+        expect(result.record.rows.length).toBeGreaterThan(0);
+        expect(result.record.apparentBytes).toBeGreaterThan(0);
+        expect(result.record.apparentBytes).toBeLessThan(baseline.record.apparentBytes);
+      }
+      expect(existsSync(parentWalk)).toBe(false);
+      expect(() => process.kill(scanningPid, 0)).toThrow();
+      expect(existsSync(join(output, '1999.js'))).toBe(true);
+    } finally {
+      clearTimeout(watchdog);
+      child.kill('SIGKILL');
+      await exited;
+    }
   });
 });
