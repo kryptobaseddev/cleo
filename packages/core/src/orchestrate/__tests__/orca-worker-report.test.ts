@@ -1,7 +1,17 @@
 /** T14458: durable report ingress against real stores and an injected Orca process boundary. */
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { OrcaExecutionBackend } from '@cleocode/adapters/orca-execution';
 import type { OrcaLaunch } from '@cleocode/contracts/orca-execution.js';
 import {
@@ -669,10 +679,10 @@ describe('Orca canonical worker report ingress', () => {
   });
 
   it.each([
-    'Orca',
-    'AgentMBX',
-  ])('delivers one logical report when %s wakes first, then both notify again', async (firstWake) => {
-    if (firstWake === 'AgentMBX') {
+    'direct',
+    'CLI',
+  ])('delivers one logical report through %s ingress and repeated notifications', async (ingress) => {
+    if (ingress === 'CLI') {
       const result = await orchestrateOrcaWorker(
         { action: 'ingest-report', recordId: record.recordId, messageId: 'msg_report' },
         env.tempDir,
@@ -694,17 +704,133 @@ describe('Orca canonical worker report ingress', () => {
       state: 'delivered',
       messageId: 'mbx-1',
     });
-    await relayOrcaWorkerReport(
-      record.recordId,
+    const orcaCalls = fixtureRunner.mock.calls.length;
+    const relayed = await orchestrateOrcaWorker(
+      { action: 'relay-report', recordId: record.recordId },
       env.tempDir,
+      new OrcaExecutionBackend(fixtureRunner),
       createAgentMbxClient(fixtureMbxRunner),
     );
+    expect(relayed.success).toBe(true);
+    expect(fixtureRunner).toHaveBeenCalledTimes(orcaCalls);
     await ingest();
     expect(fixtureMbxRunner).toHaveBeenCalledTimes(1);
     expect([...fixtureMail.bodies.values()]).toEqual([REPORT]);
     const args = fixtureMbxRunner.mock.calls[0]?.[0];
     expect(args).toContain(key);
     expect(args?.slice(0, 5)).toEqual(['send', '--as', 'fixture-lead', '--to', 'fixture-lead']);
+    await expectCustody();
+  });
+
+  it('delivers exactly once when two processes relay the same pending report', async () => {
+    fixtureMail.failBefore = true;
+    const pending = await ingest();
+    expect(pending.reportDelivery?.state).toBe('pending');
+    const raceDir = join(env.tempDir, 'report-race');
+    const mailboxDir = join(raceDir, 'mailbox');
+    const requestsDir = join(raceDir, 'requests');
+    mkdirSync(mailboxDir, { recursive: true });
+    mkdirSync(requestsDir);
+    // Resolve source like Vitest so fresh worktrees exercise the race without a build.
+    const child = `
+      import { existsSync, linkSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+      import { registerHooks } from 'node:module';
+      import { join } from 'node:path';
+      import { setTimeout as delay } from 'node:timers/promises';
+      import { pathToFileURL } from 'node:url';
+      import { transformSync } from ${JSON.stringify(import.meta.resolve('esbuild'))};
+      const { cleoWorkspaceSubpathAliases } = await import(${JSON.stringify(new URL('../../../../../vitest-workspace-resolver.ts', import.meta.url).href)});
+      const [alias] = cleoWorkspaceSubpathAliases();
+      registerHooks({
+        resolve(specifier, context, nextResolve) {
+          const source = alias.customResolver(specifier);
+          if (source) return nextResolve(pathToFileURL(source).href, context);
+          if (specifier.startsWith('.') && specifier.endsWith('.js')) {
+            const ts = new URL(specifier.slice(0, -3) + '.ts', context.parentURL);
+            if (existsSync(ts) && !existsSync(new URL(specifier, context.parentURL))) return nextResolve(ts.href, context);
+          }
+          return nextResolve(specifier, context);
+        },
+        load(url, context, nextLoad) {
+          if (url.endsWith('.ts')) return { format: 'module', shortCircuit: true,
+            source: transformSync(readFileSync(new URL(url), 'utf8'), { loader: 'ts', format: 'esm' }).code };
+          return nextLoad(url, context);
+        },
+      });
+      const { relayOrcaWorkerReport } = await import(${JSON.stringify(new URL('../orca-execution.ts', import.meta.url).href)});
+      const { createAgentMbxClient } = await import(${JSON.stringify(new URL('../agentmbx.ts', import.meta.url).href)});
+      const runner = async (args) => {
+        if (args[0] !== 'send') throw new Error('Unexpected mailbox command: ' + args[0]);
+        const key = args[args.indexOf('--idempotency-key') + 1];
+        const body = args[args.indexOf('-m') + 1];
+        if (!key || !body) throw new Error('Missing report key or body');
+        writeFileSync(join(process.env.REPORT_REQUESTS, String(process.pid)), JSON.stringify(args));
+        const deadline = Date.now() + 15000;
+        while (readdirSync(process.env.REPORT_REQUESTS).length < 2) {
+          if (Date.now() > deadline) throw new Error('Both relays must reach send before either returns');
+          await delay(10);
+        }
+        const file = join(process.env.REPORT_MAILBOX, encodeURIComponent(key));
+        const candidate = file + '.' + process.pid;
+        writeFileSync(candidate, JSON.stringify({ id: 'mbx-' + process.pid, body }));
+        let duplicate = false;
+        try {
+          linkSync(candidate, file);
+        } catch (error) {
+          if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error;
+          duplicate = true;
+        } finally {
+          unlinkSync(candidate);
+        }
+        const message = JSON.parse(readFileSync(file, 'utf8'));
+        if (message.body !== body) throw new Error('Replayed key changed report bytes');
+        return { missing: false, exitCode: 0, stderr: '', stdout: JSON.stringify({ id: message.id, duplicate }) };
+      };
+      const record = await relayOrcaWorkerReport(process.env.REPORT_RECORD, process.env.REPORT_PROJECT, createAgentMbxClient(runner));
+      process.stdout.write(JSON.stringify(record.reportDelivery));
+      process.exit(0);
+    `;
+    const results = await Promise.allSettled(
+      [0, 1].map(() =>
+        promisify(execFile)(process.execPath, ['--input-type=module', '--eval', child], {
+          cwd: env.tempDir,
+          encoding: 'utf8',
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            REPORT_RECORD: record.recordId,
+            REPORT_PROJECT: env.tempDir,
+            REPORT_REQUESTS: requestsDir,
+            REPORT_MAILBOX: mailboxDir,
+          },
+        }),
+      ),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') throw result.reason;
+    }
+    const [stored] = await listWorkerRecords(env.tempDir);
+    expect(stored?.reportDelivery).toMatchObject({
+      state: 'delivered',
+      key: pending.reportDelivery?.key,
+      lastError: null,
+    });
+    for (const result of results) {
+      if (result.status === 'fulfilled')
+        expect(JSON.parse(result.value.stdout)).toEqual(stored?.reportDelivery);
+    }
+    const requests = readdirSync(requestsDir);
+    expect(requests).toHaveLength(2);
+    for (const request of requests)
+      expect(JSON.parse(readFileSync(join(requestsDir, request), 'utf8'))).toEqual(
+        expect.arrayContaining([pending.reportDelivery?.key, REPORT]),
+      );
+    const mail = readdirSync(mailboxDir);
+    expect(mail).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(mailboxDir, mail[0] ?? ''), 'utf8'))).toEqual({
+      id: stored?.reportDelivery?.messageId,
+      body: REPORT,
+    });
     await expectCustody();
   });
 

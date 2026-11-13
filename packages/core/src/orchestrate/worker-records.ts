@@ -767,6 +767,7 @@ export function isCurrentOrcaWorker(record: WorkerRecord): boolean {
  * @param cwd - Owning project root.
  * @returns The current worker; delivery acknowledgements never regress.
  * @remarks A lost acknowledgement is replayed through the same provider idempotency key.
+ * An immediate transaction serializes acknowledgements before reading their shared outbox.
  * @example
  * ```ts
  * await recordWorkerReportDelivery(recordId, acknowledged, projectRoot);
@@ -779,42 +780,45 @@ export async function recordWorkerReportDelivery(
 ): Promise<WorkerRecord> {
   const next = orcaReportDeliverySchema.parse(delivery);
   const db = await getDb(cwd);
-  return db.transaction((tx) => {
-    const row = tx
-      .select()
-      .from(tasksAgentInstances)
-      .where(eq(tasksAgentInstances.id, recordId))
-      .get();
-    const meta = row ? parseWorkerMetadata(row) : null;
-    if (
-      !row ||
-      !meta?.report ||
-      !meta.reportDelivery ||
-      meta.reportDelivery.key !== next.key ||
-      meta.reportDelivery.mailbox !== next.mailbox ||
-      (next.state === 'delivered' && (!next.messageId || !next.deliveredAt))
-    ) {
-      // @sync-invariant none:local-only only the stored report's exact outbox entry may be acknowledged
-      throw new Error('Worker report delivery does not match its durable outbox.');
-    }
-    if (meta.reportDelivery.state === 'delivered') return toWorkerRecord(row, meta);
-    const metadata = { ...meta, reportDelivery: next };
-    const updated = tx
-      .update(tasksAgentInstances)
-      .set({ metadataJson: JSON.stringify(metadata) })
-      .where(
-        and(
-          eq(tasksAgentInstances.id, recordId),
-          eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
-        ),
-      )
-      .run();
-    if (Number(updated.changes) !== 1) {
-      // @sync-invariant none:local-only concurrent transport acknowledgements cannot replace newer settlement
-      throw new Error('Worker report delivery changed; retry its stored logical key.');
-    }
-    return toWorkerRecord(row, metadata);
-  });
+  return db.transaction(
+    (tx) => {
+      const row = tx
+        .select()
+        .from(tasksAgentInstances)
+        .where(eq(tasksAgentInstances.id, recordId))
+        .get();
+      const meta = row ? parseWorkerMetadata(row) : null;
+      if (
+        !row ||
+        !meta?.report ||
+        !meta.reportDelivery ||
+        meta.reportDelivery.key !== next.key ||
+        meta.reportDelivery.mailbox !== next.mailbox ||
+        (next.state === 'delivered' && (!next.messageId || !next.deliveredAt))
+      ) {
+        // @sync-invariant none:local-only only the stored report's exact outbox entry may be acknowledged
+        throw new Error('Worker report delivery does not match its durable outbox.');
+      }
+      if (meta.reportDelivery.state === 'delivered') return toWorkerRecord(row, meta);
+      const metadata = { ...meta, reportDelivery: next };
+      const updated = tx
+        .update(tasksAgentInstances)
+        .set({ metadataJson: JSON.stringify(metadata) })
+        .where(
+          and(
+            eq(tasksAgentInstances.id, recordId),
+            eq(tasksAgentInstances.metadataJson, row.metadataJson ?? '{}'),
+          ),
+        )
+        .run();
+      if (Number(updated.changes) !== 1) {
+        // @sync-invariant none:local-only concurrent transport acknowledgements cannot replace newer settlement
+        throw new Error('Worker report delivery changed; retry its stored logical key.');
+      }
+      return toWorkerRecord(row, metadata);
+    },
+    { behavior: 'immediate' },
+  );
 }
 
 /**
