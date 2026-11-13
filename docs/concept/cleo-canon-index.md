@@ -109,6 +109,7 @@ revision, while current code and CLI help remain the implementation authority.
 - [Conduit protocol](../spec/cleo-conduit-protocol.md) — the planned agent relay contract and its implementation-status caveats.
 - [Creating custom agents](../guide/creating-custom-agents.md) — CANT definitions and agent-platform setup.
 - [Lead and worker roles](../guide/lead-vs-worker-roles.md) — role-specific injection, tool access and enforcement.
+- [Orca report relay evidence](../note/orca-report-relay-live-evidence.md) — recorded throwaway AgentMBX unread-delivery and idempotency checks, with concurrency regression results and coverage limits.
 - [Subagent injection](../guide/subagent-injection-pipeline.md) — the path from agent definition to spawned process.
 - [Token replacement](../spec/token-replacement-contract.md) — prompt-token resolution and spawn-time validation.
 
