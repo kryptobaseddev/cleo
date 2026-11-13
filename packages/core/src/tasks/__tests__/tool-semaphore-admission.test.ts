@@ -200,9 +200,7 @@ describe('evidence runs wait out memory pressure (T13127)', () => {
       notice: (l) => lines.push(l),
     });
     await release();
-    expect(lines[0]).toMatch(
-      /^waiting: memory pressure 40 \(refused above 25, resumes at 15 or below\): /,
-    );
+    expect(lines[0]).toMatch(/^waiting: memory pressure 40 is above 25: /);
     expect(lines[0]).toContain("The 'test' run starts when pressure falls");
     expect(lines.at(-1)).toMatch(
       /^memory pressure fell after waiting \d+s: admitting the 'test' run\.$/,
@@ -214,7 +212,7 @@ describe('evidence runs wait out memory pressure (T13127)', () => {
     await expect(
       acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 80, notice: () => {} }),
     ).rejects.toThrow(
-      /admission of a 'test' run: memory pressure 50 \(refused above 25, resumes at 15 or below\): memory PSI some avg10 50\.0%/,
+      /admission of a 'test' run: memory pressure 50 is above 25: memory PSI some avg10 50\.0%/,
     );
     // Observe durable removal separately from the bounded refusal.
     await vi.waitFor(() => expect(readLedger()).toEqual([]));

@@ -45,6 +45,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 import type { ExternalPressureDetails, MemoryPressureReading } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
+import { GIB_PER_WORKER } from '../tasks/heavy-tool-env.js';
 import type { ResourceSample } from './backend.js';
 import { memoryPressureCause } from './top-memory.js';
 
@@ -166,47 +167,147 @@ export function evaluateMemoryGate(sample: ResourceSample, latched: boolean): Me
   if (!sample.pressureAvailable || !mem) return { refuse: false, reading: null };
   const some = finite(mem.some.avg10);
   const full = finite(mem.full?.avg10);
-  const refuse = latched
-    ? some > MEMORY_GATE_RESUME_AT_OR_BELOW || full > MEMORY_GATE_FULL_RESUME_AT_OR_BELOW
-    : some > MEMORY_GATE_REFUSE_ABOVE || full > MEMORY_GATE_FULL_REFUSE_ABOVE;
+  const someThreshold = latched ? MEMORY_GATE_RESUME_AT_OR_BELOW : MEMORY_GATE_REFUSE_ABOVE;
+  const fullThreshold = latched
+    ? MEMORY_GATE_FULL_RESUME_AT_OR_BELOW
+    : MEMORY_GATE_FULL_REFUSE_ABOVE;
+  const refuse = some > someThreshold || full > fullThreshold;
+  const thresholdKind = latched ? ' (resume threshold)' : '';
+  const refusalReason = !refuse
+    ? null
+    : full > fullThreshold
+      ? `memory full avg10 ${full} is above ${fullThreshold}${thresholdKind}`
+      : `memory pressure ${some} is above ${someThreshold}${thresholdKind}`;
   return {
     refuse,
-    reading: {
-      score: round1(some),
-      fullStall: round1(full),
-      refuseAbove: MEMORY_GATE_REFUSE_ABOVE,
-      resumeAtOrBelow: MEMORY_GATE_RESUME_AT_OR_BELOW,
-      latched,
-      memAvailableBytes: sample.memAvailableBytes,
-      summary: describeMemoryPressure(sample),
-    },
+    reading: memoryPressureReading(sample, latched, refusalReason),
   };
 }
 
-/** Swap this full (used over allocated) counts as critical (T14206). */
+function memoryPressureReading(
+  sample: ResourceSample,
+  latched: boolean,
+  refusalReason: string | null,
+): MemoryPressureReading {
+  const mem = sample.globalPressure ?? sample.slicePressure;
+  return {
+    score: round1(finite(mem?.some.avg10)),
+    fullStall: round1(finite(mem?.full?.avg10)),
+    refuseAbove: MEMORY_GATE_REFUSE_ABOVE,
+    resumeAtOrBelow: MEMORY_GATE_RESUME_AT_OR_BELOW,
+    latched,
+    memAvailableBytes: sample.memAvailableBytes,
+    summary: describeMemoryPressure(sample),
+    ...(refusalReason === null ? {} : { refusalReason }),
+  };
+}
+
+/** Swap this full is critical unless normal kernel pressure and ample headroom prove otherwise. */
 export const CRITICAL_SWAP_FRACTION = 0.9;
+
+/** `kern.memorystatus_vm_pressure_level` for normal. */
+const DARWIN_PRESSURE_NORMAL = 1;
 
 /** `kern.memorystatus_vm_pressure_level` for critical (T14206). */
 const DARWIN_PRESSURE_CRITICAL = 4;
 
 /**
+ * The headroom below which memory scores at any kernel level: a quarter of
+ * RAM, at least one heavy worker's footprint ({@link GIB_PER_WORKER} GiB), and
+ * never more than half of RAM. Also the ample-headroom threshold for the
+ * normal-kernel swap exemption (T14530).
+ *
+ * @param totalBytes - physical RAM in bytes.
+ * @returns The shared Darwin headroom floor in bytes.
+ * @remarks The RAM fraction protects large machines where a fixed 6 GiB was too small (T13132).
+ *
+ * @example
+ * ```ts
+ * darwinHeadroomFloorBytes(48 * 1024 ** 3); // 12 GiB
+ * darwinHeadroomFloorBytes(16 * 1024 ** 3); // 6 GiB
+ * darwinHeadroomFloorBytes(8 * 1024 ** 3);  // 4 GiB
+ * ```
+ */
+export function darwinHeadroomFloorBytes(totalBytes: number): number {
+  return Math.min(totalBytes / 2, Math.max(totalBytes / 4, GIB_PER_WORKER * 1024 ** 3));
+}
+
+/**
  * Whether memory is critical, not merely short (T14206): tasks are stalled
  * on memory (`full avg10` above {@link MEMORY_GATE_FULL_REFUSE_ABOVE}), macOS
  * reports its critical pressure level, or swap is at least
- * {@link CRITICAL_SWAP_FRACTION} full. While critical, nothing starts through
- * the latch, not even a small run.
+ * {@link CRITICAL_SWAP_FRACTION} full without proven normal-kernel headroom.
+ * Only a normal kernel with headroom at least {@link darwinHeadroomFloorBytes}
+ * exempts historical swap; unknown kernel or headroom readings retain the veto.
+ * While critical, nothing starts through the latch, not even a small run.
  *
  * @param sample - a backend sample.
  * @returns `true` when even a small run must wait.
  */
 export function isCriticalMemory(sample: ResourceSample): boolean {
+  return criticalMemoryReason(sample) !== null;
+}
+
+/**
+ * The critical-memory reading, independent of the heavy gate's latch thresholds
+ * and PSI availability. Known critical Darwin signals still veto when PSI is absent.
+ *
+ * @param sample - A backend sample.
+ * @returns The measured refusal, or `null` when not critical.
+ * @remarks A missing PSI reading cannot erase a known critical kernel or swap measurement.
+ *
+ * @example
+ * ```ts
+ * import { ResourceMonitor } from './monitor.js';
+ * criticalMemoryReading(await new ResourceMonitor().sample());
+ * ```
+ */
+export function criticalMemoryReading(sample: ResourceSample): MemoryPressureReading | null {
+  const reason = criticalMemoryReason(sample);
+  return reason === null ? null : memoryPressureReading(sample, false, reason);
+}
+
+/** Reclaimable memory takes precedence over the available-memory fallback. */
+function criticalMemoryReason(sample: ResourceSample): string | null {
   const mem = sample.globalPressure ?? sample.slicePressure;
-  if (finite(mem?.full?.avg10) > MEMORY_GATE_FULL_REFUSE_ABOVE) return true;
+  const full = finite(mem?.full?.avg10);
+  if (full > MEMORY_GATE_FULL_REFUSE_ABOVE) {
+    return `memory full avg10 ${full} is above ${MEMORY_GATE_FULL_REFUSE_ABOVE}`;
+  }
   const d = sample.darwinMemory;
-  if (d?.pressureLevel === DARWIN_PRESSURE_CRITICAL) return true;
-  const used = d?.swapUsedBytes ?? null;
-  const total = d?.swapTotalBytes ?? null;
-  return used !== null && total !== null && total > 0 && used / total >= CRITICAL_SWAP_FRACTION;
+  if (!d) return null;
+  if (d.pressureLevel === DARWIN_PRESSURE_CRITICAL) {
+    return `kernel memory pressure level ${d.pressureLevel} (critical), threshold ${DARWIN_PRESSURE_CRITICAL}`;
+  }
+  const used = d.swapUsedBytes;
+  const total = d.swapTotalBytes;
+  if (used === null || total === null || total <= 0 || !(used / total >= CRITICAL_SWAP_FRACTION))
+    return null;
+  const floor = darwinHeadroomFloorBytes(d.totalBytes);
+  const headroom = d.reclaimableBytes ?? sample.memAvailableBytes;
+  const floorKnown = Number.isFinite(floor) && floor > 0;
+  const headroomKnown = headroom !== null && Number.isFinite(headroom);
+  if (
+    d.pressureLevel === DARWIN_PRESSURE_NORMAL &&
+    floorKnown &&
+    headroomKnown &&
+    headroom >= floor
+  )
+    return null;
+  const level =
+    d.pressureLevel === null
+      ? 'UNKNOWN'
+      : (LEVEL_NAMES[d.pressureLevel] ?? String(d.pressureLevel));
+  const measurement = headroomKnown ? `${bytes(headroom)} (${headroom} bytes)` : 'UNKNOWN';
+  const threshold = floorKnown
+    ? `${bytes(floor)} (${floor} bytes)`
+    : 'UNKNOWN (physical RAM unavailable)';
+  return (
+    `swap use ${bytes(used)} of ${bytes(total)} (${((100 * used) / total).toFixed(1)}%) ` +
+    `is at or above ${100 * CRITICAL_SWAP_FRACTION}% with kernel level ${level}; ` +
+    `${d.reclaimableBytes == null ? 'available' : 'reclaimable'} memory ${measurement}; ` +
+    `normal-kernel exemption requires ample headroom threshold ${threshold}`
+  );
 }
 
 /** The machine-wide latch record. */
@@ -335,9 +436,11 @@ export function memoryGateWaitingLine(
 ): string {
   const deadline =
     remainingMs === undefined ? '' : `, gives up in ${duration(Math.max(0, remainingMs))}`;
+  const criterion =
+    reading.refusalReason ??
+    `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ${reading.resumeAtOrBelow} or below)`;
   return (
-    `waiting: memory pressure ${reading.score} (refused above ${reading.refuseAbove}, ` +
-    `resumes at ${reading.resumeAtOrBelow} or below): ${memoryPressureCause(reading)}. ` +
+    `waiting: ${criterion}: ${memoryPressureCause(reading)}. ` +
     `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}${deadline}.`
   );
 }
@@ -348,12 +451,17 @@ export function memoryGateWaitingLine(
  * that turns admission off.
  *
  * @param details - the verdict's details.
- * @returns One line, e.g. `memory pressure 38 stayed above 25 for 2m 00s while
+ * @returns One line, e.g. `memory pressure 38 is above 25; waited 2m 00s while
  *   CLEO held nothing: the memory is held outside CLEO by codex pid 4242 13.0
  *   GiB, Google Chrome pid 77 9.1 GiB. Nothing was started. ...`
  */
 export function externalPressureFix(details: ExternalPressureDetails): string {
   const r = details.memoryPressure;
+  const criterion =
+    r.refusalReason ??
+    `memory pressure ${r.score}, full avg10 ${r.fullStall} (refusal criterion not recorded)`;
+  const wait =
+    details.waitedMs > 0 ? `; waited ${duration(details.waitedMs)} while CLEO held nothing` : '';
   const named =
     details.topProcesses.length === 0
       ? 'processes the memory probe could not list (check with top -o mem)'
@@ -365,10 +473,9 @@ export function externalPressureFix(details: ExternalPressureDetails): string {
           )
           .join(', ');
   return (
-    `memory pressure ${r.score} stayed above ${r.refuseAbove} for ${duration(details.waitedMs)} ` +
-    `while CLEO held nothing: the memory is held outside CLEO by ${named}. Nothing was started, ` +
+    `${criterion}${wait}: the memory is held outside CLEO by ${named}. Nothing was started, ` +
     'and waiting longer will not free it. Report these processes to whoever runs them, or quit ' +
-    `them; heavy work starts again once pressure falls to ${r.resumeAtOrBelow} or below. ` +
+    'them; retry once the refusing criterion clears. ' +
     'Prefer CI as evidence meanwhile (ci:<pr>).'
   );
 }

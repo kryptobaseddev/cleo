@@ -140,6 +140,11 @@ export interface MemoryPressureReading {
   /** The platform signals in one line (kernel level, swap, compressor, PSI). */
   readonly summary: string;
   /**
+   * The measurement and threshold that refused admission; absent in older readings.
+   * @defaultValue undefined
+   */
+  readonly refusalReason?: string;
+  /**
    * The host's largest memory users when the gate refused (T13914), so a wait
    * names what took the memory, CLEO or not. Absent when not probed.
    */
