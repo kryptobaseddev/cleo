@@ -137,7 +137,7 @@ import {
   isScannableTextMime,
   linksJsonOrNull,
 } from './derive-links.js';
-import type { DocsPublicationRecord } from './docs-ops.js';
+import type { DocsDriftItem, DocsPublicationRecord } from './docs-ops.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
 import { assertCheckoutOfProject } from './modernize/guard.js';
 import { deleteDocsPublication, readDocsPublications } from './publications-store.js';
@@ -783,86 +783,119 @@ async function scanPublicationLedger(
     `${r.ownerId}\u0000${r.blobName}\u0000${r.publishedPath}`;
   const recordByKey = new Map(ledger.map((r) => [key(r), r]));
   const attachmentShas = new Set(rows.map((r) => r.sha256));
-  const liveLedgerShas = new Map<string, number>();
-  for (const item of status.items) {
-    if (item.drift === 'deleted') continue;
-    const record = recordByKey.get(key(item));
-    if (record)
-      liveLedgerShas.set(record.lastBlobSha, (liveLedgerShas.get(record.lastBlobSha) ?? 0) + 1);
-  }
-  // T14504: a path some other row publishes in sync is that row's mirror, so
-  // a drifted row for the same path (a renamed blob, an older publish) is stale.
-  const inSyncPaths = new Set(
-    status.items.filter((i) => i.drift === 'in-sync').map((i) => i.publishedPath),
-  );
-  const findings: LedgerFinding[] = [];
+  const recordFor = (item: DocsDriftItem): DocsPublicationRecord | undefined =>
+    recordByKey.get(key(item));
+  // T14504: a drifted row is superseded only when a NEWER row for the same
+  // owner and path is itself in sync, and its own store head never moved past
+  // what it last published (a moved head is a pending publication, not a stale row).
+  const isSuperseded = (item: DocsDriftItem, record: DocsPublicationRecord): boolean =>
+    item.blobSha === record.lastBlobSha &&
+    status.items.some((other) => {
+      if (other.drift !== 'in-sync' || other.publishedPath !== record.publishedPath) return false;
+      const newer = recordFor(other);
+      return (
+        newer !== undefined &&
+        newer !== record &&
+        newer.ownerId === record.ownerId &&
+        newer.publishedAt >= record.publishedAt
+      );
+    });
+  type Draft = Omit<LedgerFinding, 'action' | 'prunable' | 'detail'> & {
+    readonly shas: ReadonlySet<string>;
+    /** A prune candidate; prunable only if every blob it names stays held by a survivor. */
+    readonly candidate: boolean;
+    /** Plan for a candidate whose blobs a survivor holds / for anything else. */
+    readonly plan: (held: boolean) => Pick<LedgerFinding, 'action' | 'detail'>;
+  };
+  const drafts: Draft[] = [];
   for (const item of status.items) {
     if (item.drift !== 'deleted' && item.drift !== 'modified') continue;
-    const record = recordByKey.get(key(item));
+    const record = recordFor(item);
     if (!record) continue;
     const absPath = resolvePublishedMirror(projectRoot, checkoutRoot, record.publishedPath);
     const rel = relative(checkoutRoot, absPath);
     const outsideRoot = rel.startsWith('..') || isAbsolute(rel);
-    if (item.drift === 'modified' && inSyncPaths.has(record.publishedPath)) {
-      // Its own lastBlobSha counts once in liveLedgerShas; it must not protect itself.
-      const heldElsewhere = (sha: string): boolean =>
-        attachmentShas.has(sha) ||
-        (liveLedgerShas.get(sha) ?? 0) > (sha === record.lastBlobSha ? 1 : 0);
-      const prunable = heldElsewhere(record.lastBlobSha);
-      findings.push({
-        record,
-        drift: 'modified',
-        outsideRoot,
-        action: prunable ? 'prune-publication' : 'republish-or-prune',
-        prunable,
-        detail: prunable
-          ? `mirror ${record.publishedPath} is published in sync by another ledger row; this row is superseded → delete the ledger row`
-          : `mirror ${record.publishedPath} is published in sync by another ledger row, but this row is the only reference to blob ${record.lastBlobSha.slice(0, 12)}… — archive the doc before pruning`,
-      });
-      continue;
-    }
-    if (item.drift === 'modified') {
-      const storeMoved = item.fileSha === record.lastBlobSha;
-      findings.push({
-        record,
-        drift: 'modified',
-        outsideRoot,
-        action: storeMoved ? 'republish' : 'reconcile-edit',
-        prunable: false,
-        detail: storeMoved
-          ? `mirror ${record.publishedPath} holds the last published blob; the store head moved on — run \`cleo docs publish\``
-          : `mirror ${record.publishedPath} was edited outside the store — ingest it with \`cleo docs update\` or republish to overwrite`,
-      });
-      continue;
-    }
     const shas = new Set([record.lastBlobSha, item.blobSha]);
-    const protectedElsewhere = [...shas].every(
-      (sha) => attachmentShas.has(sha) || (liveLedgerShas.get(sha) ?? 0) > 0,
-    );
-    const proof = provePublicationGone(checkoutRoot, record.publishedPath, absPath);
     const blob = record.lastBlobSha.slice(0, 12);
-    let action: LedgerFinding['action'];
-    let detail: string;
-    if (proof.gone === false) {
-      action = 'report-only';
-      detail = `mirror ${record.publishedPath} is missing here but ${proof.reason} — not pruned (the ledger syncs across devices)`;
-    } else if (!protectedElsewhere) {
-      action = 'republish-or-prune';
-      detail = `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`;
-    } else {
-      action = 'prune-publication';
-      detail = `mirror ${record.publishedPath} is gone (${proof.reason}); blob ${blob}… stays referenced elsewhere → delete the ledger row`;
+    if (item.drift === 'modified') {
+      if (isSuperseded(item, record)) {
+        drafts.push({
+          record,
+          drift: 'modified',
+          outsideRoot,
+          shas,
+          candidate: true,
+          plan: (held) =>
+            held
+              ? {
+                  action: 'prune-publication',
+                  detail: `mirror ${record.publishedPath} is published in sync by a newer ledger row of the same owner; this row is superseded → delete the ledger row`,
+                }
+              : {
+                  action: 'republish-or-prune',
+                  detail: `mirror ${record.publishedPath} is published in sync by a newer ledger row, but this row is the last reference to blob ${blob}… — archive the doc before pruning`,
+                },
+        });
+        continue;
+      }
+      const storeMoved = item.fileSha === record.lastBlobSha;
+      drafts.push({
+        record,
+        drift: 'modified',
+        outsideRoot,
+        shas,
+        candidate: false,
+        plan: () =>
+          storeMoved
+            ? {
+                action: 'republish',
+                detail: `mirror ${record.publishedPath} holds the last published blob; the store head moved on — run \`cleo docs publish\``,
+              }
+            : {
+                action: 'reconcile-edit',
+                detail: `mirror ${record.publishedPath} was edited outside the store — ingest it with \`cleo docs update\` or republish to overwrite`,
+              },
+      });
+      continue;
     }
-    findings.push({
+    const proof = provePublicationGone(checkoutRoot, record.publishedPath, absPath);
+    drafts.push({
       record,
       drift: 'deleted',
       outsideRoot,
-      action,
-      prunable: action === 'prune-publication',
-      detail,
+      shas,
+      candidate: proof.gone,
+      plan: (held) =>
+        proof.gone === false
+          ? {
+              action: 'report-only',
+              detail: `mirror ${record.publishedPath} is missing here but ${proof.reason} — not pruned (the ledger syncs across devices)`,
+            }
+          : held
+            ? {
+                action: 'prune-publication',
+                detail: `mirror ${record.publishedPath} is gone (${proof.reason}); blob ${blob}… stays referenced elsewhere → delete the ledger row`,
+              }
+            : {
+                action: 'republish-or-prune',
+                detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
+              },
     });
   }
-  return findings;
+  // A blob is protected only by an attachments row or by a ledger row that
+  // survives this run: two prune candidates never protect each other (T14504),
+  // so the last row naming a blob is never deleted and the blob never exposed to GC.
+  const candidateRecords = new Set(drafts.filter((d) => d.candidate).map((d) => d.record));
+  const survivorShas = new Set(attachmentShas);
+  for (const item of status.items) {
+    if (item.drift === 'deleted') continue;
+    const record = recordFor(item);
+    if (record && !candidateRecords.has(record)) survivorShas.add(record.lastBlobSha);
+  }
+  return drafts.map(({ shas, candidate, plan, ...finding }) => {
+    const held = candidate && [...shas].every((sha) => survivorShas.has(sha));
+    return { ...finding, ...plan(held), prunable: held };
+  });
 }
 
 /**

@@ -83,9 +83,10 @@ paths) or stale (T14117) — and with `--apply` repairs them after creating a
 backup automatically. The ledger syncs across devices, so a row is pruned
 only when its mirror is provably gone (absent from HEAD and the default
 branch, or in a removed worktree of this device) and its blob stays
-referenced elsewhere, or when another row already publishes the same path
-in sync and its blob stays referenced (a superseded row, T14504); absolute paths and other devices' paths
-are only reported. Each pruned row is first appended to
+referenced elsewhere, or when a newer row of the same owner publishes the
+same path in sync and the row's own store head has not moved (a superseded
+row, T14504). A blob held only by rows pruned in the same run never protects
+them. Absolute paths and other devices' paths are only reported. Each pruned row is first appended to
 `.cleo/audit/docs-publications-prune.jsonl`, and stale mirrors are only
 reported (republish, or ingest the edit with `cleo docs update`). Use it for store
 hygiene checks; it never edits doc content. `--apply` runs every repair class
