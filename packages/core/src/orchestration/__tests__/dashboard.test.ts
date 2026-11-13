@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { lstatSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,39 +14,26 @@ import {
 
 // T14552: count disposal proofs, full listings, git spawns and sync fs calls
 // (the profile's cost centres: lstat, git spawnSync, readdir); statuses come from a stub.
-const { proofs, listings, gitCalls, fsCalls } = vi.hoisted(() => ({
+const { proofs, listings } = vi.hoisted(() => ({
   proofs: { n: 0 },
   listings: { n: 0 },
-  gitCalls: { n: 0 },
-  fsCalls: { n: 0 },
 }));
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
-  const execFileSync = ((file: string, ...rest: unknown[]) => {
-    if (file === 'git') gitCalls.n += 1;
-    return (actual.execFileSync as (...a: unknown[]) => unknown)(file, ...rest);
-  }) as typeof actual.execFileSync;
-  const spawnSync = ((file: string, ...rest: unknown[]) => {
-    if (file === 'git') gitCalls.n += 1;
-    return (actual.spawnSync as (...a: unknown[]) => unknown)(file, ...rest);
-  }) as typeof actual.spawnSync;
-  return { ...actual, execFileSync, spawnSync };
+  return {
+    ...actual,
+    execFileSync: vi.fn(actual.execFileSync),
+    spawnSync: vi.fn(actual.spawnSync),
+  };
 });
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
-  const counted = <F extends (...a: never[]) => unknown>(fn: F): F =>
-    ((...a: Parameters<F>) => {
-      fsCalls.n += 1;
-      return fn(...a);
-    }) as F;
-  const wrapped = {
-    lstatSync: counted(actual.lstatSync),
-    statSync: counted(actual.statSync),
-    readdirSync: counted(actual.readdirSync),
-    existsSync: counted(actual.existsSync),
-    readFileSync: counted(actual.readFileSync),
+  const spies = {
+    lstatSync: vi.fn(actual.lstatSync),
+    statSync: vi.fn(actual.statSync),
+    readdirSync: vi.fn(actual.readdirSync),
   };
-  return { ...actual, ...wrapped, default: { ...actual, ...wrapped } };
+  return { ...actual, ...spies, default: { ...actual, ...spies } };
 });
 vi.mock('@cleocode/worktree', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@cleocode/worktree')>();
@@ -73,6 +60,29 @@ vi.mock('../../worktree/list.js', async (importOriginal) => {
     }),
   };
 });
+
+/** Git spawns recorded by the delegating `node:child_process` spies (T14552). */
+function gitCallCount(): number {
+  return [...vi.mocked(execFileSync).mock.calls, ...vi.mocked(spawnSync).mock.calls].filter(
+    (call) => call[0] === 'git',
+  ).length;
+}
+
+/** lstat / stat / readdir calls recorded by the delegating `node:fs` spies (T14552). */
+function fsCallCount(): number {
+  return (
+    vi.mocked(lstatSync).mock.calls.length +
+    vi.mocked(statSync).mock.calls.length +
+    vi.mocked(readdirSync).mock.calls.length
+  );
+}
+
+/** Reset the git and fs counters. */
+function resetCallCounts(): void {
+  for (const spy of [execFileSync, spawnSync, lstatSync, statSync, readdirSync]) {
+    vi.mocked(spy).mockClear();
+  }
+}
 
 function task(id: string, status: Task['status'], depends: string[] = []): Task {
   return {
@@ -263,14 +273,19 @@ describe('collectOrchestrateDashboard', () => {
       const measure = async () => {
         proofs.n = 0;
         listings.n = 0;
-        gitCalls.n = 0;
-        fsCalls.n = 0;
+        resetCallCounts();
         const metrics = await collectOrchestrateDashboard(repo, {
           accessor: accessor([]),
           now: new Date(),
           proveWorktrees: false,
         });
-        return { metrics, proofs: proofs.n, listings: listings.n, git: gitCalls.n, fs: fsCalls.n };
+        return {
+          metrics,
+          proofs: proofs.n,
+          listings: listings.n,
+          git: gitCallCount(),
+          fs: fsCallCount(),
+        };
       };
 
       addWorktrees(1, 5);
@@ -289,9 +304,9 @@ describe('collectOrchestrateDashboard', () => {
       expect(large.git).toBe(small.git);
       expect(large.fs).toBe(small.fs);
       expect(large.git).toBeLessThanOrEqual(5);
-      // The counters are live (one porcelain read at least).
+      // One porcelain read (the git counter is live); no lstat/stat/readdir at all.
       expect(small.git).toBeGreaterThan(0);
-      expect(small.fs).toBeGreaterThan(0);
+      expect(small.fs).toBe(0);
       // The primary checkout plus 92 open-task worktrees; 93 finished, unproven.
       expect(large.metrics.worktrees).toMatchObject({
         total: 186,
@@ -302,10 +317,13 @@ describe('collectOrchestrateDashboard', () => {
       expect(formatDashboardPromptSummary(large.metrics)).toContain(
         'worktrees=93 active, 93 finished (unproven: cleo worktree list)',
       );
-      // The counters are wired: the default (proven) dashboard lists and proves.
+      // The counters are wired: the default (proven) dashboard lists and its
+      // per-worktree probes touch the filesystem.
       proofs.n = 0;
+      resetCallCounts();
       await collectOrchestrateDashboard(repo, { accessor: accessor([]) });
       expect(listings.n).toBe(1);
+      expect(fsCallCount()).toBeGreaterThan(0);
     } finally {
       await rm(base, { recursive: true, force: true });
     }

@@ -19,14 +19,18 @@ On a project with 183 worktrees that took about 200 s and the spawn failed with
 - Provisioning now also excludes the untracked store-dir `.npmrc` through
   `info/exclude`, so a fresh worktree has no untracked file. A tracked `.npmrc`
   is still never edited.
-- The disposal proof treats CLEO's pnpm provisioning as regenerable. The first
-  part is the worktree's `.pnpm-store/`, only when it is a real directory laid
-  out as a pnpm store. A file named `.pnpm-store`, a symlink, or any unexpected
-  name inside the store keeps the worktree. The second part is an `.npmrc` that
-  is byte-for-byte what provisioning wrote for that worktree. Provisioning now
-  records those bytes in the worktree's git admin dir. A worktree provisioned
-  before this change matches only the bare `store-dir=<worktree>/.pnpm-store`
-  line, and the proof never consults the main checkout's current config.
-  Existing finished, merged worktrees whose only extra content is that `.npmrc`
-  become prunable. An edited `.npmrc` or any other untracked file still keeps
-  the worktree.
+- The disposal proof treats CLEO's pnpm provisioning as regenerable, but only
+  what it can attribute. The first part is the worktree's `.pnpm-store/`, when
+  it is a real directory and every entry under it is pnpm's own. That means
+  sha512-named content files and package index files in two-hex shard
+  directories, hex-named symlinks under `projects/`, and an empty `tmp/`. A
+  file named `.pnpm-store`, a symlink, any foreign file, or anything left in
+  `tmp/` keeps the worktree. The second part is an `.npmrc` that is byte-for-byte
+  what provisioning wrote for that worktree. Provisioning records those bytes in
+  the worktree's git admin dir. Both the `.npmrc` and that record must be
+  regular files with one link, and the record must be outside the worktree, so
+  an `.npmrc` linked to the record and edited through the link is kept. A
+  worktree provisioned before this change matches only the bare
+  `store-dir=<worktree>/.pnpm-store` line, and the proof never consults the main
+  checkout's current config. Existing finished, merged worktrees whose only
+  extra content is that `.npmrc` become prunable.

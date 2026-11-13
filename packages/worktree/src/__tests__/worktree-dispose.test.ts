@@ -12,6 +12,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,6 +20,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -277,9 +279,12 @@ describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
     const index = join(wt, '.pnpm-store', 'v10', 'index', '2c');
     mkdirSync(files, { recursive: true });
     mkdirSync(index, { recursive: true });
-    writeFileSync(join(files, '57539c3ea497'), 'cached\n');
-    writeFileSync(join(files, '57539c3ea498-exec'), 'cached\n');
-    writeFileSync(join(index, '9e3b1153fc96-parseurl@1.3.3.json'), '{}\n');
+    // Real pnpm names: sha512 split 2/126 hex, index 2/62 hex + package.
+    writeFileSync(join(files, 'a'.repeat(126)), 'cached\n');
+    writeFileSync(join(files, `${'b'.repeat(126)}-exec`), 'cached\n');
+    writeFileSync(join(index, `${'c'.repeat(62)}-parseurl@1.3.3.json`), '{}\n');
+    mkdirSync(join(wt, '.pnpm-store', 'v10', 'projects'));
+    symlinkSync(wt, join(wt, '.pnpm-store', 'v10', 'projects', 'deadbeef'));
     return wt;
   }
 
@@ -366,6 +371,33 @@ describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
       (store: string) => writeFileSync(join(store, 'v10', 'plan.txt'), 'x\n'),
     ],
     [
+      'a foreign file under projects/',
+      (store: string) => {
+        mkdirSync(join(store, 'v10', 'projects', 'feedface'));
+        writeFileSync(join(store, 'v10', 'projects', 'feedface', 'notes.md'), 'x\n');
+      },
+    ],
+    [
+      'a regular file in place of a projects/ symlink',
+      (store: string) => writeFileSync(join(store, 'v10', 'projects', 'cafe'), 'x\n'),
+    ],
+    [
+      'a file left in tmp/',
+      (store: string) => {
+        mkdirSync(join(store, 'v10', 'tmp'));
+        writeFileSync(join(store, 'v10', 'tmp', 'partial'), 'x\n');
+      },
+    ],
+    [
+      'a directory where a content file belongs',
+      (store: string) => mkdirSync(join(store, 'v10', 'files', '0a', 'd'.repeat(126))),
+    ],
+    [
+      'a short hex name under files/',
+      (store: string) => writeFileSync(join(store, 'v10', 'files', '0a', '57539c3ea497'), 'x\n'),
+    ],
+    ['an unknown section', (store: string) => mkdirSync(join(store, 'v10', 'metadata'))],
+    [
       'a non-hash name under files/',
       (store: string) => writeFileSync(join(store, 'v10', 'files', '0a', 'draft.ts'), 'x\n'),
     ],
@@ -380,6 +412,54 @@ describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
     const wt = provisioned('T41');
     plant(join(wt, '.pnpm-store'));
     const r = disposeWorktree({ worktreePath: wt, taskId: 'T41', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+  });
+
+  it('the foreign file under projects/ survives a real (non-dry-run) disposal', () => {
+    const wt = provisioned('T43');
+    const notes = join(wt, '.pnpm-store', 'v10', 'projects', 'feedface', 'notes.md');
+    mkdirSync(join(wt, '.pnpm-store', 'v10', 'projects', 'feedface'));
+    writeFileSync(notes, 'unique notes\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T43', reason: 'test' });
+    expect(r.removed).toBe(false);
+    expect(readFileSync(notes, 'utf-8')).toBe('unique notes\n');
+  });
+
+  /** The record provisioning wrote in the worktree's git admin dir. */
+  const recordOf = (wt: string) =>
+    join(git(wt, 'rev-parse', '--path-format=absolute', '--git-dir'), 'cleo-provisioned-npmrc');
+
+  it('keeps a .npmrc symlinked to the record, edited through the link', () => {
+    const wt = provisioned('T44');
+    const record = recordOf(wt);
+    expect(readFileSync(record, 'utf-8')).toBe(`store-dir=${join(wt, '.pnpm-store')}\n`);
+    unlinkSync(join(wt, '.npmrc'));
+    symlinkSync(record, join(wt, '.npmrc'));
+    const unique = `store-dir=${join(wt, '.pnpm-store')}\n//r.example/:_authToken=x\n`;
+    writeFileSync(join(wt, '.npmrc'), unique);
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T44', reason: 'test' });
+    expect(r.removed).toBe(false);
+    expect(readFileSync(join(wt, '.npmrc'), 'utf-8')).toBe(unique);
+  });
+
+  it('keeps a .npmrc hardlinked to the record, edited through the link', () => {
+    const wt = provisioned('T45');
+    const record = recordOf(wt);
+    unlinkSync(join(wt, '.npmrc'));
+    linkSync(record, join(wt, '.npmrc'));
+    writeFileSync(join(wt, '.npmrc'), 'registry=https://private.example/\n');
+    expect(readFileSync(record, 'utf-8')).toBe('registry=https://private.example/\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T45', reason: 'test' });
+    expect(r.removed).toBe(false);
+    expect(readFileSync(join(wt, '.npmrc'), 'utf-8')).toBe('registry=https://private.example/\n');
+  });
+
+  it('keeps a worktree whose record was replaced by a symlink into the worktree', () => {
+    const wt = provisioned('T46');
+    const record = recordOf(wt);
+    unlinkSync(record);
+    symlinkSync(join(wt, '.npmrc'), record);
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T46', reason: 'test', dryRun: true });
     expect(r.keptReason).toBeDefined();
   });
 

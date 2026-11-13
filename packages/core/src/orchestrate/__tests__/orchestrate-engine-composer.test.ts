@@ -19,7 +19,8 @@
  * @epic T910
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { lstatSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,7 +34,7 @@ import type { CollectDashboardOptions } from '../../orchestration/dashboard.js';
 // centres: lstat, git spawnSync, readdir). Every wrapper delegates.
 const { dashboardCalls, cost } = vi.hoisted(() => ({
   dashboardCalls: [] as Array<CollectDashboardOptions | undefined>,
-  cost: { proofs: 0, git: 0, fs: 0 },
+  cost: { proofs: 0 },
 }));
 vi.mock('@cleocode/worktree', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@cleocode/worktree')>();
@@ -47,29 +48,20 @@ vi.mock('@cleocode/worktree', async (importOriginal) => {
 });
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
-  const execFileSync = ((file: string, ...rest: unknown[]) => {
-    if (file === 'git') cost.git += 1;
-    return (actual.execFileSync as (...a: unknown[]) => unknown)(file, ...rest);
-  }) as typeof actual.execFileSync;
-  const spawnSync = ((file: string, ...rest: unknown[]) => {
-    if (file === 'git') cost.git += 1;
-    return (actual.spawnSync as (...a: unknown[]) => unknown)(file, ...rest);
-  }) as typeof actual.spawnSync;
-  return { ...actual, execFileSync, spawnSync };
+  return {
+    ...actual,
+    execFileSync: vi.fn(actual.execFileSync),
+    spawnSync: vi.fn(actual.spawnSync),
+  };
 });
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
-  const counted = <F extends (...a: never[]) => unknown>(fn: F): F =>
-    ((...a: Parameters<F>) => {
-      cost.fs += 1;
-      return fn(...a);
-    }) as F;
-  const wrapped = {
-    lstatSync: counted(actual.lstatSync),
-    statSync: counted(actual.statSync),
-    readdirSync: counted(actual.readdirSync),
+  const spies = {
+    lstatSync: vi.fn(actual.lstatSync),
+    statSync: vi.fn(actual.statSync),
+    readdirSync: vi.fn(actual.readdirSync),
   };
-  return { ...actual, ...wrapped, default: { ...actual, ...wrapped } };
+  return { ...actual, ...spies, default: { ...actual, ...spies } };
 });
 vi.mock('../../orchestration/dashboard.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../orchestration/dashboard.js')>();
@@ -81,6 +73,29 @@ vi.mock('../../orchestration/dashboard.js', async (importOriginal) => {
     },
   };
 });
+
+/** Git spawns recorded by the delegating `node:child_process` spies (T14552). */
+function gitCallCount(): number {
+  return [...vi.mocked(execFileSync).mock.calls, ...vi.mocked(spawnSync).mock.calls].filter(
+    (call) => call[0] === 'git',
+  ).length;
+}
+
+/** lstat / stat / readdir calls recorded by the delegating `node:fs` spies (T14552). */
+function fsCallCount(): number {
+  return (
+    vi.mocked(lstatSync).mock.calls.length +
+    vi.mocked(statSync).mock.calls.length +
+    vi.mocked(readdirSync).mock.calls.length
+  );
+}
+
+/** Reset the git and fs counters. */
+function resetCallCounts(): void {
+  for (const spy of [execFileSync, spawnSync, lstatSync, statSync, readdirSync]) {
+    vi.mocked(spy).mockClear();
+  }
+}
 
 const { heldMailboxes } = vi.hoisted(() => ({ heldMailboxes: new Set<string>() }));
 vi.mock('../agentmbx.js', async (importOriginal) => {
@@ -528,6 +543,9 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   });
 });
 
+/** Git spawns the spawn precheck may make, independent of the worktree count (T14552). */
+const PRECHECK_MAX_GIT_CALLS = 2;
+
 describe('T14552 — spawn precheck cost does not grow with the worktree count', () => {
   let root: string;
 
@@ -570,12 +588,16 @@ describe('T14552 — spawn precheck cost does not grow with the worktree count',
     };
     const precheck = async () => {
       cost.proofs = 0;
-      cost.git = 0;
-      cost.fs = 0;
+      resetCallCounts();
       dashboardCalls.length = 0;
       const result = await orchestrateSpawn('T9324', undefined, root, 1, true);
       expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
-      return { ...cost, dashboards: dashboardCalls.length };
+      return {
+        proofs: cost.proofs,
+        git: gitCallCount(),
+        fs: fsCallCount(),
+        dashboards: dashboardCalls.length,
+      };
     };
 
     addWorktrees(1, 5);
@@ -587,21 +609,20 @@ describe('T14552 — spawn precheck cost does not grow with the worktree count',
     for (const run of [small, large]) {
       expect(run.proofs).toBe(0);
       expect(run.dashboards).toBe(0);
+      // A small constant, whatever the worktree count (the old precheck ran
+      // the disposal proof's git calls for every worktree).
+      expect(run.git).toBeLessThanOrEqual(PRECHECK_MAX_GIT_CALLS);
     }
-    // Deterministic bound: 180 more worktrees add less than ONE git spawn or
-    // lstat/stat/readdir call per worktree (the profile's per-worktree costs;
-    // the old precheck paid hundreds each). Module caches may shave a few calls
-    // between runs, so the bound is on growth, not equality.
-    expect(large.git - small.git).toBeLessThan(180);
+    expect(large.git).toBe(small.git);
+    // lstat/stat/readdir grow by less than one call per added worktree.
+    // Module caches may shave a few calls between runs, so this bounds growth.
     expect(large.fs - small.fs).toBeLessThan(180);
-    expect(large.git).toBeLessThan(180);
-    expect(large.fs).toBeLessThan(180);
     expect(small.fs).toBeGreaterThan(0);
     // The git counter is live: one worktree enumeration (through
-    // @cleocode/worktree) is counted, so the precheck's zero is real.
-    cost.git = 0;
+    // @cleocode/worktree) is counted, so the precheck's count is real.
+    resetCallCounts();
     const { collectOrchestrateDashboard } = await import('../../orchestration/dashboard.js');
     await collectOrchestrateDashboard(root, { proveWorktrees: false });
-    expect(cost.git).toBeGreaterThan(0);
+    expect(gitCallCount()).toBeGreaterThan(0);
   }, 120_000);
 });

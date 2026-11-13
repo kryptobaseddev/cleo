@@ -44,7 +44,7 @@ function finishedWorktree(name: string): string {
   expect(configureWorktreePnpmStore(wt)).toBe(join(wt, '.pnpm-store'));
   const files = join(wt, '.pnpm-store', 'v10', 'files', '0a');
   mkdirSync(files, { recursive: true });
-  writeFileSync(join(files, '57539c3ea497'), 'cached\n');
+  writeFileSync(join(files, 'a'.repeat(126)), 'cached\n');
   writeFileSync(join(wt, `${name}.ts`), `export const ${name} = 1;\n`);
   git(wt, 'add', `${name}.ts`);
   git(wt, 'commit', '-q', '-m', `add ${name}`);
