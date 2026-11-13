@@ -1326,11 +1326,13 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
   }
 
   it.each([
-    { budgetMs: 150, timeoutMs: 1_800_000, waitMs: 135 },
-    { budgetMs: 2_000, timeoutMs: 1_800_000, waitMs: 1_800 },
+    // T14536: when the shared deadline binds, its whole bookkeeping budget stays reserved.
+    { budgetMs: 150, timeoutMs: 1_800_000, waitMs: 0 },
+    { budgetMs: 2_000, timeoutMs: 1_800_000, waitMs: 0 },
+    { budgetMs: 5_000, timeoutMs: 1_800_000, waitMs: 3_000 },
     { budgetMs: 30_000, timeoutMs: 150, waitMs: 135 },
     { budgetMs: 30_000, timeoutMs: 30_000, waitMs: 28_000 },
-    { budgetMs: 1, timeoutMs: 1, waitMs: 1 },
+    { budgetMs: 1, timeoutMs: 1, waitMs: 0 },
   ])('bounds refused admission to $waitMs ms for a $budgetMs ms budget and $timeoutMs ms gate', async ({
     budgetMs,
     timeoutMs,
@@ -1368,6 +1370,50 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
       });
       expect(result?.execution).toBeUndefined();
       expect(capture).not.toHaveBeenCalled();
+    } finally {
+      context.close();
+    }
+  });
+
+  it('keeps the bookkeeping budget when a later gate in a batch is refused admission (T14536)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const semaphore = await import('../tool-semaphore.js');
+    const refusal = new semaphore.AdmissionTimeoutError('lint', {
+      reason: 'memory budget is full',
+      retryAfterMs: 250,
+      memoryPressure: null,
+      ahead: 0,
+      holders: ['fixture holder'],
+    });
+    // Each refused wait runs its whole budget before the ledger gives up.
+    const acquire = vi
+      .spyOn(semaphore, 'acquireGlobalSlot')
+      .mockImplementation(async (_canonical, opts) => {
+        vi.setSystemTime(Date.now() + (opts?.timeoutMs ?? 0));
+        throw refusal;
+      });
+    const capture = vi.spyOn(await import('../../resources/spawn-wrapper.js'), 'captureWrapped');
+    const context = execution({ budgetMs: 10_000 });
+    const gate = (description: string): AcceptanceGate => ({
+      kind: 'command',
+      description,
+      cmd: process.execPath,
+      args: ['-e', 'process.exit(0)'],
+      timeoutMs: 1_800_000,
+    });
+    try {
+      const results = await runGates([gate('first'), gate('second')], {
+        projectRoot,
+        execution: context,
+      });
+      expect(acquire.mock.calls.map(([, opts]) => opts?.timeoutMs)).toEqual([8_000, 0]);
+      expect(results.map((result) => result.errorMessage)).toEqual([
+        `E_GATE_ADMISSION_REFUSED: ${refusal.message}`,
+        `E_GATE_ADMISSION_REFUSED: ${refusal.message}`,
+      ]);
+      expect(capture).not.toHaveBeenCalled();
+      expect(context.deadlineAt - Date.now()).toBeGreaterThanOrEqual(TYPED_GATE_BOOKKEEPING_MS);
+      expect(() => context.assertActive()).not.toThrow();
     } finally {
       context.close();
     }

@@ -262,6 +262,15 @@ export const GATE_NOT_CACHED_PREFIX = 'typed gate not cached:';
 export const GATE_CACHE_INVALID_PREFIX = 'typed gate cache entry invalid:';
 
 /**
+ * Prefix of the `errorMessage` a process gate carries when the machine-wide
+ * admission ledger refused to start it (T14534); the ledger's reason and
+ * holders follow. The verifier refuses a write that links such a gate with
+ * `E_GATE_ADMISSION_REFUSED`: no process ran, so there is no verdict to record.
+ * @task T14536
+ */
+export const GATE_ADMISSION_REFUSED_PREFIX = 'E_GATE_ADMISSION_REFUSED:';
+
+/**
  * Load (creating on first use, mode 0600) the per-machine key that seals
  * evidence cache entries. Deliberately NOT exported: a caller that could load
  * the key through core could seal any result it liked, which is the forgery
@@ -731,7 +740,7 @@ export async function runGates(
               Date.now() - startMs,
               undefined,
               error instanceof AdmissionTimeoutError
-                ? `E_GATE_ADMISSION_REFUSED: ${error.message}`
+                ? `${GATE_ADMISSION_REFUSED_PREFIX} ${error.message}`
                 : error instanceof Error
                   ? error.message
                   : String(error),
@@ -2170,10 +2179,14 @@ async function runOneGate(
  * A typed gate is charged what `cleo run` would charge the same command
  * ({@link planRunFootprint} for its class) and waits on the same ledger and
  * pressure predicate as `cleo run` and `tool:` evidence, so a gate cannot run
- * while the budget is full. Admission uses at most the remaining shared budget
- * or the gate's own timeout, reserving 10% (up to {@link TYPED_GATE_BOOKKEEPING_MS})
- * to record a named admission refusal with its reason and holders. The child
- * inherits the admission token, so a governed command it starts is not charged twice.
+ * while the budget is full. Admission waits at most 90% of the gate's own
+ * timeout (at most {@link TYPED_GATE_BOOKKEEPING_MS} less, T14534) and ends a
+ * whole {@link TYPED_GATE_BOOKKEEPING_MS} before the shared deadline, even when
+ * that leaves no wait at all (a later gate in a batch, T14536): the verifier
+ * still has its bookkeeping budget to record and report the named refusal
+ * ({@link GATE_ADMISSION_REFUSED_PREFIX}) rather than `E_OPERATION_DEADLINE`.
+ * The child inherits the admission token, so a governed command it starts is
+ * not charged twice.
  */
 async function captureGateCommand(
   command: string,
@@ -2193,13 +2206,13 @@ async function captureGateCommand(
     plan.resources !== null && plan.resources.workers > 1
       ? footprintForClass(cls)
       : (plan.footprintBytes ?? footprintForClass(cls));
-  const budgetMs = Math.max(0, Math.min(timeoutMs, context.execution.deadlineAt - Date.now()));
-  const bookkeepingMs = Math.min(TYPED_GATE_BOOKKEEPING_MS, Math.floor(budgetMs / 10));
+  const ownWaitMs = timeoutMs - Math.min(TYPED_GATE_BOOKKEEPING_MS, Math.floor(timeoutMs / 10));
+  const sharedWaitMs = context.execution.deadlineAt - Date.now() - TYPED_GATE_BOOKKEEPING_MS;
   const release = await acquireGlobalSlot(cls === 'test-run' ? 'test' : 'lint', {
     label: `gate:${cls === 'test-run' ? 'test' : 'command'}`,
     footprintBytes,
     // End the wait while the bookkeeping budget remains, so the refusal is recorded.
-    timeoutMs: budgetMs - bookkeepingMs,
+    timeoutMs: Math.max(0, Math.min(ownWaitMs, sharedWaitMs)),
   });
   try {
     return await captureWrapped(command, args, {
