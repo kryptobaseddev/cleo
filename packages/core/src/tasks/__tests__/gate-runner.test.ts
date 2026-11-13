@@ -1295,8 +1295,22 @@ describe('minCount refuses a counter summary embedded in output (T14132)', () =>
 describe('gate runner immutable lifetime and bounded evidence', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     _forceSystemdRunAvailable(undefined);
   });
+
+  async function observeCaptureStart() {
+    const capture = await import('../../resources/spawn-wrapper.js');
+    const original = capture.captureWrapped;
+    const started = Promise.withResolvers<void>();
+    const spy = vi.spyOn(capture, 'captureWrapped').mockImplementationOnce((...args) => {
+      const pending = original(...args);
+      started.resolve();
+      return pending;
+    });
+    return { started: started.promise, spy };
+  }
 
   function execution(options: Parameters<typeof createOperationExecutionContext>[1] = {}) {
     return createOperationExecutionContext(
@@ -1311,12 +1325,15 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
     );
   }
 
-  it('does not renew the shared deadline for subsequent gates', async () => {
+  it('does not renew the shared deadline for subsequent gates', { repeats: 29 }, async () => {
     _forceSystemdRunAvailable(false);
+    // Exercise interruption during capture, after worktree resolution and resource admission.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const capture = await observeCaptureStart();
     const context = execution({ budgetMs: 150 });
     const marker = join(projectRoot, 'late-deadline-marker');
     try {
-      const results = await runGates(
+      const pending = runGates(
         [
           {
             kind: 'command',
@@ -1335,8 +1352,13 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
         ],
         { projectRoot, execution: context },
       );
+      await Promise.race([capture.started, pending]);
+      vi.setSystemTime(context.deadlineAt);
+      expect(context.remainingMs()).toBe(0);
+      const results = await pending;
       expect(results.map((result) => result.result)).toEqual(['error', 'error']);
       expect(results[0]?.execution?.stopped).toBe('deadline');
+      expect(capture.spy).toHaveBeenCalledTimes(1);
       await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       context.close();
@@ -1364,13 +1386,14 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
     }
   });
 
-  it('retains cancellation as interruption and prevents later gates', async () => {
+  it('retains cancellation as interruption and prevents later gates', { repeats: 29 }, async () => {
     _forceSystemdRunAvailable(false);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const capture = await observeCaptureStart();
     const controller = new AbortController();
     const context = execution({ budgetMs: 2000, signal: controller.signal });
-    const timer = setTimeout(() => controller.abort(new Error('fixture cancellation')), 100);
     try {
-      const results = await runGates(
+      const pending = runGates(
         [
           {
             kind: 'command',
@@ -1382,10 +1405,13 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
         ],
         { projectRoot, execution: context },
       );
+      await Promise.race([capture.started, pending]);
+      controller.abort(new Error('fixture cancellation'));
+      const results = await pending;
       expect(results.map((result) => result.result)).toEqual(['error', 'error']);
       expect(results[0]?.execution?.stopped).toBe('cancelled');
+      expect(capture.spy).toHaveBeenCalledTimes(1);
     } finally {
-      clearTimeout(timer);
       context.close();
     }
   });
