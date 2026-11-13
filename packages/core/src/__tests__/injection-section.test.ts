@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   CLEO_REFERENCE_TEMPLATE,
   extractInjectionSection,
+  getInjectionTemplateContent,
   listInjectionSections,
   readInjectionSection,
 } from '../injection.js';
@@ -65,6 +66,17 @@ describe('readInjectionSection (T12580)', () => {
     for (const name of ['nexus', 'evidence', 'knowledge-repair', 'spawn-tiers', 'work-loop']) {
       expect(readInjectionSection(name).content, name).not.toBeNull();
     }
+  });
+
+  it('delivers task-creation error recovery within the core size cap (T14537)', () => {
+    const shipped = readInjectionSection('task-creation');
+    expect(shipped.source).toMatch(/CLEO-REFERENCE\.md$/);
+    expect(shipped.content).toContain('| 11 | `E_DEPTH_EXCEEDED` |');
+    expect(shipped.content).toContain('| 12 | `E_SIBLING_LIMIT` |');
+    expect(shipped.content).toContain('`hierarchy.maxDepth`');
+    expect(shipped.content).toContain('`hierarchy.maxSiblings`');
+    expect(shipped.content).toContain('escape `$` as `\\$`');
+    expect(getInjectionTemplateContent()?.length).toBeLessThanOrEqual(14_600);
   });
 });
 
