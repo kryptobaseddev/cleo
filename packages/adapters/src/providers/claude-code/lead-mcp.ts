@@ -24,6 +24,7 @@ import {
   lstatSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   type Stats,
   statSync,
@@ -91,23 +92,90 @@ function readJson(file: string): unknown {
   }
 }
 
-/** Claude's canonical root requires a worktrees entry with a matching backlink. */
+/**
+ * Claude Code 2.1.322's unsafe absolute paths on POSIX: UNC spellings, NUL,
+ * and network or macOS volfs roots (`/net`, `/network`, `/.vol`, `/.file`,
+ * `/.nofollow`, `/.resolve`).
+ */
+function unsafeGitPath(path: string): boolean {
+  if (path.includes('\0') || /^[\\/]{2}/.test(path)) return true;
+  const first = resolve(path).split('/')[1]?.toLowerCase() ?? '';
+  return /^(?:net|network|\.vol|\.file|\.nofollow|\.resolve)$/.test(first);
+}
+
+/**
+ * True when Claude would walk `path` safely: every component is absent, a file,
+ * a directory or a symlink whose UTF-8 target is itself safe (followed at most
+ * 40 times). A FIFO, socket or device, an unreadable component, or an unsafe
+ * path anywhere along the way refuses.
+ */
+function walksSafely(path: string, hops = 40): boolean {
+  if (hops <= 0 || unsafeGitPath(path)) return false;
+  const parts = path.split('/');
+  let at = '/';
+  for (const [index, part] of parts.entries()) {
+    if (part === '' || part === '.') continue;
+    at = part === '..' ? dirname(at) : join(at, part);
+    if (part === '..') continue;
+    if (unsafeGitPath(at)) return false;
+    let stat: Stats;
+    try {
+      stat = lstatSync(at);
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && ['ENOENT', 'ENOTDIR'].includes(String(err.code)))
+        continue;
+      return false;
+    }
+    if (stat.isSymbolicLink()) {
+      const raw = readlinkSync(at, { encoding: 'buffer' });
+      const target = raw.toString('utf8');
+      if (target.includes('\0') || !Buffer.from(target, 'utf8').equals(raw)) return false;
+      const base = target.startsWith('/') ? target : `${dirname(at)}/${target}`;
+      return walksSafely([base, ...parts.slice(index + 1)].join('/'), hops - 1);
+    }
+    if (!stat.isFile() && !stat.isDirectory()) return false;
+  }
+  return true;
+}
+
+/** True when `text`, relative to `base`, is a path Claude reads git metadata through. */
+function safeGitPathText(text: string, base: string): boolean {
+  const joined = text.startsWith('/') ? text : `${base}/${text}`;
+  return !text.includes('\\') && walksSafely(joined) && walksSafely(resolve(base, text));
+}
+
+/** A regular git metadata file reached safely and not itself a symlink, trimmed, or `null`. */
+function readGitMetaFile(gitDir: string, name: string): string | null {
+  const file = join(gitDir, name);
+  if (!walksSafely(file) || !lstatSync(file, { throwIfNoEntry: false })?.isFile()) return null;
+  return readFileSync(file, 'utf8').trim();
+}
+
+/**
+ * Claude's canonical root for a linked worktree (its `findCanonicalGitRoot`):
+ * a worktrees entry of the common directory with a matching backlink. Like
+ * Claude, the gitdir and commondir paths are resolved lexically, never
+ * realpath-followed, so a commondir or gitdir spelled through a symlink must
+ * still name the entry's own parent; only the backlink is compared by real
+ * path. Unsafe paths and symlinked metadata files refuse.
+ */
 function linkedWorktreeTrustRoot(dir: string): string | null {
   const link = readFileSync(join(dir, '.git'), 'utf8').trim();
   if (!link.startsWith('gitdir:')) return null;
-  const gitDir = realpathSync(resolve(dir, link.slice(7).trim()));
-  const commonFile = join(gitDir, 'commondir');
-  const backFile = join(gitDir, 'gitdir');
-  if (![commonFile, backFile].every((file) => lstatSync(file, { throwIfNoEntry: false })?.isFile()))
+  const gitText = link.slice(7).trim();
+  if (!safeGitPathText(gitText, dir)) return null;
+  const gitDir = resolve(dir, gitText);
+  const common = readGitMetaFile(gitDir, 'commondir');
+  if (common === null || !safeGitPathText(common, gitDir)) return null;
+  const commonDir = resolve(gitDir, common);
+  if (dirname(gitDir) !== join(commonDir, 'worktrees')) return null;
+  const back = readGitMetaFile(gitDir, 'gitdir');
+  if (back === null || !safeGitPathText(back, gitDir) || unsafeGitPath(resolve(dir, back)))
     return null;
-  const commonDir = realpathSync(resolve(gitDir, readFileSync(commonFile, 'utf8').trim()));
-  if (
-    dirname(gitDir) !== join(commonDir, 'worktrees') ||
-    realpathSync(resolve(gitDir, readFileSync(backFile, 'utf8').trim())) !== join(dir, '.git')
-  )
-    return null;
+  if ([dir, gitDir, commonDir].some((path) => path.includes('\\'))) return null;
+  if (realpathSync(resolve(gitDir, back)) !== join(realpathSync(dir), '.git')) return null;
   if (basename(commonDir) !== '.git' && existsSync(join(commonDir, '.git'))) return null;
-  return basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
+  return (basename(commonDir) === '.git' ? dirname(commonDir) : commonDir).normalize('NFC');
 }
 
 /** Claude Code's truthy env parse: `1`, `true`, `yes` or `on`, any case, trimmed. */

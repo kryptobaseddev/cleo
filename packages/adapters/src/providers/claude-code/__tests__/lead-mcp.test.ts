@@ -233,6 +233,65 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
   });
 
+  /** Write a config trusting exactly `folders`. */
+  function trustOnly(...folders: string[]): void {
+    const projects = Object.fromEntries(
+      folders.map((folder) => [folder, { hasTrustDialogAccepted: true }]),
+    );
+    writeFileSync(claudeJson, JSON.stringify({ projects }));
+  }
+
+  it('refuses a linked worktree whose main checkout root is the home directory', () => {
+    // HOME (root) is the main checkout; Claude never persists home-folder trust.
+    project = root;
+    const worktree = linkedWorktree();
+    trustOnly(realpathSync(root));
+    expect(() => requireLeadProjectTrust(worktree)).toThrow('the lead was not launched');
+  });
+
+  it('resolves gitdir and commondir lexically, as Claude does, never realpath-following them (T14520)', () => {
+    if (process.platform === 'win32') return;
+    const worktree = linkedWorktree();
+    const alias = join(realpathSync(root), 'alias');
+    symlinkSync(realpathSync(project), alias);
+    const gitDir = readFileSync(join(worktree, '.git'), 'utf8').trim().slice(7).trim();
+    trustOnly(realpathSync(project));
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+
+    // An absolute commondir spelled through the alias no longer names the entry's parent.
+    const commondir = readFileSync(join(gitDir, 'commondir'), 'utf8');
+    writeFileSync(join(gitDir, 'commondir'), join(alias, '.git'));
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+    writeFileSync(join(gitDir, 'commondir'), commondir);
+
+    // A gitdir spelled through the alias makes Claude key trust by the alias, not the target.
+    const aliasGitDir = join(alias, '.git', 'worktrees', gitDir.split('/').at(-1) ?? '');
+    writeFileSync(join(worktree, '.git'), `gitdir: ${aliasGitDir}\n`);
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+    trustOnly(alias);
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+  });
+
+  it.each([
+    'commondir',
+    'gitdir',
+  ])('refuses a symlinked worktree %s file and an unsafe gitdir path', (file) => {
+    if (process.platform === 'win32') return;
+    const worktree = linkedWorktree();
+    const gitDir = readFileSync(join(worktree, '.git'), 'utf8').trim().slice(7).trim();
+    trustOnly(realpathSync(project));
+    const copy = join(root, `${file}-copy`);
+    writeFileSync(copy, readFileSync(join(gitDir, file)));
+    rmSync(join(gitDir, file));
+    symlinkSync(copy, join(gitDir, file));
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+    rmSync(join(gitDir, file));
+    writeFileSync(join(gitDir, file), readFileSync(copy));
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+    writeFileSync(join(worktree, '.git'), `gitdir: //server/share${gitDir}\n`);
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+  });
+
   it('does not inherit trust across a repository boundary or from a similarly named folder', () => {
     mkdirSync(join(project, '.git'));
     writeFileSync(
