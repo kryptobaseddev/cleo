@@ -163,21 +163,66 @@ export function configureWorktreePnpmStore(worktreePath: string): string | null 
   const npmrcPath = join(worktreePath, '.npmrc');
   const storeDir = join(worktreePath, '.pnpm-store');
   const tracked = isNpmrcTracked(worktreePath);
-  // Keep the store out of `git add -A`. Not `.npmrc`: info/exclude lives in the
-  // COMMON .git, so excluding it would hide a new .npmrc in the main checkout
-  // too (T13541); the tracked guard plus explicit staging cover it.
-  excludeFromGit(worktreePath, ['/.pnpm-store/']);
+  // Keep the store, and the untracked `.npmrc` naming it, out of `git status`
+  // and `git add -A` (T14552): an untracked `.npmrc` made every finished
+  // worktree fail the disposal proof. info/exclude lives in the COMMON .git,
+  // so this also hides an untracked root `.npmrc` in the main checkout (a
+  // per-machine file, often holding registry tokens); a tracked `.npmrc` is
+  // never affected by an exclude, and is never edited here (T13541).
+  excludeFromGit(worktreePath, tracked ? ['/.pnpm-store/'] : ['/.pnpm-store/', '/.npmrc']);
   if (tracked) return null;
   try {
     const kept = existsSync(npmrcPath)
-      ? readFileSync(npmrcPath, 'utf-8')
-          .split('\n')
-          .filter((line) => line.trim() !== '' && !/^\s*store-dir\s*=/.test(line))
+      ? npmrcLinesWithoutStoreDir(readFileSync(npmrcPath, 'utf-8'))
       : [];
     writeFileSync(npmrcPath, `${[...kept, `store-dir=${storeDir}`].join('\n')}\n`, 'utf-8');
     return storeDir;
   } catch {
     return null;
+  }
+}
+
+/** The non-blank lines of an `.npmrc` other than `store-dir`. */
+function npmrcLinesWithoutStoreDir(text: string): string[] {
+  return text.split('\n').filter((line) => line.trim() !== '' && !/^\s*store-dir\s*=/.test(line));
+}
+
+/**
+ * Whether a worktree path is a pnpm provisioning artefact CLEO regenerates on
+ * demand, so removing it loses nothing (T14552): the worktree's own store
+ * (`.pnpm-store/`, a download cache) and an untracked root `.npmrc` that is
+ * exactly what {@link configureWorktreePnpmStore} writes, namely the main
+ * checkout's `.npmrc` lines (bar `store-dir`) plus `store-dir=<worktree>/.pnpm-store`.
+ * An `.npmrc` carrying any other line, or a `store-dir` naming another
+ * store, is not proven and stays strict. A read error answers `false`.
+ *
+ * @param worktreePath - The worktree root.
+ * @param rel - Path relative to the worktree root, `/`-separated.
+ * @param projectRoot - The main checkout the `.npmrc` was seeded from.
+ * @returns Whether the path is a regenerable provisioning artefact.
+ * @task T14552
+ */
+export function isPnpmProvisioningArtefact(
+  worktreePath: string,
+  rel: string,
+  projectRoot: string,
+): boolean {
+  if (rel === '.pnpm-store' || rel.startsWith('.pnpm-store/')) return true;
+  if (rel !== '.npmrc') return false;
+  try {
+    const lines = readFileSync(join(worktreePath, '.npmrc'), 'utf-8')
+      .split('\n')
+      .filter((line) => line.trim() !== '');
+    const ours = `store-dir=${join(worktreePath, '.pnpm-store')}`;
+    if (lines.filter((line) => line === ours).length !== 1) return false;
+    const rest = lines.filter((line) => line !== ours);
+    const mainPath = join(projectRoot, '.npmrc');
+    const seeded = existsSync(mainPath)
+      ? npmrcLinesWithoutStoreDir(readFileSync(mainPath, 'utf-8'))
+      : [];
+    return rest.length === seeded.length && rest.every((line, i) => line === seeded[i]);
+  } catch {
+    return false;
   }
 }
 

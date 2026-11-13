@@ -28,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeProjectHash, resolveWorktreeRootForHash } from '../paths.js';
 import { destroyWorktree } from '../worktree-destroy.js';
 import { disposeWorktree, unpreservedCommits } from '../worktree-dispose.js';
+import { configureWorktreePnpmStore } from '../worktree-pnpm.js';
 import { pruneWorktrees } from '../worktree-prune.js';
 
 function git(cwd: string, ...args: string[]): string {
@@ -264,6 +265,74 @@ describe('disposeWorktree proof (T13924)', () => {
     });
     expect(probe.archive).toBeUndefined();
     expect(existsSync(join(wt, 'new.ts'))).toBe(true);
+  });
+});
+
+describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
+  /** A finished worktree as spawn left it: store-dir `.npmrc` plus a store. */
+  function provisioned(taskId: string): string {
+    const wt = worktree(taskId);
+    expect(configureWorktreePnpmStore(wt)).toBe(join(wt, '.pnpm-store'));
+    mkdirSync(join(wt, '.pnpm-store', 'v10', 'files'), { recursive: true });
+    writeFileSync(join(wt, '.pnpm-store', 'v10', 'files', 'blob'), 'cached\n');
+    return wt;
+  }
+
+  it('provisioning leaves no untracked file: git status is clean', () => {
+    const wt = provisioned('T30');
+    expect(readFileSync(join(wt, '.npmrc'), 'utf-8')).toBe(
+      `store-dir=${join(wt, '.pnpm-store')}\n`,
+    );
+    expect(git(wt, 'status', '--porcelain')).toBe('');
+  });
+
+  it('a worktree holding only the store-dir .npmrc and its store is proven redundant', () => {
+    const wt = provisioned('T31');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T31', reason: 'test', dryRun: true });
+    expect(r).toEqual({ worktreePath: wt, removed: false });
+    expect(r.keptReason).toBeUndefined();
+  });
+
+  it('a pre-T14552 untracked .npmrc (not excluded) is proven redundant too', () => {
+    const wt = worktree('T32');
+    writeFileSync(join(wt, '.npmrc'), `store-dir=${join(wt, '.pnpm-store')}\n`);
+    expect(git(wt, 'status', '--porcelain')).toContain('.npmrc');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T32', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeUndefined();
+  });
+
+  it('the main checkout .npmrc lines seeded into the worktree still count as ours', () => {
+    writeFileSync(join(repo, '.npmrc'), 'auto-install-peers=true\n');
+    const wt = worktree('T33');
+    writeFileSync(join(wt, '.npmrc'), 'auto-install-peers=true\n');
+    configureWorktreePnpmStore(wt);
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T33', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeUndefined();
+  });
+
+  it('keeps a worktree with a real untracked file beside the provisioning', () => {
+    const wt = provisioned('T34');
+    writeFileSync(join(wt, 'wip.ts'), 'unsaved work\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T34', reason: 'test', dryRun: true });
+    expect(r.keptReason).toContain('uncommitted or untracked changes');
+  });
+
+  it('keeps a worktree whose .npmrc carries a line CLEO did not write', () => {
+    const wt = provisioned('T35');
+    writeFileSync(
+      join(wt, '.npmrc'),
+      `store-dir=${join(wt, '.pnpm-store')}\n//registry.example/:_authToken=secret\n`,
+    );
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T35', reason: 'test', dryRun: true });
+    expect(r.keptReason).toBeDefined();
+    expect(existsSync(wt)).toBe(true);
+  });
+
+  it('keeps a worktree whose .npmrc names another store', () => {
+    const wt = worktree('T36');
+    writeFileSync(join(wt, '.npmrc'), 'store-dir=/shared/store\n');
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T36', reason: 'test', dryRun: true });
+    expect(r.keptReason).toContain('uncommitted or untracked changes');
   });
 });
 

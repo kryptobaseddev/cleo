@@ -1,13 +1,44 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import {
   collectOrchestrateDashboard,
   type DashboardWorktreeState,
   formatDashboardPromptSummary,
 } from '../dashboard.js';
+
+// T14552: count disposal proofs and full listings; statuses come from a stub.
+const { proofs, listings } = vi.hoisted(() => ({ proofs: { n: 0 }, listings: { n: 0 } }));
+vi.mock('@cleocode/worktree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@cleocode/worktree')>();
+  return {
+    ...actual,
+    disposeWorktree: (...args: Parameters<typeof actual.disposeWorktree>) => {
+      proofs.n += 1;
+      return actual.disposeWorktree(...args);
+    },
+  };
+});
+vi.mock('../../worktree/list.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../worktree/list.js')>();
+  return {
+    ...actual,
+    listWorktrees: (...args: Parameters<typeof actual.listWorktrees>) => {
+      listings.n += 1;
+      return actual.listWorktrees(...args);
+    },
+    // T1..T20 done, T21..T40 active; no task store needed.
+    loadOwningTaskStatuses: async (ids: string[]) => ({
+      success: true as const,
+      data: new Map(ids.map((id) => [id, Number(id.slice(1)) <= 20 ? 'done' : 'active'])),
+    }),
+  };
+});
 
 function task(id: string, status: Task['status'], depends: string[] = []): Task {
   return {
@@ -170,5 +201,54 @@ describe('collectOrchestrateDashboard', () => {
     expect(formatDashboardPromptSummary(metrics)).toBe(
       'queue=1 ready / 0 active; worktrees=1 active (0 stalled: 0 dirty, 0 unpushed); adminMerge=0/h; forceBypass=0/h (24h)',
     );
+  });
+
+  it('T14552 — proveWorktrees:false classifies 40 worktrees with no disposal proof or full listing', async () => {
+    const base = realpathSync(await mkdtemp(join(tmpdir(), 'dashboard-unproven-')));
+    try {
+      const repo = join(base, 'repo');
+      await mkdir(repo);
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+      git('init', '-q', '-b', 'main');
+      git(
+        '-c',
+        'user.name=T',
+        '-c',
+        'user.email=t@e.x',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'init',
+      );
+      for (let i = 1; i <= 40; i++) {
+        git('worktree', 'add', '-q', '-b', `task/T${i}`, join(base, 'wt', `T${i}`));
+      }
+      proofs.n = 0;
+      listings.n = 0;
+      const metrics = await collectOrchestrateDashboard(repo, {
+        accessor: accessor([]),
+        now: new Date(),
+        proveWorktrees: false,
+      });
+      expect(proofs.n).toBe(0);
+      expect(listings.n).toBe(0);
+      expect(metrics.worktreeProof).toBe('unproven');
+      // The primary checkout plus 20 open-task worktrees; 20 finished, unproven.
+      expect(metrics.worktrees).toMatchObject({
+        total: 41,
+        active: 21,
+        unproven: 20,
+        redundant: 0,
+      });
+      expect(formatDashboardPromptSummary(metrics)).toContain(
+        'worktrees=21 active, 20 finished (unproven: cleo worktree list)',
+      );
+      // The counter is wired: the default (proven) dashboard does list.
+      await collectOrchestrateDashboard(repo, { accessor: accessor([]) });
+      expect(listings.n).toBe(1);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
   });
 });

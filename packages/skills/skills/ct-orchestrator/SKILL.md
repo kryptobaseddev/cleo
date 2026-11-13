@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.20.0
+  version: 4.21.0
   tier: core
   install: harness
   covers:
@@ -10,7 +10,7 @@ metadata:
     - packages/core/src/orchestration/spawn-prompt.ts
     - packages/core/src/orchestrate/orca-routing.ts
     - packages/core/src/orchestrate/spawn-ops.ts
-  lastReviewed: 2026-11-12
+  lastReviewed: 2026-11-13
   stability: stable
 ---
 
@@ -595,7 +595,11 @@ task because its spawner exited. Removal also requires no open worker record,
 live session lease, process cwd or open file; a failed probe keeps the worktree.
 The shared task-lock probe remains strict for legacy callers.
 Ignored build output needs `--include-build-output` on a
-merged branch; nothing is force-archived. Legacy `cleo orchestrate prune` does
+merged branch; nothing is force-archived. CLEO's own pnpm provisioning (the
+worktree's `.pnpm-store/` and an unchanged store-dir `.npmrc`) never blocks the
+proof (T14552). The spawn pre-check composes the atomicity verdict only, and the
+tier-1/2 prompt's dashboard line counts finished worktrees as unproven instead
+of running the proof per worktree; `cleo orchestrate dashboard` still proves. Legacy `cleo orchestrate prune` does
 not provide these retention or machine-wide controls.
 
 Never re-run a worker's full suite to "double-check": a worker's

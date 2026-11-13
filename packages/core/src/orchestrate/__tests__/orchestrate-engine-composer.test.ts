@@ -25,6 +25,22 @@ import { join } from 'node:path';
 import type { OrchestrateSpawnResult } from '@cleocode/contracts/operations/orchestrate.js';
 import { composeSpawnForTask, orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CollectDashboardOptions } from '../../orchestration/dashboard.js';
+
+// T14552: record every dashboard collection a spawn makes (calls through).
+const { dashboardCalls } = vi.hoisted(() => ({
+  dashboardCalls: [] as Array<CollectDashboardOptions | undefined>,
+}));
+vi.mock('../../orchestration/dashboard.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../orchestration/dashboard.js')>();
+  return {
+    ...actual,
+    collectOrchestrateDashboard: (root: string, options?: CollectDashboardOptions) => {
+      dashboardCalls.push(options);
+      return actual.collectOrchestrateDashboard(root, options);
+    },
+  };
+});
 
 const { heldMailboxes } = vi.hoisted(() => ({ heldMailboxes: new Set<string>() }));
 vi.mock('../agentmbx.js', async (importOriginal) => {
@@ -67,6 +83,8 @@ interface SeededTask {
   id: string;
   title: string;
   description?: string;
+  acceptance?: string[];
+  size?: string;
   status: string;
   priority: string;
   parentId?: string;
@@ -144,6 +162,20 @@ const EPIC_NO_FILES: SeededTask = {
   updatedAt: null,
 };
 
+/** T14552: a large worker task like T14548 (14 ACs, no AC.files). */
+const LARGE_AC_NO_SCOPE: SeededTask = {
+  id: 'T9324',
+  title: 'T14552 large worker without files',
+  description: 'Large worker task naming several files in prose but declaring none',
+  status: 'pending',
+  priority: 'critical',
+  size: 'large',
+  parentId: 'T9320',
+  acceptance: Array.from({ length: 14 }, (_, i) => `AC${i + 1}: criterion ${i + 1} holds`),
+  createdAt: '2026-04-17T00:00:00Z',
+  updatedAt: null,
+};
+
 // Each scenario owns its seeded task store and explicitly selected project.
 beforeEach(() => {
   vi.stubEnv('CLEO_ROOT', undefined);
@@ -158,7 +190,14 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     // `.git/` siblings. seedTasks() creates `.cleo/`; add the `.git/` dir
     // so getProjectRoot() accepts TEST_ROOT as a project root.
     await mkdir(join(TEST_ROOT, '.git'), { recursive: true });
-    await seedTasks(TEST_ROOT, [PARENT_EPIC, READY_WORKER, READY_WORKER_NO_SCOPE, EPIC_NO_FILES]);
+    await seedTasks(TEST_ROOT, [
+      PARENT_EPIC,
+      READY_WORKER,
+      READY_WORKER_NO_SCOPE,
+      EPIC_NO_FILES,
+      LARGE_AC_NO_SCOPE,
+    ]);
+    dashboardCalls.length = 0;
   });
 
   afterEach(async () => {
@@ -286,6 +325,28 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     // remains auditable downstream.
     expect(data.atomicity.atomicity_waiver).toBe('orchestrator-scope-tier1-call');
     expect(data.atomicity.meta).toEqual({ fileCount: 0, hasScope: false });
+  });
+
+  it('T14552 — a tier-1 large-AC precheck refuses without collecting the dashboard', async () => {
+    const result = await orchestrateSpawn('T9324', undefined, TEST_ROOT, 1, true);
+    expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
+    // The verdict-only precheck never pays for the dashboard (the per-worktree
+    // disposal proof that took 198 s on a 183-worktree project).
+    expect(dashboardCalls).toEqual([]);
+  });
+
+  it('T14552 — under --orchestrator-defer only the real compose collects it, without the proof', async () => {
+    const result = await orchestrateSpawn(
+      'T9324',
+      undefined,
+      TEST_ROOT,
+      1,
+      true,
+      undefined,
+      'orchestrator-defer',
+    );
+    expect(result.success).toBe(true);
+    expect(dashboardCalls).toEqual([{ proveWorktrees: false }]);
   });
 
   it('T1014 — epic spawn auto-promotes to role=lead, bypassing atomicity file-scope gate', async () => {

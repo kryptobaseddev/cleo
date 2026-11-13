@@ -138,6 +138,13 @@ export interface ComposeSpawnPayloadOptions {
    */
   skipAtomicityCheck?: boolean;
   /**
+   * Compose only what the atomicity verdict needs (T14552): skip the
+   * attention digest, document attachments and dashboard summary, so the
+   * returned prompt is NOT for dispatch. The spawn pre-check uses it to refuse
+   * before provisioning without paying for enrichment it throws away.
+   */
+  verdictOnly?: boolean;
+  /**
    * Atomicity scope declaration for the child worker.
    *
    * When set to `'orchestrator-defer'`, the composer passes the waiver flag
@@ -753,7 +760,7 @@ export async function composeSpawnPayload(
   //         worker sees the epic/saga-scoped jots relevant to its assignment.
   //         Budget-bounded MVI lines; best-effort, never blocks spawn.
   let attentionDigestLines: readonly string[] | undefined;
-  if (tier >= 1) {
+  if (tier >= 1 && !options.verdictOnly) {
     try {
       const { buildAttentionDigest, renderAttentionDigestLines } = await import(
         '../memory/attention.js'
@@ -774,7 +781,9 @@ export async function composeSpawnPayload(
   let docAttachments: readonly TaskDocAttachment[] | undefined;
   try {
     const { blobList, blobRead } = await import('../store/blob-ops.js');
-    const blobEntries = await blobList(task.id, projectRoot).catch(() => []);
+    const blobEntries = options.verdictOnly
+      ? []
+      : await blobList(task.id, projectRoot).catch(() => []);
 
     if (blobEntries.length > 0) {
       // MIME types safe to inline as UTF-8 text — must match INLINEABLE_MIME_TYPES in spawn-prompt.ts.
@@ -835,10 +844,12 @@ export async function composeSpawnPayload(
   //     Best-effort and compact: one line only, tier-1/2 only. Failures must
   //     not block spawn, and tier-0 worker prompts stay lean.
   let dashboardSummary: string | undefined;
-  if (tier >= 1) {
+  if (tier >= 1 && !options.verdictOnly) {
     try {
+      // T14552: never the per-worktree disposal proof: it cost minutes on a
+      // project with 180+ worktrees and timed spawns out.
       dashboardSummary = formatDashboardPromptSummary(
-        await collectOrchestrateDashboard(projectRoot),
+        await collectOrchestrateDashboard(projectRoot, { proveWorktrees: false }),
       );
     } catch {
       // best-effort — dashboard aggregation reads audit/worktree state and may
