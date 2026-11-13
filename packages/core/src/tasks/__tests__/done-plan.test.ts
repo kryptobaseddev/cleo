@@ -87,6 +87,15 @@ const deps: ChangeSetDeps = {
   env: {},
 };
 
+const retryFlagCases = [
+  { runTyped: false, satisfies: undefined, flags: '' },
+  { runTyped: true, satisfies: undefined, flags: ' --run-typed' },
+  { runTyped: false, satisfies: 'all', flags: ' --satisfies all' },
+  { runTyped: true, satisfies: 'all', flags: ' --run-typed --satisfies all' },
+  { runTyped: false, satisfies: ['AC1'], flags: ' --satisfies AC1' },
+  { runTyped: true, satisfies: ['AC1'], flags: ' --run-typed --satisfies AC1' },
+] as const;
+
 let env: TestDbEnv;
 let root: string;
 
@@ -325,22 +334,37 @@ describe('a checkout detached at the change-set commit measures the cited tree (
     expect(codes(plan)).not.toContain('dirty-tree');
   });
 
-  it('T14518: a checkout behind the branch tip has a switch-and-enter remedy', async () => {
+  it.each(retryFlagCases)('a branch checkout remedy preserves flags "$flags"', async ({
+    runTyped,
+    satisfies,
+    flags,
+  }) => {
     const id = await seedTask(['Change src/a.ts to return 2']);
     commitOnTaskBranch(id);
     writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
     git(root, ['commit', '-q', '-am', `${id}: change a again`]);
     git(root, ['switch', '-q', '--detach', `task/${id}~1`]);
 
-    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      runTyped,
+      satisfies,
+    });
+    expect(plan.changeSet.source).toBe('branch');
     const refusal = plan.blockers.find((b) => b.code === 'checkout-required');
     expect(refusal?.next?.command).toBe(
-      `git -C ${root} switch task/${id} && cd ${root} && cleo done ${id}`,
+      `git -C ${root} switch task/${id} && cd ${root} && cleo done ${id}${flags}`,
     );
     expect(plan.ready).toBe(false);
   });
 
-  it('T14518: a checkout behind a landed commit has a switch-and-enter remedy', async () => {
+  it.each(retryFlagCases)('a commit checkout remedy preserves flags "$flags"', async ({
+    runTyped,
+    satisfies,
+    flags,
+  }) => {
     const id = await seedTask(['Change src/a.ts to return 2']);
     writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
     git(root, ['commit', '-q', '-am', `${id}: land change`]);
@@ -348,11 +372,18 @@ describe('a checkout detached at the change-set commit measures the cited tree (
     const sha = git(root, ['rev-parse', 'HEAD']);
     git(root, ['switch', '-q', '--detach', 'HEAD~1']);
 
-    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps, commit: sha });
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      commit: sha,
+      runTyped,
+      satisfies,
+    });
     expect(plan.changeSet.source).toBe('commit');
     const refusal = plan.blockers.find((b) => b.code === 'checkout-required');
     expect(refusal?.next?.command).toBe(
-      `git -C ${root} switch --detach origin/main && cd ${root} && cleo done ${id} --commit ${sha}`,
+      `git -C ${root} switch --detach origin/main && cd ${root} && cleo done ${id} --commit ${sha}${flags}`,
     );
     expect(plan.ready).toBe(false);
   });
@@ -916,7 +947,7 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
         expect(plan.blockers.map((b) => b.code)).toEqual(['checkout-required']);
         expect(plan.next?.command).toContain(`switch --detach ${merge}`);
         expect(plan.next?.command).toContain(`cd ${stale} && cleo done ${id}`);
-        expect(plan.next?.command).toContain('--pr 42 --run-typed');
+        expect(plan.next?.command).toContain('--pr 42 --run-typed --satisfies all');
       }
       const discovered = await deriveTaskEvidence(id, {
         ...options,
@@ -953,14 +984,38 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     expect(ev['qaPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
   });
 
-  it.each([
-    { prNumber: undefined, runTyped: false, flags: '' },
-    { prNumber: 42, runTyped: false, flags: ' --pr 42' },
-    { prNumber: undefined, runTyped: true, flags: ' --run-typed' },
-    { prNumber: 42, runTyped: true, flags: ' --pr 42 --run-typed' },
-  ])('T14518: the worktree redirect preserves flags "$flags"', async ({
+  it.each(retryFlagCases)('a PR checkout remedy preserves flags "$flags"', async ({
+    runTyped,
+    satisfies,
+    flags,
+  }) => {
+    const { id, prDeps } = await mergedPrSetup(false);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '--detach', `task/${id}`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      prNumber: 42,
+      runTyped,
+      satisfies,
+      deps: prDeps,
+    });
+    expect(plan.changeSet.source).toBe('pr');
+    const refusal = plan.blockers.find((b) => b.code === 'checkout-required');
+    expect(refusal?.next?.command).toBe(
+      `git -C ${root} switch --detach ${merge} && cleo done ${id} --pr 42${flags}`,
+    );
+  });
+
+  it.each(
+    retryFlagCases.flatMap((options) => [
+      { ...options, prNumber: undefined },
+      { ...options, prNumber: 42 },
+    ]),
+  )('the worktree redirect preserves --pr $prNumber and flags "$flags"', async ({
     prNumber,
     runTyped,
+    satisfies,
     flags,
   }) => {
     const { id, prDeps } = await mergedPrSetup(false);
@@ -972,14 +1027,16 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
       const plan = await deriveTaskEvidence(id, {
         projectRoot: root,
         cwd: root,
-        satisfies: 'all',
+        satisfies,
         prNumber,
         runTyped,
         deps: prDeps,
       });
       expect(plan.changeSet.rootSource).toBe('task-worktree');
       const refusal = plan.blockers.find((b) => b.code === 'run-from-worktree');
-      expect(refusal?.next?.command).toBe(`cd '${wt}' && cleo done ${id}${flags}`);
+      expect(refusal?.next?.command).toBe(
+        `cd '${wt}' && cleo done ${id}${prNumber === undefined ? '' : ' --pr 42'}${flags}`,
+      );
     } finally {
       git(root, ['worktree', 'remove', '--force', wt]);
     }

@@ -266,8 +266,7 @@ function checkoutBlocker(
   taskId: string,
   cs: TaskChangeSet,
   ciSatisfies: boolean,
-  runTyped: boolean,
-  prNumber?: number,
+  retry: string,
 ): DonePlanBlocker | null {
   const root = cs.executionRoot;
   const head = gitRead(root, ['rev-parse', 'HEAD']);
@@ -279,7 +278,7 @@ function checkoutBlocker(
       code: 'checkout-required',
       message: `${taskId}'s change is ${short(cs.commitSha)} on ${branch}, but ${root} has ${short(head)} checked out; the tools would measure a different tree than implemented cites.`,
       next: {
-        command: `git -C ${shellQuote(root)} switch ${branch} && cd ${shellQuote(root)} && cleo done ${taskId}`,
+        command: `git -C ${shellQuote(root)} switch ${branch} && cd ${shellQuote(root)} && ${retry}`,
         why: 'Tests, lint, typecheck and typed gates must run on the commit implemented records.',
       },
     };
@@ -297,7 +296,7 @@ function checkoutBlocker(
       code: 'checkout-required',
       message: `${root} has ${short(head)} checked out, which does not contain ${taskId}'s commit ${short(cs.commitSha)}; the tools would measure a tree without the change.`,
       next: {
-        command: `git -C ${shellQuote(root)} switch --detach ${cs.baseRef ?? cs.commitSha} && cd ${shellQuote(root)} && cleo done ${taskId} --commit ${cs.commitSha}`,
+        command: `git -C ${shellQuote(root)} switch --detach ${cs.baseRef ?? cs.commitSha} && cd ${shellQuote(root)} && ${retry}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree that holds the commit implemented records.',
       },
     };
@@ -344,7 +343,7 @@ function checkoutBlocker(
           ? '; evidence.ciSatisfies is set, so ci:<pr> needs no local run.'
           : '. (Setting evidence.ciSatisfies would let ci:<pr>, the merged CI, stand in.)'),
       next: {
-        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && ${enterTree}cleo done ${taskId}${prNumber === undefined ? '' : ` --pr ${prNumber}`}${runTyped ? ' --run-typed' : ''}`,
+        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && ${enterTree}${retry}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
       },
     };
@@ -370,6 +369,7 @@ async function readinessBlockers(input: {
   needsTree: boolean;
   runTyped: boolean;
   prNumber?: number;
+  satisfies?: DeriveTaskEvidenceOptions['satisfies'];
   gates: readonly DonePlanGate[];
   additionalImplemented: readonly string[];
   blocked: boolean;
@@ -377,14 +377,15 @@ async function readinessBlockers(input: {
 }): Promise<DonePlanBlocker[]> {
   const { taskId, changeSet: cs } = input;
   if (input.needsTree) {
+    const satisfies = input.satisfies === 'all' ? 'all' : input.satisfies?.join(',');
+    const retry =
+      `cleo done ${taskId}` +
+      (cs.source === 'commit' && cs.commitSha ? ` --commit ${cs.commitSha}` : '') +
+      (input.prNumber === undefined ? '' : ` --pr ${input.prNumber}`) +
+      (input.runTyped ? ' --run-typed' : '') +
+      (satisfies ? ` --satisfies ${shellQuote(satisfies)}` : '');
     // A stale task worktree needs the merged checkout, not just a change of directory.
-    const checkout = checkoutBlocker(
-      taskId,
-      cs,
-      readCiSatisfies(input.storeRoot),
-      input.runTyped,
-      input.prNumber,
-    );
+    const checkout = checkoutBlocker(taskId, cs, readCiSatisfies(input.storeRoot), retry);
     if (checkout) return [checkout];
     if (cs.rootSource === 'task-worktree') {
       return [
@@ -392,7 +393,7 @@ async function readinessBlockers(input: {
           code: 'run-from-worktree',
           message: `${taskId}'s work is in its worktree ${cs.executionRoot}; tools must run in that tree.`,
           next: {
-            command: `cd ${shellQuote(cs.executionRoot)} && cleo done ${taskId}${input.prNumber === undefined ? '' : ` --pr ${input.prNumber}`}${input.runTyped ? ' --run-typed' : ''}`,
+            command: `cd ${shellQuote(cs.executionRoot)} && ${retry}`,
             why: 'Evidence tools measure the invocation tree; run cleo done from the task worktree.',
           },
         },
@@ -1647,6 +1648,7 @@ export async function deriveTaskEvidence(
           needsTree: toolRuns.length > 0 || typedGates.length > 0,
           runTyped: opts.runTyped === true,
           prNumber: opts.prNumber,
+          satisfies,
           gates,
           additionalImplemented,
           blocked: derivedBlockers.length > 0,
