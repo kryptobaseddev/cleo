@@ -25,9 +25,10 @@
  * `resolve.alias` evaluates an ARRAY of `{ find, replacement, customResolver }`
  * entries top-to-bottom, first match wins. A single regex entry — placed at the
  * FRONT of each config's alias array so it beats the bare-package object
- * aliases — maps any `@cleocode/<pkg>/<subpath>` import to the corresponding
- * `packages/<pkg>/src/<subpath>` TypeScript file. The `customResolver` performs
- * the `.js → .ts` rewrite and the directory→`index.ts` fallback, and returns
+ * aliases — maps any `@cleocode/<pkg>/<subpath>` import through its declared
+ * package export to the corresponding TypeScript source. The `customResolver`
+ * maps `dist/` and `dist/src/` targets back to `src/`, retains the conventional
+ * `.js → .ts` and directory→`index.ts` fallbacks for internal imports, and returns
  * `null` for anything without an on-disk source so default resolution still
  * handles it (e.g. a genuinely external specifier).
  *
@@ -41,14 +42,16 @@
  */
 
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readPackageExports, resolveExportsTarget } from './scripts/lib/package-exports.mjs';
 
 const REPO_ROOT = dirname(fileURLToPath(import.meta.url));
 const PACKAGES_DIR = join(REPO_ROOT, 'packages');
+const PACKAGE_EXPORTS = new Map<string, ReturnType<typeof readPackageExports>>();
 
-/** Matches `@cleocode/<pkg>/<subpath>` (subpath required — bare roots excluded). */
-const WORKSPACE_SUBPATH_RE = /^@cleocode\/([a-z0-9-]+)\/(.+)$/;
+/** Matches workspace packages and their subpaths, including bare package roots. */
+const WORKSPACE_PACKAGE_RE = /^@cleocode\/([a-z0-9-]+)(?:\/(.+))?$/;
 
 /**
  * `@cleocode/<pkg>` packages whose `src/` tree this resolver maps into. Derived
@@ -87,29 +90,40 @@ function discoverWorkspacePackages(): Set<string> {
 }
 
 /**
- * Resolve `@cleocode/<pkg>/<subpath>` to an existing TypeScript source file
+ * Resolve `@cleocode/<pkg>` or its subpaths to an existing TypeScript source file
  * under `packages/<pkg>/src`, or `null` if no source file exists (in which
- * case default resolution is left to handle the specifier).
+ * case default resolution is left to handle the specifier). Declared exports
+ * take precedence over conventional source paths.
  *
  * @param id - the raw import specifier
  * @param packages - the workspace packages this resolver may map into
  */
 export function resolveWorkspaceSource(id: string, packages: Set<string>): string | null {
-  const match = WORKSPACE_SUBPATH_RE.exec(id);
+  const match = WORKSPACE_PACKAGE_RE.exec(id);
   if (match === null) return null;
   const [, pkg, rawSubpath] = match;
-  if (pkg === undefined || rawSubpath === undefined || !packages.has(pkg)) return null;
+  if (pkg === undefined || !packages.has(pkg)) return null;
 
   const srcRoot = join(PACKAGES_DIR, pkg, 'src');
+  let exportsMap = PACKAGE_EXPORTS.get(pkg);
+  if (exportsMap === undefined) {
+    exportsMap = readPackageExports(join(PACKAGES_DIR, pkg));
+    PACKAGE_EXPORTS.set(pkg, exportsMap);
+  }
+  const target = resolveExportsTarget(exportsMap, rawSubpath ?? '', 'import');
+  const exportedSource = target === null ? null : /^\.\/dist\/(?:src\/)?(.+)\.js$/.exec(target)?.[1];
   // ESM import specifiers carry a `.js` extension that maps to a `.ts` source.
-  const base = rawSubpath.replace(/\.js$/, '');
+  const base = rawSubpath?.replace(/\.js$/, '') ?? 'index';
 
-  // Try, in order: `<base>.ts`, then `<base>/index.ts` (directory subpath).
-  const candidates = [`${base}.ts`, join(base, 'index.ts')];
+  const candidates = [
+    ...(exportedSource ? [`${exportedSource}.ts`] : []),
+    `${base}.ts`,
+    join(base, 'index.ts'),
+  ];
   for (const rel of candidates) {
     const abs = resolve(srcRoot, rel);
     // Guard against `..` escapes outside the package src tree.
-    if (!abs.startsWith(srcRoot)) continue;
+    if (!abs.startsWith(`${srcRoot}${sep}`)) continue;
     if (existsSync(abs)) return abs;
   }
   return null;
@@ -144,7 +158,7 @@ export function cleoWorkspaceSubpathAliases(): WorkspaceAliasEntry[] {
   const packages = discoverWorkspacePackages();
   return [
     {
-      find: WORKSPACE_SUBPATH_RE,
+      find: WORKSPACE_PACKAGE_RE,
       // The replacement is intentionally inert — `customResolver` decides the
       // real target (and returns null to fall through when there is no source).
       replacement: '$&',
