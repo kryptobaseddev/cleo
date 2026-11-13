@@ -28,6 +28,7 @@ import {
 } from './ac-table.js';
 import { commandGateCmdProblem } from './command-gate-cmd.js';
 import { splitCommandLine } from './command-line.js';
+import { minCountReporterProblem } from './test-report-counts.js';
 
 // ─── Heuristic regex patterns ─────────────────────────────────────────────────
 
@@ -234,6 +235,7 @@ export async function reqAdd(
 ): Promise<{ task: { id: string; acceptance: AcceptanceItem[] } }> {
   const validated = validateGate(gate);
   refuseArgsInCmd(validated, projectRoot);
+  refuseUncountableMinCount(validated);
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
   return acc.transaction(async (tx) => {
     const task = await loadTask(acc, taskId);
@@ -325,6 +327,7 @@ export async function reqReplace(
   }
   const validated = validateGate({ ...gate, req: reqId });
   refuseArgsInCmd(validated, projectRoot);
+  refuseUncountableMinCount(validated);
   const acc = options.accessor ?? (await getTaskAccessor(projectRoot));
   return acc.transaction(async (tx) => {
     const task = await loadTask(acc, taskId);
@@ -765,6 +768,20 @@ function refuseArgsInCmd(gate: AcceptanceGate, projectRoot: string): void {
   // @sync-invariant none:input-shape a command gate whose cmd carries arguments is refused before any write
   throw new CleoError(ExitCode.VALIDATION_ERROR, problem, {
     fix: 'Put the executable alone in "cmd" and each argument in "args", e.g. {"kind":"command","cmd":"node","args":["-e","0"]}',
+  });
+}
+
+/**
+ * Refuse a written `minCount` test gate whose command prints no report
+ * `cleo verify --run` can count (T14526), naming the corrected gate. Only writes
+ * call this; the gate is never changed on the caller's behalf.
+ */
+function refuseUncountableMinCount(gate: AcceptanceGate): void {
+  const found = minCountReporterProblem(gate);
+  if (found === null) return;
+  // @sync-invariant none:input-shape a minCount test gate with no countable reporter is refused before any write
+  throw new CleoError(ExitCode.VALIDATION_ERROR, found.problem, {
+    fix: `Use the gate with the reporter flag added: --gate '${found.correctedGate}'`,
   });
 }
 

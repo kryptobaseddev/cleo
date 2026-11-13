@@ -332,6 +332,69 @@ describe('typed requirement persistence', () => {
     expect(persisted(root, "SELECT id FROM tasks_tasks WHERE id='T404'")).toBe('[]');
   });
 
+  describe('minCount test gate needs a countable reporter (T14526)', () => {
+    const test = (command: string, req = 'TEST-1', args?: string[]): AcceptanceGate => ({
+      kind: 'test',
+      command,
+      ...(args ? { args } : {}),
+      expect: 'pass',
+      minCount: 2,
+      description: 'tests pass',
+      req,
+    });
+    const vitest =
+      'pnpm exec vitest run packages/core/src/tasks/__tests__/done-plan.test.ts -t T14512';
+
+    it('add and replace refuse a vitest command without --reporter=json, naming the corrected gate, and write nothing', async () => {
+      await reqAdd(root, 'T121', gate(), accessor);
+      const before = persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks');
+      const refusal = (await reqAdd(root, 'T121', test(vitest), accessor).catch((e) => e)) as {
+        message: string;
+        fix?: string;
+      };
+      expect(refusal.message).toMatch(
+        /minCount 2 cannot be proved: .*names no machine-readable reporter/,
+      );
+      expect(JSON.parse(refusal.fix?.match(/--gate '(.*)'$/)?.[1] ?? 'null')).toEqual(
+        test(`${vitest} --reporter=json`),
+      );
+      await expect(
+        reqReplace(root, 'T121', 'PARTNER-121', test(vitest, 'PARTNER-121'), { accessor }),
+      ).rejects.toThrow(/Add --reporter=json to the gate's command/);
+      expect(persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks')).toBe(before);
+    });
+
+    it('accepts a command naming a reporter, a gate without minCount, and an unrecognised runner', async () => {
+      await reqAdd(root, 'T121', test(`${vitest} --reporter=json`), accessor);
+      await reqAdd(
+        root,
+        'T121',
+        test('pnpm exec vitest', 'TEST-2', ['run', '--reporter', 'json']),
+        accessor,
+      );
+      await reqAdd(
+        root,
+        'T121',
+        { kind: 'test', command: vitest, expect: 'pass', description: 'tests pass', req: 'TEST-3' },
+        accessor,
+      );
+      await reqAdd(root, 'T121', test('pnpm test', 'TEST-4'), accessor);
+      expect((await reqList(root, 'T121', accessor)).gates.map((item) => item.req)).toEqual([
+        'TEST-1',
+        'TEST-2',
+        'TEST-3',
+        'TEST-4',
+      ]);
+    });
+
+    it('puts the node:test reporter beside --test, before the file arguments', async () => {
+      const refusal = (await reqAdd(root, 'T121', test('node --test a.test.js'), accessor).catch(
+        (e) => e,
+      )) as { fix?: string };
+      expect(refusal.fix).toContain('"command":"node --test --test-reporter=tap a.test.js"');
+    });
+  });
+
   describe('command gate cmd is one executable (T14155)', () => {
     const command = (cmd: string, req = 'CMD-1'): AcceptanceGate => ({
       kind: 'command',

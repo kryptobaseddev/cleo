@@ -109,6 +109,7 @@ import {
   readParsedTestReport,
   readTestReport,
   TEST_REPORT_FORMATS,
+  testReporterFlag,
 } from './test-report-counts.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
 import { acquireGlobalSlot } from './tool-semaphore.js';
@@ -2580,6 +2581,7 @@ async function freshReportCounts(
  * node:test (`node --test`, `tsx --test`) is detected before the package
  * managers, which run it too and whose `--reporter=json` it rejects (T14051);
  * a report that was found but refused is named with its first issue (T14060).
+ * The flag comes from {@link testReporterFlag}, which write-time refusals share (T14526).
  *
  * @param gate - Gate whose command needs a machine-readable reporter.
  * @param refusal - Why the newest report-like candidate was refused, if any.
@@ -2589,13 +2591,7 @@ async function freshReportCounts(
  */
 function describeMissingTestCount(gate: TestGate, refusal?: string): string {
   const invoked = [gate.command, ...(gate.args ?? [])].join(' ');
-  const flag = /\b(?:node|tsx)\b.*\s--test(?![\w-])/.test(invoked)
-    ? '--test-reporter=tap'
-    : /jest/.test(invoked)
-      ? '--json'
-      : /vitest|pnpm|npm|yarn|bun/.test(invoked)
-        ? '--reporter=json'
-        : '<your runner\u2019s JSON reporter flag>';
+  const flag = testReporterFlag(invoked) ?? '<your runner\u2019s JSON reporter flag>';
   const found =
     refusal === undefined
       ? `\`${invoked}\` emitted no machine-readable test report`

@@ -24,6 +24,7 @@
 
 import { statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import type { AcceptanceGate } from '@cleocode/contracts';
 import type { TestRunReport } from './test-run-binding.js';
 
 /**
@@ -863,4 +864,90 @@ export function readTestReport(
   if (libtest !== null) return adapted(libtest, 'libtest JSON lines');
   const tap = tapTestRun(text, options);
   return tap === null ? null : adapted(tap, 'node:test TAP');
+}
+
+/** node:test, run by `node --test` or `tsx --test`, which ships no JSON reporter (T14051). */
+const NODE_TEST_RUNNER = /\b(?:node|tsx)\b.*\s--test(?![\w-])/;
+
+/**
+ * The flag that makes a test command print a report {@link readTestReport}
+ * counts, by runner: `--test-reporter=tap` for node:test (detected before the
+ * package managers, which run it too and whose `--reporter=json` it rejects,
+ * T14051), `--json` for Jest, `--reporter=json` for Vitest and the package
+ * managers. The run-time `minCount` error and the write-time refusal
+ * ({@link minCountReporterProblem}) both name it (T14526).
+ *
+ * @param invoked - The gate's command and arguments, joined by spaces.
+ * @returns The flag, or null for a runner this does not recognise.
+ * @example
+ * ```ts
+ * testReporterFlag('pnpm exec vitest run a.test.ts'); // '--reporter=json'
+ * ```
+ * @task T12308
+ * @task T14526
+ */
+export function testReporterFlag(invoked: string): string | null {
+  if (NODE_TEST_RUNNER.test(invoked)) return '--test-reporter=tap';
+  if (/jest/.test(invoked)) return '--json';
+  if (/vitest|pnpm|npm|yarn|bun/.test(invoked)) return '--reporter=json';
+  return null;
+}
+
+/** A word that already selects a reporter or a report file; the command is then left alone. */
+const REPORTER_WORD = /^(?:--(?:test-)?reporters?(?:[=.]|$)|--json$|--outputFile(?:[=.]|$))/;
+
+/** A `minCount` test gate that cannot be counted, with the corrected gate. */
+export interface MinCountReporterProblem {
+  /** Why `cleo verify --run` would find no report to count. */
+  readonly problem: string;
+  /** The same gate with the runner's reporter flag added, as JSON text. */
+  readonly correctedGate: string;
+}
+
+/**
+ * Why a `test` gate with a `minCount` cannot be counted, or null (T14526).
+ *
+ * A gate with `minCount` passes only on a report its own command prints
+ * (T12308); a Vitest, Jest or node:test command with no reporter flag prints
+ * none, so the gate is accepted at write time and errors only at close. A
+ * write (`cleo req add`, `cleo req replace`) refuses such a gate and names the
+ * corrected one; it never adds the flag itself. A command that already names a
+ * reporter or report file, or a runner this does not recognise (a package
+ * script such as `pnpm test`), is not judged.
+ *
+ * @param gate - Any acceptance gate; only `test` gates with `minCount > 0` are judged.
+ * @returns The problem and the corrected gate, or null.
+ * @example
+ * ```ts
+ * minCountReporterProblem({ kind: 'test', command: 'pnpm exec vitest run a.test.ts',
+ *   expect: 'pass', minCount: 2, description: 'd' })?.correctedGate;
+ * // '{"kind":"test","command":"pnpm exec vitest run a.test.ts --reporter=json",…}'
+ * ```
+ * @task T14526
+ */
+export function minCountReporterProblem(gate: AcceptanceGate): MinCountReporterProblem | null {
+  if (gate.kind !== 'test' || gate.minCount === undefined || gate.minCount <= 0) return null;
+  const args = gate.args ?? [];
+  const words = [...gate.command.trim().split(/\s+/), ...args];
+  if (words.some((word) => REPORTER_WORD.test(word))) return null;
+  const invoked = words.join(' ');
+  const isNodeTest = NODE_TEST_RUNNER.test(invoked);
+  if (!isNodeTest && !/\b(?:vitest|jest)\b/.test(invoked)) return null;
+  const flag = testReporterFlag(invoked);
+  if (flag === null) return null;
+  // node:test reads options before its file arguments: put the flag beside --test.
+  const fixed: AcceptanceGate = isNodeTest
+    ? args.includes('--test')
+      ? { ...gate, args: args.flatMap((a) => (a === '--test' ? [a, flag] : [a])) }
+      : { ...gate, command: gate.command.replace(/(^|\s)--test(?=\s|$)/, `$1--test ${flag}`) }
+    : args.length > 0
+      ? { ...gate, args: [...args, flag] }
+      : { ...gate, command: `${gate.command.trimEnd()} ${flag}` };
+  return {
+    problem:
+      `minCount ${gate.minCount} cannot be proved: \`${invoked}\` names no machine-readable ` +
+      `reporter, so \`cleo verify --run\` would find no test report to count and the gate ` +
+      `would error at close. Add ${flag} to the gate's command`,
+    correctedGate: JSON.stringify(fixed),
+  };
 }
