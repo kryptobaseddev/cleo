@@ -6,7 +6,7 @@
  * ## What this prevents
  *
  * Vitest and the built packages resolve a contracts subpath differently.
- * Vitest (`vitest-workspace-resolver.ts`) maps `@cleocode/contracts/x.js` to
+ * Vitest (`vitest-workspace-resolver.ts`) historically mapped `@cleocode/contracts/x.js` to
  * `src/x.ts`, else `src/x/index.ts`. Node resolves the same specifier through
  * the `exports` map of `packages/contracts/package.json` onto `dist/`. In
  * #2772 `@cleocode/contracts/config.js` read `src/config.ts` under vitest while
@@ -35,7 +35,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
 import ts from 'typescript';
 import { isMain } from './lib/is-main.mjs';
+import { resolveExportsTarget } from './lib/package-exports.mjs';
 import { SCANNED_PACKAGES } from './lint-no-contracts-barrel-value-imports.mjs';
+
+export { resolveExportsTarget } from './lib/package-exports.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 
@@ -87,56 +90,6 @@ export function findSubpathSpecifiers(file, source) {
 }
 
 /**
- * Pick the conditional target of one `exports` value for `condition`, the
- * way Node does for an ESM import (`types` for TypeScript, `import` for Node).
- *
- * @param {unknown} value - An `exports` map value.
- * @param {'import' | 'types'} condition - The condition to resolve.
- * @returns {string | null} The target string, or null.
- */
-function conditionalTarget(value, condition) {
-  if (typeof value === 'string') return value;
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  for (const [key, inner] of Object.entries(value)) {
-    if (key === condition || key === 'default') return conditionalTarget(inner, condition);
-  }
-  return null;
-}
-
-/**
- * Resolve `./<subpath>` through an `exports` map as Node's
- * `PACKAGE_EXPORTS_RESOLVE` does: an exact key first, else the pattern key
- * with the longest prefix before its `*` (ties: the longer key).
- *
- * @param {Record<string, unknown>} exportsMap - `package.json` `exports`.
- * @param {string} subpath - The subpath after the package name (`config.js`).
- * @param {'import' | 'types'} condition - The condition to resolve.
- * @returns {string | null} The target (`./dist/x.js`), or null when not exported.
- */
-export function resolveExportsTarget(exportsMap, subpath, condition) {
-  const key = `./${subpath}`;
-  if (Object.hasOwn(exportsMap, key)) return conditionalTarget(exportsMap[key], condition);
-  let best = null;
-  for (const pattern of Object.keys(exportsMap)) {
-    const star = pattern.indexOf('*');
-    if (star === -1 || pattern.indexOf('*', star + 1) !== -1) continue;
-    const prefix = pattern.slice(0, star);
-    const suffix = pattern.slice(star + 1);
-    if (key.length < pattern.length || !key.startsWith(prefix) || !key.endsWith(suffix)) continue;
-    if (
-      best === null ||
-      prefix.length > best.prefix.length ||
-      (prefix.length === best.prefix.length && pattern.length > best.pattern.length)
-    ) {
-      best = { pattern, prefix, match: key.slice(prefix.length, key.length - suffix.length) };
-    }
-  }
-  if (best === null) return null;
-  const target = conditionalTarget(exportsMap[best.pattern], condition);
-  return target === null ? null : target.replaceAll('*', best.match);
-}
-
-/**
  * The `src/` file a `dist/` target is compiled from (`rootDir: src`).
  *
  * @param {string} target - An exports target (`./dist/config/index.js`).
@@ -148,8 +101,8 @@ export function distTargetToSource(target) {
 }
 
 /**
- * The source file vitest reads for a subpath: `src/<base>.ts`, else
- * `src/<base>/index.ts` (mirrors `resolveWorkspaceSource`).
+ * The conventional source layout for a contracts subpath: `src/<base>.ts`,
+ * else `src/<base>/index.ts` (the Vitest resolver's legacy fallback).
  *
  * @param {string} subpath - The subpath after the package name.
  * @param {(rel: string) => boolean} exists - Whether a package-relative file exists.
