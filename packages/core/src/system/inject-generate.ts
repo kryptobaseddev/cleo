@@ -5,11 +5,15 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { CleoError } from '../errors.js';
+import { readInjectionSection } from '../injection.js';
 import { focusSessionIdFromRead, readLiveFocus } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveSessionForRead } from '../store/session-store.js';
 
+/** Generated MVI markdown with its byte size and format version. */
 export interface InjectGenerateResult {
   injection: string;
   sizeBytes: number;
@@ -102,6 +106,14 @@ function buildMviMarkdown(state: {
   sessionScope: string | null;
   sessionUnbound: boolean;
 }): string {
+  const errorHandling = readInjectionSection('error-handling').content;
+  if (!errorHandling) {
+    // @sync-invariant none:local-only Protocol templates are local package assets.
+    throw new CleoError(ExitCode.FILE_ERROR, 'CLEO error-handling protocol section is missing', {
+      fix: 'Reinstall CLEO to restore its bundled protocol templates, then run cleo upgrade.',
+    });
+  }
+
   // T12500: an unbound generator only saw the newest active row — say so.
   const unboundNote = state.sessionUnbound ? ' — unbound: newest active, may be another agent' : '';
   const sessionLine = state.activeSessionName
@@ -143,17 +155,7 @@ ${focusLine}
 2. **WORK**: \`cleo current\` / \`cleo next\` / \`cleo complete <id>\` / \`cleo start <id>\`
 3. **END**: \`cleo complete <id>\` then \`cleo session end --note "Progress"\`
 
-### Error Handling
-
-| Exit | Code | Fix |
-|:----:|------|-----|
-| 4 | \`E_NOT_FOUND\` | Use \`cleo find\` or \`cleo list\` to verify |
-| 6 | \`E_VALIDATION\` | Check field lengths, escape \`$\` as \`\\$\` |
-| 10 | \`E_PARENT_NOT_FOUND\` | Verify with \`cleo exists <parent-id>\` |
-| 11 | \`E_DEPTH_EXCEEDED\` | Deeper than hierarchy.maxDepth, inclusive (default 3 = saga 0, epic 1, task 2, subtask 3) |
-| 12 | \`E_SIBLING_LIMIT\` | Exceeds configured maxSiblings (default: unlimited) |
-
-**After EVERY command**: Check exit code (\`0\` = success), check \`"success"\` in JSON output.
+${errorHandling.replace(/^##/gm, '###')}
 
 ### Detailed Guidance
 
