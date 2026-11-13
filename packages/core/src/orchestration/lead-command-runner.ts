@@ -109,14 +109,17 @@ function parseRule(
     if (set.has(name)) return `flag ${name} is repeated`;
     if (arity === 'boolean') {
       if (eq !== -1) return `flag ${name} takes no value`;
-    } else if (eq !== -1) {
-      if (eq === word.length - 1) return `flag ${name} needs a value`;
     } else {
-      const value = rest[i + 1];
-      if (value === undefined || value.startsWith('-')) {
+      const value = eq === -1 ? rest[i + 1] : word.slice(eq + 1);
+      if (value === '') return `flag ${name} needs a value`;
+      if (value === undefined || (eq === -1 && value.startsWith('-'))) {
         return `flag ${name} needs a value (write ${name}=<value> for one starting with "-")`;
       }
-      i++;
+      const allowedValues = rule.flagValues?.[name];
+      if (allowedValues && !allowedValues.includes(value)) {
+        return `flag ${name} is allowed only with ${allowedValues.join(', ')}`;
+      }
+      if (eq === -1) i++;
     }
     set.add(name);
   }
@@ -229,7 +232,9 @@ const RUNNER_TOOL = {
   description:
     'Run one allow-listed cleo or gh command. Pass argv as an array of words (no shell), ' +
     'command words first, then positionals, then listed flags (--flag=value for a value starting with "-"; no --no-* forms): ' +
-    'cleo orchestrate <read/plan/dispatch sub-verb>, cleo show/find/list, cleo review packet|check|verdict, ' +
+    'cleo orchestrate <read/plan/dispatch sub-verb> (status [epicId] or status --epic <epicId>), ' +
+    'cleo add <title> --type task --parent <epicId> --acceptance <criteria> [--description <text>], ' +
+    'cleo show/find/list, cleo review packet|check|verdict, ' +
     'cleo done --from-merge <pr> --dry-run, cleo memory find|fetch, cleo session status, cleo decide ask, ' +
     'cleo merge train; gh pr view|list|checks|diff <number>, gh pr comment <number> --body <text>, gh run list, gh run view <id>. Anything else is refused.',
   inputSchema: {

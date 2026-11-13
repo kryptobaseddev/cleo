@@ -1018,6 +1018,8 @@ export interface LeadCommandRule {
   readonly verb: readonly string[];
   /** Flags the command accepts, keyed by their full token (`--json`), with arity. */
   readonly flags?: Readonly<Record<string, LeadFlagArity>>;
+  /** Restrict values of listed value flags; absent entries impose no value restriction. */
+  readonly flagValues?: Readonly<Record<string, readonly string[]>>;
   /** Most positional words allowed after the path. @defaultValue 0 */
   readonly positionals?: number;
   /**
@@ -1051,8 +1053,8 @@ export const LEAD_CLEO_GLOBAL_FLAGS: Readonly<Record<string, LeadFlagArity>> = {
 
 /**
  * Commands a lead may run through {@link LEAD_RUNNER_TOOL}: read, plan,
- * dispatch and review verbs only, plus `merge train` (T14371), which merges only
- * PRs green on their exact head and reviewed per AC. Nothing here edits files,
+ * dispatch and review verbs, filing findings as tasks, plus `merge train`
+ * (T14371), which merges only PRs green on their exact head and reviewed per AC. Nothing here edits files,
  * pushes or answers an owner gate; anything not listed is refused.
  *
  * Each rule names a leaf command with no subcommands (checked against the
@@ -1072,7 +1074,11 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
 > = {
   cleo: [
     { verb: ['orchestrate', 'start'], positionals: 1 },
-    { verb: ['orchestrate', 'status'], flags: { '--epic': 'value', '--merge-queue': 'boolean' } },
+    {
+      verb: ['orchestrate', 'status'],
+      positionals: 1,
+      flags: { '--epic': 'value', '--merge-queue': 'boolean' },
+    },
     { verb: ['orchestrate', 'dashboard'], flags: { '--window': 'value' } },
     { verb: ['orchestrate', 'roll-up'], positionals: 1, flags: { '--wave': 'value' } },
     {
@@ -1129,6 +1135,18 @@ export const LEAD_COMMAND_ALLOWLIST: Readonly<
     },
     { verb: ['orchestrate', 'fanout'], positionals: 1, flags: { '--tasks': 'value' } },
     { verb: ['orchestrate', 'pending'] },
+    {
+      verb: ['add'],
+      positionals: 1,
+      flags: {
+        '--type': 'value',
+        '--parent': 'value',
+        '--description': 'value',
+        '--acceptance': 'value',
+      },
+      flagValues: { '--type': ['task'] },
+      requireFlags: ['--type', '--parent', '--acceptance'],
+    },
     {
       verb: ['show'],
       positionals: 50,

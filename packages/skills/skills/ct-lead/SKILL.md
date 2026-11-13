@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers in one `cleo orchestrate fanout` call, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.9.0
+  version: 1.10.0
   tier: core
   install: harness
   covers:
@@ -61,6 +61,13 @@ above are enforced by your tool list, not by your discipline (T14363):
 
 Commands the allow-list does not hold (for example `cleo manifest append`)
 are out of reach: put that content in your returned contract instead.
+
+Scope status with `cleo orchestrate status <epicId>` (or `--epic <epicId>`);
+omit the epic for overall project status. File each finding through the runner
+with `cleo add "Finding title" --type task --parent <epicId> --acceptance "AC1|AC2"`.
+Only task creation is allowed, with a required parent and acceptance criteria;
+`--description` is optional. Task updates, other task types, JSON input and
+validation bypasses remain unavailable.
 
 ## Operational Rules
 

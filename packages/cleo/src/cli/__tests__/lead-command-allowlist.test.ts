@@ -16,8 +16,16 @@ import {
   LEAD_COMMAND_ALLOWLIST,
   type LeadFlagArity,
 } from '@cleocode/contracts/operations/orchestrate.js';
-import { describe, expect, it } from 'vitest';
+import { runCommand } from 'citty';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { orchestrateCommand } from '../commands/orchestrate.js';
 import { COMMAND_MANIFEST } from '../generated/command-manifest.js';
+
+vi.mock('../../dispatch/adapters/cli.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../dispatch/adapters/cli.js')>()),
+  dispatchFromCli: vi.fn<typeof dispatchFromCli>(),
+}));
 
 /** The slice of a citty arg definition this test reads. */
 interface ArgDef {
@@ -84,5 +92,27 @@ describe('LEAD_COMMAND_ALLOWLIST matches the CLI (T14374)', () => {
     }
     const positionals = Object.values(cmd.args ?? {}).filter((d) => d.type === 'positional');
     if ((rule.positionals ?? 0) > 0) expect(positionals.length).toBeGreaterThan(0);
+  });
+});
+
+describe('orchestrate status epic scope (T14478)', () => {
+  beforeEach(() => {
+    vi.mocked(dispatchFromCli).mockClear();
+  });
+
+  it.each([
+    { argv: [], epicId: undefined },
+    { argv: ['T1'], epicId: 'T1' },
+    { argv: ['--epic', 'T1'], epicId: 'T1' },
+    { argv: ['--epic=T1'], epicId: 'T1' },
+  ])('dispatches the parsed scope for $argv', async ({ argv, epicId }) => {
+    await runCommand(orchestrateCommand, { rawArgs: ['status', ...argv] });
+    expect(dispatchFromCli).toHaveBeenCalledExactlyOnceWith(
+      'query',
+      'orchestrate',
+      'status',
+      { epicId },
+      { command: 'orchestrate' },
+    );
   });
 });

@@ -53,6 +53,16 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
     // No value reaches a shell, so `$` and `\` pass through verbatim.
     const literal = await runLeadCommand(['cleo', 'find', '$HOME a\\b $(id)'], { env });
     expect(literal).toMatchObject({ allowed: true, stdout: 'fake-cleo find $HOME a\\b $(id)\n' });
+    const finding = await runLeadCommand(
+      ['cleo', 'add', 'Finding', '--type', 'task', '--parent', 'T1', '--acceptance', 'Fixed'],
+      { env },
+    );
+    expect(finding).toEqual({
+      allowed: true,
+      exitCode: 0,
+      stdout: 'fake-cleo add Finding --type task --parent T1 --acceptance Fixed\n',
+      stderr: '',
+    });
   });
 
   it.each([
@@ -60,6 +70,58 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
     [['sh', '-c', 'cleo show T1']],
     [['/usr/local/bin/cleo', 'show', 'T1']],
     [['cleo', 'add', 'X']],
+    [['cleo', 'add', 'Finding', '--parent', 'T1', '--acceptance', 'Fixed']],
+    [['cleo', 'add', 'Finding', '--type', 'task', '--acceptance', 'Fixed']],
+    [['cleo', 'add', 'Finding', '--type', 'task', '--parent', 'T1']],
+    [['cleo', 'add', 'Finding', '--type', 'epic', '--parent', 'T1', '--acceptance', 'Fixed']],
+    [['cleo', 'add', 'Finding', '--type=saga', '--parent=T1', '--acceptance=Fixed']],
+    [['cleo', 'add', 'Finding', '--type=subtask', '--parent=T1', '--acceptance=Fixed']],
+    [['cleo', 'add', 'Finding', '--type=', '--parent=T1', '--acceptance=Fixed']],
+    [['cleo', 'add', 'Finding', '--type=task', '--parent=T1', '--acceptance=']],
+    [
+      [
+        'cleo',
+        'add',
+        'Finding',
+        '--type=task',
+        '--parent=T1',
+        '--acceptance=Fixed',
+        '--status=done',
+      ],
+    ],
+    [
+      [
+        'cleo',
+        'add',
+        'Finding',
+        '--type=task',
+        '--parent=T1',
+        '--acceptance=Fixed',
+        '--params={"type":"epic"}',
+      ],
+    ],
+    [
+      [
+        'cleo',
+        'add',
+        'Finding',
+        '--type=task',
+        '--parent=T1',
+        '--acceptance=Fixed',
+        '--params-file=/tmp/finding.json',
+      ],
+    ],
+    [
+      [
+        'cleo',
+        'add',
+        'Finding',
+        '--type=task',
+        '--parent=T1',
+        '--acceptance=Fixed',
+        '--force-duplicate',
+      ],
+    ],
     [['cleo', 'update', 'T1', '--status', 'done']],
     [['cleo', 'complete', 'T1']],
     [['cleo', 'orchestrate', 'worktree-complete', 'T1']],
@@ -157,6 +219,7 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
       'show T1 --full',
       'done --from-merge 12 --dry-run',
       'find $HOME a\\b $(id)',
+      'add Finding --type task --parent T1 --acceptance Fixed',
     ]);
   });
 
@@ -165,6 +228,19 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
       ['gh', 'pr', 'checks', '12'],
       ['gh', 'run', 'view', '99', '--log-failed'],
       ['cleo', 'orchestrate', 'ready', 'T1'],
+      ['cleo', 'orchestrate', 'status'],
+      ['cleo', 'orchestrate', 'status', 'T1'],
+      ['cleo', 'orchestrate', 'status', '--epic', 'T1'],
+      [
+        'cleo',
+        'add',
+        'Finding',
+        '--type=task',
+        '--parent=T1',
+        '--acceptance=AC1|AC2',
+        '--description',
+        'A & B; $(id)',
+      ],
       ['cleo', 'review', 'verdict', 'T1'],
       ['cleo', 'memory', 'find', 'x'],
       ['cleo', 'session', 'status'],
