@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { AcceptanceGate, AcRow, Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CleoError } from '../../errors.js';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { awaitBackgroundOps, createOperationExecutionContext } from '../../store/background-ops.js';
@@ -15,6 +16,7 @@ import { closeDb, getNativeTasksDb } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
 import { buildFreshAcRows } from '../ac-table.js';
+import { splitCommandLine } from '../command-line.js';
 import { previewTaskGates } from '../gate-preview.js';
 import {
   buildGateCacheEntryBody,
@@ -333,43 +335,78 @@ describe('typed requirement persistence', () => {
   });
 
   describe('minCount test gate needs a countable reporter (T14526)', () => {
-    const test = (command: string, req = 'TEST-1', args?: string[]): AcceptanceGate => ({
+    const test = (
+      command: string,
+      req = 'TEST-1',
+      args?: string[],
+      description = 'tests pass',
+    ): AcceptanceGate => ({
       kind: 'test',
       command,
       ...(args ? { args } : {}),
       expect: 'pass',
       minCount: 2,
-      description: 'tests pass',
+      description,
       req,
     });
     const vitest =
       'pnpm exec vitest run packages/core/src/tasks/__tests__/done-plan.test.ts -t T14512';
+    /** The refusal a write threw; any other outcome fails the test. */
+    const refusalOf = async (write: Promise<object>): Promise<CleoError> => {
+      try {
+        await write;
+      } catch (err) {
+        if (err instanceof CleoError) return err;
+        throw err;
+      }
+      throw new Error('expected the write to be refused');
+    };
+    /** The gate the refusal's fix names, read back the way a shell would split it. */
+    const suggested = (refusal: CleoError): AcceptanceGate => {
+      const fix = refusal.fix ?? '';
+      const [flag, json] = splitCommandLine(fix.slice(fix.indexOf('--gate ')));
+      expect(flag).toBe('--gate');
+      return parseGateJson(json ?? '');
+    };
 
     it('add and replace refuse a vitest command without --reporter=json, naming the corrected gate, and write nothing', async () => {
       await reqAdd(root, 'T121', gate(), accessor);
       const before = persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks');
-      const refusal = (await reqAdd(root, 'T121', test(vitest), accessor).catch((e) => e)) as {
-        message: string;
-        fix?: string;
-      };
+      const refusal = await refusalOf(reqAdd(root, 'T121', test(vitest), accessor));
       expect(refusal.message).toMatch(
         /minCount 2 cannot be proved: .*names no machine-readable reporter/,
       );
-      expect(JSON.parse(refusal.fix?.match(/--gate '(.*)'$/)?.[1] ?? 'null')).toEqual(
-        test(`${vitest} --reporter=json`),
-      );
+      expect(suggested(refusal)).toEqual(test(`${vitest} --reporter=json`));
       await expect(
         reqReplace(root, 'T121', 'PARTNER-121', test(vitest, 'PARTNER-121'), { accessor }),
       ).rejects.toThrow(/Add --reporter=json to the gate's command/);
       expect(persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks')).toBe(before);
     });
 
-    it('accepts a command naming a reporter, a gate without minCount, and an unrecognised runner', async () => {
-      await reqAdd(root, 'T121', test(`${vitest} --reporter=json`), accessor);
+    it('judges the argv that runs: args replace an inline reporter, a quoted reporter counts', async () => {
+      const bypass = test('pnpm exec vitest run --reporter=json', 'TEST-1', [
+        'exec',
+        'vitest',
+        'run',
+        'a.test.ts',
+      ]);
+      const refusal = await refusalOf(reqAdd(root, 'T121', bypass, accessor));
+      expect(refusal.message).toContain('args (they replace');
+      expect(suggested(refusal)).toEqual({
+        ...bypass,
+        args: ['exec', 'vitest', 'run', 'a.test.ts', '--reporter=json'],
+      });
+      await reqAdd(root, 'T121', test(`${vitest} "--reporter=json"`), accessor);
+      expect((await reqList(root, 'T121', accessor)).gates.map((item) => item.req)).toEqual([
+        'TEST-1',
+      ]);
+    });
+
+    it('accepts a reporter in args, a gate without minCount, and opaque package scripts', async () => {
       await reqAdd(
         root,
         'T121',
-        test('pnpm exec vitest', 'TEST-2', ['run', '--reporter', 'json']),
+        test('pnpm', 'TEST-2', ['exec', 'vitest', 'run', '--reporter', 'json']),
         accessor,
       );
       await reqAdd(
@@ -379,19 +416,41 @@ describe('typed requirement persistence', () => {
         accessor,
       );
       await reqAdd(root, 'T121', test('pnpm test', 'TEST-4'), accessor);
+      await reqAdd(root, 'T121', test('pnpm run test:vitest', 'TEST-5'), accessor);
       expect((await reqList(root, 'T121', accessor)).gates.map((item) => item.req)).toEqual([
-        'TEST-1',
         'TEST-2',
         'TEST-3',
         'TEST-4',
+        'TEST-5',
       ]);
     });
 
+    it('names the runner the executable is, not a substring of a file name', async () => {
+      const refusal = await refusalOf(
+        reqAdd(root, 'T121', test('pnpm exec vitest run jest-compat.test.ts'), accessor),
+      );
+      expect(refusal.message).toContain('Add --reporter=json');
+      expect(refusal.message).not.toContain('--json');
+      const jest = await refusalOf(
+        reqAdd(root, 'T121', test('npx jest vitest-compat.test.ts'), accessor),
+      );
+      expect(suggested(jest)).toEqual(test('npx jest vitest-compat.test.ts --json'));
+    });
+
+    it("quotes the suggested gate so a description with a ' survives the shell", async () => {
+      const refusal = await refusalOf(
+        reqAdd(root, 'T121', test(vitest, 'TEST-1', undefined, "Owner's tests"), accessor),
+      );
+      expect(suggested(refusal)).toEqual(
+        test(`${vitest} --reporter=json`, 'TEST-1', undefined, "Owner's tests"),
+      );
+    });
+
     it('puts the node:test reporter beside --test, before the file arguments', async () => {
-      const refusal = (await reqAdd(root, 'T121', test('node --test a.test.js'), accessor).catch(
-        (e) => e,
-      )) as { fix?: string };
-      expect(refusal.fix).toContain('"command":"node --test --test-reporter=tap a.test.js"');
+      const refusal = await refusalOf(
+        reqAdd(root, 'T121', test('node --test a.test.js'), accessor),
+      );
+      expect(suggested(refusal)).toEqual(test('node --test --test-reporter=tap a.test.js'));
     });
   });
 

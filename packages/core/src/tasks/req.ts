@@ -27,7 +27,7 @@ import {
   replaceAcRowPlan,
 } from './ac-table.js';
 import { commandGateCmdProblem } from './command-gate-cmd.js';
-import { splitCommandLine } from './command-line.js';
+import { joinCommandLine, splitCommandLine } from './command-line.js';
 import { minCountReporterProblem } from './test-report-counts.js';
 
 // ─── Heuristic regex patterns ─────────────────────────────────────────────────
@@ -781,7 +781,7 @@ function refuseUncountableMinCount(gate: AcceptanceGate): void {
   if (found === null) return;
   // @sync-invariant none:input-shape a minCount test gate with no countable reporter is refused before any write
   throw new CleoError(ExitCode.VALIDATION_ERROR, found.problem, {
-    fix: `Use the gate with the reporter flag added: --gate '${found.correctedGate}'`,
+    fix: `Use the gate with the reporter flag added: ${joinCommandLine(['--gate', JSON.stringify(found.correctedGate)])}`,
   });
 }
 
