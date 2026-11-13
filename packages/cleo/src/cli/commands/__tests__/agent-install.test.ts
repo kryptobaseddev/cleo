@@ -129,9 +129,9 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     };
   });
 
-  // Also intercept the alias-resolved path that vitest may use internally
-  // (relative module id equivalence: both forms resolve to the same absolute
-  // file, vitest tracks each as a separate module id).
+  // `@cleocode/core/paths` is a DIFFERENT module (paths-export.ts, the
+  // @cleocode/paths surface) from `@cleocode/core/paths.js` (T14525). Nothing
+  // this test exercises imports the bare spelling; this mock is defensive only.
   vi.doMock('@cleocode/core/paths', async () => {
     const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
       '../../../../../../packages/core/src/paths.js',
