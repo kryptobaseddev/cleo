@@ -129,6 +129,7 @@ interface WorkerMetadata extends OrcaWorkerSettlement {
  * authorizes another editor; every reader refuses with the same fix.
  */
 function unreadableWorkerError(row: AgentInstanceRow, what: string): CleoError {
+  // @sync-invariant none:local-only unreadable local worker custody refuses instead of authorizing another editor
   return new CleoError(
     ExitCode.SPAWN_VALIDATION_FAILED,
     `Worker ownership unavailable for ${row.id} (${row.taskId ?? 'unknown task'}): ${what}.`,
