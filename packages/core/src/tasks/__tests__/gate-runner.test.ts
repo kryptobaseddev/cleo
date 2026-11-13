@@ -1325,6 +1325,54 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
     );
   }
 
+  it.each([
+    { budgetMs: 150, timeoutMs: 1_800_000, waitMs: 135 },
+    { budgetMs: 2_000, timeoutMs: 1_800_000, waitMs: 1_800 },
+    { budgetMs: 30_000, timeoutMs: 150, waitMs: 135 },
+    { budgetMs: 30_000, timeoutMs: 30_000, waitMs: 28_000 },
+    { budgetMs: 1, timeoutMs: 1, waitMs: 1 },
+  ])('bounds refused admission to $waitMs ms for a $budgetMs ms budget and $timeoutMs ms gate', async ({
+    budgetMs,
+    timeoutMs,
+    waitMs,
+  }) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const semaphore = await import('../tool-semaphore.js');
+    const refusal = new semaphore.AdmissionTimeoutError('lint', {
+      reason: 'memory budget is full',
+      retryAfterMs: 250,
+      memoryPressure: null,
+      ahead: 0,
+      holders: ['fixture holder'],
+    });
+    const acquire = vi.spyOn(semaphore, 'acquireGlobalSlot').mockRejectedValueOnce(refusal);
+    const capture = vi.spyOn(await import('../../resources/spawn-wrapper.js'), 'captureWrapped');
+    const context = execution({ budgetMs });
+    try {
+      const [result] = await runGates(
+        [
+          {
+            kind: 'command',
+            description: 'refused before launch',
+            cmd: process.execPath,
+            args: ['-e', 'process.exit(0)'],
+            timeoutMs,
+          },
+        ],
+        { projectRoot, execution: context },
+      );
+      expect(acquire).toHaveBeenCalledWith('lint', expect.objectContaining({ timeoutMs: waitMs }));
+      expect(result).toMatchObject({
+        result: 'error',
+        errorMessage: `E_GATE_ADMISSION_REFUSED: ${refusal.message}`,
+      });
+      expect(result?.execution).toBeUndefined();
+      expect(capture).not.toHaveBeenCalled();
+    } finally {
+      context.close();
+    }
+  });
+
   it('does not renew the shared deadline for subsequent gates', { repeats: 29 }, async () => {
     _forceSystemdRunAvailable(false);
     // Exercise interruption during capture, after worktree resolution and resource admission.
@@ -2413,7 +2461,9 @@ describe('typed process gates admit through the machine ledger (T13573)', () => 
         ([result]) => result?.errorMessage ?? result?.result ?? '',
         (error: Error) => error.message,
       );
-      expect(outcome).toMatch(/Timed out waiting for admission of a 'test' run/);
+      expect(outcome).toMatch(
+        /^E_GATE_ADMISSION_REFUSED: Timed out waiting for admission of a 'test' run/,
+      );
       await expect(readFile(marker, 'utf8')).rejects.toThrow();
     } finally {
       await holder();

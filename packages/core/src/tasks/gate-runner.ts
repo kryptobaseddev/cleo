@@ -112,7 +112,7 @@ import {
   testReporterFlag,
 } from './test-report-counts.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
-import { acquireGlobalSlot } from './tool-semaphore.js';
+import { AdmissionTimeoutError, acquireGlobalSlot } from './tool-semaphore.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -730,7 +730,11 @@ export async function runGates(
               'error',
               Date.now() - startMs,
               undefined,
-              error instanceof Error ? error.message : String(error),
+              error instanceof AdmissionTimeoutError
+                ? `E_GATE_ADMISSION_REFUSED: ${error.message}`
+                : error instanceof Error
+                  ? error.message
+                  : String(error),
             ),
           );
         }
@@ -2166,10 +2170,10 @@ async function runOneGate(
  * A typed gate is charged what `cleo run` would charge the same command
  * ({@link planRunFootprint} for its class) and waits on the same ledger and
  * pressure predicate as `cleo run` and `tool:` evidence, so a gate cannot run
- * while the budget is full. The wait ends {@link TYPED_GATE_BOOKKEEPING_MS}
- * before the shared deadline, so a refusal (the admission's own error, naming
- * the holders) is recorded as the gate's result. The child inherits the admission
- * token, so a governed command it starts is not charged twice.
+ * while the budget is full. Admission uses at most the remaining shared budget
+ * or the gate's own timeout, reserving 10% (up to {@link TYPED_GATE_BOOKKEEPING_MS})
+ * to record a named admission refusal with its reason and holders. The child
+ * inherits the admission token, so a governed command it starts is not charged twice.
  */
 async function captureGateCommand(
   command: string,
@@ -2189,11 +2193,13 @@ async function captureGateCommand(
     plan.resources !== null && plan.resources.workers > 1
       ? footprintForClass(cls)
       : (plan.footprintBytes ?? footprintForClass(cls));
+  const budgetMs = Math.max(0, Math.min(timeoutMs, context.execution.deadlineAt - Date.now()));
+  const bookkeepingMs = Math.min(TYPED_GATE_BOOKKEEPING_MS, Math.floor(budgetMs / 10));
   const release = await acquireGlobalSlot(cls === 'test-run' ? 'test' : 'lint', {
     label: `gate:${cls === 'test-run' ? 'test' : 'command'}`,
     footprintBytes,
     // End the wait while the bookkeeping budget remains, so the refusal is recorded.
-    timeoutMs: Math.max(0, context.execution.deadlineAt - Date.now() - TYPED_GATE_BOOKKEEPING_MS),
+    timeoutMs: budgetMs - bookkeepingMs,
   });
   try {
     return await captureWrapped(command, args, {
