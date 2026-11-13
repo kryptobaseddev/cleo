@@ -188,7 +188,7 @@ export interface CensusRecord {
   kept: Array<{ path: string; category: WorktreeStatusCategory; keepReason: string }>;
   /** Every worktree found. */
   rows: CensusRow[];
-  /** True when the wall-clock budget ran out: rows and bytes are a lower bound. */
+  /** True when collection stopped early: rows and bytes are a lower bound. */
   partial: boolean;
   /** Why a bounded report stopped before collecting a complete result. */
   partialReason?: string;
@@ -452,7 +452,7 @@ export async function reportWorktreeCensus(
     try {
       await new Promise<void>((resolveExit, reject) => {
         child.once('error', reject);
-        child.once('exit', (code) => {
+        child.once('close', (code) => {
           if (reason !== undefined || (code === 0 && record !== undefined)) resolveExit();
           // @sync-invariant none:local-only an incomplete read-only report cannot authorize disposal
           else reject(new Error(`Census scan exited ${code}: ${diagnostic}`));
