@@ -1032,7 +1032,10 @@ describe("the merge run is found by the required check's workflow, not its name 
         requiredChecks: async () => ['PR checks'],
         requiredCheckWorkflow: async () => workflow,
         mergeCiRun: async () => ({ error }),
-        repoResolves: async () => true,
+        listWorkflows: async () => ({
+          ok: true,
+          workflows: [{ name: 'CI', path: '.github/workflows/ci.yml' }],
+        }),
       },
     );
     expect(result.waiting).toBe(0);
@@ -1055,9 +1058,19 @@ describe("the merge run is found by the required check's workflow, not its name 
   });
 
   it.each([
-    ['the repository does not resolve', async () => false],
-    ['no repository probe is wired', undefined],
-  ])('an HTTP 404 waits when %s: a repo or permission 404, never a missing file (T14540)', async (_why, repoResolves) => {
+    [
+      'a restricted token cannot read the workflow list (Actions-permission 404)',
+      async () => ({ ok: false as const, reason: 'gh api actions/workflows page 1 failed' }),
+    ],
+    [
+      'the readable workflow list carries the workflow',
+      async () => ({
+        ok: true as const,
+        workflows: [{ name: 'CI', path: '.github/workflows/ci.yml' }],
+      }),
+    ],
+    ['no workflow listing is wired', undefined],
+  ])('an HTTP 404 waits when %s, never a missing file (T14540)', async (_why, listWorkflows) => {
     const id = await seedTask(['only criterion']);
     const { deps, world } = fakeDeps([pr(48, `Closes: ${id} AC1`, prChecks)]);
     world.recordRefusal = ciRefusal;
@@ -1070,7 +1083,7 @@ describe("the merge run is found by the required check's workflow, not its name 
         requiredChecks: async () => ['PR checks'],
         requiredCheckWorkflow: async () => 'ci.yml',
         mergeCiRun: async () => ({ error }),
-        ...(repoResolves ? { repoResolves } : {}),
+        ...(listWorkflows ? { listWorkflows } : {}),
       },
     );
     expect(result.refused).toEqual([]);

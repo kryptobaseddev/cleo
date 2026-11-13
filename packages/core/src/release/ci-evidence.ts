@@ -2707,12 +2707,61 @@ function ghApi(path: string, cwd: string): unknown {
   }
 }
 
+/** Pages {@link listAllWorkflows} reads before it gives up as incomplete. */
+const WORKFLOW_LIST_MAX_PAGES = 50;
+
+/**
+ * Read EVERY page of the repository's workflow list (T14540). The listing
+ * fails closed: an unreadable page, a page cap reached before the last page,
+ * or fewer workflows than `total_count` reports is a failure, never a partial
+ * success, since a duplicate name on an unread page would escape the
+ * ambiguity check of {@link resolveWorkflowNamePins}.
+ *
+ * @param fetchPage - One `actions/workflows` page (100 per page), or null when it failed.
+ * @returns The workflows' names and paths, or why the listing is incomplete.
+ * @task T14540
+ */
+export async function listAllWorkflows(
+  fetchPage: (
+    page: number,
+  ) => Promise<{ total_count?: number; workflows?: Array<Record<string, unknown>> } | null>,
+): Promise<{ ok: true; workflows: RepoWorkflow[] } | { ok: false; reason: string }> {
+  const workflows: RepoWorkflow[] = [];
+  let read = 0;
+  for (let page = 1; page <= WORKFLOW_LIST_MAX_PAGES; page++) {
+    const body = await fetchPage(page);
+    if (body === null) return { ok: false, reason: `gh api actions/workflows page ${page} failed` };
+    const listed = body.workflows ?? [];
+    read += listed.length;
+    for (const w of listed) {
+      if (typeof w.name !== 'string' || typeof w.path !== 'string')
+        return {
+          ok: false,
+          reason: `gh api actions/workflows page ${page} lists a workflow without a name or path`,
+        };
+      workflows.push({ name: w.name, path: w.path });
+    }
+    if (listed.length < 100) {
+      if (typeof body.total_count === 'number' && read < body.total_count)
+        return {
+          ok: false,
+          reason: `gh api actions/workflows listed ${read} of ${body.total_count} workflows`,
+        };
+      return { ok: true, workflows };
+    }
+  }
+  return {
+    ok: false,
+    reason: `gh api actions/workflows has more than ${WORKFLOW_LIST_MAX_PAGES} pages; the listing is incomplete`,
+  };
+}
+
 /**
  * Default {@link ResolveCiEvidenceOptions.listWorkflows}: every workflow of
- * the repository via `gh api` (T14540).
+ * the repository via `gh api` (T14540), through {@link listAllWorkflows}.
  *
  * @param cwd - A work tree of the repository.
- * @returns The workflows' names and paths, or why they could not be listed.
+ * @returns The workflows' names and paths, or why they could not all be listed.
  * @task T14540
  */
 export async function defaultListWorkflows(
@@ -2721,21 +2770,13 @@ export async function defaultListWorkflows(
   if (!isGitWorkTree(cwd) || !isGhCliAvailable()) {
     return { ok: false, reason: `gh cannot list workflows from ${cwd} (no work tree or gh CLI).` };
   }
-  const workflows: RepoWorkflow[] = [];
-  for (let page = 1; page <= 10; page++) {
-    const body = ghApi(`repos/{owner}/{repo}/actions/workflows?per_page=100&page=${page}`, cwd) as {
-      total_count?: number;
-      workflows?: Array<Record<string, unknown>>;
-    } | null;
-    if (body === null) return { ok: false, reason: 'gh api actions/workflows failed' };
-    const listed = body.workflows ?? [];
-    for (const w of listed) {
-      if (typeof w.name === 'string' && typeof w.path === 'string')
-        workflows.push({ name: w.name, path: w.path });
-    }
-    if (listed.length < 100 || workflows.length >= (body.total_count ?? 0)) break;
-  }
-  return { ok: true, workflows };
+  return listAllWorkflows(
+    async (page) =>
+      ghApi(`repos/{owner}/{repo}/actions/workflows?per_page=100&page=${page}`, cwd) as {
+        total_count?: number;
+        workflows?: Array<Record<string, unknown>>;
+      } | null,
+  );
 }
 
 /** Default {@link ResolveCiEvidenceOptions.fetchJobLog}: the job's plain-text log via `gh` (T13809). */

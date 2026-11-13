@@ -43,6 +43,7 @@ import {
   isSetupStepFailureLog,
   isWorkerCrashOnlyLog,
   jobNameMatches,
+  listAllWorkflows,
   listMainDescendants,
   listPathTouchingMainCommits,
   missingPrHunk,
@@ -429,6 +430,56 @@ describe('resolveCiEvidenceAtom', () => {
     expect(!r.ok && r.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
     expect(!r.ok && r.reason).toMatch(why);
     expect(!r.ok && r.reason).toContain('"workflow": ".github/workflows/<file>.yml"');
+  });
+
+  it('the workflow listing reads every page and fails closed when incomplete (T14540)', async () => {
+    const page = (n: number, count: number, total: number) => ({
+      total_count: total,
+      workflows: Array.from({ length: count }, (_, i) => ({
+        name: `W${n}-${i}`,
+        path: `.github/workflows/w${n}-${i}.yml`,
+      })),
+    });
+    // Three pages, the duplicate on the last: all read, so the name is ambiguous.
+    const full = await listAllWorkflows(async (n) =>
+      n < 3
+        ? page(n, 100, 201)
+        : { total_count: 201, workflows: [{ name: 'CI', path: '.github/workflows/late.yml' }] },
+    );
+    expect(full.ok && full.workflows.length).toBe(201);
+    const withCi = full.ok
+      ? [{ name: 'CI', path: '.github/workflows/ci.yml' }, ...full.workflows]
+      : [];
+    expect(
+      resolveWorkflowNamePins({ CI: { app: 'github-actions', workflow: 'CI' } }, ['CI'], withCi).ok,
+    ).toBe(false);
+    // A short page before total_count, an unreadable page, and an endless listing all fail.
+    expect((await listAllWorkflows(async () => page(1, 40, 120))).ok).toBe(false);
+    expect((await listAllWorkflows(async (n) => (n === 1 ? page(1, 100, 150) : null))).ok).toBe(
+      false,
+    );
+    const endless = await listAllWorkflows(async (n) => page(n, 100, 1_000_000));
+    expect(!endless.ok && endless.reason).toMatch(/incomplete/);
+  });
+
+  it('a truncated workflow listing refuses a workflow-name pin (T14540)', async () => {
+    writeContext(optedIn);
+    const r = await resolve({
+      context: context('T1', ['testsPassed', 'qaPassed']),
+      projectContext: {
+        release: {
+          prRequiredWorkflows: PINNED.release.prRequiredWorkflows.map((entry) =>
+            entry.workflow === '.github/workflows/ci.yml' ? { ...entry, workflow: 'CI' } : entry,
+          ),
+        },
+      },
+      listWorkflows: async () => ({
+        ok: false,
+        reason: 'gh api actions/workflows listed 100 of 150 workflows',
+      }),
+    });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/listed 100 of 150/);
   });
 
   it('a unique workflow-name pin is judged as a pin to its one file (T14540)', () => {
