@@ -47,7 +47,7 @@ export const hygieneCommand = defineCommand({
       meta: {
         name: 'census',
         description:
-          "Report worktree retention and usage across registered projects; --apply reaps only the current project's proven-safe terminal worktrees. Foreign projects and branches stay report-only.",
+          "Report worktree retention and usage across registered projects; --apply reaps only the current project's proven-safe terminal worktrees. Foreign projects and branches stay report-only. Partial reports exit 124.",
       },
       args: {
         report: {
@@ -88,6 +88,11 @@ export const hygieneCommand = defineCommand({
             'Also allow merged ignored build output to be regenerated; never force-archive it.',
           default: false,
         },
+        'budget-ms': {
+          type: 'string',
+          description:
+            'Read-only report bound in ms (default: 180000; use 600000 for large repositories).',
+        },
       },
       async run({ args }) {
         const dryRun = args.report === true || args['dry-run'] === true;
@@ -95,6 +100,24 @@ export const hygieneCommand = defineCommand({
           cliError('Pass --report/--dry-run or --apply, not both.', 2);
           process.exit(2);
           return;
+        }
+        let deadline: number | undefined;
+        if (args['budget-ms'] !== undefined) {
+          const budgetMs = Number(args['budget-ms']);
+          if (
+            !Number.isSafeInteger(budgetMs) ||
+            budgetMs < 1 ||
+            budgetMs > 2_147_483_647 ||
+            args.apply === true
+          ) {
+            cliError(
+              '--budget-ms requires a positive integer up to 2147483647 and a read-only report.',
+              2,
+            );
+            process.exitCode = 2;
+            return;
+          }
+          deadline = Date.now() + budgetMs;
         }
         const { reportWorktreeCensus, runWorktreeCensus } = await import(
           '@cleocode/core/hygiene/census'
@@ -111,6 +134,7 @@ export const hygieneCommand = defineCommand({
           ttlDays: args['ttl-days'] !== undefined ? Number(args['ttl-days']) : undefined,
           maxBytes: args['max-bytes'] !== undefined ? Number(args['max-bytes']) : undefined,
           exemptRegenerable: args['include-build-output'] === true,
+          deadline,
         };
         const result = await (async () => {
           if (args.apply === true) return runWorktreeCensus({ ...options, apply: true });
@@ -145,6 +169,7 @@ export const hygieneCommand = defineCommand({
           return;
         }
         const { counts, reclaimedApparentBytes, mode } = result.record;
+        if (mode === 'report' && result.record.partial && !process.exitCode) process.exitCode = 124;
         cliOutput(
           { ...result.record, recordPath: result.recordPath },
           {

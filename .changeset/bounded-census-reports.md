@@ -2,5 +2,5 @@
 id: bounded-census-reports
 tasks: [T14538]
 kind: fix
-summary: "Census: keep read-only reports interruptible, show scan progress and stop at a three-minute bound."
+summary: "Census: keep reports interruptible, retain partial measurements and the last complete census, and allow a larger scan budget."
 ---

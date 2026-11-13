@@ -20,6 +20,31 @@ vi.mock('../../renderers/index.js', () => ({ cliError: vi.fn(), cliOutput: vi.fn
 
 import { hygieneCommand } from '../hygiene.js';
 
+const partialReport: Awaited<ReturnType<typeof reportCensus>> = {
+  record: {
+    schemaVersion: 2,
+    mode: 'report',
+    startedAt: '2026-11-13T00:00:00Z',
+    finishedAt: '2026-11-13T00:03:00Z',
+    machineRoot: '/worktrees',
+    applyProjects: [],
+    counts: { active: 0, redundant: 0, keep: 0, unknown: 0 },
+    apparentBytes: 0,
+    reclaimedApparentBytes: 0,
+    dfFreeBefore: null,
+    dfFreeAfter: null,
+    dfDelta: null,
+    kept: [],
+    rows: [],
+    partial: true,
+    partialReason: 'Census time bound reached; scan incomplete.',
+    projects: [],
+    orphanFolders: [],
+    pnpmStore: null,
+  },
+  recordPath: '/census/partial.json',
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   runCensus.mockResolvedValue({ skipped: 'test fixture' });
@@ -56,6 +81,55 @@ describe('hygiene census CLI', () => {
       expect.any(Function),
     );
   });
+  it('allows raising the report budget for a large repository', async () => {
+    const started = Date.now();
+    await runCommand(hygieneCommand, { rawArgs: ['census', '--budget-ms', '600000'] });
+    expect(reportCensus).toHaveBeenCalledWith(
+      expect.objectContaining({ deadline: expect.any(Number) }),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
+    const deadline = reportCensus.mock.calls[0]?.[0].deadline;
+    expect(deadline).toBeGreaterThanOrEqual(started + 600_000);
+    expect(deadline).toBeLessThanOrEqual(Date.now() + 600_000);
+  });
+  it.each([
+    '0',
+    '-1',
+    '1.5',
+    'NaN',
+    'Infinity',
+    '2147483648',
+  ])('rejects an invalid budget %s before scanning', async (value) => {
+    const previous = process.exitCode;
+    try {
+      await runCommand(hygieneCommand, { rawArgs: ['census', `--budget-ms=${value}`] });
+      expect(process.exitCode).toBe(2);
+      expect(reportCensus).not.toHaveBeenCalled();
+    } finally {
+      process.exitCode = previous;
+    }
+  });
+  it('rejects a report-only budget on an apply command', async () => {
+    const previous = process.exitCode;
+    try {
+      await runCommand(hygieneCommand, { rawArgs: ['census', '--apply', '--budget-ms', '600000'] });
+      expect(process.exitCode).toBe(2);
+      expect(runCensus).not.toHaveBeenCalled();
+    } finally {
+      process.exitCode = previous;
+    }
+  });
+  it('exits 124 for a partial report', async () => {
+    const previous = process.exitCode;
+    reportCensus.mockResolvedValue(partialReport);
+    try {
+      await runCommand(hygieneCommand, { rawArgs: ['census', '--dry-run'] });
+      expect(process.exitCode).toBe(124);
+    } finally {
+      process.exitCode = previous;
+    }
+  });
   it.each([
     ['SIGINT', 130],
     ['SIGTERM', 143],
@@ -65,7 +139,7 @@ describe('hygiene census CLI', () => {
     reportCensus.mockImplementation(async (_opts, abortSignal) => {
       process.emit(signal);
       expect(abortSignal.aborted).toBe(true);
-      return { skipped: 'cancelled fixture' };
+      return partialReport;
     });
     try {
       await runCommand(hygieneCommand, { rawArgs: ['census', '--dry-run'] });

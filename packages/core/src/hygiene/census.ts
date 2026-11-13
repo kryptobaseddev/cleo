@@ -353,7 +353,7 @@ async function withCensusLock(
  * probes cannot block cancellation, progress, or the wall-clock bound.
  * The parent alone owns the lock and writes the result, after the child exits.
  *
- * @param opts - Report inputs; removal and callback overrides are unavailable.
+ * @param opts - Report inputs; deadline overrides the default three-minute bound.
  * @param signal - Cancellation requested by the CLI's SIGINT/SIGTERM handlers.
  * @param progress - Receives progress messages while the scan is running.
  * @returns A complete report, a partial report with its stop reason, or a lock refusal.
@@ -364,11 +364,15 @@ export async function reportWorktreeCensus(
   progress: (message: string) => void,
 ): ReturnType<typeof runWorktreeCensus> {
   const started = Date.now();
-  const deadline = Math.min(
-    opts.deadline ?? Number.POSITIVE_INFINITY,
-    started + LAZY_CENSUS_BUDGET_MS,
-  );
-  const inputs = { ...opts, apply: false, deadline };
+  const deadline = opts.deadline ?? started + LAZY_CENSUS_BUDGET_MS;
+  if (!Number.isSafeInteger(deadline) || deadline - started > 2_147_483_647) {
+    // @sync-invariant none:input-shape report deadlines must fit the process timer
+    throw new RangeError('Census deadline must be an integer timestamp within 2147483647 ms.');
+  }
+  // Leave time to return partial measurements before the parent's hard kill.
+  const scanDeadline = deadline - Math.min(1_000, Math.ceil(Math.max(0, deadline - started) / 10));
+  const inputs = { ...opts, apply: false, deadline: scanDeadline };
+  const boundReason = `Census time bound (${deadline - started} ms) reached; scan incomplete.`;
   return withCensusLock(inputs, async () => {
     // There are no removal calls in report mode, so stopping this owned group
     // cannot interrupt a worktree mutation or leave a census writer behind.
@@ -434,10 +438,7 @@ export async function reportWorktreeCensus(
     const cancel = () => stop('Census cancelled; scan incomplete.');
     const onExit = () => stop('Census parent exited.');
     process.once('exit', onExit);
-    const timer = setTimeout(
-      () => stop(`Census time bound (${deadline - started} ms) reached; scan incomplete.`),
-      Math.max(1, deadline - Date.now()),
-    );
+    const timer = setTimeout(() => stop(boundReason), Math.max(1, deadline - Date.now()));
     const ticker = setInterval(
       () => progress(`Census scanning (${Math.floor((Date.now() - started) / 1_000)}s elapsed).`),
       1_000,
@@ -458,7 +459,10 @@ export async function reportWorktreeCensus(
           else reject(new Error(`Census scan exited ${code}: ${diagnostic}`));
         });
       });
-      return reason !== undefined ? empty() : record!;
+      const result = record ?? empty();
+      return reason !== undefined || (result.partial && Date.now() >= scanDeadline)
+        ? { ...result, partial: true, partialReason: reason ?? boundReason }
+        : result;
     } finally {
       clearTimeout(timer);
       clearInterval(ticker);
@@ -468,14 +472,14 @@ export async function reportWorktreeCensus(
   });
 }
 
-/** Write the record (tmp then rename) and the `latest.json` copy. */
+/** Write every run atomically; only a complete census replaces `latest.json`. */
 function writeRecord(
   dir: string,
   record: CensusRecord,
 ): { record: CensusRecord; recordPath: string } {
   const recordPath = join(dir, `census-${record.startedAt.replace(/[:.]/g, '-')}.json`);
   const body = `${JSON.stringify(record, null, 2)}\n`;
-  for (const target of [recordPath, join(dir, 'latest.json')]) {
+  for (const target of record.partial ? [recordPath] : [recordPath, join(dir, 'latest.json')]) {
     const tmp = `${target}.${process.pid}.tmp`;
     writeFileSync(tmp, body);
     renameSync(tmp, target);
@@ -1279,10 +1283,10 @@ export function claimCensus(now = Date.now(), dir = censusDir(), projectRoot?: s
 }
 
 /**
- * The newest census record, or `null` when none was written.
+ * The last complete census record, or `null` when none was written.
  *
  * @param dir - The census directory (tests).
- * @returns The record from `latest.json`.
+ * @returns The last complete record from `latest.json`.
  * @task T14275
  */
 export function readLatestCensus(dir = censusDir()): CensusRecord | null {
@@ -1294,7 +1298,7 @@ export function readLatestCensus(dir = censusDir()): CensusRecord | null {
 }
 
 /**
- * The briefing's one census line (T14275): how many worktrees the last census
+ * The briefing's one census line (T14275): how many worktrees the last complete census
  * kept and their apparent size, or `null` when it kept none (or never ran).
  *
  * @param dir - The census directory (tests).

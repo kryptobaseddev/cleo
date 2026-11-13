@@ -65,8 +65,9 @@ import {
   censusBriefingLine,
   censusSpawnAllowed,
   claimCensus,
+  readLatestCensus,
   registeredProjects,
-  type reportWorktreeCensus,
+  reportWorktreeCensus,
   runWorktreeCensus,
   startLazyCensus,
 } from '../census.js';
@@ -542,6 +543,7 @@ describe('worktree census (T14275)', () => {
     if ('skipped' in out) throw new Error(out.skipped);
     expect(out.record.partial).toBe(true);
     expect(JSON.parse(readFileSync(out.recordPath, 'utf-8')).partial).toBe(true);
+    expect(existsSync(join(recordDir, 'latest.json'))).toBe(false);
   });
 
   it('sizes with lstat only: a symlink to a large tree counts as the link', () => {
@@ -607,6 +609,16 @@ describe('bounded census reports (T14538)', () => {
 
   afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }));
 
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER,
+  ])('rejects a deadline %s that cannot safely bound the child', async (deadline) => {
+    await expect(
+      reportWorktreeCensus({ recordDir, deadline }, new AbortController().signal, () => {}),
+    ).rejects.toThrow('integer timestamp');
+  });
+
   it('returns the collected rows when the report finishes within its bound', () => {
     const machineRoot = join(base, 'small-worktrees');
     const path = join(machineRoot, 'unregistered', 'T999');
@@ -649,6 +661,15 @@ describe('bounded census reports (T14538)', () => {
     const output = join(machineRoot, 'unregistered', 'T999', 'dist');
     mkdirSync(output, { recursive: true });
     for (let i = 0; i < 2_000; i++) writeFileSync(join(output, `${i}.js`), 'build output');
+    const baseline = await runWorktreeCensus({
+      projects: [],
+      machineRoot,
+      recordDir,
+      pnpmStore: null,
+    });
+    if ('skipped' in baseline) throw new Error(baseline.skipped);
+    expect(baseline.record.partial).toBe(false);
+    const briefing = censusBriefingLine(recordDir);
     const marker = join(base, 'scanning');
     const parentWalk = join(base, 'unexpected-parent-walk');
     const preload = join(base, 'slow-fs.mjs');
@@ -691,6 +712,7 @@ describe('bounded census reports (T14538)', () => {
           projects: [], pnpmStore: null, exemptRegenerable: true,
           ${signal === 'deadline' ? 'deadline: Date.now() + 4_000,' : ''}
         }, controller.signal, (message) => process.stderr.write(message+'\\n'));
+        if ('record' in result && result.record.partial && !process.exitCode) process.exitCode = 124;
         process.stdout.write(JSON.stringify(result)+'\\n');
       `;
     const child = spawn(
@@ -704,7 +726,7 @@ describe('bounded census reports (T14538)', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
-    const exited = once(child, 'exit');
+    const exited = once(child, 'close');
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => {
@@ -727,7 +749,7 @@ describe('bounded census reports (T14538)', () => {
       if (signal !== 'deadline') expect(child.kill(signal)).toBe(true);
       const [code, killedBy] = await exited;
       expect(killedBy, stderr).toBeNull();
-      expect(code, stderr).toBe(signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 0);
+      expect(code, stderr).toBe(signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 124);
       if (signal !== 'deadline') expect(Date.now() - stoppedAt).toBeLessThan(2_000);
       const result = JSON.parse(stdout) as Awaited<ReturnType<typeof reportWorktreeCensus>>;
       if ('skipped' in result) throw new Error(result.skipped);
@@ -736,6 +758,14 @@ describe('bounded census reports (T14538)', () => {
         signal === 'deadline' ? /time bound/ : /cancelled/,
       );
       expect(existsSync(join(recordDir, 'census.lock'))).toBe(false);
+      expect(readLatestCensus(recordDir)).toEqual(baseline.record);
+      expect(censusBriefingLine(recordDir)).toBe(briefing);
+      expect(JSON.parse(readFileSync(result.recordPath, 'utf8'))).toEqual(result.record);
+      if (signal === 'deadline') {
+        expect(result.record.rows.length).toBeGreaterThan(0);
+        expect(result.record.apparentBytes).toBeGreaterThan(0);
+        expect(result.record.apparentBytes).toBeLessThan(baseline.record.apparentBytes);
+      }
       expect(existsSync(parentWalk)).toBe(false);
       expect(() => process.kill(scanningPid, 0)).toThrow();
       expect(existsSync(join(output, '1999.js'))).toBe(true);
