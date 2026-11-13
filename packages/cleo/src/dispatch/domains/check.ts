@@ -56,6 +56,32 @@ import { handleErrorResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 import { lazyOperation } from './lazy.js';
 
+/** Most evidence lines a `verify --run` fix hint quotes (T14528). */
+const GATE_EVIDENCE_FIX_LINES = 3;
+/** Most evidence characters a `verify --run` fix hint quotes (T14528). */
+const GATE_EVIDENCE_FIX_CHARS = 240;
+
+/**
+ * Bound a failing gate's raw evidence (often full tool stdout) for its fix
+ * hint: the first non-empty lines up to a character cap, plus a pointer to
+ * the full text in `error.details`, so the hint never inlines unbounded
+ * output (T14528).
+ */
+function summarizeGateEvidence(evidence: string, failureIndex: number): string {
+  const pointer = `error.details.failures[${failureIndex}].evidence`;
+  const lines = evidence
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const head = lines.slice(0, GATE_EVIDENCE_FIX_LINES).join(' | ');
+  if (head.length === 0) return `inspect ${pointer}`;
+  const clipped =
+    head.length > GATE_EVIDENCE_FIX_CHARS ? `${head.slice(0, GATE_EVIDENCE_FIX_CHARS)}…` : head;
+  return lines.length > GATE_EVIDENCE_FIX_LINES || clipped !== head
+    ? `${clipped} (full output in ${pointer})`
+    : clipped;
+}
+
 // CORE operations load on first call (T13126): a command loads its own
 // modules, not every operation's in this domain.
 
@@ -530,9 +556,12 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       const preview = await previewTaskGates(projectRoot, params);
       const failures = preview.results
         .filter((result) => result.result === 'error' || result.result === 'fail')
-        .map((result) => {
+        .map((result, failureIndex) => {
           const reason =
-            result.errorMessage ?? result.evidence ?? `inspect the ${result.kind} gate output`;
+            result.errorMessage ??
+            (result.evidence
+              ? summarizeGateEvidence(result.evidence, failureIndex)
+              : `inspect the ${result.kind} gate output`);
           const rerun = joinCommandLine([
             'cleo',
             'verify',

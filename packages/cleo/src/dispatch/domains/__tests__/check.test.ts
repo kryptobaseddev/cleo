@@ -178,6 +178,39 @@ describe('CheckHandler operations', () => {
     }
   });
 
+  it('gate.run bounds raw evidence in the fix when errorMessage is absent (T14528)', async () => {
+    const stdout = Array.from(
+      { length: 500 },
+      (_, line) => `FAIL test ${line} ${'x'.repeat(80)}`,
+    ).join('\n');
+    const result: AcceptanceGateResult = {
+      index: 0,
+      kind: 'test',
+      result: 'fail',
+      durationMs: 1,
+      checkedAt: new Date().toISOString(),
+      checkedBy: 'test',
+      evidence: stdout,
+    };
+    const preview = {
+      taskId: 'T14528',
+      gateCount: 1,
+      passed: false,
+      persisted: false as const,
+      results: [result],
+    };
+    vi.mocked(previewTaskGates).mockResolvedValue(preview);
+
+    const response = await handler.query('gate.run', { taskId: 'T14528' });
+
+    const fix = response.error?.fix ?? '';
+    expect(fix).toContain('Fix the failed check: FAIL test 0');
+    expect(fix).toContain('(full output in error.details.failures[0].evidence)');
+    expect(fix).not.toContain('FAIL test 3 ');
+    expect(fix.length).toBeLessThan(500);
+    expect(response.error?.details).toMatchObject({ failures: [{ evidence: stdout }] });
+  });
+
   it('gate.run keeps the no-typed-gates response successful', async () => {
     const preview = {
       taskId: 'T14524',
