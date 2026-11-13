@@ -953,6 +953,97 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
   });
 });
 
+describe("the merge run is found by the required check's workflow, not its name (T14535)", () => {
+  const ciRefusal = "Required CI on PR #45's merge commit is not green: PR checks: pending";
+  /** A green head whose required check "PR checks" is a job of workflow "CI". */
+  const prChecks: GhPrViewPayload['statusCheckRollup'] = [
+    { name: 'PR checks', workflowName: 'CI', conclusion: 'SUCCESS', status: 'COMPLETED' },
+  ];
+
+  it("the default reads the check entry's workflow file, and falls back to the check name", async () => {
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({
+        release: {
+          prRequiredWorkflows: [
+            { name: 'PR checks', app: 'github-actions', workflow: '.github/workflows/ci.yml' },
+          ],
+        },
+      }),
+    );
+    const workflowOf = defaultMergeCloseDeps.requiredCheckWorkflow;
+    expect(await workflowOf?.(root, 'PR checks')).toBe('ci.yml');
+    expect(await workflowOf?.(root, 'CI')).toBe('CI');
+  });
+
+  it('a check "PR checks" inside workflow "CI" waits on, then closes after, the CI run', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(45, `Closes: ${id} AC1`, prChecks)]);
+    const asked: string[] = [];
+    const byWorkflow: MergeCloseDeps = {
+      ...deps,
+      requiredChecks: async () => ['PR checks'],
+      requiredCheckWorkflow: async (_root, check) => (check === 'PR checks' ? 'ci.yml' : check),
+      mergeCiRun: async (_root, _sha, workflow) => {
+        asked.push(workflow);
+        return workflow === 'ci.yml'
+          ? world.mergeRun
+          : { error: `could not find any workflows named ${workflow}` };
+      },
+    };
+    world.recordRefusal = ciRefusal;
+    world.mergeRun = { runId: 99, status: 'in_progress', conclusion: null };
+    const first = await sweepMergedClosures(root, { force: true }, byWorkflow);
+    expect(asked).toEqual(['ci.yml']);
+    expect(first.prs[0]?.outcomes[0]).toMatchObject({
+      action: 'waiting',
+      reason: /ci\.yml on merge commit .* is in_progress/,
+    });
+    world.mergeRun = { runId: 99, status: 'completed', conclusion: 'success' };
+    world.recordRefusal = null;
+    world.now += HOUR * 7;
+    const second = await sweepMergedClosures(root, { force: true }, byWorkflow);
+    expect(second.closed).toEqual([id]);
+  });
+
+  it('gh naming no such workflow is a refusal with a fix, never "no run yet" forever', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(46, `Closes: ${id} AC1`, prChecks)]);
+    world.recordRefusal = ciRefusal;
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        requiredChecks: async () => ['PR checks'],
+        mergeCiRun: async () => ({ error: 'could not find any workflows named PR checks' }),
+      },
+    );
+    expect(result.waiting).toBe(0);
+    expect(result.refused[0]?.reason).toMatch(/found no such workflow/);
+    expect(result.refused[0]?.reason).toContain('"workflow":".github/workflows/ci.yml"');
+    expect(result.refused[0]?.reason).not.toMatch(/run on merge commit .* yet/);
+  });
+
+  it('any other gh failure waits and says the lookup failed', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, world } = fakeDeps([pr(47, `Closes: ${id} AC1`)]);
+    world.recordRefusal = ciRefusal;
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        mergeCiRun: async () => ({ error: 'HTTP 502: Bad Gateway' }),
+      },
+    );
+    expect(result.prs[0]?.outcomes[0]).toMatchObject({
+      action: 'waiting',
+      reason: /looking up the CI run on merge commit .* failed \(HTTP 502: Bad Gateway\)/,
+    });
+  });
+});
+
 describe('review fixes (#2555 review at a36298391)', () => {
   it('the daemon sweeps registered main checkouts only: never $HOME, a moved path or a worktree', async () => {
     const home = mkdtempSync(join(tmpdir(), 'cleo-merge-home-'));

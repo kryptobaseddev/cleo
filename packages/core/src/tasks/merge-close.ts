@@ -36,7 +36,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type {
   GhPrViewPayload,
   MacosRegressionSync,
@@ -219,14 +219,22 @@ export interface MergeCloseDeps {
    */
   reviewVerdicts?(storeRoot: string, taskId: string, prNumber: number): Promise<ReviewVerdict[]>;
   /**
-   * The newest run of the required CI workflow on a commit, or null when there
-   * is none yet (or `gh` failed).
+   * The workflow whose push run on a merge commit stands for a required check
+   * (T14535): the `workflow` file of the check's `release.prRequiredWorkflows`
+   * entry (its basename, which `gh run list --workflow` accepts), else the
+   * check name itself. A check is a job name; it names a workflow only when
+   * the two coincide. Unset: the check name.
+   */
+  requiredCheckWorkflow?(storeRoot: string, check: string): Promise<string>;
+  /**
+   * The newest run of `workflow` on a commit, null when there is none yet, or
+   * `{ error }` with `gh`'s message when the lookup itself failed (T14535).
    */
   mergeCiRun(
     root: string,
     sha: string,
     workflow: string,
-  ): Promise<{ runId: number; status: string; conclusion: string | null } | null>;
+  ): Promise<MergeCiRun | { error: string } | null>;
   /** Rerun a CI run; false when it could not. */
   rerunRun(root: string, runId: number): Promise<boolean>;
   /** The clock (ms), for the run cap, backoff and age-out; tests inject it. */
@@ -249,6 +257,19 @@ export interface MergeCloseDeps {
     description: string,
   ): Promise<boolean>;
 }
+
+/** One workflow run on a merge commit, as {@link MergeCloseDeps.mergeCiRun} reads it. */
+export interface MergeCiRun {
+  /** The run's database id. */
+  runId: number;
+  /** `queued`, `in_progress`, `completed`, ... */
+  status: string;
+  /** The conclusion once completed, else null. */
+  conclusion: string | null;
+}
+
+/** `gh`'s answer when `--workflow` names no workflow of the repository. */
+const GH_NO_SUCH_WORKFLOW = /could not find any workflows named/i;
 
 /** The commit status the pre-merge verdict check sets on an open PR's head. */
 export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
@@ -853,9 +874,30 @@ async function mergeCiWait(
 ): Promise<{ reason: string; reran: boolean; final?: boolean } | null> {
   const sha = pr.mergeCommitSha;
   if (sha === null) return null;
-  const workflow = required[0] ?? 'CI';
+  const check = required[0] ?? 'CI';
+  // T14535: a required check is a job; its run is found by its workflow.
+  const workflow = deps.requiredCheckWorkflow
+    ? await deps.requiredCheckWorkflow(storeRoot, check)
+    : check;
   const run = await deps.mergeCiRun(root, sha, workflow);
   const short = sha.slice(0, 12);
+  if (run !== null && 'error' in run) {
+    if (GH_NO_SUCH_WORKFLOW.test(run.error))
+      return {
+        reason:
+          `cannot find the run of required check "${check}" on merge commit ${short}: ` +
+          `\`gh run list --workflow ${workflow}\` found no such workflow (${run.error.trim()}). ` +
+          `Fix: give that check's release.prRequiredWorkflows entry in .cleo/project-context.json ` +
+          `the workflow file that runs it, e.g. {"name":"${check}","workflow":".github/workflows/ci.yml"}, ` +
+          `then \`cleo done --from-merge ${pr.number}\``,
+        reran: false,
+        final: true,
+      };
+    return {
+      reason: `looking up the ${workflow} run on merge commit ${short} failed (${run.error.trim()}); retried next sweep`,
+      reran: false,
+    };
+  }
   if (run === null)
     return { reason: `no ${workflow} run on merge commit ${short} yet`, reran: false };
   if (run.status !== 'completed')
@@ -1789,16 +1831,28 @@ function toMergedPr(row: unknown): MergedPrRecord | null {
 }
 
 async function gh(args: string[], cwd: string): Promise<string | null> {
+  const result = await ghOrError(args, cwd);
+  return 'out' in result ? result.out : null;
+}
+
+/** Run `gh`: its stdout, or its stderr (else the error message) when it failed. */
+async function ghOrError(
+  args: string[],
+  cwd: string,
+): Promise<{ out: string } | { error: string }> {
   const { ghQueryTimeoutMs } = await import('../release/github-pr.js');
   try {
-    return execFileSync('gh', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: ghQueryTimeoutMs(),
-    });
-  } catch {
-    return null;
+    return {
+      out: execFileSync('gh', args, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: ghQueryTimeoutMs(),
+      }),
+    };
+  } catch (err) {
+    const stderr = (err as { stderr?: string | Buffer }).stderr?.toString().trim();
+    return { error: stderr || (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -1931,11 +1985,18 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   async closeIssue(root, url, comment) {
     return (await gh(['issue', 'close', url, '--comment', comment], root)) !== null;
   },
+  async requiredCheckWorkflow(storeRoot, check) {
+    const { loadProjectContext } = await import('../agents/variable-substitution.js');
+    const { readRequiredCheckPins } = await import('../release/pr-evidence.js');
+    const ctx = loadProjectContext(storeRoot);
+    const file = readRequiredCheckPins(ctx.loaded ? ctx.context : null)[check]?.workflow;
+    return file ? basename(file) : check;
+  },
   async mergeCiRun(root, sha, workflow) {
     const args = ['run', 'list', '--commit', sha, '--workflow', workflow, '--limit', '1'];
-    const out = await gh([...args, '--json', 'databaseId,status,conclusion'], root);
-    if (out === null) return null;
-    const [run] = JSON.parse(out) as Array<{
+    const result = await ghOrError([...args, '--json', 'databaseId,status,conclusion'], root);
+    if ('error' in result) return result;
+    const [run] = JSON.parse(result.out) as Array<{
       databaseId?: number;
       status?: string;
       conclusion?: string | null;
