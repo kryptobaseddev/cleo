@@ -51,6 +51,14 @@ export type CleoHookName = (typeof CLEO_HOOK_NAMES)[number];
 /** Suffix of the foreign hook a chained CLEO hook runs last (T12349). */
 export const CHAINED_HOOK_SUFFIX = '.cleo-chained';
 
+/**
+ * Check hook that chains a FOREIGN hook (one with no CLEO marker) instead of
+ * skipping it (T14549): the `.cleo` runtime-file guard runs first, then the
+ * project's own pre-commit runs last with its exit status intact. A
+ * customized CLEO copy (it carries the marker) is still preserved as is.
+ */
+const CHAINED_FOREIGN_CHECK_HOOKS: readonly CleoHookName[] = ['pre-commit'];
+
 /** Git config key that turns the NEXUS refresh hooks off when `false` (T12349). */
 export const NEXUS_AUTO_REINDEX_GIT_KEY = 'cleo.nexusAutoReindex';
 
@@ -274,11 +282,12 @@ export async function installCleoHooks(
           (before === body ||
             (before !== null && legacyHashes(name).includes(hash(before))) ||
             (before !== null && recorded?.afterHash === hash(before))));
-      // A foreign post-* hook is chained: moved aside intact and run last by the CLEO hook.
+      // A foreign post-* or pre-commit hook is chained: moved aside intact and run last by the CLEO hook.
       const chain =
         !safe &&
         before !== null &&
-        CHAINED_GIT_HOOK_NAMES.includes(name) &&
+        (CHAINED_GIT_HOOK_NAMES.includes(name) ||
+          (CHAINED_FOREIGN_CHECK_HOOKS.includes(name) && !before.includes(CLEO_HOOK_SENTINEL))) &&
         !fs.lstatSync(chained, { throwIfNoEntry: false });
       if (!safe && !chain) {
         skipped.push(name);

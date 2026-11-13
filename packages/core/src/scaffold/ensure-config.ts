@@ -95,6 +95,7 @@ sync/
 metrics/
 .backups/
 backups/
+quarantine/
 
 # Session journals — T1263 PSYCHE E6 (sensitive session data — task IDs, notes, agent IDs)
 # Retain locally for meta-agent training; never commit to project git.
@@ -286,6 +287,11 @@ const APPENDED_RULES_HEADER = '# Added by cleo: CLEO-required entries missing fr
 export interface RuleFileRepairOptions {
   /** Journal that backs up the file before it changes and lists it (upgrade, T13409). */
   journal?: UpgradeFileJournal;
+  /**
+   * Repair `<projectRoot>/.cleo/` exactly, never a `CLEO_DIR` redirect: git
+   * reads ignore rules only from the checkout (T14549 untrack repair).
+   */
+  checkoutOnly?: boolean;
 }
 
 /**
@@ -331,7 +337,9 @@ export async function ensureGitignore(
   projectRoot: string,
   opts?: RuleFileRepairOptions,
 ): Promise<ScaffoldResult> {
-  const cleoDir = resolveScaffoldCleoDir(projectRoot);
+  const cleoDir = opts?.checkoutOnly
+    ? join(projectRoot, '.cleo')
+    : resolveScaffoldCleoDir(projectRoot);
   const gitignorePath = join(cleoDir, '.gitignore');
   const templateContent = getGitignoreContent();
 

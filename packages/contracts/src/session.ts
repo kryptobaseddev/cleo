@@ -223,6 +223,16 @@ export interface SessionStartResult {
 }
 
 /**
+ * Store-safety warnings `session start` returns beside the new session
+ * (T14549): for example, git tracks `.cleo` runtime files, with the fix.
+ * Absent when there is nothing to warn about.
+ */
+export interface SessionStartWarnings {
+  /** One line per finding, each naming the files and the fix. */
+  storeSafetyWarnings?: string[];
+}
+
+/**
  * SessionView — typed wrapper over Session[] with collection helpers.
  *
  * Provides discoverable query methods for common session lookups.

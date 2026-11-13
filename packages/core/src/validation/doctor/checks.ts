@@ -15,6 +15,13 @@ import { join } from 'node:path';
 import { getCleoPlatformPaths, getCleoWorktreesRoot } from '@cleocode/paths';
 import { listRegisteredWorktrees } from '@cleocode/worktree';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
+import {
+  checkRuntimeFileHistory,
+  checkTrackedCleoRuntime,
+  isCleoRuntimePath,
+  runtimeDenyPatterns,
+} from '../../doctor/cleo-runtime-tracking.js';
+import { checkCloudSyncedProject } from '../../doctor/cloud-sync-folder.js';
 import { inspectProjectIdentity, inspectProjectNameDrift } from '../../doctor/project-identity.js';
 import { detectLegacyAgentOutputs } from '../../migration/agent-outputs.js';
 import {
@@ -557,9 +564,11 @@ const STAGED_STATE_DB_NAMES = new Set(
 
 /**
  * Staged paths that carry CLEO runtime state, at ANY path: the rule the managed
- * pre-commit hook (`templates/git-hooks/pre-commit` §3) enforces. A database
- * by name; `project-info.json` whose staged content names a `"projectId"`; a
- * `config.json` at `.cleo/config.json` or byte-identical to it.
+ * pre-commit hook (`templates/git-hooks/pre-commit` §3 and §4) enforces. A
+ * database by name; a `.cleo/` path the EXPLICIT DENY block of the shipped
+ * `.cleo/.gitignore` template names (T14549); `project-info.json` whose staged content
+ * names a `"projectId"`; a `config.json` at `.cleo/config.json` or
+ * byte-identical to it.
  *
  * @param root - Repository root.
  * @returns The offending staged paths, or `null` when git cannot be read.
@@ -589,13 +598,15 @@ export function stagedCleoStatePaths(root: string): string[] | null {
   const configPath = join(root, '.cleo', 'config.json');
   let configBlob: string | null = null;
   const leaked: string[] = [];
+  // T14549: the shipped deny rules — the hook's §4 embeds the same list.
+  const denyPatterns = runtimeDenyPatterns();
   // -z: `:<modes> <old> <new> <status>\0<path>\0` per entry.
   const fields = raw.split('\0');
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const blob = fields[i]?.split(' ')[3] ?? '';
     const path = fields[i + 1] ?? '';
     const name = path.slice(path.lastIndexOf('/') + 1);
-    if (STAGED_STATE_DB_NAMES.has(name)) {
+    if (STAGED_STATE_DB_NAMES.has(name) || isCleoRuntimePath(path, denyPatterns)) {
       leaked.push(path);
     } else if (name === 'project-info.json') {
       if (git(['cat-file', '-p', blob]).includes('"projectId"')) leaked.push(path);
@@ -2437,6 +2448,10 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkStagedCleoState(projectRoot),
     checkCoreFilesNotIgnored(projectRoot),
     checkSqliteNotTracked(projectRoot),
+    // Store-corruption causes: tracked runtime files, their history, file sync (T14549)
+    checkTrackedCleoRuntime(getProjectRoot(projectRoot)),
+    checkRuntimeFileHistory(getProjectRoot(projectRoot)),
+    checkCloudSyncedProject(getProjectRoot(projectRoot)),
     checkLegacyAgentOutputs(projectRoot),
     // ADR-045 canonical paths check (T708)
     checkCanonicalRcasdPaths(projectRoot),
