@@ -24,6 +24,7 @@ import { getLogger } from '../logger.js';
 import { generateProjectHash } from '../nexus/hash.js';
 import { worktreeScope } from '../paths.js';
 import { assertOperationWriteFence } from '../store/background-jobs.js';
+import { openDualScopeDb } from '../store/dual-scope-db.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
 import { BRAIN_NODE_TYPES, brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
@@ -164,7 +165,11 @@ export async function upsertGraphNode(
       if (!options.explicit && !(await graphWriteEnabled(projectRoot, context))) return;
 
       context?.assertActive();
-      const db = await getBrainDb(projectRoot);
+      // The consolidated project schema already owns graph nodes; use the task
+      // transaction's handle without a separate BRAIN schema-writer lease.
+      const db = context
+        ? await getBrainDb(projectRoot)
+        : (await openDualScopeDb('project', projectRoot)).db;
       context?.assertActive();
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
@@ -344,8 +349,8 @@ const TASK_ID_REGEX = /\bT\d{3,}\b/g;
  * hook fixes that gap by wiring `task:T###` nodes into `addTask` with a
  * quality score of 0.7 (provisional, not yet verified by gate evidence).
  *
- * Best-effort: any failure is swallowed so graph writes never block the
- * task-creation write path.
+ * Graph failures are non-fatal. Task creation awaits this write inside its
+ * existing project transaction so the task and its node commit together.
  *
  * @param projectRoot - Absolute path to the project root directory.
  * @param taskId - CLEO task ID in `T###` format.

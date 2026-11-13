@@ -42,15 +42,9 @@
  * opportunistic dream OFF for one-shot read commands. The added case below
  * proves a one-shot `cleo briefing` exits on its own (no lingering worker).
  *
- * ## T12024 — dialectic evaluation deadline (post-mutate hook hang)
- *
- * The dispatcher fires a background `evaluateDialectic` after every successful
- * mutate. That evaluation makes an HTTP fetch to the resolved LLM backend
- * (Ollama in warm tier), which keeps the event loop alive after
- * `shutdownCliRuntime` tears down workers and databases. The fix wraps the
- * evaluation with an AbortController whose unrefed 10-second deadline cancels
- * the HTTP fetch when the LLM backend is hung, allowing the loop to drain.
- * The fake-Ollama-server case below proves this end-to-end.
+ * T12577 also holds a second process's write transaction after a success
+ * envelope. Both add and relates must exit before that writer releases it,
+ * without exhausting teardown or losing their committed changes.
  *
  * @task T11568
  * @task T11655
@@ -59,13 +53,13 @@
  * @saga T11242
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -87,28 +81,34 @@ interface CliResult {
   readonly signal: NodeJS.Signals | null;
 }
 
-/**
- * Run the compiled CLI as a subprocess against an isolated tmp project root +
- * global data home. A 20s hard timeout converts a hang into a `SIGTERM` kill so
- * the assertion can distinguish "exited on its own" from "had to be killed".
- */
-function runCli(args: readonly string[], projectRoot: string, dataHome: string): CliResult {
-  const env = {
+/** Environment shared by CLI and competing writer, isolated from the worker worktree. */
+function cliEnv(projectRoot: string, dataHome: string): NodeJS.ProcessEnv {
+  return {
     ...process.env,
     CLEO_PROJECT_ROOT: projectRoot,
     CLEO_ROOT: projectRoot,
+    CLEO_WORKTREE_ROOT: '',
+    CLEO_WORKTREE_BRANCH: '',
     CLEO_DIR: join(projectRoot, '.cleo'),
     XDG_DATA_HOME: dataHome,
     // getCleoHome() ignores XDG_DATA_HOME off Linux; pin it too (T12602).
     CLEO_HOME: join(dataHome, 'cleo'),
     CLEO_OUTPUT_FORMAT: 'json',
   };
+}
+
+/**
+ * Run the compiled CLI as a subprocess against an isolated tmp project root +
+ * global data home. A 20s hard timeout converts a hang into a `SIGTERM` kill so
+ * the assertion can distinguish "exited on its own" from "had to be killed".
+ */
+function runCli(args: readonly string[], projectRoot: string, dataHome: string): CliResult {
   const result = spawnSync('node', [CLI_DIST, ...args], {
     stdio: ['pipe', 'pipe', 'pipe'],
     encoding: 'utf-8',
     timeout: 20_000,
     cwd: projectRoot,
-    env,
+    env: cliEnv(projectRoot, dataHome),
   });
   return {
     stdout: result.stdout ?? '',
@@ -116,6 +116,115 @@ function runCli(args: readonly string[], projectRoot: string, dataHome: string):
     status: result.status,
     signal: result.signal ?? null,
   };
+}
+
+/** Hold a second process's write transaction from the success envelope until CLI exit. */
+async function runCliWhileWriterHeld(
+  args: readonly string[],
+  projectRoot: string,
+  dataHome: string,
+): Promise<CliResult> {
+  const locked = join(projectRoot, 'writer-locked');
+  const preload = join(projectRoot, 'envelope-barrier.mjs');
+  await rm(locked, { force: true });
+  await writeFile(
+    preload,
+    `
+    import { existsSync } from 'node:fs';
+    const write = process.stdout.write.bind(process.stdout);
+    let emitted = false;
+    process.stdout.write = (chunk, ...args) => {
+      const result = write(chunk, ...args);
+      if (!emitted && String(chunk).includes('"success":true')) {
+        emitted = true;
+        const deadline = Date.now() + 10000;
+        while (!existsSync(${JSON.stringify(locked)})) {
+          if (Date.now() > deadline) throw new Error('Competing writer never acquired its transaction');
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+        }
+      }
+      return result;
+    };
+  `,
+  );
+  const coreDist = resolve(PKG_ROOT, '..', 'core', 'dist');
+  const holder = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { writeFileSync } from 'node:fs';
+    import { getTaskAccessor } from ${JSON.stringify(pathToFileURL(join(coreDist, 'store/data-accessor.js')).href)};
+    import { shutdownCliRuntime } from ${JSON.stringify(pathToFileURL(join(coreDist, 'shutdown.js')).href)};
+    const accessor = await getTaskAccessor(${JSON.stringify(projectRoot)});
+    process.send('initialized');
+    await new Promise(resolve => process.once('message', resolve));
+    await accessor.transaction(async () => {
+      writeFileSync(${JSON.stringify(locked)}, '');
+      await new Promise(resolve => process.once('message', resolve));
+    });
+    await shutdownCliRuntime();
+    process.disconnect();
+  `,
+    ],
+    {
+      cwd: projectRoot,
+      env: cliEnv(projectRoot, dataHome),
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    },
+  );
+  let holderError = '';
+  holder.stderr?.on('data', (chunk: Buffer) => {
+    holderError += chunk.toString();
+  });
+  const holderClosed = new Promise<void>((resolve) => holder.once('close', () => resolve()));
+  const timeout = setTimeout(() => holder.kill('SIGKILL'), 15000);
+  try {
+    await Promise.race([
+      new Promise<void>((resolve) => holder.once('message', () => resolve())),
+      holderClosed.then(() => {
+        throw new Error(`Competing writer exited before readiness: ${holderError}`);
+      }),
+    ]);
+    const child = spawn(process.execPath, ['--import', preload, CLI_DIST, ...args], {
+      cwd: projectRoot,
+      env: cliEnv(projectRoot, dataHome),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let requested = false;
+    const childTimeout = setTimeout(() => child.kill('SIGKILL'), 12000);
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+      if (!requested && stdout.includes('"success":true')) {
+        requested = true;
+        holder.send('lock');
+      }
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    try {
+      const result = await new Promise<CliResult>((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', (status, signal) => resolve({ stdout, stderr, status, signal }));
+      });
+      expect(requested, result.stdout + result.stderr).toBe(true);
+      expect(existsSync(locked)).toBe(true);
+      expect(holder.exitCode, holderError).toBeNull();
+      expect(holder.signalCode, holderError).toBeNull();
+      return result;
+    } finally {
+      clearTimeout(childTimeout);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+  } finally {
+    if (holder.connected) holder.send('release');
+    await holderClosed;
+    clearTimeout(timeout);
+  }
 }
 
 let projectRoot: string;
@@ -213,7 +322,10 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T11568 — write commands exit, never hang
 const TEARDOWN_LEAK = /event loop still alive|teardown [a-z-]+: (?:timed out|not started)/;
 
 describe.skipIf(!CLI_DIST_AVAILABLE)('T12217 — write commands leave no live handle at exit', () => {
-  it('T12577: add --params-file and relates add settle their background work and exit naturally', async () => {
+  it.each([
+    false,
+    true,
+  ])('T12577: add and relates exit cleanly (competing writer=%s)', async (contended) => {
     const run = (args: readonly string[]): string => {
       const result = runCli(args, projectRoot, dataHome);
       expect(result.signal, result.stderr).toBeNull();
@@ -280,7 +392,35 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T12217 — write commands leave no live ha
         '--field',
         '/data/created/0',
       ]);
-      run(['relates', 'add', taskId, relatedId, 'extends', 'Teardown regression']);
+      if (contended) {
+        vi.stubEnv('CLEO_BRAIN_CAPTURE_WORK', 'true');
+        vi.stubEnv('CI', '');
+        await writeFile(
+          paramsFile,
+          JSON.stringify({
+            title: 'Commit before another writer',
+            parent: epicId,
+            acceptance: ['Task and graph committed', 'Clean teardown', 'Natural exit'],
+          }),
+        );
+        for (const args of [
+          ['add', '--params-file', paramsFile],
+          ['relates', 'add', taskId, relatedId, 'extends', 'Teardown regression'],
+        ]) {
+          const result = await runCliWhileWriterHeld(args, projectRoot, dataHome);
+          expect(result.signal, result.stderr).toBeNull();
+          expect(result.status, result.stdout + result.stderr).toBe(0);
+          expect(result.stderr).not.toMatch(TEARDOWN_LEAK);
+        }
+        expect(run(['find', 'Commit before another writer'])).toContain(
+          'Commit before another writer',
+        );
+        const relations = run(['relates', 'list', taskId]);
+        expect(relations).toContain(relatedId);
+        expect(relations).toContain('Teardown regression');
+      } else {
+        run(['relates', 'add', taskId, relatedId, 'extends', 'Teardown regression']);
+      }
     } finally {
       vi.unstubAllEnvs();
     }
@@ -329,20 +469,11 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T12217 — write commands leave no live ha
 // ============================================================================
 
 /**
- * The dispatcher fires a background dialectic evaluation (→ Ollama) after
- * every successful mutate. When the LLM backend accepts the connection but
- * never responds, the pending HTTP fetch keeps the event loop alive after
- * `shutdownCliRuntime` tears down everything else.
- *
- * This test starts a fake Ollama HTTP server on localhost:11434 that:
- *   - Responds to GET /api/tags (so the warm-tier probe finds a backend),
- *   - Writes HTTP headers for POST /v1/chat/completions but never calls
- *     res.end() so the response body never arrives → fetch hangs.
- *
- * Without the abort-signal deadline the subprocess would hang until the
- * 20-second spawnSync timeout kills it (signal: SIGTERM). With the fix,
- * the 10-second unrefed deadline fires, cancelling the fetch so the
- * event loop drains and the CLI exits on its own.
+ * Mutations must not wait for a conversation-evaluation backend. The obsolete
+ * dispatcher hook was removed in T12577: operation envelopes have no dialectic
+ * insights (T12543), so opening stores or calling a model only creates work
+ * after the command has succeeded. A fake server that never completes model
+ * requests guards against reintroducing that dependency.
  *
  * The describe block skips if port 11434 cannot be bound (e.g. real Ollama
  * is running) or the compiled CLI dist is unavailable.
@@ -370,8 +501,7 @@ describe('T12024 — mutation exit with hung dialectic backend (fake Ollama)', (
       }
       if (_req.method === 'POST' && _req.url === '/v1/chat/completions') {
         // Write the HTTP status line so the connection is established, then
-        // NEVER call res.end(). The client's fetch blocks on the body and
-        // the dispatcher's AbortController must cancel it.
+        // NEVER call res.end(). A mutation must not wait for this body.
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return;
       }

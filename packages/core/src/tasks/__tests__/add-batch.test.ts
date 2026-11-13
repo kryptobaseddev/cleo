@@ -18,7 +18,7 @@ import { sagaCreate } from '../../sagas/create.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { awaitBackgroundOps } from '../../store/background-ops.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { resetDbState } from '../../store/sqlite.js';
+import { getNativeTasksDb, resetDbState } from '../../store/sqlite.js';
 import { addBatchTasks } from '../add-batch.js';
 
 /** Independently read committed task nodes from a fresh bounded readonly process. */
@@ -206,7 +206,6 @@ describe('addBatchTasks', () => {
     expect(t3!.title).toBe('Batch task C');
     expect(t1!.labels).toEqual(['pm-core-v2', 'wave.3']);
     expect(t1!.acceptance).toEqual(['labels persist as arrays', 'acceptance persists as arrays']);
-    await awaitBackgroundOps();
     expect(readGraphNodes(env)).toEqual([
       { id: 'task:T001', label: 'T001: Batch task A' },
       { id: 'task:T002', label: 'T002: Batch task B' },
@@ -230,6 +229,11 @@ describe('addBatchTasks', () => {
           accessor,
           env.tempDir,
         );
+        expect(
+          getNativeTasksDb(env.tempDir)
+            ?.prepare("SELECT id, label FROM brain_page_nodes WHERE node_type = 'task'")
+            .all(),
+        ).toEqual([{ id: 'task:T001', label: 'T001: Rolled back task' }]);
         expect(readGraphNodes(env)).toEqual([]);
         throw new Error('outer batch rollback');
       }),

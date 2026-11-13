@@ -153,7 +153,9 @@ export class HookRegistry {
    * @param event - The CAAMP canonical hook event to dispatch
    * @param projectRoot - The project root directory path
    * @param payload - The event payload (typed by event)
-   * @returns Promise that resolves when all handlers have completed
+   * @param defer - Tracks optional handlers in the caller's background lifecycle;
+   *   when provided, only `awaitBeforeResponse` handlers delay this call.
+   * @returns Promise that resolves when required handlers (or, by default, all handlers) complete
    *
    * @example
    * ```typescript
@@ -174,6 +176,7 @@ export class HookRegistry {
     event: E,
     projectRoot: string,
     payload: HookPayloadFor<E>,
+    defer?: (work: Promise<void>) => void,
   ): Promise<void> {
     // Check if hooks enabled globally
     if (!this.config.enabled) return;
@@ -186,18 +189,25 @@ export class HookRegistry {
     const handlers = this.handlers.get(resolvedEvent);
     if (!handlers || handlers.length === 0) return;
 
-    // Execute all handlers in parallel (best-effort)
+    // Response-dependent writes settle before the envelope. Optional handlers
+    // retain the caller's bounded background lifecycle.
     await Promise.allSettled(
-      handlers.map(async (reg) => {
-        try {
-          await reg.handler(projectRoot, payload);
-        } catch (error) {
-          // Hooks are best-effort - log but don't throw
-          getLogger('hooks').warn(
-            { err: error, hookId: reg.id, event: resolvedEvent },
-            'Hook handler failed',
-          );
+      handlers.map((reg) => {
+        const work = (async () => {
+          try {
+            await reg.handler(projectRoot, payload);
+          } catch (error) {
+            getLogger('hooks').warn(
+              { err: error, hookId: reg.id, event: resolvedEvent },
+              'Hook handler failed',
+            );
+          }
+        })();
+        if (defer && !reg.awaitBeforeResponse) {
+          defer(work);
+          return Promise.resolve();
         }
+        return work;
       }),
     );
   }

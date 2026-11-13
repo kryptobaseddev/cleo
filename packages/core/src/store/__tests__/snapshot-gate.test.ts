@@ -63,6 +63,44 @@ function recorder(): { runs: string[]; snap: (p: string) => Promise<SnapshotOutc
 const T0 = 1_800_000_000_000;
 
 describe('runGatedSnapshot — routine mode (T12508)', () => {
+  it('snapshots committed WAL data without waiting for a competing writer or retaining its timeout', async () => {
+    stateDb.exec(
+      "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 2000; INSERT INTO tasks_schema_meta VALUES ('committed', 'task data')",
+    );
+    const writer = new DatabaseSync(join(workDir, 'state.db'));
+    const snapshotPath = join(workDir, 'snapshot.db');
+    try {
+      writer.exec(
+        "BEGIN IMMEDIATE; INSERT INTO tasks_schema_meta VALUES ('uncommitted', 'other writer')",
+      );
+      const started = Date.now();
+      const result = await runGatedSnapshot(
+        { backupDir: workDir, stateDb, prefixes: ['tasks'] },
+        async () => {
+          stateDb.exec(
+            `PRAGMA wal_checkpoint(PASSIVE); VACUUM INTO '${snapshotPath.replace(/'/g, "''")}'`,
+          );
+          return 'written';
+        },
+      );
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(result).toMatchObject({ snapshotted: ['tasks'], failed: [], skipped: null });
+      expect(stateDb.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 2000 });
+      const snapshot = new DatabaseSync(snapshotPath, { readOnly: true });
+      try {
+        expect(snapshot.prepare('SELECT * FROM tasks_schema_meta').all()).toEqual([
+          { key: 'committed', value: 'task data' },
+        ]);
+      } finally {
+        snapshot.close();
+      }
+      expect(readSnapshotGeneration(stateDb)).toBe(0);
+    } finally {
+      writer.exec('ROLLBACK');
+      writer.close();
+    }
+  });
+
   it('a burst of N sequential requests within the window produces one snapshot', async () => {
     const { runs, snap } = recorder();
     for (let i = 0; i < 8; i++) {

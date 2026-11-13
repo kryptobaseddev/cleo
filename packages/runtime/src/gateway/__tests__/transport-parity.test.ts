@@ -64,6 +64,14 @@ vi.mock('@cleocode/core', () => ({
   getProjectRoot: () => process.cwd(),
 }));
 
+// Operation envelopes contain no conversation insights and must never open stores.
+vi.mock('@cleocode/core/memory/dialectic-evaluator.js', () => ({
+  evaluateDialectic: vi.fn(async () => ({ globalTraits: [], peerInsights: [] })),
+  applyInsights: vi.fn(),
+}));
+vi.mock('@cleocode/core/store/nexus-sqlite.js', () => ({ getNexusDb: vi.fn() }));
+vi.mock('@cleocode/core/store/memory-sqlite.js', () => ({ getBrainDb: vi.fn() }));
+
 // T11640 — the RPC adapter binds connection→session via @cleocode/core/internal.
 // Stub it (bind/unbind are no-ops, runWithConnectionHandle runs inline) so the
 // parity suite stays off the full core runtime.
@@ -559,4 +567,28 @@ describe('R3-T9 HTTP SSE — envelope-as-stream-frame parity', () => {
     expect(recovered.kind).toBe('done');
     expect(parityBytes(recovered.data as DispatchResponse)).toBe(parityBytes(cli));
   });
+});
+
+it('successful session mutations do not schedule memory-store work from an operation envelope', async () => {
+  const fixture = GOLDEN_FIXTURES.find(
+    (candidate) => candidate.gateway === 'mutate' && candidate.payload.success,
+  );
+  if (!fixture) throw new Error('Missing successful mutation fixture');
+  const response = await HANDLER.handle({
+    gateway: fixture.gateway,
+    domain: fixture.domain,
+    operation: fixture.operation,
+    params: fixture.params,
+    source: 'cli',
+    sessionId: 'contention-regression',
+  });
+  expect(response.success).toBe(true);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await vi.dynamicImportSettled();
+  const { evaluateDialectic } = await import('@cleocode/core/memory/dialectic-evaluator.js');
+  const { getNexusDb } = await import('@cleocode/core/store/nexus-sqlite.js');
+  const { getBrainDb } = await import('@cleocode/core/store/memory-sqlite.js');
+  expect(evaluateDialectic).not.toHaveBeenCalled();
+  expect(getNexusDb).not.toHaveBeenCalled();
+  expect(getBrainDb).not.toHaveBeenCalled();
 });

@@ -208,6 +208,9 @@ export interface HookRegistration<T extends HookPayload = HookPayload> {
 
   /** Priority for execution order (higher = earlier) */
   priority: number;
+
+  /** Finish this handler before a transport emits its response; other handlers may be deferred. */
+  awaitBeforeResponse?: boolean;
 }
 
 /**
