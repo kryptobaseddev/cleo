@@ -24,13 +24,14 @@ import {
   lstatSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   type Stats,
   statSync,
 } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import type { LeadMcpReport } from '@cleocode/contracts';
 import {
   LEAD_MAILBOX_MCP_SERVER,
@@ -91,23 +92,412 @@ function readJson(file: string): unknown {
   }
 }
 
-/** Claude's canonical root requires a worktrees entry with a matching backlink. */
-function linkedWorktreeTrustRoot(dir: string): string | null {
+/**
+ * The host facts Claude Code 2.1.322's unsafe-path rule reads. Its macOS
+ * build also refuses automounted `/network/...` paths and, when `/home` is an
+ * automount, another user's `/home/<user>`.
+ */
+export interface ClaudePathHost {
+  /** Claude's macOS automount rules apply (the darwin build). */
+  readonly darwin: boolean;
+  /** `/home` is an automount: `/etc/auto_master` maps it, or it is its own mount. */
+  readonly homeAutomount: boolean;
+  /** The home directory of the Claude process judged (its `os.homedir()`, from its own HOME). */
+  readonly home: string;
+}
+
+let homeAutomountMemo: boolean | undefined;
+
+/** True for a missing-path error (`ENOENT`). */
+function isEnoent(err: unknown): boolean {
+  return err instanceof Error && 'code' in err && err.code === 'ENOENT';
+}
+
+/** Claude's `/home` automount probe; any unexpected failure counts as automounted. */
+function homeIsAutomount(): boolean {
+  try {
+    let mapped = false;
+    try {
+      mapped = readFileSync('/etc/auto_master', 'utf8')
+        .split('\n')
+        .some((line) => {
+          const fields = line.replace(/#.*$/, '').trim().split(/\s+/);
+          return fields.length >= 2 && fields[0]?.toLowerCase() === '/home';
+        });
+    } catch (err) {
+      if (!isEnoent(err)) throw err;
+    }
+    if (mapped) return true;
+    try {
+      return statSync('/home').dev !== statSync('/Users').dev;
+    } catch (err) {
+      if (isEnoent(err)) return true;
+      throw err;
+    }
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * This machine's {@link ClaudePathHost} for a Claude process whose home is
+ * `home`; the `/home` probe runs once per process, as in Claude.
+ */
+function claudePathHost(home: string = homedir()): ClaudePathHost {
+  const darwin = process.platform === 'darwin';
+  if (darwin) homeAutomountMemo ??= homeIsAutomount();
+  return { darwin, homeAutomount: homeAutomountMemo ?? false, home };
+}
+
+const lowerAscii = (text: string): string => text.replace(/[A-Z]/g, (c) => c.toLowerCase());
+const foldCase = (text: string): string => text.toUpperCase().toLowerCase();
+const foldVisible = (text: string): string => foldCase(text.replace(/[‌-‏‪-‮⁪-⁯﻿]/g, ''));
+
+/**
+ * Claude's lexical walk of an absolute path (`.` skipped, `..` pops), calling
+ * `visit` after each pushed component; returns the parts left at the end, or
+ * `null` for a relative path.
+ */
+function walkParts(path: string, visit?: (parts: readonly string[]) => void): string[] | null {
+  if (!path.startsWith('/')) return null;
+  const parts: string[] = [];
+  for (const part of path.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+    visit?.(parts);
+  }
+  return parts;
+}
+
+/** `/net/<host>` or `/Network/Servers/<host>` (Claude's `v`). */
+function isNetMount(parts: readonly string[]): boolean {
+  const [first = '', second = ''] = parts;
+  return (
+    (parts.length === 2 && foldVisible(first) === 'net') ||
+    (parts.length === 3 && foldVisible(first) === 'network' && foldVisible(second) === 'servers')
+  );
+}
+
+/** The network host a path is mounted from, lowercased, or `null` (Claude's `nK`). */
+function netHost(path: string): string | null {
+  let host: string | null = null;
+  walkParts(path, (parts) => {
+    if (host === null && isNetMount(parts)) host = lowerAscii(parts.at(-1) ?? '');
+  });
+  return host;
+}
+
+/** First component equals `name` under `test` (Claude's `k$` and `sb` walks). */
+function firstPartIs(path: string, test: (part: string) => boolean): boolean {
+  let first: string | undefined;
+  walkParts(path, (parts) => {
+    if (parts.length === 1 && first === undefined && test(parts[0] ?? '')) first = parts[0];
+  });
+  return first !== undefined;
+}
+
+const underNetwork = (path: string): boolean =>
+  firstPartIs(path, (part) => part.toLowerCase() === 'network');
+const underVolfs = (path: string): boolean =>
+  /\/\.(?:vol|file|nofollow|resolve)(?:\/|$)/i.test(path) &&
+  firstPartIs(path, (part) => /^\.(?:vol|file|nofollow|resolve)$/i.test(part));
+const isNetRoot = (path: string): boolean => {
+  const parts = walkParts(path);
+  return parts?.length === 1 && parts[0]?.toLowerCase() === 'net';
+};
+
+/** macOS `/System/Volumes/Data/<firmlinked>` spelled as its firmlink (Claude's `u0`). */
+function dataVolumeAlias(path: string): string {
+  const parts = path.split('/');
+  const [root, system = '', volumes = '', data = ''] = parts;
+  if (
+    parts.length < 5 ||
+    root !== '' ||
+    foldCase(system) !== 'system' ||
+    foldCase(volumes) !== 'volumes' ||
+    foldCase(data) !== 'data'
+  )
+    return path;
+  const rest = parts.slice(4);
+  for (const link of FIRMLINKS) {
+    const linkParts = link.split('/');
+    if (
+      rest.length >= linkParts.length &&
+      linkParts.every((part, i) => foldCase(rest[i] ?? '') === foldCase(part))
+    )
+      return `/${rest.join('/')}`;
+  }
+  return path;
+}
+
+const FIRMLINKS = [
+  'usr/local',
+  'usr/libexec/cups',
+  'usr/share/snmp',
+  'AppleInternal',
+  'Applications',
+  'Library',
+  'Users',
+  'Volumes',
+  'cores',
+  'home',
+  'media',
+  'mnt',
+  'opt',
+  'pkg',
+  'private',
+  'sw',
+] as const;
+
+/** Automount prefixes a path reaches, up to six components deep (Claude's `Q`). */
+function automountPrefixes(
+  path: string,
+  host: ClaudePathHost,
+): { complete: string[]; partial: string[] } {
+  const complete: string[] = [];
+  const partial: string[] = [];
+  walkParts(path, (parts) => {
+    if (parts.length > 6) return;
+    const spelled = `/${parts.join('/')}`;
+    const at = (host.darwin ? dataVolumeAlias(spelled) : spelled).split('/').filter(Boolean);
+    const [first = '', second = '', third = ''] = at;
+    if (first.toLowerCase() === 'network') {
+      if (at.length === 1) partial.push('/network/');
+      else if (at.length === 2) partial.push(`/network/${lowerAscii(second)}/`);
+      else if (at.length === 3)
+        complete.push(`/network/${lowerAscii(second)}/${lowerAscii(third)}`);
+    } else if (host.homeAutomount && first.toLowerCase() === 'home' && at.length === 2) {
+      complete.push(`/home/${second}`);
+    }
+  });
+  return { complete, partial };
+}
+
+/** True when `path` reaches a macOS automount (Claude's `Y1`). */
+function reachesAutomount(path: string, host: ClaudePathHost): boolean {
+  if (!host.darwin) return false;
+  if (underNetwork(path) || underVolfs(path)) return true;
+  if (!path.startsWith('/')) return false;
+  const { complete, partial } = automountPrefixes(path, host);
+  if (partial.length > 0 || complete.some((prefix) => prefix.startsWith('/network/'))) return true;
+  const homes = complete.filter((prefix) => prefix.startsWith('/home/'));
+  if (homes.length === 0) return false;
+  const own = /^\/home\/([^/]+)/.exec(dataVolumeAlias(host.home));
+  const ownHome = own ? `/home/${own[1]}` : null;
+  return homes.some((prefix) => prefix !== ownHome);
+}
+
+/** True when `path` reaches an automount other than `base`'s own (Claude's `NNo`). */
+function leavesAutomount(path: string, base: string, host: ClaudePathHost): boolean {
+  if (!reachesAutomount(path, host)) return false;
+  const own = automountPrefixes(base, host).complete[0] ?? null;
+  const { complete, partial } = automountPrefixes(path, host);
+  if ((complete.length === 0 && partial.length === 0) || own === null) return true;
+  return (
+    complete.some((prefix) => prefix !== own) || partial.some((prefix) => !own.startsWith(prefix))
+  );
+}
+
+const DOS_DEVICE = /^[\\/]\?\?[\\/]/;
+const isDosDevice = (path: string): boolean =>
+  DOS_DEVICE.test(path) || (path.includes('??') && DOS_DEVICE.test(win32.normalize(path)));
+const isUncLike = (path: string): boolean => /^[\\/]{2}/.test(path) || isDosDevice(path);
+
+/** The UNC server of a path, lowercased, or `null` (Claude's `KP`). */
+function uncServer(path: string): string | null {
+  if (/^[\\/]{2}[?.][\\/](?!unc[\\/])/i.test(path)) return null;
+  const server = /^[\\/]{2}(?:[?.][\\/]unc[\\/])?([^\\/]+)/i.exec(path)?.[1];
+  return server === undefined ? null : lowerAscii(server);
+}
+
+/** A UNC spelling on another server, a device path or a dotted UNC segment (Claude's `RQ`). */
+function uncEscape(path: string, base: string): boolean {
+  if (!isUncLike(path)) return false;
+  if (/^[\\/]{2}[?.][\\/]/.test(path) || isDosDevice(path)) return true;
+  if (/(^|[\\/])\.{1,2}[. ]*([\\/]|$)/.test(path)) return true;
+  const server = uncServer(path);
+  return server === null || server !== uncServer(base);
+}
+
+/**
+ * Claude Code 2.1.322's unsafe-path predicate (`ua` in its bundle): `text`,
+ * as written and resolved against `base`, must not name another UNC server,
+ * a device path, another `/net` host, `/net` itself, `/network`, a macOS volfs
+ * root or another automount. Claude applies it to the gitdir, commondir and
+ * backlink text and to every symlink target its walks follow.
+ *
+ * @param text - The path as written (a gitdir line or a raw symlink target).
+ * @param base - The directory `text` is relative to.
+ * @param host - The host facts the macOS rules read.
+ * @returns True when Claude would refuse the path.
+ * @internal
+ */
+export function claudeUnsafePath(
+  text: string,
+  base: string,
+  host: ClaudePathHost = claudePathHost(),
+): boolean {
+  const resolved = resolve(base, text);
+  if (uncEscape(text, base) || uncEscape(resolved, base)) return true;
+  const baseHost = netHost(base);
+  for (const path of [text, resolved]) {
+    const pathHost = netHost(path);
+    if (pathHost !== null && pathHost !== baseHost) return true;
+    if (underNetwork(path) || isNetRoot(path) || underVolfs(path)) return true;
+    if (leavesAutomount(path, base, host)) return true;
+  }
+  return false;
+}
+
+/** A walked component that leaves its anchor's mount (Claude's `E$`). */
+function componentEscapes(path: string, anchor: string, host: ClaudePathHost): boolean {
+  if (underVolfs(path)) return true;
+  const pathHost = netHost(path);
+  if (pathHost !== null && pathHost !== netHost(anchor)) return true;
+  return leavesAutomount(path, anchor, host);
+}
+
+type PathKind = 'absent' | 'file' | 'dir' | 'symlink' | 'special' | 'other';
+
+/** `lstat` kind of a path (Claude's `Pt`). */
+function pathKind(path: string): PathKind {
+  try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) return 'symlink';
+    return stat.isFile() ? 'file' : stat.isDirectory() ? 'dir' : 'special';
+  } catch (err) {
+    const code = err instanceof Error && 'code' in err ? err.code : undefined;
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'absent' : 'other';
+  }
+}
+
+/** A symlink's target text when it is valid UTF-8 without NUL, else `null`. */
+function linkText(path: string): string | null {
+  try {
+    const raw = readlinkSync(path, { encoding: 'buffer' });
+    const text = raw.toString('utf8');
+    return text.includes('\0') || !Buffer.from(text, 'utf8').equals(raw) ? null : text;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Claude's component walk (`Ge`): every component stays on `anchor`'s mount,
+ * is absent, a file, a directory or a symlink whose raw target passes
+ * {@link claudeUnsafePath}; links are followed at most 40 times.
+ */
+function walksSafely(path: string, anchor: string, host: ClaudePathHost, hops = 40): boolean {
+  if (hops <= 0) return false;
+  const rooted = path.startsWith('/');
+  const parts = path.slice(rooted ? 1 : 0).split(/\/+/);
+  let at = rooted ? '/' : '';
+  for (const [index, part] of parts.entries()) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      at = dirname(at);
+      continue;
+    }
+    at = join(at, part);
+    if (componentEscapes(at, anchor, host) || underNetwork(at)) return false;
+    const kind = pathKind(at);
+    if (kind === 'other' || kind === 'special') return false;
+    if (kind === 'symlink') {
+      const target = linkText(at);
+      if (target === null || claudeUnsafePath(target, dirname(at), host)) return false;
+      const base = target.startsWith('/') ? target : `${dirname(at)}/${target}`;
+      const rest = parts.slice(index + 1).join('/');
+      const next = rest ? (base.endsWith('/') ? base + rest : `${base}/${rest}`) : base;
+      return walksSafely(next, anchor, host, hops - 1);
+    }
+  }
+  return true;
+}
+
+/** Claude's `ye`: `text` relative to `base` walks safely, as written and resolved. */
+function textWalksSafely(text: string, base: string, host: ClaudePathHost, anchor = base): boolean {
+  const written = text.startsWith('/') ? text : `${base}/${text}`;
+  const resolved = resolve(base, text);
+  return (
+    walksSafely(written, anchor, host) &&
+    (resolved === written || walksSafely(resolved, anchor, host))
+  );
+}
+
+/** A git metadata file Claude reads (`K6` passed: safe walk, not a symlink), trimmed. */
+function readGitMetaFile(gitDir: string, name: string, host: ClaudePathHost): string | null {
+  const file = join(gitDir, name);
+  if (!walksSafely(file, gitDir, host) || ['symlink', 'special', 'other'].includes(pathKind(file)))
+    return null;
+  return readFileSync(file, 'utf8').trim();
+}
+
+/**
+ * Claude's `tt`: `path` is a file or directory, or a symlink whose raw target
+ * passes the unsafe-path rule and walk and resolves to a file or directory.
+ */
+function usableGitEntry(path: string, base: string, host: ClaudePathHost): boolean {
+  try {
+    const entry = lstatSync(path);
+    if (!entry.isSymbolicLink()) return entry.isDirectory() || entry.isFile();
+    const target = linkText(path);
+    if (
+      target === null ||
+      claudeUnsafePath(target, base, host) ||
+      !textWalksSafely(target, base, host)
+    )
+      return false;
+    const resolved = statSync(path);
+    return resolved.isDirectory() || resolved.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Claude's canonical root for a linked worktree (`findCanonicalGitRoot`, `cr`
+ * in Claude Code 2.1.322): a worktrees entry of the common directory with a
+ * matching backlink. Paths resolve lexically, never realpath-followed; only
+ * the backlink is compared by real path. Every gitdir, commondir and backlink
+ * text and every symlink target on the way passes Claude's unsafe-path rule.
+ * A bare common directory with a usable `.git` of its own is refused, as in
+ * Claude; an unusable one (dangling or unsafe link) is ignored, as in Claude.
+ *
+ * @param dir - The linked worktree's top directory.
+ * @param home - The lead Claude process's home, from the lead environment.
+ */
+function linkedWorktreeTrustRoot(dir: string, home: string): string | null {
+  const host = claudePathHost(home);
   const link = readFileSync(join(dir, '.git'), 'utf8').trim();
   if (!link.startsWith('gitdir:')) return null;
-  const gitDir = realpathSync(resolve(dir, link.slice(7).trim()));
-  const commonFile = join(gitDir, 'commondir');
-  const backFile = join(gitDir, 'gitdir');
-  if (![commonFile, backFile].every((file) => lstatSync(file, { throwIfNoEntry: false })?.isFile()))
-    return null;
-  const commonDir = realpathSync(resolve(gitDir, readFileSync(commonFile, 'utf8').trim()));
+  const gitText = link.slice(7).trim();
+  if (claudeUnsafePath(gitText, dir, host) || !textWalksSafely(gitText, dir, host)) return null;
+  const gitDir = resolve(dir, gitText);
+  const common = readGitMetaFile(gitDir, 'commondir', host);
   if (
-    dirname(gitDir) !== join(commonDir, 'worktrees') ||
-    realpathSync(resolve(gitDir, readFileSync(backFile, 'utf8').trim())) !== join(dir, '.git')
+    common === null ||
+    claudeUnsafePath(common, gitDir, host) ||
+    !textWalksSafely(common, gitDir, host)
   )
     return null;
-  if (basename(commonDir) !== '.git' && existsSync(join(commonDir, '.git'))) return null;
-  return basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
+  const commonDir = resolve(gitDir, common);
+  if (dirname(gitDir) !== join(commonDir, 'worktrees')) return null;
+  const back = readGitMetaFile(gitDir, 'gitdir', host);
+  if (
+    back === null ||
+    claudeUnsafePath(back, dir, host) ||
+    !textWalksSafely(back, gitDir, host, dir)
+  )
+    return null;
+  if ([dir, gitDir, back, commonDir].some((path) => path.includes('\\'))) return null;
+  if (realpathSync(resolve(gitDir, back)) !== join(realpathSync(dir), '.git')) return null;
+  if (basename(commonDir) !== '.git' && usableGitEntry(join(commonDir, '.git'), commonDir, host))
+    return null;
+  return (basename(commonDir) === '.git' ? dirname(commonDir) : commonDir).normalize('NFC');
 }
 
 /** Claude Code's truthy env parse: `1`, `true`, `yes` or `on`, any case, trimmed. */
@@ -239,7 +629,7 @@ export function requireLeadProjectTrust(
         if (trusted(dir)) return configPath;
         const gitEntry = lstatSync(join(dir, '.git'), { throwIfNoEntry: false });
         if (gitEntry || dirname(dir) === dir) {
-          const mainRoot = gitEntry?.isFile() ? linkedWorktreeTrustRoot(dir) : null;
+          const mainRoot = gitEntry?.isFile() ? linkedWorktreeTrustRoot(dir, home) : null;
           if (mainRoot && mainRoot !== realpathSync(home) && trusted(mainRoot)) return configPath;
           break;
         }
