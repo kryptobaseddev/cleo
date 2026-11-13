@@ -279,6 +279,8 @@ jobs:
       # A workspace publish command must verify version metadata and tarballs
       # of dependencies before publishing its entry package to latest. The
       # cleocode-specific release.yml uses execute-payload before its CLI wave.
+      # Include that wait in step/job budgets and write the publish timeline
+      # to GITHUB_STEP_SUMMARY before returning a failed gate's exit status.
       - name: Publish npm packages
         if: contains(env.PUBLISHERS, 'npm')
         run: {{NPM_PUBLISH_CMD}}

@@ -13,9 +13,11 @@
  * @task gh#1377
  */
 
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import {
   checkMetadata,
@@ -280,8 +282,16 @@ describe('arg parsing', () => {
   it.each([
     ['--before-package'],
     ['--before-package', '--version', '2026.11.3'],
-  ])('refuses a missing pre-publish package name: %j', (...args) => {
+  ])('reports a missing pre-publish package name as a usage error: %j', (...args) => {
     expect(() => parseArgs(args)).toThrow('--before-package needs a package name');
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL('../execute-payload.mjs', import.meta.url)), ...args],
+      { encoding: 'utf8' },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('ERROR: --before-package needs a package name\n');
+    expect(result.stdout).toBe('');
   });
 });
 

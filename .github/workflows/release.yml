@@ -693,9 +693,11 @@ jobs:
     runs-on: ubuntu-latest
     # gh#1479 recorded a single @cleocode/cleo publish taking 55m33s (npm
     # accepted it; the registry sat on it). 60 minutes left ~4 minutes for the
-    # other 17 packages, the GitHub Release and the stage/verify steps, so one
-    # slow registry day would kill the job mid-wave. 180 is headroom, not a
-    # target: a healthy publish finishes in minutes.
+    # other 17 packages, the GitHub Release and the stage/verify steps. Stable
+    # releases publish twice: ~110m for two slow calls, plus 15m each for the
+    # candidate registry check, candidate install/soak and stable dependency
+    # wait is ~155m. 180 leaves ~25m for sibling packages, staging and the
+    # GitHub Release; a healthy publish finishes in minutes.
     timeout-minutes: 180
     env:
       VERSION: ${{ needs.build-verify.outputs.version }}
@@ -1105,10 +1107,14 @@ jobs:
             # T14516: npm accepting a dependency does not make it installable.
             # Reuse the candidate's metadata + tarball + dist-tag verifier;
             # one shared budget covers all earlier waves, including cycles.
+            local STABLE_DEPENDENCY_EXIT=0
             if [[ "$TAG" == "latest" && "$PUBLISH_HALTED" == "0" ]]; then
               POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs \
                 --version "$VERSION" --dist-tag "$TAG" --before-package cleo \
-                --output-dir /tmp/stable-dependencies
+                --output-dir /tmp/stable-dependencies || {
+                  STABLE_DEPENDENCY_EXIT=$?
+                  PUBLISH_HALTED=1
+                }
             fi
             # Wave 6 — the CLI depends on playbooks + runtime (wave 5).
             publish_pkg cleo
@@ -1138,6 +1144,11 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             echo "--- publish timeline ---"
             cat "$PUBLISH_LOG"
+
+            if [[ "$STABLE_DEPENDENCY_EXIT" -ne 0 ]]; then
+              echo "::error::Stable dependency verification failed; CLI publish was not attempted."
+              exit "$STABLE_DEPENDENCY_EXIT"
+            fi
 
             mapfile -t FAILED_PKGS < <(sort -u "$FAILED_LOG")
             if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
