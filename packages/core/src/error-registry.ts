@@ -235,6 +235,14 @@ const CLEO_ERROR_REGISTRY: CleoRegistryEntry[] = [
     httpStatus: 428,
   },
   {
+    exitCode: ExitCode.GATE_ADMISSION_REFUSED,
+    lafsCode: 'E_GATE_ADMISSION_REFUSED',
+    category: 'CONFLICT',
+    description: 'The machine-wide admission ledger refused to start a linked typed gate',
+    retryable: true,
+    httpStatus: 409,
+  },
+  {
     exitCode: ExitCode.PROJECT_MOVED,
     lafsCode: 'E_PROJECT_MOVED',
     category: 'NOT_FOUND',

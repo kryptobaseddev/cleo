@@ -1306,7 +1306,7 @@ describe('typed requirement persistence', () => {
           expect(refused.success).toBe(false);
           if (refused.success) throw new Error('expected a refusal');
           expect(refused.error.code).toBe('E_GATE_ADMISSION_REFUSED');
-          expect(refused.error.exitCode).toBe(7);
+          expect(refused.error.exitCode).toBe(28);
           expect(refused.error.message).toContain(`E_GATE_ADMISSION_REFUSED: ${refusal.message}`);
           expect(refused.error.fix).toBe('cleo verify T121 --run');
           expect(runs()).toBe(0);

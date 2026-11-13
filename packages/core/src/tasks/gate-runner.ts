@@ -271,6 +271,19 @@ export const GATE_CACHE_INVALID_PREFIX = 'typed gate cache entry invalid:';
 export const GATE_ADMISSION_REFUSED_PREFIX = 'E_GATE_ADMISSION_REFUSED:';
 
 /**
+ * Time a gate batch keeps before its shared deadline so a refused admission is
+ * still recorded and reported (T14534, T14536): 10% of the budget the batch
+ * started with, at most {@link TYPED_GATE_BOOKKEEPING_MS}. It is fixed when the
+ * batch starts, so later gates never wait into it however little time is left.
+ */
+function admissionReserveMs(budgetMs: number): number {
+  return Math.min(TYPED_GATE_BOOKKEEPING_MS, Math.max(0, Math.floor(budgetMs / 10)));
+}
+
+/** Capture options for one gate, with the batch's fixed {@link admissionReserveMs}. */
+type GateCaptureContext = ProcessCaptureOptions & { readonly admissionReserveMs: number };
+
+/**
  * Load (creating on first use, mode 0600) the per-machine key that seals
  * evidence cache entries. Deliberately NOT exported: a caller that could load
  * the key through core could seal any result it liked, which is the forgery
@@ -595,6 +608,19 @@ export async function runGates(
   gates: AcceptanceGate[],
   options: RunGatesOptions = {},
 ): Promise<AcceptanceGateResult[]> {
+  return runGateBatch(gates, options);
+}
+
+/**
+ * {@link runGates} with the admission reserve of an enclosing batch: a caller
+ * that runs one gate per call (runTaskGates) passes the reserve it fixed at its
+ * start, so the reserve does not shrink as the shared deadline nears (T14536).
+ */
+async function runGateBatch(
+  gates: AcceptanceGate[],
+  options: RunGatesOptions,
+  reserveMs?: number,
+): Promise<AcceptanceGateResult[]> {
   const inherited = worktreeScope.getStore();
   if (inherited?.execution && options.execution && inherited.execution !== options.execution)
     throw new Error('Gate execution cannot replace an active captured operation');
@@ -616,11 +642,14 @@ export async function runGates(
   const snapshot = structuredClone(gates);
   const controller = new AbortController();
   const deregister = registerTeardownAbort(controller);
-  const batch: ProcessCaptureOptions = {
+  const deadlineAt =
+    execution?.deadlineAt ?? Date.now() + unownedAdmissionMs(snapshot, options.env);
+  const batch: GateCaptureContext = {
+    admissionReserveMs: reserveMs ?? admissionReserveMs(deadlineAt - Date.now()),
     cwd: treeRoot,
     env: { ...(options.env ?? process.env) },
     execution: {
-      deadlineAt: execution?.deadlineAt ?? Date.now() + unownedAdmissionMs(snapshot, options.env),
+      deadlineAt,
       signal: execution
         ? AbortSignal.any([execution.signal, controller.signal])
         : controller.signal,
@@ -981,6 +1010,8 @@ export async function runTaskGates(
   const env = { ...(options.env ?? process.env) };
   const verificationId = randomUUID();
   const tree = resolveTypedGateRoot(root, undefined, undefined, snapshot.id);
+  // T14536: one reserve for every gate, fixed from the budget at the start.
+  const reserveMs = admissionReserveMs(execution.remainingMs());
   return worktreeScope.run(scope, async () => {
     const results: AcceptanceGateResult[] = [];
     for (const [index, gate] of (snapshot.acceptance ?? []).entries()) {
@@ -1034,22 +1065,26 @@ export async function runTaskGates(
             checkedBy: execution.identity.actor,
           }
         : (
-            await runGates([gate], {
-              ...options,
-              projectRoot: root,
-              taskId: snapshot.id,
-              env,
-              execution,
-              ...(options.cache && options.cache !== 'off'
-                ? {
-                    cacheInputsHash: gateInputsHash(invocation, artifacts),
-                    cacheInputs: {
-                      environmentHash: invocation?.environmentHash ?? null,
-                      artifacts,
-                    },
-                  }
-                : {}),
-            })
+            await runGateBatch(
+              [gate],
+              {
+                ...options,
+                projectRoot: root,
+                taskId: snapshot.id,
+                env,
+                execution,
+                ...(options.cache && options.cache !== 'off'
+                  ? {
+                      cacheInputsHash: gateInputsHash(invocation, artifacts),
+                      cacheInputs: {
+                        environmentHash: invocation?.environmentHash ?? null,
+                        artifacts,
+                      },
+                    }
+                  : {}),
+              },
+              reserveMs,
+            )
           )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
       // T13525: a cache-only run must not wipe a stored pass that still proves
@@ -2148,7 +2183,7 @@ async function runOneGate(
   index: number,
   projectRoot: string,
   skipManual: boolean,
-  context: ProcessCaptureOptions,
+  context: GateCaptureContext,
   /** CLEO store root for attachment lookups; defaults to `projectRoot`. */
   storeRoot: string = projectRoot,
 ): Promise<AcceptanceGateResult> {
@@ -2180,11 +2215,12 @@ async function runOneGate(
  * ({@link planRunFootprint} for its class) and waits on the same ledger and
  * pressure predicate as `cleo run` and `tool:` evidence, so a gate cannot run
  * while the budget is full. Admission waits at most 90% of the gate's own
- * timeout (at most {@link TYPED_GATE_BOOKKEEPING_MS} less, T14534) and ends a
- * whole {@link TYPED_GATE_BOOKKEEPING_MS} before the shared deadline, even when
- * that leaves no wait at all (a later gate in a batch, T14536): the verifier
- * still has its bookkeeping budget to record and report the named refusal
- * ({@link GATE_ADMISSION_REFUSED_PREFIX}) rather than `E_OPERATION_DEADLINE`.
+ * timeout (at most {@link TYPED_GATE_BOOKKEEPING_MS} less, T14534) and ends the
+ * batch's fixed {@link admissionReserveMs} before the shared deadline: a small
+ * budget keeps a bounded non-zero wait (T14534), and a later gate in a batch
+ * never waits into the reserve (T14536), so the verifier can still record and
+ * report the named refusal ({@link GATE_ADMISSION_REFUSED_PREFIX}) rather than
+ * `E_OPERATION_DEADLINE`.
  * The child inherits the admission token, so a governed command it starts is
  * not charged twice.
  */
@@ -2194,7 +2230,7 @@ async function captureGateCommand(
   cwd: string,
   timeoutMs: number,
   cls: 'test-run' | 'scoped-build',
-  context: ProcessCaptureOptions,
+  context: GateCaptureContext,
   overlay?: Readonly<Record<string, string>>,
 ): Promise<ProcessCaptureResult> {
   const env = gateEnvironment(context.env ?? process.env, overlay, cwd, [command, ...args]);
@@ -2206,8 +2242,9 @@ async function captureGateCommand(
     plan.resources !== null && plan.resources.workers > 1
       ? footprintForClass(cls)
       : (plan.footprintBytes ?? footprintForClass(cls));
+  const { admissionReserveMs: reserveMs, ...capture } = context;
   const ownWaitMs = timeoutMs - Math.min(TYPED_GATE_BOOKKEEPING_MS, Math.floor(timeoutMs / 10));
-  const sharedWaitMs = context.execution.deadlineAt - Date.now() - TYPED_GATE_BOOKKEEPING_MS;
+  const sharedWaitMs = capture.execution.deadlineAt - Date.now() - reserveMs;
   const release = await acquireGlobalSlot(cls === 'test-run' ? 'test' : 'lint', {
     label: `gate:${cls === 'test-run' ? 'test' : 'command'}`,
     footprintBytes,
@@ -2216,12 +2253,12 @@ async function captureGateCommand(
   });
   try {
     return await captureWrapped(command, args, {
-      ...context,
+      ...capture,
       cwd,
       env: release.admission ? { ...env, [ADMISSION_ENV]: release.admission } : env,
       execution: {
-        ...context.execution,
-        deadlineAt: Math.min(context.execution.deadlineAt, Date.now() + timeoutMs),
+        ...capture.execution,
+        deadlineAt: Math.min(capture.execution.deadlineAt, Date.now() + timeoutMs),
       },
     });
   } finally {
@@ -2673,7 +2710,7 @@ async function runTestGate(
   index: number,
   projectRoot: string,
   timeoutMs: number,
-  context: ProcessCaptureOptions,
+  context: GateCaptureContext,
 ): Promise<AcceptanceGateResult> {
   // Keep a direct call's refusal (T14155) an error verdict, not a rejection.
   const cmdProblem = commandGateCmdProblem(gate, projectRoot);
@@ -2937,7 +2974,7 @@ async function runCommandGate(
   index: number,
   projectRoot: string,
   timeoutMs: number,
-  context: ProcessCaptureOptions,
+  context: GateCaptureContext,
 ): Promise<AcceptanceGateResult> {
   const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
   const captured = await captureGateCommand(
@@ -2987,7 +3024,7 @@ async function runLintGate(
   index: number,
   projectRoot: string,
   timeoutMs: number,
-  context: ProcessCaptureOptions,
+  context: GateCaptureContext,
 ): Promise<AcceptanceGateResult> {
   const tool = LINT_TOOL_DEFAULTS[gate.tool];
   const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;

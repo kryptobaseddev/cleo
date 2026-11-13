@@ -1200,7 +1200,7 @@ export async function validateGateVerify(
       if (admissionRefused.length > 0)
         // @sync-invariant none:local-only machine-wide admission refused a typed gate before anything is written
         return engineError('E_GATE_ADMISSION_REFUSED', admissionRefused.join('\n'), {
-          exitCode: ExitCode.LOCK_TIMEOUT,
+          exitCode: ExitCode.GATE_ADMISSION_REFUSED,
           fix: `cleo verify ${taskId} --run`,
         });
       // T14056: the gates just run may have rewritten a report this write

@@ -50,9 +50,15 @@ import {
   checkValidateManifest,
   checkValidateOutput,
 } from '@cleocode/core/validation/ops';
-import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
+import {
+  defineTypedHandler,
+  lafsError,
+  lafsSuccess,
+  typedDispatch,
+  wrapCoreResult,
+} from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
-import { handleErrorResult } from './_base.js';
+import { envelopeToEngineResult, handleErrorResult, wrapResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 import { lazyOperation } from './lazy.js';
 
@@ -835,19 +841,9 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         // Quality tracking errors must never surface to the verify flow
       }
     });
-    if (!result.success) {
-      return lafsError(
-        String(result.error?.code ?? 'E_INTERNAL'),
-        result.error?.message ?? 'Unknown error',
-        'gate.set',
-        // T14299: keep the verify refusal's own fix through the re-wrap.
-        result.error?.fix,
-      );
-    }
-    return lafsSuccess(
-      result.data ?? { taskId: params.taskId, gates: {}, passed: false },
-      'gate.set',
-    );
+    // T14299 + T14536: keep the verify refusal's own fix and exit code (e.g.
+    // E_GATE_ADMISSION_REFUSED, exit 28) through the re-wrap.
+    return wrapCoreResult(result, 'gate.set', { taskId: params.taskId, gates: {}, passed: false });
   },
 });
 
@@ -914,21 +910,8 @@ export class CheckHandler implements DomainHandler {
         operation as keyof CheckOps & string,
         params ?? {},
       );
-      // T1434: normalize the LAFS error shape (`code: string | number`)
-      // to the DispatchError shape (`code: string`).
-      return {
-        meta: dispatchMeta('mutate', 'check', operation, startTime),
-        success: envelope.success,
-        ...(envelope.success
-          ? { data: envelope.data as unknown }
-          : {
-              error: {
-                code:
-                  envelope.error?.code !== undefined ? String(envelope.error.code) : 'E_INTERNAL',
-                message: envelope.error?.message ?? 'Unknown error',
-              },
-            }),
-      };
+      // T14536: keep the engine's fix, details and exit code (E_GATE_ADMISSION_REFUSED → 28).
+      return wrapResult(envelopeToEngineResult(envelope), 'mutate', 'check', operation, startTime);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       getLogger('domain:check').error(

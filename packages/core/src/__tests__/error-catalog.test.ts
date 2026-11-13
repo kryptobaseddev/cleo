@@ -48,7 +48,7 @@ describe('error-catalog', () => {
       }
     });
 
-    it('every entry has a LAFS code starting with E_CLEO_ (except the named E_CONFLICT / E_SESSION_UNBOUND / E_WORKTREE_LOCKED / E_TASK_CLAIMED / E_TASK_RENAMED / E_SESSION_AMBIGUOUS)', () => {
+    it('every entry has a LAFS code starting with E_CLEO_ (except the named E_CONFLICT / E_SESSION_UNBOUND / E_WORKTREE_LOCKED / E_TASK_CLAIMED / E_TASK_RENAMED / E_SESSION_AMBIGUOUS / E_GATE_ADMISSION_REFUSED)', () => {
       // T12503: the optimistic-concurrency conflict is the one deliberately
       // un-namespaced code — its contract (task T12503, epic T12497) names it
       // `E_CONFLICT`. Any other entry must keep the E_CLEO_ prefix.
@@ -85,6 +85,11 @@ describe('error-catalog', () => {
         if (entry.code === ExitCode.TASK_RENAMED) {
           // T12800: named `E_TASK_RENAMED`, beside E_CONFLICT / E_TASK_CLAIMED.
           expect(entry.lafsCode).toBe('E_TASK_RENAMED');
+          continue;
+        }
+        if (entry.code === ExitCode.GATE_ADMISSION_REFUSED) {
+          // T14536: named `E_GATE_ADMISSION_REFUSED` by its task, beside E_GATE_NOT_CACHED.
+          expect(entry.lafsCode).toBe('E_GATE_ADMISSION_REFUSED');
           continue;
         }
         if (entry.code === ExitCode.SESSION_AMBIGUOUS) {

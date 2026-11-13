@@ -1,6 +1,8 @@
 import type { AcceptanceGateResult } from '@cleocode/contracts';
+import { engineError } from '@cleocode/contracts/engine-result.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { previewTaskGates } from '@cleocode/core/tasks/gate-preview';
+import { validateGateVerify } from '@cleocode/core/validation/engine-ops';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { reportRawError } from '../../adapters/cli.js';
 
@@ -26,6 +28,11 @@ vi.mock('../../lib/engine.js', () => ({
   validateProtocolSpecification: vi.fn(),
   validateGateVerify: vi.fn(),
   // T1571: systemArchiveStats removed from barrel (moved to @cleocode/core/internal as getArchiveStats)
+}));
+
+vi.mock('@cleocode/core/validation/engine-ops', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/validation/engine-ops')>()),
+  validateGateVerify: vi.fn(),
 }));
 
 vi.mock('../../../../../core/src/paths.js', async () => {
@@ -137,6 +144,44 @@ describe('CheckHandler operations', () => {
           details: expect.objectContaining(preview),
         },
       });
+    } finally {
+      stdoutSpy.mockRestore();
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  it.each([
+    { name: 'its own exit code', exitCode: ExitCode.GATE_ADMISSION_REFUSED },
+    { name: 'no exit code (mapped from the code)', exitCode: undefined },
+  ])('gate.set carries E_GATE_ADMISSION_REFUSED with $name to CLI exit 28 (T14536)', async ({
+    exitCode,
+  }) => {
+    vi.mocked(validateGateVerify).mockResolvedValue(
+      engineError('E_GATE_ADMISSION_REFUSED', 'E_GATE_ADMISSION_REFUSED: Timed out waiting', {
+        ...(exitCode !== undefined ? { exitCode } : {}),
+        fix: 'cleo verify T14536 --run',
+      }),
+    );
+
+    const response = await handler.mutate('gate.set', {
+      taskId: 'T14536',
+      gate: 'implemented',
+      value: true,
+      evidence: 'note:x',
+      runTyped: true,
+    });
+
+    expect(response.success).toBe(false);
+    expect(response.error).toMatchObject({
+      code: 'E_GATE_ADMISSION_REFUSED',
+      fix: 'cleo verify T14536 --run',
+      ...(exitCode !== undefined ? { exitCode } : {}),
+    });
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const previousExitCode = process.exitCode;
+    try {
+      expect(reportRawError(response, { operation: 'check.gate.set' })).toBe(28);
+      expect(process.exitCode).toBe(28);
     } finally {
       stdoutSpy.mockRestore();
       process.exitCode = previousExitCode;
