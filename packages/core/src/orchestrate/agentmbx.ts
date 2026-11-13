@@ -21,7 +21,9 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { LeadMailbox } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { loadConfig, setConfigValue } from '../config.js';
+import { CleoError } from '../errors.js';
 
 /** An AgentMBX mailbox name: letters, digits and `. _ - @ :` (T13943). */
 export const MBX_NAME = /^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$/;
@@ -84,6 +86,8 @@ export interface MbxIdentityStatus {
   name: string | null;
   /** Identity state, e.g. `bound` or `unbound`. */
   state: string;
+  /** Registered role, when reported by AgentMBX. */
+  role?: string | null;
   /** Unread message count. */
   unread: number;
 }
@@ -108,6 +112,8 @@ export interface AgentMbxClient {
   claim(name: string, session: Required<MbxSession>): Promise<MbxOutcome<MbxIdentityStatus>>;
   /** The identity a provider session holds. */
   status(session: MbxSession): Promise<MbxOutcome<MbxIdentityStatus>>;
+  /** Live holder of a registered mailbox in this project, or null. */
+  holder(name: string, projectRoot: string): Promise<MbxOutcome<Required<MbxSession> | null>>;
   /** Release the mailbox a provider session holds (a lead's exit or reap, T14363). */
   release(session: Required<MbxSession>): Promise<MbxOutcome<MbxIdentityStatus>>;
 }
@@ -165,6 +171,7 @@ function parseIdentity(stdout: string): MbxIdentityStatus {
   return {
     name: str(identity, 'name') || null,
     state: str(identity, 'state') || 'unknown',
+    role: str(identity, 'role') || null,
     unread: typeof unread === 'number' ? unread : 0,
   };
 }
@@ -270,6 +277,26 @@ export function createAgentMbxClient(runner?: MbxRunner): AgentMbxClient {
       ]);
       return r.ok ? { ok: true, value: parseIdentity(r.value) } : r;
     },
+    async holder(name, projectRoot) {
+      if (!MBX_NAME.test(name))
+        return { ok: false, warning: `invalid AgentMBX mailbox name: ${name}` };
+      const r = await call(['identity', 'list', '--project', projectRoot, '--json']);
+      if (!r.ok) return r;
+      const rows = asRecord(parseJson(r.value))?.['identities'];
+      const row = (Array.isArray(rows) ? rows : [])
+        .map(asRecord)
+        .find(
+          (row) =>
+            str(row, 'name') === name &&
+            row?.['state'] === 'held' &&
+            row?.['registered'] === true &&
+            row?.['retired'] === false,
+        );
+      const holder = asRecord(row?.['holder']);
+      const cli = str(holder, 'cli');
+      const session = str(holder, 'session_id');
+      return { ok: true, value: cli && session ? { cli, session } : null };
+    },
   };
 }
 
@@ -344,31 +371,48 @@ export async function ensureLeadMailbox(
 }
 
 /**
- * The lead mailbox a spawn names: the explicit `--lead-mbx`, else (with
- * `orchestrate.leadWorker.v1` on) the recorded `orchestrate.leadMailbox.name`,
- * else none.
+ * Resolve a worker report destination only while AgentMBX confirms a live
+ * holder. The guarded lead runner supplies its epic mailbox through the
+ * environment; manual callers can name a held mailbox with `--lead-mbx`.
  *
  * @param projectRoot - Project root.
  * @param explicit - Mailbox given on the command line.
+ * @param client - AgentMBX adapter.
  * @returns A valid mailbox name, or `undefined`.
  */
 export async function resolveLeadMailbox(
   projectRoot: string,
   explicit?: string,
+  client: AgentMbxClient = createAgentMbxClient(),
 ): Promise<string | undefined> {
-  if (explicit) return explicit;
   const orchestrate = (await loadConfig(projectRoot)).orchestrate;
-  if (orchestrate?.leadWorker?.v1 !== true) return undefined;
-  const name = orchestrate.leadMailbox?.name ?? '';
-  // The name is printed into the prompt, so a hand-edited value must still be a plain name.
-  return MBX_NAME.test(name) ? name : undefined;
+  const name =
+    explicit ??
+    (orchestrate?.leadWorker?.v1 === true
+      ? (process.env['CLEO_LEAD_MAILBOX'] ?? orchestrate.leadMailbox?.name)
+      : undefined);
+  if (!name || !MBX_NAME.test(name)) return undefined;
+  const holder = await client.holder(name, projectRoot);
+  const status = holder.ok && holder.value ? await client.status(holder.value) : null;
+  if (status?.ok && status.value.name === name && status.value.state === 'bound') return name;
+  if (explicit) {
+    // @sync-invariant none:local-only a report destination needs a live AgentMBX holder
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `AgentMBX does not confirm a live holder of ${name}`,
+      {
+        codeName: 'E_LEAD_MAILBOX_UNHELD',
+        fix: `In the lead session use mbx_identity {"action":"claim","name":"${name}"}; if absent, use mbx_identity {"action":"register","name":"${name}","role":"lead"}. Check agentmbx identity list --project ${JSON.stringify(projectRoot)} --json before retrying.`,
+      },
+    );
+  }
+  return undefined;
 }
 
 /**
  * Claim the project's recorded lead mailbox for the lead's provider session.
- * `cleo orchestrate lead` (T14363) calls this once the lead's spawn is
- * admitted, right before it starts, so the mailbox workers report to has a
- * holder; the lead's exit, or the dead-lead reaper, releases it.
+ * Requires an existing provider endpoint. A newly spawned lead registers or
+ * claims through its own MCP tools instead; it cannot be claimed before launch.
  *
  * @param projectRoot - Project root.
  * @param session - The lead's provider session (`--cli`, `--session`).
@@ -380,7 +424,8 @@ export async function claimLeadMailbox(
   session: Required<MbxSession>,
   client: AgentMbxClient = createAgentMbxClient(),
 ): Promise<MbxOutcome<MbxIdentityStatus>> {
-  const name = await resolveLeadMailbox(projectRoot);
+  const orchestrate = (await loadConfig(projectRoot)).orchestrate;
+  const name = orchestrate?.leadWorker?.v1 === true ? orchestrate.leadMailbox?.name : undefined;
   if (!name) {
     return {
       ok: false,

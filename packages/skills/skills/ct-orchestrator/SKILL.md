@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.18.0
+  version: 4.19.0
   tier: core
   install: harness
   covers:
@@ -406,8 +406,15 @@ binary on an absolute path outside the project with args `mcp`, so a repo's `.mc
 plant it; otherwise the lead gets the runner alone and `data.lead.mcpWarning` says why. A
 provider that cannot strip tools refuses the spawn (`E_LEAD_TOOLS_UNSTRIPPED`). The lead's prompt
 is composed with role `lead` (ct-lead excerpts) and passed as its appended system prompt. It runs
-in the project root under its OWN CLEO session (no worktree, no worker record). The lead mailbox
-is claimed once the spawn is admitted and released when the lead exits. A lead record
+in the project root under its OWN CLEO session (no worktree, no worker record). Admission records
+an epic mailbox (the configured project mailbox name plus the epic id). The running lead's
+first action claims or registers that name through its own `mbx_identity` tools with role
+`lead`; registration also holds it. A CLI cannot pre-claim an endpoint that does not exist.
+The runner refuses spawn, spawn-execute, fanout and handoff until AgentMBX confirms the
+exact provider session holds it with role `lead`, and rechecks each dispatch. Worker prompts
+name only destinations whose live holder is verified, including explicit `--lead-mbx`.
+Different epics use independent coordinator mailboxes; none replaces or designates the
+owner-controlled AgentMBX project lead. Exit releases the session's mailbox. A lead record
 (`.cleo/leads/<epic>.json`) holds one lead per epic while its `claude` process or the `cleo` CLI lives, each matched on pid
 AND start time so a reused pid never blocks the epic (a second gets
 `E_LEAD_RUNNING`); a lead killed before its hooks ran is reaped (mailbox, CLEO session, temp dir)

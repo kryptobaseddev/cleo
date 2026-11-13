@@ -721,8 +721,7 @@ export async function composeSpawnForTask(
       ? options.tier
       : resolveEffectiveTier(task, inferredRole ?? 'worker', undefined);
 
-  // T14379 — spawn and fanout both compose here, so the recorded project lead
-  // mailbox fills in for a missing `--lead-mbx` on every path.
+  // Every path verifies the report destination has a live AgentMBX holder.
   const leadMailbox = await resolveLeadMailbox(root, options.leadMailbox);
   const db = await openAgentRegistryDbForComposer();
   try {
@@ -869,7 +868,7 @@ export interface LeadSpawnOptions {
   readonly deniedTools: readonly LeadDeniedTool[];
   /**
    * Provider session id the lead runs under (`options.leadSessionId` on the
-   * spawn context), so the lead mailbox can be claimed for it before it starts.
+   * spawn context), used to verify its mailbox after the provider starts.
    */
   readonly sessionId?: string;
   /** Interactive (the caller's terminal) or detached. @defaultValue 'interactive' */
@@ -879,8 +878,8 @@ export interface LeadSpawnOptions {
   /**
    * Called once the lead is admitted, before its first model turn
    * (a native interactive lead's spawn only returns when it exits). A throw refuses
-   * the spawn. `cleo orchestrate lead` claims the mailbox and writes the lead
-   * record here.
+   * the spawn. `cleo orchestrate lead` records the intended mailbox here;
+   * the running provider registers or claims it through its own MCP tools.
    */
   readonly onAdmitted?: (lead: {
     readonly cleoSessionId: string;
@@ -1486,7 +1485,7 @@ export async function orchestrateSpawnExecute(
             pid: null,
             pgid: null,
             worktree: agentWorkingDirectory,
-            leadMailbox: opts.leadMailbox ?? null,
+            leadMailbox: (await resolveLeadMailbox(cwd, opts.leadMailbox)) ?? null,
             sessionId: activeSessionId,
           },
           cwd,
@@ -1501,7 +1500,7 @@ export async function orchestrateSpawnExecute(
     }
 
     // T14363 — the lead is admitted (resource grant, task claim, prompt): let
-    // the caller claim its mailbox and record it before it starts. Orca defers this until its gate is ready.
+    // the caller record its mailbox before it starts. Orca defers this until its gate is ready.
     if (opts.lead?.onAdmitted && !leadInOrca) {
       await opts.lead.onAdmitted({ cleoSessionId: activeSessionId, agentId: spawnAgentId ?? null });
     }

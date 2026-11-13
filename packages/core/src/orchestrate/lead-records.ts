@@ -62,7 +62,7 @@ export interface LeadRecord {
   readonly providerSessionId: string;
   /** Provider CLI of the lead (`claude`). */
   readonly providerCli: string;
-  /** Mailbox claimed for the lead, or `null`. */
+  /** Intended epic mailbox; dispatch verifies the provider holds it before use. */
   readonly mailbox: string | null;
   /** A detached lead's private temp directory, or `null`. */
   readonly tempDir: string | null;

@@ -39,6 +39,7 @@ const { provider } = vi.hoisted(() => {
     status: SpawnResult['status'];
     /** Pid a detached lead reports, or none. */
     pid: number | undefined;
+    onSpawn?: (ctx: SpawnContext) => void;
   } = {
     events: [],
     status: 'running',
@@ -55,6 +56,7 @@ const { provider } = vi.hoisted(() => {
     spawn: async (ctx: SpawnContext): Promise<SpawnResult> => {
       state.seen.push(ctx);
       state.events.push('spawn');
+      state.onSpawn?.(ctx);
       // The provider reports the lead's pid as it starts (the lead record names it).
       if (state.pid !== undefined) ctx.onLeadStarted?.(state.pid);
       const terminal =
@@ -147,15 +149,29 @@ function fakeMbx(grant: boolean): {
   client: AgentMbxClient;
   claims: Array<{ name: string; session: MbxSession }>;
   releases: MbxSession[];
+  bindings: Map<string, string>;
 } {
   const claims: Array<{ name: string; session: MbxSession }> = [];
   const releases: MbxSession[] = [];
+  const bindings = new Map<string, string>();
   const refused = { ok: false as const, warning: 'agentmbx refused' };
   const client: AgentMbxClient = {
     available: async () => true,
     send: async () => refused,
     inbox: async () => refused,
-    status: async () => refused,
+    status: async (session) =>
+      grant && session.session && bindings.has(session.session)
+        ? {
+            ok: true,
+            value: {
+              name: bindings.get(session.session) ?? null,
+              state: 'bound',
+              role: 'lead',
+              unread: 0,
+            },
+          }
+        : refused,
+    holder: async () => ({ ok: true, value: null }),
     claim: async (name, session) => {
       claims.push({ name, session });
       provider.state.events.push('claim');
@@ -167,7 +183,7 @@ function fakeMbx(grant: boolean): {
       return { ok: true, value: { name: null, state: 'unbound', unread: 0 } };
     },
   };
-  return { client, claims, releases };
+  return { client, claims, releases, bindings };
 }
 
 type LeadData = { lead: Record<string, unknown>; agentId?: string };
@@ -202,6 +218,7 @@ describe('orchestrateLead (T14363)', () => {
     provider.state.events = [];
     provider.state.status = 'running';
     provider.state.pid = undefined;
+    provider.state.onSpawn = undefined;
     provider.state.leadMcp = { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' };
   });
 
@@ -266,7 +283,7 @@ describe('orchestrateLead (T14363)', () => {
     expect(provider.state.seen[0]?.leadTerminalLauncher).toBeTypeOf('function');
     expect(launch).toHaveBeenCalledOnce();
     expect(fixtureRunner).not.toHaveBeenCalled();
-    expect(mbx.claims).toHaveLength(1);
+    expect(mbx.claims).toHaveLength(0);
     expect(mbx.releases).toHaveLength(0);
     expect(readLeadRecord(env.tempDir, 'T100')).toMatchObject({
       mode,
@@ -360,7 +377,7 @@ describe('orchestrateLead (T14363)', () => {
         details: refusal.details,
       },
     });
-    expect(mbx.claims).toHaveLength(stage === 'after-admission' ? 1 : 0);
+    expect(mbx.claims).toHaveLength(0);
     expect(mbx.releases).toHaveLength(stage === 'after-admission' ? 1 : 0);
     expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
     expect((await env.accessor.loadSingleTask('T100'))?.status).toBe('pending');
@@ -374,7 +391,7 @@ describe('orchestrateLead (T14363)', () => {
     expect(provider.state.seen).toHaveLength(0);
   });
 
-  it('interactive (default): tool-stripped, own session, mailbox claimed on admission and released when the session ends', async () => {
+  it('interactive: bootstraps through its own mbx tools after admission, then releases on exit', async () => {
     withMailbox();
     provider.state.status = 'completed'; // the owner ended the interactive session
     const { orchestrateLead } = await import('../lead.js');
@@ -407,12 +424,18 @@ describe('orchestrateLead (T14363)', () => {
     expect(data?.lead).toMatchObject({
       mode: 'interactive',
       runnerTool: LEAD_RUNNER_TOOL,
-      mailbox: { claimed: true, name: MAILBOX },
+      mailbox: {
+        claimed: false,
+        name: `${MAILBOX}-T100`,
+        warning: expect.stringContaining('bootstrap pending'),
+      },
       mcp: { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' },
     });
-    // Claimed once admitted (before the lead starts), released when it ended.
-    expect(provider.state.events).toEqual(['claim', 'spawn', 'release']);
-    expect(mbx.claims).toEqual([{ name: MAILBOX, session: { cli: 'claude', session: sessionId } }]);
+    expect(ctx?.prompt).toContain(`"action":"register","name":"${MAILBOX}-T100","role":"lead"`);
+    expect(ctx?.prompt).toContain('owner-designated project lead');
+    // No claim is attempted for a provider endpoint that does not exist yet.
+    expect(provider.state.events).toEqual(['spawn', 'release']);
+    expect(mbx.claims).toEqual([]);
     expect(mbx.releases).toEqual([{ cli: 'claude', session: sessionId }]);
     const { readLeadRecord } = await import('../lead-records.js');
     expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
@@ -447,7 +470,7 @@ describe('orchestrateLead (T14363)', () => {
         { role: 'lead', pid: process.pid },
       ],
       mode: 'detached',
-      mailbox: MAILBOX,
+      mailbox: `${MAILBOX}-T100`,
       tempDir: '/tmp/none',
     });
   });
@@ -472,7 +495,7 @@ describe('orchestrateLead (T14363)', () => {
     });
     expect(second).toMatchObject({ success: false, error: { code: 'E_LEAD_RUNNING' } });
     expect(provider.state.seen).toHaveLength(1);
-    expect(mbx.claims).toHaveLength(1);
+    expect(mbx.claims).toHaveLength(0);
     expect(mbx.releases).toHaveLength(0);
   });
 
@@ -722,7 +745,7 @@ describe('orchestrateLead (T14363)', () => {
       error: { code: 'E_LEAD_TOOLS_UNSTRIPPED', exitCode: 63 },
     });
     expect(provider.state.seen).toHaveLength(0);
-    expect(mbx.claims).toHaveLength(1);
+    expect(mbx.claims).toHaveLength(0);
     expect(mbx.releases).toHaveLength(1);
     const { readLeadRecord } = await import('../lead-records.js');
     expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
@@ -732,7 +755,7 @@ describe('orchestrateLead (T14363)', () => {
     expect(before.claims).toHaveLength(0);
   });
 
-  it('a failed mailbox claim is reported, not fatal', async () => {
+  it('an unbound provider reports pending MCP bootstrap, never a successful claim', async () => {
     withMailbox();
     provider.state.status = 'completed';
     const { orchestrateLead } = await import('../lead.js');
@@ -742,8 +765,81 @@ describe('orchestrateLead (T14363)', () => {
     });
     expect(result).toMatchObject({
       success: true,
-      data: { lead: { mailbox: { claimed: false, warning: 'agentmbx refused' } } },
+      data: {
+        lead: {
+          mailbox: {
+            claimed: false,
+            name: `${MAILBOX}-T100`,
+            warning: expect.stringContaining('mbx_identity'),
+          },
+        },
+      },
     });
+  });
+
+  it('reports a held mailbox only after the lead registers through its running provider', async () => {
+    withMailbox();
+    provider.state.pid = process.pid;
+    const { readLeadRecord } = await import('../lead-records.js');
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    provider.state.onSpawn = () => {
+      const record = readLeadRecord(env.tempDir, 'T100');
+      if (!record?.mailbox) throw new Error('missing admitted lead record');
+      mbx.bindings.set(record.providerSessionId, record.mailbox);
+    };
+    expect(
+      await orchestrateLead('T100', {
+        projectRoot: env.tempDir,
+        mbxClient: mbx.client,
+        mode: 'detached',
+      }),
+    ).toMatchObject({
+      success: true,
+      data: { lead: { mailbox: { claimed: true, name: `${MAILBOX}-T100` } } },
+    });
+    expect(mbx.claims).toHaveLength(0);
+  });
+
+  it('records a fresh project mailbox on lead launch without a separate upgrade (T14477)', async () => {
+    setOrchestrate(env.tempDir, { leadWorker: { v1: true } });
+    provider.state.pid = process.pid;
+    const { orchestrateLead } = await import('../lead.js');
+    const { readLeadRecord } = await import('../lead-records.js');
+    const mbx = fakeMbx(true);
+    expect(
+      (
+        await orchestrateLead('T100', {
+          projectRoot: env.tempDir,
+          mbxClient: mbx.client,
+          mode: 'detached',
+        })
+      ).success,
+    ).toBe(true);
+    expect(readLeadRecord(env.tempDir, 'T100')?.mailbox).toMatch(/-lead-T100$/);
+    expect(provider.state.seen[0]?.prompt).toContain('"action":"register"');
+    expect(mbx.claims).toHaveLength(0);
+  });
+
+  it('keeps one lead per epic with independent mailboxes in the same project (T14477)', async () => {
+    withMailbox();
+    await seedTasks(env.accessor, [
+      { id: 'T102', title: 'Other epic', type: 'epic', status: 'pending' },
+    ]);
+    provider.state.pid = process.pid;
+    const { readLeadRecord } = await import('../lead-records.js');
+    const { orchestrateLead } = await import('../lead.js');
+    const mbx = fakeMbx(true);
+    const options = { projectRoot: env.tempDir, mbxClient: mbx.client, mode: 'detached' as const };
+    expect((await orchestrateLead('T100', options)).success).toBe(true);
+    expect((await orchestrateLead('T102', options)).success).toBe(true);
+    expect(readLeadRecord(env.tempDir, 'T100')?.mailbox).toBe(`${MAILBOX}-T100`);
+    expect(readLeadRecord(env.tempDir, 'T102')?.mailbox).toBe(`${MAILBOX}-T102`);
+    expect(await orchestrateLead('T100', options)).toMatchObject({
+      success: false,
+      error: { code: 'E_LEAD_RUNNING' },
+    });
+    expect(mbx.claims).toHaveLength(0);
   });
 
   it('no mbx server configured: data.lead says the lead runs with the runner alone (T14423)', async () => {
@@ -845,7 +941,8 @@ describe('orchestrateLead (T14363)', () => {
       });
       expect(result.success ? '' : (result.error.fix ?? '')).toContain('drop --detached');
       // Whatever was claimed on admission is given straight back.
-      expect(mbx.releases).toHaveLength(mbx.claims.length);
+      expect(mbx.claims).toHaveLength(0);
+      expect(mbx.releases).toHaveLength(1);
       const { readLeadRecord } = await import('../lead-records.js');
       expect(readLeadRecord(env.tempDir, 'T100')).toBeNull();
     }

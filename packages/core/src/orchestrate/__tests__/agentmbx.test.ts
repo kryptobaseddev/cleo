@@ -106,6 +106,30 @@ describe('createAgentMbxClient.send', () => {
 
 describe('runAgentMbx', () => {
   afterEach(() => vi.unstubAllEnvs());
+  it.skipIf(!process.env['CLEO_MBX_LIVE_SESSION'])(
+    'verifies a real MCP-registered lead and its exact provider holder (T14477)',
+    async () => {
+      const session = process.env['CLEO_MBX_LIVE_SESSION'];
+      const name = process.env['CLEO_MBX_LIVE_MAILBOX'];
+      if (!session || !name)
+        throw new Error(
+          'Set CLEO_MBX_LIVE_SESSION and CLEO_MBX_LIVE_MAILBOX after registering through mbx_identity with role lead',
+        );
+      const client = createAgentMbxClient(runAgentMbx);
+      const selector = { cli: 'codex', session };
+      expect(await client.status(selector)).toMatchObject({
+        ok: true,
+        value: { name, state: 'bound', role: 'lead' },
+      });
+      expect(await client.status({ ...selector, session: `${session}-missing` })).toMatchObject({
+        ok: true,
+        value: { name: null, state: 'unbound' },
+      });
+      expect(await client.holder(name, process.cwd())).toEqual({ ok: true, value: selector });
+      expect(await resolveLeadMailbox(process.cwd(), name, client)).toBe(name);
+    },
+  );
+
   it('reports a missing binary instead of throwing', async () => {
     vi.stubEnv('PATH', '');
     expect(await runAgentMbx(['--version'])).toMatchObject({ missing: true, exitCode: null });
@@ -142,8 +166,9 @@ describe('lead mailbox config', () => {
     const config = JSON.parse(await readFile(configPath(), 'utf-8'));
     expect(config.orchestrate.leadMailbox).toEqual(expected);
     expect(validateSchema('config', { version: '2.0.0', ...config }).errors).toEqual([]);
-    expect(await resolveLeadMailbox(root)).toBe('my-project-9a7b43-lead');
-    expect(await resolveLeadMailbox(root, 'explicit')).toBe('explicit');
+    // Recording is not registration or proof of a live holder.
+    expect(await resolveLeadMailbox(root)).toBeUndefined();
+    await expect(resolveLeadMailbox(root, 'explicit')).rejects.toThrow('live holder');
 
     const again = await ensureLeadMailbox(root, project, createAgentMbxClient(absent));
     expect(again.action).toBe('kept');
@@ -197,11 +222,72 @@ describe('lead mailbox config', () => {
     expect(result).toEqual({ action: 'disabled' });
     expect(cli.calls).toHaveLength(0);
     expect(await resolveLeadMailbox(root)).toBeUndefined();
-    expect(await resolveLeadMailbox(root, 'explicit')).toBe('explicit');
+    await expect(resolveLeadMailbox(root, 'explicit')).rejects.toThrow('live holder');
   });
 
   it('derives a valid, project-qualified mailbox name', () => {
     expect(leadMailboxName('cleocode', 'x')).toBe('cleocode-2d7116-lead');
     expect(leadMailboxName('--', 'x')).toBe('project-2d7116-lead');
+  });
+});
+
+describe('live report destinations (T14477)', () => {
+  beforeEach(() => {
+    vi.stubEnv('CLEO_ROOT', undefined);
+    vi.stubEnv('CLEO_DIR', undefined);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  it.each([
+    { held: true, state: 'bound', actual: 'epic-lead', expected: 'epic-lead' },
+    { held: false, state: 'bound', actual: 'epic-lead', expected: undefined },
+    { held: true, state: 'unbound', actual: 'epic-lead', expected: undefined },
+    { held: true, state: 'bound', actual: 'other-lead', expected: undefined },
+  ])('requires a registered live holder and matching session status: %j', async ({
+    held,
+    state,
+    actual,
+    expected,
+  }) => {
+    const runner: MbxRunner = async (args) => ({
+      missing: false,
+      exitCode: 0,
+      stderr: '',
+      stdout: JSON.stringify(
+        args[0] === 'identity'
+          ? {
+              identities: [
+                {
+                  name: 'epic-lead',
+                  registered: true,
+                  retired: false,
+                  state: held ? 'held' : 'available',
+                  holder: { cli: 'codex', session_id: 's1' },
+                },
+              ],
+            }
+          : { identity: { name: actual, state, role: 'lead' }, unread: 0 },
+      ),
+    });
+    const client = createAgentMbxClient(runner);
+    const root = await mkdtemp(join(tmpdir(), 'cleo-mbx-held-'));
+    try {
+      await mkdir(join(root, '.cleo'));
+      await mkdir(join(root, '.git'));
+      await writeFile(
+        join(root, '.cleo', 'config.json'),
+        JSON.stringify({
+          orchestrate: {
+            leadWorker: { v1: true },
+            leadMailbox: { name: 'epic-lead', projectId: 'p1', cli: 'codex' },
+          },
+        }),
+      );
+      expect(await resolveLeadMailbox(root, undefined, client)).toBe(expected);
+      if (expected) expect(await resolveLeadMailbox(root, expected, client)).toBe(expected);
+      else
+        await expect(resolveLeadMailbox(root, 'epic-lead', client)).rejects.toThrow('live holder');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
