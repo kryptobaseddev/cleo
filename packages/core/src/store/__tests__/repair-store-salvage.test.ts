@@ -1,11 +1,14 @@
 import type { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   closeSync,
   copyFileSync,
   mkdtempSync,
   openSync,
   readFileSync,
   rmSync,
+  statSync,
+  writeFileSync,
   writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +16,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { commitRepairWal, prepareRepairCommit } from '../repair-store-files.js';
+import { commitRepairImage, prepareRepairCommit } from '../repair-store-files.js';
 import { salvageIntoSnapshot } from '../repair-store-salvage.js';
 import { loadSqliteVecExtension } from '../sqlite-native.js';
 
@@ -146,14 +149,27 @@ describe('Node SQLite salvage and merge', () => {
     }
   });
 
+  it('reports unknown unreadable counts when schema damage prevents table enumeration', () => {
+    const { base, damaged, receipt } = fixture();
+    receipt.tables.records = { snapshot: 3, salvaged: 0, merged: 0, unreadable: 0, final: 3 };
+    const bytes = readFileSync(damaged);
+    bytes.fill(0, 100, 4096);
+    writeFileSync(damaged, bytes);
+    salvageIntoSnapshot(base, [damaged], receipt);
+    expect(receipt.tables.records.unreadable).toBeNull();
+    expect(receipt.diagnostics.some((line) => line.includes('schema'))).toBe(true);
+  });
+
   it('commits a complete image for SQLite 65536-byte pages', () => {
     const { base, damaged } = fixture(65536);
     const staged = new DatabaseSync(base);
     staged.exec("INSERT INTO records VALUES('committed','new image', '2026-11-13T00:00:00Z')");
     staged.close();
+    chmodSync(damaged, 0o600);
     const wal = `${base}.install`;
     prepareRepairCommit(base, damaged, wal);
-    commitRepairWal(wal, damaged);
+    if (process.platform !== 'win32') expect(statSync(wal).mode & 0o777).toBe(0o600);
+    commitRepairImage(wal, damaged);
     const check = new DatabaseSync(damaged);
     try {
       expect(check.prepare("SELECT value FROM records WHERE id='committed'").get()?.value).toBe(
@@ -179,7 +195,9 @@ describe('Node SQLite salvage and merge', () => {
     copyFileSync(base, damaged);
     const source = new DatabaseSync(damaged, { allowExtension: true });
     loadSqliteVecExtension(source);
-    source.exec("INSERT INTO vectors VALUES('delta', '[4,5,6]')");
+    source.exec(
+      "INSERT INTO vectors VALUES('delta', '[4,5,6]'); UPDATE vectors SET embedding='[7,8,9]' WHERE id='base'",
+    );
     source.close();
     salvageIntoSnapshot(base, [damaged], receipt);
     const check = new DatabaseSync(base, { allowExtension: true });
@@ -191,6 +209,188 @@ describe('Node SQLite salvage and merge', () => {
           .all()
           .map((r) => r.id),
       ).toEqual(['base', 'delta']);
+      expect(
+        JSON.parse(
+          String(
+            check.prepare("SELECT vec_to_json(embedding) AS v FROM vectors WHERE id='base'").get()
+              ?.v,
+          ),
+        ),
+      ).toEqual([7, 8, 9]);
+      expect(receipt.tables.vectors_chunks.rebuilt).toBe(true);
+    } finally {
+      check.close();
+    }
+  });
+
+  it('keeps ended session values without an update timestamp and reports proven deletions', () => {
+    const { base, damaged, receipt } = fixture();
+    for (const file of [base, damaged]) {
+      const db = new DatabaseSync(file);
+      db.exec(
+        "CREATE TABLE sessions(id TEXT PRIMARY KEY, status TEXT, ended_at TEXT); INSERT INTO sessions VALUES('s','active',NULL)",
+      );
+      db.close();
+    }
+    const older = `${damaged}.older`;
+    copyFileSync(damaged, older);
+    const db = new DatabaseSync(damaged);
+    db.exec(
+      "UPDATE sessions SET status='ended', ended_at='2026-11-13T00:00:00Z'; DELETE FROM records WHERE id='base'",
+    );
+    db.close();
+    salvageIntoSnapshot(base, [damaged, older], receipt);
+    const check = new DatabaseSync(base);
+    try {
+      expect(check.prepare('SELECT status,ended_at FROM sessions').get()).toEqual({
+        status: 'ended',
+        ended_at: '2026-11-13T00:00:00Z',
+      });
+      expect(check.prepare("SELECT 1 FROM records WHERE id='base'").get()).toBeUndefined();
+      expect(receipt.tables.records.deleted).toBe(1);
+      expect(receipt.recovery?.rows).toContainEqual(
+        expect.objectContaining({
+          kind: 'deleted',
+          table: 'records',
+          values: expect.objectContaining({ id: 'base' }),
+        }),
+      );
+    } finally {
+      check.close();
+    }
+  });
+
+  it('keeps and identifies possibly resurrected snapshot rows when their leaf is unreadable', () => {
+    const { base, damaged, receipt } = fixture();
+    const db = new DatabaseSync(damaged);
+    const page = Number(
+      db.prepare("SELECT rootpage FROM sqlite_schema WHERE name='records'").get()?.rootpage,
+    );
+    db.close();
+    const bytes = readFileSync(damaged);
+    bytes.fill(0, (page - 1) * 4096, page * 4096);
+    writeFileSync(damaged, bytes);
+    salvageIntoSnapshot(base, [damaged], receipt);
+    const check = new DatabaseSync(base);
+    try {
+      expect(check.prepare('SELECT count(*) AS n FROM records').get()?.n).toBe(3);
+      expect(receipt.tables.records.possiblyResurrected).toBe(3);
+      expect(receipt.tables.records.unreadable).toBeNull();
+      expect(receipt.recovery?.rows.filter((r) => r.kind === 'possibly-resurrected')).toHaveLength(
+        3,
+      );
+    } finally {
+      check.close();
+    }
+  });
+
+  it('preserves columns outside the current schema, including binary and 64-bit values', () => {
+    const { base, damaged, receipt } = fixture();
+    const db = new DatabaseSync(damaged);
+    db.exec(
+      "ALTER TABLE records ADD COLUMN future BLOB; UPDATE records SET future=x'00ff' WHERE id='base'",
+    );
+    db.close();
+    salvageIntoSnapshot(base, [damaged], receipt);
+    expect(receipt.recovery?.rows).toContainEqual(
+      expect.objectContaining({
+        kind: 'unmerged-columns',
+        table: 'records',
+        values: expect.objectContaining({ id: 'base', future: { type: 'blob', value: 'AP8=' } }),
+      }),
+    );
+  });
+
+  it('quarantines one UNIQUE collision and its orphan children while merging other rows', () => {
+    const { base, damaged, receipt } = fixture();
+    const baseDb = new DatabaseSync(base);
+    baseDb.exec('CREATE UNIQUE INDEX record_unique_value ON records(value)');
+    baseDb.close();
+    const db = new DatabaseSync(damaged);
+    db.exec(
+      "PRAGMA foreign_keys=OFF; INSERT INTO records VALUES('collision','preserved','2026-11-13T00:00:00Z'); INSERT INTO records VALUES('good','healthy delta','2026-11-13T00:00:00Z'); INSERT INTO children VALUES(2,'collision'); CREATE TABLE composite_child(id TEXT PRIMARY KEY,parent TEXT REFERENCES records(id)) WITHOUT ROWID; INSERT INTO composite_child VALUES('orphan2','missing')",
+    );
+    db.close();
+    salvageIntoSnapshot(base, [damaged], receipt);
+    const check = new DatabaseSync(base);
+    try {
+      expect(check.prepare("SELECT value FROM records WHERE id='good'").get()?.value).toBe(
+        'healthy delta',
+      );
+      expect(check.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      expect(receipt.recovery?.rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'conflict',
+            table: 'records',
+            values: expect.objectContaining({ id: 'collision' }),
+          }),
+          expect.objectContaining({
+            kind: 'conflict',
+            table: 'children',
+            values: expect.objectContaining({ parent: 'collision' }),
+          }),
+        ]),
+      );
+    } finally {
+      check.close();
+    }
+  });
+
+  it('rebuilds external-content FTS shadows from merged content even when a source shadow is damaged', () => {
+    const { base, damaged, receipt } = fixture();
+    const baseDb = new DatabaseSync(base);
+    baseDb.exec(
+      "CREATE TABLE documents(id INTEGER PRIMARY KEY, body TEXT); INSERT INTO documents VALUES(1,'snapshot'); CREATE VIRTUAL TABLE document_search USING fts5(body, content=documents, content_rowid=id); INSERT INTO document_search(document_search) VALUES('rebuild')",
+    );
+    baseDb.close();
+    copyFileSync(base, damaged);
+    const db = new DatabaseSync(damaged);
+    db.exec(
+      "INSERT INTO documents VALUES(2,'newest readable'); INSERT INTO document_search(document_search) VALUES('rebuild')",
+    );
+    const page = Number(
+      db.prepare("SELECT rootpage FROM sqlite_schema WHERE name='document_search_idx'").get()
+        ?.rootpage,
+    );
+    db.close();
+    const bytes = readFileSync(damaged);
+    bytes.fill(0, (page - 1) * 4096, page * 4096);
+    writeFileSync(damaged, bytes);
+    salvageIntoSnapshot(base, [damaged], receipt);
+    const check = new DatabaseSync(base);
+    try {
+      expect(
+        check
+          .prepare("SELECT rowid FROM document_search WHERE document_search MATCH 'newest'")
+          .all(),
+      ).toEqual([{ rowid: 2 }]);
+      expect(check.prepare('PRAGMA integrity_check').all()).toEqual([{ integrity_check: 'ok' }]);
+      expect(receipt.tables.document_search_idx.rebuilt).toBe(true);
+    } finally {
+      check.close();
+    }
+  });
+  it('rebuilds standalone FTS from logical documents while retaining rowids and duplicate content', () => {
+    const { base, damaged, receipt } = fixture();
+    const baseDb = new DatabaseSync(base);
+    baseDb.exec(
+      "CREATE VIRTUAL TABLE notes USING fts5(body); INSERT INTO notes(rowid,body) VALUES(20,'same content'),(30,'same content')",
+    );
+    baseDb.close();
+    copyFileSync(base, damaged);
+    const source = new DatabaseSync(damaged);
+    source.exec(
+      "DELETE FROM notes WHERE rowid=20; INSERT INTO notes(rowid,body) VALUES(40,'latest')",
+    );
+    source.close();
+    salvageIntoSnapshot(base, [damaged], receipt);
+    const check = new DatabaseSync(base);
+    try {
+      expect(check.prepare('SELECT rowid,body FROM notes ORDER BY rowid').all()).toEqual([
+        { rowid: 30, body: 'same content' },
+        { rowid: 40, body: 'latest' },
+      ]);
     } finally {
       check.close();
     }

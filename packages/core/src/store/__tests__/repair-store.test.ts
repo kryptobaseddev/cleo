@@ -26,6 +26,7 @@ import { inspectStoreIntegrity, repairStore } from '../repair-store.js';
 import { repairFileHash } from '../repair-store-files.js';
 import { getNativeTasksDb, resetDbState } from '../sqlite.js';
 import { loadSqliteVecExtension } from '../sqlite-native.js';
+import { OWNER_STORE_REWRITE_AUDIT_FILE } from '../worktree-isolation-guard.js';
 import { createTestDb, type TestDbEnv } from './test-db-helper.js';
 
 let env: TestDbEnv;
@@ -241,6 +242,11 @@ describe('copy-only whole-store repair', () => {
     expect(result.status).toBe('repaired');
     expect(values()).toEqual(['base', 'delta', 'wal']);
     expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    const repaired = hashes();
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+    expect(hashes()).toEqual(repaired);
   });
 
   it('recovers the committed prefix of a torn WAL and preserves every readable row', async () => {
@@ -263,12 +269,17 @@ describe('copy-only whole-store repair', () => {
     expect(values()).toEqual(['base', 'delta']);
   });
 
-  it('runs missing schema migrations after merging data, before importing newer journal stamps', async () => {
+  it('migrates the base before merging and retains values in newly added columns', async () => {
     const old = new DatabaseSync(snapshot);
     old.exec(
-      "ALTER TABLE tasks_sessions DROP COLUMN injection_version; DELETE FROM __drizzle_migrations WHERE name='20261106140000_t14327-session-injection-version'",
+      "ALTER TABLE tasks_sessions DROP COLUMN injection_version; DELETE FROM __drizzle_migrations WHERE name='20261106140000_t14327-session-injection-version'; INSERT INTO tasks_sessions(id,name,status) VALUES('recovered-session','schema fixture','active')",
     );
     old.close();
+    const source = new DatabaseSync(live);
+    source.exec(
+      "INSERT INTO tasks_sessions(id,name,status,injection_version) VALUES('recovered-session','schema fixture','ended','2.31.0')",
+    );
+    source.close();
     damageIndex();
     const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
     expect(result.status).toBe('repaired');
@@ -280,6 +291,13 @@ describe('copy-only whole-store repair', () => {
           .all()
           .map((r) => r.name),
       ).toContain('injection_version');
+      expect(
+        check
+          .prepare(
+            "SELECT injection_version,status FROM tasks_sessions WHERE id='recovered-session'",
+          )
+          .get(),
+      ).toEqual({ injection_version: '2.31.0', status: 'ended' });
     } finally {
       check.close();
     }
@@ -388,18 +406,79 @@ describe('copy-only whole-store repair', () => {
     }
   });
 
-  it('refuses a foreign-key-invalid merged image without changing an original byte', async () => {
+  it('quarantines foreign-key orphans and still publishes a healthy result', async () => {
     const source = new DatabaseSync(live);
     source.exec(
       'PRAGMA foreign_keys=OFF; CREATE TABLE repair_parent(id INTEGER PRIMARY KEY); CREATE TABLE repair_child(id INTEGER PRIMARY KEY, parent INTEGER REFERENCES repair_parent(id)); INSERT INTO repair_child VALUES(1,999)',
     );
     source.close();
     damageIndex();
-    const before = hashes();
-    await expect(repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).rejects.toThrow(
-      /foreign_key_check/,
+    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result.status).toBe('repaired');
+    expect(result.recovery?.rows).toContainEqual(
+      expect.objectContaining({ table: 'repair_child', kind: 'conflict' }),
     );
+    expect(result.recovery?.file).toBeTruthy();
+    const recovery = JSON.parse(readFileSync(result.recovery?.file ?? '', 'utf8'));
+    expect(recovery).toContainEqual(
+      expect.objectContaining({
+        table: 'repair_child',
+        values: expect.objectContaining({ parent: { type: 'bigint', value: '999' } }),
+      }),
+    );
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    expect(values()).toEqual(['base', 'delta']);
+  });
+
+  it.each([
+    false,
+    true,
+  ])('repairs a zeroed page-1 header (entire page: %s) from readable b-trees or the snapshot', async (entire) => {
+    const bytes = readFileSync(live);
+    bytes.fill(0, 0, entire ? 4096 : 100);
+    writeFileSync(live, bytes);
+    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result.status).toBe('repaired');
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    expect(values()).toEqual(entire ? ['base'] : ['base', 'delta']);
+    if (entire) expect(result.tables.repair_records.unreadable).toBeNull();
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+  });
+
+  it('repairs a damaged page-1 header with the newer WAL retained', async () => {
+    damagedWal();
+    const bytes = readFileSync(live);
+    bytes.fill(0, 0, 100);
+    writeFileSync(live, bytes);
+    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result.status).toBe('repaired');
+    expect(values()).toEqual(['base', 'delta', 'wal']);
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+  });
+
+  it('keeps manual worktree refusal actionable and audits the deliberate open-time policy', async () => {
+    const gitdir = join(env.tempDir, '.git', 'worktrees', 'repair-fixture');
+    mkdirSync(gitdir, { recursive: true });
+    const linked = join(env.tempDir, 'linked-fixture');
+    mkdirSync(linked);
+    writeFileSync(join(linked, '.git'), `gitdir: ${gitdir}\n`);
+    damageIndex();
+    const before = hashes();
+    await expect(repairStore({ projectRoot: env.tempDir, cwd: linked })).rejects.toMatchObject({
+      codeName: 'E_WT_STORE_REWRITE_CONFIRM_REQUIRED',
+      fix: expect.stringContaining('--confirm-owner-store'),
+    });
     expect(hashes()).toEqual(before);
+    expect(
+      (await repairStore({ projectRoot: env.tempDir, cwd: linked, openTime: true })).status,
+    ).toBe('repaired');
+    expect(
+      readFileSync(join(env.cleoDir, 'audit', OWNER_STORE_REWRITE_AUDIT_FILE), 'utf8'),
+    ).toContain('"trigger":"open-time"');
   });
 
   it('reports missing commit-message task IDs without inventing tasks', async () => {

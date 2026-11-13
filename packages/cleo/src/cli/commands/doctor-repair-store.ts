@@ -1,6 +1,5 @@
 /** Thin entrypoint for copy-only project/global store recovery. */
 import { getProjectRoot, isMissingProjectError } from '@cleocode/core/project-scope';
-import { repairStoresFromDoctor } from '@cleocode/core/store/repair-store.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -36,6 +35,7 @@ export const doctorRepairStoreCommand = defineCommand({
         if (!isMissingProjectError(error)) throw error;
       }
     }
+    const { repairStoresFromDoctor } = await import('@cleocode/core/store/repair-store.js');
     const stores = await repairStoresFromDoctor({
       projectRoot,
       cwd: process.cwd(),

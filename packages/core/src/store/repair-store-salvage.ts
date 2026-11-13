@@ -3,8 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { DatabaseSync, SQLOutputValue, StatementSync } from 'node:sqlite';
-import type { StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
+import type {
+  StoreRepairReceipt,
+  StoreRepairRecoveryRow,
+} from '@cleocode/contracts/db-recovery.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
+import { repairSalvageHeader } from './repair-store-files.js';
 import { ensureTriggerSuspendTable, withTriggersSuspended } from './sync/trigger-classes.js';
 
 type Row = Record<string, SQLOutputValue>;
@@ -150,6 +154,13 @@ function leafRanges(
   }
 }
 
+function hasRowid(sql: string): boolean {
+  return (
+    !/\bWITHOUT\s+ROWID\b/i.test(sql) &&
+    (!/\bVIRTUAL\s+TABLE\b/i.test(sql) || /\bUSING\s+fts[345]\b/i.test(sql))
+  );
+}
+
 /** Stream readable rows; isolate bad pages without scanning an unbounded integer keyspace. */
 function readRows(
   db: DatabaseSync,
@@ -158,7 +169,7 @@ function readRows(
   accept: (row: Row) => void,
 ): boolean {
   const q = repairIdentifier(table.name);
-  const rowid = !/\bWITHOUT\s+ROWID\b/i.test(table.sql) && !/\bVIRTUAL\s+TABLE\b/i.test(table.sql);
+  const rowid = hasRowid(table.sql);
   const select = `SELECT ${rowid ? `_rowid_ AS ${repairIdentifier(ROWID)}, ` : ''}* FROM main.${q} NOT INDEXED`;
   let iterator: ReturnType<StatementSync['iterate']> | undefined;
   try {
@@ -186,6 +197,7 @@ function readRows(
   if (!rowid || table.root < 1) return false;
   let complete = true;
   leafRanges(file, table.root, (lo, hi, ids) => {
+    if (ids.length === 0) complete = false;
     let rows: Row[];
     try {
       const stmt = db.prepare(`${select} WHERE _rowid_ BETWEEN ? AND ?`);
@@ -260,11 +272,117 @@ export function repairTableCounts(db: DatabaseSync): Record<string, number> {
   return counts;
 }
 
+/** Preserve a readable value without JSON's bigint and binary conversion losses. */
+function recordRecovery(
+  receipt: StoreRepairReceipt,
+  kind: StoreRepairRecoveryRow['kind'],
+  table: string,
+  reason: string,
+  row: Row,
+): void {
+  receipt.recovery ??= { file: null, rows: [] };
+  const values: StoreRepairRecoveryRow['values'] = {};
+  for (const [name, value] of Object.entries(row)) {
+    values[name] =
+      typeof value === 'bigint'
+        ? { type: 'bigint', value: value.toString() }
+        : value instanceof Uint8Array
+          ? { type: 'blob', value: Buffer.from(value).toString('base64') }
+          : value;
+  }
+  receipt.recovery.rows.push({ kind, table, reason, values });
+}
+
+function rowKey(row: Row, identity: readonly string[]): string {
+  return JSON.stringify(
+    identity.map((name) => row[name] ?? null),
+    (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
+  );
+}
+
+/** SQLite identifies FTS shadow tables; vec0 also has module-owned bookkeeping tables. */
+function shadowTables(db: DatabaseSync, schema: readonly Table[]): Set<string> {
+  const shadows = new Set<string>();
+  try {
+    for (const row of db.prepare('PRAGMA main.table_list').all())
+      if (row.type === 'shadow') shadows.add(String(row.name));
+  } catch {
+    /* A partial schema is still salvaged below. */
+  }
+  for (const table of schema.filter((t) => /\bUSING\s+vec0\b/i.test(t.sql))) {
+    for (const child of schema) {
+      if (
+        child.name.startsWith(`${table.name}_`) &&
+        /^(?:info|chunks|rowids|vector_chunks\d+|metadatachunks\d+|metadatatext\d+)$/i.test(
+          child.name.slice(table.name.length + 1),
+        )
+      )
+        shadows.add(child.name);
+    }
+  }
+  return shadows;
+}
+
+/** Recreate virtual storage from logical content; never copy module-owned shadow pages. */
+function rebuildVirtual(db: DatabaseSync, table: Table): void {
+  const name = repairIdentifier(table.name);
+  const externalFts = /\bUSING\s+fts[345]\b/i.test(table.sql) && /\bcontent\s*=/i.test(table.sql);
+  if (externalFts) {
+    db.exec(`DROP TABLE main.${name}`);
+    db.prepare(table.sql).run();
+    return;
+  }
+  const names = columns(db, table.name).map((c) => c.name);
+  if (hasRowid(table.sql)) names.unshift('rowid');
+  const cols = names.map(repairIdentifier).join(',');
+  // TEMP holds logical vectors/documents while their module rebuilds its own shadow tables.
+  db.exec(`CREATE TEMP TABLE cleo_repair_virtual AS SELECT ${cols} FROM main.${name}`);
+  db.exec(`DROP TABLE main.${name}`);
+  db.prepare(table.sql).run();
+  db.exec(`INSERT INTO main.${name} (${cols}) SELECT ${cols} FROM temp.cleo_repair_virtual`);
+  db.exec('DROP TABLE temp.cleo_repair_virtual');
+}
+
+/** Locate an FK offender even in a composite-key WITHOUT ROWID table. */
+function orphanRows(db: DatabaseSync, violation: Row): Row[] {
+  const q = repairIdentifier(String(violation.table));
+  if (violation.rowid !== null) {
+    const stmt = db.prepare(
+      `SELECT _rowid_ AS ${repairIdentifier(ROWID)}, * FROM main.${q} WHERE _rowid_=?`,
+    );
+    stmt.setReadBigInts(true);
+    return stmt.all(violation.rowid ?? null);
+  }
+  const parent = String(violation.parent);
+  const pk = columns(db, parent)
+    .filter((c) => c.pk > 0)
+    .sort((a, b) => a.pk - b.pk);
+  const foreign = db
+    .prepare(`PRAGMA main.foreign_key_list(${q})`)
+    .all()
+    .filter((r) => Number(r.id) === Number(violation.fkid))
+    .sort((a, b) => Number(a.seq) - Number(b.seq));
+  const nonNull = foreign
+    .map((r) => `c.${repairIdentifier(String(r.from))} IS NOT NULL`)
+    .join(' AND ');
+  const join = foreign
+    .map(
+      (r, i) =>
+        `p.${repairIdentifier(String(r.to ?? pk[i]?.name))} = c.${repairIdentifier(String(r.from))}`,
+    )
+    .join(' AND ');
+  const stmt = db.prepare(
+    `SELECT c.* FROM main.${q} AS c WHERE ${nonNull} AND NOT EXISTS (SELECT 1 FROM main.${repairIdentifier(parent)} AS p WHERE ${join})`,
+  );
+  stmt.setReadBigInts(true);
+  return stmt.all();
+}
+
 /**
- * Merge every readable key from the two private damaged views and .recover.
- * Raw writes target only the staged snapshot, never a live store (gate 28).
- * Guard and side-effect suspension is a snapshot rewind; suspect accounting
- * after migration makes sync's normal repair diff journal the recovered rows.
+ * Merge readable content from private damaged views, preserving incompatible rows separately.
+ * The first view is authoritative only for tables it reads completely. Later views fill gaps;
+ * timestamps can establish a newer value, but never turn an older main-only view authoritative.
+ * All writes target the staged snapshot (gate 28), under trigger suspension (gate 36).
  */
 export function salvageIntoSnapshot(
   staged: string,
@@ -285,24 +403,75 @@ export function salvageIntoSnapshot(
   });
   try {
     const db = target.db;
-    // Recovery preserves shadow rows too; this handle can only name a staged copy.
-    if ('enableDefensive' in db && typeof db.enableDefensive === 'function')
-      db.enableDefensive(false);
     db.exec('PRAGMA foreign_keys=OFF');
     ensureTriggerSuspendTable(db);
     const originalTriggers = db
       .prepare("SELECT name, sql FROM main.sqlite_schema WHERE type='trigger'")
       .all();
-    const targetTables = new Set(tables(db, receipt.diagnostics, staged).map((t) => t.name));
+    const initialSchema = tables(db, receipt.diagnostics, staged);
+    const targetTables = new Set(initialSchema.map((t) => t.name));
+    const targetShadows = shadowTables(db, initialSchema);
+    const virtual = new Map(
+      initialSchema.filter((t) => /\bVIRTUAL\s+TABLE\b/i.test(t.sql)).map((t) => [t.name, t]),
+    );
     const keys = new Map<string, Set<string>>();
+    const authority = new Map<string, Set<string>>();
+    const baseKeys = new Map<string, Set<string>>();
+    const pending: (() => void)[] = [];
+    const deletedKeys = new Map<string, Set<string>>();
+    const reportFor = (name: string) => {
+      receipt.tables[name] ??= { snapshot: 0, salvaged: 0, merged: 0, unreadable: 0, final: 0 };
+      return receipt.tables[name];
+    };
+    const removeBase = (table: string, row: Row, identity: readonly string[]): void => {
+      if (baseKeys.get(table)?.delete(rowKey(row, identity))) {
+        const report = reportFor(table);
+        report.baseRemoved = (report.baseRemoved ?? 0) + 1;
+      }
+    };
+    const recordDeleted = (
+      table: string,
+      row: Row,
+      identity: readonly string[],
+      reason: string,
+    ): void => {
+      const deleted = deletedKeys.get(table) ?? new Set<string>();
+      deletedKeys.set(table, deleted);
+      const key = rowKey(row, identity);
+      if (deleted.has(key)) return;
+      deleted.add(key);
+      reportFor(table).deleted = deleted.size;
+      recordRecovery(receipt, 'deleted', table, reason, row);
+    };
     db.exec('BEGIN IMMEDIATE');
     try {
       withTriggersSuspended(db, ['all'], 'rewind', () => {
-        // Legacy and derived triggers do not all carry the suspension clause.
         for (const trigger of originalTriggers)
           db.exec(`DROP TRIGGER ${repairIdentifier(String(trigger.name))}`);
+        for (const table of virtual.values()) rebuildVirtual(db, table);
+        for (const name of targetShadows) reportFor(name).rebuilt = true;
+        for (const table of initialSchema) {
+          if (
+            targetShadows.has(table.name) ||
+            ['cleo_trigger_suspend', 'sqlite_sequence', '__drizzle_migrations'].includes(table.name)
+          )
+            continue;
+          if (/\bUSING\s+fts[345]\b/i.test(table.sql) && /\bcontent\s*=/i.test(table.sql)) {
+            reportFor(table.name).rebuilt = true;
+            continue;
+          }
+          const cols = columns(db, table.name);
+          let identity = cols
+            .filter((c) => c.pk > 0)
+            .sort((a, b) => a.pk - b.pk)
+            .map((c) => c.name);
+          if (identity.length === 0)
+            identity = hasRowid(table.sql) ? [ROWID] : cols.map((c) => c.name);
+          const base = new Set<string>();
+          readRows(db, staged, table, (row) => base.add(rowKey(row, identity)));
+          baseKeys.set(table.name, base);
+        }
         for (const view of views) {
-          // Fold only a disposable copy's valid WAL prefix into its main file.
           try {
             const cp = openCleoDbSnapshot(view, {
               readOnly: false,
@@ -320,45 +489,71 @@ export function salvageIntoSnapshot(
             );
           }
           const recovered = sqliteRecover(view, receipt.diagnostics);
-          for (const source of recovered ? [view, recovered] : [view]) {
+          const headerRecovered = repairSalvageHeader(view, staged);
+          if (headerRecovered)
+            receipt.diagnostics.push(
+              `Reconstructed a disposable header for ${view}; original remains quarantined`,
+            );
+          for (const source of [view, recovered, headerRecovered].filter(
+            (path): path is string => path !== null,
+          )) {
             let snap: ReturnType<typeof openCleoDbSnapshot>;
             try {
               snap = openCleoDbSnapshot(source, { applyPragmas: false, loadSqliteVec: true });
             } catch (error) {
+              for (const report of Object.values(receipt.tables)) report.unreadable = null;
               receipt.diagnostics.push(
                 `open ${source}: ${error instanceof Error ? error.message : String(error)}`,
               );
               continue;
             }
             try {
-              for (const table of tables(snap.db, receipt.diagnostics, source)) {
+              const beforeSchema = receipt.diagnostics.length;
+              const sourceTables = tables(snap.db, receipt.diagnostics, source);
+              const incompleteSchema = receipt.diagnostics.length !== beforeSchema;
+              if (incompleteSchema)
+                for (const report of Object.values(receipt.tables)) report.unreadable = null;
+              const shadows = shadowTables(snap.db, sourceTables);
+              for (const table of sourceTables) {
+                const report = reportFor(table.name);
+                if (shadows.has(table.name)) {
+                  report.rebuilt = true;
+                  continue;
+                }
                 if (table.name === 'cleo_trigger_suspend' || table.name === 'sqlite_sequence')
                   continue;
+                const externalFts =
+                  /\bUSING\s+fts[345]\b/i.test(table.sql) && /\bcontent\s*=/i.test(table.sql);
                 if (!targetTables.has(table.name)) {
-                  const exists = db
-                    .prepare("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name=?")
-                    .get(table.name);
-                  if (!exists) {
-                    if (!/^\s*CREATE\s+(?:VIRTUAL\s+)?TABLE\b/i.test(table.sql)) {
+                  try {
+                    if (!/^\s*CREATE\s+(?:VIRTUAL\s+)?TABLE\b/i.test(table.sql))
                       // @sync-invariant none:input-shape a recovered schema row must declare a table
                       throw new Error(`Invalid recovered table definition: ${table.name}`);
-                    }
                     const ddl = db.prepare(table.sql);
                     ddl.setReadBigInts(true);
                     ddl.run();
+                    targetTables.add(table.name);
+                    if (/\bVIRTUAL\s+TABLE\b/i.test(table.sql)) virtual.set(table.name, table);
+                  } catch (error) {
+                    readRows(snap.db, source, table, (row) => {
+                      report.salvaged++;
+                      report.conflicts = (report.conflicts ?? 0) + 1;
+                      recordRecovery(
+                        receipt,
+                        'conflict',
+                        table.name,
+                        `schema: ${error instanceof Error ? error.message : String(error)}`,
+                        row,
+                      );
+                    });
+                    continue;
                   }
-                  targetTables.add(table.name);
                 }
-                receipt.tables[table.name] ??= {
-                  snapshot: 0,
-                  salvaged: 0,
-                  merged: 0,
-                  unreadable: 0,
-                  final: 0,
-                };
-                const report = receipt.tables[table.name];
+                if (externalFts) {
+                  report.rebuilt = true;
+                  continue;
+                }
                 if (table.name === '__drizzle_migrations') {
-                  // Imported stamps cannot make pending base-schema migrations disappear.
                   readRows(snap.db, source, table, (row) => {
                     const key = String(row.id ?? row[ROWID]);
                     if (!journalKeys.has(key)) {
@@ -370,23 +565,23 @@ export function salvageIntoSnapshot(
                   continue;
                 }
                 const destColumns = columns(db, table.name);
-                const incoming = new Set(columns(snap.db, table.name).map((c) => c.name));
-                const common = destColumns.filter((c) => incoming.has(c.name)).map((c) => c.name);
+                const incoming = columns(snap.db, table.name).map((c) => c.name);
+                const common = destColumns
+                  .filter((c) => incoming.includes(c.name))
+                  .map((c) => c.name);
+                const missing = incoming.filter((c) => !common.includes(c));
                 let pk = destColumns
                   .filter((c) => c.pk > 0)
                   .sort((a, b) => a.pk - b.pk)
                   .map((c) => c.name);
-                const implicit = pk.length === 0 && !/\bVIRTUAL\s+TABLE\b/i.test(table.sql);
-                if (implicit) {
+                if (pk.length === 0 && hasRowid(table.sql)) {
                   pk = [ROWID];
                   common.unshift(ROWID);
                 }
+                const identity = pk.length > 0 ? pk : common;
                 const col = (c: string): string => repairIdentifier(c === ROWID ? '_rowid_' : c);
                 const q = `main.${repairIdentifier(table.name)}`;
-                const where =
-                  pk.length > 0
-                    ? pk.map((c) => `${col(c)} IS ?`).join(' AND ')
-                    : common.map((c) => `${col(c)} IS ?`).join(' AND ');
+                const where = identity.map((c) => `${col(c)} IS ?`).join(' AND ');
                 const find = db.prepare(`SELECT * FROM ${q} WHERE ${where} LIMIT 1`);
                 find.setReadBigInts(true);
                 const ins = db.prepare(
@@ -398,32 +593,107 @@ export function salvageIntoSnapshot(
                 );
                 const updates = common.filter((c) => !pk.includes(c));
                 const update =
-                  stamp && updates.length > 0
+                  updates.length > 0
                     ? db.prepare(
                         `UPDATE ${q} SET ${updates.map((c) => `${col(c)}=?`).join(',')} WHERE ${where}`,
                       )
                     : null;
+                update?.setReadBigInts(true);
                 const seen = keys.get(table.name) ?? new Set<string>();
                 keys.set(table.name, seen);
-                const complete = readRows(snap.db, source, table, (row) => {
-                  const identity = pk.length > 0 ? pk : common;
+                if (!baseKeys.has(table.name)) {
+                  const base = new Set<string>();
+                  readRows(db, staged, table, (row) => base.add(rowKey(row, identity)));
+                  baseKeys.set(table.name, base);
+                }
+                const thisRead = new Set<string>();
+                const apply = (row: Row, first: boolean): void => {
                   const values = identity.map((c) => row[c] ?? null);
-                  const key = JSON.stringify(values, (_key, value) =>
-                    typeof value === 'bigint' ? value.toString() : value,
-                  );
-                  if (!seen.has(key)) {
-                    seen.add(key);
-                    report.salvaged++;
-                  }
                   const old = find.get(...values);
                   if (!old) {
                     ins.run(...common.map((c) => row[c] ?? null));
                     report.merged++;
-                  } else if (stamp && update && timestamp(row[stamp]) > timestamp(old[stamp])) {
-                    update.run(...updates.map((c) => row[c] ?? null), ...values);
-                    report.merged++;
+                    return;
                   }
-                });
+                  const incomingAt = stamp ? timestamp(row[stamp]) : Number.NEGATIVE_INFINITY;
+                  const oldAt = stamp ? timestamp(old[stamp]) : Number.NEGATIVE_INFINITY;
+                  const provenOlder =
+                    Number.isFinite(incomingAt) && Number.isFinite(oldAt) && oldAt > incomingAt;
+                  const provenNewer =
+                    Number.isFinite(incomingAt) && Number.isFinite(oldAt) && incomingAt > oldAt;
+                  if (update && !provenOlder && (first || provenNewer)) {
+                    // Equal values need no write (and should not inflate the receipt).
+                    const different = updates.some((c) => {
+                      const a = row[c] ?? null,
+                        b = old[c] ?? null;
+                      return a instanceof Uint8Array && b instanceof Uint8Array
+                        ? !Buffer.from(a).equals(b)
+                        : a !== b;
+                    });
+                    if (different) {
+                      update.run(...updates.map((c) => row[c] ?? null), ...values);
+                      report.merged++;
+                    }
+                  }
+                };
+                let complete = false;
+                try {
+                  complete = readRows(snap.db, source, table, (row) => {
+                    const key = rowKey(row, identity);
+                    thisRead.add(key);
+                    const first = !seen.has(key);
+                    if (first) {
+                      seen.add(key);
+                      report.salvaged++;
+                    }
+                    if (missing.length > 0 && first)
+                      recordRecovery(
+                        receipt,
+                        'unmerged-columns',
+                        table.name,
+                        `Columns outside the current schema: ${missing.join(', ')}`,
+                        row,
+                      );
+                    // A complete WAL view proves that an older main-only row was deleted.
+                    if (authority.has(table.name) && !authority.get(table.name)?.has(key)) {
+                      recordDeleted(
+                        table.name,
+                        row,
+                        identity,
+                        'Readable only in an older main-only view; absent from the complete WAL view',
+                      );
+                      return;
+                    }
+                    try {
+                      apply(row, first);
+                    } catch {
+                      pending.push(() => {
+                        try {
+                          apply(row, first);
+                        } catch (error) {
+                          report.conflicts = (report.conflicts ?? 0) + 1;
+                          recordRecovery(
+                            receipt,
+                            'conflict',
+                            table.name,
+                            error instanceof Error ? error.message : String(error),
+                            row,
+                          );
+                        }
+                      });
+                    }
+                  });
+                } catch (error) {
+                  receipt.diagnostics.push(
+                    `${table.name}: ${error instanceof Error ? error.message : String(error)}`,
+                  );
+                }
+                if (
+                  (source === views[0] || source === `${views[0]}.header-recovered`) &&
+                  complete &&
+                  !incompleteSchema
+                )
+                  authority.set(table.name, thisRead);
                 if (!complete) {
                   report.unreadable = null;
                   receipt.diagnostics.push(
@@ -434,6 +704,94 @@ export function salvageIntoSnapshot(
             } finally {
               snap.close();
             }
+          }
+        }
+        for (const [name, base] of baseKeys) {
+          const table = tables(db, receipt.diagnostics, staged).find((t) => t.name === name);
+          if (!table) continue;
+          const cols = columns(db, name);
+          let identity = cols
+            .filter((c) => c.pk > 0)
+            .sort((a, b) => a.pk - b.pk)
+            .map((c) => c.name);
+          if (identity.length === 0)
+            identity = hasRowid(table.sql) ? [ROWID] : cols.map((c) => c.name);
+          const current = db.prepare(
+            `SELECT ${identity.includes(ROWID) ? `_rowid_ AS ${repairIdentifier(ROWID)}, ` : ''}* FROM main.${repairIdentifier(name)}`,
+          );
+          current.setReadBigInts(true);
+          const rows = current.all();
+          const authoritative = authority.get(name);
+          const report = reportFor(name);
+          for (const row of rows) {
+            const key = rowKey(row, identity);
+            if (authoritative ? authoritative.has(key) : keys.get(name)?.has(key)) continue;
+            if (!base.has(key)) continue;
+            if (!authoritative) {
+              report.possiblyResurrected = (report.possiblyResurrected ?? 0) + 1;
+              recordRecovery(
+                receipt,
+                'possibly-resurrected',
+                name,
+                'Incomplete damaged read cannot prove this snapshot row was deleted',
+                row,
+              );
+              continue;
+            }
+            const where = identity
+              .map((c) => `${repairIdentifier(c === ROWID ? '_rowid_' : c)} IS ?`)
+              .join(' AND ');
+            const del = db.prepare(`DELETE FROM main.${repairIdentifier(name)} WHERE ${where}`);
+            del.setReadBigInts(true);
+            del.run(...identity.map((c) => row[c] ?? null));
+            removeBase(name, row, identity);
+            recordDeleted(name, row, identity, 'Absent from a complete damaged view');
+          }
+        }
+        for (const retry of pending) retry();
+        // Removing one orphan may expose a child orphan; converge with all actions disabled.
+        for (;;) {
+          const check = db.prepare('PRAGMA foreign_key_check');
+          check.setReadBigInts(true);
+          const violations = check.all();
+          if (violations.length === 0) break;
+          let removed = 0;
+          for (const violation of violations) {
+            const name = String(violation.table);
+            const q = repairIdentifier(name);
+            const pk = columns(db, name)
+              .filter((c) => c.pk > 0)
+              .sort((a, b) => a.pk - b.pk)
+              .map((c) => c.name);
+            const identity = pk.length ? pk : [ROWID];
+            for (const row of orphanRows(db, violation)) {
+              recordRecovery(
+                receipt,
+                'conflict',
+                name,
+                `Foreign key ${violation.fkid} references unreadable or absent ${violation.parent}`,
+                row,
+              );
+              const report = reportFor(name);
+              report.conflicts = (report.conflicts ?? 0) + 1;
+              removeBase(name, row, identity);
+              const where = identity
+                .map((c) => `${repairIdentifier(c === ROWID ? '_rowid_' : c)} IS ?`)
+                .join(' AND ');
+              const del = db.prepare(`DELETE FROM main.${q} WHERE ${where}`);
+              del.setReadBigInts(true);
+              del.run(...identity.map((c) => row[c] ?? null));
+              removed++;
+            }
+          }
+          if (removed === 0)
+            // @sync-invariant none:local-only unexpected foreign-key schema prevents a safe staged publication
+            throw new Error('Foreign-key violations could not be isolated to readable rows');
+        }
+        for (const table of virtual.values()) {
+          if (/\bUSING\s+fts[345]\b/i.test(table.sql) && /\bcontent\s*=/i.test(table.sql)) {
+            const q = repairIdentifier(table.name);
+            db.exec(`INSERT INTO main.${q} (${q}) VALUES ('rebuild')`);
           }
         }
         for (const trigger of originalTriggers)
@@ -464,18 +822,21 @@ export function salvageIntoSnapshot(
         `INSERT INTO main.__drizzle_migrations (${names.map(repairIdentifier).join(',')}) VALUES (${names.map(() => '?').join(',')})`,
       );
       ins.setReadBigInts(true);
-      target.db.exec('BEGIN IMMEDIATE');
-      try {
-        for (const row of journal) {
-          if (find.get(row.id ?? null, row.hash ?? null)) continue;
+      for (const row of journal) {
+        if (find.get(row.id ?? null, row.hash ?? null)) continue;
+        try {
           ins.run(...names.map((name) => row[name] ?? null));
           const report = receipt.tables.__drizzle_migrations;
           if (report) report.merged++;
+        } catch (error) {
+          recordRecovery(
+            receipt,
+            'conflict',
+            '__drizzle_migrations',
+            error instanceof Error ? error.message : String(error),
+            row,
+          );
         }
-        target.db.exec('COMMIT');
-      } catch (error) {
-        target.db.exec('ROLLBACK');
-        throw error;
       }
     } finally {
       target.close();

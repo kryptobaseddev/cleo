@@ -137,6 +137,7 @@ interface ProbeResult {
 function getRoleConfig(role: DbRole): DbInventoryEntry {
   const entry = DB_INVENTORY.find((e) => e.role === role);
   if (!entry) {
+    // @sync-invariant none:input-shape the database role must exist in the inventory
     throw new Error(`Unknown DB role "${role}" — not present in DB_INVENTORY`);
   }
   return entry;
@@ -156,6 +157,7 @@ function substitutePathTokens(template: string, projectRoot: string | undefined)
   let out = template;
   if (out.includes('<projectRoot>')) {
     if (!projectRoot) {
+      // @sync-invariant none:input-shape a project inventory template requires a project root
       throw new Error(
         `Inventory template "${template}" requires <projectRoot> but none was supplied`,
       );

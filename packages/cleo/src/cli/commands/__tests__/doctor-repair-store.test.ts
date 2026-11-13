@@ -1,14 +1,24 @@
 import type { StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { doctorRepairStoreCommand } from '../doctor-repair-store.js';
 
-const mocks = vi.hoisted(() => ({ repair: vi.fn(), root: vi.fn(), output: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  repair: vi.fn(),
+  root: vi.fn(),
+  output: vi.fn(),
+  error: vi.fn(),
+  inspect: vi.fn(),
+}));
 vi.mock('@cleocode/core/store/repair-store.js', () => ({ repairStoresFromDoctor: mocks.repair }));
-vi.mock('@cleocode/core/project-scope', () => ({
+vi.mock('@cleocode/core/project-scope', async (original) => ({
+  ...(await original<typeof import('@cleocode/core/project-scope')>()),
   getProjectRoot: mocks.root,
   isMissingProjectError: (error: Error) => error.message.startsWith('Not inside a CLEO project'),
 }));
-vi.mock('../../renderers/index.js', () => ({ cliOutput: mocks.output }));
+vi.mock('../../renderers/index.js', () => ({ cliOutput: mocks.output, cliError: mocks.error }));
+vi.mock('@cleocode/core/store/repair-store-files.js', () => ({
+  inspectStoreIntegrity: mocks.inspect,
+}));
 
 const receipt: StoreRepairReceipt = {
   version: 1,
@@ -30,6 +40,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.root.mockReturnValue('/tmp/project');
   mocks.repair.mockResolvedValue([receipt]);
+  mocks.inspect.mockReturnValue({ healthy: true, detail: 'ok' });
+});
+
+afterEach(() => {
+  process.exitCode = undefined;
 });
 
 async function invoke(global = false, dryRun = false, confirm = false): Promise<void> {
@@ -77,5 +92,22 @@ describe('doctor repair-store', () => {
   it('forwards explicit owner-store confirmation', async () => {
     await invoke(false, false, true);
     expect(mocks.repair).toHaveBeenCalledWith(expect.objectContaining({ confirmOwnerStore: true }));
+  });
+  it('plain doctor reports damaged global storage before any normal health operation', async () => {
+    const { resolveDualScopeDbPath } = await import('@cleocode/core/store/dual-scope-db.js');
+    const global = resolveDualScopeDbPath('global');
+    mocks.inspect.mockImplementation((path: string) => ({
+      healthy: path !== global,
+      detail: path === global ? 'global malformed' : 'ok',
+    }));
+    const { doctorCommand } = await import('../doctor.js');
+    await doctorCommand.run?.({ args: { _: [] }, rawArgs: [], cmd: doctorCommand });
+    expect(mocks.error).toHaveBeenCalledWith(
+      expect.stringContaining('global malformed'),
+      3,
+      { name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' },
+      { operation: 'doctor' },
+    );
+    expect(mocks.repair).not.toHaveBeenCalled();
   });
 });

@@ -260,6 +260,7 @@ export function ownerStoreRewriteRefusal(
       ExitCode.CONFIG_ERROR,
       `${E_WT_STORE_REWRITE_REFUSED}: ${operation} run from git worktree ${storeCheckout} would write ${target}, a store CLEO never reads — ${describeWorktreeOwner(storeCheckout)}.`,
       {
+        codeName: E_WT_STORE_REWRITE_REFUSED,
         fix: 'Run it from an initialised CLEO project (see the owning repository above); nothing was written.',
       },
     );
@@ -271,6 +272,7 @@ export function ownerStoreRewriteRefusal(
     ExitCode.CONFIG_ERROR,
     `${E_WT_STORE_REWRITE_CONFIRM_REQUIRED}: ${operation} run from git worktree ${worktree} would overwrite the LIVE store ${target}; this worktree's ${describeWorktreeOwner(worktree)}.`,
     {
+      codeName: E_WT_STORE_REWRITE_CONFIRM_REQUIRED,
       fix: `Re-run with ${CONFIRM_OWNER_STORE_FLAG} to overwrite ${target}, or run it from ${store.root}. Nothing was written.`,
     },
   );

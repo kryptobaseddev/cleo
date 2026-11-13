@@ -15,7 +15,6 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type {
-  StoreIntegrityInspection,
   StoreRepairOptions,
   StoreRepairPhase,
   StoreRepairReceipt,
@@ -27,14 +26,15 @@ import { collectSnapshotCandidatesForRole, resolveRoleDbPath } from './recover-m
 import {
   assertRepairOriginals,
   assertRepairQuiescent,
-  commitRepairWal,
+  commitRepairImage,
   copyRepairOriginals,
+  inspectStoreIntegrity,
   prepareRepairCommit,
+  repairContentHash,
   repairFsync,
 } from './repair-store-files.js';
 import { repairTableCounts, salvageIntoSnapshot } from './repair-store-salvage.js';
-import { holdRestoreMarker } from './restore-marker.js';
-import { storeCorruptError } from './store-corruption.js';
+import { holdRestoreMarker, storeCorruptError } from './restore-marker.js';
 
 /**
  * The error's exact repair command also handles global damage encountered by
@@ -82,34 +82,19 @@ function verify(
   }
 }
 
-/** A full integrity probe for doctor and healthy no-op detection, using disposable copies. */
-export function inspectStoreIntegrity(target: string): StoreIntegrityInspection {
-  if (!existsSync(target)) return { healthy: true, detail: 'absent' };
-  const scratch = mkdtempSync(join(tmpdir(), 'cleo-store-probe-'));
-  try {
-    const file = join(scratch, 'store.db');
-    copyRepairOriginals(target, file);
-    const snap = openCleoDbSnapshot(file, { applyPragmas: false, loadSqliteVec: true });
-    try {
-      const result = snap.db.prepare('PRAGMA integrity_check').all();
-      return {
-        healthy: result.length === 1 && result[0]?.integrity_check === 'ok',
-        detail: JSON.stringify(result),
-      };
-    } finally {
-      snap.close();
-    }
-  } catch (error) {
-    return { healthy: false, detail: error instanceof Error ? error.message : String(error) };
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-}
-
 function receiptFile(receipt: StoreRepairReceipt): void {
   if (receipt.quarantineDir === null) return;
   const file = join(receipt.quarantineDir, 'receipt.json');
   const temporary = `${file}.tmp`;
+  if (receipt.recovery?.rows.length) {
+    receipt.recovery.file = join(receipt.quarantineDir, 'recovery.json');
+    const recoveryTemp = `${receipt.recovery.file}.tmp`;
+    writeFileSync(recoveryTemp, `${JSON.stringify(receipt.recovery.rows, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    repairFsync(recoveryTemp);
+    renameSync(recoveryTemp, receipt.recovery.file);
+  }
   writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
   repairFsync(temporary);
   renameSync(temporary, file);
@@ -300,12 +285,11 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
           for (const s of ['', '-wal', '-shm', '-journal']) rmSync(probe + s, { force: true });
         }
       }
-      if (!existsSync(staged)) {
-        if (opts.fromSnapshot || opts.noDelta)
-          // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
-          throw new Error('No validated whole-store snapshot matches the requested recovery');
-        await migrate(staged, scope);
-      }
+      if (!existsSync(staged) && (opts.fromSnapshot || opts.noDelta))
+        // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
+        throw new Error('No validated whole-store snapshot matches the requested recovery');
+      // Upgrade the base before selecting shared columns; newer damaged values must fit.
+      await migrate(staged, scope);
       phase('salvage');
       const finishJournal = receipt.delta
         ? salvageIntoSnapshot(staged, [withWal, withoutWal], receipt)
@@ -327,7 +311,9 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       }
       phase('migrate');
       const base = Object.fromEntries(
-        Object.entries(receipt.tables).map(([table, t]) => [table, t.snapshot]),
+        Object.entries(receipt.tables)
+          .filter(([, t]) => !t.rebuilt)
+          .map(([table, t]) => [table, Math.max(0, t.snapshot - (t.baseRemoved ?? 0))]),
       );
       const counts = verify(staged, base);
       for (const [table, n] of Object.entries(counts)) {
@@ -342,13 +328,28 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       }
       receipt.missingTaskIds = missingTasks(staged, receipt, opts.projectRoot);
       const wal = join(work, 'install.wal');
-      prepareRepairCommit(staged, original, wal);
+      const commitKind = prepareRepairCommit(staged, original, wal);
       // Validate exactly the bytes that the single rename will make visible,
       // including the original main and SHM, before touching either original.
       const proof = join(scratch, 'commit-proof.db');
       copyRepairOriginals(original, proof);
-      copyFileSync(wal, `${proof}-wal`);
+      copyFileSync(wal, commitKind === 'wal' ? `${proof}-wal` : proof);
       verify(proof, counts);
+      if (commitKind === 'main') {
+        const expected = repairContentHash(staged);
+        if (repairContentHash(proof) !== expected)
+          // @sync-invariant none:local-only old sidecars must never change a repaired main image
+          throw new Error('Original sidecars conflict with the reconstructed main image');
+        const trial = openCleoDbSnapshot(proof, { readOnly: false, loadSqliteVec: true });
+        trial.close();
+        verify(proof, counts);
+        if (repairContentHash(proof) !== expected)
+          // @sync-invariant none:local-only old sidecars must never change a repaired main image
+          throw new Error('Original sidecars conflict with the reconstructed main image');
+        receipt.diagnostics.push(
+          'Reconstructed header: validated main-image rename with original sidecars',
+        );
+      }
       receipt.integrityOK = true;
       phase('validate');
       if (opts.dryRun) {
@@ -361,7 +362,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       assertRepairOriginals(target, receipt.files);
       phase('commit');
       assertCommitGuard();
-      commitRepairWal(wal, target);
+      commitRepairImage(wal, target, commitKind);
       committed = true;
       receipt.status = 'repaired';
       if (process.platform !== 'win32') repairFsync(dirname(target));
@@ -384,8 +385,8 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
   try {
     if (opts.dryRun) return await execute();
     if (scope === 'project') {
-      const { assertRestoreTargetConfirmed } = await import('./worktree-isolation-guard.js');
-      assertRestoreTargetConfirmed(opts.projectRoot, opts);
+      const { assertOwnerStoreRewriteConfirmed } = await import('./worktree-isolation-guard.js');
+      assertOwnerStoreRewriteConfirmed('doctor repair-store', target, opts);
     }
     const { FIRST_OPEN_LOCK_SUFFIX } = await import('./sqlite.js');
     const compromise = lockCompromiseTracker();
@@ -412,10 +413,13 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       { retries: 20, onCompromised: compromise.onCompromised },
     );
   } catch (error) {
-    if (error instanceof CleoError && error.codeName === 'E_DB_CORRUPT') throw error;
+    if (error instanceof CleoError) throw error;
     // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
     throw storeCorruptError(target, error instanceof Error ? error : new Error(String(error)));
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
+
+/** Disposable-copy integrity inspection used by doctor and recovery. */
+export { inspectStoreIntegrity } from './repair-store-files.js';

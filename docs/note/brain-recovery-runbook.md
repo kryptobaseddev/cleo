@@ -42,17 +42,33 @@ Node SQLite, seeking past unreadable b-tree ranges. The freshest snapshot that
 passes `integrity_check` is the merge base. With no usable snapshot, CLEO creates
 a current empty schema and adds the readable rows.
 
-Missing primary keys are inserted. A conflicting key updates the snapshot row
-only when its update timestamp is newer. Tables without update timestamps keep
-the base row on a key conflict. Schema migrations run after the data merge;
-salvaged migration stamps cannot skip those upgrades.
+Schema migrations run before and after the data merge so columns added after an
+old snapshot are available before rows are imported. Missing primary keys are
+inserted. Readable damaged-store values win a conflicting key unless timestamps
+prove the snapshot row newer. This also preserves ended sessions in tables
+without update timestamps. Columns absent from the current schema are preserved
+in quarantine `recovery.json` instead of silently discarded; salvaged migration
+stamps cannot skip schema upgrades.
+
+A complete read of the main-with-WAL table proves which snapshot rows were
+deleted; those rows are excluded and listed as deletions. When a read is
+incomplete, snapshot rows remain and are listed as possibly resurrected.
+UNIQUE collisions and foreign-key orphans are excluded from the healthy result
+and preserved with their values and reasons in `recovery.json`. Other readable
+rows still merge. FTS and vector shadow storage is rebuilt through its logical
+content tables, never imported row by row.
 
 Before commit, the merged result must pass `integrity_check`, an empty
-`foreign_key_check`, and the base row-count checks for every table. CLEO then
+`foreign_key_check`, and base row-count checks adjusted only for recorded
+deletions, quarantined snapshot conflicts, and rebuilt derived storage. CLEO then
 validates the exact installable image against a copy of the original main file
 and sidecars. It commits a full-image SQLite WAL with one fsynced atomic rename.
 There is no window with a removed original WAL or an old WAL over a new main.
 SQLite's next ordinary checkpoint folds the committed image into the main file.
+If a damaged page-1 header prevents WAL recovery, CLEO reconstructs disposable
+headers for salvage and can publish a complete main image with one rename. It
+first verifies that exact image with all original sidecars, including a normal
+WAL-mode reopen and a comparison of every logical value.
 
 The normal sync repair diff accounts for recovered rows: affected sync tables
 are marked suspect rather than inventing journal sequence numbers during salvage.
@@ -65,6 +81,8 @@ The command's envelope and quarantine `receipt.json` include:
 - Per-table `snapshot`, `salvaged`, `merged`, `unreadable` and `final` counts.
 - Task IDs mentioned in git commit messages since the snapshot but missing from
   the result. These are report-only; CLEO never invents their task records.
+- Excluded column values, conflicts, proven deletions and possible resurrections,
+  with lossless bigint and binary encodings in `recovery.json`.
 - Extraction and optional-tool diagnostics. `unreadable: null` means damage hides
   the row count; it does not mean zero unreadable rows.
 
@@ -77,7 +95,10 @@ An interrupted attempt can be rerun with the same command.
 
 Repair refuses an open store, including an idle connection. End the processes
 holding it, then rerun the command. A failed liveness probe is not permission to
-overwrite it. Do not remove SQLite sidecars to make a repair proceed.
+overwrite it. Linux checks kernel locks and process file descriptors through
+`/proc`; macOS uses its system `fuser`; Windows probes an exclusive file open.
+No `lsof` installation is required. Do not remove SQLite sidecars to make a
+repair proceed.
 
 ```bash
 cleo doctor repair-store --dry-run
@@ -86,7 +107,12 @@ cleo doctor repair-store --global --dry-run
 
 Dry-run performs salvage, migration and validation on temporary copies and writes
 nothing to `.cleo`. From a git worktree, an explicit repair of the owning
-project's store also requires `--confirm-owner-store`.
+project's store also requires `--confirm-owner-store`. Its distinct
+`E_WT_STORE_REWRITE_CONFIRM_REQUIRED` fix names that flag or the project root;
+it is never rewrapped as corruption. Automatic repair after a failed canonical
+open deliberately follows the existing open-time worktree policy: it repairs
+the owner store only after proving exclusive access and appends an audited
+`open-time` owner-store rewrite. Dry-run writes no audit or quarantine files.
 
 ## Backup recovery compatibility
 

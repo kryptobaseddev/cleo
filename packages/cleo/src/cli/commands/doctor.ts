@@ -20,7 +20,7 @@ import type { InvariantAuditResult } from '@cleocode/contracts';
 import type { HookMatrixResult } from '@cleocode/core';
 import { renderInvariantAuditLines } from '@cleocode/core/doctor/invariant-audit-render.js';
 import { pushWarning } from '@cleocode/core/output';
-import { getProjectRoot } from '@cleocode/core/project-scope';
+import { getProjectRoot, isMissingProjectError } from '@cleocode/core/project-scope';
 import {
   quarantineRogueCleoDir,
   scanRogueCleoDirs,
@@ -544,15 +544,22 @@ export const doctorCommand = defineCommand({
     // Early-return so the child's envelope is the only output on stdout.
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;
 
-    const { inspectStoreIntegrity } = await import('@cleocode/core/store/repair-store.js');
+    const { inspectStoreIntegrity } = await import('@cleocode/core/store/repair-store-files.js');
     const { resolveRoleDbPath } = await import('@cleocode/core/store/recover-malformed-db.js');
-    const integrity = inspectStoreIntegrity(
-      resolveRoleDbPath('tasks', { projectRoot: getProjectRoot() }),
-    );
-    if (!integrity.healthy) {
+    const { resolveDualScopeDbPath } = await import('@cleocode/core/store/dual-scope-db.js');
+    const targets = [resolveDualScopeDbPath('global')];
+    try {
+      targets.push(resolveRoleDbPath('tasks', { projectRoot: getProjectRoot() }));
+    } catch (error) {
+      if (!isMissingProjectError(error)) throw error;
+    }
+    const damage = targets
+      .map((target) => ({ target, ...inspectStoreIntegrity(target) }))
+      .filter((store) => !store.healthy);
+    if (damage.length > 0) {
       // @sync-invariant none:local-only diagnostic output for a damaged local store
       cliError(
-        `Project store is damaged: ${integrity.detail}`,
+        damage.map((store) => `${store.target}: ${store.detail}`).join('\n'),
         3,
         { name: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' },
         { operation: 'doctor' },

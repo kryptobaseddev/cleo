@@ -87,7 +87,12 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
-import { awaitStoreWritable, openUnlessRestoring } from './restore-marker.js';
+import {
+  awaitStoreWritable,
+  isStoreCorruption,
+  openUnlessRestoring,
+  storeCorruptError,
+} from './restore-marker.js';
 import {
   healRowIdentitySchema,
   missingRowIdentitySchema,
@@ -99,7 +104,6 @@ import {
 } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { isStoreCorruption, storeCorruptError } from './store-corruption.js';
 import { captureOpenPassReadOnly, syncCaptureOpenPass } from './sync/capture.js';
 import { anySyncFlagOn } from './sync/flags.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
@@ -112,7 +116,10 @@ import {
 } from './sync/trigger-classes.js';
 import { assertWriterVersion } from './sync/writer-version.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
-import { assertStorePathIsNotWorktreeResident } from './worktree-isolation-guard.js';
+import {
+  assertStorePathIsNotWorktreeResident,
+  invocationDirectory,
+} from './worktree-isolation-guard.js';
 import {
   makeWriterLeaseIdentity,
   registerDbIdentity,
@@ -264,13 +271,15 @@ async function recoverCorruptOpen(
     const receipt = await repairStore({
       scope,
       projectRoot: root,
-      cwd: process.cwd(),
+      cwd: invocationDirectory(undefined),
+      openTime: true,
       onPhase: () => options?.execution?.assertActive(),
     });
     // @sync-invariant none:local-only corrupt local store opening or recovery was refused
     if (!receipt.integrityOK || receipt.status === 'absent') throw storeCorruptError(path, cause);
     const { pushWarning } = await import('../output.js');
     pushWarning({
+      // @sync-invariant none:local-only reports the local recovery receipt; no replicated write rejection
       code: 'W_DB_REPAIRED',
       severity: 'warn',
       message: `Repaired ${path}; receipt: ${receipt.quarantineDir ?? 'concurrent repair'}`,
@@ -281,6 +290,7 @@ async function recoverCorruptOpen(
       ? await openDualScopeDbAtPath('project', path, cwd, retry)
       : await openDualScopeDbAtPath('global', path, cwd, retry);
   } catch (error) {
+    if (error instanceof CleoError && /E_WT_STORE_REWRITE/.test(error.message)) throw error;
     // @sync-invariant none:local-only corrupt local store opening or recovery was refused
     throw storeCorruptError(path, error instanceof Error ? error : cause);
   }
@@ -1371,7 +1381,13 @@ export async function openDualScopeDbAtPath(
       return await openDedicatedDualScopeDb(scope, normalizedPath, log, syncMode, execution);
     } catch (error) {
       if (error instanceof Error && isStoreCorruption(error)) {
-        return recoverCorruptOpen(scope, normalizedPath, exodusCwd, options, error);
+        return recoverCorruptOpen(
+          scope,
+          normalizedPath,
+          exodusCwd,
+          { ...options, execution },
+          error,
+        );
       }
       throw error;
     }
@@ -1837,7 +1853,13 @@ export async function openDualScopeDbAtPath(
         if (_cache.get(key)?.initPromise === initPromise) _cache.delete(key);
         try {
           initResolve!(
-            await recoverCorruptOpen(scope, normalizedPath, exodusCwd, options, explained),
+            await recoverCorruptOpen(
+              scope,
+              normalizedPath,
+              exodusCwd,
+              { ...options, execution },
+              explained,
+            ),
           );
         } catch (recoveryError) {
           initReject!(recoveryError);

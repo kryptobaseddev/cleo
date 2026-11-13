@@ -2,20 +2,25 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   closeSync,
   constants,
   copyFileSync,
   existsSync,
   fsyncSync,
+  mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
   readSync,
   renameSync,
+  rmSync,
   statSync,
+  writeSync,
 } from 'node:fs';
-import { basename, dirname } from 'node:path';
-import type { StoreRepairFile } from '@cleocode/contracts/db-recovery.js';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
+import type { StoreIntegrityInspection, StoreRepairFile } from '@cleocode/contracts/db-recovery.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
 
 /** SQLite sidecars whose exact original bytes belong in quarantine. */
@@ -160,11 +165,14 @@ export function assertRepairQuiescent(target: string): void {
       throw new Error(`Cannot exclusively open the store: ${probe.error?.message ?? probe.stderr}`);
     return;
   }
-  const probe = spawnSync('lsof', ['-F', 'p', '--', ...paths], {
+  const probe = spawnSync('/usr/bin/fuser', ['-f', ...paths], {
     encoding: 'utf8',
     timeout: 15_000,
   });
-  if (probe.error || (probe.status !== 0 && probe.status !== 1) || probe.stderr.trim()) {
+  const unexpected = probe.stderr
+    .split('\n')
+    .filter((line) => line.trim() && !paths.some((path) => line.trim() === `${path}:`));
+  if (probe.error || probe.status !== 0 || unexpected.length > 0) {
     // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
     throw new Error(`Cannot prove the store is closed: ${probe.error?.message ?? probe.stderr}`);
   }
@@ -177,8 +185,14 @@ export function assertRepairQuiescent(target: string): void {
  * writes every output page in one transaction. Publishing that WAL is ONE
  * rename: there is no interval with a missing original WAL or an old WAL
  * overlaying a new main file. A subsequent ordinary checkpoint folds it in.
+ * A destroyed header uses a complete main image, subject to the caller proving
+ * its exact logical contents with all original sidecars before publication.
  */
-export function prepareRepairCommit(staged: string, original: string, candidate: string): void {
+export function prepareRepairCommit(
+  staged: string,
+  original: string,
+  candidate: string,
+): 'wal' | 'main' {
   const snap = openCleoDbSnapshot(staged, {
     readOnly: false,
     applyPragmas: false,
@@ -195,13 +209,24 @@ export function prepareRepairCommit(staged: string, original: string, candidate:
     }
     const rawSize = header.readUInt16BE(16);
     const size = rawSize === 1 ? 65536 : rawSize;
-    if (size < 512 || size > 65536 || (size & (size - 1)) !== 0)
-      // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
-      throw new Error('Damaged SQLite page size; cannot commit a WAL safely');
+    if (
+      header.subarray(0, 16).toString('binary') !== 'SQLite format 3\0' ||
+      size < 512 ||
+      size > 65536 ||
+      (size & (size - 1)) !== 0
+    ) {
+      // An unreadable page-1 header may prevent SQLite from consulting a replacement WAL.
+      // The caller proves this complete main image with the exact original sidecars first.
+      copyFileSync(staged, candidate, constants.COPYFILE_EXCL);
+      chmodSync(candidate, statSync(original).mode & 0o777);
+      repairFsync(candidate);
+      return 'main';
+    }
     snap.db.exec(
       `PRAGMA page_size=${size}; VACUUM; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; VACUUM`,
     );
     copyFileSync(`${staged}-wal`, candidate, constants.COPYFILE_EXCL);
+    chmodSync(candidate, statSync(original).mode & 0o777);
     repairFsync(candidate);
     // Check the full-image property, rather than depending only on VACUUM's implementation.
     const walFd = openSync(candidate, 'r');
@@ -232,13 +257,139 @@ export function prepareRepairCommit(staged: string, original: string, candidate:
     } finally {
       closeSync(walFd);
     }
+    return 'wal';
   } finally {
     snap.close();
   }
 }
 
-/** Atomically publish an already-validated full-image WAL, preserving the original main file. */
-export function commitRepairWal(candidate: string, target: string): void {
+/** Atomically publish the proven WAL or reconstructed main image with one rename. */
+export function commitRepairImage(
+  candidate: string,
+  target: string,
+  kind: 'wal' | 'main' = 'wal',
+): void {
   if (process.platform !== 'win32') repairFsync(dirname(candidate));
-  renameSync(candidate, `${target}-wal`);
+  renameSync(candidate, kind === 'wal' ? `${target}-wal` : target);
+}
+
+/** A full integrity probe for doctor and healthy no-op detection, using disposable copies. */
+export function inspectStoreIntegrity(target: string): StoreIntegrityInspection {
+  if (!existsSync(target)) return { healthy: true, detail: 'absent' };
+  const scratch = mkdtempSync(join(tmpdir(), 'cleo-store-probe-'));
+  try {
+    const file = join(scratch, 'store.db');
+    copyRepairOriginals(target, file);
+    const snap = openCleoDbSnapshot(file, { applyPragmas: false, loadSqliteVec: true });
+    try {
+      const result = snap.db.prepare('PRAGMA integrity_check').all();
+      return {
+        healthy: result.length === 1 && result[0]?.integrity_check === 'ok',
+        detail: JSON.stringify(result),
+      };
+    } finally {
+      snap.close();
+    }
+  } catch (error) {
+    return { healthy: false, detail: error instanceof Error ? error.message : String(error) };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/** Restore only a disposable damaged view's header so intact b-trees remain readable. */
+export function repairSalvageHeader(view: string, staged: string): string | null {
+  const header = Buffer.alloc(100);
+  const fd = openSync(view, 'r');
+  try {
+    readSync(fd, header, 0, 100, 0);
+  } finally {
+    closeSync(fd);
+  }
+  const rawSize = header.readUInt16BE(16);
+  const size = rawSize === 1 ? 65536 : rawSize;
+  if (
+    header.subarray(0, 16).toString('binary') === 'SQLite format 3\0' &&
+    size >= 512 &&
+    size <= 65536 &&
+    (size & (size - 1)) === 0
+  )
+    return null;
+  const baseline = Buffer.alloc(100);
+  const base = openSync(staged, 'r');
+  try {
+    readSync(base, baseline, 0, 100, 0);
+  } finally {
+    closeSync(base);
+  }
+  let pageSize = baseline.readUInt16BE(16);
+  if (pageSize === 1) pageSize = 65536;
+  if (existsSync(`${view}-wal`)) {
+    const wal = openSync(`${view}-wal`, 'r');
+    const bytes = Buffer.alloc(12);
+    try {
+      readSync(wal, bytes, 0, 12, 0);
+    } finally {
+      closeSync(wal);
+    }
+    const n = bytes.readUInt32BE(8);
+    if (
+      (bytes.readUInt32BE(0) & 0xfffffffe) === 0x377f0682 &&
+      n >= 512 &&
+      n <= 65536 &&
+      (n & (n - 1)) === 0
+    )
+      pageSize = n;
+  }
+  baseline.writeUInt16BE(pageSize === 65536 ? 1 : pageSize, 16);
+  baseline.writeUInt32BE(Math.floor(statSync(view).size / pageSize), 28);
+  baseline.fill(0, 32, 40); // A reconstructed header must never follow a snapshot's freelist.
+  const recovered = `${view}.header-recovered`;
+  copyRepairOriginals(view, recovered);
+  const out = openSync(recovered, 'r+');
+  try {
+    writeSync(out, baseline, 0, baseline.length, 0);
+  } finally {
+    closeSync(out);
+  }
+  return recovered;
+}
+
+/** Compare logical values as well as counts before publishing a reconstructed main header. */
+export function repairContentHash(file: string): string {
+  const snap = openCleoDbSnapshot(file, { applyPragmas: false, loadSqliteVec: true });
+  const hash = createHash('sha256');
+  try {
+    for (const row of snap.db
+      .prepare('SELECT type,name,tbl_name,sql FROM main.sqlite_schema ORDER BY type,name')
+      .iterate())
+      hash.update(`${JSON.stringify(row)}\n`);
+    for (const table of snap.db
+      .prepare("SELECT name FROM main.sqlite_schema WHERE type='table' ORDER BY name")
+      .all()) {
+      const q = `"${String(table.name).replaceAll('"', '""')}"`;
+      const names = snap.db
+        .prepare(`PRAGMA main.table_info(${q})`)
+        .all()
+        .map((r) => `"${String(r.name).replaceAll('"', '""')}"`);
+      hash.update(`${JSON.stringify(table.name)}\n`);
+      const stmt = snap.db.prepare(
+        `SELECT ${names.join(',')} FROM main.${q} ORDER BY ${names.join(',')}`,
+      );
+      stmt.setReadBigInts(true);
+      for (const row of stmt.iterate()) {
+        const values = Object.values(row).map((v) =>
+          typeof v === 'bigint'
+            ? { integer: v.toString() }
+            : v instanceof Uint8Array
+              ? { blob: Buffer.from(v).toString('base64') }
+              : v,
+        );
+        hash.update(`${JSON.stringify(values)}\n`);
+      }
+    }
+    return hash.digest('hex');
+  } finally {
+    snap.close();
+  }
 }

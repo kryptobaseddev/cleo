@@ -53,12 +53,37 @@ export interface StoreRepairTable {
   snapshot: number;
   /** Distinct readable keys extracted from the damaged store. */
   salvaged: number;
-  /** Insertions and newer-timestamp updates applied to the base. */
+  /** Insertions and updates applied to the base. */
   merged: number;
   /** Unreadable rows, or null when a damaged page hides its row count. */
   unreadable: number | null;
   /** Rows in the validated result. */
   final: number;
+  /** Snapshot rows removed by a proven deletion or quarantined foreign-key conflict. */
+  baseRemoved?: number;
+  /** Snapshot rows missing from a complete damaged view, reported as deletions. */
+  deleted?: number;
+  /** Snapshot rows retained because incomplete reads cannot prove a deletion. */
+  possiblyResurrected?: number;
+  /** Rows excluded from the healthy result and preserved in the recovery file. */
+  conflicts?: number;
+  /** Derived virtual-table storage rebuilt through its content table. */
+  rebuilt?: boolean;
+}
+
+/** A SQLite value encoded without losing 64-bit integers or binary data in JSON. */
+export type StoreRepairValue = string | number | null | { type: 'bigint' | 'blob'; value: string };
+
+/** Data kept for investigation or manual recovery, including proven and possible deletions. */
+export interface StoreRepairRecoveryRow {
+  /** Why the row is recorded separately from the repaired content. */
+  kind: 'unmerged-columns' | 'conflict' | 'deleted' | 'possibly-resurrected';
+  /** Original table name. */
+  table: string;
+  /** Specific columns, constraint, or incomplete-read finding. */
+  reason: string;
+  /** Original values, including a rowid when the table has one. */
+  values: Record<string, StoreRepairValue>;
 }
 
 /** A byte-for-byte original kept before attempting a repair. */
@@ -69,6 +94,14 @@ export interface StoreRepairFile {
   sha256: string;
   /** Original size in bytes. */
   bytes: number;
+}
+
+/** Recovery file reference and its losslessly encoded records. */
+export interface StoreRepairRecovery {
+  /** Quarantine JSON path, or null for a dry run. */
+  file: string | null;
+  /** Excluded data and explicit deletion accounting. */
+  rows: StoreRepairRecoveryRow[];
 }
 
 /** Durable receipt returned by doctor, backup recovery, and automatic recovery. */
@@ -99,6 +132,8 @@ export interface StoreRepairReceipt {
   missingTaskIds: string[];
   /** Extraction failures and unavailable optional tools. */
   diagnostics: string[];
+  /** Excluded data and deletion accounting; also persisted beside the immutable originals. */
+  recovery?: StoreRepairRecovery;
   /** True only after integrity, foreign-key, and base-count verification. */
   integrityOK: boolean;
 }
@@ -119,6 +154,8 @@ export interface StoreRepairOptions {
   noDelta?: boolean;
   /** Confirm a worktree invocation against its owning project's store. */
   confirmOwnerStore?: boolean;
+  /** Canonical failed opens follow the existing audited open-time owner-store policy. @internal */
+  openTime?: boolean;
   /** Backup recovery may explicitly restore a healthy store. Doctor never does. */
   restoreSnapshot?: boolean;
   /** Phase boundary for interruption tests. @internal */
