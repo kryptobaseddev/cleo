@@ -114,6 +114,8 @@ describe('armExitBackstop — exit code inheritance (gh regression)', () => {
 
   beforeEach(() => {
     exited = undefined;
+    // These tests fire the backstop deliberately; capture its diagnostic, not Vitest's handles.
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     // @ts-expect-error — test double for a never-returning signature
     process.exit = (code?: number) => {
       exited = code;
@@ -123,6 +125,7 @@ describe('armExitBackstop — exit code inheritance (gh regression)', () => {
   afterEach(() => {
     process.exit = realExit;
     process.exitCode = realExitCode;
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -136,6 +139,9 @@ describe('armExitBackstop — exit code inheritance (gh regression)', () => {
     armExitBackstop();
     vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
     expect(exited).toBe(6);
+    expect(process.stderr.write).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining('exiting rc:6.'),
+    );
   });
 
   it('reads the exit code at FIRE time, not arm time', () => {
@@ -147,6 +153,9 @@ describe('armExitBackstop — exit code inheritance (gh regression)', () => {
     process.exitCode = 1;
     vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
     expect(exited).toBe(1);
+    expect(process.stderr.write).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining('exiting rc:1.'),
+    );
   });
 
   it('still honours an explicitly supplied code', () => {
@@ -155,6 +164,9 @@ describe('armExitBackstop — exit code inheritance (gh regression)', () => {
     armExitBackstop(0);
     vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
     expect(exited).toBe(0);
+    expect(process.stderr.write).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining('exiting rc:0.'),
+    );
   });
 
   it('falls back to 0 when no code is set anywhere', () => {
@@ -163,6 +175,9 @@ describe('armExitBackstop — exit code inheritance (gh regression)', () => {
     armExitBackstop();
     vi.advanceTimersByTime(EXIT_BACKSTOP_MS + 10);
     expect(exited).toBe(0);
+    expect(process.stderr.write).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining('any unawaited background work was abandoned.'),
+    );
   });
 });
 

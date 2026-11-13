@@ -61,12 +61,12 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -210,9 +210,82 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T11568 — write commands exit, never hang
  * hit its deadline. A write that leaks a handle shows one of these even though
  * its envelope already reported success.
  */
-const TEARDOWN_LEAK = /event loop still alive|teardown [a-z-]+: timed out/;
+const TEARDOWN_LEAK = /event loop still alive|teardown [a-z-]+: (?:timed out|not started)/;
 
 describe.skipIf(!CLI_DIST_AVAILABLE)('T12217 — write commands leave no live handle at exit', () => {
+  it('T12577: add --params-file and relates add settle their background work and exit naturally', async () => {
+    const run = (args: readonly string[]): string => {
+      const result = runCli(args, projectRoot, dataHome);
+      expect(result.signal, result.stderr).toBeNull();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(result.stderr).not.toMatch(TEARDOWN_LEAK);
+      return result.stdout.trim();
+    };
+    run(['init']);
+    const sessionId = run([
+      'session',
+      'start',
+      '--scope',
+      'global',
+      '--name',
+      'T12577 exit probe',
+      '--field',
+      '/data/id',
+    ]);
+    vi.stubEnv('CLEO_SESSION_ID', sessionId);
+    try {
+      const sagaId = run([
+        'saga',
+        'create',
+        '--title',
+        'Exit diagnostics',
+        '--description',
+        'Probe successful write teardown',
+        '--acceptance',
+        'Valid containment|Durable writes|No leaks|Bounded teardown|Natural exit',
+        '--field',
+        '/data/created/0',
+      ]);
+      const epicId = run([
+        'add',
+        '--type',
+        'epic',
+        '--parent',
+        sagaId,
+        '--title',
+        'Runtime lifecycle',
+        '--acceptance',
+        'Durable writes|No leaks|Natural exit',
+        '--field',
+        '/data/created/0',
+      ]);
+      const paramsFile = join(projectRoot, 'add-params.json');
+      await writeFile(
+        paramsFile,
+        JSON.stringify({
+          title: 'Drain task projections',
+          parent: epicId,
+          acceptance: ['Mutation persists', 'No teardown warning', 'Natural exit'],
+        }),
+      );
+      const taskId = run(['add', '--params-file', paramsFile, '--field', '/data/created/0']);
+      const relatedId = run([
+        'add',
+        '--parent',
+        epicId,
+        '--title',
+        'Close child pipes',
+        '--acceptance',
+        'Mutation persists|No teardown warning|Natural exit',
+        '--field',
+        '/data/created/0',
+      ]);
+      run(['relates', 'add', taskId, relatedId, 'extends', 'Teardown regression']);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 120_000);
+
   it('tasks update, docs add, docs update and session start/end drain within the teardown budget', () => {
     expect(runCli(['init'], projectRoot, dataHome).status).toBe(0);
     const saga = runCli(
