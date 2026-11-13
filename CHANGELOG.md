@@ -1,5 +1,25 @@
 # Changelog
 
+## [2026.11.5] (2026-11-13)
+
+### Changed
+
+- Gate lifetime tests interrupt real process capture deterministically after resource admission _(provenance: [T14532](https://github.com/kryptobaseddev/cleo/search?q=T14532&type=commits))_
+
+### Fixed
+
+- Preserve caller flags in done checkout and worktree remedies _(provenance: [T14527](https://github.com/kryptobaseddev/cleo/search?q=T14527&type=commits))_
+- Done-plan checkout remedies enter the named tree and worktree redirects retain --pr and --run-typed _(provenance: [T14518](https://github.com/kryptobaseddev/cleo/search?q=T14518&type=commits))_
+- Done-plan typed-gate fallback remedies preserve caller --pr and --satisfies _(provenance: [T14529](https://github.com/kryptobaseddev/cleo/search?q=T14529&type=commits))_
+- verify --run fix hints quote a bounded evidence summary, and the exit table names E_GATE_RUN_FAILED _(provenance: [T14528](https://github.com/kryptobaseddev/cleo/search?q=T14528&type=commits))_
+- Lead mailboxes: register through the running provider and verify holders before dispatch _(provenance: [T14477](https://github.com/kryptobaseddev/cleo/search?q=T14477&type=commits))_
+- an Orca start that failed before worker-start is retired instead of fencing every later spawn; corrupt worker metadata and a bad lead registry now refuse with a fix _(provenance: [T14486](https://github.com/kryptobaseddev/cleo/search?q=T14486&type=commits))_
+- cleo req add and replace refuse a minCount test gate whose command prints no countable report _(provenance: [T14526](https://github.com/kryptobaseddev/cleo/search?q=T14526&type=commits))_
+- Stable dependency gate: preserve failed publish timelines and report missing package arguments as usage errors _(provenance: [T14519](https://github.com/kryptobaseddev/cleo/search?q=T14519&type=commits))_
+- Lead runners accept epic status IDs and file findings with required task acceptance _(provenance: [T14478](https://github.com/kryptobaseddev/cleo/search?q=T14478&type=commits))_
+- Claude Code lead preflight judges linked-worktree trust paths exactly as Claude does _(provenance: [T14520](https://github.com/kryptobaseddev/cleo/search?q=T14520&type=commits))_
+- verify --run returns a coded failure when a typed gate fails or errors _(provenance: [T14524](https://github.com/kryptobaseddev/cleo/search?q=T14524&type=commits))_
+
 ## [2026.11.4] (2026-11-13)
 
 ### Fixed
