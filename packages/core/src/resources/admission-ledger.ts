@@ -1592,10 +1592,10 @@ function latchCause(
 
 /** The memory gate's refusal in words, with its cause (T13914). */
 function gateCause(reading: MemoryPressureReading): string {
-  return (
-    `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ` +
-    `${reading.resumeAtOrBelow} or below): ${memoryPressureCause(reading)}`
-  );
+  const criterion =
+    reading.refusalReason ??
+    `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ${reading.resumeAtOrBelow} or below)`;
+  return `${criterion}: ${memoryPressureCause(reading)}`;
 }
 
 /**

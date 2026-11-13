@@ -2044,7 +2044,7 @@ describe('admit (one ledger, real critical section)', () => {
     expect(refused.admitted).toBe(false);
     if (!refused.admitted) {
       expect(refused.refusal.memoryPressure?.score).toBe(40);
-      expect(refused.refusal.reason).toMatch(/^memory pressure 40 \(refused above 25/);
+      expect(refused.refusal.reason).toMatch(/^memory pressure 40 is above 25/);
     }
     _resetMemoryGateForTest();
     let n = 0;
@@ -2091,7 +2091,7 @@ describe('admit (one ledger, real critical section)', () => {
     // `cleo doctor tool-locks` reads the same cause from the ledger.
     const budget = readLedgerBudget(dir, capacityBytes);
     expect(budget.lightShare).toBe('none');
-    expect(budget.cause).toMatch(/^memory pressure 40 \(refused above 25.*agy pid 4242 17\.0 GiB/);
+    expect(budget.cause).toMatch(/^memory pressure 40 is above 25.*agy pid 4242 17\.0 GiB/);
     // A long waiter names the cause and when it gives up, not just "Holders: none".
     let t = Date.now();
     const notices: string[] = [];

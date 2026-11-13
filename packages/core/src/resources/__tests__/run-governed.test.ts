@@ -630,38 +630,58 @@ describe('T13889 queue deadlines', () => {
   });
 
   it.each([
-    false,
-    true,
-  ])('retains known pressure in a timer-driven timeout unless admitted clears it: %s', async (cleared) => {
+    { cleared: false, fullStall: false },
+    { cleared: true, fullStall: false },
+    { cleared: false, fullStall: true },
+  ])('retains known pressure in a timer-driven timeout: $cleared, full stall $fullStall', async ({
+    cleared,
+    fullStall,
+  }) => {
     vi.useFakeTimers();
     const h = harness({});
     const notices: string[] = [];
+    const reading: MemoryPressureReading = fullStall
+      ? {
+          ...PRESSURE_READING,
+          score: 0,
+          fullStall: 12,
+          refusalReason: 'memory full avg10 12 is above 10',
+        }
+      : PRESSURE_READING;
     const running = runGoverned({
       ...base(h, { wait: true, timeoutMs: 1001, notice: (line: string) => notices.push(line) }),
       deps: {
         ...h.deps,
         now: Date.now,
         admit: async (_req, opts) => {
-          opts.memoryPressure?.waiting(PRESSURE_READING, 0);
+          opts.memoryPressure?.waiting(reading, 0);
           if (cleared) opts.memoryPressure?.admitted(0, null);
           return new Promise(() => {});
         },
       },
     });
     await vi.advanceTimersByTimeAsync(1000);
-    expect(notices.some((line) => line.startsWith('waiting: memory pressure'))).toBe(true);
+    expect(notices).toContainEqual(
+      expect.stringContaining(
+        fullStall ? 'waiting: memory full avg10 12 is above 10' : 'waiting: memory pressure 40',
+      ),
+    );
     await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(250);
     const result = await running;
     expect(result.kind).toBe('deferred');
     if (result.kind !== 'deferred') throw new Error('expected timed-out admission');
-    expect(result.details.memoryPressure).toEqual(cleared ? null : PRESSURE_READING);
+    expect(result.details.memoryPressure).toEqual(cleared ? null : reading);
     expect(result.details.queuePosition).toBeNull();
     if (cleared) {
       expect(result.reason).not.toContain('last reported memory pressure');
       expect(result.fix).not.toContain('short of memory');
     } else {
-      expect(result.reason).toContain('last reported memory pressure 40');
+      expect(result.reason).toContain(
+        fullStall
+          ? 'last reported memory full avg10 12 is above 10'
+          : 'last reported memory pressure 40',
+      );
       expect(result.fix).toContain('short of memory');
       expect(result.details.retryAfterMs).toBe(10_000);
     }

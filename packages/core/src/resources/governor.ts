@@ -530,7 +530,7 @@ export async function takeAgentSessionLease(
   }
   const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
   // T14283: the only memory veto is critical memory (a full stall, the macOS
-  // critical level, nearly full swap), named with the programs that hold it.
+  // critical level, nearly full swap during a warning), named with its measured criterion.
   if (resolveGovernorMode() !== 'off' && isCriticalMemory(sample)) {
     const reading = evaluateMemoryGate(sample, false).reading;
     if (reading !== null) {

@@ -361,7 +361,7 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
     expect(r.deferred).toBe(true);
     if (!r.deferred) return;
     expect(r.memoryPressure).toMatchObject({ score: 40, refuseAbove: 25, resumeAtOrBelow: 15 });
-    expect(r.reason).toMatch(/^memory pressure 40 \(refused above 25, resumes at 15 or below\)/);
+    expect(r.reason).toMatch(/^memory pressure 40 is above 25/);
     expect(r.retryAfterMs).toBe(MEMORY_GATE_RETRY_AFTER_MS);
     expect(readLedger()).toEqual([]); // nothing was started or held
     expect(slotFileCount('test-run')).toBe(0); // and no slot dir exists any more

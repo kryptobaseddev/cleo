@@ -29,6 +29,7 @@ import {
   ResourceGovernor,
   takeAgentSessionLease,
 } from '../governor.js';
+import { externalPressureFix } from '../pressure-gate.js';
 
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
@@ -221,6 +222,67 @@ describe('the agent-session budget is a lease count; only critical memory vetoes
       full: { avg10: 12, avg60: 12, avg300: 12, totalUs: 0 },
     },
   };
+  const SWAP_HEAVY: ResourceSample = {
+    ...SAMPLE,
+    memAvailableBytes: 22.1 * GIB,
+    darwinMemory: {
+      pressureLevel: 1,
+      availablePercent: 52,
+      compressorBytes: 20.5 * GIB,
+      reclaimableBytes: 20.6 * GIB,
+      swapUsedBytes: 8.2 * GIB,
+      swapTotalBytes: 9 * GIB,
+      totalBytes: 48 * GIB,
+    },
+  };
+
+  it.each([
+    0, 3.8, 8.9,
+  ])('admits old swap at normal kernel pressure with score %s and ample headroom (T14530)', async (score) => {
+    const sample: ResourceSample = {
+      ...SWAP_HEAVY,
+      globalPressure: {
+        some: { avg10: score, avg60: score, avg300: score, totalUs: 0 },
+        full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+      },
+    };
+    const topMemory = vi.fn(() => []);
+    const taken = await takeAgentSessionLease('T1', home, 60_000, {
+      ...OPTS,
+      sample,
+      topMemory,
+    });
+    expect('lease' in taken && taken.lease?.taskId).toBe('T1');
+    expect(liveAgentLeases()).toHaveLength(1);
+    expect(topMemory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { pressureLevel: 4, criterion: 'kernel memory pressure level 4 (critical), threshold 4' },
+    {
+      pressureLevel: 2,
+      criterion: 'swap use 8.2 GiB of 9.0 GiB (91.1%) is at or above 90% with kernel level warning',
+    },
+  ])('names the critical criterion at kernel level $pressureLevel (T14530)', async ({
+    pressureLevel,
+    criterion,
+  }) => {
+    if (!SWAP_HEAVY.darwinMemory) throw new Error('expected darwin signals');
+    const taken = await takeAgentSessionLease('T1', home, 60_000, {
+      ...OPTS,
+      sample: {
+        ...SWAP_HEAVY,
+        darwinMemory: { ...SWAP_HEAVY.darwinMemory, pressureLevel },
+      },
+      topMemory: () => [],
+    });
+    if (!('deferral' in taken) || !taken.externalPressure)
+      throw new Error('expected memory deferral');
+    expect(taken.deferral.reason).toContain(criterion);
+    expect(externalPressureFix(taken.externalPressure)).toContain(criterion);
+    expect(taken.deferral.reason).not.toContain('pressure 0 stayed above 25');
+    expect(liveAgentLeases()).toEqual([]);
+  });
 
   it('with 30 GB held outside CLEO and no hard danger, 4 spawns succeed when maxSessions = 4', async () => {
     const opts = { sample: SQUEEZED, cpuCount: 16, totalMemBytes: 64 * GB, agentMaxSessions: 4 };
@@ -256,6 +318,7 @@ describe('the agent-session budget is a lease count; only critical memory vetoes
     ]);
     expect(taken.externalPressure?.expectedAdmitAt).toBeNull();
     expect(taken.deferral.reason).toContain('memory is critical');
+    expect(taken.deferral.reason).toContain('memory full avg10 12 is above 10');
     expect(liveAgentLeases()).toEqual([]);
   });
 

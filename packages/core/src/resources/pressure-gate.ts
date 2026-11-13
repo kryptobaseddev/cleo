@@ -166,9 +166,19 @@ export function evaluateMemoryGate(sample: ResourceSample, latched: boolean): Me
   if (!sample.pressureAvailable || !mem) return { refuse: false, reading: null };
   const some = finite(mem.some.avg10);
   const full = finite(mem.full?.avg10);
-  const refuse = latched
-    ? some > MEMORY_GATE_RESUME_AT_OR_BELOW || full > MEMORY_GATE_FULL_RESUME_AT_OR_BELOW
-    : some > MEMORY_GATE_REFUSE_ABOVE || full > MEMORY_GATE_FULL_REFUSE_ABOVE;
+  const someThreshold = latched ? MEMORY_GATE_RESUME_AT_OR_BELOW : MEMORY_GATE_REFUSE_ABOVE;
+  const fullThreshold = latched
+    ? MEMORY_GATE_FULL_RESUME_AT_OR_BELOW
+    : MEMORY_GATE_FULL_REFUSE_ABOVE;
+  const refuse = some > someThreshold || full > fullThreshold;
+  const thresholdKind = latched ? ' (resume threshold)' : '';
+  const refusalReason =
+    criticalMemoryReason(sample) ??
+    (full > fullThreshold
+      ? `memory full avg10 ${full} is above ${fullThreshold}${thresholdKind}`
+      : some > someThreshold
+        ? `memory pressure ${some} is above ${someThreshold}${thresholdKind}`
+        : null);
   return {
     refuse,
     reading: {
@@ -179,11 +189,12 @@ export function evaluateMemoryGate(sample: ResourceSample, latched: boolean): Me
       latched,
       memAvailableBytes: sample.memAvailableBytes,
       summary: describeMemoryPressure(sample),
+      ...(refusalReason === null ? {} : { refusalReason }),
     },
   };
 }
 
-/** Swap this full (used over allocated) counts as critical (T14206). */
+/** Swap this full (used over allocated) counts as critical during a kernel warning (T14206). */
 export const CRITICAL_SWAP_FRACTION = 0.9;
 
 /** `kern.memorystatus_vm_pressure_level` for critical (T14206). */
@@ -192,21 +203,44 @@ const DARWIN_PRESSURE_CRITICAL = 4;
 /**
  * Whether memory is critical, not merely short (T14206): tasks are stalled
  * on memory (`full avg10` above {@link MEMORY_GATE_FULL_REFUSE_ABOVE}), macOS
- * reports its critical pressure level, or swap is at least
- * {@link CRITICAL_SWAP_FRACTION} full. While critical, nothing starts through
- * the latch, not even a small run.
+ * reports its critical pressure level, or a kernel warning accompanies swap
+ * at least {@link CRITICAL_SWAP_FRACTION} full. Allocated swap is not a limit:
+ * old swapped pages at a normal kernel level do not veto admission (T14530).
+ * While critical, nothing starts through the latch, not even a small run.
  *
  * @param sample - a backend sample.
  * @returns `true` when even a small run must wait.
  */
 export function isCriticalMemory(sample: ResourceSample): boolean {
+  return criticalMemoryReason(sample) !== null;
+}
+
+/** The critical-memory predicate and its measured reason share one decision. */
+function criticalMemoryReason(sample: ResourceSample): string | null {
   const mem = sample.globalPressure ?? sample.slicePressure;
-  if (finite(mem?.full?.avg10) > MEMORY_GATE_FULL_REFUSE_ABOVE) return true;
+  const full = finite(mem?.full?.avg10);
+  if (full > MEMORY_GATE_FULL_REFUSE_ABOVE) {
+    return `memory full avg10 ${full} is above ${MEMORY_GATE_FULL_REFUSE_ABOVE}`;
+  }
   const d = sample.darwinMemory;
-  if (d?.pressureLevel === DARWIN_PRESSURE_CRITICAL) return true;
+  if (d?.pressureLevel === DARWIN_PRESSURE_CRITICAL) {
+    return `kernel memory pressure level ${d.pressureLevel} (critical), threshold ${DARWIN_PRESSURE_CRITICAL}`;
+  }
   const used = d?.swapUsedBytes ?? null;
   const total = d?.swapTotalBytes ?? null;
-  return used !== null && total !== null && total > 0 && used / total >= CRITICAL_SWAP_FRACTION;
+  if (
+    d?.pressureLevel === 2 &&
+    used !== null &&
+    total !== null &&
+    total > 0 &&
+    used / total >= CRITICAL_SWAP_FRACTION
+  ) {
+    return (
+      `swap use ${bytes(used)} of ${bytes(total)} (${((100 * used) / total).toFixed(1)}%) ` +
+      `is at or above ${100 * CRITICAL_SWAP_FRACTION}% with kernel level warning`
+    );
+  }
+  return null;
 }
 
 /** The machine-wide latch record. */
@@ -335,9 +369,11 @@ export function memoryGateWaitingLine(
 ): string {
   const deadline =
     remainingMs === undefined ? '' : `, gives up in ${duration(Math.max(0, remainingMs))}`;
+  const criterion =
+    reading.refusalReason ??
+    `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ${reading.resumeAtOrBelow} or below)`;
   return (
-    `waiting: memory pressure ${reading.score} (refused above ${reading.refuseAbove}, ` +
-    `resumes at ${reading.resumeAtOrBelow} or below): ${memoryPressureCause(reading)}. ` +
+    `waiting: ${criterion}: ${memoryPressureCause(reading)}. ` +
     `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}${deadline}.`
   );
 }
@@ -348,12 +384,17 @@ export function memoryGateWaitingLine(
  * that turns admission off.
  *
  * @param details - the verdict's details.
- * @returns One line, e.g. `memory pressure 38 stayed above 25 for 2m 00s while
+ * @returns One line, e.g. `memory pressure 38 is above 25; waited 2m 00s while
  *   CLEO held nothing: the memory is held outside CLEO by codex pid 4242 13.0
  *   GiB, Google Chrome pid 77 9.1 GiB. Nothing was started. ...`
  */
 export function externalPressureFix(details: ExternalPressureDetails): string {
   const r = details.memoryPressure;
+  const criterion =
+    r.refusalReason ??
+    `memory pressure ${r.score}, full avg10 ${r.fullStall} (refusal criterion not recorded)`;
+  const wait =
+    details.waitedMs > 0 ? `; waited ${duration(details.waitedMs)} while CLEO held nothing` : '';
   const named =
     details.topProcesses.length === 0
       ? 'processes the memory probe could not list (check with top -o mem)'
@@ -365,10 +406,9 @@ export function externalPressureFix(details: ExternalPressureDetails): string {
           )
           .join(', ');
   return (
-    `memory pressure ${r.score} stayed above ${r.refuseAbove} for ${duration(details.waitedMs)} ` +
-    `while CLEO held nothing: the memory is held outside CLEO by ${named}. Nothing was started, ` +
+    `${criterion}${wait}: the memory is held outside CLEO by ${named}. Nothing was started, ` +
     'and waiting longer will not free it. Report these processes to whoever runs them, or quit ' +
-    `them; heavy work starts again once pressure falls to ${r.resumeAtOrBelow} or below. ` +
+    'them; retry once the refusing criterion clears. ' +
     'Prefer CI as evidence meanwhile (ci:<pr>).'
   );
 }

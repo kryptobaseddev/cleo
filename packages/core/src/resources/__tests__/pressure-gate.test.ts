@@ -92,6 +92,36 @@ describe('evaluateMemoryGate', () => {
     expect(evaluateMemoryGate(sampleAt(0, { full: 5 }), true).refuse).toBe(false);
   });
 
+  it.each([
+    { some: 25.01, full: 0, latched: false, reason: 'memory pressure 25.01 is above 25' },
+    { some: 0, full: 10.01, latched: false, reason: 'memory full avg10 10.01 is above 10' },
+    {
+      some: 20,
+      full: 0,
+      latched: true,
+      reason: 'memory pressure 20 is above 15 (resume threshold)',
+    },
+    {
+      some: 0,
+      full: 7,
+      latched: true,
+      reason: 'memory full avg10 7 is above 5 (resume threshold)',
+    },
+  ])('names the crossed threshold: $reason (T14530)', ({ some, full, latched, reason }) => {
+    const verdict = evaluateMemoryGate(sampleAt(some, { full }), latched);
+    expect(verdict.refuse).toBe(true);
+    expect(verdict.reading?.refusalReason).toBe(reason);
+    if (!verdict.reading) throw new Error('expected a reading');
+    const fix = externalPressureFix({
+      topProcesses: [],
+      expectedAdmitAt: null,
+      waitedMs: 120_000,
+      memoryPressure: verdict.reading,
+    });
+    expect(fix).toContain(reason);
+    expect(fix).not.toContain('stayed above');
+  });
+
   it('CPU saturation alone never refuses', () => {
     expect(evaluateMemoryGate(sampleAt(0, { cpu: 95 }), false).refuse).toBe(false);
   });
@@ -253,9 +283,7 @@ describe('memoryGateReporter', () => {
     r.waiting(reading, 60_000);
     r.admitted(65_000, 12);
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(
-      /^waiting: memory pressure 30 \(refused above 25, resumes at 15 or below\): /,
-    );
+    expect(lines[0]).toMatch(/^waiting: memory pressure 30 is above 25: /);
     expect(lines[0]).toContain('The test run starts when pressure falls; waited 0s.');
     // T14282: a wait never advertises a switch that turns admission off.
     expect(lines[0]).not.toContain('CLEO_RESOURCES_MODE');
@@ -288,7 +316,7 @@ describe('memoryGateReporter', () => {
       memoryPressure: reading,
     });
     expect(fix).toContain(
-      'memory pressure 38 stayed above 25 for 2m 00s while CLEO held nothing: the memory is held outside CLEO by codex pid 4242 13.0 GiB (axiom-app), Google Chrome pid 77 9.0 GiB.',
+      'memory pressure 38 is above 25; waited 2m 00s while CLEO held nothing: the memory is held outside CLEO by codex pid 4242 13.0 GiB (axiom-app), Google Chrome pid 77 9.0 GiB.',
     );
     expect(fix).toContain('Nothing was started');
     expect(fix).not.toContain('CLEO_RESOURCES_MODE');
@@ -299,6 +327,15 @@ describe('memoryGateReporter', () => {
       memoryPressure: reading,
     });
     expect(unlisted).toContain('processes the memory probe could not list');
+    const { refusalReason: _reason, ...legacy } = reading;
+    expect(
+      externalPressureFix({
+        topProcesses: [],
+        expectedAdmitAt: null,
+        waitedMs: 0,
+        memoryPressure: { ...legacy, score: 0 },
+      }),
+    ).toContain('memory pressure 0, full avg10 0 (refusal criterion not recorded)');
   });
 
   it('isCriticalMemory: a full stall, the macOS critical level or nearly full swap (T14206)', () => {
@@ -325,5 +362,21 @@ describe('memoryGateReporter', () => {
         sampleAt(40, { darwin: darwin({ swapUsedBytes: 8 * GIB, swapTotalBytes: 18 * GIB }) }),
       ),
     ).toBe(false);
+    for (const pressureLevel of [1, null]) {
+      expect(
+        isCriticalMemory(
+          sampleAt(0, {
+            darwin: darwin({ pressureLevel, swapUsedBytes: 8.2 * GIB, swapTotalBytes: 9 * GIB }),
+          }),
+        ),
+      ).toBe(false);
+    }
+    expect(
+      isCriticalMemory(
+        sampleAt(15, {
+          darwin: darwin({ swapUsedBytes: 9 * GIB, swapTotalBytes: 10 * GIB }),
+        }),
+      ),
+    ).toBe(true);
   });
 });
