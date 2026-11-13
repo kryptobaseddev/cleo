@@ -352,6 +352,40 @@ describe('lead isolation on claude-code (T14363, T14423)', () => {
     expect(claudeUnsafePath('../..', '/srv/repo/.git/worktrees/w', mac)).toBe(false);
   });
 
+  it("judges /home automounts by the lead's HOME, not the parent's (T14520)", () => {
+    if (process.platform !== 'darwin') return;
+    const worktree = linkedWorktree();
+    const gitDir = readFileSync(join(worktree, '.git'), 'utf8').trim().slice(7).trim();
+    trustOnly(realpathSync(project));
+    // The parent's HOME owns /home/me; the lead Claude's HOME (root) does not.
+    vi.stubEnv('HOME', '/home/me');
+    const leadEnv = { HOME: root };
+    expect(requireLeadProjectTrust(worktree, leadEnv)).toBe(claudeJson);
+    writeFileSync(join(worktree, '.git'), `gitdir: /home/me/../..${gitDir}\n`);
+    expect(() => requireLeadProjectTrust(worktree, leadEnv)).toThrow(OrcaExecutionError);
+  });
+
+  it('ignores a dangling .git link in a bare common directory, as Claude does (T14520)', () => {
+    if (process.platform === 'win32') return;
+    linkedWorktree();
+    const bare = join(realpathSync(root), 'bare.git');
+    const git = (...args: string[]): string =>
+      execFileSync('git', ['-c', 'core.hooksPath=', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    git('clone', '--quiet', '--bare', '--template=', project, bare);
+    const worktree = join(realpathSync(root), 'bare-linked');
+    git('-C', bare, 'worktree', 'add', '--quiet', '--detach', worktree);
+    trustOnly(bare);
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+    symlinkSync(join(root, 'missing'), join(bare, '.git'));
+    expect(requireLeadProjectTrust(worktree)).toBe(claudeJson);
+    rmSync(join(bare, '.git'));
+    mkdirSync(join(bare, '.git'));
+    expect(() => requireLeadProjectTrust(worktree)).toThrow(OrcaExecutionError);
+  });
+
   it('does not inherit trust across a repository boundary or from a similarly named folder', () => {
     mkdirSync(join(project, '.git'));
     writeFileSync(

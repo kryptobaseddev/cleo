@@ -102,7 +102,7 @@ export interface ClaudePathHost {
   readonly darwin: boolean;
   /** `/home` is an automount: `/etc/auto_master` maps it, or it is its own mount. */
   readonly homeAutomount: boolean;
-  /** The user's home directory (`os.homedir()`). */
+  /** The home directory of the Claude process judged (its `os.homedir()`, from its own HOME). */
   readonly home: string;
 }
 
@@ -139,11 +139,14 @@ function homeIsAutomount(): boolean {
   }
 }
 
-/** This machine's {@link ClaudePathHost}; the `/home` probe runs once per process, as in Claude. */
-function claudePathHost(): ClaudePathHost {
+/**
+ * This machine's {@link ClaudePathHost} for a Claude process whose home is
+ * `home`; the `/home` probe runs once per process, as in Claude.
+ */
+function claudePathHost(home: string = homedir()): ClaudePathHost {
   const darwin = process.platform === 'darwin';
   if (darwin) homeAutomountMemo ??= homeIsAutomount();
-  return { darwin, homeAutomount: homeAutomountMemo ?? false, home: homedir() };
+  return { darwin, homeAutomount: homeAutomountMemo ?? false, home };
 }
 
 const lowerAscii = (text: string): string => text.replace(/[A-Z]/g, (c) => c.toLowerCase());
@@ -434,16 +437,41 @@ function readGitMetaFile(gitDir: string, name: string, host: ClaudePathHost): st
 }
 
 /**
+ * Claude's `tt`: `path` is a file or directory, or a symlink whose raw target
+ * passes the unsafe-path rule and walk and resolves to a file or directory.
+ */
+function usableGitEntry(path: string, base: string, host: ClaudePathHost): boolean {
+  try {
+    const entry = lstatSync(path);
+    if (!entry.isSymbolicLink()) return entry.isDirectory() || entry.isFile();
+    const target = linkText(path);
+    if (
+      target === null ||
+      claudeUnsafePath(target, base, host) ||
+      !textWalksSafely(target, base, host)
+    )
+      return false;
+    const resolved = statSync(path);
+    return resolved.isDirectory() || resolved.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Claude's canonical root for a linked worktree (`findCanonicalGitRoot`, `cr`
  * in Claude Code 2.1.322): a worktrees entry of the common directory with a
  * matching backlink. Paths resolve lexically, never realpath-followed; only
  * the backlink is compared by real path. Every gitdir, commondir and backlink
  * text and every symlink target on the way passes Claude's unsafe-path rule.
- * Anything at the common directory's `.git` refuses (Claude refuses a usable
- * one; any other entry is refused too, failing closed).
+ * A bare common directory with a usable `.git` of its own is refused, as in
+ * Claude; an unusable one (dangling or unsafe link) is ignored, as in Claude.
+ *
+ * @param dir - The linked worktree's top directory.
+ * @param home - The lead Claude process's home, from the lead environment.
  */
-function linkedWorktreeTrustRoot(dir: string): string | null {
-  const host = claudePathHost();
+function linkedWorktreeTrustRoot(dir: string, home: string): string | null {
+  const host = claudePathHost(home);
   const link = readFileSync(join(dir, '.git'), 'utf8').trim();
   if (!link.startsWith('gitdir:')) return null;
   const gitText = link.slice(7).trim();
@@ -467,7 +495,8 @@ function linkedWorktreeTrustRoot(dir: string): string | null {
     return null;
   if ([dir, gitDir, back, commonDir].some((path) => path.includes('\\'))) return null;
   if (realpathSync(resolve(gitDir, back)) !== join(realpathSync(dir), '.git')) return null;
-  if (basename(commonDir) !== '.git' && pathKind(join(commonDir, '.git')) !== 'absent') return null;
+  if (basename(commonDir) !== '.git' && usableGitEntry(join(commonDir, '.git'), commonDir, host))
+    return null;
   return (basename(commonDir) === '.git' ? dirname(commonDir) : commonDir).normalize('NFC');
 }
 
@@ -600,7 +629,7 @@ export function requireLeadProjectTrust(
         if (trusted(dir)) return configPath;
         const gitEntry = lstatSync(join(dir, '.git'), { throwIfNoEntry: false });
         if (gitEntry || dirname(dir) === dir) {
-          const mainRoot = gitEntry?.isFile() ? linkedWorktreeTrustRoot(dir) : null;
+          const mainRoot = gitEntry?.isFile() ? linkedWorktreeTrustRoot(dir, home) : null;
           if (mainRoot && mainRoot !== realpathSync(home) && trusted(mainRoot)) return configPath;
           break;
         }
