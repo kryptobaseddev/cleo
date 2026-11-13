@@ -12,6 +12,13 @@ import { delimiter, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  createAgentMbxClient,
+  type MbxIdentityStatus,
+  type MbxOutcome,
+  type MbxSession,
+} from '../../orchestrate/agentmbx.js';
+import { writeLeadRecord } from '../../orchestrate/lead-records.js';
+import {
   checkLeadCommand,
   runLeadCommand,
   serveLeadCommandRunner,
@@ -38,6 +45,67 @@ afterAll(() => {
 });
 
 describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', () => {
+  it('blocks dispatch until its own provider holds the epic mailbox with role lead (T14477)', async () => {
+    writeLeadRecord(dir, {
+      epicId: 'T100',
+      processes: [],
+      mode: 'detached',
+      cleoSessionId: 'test-lead-session',
+      providerCli: 'claude',
+      providerSessionId: 'provider-lead-session',
+      mailbox: 'test-epic-lead',
+      tempDir: null,
+      startedAt: new Date().toISOString(),
+    });
+    let status: MbxOutcome<MbxIdentityStatus> = { ok: false, warning: 'unregistered' };
+    const sessions: string[] = [];
+    const mbxClient = {
+      ...createAgentMbxClient(),
+      status: async (session: MbxSession) => {
+        sessions.push(`${session.cli}:${session.session}`);
+        return status;
+      },
+    };
+    const options = { cwd: dir, env: { ...env, CLEO_SESSION_ID: 'test-lead-session' }, mbxClient };
+    for (const verb of ['spawn', 'spawn-execute', 'fanout', 'handoff']) {
+      const result = await runLeadCommand(['cleo', 'orchestrate', verb, 'T101'], options);
+      expect(result).toMatchObject({
+        allowed: false,
+        reason: expect.stringContaining('"action":"register"'),
+      });
+    }
+    for (const value of [
+      { name: null, state: 'unbound', role: null, unread: 0 },
+      { name: 'other-lead', state: 'bound', role: 'lead', unread: 0 },
+      { name: 'test-epic-lead', state: 'bound', role: 'worker', unread: 0 },
+      { name: 'test-epic-lead', state: 'unknown', role: 'lead', unread: 0 },
+    ]) {
+      status = { ok: true, value };
+      expect(
+        await runLeadCommand(['cleo', 'orchestrate', 'fanout', 'T100'], options),
+      ).toMatchObject({ allowed: false });
+    }
+    status = {
+      ok: true,
+      value: { name: 'test-epic-lead', state: 'bound', role: 'lead', unread: 0 },
+    };
+    expect(
+      await runLeadCommand(
+        ['cleo', 'orchestrate', 'spawn', 'T101', '--lead-mbx', 'other'],
+        options,
+      ),
+    ).toMatchObject({ allowed: false });
+    expect(await runLeadCommand(['cleo', 'orchestrate', 'fanout', 'T100'], options)).toMatchObject({
+      allowed: true,
+      exitCode: 0,
+    });
+    expect(new Set(sessions)).toEqual(new Set(['claude:provider-lead-session']));
+    status = { ok: false, warning: 'released' };
+    expect(await runLeadCommand(['cleo', 'orchestrate', 'fanout', 'T100'], options)).toMatchObject({
+      allowed: false,
+    });
+  });
+
   it('runs an allow-listed cleo verb through execFile', async () => {
     const result = await runLeadCommand(['cleo', 'show', 'T1', '--full'], { env });
     expect(result).toEqual({
@@ -216,6 +284,7 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
   it('never ran the fake for a refused call', () => {
     const runs = existsSync(marker) ? readFileSync(marker, 'utf-8').trim().split('\n') : [];
     expect(runs).toEqual([
+      'orchestrate fanout T100',
       'show T1 --full',
       'done --from-merge 12 --dry-run',
       'find $HOME a\\b $(id)',

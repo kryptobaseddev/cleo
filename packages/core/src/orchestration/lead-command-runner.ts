@@ -25,6 +25,9 @@ import {
   LEAD_RUNNER_MCP_SERVER,
   LEAD_RUNNER_TOOL_NAME,
 } from '@cleocode/contracts/operations/orchestrate.js';
+import { type AgentMbxClient, createAgentMbxClient } from '../orchestrate/agentmbx.js';
+import { listLeadRecords } from '../orchestrate/lead-records.js';
+import { getProjectRoot } from '../paths.js';
 
 /**
  * Characters refused in the binary and command words: command separators,
@@ -57,6 +60,8 @@ export interface LeadCommandRunOptions {
   readonly env?: NodeJS.ProcessEnv;
   /** Wall-clock limit in milliseconds. @defaultValue 10 minutes */
   readonly timeoutMs?: number;
+  /** AgentMBX adapter for live mailbox verification before dispatch. */
+  readonly mbxClient?: AgentMbxClient;
 }
 
 function metacharacters(word: string): LeadCommandCheck {
@@ -186,20 +191,64 @@ export function checkLeadCommand(argv: readonly string[]): LeadCommandCheck {
  * const r = await runLeadCommand(['cleo', 'show', 'T1', '--full']);
  * ```
  */
-export function runLeadCommand(
+export async function runLeadCommand(
   argv: readonly string[],
   options: LeadCommandRunOptions = {},
 ): Promise<LeadCommandResult> {
   const check = checkLeadCommand(argv);
-  if (!check.allowed) return Promise.resolve(check);
+  if (!check.allowed) return check;
   const [bin = '', ...args] = argv;
+  let env = options.env ?? process.env;
+  if (
+    bin === 'cleo' &&
+    args[0] === 'orchestrate' &&
+    ['spawn', 'spawn-execute', 'fanout', 'handoff'].includes(args[1] ?? '')
+  ) {
+    const lead = listLeadRecords(getProjectRoot(options.cwd)).find(
+      (record) => record.cleoSessionId === env['CLEO_SESSION_ID'],
+    );
+    if (!lead?.mailbox)
+      return {
+        allowed: false,
+        reason:
+          'Dispatch requires the mailbox recorded for this lead session; start with cleo orchestrate lead <epicId>.',
+      };
+    const status = await (options.mbxClient ?? createAgentMbxClient()).status({
+      cli: lead.providerCli,
+      session: lead.providerSessionId,
+    });
+    if (
+      !status.ok ||
+      status.value.name !== lead.mailbox ||
+      status.value.state !== 'bound' ||
+      status.value.role !== 'lead'
+    ) {
+      return {
+        allowed: false,
+        reason: `Dispatch requires this provider session to hold ${lead.mailbox} with role lead. Use mbx_identity {"action":"claim","name":"${lead.mailbox}"}; if absent, use mbx_identity {"action":"register","name":"${lead.mailbox}","role":"lead"}. Verify with agentmbx status --cli ${lead.providerCli} --session ${lead.providerSessionId} --json --schema mbx.status/v1.`,
+      };
+    }
+    const flag = args.findIndex((arg) => arg === '--lead-mbx' || arg.startsWith('--lead-mbx='));
+    const explicit =
+      flag === -1
+        ? undefined
+        : args[flag]?.startsWith('--lead-mbx=')
+          ? args[flag]?.slice('--lead-mbx='.length)
+          : args[flag + 1];
+    if (explicit !== undefined && explicit !== lead.mailbox)
+      return {
+        allowed: false,
+        reason: `Dispatch must report to this lead's held mailbox ${lead.mailbox}; remove --lead-mbx or use that name.`,
+      };
+    env = { ...env, CLEO_LEAD_MAILBOX: lead.mailbox };
+  }
   return new Promise((resolve) => {
     const child = execFile(
       bin,
       args,
       {
         cwd: options.cwd,
-        env: options.env,
+        env,
         shell: false,
         timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,

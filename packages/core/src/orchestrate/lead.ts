@@ -10,9 +10,8 @@
  *   {@link LEAD_RUNNER_TOOL} (T14374), wired by the provider adapter;
  * - it runs interactive (the caller's terminal, `AskUserQuestion`) or
  *   `--detached` (owner decisions as an AgentMBX `hitl.request`);
- * - once the lead is admitted, the project lead mailbox is claimed for its
- *   provider session and a lead record keeps one lead per epic for as long
- *   as the lead process lives (T14379; see lead-records.ts);
+ * - admission records an epic-specific mailbox; the lead registers or claims
+ *   it through its own MCP tools after its provider endpoint exists;
  * - the workers it dispatches go through `orchestrateSpawnExecute`, which
  *   applies fail-closed isolation (T14358), durable worker records (T14359)
  *   and the report contract in their prompt (T14361).
@@ -32,14 +31,18 @@ import {
 } from '@cleocode/contracts/operations/orchestrate.js';
 import type { OrcaLeadTerminal, OrcaRoutingAdapter } from '@cleocode/contracts/orca-execution.js';
 import { type ProcessLiveness, readProcessStartTime } from '@cleocode/worktree';
+import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { getProjectRoot } from '../paths.js';
+import { getCleoDir, getProjectRoot } from '../paths.js';
+import { readProjectInfoAtDirectory } from '../project-scope.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { endSession } from '../store/session-store.js';
 import {
   type AgentMbxClient,
-  claimLeadMailbox,
   createAgentMbxClient,
+  ensureLeadMailbox,
+  leadMailboxName,
+  MBX_NAME,
   type MbxIdentityStatus,
   type MbxOutcome,
 } from './agentmbx.js';
@@ -134,6 +137,7 @@ export interface OrchestrateLeadInfo {
     | { readonly claimed: true; readonly name: string | null }
     | {
         readonly claimed: false;
+        readonly name?: string;
         readonly warning: string;
       };
   /**
@@ -170,10 +174,10 @@ function leadMcpOf(data: object): LeadMcpReport | null {
  *
  * Refuses unless `orchestrate.leadWorker.v1` is on (`E_LEAD_WORKER_DISABLED`)
  * and the id names an epic (`E_VALIDATION`), and while a live lead already
- * runs the epic (`E_LEAD_RUNNING`). The lead mailbox is claimed once the spawn
- * is admitted and released when the lead exits (interactive: here; detached:
- * its `SessionEnd` hook, or the reaper if it was killed); a failed claim does
- * not stop the lead and is reported under `data.lead.mailbox`. The MCP servers
+ * runs the epic (`E_LEAD_RUNNING`). The lead's first action registers or claims
+ * its epic mailbox through MCP. Dispatch refuses until AgentMBX confirms the
+ * exact provider session holds it with role lead. Exit and reaping release that
+ * session's mailbox; pending bootstrap is reported under `data.lead.mailbox`. The MCP servers
  * the lead loaded (runner plus mbx only, T14423) are under `data.lead.mcp`.
  *
  * @param epicId - Epic the lead runs.
@@ -263,22 +267,52 @@ export async function orchestrateLead(
 
   const mode = options.mode ?? 'interactive';
   const sessionId = randomUUID();
+  const configured = (await loadConfig(root)).orchestrate?.leadMailbox;
+  const mailboxConfig =
+    configured && MBX_NAME.test(configured.name)
+      ? { action: 'kept' as const, leadMailbox: configured }
+      : await ensureLeadMailbox(
+          root,
+          await readProjectInfoAtDirectory(root, getCleoDir(root)),
+          client,
+        );
+  if (mailboxConfig.action !== 'recorded' && mailboxConfig.action !== 'kept') {
+    // @sync-invariant none:local-only mailbox bootstrap requires the installed AgentMBX adapter
+    return withReaped(
+      engineError(
+        'E_LEAD_MAILBOX_UNAVAILABLE',
+        mailboxConfig.action === 'skipped' ? mailboxConfig.warning : 'Lead mailboxes are disabled',
+        {
+          exitCode: 6,
+          fix: 'Install agentmbx, run agentmbx setup --only claude, then retry cleo orchestrate lead <epicId>; the lead will register its mailbox through mbx_identity with role lead.',
+        },
+      ),
+    );
+  }
+  const mailboxName = leadMailboxName(
+    mailboxConfig.leadMailbox.name,
+    mailboxConfig.leadMailbox.projectId,
+    epicId,
+  );
+  const mailboxPrompt = [
+    '## First action: hold your epic mailbox',
+    '',
+    `Your mailbox for ${epicId} is \`${mailboxName}\`. Before dispatch, use mbx_identity {"action":"list"}; claim this exact name if present with {"action":"claim","name":"${mailboxName}"}, otherwise register it with {"action":"register","name":"${mailboxName}","role":"lead","description":"CLEO lead for ${epicId}"}. Registration also holds the identity in this provider session. Confirm with mbx_whoami; set role lead with mbx_whoami if an existing identity has another role. Never take over a live holder or substitute another name.`,
+    `The runner verifies agentmbx status --cli ${LEAD_PROVIDER_CLI} --session ${sessionId} --json --schema mbx.status/v1 before every spawn, spawn-execute, fanout or handoff. An existing identity can also be claimed with agentmbx identity claim ${mailboxName} --cli ${LEAD_PROVIDER_CLI} --session ${sessionId} --json once your endpoint exists.`,
+    "This is an epic coordinator mailbox, separate from AgentMBX's owner-designated project lead. Registration with role lead does not designate or replace the project lead. Different epics use different mailboxes; only one lead runs each epic.",
+  ].join('\n');
   const state: { claim: MbxOutcome<MbxIdentityStatus>; record: LeadRecord | null } = {
-    claim: { ok: false, warning: 'the lead was not admitted, so no mailbox was claimed' },
+    claim: {
+      ok: false,
+      warning: `Mailbox bootstrap pending: the lead must register or claim ${mailboxName} through mbx_identity before dispatch.`,
+    },
     record: null,
   };
-  // Claim the mailbox and record the lead only once the spawn is admitted:
-  // a refused spawn never takes either.
+  // Record the intended mailbox; its provider endpoint does not exist yet.
   const onAdmitted = async (lead: {
     cleoSessionId: string;
     terminal?: OrcaLeadTerminal;
   }): Promise<void> => {
-    const claim = await claimLeadMailbox(
-      root,
-      { cli: LEAD_PROVIDER_CLI, session: sessionId },
-      client,
-    );
-    state.claim = claim;
     state.record = {
       epicId,
       // This CLI (it waits in the owner's terminal for an interactive lead);
@@ -289,7 +323,7 @@ export async function orchestrateLead(
       cleoSessionId: lead.cleoSessionId,
       providerSessionId: sessionId,
       providerCli: LEAD_PROVIDER_CLI,
-      mailbox: claim.ok ? (claim.value.name ?? null) : null,
+      mailbox: mailboxName,
       tempDir: null,
       startedAt: new Date().toISOString(),
     };
@@ -306,7 +340,7 @@ export async function orchestrateLead(
   const settle = async (endLeadSession: boolean): Promise<void> => {
     const held = state.record;
     if (held === null) return;
-    if (state.claim.ok) await client.release({ cli: LEAD_PROVIDER_CLI, session: sessionId });
+    await client.release({ cli: LEAD_PROVIDER_CLI, session: sessionId });
     if (endLeadSession) {
       await endSession(held.cleoSessionId, 'lead exited', root).catch(() => undefined);
     }
@@ -320,7 +354,7 @@ export async function orchestrateLead(
       deniedTools: LEAD_DENIED_TOOLS,
       sessionId,
       mode,
-      promptAppendix: leadModePrompt(mode),
+      promptAppendix: `${mailboxPrompt}\n\n${leadModePrompt(mode)}`,
       onAdmitted,
       onStarted,
     },
@@ -328,6 +362,16 @@ export async function orchestrateLead(
   const data =
     result.success && typeof result.data === 'object' && result.data !== null ? result.data : {};
   const started = result.success && 'status' in data && data.status !== 'failed';
+  if (started) {
+    const status = await client.status({ cli: LEAD_PROVIDER_CLI, session: sessionId });
+    if (
+      status.ok &&
+      status.value.name === mailboxName &&
+      status.value.state === 'bound' &&
+      status.value.role === 'lead'
+    )
+      state.claim = status;
+  }
   if (!started) {
     // Refused or failed after admission: the spawn already handed the claim back.
     await settle(false);
@@ -363,7 +407,7 @@ export async function orchestrateLead(
   const finalClaim = state.claim;
   const mailbox: OrchestrateLeadInfo['mailbox'] = finalClaim.ok
     ? { claimed: true, name: finalClaim.value.name }
-    : { claimed: false, warning: finalClaim.warning };
+    : { claimed: false, name: mailboxName, warning: finalClaim.warning };
   const lead: OrchestrateLeadInfo = {
     deniedTools: LEAD_DENIED_TOOLS,
     runnerTool: LEAD_RUNNER_TOOL,

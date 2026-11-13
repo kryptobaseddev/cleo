@@ -123,6 +123,20 @@ vi.mock('../../../../../core/src/orchestrate/plan.js', async (original) => ({
   ...(await original<typeof import('../../../../../core/src/orchestrate/plan.js')>()),
   openAgentRegistryDbForComposer: async () => ({ close: () => undefined }),
 }));
+vi.mock('../../../../../core/src/orchestrate/agentmbx.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../../../core/src/orchestrate/agentmbx.js')>();
+  const { runMbxFixture } = await import(
+    '../../../../../adapters/src/__tests__/orca-execution-fixture.js'
+  );
+  const client = actual.createAgentMbxClient(runMbxFixture);
+  return {
+    ...actual,
+    createAgentMbxClient: () => client,
+    resolveLeadMailbox: (root: string, explicit?: string) =>
+      actual.resolveLeadMailbox(root, explicit, client),
+  };
+});
 vi.mock('../../../../../core/src/orchestration/spawn.js', async (original) => ({
   ...(await original<typeof import('../../../../../core/src/orchestration/spawn.js')>()),
   composeSpawnPayload: async (
@@ -329,7 +343,10 @@ describe('Orca AC1 routing across product worker entry points', () => {
   });
 
   it('routes spawn-execute and lead-dispatched workers through one canonical preparation and persists before admitting', async () => {
-    configure({ leadWorker: { v1: true }, leadMailbox: { name: 'fixture-lead', cli: 'codex' } });
+    configure({
+      leadWorker: { v1: true },
+      leadMailbox: { name: 'fixture-lead', projectId: 'fixture-project', cli: 'codex' },
+    });
     const stop = vi.spyOn(hooks, 'dispatch');
     const result = await spawn();
     expect(result).toMatchObject({
@@ -719,7 +736,10 @@ describe('Orca AC1 routing across product worker entry points', () => {
     'interactive',
     'detached',
   ])('routes the %s lead through the guarded Orca terminal port', async (mode) => {
-    configure({ leadWorker: { v1: true } });
+    configure({
+      leadWorker: { v1: true },
+      leadMailbox: { name: 'fixture-lead', projectId: 'fixture-project', cli: 'codex' },
+    });
     await seedTasks(env.accessor, [{ id: 'T100', title: 'Guarded lead', type: 'epic' }]);
     project.nativeProvider = 'claude-code';
     const launch = vi
@@ -779,7 +799,10 @@ describe('Orca AC1 routing across product worker entry points', () => {
     'pid-mismatch',
     'lost-receipt',
   ])('CLI exits nonzero and preserves the Orca refusal: %s', async (reason) => {
-    configure({ leadWorker: { v1: true } });
+    configure({
+      leadWorker: { v1: true },
+      leadMailbox: { name: 'fixture-lead', projectId: 'fixture-project', cli: 'codex' },
+    });
     project.nativeProvider = 'claude-code';
     await seedTasks(env.accessor, [{ id: 'T100', title: 'Guarded lead', type: 'epic' }]);
     const refusal = new OrcaExecutionError(

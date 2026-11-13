@@ -26,6 +26,37 @@ import type { OrchestrateSpawnResult } from '@cleocode/contracts/operations/orch
 import { composeSpawnForTask, orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { heldMailboxes } = vi.hoisted(() => ({ heldMailboxes: new Set<string>() }));
+vi.mock('../agentmbx.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../agentmbx.js')>();
+  const client = actual.createAgentMbxClient(async (args) => ({
+    missing: false,
+    exitCode: 0,
+    stderr: '',
+    stdout: JSON.stringify(
+      args[0] === 'identity'
+        ? {
+            identities: [...heldMailboxes].map((name) => ({
+              name,
+              registered: true,
+              retired: false,
+              state: 'held',
+              holder: { cli: 'claude', session_id: name },
+            })),
+          }
+        : {
+            identity: { name: args[args.indexOf('--session') + 1], state: 'bound', role: 'lead' },
+            unread: 0,
+          },
+    ),
+  }));
+  return {
+    ...actual,
+    resolveLeadMailbox: (root: string, explicit?: string) =>
+      actual.resolveLeadMailbox(root, explicit, client),
+  };
+});
+
 /**
  * Minimal task shape seeded through the store during setup.
  *
@@ -321,6 +352,11 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
   });
 
   describe('T14379 — lead mailbox defaults from project config', () => {
+    beforeEach(() => {
+      heldMailboxes.clear();
+      heldMailboxes.add('proj-lead');
+      heldMailboxes.add('other');
+    });
     const lead = (prompt: string) => /Your lead's mailbox: `([^`]+)`/.exec(prompt)?.[1];
     // Only tier 1/2 prompts carry the Agent Coordination block that names the
     // lead (T13943); T9321's auto tier is 0, so every case asks for tier 1.
@@ -365,6 +401,28 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
       expect(
         lead((await composeSpawnForTask('T9321', TEST_ROOT, { tier: TIER })).prompt),
       ).toBeUndefined();
+    });
+
+    it('never names an unheld recorded mailbox and refuses an unheld explicit mailbox (T14477)', async () => {
+      await writeConfig(true);
+      heldMailboxes.clear();
+      const result = await composeSpawnForTask('T9321', TEST_ROOT, { tier: TIER });
+      expect(lead(result.prompt)).toBeUndefined();
+      await expect(
+        composeSpawnForTask('T9321', TEST_ROOT, { tier: TIER, leadMailbox: 'proj-lead' }),
+      ).rejects.toThrow('live holder');
+    });
+
+    it('uses the verified epic mailbox supplied by the guarded runner (T14477)', async () => {
+      await writeConfig(true);
+      vi.stubEnv('CLEO_LEAD_MAILBOX', 'other');
+      try {
+        expect(lead((await composeSpawnForTask('T9321', TEST_ROOT, { tier: TIER })).prompt)).toBe(
+          'other',
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   });
 });

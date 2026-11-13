@@ -21,6 +21,20 @@ import type { CLEOSpawnAdapter, CLEOSpawnContext, SpawnResult } from '@cleocode/
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 
+vi.mock('../agentmbx.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../agentmbx.js')>();
+  const { runMbxFixture } = await import(
+    '../../../../adapters/src/__tests__/orca-execution-fixture.js'
+  );
+  const client = actual.createAgentMbxClient(runMbxFixture);
+  return {
+    ...actual,
+    createAgentMbxClient: () => client,
+    resolveLeadMailbox: (root: string, explicit?: string) =>
+      actual.resolveLeadMailbox(root, explicit, client),
+  };
+});
+
 const { worker, fakeAdapter } = vi.hoisted(() => {
   const state: {
     child: ChildProcess | null;
@@ -229,7 +243,7 @@ describe('durable worker records (T14359)', () => {
     const { orchestrateSpawnExecute } = await import('../spawn-ops.js');
     const result = await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir, 0, {
       autoComplete: false,
-      leadMailbox: 'lead@test',
+      leadMailbox: 'fixture-lead',
     });
     expect(result).toMatchObject({ success: true });
     // AC1: the worker is still running, so spawn emits no SubagentStop.
@@ -250,7 +264,7 @@ describe('durable worker records (T14359)', () => {
       pid: worker.child?.pid,
       pgid: worker.child?.pid,
       worktree: worktreeDir.path,
-      leadMailbox: 'lead@test',
+      leadMailbox: 'fixture-lead',
       stoppedAt: null,
     });
 

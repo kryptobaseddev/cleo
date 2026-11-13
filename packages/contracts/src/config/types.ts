@@ -831,9 +831,11 @@ export interface OrchestrateConfig {
    */
   contextThresholds?: OrchestrateContextThresholds;
   /**
-   * The project's lead AgentMBX mailbox, recorded by `cleo init` with
-   * `leadWorker.v1` on and `agentmbx` installed. Spawn and fanout name it in
-   * worker prompts when `--lead-mbx` is not given (only with `leadWorker.v1`).
+   * The project's default AgentMBX coordinator mailbox, recorded by init,
+   * upgrade or lead with `leadWorker.v1` on and `agentmbx` installed. Manual
+   * spawns name it only while a live holder is confirmed. No-hands leads derive
+   * a normalized, hashed epic name and register through their own MCP session; this does not
+   * designate or replace AgentMBX's owner-controlled project lead.
    *
    * @defaultValue undefined (no lead mailbox recorded)
    * @task T14379
@@ -860,7 +862,7 @@ export interface OrchestrateContextThresholds {
  * @epic T14351
  */
 export interface LeadMailbox {
-  /** Mailbox name, `<project>-<project-id hash>-lead` by default. */
+  /** AgentMBX mailbox name: 2–40 lowercase letters, digits or hyphens, starting with a letter or digit. */
   name: string;
   /** Portable project id the mailbox belongs to. */
   projectId: string;

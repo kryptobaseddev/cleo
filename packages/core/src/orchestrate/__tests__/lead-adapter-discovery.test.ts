@@ -47,7 +47,10 @@ beforeEach(async () => {
   ]);
   const file = join(env.cleoDir, 'config.json');
   const config = JSON.parse(readFileSync(file, 'utf8')) as CleoConfig;
-  config.orchestrate = { leadWorker: { v1: true } };
+  config.orchestrate = {
+    leadWorker: { v1: true },
+    leadMailbox: { name: 'discovery-lead', projectId: 'discovery-test-project', cli: 'claude' },
+  };
   writeFileSync(file, JSON.stringify(config));
   const bin = join(env.tempDir, 'bin');
   mkdirSync(bin);

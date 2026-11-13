@@ -55,7 +55,7 @@ above are enforced by your tool list, not by your discipline (T14363):
 | Your instructions | Your prompt is the appended system prompt (you cannot Read files) |
 | Your session | You run under your OWN CLEO session (`CLEO_SESSION_ID`, also passed to the runner), so `review verdict` and `merge train` act as you. Ending the run ends that session and frees the epic |
 | One command tool | `mcp__cleo-lead__cleo_run` runs one argv (never a shell string) when it matches the lead allow-list: read, plan, dispatch and review verbs of `cleo` and `gh`. Anything else, including pipes and redirection, is refused before a process starts |
-| Your mailbox | The project lead mailbox is claimed for your session once your spawn is admitted (right before you start) and released when you exit. A lead record keeps one lead per epic while your `claude` process or the `cleo` CLI lives (each recorded with its start time, so a reused pid never counts) (`E_LEAD_RUNNING` for a second one, however long you run); a dead lead's record (killed before its hooks ran, or its Orca terminal closed after its session ended) is reaped (mailbox, session unless already ended, temp dir, record) by the next `cleo orchestrate lead` (reported under `data.lead.reaped`, or `error.details.reaped` when the new lead is refused) or by `cleo orchestrate status` (`data.reapedLeads`). A record is removed only with proof: every process gone (an unreadable start time on a live pid counts as alive) and the session ended; otherwise it is kept with a `keptReason` and a new lead is refused with `E_LEAD_RECORD_KEPT`. `data.lead.mailbox` says whether the claim held |
+| Your mailbox | Your first action is to claim the exact epic mailbox from your prompt through `mbx_identity`, or register it with role `lead` if absent. Registration also holds it in your running provider session; never pre-claim a provider that has not started or take over a live holder. The runner refuses dispatch until `agentmbx status` confirms your exact session holds that name with role `lead`, and rechecks on each dispatch. The mailbox is released when you exit. A lead record keeps one lead per epic while your `claude` process or the `cleo` CLI lives (each recorded with its start time, so a reused pid never counts) (`E_LEAD_RUNNING` for a second one); different epics have independent mailboxes. Dead leads are reaped by the next `cleo orchestrate lead` or `status`, with cleanup reported under `reaped`/`reapedLeads`. Unproven cleanup keeps the record with `keptReason` and refuses a replacement with `E_LEAD_RECORD_KEPT`. `data.lead.mailbox` reports a verified holder or pending bootstrap |
 | Background dispatch | `cleo orchestrate fanout` / `spawn-execute` start workers in the background. Each worker gets its own worktree (a provisioning failure refuses the spawn, never the project root), a durable worker record, and your mailbox in its prompt |
 | Report contract | A worker returns the Return Format Contract: `conclusion:`, `blocker:` and one `proof:` line per item, 100 words at most. A report with no proof is not a completion; detail belongs in the PR body |
 
@@ -98,12 +98,21 @@ The parent Orchestrator spawns you with a resolved prompt containing:
 
 ### 1. Pre-flight (name your mailbox before spawn)
 
-Run `mbx_whoami` for your AgentMBX name; if it shows no identity, claim one
-with `mbx_identity` before any other mbx tool. Then build each worker's prompt
+Run `mbx_whoami` for your AgentMBX name; if unbound, list identities and claim
+your exact prompted name, or register it with role `lead` if absent. Confirm
+the name and role before dispatch. Then build each worker's prompt
 with `cleo orchestrate spawn <taskId> --lead-mbx <you>` (LEAD-005): the
 prompt's Agent Coordination section names your mailbox. With
 `orchestrate.leadWorker.v1` on, `cleo orchestrate fanout` and `spawn-execute`
-fill in the project's recorded lead mailbox when none is given (T14379).
+use your verified epic mailbox when called through the guarded lead runner.
+Manual spawns use the recorded project mailbox only while AgentMBX confirms
+a live holder; an unheld explicit `--lead-mbx` refuses (T14477).
+Project and epic names follow AgentMBX's exact 2–40 character lowercase
+letter/digit/hyphen rule. Epic names normalize the configured base and epic id,
+with a hash of the full inputs retained through truncation. Unheld defaults
+are omitted with a warning; the CLI never claims before the provider starts.
+These coordinator identities do not designate, replace or claim AgentMBX's
+owner-designated project lead; that owner-controlled identity stays separate.
 Claude Code
 Agent-tool subagents share their parent's identity, so they return results
 directly instead of mailing them. Agent messages travel over AgentMBX, not

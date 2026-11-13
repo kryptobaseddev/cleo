@@ -94,7 +94,10 @@ describe('lead prompt (T14363)', () => {
     vi.stubEnv('CLEO_SESSION_ID', SES);
     const file = join(env.tempDir, '.cleo', 'config.json');
     const config = JSON.parse(readFileSync(file, 'utf-8')) as Record<string, unknown>;
-    config.orchestrate = { leadWorker: { v1: true } };
+    config.orchestrate = {
+      leadWorker: { v1: true },
+      leadMailbox: { name: 'prompt-lead', projectId: 'prompt-test-project', cli: 'claude' },
+    };
     writeFileSync(file, JSON.stringify(config));
     provider.state.seen = [];
   });

@@ -1125,7 +1125,7 @@
           "additionalProperties": false,
           "required": ["name", "projectId", "cli"],
           "properties": {
-            "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$" },
+            "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,39}$" },
             "projectId": { "type": "string" },
             "cli": { "type": "string", "description": "AgentMBX provider CLI the lead claims it from." }
           }
