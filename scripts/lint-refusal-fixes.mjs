@@ -51,7 +51,11 @@ export const REFUSAL_PATHS = [
     functions: ['validateGateVerify'],
   },
   // The dispatch handler `cleo verify` runs, and its --criterion receipt path.
-  { path: 'verify', file: 'packages/cleo/src/dispatch/domains/check.ts', functions: ['gate.set'] },
+  {
+    path: 'verify',
+    file: 'packages/cleo/src/dispatch/domains/check.ts',
+    functions: ['gate.set', 'gate.run'],
+  },
   {
     path: 'verify',
     file: 'packages/core/src/tasks/criterion-receipt.ts',

@@ -40,6 +40,7 @@ import type {
 import { resolveInvokingCheckout, resolveWorktreeRouting } from '@cleocode/core/core-paths';
 import { getLogger } from '@cleocode/core/logger';
 import { getProjectRoot } from '@cleocode/core/project-scope';
+import { joinCommandLine } from '@cleocode/core/tasks/command-line';
 import {
   checkComplianceRecord,
   checkComplianceSummary,
@@ -518,19 +519,40 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   'gate.run': async (params: ValidateGateParams) => {
     const projectRoot = getProjectRoot();
     if (!params.taskId) {
-      return lafsError('E_INVALID_INPUT', 'taskId is required', 'gate.run');
+      return lafsError(
+        'E_INVALID_INPUT',
+        'taskId is required',
+        'gate.run',
+        'Find the active task with cleo current, then pass its ID to verify --run.',
+      );
     }
     try {
       const preview = await previewTaskGates(projectRoot, params);
-      const nonPassing = preview.results.filter((result) => result.result !== 'pass');
-      if (nonPassing.length > 0) {
+      const failures = preview.results
+        .filter((result) => result.result === 'error' || result.result === 'fail')
+        .map((result) => {
+          const reason =
+            result.errorMessage ?? result.evidence ?? `inspect the ${result.kind} gate output`;
+          const rerun = joinCommandLine([
+            'cleo',
+            'verify',
+            params.taskId,
+            '--run',
+            ...(result.req ? ['--req', result.req] : []),
+          ]);
+          return {
+            ...result,
+            fix: `${result.result === 'error' ? 'Resolve the execution error' : 'Fix the failed check'}: ${reason}. Then run ${rerun}`,
+          };
+        });
+      if (failures.length > 0) {
         return lafsError(
           // @sync-invariant none:local-only previews report execution outcomes without recording verification
           'E_GATE_RUN_FAILED',
-          `Typed gate(s) did not pass: ${nonPassing.map((result) => `${result.req ?? `#${result.index}`} (${result.result}): ${result.errorMessage ?? result.result}`).join('; ')}`,
+          `Typed gate(s) did not pass: ${failures.map((result) => `${result.req ?? `#${result.index}`} (${result.result}): ${result.errorMessage ?? result.result}`).join('; ')}`,
           'gate.run',
-          `cleo verify ${params.taskId} --run`,
-          { ...preview },
+          failures.map((result) => result.fix).join('\n'),
+          { ...preview, failures },
         );
       }
       return lafsSuccess(preview, 'gate.run');
@@ -540,6 +562,9 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
         message.includes('not found') ? 'E_NOT_FOUND' : 'E_INTERNAL',
         message,
         'gate.run',
+        message.includes('not found')
+          ? `Check the task ID with ${joinCommandLine(['cleo', 'find', params.taskId])}`
+          : `Resolve the execution error: ${message}. Then run ${joinCommandLine(['cleo', 'verify', params.taskId, '--run'])}`,
       );
     }
   },

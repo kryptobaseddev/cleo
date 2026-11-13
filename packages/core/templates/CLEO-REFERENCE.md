@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.25.9 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.25.10 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -285,6 +285,8 @@ A merged PR closes the tasks its body names (`Closes: T#### AC1,AC2`; `Refs:` bi
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
 
 ### Typed acceptance gates — observe before you attest
+
+`--run` returns `E_GATE_RUN_FAILED` (exit 6, validation failure) if a gate returns `error` or `fail`. The complete preview stays in `error.details`, with per-failure recovery hints in `failures`: resolve an execution error's cause before retrying; correct a failed check using its captured evidence before running it again. Advisory `warn` and manual `skipped` results remain visible in a successful response and do not block the run.
 
 Typed gates (`cleo req add <id> --gate '<json>'`) execute ONLY through `cleo verify <id> --run` (owner decision, T13521). Evidence writes (`cleo verify … --gate … --evidence …`), `cleo done`, `cleo verify --auto` and `cleo complete` read cached passes and execute no typed gate command:
 

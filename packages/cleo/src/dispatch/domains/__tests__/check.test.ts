@@ -1,4 +1,5 @@
 import type { AcceptanceGateResult } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { previewTaskGates } from '@cleocode/core/tasks/gate-preview';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { reportRawError } from '../../adapters/cli.js';
@@ -110,8 +111,11 @@ describe('CheckHandler operations', () => {
     expect(response.error).toMatchObject({
       code: 'E_GATE_RUN_FAILED',
       message: expect.stringContaining(result.errorMessage!),
-      fix: 'cleo verify T14524 --run',
-      details: preview,
+      fix: expect.stringContaining('Resolve the execution error: minCount 2 cannot be proved'),
+      details: {
+        ...preview,
+        failures: [{ ...result, fix: expect.stringContaining('--run --req MERGED-CHECKOUT') }],
+      },
     });
     expect(previewTaskGates).toHaveBeenCalledWith(expect.any(String), {
       taskId: 'T14524',
@@ -120,12 +124,18 @@ describe('CheckHandler operations', () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const previousExitCode = process.exitCode;
     try {
-      expect(reportRawError(response, { operation: 'check.gate.run' })).toBe(1);
-      expect(process.exitCode).toBe(1);
+      expect(reportRawError(response, { operation: 'check.gate.run' })).toBe(
+        ExitCode.VALIDATION_ERROR,
+      );
+      expect(process.exitCode).toBe(ExitCode.VALIDATION_ERROR);
       const written = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
       expect(JSON.parse(written)).toMatchObject({
         success: false,
-        error: { code: 1, codeName: 'E_GATE_RUN_FAILED', details: preview },
+        error: {
+          code: ExitCode.VALIDATION_ERROR,
+          codeName: 'E_GATE_RUN_FAILED',
+          details: expect.objectContaining(preview),
+        },
       });
     } finally {
       stdoutSpy.mockRestore();
@@ -159,11 +169,12 @@ describe('CheckHandler operations', () => {
 
     const response = await handler.query('gate.run', { taskId: 'T14524' });
 
-    expect(response.success).toBe(result === 'pass');
-    if (result === 'pass') expect(response.data).toEqual(preview);
+    expect(response.success).toBe(result !== 'fail');
+    if (result !== 'fail') expect(response.data).toEqual(preview);
     else {
       expect(response.error?.code).toBe('E_GATE_RUN_FAILED');
-      expect(response.error?.details).toEqual(preview);
+      expect(response.error?.details).toMatchObject(preview);
+      expect(response.error?.fix).toContain('Fix the failed check');
     }
   });
 
@@ -182,5 +193,60 @@ describe('CheckHandler operations', () => {
 
     expect(response.success).toBe(true);
     expect(response.data).toEqual(preview);
+  });
+
+  it('a manual-only skipped gate succeeds and remains visible', async () => {
+    const result: AcceptanceGateResult = {
+      index: 0,
+      req: 'MANUAL-REVIEW',
+      kind: 'manual',
+      result: 'skipped',
+      durationMs: 0,
+      checkedAt: new Date().toISOString(),
+      checkedBy: 'test',
+      details: { kind: 'manual', prompt: 'Review this change', accepted: false },
+    };
+    vi.mocked(previewTaskGates).mockResolvedValue({
+      taskId: 'T14524',
+      gateCount: 1,
+      passed: true,
+      persisted: false,
+      results: [result],
+    });
+
+    const response = await handler.query('gate.run', { taskId: 'T14524' });
+
+    expect(response.success).toBe(true);
+    expect(response.data).toMatchObject({ passed: true, results: [result] });
+  });
+
+  it('each failed check retains its own remedy while other results stay visible', async () => {
+    const result: AcceptanceGateResult = {
+      index: 0,
+      req: 'FILE-CHECK',
+      kind: 'file',
+      result: 'fail',
+      durationMs: 1,
+      checkedAt: new Date().toISOString(),
+      checkedBy: 'test',
+      errorMessage: 'Create src/output.ts with the required export',
+    };
+    vi.mocked(previewTaskGates).mockResolvedValue({
+      taskId: 'T14524',
+      gateCount: 2,
+      passed: false,
+      persisted: false,
+      results: [result, { ...result, index: 1, req: 'ADVISORY', result: 'warn' }],
+    });
+
+    const response = await handler.query('gate.run', { taskId: 'T14524' });
+
+    expect(response.success).toBe(false);
+    expect(response.error?.fix).toContain('Fix the failed check: Create src/output.ts');
+    expect(response.error?.fix).toContain('cleo verify T14524 --run --req FILE-CHECK');
+    expect(response.error?.details).toMatchObject({
+      results: [result, expect.objectContaining({ result: 'warn' })],
+      failures: [{ ...result, fix: response.error?.fix }],
+    });
   });
 });

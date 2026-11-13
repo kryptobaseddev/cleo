@@ -50,6 +50,7 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
   E_FILE_ERROR: 3,
   E_DEPENDENCY: 5,
   E_VALIDATION: 6,
+  E_GATE_RUN_FAILED: 6, // Typed acceptance failures use ExitCode.VALIDATION_ERROR.
   E_RETRYABLE: 7,
   E_CONFIG_ERROR: 8,
   E_PROJECT_MOVED: 9,
