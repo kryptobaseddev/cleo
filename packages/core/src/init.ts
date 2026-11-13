@@ -1643,6 +1643,13 @@ async function scaffoldInitTarget(
     warnings.push(`Git hook installation: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // T14549: git-tracked .cleo runtime files corrupt the store on checkout/pull.
+  {
+    const { trackedCleoRuntimeWarning } = await import('./doctor/cleo-runtime-tracking.js');
+    const tracked = trackedCleoRuntimeWarning(projRoot);
+    if (tracked) warnings.push(tracked);
+  }
+
   // T4684: Project info (.cleo/project-info.json)
   // T12325 · T12716: a project with no tracked identity records its id in the
   // tracked write-once .cleo/project.json (+ the legacy .cleo/project-id

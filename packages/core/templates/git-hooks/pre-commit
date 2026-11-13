@@ -4,6 +4,9 @@
 #   1. Reject SQLite WAL/SHM files (data corruption risk).
 #   2. Block commits when core CLEO files are gitignored (data integrity).
 #   3. Refuse CLEO runtime state staged at ANY path (T14189).
+#   4. Refuse staged .cleo/ paths the .cleo/.gitignore deny list names (T14549).
+#
+# A pre-commit hook that was here before CLEO runs last (T14549).
 #
 # Installation: Automatically installed via `cleo init`
 
@@ -91,3 +94,50 @@ if [ -n "$LEAKED" ]; then
   echo "To fix: git reset -q --$LEAKED"
   exit 1
 fi
+
+# ── 4. Refuse staged .cleo/ runtime paths (T14549) ───────────────────
+# The EXPLICIT DENY block of .cleo/.gitignore is the list of runtime paths
+# (backups/, quarantine/, logs, caches, databases, ...). A forced `git add -f`
+# or a file tracked before the rule existed would otherwise be committed, and
+# a later checkout or pull would replace the live store under its WAL.
+DENY=""
+if [ -f .cleo/.gitignore ]; then
+  DENY=$(awk 'tolower($0) ~ /explicit deny/ { on = 1; next }
+    on && $1 != "" && substr($1, 1, 1) != "#" && substr($1, 1, 1) != "!" { print $1 }' .cleo/.gitignore)
+fi
+RUNTIME=""
+if [ -n "$DENY" ]; then
+  STAGED_CLEO=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=d -- .cleo)
+  set -f
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    rel=${path#.cleo/}
+    case "$rel" in project.json|project-id) continue ;; esac
+    for pat in $DENY; do
+      dir=${pat%/}
+      if [ "$dir" != "$pat" ]; then
+        case "/$rel" in */$dir/*) RUNTIME="$RUNTIME $path"; break ;; esac
+      else
+        case "/$rel" in */$pat|*/$pat/*) RUNTIME="$RUNTIME $path"; break ;; esac
+      fi
+    done
+  done <<EOF_CLEO
+$STAGED_CLEO
+EOF_CLEO
+  set +f
+fi
+
+if [ -n "$RUNTIME" ]; then
+  echo "ERROR: Refusing to commit .cleo runtime files (ADR-013 §9, T14549):"
+  for f in $RUNTIME; do echo "  $f"; done
+  echo ""
+  echo "These paths are denied by .cleo/.gitignore. Tracking them lets a checkout"
+  echo "or pull replace the live store while its WAL stays behind."
+  echo "To fix: git rm --cached -q --$RUNTIME"
+  echo "(or run: cleo doctor --fix, which untracks every .cleo runtime file)"
+  exit 1
+fi
+
+# A pre-commit hook that was here before CLEO runs last, with the same arguments.
+if [ -x "$0.cleo-chained" ]; then exec "$0.cleo-chained" "$@"; fi
+exit 0

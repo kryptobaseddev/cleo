@@ -767,6 +767,25 @@ export async function runUpgrade(
     // Gitignore repair is best-effort
   }
 
+  // ── Step 4b: git-tracked .cleo runtime files (T14549) ─────────────
+  // Reported, never auto-untracked: untracking stages a deletion the owner
+  // commits, so the fix stays the explicit `cleo doctor --fix`.
+  try {
+    const { trackedCleoRuntimeWarning } = await import('./doctor/cleo-runtime-tracking.js');
+    const tracked = trackedCleoRuntimeWarning(getProjectRoot(options.cwd));
+    if (tracked) {
+      actions.push({
+        action: 'tracked_cleo_runtime',
+        status: 'skipped',
+        details: 'git tracks .cleo runtime files',
+        reason: tracked,
+        fix: 'cleo doctor --fix',
+      });
+    }
+  } catch {
+    // The check is advisory; `cleo doctor` reports the same finding.
+  }
+
   // ── Step 5: Agent-outputs migration (delegated to migration utility)
   try {
     const projectRoot = getProjectRoot(options.cwd);
