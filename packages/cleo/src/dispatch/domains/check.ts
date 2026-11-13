@@ -522,6 +522,17 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     }
     try {
       const preview = await previewTaskGates(projectRoot, params);
+      const nonPassing = preview.results.filter((result) => result.result !== 'pass');
+      if (nonPassing.length > 0) {
+        return lafsError(
+          // @sync-invariant none:local-only previews report execution outcomes without recording verification
+          'E_GATE_RUN_FAILED',
+          `Typed gate(s) did not pass: ${nonPassing.map((result) => `${result.req ?? `#${result.index}`} (${result.result}): ${result.errorMessage ?? result.result}`).join('; ')}`,
+          'gate.run',
+          `cleo verify ${params.taskId} --run`,
+          { ...preview },
+        );
+      }
       return lafsSuccess(preview, 'gate.run');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
