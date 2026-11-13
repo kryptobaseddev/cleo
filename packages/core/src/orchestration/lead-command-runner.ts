@@ -26,8 +26,9 @@ import {
   LEAD_RUNNER_TOOL_NAME,
 } from '@cleocode/contracts/operations/orchestrate.js';
 import { type AgentMbxClient, createAgentMbxClient } from '../orchestrate/agentmbx.js';
-import { listLeadRecords } from '../orchestrate/lead-records.js';
+import { type LeadRecord, listLeadRecords } from '../orchestrate/lead-records.js';
 import { getProjectRoot } from '../paths.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 
 /**
  * Characters refused in the binary and command words: command separators,
@@ -66,6 +67,51 @@ export interface LeadCommandRunOptions {
 
 function metacharacters(word: string): LeadCommandCheck {
   return { allowed: false, reason: `shell metacharacters are refused: ${JSON.stringify(word)}` };
+}
+
+/**
+ * Value of a value flag in `args` (`--name value` or `--name=value`), or
+ * `undefined` when absent. The allow-list parse already refused a repeat.
+ */
+function flagValue(args: readonly string[], name: string): string | undefined {
+  const i = args.findIndex((arg) => arg === name || arg.startsWith(`${name}=`));
+  if (i === -1) return undefined;
+  const word = args[i] ?? '';
+  return word === name ? args[i + 1] : word.slice(name.length + 1);
+}
+
+/** The lead record whose CLEO session runs this command, if any. */
+function currentLead(
+  options: LeadCommandRunOptions,
+  env: NodeJS.ProcessEnv,
+): LeadRecord | undefined {
+  return listLeadRecords(getProjectRoot(options.cwd)).find(
+    (record) => record.cleoSessionId === env['CLEO_SESSION_ID'],
+  );
+}
+
+/**
+ * A lead files findings only under its own epic (T14533): `--parent` must be
+ * the epic or a task inside its subtree, resolved against the task store. A
+ * foreign or unknown parent is refused before `cleo add` runs.
+ *
+ * @returns `null` when allowed, else the reason.
+ */
+async function findingParentRefusal(
+  args: readonly string[],
+  options: LeadCommandRunOptions,
+  env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+  const parent = flagValue(args, '--parent') ?? '';
+  const lead = currentLead(options, env);
+  if (!lead) {
+    return 'Filing a finding requires the lead record for this session; start with cleo orchestrate lead <epicId>.';
+  }
+  if (parent === lead.epicId) return null;
+  const accessor = await getTaskAccessor(getProjectRoot(options.cwd));
+  const ancestors = await accessor.getAncestorChain(parent);
+  if (ancestors.some((task) => task.id === lead.epicId)) return null;
+  return `A lead files findings only under its epic ${lead.epicId}: ${JSON.stringify(parent)} is not in that subtree. Use --parent ${lead.epicId} or a task under it.`;
 }
 
 function isBinary(word: string): word is LeadCommandBinary {
@@ -175,7 +221,20 @@ export function checkLeadCommand(argv: readonly string[]): LeadCommandCheck {
   }
   const globals = bin === 'cleo' ? LEAD_CLEO_GLOBAL_FLAGS : {};
   const reason = parseRule(rule, args.slice(rule.verb.length), globals);
-  return reason === null ? { allowed: true } : { allowed: false, reason };
+  if (reason !== null) return { allowed: false, reason };
+  // T14533: `cleo add --parent none` skips parent inference and files a root task.
+  if (
+    bin === 'cleo' &&
+    args[0] === 'add' &&
+    flagValue(args, '--parent')?.toLowerCase() === 'none'
+  ) {
+    return {
+      allowed: false,
+      reason:
+        'a lead files findings under its epic; --parent none is refused. Use --parent <epicId>.',
+    };
+  }
+  return { allowed: true };
 }
 
 /**
@@ -199,14 +258,16 @@ export async function runLeadCommand(
   if (!check.allowed) return check;
   const [bin = '', ...args] = argv;
   let env = options.env ?? process.env;
+  if (bin === 'cleo' && args[0] === 'add') {
+    const reason = await findingParentRefusal(args, options, env);
+    if (reason !== null) return { allowed: false, reason };
+  }
   if (
     bin === 'cleo' &&
     args[0] === 'orchestrate' &&
     ['spawn', 'spawn-execute', 'fanout', 'handoff'].includes(args[1] ?? '')
   ) {
-    const lead = listLeadRecords(getProjectRoot(options.cwd)).find(
-      (record) => record.cleoSessionId === env['CLEO_SESSION_ID'],
-    );
+    const lead = currentLead(options, env);
     if (!lead?.mailbox)
       return {
         allowed: false,
@@ -228,13 +289,7 @@ export async function runLeadCommand(
         reason: `Dispatch requires this provider session to hold ${lead.mailbox} with role lead. Use mbx_identity {"action":"claim","name":"${lead.mailbox}"}; if absent, use mbx_identity {"action":"register","name":"${lead.mailbox}","role":"lead"}. Verify with agentmbx status --cli ${lead.providerCli} --session ${lead.providerSessionId} --json --schema mbx.status/v1.`,
       };
     }
-    const flag = args.findIndex((arg) => arg === '--lead-mbx' || arg.startsWith('--lead-mbx='));
-    const explicit =
-      flag === -1
-        ? undefined
-        : args[flag]?.startsWith('--lead-mbx=')
-          ? args[flag]?.slice('--lead-mbx='.length)
-          : args[flag + 1];
+    const explicit = flagValue(args, '--lead-mbx');
     if (explicit !== undefined && explicit !== lead.mailbox)
       return {
         allowed: false,
@@ -282,7 +337,7 @@ const RUNNER_TOOL = {
     'Run one allow-listed cleo or gh command. Pass argv as an array of words (no shell), ' +
     'command words first, then positionals, then listed flags (--flag=value for a value starting with "-"; no --no-* forms): ' +
     'cleo orchestrate <read/plan/dispatch sub-verb> (status [epicId] or status --epic <epicId>), ' +
-    'cleo add <title> --type task --parent <epicId> --acceptance <criteria> [--description <text>], ' +
+    'cleo add <title> --type task --parent <your epicId or a task under it> --acceptance <criteria> [--description <text>], ' +
     'cleo show/find/list, cleo review packet|check|verdict, ' +
     'cleo done --from-merge <pr> --dry-run, cleo memory find|fetch, cleo session status, cleo decide ask, ' +
     'cleo merge train; gh pr view|list|checks|diff <number>, gh pr comment <number> --body <text>, gh run list, gh run view <id>. Anything else is refused.',

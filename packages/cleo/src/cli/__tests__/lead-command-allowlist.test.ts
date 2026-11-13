@@ -11,6 +11,7 @@
  * @task T14374
  */
 
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   LEAD_CLEO_GLOBAL_FLAGS,
   LEAD_COMMAND_ALLOWLIST,
@@ -105,6 +106,7 @@ describe('orchestrate status epic scope (T14478)', () => {
     { argv: ['T1'], epicId: 'T1' },
     { argv: ['--epic', 'T1'], epicId: 'T1' },
     { argv: ['--epic=T1'], epicId: 'T1' },
+    { argv: ['T1', '--epic', 'T1'], epicId: 'T1' },
   ])('dispatches the parsed scope for $argv', async ({ argv, epicId }) => {
     await runCommand(orchestrateCommand, { rawArgs: ['status', ...argv] });
     expect(dispatchFromCli).toHaveBeenCalledExactlyOnceWith(
@@ -114,5 +116,20 @@ describe('orchestrate status epic scope (T14478)', () => {
       { epicId },
       { command: 'orchestrate' },
     );
+  });
+
+  it('refuses a positional epic beside a different --epic (T14533)', async () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const before = process.exitCode;
+    try {
+      await runCommand(orchestrateCommand, { rawArgs: ['status', 'T1', '--epic', 'T2'] });
+      expect(dispatchFromCli).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(ExitCode.INVALID_INPUT);
+    } finally {
+      process.exitCode = before;
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
   });
 });
