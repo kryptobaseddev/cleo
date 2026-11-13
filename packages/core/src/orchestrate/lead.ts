@@ -41,6 +41,7 @@ import {
   type AgentMbxClient,
   createAgentMbxClient,
   ensureLeadMailbox,
+  leadMailboxName,
   MBX_NAME,
   type MbxIdentityStatus,
   type MbxOutcome,
@@ -288,7 +289,11 @@ export async function orchestrateLead(
       ),
     );
   }
-  const mailboxName = `${mailboxConfig.leadMailbox.name.slice(0, 127 - epicId.length)}-${epicId}`;
+  const mailboxName = leadMailboxName(
+    mailboxConfig.leadMailbox.name,
+    mailboxConfig.leadMailbox.projectId,
+    epicId,
+  );
   const mailboxPrompt = [
     '## First action: hold your epic mailbox',
     '',

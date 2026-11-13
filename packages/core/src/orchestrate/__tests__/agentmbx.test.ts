@@ -8,16 +8,31 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig } from '../../config.js';
+import { getProjectRoot } from '../../paths.js';
 import { validateSchema } from '../../validation/schema-validator.js';
 import {
-  claimLeadMailbox,
   createAgentMbxClient,
   ensureLeadMailbox,
   leadMailboxName,
+  MBX_NAME,
   type MbxRunner,
   resolveLeadMailbox,
   runAgentMbx,
 } from '../agentmbx.js';
+
+const { mailboxWarning } = vi.hoisted(() => ({ mailboxWarning: vi.fn() }));
+vi.mock('../../logger.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../logger.js')>();
+  return {
+    ...actual,
+    getLogger: (subsystem: string) => {
+      const logger = actual.getLogger(subsystem);
+      logger.warn = mailboxWarning;
+      return logger;
+    },
+  };
+});
 
 /** A fake CLI that delivers each idempotency key once, like agentmbx does. */
 function fakeCli(): { runner: MbxRunner; calls: string[][]; delivered: string[] } {
@@ -44,6 +59,15 @@ function fakeCli(): { runner: MbxRunner; calls: string[][]; delivered: string[] 
 }
 
 const absent: MbxRunner = async () => ({ missing: true, exitCode: null, stdout: '', stderr: '' });
+
+/** The actual configured project's mailbox for the real parent epic. */
+async function liveEpicMailbox(): Promise<string> {
+  vi.stubEnv('CLEO_ROOT', undefined);
+  vi.stubEnv('CLEO_DIR', undefined);
+  const base = (await loadConfig(getProjectRoot())).orchestrate?.leadMailbox;
+  if (!base) throw new Error('The live project needs a recorded lead mailbox');
+  return leadMailboxName(base.name, base.projectId, 'T14351');
+}
 
 describe('createAgentMbxClient.send', () => {
   it('passes argv and the caller key; a retried send is delivered once', async () => {
@@ -106,15 +130,34 @@ describe('createAgentMbxClient.send', () => {
 
 describe('runAgentMbx', () => {
   afterEach(() => vi.unstubAllEnvs());
+  it.skipIf(!process.env['CLEO_MBX_LIVE_PACKAGE'])(
+    'pins the installed AgentMBX rule and generates the real epic mailbox (T14477)',
+    async () => {
+      const packageRoot = process.env['CLEO_MBX_LIVE_PACKAGE'];
+      if (!packageRoot)
+        throw new Error('Set CLEO_MBX_LIVE_PACKAGE to the installed AgentMBX package');
+      expect(await readFile(join(packageRoot, 'dist', 'envelope.js'), 'utf-8')).toContain(
+        `export const NAME_RE = ${MBX_NAME.toString()};`,
+      );
+      const name = await liveEpicMailbox();
+      expect(name).toMatch(MBX_NAME);
+      process.stderr.write(`Generated T14351 mailbox: ${name}\n`);
+    },
+  );
   it.skipIf(!process.env['CLEO_MBX_LIVE_SESSION'])(
     'verifies a real MCP-registered lead and its exact provider holder (T14477)',
     async () => {
       const session = process.env['CLEO_MBX_LIVE_SESSION'];
-      const name = process.env['CLEO_MBX_LIVE_MAILBOX'];
-      if (!session || !name)
+      const packageRoot = process.env['CLEO_MBX_LIVE_PACKAGE'];
+      if (!session || !packageRoot)
         throw new Error(
-          'Set CLEO_MBX_LIVE_SESSION and CLEO_MBX_LIVE_MAILBOX after registering through mbx_identity with role lead',
+          'Set CLEO_MBX_LIVE_SESSION and CLEO_MBX_LIVE_PACKAGE after registering the generated T14351 mailbox through mbx_identity with role lead',
         );
+      const name = await liveEpicMailbox();
+      const projectRoot = getProjectRoot();
+      expect(await readFile(join(packageRoot, 'dist', 'envelope.js'), 'utf-8')).toContain(
+        `export const NAME_RE = ${MBX_NAME.toString()};`,
+      );
       const client = createAgentMbxClient(runAgentMbx);
       const selector = { cli: 'codex', session };
       expect(await client.status(selector)).toMatchObject({
@@ -125,8 +168,8 @@ describe('runAgentMbx', () => {
         ok: true,
         value: { name: null, state: 'unbound' },
       });
-      expect(await client.holder(name, process.cwd())).toEqual({ ok: true, value: selector });
-      expect(await resolveLeadMailbox(process.cwd(), name, client)).toBe(name);
+      expect(await client.holder(name, projectRoot)).toEqual({ ok: true, value: selector });
+      expect(await resolveLeadMailbox(projectRoot, name, client)).toBe(name);
     },
   );
 
@@ -161,7 +204,11 @@ describe('lead mailbox config', () => {
     const result = await ensureLeadMailbox(root, project, createAgentMbxClient(fakeCli().runner), {
       CLEO_HOOK_PROVIDER: 'codex',
     });
-    const expected = { name: 'my-project-9a7b43-lead', projectId: 'pid-1', cli: 'codex' };
+    const expected = {
+      name: leadMailboxName(project.projectName, project.projectId),
+      projectId: 'pid-1',
+      cli: 'codex',
+    };
     expect(result).toEqual({ action: 'recorded', leadMailbox: expected });
     const config = JSON.parse(await readFile(configPath(), 'utf-8'));
     expect(config.orchestrate.leadMailbox).toEqual(expected);
@@ -172,14 +219,6 @@ describe('lead mailbox config', () => {
 
     const again = await ensureLeadMailbox(root, project, createAgentMbxClient(absent));
     expect(again.action).toBe('kept');
-
-    const cli = fakeCli();
-    await claimLeadMailbox(
-      root,
-      { cli: 'claude', session: 's1' },
-      createAgentMbxClient(cli.runner),
-    );
-    expect(cli.calls[0]?.slice(0, 3)).toEqual(['identity', 'claim', 'my-project-9a7b43-lead']);
   });
 
   it('with leadWorker.v1 on and no agentmbx, warns and writes nothing', async () => {
@@ -193,21 +232,6 @@ describe('lead mailbox config', () => {
       JSON.parse(await readFile(configPath(), 'utf-8')).orchestrate.leadMailbox,
     ).toBeUndefined();
     expect(await resolveLeadMailbox(root)).toBeUndefined();
-  });
-
-  it('with leadWorker.v1 on and no recorded mailbox, the lead claim refuses naming `cleo upgrade` (T14448)', async () => {
-    await writeConfig(true);
-    const cli = fakeCli();
-    const claim = await claimLeadMailbox(
-      root,
-      { cli: 'claude', session: 's1' },
-      createAgentMbxClient(cli.runner),
-    );
-    expect(claim.ok).toBe(false);
-    if (claim.ok) throw new Error('expected a refused claim');
-    expect(claim.warning).toContain('`cleo upgrade`');
-    expect(claim.warning).toContain('cleo config set orchestrate.leadWorker.v1 true');
-    expect(cli.calls).toHaveLength(0);
   });
 
   it('with leadWorker.v1 off, never probes agentmbx and spawns name no mailbox', async () => {
@@ -224,10 +248,79 @@ describe('lead mailbox config', () => {
     expect(await resolveLeadMailbox(root)).toBeUndefined();
     await expect(resolveLeadMailbox(root, 'explicit')).rejects.toThrow('live holder');
   });
+});
 
-  it('derives a valid, project-qualified mailbox name', () => {
-    expect(leadMailboxName('cleocode', 'x')).toBe('cleocode-2d7116-lead');
-    expect(leadMailboxName('--', 'x')).toBe('project-2d7116-lead');
+describe('AgentMBX registration names (T14477)', () => {
+  it('pins the adapter and config schema to AgentMBX 0.5.58 NAME_RE', async () => {
+    const oracle = /^[a-z0-9][a-z0-9-]{1,39}$/;
+    expect(MBX_NAME.toString()).toBe(oracle.toString());
+    const schema = JSON.parse(
+      await readFile(new URL('../../../schemas/config.schema.json', import.meta.url), 'utf-8'),
+    );
+    expect(schema.properties.orchestrate.properties.leadMailbox.properties.name.pattern).toBe(
+      oracle.source,
+    );
+    for (const name of [
+      'aa',
+      'a-',
+      'a'.repeat(40),
+      'a',
+      '-a',
+      'Lead',
+      'a_b',
+      'a.b',
+      'a@b',
+      'a:b',
+      'a'.repeat(41),
+    ]) {
+      expect(MBX_NAME.test(name)).toBe(oracle.test(name));
+    }
+  });
+
+  it.each([
+    'Uppercase',
+    'a',
+    'a_b',
+    'a.b',
+    'a@b',
+    'a'.repeat(41),
+  ])('refuses an unregistrable explicit destination: %s', async (name) => {
+    const cli = fakeCli();
+    await expect(
+      resolveLeadMailbox(getProjectRoot(), name, createAgentMbxClient(cli.runner)),
+    ).rejects.toMatchObject({
+      codeName: 'E_LEAD_MAILBOX_INVALID',
+      fix: expect.stringContaining('2–40'),
+    });
+    expect(cli.calls).toHaveLength(0);
+  });
+
+  it.each([
+    'cleocode',
+    '--',
+    'CAPS.With_Underscores@host',
+    'a'.repeat(200),
+  ])('generates registerable project and real epic names from %s', (project) => {
+    for (const epicId of [undefined, 'T14351', `T${'1'.repeat(63)}`]) {
+      const name = leadMailboxName(project, 'project-id', epicId);
+      expect(name).toMatch(/^[a-z0-9][a-z0-9-]{1,39}$/);
+      expect(leadMailboxName(project, 'project-id', epicId)).toBe(name);
+    }
+  });
+
+  it('retains full-input identity across normalization and truncation', () => {
+    const prefix = 'project'.repeat(20);
+    const names = [
+      leadMailboxName(`${prefix}-one`, 'id', 'T14351'),
+      leadMailboxName(`${prefix}-two`, 'id', 'T14351'),
+      leadMailboxName(`${prefix}-one`, 'other-id', 'T14351'),
+      leadMailboxName(`${prefix}-one`, 'id', 'T14352'),
+      leadMailboxName('project.a', 'id', 'T14351'),
+      leadMailboxName('project-a', 'id', 'T14351'),
+      leadMailboxName(prefix, 'id', `${'T'.repeat(30)}1`),
+      leadMailboxName(prefix, 'id', `${'T'.repeat(30)}2`),
+    ];
+    expect(new Set(names).size).toBe(names.length);
   });
 });
 
@@ -235,6 +328,7 @@ describe('live report destinations (T14477)', () => {
   beforeEach(() => {
     vi.stubEnv('CLEO_ROOT', undefined);
     vi.stubEnv('CLEO_DIR', undefined);
+    mailboxWarning.mockClear();
   });
   afterEach(() => vi.unstubAllEnvs());
   it.each([
@@ -283,6 +377,11 @@ describe('live report destinations (T14477)', () => {
         }),
       );
       expect(await resolveLeadMailbox(root, undefined, client)).toBe(expected);
+      if (!expected)
+        expect(mailboxWarning).toHaveBeenCalledWith(
+          { mailbox: 'epic-lead' },
+          expect.stringContaining('omitted from worker prompts'),
+        );
       if (expected) expect(await resolveLeadMailbox(root, expected, client)).toBe(expected);
       else
         await expect(resolveLeadMailbox(root, 'epic-lead', client)).rejects.toThrow('live holder');

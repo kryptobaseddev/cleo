@@ -27,6 +27,7 @@ import {
 } from '@cleocode/contracts/operations/orchestrate.js';
 import { type AgentMbxClient, createAgentMbxClient } from '../orchestrate/agentmbx.js';
 import { listLeadRecords } from '../orchestrate/lead-records.js';
+import { getProjectRoot } from '../paths.js';
 
 /**
  * Characters refused in the binary and command words: command separators,
@@ -200,7 +201,7 @@ export async function runLeadCommand(
     args[0] === 'orchestrate' &&
     ['spawn', 'spawn-execute', 'fanout', 'handoff'].includes(args[1] ?? '')
   ) {
-    const lead = listLeadRecords(options.cwd ?? process.cwd()).find(
+    const lead = listLeadRecords(getProjectRoot(options.cwd)).find(
       (record) => record.cleoSessionId === env['CLEO_SESSION_ID'],
     );
     if (!lead?.mailbox)

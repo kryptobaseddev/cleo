@@ -100,7 +100,10 @@ prompt's Agent Coordination section names your mailbox. With
 use your verified epic mailbox when called through the guarded lead runner.
 Manual spawns use the recorded project mailbox only while AgentMBX confirms
 a live holder; an unheld explicit `--lead-mbx` refuses (T14477).
-The default epic name appends the epic id to `orchestrate.leadMailbox.name`.
+Project and epic names follow AgentMBX's exact 2–40 character lowercase
+letter/digit/hyphen rule. Epic names normalize the configured base and epic id,
+with a hash of the full inputs retained through truncation. Unheld defaults
+are omitted with a warning; the CLI never claims before the provider starts.
 These coordinator identities do not designate, replace or claim AgentMBX's
 owner-designated project lead; that owner-controlled identity stays separate.
 Claude Code

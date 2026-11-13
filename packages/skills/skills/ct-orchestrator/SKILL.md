@@ -407,7 +407,9 @@ plant it; otherwise the lead gets the runner alone and `data.lead.mcpWarning` sa
 provider that cannot strip tools refuses the spawn (`E_LEAD_TOOLS_UNSTRIPPED`). The lead's prompt
 is composed with role `lead` (ct-lead excerpts) and passed as its appended system prompt. It runs
 in the project root under its OWN CLEO session (no worktree, no worker record). Admission records
-an epic mailbox (the configured project mailbox name plus the epic id). The running lead's
+an epic mailbox generated from the configured base, project id and epic id. Names follow
+AgentMBX's 2–40 character lowercase letter/digit/hyphen rule, retaining a full-input hash
+through truncation so separate epics stay independent. Unheld defaults warn when omitted. The running lead's
 first action claims or registers that name through its own `mbx_identity` tools with role
 `lead`; registration also holds it. A CLI cannot pre-claim an endpoint that does not exist.
 The runner refuses spawn, spawn-execute, fanout and handoff until AgentMBX confirms the

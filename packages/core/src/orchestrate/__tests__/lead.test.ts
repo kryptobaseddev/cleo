@@ -27,7 +27,7 @@ import {
   runOrcaFixture,
 } from '../../../../adapters/src/__tests__/orca-execution-fixture.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
-import type { AgentMbxClient, MbxSession } from '../agentmbx.js';
+import { type AgentMbxClient, leadMailboxName, MBX_NAME, type MbxSession } from '../agentmbx.js';
 
 const { provider } = vi.hoisted(() => {
   const state: {
@@ -134,7 +134,8 @@ vi.mock('../../sentient/worktree-dispatch.js', () => ({
 }));
 
 const SES = 'ses_20261110000001_aaaaaa';
-const MAILBOX = 'cleo-lead@test';
+const MAILBOX = 'cleo-lead-test';
+const EPIC_MAILBOX = leadMailboxName(MAILBOX, 'p1', 'T100');
 
 /** Write `orchestrate` settings into a test project's config.json. */
 function setOrchestrate(projectRoot: string, orchestrate: Record<string, unknown>): void {
@@ -426,12 +427,12 @@ describe('orchestrateLead (T14363)', () => {
       runnerTool: LEAD_RUNNER_TOOL,
       mailbox: {
         claimed: false,
-        name: `${MAILBOX}-T100`,
+        name: EPIC_MAILBOX,
         warning: expect.stringContaining('bootstrap pending'),
       },
       mcp: { servers: ['cleo-lead', 'mbx'], mailbox: 'loaded' },
     });
-    expect(ctx?.prompt).toContain(`"action":"register","name":"${MAILBOX}-T100","role":"lead"`);
+    expect(ctx?.prompt).toContain(`"action":"register","name":"${EPIC_MAILBOX}","role":"lead"`);
     expect(ctx?.prompt).toContain('owner-designated project lead');
     // No claim is attempted for a provider endpoint that does not exist yet.
     expect(provider.state.events).toEqual(['spawn', 'release']);
@@ -470,7 +471,7 @@ describe('orchestrateLead (T14363)', () => {
         { role: 'lead', pid: process.pid },
       ],
       mode: 'detached',
-      mailbox: `${MAILBOX}-T100`,
+      mailbox: EPIC_MAILBOX,
       tempDir: '/tmp/none',
     });
   });
@@ -769,7 +770,7 @@ describe('orchestrateLead (T14363)', () => {
         lead: {
           mailbox: {
             claimed: false,
-            name: `${MAILBOX}-T100`,
+            name: EPIC_MAILBOX,
             warning: expect.stringContaining('mbx_identity'),
           },
         },
@@ -796,7 +797,7 @@ describe('orchestrateLead (T14363)', () => {
       }),
     ).toMatchObject({
       success: true,
-      data: { lead: { mailbox: { claimed: true, name: `${MAILBOX}-T100` } } },
+      data: { lead: { mailbox: { claimed: true, name: EPIC_MAILBOX } } },
     });
     expect(mbx.claims).toHaveLength(0);
   });
@@ -816,7 +817,7 @@ describe('orchestrateLead (T14363)', () => {
         })
       ).success,
     ).toBe(true);
-    expect(readLeadRecord(env.tempDir, 'T100')?.mailbox).toMatch(/-lead-T100$/);
+    expect(readLeadRecord(env.tempDir, 'T100')?.mailbox).toMatch(MBX_NAME);
     expect(provider.state.seen[0]?.prompt).toContain('"action":"register"');
     expect(mbx.claims).toHaveLength(0);
   });
@@ -849,13 +850,40 @@ describe('orchestrateLead (T14363)', () => {
     const options = { projectRoot: env.tempDir, mbxClient: mbx.client, mode: 'detached' as const };
     expect((await orchestrateLead('T100', options)).success).toBe(true);
     expect((await orchestrateLead('T102', options)).success).toBe(true);
-    expect(readLeadRecord(env.tempDir, 'T100')?.mailbox).toBe(`${MAILBOX}-T100`);
-    expect(readLeadRecord(env.tempDir, 'T102')?.mailbox).toBe(`${MAILBOX}-T102`);
+    expect(readLeadRecord(env.tempDir, 'T100')?.mailbox).toBe(EPIC_MAILBOX);
+    expect(readLeadRecord(env.tempDir, 'T102')?.mailbox).toBe(
+      leadMailboxName(MAILBOX, 'p1', 'T102'),
+    );
     expect(await orchestrateLead('T100', options)).toMatchObject({
       success: false,
       error: { code: 'E_LEAD_RUNNING' },
     });
     expect(mbx.claims).toHaveLength(0);
+  });
+
+  it('uses the registration-safe generator for real epic T14351 (T14477)', async () => {
+    withMailbox();
+    await seedTasks(env.accessor, [
+      { id: 'T14351', title: 'Lead and worker epic', type: 'epic', status: 'pending' },
+    ]);
+    provider.state.pid = process.pid;
+    const { orchestrateLead } = await import('../lead.js');
+    const { readLeadRecord } = await import('../lead-records.js');
+    expect(
+      (
+        await orchestrateLead('T14351', {
+          projectRoot: env.tempDir,
+          mbxClient: fakeMbx(true).client,
+          mode: 'detached',
+        })
+      ).success,
+    ).toBe(true);
+    const name = readLeadRecord(env.tempDir, 'T14351')?.mailbox;
+    expect(name).toBe(leadMailboxName(MAILBOX, 'p1', 'T14351'));
+    expect(name).toMatch(/^[a-z0-9][a-z0-9-]{1,39}$/);
+    expect(provider.state.seen[0]?.prompt).toContain(
+      `"action":"register","name":"${name}","role":"lead"`,
+    );
   });
 
   it('no mbx server configured: data.lead says the lead runs with the runner alone (T14423)', async () => {
