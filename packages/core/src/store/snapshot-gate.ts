@@ -220,13 +220,20 @@ function readGateState(db: DatabaseSync): SnapshotGateState {
 }
 
 /** Persist the gate state (upsert). */
-function writeGateState(db: DatabaseSync, state: SnapshotGateState): void {
-  db.prepare(
-    'INSERT INTO tasks_schema_meta (key, value) VALUES (?, ?) ' +
-      'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-  ).run(SNAPSHOT_GATE_META_KEY, JSON.stringify(state));
-  // T12535: the older build reads the generation from the bare row; raise it too.
-  mirrorCounterToBare(db, SNAPSHOT_GATE_META_KEY);
+function writeGateState(db: DatabaseSync, state: SnapshotGateState, mode: SnapshotGateMode): void {
+  const timeout = db.prepare('PRAGMA busy_timeout').get() as { timeout: number };
+  try {
+    // Routine backup bookkeeping must not wait behind another process's write.
+    if (mode === 'routine') db.exec('PRAGMA busy_timeout = 0');
+    db.prepare(
+      'INSERT INTO tasks_schema_meta (key, value) VALUES (?, ?) ' +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    ).run(SNAPSHOT_GATE_META_KEY, JSON.stringify(state));
+    // T12535: the older build reads the generation from the bare row; raise it too.
+    mirrorCounterToBare(db, SNAPSHOT_GATE_META_KEY);
+  } finally {
+    if (mode === 'routine') db.exec(`PRAGMA busy_timeout = ${timeout.timeout}`);
+  }
 }
 
 /** Read the state, or `null` when there is no usable state store. */
@@ -365,7 +372,7 @@ export async function runGatedSnapshot(
     let claimed = false;
     if (db && state) {
       try {
-        writeGateState(db, { ...state, generation });
+        writeGateState(db, { ...state, generation }, mode);
         claimed = true;
       } catch {
         // Unclaimed: later requests are simply not covered by this run.
@@ -398,7 +405,7 @@ export async function runGatedSnapshot(
         for (const p of satisfied) {
           latest.prefixes[p] = { generation, startedAt: startMs, completedAt };
         }
-        writeGateState(db, latest);
+        writeGateState(db, latest, mode);
       } catch {
         // The snapshot exists; losing its record only makes the next request run.
       }

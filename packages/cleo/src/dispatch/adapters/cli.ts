@@ -42,6 +42,11 @@ import { createTelemetry } from '../middleware/telemetry.js';
 import { createWriteActor } from '../middleware/write-actor.js';
 import type { DispatchRequest, DispatchResponse, Gateway } from '../types.js';
 
+/** Track optional hook work without delaying the command's response. */
+function trackDeferredHook(work: Promise<void>): void {
+  void trackBackgroundOp(work, undefined, { kind: 'best-effort' });
+}
+
 // Reverse mapping from string error codes to numeric exit codes.
 // Used when dispatch handlers return string error codes without exitCode.
 const ERROR_CODE_TO_EXIT: Record<string, number> = {
@@ -469,25 +474,23 @@ export async function dispatchFromCli(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so the
-  // settle before an error exit waits for it (T13164) and teardown gives it a
-  // short grace (T14284).
-  void trackBackgroundOp(
-    hooks
-      .dispatch('PromptSubmit', projectRoot, {
+  // Finish work-capture writes before responding; defer unrelated hooks.
+  await hooks
+    .dispatch(
+      'PromptSubmit',
+      projectRoot,
+      {
         timestamp: new Date().toISOString(),
         gateway,
         domain,
         operation,
         source: 'cli',
-      })
-      .catch(() => {
-        /* hook errors are non-fatal */
-      }),
-    undefined,
-    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
-    { kind: 'best-effort' },
-  );
+      },
+      trackDeferredHook,
+    )
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
 
   // Spinner is silent on --json/--quiet/non-TTY/NO_COLOR — no branching needed.
   const spinner = createDispatchSpinner(domain, operation);
@@ -508,12 +511,12 @@ export async function dispatchFromCli(
     spinner.stop();
   }
 
-  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so the
-  // settle before an error exit waits for it (T13164) and teardown gives it a
-  // short grace (T14284).
-  void trackBackgroundOp(
-    hooks
-      .dispatch('ResponseComplete', projectRoot, {
+  // Finish work-capture writes before responding; defer unrelated hooks.
+  await hooks
+    .dispatch(
+      'ResponseComplete',
+      projectRoot,
+      {
         timestamp: new Date().toISOString(),
         gateway,
         domain,
@@ -521,14 +524,12 @@ export async function dispatchFromCli(
         success: response.success,
         durationMs: Date.now() - dispatchStart,
         errorCode: response.error?.code,
-      })
-      .catch(() => {
-        /* hook errors are non-fatal */
-      }),
-    undefined,
-    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
-    { kind: 'best-effort' },
-  );
+      },
+      trackDeferredHook,
+    )
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
 
   if (response.success) {
     // Records mutations only: a read must not write a portable row (T13106).
@@ -681,25 +682,23 @@ export async function dispatchRaw(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so the
-  // settle before an error exit waits for it (T13164) and teardown gives it a
-  // short grace (T14284).
-  void trackBackgroundOp(
-    hooks
-      .dispatch('PromptSubmit', projectRoot, {
+  // Finish work-capture writes before responding; defer unrelated hooks.
+  await hooks
+    .dispatch(
+      'PromptSubmit',
+      projectRoot,
+      {
         timestamp: new Date().toISOString(),
         gateway,
         domain,
         operation,
         source: 'cli',
-      })
-      .catch(() => {
-        /* hook errors are non-fatal */
-      }),
-    undefined,
-    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
-    { kind: 'best-effort' },
-  );
+      },
+      trackDeferredHook,
+    )
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
 
   const spinner = createDispatchSpinner(domain, operation);
   spinner.start();
@@ -719,12 +718,12 @@ export async function dispatchRaw(
     spinner.stop();
   }
 
-  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so the
-  // settle before an error exit waits for it (T13164) and teardown gives it a
-  // short grace (T14284).
-  void trackBackgroundOp(
-    hooks
-      .dispatch('ResponseComplete', projectRoot, {
+  // Finish work-capture writes before responding; defer unrelated hooks.
+  await hooks
+    .dispatch(
+      'ResponseComplete',
+      projectRoot,
+      {
         timestamp: new Date().toISOString(),
         gateway,
         domain,
@@ -732,14 +731,12 @@ export async function dispatchRaw(
         success: response.success,
         durationMs: Date.now() - dispatchStart,
         errorCode: response.error?.code,
-      })
-      .catch(() => {
-        /* hook errors are non-fatal */
-      }),
-    undefined,
-    // T14284: a hook dispatch is best-effort: teardown never waits on it to close.
-    { kind: 'best-effort' },
-  );
+      },
+      trackDeferredHook,
+    )
+    .catch(() => {
+      /* hook errors are non-fatal */
+    });
 
   // T13164: a caller may hand a failure to handleRawError, which exits at once;
   // settle best-effort writes first. Bounded, and it closes nothing, so a

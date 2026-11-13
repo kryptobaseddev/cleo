@@ -162,6 +162,7 @@ export async function handleWorkResponseComplete(
 // handlers always run first.
 hooks.register({
   id: 'work-capture-prompt-submit',
+  awaitBeforeResponse: true,
   event: 'PromptSubmit',
   handler: handleWorkPromptSubmit,
   priority: 90,
@@ -169,6 +170,7 @@ hooks.register({
 
 hooks.register({
   id: 'work-capture-response-complete',
+  awaitBeforeResponse: true,
   event: 'ResponseComplete',
   handler: handleWorkResponseComplete,
   priority: 90,

@@ -759,7 +759,7 @@ async function snapshotProjectTargetsGated(
     async (prefix) => {
       const target = byPrefix.get(prefix);
       return target
-        ? snapshotOne(target, backupDir, writtenBySource, coveredByUnified, cwd)
+        ? snapshotOne(target, backupDir, writtenBySource, coveredByUnified, cwd, opts.mode)
         : 'absent';
     },
   );
@@ -920,7 +920,7 @@ async function freeSnapshotName(backupDir: string, prefix: string): Promise<stri
 /**
  * Create a VACUUM INTO snapshot of a single SQLite database.
  *
- * Runs `PRAGMA wal_checkpoint(TRUNCATE)` first to flush the WAL for a
+ * Checkpoints the WAL (PASSIVE for routine, TRUNCATE for required) before a
  * consistent snapshot, then issues `VACUUM INTO '<dest>'` which SQLite
  * implements as an atomic, fully defragmented clone.
  *
@@ -964,6 +964,7 @@ async function snapshotOne(
   writtenBySource: Map<string, string>,
   coveredByUnified: Set<string>,
   cwd?: string,
+  mode: SnapshotGateMode = 'routine',
 ): Promise<SnapshotOutcome> {
   if (target.strategy === 'skip-derived') {
     // Derived row — file is rebuildable from the blob CAS. Inventory row
@@ -1024,12 +1025,11 @@ async function snapshotOne(
   removeDeadTempSnapshots(backupDir);
 
   try {
-    // TRUNCATE checkpoint: flushes all WAL frames to the main DB and truncates
-    // the WAL file to zero bytes, ensuring a consistent DB state before the
-    // VACUUM INTO snapshot (ADR-013, section 3 point 7). For read-only opens
-    // of orphan files there is no WAL to truncate, but the pragma is a no-op
-    // in that case so we keep the call uniform.
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    // VACUUM INTO reads a consistent WAL snapshot. Routine backups must not
+    // wait for another writer to truncate it; required backups retain TRUNCATE.
+    db.exec(
+      `PRAGMA wal_checkpoint(${mode === 'routine' && target.tier === 'project' ? 'PASSIVE' : 'TRUNCATE'})`,
+    );
 
     // VACUUM INTO a temp name, fsync, then rename: a process killed
     // mid-VACUUM leaves only `<name>.tmp-<pid>`, which no reader lists,

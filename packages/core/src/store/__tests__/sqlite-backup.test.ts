@@ -140,7 +140,10 @@ describe('sqlite-backup', () => {
     await expect(vacuumIntoBackupAll()).resolves.not.toThrow();
   });
 
-  it('calls PRAGMA wal_checkpoint(TRUNCATE) before VACUUM INTO for tasks.db', async () => {
+  it.each([
+    'routine',
+    'required',
+  ] as const)('%s backups checkpoint without weakening required snapshots', async (mode) => {
     const execMock = vi.fn();
     vi.doMock('../sqlite.js', () => ({
       getNativeDb: () => withGateState(execMock),
@@ -163,9 +166,11 @@ describe('sqlite-backup', () => {
     }));
 
     const { vacuumIntoBackup } = await import('../sqlite-backup.js');
-    await vacuumIntoBackup();
+    await vacuumIntoBackup({ mode });
 
-    expect(execMock).toHaveBeenCalledWith('PRAGMA wal_checkpoint(TRUNCATE)');
+    expect(execMock).toHaveBeenCalledWith(
+      `PRAGMA wal_checkpoint(${mode === 'routine' ? 'PASSIVE' : 'TRUNCATE'})`,
+    );
     const calls = execMock.mock.calls.map((c: string[][]) => c[0] as unknown as string);
     const walIdx = calls.findIndex((c: string) => c.includes('wal_checkpoint'));
     const vacuumIdx = calls.findIndex((c: string) => c.includes('VACUUM INTO'));

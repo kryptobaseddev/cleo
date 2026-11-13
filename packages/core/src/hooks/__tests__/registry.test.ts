@@ -43,4 +43,55 @@ describe('HookRegistry internal coordination events', () => {
       }),
     );
   });
+
+  it('settles response-dependent writes while optional hooks remain tracked separately', async () => {
+    const required = Promise.withResolvers<void>();
+    const optional = Promise.withResolvers<void>();
+    const deferred: Promise<void>[] = [];
+    registry.register({
+      id: 'capture-write',
+      event: 'ResponseComplete',
+      priority: 90,
+      awaitBeforeResponse: true,
+      handler: () => required.promise,
+    });
+    registry.register({
+      id: 'optional-hook',
+      event: 'ResponseComplete',
+      priority: 100,
+      handler: () => optional.promise,
+    });
+    let completed = false;
+    const dispatch = registry
+      .dispatch(
+        'ResponseComplete',
+        '/tmp/project',
+        {
+          timestamp: new Date().toISOString(),
+          gateway: 'mutate',
+          domain: 'tasks',
+          operation: 'add',
+          success: true,
+        },
+        (work) => {
+          deferred.push(work);
+        },
+      )
+      .then(() => {
+        completed = true;
+      });
+    try {
+      await Promise.resolve();
+      expect(completed).toBe(false);
+      expect(deferred).toHaveLength(1);
+      required.resolve();
+      await dispatch;
+      expect(completed).toBe(true);
+    } finally {
+      required.resolve();
+      optional.resolve();
+      await dispatch;
+      await Promise.all(deferred);
+    }
+  });
 });

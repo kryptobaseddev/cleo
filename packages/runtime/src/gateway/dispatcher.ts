@@ -7,36 +7,8 @@
  *
  * Flow: DispatchRequest → resolve → param validation → middleware → handler
  *
- * ## T1088 — Dialectic Evaluator Hook (PSYCHE Wave 3)
- *
- * After each successful mutate operation, the dispatcher fires a background
- * `evaluateDialectic` call via `setImmediate` if all of the following apply:
- *
- *   1. The response indicates `success: true`.
- *   2. The request gateway is `"mutate"` (state-modifying user-facing commands).
- *   3. A `sessionId` is present on the request (identifies conversation context).
- *   4. The in-memory rate limiter allows the evaluation (1 per 10s per session).
- *
- * Errors from the background evaluation are caught and logged at `warn` level
- * so they never affect the caller.
- *
- * ## T12024 — Bounded deadline for background LLM calls
- *
- * The dialectic evaluation makes an HTTP call to an LLM backend (Ollama,
- * Anthropic, etc.) which keeps the Node.js event loop alive. After the CLI
- * success-path `finally` tears down workers and databases via
- * `shutdownCliRuntime`, the pending HTTP connection is the sole remaining
- * reference — preventing the process from draining the loop and exiting rc:0.
- *
- * Each evaluation now runs against an unrefed deadline so the deadline
- * timer itself never holds the loop open, while the abort signal cancels the
- * underlying HTTP request when the deadline fires, releasing the connection
- * and allowing natural exit. The timeout is generous enough for normal
- * responses but prevents hung connections from blocking shutdown.
- *
- * @epic T4820
- * @task T1088
- * @task T12024
+ * Operation envelopes are not conversation turns (T12543); dispatch does not
+ * schedule dialectic evaluation or open memory stores after returning a result.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -46,38 +18,9 @@ import type {
   DomainHandler,
   Middleware,
 } from '@cleocode/contracts/gateway';
-import { getLogger } from '@cleocode/core/logger';
-import { getProjectRoot } from '@cleocode/core/project-scope';
-// Deep import, not the barrel: this is a small dependency-free module, and
-// pulling it through the core barrel would load the full core module graph for
-// one function. Spelled WITHOUT `.js` because core's `./*` export maps to
-// `./dist/*.js`, so the extension is supplied by the pattern — adding it here
-// resolves to `dist/teardown-signal.js.js` and fails.
-import { registerTeardownAbort } from '@cleocode/core/teardown-signal';
 import { createDispatchMeta } from './meta.js';
 import { compose } from './pipeline.js';
 import { resolve, validateRequiredParams } from './registry.js';
-
-// ============================================================================
-// T1088: In-memory rate limiter for dialectic evaluation
-// ============================================================================
-
-/** Rate limit window in milliseconds (1 evaluation per 10 seconds per session). */
-const DIALECTIC_RATE_LIMIT_MS = 10_000;
-
-/**
- * Maximum time the dialectic LLM call is allowed to run before aborting.
- *
- * The deadline uses an unrefed timer so it never blocks process exit by
- * itself. When triggered, the abort signal cancels the underlying HTTP
- * request, allowing the event loop to drain and the CLI process to exit.
- *
- * @task T12024
- */
-const DIALECTIC_DEADLINE_MS = 10_000;
-
-/** In-memory last-evaluation timestamp per session ID. */
-const _dialecticLastEvalMs = new Map<string, number>();
 
 function ensureRequestSessionLineage(request: DispatchRequest): void {
   request.executionSessionId ??=
@@ -89,34 +32,13 @@ function ensureRequestSessionLineage(request: DispatchRequest): void {
     request.executionSessionId;
 }
 
-/**
- * Check whether a new dialectic evaluation is allowed for a session.
- *
- * Rate limit: 1 evaluation per `DIALECTIC_RATE_LIMIT_MS` per session.
- * Records the timestamp when allowed.
- *
- * @param sessionId - The session to check.
- * @returns `true` when the evaluation is allowed.
- */
-function isDialecticEvalAllowed(sessionId: string): boolean {
-  const last = _dialecticLastEvalMs.get(sessionId) ?? 0;
-  const now = Date.now();
-  if (now - last < DIALECTIC_RATE_LIMIT_MS) {
-    return false;
-  }
-  _dialecticLastEvalMs.set(sessionId, now);
-  return true;
-}
-
-// ============================================================================
-// Dispatcher
-// ============================================================================
-
+/** Domain handlers and middleware used by the central dispatcher. */
 export interface DispatcherConfig {
   handlers: Map<string, DomainHandler>;
   middlewares?: Middleware[];
 }
 
+/** Routes validated requests through middleware to their domain handler. */
 export class Dispatcher {
   private handlers: Map<string, DomainHandler>;
   private pipeline: Middleware;
@@ -227,105 +149,6 @@ export class Dispatcher {
     }
     if (request.executionSessionId) {
       response.meta.executionSessionId = request.executionSessionId;
-    }
-
-    // 7. T1088: Background dialectic evaluation hook
-    //
-    // Fires asynchronously via setImmediate so the response is returned to the
-    // caller immediately.  Conditions:
-    //   a) Response was successful
-    //   b) This was a mutate (state-modifying, user-facing) operation
-    //   c) A session ID is present (needed for narrative + source tagging)
-    //   d) Rate limiter allows this session to be evaluated right now
-    //
-    // The userMessage is synthesised from the operation + params since the
-    // raw CLI string is not available at this layer.  Future Wave 4 work can
-    // thread the original raw command string through DispatchRequest.
-    if (
-      response.success &&
-      request.gateway === 'mutate' &&
-      request.sessionId &&
-      isDialecticEvalAllowed(request.sessionId)
-    ) {
-      const capturedRequest = request;
-      const capturedSessionId = request.sessionId;
-
-      setImmediate(() => {
-        // Lazy import to avoid loading the evaluator at startup (it pulls in
-        // the Vercel AI SDK and zod which add ~50ms to cold start).
-        //
-        // T10351: ALL brain.db row inserts from this hook now flow through
-        // the single-writer chokepoint (`enqueueBrainWrite`). The hook still
-        // opens a brain handle for the evaluator's reads (RCA confirms WAL
-        // reads are not the race vector), and `applyInsights` internally
-        // calls `observeBrain` — which now auto-routes every write through
-        // the writer queue. Global traits go to nexus.db which is out of
-        // scope for the brain chokepoint.
-        //
-        // T12024: bound the LLM call with an AbortController whose timer is
-        // unrefed so the deadline never extends CLI lifetime. The signal
-        // cascades through evaluateDialectic → generateObject → the AI-SDK
-        // HTTP request; when the signal fires, the fetch is cancelled and
-        // the event loop can drain after shutdownCliRuntime.
-        const controller = new AbortController();
-        const deadline = setTimeout(
-          () => controller.abort(new DOMException('DIALECTIC_DEADLINE', 'AbortError')),
-          DIALECTIC_DEADLINE_MS,
-        );
-        deadline.unref();
-
-        // T12239: the deadline above is 10s and the exit backstop is 3s, so a
-        // dialectic in flight at teardown holds its TCPSocketWrap for up to
-        // seven seconds PAST the "event loop still alive" warning. Unrefing the
-        // TIMER does not unref the SOCKET. Register the controller so
-        // shutdownCliRuntime can cancel the fetch itself; if teardown has
-        // already begun this aborts immediately.
-        const unregisterAbort = registerTeardownAbort(controller);
-
-        Promise.all([
-          import('@cleocode/core/memory/dialectic-evaluator.js'),
-          import('@cleocode/core/store/nexus-sqlite.js'),
-          import('@cleocode/core/store/memory-sqlite.js'),
-        ])
-          .then(async ([{ evaluateDialectic, applyInsights }, { getNexusDb }, { getBrainDb }]) => {
-            const projectRoot = getProjectRoot();
-            const turn = {
-              userMessage: `cleo ${capturedRequest.domain} ${capturedRequest.operation} ${JSON.stringify(capturedRequest.params ?? {})}`,
-              systemResponse: `Operation succeeded in domain "${capturedRequest.domain}".`,
-              activePeerId: (capturedRequest.params?.['peerId'] as string | undefined) ?? 'global',
-              sessionId: capturedSessionId,
-              // T12543: this turn is an operation and its result envelope,
-              // not a user utterance — the evaluator must never mint user
-              // traits from it.
-              origin: 'operation-envelope' as const,
-            };
-
-            const insights = await evaluateDialectic(turn, {
-              abortSignal: controller.signal,
-            });
-
-            // applyInsights routes peer-insight writes through
-            // `observeBrain → enqueueBrainWrite` automatically. Narrative
-            // delta still uses the direct INSERT path (not in the high-volume
-            // race surface that the T10301 RCA identified — plasticity_events
-            // and weight_history dominate by ~94%). Tracked as a follow-up
-            // refinement; out of scope for T10351 chokepoint.
-            const [nexusDb, brainDb] = await Promise.all([getNexusDb(), getBrainDb()]);
-            await applyInsights(insights, nexusDb, brainDb, {
-              sessionId: capturedSessionId,
-              activePeerId: turn.activePeerId,
-              projectRoot,
-            });
-          })
-          .catch((err: unknown) => {
-            const log = getLogger('dialectic-hook');
-            log.warn({ err }, 'dialectic-evaluator failed');
-          })
-          .finally(() => {
-            clearTimeout(deadline);
-            unregisterAbort();
-          });
-      });
     }
 
     return response;

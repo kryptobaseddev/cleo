@@ -28,7 +28,6 @@ import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { requireActiveSession } from '../sessions/session-enforcement.js';
-import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor, TransactionAccessor } from '../store/data-accessor.js';
 import {
   applyAcPlan,
@@ -1751,6 +1750,8 @@ export async function addTask(
     }
   }
 
+  const graph = await import('../memory/graph-auto-populate.js').catch(() => undefined);
+
   // Wrap all writes in a transaction for TOCTOU safety (T023)
   const createdAcceptanceCriteriaIds: string[] = [];
   const reopenedAncestorIds: string[] = [];
@@ -1911,25 +1912,14 @@ export async function addTask(
         after: { profile },
       });
     }
-    // T945 Stage A — mint a `task:T###` brain graph node at creation, not at
-    // completion. Lazy registration defers execution until the actual outer commit,
-    // including batch transactions; rollback never starts these graph effects.
-    // Tracked (T10490) so the test harness can flush it before tearing down the
-    // shared SQLite singleton; production still runs it fully detached.
-    trackBackgroundOp(() =>
-      import('../memory/graph-auto-populate.js')
-        .then(({ ensureTaskNode }) =>
-          ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
-            status,
-            priority,
-            type: taskType,
-            ...(parentId ? { parentId } : {}),
-          }),
-        )
-        .catch(() => {
-          /* Graph population is best-effort — never fail addTask. */
-        }),
-    );
+    // Commit the graph node with the task: a later writer cannot strand this
+    // projection after the success envelope, and outer rollback removes both.
+    await graph?.ensureTaskNode(resolveOrCwd(cwd), taskId, options.title, {
+      status,
+      priority,
+      type: taskType,
+      ...(parentId ? { parentId } : {}),
+    });
   });
 
   if (duplicateBypass) {
