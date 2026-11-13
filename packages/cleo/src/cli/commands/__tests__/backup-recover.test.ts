@@ -233,6 +233,20 @@ describe('cleo backup recover brain — the project store (T10318 backward compa
     });
   });
 
+  it('passes a real --no-delta argv through the project-store leaf', async () => {
+    const { backupRecoverBrainLeaf } = await import('../backup-recover.js');
+    const { parseArgs } = await import('../../lib/define-cli-command.js');
+    const rawArgs = ['--no-delta'];
+    const args = parseArgs(rawArgs, backupRecoverBrainLeaf.args);
+    mockRecoverProjectStore.mockResolvedValue({ dryRun: false, restored: true });
+    await backupRecoverBrainLeaf.run?.({ args, rawArgs, cmd: backupRecoverBrainLeaf });
+    expect(mockRunBackupRecover).not.toHaveBeenCalled();
+    expect(mockRecoverProjectStore.mock.calls[0]?.[0]).toMatchObject({
+      role: 'brain',
+      noDelta: true,
+    });
+  });
+
   it('surfaces a BackupRecoverError with its exit code', async () => {
     mockRecoverProjectStore.mockRejectedValue(
       new MockBackupRecoverError('No valid brain snapshot', 4, 'E_NO_SNAPSHOT'),

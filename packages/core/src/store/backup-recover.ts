@@ -29,6 +29,7 @@
 import { copyFileSync, existsSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { BackupRecoverResult, DbRole, StoreRecoverResult } from '@cleocode/contracts';
+import type { StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
 import { CleoError } from '../errors.js';
 import {
   collectSnapshotCandidatesForRole,
@@ -112,9 +113,7 @@ export interface BackupRecoverOptions {
    */
   fromSnapshot?: string;
   /**
-   * When `true`, skip the future `sqlite3 .recover` delta-merge step.
-   * Reserved for future extension — the current pipeline does not
-   * perform delta-merge.
+   * Keep snapshot-only recovery for project-store roles instead of salvaging live rows.
    */
   noDelta?: boolean;
   /**
@@ -601,7 +600,9 @@ export interface ProjectStoreRecoverOptions {
   /** Pin a snapshot: an absolute path, or a timestamp prefix (`2026-05-23`, `20260523`). */
   readonly fromSnapshot?: string;
   readonly dryRun?: boolean;
-  /** The live store is unreadable and every cleo process is stopped (`--force`). */
+  /** Keep the historical snapshot-only restore instead of salvaging live rows. */
+  readonly noDelta?: boolean;
+  /** Authorize the legacy snapshot-only path when its live-store probe is unreadable (`--force`). */
   readonly force?: boolean;
   readonly confirmOwnerStore?: boolean;
   /** The invocation directory (the worktree guard). */
@@ -609,11 +610,9 @@ export interface ProjectStoreRecoverOptions {
 }
 
 /**
- * Recover the live project store (`.cleo/cleo.db`) from the freshest snapshot
- * that passes `PRAGMA quick_check`, or from a pinned one, through
- * {@link restoreStoreSnapshot}: the snapshot is verified again on a private
- * copy, a live writer refuses it, the replaced store is kept as a
- * `pre-restore-*` backup, and the WAL is handled (T13245).
+ * Repair the live project store losslessly and return its durable receipt.
+ * With `noDelta`, retain the legacy snapshot-only {@link restoreStoreSnapshot}
+ * behavior and result: snapshot selection, live-writer refusal and undo backup.
  *
  * @param opts - The role asked for, the project and the guards.
  * @returns What was verified, kept and placed (or would be, on a dry run).
@@ -624,7 +623,11 @@ export interface ProjectStoreRecoverOptions {
  */
 export async function recoverProjectStore(
   opts: ProjectStoreRecoverOptions,
-): Promise<StoreRecoverResult> {
+): Promise<StoreRecoverResult | StoreRepairReceipt> {
+  if (opts.noDelta !== true) {
+    const { repairStore } = await import('./repair-store.js');
+    return repairStore({ ...opts, restoreSnapshot: true });
+  }
   const dirs = resolveRoleBackupDirs(opts.role, { projectRoot: opts.projectRoot });
   const candidates = [
     ...collectSnapshotCandidatesForRole({

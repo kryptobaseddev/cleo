@@ -24,7 +24,6 @@ import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getLogger } from '@cleocode/core/logger';
 import { getProjectRoot } from '@cleocode/core/project-scope';
-import { repairMalformedDbs } from '@cleocode/core/store/repair-malformed-dbs.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 
@@ -60,7 +59,7 @@ export const doctorRepairCommand = defineCommand({
       default: false,
     },
   },
-  run({ args }) {
+  async run({ args }) {
     const roleArg = typeof args.role === 'string' ? args.role.trim() : '';
     const dryRun = args['dry-run'] === true;
 
@@ -80,6 +79,7 @@ export const doctorRepairCommand = defineCommand({
       return;
     }
 
+    const { repairMalformedDbs } = await import('@cleocode/core/store/repair-malformed-dbs.js');
     const result = repairMalformedDbs({
       projectRoot: getProjectRoot(),
       roles: roleArg.length > 0 ? [roleArg as DbRole] : undefined,

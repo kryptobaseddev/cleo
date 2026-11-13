@@ -55,6 +55,7 @@ import { runDoctorProjects } from './doctor-projects.js';
 import { doctorRegistryCommand } from './doctor-projects-registry.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
+import { doctorRepairStoreCommand } from './doctor-repair-store.js';
 import { doctorRowIdentityCommand } from './doctor-row-identity.js';
 import { doctorSkillFixturesCommand } from './doctor-skill-fixtures.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
@@ -325,6 +326,7 @@ export const doctorCommand = defineCommand({
     'fk-check': doctorFkCheckCommand,
     // T11829 / Saga T11242 / Epic T11833 — DHQ-060 malformed-DB repair entry point
     repair: doctorRepairCommand,
+    'repair-store': doctorRepairStoreCommand,
     // T10458 / Saga T10431 / Epic T10436 — Release-readiness preflight
     'release-readiness': doctorReleaseReadinessCommand,
   },
@@ -1095,6 +1097,8 @@ export const doctorCommand = defineCommand({
           { detailed: args.detailed },
           { command: 'doctor', operation: 'admin.health' },
         );
+
+        if (process.exitCode === 3) return;
 
         // MIGRATE-AGENTS-V2-CONFLICT diagnostic: surface any unresolved
         // agent migration conflicts logged by `cleo migrate agents-v2`.

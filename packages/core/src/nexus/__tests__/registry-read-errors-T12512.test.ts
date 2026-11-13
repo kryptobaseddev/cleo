@@ -7,11 +7,14 @@
  * @task T12512
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { StoreRepairReceipt } from '@cleocode/contracts/db-recovery.js';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { drainWarnings } from '../../output.js';
 import { getCleoHome } from '../../paths.js';
 import { awaitBackgroundOps } from '../../store/background-ops.js';
 import { getNexusNativeDb, getNexusRegistryDb } from '../../store/nexus-sqlite.js';
@@ -43,6 +46,7 @@ let originalCwd: string;
 let projectDir: string;
 
 beforeEach(async () => {
+  drainWarnings();
   testDir = await mkdtemp(join(tmpdir(), 'nexus-read-errors-T12512-'));
   await mkdir(join(testDir, '.cleo'), { recursive: true });
   await mkdir(join(testDir, '.git'), { recursive: true });
@@ -62,6 +66,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  drainWarnings();
   await awaitBackgroundOps();
   resetNexusDbState();
   await closeAllDatabases();
@@ -77,6 +82,39 @@ async function breakRegistry(): Promise<void> {
   const native = getNexusNativeDb();
   if (native === null) throw new Error('nexus handle not open');
   native.exec('DROP TABLE nexus_global.nexus_project_registry');
+}
+
+/** An automatic empty-schema recovery must preserve the rejected original and expose its receipt. */
+async function expectQuarantinedOriginal(original: string): Promise<void> {
+  const root = join(getCleoHome(), 'quarantine');
+  const dirs = await readdir(root);
+  expect(dirs).toHaveLength(1);
+  const dir = join(root, dirs[0] ?? '');
+  expect(await readFile(join(dir, 'cleo.db'), 'utf8')).toBe(original);
+  const receipt = JSON.parse(
+    await readFile(join(dir, 'receipt.json'), 'utf8'),
+  ) as StoreRepairReceipt;
+  expect(receipt).toMatchObject({
+    scope: 'global',
+    status: 'repaired',
+    integrityOK: true,
+    snapshot: null,
+    quarantineDir: dir,
+  });
+  expect(receipt.files).toContainEqual(
+    expect.objectContaining({
+      name: 'cleo.db',
+      sha256: createHash('sha256').update(original).digest('hex'),
+    }),
+  );
+  expect(drainWarnings()).toContainEqual(
+    expect.objectContaining({
+      code: 'W_DB_REPAIRED',
+      context: expect.objectContaining({
+        receipt: expect.objectContaining({ quarantineDir: dir, status: 'repaired' }),
+      }),
+    }),
+  );
 }
 
 describe('AC1/AC3 — a corrupt registry read is a typed error, never [] or null', () => {
@@ -103,15 +141,14 @@ describe('AC1/AC3 — a corrupt registry read is a typed error, never [] or null
     }
   });
 
-  it('a global store that is not a database fails typed through the fleet view', async () => {
+  it('a non-database global store is quarantined and auto-repaired with a receipt through the fleet view', async () => {
     const { getNexusRegistryDbPath } = await import('../../store/nexus-sqlite.js');
-    await writeFile(
-      getNexusRegistryDbPath(getCleoHome()),
-      'this is not a sqlite database'.repeat(200),
-    );
+    const original = 'this is not a sqlite database'.repeat(200);
+    await writeFile(getNexusRegistryDbPath(getCleoHome()), original);
     const fleet = await nexusProjectsFleet('', {});
-    expect(fleet.success).toBe(false);
-    expect(fleet.error?.code).toBe('E_NEXUS_REGISTRY_READ');
+    expect(fleet.success).toBe(true);
+    expect(fleet.data?.total).toBe(0);
+    await expectQuarantinedOriginal(original);
   });
 
   it('an empty but readable registry is still an empty list, not an error', async () => {
@@ -179,14 +216,13 @@ describe('AC1 — every other registry reader fails typed, never empty (T12512 f
     expectTypedFailure(await nexusGraph());
   });
 
-  it('the git-state probe fails typed on a store that is not a database', async () => {
+  it('the git-state probe preserves a non-database original when automatic repair succeeds', async () => {
     const { getNexusRegistryDbPath } = await import('../../store/nexus-sqlite.js');
     const { nexusProjectsStatus } = await import('../registry.js');
-    await writeFile(
-      getNexusRegistryDbPath(getCleoHome()),
-      'this is not a sqlite database'.repeat(200),
-    );
-    expectTypedFailure(await nexusProjectsStatus('', {}));
+    const original = 'this is not a sqlite database'.repeat(200);
+    await writeFile(getNexusRegistryDbPath(getCleoHome()), original);
+    expect((await nexusProjectsStatus('', {})).success).toBe(true);
+    await expectQuarantinedOriginal(original);
   });
 
   it('the hygiene loop reports an unreadable registry instead of 0/0 healthy', async () => {

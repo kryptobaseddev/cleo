@@ -410,6 +410,15 @@ export type {
   DbRecoveryResult,
   DoctorRepairResult,
   DoctorRepairRoleResult,
+  StoreIntegrityInspection,
+  StoreRepairFile,
+  StoreRepairOptions,
+  StoreRepairPhase,
+  StoreRepairReceipt,
+  StoreRepairRecovery,
+  StoreRepairRecoveryRow,
+  StoreRepairTable,
+  StoreRepairValue,
 } from './db-recovery.js';
 // === Dependency Registry Contracts ===
 export type {

@@ -51,6 +51,17 @@ import { applyPerfPragmas, testForeignKeysOff } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
 
+/** Load the installed optional vector extension on an extension-enabled native handle. */
+export function loadSqliteVecExtension(db: DatabaseSync): boolean {
+  try {
+    const sqliteVec = _require('sqlite-vec') as typeof import('sqlite-vec');
+    sqliteVec.load(db);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Re-exported DatabaseSync type for consumers of this leaf module. */
 export type DatabaseSync = _DatabaseSyncType;
 
