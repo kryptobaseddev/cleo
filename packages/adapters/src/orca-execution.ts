@@ -312,13 +312,22 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       ['agent-context', '--json'],
       launch.cwd,
     );
-    const registry = orcaCommandRegistrySchema.parse(JSON.parse(registryResult.stdout));
+    if (registryResult.exitCode !== 0) {
+      throw refuse(
+        `The selected Orca CLI is unavailable: agent-context exited ${registryResult.exitCode ?? 'without a status'}.`,
+      );
+    }
+    let registry: ReturnType<typeof orcaCommandRegistrySchema.parse>;
+    try {
+      registry = orcaCommandRegistrySchema.parse(JSON.parse(registryResult.stdout));
+    } catch {
+      throw refuse('The selected Orca CLI returned no valid command registry.');
+    }
     const create = registry.commands.find((entry) => entry.command === 'terminal create');
     const show = registry.commands.find((entry) => entry.command === 'terminal show');
     const close = registry.commands.find((entry) => entry.command === 'terminal close');
     const focus = registry.commands.find((entry) => entry.command === 'terminal switch');
     if (
-      registryResult.exitCode !== 0 ||
       !create ||
       !['command', 'worktree', 'title', 'environment'].every((flag) =>
         create.flags.includes(flag),
@@ -785,7 +794,7 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
         'Inspect the stored exact Dispatch; recover an uncertain request by its issued id.',
       );
     }
-    return this.startCommand(attempt, attempt.startRequestKey);
+    return this.startCommand(attempt, attempt.startRequestKey, true);
   }
 
   /** Replay an issued or pre-reserved launch key on the same runtime and caller. */
@@ -1123,7 +1132,18 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     }
   }
 
-  private async startCommand(attempt: OrcaAttempt, requestId?: string): Promise<OrcaAttempt> {
+  /**
+   * Send, or replay, one keyed worker-start.
+   * @param attempt - Durable attempt the receipt is recorded on.
+   * @param requestId - Reserved or issued start key.
+   * @param firstSend - True only for {@link start}: no earlier send of this key can exist,
+   * so a failure before worker-start is sent proves nothing was launched.
+   */
+  private async startCommand(
+    attempt: OrcaAttempt,
+    requestId?: string,
+    firstSend = false,
+  ): Promise<OrcaAttempt> {
     const launch = attempt.launch;
     this.validateLaunch(launch, attempt.context);
     if (launch.harness === 'kimi') {
@@ -1173,8 +1193,10 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
       ...(launch.effort ? ['--effort', launch.effort] : []),
       ...(requestId ? ['--retry-request', requestId] : []),
     ];
+    let sent = false;
     try {
       await this.verifyRuntime(launch.projectRoot, attempt.context, launch.model !== undefined);
+      sent = true;
       const reply = await this.invoke(
         args,
         launch.projectRoot,
@@ -1296,6 +1318,19 @@ export class OrcaExecutionBackend implements OrcaRoutingAdapter {
     } catch (error) {
       if (error instanceof OrcaExecutionError && error.code === 'E_ORCA_REQUEST_MISMATCH')
         throw error;
+      // A first launch that failed before worker-start was sent created nothing in
+      // Orca, so it records a resource-free refusal instead of uncertain custody.
+      // A retry keeps its reserved key replayable under the original Task's breaker.
+      if (firstSend && !sent && binding.retryOf === null) {
+        return {
+          ...attempt,
+          state: 'failed',
+          resourceState: 'stopped',
+          startRefusal: 'not_launched',
+          lastError: String(error).slice(0, MAX_DIAGNOSTIC_LENGTH),
+          observedAt: new Date().toISOString(),
+        };
+      }
       return {
         ...attempt,
         state: 'outcome_unknown',

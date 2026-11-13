@@ -29,6 +29,8 @@ exclusions apply to the coordinator's current Run; `orca orchestration run-curre
 proves rebinding and clears the old exclusions. Enable the agent, then use
 `orca orchestration run-create --from <coordinator> --objective <new-goal>` to bind
 a fresh Run. Before a Run exists, exclusions last only for that dispatch invocation.
+A first start that fails before worker-start is sent records `not_launched` and is
+retired, so it never fences a later spawn; a retry's unsent start stays replayable.
 Fanout serializes Orca admissions so followers use the first proven Run; workers
 still execute concurrently. An unknown first start fences further unbound starts.
 Unknown launch outcomes retain their exact record ID and custody and never
