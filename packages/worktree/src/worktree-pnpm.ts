@@ -26,7 +26,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 
 const PNPM_INSTALL_TIMEOUT_MS = 120_000;
 const LOCK_RETRY_INTERVAL_MS = 500;
@@ -256,8 +256,10 @@ function isProvisionedNpmrc(worktreePath: string): boolean {
       );
     }
     if (!soleRegularFile(recordPath)) return false;
-    const inside = relative(realpathSync(worktreePath), realpathSync(recordPath));
-    if (inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))) return false;
+    // Separator-aware containment on realpaths: `..cache/x` is INSIDE.
+    const rel = relative(realpathSync(worktreePath), realpathSync(recordPath));
+    const outside = isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`);
+    if (!outside) return false;
     return actual.equals(readFileSync(recordPath));
   } catch {
     return false;

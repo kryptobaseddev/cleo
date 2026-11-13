@@ -17,6 +17,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -30,7 +31,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeProjectHash, resolveWorktreeRootForHash } from '../paths.js';
 import { destroyWorktree } from '../worktree-destroy.js';
 import { disposeWorktree, unpreservedCommits } from '../worktree-dispose.js';
-import { configureWorktreePnpmStore } from '../worktree-pnpm.js';
+import { configureWorktreePnpmStore, pnpmProvisioningProbe } from '../worktree-pnpm.js';
 import { pruneWorktrees } from '../worktree-prune.js';
 
 function git(cwd: string, ...args: string[]): string {
@@ -461,6 +462,44 @@ describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
     symlinkSync(join(wt, '.npmrc'), record);
     const r = disposeWorktree({ worktreePath: wt, taskId: 'T46', reason: 'test', dryRun: true });
     expect(r.keptReason).toBeDefined();
+  });
+
+  /**
+   * Move the worktree's git admin dir to `<wt>/<rel>` (re-pointing `.git` and
+   * `commondir`), so `git rev-parse --git-dir` names a record inside the tree.
+   */
+  function moveAdminInto(wt: string, rel: string): string {
+    const admin = recordOf(wt).replace(/[\\/]cleo-provisioned-npmrc$/, '');
+    const common = git(wt, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+    const target = join(wt, rel);
+    mkdirSync(join(target, '..'), { recursive: true });
+    renameSync(admin, target);
+    writeFileSync(join(target, 'commondir'), `${common}\n`);
+    writeFileSync(join(wt, '.git'), `gitdir: ${target}\n`);
+    expect(recordOf(wt)).toBe(join(target, 'cleo-provisioned-npmrc'));
+    return target;
+  }
+
+  it("a record under a '..cache' directory is inside the worktree: the .npmrc is not proven", () => {
+    const wt = provisioned('T47');
+    moveAdminInto(wt, join('..cache', 'node_modules', 'admin'));
+    expect(pnpmProvisioningProbe(wt)('.npmrc')).toBe(false);
+  });
+
+  it('containment compares realpaths: an in-tree record reached through a symlinked parent', () => {
+    const wt = provisioned('T48');
+    moveAdminInto(wt, join('..cache', 'admin'));
+    const alias = join(base, 'alias');
+    symlinkSync(join(wt, '..'), alias);
+    expect(pnpmProvisioningProbe(join(alias, 'T48'))('.npmrc')).toBe(false);
+  });
+
+  it('a record outside the worktree still proves the .npmrc, through a symlinked parent too', () => {
+    const wt = provisioned('T49');
+    expect(pnpmProvisioningProbe(wt)('.npmrc')).toBe(true);
+    const alias = join(base, 'alias-out');
+    symlinkSync(join(wt, '..'), alias);
+    expect(pnpmProvisioningProbe(join(alias, 'T49'))('.npmrc')).toBe(true);
   });
 
   it('keeps a .pnpm-store that is a symlink to another directory', () => {
