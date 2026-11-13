@@ -84,8 +84,9 @@ backup automatically. The ledger syncs across devices, so a row is pruned
 only when its mirror is provably gone (absent from HEAD and the default
 branch, or in a removed worktree of this device) and its blob stays
 referenced elsewhere, or when a newer row of the same owner publishes the
-same path in sync and the row's own store head has not moved (a superseded
-row, T14504). A blob held only by rows pruned in the same run never protects
+same path in sync and the doc's canonical head (conduit head, else registry
+row; unresolvable keeps the row) is already published or never moved (a
+superseded row, T14504). A blob held only by rows pruned in the same run never protects
 them. Absolute paths and other devices' paths are only reported. Each pruned row is first appended to
 `.cleo/audit/docs-publications-prune.jsonl`, and stale mirrors are only
 reported (republish, or ingest the edit with `cleo docs update`). Use it for store

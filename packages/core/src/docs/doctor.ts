@@ -785,21 +785,38 @@ async function scanPublicationLedger(
   const attachmentShas = new Set(rows.map((r) => r.sha256));
   const recordFor = (item: DocsDriftItem): DocsPublicationRecord | undefined =>
     recordByKey.get(key(item));
-  // T14504: a drifted row is superseded only when a NEWER row for the same
-  // owner and path is itself in sync, and its own store head never moved past
-  // what it last published (a moved head is a pending publication, not a stale row).
-  const isSuperseded = (item: DocsDriftItem, record: DocsPublicationRecord): boolean =>
-    item.blobSha === record.lastBlobSha &&
-    status.items.some((other) => {
-      if (other.drift !== 'in-sync' || other.publishedPath !== record.publishedPath) return false;
-      const newer = recordFor(other);
-      return (
-        newer !== undefined &&
-        newer !== record &&
-        newer.ownerId === record.ownerId &&
-        newer.publishedAt >= record.publishedAt
+  // T14504: a drifted row is superseded only when its doc's CANONICAL head
+  // (resolved the way slug-rename resolves it: conduit head, else the registry
+  // row) is already published at the same path by a newer in-sync row of the
+  // same owner, or never moved past what this row published. The blob manifest
+  // sha `status` reports is best-effort (sync and SDK updates move the head
+  // without it), so it is never trusted here; a head that does not resolve
+  // keeps the row (fail closed).
+  const { resolveDocRef } = await import('./slug-rename.js');
+  const canonicalHead = async (record: DocsPublicationRecord): Promise<string | null> => {
+    const names = [record.blobName, record.blobName.replace(/\.md$/, '')];
+    for (const name of new Set(names)) {
+      const ref = await resolveDocRef(projectRoot, name, { quiet: true }).catch(() => null);
+      if (ref) return ref.sha256;
+    }
+    return null;
+  };
+  const isSuperseded = async (record: DocsPublicationRecord): Promise<boolean> => {
+    const newerRows = status.items
+      .filter((other) => other.drift === 'in-sync' && other.publishedPath === record.publishedPath)
+      .map(recordFor)
+      .filter(
+        (newer): newer is DocsPublicationRecord =>
+          newer !== undefined &&
+          newer !== record &&
+          newer.ownerId === record.ownerId &&
+          newer.publishedAt >= record.publishedAt,
       );
-    });
+    if (newerRows.length === 0) return false;
+    const head = await canonicalHead(record);
+    if (head === null) return false;
+    return head === record.lastBlobSha || newerRows.some((newer) => newer.lastBlobSha === head);
+  };
   type Draft = Omit<LedgerFinding, 'action' | 'prunable' | 'detail'> & {
     readonly shas: ReadonlySet<string>;
     /** A prune candidate; prunable only if every blob it names stays held by a survivor. */
@@ -818,7 +835,7 @@ async function scanPublicationLedger(
     const shas = new Set([record.lastBlobSha, item.blobSha]);
     const blob = record.lastBlobSha.slice(0, 12);
     if (item.drift === 'modified') {
-      if (isSuperseded(item, record)) {
+      if (await isSuperseded(record)) {
         drafts.push({
           record,
           drift: 'modified',

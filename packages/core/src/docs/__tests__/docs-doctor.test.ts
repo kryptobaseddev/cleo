@@ -977,6 +977,7 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
 
   it('prunes an older row superseded by a newer in-sync row of the same owner and path (T14504)', async () => {
     await seedSlug('published-doc', '# published\n');
+    await seedSlug('renamed', '# current\n');
     mirror('renamed.md', '# current\n');
     await publish('renamed.md', 'docs/renamed.md', sha('# published\n'));
     await publish('renamed', 'docs/renamed.md', sha('# current\n'));
@@ -1012,8 +1013,43 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     expect(active?.action).toBe('republish');
   });
 
+  it('keeps a row whose canonical head moved through updateDocBySlug, whatever the manifest says (T14504)', async () => {
+    // The ledger and blob manifest still name A0 for 'moving'; a newer row
+    // publishes A in sync at the same path. The doc's canonical head moved to
+    // B through the SDK update path, so 'moving' has a pending publication.
+    await seedSlug('moving', '# A0\n');
+    mirror('moving.md', '# A\n');
+    await publish('moving', 'docs/moving.md', sha('# A0\n'));
+    await publish('moving.md', 'docs/moving.md', sha('# A\n'));
+    const { updateDocBySlug } = await import('../docs-update.js');
+    const updated = await updateDocBySlug(tempDir, { slug: 'moving', content: '# B\n' });
+    expect(updated.ok).toBe(true);
+    const { resolveDocRef } = await import('../slug-rename.js');
+    expect((await resolveDocRef(tempDir, 'moving', { quiet: true }))?.sha256).toBe(sha('# B\n'));
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerBlobNames()).toEqual(['moving', 'moving.md']);
+    expect(existsSync(PRUNE_AUDIT())).toBe(false);
+  });
+
+  it('keeps a superseded-looking row whose doc head does not resolve (fail closed, T14504)', async () => {
+    await seedSlug('published-doc', '# published\n');
+    mirror('nameless.md', '# current\n');
+    await publish('nameless.md', 'docs/nameless.md', sha('# published\n'));
+    await publish('nameless', 'docs/nameless.md', sha('# current\n'));
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerBlobNames()).toEqual(['nameless', 'nameless.md']);
+    expect(existsSync(PRUNE_AUDIT())).toBe(false);
+  });
+
   it('two prune candidates sharing their only blob never protect each other (T14504)', async () => {
     const orphan = sha('only the ledger knows me\n');
+    // Heads resolve, so both stale rows are real prune candidates.
+    await seedSlug('a', '# a\n');
+    await seedSlug('b', '# b\n');
     mirror('a.md', '# a\n');
     mirror('b.md', '# b\n');
     await publish('a.md', 'docs/a.md', orphan);
