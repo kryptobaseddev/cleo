@@ -75,6 +75,9 @@ describe('readInjectionSection (T12580)', () => {
     expect(shipped.content).toContain('| 12 | `E_SIBLING_LIMIT` |');
     expect(shipped.content).toContain('`hierarchy.maxDepth`');
     expect(shipped.content).toContain('`hierarchy.maxSiblings`');
+    expect(shipped.content).toContain('`hierarchy.maxActiveSiblings`');
+    expect(shipped.content).toContain('complete or cancel an active sibling');
+    expect(shipped.content).toContain('0 = unlimited, the effective default');
     expect(shipped.content).toContain('escape `$` as `\\$`');
     expect(getInjectionTemplateContent()?.length).toBeLessThanOrEqual(14_600);
   });

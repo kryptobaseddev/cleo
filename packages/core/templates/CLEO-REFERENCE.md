@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.27.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.28.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -68,7 +68,7 @@ Parent matrix: Saga `parent_id IS NULL`; Epic `parent_id` = Saga (or null for st
 | Exit | Code | Fix |
 |:----:|------|-----|
 | 11 | `E_DEPTH_EXCEEDED` | Reparent under a shallower parent within `hierarchy.maxDepth` (inclusive; default 3 = saga 0, epic 1, task 2, subtask 3). |
-| 12 | `E_SIBLING_LIMIT` | Group related tasks under another parent to stay within `hierarchy.maxSiblings` (default 0 = unlimited). |
+| 12 | `E_SIBLING_LIMIT` | A configured `hierarchy.maxSiblings` or `hierarchy.maxActiveSiblings` cap was reached (0 = unlimited, the effective default). Raise the cap or group the tasks under another parent; for the active cap (non-terminal children), complete or cancel an active sibling. |
 
 For literal `$` in task text, use single-quoted shell arguments or escape `$` as `\$` inside double quotes so the shell does not expand it before CLEO receives it.
 <!-- /CLEO-INJECTION:section=task-creation -->
