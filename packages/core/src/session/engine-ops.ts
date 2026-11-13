@@ -709,6 +709,9 @@ export async function sessionStart(
       // Best-effort — briefing failure should not fail session start
     }
     const instructionDelivery = await deliveryPromise;
+    // T14549: git-tracked .cleo runtime files corrupt the store on checkout/pull.
+    const { trackedCleoRuntimeWarning } = await import('../doctor/cleo-runtime-tracking.js');
+    const storeSafetyWarning = trackedCleoRuntimeWarning(projectRoot);
 
     // Load predecessor debrief/handoff and mark consumed
     let previousHandoff: HandoffData | null = null;
@@ -737,6 +740,7 @@ export async function sessionStart(
       ...(previousDebrief && { previousDebrief }),
       ...(previousHandoff && { previousHandoff }),
       instructionDelivery,
+      ...(storeSafetyWarning ? { storeSafetyWarnings: [storeSafetyWarning] } : {}),
     };
 
     // T1263: Append session_start journal entry (best-effort, fire-and-forget)

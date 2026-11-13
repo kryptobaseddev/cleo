@@ -10,6 +10,12 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DependencyReport } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
+import {
+  checkRuntimeFileHistory,
+  checkTrackedCleoRuntime,
+  untrackCleoRuntimeFiles,
+} from '../doctor/cleo-runtime-tracking.js';
+import { checkCloudSyncedProject } from '../doctor/cloud-sync-folder.js';
 import { rowIdentityDoctorCheck } from '../doctor/row-identity.js';
 import { syncSealerDoctorCheck } from '../doctor/sync-sealer.js';
 import { syncTriggersDoctorCheck } from '../doctor/sync-triggers.js';
@@ -435,6 +441,22 @@ export async function getSystemHealth(
         message: identity.remedy ? `${identity.message} Run: ${identity.remedy}` : identity.message,
       });
     }
+  }
+
+  // T14549: store-corruption causes — git-tracked .cleo runtime files, the
+  // commits that added them, and a project inside a cloud-synced folder.
+  for (const result of [
+    checkTrackedCleoRuntime(projectRoot),
+    checkRuntimeFileHistory(projectRoot),
+    checkCloudSyncedProject(projectRoot),
+  ]) {
+    if (result.status === 'info') continue;
+    checks.push({
+      name: result.id,
+      status: result.status === 'passed' ? 'pass' : result.status === 'warning' ? 'warn' : 'fail',
+      message: result.fix ? `${result.message}. Fix: ${result.fix}` : result.message,
+      details: result.details,
+    });
   }
 
   // T13125: is tool:test evidence scoped to the affected packages, or does
@@ -1263,6 +1285,10 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   checks.push(mapCheckResult(checkVitalFilesTracked(projectRoot)));
   // T14189: CLEO runtime state staged at any path (the managed pre-commit's rule).
   checks.push(mapCheckResult(checkStagedCleoState(projectRoot)));
+  // T14549: tracked .cleo runtime files, their history, cloud-synced project folder.
+  checks.push(mapCheckResult(checkTrackedCleoRuntime(projectRoot)));
+  checks.push(mapCheckResult(checkRuntimeFileHistory(projectRoot)));
+  checks.push(mapCheckResult(checkCloudSyncedProject(projectRoot)));
   checks.push(mapCheckResult(checkCoreFilesNotIgnored(projectRoot)));
   checks.push(mapCheckResult(checkLegacyAgentOutputs(projectRoot)));
   // ADR-045: canonical RCASD paths (T708)
@@ -1634,6 +1660,12 @@ export async function runDoctorFixes(projectRoot: string): Promise<FixResult[]> 
     // checks that detect them previously had NO fixer here, so `doctor --fix`
     // silently skipped them — and the prescription they printed
     // (`cleo upgrade`) re-runs injection, which is what created the duplicates.
+    // T14549: untrack .cleo runtime files with `git rm --cached` only; the
+    // message names the commit to make. Idempotent.
+    tracked_cleo_runtime: async () => {
+      const r = await untrackCleoRuntimeFiles(projectRoot);
+      return { check: 'tracked_cleo_runtime', action: r.action, message: r.message };
+    },
     caamp_marker_integrity: () => repairCaampMarkers(projectRoot),
     agents_md_hub: () => repairCaampMarkers(projectRoot),
   };
