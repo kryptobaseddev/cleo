@@ -116,9 +116,10 @@ This repository's `.githooks/pre-commit` calls the template rather than copying 
 
 It also refuses any added or modified `.cleo/` path the shipped `.cleo/.gitignore` EXPLICIT
 DENY rules name (backups, quarantine, logs, caches; T14549). The rules are embedded in the
-hook, so a user-edited `.cleo/.gitignore` cannot disable it, and a test keeps them equal to
-the template. It prints `git rm --cached -q -- <paths>` and `cleo doctor --fix`; staged
-deletions (the repair) always pass. A FOREIGN pre-commit (no CLEO marker) is chained, not
+hook as git pathspecs (`runtimePathspecs()`, test-enforced), so a user-edited
+`.cleo/.gitignore` cannot disable it, and git matches them, so no quote, space or newline in
+a name slips past. It prints an exact untrack command and `cleo doctor --fix`; every staged
+change but a deletion (the repair) is checked, including renames and type changes. A FOREIGN pre-commit (no CLEO marker) is chained, not
 skipped: it moves to `pre-commit.cleo-chained` and runs FIRST, so every check sees the
 index it leaves; its failure stops the commit. A customized CLEO copy is still preserved.
 `cleo doctor` reports git-tracked `.cleo` runtime files (`tracked_cleo_runtime`: error for

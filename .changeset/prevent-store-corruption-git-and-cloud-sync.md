@@ -31,8 +31,9 @@ CLEO now prevents both:
   cloud-synced folder. Detection uses local filesystem signals only; an
   unreadable signal makes the check incomplete, never fatal.
 - The managed pre-commit hook refuses a commit that adds or modifies a
-  `.cleo/` path the deny list names, and names the fix. It reads staged
-  names NUL-separated, so quoted or spaced names cannot slip past. Staged deletions pass,
+  `.cleo/` path the deny list names, and names the fix. Git matches
+  the runtime paths itself (embedded pathspecs), so no quote, space or newline
+  in a name slips past, and renames and type changes are checked too. Staged deletions pass,
   so the repair commit goes through. A foreign pre-commit hook is no longer
   skipped. It is chained instead: its content is kept, and it runs first so
   CLEO checks the index it leaves.

@@ -128,4 +128,18 @@ describe('T14549: init, upgrade and session start warn about tracked .cleo runti
     expect(storeSafety?.[0]).toContain('.cleo/cleo.db');
     expect(storeSafety?.[0]).toContain('cleo doctor --fix');
   }, 120_000);
+  it('init on an initialized project whose git index is unreadable points at cleo doctor, never --force', async () => {
+    await initProject({ name: 't14549' });
+    writeFileSync(join(project, '.git', 'index'), 'not an index');
+    let refusal: unknown;
+    try {
+      await initProject({ name: 't14549' });
+    } catch (err) {
+      refusal = err;
+    }
+    expect(refusal).toBeInstanceOf(CleoError);
+    const err = refusal as CleoError;
+    expect(err.fix).toBe('cleo doctor');
+    expect(err.message).toContain('git could not read its index');
+  }, 120_000);
 });

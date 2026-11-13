@@ -786,7 +786,11 @@ function mapCheckResult(cr: CheckResult): DoctorCheck {
       cr.status === 'passed'
         ? 'ok'
         : cr.status === 'info'
-          ? 'ok'
+          ? // A check that could not complete (T14549) is never ok: it stays
+            // visible, and `cleo doctor --fix` runs its fixer, which refuses.
+            cr.details['incomplete'] === true
+            ? 'warning'
+            : 'ok'
           : cr.status === 'warning'
             ? 'warning'
             : 'error',

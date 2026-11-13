@@ -10,7 +10,15 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +32,7 @@ import {
   checkTrackedCleoRuntime,
   isCleoRuntimePath,
   type RuntimeFileAddition,
-  runtimeDenyPatterns,
+  runtimePathspecs,
   trackedCleoRuntimeWarning,
   untrackCleoRuntimeFiles,
 } from '../cleo-runtime-tracking.js';
@@ -195,6 +203,17 @@ describe('T14549: git-tracked .cleo runtime files', () => {
     expect(fixed.action).toBe('failed');
   });
 
+  it('reports an unreadable git config as incomplete, never as no repository or clean', async () => {
+    writeFileSync(join(repo, '.git', 'config'), '[core\nbroken = = =\n');
+    for (const check of [checkTrackedCleoRuntime(repo), checkRuntimeFileHistory(repo)]) {
+      expect(check.status).toBe('info');
+      expect(check.details['incomplete']).toBe(true);
+      expect(check.message).toContain('Check incomplete');
+    }
+    expect(trackedCleoRuntimeWarning(repo)).toBeNull();
+    expect((await untrackCleoRuntimeFiles(repo)).action).toBe('failed');
+  });
+
   it('--fix untracks with git rm --cached only, keeps files byte-identical, is idempotent (AC2)', async () => {
     const before = digests();
     expect(readFileSync(join(repo, '.cleo', '.gitignore'), 'utf-8')).not.toContain('quarantine/');
@@ -260,8 +279,8 @@ describe('T14549: managed pre-commit refuses staged .cleo runtime files (AC3)', 
 
   it('embeds exactly the shipped .cleo/.gitignore deny rules', () => {
     const body = readFileSync(join(TEMPLATES, 'pre-commit'), 'utf-8');
-    const embedded = /^CLEO_RUNTIME_DENY="([^"]*)"$/m.exec(body)?.[1];
-    expect(embedded).toBe(runtimeDenyPatterns().join(' '));
+    const embedded = /^CLEO_RUNTIME_PATHSPECS="([^"]*)"$/m.exec(body)?.[1];
+    expect(embedded).toBe(runtimePathspecs().join(' '));
   });
 
   it.each([
@@ -283,19 +302,49 @@ describe('T14549: managed pre-commit refuses staged .cleo runtime files (AC3)', 
     ['a quote', '.cleo/private"store.db'],
     ['spaces', '.cleo/backups/my store copy.db'],
     ['a single quote', ".cleo/quarantine/it's.json"],
-  ])('refuses a runtime name containing %s, with a fix that names it literally', (_label, path) => {
+    ['a newline', '.cleo/.context-state\nsnapshot.json'],
+    ['a newline in a backup', '.cleo/backups/a\nb.json'],
+    ['a tab', '.cleo/log.json/\tinner'],
+    ['a directory named like a runtime file', '.cleo/migrations.json/inner.txt'],
+  ])('refuses a runtime name containing %s; the printed fix untracks exactly it', (_label, path) => {
     write(path, 'x\n');
     git('add', '-f', '--', path);
     expect(stagedCleoStatePaths(repo)).toEqual([path]);
     const run = commit('T14549 leak');
     expect(run.code).toBe(1);
-    expect(run.output).toContain(`  ${path}\n`);
-    const fix = /^To fix: (git rm --cached -q -- .*)$/m.exec(run.output)?.[1];
+    expect(run.output).toContain('Refusing to commit .cleo runtime files');
+    const fix = /^To fix: (git diff --cached -z .*)$/m.exec(run.output)?.[1];
     expect(fix).toBeDefined();
     // The printed command, run by a shell, untracks exactly that file.
     execFileSync('sh', ['-c', fix ?? 'false'], { cwd: repo, env: discoveryEnv() });
     expect(git('diff', '--cached', '--name-only').trim()).toBe('');
     expect(stagedCleoStatePaths(repo)).toEqual([]);
+  });
+
+  it.each([
+    ['a WAL file with a quote in its name, at any path', 'odd"dir/x.db-wal'],
+    ['a store database under a directory with a newline', 'odd\ndir/cleo.db'],
+    ['a store database under a directory with a quote', 'odd"dir/brain.db'],
+  ])('refuses %s (sections 1 and 3)', (_label, path) => {
+    write(path, 'x\n');
+    git('add', '-f', '--', path);
+    // Doctor mirrors section 3 (store names); section 1 (any *.db-wal) is hook-only.
+    if (!path.endsWith('.db-wal')) expect(stagedCleoStatePaths(repo)).toEqual([path]);
+    const run = commit('T14549 leak');
+    expect(run.code).toBe(1);
+  });
+
+  it('refuses a runtime path whose staged change is a type change (file to symlink)', () => {
+    write('.cleo/log.json', '{}\n');
+    git('add', '-f', '--', '.cleo/log.json');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'T14549 legacy tracked log');
+    rmSync(join(repo, '.cleo', 'log.json'));
+    symlinkSync('elsewhere.json', join(repo, '.cleo', 'log.json'));
+    git('add', '-f', '--', '.cleo/log.json');
+    expect(git('diff', '--cached', '--name-status').trim()).toMatch(/^T\s/);
+    const run = commit('T14549 leak');
+    expect(run.code).toBe(1);
+    expect(run.output).toContain('.cleo/log.json');
   });
 
   it('refuses even when the checkout .cleo/.gitignore has no CLEO deny section', () => {

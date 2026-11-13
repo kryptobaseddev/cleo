@@ -140,12 +140,6 @@ function runGit(cwd: string, args: readonly string[]): GitRun {
   }
 }
 
-/** Whether `cwd` is inside a git work tree (distinguishes "no repo" from a failed read). */
-function insideWorkTree(cwd: string): boolean {
-  const r = runGit(cwd, ['rev-parse', '--is-inside-work-tree']);
-  return r.ok && r.out.trim() === 'true';
-}
-
 /**
  * Outcome of reading git for the runtime checks: no repository, a read that
  * failed inside a real repository (coverage missing, never a clean result),
@@ -159,9 +153,21 @@ export type RuntimeGitScan<T> =
   | { state: 'incomplete'; error: string }
   | { state: 'ok'; value: T };
 
-/** Classify a failed git read as "no repository" or "incomplete". */
+/**
+ * Classify a failed git read. Only git's own verdict counts as "no
+ * repository": `rev-parse` failing with `not a git repository`, or reporting
+ * that `cwd` is not inside a work tree. Any other failure (an invalid config,
+ * a corrupt index, a missing git binary) is `incomplete`: coverage is
+ * missing, never a clean result.
+ */
 function failedScan<T>(cwd: string, error: string): RuntimeGitScan<T> {
-  return insideWorkTree(cwd) ? { state: 'incomplete', error } : { state: 'not-git' };
+  const probe = runGit(cwd, ['rev-parse', '--is-inside-work-tree']);
+  if (probe.ok) {
+    return probe.out.trim() === 'true' ? { state: 'incomplete', error } : { state: 'not-git' };
+  }
+  return /not a git repository/i.test(probe.error)
+    ? { state: 'not-git' }
+    : { state: 'incomplete', error: probe.error || error };
 }
 
 /**
@@ -384,14 +390,27 @@ export interface RuntimeFileAddition {
   paths: string[];
 }
 
-/** Git glob pathspecs for the deny patterns under `.cleo/`. */
-function runtimePathspecs(patterns: readonly string[]): string[] {
-  return patterns.map((pattern) => {
+/**
+ * Git pathspecs that match exactly the `.cleo/` runtime paths: for each deny
+ * pattern, the entry itself and anything beneath a directory of that name
+ * (gitignore semantics), never the tracked identity files. The managed
+ * pre-commit hook embeds this list (a test keeps the two equal), so git, not
+ * the shell, matches staged names: no quoting, space or newline in a name can
+ * slip past it.
+ *
+ * @param patterns - Deny patterns. @defaultValue {@link runtimeDenyPatterns}()
+ * @returns Pathspecs relative to the project root.
+ * @task T14549
+ */
+export function runtimePathspecs(patterns: readonly string[] = runtimeDenyPatterns()): string[] {
+  const specs = patterns.flatMap((pattern) => {
     const dirOnly = pattern.endsWith('/');
     const body = (dirOnly ? pattern.slice(0, -1) : pattern).replace(/^\//, '');
     const base = body.includes('/') ? `.cleo/${body}` : `.cleo/**/${body}`;
-    return `:(glob)${base}${dirOnly ? '/**' : ''}`;
+    return dirOnly ? [`:(glob)${base}/**`] : [`:(glob)${base}`, `:(glob)${base}/**`];
   });
+  const identity = [...TRACKED_IDENTITY_FILES].map((name) => `:(exclude,literal).cleo/${name}`);
+  return [...specs, ...identity];
 }
 
 /**

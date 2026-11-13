@@ -48,7 +48,7 @@ import type { GitHookInstallOptions } from '@cleocode/contracts/git-hooks.js';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import {
-  listTrackedCleoRuntimeFiles,
+  scanTrackedCleoRuntimeFiles,
   trackedCleoRuntimeWarning,
 } from './doctor/cleo-runtime-tracking.js';
 import { CleoError } from './errors.js';
@@ -1140,7 +1140,19 @@ function assertInitTargetAllowed(
   if (target.isCwd) {
     // T14549: a clone whose git history tracks the store looks initialized.
     // --force would re-initialize over it; the repair is to untrack instead.
-    const tracked = listTrackedCleoRuntimeFiles(root) ?? [];
+    const scan = scanTrackedCleoRuntimeFiles(root);
+    if (scan.state === 'incomplete') {
+      // @sync-invariant none:local-only refuses on an unreadable git index before any store write; never advises --force blind.
+      throw initRefusal(
+        INIT_ERROR_CODES.alreadyInitialized,
+        `Project already initialized at ${root}, and git could not read its index ` +
+          `(${scan.error}), so CLEO cannot tell whether git tracks the store. Repair git ` +
+          'first, then run cleo doctor; do not re-initialize with --force. Nothing was changed.',
+        'cleo doctor',
+        { resolvedRoot: root, gitError: scan.error },
+      );
+    }
+    const tracked = scan.state === 'ok' ? scan.value : [];
     if (tracked.length > 0) {
       // @sync-invariant none:local-only refuses on the checkout's git index (tracked .cleo runtime files), before any store write.
       throw initRefusal(

@@ -10,8 +10,13 @@
 # A pre-commit hook that was here before CLEO runs FIRST (T14549), so every
 # check below sees the index that hook leaves behind.
 #
-# Only additions and modifications are checked: staging the deletion of a
-# runtime file (`git rm --cached`, `cleo doctor --fix`) is the repair.
+# Every staged change except a deletion is checked (additions, modifications,
+# renames, type changes): staging the deletion of a runtime file
+# (`git rm --cached`, `cleo doctor --fix`) is the repair.
+#
+# Paths are matched by git itself (pathspecs, `git diff --quiet`), never by
+# parsing names in the shell, so no quote, space or newline in a name can
+# slip past a check.
 #
 # Installation: Automatically installed via `cleo init`
 
@@ -23,16 +28,19 @@ if [ -x "$0.cleo-chained" ]; then
 fi
 
 # ── 1. WAL/SHM/journal files ──────────────────────────────────────────
-BAD_FILES=$(git diff --cached -z --name-only --diff-filter=ACMR | tr '\000' '\n' | grep -E '\.(db-wal|db-shm|db-journal)$' || true)
-
-if [ -n "$BAD_FILES" ]; then
+WAL_SPECS=":(glob)**/*.db-wal :(glob)**/*.db-shm :(glob)**/*.db-journal"
+set -f
+# shellcheck disable=SC2086
+if ! git diff --cached --quiet --diff-filter=d -- $WAL_SPECS; then
   echo "ERROR: Refusing to commit SQLite WAL/SHM/journal files:"
-  echo "$BAD_FILES"
+  # shellcheck disable=SC2086
+  git diff --cached --name-only --diff-filter=d -- $WAL_SPECS | sed 's/^/  /'
   echo ""
   echo "These are runtime files that must never be tracked in git."
   echo "To fix: git rm --cached <file>"
   exit 1
 fi
+set +f
 
 # ── 2. Core file gitignore protection ─────────────────────────────────
 # Per ADR-013 §9 (T5158 — 2026-04-07): tasks.db, brain.db, config.json,
@@ -76,17 +84,25 @@ while IFS= read -r line; do
   meta=${line%%"$TAB"*}
   path=${line#*"$TAB"}
   blob=$(echo "$meta" | awk '{print $4}')
-  case "${path##*/}" in
+  # git C-quotes a name holding a quote, backslash or control character
+  # (one line, escapes inside). Such a name is judged by its last component
+  # and refused without a content check: fail closed (T14549).
+  quoted=""
+  name=${path##*/}
+  case "$path" in
+    \"*\") quoted=1; name=${path%\"}; name=${name##*/} ;;
+  esac
+  case "$name" in
     cleo.db|cleo.db-wal|cleo.db-shm|cleo.db-journal|\
     brain.db|brain.db-wal|brain.db-shm|brain.db-journal|\
     tasks.db|tasks.db-wal|tasks.db-shm|tasks.db-journal)
       LEAKED="$LEAKED $path" ;;
     project-info.json)
-      if git cat-file -p "$blob" 2>/dev/null | grep -q '"projectId"'; then
+      if [ -n "$quoted" ] || git cat-file -p "$blob" 2>/dev/null | grep -q '"projectId"'; then
         LEAKED="$LEAKED $path"
       fi ;;
     config.json)
-      if [ "$path" = ".cleo/config.json" ] || { [ -n "$CLEO_CONFIG_BLOB" ] && [ "$blob" = "$CLEO_CONFIG_BLOB" ]; }; then
+      if [ -n "$quoted" ] || [ "$path" = ".cleo/config.json" ] || { [ -n "$CLEO_CONFIG_BLOB" ] && [ "$blob" = "$CLEO_CONFIG_BLOB" ]; }; then
         LEAKED="$LEAKED $path"
       fi ;;
   esac
@@ -106,57 +122,31 @@ if [ -n "$LEAKED" ]; then
 fi
 
 # ── 4. Refuse staged .cleo/ runtime paths (T14549) ───────────────────
-# CLEO_RUNTIME_DENY is the EXPLICIT DENY block of the shipped .cleo/.gitignore
-# template, rule for rule (a test keeps the two equal). It is embedded, not
-# read from the checkout's .cleo/.gitignore, so a user-edited file cannot turn
-# the guard off. A forced `git add -f`, or a file tracked before the rule
-# existed, would otherwise be committed, and a later checkout or pull would
-# replace the live store under its WAL. The identity files stay tracked.
-CLEO_RUNTIME_DENY="*.db *.db-shm *.db-wal *.db-journal config.json project-info.json nexus-link.json log.json tasks-log.jsonl todo-log.jsonl bypass-log.json qa-log.json .deps-cache/ .context-alert-state.json .context-state*.json context-states/ .git-checkpoint-state .migration-state.json migrations.json sync/ metrics/ .backups/ backups/ quarantine/ session-journals/"
-# Names are read NUL-separated (-z): git C-quotes a name holding a quote,
-# backslash or control character in line output, which would slip past the
-# patterns below. Each offending name is kept literal for the report and
-# single-quoted for the fix command.
-RUNTIME_LIST=""
-FIX_ARGS=""
-NL='
-'
-STAGED_CLEO=$(git diff --cached -z --name-only --diff-filter=ACMR -- .cleo | tr '\000' '\n')
+# CLEO_RUNTIME_PATHSPECS are git pathspecs for the EXPLICIT DENY block of the
+# shipped .cleo/.gitignore template (`runtimePathspecs()` in core; a test keeps
+# the two equal). They are embedded, not read from the checkout's
+# .cleo/.gitignore, so a user-edited file cannot turn the guard off. Git
+# matches them against the index, so names are never parsed here. A forced
+# `git add -f`, or a file tracked before the rule existed, would otherwise be
+# committed, and a later checkout or pull would replace the live store under
+# its WAL. The identity files stay tracked.
+CLEO_RUNTIME_PATHSPECS=":(glob).cleo/**/*.db :(glob).cleo/**/*.db/** :(glob).cleo/**/*.db-shm :(glob).cleo/**/*.db-shm/** :(glob).cleo/**/*.db-wal :(glob).cleo/**/*.db-wal/** :(glob).cleo/**/*.db-journal :(glob).cleo/**/*.db-journal/** :(glob).cleo/**/config.json :(glob).cleo/**/config.json/** :(glob).cleo/**/project-info.json :(glob).cleo/**/project-info.json/** :(glob).cleo/**/nexus-link.json :(glob).cleo/**/nexus-link.json/** :(glob).cleo/**/log.json :(glob).cleo/**/log.json/** :(glob).cleo/**/tasks-log.jsonl :(glob).cleo/**/tasks-log.jsonl/** :(glob).cleo/**/todo-log.jsonl :(glob).cleo/**/todo-log.jsonl/** :(glob).cleo/**/bypass-log.json :(glob).cleo/**/bypass-log.json/** :(glob).cleo/**/qa-log.json :(glob).cleo/**/qa-log.json/** :(glob).cleo/**/.deps-cache/** :(glob).cleo/**/.context-alert-state.json :(glob).cleo/**/.context-alert-state.json/** :(glob).cleo/**/.context-state*.json :(glob).cleo/**/.context-state*.json/** :(glob).cleo/**/context-states/** :(glob).cleo/**/.git-checkpoint-state :(glob).cleo/**/.git-checkpoint-state/** :(glob).cleo/**/.migration-state.json :(glob).cleo/**/.migration-state.json/** :(glob).cleo/**/migrations.json :(glob).cleo/**/migrations.json/** :(glob).cleo/**/sync/** :(glob).cleo/**/metrics/** :(glob).cleo/**/.backups/** :(glob).cleo/**/backups/** :(glob).cleo/**/quarantine/** :(glob).cleo/**/session-journals/** :(exclude,literal).cleo/project.json :(exclude,literal).cleo/project-id"
 set -f
-while IFS= read -r path; do
-  [ -n "$path" ] || continue
-  rel=${path#.cleo/}
-  case "$rel" in project.json|project-id) continue ;; esac
-  for pat in $CLEO_RUNTIME_DENY; do
-    dir=${pat%/}
-    hit=""
-    if [ "$dir" != "$pat" ]; then
-      case "/$rel" in */$dir/*) hit=1 ;; esac
-    else
-      case "/$rel" in */$pat|*/$pat/*) hit=1 ;; esac
-    fi
-    if [ -n "$hit" ]; then
-      quoted=$(printf '%s' "$path" | sed "s/'/'\\\\''/g")
-      FIX_ARGS="$FIX_ARGS '$quoted'"
-      RUNTIME_LIST="$RUNTIME_LIST  $path$NL"
-      break
-    fi
-  done
-done <<EOF_CLEO
-$STAGED_CLEO
-EOF_CLEO
-set +f
-
-if [ -n "$RUNTIME_LIST" ]; then
+# shellcheck disable=SC2086
+if ! git diff --cached --quiet --diff-filter=d -- $CLEO_RUNTIME_PATHSPECS; then
+  QUOTED_SPECS=""
+  for spec in $CLEO_RUNTIME_PATHSPECS; do QUOTED_SPECS="$QUOTED_SPECS '$spec'"; done
   echo "ERROR: Refusing to commit .cleo runtime files (ADR-013 §9, T14549):"
-  printf '%s' "$RUNTIME_LIST"
+  # shellcheck disable=SC2086
+  git diff --cached --name-only --diff-filter=d -- $CLEO_RUNTIME_PATHSPECS | sed 's/^/  /'
   echo ""
   echo "These are .cleo runtime paths (databases, backups, logs, caches)."
   echo "Tracking them lets a checkout or pull replace the live store while its"
   echo "WAL stays behind."
-  echo "To fix: git rm --cached -q --$FIX_ARGS"
+  echo "To fix: git diff --cached -z --name-only --diff-filter=d --$QUOTED_SPECS | xargs -0 git rm --cached -q --"
   echo "(or run: cleo doctor --fix, which untracks every .cleo runtime file)"
   exit 1
 fi
+set +f
 
 exit 0
