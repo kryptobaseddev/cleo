@@ -843,7 +843,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     });
     // T14299 + T14536: keep the verify refusal's own fix and exit code (e.g.
     // E_GATE_ADMISSION_REFUSED, exit 28) through the re-wrap.
-    return wrapCoreResult(result, 'gate.set', { taskId: params.taskId, gates: {}, passed: false });
+    return wrapCoreResult(result, 'gate.set');
   },
 });
 
