@@ -44,8 +44,6 @@ export default defineConfig({
     // imports to source so stale dist files cannot hide task-policy regressions.
     alias: withWorkspaceSubpathAliases({
       $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
-      '@cleocode/core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)),
-      '@cleocode/contracts': fileURLToPath(new URL('../contracts/src/index.ts', import.meta.url)),
     }),
     server: {
       deps: {
