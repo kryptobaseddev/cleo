@@ -325,7 +325,7 @@ describe('a checkout detached at the change-set commit measures the cited tree (
     expect(codes(plan)).not.toContain('dirty-tree');
   });
 
-  it('a checkout one commit behind the tip is refused with the switch remedy', async () => {
+  it('T14518: a checkout behind the branch tip has a switch-and-enter remedy', async () => {
     const id = await seedTask(['Change src/a.ts to return 2']);
     commitOnTaskBranch(id);
     writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
@@ -334,7 +334,26 @@ describe('a checkout detached at the change-set commit measures the cited tree (
 
     const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
     const refusal = plan.blockers.find((b) => b.code === 'checkout-required');
-    expect(refusal?.next?.command).toContain(`switch task/${id}`);
+    expect(refusal?.next?.command).toBe(
+      `git -C ${root} switch task/${id} && cd ${root} && cleo done ${id}`,
+    );
+    expect(plan.ready).toBe(false);
+  });
+
+  it('T14518: a checkout behind a landed commit has a switch-and-enter remedy', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: land change`]);
+    git(root, ['push', '-q', 'origin', 'main']);
+    const sha = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '--detach', 'HEAD~1']);
+
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps, commit: sha });
+    expect(plan.changeSet.source).toBe('commit');
+    const refusal = plan.blockers.find((b) => b.code === 'checkout-required');
+    expect(refusal?.next?.command).toBe(
+      `git -C ${root} switch --detach origin/main && cd ${root} && cleo done ${id} --commit ${sha}`,
+    );
     expect(plan.ready).toBe(false);
   });
 
@@ -932,6 +951,38 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     const ev = Object.fromEntries(plan.gates.map((g) => [g.gate, g.evidence]));
     expect(ev['testsPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
     expect(ev['qaPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
+  });
+
+  it.each([
+    { prNumber: undefined, runTyped: false, flags: '' },
+    { prNumber: 42, runTyped: false, flags: ' --pr 42' },
+    { prNumber: undefined, runTyped: true, flags: ' --run-typed' },
+    { prNumber: 42, runTyped: true, flags: ' --pr 42 --run-typed' },
+  ])('T14518: the worktree redirect preserves flags "$flags"', async ({
+    prNumber,
+    runTyped,
+    flags,
+  }) => {
+    const { id, prDeps } = await mergedPrSetup(false);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['branch', '-f', `task/${id}`, merge]);
+    const wt = `${root}-wt space`;
+    git(root, ['worktree', 'add', '-q', wt, `task/${id}`]);
+    try {
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        prNumber,
+        runTyped,
+        deps: prDeps,
+      });
+      expect(plan.changeSet.rootSource).toBe('task-worktree');
+      const refusal = plan.blockers.find((b) => b.code === 'run-from-worktree');
+      expect(refusal?.next?.command).toBe(`cd '${wt}' && cleo done ${id}${flags}`);
+    } finally {
+      git(root, ['worktree', 'remove', '--force', wt]);
+    }
   });
 
   it('after merge, an affected-scope testsPassed is superseded: re-planned from merged CI (T12635)', async () => {

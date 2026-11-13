@@ -279,7 +279,7 @@ function checkoutBlocker(
       code: 'checkout-required',
       message: `${taskId}'s change is ${short(cs.commitSha)} on ${branch}, but ${root} has ${short(head)} checked out; the tools would measure a different tree than implemented cites.`,
       next: {
-        command: `git -C ${shellQuote(root)} switch ${branch} && cleo done ${taskId}`,
+        command: `git -C ${shellQuote(root)} switch ${branch} && cd ${shellQuote(root)} && cleo done ${taskId}`,
         why: 'Tests, lint, typecheck and typed gates must run on the commit implemented records.',
       },
     };
@@ -297,7 +297,7 @@ function checkoutBlocker(
       code: 'checkout-required',
       message: `${root} has ${short(head)} checked out, which does not contain ${taskId}'s commit ${short(cs.commitSha)}; the tools would measure a tree without the change.`,
       next: {
-        command: `git -C ${shellQuote(root)} switch --detach ${cs.baseRef ?? cs.commitSha} && cleo done ${taskId} --commit ${cs.commitSha}`,
+        command: `git -C ${shellQuote(root)} switch --detach ${cs.baseRef ?? cs.commitSha} && cd ${shellQuote(root)} && cleo done ${taskId} --commit ${cs.commitSha}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree that holds the commit implemented records.',
       },
     };
@@ -392,7 +392,7 @@ async function readinessBlockers(input: {
           code: 'run-from-worktree',
           message: `${taskId}'s work is in its worktree ${cs.executionRoot}; tools must run in that tree.`,
           next: {
-            command: `cd ${shellQuote(cs.executionRoot)} && cleo done ${taskId}`,
+            command: `cd ${shellQuote(cs.executionRoot)} && cleo done ${taskId}${input.prNumber === undefined ? '' : ` --pr ${input.prNumber}`}${input.runTyped ? ' --run-typed' : ''}`,
             why: 'Evidence tools measure the invocation tree; run cleo done from the task worktree.',
           },
         },
