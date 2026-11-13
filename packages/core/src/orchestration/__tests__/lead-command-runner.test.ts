@@ -10,7 +10,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAgentMbxClient,
   type MbxIdentityStatus,
@@ -18,6 +18,7 @@ import {
   type MbxSession,
 } from '../../orchestrate/agentmbx.js';
 import { writeLeadRecord } from '../../orchestrate/lead-records.js';
+import { createTestDb, seedTasks } from '../../store/__tests__/test-db-helper.js';
 import {
   checkLeadCommand,
   runLeadCommand,
@@ -121,16 +122,63 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
     // No value reaches a shell, so `$` and `\` pass through verbatim.
     const literal = await runLeadCommand(['cleo', 'find', '$HOME a\\b $(id)'], { env });
     expect(literal).toMatchObject({ allowed: true, stdout: 'fake-cleo find $HOME a\\b $(id)\n' });
-    const finding = await runLeadCommand(
-      ['cleo', 'add', 'Finding', '--type', 'task', '--parent', 'T1', '--acceptance', 'Fixed'],
-      { env },
-    );
-    expect(finding).toEqual({
-      allowed: true,
-      exitCode: 0,
-      stdout: 'fake-cleo add Finding --type task --parent T1 --acceptance Fixed\n',
-      stderr: '',
-    });
+  });
+
+  it('files a finding only under the lead epic subtree (T14533)', async () => {
+    // The runner resolves the store from its cwd; drop the sandbox CLEO_ROOT pin.
+    vi.stubEnv('CLEO_ROOT', undefined);
+    const db = await createTestDb();
+    try {
+      await seedTasks(db.accessor, [
+        { id: 'T300', type: 'epic' },
+        { id: 'T301', type: 'task', parentId: 'T300' },
+        { id: 'T302', type: 'subtask', parentId: 'T301' },
+        { id: 'T400', type: 'epic' },
+        { id: 'T401', type: 'task', parentId: 'T400' },
+      ]);
+      writeLeadRecord(db.tempDir, {
+        epicId: 'T300',
+        processes: [],
+        mode: 'detached',
+        cleoSessionId: 'finding-lead-session',
+        providerCli: 'claude',
+        providerSessionId: 'finding-provider-session',
+        mailbox: null,
+        tempDir: null,
+        startedAt: new Date().toISOString(),
+      });
+      const options = { cwd: db.tempDir, env: { ...env, CLEO_SESSION_ID: 'finding-lead-session' } };
+      const add = (parent: string, opts = options) =>
+        runLeadCommand(
+          [
+            'cleo',
+            'add',
+            'Finding',
+            '--type',
+            'task',
+            `--parent=${parent}`,
+            '--acceptance',
+            'Fixed',
+          ],
+          opts,
+        );
+      for (const parent of ['T300', 'T301', 'T302']) {
+        expect(await add(parent)).toMatchObject({ allowed: true, exitCode: 0 });
+      }
+      for (const parent of ['T400', 'T401', 'T999', 'none', 'None']) {
+        expect(await add(parent)).toMatchObject({
+          allowed: false,
+          reason: expect.stringMatching(/T300|none/),
+        });
+      }
+      // A session with no lead record files nothing, even under a real epic.
+      expect(
+        await add('T300', { cwd: db.tempDir, env: { ...env, CLEO_SESSION_ID: 'not-a-lead' } }),
+      ).toMatchObject({ allowed: false, reason: expect.stringContaining('lead record') });
+    } finally {
+      await db.cleanup();
+      vi.unstubAllEnvs();
+    }
   });
 
   it.each([
@@ -146,6 +194,8 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
     [['cleo', 'add', 'Finding', '--type=subtask', '--parent=T1', '--acceptance=Fixed']],
     [['cleo', 'add', 'Finding', '--type=', '--parent=T1', '--acceptance=Fixed']],
     [['cleo', 'add', 'Finding', '--type=task', '--parent=T1', '--acceptance=']],
+    [['cleo', 'add', 'Finding', '--type', 'task', '--parent', 'none', '--acceptance', 'Fixed']],
+    [['cleo', 'add', 'Finding', '--type=task', '--parent=NONE', '--acceptance=Fixed']],
     [
       [
         'cleo',
@@ -288,7 +338,9 @@ describe.skipIf(process.platform === 'win32')('lead command runner (T14374)', ()
       'show T1 --full',
       'done --from-merge 12 --dry-run',
       'find $HOME a\\b $(id)',
-      'add Finding --type task --parent T1 --acceptance Fixed',
+      'add Finding --type task --parent=T300 --acceptance Fixed',
+      'add Finding --type task --parent=T301 --acceptance Fixed',
+      'add Finding --type task --parent=T302 --acceptance Fixed',
     ]);
   });
 

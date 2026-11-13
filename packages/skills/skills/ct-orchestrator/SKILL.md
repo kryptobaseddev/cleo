@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.19.0
+  version: 4.20.0
   tier: core
   install: harness
   covers:
@@ -538,7 +538,7 @@ When operating without continuous HITL oversight, additional constraints apply: 
 | `cleo orchestrate ready T1575` | Parallel-safe tasks in current wave |
 | `cleo orchestrate spawn T1586 --json` | Generate resolved spawn prompt |
 | `cleo orchestrate next T1575` | Suggest next task |
-| `cleo orchestrate status T1575` | Epic status plus durable worker records (`workers`); omit the ID for overall project status, or use `--epic T1575` |
+| `cleo orchestrate status T1575` | Epic status plus durable worker records (`workers`); omit the ID for overall project status, or use `--epic T1575` (a positional and a different `--epic` is refused) |
 | `cleo saga rollup <sagaId>` | Cross-Epic status aggregation when orchestrating a multi-Epic Saga (ADR-073) |
 | `cleo saga members <sagaId>` | Member Epics of a Saga (parent_id containment — NOT `task_relations.groups`) |
 | `cleo find "query"` | Search tasks |
