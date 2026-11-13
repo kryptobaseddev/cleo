@@ -24,6 +24,8 @@
 
 import { statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import type { AcceptanceGate } from '@cleocode/contracts';
+import { joinCommandLine, testGateArgv } from './command-line.js';
 import type { TestRunReport } from './test-run-binding.js';
 
 /**
@@ -863,4 +865,147 @@ export function readTestReport(
   if (libtest !== null) return adapted(libtest, 'libtest JSON lines');
   const tap = tapTestRun(text, options);
   return tap === null ? null : adapted(tap, 'node:test TAP');
+}
+
+/** A test runner whose reporter flag CLEO knows (T14526). */
+export type KnownTestRunner = 'node:test' | 'jest' | 'vitest';
+
+/** Each known runner's flag for a report {@link readTestReport} counts. */
+const REPORTER_FLAGS: Readonly<Record<KnownTestRunner, string>> = {
+  // node:test ships no JSON reporter (T14051); TAP is counted.
+  'node:test': '--test-reporter=tap',
+  jest: '--json',
+  vitest: '--reporter=json',
+};
+
+/** Launchers that run another program named by a later word. */
+const PACKAGE_MANAGERS = new Set(['pnpm', 'pnpx', 'npm', 'npx', 'yarn', 'bun', 'bunx']);
+
+/** Package-manager subcommands that run the binary named next. */
+const RUN_BINARY = new Set(['exec', 'dlx', 'x']);
+
+/** Package-manager options that take the next word as their value. */
+const VALUED_OPTIONS = new Set(['--filter', '-F', '-C', '--dir', '--prefix', '--package', '-p']);
+
+/** An executable word's program name: no directory, no `.js`/`.mjs`/`.cjs`/`.cmd` suffix. */
+function programName(word: string): string {
+  return (word.split(/[\\/]/).pop() ?? word).replace(/\.(?:[cm]?js|cmd)$/, '');
+}
+
+/**
+ * The test runner a gate's argv executes, from its executable rather than
+ * from substrings anywhere in the line (`vitest run jest-compat.test.ts` is
+ * Vitest). A package manager is looked through to the binary it runs
+ * (`pnpm exec vitest`, `npx jest`, `pnpm vitest`); a package script (`pnpm
+ * test`, `pnpm run test:vitest`) runs a command this cannot see and is null.
+ * `node`/`tsx` count as node:test only with `--test` (T14051).
+ *
+ * @param argv - The argv the gate executes ({@link testGateArgv} in `command-line.ts`).
+ * @returns The runner, or null when it is not one CLEO recognises.
+ * @example
+ * ```ts
+ * testRunner(['pnpm', 'exec', 'vitest', 'run', 'jest-compat.test.ts']); // 'vitest'
+ * testRunner(['pnpm', 'run', 'test:vitest']); // null
+ * ```
+ * @task T14526
+ */
+export function testRunner(argv: readonly string[]): KnownTestRunner | null {
+  let i = 0;
+  while (i < argv.length && PACKAGE_MANAGERS.has(programName(argv[i]!))) {
+    i++;
+    while (i < argv.length) {
+      const word = argv[i]!;
+      if (VALUED_OPTIONS.has(word)) i += 2;
+      else if (word.startsWith('-') || RUN_BINARY.has(word)) i++;
+      else break;
+    }
+  }
+  const program = argv[i] === undefined ? '' : programName(argv[i]!);
+  if (program === 'vitest' || program === 'jest') return program;
+  if ((program === 'node' || program === 'tsx') && argv.includes('--test')) return 'node:test';
+  return null;
+}
+
+/**
+ * The flag that makes a test gate print a report {@link readTestReport}
+ * counts, for the runner its argv executes ({@link testRunner}). The run-time
+ * `minCount` error and the write-time refusal ({@link minCountReporterProblem})
+ * both name it (T14526).
+ *
+ * @param argv - The argv the gate executes.
+ * @returns The flag, or null for a runner this does not recognise.
+ * @example
+ * ```ts
+ * testReporterFlag(['pnpm', 'exec', 'vitest', 'run', 'a.test.ts']); // '--reporter=json'
+ * ```
+ * @task T12308
+ * @task T14526
+ */
+export function testReporterFlag(argv: readonly string[]): string | null {
+  const runner = testRunner(argv);
+  return runner === null ? null : REPORTER_FLAGS[runner];
+}
+
+/** A word that already selects a reporter or a report file; the gate is then left alone. */
+const REPORTER_WORD = /^(?:--(?:test-)?reporters?(?:[=.]|$)|--json$|--outputFile(?:[=.]|$))/;
+
+/** A `minCount` test gate that cannot be counted, with the corrected gate. */
+export interface MinCountReporterProblem {
+  /** Why `cleo verify --run` would find no report to count. */
+  readonly problem: string;
+  /** The same gate with the runner's reporter flag added. */
+  readonly correctedGate: AcceptanceGate;
+}
+
+/**
+ * Why a `test` gate with a `minCount` cannot be counted, or null (T14526).
+ *
+ * A gate with `minCount` passes only on a report its own command prints
+ * (T12308); a Vitest, Jest or node:test run with no reporter flag prints none,
+ * so the gate was accepted at write time and errored only at close. A write
+ * (`cleo req add`, `cleo req replace`) refuses such a gate and names the
+ * corrected one; it never adds the flag itself. It judges the argv the runner
+ * executes ({@link testGateArgv} in `command-line.ts`): `args` replace the
+ * command's inline arguments, so a reporter written only there does not count.
+ * A runner this does not recognise (a package script such as `pnpm test`) and a
+ * command the runner itself refuses (shell syntax) are not judged here.
+ *
+ * @param gate - Any acceptance gate; only `test` gates with `minCount > 0` are judged.
+ * @returns The problem and the corrected gate, or null.
+ * @example
+ * ```ts
+ * minCountReporterProblem({ kind: 'test', command: 'pnpm exec vitest run a.test.ts',
+ *   expect: 'pass', minCount: 2, description: 'd' })?.correctedGate;
+ * // { kind: 'test', command: 'pnpm exec vitest run a.test.ts --reporter=json', … }
+ * ```
+ * @task T14526
+ */
+export function minCountReporterProblem(gate: AcceptanceGate): MinCountReporterProblem | null {
+  if (gate.kind !== 'test' || gate.minCount === undefined || gate.minCount <= 0) return null;
+  let argv: string[];
+  try {
+    argv = testGateArgv(gate);
+  } catch {
+    return null;
+  }
+  if (argv.some((word) => REPORTER_WORD.test(word))) return null;
+  const runner = testRunner(argv);
+  if (runner === null) return null;
+  const flag = REPORTER_FLAGS[runner];
+  // node:test reads options before its file arguments: put the flag beside --test.
+  const at = runner === 'node:test' ? argv.indexOf('--test') + 1 : argv.length;
+  const fixed = [...argv.slice(0, at), flag, ...argv.slice(at)];
+  return {
+    problem:
+      `minCount ${gate.minCount} cannot be proved: \`${joinCommandLine(argv)}\` names no ` +
+      `machine-readable reporter, so \`cleo verify --run\` would find no test report to count ` +
+      `and the gate would error at close. Add ${flag} to the gate's ` +
+      (gate.args === undefined
+        ? 'command'
+        : 'args (they replace the command\u2019s inline arguments)'),
+    correctedGate:
+      gate.args === undefined
+        ? { ...gate, command: joinCommandLine(fixed) }
+        : { ...gate, args: fixed.slice(1) },
+  };
 }

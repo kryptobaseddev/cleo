@@ -88,7 +88,7 @@ import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
 import { commandGateCmdProblem } from './command-gate-cmd.js';
-import { splitCommandLine } from './command-line.js';
+import { testGateArgv } from './command-line.js';
 import { resolveCanonicalProjectRoot } from './evidence.js';
 import { resolveEvidenceRepository, resolveEvidenceTree } from './evidence-tree.js';
 import {
@@ -109,6 +109,7 @@ import {
   readParsedTestReport,
   readTestReport,
   TEST_REPORT_FORMATS,
+  testReporterFlag,
 } from './test-report-counts.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
 import { acquireGlobalSlot } from './tool-semaphore.js';
@@ -1766,9 +1767,8 @@ export function executableInvocation(
   // whitespace split handed `"` characters to the target, so
   // `node -e "setTimeout(()=>process.exit(1),6000)"` evaluated a string
   // literal, exited 0 at once and recorded a false PASS.
-  const [testCommand, ...testArgs] = gate.kind === 'test' ? splitCommandLine(gate.command) : [];
-  if (gate.kind === 'test' && testCommand === undefined)
-    throw new Error('Test gate command is empty');
+  // T14526: the same argv write-time checks judge (testGateArgv).
+  const [testCommand, ...testArgs] = gate.kind === 'test' ? testGateArgv(gate) : [];
   // T14155: a stored command gate whose cmd carries its arguments would spawn
   // a program named the whole line and fail with a bare ENOENT. Every run path
   // (preview, verify --run, done) resolves its invocation here first.
@@ -1782,12 +1782,9 @@ export function executableInvocation(
         ? gate.cmd
         : LINT_TOOL_DEFAULTS[gate.tool].cmd;
   const args =
-    gate.args ??
-    (gate.kind === 'test'
+    gate.kind === 'test'
       ? testArgs
-      : gate.kind === 'lint'
-        ? LINT_TOOL_DEFAULTS[gate.tool].defaultArgs
-        : []);
+      : (gate.args ?? (gate.kind === 'lint' ? LINT_TOOL_DEFAULTS[gate.tool].defaultArgs : []));
   const cwd = resolveCwd(root, gate.cwd);
   const argv = [command, ...args];
   const digest =
@@ -2580,6 +2577,7 @@ async function freshReportCounts(
  * node:test (`node --test`, `tsx --test`) is detected before the package
  * managers, which run it too and whose `--reporter=json` it rejects (T14051);
  * a report that was found but refused is named with its first issue (T14060).
+ * The flag comes from {@link testReporterFlag}, which write-time refusals share (T14526).
  *
  * @param gate - Gate whose command needs a machine-readable reporter.
  * @param refusal - Why the newest report-like candidate was refused, if any.
@@ -2589,13 +2587,7 @@ async function freshReportCounts(
  */
 function describeMissingTestCount(gate: TestGate, refusal?: string): string {
   const invoked = [gate.command, ...(gate.args ?? [])].join(' ');
-  const flag = /\b(?:node|tsx)\b.*\s--test(?![\w-])/.test(invoked)
-    ? '--test-reporter=tap'
-    : /jest/.test(invoked)
-      ? '--json'
-      : /vitest|pnpm|npm|yarn|bun/.test(invoked)
-        ? '--reporter=json'
-        : '<your runner\u2019s JSON reporter flag>';
+  const flag = testReporterFlag(testGateArgv(gate)) ?? '<your runner\u2019s JSON reporter flag>';
   const found =
     refusal === undefined
       ? `\`${invoked}\` emitted no machine-readable test report`

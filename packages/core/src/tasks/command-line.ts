@@ -19,6 +19,8 @@
  * @task T12718
  */
 
+import type { TestGate } from '@cleocode/contracts/acceptance-gate.js';
+
 /** Characters that only mean something to a shell, which gate commands never get. */
 const SHELL_OPERATORS = new Set(['|', '&', ';', '<', '>', '(', ')', '`', '$']);
 
@@ -153,4 +155,27 @@ export function joinCommandLine(words: readonly string[]): string {
         : `'${word.replace(/'/g, `'\\''`)}'`,
     )
     .join(' ');
+}
+
+/**
+ * The argv a `test` gate executes: the first word of `command`, then `args`
+ * when the gate has them (they replace the command's inline arguments, which
+ * are then never run), else the command's own words. The gate runner spawns
+ * exactly this, and write-time checks judge exactly this (T14526).
+ *
+ * @param gate - The gate's `command` and optional `args`.
+ * @returns The executable followed by its arguments.
+ * @throws Error when the command is empty or uses shell syntax ({@link splitCommandLine}).
+ * @example
+ * ```typescript
+ * testGateArgv({ command: 'pnpm exec vitest run --reporter=json', args: ['exec', 'vitest', 'run'] });
+ * // => ['pnpm', 'exec', 'vitest', 'run']
+ * ```
+ * @task T14526
+ */
+export function testGateArgv(gate: Readonly<Pick<TestGate, 'command' | 'args'>>): string[] {
+  const [command, ...inline] = splitCommandLine(gate.command);
+  // @sync-invariant none:input-shape an empty test gate command is refused before it spawns or is written
+  if (command === undefined) throw new Error('Test gate command is empty');
+  return [command, ...(gate.args ?? inline)];
 }
