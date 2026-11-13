@@ -123,6 +123,42 @@ interface WorkerMetadata extends OrcaWorkerSettlement {
   report?: OrcaWorkerReport;
 }
 
+/**
+ * Typed refusal for a worker row whose ownership metadata cannot be read.
+ * @remarks Unreadable custody never disappears from the census and never
+ * authorizes another editor; every reader refuses with the same fix.
+ */
+function unreadableWorkerError(row: AgentInstanceRow, what: string): CleoError {
+  return new CleoError(
+    ExitCode.SPAWN_VALIDATION_FAILED,
+    `Worker ownership unavailable for ${row.id} (${row.taskId ?? 'unknown task'}): ${what}.`,
+    {
+      details: { field: 'recordId', recordId: row.id, taskId: row.taskId },
+      fix: `Restore the store from a snapshot taken before ${row.id} was corrupted (cleo backup list, then cleo restore backup --id <backupId> --dry-run); reconcile its Orca Dispatch before spawning ${row.taskId ?? 'the task'} again.`,
+    },
+  );
+}
+
+/**
+ * Whether an attempt is a first start CLEO never sent to Orca.
+ * @remarks Such an attempt owns no Orca request, Task or Dispatch, so it never
+ * holds custody, even when a legacy write left its row open.
+ * @param execution - Stored attempt, if any.
+ * @returns True only for a resource-free `not_launched` first attempt.
+ */
+function isUnlaunchedRefusal(execution: OrcaAttempt | undefined): boolean {
+  return (
+    execution?.startRefusal === 'not_launched' &&
+    execution.state === 'failed' &&
+    execution.resourceState === 'stopped' &&
+    execution.startRequestId === null &&
+    execution.dispatchId === null &&
+    execution.orcaTaskId === null &&
+    execution.retryOf === null &&
+    execution.failureCount === 0
+  );
+}
+
 /** Parse a worker row's metadata; null for any non-worker agent instance. */
 function parseWorkerMetadata(row: AgentInstanceRow): WorkerMetadata | null {
   let meta: Partial<WorkerMetadata>;
@@ -145,14 +181,7 @@ function parseWorkerMetadata(row: AgentInstanceRow): WorkerMetadata | null {
     Object.assign(meta, orcaWorkerSettlementSchema.parse(meta));
   } catch {
     // @sync-invariant none:local-only corrupt custody refuses every reader instead of authorizing another editor
-    throw new CleoError(
-      ExitCode.SPAWN_VALIDATION_FAILED,
-      `Worker record ${row.id} for ${row.taskId ?? 'an unknown task'} has corrupt Orca execution metadata.`,
-      {
-        details: { field: 'recordId', recordId: row.id, taskId: row.taskId },
-        fix: `Restore the store from a snapshot taken before ${row.id} was corrupted (cleo backup list, then cleo restore backup --id <backupId> --dry-run); reconcile its Orca Dispatch before spawning ${row.taskId ?? 'the task'} again.`,
-      },
-    );
+    throw unreadableWorkerError(row, 'corrupt Orca execution metadata');
   }
   return meta as WorkerMetadata;
 }
@@ -363,6 +392,21 @@ function reserveWorkerRow(
       .all()
       .filter((existing) => {
         const meta = parseWorkerMetadata(existing);
+        if (meta && isUnlaunchedRefusal(meta.execution)) {
+          // An unsent start left open by an interrupted legacy write owns nothing: close it here.
+          if (existing.stoppedAt === null)
+            tx.update(tasksAgentInstances)
+              .set({ stoppedAt: now, status: 'stopped' })
+              .where(
+                and(
+                  eq(tasksAgentInstances.id, existing.id),
+                  eq(tasksAgentInstances.metadataJson, existing.metadataJson ?? '{}'),
+                  isNull(tasksAgentInstances.stoppedAt),
+                ),
+              )
+              .run();
+          return false;
+        }
         return (
           existing.stoppedAt === null ||
           (meta !== null && isCurrentOrcaWorker(toWorkerRecord(existing, meta)))
@@ -474,9 +518,16 @@ export async function updateWorkerExecution(
     // @sync-invariant none:local-only stale external custody updates cannot overwrite a newer observation
     throw new Error('Worker execution changed; reload the exact record before recovery.');
   }
+  // A start never sent to Orca is recorded and retired in this one write, so no
+  // interruption can leave it holding custody.
+  const retire = isUnlaunchedRefusal(next) && row.stoppedAt === null;
+  const stoppedAt = retire ? new Date().toISOString() : row.stoppedAt;
   const result = db
     .update(tasksAgentInstances)
-    .set({ metadataJson: JSON.stringify({ ...meta, execution: next }) })
+    .set({
+      metadataJson: JSON.stringify({ ...meta, execution: next }),
+      ...(retire ? { stoppedAt, status: 'stopped' } : {}),
+    })
     .where(
       and(
         eq(tasksAgentInstances.id, record.recordId),
@@ -491,7 +542,7 @@ export async function updateWorkerExecution(
     // @sync-invariant none:local-only only one caller may reserve an external execution mutation
     throw new Error('Worker execution reservation lost; no new operation is authorized.');
   }
-  return toWorkerRecord(row, { ...meta, execution: next });
+  return toWorkerRecord({ ...row, stoppedAt }, { ...meta, execution: next });
 }
 
 /**
@@ -603,21 +654,19 @@ export async function recordWorkerReport(
 }
 
 /**
- * Retire a confirmed pre-dispatch refusal that created no Dispatch: Orca's
- * `agent_unconfigured`, or a first start CLEO never sent (`not_launched`).
+ * Retire a confirmed `agent_unconfigured` refusal that created no Dispatch.
  * @remarks This releases no task, session or filesystem resource and emits no exit hook.
- * @param record - Exact persisted refusal, after recording any unusable route.
+ * @param record - Exact persisted refusal, after recording its unusable route.
  * @param cwd - Owning project root.
  * @returns The archived pre-dispatch attempt, still readable for audit.
  */
-export async function retirePreDispatchOrcaWorker(
+export async function retireUnconfiguredOrcaWorker(
   record: WorkerRecord,
   cwd: string,
 ): Promise<WorkerRecord> {
   const execution = record.execution;
   if (
-    execution?.startRefusal === undefined ||
-    (execution.startRefusal === 'not_launched' && execution.startRequestId !== null) ||
+    execution?.startRefusal !== 'agent_unconfigured' ||
     execution.state !== 'failed' ||
     execution.resourceState !== 'stopped' ||
     execution.dispatchId !== null ||
@@ -683,9 +732,7 @@ export async function findOrcaWorker(taskId: string, cwd: string): Promise<Worke
     if (!meta && row.stoppedAt !== null) continue;
     if (!meta) {
       // @sync-invariant none:local-only unreadable custody for the same task cannot authorize another editor
-      throw new Error(
-        `Worker ownership unavailable for ${row.id}; inspect it before spawning ${taskId}.`,
-      );
+      throw unreadableWorkerError(row, 'unreadable worker ownership metadata');
     }
     const record = toWorkerRecord(row, meta);
     if (isCurrentOrcaWorker(record)) return record;
@@ -696,7 +743,7 @@ export async function findOrcaWorker(taskId: string, cwd: string): Promise<Worke
 /**
  * Whether an Orca assignment still owns its execution mapping, even after physical exit.
  * @param record - Worker record to inspect.
- * @returns False for explicit retirement and legacy retired predecessors.
+ * @returns False for explicit retirement, legacy retired predecessors and starts never sent to Orca.
  * @remarks Physical exit does not authorize a replacement Run or Task.
  * @example
  * ```ts
@@ -705,7 +752,10 @@ export async function findOrcaWorker(taskId: string, cwd: string): Promise<Worke
  */
 export function isCurrentOrcaWorker(record: WorkerRecord): boolean {
   return Boolean(
-    record.execution && !record.retiredAt && (record.stoppedAt === null || record.resourceRelease),
+    record.execution &&
+      !record.retiredAt &&
+      !isUnlaunchedRefusal(record.execution) &&
+      (record.stoppedAt === null || record.resourceRelease),
   );
 }
 
@@ -863,7 +913,7 @@ export async function listWorkerRecords(cwd?: string, strict = false): Promise<W
       (!meta || typeof meta.worktree !== 'string' || !isAbsolute(meta.worktree))
     ) {
       // @sync-invariant none:local-only unreadable local worker ownership forbids worktree cleanup
-      throw new Error(`Worker ownership unavailable for ${row.id}`);
+      throw unreadableWorkerError(row, 'unreadable metadata or a non-absolute worktree path');
     }
     if (meta) records.push(toWorkerRecord(row, meta));
   }

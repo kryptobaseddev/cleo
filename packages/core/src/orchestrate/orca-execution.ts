@@ -38,7 +38,6 @@ import {
   recordWorker,
   recordWorkerReport,
   recordWorkerReportDelivery,
-  retirePreDispatchOrcaWorker,
   settleOrcaWorkerResource,
   updateWorkerExecution,
   type WorkerRecord,
@@ -111,10 +110,9 @@ export async function launchOrcaWorker(
     launch.projectRoot,
   );
   const result = await backend.start(requireExecution(record));
+  // An unsent start is recorded and retired in this same write (updateWorkerExecution).
   const updated = await updateWorkerExecution(record, result, launch.projectRoot);
   if (result.startRefusal !== 'not_launched') return updated;
-  // Nothing reached Orca, so the reservation must not fence later spawns.
-  await retirePreDispatchOrcaWorker(updated, launch.projectRoot);
   // @sync-invariant none:local-only a start never sent to Orca leaves no custody and refuses with its cause
   throw new CleoError(
     ExitCode.SPAWN_VALIDATION_FAILED,

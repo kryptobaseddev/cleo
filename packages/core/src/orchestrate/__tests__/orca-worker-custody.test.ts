@@ -166,9 +166,11 @@ describe('durable Orca execution custody', () => {
     });
     expect(fixtureRunner.mock.calls.some(([, args]) => args[1] === 'worker-start')).toBe(false);
     const [refused] = await listWorkerRecords(env.tempDir);
+    // Recorded and retired in one write: revision 1 already carries stoppedAt.
     expect(refused).toMatchObject({
       stoppedAt: expect.any(String),
       execution: {
+        revision: 1,
         state: 'failed',
         resourceState: 'stopped',
         startRefusal: 'not_launched',
@@ -185,6 +187,74 @@ describe('durable Orca execution custody', () => {
     expect(fixtureRunner.mock.calls.filter(([, args]) => args[1] === 'worker-start')).toHaveLength(
       1,
     );
+  });
+
+  it('never fences a later spawn when an unsent start was left open by an interrupted write (T14486)', async () => {
+    let statusReads = 0;
+    fixtureRunner.mockImplementation(async (...args) => {
+      if (args[1][0] === 'status' && ++statusReads === 2)
+        return { stdout: '', stderr: 'runtime went away', exitCode: 1 };
+      return runOrcaFixture(...args);
+    });
+    await expect(
+      launchOrcaWorker(launch, fixtureContext, new OrcaExecutionBackend(fixtureRunner)),
+    ).rejects.toMatchObject({ code: 63 });
+    const [refused] = await listWorkerRecords(env.tempDir);
+    if (!refused) throw new Error('Missing refused attempt');
+    // Interrupt between recording the refusal and retiring it, as a two-step
+    // writer that crashed in between would have left the row.
+    const db = await getDb(env.tempDir);
+    db.update(tasksAgentInstances)
+      .set({ stoppedAt: null, status: 'active' })
+      .where(eq(tasksAgentInstances.id, refused.recordId))
+      .run();
+    expect((await listWorkerRecords(env.tempDir))[0]).toMatchObject({
+      stoppedAt: null,
+      execution: { startRefusal: 'not_launched' },
+    });
+    expect(await findOrcaWorker('T001', env.tempDir)).toBeNull();
+    const later = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    expect(later.execution).toMatchObject({ state: 'ready', dispatchId: 'ctx_fixture' });
+    const records = await listWorkerRecords(env.tempDir);
+    expect(records.find((record) => record.recordId === refused.recordId)?.stoppedAt).toEqual(
+      expect.any(String),
+    );
+    expect(await findOrcaWorker('T001', env.tempDir)).toMatchObject({ recordId: later.recordId });
+  });
+
+  it('refuses malformed worker metadata JSON with a typed recoverable error on both spawn paths (T14486)', async () => {
+    const record = await launchOrcaWorker(
+      launch,
+      fixtureContext,
+      new OrcaExecutionBackend(fixtureRunner),
+    );
+    const db = await getDb(env.tempDir);
+    db.update(tasksAgentInstances)
+      .set({ metadataJson: '{"kind":"worker","execution":' })
+      .where(eq(tasksAgentInstances.id, record.recordId))
+      .run();
+    await expect(findOrcaWorker('T001', env.tempDir)).rejects.toMatchObject({
+      code: 63,
+      fix: expect.stringContaining('cleo restore backup'),
+    });
+    const { orchestrateSpawn, orchestrateSpawnExecute } = await import('../spawn-ops.js');
+    for (const result of [
+      await orchestrateSpawn('T001', undefined, undefined, env.tempDir),
+      await orchestrateSpawnExecute('T001', undefined, undefined, env.tempDir),
+    ]) {
+      expect(result).toMatchObject({
+        success: false,
+        error: {
+          exitCode: 63,
+          message: expect.stringContaining('Worker ownership unavailable'),
+          fix: expect.stringContaining('cleo restore backup'),
+        },
+      });
+    }
   });
 
   it('refuses corrupt execution metadata with a typed recoverable error on both spawn paths (T14486)', async () => {

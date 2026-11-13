@@ -23,7 +23,7 @@ import { launchOrcaWorker } from './orca-execution.js';
 import {
   listWorkerRecords,
   newWorkerInstanceId,
-  retirePreDispatchOrcaWorker,
+  retireUnconfiguredOrcaWorker,
   type WorkerRecord,
 } from './worker-records.js';
 
@@ -200,6 +200,6 @@ export async function launchRoutedOrcaWorker(
     if (execution.startRefusal !== 'agent_unconfigured') return record;
     refused.add(route.agent);
     // Record the unusable route before retiring custody; a crash between them stays fenced.
-    await retirePreDispatchOrcaWorker(record, prepared.projectRoot);
+    await retireUnconfiguredOrcaWorker(record, prepared.projectRoot);
   }
 }
