@@ -39,14 +39,24 @@ describe('@cleocode/core/paths module identity', () => {
     expect(viaRelative).toBe(viaSpecifier);
   });
 
-  it('a mock of one spelling does not reach importers of the other (both directions)', async () => {
+  // Each case mocks ONE spelling and imports the OTHER unmocked, so the
+  // unmocked module really executes. Either case fails if that module forwards
+  // `getCleoHome` to the mocked one.
+  it('a mock of @cleocode/core/paths does not reach an importer of @cleocode/core/paths.js', async () => {
     vi.resetModules();
-    vi.doMock('@cleocode/core/paths.js', () => ({ getCleoHome: () => '/mocked/paths.js' }));
     vi.doMock('@cleocode/core/paths', () => ({ getCleoHome: () => '/mocked/paths' }));
     const dotJs = await import('@cleocode/core/paths.js');
+    const home = dotJs.getCleoHome();
+    expect(typeof home).toBe('string');
+    expect(home).not.toBe('/mocked/paths');
+  });
+
+  it('a mock of @cleocode/core/paths.js does not reach an importer of @cleocode/core/paths', async () => {
+    vi.resetModules();
+    vi.doMock('@cleocode/core/paths.js', () => ({ getCleoHome: () => '/mocked/paths.js' }));
     const bare = await import('@cleocode/core/paths');
-    expect(dotJs.getCleoHome()).toBe('/mocked/paths.js');
-    expect(bare.getCleoHome()).toBe('/mocked/paths');
-    expect(bare).not.toBe(dotJs);
+    const home = bare.getCleoHome();
+    expect(typeof home).toBe('string');
+    expect(home).not.toBe('/mocked/paths.js');
   });
 });
