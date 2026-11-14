@@ -16,18 +16,16 @@ The technical specs live in `docs/specs/`. This document tells you *what things 
 
 ---
 
-## The Communication Stack
+## Agent Messaging
 
-Everything in CLEO's agent communication follows this stack. Top to bottom:
+CLEO does not run its own message transport. **AgentMBX** is CLEO's messaging layer (D11176): every agent-to-agent message, same project or across machines, goes through the `mbx` mailbox and its daemon, with one inbox and one history. Orca dispatches workers and relays their reports over the same mailbox (D11242).
 
 ```
-CANT        — What agents SAY        (the language)
-Conduit     — HOW messages MOVE      (the phone)
-Transport   — WHAT WIRE carries it   (local/SSE/HTTP)
-SignalDock  — WHO DELIVERS it        (the tower)
-Dispatch    — WHERE it ROUTES        (11 domains)
-LOOM        — WHAT STAGE it's in     (the lifecycle)
-CAAMP       — WHEN events FIRE       (the hooks)
+CANT       — WHAT agents say        (the grammar)
+AgentMBX   — HOW messages move      (the mailbox: send, inbox, read, reply, ack)
+Dispatch   — WHERE work routes      (11 domains, `cleo <command>`)
+LOOM       — WHAT STAGE work is in  (the lifecycle)
+CAAMP      — WHEN events fire       (the hooks)
 ```
 
 ### CANT — The Language Agents Speak
@@ -40,50 +38,12 @@ Collaborative Agent Notation Tongue. When an agent posts:
 
 That's CANT. The `/done` is a directive. `@all` is an address. `T213` is a task reference. `#shipped` is a tag. CANT is the grammar — the rules for how agents talk to each other and to CLEO.
 
-CANT is **not** a transport. It doesn't move messages. It defines what messages look like.
+CANT is **not** a transport. It defines what messages look like; AgentMBX carries them.
 
-### Conduit — The Phone In Your Hand
+### Conduit and SignalDock (legacy)
 
-Conduit is the client-side TypeScript interface that agents use to send and receive messages. It defines `send()`, `onMessage()`, `connect()`, `disconnect()`. It doesn't care *how* messages get delivered — that's the transport's job.
-
-Think of Conduit as the phone. You talk into it. It handles the rest.
-
-**Conduit is NOT a domain.** It doesn't have its own house in the Circle of Eleven. It doesn't create operations. It lives *through* existing domains — `orchestrate` for coordination, `session` for context, `nexus` for cross-project relay. Conduit is the hallway between rooms, not a room itself.
-
-### Transports — The Wires Between Phone and Tower
-
-Transports are the physical delivery mechanism. Conduit picks the best one automatically:
-
-| Transport | How It Works | When It's Used |
-|-----------|-------------|----------------|
-| **LocalTransport** | Reads/writes directly to signaldock.db on disk. No network at all. | Preferred whenever signaldock.db exists. Fully offline. |
-| **SseTransport** | Server-Sent Events for real-time push from the cloud API. Falls back to HTTP if SSE fails. | When online and SSE endpoint is configured. |
-| **HttpTransport** | HTTP polling to api.signaldock.io. | Always available as last resort. |
-
-Priority: **Local > SSE > HTTP**. Local is always preferred because it's fastest, offline-capable, and has zero network dependency.
-
-### SignalDock — The Cell Tower Network
-
-SignalDock is the server-side backend that actually delivers messages. It's the infrastructure — like the postal service or the cell tower network.
-
-SignalDock runs in **dual mode**:
-- **Cloud**: api.signaldock.io — Rust Axum API on Railway, SQLite + Redis + S3
-- **Local**: signaldock.db — SQLite database in your `.cleo/` directory, managed by Diesel ORM
-
-Both use the same schema. Messages written locally are the same format as messages in the cloud. An agent can work fully offline with LocalTransport → signaldock.db, then sync to the cloud later.
-
-**SignalDock is NOT a CLEO system.** CLEO has six systems (below). SignalDock is an ally — essential infrastructure, but not part of CLEO's identity.
-
-### The Full Flow
-
-```
-Your Agent
-  → calls Conduit (TypeScript interface)
-    → Conduit picks a Transport (Local > SSE > HTTP)
-      → Transport talks to SignalDock (local DB or cloud API)
-        → SignalDock delivers to the recipient agent
-          → Recipient's Conduit fires onMessage()
-```
+- **Conduit** is legacy: only a thin client over AgentMBX, with no standalone database or transport of its own.
+- **SignalDock** is deprecated. Its cloud API, `signaldock.db` and the Local/SSE/HTTP transport stack are no longer how CLEO agents talk.
 
 ---
 
@@ -135,11 +95,11 @@ NEXUS is **not** a registry. It uses registries internally, but NEXUS is the *sy
 
 The agent communication protocol. CANT defines how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). It is the grammar of the workshop floor.
 
-CANT is **not** a transport. It defines what messages look like — the Conduit moves them.
+CANT is **not** a transport. It defines what messages look like — AgentMBX moves them.
 
-### CONDUIT — Agent-to-Agent Relay
+### CONDUIT — Agent-to-Agent Relay (legacy)
 
-The live relay path for agent-to-agent messaging. Conduit carries tasking, handoff, status, and result messages using LAFS envelopes and A2A delegation. It uses a 4-shell transport stack: Pi native → conduit.db → signaldock-sdk → future broker.
+Agent-to-agent messages travel over AgentMBX (D11176). Conduit remains only as a thin client over AgentMBX, with no standalone database or transport.
 
 Conduit is **not** a domain. It lives *through* existing domains — `orchestrate` for coordination, `session` for context, `nexus` for cross-project relay.
 
@@ -178,8 +138,7 @@ These support the system but are **not** systems and **not** domains:
 |------|------|----------|
 | **CAAMP** | Hook system — fires events before/after operations | The alarm system |
 | **CANT** | Message grammar — defines what agents say | The language |
-| **SignalDock** | Message delivery — cloud + local backend | The postal service |
-| **Conduit** | Client interface — how agents hold the phone | The phone |
+| **AgentMBX** | Agent messaging — mailbox, delivery and history (D11176) | The post office |
 
 ---
 
@@ -209,10 +168,10 @@ These words are for humans — they make the system feel like a workshop, not a 
 
 ```
 Systems:    TASKS (work) | LOOM (lifecycle) | BRAIN (memory) | NEXUS (network) | CANT (protocol) | CONDUIT (relay)
-Allies:     CAAMP (hooks) | LAFS (envelope format) | SignalDock (delivery) | intelligence (quality)
+Allies:     CAAMP (hooks) | LAFS (envelope format) | AgentMBX (messaging) | intelligence (quality)
 Domains:    tasks | session | memory | check | pipeline | orchestrate | tools | admin | nexus | sticky | intelligence
 Gateways:   query (read) | mutate (write)
-Transports: Local (SQLite) > SSE (push) > HTTP (poll)
+Messaging:  AgentMBX (mbx send / inbox / read / reply / ack)
 Pipeline:   R → C → A → S → D → I → V → T → R → +C
 Verbs:      add show list find update delete archive restore complete start stop
 ```
@@ -308,9 +267,6 @@ The following paths are **deprecated** and MUST NOT be used for new files:
 
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — Formal domain definitions and operation registry
 - `docs/specs/VERB-STANDARDS.md` — Canonical verbs with disambiguation rules
-- `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md` — Transport relay contract
-- `docs/concepts/CLEO-VISION.md` — Six systems and identity
-- `docs/concepts/NEXUS-CORE-ASPECTS.md` — Workshop vocabulary and Circle of Eleven
 - `docs/concepts/CLEO-CANT.md` — Agent communication grammar
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` — Technical flow diagrams
 - `CLEO-ULTRAPLAN.md` — Agent lifecycle and orchestration (supersedes `docs/specs/CLEO-ORCH-PLAN.md`, archived)

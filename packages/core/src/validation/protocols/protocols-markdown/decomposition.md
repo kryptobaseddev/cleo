@@ -46,15 +46,17 @@ This protocol activates when the task involves:
 ### Configurable Limits (profile-driven, overridable per project)
 - **maxSiblings** (default: 0 = unlimited for `llm-agent-first` profile; 7 for `human-cognitive`)
   — Set `hierarchy.maxSiblings` in `.cleo/config.json` to enforce a limit
-- **maxActiveSiblings** (default: 32): Operational concurrency guard — caps the number of `pending|active|blocked` siblings under one parent
+- **maxActiveSiblings** (default: 0 = unlimited with no profile or `llm-agent-first`; 3 for `human-cognitive`): Operational concurrency guard — caps the number of `pending|active|blocked` siblings under one parent
 - **maxDepth** (default: 3): Maximum nesting depth (epic → task → subtask)
 
 ### Enforcement Profiles
 
 | Profile | maxSiblings | maxActiveSiblings | maxDepth |
 |---------|-------------|-------------------|----------|
-| `llm-agent-first` (default) | 0 (unlimited) | 32 | 3 |
+| `llm-agent-first` (default, also used when no profile is set) | 0 (unlimited) | 0 (unlimited) | 3 |
 | `human-cognitive` | 7 | 3 | 3 |
+
+Explicit `hierarchy.maxSiblings` and `hierarchy.maxActiveSiblings` values override the profile presets, including `0` to disable either limit.
 
 Configure via `.cleo/config.json`:
 ```json

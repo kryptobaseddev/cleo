@@ -1,7 +1,7 @@
 ---
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
-version: 3.0.5
+version: 3.1.0
 protocol: decomposition
 adrRefs:
   - ADR-066
@@ -17,14 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.0.5
+  version: 3.1.0
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/decomposition.cant
     - packages/core/src/validation/protocols/protocols-markdown/decomposition.md
   loomStage: decomposition
-  lastReviewed: 2026-11-05
+  lastReviewed: 2026-11-13
   stability: stable
 ---
 
@@ -209,9 +209,11 @@ cleo update T001 --files "additional-context.md"
 | Constraint | Value | Enforcement |
 |------------|-------|-------------|
 | Max depth | 3 | epic (0) → task (1) → subtask (2) |
-| Max active siblings | 8 (default) | `hierarchy.maxActiveSiblings` |
-| Max siblings | unlimited (default) | `hierarchy.maxSiblings=0` |
+| Max active siblings | 0 (unlimited); `human-cognitive`: 3 | `hierarchy.maxActiveSiblings` |
+| Max siblings | 0 (unlimited); `human-cognitive`: 7 | `hierarchy.maxSiblings` |
 | Parent must exist | Validated | `cleo exists {{PARENT_ID}}` |
+
+No profile selects `llm-agent-first` (both sibling caps unlimited). Explicit project caps override the profile, including `0` to disable either limit.
 
 **Validation Before Creation:**
 

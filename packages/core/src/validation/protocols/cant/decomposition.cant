@@ -46,12 +46,13 @@ output:
 #
 # Configurable Limits (profile-driven):
 #   maxSiblings: default 0 (unlimited for llm-agent-first); 7 for human-cognitive
-#   maxActiveSiblings: default 32 (operational concurrency guard)
+#   maxActiveSiblings: default 0 (unlimited with no profile or llm-agent-first); 3 for human-cognitive
 #   maxDepth: default 3 (epic -> task -> subtask)
 #
 # Enforcement Profiles:
-#   llm-agent-first (default): maxSiblings=0, maxActiveSiblings=32, maxDepth=3
+#   llm-agent-first (default, also used when no profile is set): maxSiblings=0, maxActiveSiblings=0, maxDepth=3
 #   human-cognitive: maxSiblings=7, maxActiveSiblings=3, maxDepth=3
+#   Explicit hierarchy.maxSiblings and hierarchy.maxActiveSiblings override presets, including 0 to disable either limit.
 #
 # Requirements (RFC 2119)
 #

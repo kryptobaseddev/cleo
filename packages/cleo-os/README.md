@@ -67,8 +67,7 @@ CleoOS is built on CLEO's five named powers. Each maps to a concrete runtime sys
 | **LAFS** | Standardizes outputs for tools and agents — progressive disclosure protocol |
 
 **CAAMP** is the provisioning ally: it equips the realm with provider configs, skills, and
-injected instructions. See the [CLEO World Map](../../docs/concept/cleo-world-map.md) for
-the full narrative behind each power.
+injected instructions.
 
 ---
 
@@ -396,8 +395,7 @@ CleoOS ships in named waves. Each wave targets a vertical slice of the platform.
 
 ## References
 
-- [CLEO World Map](../../docs/concept/cleo-world-map.md) — the founding myth and system vocabulary
-- [CleoOS Vision](../../docs/concept/cleoos-vision.md) — the long-term vision document
+- ADR-098 (`cleo docs fetch adr-098-retire-the-pi-cleoos-harness`) — retires the Pi/CleoOS harness and this package; supersedes the CleoOS vision
 - [ADR-035](../../.cleo/adrs/ADR-035-pi-v2-v3-harness.md) — Pi as primary harness
 - [ADR-036](../../.cleo/adrs/ADR-036-cleoos-database-topology.md) — database topology
 - [ADR-037](../../.cleo/adrs/ADR-037-conduit-signaldock-separation.md) — conduit/signaldock split
