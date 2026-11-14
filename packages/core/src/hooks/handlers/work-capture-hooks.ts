@@ -194,13 +194,13 @@ export async function handleWorkResponseComplete(
 /**
  * Capture one observation without letting a held `brain` lease hold the
  * command. The entry is spooled to disk (fsync + rename) BEFORE the write, the
- * capture spends at most {@link WORK_CAPTURE_WRITE_BUDGET_MS} reaching the lease, and
- * only a write that settled removes the entry. When the lease stays held, the
- * entry remains and the next capture that reaches the store drains it (in this
- * process, or any later one once this one has exited), so the observation is
- * deferred, never dropped.
+ * capture spends at most {@link WORK_CAPTURE_WRITE_BUDGET_MS} reaching the lease,
+ * and only a written row removes the entry. When the lease stays held or the
+ * write fails, the entry remains and the next capture that reaches the store
+ * drains it (in this process, or any later one once this one has exited), so
+ * the observation is deferred, never dropped.
  *
- * @returns `'deferred'` when the write did not happen within the budget.
+ * @returns `'deferred'` when the row was not written; it stays spooled.
  */
 async function captureObservation(
   projectRoot: string,
@@ -231,9 +231,19 @@ async function captureObservation(
         );
         return undefined;
       }
-      if (entry) rmSync(entry, { force: true });
-      if (isMissingBrainSchemaError(err)) return undefined;
-      throw err;
+      // Any other failure keeps the spooled entry: it is removed only once its
+      // row is written, and the next capture retries it (T14553).
+      if (!entry) {
+        if (isMissingBrainSchemaError(err)) return undefined;
+        throw err;
+      }
+      if (!isMissingBrainSchemaError(err)) {
+        getLogger('work-capture').warn(
+          { err, title: params.title },
+          'Work-capture write failed; observation kept in the spool for retry',
+        );
+      }
+      return 'deferred';
     }
     if (entry) rmSync(entry, { force: true });
     await drainSpool(projectRoot, observeBrain, execution);
@@ -289,8 +299,9 @@ function ownerPid(name: string): number {
  * Write spooled observations that no live writer owns (deferred earlier by this
  * process, or left by one that exited), within what remains of the budget.
  * Each entry is claimed by an atomic rename so two draining processes never
- * write it twice; a claim whose process died is claimed again. An entry whose write fails for a reason other than the
- * deadline is removed, as a direct write's failure would have been.
+ * write it twice; a claim whose process died is claimed again. An entry is
+ * removed only after its row is written: a failed write leaves it for the next
+ * drain, and an unparseable one is set aside as `.<name>.corrupt`, never deleted.
  */
 async function drainSpool(
   projectRoot: string,
@@ -326,21 +337,23 @@ async function drainSpool(
       } catch (err) {
         getLogger('work-capture').warn(
           { err, entry: claimed },
-          'Unreadable work-capture spool entry',
+          'Unreadable work-capture spool entry; set aside',
         );
-        rmSync(claimed, { force: true });
+        renameSync(claimed, join(dir, `.${name}.corrupt`));
         continue;
       }
       try {
         await observeBrain(projectRoot, entry.params, { execution });
       } catch (err) {
-        if (isDeferral(err)) return; // stays spooled, under this pid's claim, for a later drain
+        // Not written: it stays spooled, under this pid's claim, for a later drain.
+        if (isDeferral(err)) return;
         if (!isMissingBrainSchemaError(err)) {
           getLogger('work-capture').warn(
             { err, entry: claimed },
-            'Spooled work-capture write failed',
+            'Spooled work-capture write failed; kept for retry',
           );
         }
+        continue;
       }
       rmSync(claimed, { force: true });
     } finally {

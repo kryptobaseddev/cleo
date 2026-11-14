@@ -136,4 +136,44 @@ describe('T14553 — work capture under a held brain lease', () => {
     expect(await capturedTitles()).toEqual(['Work done: tasks.add', 'Work intent: tasks.add']);
     expect(await spooled()).toEqual([]);
   }, 30_000);
+  it('keeps a spooled observation through a failed write and lands it on retry', async () => {
+    vi.stubEnv('CLEO_BRAIN_CAPTURE_WORK', 'true');
+    const { getBrainDb, getBrainNativeDb } = await import('../../../store/memory-sqlite.js');
+    await getBrainDb(tempDir);
+    const native = getBrainNativeDb(tempDir);
+    if (!native) throw new Error('brain store not open');
+    const capture = (operation: string) =>
+      hooks.dispatch(
+        'ResponseComplete',
+        tempDir,
+        {
+          timestamp: new Date().toISOString(),
+          gateway: 'mutate',
+          domain: 'tasks',
+          operation,
+          success: true,
+        },
+        () => undefined,
+        RESPONSE_HOOK_BUDGET_MS,
+      );
+
+    // A temporary SQLite abort: every observation insert fails.
+    native.exec(
+      "CREATE TRIGGER t14553_abort BEFORE INSERT ON brain_observations BEGIN SELECT RAISE(ABORT, 't14553 abort'); END",
+    );
+    expect((await capture('add')).deferred).toEqual(['work-capture-response-complete']);
+    // The drain of the first entry fails too; neither entry is lost.
+    expect((await capture('update')).deferred).toEqual(['work-capture-response-complete']);
+    expect(await capturedTitles()).toEqual([]);
+    expect(await spooled()).toHaveLength(2);
+
+    native.exec('DROP TRIGGER t14553_abort');
+    expect((await capture('move')).deferred).toEqual([]);
+    expect(await capturedTitles()).toEqual([
+      'Work done: tasks.add',
+      'Work done: tasks.move',
+      'Work done: tasks.update',
+    ]);
+    expect(await spooled()).toEqual([]);
+  }, 30_000);
 });
