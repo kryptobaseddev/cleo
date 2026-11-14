@@ -553,6 +553,45 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   };
   let enclosing = detectEnclosing();
   let nested = enclosing !== null;
+  const pendingId = `${d.pid}-${t0}-waiting`;
+  let waitingReason = 'sampling resource pressure before admission';
+  let queueVisible = true;
+  let saidWaiting = false;
+  let waitingHeartbeat: NodeJS.Timeout | undefined;
+  let waitingNotice: NodeJS.Timeout | undefined;
+  const writeWaiting = (): void => {
+    if (!opts.wait || !queueVisible) return;
+    writeRunJob(
+      {
+        id: pendingId,
+        pid: d.pid,
+        runnerStart: d.start(d.pid),
+        childPid: null,
+        childStart: null,
+        class: opts.cls,
+        command,
+        cwd: opts.cwd,
+        startedAtMs: t0,
+        sessionId: opts.sessionId,
+        pausedAtMs: null,
+        pausable: false,
+        heartbeatAtMs: d.now(),
+        holdsSlot: false,
+        waitingReason,
+      },
+      d.jobsDir,
+    );
+  };
+  const waiting = (reason: string, report = false): void => {
+    if (!opts.wait || !queueVisible) return;
+    const changed = reason !== waitingReason;
+    waitingReason = reason;
+    writeWaiting();
+    if (changed && report) {
+      saidWaiting = true;
+      notice(`waiting: ${reason}`, 'warn');
+    }
+  };
   // Fail open (#1781 review, HIGH): when admission state cannot be written (Codex's
   // workspace-write sandbox, Claude Code's sandboxed Bash, a read-only CLEO home), run the command
   // ungoverned instead of failing a test that would have passed. Only filesystem errors; anything
@@ -599,9 +638,14 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     cleanupWrites = Promise.all([cleanupWrites, pending]).then(() => {});
   };
   let waitingPressure: MemoryPressureReading | null = null;
-  const pressureReporter = memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
-    now: d.now,
-  });
+  const pressureReporter = memoryGateReporter(
+    (line) => {
+      saidWaiting = true;
+      notice(line, 'warn');
+    },
+    `${opts.cls} job`,
+    { now: d.now },
+  );
   const endQueue = (): Promise<RunGovernedResult> =>
     queuedSignal !== null
       ? Promise.resolve(interrupted(queuedSignal))
@@ -620,6 +664,17 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   let admission: RunAdmission;
   let queued = false;
   try {
+    writeWaiting();
+    if (opts.wait) {
+      waitingNotice = setTimeout(() => {
+        if (!saidWaiting) {
+          saidWaiting = true;
+          notice(`waiting: ${waitingReason}`, 'warn');
+        }
+      }, 1_000);
+      waitingHeartbeat = setInterval(writeWaiting, 15_000);
+      waitingHeartbeat.unref();
+    }
     if (queueEnded()) return endQueue();
     const initial = await Promise.race([d.sample(), queueStopped]);
     if (initial === null || queueEnded()) return endQueue();
@@ -637,7 +692,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
           `machine at backoff (${classifyPressure(sample).reason}); a run that is never paused ` +
           `(${neverPause}) starts only below backoff`;
         if (!opts.wait) return deferral(opts, d, reason, MEMORY_GATE_RETRY_AFTER_MS, sample, null);
-        if (!said) notice(`waiting: ${reason}`, 'warn');
+        if (!said) waiting(reason, true);
         said = true;
         await d.sleep(Math.min(opts.queuePollMs ?? 1000, deadline - d.now()), queueAbort.signal);
         if (queueEnded()) return endQueue();
@@ -647,6 +702,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       }
     }
     if (isLedgerClass(opts.cls)) {
+      waiting('sampling memory pressure and acquiring the machine admission ledger');
       // T13133: one budget and one FIFO queue for every heavy run. Nested in an
       // admitted run's process tree (any class), it rides that admission; a
       // memory-pressure wait and, after a minute, the holders are warnings, so
@@ -675,6 +731,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
             memoryPressure: {
               waiting: (reading, waitedMs, remainingMs) => {
                 waitingPressure = reading;
+                waiting(reading.refusalReason ?? `memory pressure ${reading.score}`);
                 pressureReporter.waiting(reading, waitedMs, remainingMs);
               },
               admitted: (waitedMs, score) => {
@@ -682,7 +739,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
                 pressureReporter.admitted(waitedMs, score);
               },
             },
-            notice: (line) => notice(line, 'warn'),
+            notice: (line) => {
+              if (line.startsWith('waiting: ')) waiting(line.slice('waiting: '.length), true);
+              else notice(line, 'warn');
+            },
             // T14066: a waiter stops dead runners' orphaned children on every
             // pass, not only when a run starts, so their charge is freed.
             onPass: () => {
@@ -773,6 +833,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         );
         admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
       } else {
+        waiting(`acquiring the ${opts.cls} governor slot`);
         const tryAcquire = (s: ResourceSample): Promise<AdmissionResult | null> => {
           const pending = admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s)).then((r) => {
             if (queueEnded()) {
@@ -792,6 +853,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         let result = await tryAcquire(sample);
         let rideParent: RunJob | null = null;
         while (result?.deferred && opts.wait && !queueEnded()) {
+          waiting(result.reason, true);
           await d.sleep(Math.min(opts.queuePollMs ?? 1000, deadline - d.now()), queueAbort.signal);
           if (queueEnded()) return endQueue();
           if (enclosing === null && psFailed) {
@@ -853,6 +915,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       return endQueue();
     }
   } finally {
+    queueVisible = false;
+    clearTimeout(waitingNotice);
+    clearInterval(waitingHeartbeat);
+    removeRunJob(pendingId, d.jobsDir);
     clearTimeout(queueTimer);
     // Every admission path, a throw or a nested ride included, drops the queue handler.
     uninstallQueue();
@@ -1121,7 +1187,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       const { decision, reason } = decidePause({
         state,
         self: job,
-        jobs: listRunJobs(d.jobsDir, probesOf(d)),
+        jobs: listRunJobs(d.jobsDir, probesOf(d)).filter((j) => j.waitingReason === undefined),
         nowMs: now,
         pausedAtMs,
         capResumedAtMs,

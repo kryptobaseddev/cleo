@@ -75,6 +75,7 @@ import {
 } from '@cleocode/contracts/resource-governor.js';
 import { getProjectRoot } from '@cleocode/core/paths.js';
 import { describeCharge, planRunFootprint } from '@cleocode/core/resources/admission-ledger.js';
+import { prepareGitPushHook } from '@cleocode/core/resources/hook-footprint.js';
 import {
   isWatchCommand,
   isWholeSuiteTestRun,
@@ -305,6 +306,16 @@ export const runCommand = defineCommand({
     }
     // T14162: an explicit --class is charged its plan until measured, and the
     // project may declare heavy scripts.
+    const pushHook =
+      cls === 'scoped-build'
+        ? prepareGitPushHook(argv, process.cwd(), [
+            process.execPath,
+            ...process.argv.slice(1, 2),
+            'run',
+            ...(args.wait ? ['--wait', '--timeout', String(timeoutMs / 1000)] : []),
+            ...(args.urgent === true ? ['--urgent'] : []),
+          ])
+        : null;
     const plan = planRunFootprint(
       cls,
       argv,
@@ -314,7 +325,11 @@ export const runCommand = defineCommand({
       undefined,
       undefined,
       undefined,
-      { explicitClass: args.class !== undefined, ...projectRootOption() },
+      {
+        explicitClass: args.class !== undefined,
+        separatePushHook: pushHook !== null,
+        ...projectRootOption(),
+      },
     );
     const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey, planBytes } =
       plan;
@@ -338,7 +353,7 @@ export const runCommand = defineCommand({
     let result: RunGovernedResult;
     try {
       result = await runGoverned({
-        argv,
+        argv: pushHook?.argv ?? argv,
         cls,
         cwd: process.cwd(),
         env: { ...process.env, ...overlay },
@@ -358,7 +373,7 @@ export const runCommand = defineCommand({
         ...(planBytes !== undefined ? { planBytes } : {}),
         footprintReason,
         ...(namedFiles !== null ? { scope: 'narrowed' as const } : {}),
-      });
+      }).finally(() => pushHook?.release());
     } catch (err) {
       // A runner error is reported here, not by the CLI's top-level catch,
       // which writes to stdout: under --passthrough that is the child's

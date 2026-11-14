@@ -408,6 +408,8 @@ export interface ScriptPeak extends ScriptFootprint {
 
 /** What else `planRunFootprint` knows about the run (T14162). */
 export interface RunFootprintOptions {
+  /** The push's pre-push hook is wrapped in its own admission (T14555). */
+  readonly separatePushHook?: boolean;
   /**
    * The class was given explicitly (`cleo run --class build`): a script the
    * guess calls light is charged its class plan until a measurement lowers it.
@@ -550,9 +552,8 @@ export function planRunFootprint(
     scope = { size: 'class', reason: `${run?.runner} ${script} hosts a heavy tool (${host})` };
   else if (guess !== null)
     scope = { size: 'class', reason: `--class given; not lowered by the guess that ${guess}` };
-  // T13452: a hooked git push/commit keeps the class plan, because whatever
-  // the hook runs (tests, a build) rides this admission.
-  const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
+  // A hook keeps the class plan unless the push delegates it to its own admission.
+  const probe = scope?.size === 'light' && !options.separatePushHook ? gitHookFor(argv) : null;
   const hook = probe?.hooks.find((h) => hookInstalled(h, probe.globals));
   // T14162: every script run is measured, light ones included, so a peak above
   // its charge is recorded and raises the next run's charge.
@@ -716,6 +717,8 @@ export interface LedgerEntry {
   readonly footprintBytes: number;
   /** `waiting` in the queue, or `admitted` and holding its share. */
   readonly state: 'waiting' | 'admitted';
+  /** Why a pending run waits, attached by the diagnostic run-registry view. */
+  readonly waitingReason?: string;
   /** When it joined the queue (FIFO order). */
   readonly enqueuedAtMs: number;
   /** When it was admitted. */
@@ -2957,9 +2960,13 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       return { admitted: false, refusal: refusal(first.doc, first.reading) };
     }
 
-    // T14098: say at once which rule holds a never-paused run at backoff.
-    const hold = first.reading === null ? neverPauseHold(first.doc, first.mine ?? entry) : null;
-    if (hold !== null) opts.notice?.(`waiting: ${hold}`);
+    let reportedReason: string | null = null;
+    const reportWait = (): void => {
+      const reason = first.reading === null ? refusal(first.doc, first.reading).reason : null;
+      if (reason !== null && reason !== reportedReason) opts.notice?.(`waiting: ${reason}`);
+      reportedReason = reason;
+    };
+    reportWait();
     let lastPassAt = now();
     let lastReportAt = t0;
     let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
@@ -3039,6 +3046,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
           checkQueue();
           return { admitted: true, grant: holdGrant(first.mine, dir, now() - t0, opts) };
         }
+        reportWait();
       }
     }
   };

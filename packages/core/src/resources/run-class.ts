@@ -1813,6 +1813,15 @@ export function gitHookFor(
 ): { hooks: readonly string[]; globals: readonly string[] } | null {
   const git = parseGitInvocation(argv);
   if (!git?.sub) return null;
+  if (git.sub === 'hook' && git.args[0] === 'run') {
+    for (let i = 1; i < git.args.length; i++) {
+      const word = git.args[i];
+      if (word === '--to-stdin' || word === '--jobs' || word === '-j') i++;
+      else if (word !== undefined && !word.startsWith('-'))
+        return { hooks: [word], globals: git.globals };
+    }
+    return null;
+  }
   const all = GIT_HOOKS[git.sub];
   if (all === undefined) return null;
   const noVerify =

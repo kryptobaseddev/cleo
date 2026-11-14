@@ -2437,6 +2437,7 @@ export type {
   MemoryConsumer,
   MemoryConsumers,
   MemoryPressureReading,
+  PreparedGitPushHook,
   ProjectSettingOverride,
   ResourceClass,
   ResourceDeferral,

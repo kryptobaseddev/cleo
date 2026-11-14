@@ -45,7 +45,7 @@ import {
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
 import { MEASURED_MIN_RUNS, readCountedPeak, readMeasuredPeak } from '../hook-footprint.js';
-import { type RunJob, writeRunJob } from '../run-admission.js';
+import { listRunJobs, type RunJob, runAdmissionEntries, writeRunJob } from '../run-admission.js';
 import {
   type GovernedChild,
   governedStdio,
@@ -595,6 +595,90 @@ describe('the hung/overdue watchdog (T13563)', () => {
 describe('T13889 queue deadlines', () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each([
+    ['test-run', 'sample'],
+    ['db-heavy', 'sample'],
+    ['test-run', 'admission'],
+    ['db-heavy', 'admission'],
+  ] as const)('keeps a %s waiter visible during a stalled %s and removes it on interruption (T14555)', async (cls, phase) => {
+    vi.useFakeTimers();
+    const h = harness({});
+    const notices: string[] = [];
+    const pending = (): Promise<never> => new Promise(() => {});
+    const running = runGoverned({
+      ...base(h, { cls, wait: true, timeoutMs: 120_000 }),
+      notice: (line) => notices.push(line),
+      deps: {
+        ...h.deps,
+        now: Date.now,
+        ...(phase === 'sample' ? { sample: pending } : { admit: pending, tryAcquire: pending }),
+      },
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const entries = () =>
+      runAdmissionEntries(
+        [],
+        listRunJobs(join(dir, 'jobs'), {
+          now: Date.now,
+          start: (pid) => `start-${pid}`,
+        }),
+      );
+    expect(entries()).toMatchObject([
+      {
+        label: `run:${cls}`,
+        state: 'waiting',
+        footprintBytes: 0,
+        waitingReason: expect.stringMatching(/sampling|acquiring/),
+      },
+    ]);
+    expect(notices[0]).toMatch(/^waiting: .*\b(sampling|acquiring)\b/);
+    const [pendingJob] = listRunJobs(join(dir, 'jobs'), {
+      now: Date.now,
+      start: (pid) => `start-${pid}`,
+    });
+    if (pendingJob === undefined) throw new Error('missing pending run');
+    writeFileSync(
+      join(dir, 'jobs', `${pendingJob.id}.json`),
+      JSON.stringify({ ...pendingJob, waitingReason: 42 }),
+    );
+    expect(entries()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(entries()).toHaveLength(1);
+    h.forward('SIGTERM');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await running).toMatchObject({ kind: 'interrupted', signal: 'SIGTERM' });
+    expect(entries()).toEqual([]);
+    expect(h.spawned).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('publishes the db governor refusal and clears its waiter after admission (T14555)', async () => {
+    const notices: string[] = [];
+    const h = harness({
+      admissions: ['deny', 'grant'],
+      onSleep: (n, hh) => {
+        if (n === 1) {
+          expect(
+            listRunJobs(join(dir, 'jobs'), {
+              now: () => hh.clock.t,
+              start: (pid) => `start-${pid}`,
+            })[0]?.waitingReason,
+          ).toBe('no slot free');
+          expect(notices).toContain('waiting: no slot free');
+        } else hh.exit(0);
+      },
+    });
+    const result = await runGoverned(
+      base(h, {
+        cls: 'db-heavy',
+        wait: true,
+        notice: (line: string) => notices.push(line),
+      }),
+    );
+    expect(result).toMatchObject({ kind: 'exited', exitCode: 0 });
+    expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
   });
 
   it('bounds explicit repeated db deferrals with a non-divisible poll interval', async () => {

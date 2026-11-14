@@ -5,8 +5,16 @@
  * @task T13921
  */
 
-import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -17,6 +25,7 @@ import {
   MEASURED_MIN_RUNS,
   MEASURED_MIN_SAMPLES,
   MEASURED_WINDOW,
+  prepareGitPushHook,
   readCountedPeak,
   readMeasuredPeak,
   recordRunPeak,
@@ -49,6 +58,77 @@ function repo(name: string, hook?: string): string {
 async function runs(key: string, peak: number, n: number, dir: string): Promise<void> {
   for (let i = 0; i < n; i++) await recordRunPeak(key, peak, MEASURED_MIN_SAMPLES, dir, i);
 }
+
+describe('push hook admission (T14555)', () => {
+  it('separates hook execution, preserving paths, arguments, stdin and a rejecting exit', () => {
+    const project = repo("a quoted ' repository", '#!/bin/sh\nprintf "%s\\n" "$@"\ncat\nexit 12\n');
+    const called = join(root, 'called.json');
+    const runner = join(root, 'runner.cjs');
+    writeFileSync(
+      runner,
+      `const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+fs.writeFileSync(${JSON.stringify(called)}, JSON.stringify(args));
+const at = args.indexOf('--');
+const child = spawnSync(args[at + 1], args.slice(at + 2), { stdio: 'inherit' });
+process.exit(child.status ?? 1);
+`,
+    );
+    const prepared = prepareGitPushHook(['git', '-C', project, 'push'], root, [
+      process.execPath,
+      runner,
+      'run',
+      '--wait',
+    ]);
+    expect(prepared).not.toBeNull();
+    if (prepared === null) throw new Error('expected a wrapped push');
+    const config = prepared.argv.find((word) => word.startsWith('core.hooksPath='));
+    if (config === undefined) throw new Error('expected temporary hooks directory');
+    const temporary = config.slice('core.hooksPath='.length);
+    try {
+      const result = spawnSync(join(temporary, 'pre-push'), ['remote name', 'url with spaces'], {
+        cwd: project,
+        input: 'refs/heads/main abc refs/heads/main def\n',
+        encoding: 'utf8',
+      });
+      expect(result.status).toBe(12);
+      expect(result.stderr).toBe(
+        'remote name\nurl with spaces\nrefs/heads/main abc refs/heads/main def\n',
+      );
+      expect(JSON.parse(readFileSync(called, 'utf8'))).toEqual([
+        'run',
+        '--wait',
+        '--passthrough',
+        '--class',
+        'build',
+        '--',
+        'git',
+        '-c',
+        `core.hooksPath=${join(project, '.git', 'hooks')}`,
+        'hook',
+        'run',
+        expect.stringMatching(/^--to-stdin=/),
+        'pre-push',
+        '--',
+        'remote name',
+        'url with spaces',
+      ]);
+    } finally {
+      prepared.release();
+    }
+    expect(existsSync(temporary)).toBe(false);
+  });
+
+  it('leaves hook-free, skipped and command-running pushes on their existing admission path', () => {
+    const project = repo('plain');
+    expect(prepareGitPushHook(['git', 'push'], project, ['cleo'])).toBeNull();
+    expect(prepareGitPushHook(['git', 'push', '--no-verify'], project, ['cleo'])).toBeNull();
+    expect(
+      prepareGitPushHook(['git', '-c', 'core.sshCommand=custom', 'push'], project, ['cleo']),
+    ).toBeNull();
+  });
+});
 
 describe('hook keys (T13921)', () => {
   it('cover the repository and the hook content: an edit or another repo is a new key', () => {

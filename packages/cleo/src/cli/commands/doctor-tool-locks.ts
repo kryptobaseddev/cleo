@@ -7,6 +7,8 @@
  * killed, its entry stays until admission sees the holder pid and every tool
  * group it started are gone; this command shows the ledger and why a run is
  * waiting. It replaced the per-tool slot listing of gh#1222.
+ * Pending resource samples and governor-slot waits come from the run registry
+ * and reserve no bytes in this diagnostic view.
  *
  * Read-only by default. `--reap` drops entries whose holder is provably gone;
  * `--remove <id>` drops one entry whatever its liveness, for a holder the
@@ -35,7 +37,7 @@ import {
   reapLedger,
   removeLedgerEntry,
 } from '@cleocode/core/resources/admission-ledger.js';
-import { listRunJobs } from '@cleocode/core/resources/run-admission.js';
+import { listRunJobs, runAdmissionEntries } from '@cleocode/core/resources/run-admission.js';
 import { CANONICAL_TOOLS } from '@cleocode/core/tasks/tool-resolver.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
@@ -99,7 +101,7 @@ export const doctorToolLocksCommand = defineCommand({
     const now = Date.now();
     // T13563: the runner's own record carries the measured tree and the watchdog's verdicts.
     const runs = new Map(listRunJobs().map((j) => [j.pid, j]));
-    const entries = readLedger()
+    const entries = runAdmissionEntries(readLedger(), [...runs.values()])
       .filter((e) => requested === null || e.label === `tool:${requested}`)
       .map((e) => {
         const verdict = entryVerdict(e, now);
@@ -108,6 +110,7 @@ export const doctorToolLocksCommand = defineCommand({
           id: e.id,
           label: e.label,
           state: e.state,
+          waitingReason: e.waitingReason ?? null,
           pid: e.pid,
           host: e.host,
           command: e.command,

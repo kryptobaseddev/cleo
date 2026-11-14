@@ -18,6 +18,14 @@
 
 import type { OperationExecutionContext } from './jobs.js';
 
+/** A push whose pre-push hook takes its own admission, plus temporary-hook cleanup. */
+export interface PreparedGitPushHook {
+  /** Git argv with a temporary hooks directory; the original command is otherwise preserved. */
+  readonly argv: readonly string[];
+  /** Remove the temporary directory after Git exits or fails to start. */
+  readonly release: () => void;
+}
+
 /**
  * Governor arbitration mode. Mirrors the writer-lease mode shape
  * (`writer-lease.ts` {@link LeaseMode}).
