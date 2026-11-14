@@ -53,6 +53,7 @@ import {
   composeGateEvidence,
   DECISION_ONLY_RELAXED_GATES,
   decisionOnlyRouteNote,
+  droppedProfileNote,
   isDecisionOnlyImplementation,
   isHardAtom,
   type ParsedAtom,
@@ -875,17 +876,16 @@ export async function validateGateVerify(
           if (decisionOnly && DECISION_ONLY_RELAXED_GATES.includes(targetGate)) continue;
           // T14187: a profiled task with no code change also takes its
           // profile's combinations (a stored document with a note).
-          const missing = checkGateEvidenceMinimumDetailed(
-            targetGate,
-            atoms,
-            evidenceProfileOf(task),
-          );
+          const profile = evidenceProfileOf(task);
+          const missing = checkGateEvidenceMinimumDetailed(targetGate, atoms, profile);
           if (missing) {
             // T12220: name the decision-only route, or what disqualifies it.
             const route = decisionOnlyRouteNote(targetGate, verification.evidence?.implemented);
             // T14193: a gate profile the task's record overrides is named, with the rule.
             const ignored = targetGate === 'implemented' ? ignoredProfileReason(task) : null;
-            const why = [missing.message, route, ignored].filter((part) => part !== null);
+            // T14557: so is a profile these atoms' non-document path set aside.
+            const dropped = droppedProfileNote(task.id, targetGate, profile, atoms);
+            const why = [missing.message, route, ignored, dropped].filter((part) => part !== null);
             return engineError('E_EVIDENCE_INSUFFICIENT', why.join('. '), { fix: missing.hint });
           }
         }
