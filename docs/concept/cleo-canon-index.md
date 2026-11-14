@@ -17,7 +17,7 @@ When canon documents conflict, resolve in this order (higher entry wins):
 5. **System Flow Atlas** — `CLEO-SYSTEM-FLOW-ATLAS.md`. Visual diagrams; mirrors Architecture Guide.
 6. **Design docs** — `docs/design/*`. UI / interaction specs; consume canon, never define it.
 
-Full rationale: `.cleo/adrs/ADR-044-canon-reconciliation.md`.
+Full rationale: `docs/adr/adr-044-canon-reconciliation.md`.
 
 ---
 

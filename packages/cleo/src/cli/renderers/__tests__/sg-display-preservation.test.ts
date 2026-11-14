@@ -24,8 +24,8 @@
  *
  * @task T10333
  * @saga T10326
- * @see .cleo/adrs/ADR-073-above-epic-naming.md §4
- * @see .cleo/adrs/ADR-083-cleo-persona-and-hierarchy-reconciliation.md §2.5
+ * @see docs/adr/adr-073-above-epic-naming.md §4
+ * @see docs/adr/adr-083-cleo-persona-and-hierarchy-reconciliation.md §2.5
  */
 
 import { createAnimateContext } from '@cleocode/animations';

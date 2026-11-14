@@ -1,7 +1,7 @@
 ---
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
-version: 3.1.0
+version: 3.2.0
 protocol: decomposition
 adrRefs:
   - ADR-066
@@ -17,14 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.0
+  version: 3.2.0
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/decomposition.cant
     - packages/core/src/validation/protocols/protocols-markdown/decomposition.md
   loomStage: decomposition
-  lastReviewed: 2026-11-13
+  lastReviewed: 2026-11-14
   stability: stable
 ---
 
@@ -94,7 +94,7 @@ Epic (type: epic, size: large)
 
 ### Tier Sizing & Scope (canonical source: ADR-073 §1.1)
 
-**DO NOT redefine here.** The strict definitions live in `.cleo/adrs/ADR-073-above-epic-naming.md`
+**DO NOT redefine here.** The strict definitions live in `docs/adr/adr-073-above-epic-naming.md`
 §1.1 (tier table) + §1.2 (8 invariants I1–I8) + §1.3 (lifecycle decision table).
 
 Quick reference for decomposition:
@@ -350,7 +350,7 @@ Recommendation: [Your recommendation]
 
 This skill binds to the **decomposition** LOOM lifecycle stage. Governing ADRs:
 
-- [ADR-066 — task taxonomy consolidation](../../../../.cleo/adrs/ADR-066-task-taxonomy-consolidation.md) — defines the Type/Kind/Severity axes the decomposer must populate on every leaf task.
-- [ADR-073 — above-epic naming](../../../../.cleo/adrs/ADR-073-above-epic-naming.md) — defines the Saga/Epic/Task/Subtask hierarchy that decomposition produces.
+- [ADR-066 — task taxonomy consolidation](../../../../docs/adr/adr-066-task-taxonomy-consolidation.md) — defines the Type/Kind/Severity axes the decomposer must populate on every leaf task.
+- [ADR-073 — above-epic naming](../../../../docs/adr/adr-073-above-epic-naming.md) — defines the Saga/Epic/Task/Subtask hierarchy that decomposition produces.
 
 LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).

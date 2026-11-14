@@ -129,7 +129,7 @@ There are two execution paths in the CleoOS runtime:
 | **Path B — Deterministic pipelines** | `executePipeline()` (this package) | Pure-data pipelines with explicit inputs and outputs. Runs synchronously inside the napi binding without LLM involvement. Used for build steps, migration scripts, validation gates. |
 
 There is no third execution engine — the legacy `@cleocode/core/cant`
-WorkflowExecutor was deleted in v2026.4.7 per [ADR-035 §D5](../../.cleo/adrs/ADR-035-pi-v2-v3-harness.md)
+WorkflowExecutor was deleted in v2026.4.7 per [ADR-035 §D5](../../docs/adr/adr-035-pi-v2-v3-harness.md)
 "single engine, cant-bridge.ts as canonical".
 
 ## Testing
@@ -195,7 +195,7 @@ stamped with the released commit.
 - [`crates/cant-core`](../../crates/cant-core) — Rust SSoT (parser, validator, pipeline executor)
 - [`crates/cant-napi`](../../crates/cant-napi) — napi-rs bindings (cdylib)
 - [`packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`](../cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts) — Pi-interactive runtime (Path A)
-- [`.cleo/adrs/ADR-035-pi-v2-v3-harness.md`](../../.cleo/adrs/ADR-035-pi-v2-v3-harness.md) — architecture decisions for the CANT execution model
+- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md) — architecture decisions for the CANT execution model
 
 ## License
 

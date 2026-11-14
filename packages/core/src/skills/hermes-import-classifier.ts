@@ -25,7 +25,7 @@
  *
  * @task T9733
  * @epic T9564
- * @architecture .cleo/adrs/ADR-075-skills-federation-trust-ladder.md
+ * @architecture docs/adr/adr-075-skills-federation-trust-ladder.md
  */
 
 import { addFederationPeer } from './federation-store.js';

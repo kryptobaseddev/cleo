@@ -129,9 +129,9 @@ Any divergence between those two outputs (after subtracting the three cross-cutt
 
 ## See also
 
-- `.cleo/adrs/ADR-070-three-tier-orchestration.md` — three-tier orchestration; LOOM stages map to the wave model
-- `.cleo/adrs/ADR-073-above-epic-naming.md` — Saga/Epic/Task/Subtask hierarchy; LOOM stages run inside an Epic
-- `.cleo/adrs/ADR-053-playbook-runtime.md` — `.cantbook` playbook state machine; LOOM stages are its nodes
-- `.cleo/adrs/ADR-051-programmatic-gate-integrity.md` — evidence atoms that satisfy each stage's completion gate
+- `docs/adr/adr-070-three-tier-orchestration.md` — three-tier orchestration; LOOM stages map to the wave model
+- `docs/adr/adr-073-above-epic-naming.md` — Saga/Epic/Task/Subtask hierarchy; LOOM stages run inside an Epic
+- `docs/adr/adr-053-playbook-runtime.md` — `.cantbook` playbook state machine; LOOM stages are its nodes
+- `docs/adr/adr-051-programmatic-gate-integrity.md` — evidence atoms that satisfy each stage's completion gate
 - `packages/skills/skills/manifest.json` — bindings (`dispatch_matrix.by_protocol`)
 - `packages/skills/skills/_shared/` — shared task-system integration that all skills reuse

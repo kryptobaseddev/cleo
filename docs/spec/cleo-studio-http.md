@@ -503,7 +503,7 @@ the default flips and the legacy shape is retired.
 - `/tmp/task-viz/CRUD-CONTRACT.json`
 - `docs/specs/CLEO-API-AUTHORITY.md`
 - `docs/specs/CLEO-TASKS-API-SPEC.md`
-- `.cleo/adrs/ADR-051-programmatic-gate-integrity.md`
+- `docs/adr/adr-051-programmatic-gate-integrity.md`
 
 ---
 

@@ -6,6 +6,9 @@
  * Single command: ct adr sync (or admin.adr.sync)
  * - Updates architecture_decisions + adr_task_links in SQLite (runtime search)
  *
+ * ADR files are read from the canon ADR home (`docs/adr/`, see `home.ts`;
+ * T14108 retired the `.cleo/adrs/` markdown mirror).
+ *
  * NOTE: `.cleo/adrs/adr-index.jsonl` is FROZEN as of T10165 (Saga T9855). The
  * canonical store for the same metadata is the `attachments` table provenance
  * columns shipped by T10158, reachable via `cleo docs fetch <adr-slug>` and
@@ -23,17 +26,10 @@
  * @task T10165 — adr-index.jsonl write path retired; backfilled into attachments
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { adrTaskLinks, architectureDecisions, tasks } from '../store/tasks-schema.js';
-import { parseAdrFile } from './parse.js';
+import { loadAdrs, resolveAdrRef } from './home.js';
 import type { AdrSyncResult } from './types.js';
-
-/** Extract a bare ADR-NNN id from a frontmatter value like "ADR-006 (§3 ...)" */
-function extractAdrIdFromRef(ref: string): string | null {
-  const m = ref.match(/^(ADR-\d+)/);
-  return m ? m[1]! : null;
-}
 
 /** Parse comma-separated task IDs from a Related Tasks value */
 function parseTaskIds(raw: string): string[] {
@@ -41,36 +37,6 @@ function parseTaskIds(raw: string): string[] {
     .split(',')
     .map((t) => t.trim())
     .filter((t) => /^T\d{1,5}$/.test(t));
-}
-
-/** Collect all ADR .md files recursively (top-level + archive/) */
-function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> {
-  const results: Array<{ file: string; relPath: string }> = [];
-  let entries: import('node:fs').Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      const sub = join(dir, entry.name);
-      let subFiles: string[];
-      try {
-        subFiles = readdirSync(sub);
-      } catch {
-        continue;
-      }
-      for (const f of subFiles) {
-        if (f.endsWith('.md') && /^ADR-\d+/.test(f)) {
-          results.push({ file: f, relPath: `${entry.name}/${f}` });
-        }
-      }
-    } else if (entry.name.endsWith('.md') && /^ADR-\d+/.test(entry.name)) {
-      results.push({ file: entry.name, relPath: entry.name });
-    }
-  }
-  return results.sort((a, b) => a.file.localeCompare(b.file));
 }
 
 /**
@@ -82,10 +48,9 @@ function collectAdrFiles(dir: string): Array<{ file: string; relPath: string }> 
  */
 // SSoT-EXEMPT: zero-params op — no Params contract needed; ADR-057 D1 applies to parameterized ops only
 export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> {
-  const adrsDir = join(projectRoot, '.cleo', 'adrs');
   const result: AdrSyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], warnings: [] };
-
-  if (!existsSync(adrsDir)) {
+  const adrs = loadAdrs(projectRoot);
+  if (adrs.length === 0) {
     return result;
   }
 
@@ -94,28 +59,23 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 
-  // Only sync top-level files to DB (archive/ ADRs are superseded).
-  // T10165 — the previous code also collected archive/ files to feed the
-  // JSONL export; the export is now retired so we scan top-level only.
-  const activeFiles = collectAdrFiles(adrsDir).filter((f) => !f.relPath.includes('/'));
-
   // T10165 — JSONL export retired. The legacy `manifestEntries` collector
   // and the `writeFileSync(adr-index.jsonl)` call that lived here are gone;
   // canonical store for the same metadata is the `attachments` table
   // populated by `packages/core/src/migration/manual/T10165-backfill-adr-index.ts`.
 
   // --- DB sync (active ADRs only) ---
-  for (const { file, relPath } of activeFiles) {
+  // Ids are unique across the ADR home (loadAdrs), so ADRs sharing a number
+  // never overwrite each other's row or links (T14108).
+  for (const { file: adrFile, record } of adrs) {
+    const { name: file, absPath: filePath, relPath: dbRelPath } = adrFile;
     try {
-      const filePath = join(adrsDir, relPath);
-      const record = parseAdrFile(filePath, projectRoot);
       const fm = record.frontmatter;
-      const dbRelPath = `.cleo/adrs/${relPath}`;
       const content = readFileSync(filePath, 'utf-8');
 
-      let supersedesId = fm.Supersedes ? extractAdrIdFromRef(fm.Supersedes) : null;
-      let supersededById = fm['Superseded By'] ? extractAdrIdFromRef(fm['Superseded By']) : null;
-      let amendsId = fm.Amends ? extractAdrIdFromRef(fm.Amends) : null;
+      let supersedesId = fm.Supersedes ? resolveAdrRef(fm.Supersedes, adrs) : null;
+      let supersededById = fm['Superseded By'] ? resolveAdrRef(fm['Superseded By'], adrs) : null;
+      let amendsId = fm.Amends ? resolveAdrRef(fm.Amends, adrs) : null;
 
       // Validate FK references exist before insert/update to avoid constraint violations
       if (supersedesId) {

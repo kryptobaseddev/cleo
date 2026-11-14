@@ -671,7 +671,7 @@ All 5 operations are tier 1. This domain was introduced in T549 (epic T5149) and
 
 ### Summary Counts
 
-> **Canon rule (ADR-044, v2026.4.65)**: The operation count is a **living variable**. The numbers in this section reflect a point-in-time snapshot; `packages/cleo/src/dispatch/registry.ts` is the authoritative source. Future canon writers MUST NOT hard-code a count without anchoring it to a version or date. Drift on the count alone is NOT a drift incident; drift on structure (domain list, system list, taxonomy) IS. See `.cleo/adrs/ADR-044-canon-reconciliation.md`.
+> **Canon rule (ADR-044, v2026.4.65)**: The operation count is a **living variable**. The numbers in this section reflect a point-in-time snapshot; `packages/cleo/src/dispatch/registry.ts` is the authoritative source. Future canon writers MUST NOT hard-code a count without anchoring it to a version or date. Drift on the count alone is NOT a drift incident; drift on structure (domain list, system list, taxonomy) IS. See `docs/adr/adr-044-canon-reconciliation.md`.
 
 > **T565 update (v2026.4.42)**: `intelligence` domain added as the 11th canonical domain with 5 query-only operations. 7 experimental operations (`orchestrate.conduit.*` ×5, `admin.map` ×2) remain excluded from this count pending CLI surface and workflow documentation. Registry total is 248 (as of v2026.4.42); constitutional canonical total is 229; 7 experimental ops remain undocumented by design. Current registry count continues to move — run `grep -c "gateway:" packages/cleo/src/dispatch/registry.ts` for the live number.
 
@@ -1040,7 +1040,7 @@ Quick reference for agents and code calling removed operations.
 - `docs/specs/VERB-STANDARDS.md` -- Canonical verb standards
 - `docs/specs/CLEO-OPERATIONS-REFERENCE.md` -- CLI operations reference
 - `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` -- Visual architecture guide
-- `.cleo/adrs/ADR-030-operation-model-rationalization.md` -- Rationalization ADR (T5611)
+- `docs/adr/adr-030-operation-model-rationalization.md` -- Rationalization ADR (T5611)
 - `.cleo/agent-outputs/CLEO-OPERATIONS-CONSOLIDATION-DECISION.md` -- Full decision matrix (T5609)
 - `.cleo/agent-outputs/T5608-tier-audit.md` -- Tier assignment audit
 
@@ -1527,7 +1527,7 @@ never authoritative on op contracts.
 
 ### Superseded
 
-- `.cleo/adrs/ADR-042-cli-system-integrity-conduit-alignment.md` — **SUPERSEDED-BY
+- `docs/adr/adr-042-cli-system-integrity-conduit-alignment.md` — **SUPERSEDED-BY
   T962 / T964** (v2026.4.97). Decision 1 (fold `conduit` under `orchestrate` to
   preserve a 10-domain invariant) was a rule-enforcement patch, not a
   semantic decision. The invariant had already lapsed (count reached 14 with
@@ -1612,8 +1612,8 @@ Before marking API work complete:
 - `docs/specs/SCHEMA-AUTHORITY.md` — companion, storage-layer authority
 - `docs/specs/VERB-STANDARDS.md` — verb canonicalisation (ADR-017)
 - `docs/guide/cleo-documentation-sop.md` — docs organisation and naming rule
-- `.cleo/adrs/ADR-042-cli-system-integrity-conduit-alignment.md` (SUPERSEDED)
-- `.cleo/adrs/ADR-051-programmatic-gate-integrity.md`
+- `docs/adr/adr-042-cli-system-integrity-conduit-alignment.md` (SUPERSEDED)
+- `docs/adr/adr-051-programmatic-gate-integrity.md`
 - `docs/adr/ADR-052-sdk-consolidation.md`
 - `docs/adr/ADR-053-playbook-runtime.md`
 - T910 evidence base: `.cleo/agent-outputs/T910-reconciliation/`

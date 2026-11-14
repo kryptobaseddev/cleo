@@ -23,7 +23,7 @@
  * @task T9673
  * @epic T9572
  * @see packages/cleo/src/cli/commands/telemetry.ts
- * @see .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
+ * @see docs/adr/adr-074-skills-telemetry-pr-diff-transport.md
  */
 
 import { randomUUID } from 'node:crypto';

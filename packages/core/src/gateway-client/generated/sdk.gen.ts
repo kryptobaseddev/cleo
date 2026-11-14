@@ -2385,7 +2385,7 @@ export const queryAdminAdrShow = <ThrowOnError extends boolean = false>(options:
 });
 
 /**
- * admin.adr.sync (mutate) — sync .cleo/adrs/ markdown files into architecture_decisions DB table; absorbs adr.validate via validate flag
+ * admin.adr.sync (mutate) — sync docs/adr/ markdown files into architecture_decisions DB table; absorbs adr.validate via validate flag
  */
 export const mutateAdminAdrSync = <ThrowOnError extends boolean = false>(options?: Options<MutateAdminAdrSyncData, ThrowOnError>): RequestResult<MutateAdminAdrSyncResponses, unknown, ThrowOnError> => (options?.client ?? client).post<MutateAdminAdrSyncResponses, unknown, ThrowOnError>({ url: '/v1/admin/adr.sync', ...options });
 

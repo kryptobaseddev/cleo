@@ -210,9 +210,9 @@ For ad-hoc outputs (non-lifecycle agent work):
 
 ## 6. Related Documents
 
-- [ADR-045: .cleo/ Scaffolding SSoT](../../.cleo/adrs/ADR-045-cleo-scaffolding-ssot.md)
-- [ADR-014: RCASD Rename and Protocol Output Validation](../../.cleo/adrs/ADR-014-rcasd-rename-and-protocol-validation.md)
-- [ADR-013: Data Integrity and Checkpoint Architecture](../../.cleo/adrs/ADR-013-data-integrity-checkpoint-architecture.md)
+- [ADR-045: .cleo/ Scaffolding SSoT](../../docs/adr/adr-045-cleo-scaffolding-ssot.md)
+- [ADR-014: RCASD Rename and Protocol Output Validation](../../docs/adr/adr-014-rcasd-rename-and-protocol-validation.md)
+- [ADR-013: Data Integrity and Checkpoint Architecture](../../docs/adr/adr-013-data-integrity-checkpoint-architecture.md)
 - [cleo-documentation-sop.md](../guide/cleo-documentation-sop.md) — documentation canonical layout
 - `packages/core/src/lifecycle/rcasd-paths.ts` — canonical path helper functions
 - `packages/core/src/lifecycle/stage-artifacts.ts` — stage artifact scaffolding

@@ -125,19 +125,19 @@ const REGISTRY_SOURCES = [
 const ADR_DECLARATION_PATTERNS = [
   {
     adr: 'ADR-073',
-    file: '.cleo/adrs/ADR-073-above-epic-naming.md',
+    file: 'docs/adr/adr-073-above-epic-naming.md',
     // `**I3 — Tier promotion ...`
     pattern: /^\*\*(I[0-9]+)\s*[—-]/gm,
   },
   {
     adr: 'ADR-070',
-    file: '.cleo/adrs/ADR-070-three-tier-orchestration.md',
+    file: 'docs/adr/adr-070-three-tier-orchestration.md',
     // `| ORC-001  | Orchestrator ...`
     pattern: /^\|\s*(ORC-[0-9]+)\s*\|/gm,
   },
   {
     adr: 'ADR-056',
-    file: '.cleo/adrs/ADR-056-db-ssot-and-release-completion-invariant.md',
+    file: 'docs/adr/adr-056-db-ssot-and-release-completion-invariant.md',
     // `### D1 — Database topology ...`
     pattern: /^###\s+(D[0-9]+)\s*[—-]/gm,
   },

@@ -140,11 +140,11 @@ function formatTests(tests) {
 function adrSourcePath(adr) {
   switch (adr) {
     case 'ADR-073':
-      return '.cleo/adrs/ADR-073-above-epic-naming.md';
+      return 'docs/adr/adr-073-above-epic-naming.md';
     case 'ADR-070':
-      return '.cleo/adrs/ADR-070-three-tier-orchestration.md';
+      return 'docs/adr/adr-070-three-tier-orchestration.md';
     case 'ADR-056':
-      return '.cleo/adrs/ADR-056-db-ssot-and-release-completion-invariant.md';
+      return 'docs/adr/adr-056-db-ssot-and-release-completion-invariant.md';
     default:
       return `.cleo/adrs/${adr}.md`;
   }

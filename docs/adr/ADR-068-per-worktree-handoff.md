@@ -1,6 +1,7 @@
 # ADR-068: Per-Worktree Handoff Schema
 
-**Status**: Proposed  
+**Status**: superseded
+**Superseded By**: D11210; T14108 docs census 2026-11-14: handoffs are store-only docs (D11210); never accepted
 **Date**: 2026-05-12  
 **Task**: T1902 (BBTT-W5-1)  
 **Authors**: worker-c (BBTT Phase 3)

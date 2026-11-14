@@ -26,7 +26,7 @@
  *
  * @task T9666
  * @epic T9572
- * @see .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
+ * @see docs/adr/adr-074-skills-telemetry-pr-diff-transport.md
  * @see docs/concept/skills-architecture.md §5
  */
 

@@ -82,7 +82,7 @@
  * @see packages/core/src/sagas/enforcement.ts — isSagaShape (canonical predicate)
  * @see packages/core/src/sagas/is-saga-type.ts — isSagaType (type-axis predicate)
  * @see .cleo/adrs/ADR-083-cleo-persona-and-three-role-canon.md §2.5
- * @see .cleo/adrs/ADR-073-above-epic-naming.md §1.2 (invariant I3)
+ * @see docs/adr/adr-073-above-epic-naming.md §1.2 (invariant I3)
  */
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';

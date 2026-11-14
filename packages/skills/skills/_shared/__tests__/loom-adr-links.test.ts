@@ -5,7 +5,8 @@
  * `packages/skills/skills/manifest.json`:
  *
  *   1. The skill entry declares a non-empty `adrRefs[]` array of ADR IDs.
- *   2. Every ADR id in the array resolves to a real file under `.cleo/adrs/`.
+ *   2. Every ADR id in the array resolves to a real file under `docs/adr/`
+ *      (the ADR mirror; `.cleo/adrs/` was retired in T14108).
  *
  * The mapping of (stage -> required adrRefs minimum) is the authoritative
  * source-of-truth defined in `docs/reference/loom-coverage-matrix.md` under
@@ -26,7 +27,7 @@ import { describe, expect, it } from 'vitest';
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const manifestPath = resolve(thisDir, '../../manifest.json');
-const adrDir = resolve(thisDir, '../../../../../.cleo/adrs');
+const adrDir = resolve(thisDir, '../../../../../docs/adr');
 
 interface SkillEntry {
   name: string;
@@ -76,15 +77,15 @@ const REQUIRED_ADR_REFS: Record<(typeof CANONICAL_LOOM_STAGES)[number], string[]
 };
 
 /**
- * Build a set of ADR-id prefixes from .cleo/adrs/. Each filename starts
- * with `ADR-NNN-...`; we extract the prefix before the second dash.
+ * Build a set of ADR-id prefixes from docs/adr/. Each filename starts
+ * with `adr-NNN-...` or `ADR-NNN-...`; we extract `ADR-NNN`.
  */
 function loadAdrIdSet(): Set<string> {
   const files = readdirSync(adrDir);
   const ids = new Set<string>();
   for (const file of files) {
-    const match = file.match(/^(ADR-\d{3})-/);
-    if (match) ids.add(match[1]);
+    const match = file.match(/^adr-(\d{3})-/i);
+    if (match) ids.add(`ADR-${match[1]}`);
   }
   return ids;
 }
@@ -123,12 +124,12 @@ describe('LOOM ADR links — adrRefs[] declared on every LOOM-stage skill', () =
 });
 
 // ---------------------------------------------------------------------------
-// Gate 2: every adrRef resolves to a real file under .cleo/adrs/
+// Gate 2: every adrRef resolves to a real file under docs/adr/
 // ---------------------------------------------------------------------------
 
-describe('LOOM ADR links — every adrRefs entry resolves to .cleo/adrs/<id>-*.md', () => {
-  it('.cleo/adrs/ exists and was loaded', () => {
-    expect(existsSync(adrDir), `.cleo/adrs/ not found at ${adrDir}`).toBe(true);
+describe('LOOM ADR links — every adrRefs entry resolves to docs/adr/<id>-*.md', () => {
+  it('docs/adr/ exists and was loaded', () => {
+    expect(existsSync(adrDir), `docs/adr/ not found at ${adrDir}`).toBe(true);
     expect(adrIds.size).toBeGreaterThan(0);
   });
 
@@ -139,7 +140,7 @@ describe('LOOM ADR links — every adrRefs entry resolves to .cleo/adrs/<id>-*.m
       it(`stage "${stage}" skill ${skill?.name} references real ADR file "${ref}"`, () => {
         expect(
           adrIds.has(ref),
-          `${ref} not found under .cleo/adrs/ — known prefixes: ${[...adrIds].sort().join(', ')}`,
+          `${ref} not found under docs/adr/ — known prefixes: ${[...adrIds].sort().join(', ')}`,
         ).toBe(true);
       });
     }

@@ -196,6 +196,27 @@ describe('T10165 backfillAdrIndex end-to-end', () => {
     expect(second.updated).toBe(0);
   });
 
+  it('reads an index row whose .cleo/adrs file moved to docs/adr (T14108)', async () => {
+    const projectRoot = makeProject(
+      [
+        JSON.stringify({
+          id: 'ADR-098',
+          file: '.cleo/adrs/ADR-098-moved.md',
+          title: 'ADR-098',
+          status: 'accepted',
+        }),
+      ],
+      {},
+    );
+    mkdirSync(join(projectRoot, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(projectRoot, 'docs', 'adr', 'adr-098-moved.md'), '# ADR-098\n', 'utf-8');
+
+    const result = await backfillAdrIndex(projectRoot, { dryRun: false });
+    expect(result.fileMissing).toBe(0);
+    expect(result.inserted).toBe(1);
+    expect(result.warnings.some((w) => w.includes('docs/adr/adr-098-moved.md'))).toBe(true);
+  });
+
   it('flags missing files as warnings without crashing', async () => {
     const projectRoot = makeProject(
       [

@@ -4,26 +4,26 @@
  * Retrieves a single ADR record by ID.
  *
  * @task T4792
+ * @task T14108 — reads the canon ADR home instead of `.cleo/adrs/`
  */
 
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { AdminAdrShowParams } from '@cleocode/contracts';
-import { parseAdrFile } from './parse.js';
+import { loadAdrs } from './home.js';
 import type { AdrRecord } from './types.js';
 
-/** Retrieve a single ADR by ID (e.g., 'ADR-007') */
+/**
+ * Retrieve a single ADR, case-insensitively, by its id (`ADR-007` resolves to
+ * the preferred ADR of that number, see `loadAdrs`), by its slug, or by a
+ * file-name prefix.
+ */
 export async function showAdr(
   projectRoot: string,
   params: AdminAdrShowParams,
 ): Promise<AdrRecord | null> {
-  const adrsDir = join(projectRoot, '.cleo', 'adrs');
-
-  if (!existsSync(adrsDir)) return null;
-
-  const files = readdirSync(adrsDir).filter((f) => f.startsWith(params.adrId) && f.endsWith('.md'));
-  if (files.length === 0) return null;
-
-  const filePath = join(adrsDir, files[0]!);
-  return parseAdrFile(filePath, projectRoot);
+  const wanted = params.adrId.toLowerCase();
+  const adrs = loadAdrs(projectRoot);
+  const match =
+    adrs.find((adr) => adr.record.id.toLowerCase() === wanted || adr.slug === wanted) ??
+    adrs.find((adr) => adr.file.name.toLowerCase().startsWith(wanted));
+  return match?.record ?? null;
 }

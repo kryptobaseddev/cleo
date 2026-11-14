@@ -35,7 +35,7 @@
  *   Join performed in Node (SQLite cannot cross-file-handle JOIN).
  *
  * @see .cleo/rcasd/T310/specification/T310-specification.md §3.5
- * @see .cleo/adrs/ADR-037-conduit-signaldock-separation.md
+ * @see docs/adr/adr-037-conduit-signaldock-separation.md
  * @task T355
  * @task T11562
  * @task T11622

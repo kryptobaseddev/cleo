@@ -252,7 +252,7 @@ host, trailing slash) is enforced on write.
 
 - [Migrating from Hermes Agent](../migration/hermes-to-cleo.md) — full
   migration walkthrough.
-- [ADR-075](../../.cleo/adrs/ADR-075-skills-federation-trust-ladder.md) —
+- [ADR-075](../../docs/adr/adr-075-skills-federation-trust-ladder.md) —
   trust-ladder design + the complete 120-pattern threat table by category.
 - `skills-guard` source — `packages/core/src/skills/skills-guard.ts`
 - `federated-search` source — `packages/core/src/skills/federated-search.ts`

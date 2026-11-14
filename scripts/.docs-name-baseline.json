@@ -1,6 +1,5 @@
 {
   "files": [
-    "docs/adr/068-amendment-3-1-worktree-cli-routing.md",
     "docs/adr/ADR-068-per-worktree-handoff.md",
     "docs/adr/ADR-072-nexus-db-split.md",
     "docs/adr/ADR-076-canonical-docs-ssot.md",

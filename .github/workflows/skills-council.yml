@@ -19,7 +19,7 @@ name: Skills Council (Owner CI)
 #             top-N consumer that runs as a step inside this workflow).
 #   - Writes: docs/skills/council-reports/<canonicalSkillName>.md per skill.
 #
-# See: .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
+# See: docs/adr/adr-074-skills-telemetry-pr-diff-transport.md
 # See: docs/guide/skills-pipeline.md (T9679)
 # See: docs/concept/skills-architecture.md §5
 

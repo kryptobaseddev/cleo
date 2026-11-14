@@ -396,9 +396,9 @@ CleoOS ships in named waves. Each wave targets a vertical slice of the platform.
 ## References
 
 - ADR-098 (`cleo docs fetch adr-098-retire-the-pi-cleoos-harness`) — retires the Pi/CleoOS harness and this package; supersedes the CleoOS vision
-- [ADR-035](../../.cleo/adrs/ADR-035-pi-v2-v3-harness.md) — Pi as primary harness
-- [ADR-036](../../.cleo/adrs/ADR-036-cleoos-database-topology.md) — database topology
-- [ADR-037](../../.cleo/adrs/ADR-037-conduit-signaldock-separation.md) — conduit/signaldock split
+- [ADR-035](../../docs/adr/adr-035-pi-v2-v3-harness.md) — Pi as primary harness
+- [ADR-036](../../docs/adr/adr-036-cleoos-database-topology.md) — database topology
+- [ADR-037](../../docs/adr/adr-037-conduit-signaldock-separation.md) — conduit/signaldock split
 - [Pi Coding Agent](https://github.com/mariozechner/pi) — the upstream agent CleoOS wraps
 
 ---

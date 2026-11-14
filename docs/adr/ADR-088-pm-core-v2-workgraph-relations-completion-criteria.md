@@ -2,7 +2,8 @@
 id: adr-pm-core-v2-workgraph-relations-completion
 tasks: [T10549]
 kind: adr
-status: Draft
+status: accepted
+accepted: "2026-11-14"
 date: 2026-05-25
 saga: T10538 (SG-PM-CORE-V2)
 epic: T10539

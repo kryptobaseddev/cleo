@@ -57,7 +57,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'adrCommand',
     name: 'adr',
-    description: 'Manage and validate Architecture Decision Records in .cleo/adrs/',
+    description: 'Manage and validate Architecture Decision Records in docs/adr/',
     load: async () => (await import('../commands/adr.js')).adrCommand as CommandDef,
   },
   {

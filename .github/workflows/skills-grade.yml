@@ -17,7 +17,7 @@ name: Skills Grade (Owner CI)
 #             docs/skills/telemetry-aggregate.json (optional ranking input)
 #   - Writes: docs/skills/grade-reports/<canonicalSkillName>.md per skill.
 #
-# See: .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
+# See: docs/adr/adr-074-skills-telemetry-pr-diff-transport.md
 # See: docs/guide/skills-pipeline.md (T9679)
 
 on:

@@ -38,7 +38,7 @@ on:
       - 'vitest.memory-safe.ts'
       - 'vitest.repo-guards.ts'
       - 'build.mjs'
-      - '.cleo/adrs/**'
+      - 'docs/adr/**'
       - '.cleo/cant/**'
       - '.cleo/deprecations*'
       - 'scripts/__tests__/release-run.test.mjs'

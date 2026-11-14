@@ -6,7 +6,7 @@
  *   cleo event tail     — stream events from the agent event log
  *
  * @see packages/core/src/events/event-bus.ts
- * @see .cleo/adrs/ADR-071-cleo-observability-event-bus.md
+ * @see docs/adr/adr-071-cleo-observability-event-bus.md
  * @task T1651
  * @task T1652
  */

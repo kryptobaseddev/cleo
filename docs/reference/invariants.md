@@ -17,14 +17,14 @@ This page catalogues every numbered invariant the CLEO system relies on. It is *
 
 | ADR | Entries | Source module |
 | --- | --- | --- |
-| [`ADR-073`](.cleo/adrs/ADR-073-above-epic-naming.md) | 8 | `packages/contracts/src/invariants/adr-073-saga.ts` |
-| [`ADR-056`](.cleo/adrs/ADR-056-db-ssot-and-release-completion-invariant.md) | 6 | `packages/contracts/src/invariants/adr-056-release.ts` |
-| [`ADR-070`](.cleo/adrs/ADR-070-three-tier-orchestration.md) | 14 | `packages/contracts/src/invariants/adr-070-orchestration.ts` |
+| [`ADR-073`](docs/adr/adr-073-above-epic-naming.md) | 8 | `packages/contracts/src/invariants/adr-073-saga.ts` |
+| [`ADR-056`](docs/adr/adr-056-db-ssot-and-release-completion-invariant.md) | 6 | `packages/contracts/src/invariants/adr-056-release.ts` |
+| [`ADR-070`](docs/adr/adr-070-three-tier-orchestration.md) | 14 | `packages/contracts/src/invariants/adr-070-orchestration.ts` |
 | **Total** | **28** | — |
 
 ## ADR-073
 
-Source ADR: [`.cleo/adrs/ADR-073-above-epic-naming.md`](../../.cleo/adrs/ADR-073-above-epic-naming.md)
+Source ADR: [`docs/adr/adr-073-above-epic-naming.md`](../../docs/adr/adr-073-above-epic-naming.md)
 
 Registry module: `packages/contracts/src/invariants/adr-073-saga.ts`
 
@@ -41,7 +41,7 @@ Registry module: `packages/contracts/src/invariants/adr-073-saga.ts`
 
 ## ADR-056
 
-Source ADR: [`.cleo/adrs/ADR-056-db-ssot-and-release-completion-invariant.md`](../../.cleo/adrs/ADR-056-db-ssot-and-release-completion-invariant.md)
+Source ADR: [`docs/adr/adr-056-db-ssot-and-release-completion-invariant.md`](../../docs/adr/adr-056-db-ssot-and-release-completion-invariant.md)
 
 Registry module: `packages/contracts/src/invariants/adr-056-release.ts`
 
@@ -56,7 +56,7 @@ Registry module: `packages/contracts/src/invariants/adr-056-release.ts`
 
 ## ADR-070
 
-Source ADR: [`.cleo/adrs/ADR-070-three-tier-orchestration.md`](../../.cleo/adrs/ADR-070-three-tier-orchestration.md)
+Source ADR: [`docs/adr/adr-070-three-tier-orchestration.md`](../../docs/adr/adr-070-three-tier-orchestration.md)
 
 Registry module: `packages/contracts/src/invariants/adr-070-orchestration.ts`
 

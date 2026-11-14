@@ -6,7 +6,7 @@
 
 This doc is the **operator-facing** privacy summary for the skills owner-CI
 pipeline. It complements the technical contract in
-[ADR-074](../../.cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md)
+[ADR-074](../../docs/adr/adr-074-skills-telemetry-pr-diff-transport.md)
 and the architecture in
 [`docs/architecture/SG-CLEO-SKILLS-architecture-v3.md`](../concept/skills-architecture.md).
 
@@ -112,7 +112,7 @@ We picked the scrubbed-PR-diff transport over an HTTPS endpoint for five reasons
 | Fork-friendly | needs new endpoint | inherits unchanged |
 
 The full rationale (including the locked anti-patterns) is in
-[ADR-074 §3](../../.cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md).
+[ADR-074 §3](../../docs/adr/adr-074-skills-telemetry-pr-diff-transport.md).
 
 ---
 
@@ -124,7 +124,7 @@ The full rationale (including the locked anti-patterns) is in
 | `.github/workflows/skills-grade.yml` | Monday 07:00 UTC grade cron, owner-CI only | T9667 |
 | `packages/cleo/src/cli/commands/telemetry.ts` | `cleo telemetry enable/disable/status` | T9666 |
 | `packages/core/src/setup/sections/telemetry.ts` | Default-on wizard step | T9673 |
-| `.cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md` | Transport ADR + schema lock | T9674 |
+| `docs/adr/adr-074-skills-telemetry-pr-diff-transport.md` | Transport ADR + schema lock | T9674 |
 | `scripts/skills/select-top-n.mjs` | Top-N consumer used by council cron | T9678 |
 | `docs/owner-ci/skills-pipeline.md` | This doc | T9679 |
 | `docs/skills/telemetry-aggregate.json` | Aggregate sink (created by first operator PR) | — |

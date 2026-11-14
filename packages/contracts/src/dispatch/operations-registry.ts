@@ -5726,7 +5726,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'admin',
     operation: 'adr.sync',
     description:
-      'admin.adr.sync (mutate) — sync .cleo/adrs/ markdown files into architecture_decisions DB table; absorbs adr.validate via validate flag',
+      'admin.adr.sync (mutate) — sync docs/adr/ markdown files into architecture_decisions DB table; absorbs adr.validate via validate flag',
     tier: 2,
     idempotent: true,
     sessionRequired: false,
