@@ -29,8 +29,8 @@ is a personal-account repository, where GraphQL `repository.mergeQueue` is
    `pr-task-lines.yml` flags a PR whose body names no task or whose lines are
    malformed. It is a flag, not a merge gate (exempt: `release/*`, bot authors,
    the `no-task` label).
-3. **Required checks.** Branch protection on `main` requires `CI` and
-   `Contracts Dep Lint`, with `strict: false`: a PR merges once its own `CI` is
+3. **Required checks.** Branch protection on `main` requires only `CI`, with
+   `strict: false`: a PR merges once its own `CI` is
    green, without re-running after every other merge. Main-push CI catches a
    break that only the combination of two PRs causes. Setup commands:
    [`branch-protection-setup.md`](./branch-protection-setup.md).

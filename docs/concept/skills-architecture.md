@@ -60,10 +60,13 @@ selection). A skill that the spawn prompt, stage guidance, the skill name map,
 skill dispatch or a `.cant` `skillRef:` names must exist, be `install: harness`
 and be installed (gate 30, `scripts/lint-emitted-skills.mjs`).
 
-Spawn prompts can still read a skill that is not installed: name-based
-resolvers (`resolveSkillPath`, `findSkill`) fall back to the copy bundled in
-`@cleocode/skills` in the default `CLEO_SKILL_SOURCE=auto` mode (`caamp` means
-installed skills only, `embedded` project skills only; T12646).
+Spawn prompts can still read a skill that is not installed (T12646): in the
+default `CLEO_SKILL_SOURCE=auto` mode (`caamp` means installed skills only,
+`embedded` project skills only), `resolveSkillPath` falls back to the copy
+bundled in `@cleocode/skills`. `findSkill` falls back only when the caller also
+passes `includeBundled: true`, as stage guidance does
+(`packages/core/src/skills/discovery.ts`); otherwise a skill that is not
+installed returns `null`.
 
 ## 4. Keeping skills current (gates 31–33)
 
@@ -110,9 +113,12 @@ manifest names; with neither, it returns `false`).
 ## 7. Improvement loops
 
 - **Canonical skills (owner side).** `skills-council.yml` (Sundays 06:00 UTC)
-  and `skills-grade.yml` (Mondays 07:00 UTC) review and grade canonical skills
-  in the cleocode repo; fixes land as ordinary PRs. `cleo skills propose-patch`
-  opens such a PR from a user machine.
+  and `skills-grade.yml` (Mondays 07:00 UTC) are scaffolds today: each writes a
+  stub report per selected skill; the real council and grader invocations were
+  never wired (the workflow comments still defer them to T9563, which is done). Grading also selects nothing, because it reads the
+  obsolete `packages/skills/manifest.json` instead of
+  `packages/skills/skills/manifest.json` (T14573). Skill fixes land as ordinary
+  PRs; `cleo skills propose-patch` opens one from a user machine.
 - **User skills (machine side).** The sentient curator and background review
   (`packages/core/src/sentient/curator.ts`, `background-review.ts`) sweep
   Sphere B rows: lifecycle transitions and provenance-gated patches. They never
