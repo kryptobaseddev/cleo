@@ -492,6 +492,35 @@ describe('Node SQLite salvage and merge', () => {
       check.close();
     }
   });
+  it('retains a live version before a later timestamped view overwrites it', () => {
+    const { base, damaged, receipt } = fixture();
+    const alternate = `${damaged}.future`;
+    const db = new DatabaseSync(damaged);
+    db.exec(
+      "UPDATE records SET value='real live edit',updated_at='2026-11-14T00:00:00Z' WHERE id='updated'",
+    );
+    db.close();
+    copyFileSync(damaged, alternate);
+    const peer = new DatabaseSync(alternate);
+    peer.exec(
+      "UPDATE records SET value='future peer',updated_at='2099-01-01T00:00:00Z' WHERE id='updated'",
+    );
+    peer.close();
+    salvageIntoSnapshot(base, [damaged, alternate], receipt);
+    const check = new DatabaseSync(base);
+    expect(check.prepare("SELECT value FROM records WHERE id='updated'").get()?.value).toBe(
+      'future peer',
+    );
+    check.close();
+    expect(receipt.recovery?.rows).toContainEqual(
+      expect.objectContaining({
+        kind: 'conflict',
+        table: 'records',
+        values: expect.objectContaining({ id: 'updated', value: 'real live edit' }),
+      }),
+    );
+  });
+
   it('preserves valid SQLite names that coincide with JavaScript prototype properties', () => {
     const { base, damaged, receipt } = fixture();
     const source = new DatabaseSync(damaged);

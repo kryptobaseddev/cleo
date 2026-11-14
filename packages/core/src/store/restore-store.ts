@@ -80,8 +80,13 @@ import {
 } from './docs-bytes-backup.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import { withLock } from './lock.js';
-import { openCleoDbSnapshot } from './open-cleo-db.js';
-import { writeRestoreMarker } from './restore-marker.js';
+import {
+  captureStoreRestoreIntent,
+  openCleoDbSnapshot,
+  prepareStoreRestoreIntent,
+  repairFileHash,
+} from './open-cleo-db.js';
+import { writeRestoreMarker, writeStoreRestoreIntentMarker } from './restore-marker.js';
 import { assertRestoreTargetConfirmed } from './worktree-isolation-guard.js';
 import { foreignWriterLeases, storeOpenElsewhere } from './writer-lease.js';
 
@@ -659,6 +664,8 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
               'the live docs bytes replaced by a restore (T13708)',
             );
           }
+          const intent = captureStoreRestoreIntent(target, source.path, now.toISOString());
+          const intentMarker = prepareStoreRestoreIntent(target, intent, repairFileHash(staged));
           const removed: string[] = [];
           for (const s of SIDECARS) {
             if (existsSync(target + s)) {
@@ -668,6 +675,7 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
           }
           opts.beforeSwap?.();
           renameSync(staged, target);
+          writeStoreRestoreIntentMarker({ ...intentMarker, state: 'committed' });
           assertNoStraySidecars(target, kept);
           return { kept, removed };
         } finally {

@@ -392,7 +392,7 @@ function orphanRows(db: DatabaseSync, violation: Row): Row[] {
 
 /**
  * Merge readable content from private damaged views, preserving incompatible rows separately.
- * The first view is authoritative only for tables it reads completely. Later views fill gaps;
+ * The first view is authoritative only for complete reads without newer or divergent history. Later views fill gaps;
  * timestamps can establish a newer value, but never turn an older main-only view authoritative.
  * All writes target the staged snapshot (gate 28), under trigger suspension (gate 36).
  */
@@ -407,6 +407,10 @@ export function salvageIntoSnapshot(
       'Salvage writes require a staged snapshot, never a canonical store or quarantine original',
     );
   Object.setPrototypeOf(receipt.tables, null);
+  const preserveHistory =
+    receipt.freshness?.some(
+      (f) => f.authoritative !== false && (f.kind === 'snapshot' || f.divergent || f.unreadable),
+    ) === true;
   const journal: Row[] = [];
   const journalKeys = new Set<string>();
   const target = openCleoDbSnapshot(staged, {
@@ -649,7 +653,7 @@ export function salvageIntoSnapshot(
                     Number.isFinite(incomingAt) && Number.isFinite(oldAt) && oldAt > incomingAt;
                   const provenNewer =
                     Number.isFinite(incomingAt) && Number.isFinite(oldAt) && incomingAt > oldAt;
-                  if (!update || provenOlder) return;
+                  if (!update) return;
                   const different = updates.some((c) => {
                     const a = row[c] ?? null,
                       b = old[c] ?? null;
@@ -658,7 +662,10 @@ export function salvageIntoSnapshot(
                       : a !== b;
                   });
                   if (!different) return;
-                  if (!provenNewer && (!first || view !== views[0])) {
+                  if (
+                    provenOlder ||
+                    (!provenNewer && (preserveHistory || !first || view !== views[0]))
+                  ) {
                     const version = `${table.name}\0${view}\0${rowKey(row, identity)}`;
                     if (!alternateVersions.has(version)) {
                       alternateVersions.add(version);
@@ -667,13 +674,26 @@ export function salvageIntoSnapshot(
                         receipt,
                         'conflict',
                         table.name,
-                        'An alternate damaged view disagrees with the retained row; no timestamp proves it newer',
+                        provenOlder
+                          ? 'Live version has an older timestamp; retained separately because timestamps alone cannot discard an edit'
+                          : 'An alternate damaged view disagrees with the retained row; no timestamp proves it newer',
                         row,
                         source,
                       );
                     }
                     return;
                   }
+                  const losing = { ...old };
+                  for (const c of identity) losing[c] = row[c] ?? null;
+                  report.conflicts = (report.conflicts ?? 0) + 1;
+                  recordRecovery(
+                    receipt,
+                    'conflict',
+                    table.name,
+                    'Earlier version retained before a timestamp-selected or authoritative update',
+                    losing,
+                    staged,
+                  );
                   update.run(...updates.map((c) => row[c] ?? null), ...values);
                   report.merged++;
                 };
@@ -736,6 +756,7 @@ export function salvageIntoSnapshot(
                   );
                 }
                 if (
+                  !preserveHistory &&
                   (source === views[0] || source === `${views[0]}.header-recovered`) &&
                   complete &&
                   !incompleteSchema
@@ -780,7 +801,9 @@ export function salvageIntoSnapshot(
                 receipt,
                 'possibly-resurrected',
                 name,
-                'Incomplete damaged read cannot prove this snapshot row was deleted',
+                preserveHistory
+                  ? 'Newer history retained: the stale live view cannot prove deletion'
+                  : 'Incomplete damaged read cannot prove this snapshot row was deleted',
                 row,
               );
               continue;

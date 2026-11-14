@@ -35,6 +35,7 @@ import { foreignWriterLeases } from './writer-lease.js';
 /** Shared snapshot-copy primitives remain available to recovery callers. */
 export {
   copyRepairOriginals,
+  copyRepairWalView,
   inspectStoreIntegrity,
   REPAIR_SIDECARS,
   repairFileHash,
