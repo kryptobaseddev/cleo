@@ -649,5 +649,4 @@ the `gh api` and web UI commands documented in the Operator Commands section.
 - `AGENTS.md` — Release & Branching (ADR-065) section
 - `docs/release/branch-protection-setup.md` — Branch protection API commands
 - `docs/release/verb-matrix.md` — Release verb surface
-- `docs/release/job-inventory.md` — CI job inventory (includes `merge_group:` audit)
 - GitHub Docs: [Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)

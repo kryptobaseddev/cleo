@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.10.0
+  version: 3.11.0
   tier: on-demand
   install: harness
   covers:
@@ -202,15 +202,7 @@ Exit codes (canonical):
 
 ## CI Job Inventory
 
-The authoritative reference for every job that runs in this repo's GitHub Actions pipeline — including which jobs run on PR-to-main vs push-to-main vs tag-push, branch-protection cross-check, and documented divergences — lives at:
-
-- [docs/reference/job-inventory.md](../../../../docs/reference/job-inventory.md) (T10106 · Saga T10099)
-
-Consult the inventory whenever:
-
-1. A release verb fails CI and you need to know which gate is blocking.
-2. Branch-protection required status checks need to be reconciled against actual workflow jobs.
-3. A new workflow is added or an existing trigger changes — regenerate the matrix per the "How this document is maintained" section at the bottom of the inventory.
+There is no maintained job inventory doc: the hand-kept `job-inventory.md` went stale and was retired in the T14108 docs census. Read the jobs and their triggers from `.github/workflows/ci.yml` and the release workflows themselves, and branch protection from `gh api repos/:owner/:repo/branches/main/protection` (see `docs/guide/branch-protection-setup.md`). The workflow classes and trigger policy are in `docs/spec/consumer-workflow-hook-contract.md`.
 
 ## See also / References
 

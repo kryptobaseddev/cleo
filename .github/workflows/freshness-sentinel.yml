@@ -2,7 +2,7 @@ name: Freshness Sentinel
 
 # @task T10102
 # @task T13927
-# Owner-CI cron (docs/reference/job-inventory.md §7). It failed daily from
+# Owner-CI cron. It failed daily from
 # 2026-05-18 because `tsx` is not installed, Node 22 is below the engines
 # floor, and `cleo` was never on PATH while every canary step ran `|| true`
 # (T13927). Each step now fails on its own error.

@@ -55,8 +55,6 @@ revision, while current code and CLI help remain the implementation authority.
 
 ### Runtime, data and contracts
 
-- [Database ERDs](database-erds.md) — schema diagrams and relationships, current as of the Core Hardening Waves 0-3 revision it records.
-- [Type contracts](type-contracts.md) — public API and schema inventory at the recorded core-hardening revision.
 - [Brain package](../spec/cleo-brain-package.md) — the five-substrate package and query contract.
 - [NEXUS architecture](../spec/cleo-nexus-architecture.md) — cross-project identity, registration and discovery design.
 - [Dispatch adapter](../spec/cleo-dispatch-adapter.md) — the typed boundary between registry parameters and domain handlers.
@@ -67,8 +65,6 @@ revision, while current code and CLI help remain the implementation authority.
 ### Agents, harness and integration design
 
 - [CAAMP integration](../spec/caamp-integration.md) — provider capabilities, spawn adapters and hooks, including target features.
-- [CANT persona MVI](../spec/cant-persona-mvi.md) — draft tiered persona-loading rules.
-- [Autonomous runtime](../spec/cleo-autonomous-runtime.md) — planned Hearth, Impulse and Watcher behavior.
 - [Conduit protocol](../spec/cleo-conduit-protocol.md) — the planned agent relay contract and its implementation-status caveats.
 - [Creating custom agents](../guide/creating-custom-agents.md) — CANT definitions and agent-platform setup.
 - [Orchestration flow](orchestration-flow.md) — spawn layers, spawn execution, the lead tool strip and worker isolation.
@@ -79,7 +75,6 @@ revision, while current code and CLI help remain the implementation authority.
 - [Consumer workflow and hook contract](../spec/consumer-workflow-hook-contract.md) — consumer versus repository workflows, trigger policy and branch-protection checks.
 - [Release verb matrix](../reference/verb-matrix.md) — current release entry points and gates.
 - [Historical release process](../guide/releasing.md) — the superseded start/ship pipeline, retained as incident and migration history.
-- [Template and config inventory](../reference/template-config-inventory.md) — the recorded template/config audit, precedence and drift contracts.
 - [Gate integrity](../spec/gate-integrity.md) — evidence grammar and completion re-verification.
 - [PR cadence](../spec/pr-cadence.md) — task-to-PR-to-release traceability under ADR-099.
 
