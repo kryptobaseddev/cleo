@@ -2,7 +2,18 @@
 
 Operational scripts for the `cleocode` repo. Most are project-agnostic — they
 expect to run from the repo root (or any `cleo init` project) and shell out to
-the `cleo` CLI rather than touching `tasks.db` directly.
+the `cleo` CLI rather than touching the store (`.cleo/cleo.db`) directly.
+
+## Architecture gates
+
+Most `lint-*.mjs` and `check-*.mjs` scripts here are the 44 SSoT and
+architecture gates. The table in [`AGENTS.md`](../AGENTS.md) ("SSoT &
+Architectural Gates") is the reference for each one: script, baseline file and
+rule. Run them together with `cleo check arch` (baseline mode; `--strict` is
+zero-tolerance); CI runs each as a step of the `Repo Lints` job in
+`.github/workflows/ci.yml` (`Arch Gates (node)` / `Arch Gates (installed)`).
+Gate 20 (`lint-arch-gate-parity.mjs`) keeps the AGENTS.md table, the bundled
+gate list and the CI steps in agreement, so add a gate in all three places.
 
 ## lint-claim-sync.mjs (T1598)
 

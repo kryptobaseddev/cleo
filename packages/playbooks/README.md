@@ -4,7 +4,7 @@
 
 **Playbook DSL + runtime for CLEO — T889 Orchestration Coherence v3.**
 
-Playbooks are `.cantbook` YAML documents that describe a multi-step agent workflow as a DAG of nodes (agentic, deterministic, and approval gates) connected by typed edges. This package parses them, persists execution state to `tasks.db`, evaluates HITL auto-policies, and manages HMAC-signed approval tokens for human-in-the-loop gates.
+Playbooks are `.cantbook` YAML documents that describe a multi-step agent workflow as a DAG of nodes (agentic, deterministic, and approval gates) connected by typed edges. This package parses them, persists execution state to the project `cleo.db` (`tasks_playbook_runs`, `tasks_playbook_approvals`), evaluates HITL auto-policies, and manages HMAC-signed approval tokens for human-in-the-loop gates.
 
 ## Status
 
@@ -14,10 +14,12 @@ Playbooks are `.cantbook` YAML documents that describe a multi-step agent workfl
 | W4-7 | `.cantbook` YAML parser | shipped |
 | W4-8 | State layer CRUD | shipped |
 | W4-9 | HITL auto-policy evaluator | shipped |
-| W4-10 | State-machine runtime | pending |
+| W4-10 | State-machine runtime (`runtime.ts`) | shipped |
 | W4-16 | Approval resume tokens (HMAC) | shipped |
 
-The runtime executor (`runtime.ts`) is the next ship — parser + state + policy + approval primitives are in place.
+The runtime executor (`runtime.ts`) ships, and the CLI exposes it: `cleo playbook run|status|resume|list|create|validate` and `cleo orchestrate approve|reject|pending` for the HITL gates.
+
+> **ADR-098:** CLEO Goal (ADR-097) replaces playbook *agent* steps as the way CLEO drives work. Deterministic and approval nodes stay; the `playbooks` namespace parts ADR-098 removes ship together in one announced release.
 
 ## Install
 
@@ -138,7 +140,7 @@ approveGate(tasksDb, approval.token, { approver: 'keaton', reason: 'LGTM' });
 
 ## Database tables
 
-Both tables live in `tasks.db`. Migration: `packages/core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/`.
+Both tables live in the project `cleo.db` as `tasks_playbook_runs` and `tasks_playbook_approvals` (schema: `packages/core/src/store/schema/cleo-project/`). They were first created by `packages/core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/` in the legacy `tasks.db`, before the store consolidated into `cleo.db`.
 
 ### `playbook_runs`
 
@@ -197,8 +199,8 @@ Tokens encode `{runId, nodeId, issuedAt}` and are verified before any `approveGa
 ## Related packages
 
 - **`@cleocode/contracts`** — `PlaybookDefinition`, `PlaybookRun`, `PlaybookApproval` type contracts consumed here.
-- **`@cleocode/core`** — owns `tasks.db` lifecycle. Playbook migrations are applied by core's drizzle runner.
-- **`@cleocode/cleo`** — CLI surface that will expose `cleo playbook run`, `cleo playbook approve <token>` once the runtime (W4-10) lands.
+- **`@cleocode/core`** — owns the `cleo.db` lifecycle and its migrations.
+- **`@cleocode/cleo`** — CLI surface: `cleo playbook run|status|resume|list|create|validate` and `cleo orchestrate approve|reject|pending`.
 
 ## Testing
 
