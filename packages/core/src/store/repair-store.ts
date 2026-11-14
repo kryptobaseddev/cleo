@@ -506,6 +506,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
         receipt.integrityOK = false;
         receipt.diagnostics.push(`Repair image committed; checkpoint pending: ${cause.message}`);
         receiptFile(receipt);
+        if (cause instanceof CleoError && cause.codeName === 'E_STORE_IN_USE') throw cause;
         // @sync-invariant none:local-only success requires verifying the checkpointed main image
         throw storeCorruptError(target, cause);
       }
