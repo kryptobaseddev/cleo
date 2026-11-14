@@ -114,8 +114,9 @@ Re-apply immediately after the emergency is resolved. Log the bypass in
 
 ## CI Check Names
 
-The PR/main/dev/tag/cron/dispatch parity matrix and the shipped-vs-dogfood
-classification live in `docs/release/ci-hooks-parity-matrix.md`.
+The workflow classes (shipped, dogfood-only, shared) and the trigger policy
+are in the [consumer workflow and hook contract](../spec/consumer-workflow-hook-contract.md);
+`.github/workflows/ci.yml` is the source for the jobs themselves.
 
 The required check names must match exactly what GitHub Actions reports.
 Verify by running a PR and checking `gh pr checks <pr-number>`:
