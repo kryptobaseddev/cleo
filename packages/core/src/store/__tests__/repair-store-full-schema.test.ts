@@ -282,8 +282,15 @@ it('waits for a preceding CLEO command to finish teardown without changing origi
 it('refuses a persistent CLEO holder at the deadline with its pid, command and shutdown fix', async () => {
   const held = await holder('cleo list persistent', 60_000);
   const before = repairFileHash(live);
-  let clock = 0;
-  vi.spyOn(Date, 'now').mockImplementation(() => (clock += 20_000));
+  const identity = await import('../../sessions/terminal-identity.js');
+  const readProcessArgs = identity.readProcessArgs;
+  const clock = vi.spyOn(Date, 'now');
+  vi.spyOn(identity, 'readProcessArgs').mockImplementation((pid) => {
+    const command = readProcessArgs(pid);
+    // Expire after the real holder probe so lsof retains its initial inspection budget.
+    if (pid === held.pid) clock.mockReturnValue(Date.now() + 20_000);
+    return command;
+  });
   await expect(assertRepairQuiescent(live, [])).rejects.toMatchObject({
     codeName: 'E_STORE_IN_USE',
     message: expect.stringContaining(`pid ${held.pid} (cleo list persistent)`),

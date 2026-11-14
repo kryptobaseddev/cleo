@@ -23,3 +23,6 @@ device, and the warning is retained in diagnostics. Warnings for the target
 filesystem, unclassified output, and failed probes remain unknown within the
 same bounded wait and refuse repair at the deadline. An unreachable Time Machine
 SMB mount no longer prevents repair of a local store on another device.
+
+The persistent-holder deadline test advances its clock only after the real holder
+is identified, preserving the handle probe budget on macOS.
