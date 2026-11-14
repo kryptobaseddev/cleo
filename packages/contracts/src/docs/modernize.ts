@@ -334,7 +334,29 @@ const relPath = z.string().min(1).max(1024);
 export const docsModernizePlanSchema = z.object({
   root: z.string().min(1),
   generatedAt: z.string(),
-  mode: z.enum(['tree', 'store-only']),
+  // T14578: a reviewed `--store` plan (`storeRows`) is applied from a file too.
+  mode: z.enum(['tree', 'store-only', 'store']),
+  storeRows: z
+    .array(
+      z.object({
+        attachmentId: z.string().min(1),
+        sha256: z.string().regex(/^[0-9a-f]{64}$/),
+        slug: z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9-]*$/)
+          .nullable(),
+        newSlug: z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9-]*$/)
+          .nullable(),
+        kind: z.string().min(1).nullable(),
+        newKind: z.string().min(1),
+        ownerTasks: z.array(z.string().regex(/^[TD]\d+$/)),
+        reasons: z.array(z.string()),
+        judgments: z.array(judgmentSchema),
+      }),
+    )
+    .optional(),
   counts: z.record(z.enum(DOCS_MODERNIZE_DISPOSITIONS), z.number()),
   rows: z.array(
     z.object({

@@ -42,6 +42,7 @@ import { assembleAdrSlug, findHighestAdrNumber } from '../adr-allocator.js';
 import { docNameViolation } from '../doc-name-rule.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
 import { journalPath, modernizeReceiptPath, StepJournal } from './apply.js';
+import { DocsModernizeUnsafeError } from './guard.js';
 import { judgeDocKind, resolveModernizeJudgeSettings } from './judge.js';
 import { ownerIdsFromPath } from './plan.js';
 import { classifyDocByRules, MODERNIZE_CLASSIFY_FLOOR, stableSlugFor } from './rules.js';
@@ -328,6 +329,7 @@ export async function applyDocsStoreModernize(
   projectRoot: string,
   now: () => Date = () => new Date(),
 ): Promise<DocsModernizeReceipt> {
+  await assertStoreRenamesFree(plan, projectRoot);
   const started = now();
   const t0 = performance.now();
   const stamp = started.toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 15);
@@ -397,6 +399,59 @@ export async function applyDocsStoreModernize(
     await save(edgeCount, Math.round(performance.now() - t0));
   }
   return receipt(edgeCount, Math.round(performance.now() - t0));
+}
+
+/**
+ * Check a store plan's renames against the live store before any write
+ * (T14578), with the rule `renameDocSlug` applies: each row's old slug
+ * is its doc's CURRENT slug (an alias does not count), the new slug is free
+ * or one of that doc's own aliases, no doc is renamed by two rows (same
+ * attachment id or same old slug), and no two rows take the same new slug.
+ * A plan reviewed earlier may have gone stale; refusing up front means a plan
+ * applies all of its renames or none of them.
+ *
+ * @param plan - A `mode: 'store'` plan.
+ * @param projectRoot - Project root.
+ * @throws DocsModernizeUnsafeError naming the first row that fails.
+ */
+export async function assertStoreRenamesFree(
+  plan: DocsModernizePlan,
+  projectRoot: string,
+): Promise<void> {
+  const { checkSlugRename } = await import('../slug-rename.js');
+  const claimed = new Set<string>();
+  const sourceIds = new Set<string>();
+  const sourceSlugs = new Set<string>();
+  for (const row of plan.storeRows ?? []) {
+    if (!row.slug || !row.newSlug || row.newSlug === row.slug) continue;
+    // One rename per doc: a second row from the same source would find its
+    // old slug gone after the first commits.
+    if (sourceIds.has(row.attachmentId) || sourceSlugs.has(row.slug)) {
+      // @sync-invariant none:input-shape a plan renaming one doc twice is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `store row ${row.attachmentId}: '${row.slug}' is renamed by more than one row`,
+      );
+    }
+    sourceIds.add(row.attachmentId);
+    sourceSlugs.add(row.slug);
+    const check = await checkSlugRename(projectRoot, row.slug, row.newSlug);
+    if (
+      (!check.ok && check.reason === 'not-found') ||
+      (check.ok && check.id !== row.attachmentId)
+    ) {
+      // @sync-invariant none:input-shape a stale store plan is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `store row ${row.attachmentId}: '${row.slug}' is not this doc's current slug; re-plan`,
+      );
+    }
+    if (!check.ok || claimed.has(row.newSlug)) {
+      // @sync-invariant none:input-shape a rename onto another doc's slug is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `store row ${row.attachmentId}: new slug '${row.newSlug}' is already taken`,
+      );
+    }
+    claimed.add(row.newSlug);
+  }
 }
 
 /**
