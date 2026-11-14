@@ -77,7 +77,6 @@ import type {
   StoreRepairFile,
   StoreRestoreIntent,
   StoreRestoreIntentMarker,
-  StoreTableHighWater,
 } from '@cleocode/contracts/db-recovery.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { pushWarning } from '@cleocode/lafs';
@@ -96,6 +95,7 @@ import {
 } from './restore-marker.js';
 import { loadSqliteVecExtension } from './sqlite-native.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { compareStoreFreshness } from './store-freshness.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
@@ -673,125 +673,7 @@ export function copyRepairWalView(from: string, to: string): number {
   return committed;
 }
 
-/** Each key's own timestamp is compared; unrelated writes cannot hide a missing row. */
-function storeRowTimestamp(columns: readonly string[]): string {
-  const stamps = [
-    'updated_at',
-    'created_at',
-    'timestamp',
-    'started_at',
-    'ended_at',
-    'last_activity',
-    'task_started_at',
-    'accepted_at',
-    'valid_at',
-  ]
-    .filter((c) => columns.includes(c))
-    .map((c) => `coalesce(unixepoch("${c}", 'subsec'), 0)`);
-  return stamps.length > 1 ? `max(${stamps.join(',')})` : (stamps[0] ?? '0');
-}
-
-/** Key tables cover task, session, decision, audit and memory history in both scopes. */
-function storeHighWater(db: DatabaseSync): StoreTableHighWater[] {
-  const out: StoreTableHighWater[] = [];
-  for (const table of [
-    'tasks_tasks',
-    'tasks_sessions',
-    'tasks_audit_log',
-    'tasks_architecture_decisions',
-    'brain_decisions',
-    'brain_observations',
-    'nexus_audit_log',
-  ]) {
-    const columns = db
-      .prepare(`PRAGMA main.table_info("${table}")`)
-      .all()
-      .map((c) => String(c.name));
-    if (!columns.includes('id')) continue;
-    const row = db
-      .prepare(`SELECT count(*) AS n, CAST(max(_rowid_) AS TEXT) AS rowid,
-      max(${storeRowTimestamp(columns)}) AS latest FROM main."${table}"`)
-      .get();
-    out.push({
-      table,
-      rows: Number(row?.n ?? 0),
-      maxRowid: typeof row?.rowid === 'string' ? row.rowid : null,
-      latestAt: typeof row?.latest === 'number' && row.latest > 0 ? row.latest : null,
-    });
-  }
-  return out;
-}
-
-/** Missing keys and older versions are evidence even after a newer live session or audit write. */
-function compareStoreFreshness(
-  live: DatabaseSync,
-  source: DatabaseSync,
-  path: string,
-  kind: StoreFreshnessFinding['kind'],
-): StoreFreshnessFinding | undefined {
-  const before = storeHighWater(live);
-  const after = storeHighWater(source);
-  if (
-    before.some((t) => t.table === 'tasks_tasks') !== after.some((t) => t.table === 'tasks_tasks')
-  )
-    return;
-  const evidence: string[] = [];
-  for (const next of after) {
-    const old = before.find((t) => t.table === next.table);
-    const stamp = (db: DatabaseSync): string =>
-      storeRowTimestamp(
-        db
-          .prepare(`PRAGMA main.table_info("${next.table}")`)
-          .all()
-          .map((c) => String(c.name)),
-      );
-    const find = old
-      ? live.prepare(`SELECT ${stamp(live)} AS stamp FROM main."${next.table}" WHERE id IS ?`)
-      : undefined;
-    find?.setReadBigInts(true);
-    const rows = source.prepare(`SELECT id, ${stamp(source)} AS stamp FROM main."${next.table}"`);
-    rows.setReadBigInts(true);
-    let missing = 0,
-      older = 0;
-    const sample: string[] = [];
-    for (const row of rows.iterate()) {
-      const current = find?.get(row.id ?? null);
-      if (!current) missing++;
-      else if (Number(row.stamp) > Number(current.stamp)) older++;
-      else continue;
-      if (sample.length < 3)
-        sample.push(
-          `${String(row.id)}: ${current ? `live timestamp ${String(current.stamp)}, source ${String(row.stamp)}` : 'missing live key'}`,
-        );
-    }
-    if (missing || older)
-      evidence.push(
-        `${next.table}: ${missing} missing keys, ${older} older versions (${sample.join('; ')}); live ${JSON.stringify(old ?? { rows: 0 })}; source ${JSON.stringify(next)}`,
-      );
-  }
-  if (!evidence.length) return;
-  let divergent = false;
-  for (const table of before) {
-    if (!after.some((t) => t.table === table.table)) {
-      divergent ||= table.rows > 0;
-      continue;
-    }
-    const lookup = source.prepare(`SELECT 1 FROM main."${table.table}" WHERE id IS ?`);
-    lookup.setReadBigInts(true);
-    const keys = live.prepare(`SELECT id FROM main."${table.table}"`);
-    keys.setReadBigInts(true);
-    for (const row of keys.iterate()) {
-      if (!lookup.get(row.id ?? null)) {
-        divergent = true;
-        break;
-      }
-    }
-    if (divergent) break;
-  }
-  return { source: path, kind, evidence, divergent };
-}
-
-/** Inspect disposable copies, including an explicit snapshot alongside the normal backup inventory. */
+/** Inspect a disposable live view and every distinct retained snapshot, opened read-only. */
 export function inspectStoreIntegrity(
   target: string,
   fromSnapshot?: string,
@@ -845,18 +727,15 @@ export function inspectStoreIntegrity(
           timestampMs: statSync(fromSnapshot).mtimeMs,
           source: 'system-snapshot',
         });
-      let newestAssessed = false;
-      for (const [index, candidate] of snapshots.entries()) {
-        const copy = join(scratch, `snapshot-${index}.db`);
+      const assessed = new Set<string>();
+      for (const candidate of snapshots) {
         let backup: CleoDbSnapshotHandle | undefined;
         try {
-          const snapshotHash =
-            restoreIntent &&
-            restoreIntent.ignoredSnapshots.length > 0 &&
-            candidate.path !== fromSnapshot
-              ? repairFileHash(candidate.path)
-              : undefined;
-          if (restoreIntent?.ignoredSnapshots.some((f) => f.sha256 === snapshotHash)) {
+          const snapshotHash = repairFileHash(candidate.path);
+          if (
+            candidate.path !== fromSnapshot &&
+            restoreIntent?.ignoredSnapshots.some((f) => f.sha256 === snapshotHash)
+          ) {
             freshness.push({
               kind: 'snapshot',
               source: candidate.path,
@@ -867,11 +746,13 @@ export function inspectStoreIntegrity(
             });
             continue;
           }
-          if (newestAssessed && candidate.path !== fromSnapshot) continue;
-          copyRepairOriginals(candidate.path, copy);
-          backup = openCleoDbSnapshot(copy, { applyPragmas: false, loadSqliteVec: true });
-          const checks = backup.db.prepare('PRAGMA integrity_check').all();
-          if (checks.length !== 1 || checks[0]?.integrity_check !== 'ok') continue;
+          const wal = `${candidate.path}-wal`;
+          const viewHash =
+            existsSync(wal) && statSync(wal).size > 32
+              ? `${snapshotHash}:${repairFileHash(wal)}`
+              : snapshotHash;
+          if (assessed.has(viewHash)) continue;
+          backup = openCleoDbSnapshot(candidate.path, { applyPragmas: false, loadSqliteVec: true });
           const hasTasks = (db: DatabaseSync): boolean =>
             db
               .prepare("SELECT 1 FROM main.sqlite_schema WHERE name='tasks_tasks' AND type='table'")
@@ -888,7 +769,7 @@ export function inspectStoreIntegrity(
             continue;
           const finding = compareStoreFreshness(snap.db, backup.db, candidate.path, 'snapshot');
           if (finding) freshness.push(finding);
-          if (candidate.path !== fromSnapshot) newestAssessed = true;
+          assessed.add(viewHash);
         } catch {
           // An unreadable backup cannot establish that a healthy live store is stale.
         } finally {

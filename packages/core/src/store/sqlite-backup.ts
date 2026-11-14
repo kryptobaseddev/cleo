@@ -60,6 +60,7 @@ import { basename, dirname, join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { DbInventoryEntry, DbRole } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
+import { getLogger } from '../logger.js';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
 import { getTelemetryDb, getTelemetryNativeDb } from '../telemetry/sqlite.js';
 import {
@@ -81,6 +82,7 @@ import {
   selectSnapshotsToKeep,
 } from './snapshot-gate.js';
 import { getDb, getNativeDb } from './sqlite.js';
+import { snapshotRecoveryReason } from './store-freshness.js';
 
 /**
  * Maximum number of snapshots retained per global-tier database and for the
@@ -586,9 +588,15 @@ function snapshotPattern(prefix: string): RegExp {
  * @param backupDir - Snapshot directory.
  * @param prefix - Snapshot prefix to prune.
  * @param justWritten - Basename of the snapshot just written; never deleted.
+ * @param source - Live database path; consolidated snapshots with unrecovered rows stay pinned.
  * @task T12508 — replaces the newest-10 rotation that a burst could flush
  */
-function rotateSnapshots(backupDir: string, prefix: string, justWritten: string): void {
+function rotateSnapshots(
+  backupDir: string,
+  prefix: string,
+  justWritten: string,
+  source: string | null,
+): void {
   try {
     const pattern = snapshotPattern(prefix);
     const names = readdirSync(backupDir).filter((f) => pattern.test(f));
@@ -598,6 +606,16 @@ function rotateSnapshots(backupDir: string, prefix: string, justWritten: string)
     });
     for (const name of names) {
       if (keep.has(name)) continue;
+      if (source !== null && basename(source) === 'cleo.db') {
+        const reason = snapshotRecoveryReason(source, join(backupDir, name));
+        if (reason) {
+          getLogger('backup-rotation').warn(
+            { snapshot: join(backupDir, name), reason },
+            'Keeping recovery snapshot past time-spread retention',
+          );
+          continue;
+        }
+      }
       try {
         unlinkSync(join(backupDir, name));
       } catch {
@@ -1044,7 +1062,7 @@ async function snapshotOne(
     }
 
     if (source !== null) writtenBySource.set(source, dest);
-    rotateSnapshots(backupDir, filePrefix, destName);
+    rotateSnapshots(backupDir, filePrefix, destName, source);
     if (filePrefix === 'tasks' && target.prefix !== 'tasks') coveredByUnified.add(target.prefix);
     return 'written';
   } finally {

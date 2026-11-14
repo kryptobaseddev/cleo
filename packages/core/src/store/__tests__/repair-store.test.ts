@@ -19,6 +19,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { drainWarnings } from '../../output.js';
+import { snapshotAfterSessionEnd } from '../../sessions/session-end-snapshot.js';
 import { recoverProjectStore } from '../backup-recover.js';
 import {
   _resetDualScopeDbCache,
@@ -676,7 +677,7 @@ describe('copy-only whole-store repair', () => {
     expect(existsSync(join(env.cleoDir, 'quarantine'))).toBe(false);
   });
 
-  it('detects missing snapshot keys after a now-dated post-checkout write', async () => {
+  it('recovers every newer snapshot after checkout and a stale session-end snapshot', async () => {
     const old = join(env.tempDir, 'checkout-before-task.db');
     const seed = new DatabaseSync(live);
     seed.exec(
@@ -700,8 +701,33 @@ describe('copy-only whole-store repair', () => {
     ).run(snapshotTime);
     rmSync(snapshot);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+    const manual = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120000');
+    db.exec("DELETE FROM tasks_tasks WHERE id='T950006'");
+    db.prepare(
+      "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950011','manual-only task','task',?,?)",
+    ).run(snapshotTime, snapshotTime);
+    db.prepare(
+      "UPDATE tasks_tasks SET title='newest shared version',updated_at=? WHERE id='T950010'",
+    ).run(new Date(Date.now() - 30_000).toISOString());
+    db.exec(`VACUUM INTO '${manual.replaceAll("'", "''")}'`);
     db.close();
+    const twin = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120001');
+    copyFileSync(manual, twin);
+    for (const file of [snapshot, manual, twin])
+      utimesSync(file, new Date('2026-10-01'), new Date('2026-10-01'));
     copyFileSync(old, live);
+    const retentionVictim = join(env.cleoDir, 'backups', 'sqlite', 'tasks-20200101-000000.db');
+    copyFileSync(snapshot, retentionVictim);
+    for (let day = 1; day <= 12; day++)
+      copyFileSync(
+        live,
+        join(
+          env.cleoDir,
+          'backups',
+          'sqlite',
+          `tasks-202601${String(day).padStart(2, '0')}-000000.db`,
+        ),
+      );
     const now = new Date().toISOString();
     const write = new DatabaseSync(live);
     write
@@ -719,12 +745,37 @@ describe('copy-only whole-store repair', () => {
         "INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES('post-checkout',?,'session-start','T950007')",
       )
       .run(now);
+    write.exec(
+      "UPDATE tasks_sessions SET status='ended',ended_at=started_at WHERE id='post-checkout'",
+    );
     write.close();
+    expect(await snapshotAfterSessionEnd(env.tempDir, { alwaysSnapshot: true })).toMatchObject({
+      failed: [],
+      skipped: null,
+    });
+    resetDbState();
+    expect(existsSync(retentionVictim)).toBe(true);
     const before = hashes();
+    const copies = vi.spyOn(await import('node:fs'), 'copyFileSync');
+    const comparisons = vi.spyOn(await import('../store-freshness.js'), 'compareStoreFreshness');
     const finding = inspectStoreIntegrity(live);
+    expect(copies.mock.calls.some(([from]) => String(from) === live)).toBe(true);
+    expect(
+      copies.mock.calls.some(([from]) => [snapshot, manual, twin].includes(String(from))),
+    ).toBe(false);
+    expect(
+      comparisons.mock.calls.filter(([, , path]) => [manual, twin].includes(path)),
+    ).toHaveLength(1);
+    copies.mockRestore();
+    comparisons.mockRestore();
     expect(finding.healthy).toBe(false);
     expect(finding.detail).toContain('T950006');
     expect(finding.detail).toContain('T950010');
+    expect(finding.detail).toContain('T950011');
+    expect(finding.freshness?.filter((f) => f.kind === 'snapshot')).toHaveLength(2);
+    expect(() => assertDoctorStoreIntegrity()).toThrowError(
+      expect.objectContaining({ codeName: 'E_DB_CORRUPT' }),
+    );
     expect(finding.detail).toContain('1 older versions');
     expect(finding.detail).toContain('D950006');
     expect(finding.detail).toContain('O950006');
@@ -739,7 +790,10 @@ describe('copy-only whole-store repair', () => {
           .prepare('SELECT id FROM tasks_tasks ORDER BY id')
           .all()
           .map((r) => r.id),
-      ).toEqual(['T950006', 'T950007', 'T950010']);
+      ).toEqual(['T950006', 'T950007', 'T950010', 'T950011']);
+      expect(check.prepare("SELECT title FROM tasks_tasks WHERE id='T950010'").get()?.title).toBe(
+        'newest shared version',
+      );
       expect(check.prepare("SELECT id FROM brain_decisions WHERE id='D950006'").get()?.id).toBe(
         'D950006',
       );
@@ -755,9 +809,21 @@ describe('copy-only whole-store repair', () => {
     } finally {
       check.close();
     }
+    expect(result.recovery?.rows).toContainEqual(
+      expect.objectContaining({
+        kind: 'conflict',
+        table: 'tasks_tasks',
+        values: expect.objectContaining({ id: 'T950010', title: 'newer shared version' }),
+      }),
+    );
+    expect(JSON.parse(readFileSync(result.recovery?.file ?? '', 'utf8'))).toEqual(
+      result.recovery?.rows,
+    );
+    const recovered = hashes();
     expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
       'healthy',
     );
+    expect(hashes()).toEqual(recovered);
   });
 
   it('preserves a losing live edit when a peer snapshot timestamp is in the future', async () => {
