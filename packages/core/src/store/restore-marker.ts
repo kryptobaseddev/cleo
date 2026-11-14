@@ -18,12 +18,14 @@
  * @module store/restore-marker
  */
 
+import { createHash } from 'node:crypto';
 import {
   closeSync,
   existsSync,
   fsyncSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -441,4 +443,35 @@ export function writeStoreRestoreIntentMarker(marker: StoreRestoreIntentMarker):
   } finally {
     rmSync(temporary, { force: true });
   }
+}
+
+/** Hash a file without holding the entire store in memory. */
+export function repairFileHash(file: string): string {
+  const hash = createHash('sha256');
+  const fd = openSync(file, 'r');
+  const buffer = Buffer.alloc(1024 * 1024);
+  try {
+    for (;;) {
+      const n = readSync(fd, buffer, 0, buffer.length, null);
+      if (n === 0) break;
+      hash.update(buffer.subarray(0, n));
+    }
+    return hash.digest('hex');
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Resolve committed intent or prove which image a prepared marker belongs to. */
+export function inspectStoreRestoreIntent(target: string): StoreRestoreIntent | undefined {
+  const marker = readStoreRestoreIntentMarker(target);
+  if (!marker) return;
+  if (marker.state === 'committed') return marker.intent ?? undefined;
+  const matches = (main: string | undefined, wal: string | undefined): boolean =>
+    (wal !== undefined && existsSync(`${target}-wal`) && repairFileHash(`${target}-wal`) === wal) ||
+    (main !== undefined && existsSync(target) && repairFileHash(target) === main);
+  if (matches(marker.mainSha256, marker.walSha256)) return marker.intent ?? undefined;
+  if (matches(marker.previousMainSha256, marker.previousWalSha256))
+    return marker.previous ?? undefined;
+  return;
 }

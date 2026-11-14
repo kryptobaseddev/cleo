@@ -38,6 +38,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
+import { STORE_DELETION_TABLE, STORE_FRESHNESS_TABLES } from '../recover-malformed-db.js';
 import { resolveCorePackageMigrationsFolder } from '../resolve-migrations-folder.js';
 import { classifyTable } from '../table-classification.js';
 
@@ -89,6 +90,10 @@ export function suspendClause(cls: SuspendableClass): string {
  * {@link CODE_OWNED_TRIGGER_DDL} ({@link ownedTriggerDdl}).
  */
 export const OWNED_TRIGGERS: Readonly<Record<string, 'guard' | 'side-effect'>> = {
+  // Deletion evidence guards forward apply even when mirroring side effects are suspended.
+  ...Object.fromEntries(
+    STORE_FRESHNESS_TABLES.map((table) => [`trg_recovery_delete_${table}`, 'guard'] as const),
+  ),
   tasks_tasks_parent_cycle_guard_insert: 'guard',
   tasks_tasks_parent_cycle_guard_update: 'guard',
   tasks_tasks_parent_type_matrix_insert: 'guard',
@@ -125,6 +130,19 @@ export const OWNED_TRIGGERS: Readonly<Record<string, 'guard' | 'side-effect'>> =
  * by the open pass, and only where its table exists.
  */
 export const CODE_OWNED_TRIGGER_DDL: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(
+    STORE_FRESHNESS_TABLES.map((table) => [
+      `trg_recovery_delete_${table}`,
+      `CREATE TRIGGER \`trg_recovery_delete_${table}\` AFTER DELETE ON \`${table}\`
+WHEN ${suspendClause('guard')}
+BEGIN
+  INSERT INTO \`_store_deleted_keys\` (table_name, record_key, deleted_at, deletion_count)
+  VALUES ('${table}', OLD.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1)
+  ON CONFLICT(table_name, record_key) DO UPDATE SET
+    deleted_at = excluded.deleted_at, deletion_count = deletion_count + 1;
+END`,
+    ]),
+  ),
   trg_tasks_ac_uid_graveyard: `CREATE TRIGGER \`trg_tasks_ac_uid_graveyard\`
 AFTER DELETE ON \`tasks_task_acceptance_criteria\`
 WHEN (OLD.\`uid\` IS NOT NULL)
@@ -142,8 +160,22 @@ END`,
  * fires it.
  */
 export const OWNED_TRIGGER_REQUIRES: Readonly<Record<string, readonly string[]>> = {
+  ...Object.fromEntries(
+    STORE_FRESHNESS_TABLES.map((table) => [`trg_recovery_delete_${table}`, [STORE_DELETION_TABLE]]),
+  ),
   trg_tasks_ac_uid_graveyard: ['tasks_ac_uid_graveyard'],
 };
+
+/** Create the local delete-receipt relation before verifying its owned guard triggers. */
+export function ensureStoreDeletionEvidence(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS ${STORE_DELETION_TABLE} (
+    table_name TEXT NOT NULL,
+    record_key TEXT NOT NULL,
+    deleted_at TEXT NOT NULL,
+    deletion_count INTEGER NOT NULL,
+    PRIMARY KEY(table_name, record_key)
+  ) WITHOUT ROWID`);
+}
 
 /** Prefix of every capture trigger (S2, §2.3). */
 export const CAPTURE_TRIGGER_PREFIX = '_sync_cap_';

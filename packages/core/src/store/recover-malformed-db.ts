@@ -26,7 +26,17 @@
  * @adr ADR-068
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readSync,
+  renameSync,
+  statSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
@@ -37,11 +47,14 @@ import type {
 } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import type {
+  StoreDeletionEvidence,
   StoreFreshnessFinding,
+  StoreSnapshotIdentity,
   StoreTableHighWater,
 } from '@cleocode/contracts/db-recovery.js';
 import { getCleoHome } from '@cleocode/paths';
-import { openNativeDatabase } from './sqlite-native.js';
+import { inspectStoreRestoreIntent, repairFileHash } from './restore-marker.js';
+import { loadSqliteVecExtension, openNativeDatabase } from './sqlite-native.js';
 
 /**
  * Minimal logger shape used by {@link recoverMalformedDb}.
@@ -781,18 +794,65 @@ function storeRowTimestamp(columns: readonly string[]): string {
   return stamps.length > 1 ? `max(${stamps.join(',')})` : (stamps[0] ?? '0');
 }
 
+/** Key tables whose absent versions participate in recovery assessment. */
+export const STORE_FRESHNESS_TABLES = [
+  'tasks_tasks',
+  'tasks_sessions',
+  'tasks_audit_log',
+  'tasks_architecture_decisions',
+  'brain_decisions',
+  'brain_observations',
+  'nexus_audit_log',
+] as const;
+
+/** Store-local evidence of committed logical deletes; it is never inferred from age. */
+export const STORE_DELETION_TABLE = '_store_deleted_keys';
+
+/** Read durable delete receipts, optionally accumulating validated snapshot history. */
+export function readStoreDeletedKeys(
+  db: DatabaseSync,
+  into: Map<string, Map<string, StoreDeletionEvidence>> = new Map(),
+): Map<string, Map<string, StoreDeletionEvidence>> {
+  if (
+    !db
+      .prepare("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name=?")
+      .get(STORE_DELETION_TABLE)
+  )
+    return into;
+  const known = new Set<string>(STORE_FRESHNESS_TABLES);
+  for (const row of db
+    .prepare(
+      `SELECT table_name, record_key, deleted_at, deletion_count FROM main.${STORE_DELETION_TABLE}`,
+    )
+    .iterate()) {
+    if (
+      typeof row.table_name !== 'string' ||
+      typeof row.record_key !== 'string' ||
+      typeof row.deleted_at !== 'string' ||
+      typeof row.deletion_count !== 'number' ||
+      row.deletion_count < 1 ||
+      !known.has(row.table_name)
+    ) {
+      // @sync-invariant none:local-only malformed local deletion evidence cannot authorize dropping recovery rows
+      throw new Error('Malformed store deletion receipt');
+    }
+    const table = row.table_name;
+    const keys = into.get(table) ?? new Map<string, StoreDeletionEvidence>();
+    const old = keys.get(row.record_key);
+    if (!old || row.deleted_at > old.deletedAt || row.deletion_count > old.deletionCount)
+      keys.set(row.record_key, {
+        deletedAt: row.deleted_at,
+        deletionCount: row.deletion_count,
+      });
+    into.set(table, keys);
+  }
+  return into;
+}
+
 /** Key tables cover task, session, decision, audit and memory history in both scopes. */
 function storeHighWater(db: DatabaseSync): StoreTableHighWater[] {
   const out: StoreTableHighWater[] = [];
-  for (const table of [
-    'tasks_tasks',
-    'tasks_sessions',
-    'tasks_audit_log',
-    'tasks_architecture_decisions',
-    'brain_decisions',
-    'brain_observations',
-    'nexus_audit_log',
-  ]) {
+  for (const table of STORE_FRESHNESS_TABLES) {
     const columns = db
       .prepare(`PRAGMA main.table_info("${table}")`)
       .all()
@@ -818,10 +878,15 @@ export function compareStoreFreshness(
   source: DatabaseSync,
   path: string,
   kind: StoreFreshnessFinding['kind'],
+  deleted: ReadonlyMap<string, ReadonlyMap<string, StoreDeletionEvidence>> = readStoreDeletedKeys(
+    live,
+  ),
+  allowPartialStore = false,
 ): StoreFreshnessFinding | undefined {
   const before = storeHighWater(live);
   const after = storeHighWater(source);
   if (
+    !allowPartialStore &&
     before.some((t) => t.table === 'tasks_tasks') !== after.some((t) => t.table === 'tasks_tasks')
   )
     return;
@@ -845,6 +910,7 @@ export function compareStoreFreshness(
       older = 0;
     const sample: string[] = [];
     for (const row of rows.iterate()) {
+      if (deleted.get(next.table)?.has(String(row.id))) continue;
       const current = find?.get(row.id ?? null);
       if (!current) missing++;
       else if (Number(row.stamp) > Number(current.stamp)) older++;
@@ -871,6 +937,7 @@ export function compareStoreFreshness(
     const keys = live.prepare(`SELECT id FROM main."${table.table}"`);
     keys.setReadBigInts(true);
     for (const row of keys.iterate()) {
+      if (deleted.get(table.table)?.has(String(row.id))) continue;
       if (!lookup.get(row.id ?? null)) {
         divergent = true;
         break;
@@ -881,28 +948,165 @@ export function compareStoreFreshness(
   return { source: path, kind, evidence, divergent };
 }
 
-/**
- * Keep a recovery source until its keys and versions exist in the live store.
- * This deliberately retains redundant ahead-of-live backups too: a later stale
- * snapshot is never proof of coverage. Failed reads cannot authorize deletion.
- */
+/** Keep validation work bounded across the count, time-spread and byte-cap passes of one process. */
+const snapshotChecks = new Map<string, boolean>();
+const snapshotHashes = new Map<string, string>();
+
+/** Read only SQLite headers and stat metadata, including a committed WAL when present. */
+export function storeSnapshotIdentity(file: string): StoreSnapshotIdentity {
+  const cache: string[] = [];
+  const duplicate: string[] = [];
+  for (const path of [file, `${file}-wal`]) {
+    if (path !== file && (!existsSync(path) || statSync(path).size <= 32)) continue;
+    const stat = statSync(path, { bigint: true });
+    const fd = openSync(path, 'r');
+    const header = Buffer.alloc(100);
+    let length: number;
+    try {
+      length = readSync(fd, header, 0, header.length, 0);
+    } finally {
+      closeSync(fd);
+    }
+    const image = `${stat.size}:${stat.mtimeNs}:${header.subarray(0, length).toString('hex')}`;
+    duplicate.push(image);
+    cache.push(`${path}:${stat.dev}:${stat.ino}:${stat.ctimeNs}:${image}`);
+  }
+  return { cacheKey: cache.join('|'), duplicateKey: duplicate.join('|') };
+}
+
+/** Open a recovery source without writing its schema or copying its contents. */
+export function openStoreRecoverySnapshot(file: string): DatabaseSync {
+  const db = openNativeDatabase(file, {
+    readonly: true,
+    enableWal: false,
+    allowExtension: true,
+    timeout: 1000,
+  });
+  try {
+    if (
+      db
+        .prepare(
+          "SELECT 1 FROM main.sqlite_schema WHERE type='table' AND sql LIKE '%vec0%' LIMIT 1",
+        )
+        .get()
+    )
+      loadSqliteVecExtension(db);
+    db.enableLoadExtension(false);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+/** Validate the entire source before its rows or delete receipts may establish recovery authority. */
+export function validStoreRecoverySnapshot(db: DatabaseSync, file: string): boolean {
+  const key = storeSnapshotIdentity(file).cacheKey;
+  const cached = snapshotChecks.get(key);
+  if (cached !== undefined) return cached;
+  let valid = false;
+  try {
+    const checks = db.prepare('PRAGMA integrity_check').all();
+    valid = statSync(file).size > 0 && checks.length === 1 && checks[0]?.integrity_check === 'ok';
+  } catch {
+    /* An unreadable snapshot is ineligible, including for retention pinning. */
+  }
+  if (snapshotChecks.size >= 64) {
+    const first = snapshotChecks.keys().next().value;
+    if (first !== undefined) snapshotChecks.delete(first);
+  }
+  snapshotChecks.set(key, valid);
+  return valid;
+}
+
+/** Hash only a possible duplicate or a snapshot that might be excluded by explicit restore intent. */
+export function storeSnapshotHash(file: string, withWal = true): string {
+  const key = `${withWal ? 'view' : 'main'}:${storeSnapshotIdentity(file).cacheKey}`;
+  const old = snapshotHashes.get(key);
+  if (old !== undefined) return old;
+  const wal = `${file}-wal`;
+  const hash =
+    repairFileHash(file) +
+    (withWal && existsSync(wal) && statSync(wal).size > 32 ? `:${repairFileHash(wal)}` : '');
+  if (snapshotHashes.size >= 64) {
+    const first = snapshotHashes.keys().next().value;
+    if (first !== undefined) snapshotHashes.delete(first);
+  }
+  snapshotHashes.set(key, hash);
+  return hash;
+}
+
+/** Explicit rollback intent excludes only the exact retained bytes it names. */
+export function storeSnapshotIgnored(target: string, snapshot: string): boolean {
+  const intent = inspectStoreRestoreIntent(target);
+  if (!intent?.ignoredSnapshots.some((f) => f.bytes === statSync(snapshot).size)) return false;
+  const hash = storeSnapshotHash(snapshot, false);
+  return intent.ignoredSnapshots.some((f) => f.sha256 === hash);
+}
+
+/** Read deletion evidence from every valid, non-rolled-back retained history. */
+export function retainedStoreDeletedKeys(
+  target: string,
+  into: Map<string, Map<string, StoreDeletionEvidence>>,
+  project: boolean,
+): Map<string, Map<string, StoreDeletionEvidence>> {
+  const hasTasks = (db: DatabaseSync): boolean =>
+    db
+      .prepare("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='tasks_tasks'")
+      .get() !== undefined;
+  for (const candidate of collectStoreSnapshotCandidates(target)) {
+    let db: DatabaseSync | undefined;
+    try {
+      if (storeSnapshotIgnored(target, candidate.path)) continue;
+      db = openStoreRecoverySnapshot(candidate.path);
+      if (
+        hasTasks(db) !== project &&
+        !(project && /^(brain|conduit)-/.test(basename(candidate.path)))
+      )
+        continue;
+      if (validStoreRecoverySnapshot(db, candidate.path)) readStoreDeletedKeys(db, into);
+    } catch {
+      /* Unreadable backup bytes cannot prove a deliberate deletion. */
+    } finally {
+      db?.close();
+    }
+  }
+  return into;
+}
+
+/** Protect only validated recovery rows, honoring durable deletes and explicit rollback intent. */
 export function snapshotRecoveryReason(target: string, snapshot: string): string | undefined {
   let live: DatabaseSync | undefined;
   let source: DatabaseSync | undefined;
   try {
-    live = openNativeDatabase(target, { readonly: true, enableWal: false, timeout: 1000 });
-    source = openNativeDatabase(snapshot, { readonly: true, enableWal: false, timeout: 1000 });
-    const shape = (db: DatabaseSync): boolean =>
-      db
+    try {
+      source = openStoreRecoverySnapshot(snapshot);
+      if (!validStoreRecoverySnapshot(source, snapshot)) return;
+    } catch {
+      return;
+    }
+    if (storeSnapshotIgnored(target, snapshot)) return;
+    live = openStoreRecoverySnapshot(target);
+    const deleted = retainedStoreDeletedKeys(
+      target,
+      readStoreDeletedKeys(live),
+      live
         .prepare("SELECT 1 FROM main.sqlite_schema WHERE name='tasks_tasks' AND type='table'")
-        .get() !== undefined;
-    if (shape(live) !== shape(source)) return 'Store scope differs: recovery coverage is unproven';
-    const finding = compareStoreFreshness(live, source, snapshot, 'snapshot');
+        .get() !== undefined,
+    );
+    const finding = compareStoreFreshness(
+      live,
+      source,
+      snapshot,
+      'snapshot',
+      deleted,
+      /^(brain|conduit)-/.test(basename(snapshot)),
+    );
     return finding
       ? `Recovery rows absent or older in live store: ${finding.evidence.join('; ')}`
       : undefined;
   } catch (error) {
-    return `Recovery coverage unreadable: ${error instanceof Error ? error.message : String(error)}`;
+    return `Live recovery coverage unavailable: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
     source?.close();
     live?.close();

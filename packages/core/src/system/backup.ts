@@ -269,6 +269,8 @@ export interface BackupCaptureError {
 
 /** Result shape returned by {@link createBackup}. */
 export interface BackupResult {
+  /** Recovery snapshots kept past rotation, with the evidence that pins each one. */
+  retainedSnapshots?: Readonly<Record<string, string>>;
   /** Unique backup identifier (timestamped). */
   backupId: string;
   /** Absolute path to the directory containing the snapshot files. */
@@ -508,9 +510,10 @@ export async function createBackup(
   // T9194: Rotate oldest backups when the cap is exceeded. Scoped to the
   // current `backupType` so vacuum-snapshot files in the same dir are never
   // touched. A destination backup is outside the window (T13209).
+  const retainedSnapshots: Record<string, string> = {};
   if (!opts?.destination) {
     const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
-    rotateBackupDir(backupDir, maxSnapshots, btype);
+    Object.assign(retainedSnapshots, rotateBackupDir(backupDir, maxSnapshots, btype).retained);
     // T14278: the directory-wide byte cap over every snapshot family.
     applyBackupByteCap(backupDir);
     // T13710: pool bytes no surviving backup references go with the rotation.
@@ -527,6 +530,7 @@ export async function createBackup(
     timestamp,
     type: btype,
     files: backedUp,
+    ...(Object.keys(retainedSnapshots).length > 0 ? { retainedSnapshots } : {}),
     ...(captureErrors.length > 0 ? { captureErrors } : {}),
   };
 }
@@ -1013,6 +1017,7 @@ export async function createGlobalBackup(opts?: {
   const backedUp: string[] = [];
   /** T13724: a failed store capture is reported, never swallowed. */
   const captureErrors: BackupCaptureError[] = [];
+  const retainedSnapshots: Record<string, string> = {};
   try {
     const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
     const db = getDualScopeNativeDb(await openDualScopeDb('global'));
@@ -1070,7 +1075,10 @@ export async function createGlobalBackup(opts?: {
       ),
     );
     if (!opts?.destination) {
-      rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype);
+      Object.assign(
+        retainedSnapshots,
+        rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype).retained,
+      );
     }
   }
   return {
@@ -1079,6 +1087,7 @@ export async function createGlobalBackup(opts?: {
     timestamp,
     type: btype,
     files: backedUp,
+    ...(Object.keys(retainedSnapshots).length > 0 ? { retainedSnapshots } : {}),
     ...(captureErrors.length > 0 ? { captureErrors } : {}),
   };
 }

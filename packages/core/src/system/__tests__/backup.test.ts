@@ -635,6 +635,37 @@ describe('system/backup — rotation (T9194)', () => {
     expect(nonMetaFiles.length).toBeLessThanOrEqual(3);
   });
 
+  it('returns the source and evidence when recovery rows prevent count rotation', async () => {
+    const cleoDir = join(testDir, '.cleo');
+    const backupDir = join(cleoDir, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+    const live = new DatabaseSync(join(cleoDir, 'cleo.db'));
+    live.exec('CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY, updated_at TEXT)');
+    const keptName = 'cleo.db.snapshot-20260101-000000';
+    const lost = new DatabaseSync(join(backupDir, keptName));
+    lost.exec(
+      "CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY, updated_at TEXT); INSERT INTO tasks_tasks VALUES('recover-me','2026-01-01')",
+    );
+    lost.close();
+    utimesSync(join(backupDir, keptName), new Date('2026-01-01'), new Date('2026-01-01'));
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => live,
+    }));
+    vi.doMock('../../store/memory-sqlite.js', () => ({
+      getBrainDb: vi.fn().mockResolvedValue({}),
+      getBrainNativeDb: () => null,
+    }));
+    const { createBackup } = await import('../backup.js');
+    try {
+      const result = await createBackup(testDir, { maxSnapshots: 1 });
+      expect(result.retainedSnapshots?.[keptName]).toContain('recover-me: missing live key');
+      expect(existsSync(join(backupDir, keptName))).toBe(true);
+    } finally {
+      live.close();
+    }
+  });
+
   it('a destination backup lands only in the destination and never rotates the window (T13209)', async () => {
     vi.doMock('../../store/sqlite.js', () => ({
       getDb: vi.fn().mockResolvedValue({}),

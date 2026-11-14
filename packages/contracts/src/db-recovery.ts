@@ -424,3 +424,17 @@ export interface DoctorRepairResult {
   /** Count of roles where a needed repair FAILED. */
   failedCount: number;
 }
+
+/** Cheap immutable-image identity; full hashes are needed only for candidate collisions or restore intent. */
+export interface StoreSnapshotIdentity {
+  /** Path, inode and change times invalidate cached validation after a physical rewrite. */
+  cacheKey: string;
+  /** Size, modification time and SQLite/WAL headers group possible duplicate images. */
+  duplicateKey: string;
+}
+
+/** Durable proof that a stable store key was deliberately deleted by a committed write. */
+export interface StoreDeletionEvidence {
+  readonly deletedAt: string;
+  readonly deletionCount: number;
+}

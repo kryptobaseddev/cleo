@@ -610,6 +610,13 @@ export const EXEMPT = {
         "tombstone compaction (local-only): shrinks covered full tombstones in THIS store's sealer row meta to the minimal form (T12986)",
     },
   },
+  'packages/core/src/store/repair-store-salvage.ts': {
+    _store_deleted_keys: {
+      count: 1,
+      reason:
+        'T14572 preserves original durable deletion evidence in the private staged recovery image only',
+    },
+  },
   'packages/core/src/store/sync/trigger-classes.ts': {
     cleo_trigger_suspend: {
       count: 3,

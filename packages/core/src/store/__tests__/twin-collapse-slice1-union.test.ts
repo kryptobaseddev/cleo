@@ -450,7 +450,7 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
     for (let i = 0; i < 11; i++) {
       const id = `migration-20260102-0000${String(i).padStart(2, '0')}`;
       const file = join(backupDir(), `cleo.db.${id}`);
-      db().exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+      writeFileSync(file, `snapshot ${i}`);
       const at = new Date(Date.UTC(2026, 0, 2, 0, 0, i));
       utimesSync(file, at, at);
       writeFileSync(
@@ -474,7 +474,7 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
     for (let i = 0; i < 12; i++) {
       const id = `migration-20260101-0000${String(i).padStart(2, '0')}`;
       const file = join(backupDir(), `cleo.db.${id}`);
-      db().exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+      writeFileSync(file, `snapshot ${i}`);
       const at = new Date(Date.UTC(2026, 0, 1, 0, 0, i));
       utimesSync(file, at, at);
       writeBackupSidecar(backupDir(), {
@@ -537,7 +537,7 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
     for (let i = 0; i < 12; i++) {
       const id = `migration-20260103-0000${String(i).padStart(2, '0')}`;
       const file = join(backupDir(), `cleo.db.${id}`);
-      db().exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`); // no sidecar at all, as 2026.9.21 left some
+      writeFileSync(file, `snapshot ${i}`); // no sidecar at all, as 2026.9.21 left some
       const at = new Date(Date.UTC(2026, 0, 3, 0, 0, i));
       utimesSync(file, at, at);
       ids.push(id);
@@ -556,12 +556,8 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
     mkdirSync(backupDir(), { recursive: true });
     for (let i = 0; i < 12; i++) {
       const n = String(i).padStart(2, '0');
-      db().exec(
-        `VACUUM INTO '${join(backupDir(), `cleo.db.migration-20260104-0000${n}`).replaceAll("'", "''")}'`,
-      );
-      db().exec(
-        `VACUUM INTO '${join(backupDir(), `cleo.db.snapshot-20260104-0000${n}`).replaceAll("'", "''")}'`,
-      );
+      writeFileSync(join(backupDir(), `cleo.db.migration-20260104-0000${n}`), 'x');
+      writeFileSync(join(backupDir(), `cleo.db.snapshot-20260104-0000${n}`), 'x');
     }
     const key = `brain_schema_meta:${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`;
     setMeta('brain_schema_meta', `${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`, '{not json');

@@ -654,6 +654,17 @@ function pruneLegacyProjectSnapshots(backupDir: string, prefixes: Iterable<strin
       const pattern = snapshotPattern(prefix);
       for (const name of names) {
         if (!pattern.test(name) || stampOf(name) >= oldestTasks) continue;
+        const reason = snapshotRecoveryReason(
+          join(backupDir, '..', '..', 'cleo.db'),
+          join(backupDir, name),
+        );
+        if (reason) {
+          getLogger('backup-rotation').warn(
+            { snapshot: join(backupDir, name), reason },
+            'Keeping legacy recovery snapshot',
+          );
+          continue;
+        }
         try {
           unlinkSync(join(backupDir, name));
         } catch {

@@ -19,7 +19,7 @@
  * @epic T4867
  */
 
-import { chmodSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -753,6 +753,47 @@ describe('sqlite-backup', () => {
     expect(tasks.slice(0, 2)).toEqual(['tasks-20260104-120000.db', 'tasks-20260105-120000.db']);
     const legacy = files.filter((f) => /^(brain|conduit)-\d{8}-\d{6}\.db$/.test(f)).sort();
     expect(legacy).toEqual(['brain-20260104-120000.db', 'conduit-20260105-120000.db']);
+  });
+
+  it('keeps unique brain rows when pruning legacy project snapshot names', async () => {
+    const tempDir = join(tmpdir(), `cleo-recovery-legacy-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+    const legacy = join(backupDir, 'brain-20200101-000000.db');
+    const old = new DatabaseSync(legacy);
+    old.exec(
+      "CREATE TABLE brain_observations(id TEXT PRIMARY KEY, created_at TEXT); INSERT INTO brain_observations VALUES('legacy-only','2020-01-01')",
+    );
+    old.close();
+    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    shared.exec(
+      'CREATE TABLE tasks_schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY); CREATE TABLE brain_observations(id TEXT PRIMARY KEY, created_at TEXT)',
+    );
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => shared,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => shared,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+    const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+    try {
+      await vacuumIntoBackupAll();
+      expect(existsSync(legacy)).toBe(true);
+      shared.exec("INSERT INTO brain_observations VALUES('legacy-only','2020-01-01')");
+      await vacuumIntoBackupAll({ mode: 'required' });
+      expect(existsSync(legacy)).toBe(false);
+    } finally {
+      shared.close();
+    }
   });
 
   /**

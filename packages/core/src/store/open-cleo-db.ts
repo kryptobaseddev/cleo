@@ -54,7 +54,6 @@
  * @adr ADR-068, ADR-069
  */
 
-import { createHash } from 'node:crypto';
 import {
   closeSync,
   constants,
@@ -86,10 +85,19 @@ import { getProjectInfoSync } from '../project-info.js';
 import { getProjectRoot, isMissingProjectError } from '../project-scope.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
-import { collectStoreSnapshotCandidates, compareStoreFreshness } from './recover-malformed-db.js';
 import {
+  collectStoreSnapshotCandidates,
+  compareStoreFreshness,
+  readStoreDeletedKeys,
+  storeSnapshotHash,
+  storeSnapshotIdentity,
+  storeSnapshotIgnored,
+  validStoreRecoverySnapshot,
+} from './recover-malformed-db.js';
+import {
+  inspectStoreRestoreIntent,
   openUnlessRestoring,
-  readStoreRestoreIntentMarker,
+  repairFileHash,
   storeCorruptError,
   writeStoreRestoreIntentMarker,
 } from './restore-marker.js';
@@ -531,37 +539,6 @@ export function assertDoctorStoreIntegrity(): void {
   }
 }
 
-/** Hash a file without holding the entire store in memory. */
-export function repairFileHash(file: string): string {
-  const hash = createHash('sha256');
-  const fd = openSync(file, 'r');
-  const buffer = Buffer.alloc(1024 * 1024);
-  try {
-    for (;;) {
-      const n = readSync(fd, buffer, 0, buffer.length, null);
-      if (n === 0) break;
-      hash.update(buffer.subarray(0, n));
-    }
-    return hash.digest('hex');
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** Resolve committed intent or prove which image a prepared marker belongs to. */
-export function inspectStoreRestoreIntent(target: string): StoreRestoreIntent | undefined {
-  const marker = readStoreRestoreIntentMarker(target);
-  if (!marker) return;
-  if (marker.state === 'committed') return marker.intent ?? undefined;
-  const matches = (main: string | undefined, wal: string | undefined): boolean =>
-    (wal !== undefined && existsSync(`${target}-wal`) && repairFileHash(`${target}-wal`) === wal) ||
-    (main !== undefined && existsSync(target) && repairFileHash(target) === main);
-  if (matches(marker.mainSha256, marker.walSha256)) return marker.intent ?? undefined;
-  if (matches(marker.previousMainSha256, marker.previousWalSha256))
-    return marker.previous ?? undefined;
-  return;
-}
-
 /** Capture the exact pre-existing backup images superseded by an explicit snapshot-only restore. */
 export function captureStoreRestoreIntent(
   target: string,
@@ -688,6 +665,7 @@ export function inspectStoreIntegrity(
       if (result.length !== 1 || result[0]?.integrity_check !== 'ok')
         return { healthy: false, detail: JSON.stringify(result) };
       const freshness: StoreFreshnessFinding[] = [];
+      const deleted = readStoreDeletedKeys(snap.db);
       const restoreIntent = inspectStoreRestoreIntent(target);
       const walView = join(scratch, 'wal-view.db');
       const committedFrames = copyRepairWalView(file, walView);
@@ -710,7 +688,8 @@ export function inspectStoreIntegrity(
             });
           const checks = wal.db.prepare('PRAGMA integrity_check').all();
           if (checks.length === 1 && checks[0]?.integrity_check === 'ok') {
-            const finding = compareStoreFreshness(snap.db, wal.db, `${target}-wal`, 'wal');
+            readStoreDeletedKeys(wal.db, deleted);
+            const finding = compareStoreFreshness(snap.db, wal.db, `${target}-wal`, 'wal', deleted);
             if (finding) freshness.push(finding);
           }
         } finally {
@@ -726,31 +705,29 @@ export function inspectStoreIntegrity(
           timestampMs: statSync(fromSnapshot).mtimeMs,
           source: 'system-snapshot',
         });
-      const assessed = new Set<string>();
+      const validated: typeof snapshots = [];
+      const identities = new Map<string, string>();
+      const groups = new Map<string, string[]>();
       for (const candidate of snapshots) {
         let backup: CleoDbSnapshotHandle | undefined;
         try {
-          const snapshotHash = repairFileHash(candidate.path);
-          if (
-            candidate.path !== fromSnapshot &&
-            restoreIntent?.ignoredSnapshots.some((f) => f.sha256 === snapshotHash)
-          ) {
+          if (candidate.path !== fromSnapshot && storeSnapshotIgnored(target, candidate.path)) {
             freshness.push({
               kind: 'snapshot',
               source: candidate.path,
               authoritative: false,
               evidence: [
-                `Retained backup excluded by deliberate restore of ${restoreIntent.snapshot} at ${restoreIntent.restoredAt}`,
+                `Retained backup excluded by deliberate restore of ${restoreIntent?.snapshot} at ${restoreIntent?.restoredAt}`,
               ],
             });
             continue;
           }
-          const wal = `${candidate.path}-wal`;
-          const viewHash =
-            existsSync(wal) && statSync(wal).size > 32
-              ? `${snapshotHash}:${repairFileHash(wal)}`
-              : snapshotHash;
-          if (assessed.has(viewHash)) continue;
+          const identity = storeSnapshotIdentity(candidate.path);
+          const group = groups.get(identity.duplicateKey) ?? [];
+          if (group.length > 0) {
+            const hash = storeSnapshotHash(candidate.path);
+            if (group.some((file) => storeSnapshotHash(file) === hash)) continue;
+          }
           backup = openCleoDbSnapshot(candidate.path, { applyPragmas: false, loadSqliteVec: true });
           const hasTasks = (db: DatabaseSync): boolean =>
             db
@@ -759,20 +736,45 @@ export function inspectStoreIntegrity(
           if (hasTasks(snap.db) !== hasTasks(backup.db)) continue;
           if (
             !hasTasks(snap.db) &&
-            backup.db
+            !backup.db
               .prepare(
                 "SELECT 1 FROM main.sqlite_schema WHERE name='nexus_project_registry' AND type='table'",
               )
-              .get() === undefined
+              .get()
           )
             continue;
-          const finding = compareStoreFreshness(snap.db, backup.db, candidate.path, 'snapshot');
-          if (finding) freshness.push(finding);
-          assessed.add(viewHash);
+          if (!validStoreRecoverySnapshot(backup.db, candidate.path)) continue;
+          readStoreDeletedKeys(backup.db, deleted);
+          validated.push(candidate);
+          identities.set(candidate.path, identity.cacheKey);
+          group.push(candidate.path);
+          groups.set(identity.duplicateKey, group);
         } catch {
-          // An unreadable backup cannot establish that a healthy live store is stale.
+          /* Unreadable snapshots never establish recovery authority. */
         } finally {
           backup?.close();
+        }
+      }
+      for (const candidate of validated) {
+        if (storeSnapshotIdentity(candidate.path).cacheKey !== identities.get(candidate.path)) {
+          // @sync-invariant none:local-only recovery authority requires stable retained images
+          throw new Error(`Snapshot changed during inspection: ${candidate.path}`);
+        }
+        const backup = openCleoDbSnapshot(candidate.path, {
+          applyPragmas: false,
+          loadSqliteVec: true,
+        });
+        try {
+          const finding = compareStoreFreshness(
+            snap.db,
+            backup.db,
+            candidate.path,
+            'snapshot',
+            deleted,
+          );
+          if (finding) freshness.push(finding);
+        } finally {
+          backup.close();
         }
       }
       return freshness.length
@@ -796,3 +798,6 @@ export function inspectStoreIntegrity(
     rmSync(scratch, { recursive: true, force: true });
   }
 }
+
+/** Shared restore evidence remains available at the DB chokepoint. */
+export { inspectStoreRestoreIntent, repairFileHash } from './restore-marker.js';

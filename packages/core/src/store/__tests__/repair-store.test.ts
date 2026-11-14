@@ -701,16 +701,24 @@ describe('copy-only whole-store repair', () => {
     ).run(snapshotTime);
     rmSync(snapshot);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
-    const manual = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120000');
-    db.exec("DELETE FROM tasks_tasks WHERE id='T950006'");
-    db.prepare(
-      "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950011','manual-only task','task',?,?)",
-    ).run(snapshotTime, snapshotTime);
-    db.prepare(
-      "UPDATE tasks_tasks SET title='newest shared version',updated_at=? WHERE id='T950010'",
-    ).run(new Date(Date.now() - 30_000).toISOString());
-    db.exec(`VACUUM INTO '${manual.replaceAll("'", "''")}'`);
     db.close();
+    const manual = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120000');
+    // A separate fork supplies exclusive rows without expressing a logical deletion.
+    const forkPath = join(env.tempDir, 'independent-fork.db');
+    copyFileSync(old, forkPath);
+    const fork = new DatabaseSync(forkPath);
+    fork
+      .prepare(
+        "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950011','manual-only task','task',?,?)",
+      )
+      .run(snapshotTime, snapshotTime);
+    fork
+      .prepare(
+        "UPDATE tasks_tasks SET title='newest shared version',updated_at=? WHERE id='T950010'",
+      )
+      .run(new Date(Date.now() - 30_000).toISOString());
+    fork.exec(`VACUUM INTO '${manual.replaceAll("'", "''")}'`);
+    fork.close();
     const twin = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120001');
     copyFileSync(manual, twin);
     for (const file of [snapshot, manual, twin])
@@ -718,6 +726,7 @@ describe('copy-only whole-store repair', () => {
     copyFileSync(old, live);
     const retentionVictim = join(env.cleoDir, 'backups', 'sqlite', 'tasks-20200101-000000.db');
     copyFileSync(snapshot, retentionVictim);
+    utimesSync(retentionVictim, new Date('2026-10-01'), new Date('2026-10-01'));
     for (let day = 1; day <= 12; day++)
       copyFileSync(
         live,
@@ -829,6 +838,124 @@ describe('copy-only whole-store repair', () => {
     expect(hashes()).toEqual(recovered);
   });
 
+  it('rejects a damaged snapshot even when its task table is readable', async () => {
+    const { snapshotRecoveryReason } = await import('../recover-malformed-db.js');
+    const db = new DatabaseSync(snapshot);
+    db.exec(
+      "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950019','untrusted snapshot row','task','2026-11-01','2026-11-01')",
+    );
+    const page = Number(
+      db.prepare("SELECT rootpage FROM sqlite_schema WHERE name='damage_marker'").get()?.rootpage,
+    );
+    const pageSize = Number(db.prepare('PRAGMA page_size').get()?.page_size);
+    db.close();
+    const bytes = readFileSync(snapshot);
+    bytes.fill(0, (page - 1) * pageSize, page * pageSize);
+    writeFileSync(snapshot, bytes);
+    const readable = new DatabaseSync(snapshot, { readOnly: true });
+    expect(readable.prepare("SELECT id FROM tasks_tasks WHERE id='T950019'").get()?.id).toBe(
+      'T950019',
+    );
+    readable.close();
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    expect(snapshotRecoveryReason(live, snapshot)).toBeUndefined();
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+    const check = new DatabaseSync(live, { readOnly: true });
+    expect(check.prepare("SELECT id FROM tasks_tasks WHERE id='T950019'").get()).toBeUndefined();
+    check.close();
+  });
+
+  it('honors committed prune and GC deletes during diagnosis, rotation and a later lossless recovery', async () => {
+    const { pruneAuditLog } = await import('../../audit-prune.js');
+    const { loadConfig } = await import('../../config.js');
+    const { rotateBackupDir } = await import('../backup-sidecar.js');
+    const dir = join(env.cleoDir, 'backups', 'sqlite');
+    const oldest = join(dir, 'cleo.db.snapshot-20260101-000000');
+    const newer = join(dir, 'cleo.db.snapshot-20260102-000000');
+    const db = new DatabaseSync(live);
+    db.exec(`INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES('pruned-audit','2020-01-01T00:00:00Z','create','old');
+      INSERT INTO tasks_sessions(id,name,status,started_at,ended_at) VALUES('pruned-session','old session','ended','2020-01-01T00:00:00Z','2020-01-01T00:00:01Z');
+      VACUUM INTO '${oldest.replaceAll("'", "''")}'`);
+    db.close();
+    copyFileSync(oldest, newer);
+    utimesSync(oldest, new Date('2026-01-01'), new Date('2026-01-01'));
+    utimesSync(newer, new Date('2026-01-02'), new Date('2026-01-02'));
+    const config = await loadConfig(env.tempDir);
+    expect(
+      (
+        await pruneAuditLog(env.cleoDir, {
+          ...config.logging,
+          auditRetentionDays: 30,
+          archiveBeforePrune: false,
+        })
+      ).rowsDeleted,
+    ).toBe(1);
+    // This test checks the committed delete, not the unrelated detached soft-reference cleanup.
+    vi.spyOn(
+      await import('../cross-db-cleanup.js'),
+      'cleanupBrainRefsOnSessionDelete',
+    ).mockResolvedValue();
+    await env.accessor.removeSingleSession('pruned-session');
+    resetDbState();
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    const rotation = rotateBackupDir(dir, 1, 'snapshot');
+    expect(rotation.retained).toEqual({});
+    expect(rotation.deleted).toContain('cleo.db.snapshot-20260101-000000');
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+
+    const checkout = join(env.tempDir, 'post-prune-checkout.db');
+    // This checkout predates deletion receipts; only retained post-prune history carries them.
+    copyFileSync(snapshot, checkout);
+    const changed = new DatabaseSync(live);
+    changed.exec(
+      "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950020','recover after prune','task','2026-11-01','2026-11-01')",
+    );
+    const recovery = join(dir, 'tasks-20261101-000000.db');
+    changed.exec(`VACUUM INTO '${recovery.replaceAll("'", "''")}'`);
+    changed.close();
+    resetDbState();
+    for (const suffix of ['-wal', '-shm']) rmSync(live + suffix, { force: true });
+    copyFileSync(checkout, live);
+    // The older image is deliberately the base; its pruned rows must be removed by receipts.
+    utimesSync(newer, new Date('2099-01-01'), new Date('2099-01-01'));
+    expect(inspectStoreIntegrity(live).healthy).toBe(false);
+    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result.status).toBe('repaired');
+    const check = new DatabaseSync(live, { readOnly: true });
+    try {
+      expect(check.prepare("SELECT id FROM tasks_tasks WHERE id='T950020'").get()?.id).toBe(
+        'T950020',
+      );
+      expect(
+        check.prepare("SELECT id FROM tasks_audit_log WHERE id='pruned-audit'").get(),
+      ).toBeUndefined();
+      expect(
+        check.prepare("SELECT id FROM tasks_sessions WHERE id='pruned-session'").get(),
+      ).toBeUndefined();
+      expect(
+        check.prepare('SELECT count(*) AS n FROM _store_deleted_keys').get()?.n,
+      ).toBeGreaterThanOrEqual(2);
+    } finally {
+      check.close();
+    }
+    expect(result.recovery?.rows).toContainEqual(
+      expect.objectContaining({
+        kind: 'deleted',
+        table: 'tasks_audit_log',
+        values: expect.objectContaining({ id: 'pruned-audit' }),
+      }),
+    );
+    const before = hashes();
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+    expect(hashes()).toEqual(before);
+  });
+
   it('preserves a losing live edit when a peer snapshot timestamp is in the future', async () => {
     const db = new DatabaseSync(live);
     db.exec(
@@ -880,6 +1007,8 @@ describe('copy-only whole-store repair', () => {
       expect.objectContaining({ source: newer, authoritative: false }),
     );
     expect(finding.detail).toContain('deliberate restore');
+    const { snapshotRecoveryReason } = await import('../recover-malformed-db.js');
+    expect(snapshotRecoveryReason(live, newer)).toBeUndefined();
     const intentPath = `${live}.restore.intent.json`;
     const intentBytes = readFileSync(intentPath);
     const prepared = JSON.parse(intentBytes.toString('utf8'));
@@ -922,6 +1051,10 @@ describe('copy-only whole-store repair', () => {
     );
     expect(check.prepare("SELECT id FROM tasks_tasks WHERE id='T950009'").get()).toBeUndefined();
     check.close();
+    const { enforceBackupByteCap } = await import('../backup-sidecar.js');
+    const rotation = enforceBackupByteCap(join(env.cleoDir, 'backups', 'sqlite'), 0);
+    expect(rotation.removed.flatMap((r) => r.files)).toContain(newer.split('/').at(-1));
+    expect(existsSync(newer)).toBe(false);
   });
 
   it.each([

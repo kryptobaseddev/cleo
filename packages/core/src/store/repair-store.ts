@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type {
+  StoreDeletionEvidence,
   StoreRepairOptions,
   StoreRepairPhase,
   StoreRepairReceipt,
@@ -33,7 +34,11 @@ import {
   openCleoDbSnapshot,
   prepareStoreRestoreIntent,
 } from './open-cleo-db.js';
-import { collectStoreSnapshotCandidates } from './recover-malformed-db.js';
+import {
+  collectStoreSnapshotCandidates,
+  readStoreDeletedKeys,
+  retainedStoreDeletedKeys,
+} from './recover-malformed-db.js';
 import {
   assertRepairOriginals,
   assertRepairQuiescent,
@@ -454,13 +459,32 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
           continue;
         const newer = join(scratch, `newer-snapshot-${views.length}.db`);
         copyRepairOriginals(finding.source, newer);
+        verify(newer, {}, false);
         views.unshift(newer);
       }
       if (receipt.freshness?.some((f) => f.kind === 'wal')) {
         const walView = join(scratch, 'reapplied-wal.db');
         if (copyRepairWalView(original, walView)) views.unshift(walView);
       }
-      const finishJournal = receipt.delta ? salvageIntoSnapshot(staged, views, receipt) : undefined;
+      let deleted = new Map<string, Map<string, StoreDeletionEvidence>>();
+      let originalView: ReturnType<typeof openCleoDbSnapshot> | undefined;
+      try {
+        originalView = openCleoDbSnapshot(original, {
+          applyPragmas: false,
+          loadSqliteVec: true,
+        });
+        const checks = originalView.db.prepare('PRAGMA integrity_check').all();
+        if (checks.length === 1 && checks[0]?.integrity_check === 'ok')
+          readStoreDeletedKeys(originalView.db, deleted);
+      } catch {
+        // Corrupt original bytes cannot authorize dropping otherwise recoverable rows.
+      } finally {
+        originalView?.close();
+      }
+      deleted = retainedStoreDeletedKeys(target, deleted, scope === 'project');
+      const finishJournal = receipt.delta
+        ? salvageIntoSnapshot(staged, views, receipt, deleted)
+        : undefined;
       phase('merge');
       await migrate(staged, scope);
       finishJournal?.();

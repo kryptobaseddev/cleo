@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
+import { readStoreDeletedKeys } from '../recover-malformed-db.js';
 import { dropCaptureTriggers, setCaptureEnabled } from '../sync/capture.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../migrations/sync-journal');
@@ -86,6 +87,18 @@ describe('cleo_trigger_suspend in the global store', () => {
     const db = await openGlobal();
     expect(hasSuspendTable(db)).toBe(true);
     expect(writeObservation(db, 'O-glob0002')).toEqual(['I']);
+  });
+
+  it('an existing global store gains delete receipts before its next write', async () => {
+    const first = await openGlobal();
+    first.exec('DROP TABLE _store_deleted_keys');
+    const db = await openGlobal();
+    db.exec(
+      "INSERT INTO brain_observations(id,type,title,created_at) VALUES('O-deleted','discovery','intentional prune','2026-01-01'); DELETE FROM brain_observations WHERE id='O-deleted'",
+    );
+    expect(
+      readStoreDeletedKeys(db).get('brain_observations')?.get('O-deleted')?.deletionCount,
+    ).toBe(1);
   });
 
   it('turning capture on over a handle that lacks the table creates it with the triggers', async () => {
