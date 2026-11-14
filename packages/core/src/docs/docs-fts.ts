@@ -29,6 +29,9 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import { resolveCleoDir } from '../paths.js';
+import { readVerifiedBlobBytes } from '../store/blob-keep.js';
+import { loadNodeSqliteDrizzle } from '../store/drizzle-node-sqlite.js';
 import { bindTasksDomain } from '../store/sqlite.js';
 
 /** The FTS5 table (project `cleo.db`, class `derived`). */
@@ -170,14 +173,13 @@ export async function syncDocsFts(
 
 /** {@link syncDocsFts} on a bound connection. */
 async function syncWith(projectRoot: string, native: DatabaseSync): Promise<DocsFtsSync> {
-  await bindTasksDomain(projectRoot);
   if (!ensureIndex(native)) return { available: false, indexed: 0, removed: 0, total: 0 };
 
   // T14288: every doc through its identity: the head's bytes, the identity's
   // summary (a legacy doc through its registry row).
-  const { listDocRefs } = await import('./slug-rename.js');
+  const { listDocRefsFromDb } = await import('./slug-rename.js');
   const store = new Map<string, StoreDoc>();
-  for (const ref of await listDocRefs(projectRoot)) {
+  for (const ref of await listDocRefsFromDb(loadNodeSqliteDrizzle()({ client: native }))) {
     if (!isTextAttachment(ref.row.attachmentJson)) continue;
     store.set(ref.slug, {
       slug: ref.slug,
@@ -201,12 +203,10 @@ async function syncWith(projectRoot: string, native: DatabaseSync): Promise<Docs
 
   const bodies: Array<{ doc: StoreDoc; body: string }> = [];
   if (missing.length > 0) {
-    const { createAttachmentStore } = await import('../store/attachment-store.js');
-    const attachmentStore = createAttachmentStore();
     for (const doc of missing) {
-      const fetched = await attachmentStore.get(doc.sha256, projectRoot).catch(() => null);
+      const fetched = readVerifiedBlobBytes(resolveCleoDir(projectRoot), doc.sha256);
       if (!fetched) continue;
-      bodies.push({ doc, body: fetched.bytes.toString('utf8').slice(0, DOCS_FTS_MAX_BYTES) });
+      bodies.push({ doc, body: fetched.toString('utf8').slice(0, DOCS_FTS_MAX_BYTES) });
     }
   }
 
@@ -240,6 +240,29 @@ async function syncWith(projectRoot: string, native: DatabaseSync): Promise<Docs
     removed: stale.length,
     total: current.size + bodies.length,
   };
+}
+
+/**
+ * Rebuild the contentless docs index from this store's canonical heads and verified blob bytes.
+ * Recovery passes its staged connection: neither metadata reads nor blob reads open the live store.
+ * Missing bytes stay unindexed until the ordinary docs sync can read them.
+ */
+export async function rebuildDocsFts(
+  projectRoot: string,
+  native: DatabaseSync,
+): Promise<DocsFtsSync> {
+  if (!ensureIndex(native)) return { available: false, indexed: 0, removed: 0, total: 0 };
+  native.exec('SAVEPOINT docs_fts_rebuild');
+  try {
+    native.exec("INSERT INTO docs_fts(docs_fts) VALUES ('delete-all')");
+    native.exec('DELETE FROM docs_fts_rows');
+    const result = await syncWith(projectRoot, native);
+    native.exec('RELEASE docs_fts_rebuild');
+    return result;
+  } catch (error) {
+    native.exec('ROLLBACK TO docs_fts_rebuild; RELEASE docs_fts_rebuild');
+    throw error;
+  }
 }
 
 /**

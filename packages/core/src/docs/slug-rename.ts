@@ -23,6 +23,7 @@
 
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, eq } from 'drizzle-orm';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { pushWarning } from '../output.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
@@ -335,7 +336,11 @@ export async function resolveDocRef(
  * @task T14288
  */
 export async function listDocRefs(projectRoot: string): Promise<DocRef[]> {
-  const db = await getDb(projectRoot);
+  return listDocRefsFromDb(await getDb(projectRoot));
+}
+
+/** List canonical doc heads from an already-bound store, including a private recovery snapshot. */
+export async function listDocRefsFromDb(db: NodeSQLiteDatabase): Promise<DocRef[]> {
   const registry = await db.select().from(attachments).all();
   const bySha = new Map(registry.map((r) => [r.sha256, r]));
   const byId = new Map(registry.map((r) => [r.id, r]));

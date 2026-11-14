@@ -177,6 +177,24 @@ describe('cliError signature compatibility (T4808 regression)', () => {
     }
   });
 
+  it('preserves a store-holder refusal even when the holder command mentions corruption', () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    try {
+      cliError('E_STORE_IN_USE: pid 42 (cleo add "malformed database")', 7, {
+        name: 'E_STORE_IN_USE',
+        fix: 'Close pid 42 using its normal shutdown.',
+      });
+      const envelope = JSON.parse(String(stdout.mock.calls[0]?.[0]));
+      expect(envelope.error).toMatchObject({
+        code: 7,
+        codeName: 'E_STORE_IN_USE',
+        fix: 'Close pid 42 using its normal shutdown.',
+      });
+    } finally {
+      stdout.mockRestore();
+    }
+  });
+
   // -----------------------------------------------------------------------
   // T336 regression: third argument was previously ignored (_details)
   // -----------------------------------------------------------------------

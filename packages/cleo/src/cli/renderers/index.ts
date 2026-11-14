@@ -848,6 +848,7 @@ export function cliError(
   options?: CliErrorOptions,
 ): void {
   if (
+    details?.name !== 'E_STORE_IN_USE' &&
     /E_DB_CORRUPT|SQLITE_CORRUPT|database.*malformed|malformed.*(?:database|schema)/i.test(message)
   ) {
     code = 3;

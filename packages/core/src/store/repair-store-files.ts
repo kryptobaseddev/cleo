@@ -18,7 +18,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { setTimeout } from 'node:timers/promises';
 import type { StoreRepairFile } from '@cleocode/contracts/db-recovery.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { CleoError } from '../errors.js';
 import { isLocked } from './lock.js';
 import {
   copyRepairOriginals,
@@ -77,17 +80,81 @@ function skipInaccessibleProcess(pid: string, error: Error, diagnostics: string[
   return true;
 }
 
+/** A proven holder, kept separate from failures to inspect handles. */
+class StoreHolder extends Error {
+  constructor(
+    readonly pids: readonly number[],
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 /**
- * Prove quiescence without opening the damaged SQLite file. A normal lock
- * probe can checkpoint or delete a live WAL on close, destroying evidence.
- * The first-open lock and restore marker exclude racing CLEO opens; this
- * check also refuses pre-existing SQLite handles, including this process's.
+ * Prove quiescence without SQLite-opening the damaged file. Wait at most 15 seconds
+ * for identifiable CLEO processes to finish teardown, rechecking every handle and lock.
+ * Persistent holders return E_STORE_IN_USE with their commands and a shutdown fix.
+ * The first-open lock and restore marker must remain held throughout the wait.
  */
 export async function assertRepairQuiescent(target: string, diagnostics: string[]): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  let waited = false;
+  for (;;) {
+    try {
+      await checkRepairQuiescent(target, diagnostics);
+      if (waited) diagnostics.push('CLEO store holders exited during the bounded teardown wait');
+      return;
+    } catch (error) {
+      if (!(error instanceof StoreHolder)) throw error;
+      const { readProcessArgs } = await import('../sessions/terminal-identity.js');
+      const { redactCommandLine } = await import('../resources/run-admission.js');
+      const holders = [...new Set(error.pids)].map((pid) => ({
+        pid,
+        command: readProcessArgs(pid),
+      }));
+      const cleoOnly =
+        holders.length > 0 &&
+        holders.every(
+          ({ pid, command }) =>
+            pid !== process.pid &&
+            command !== null &&
+            /(?:^|[\\/\s])cleo(?:\.m?js|\.ts)?(?:[\\/\s]|$)/i.test(command),
+        );
+      // A holder can exit between the kernel probe and ps; require a fresh handle proof.
+      const exiting =
+        holders.length > 0 &&
+        holders.every(({ command }) => command === null || command === '<defunct>');
+      if ((cleoOnly || exiting) && Date.now() < deadline) {
+        waited = true;
+        await setTimeout(Math.min(200, Math.max(1, deadline - Date.now())));
+        continue;
+      }
+      const who = holders
+        .map(
+          ({ pid, command }) =>
+            `pid ${pid} (${command === null ? 'command unavailable' : redactCommandLine(command)})`,
+        )
+        .join(', ');
+      // @sync-invariant none:local-only a proven local store holder prevents publication
+      throw new CleoError(
+        ExitCode.LOCK_TIMEOUT,
+        `E_STORE_IN_USE: ${error.message}${who ? `; ${who}` : ''}`,
+        {
+          codeName: 'E_STORE_IN_USE',
+          fix: `Close ${who || 'the application holding the store lock'} using its owning terminal or normal shutdown so it releases ${target}.`,
+          cause: error,
+        },
+      );
+    }
+  }
+}
+
+/** Check every OS handle before copying lease rows; teardown polling never recopies a large store. */
+async function checkRepairLeases(target: string, diagnostics: string[]): Promise<void> {
   // The first-open lock is ours; the ordinary writer lock must be unheld.
   if (await isLocked(target))
     // @sync-invariant none:local-only an existing CLEO writer excludes local store replacement
-    throw new Error('Another CLEO writer holds the store lock');
+    throw new StoreHolder([], 'Another CLEO writer holds the store lock');
   const scratch = mkdtempSync(join(tmpdir(), 'cleo-repair-lease-'));
   let held: ReturnType<typeof foreignWriterLeases> = [];
   try {
@@ -105,9 +172,14 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
   }
   if (held.length)
     // @sync-invariant none:local-only live CLEO lease holders exclude local store replacement
-    throw new Error(
+    throw new StoreHolder(
+      held.map((h) => h.holderPid),
       `Store has live CLEO writer leases: ${held.map((h) => `pid ${h.holderPid} (${h.lane})`).join(', ')}`,
     );
+}
+
+/** Check kernel locks and idle handles without opening any store file with SQLite. */
+async function checkRepairQuiescent(target: string, diagnostics: string[]): Promise<void> {
   const paths = REPAIR_SIDECARS.map((s) => target + s).filter(existsSync);
   if (process.platform === 'linux') {
     const inodes = new Set(paths.map(linuxLockIdentity));
@@ -119,8 +191,12 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
         m[3] &&
         inodes.has(`${BigInt(`0x${m[1]}`)}:${BigInt(`0x${m[2]}`)}:${BigInt(m[3])}`)
       ) {
-        // @sync-invariant none:local-only a kernel lock excludes replacement of the local store
-        throw new Error('Another connection holds a kernel lock on the store');
+        const pid = Number(/(-?\d+)\s+[0-9a-f]+:[0-9a-f]+:\d+/i.exec(line)?.[1]);
+        // @sync-invariant none:local-only a kernel lock excludes publication of a local repair
+        throw new StoreHolder(
+          pid > 0 ? [pid] : [],
+          'Another connection holds a kernel lock on the store',
+        );
       }
     }
     const uid = statSync('/proc/self').uid;
@@ -139,17 +215,18 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
       for (const descriptor of descriptors) {
         try {
           const identity = linuxLockIdentity(`/proc/${pid}/fd/${descriptor}`);
-          // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
-          if (inodes.has(identity)) throw new Error(`Store is open in pid ${pid}`);
+          if (inodes.has(identity))
+            // @sync-invariant none:local-only an idle descriptor excludes publication of a local repair
+            throw new StoreHolder([Number(pid)], `Store is open in pid ${pid}`);
         } catch (error) {
-          if (error instanceof Error && /Store is open/.test(error.message)) throw error;
+          if (error instanceof StoreHolder) throw error;
           if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
           if (error instanceof Error && skipInaccessibleProcess(pid, error, diagnostics)) break;
           throw error;
         }
       }
     }
-    return;
+    return checkRepairLeases(target, diagnostics);
   }
   if (process.platform === 'win32') {
     const script = paths
@@ -170,7 +247,7 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
     if (probe.error || probe.status !== 0)
       // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
       throw new Error(`Cannot exclusively open the store: ${probe.error?.message ?? probe.stderr}`);
-    return;
+    return checkRepairLeases(target, diagnostics);
   }
   const probe = spawnSync('/usr/bin/fuser', ['-f', ...paths], {
     encoding: 'utf8',
@@ -183,8 +260,15 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
     // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
     throw new Error(`Cannot prove the store is closed: ${probe.error?.message ?? probe.stderr}`);
   }
-  // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
-  if (probe.stdout.trim()) throw new Error(`Store is open: ${probe.stdout.trim()}`);
+  if (probe.stdout.trim()) {
+    const pids = [...new Set(probe.stdout.trim().split(/\s+/).map(Number))];
+    // @sync-invariant none:local-only proven open descriptors prevent replacing the store
+    throw new StoreHolder(
+      pids.filter((pid) => Number.isInteger(pid) && pid > 0),
+      'Store is open',
+    );
+  }
+  return checkRepairLeases(target, diagnostics);
 }
 
 /**

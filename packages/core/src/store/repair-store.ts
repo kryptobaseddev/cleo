@@ -436,6 +436,14 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
         loadSqliteVec: true,
       });
       try {
+        if (receipt.delta && receipt.tables.docs_fts?.rebuilt) {
+          const { rebuildDocsFts } = await import('../docs/docs-fts.js');
+          const result = await rebuildDocsFts(opts.projectRoot ?? dirname(dirname(target)), db.db);
+          if (receipt.tables.docs_fts_rows) receipt.tables.docs_fts_rows.rebuilt = true;
+          receipt.diagnostics.push(
+            `Rebuilt contentless docs_fts from canonical docs: ${result.total} indexed`,
+          );
+        }
         markSuspect(db.db, scope, syncSetTables(scope));
       } finally {
         db.close();
@@ -504,6 +512,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       receipt.status = 'failed';
       receipt.diagnostics.push(cause.message);
       receiptFile(receipt);
+      if (cause instanceof CleoError && cause.codeName === 'E_STORE_IN_USE') throw cause;
       // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
       throw storeCorruptError(target, cause);
     }

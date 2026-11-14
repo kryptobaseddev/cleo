@@ -59,7 +59,11 @@ incomplete, snapshot rows remain and are listed as possibly resurrected.
 UNIQUE collisions and foreign-key orphans are excluded from the healthy result
 and preserved with their values and reasons in `recovery.json`. Other readable
 rows still merge. FTS and vector shadow storage is rebuilt through its logical
-content tables, never imported row by row.
+content tables, never imported row by row. External-content FTS indexes use SQLite's
+`rebuild`. Contentless FTS5 indexes use `delete-all`, followed by CLEO's own
+indexer over the merged canonical sources. The docs index reads verified blob
+bytes without opening the damaged live store. Unavailable doc bodies stay
+unindexed until ordinary docs sync can read them; the doc records remain.
 
 Before commit, the merged result must pass `integrity_check`, an empty
 `foreign_key_check`, and base row-count checks adjusted only for recorded
@@ -103,8 +107,11 @@ An interrupted attempt can be rerun with the same command.
 
 ## Busy stores and previews
 
-Repair refuses an open store, including an idle connection. End the processes
-holding it, then rerun the command. A failed liveness probe is not permission to
+Repair waits up to 15 seconds for preceding CLEO processes to finish teardown,
+rechecking their handles before proceeding. A persistent holder, including an
+idle connection, returns `E_STORE_IN_USE` with its PID and redacted command.
+Close that process normally from its owning terminal so it releases the store;
+the error fix names that action. A failed liveness probe is not permission to
 overwrite it. Linux checks kernel locks and process file descriptors through
 `/proc`; macOS uses its system `fuser`; Windows probes an exclusive file open.
 CLEO also checks its writer lock and live lease rows on a private copy. On Linux,
