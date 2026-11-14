@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.9.0
+  version: 3.10.0
   tier: on-demand
   install: harness
   covers:
@@ -150,8 +150,9 @@ node scripts/release-mac-smoke.mjs
 git tag -a v2026.6.0 -m "Release v2026.6.0"
 git push origin v2026.6.0
 
-# 6. Reconcile — runs automatically inside release-publish.yml.
-#    Run manually only if backfilling a historical release.
+# 6. Reconcile. Every full merge sweep reconciles the newest stable tag on
+#    origin/main once its GitHub Release exists. Run it by hand for a
+#    prerelease, an older stable tag, a failed sweep attempt, or right away.
 cleo release reconcile v2026.6.0
 ```
 
@@ -185,7 +186,7 @@ Exit codes (canonical):
 | Hand-editing `CHANGELOG.md` for the new version | Drift between the changeset directory and the changelog. | `cleo release plan` always auto-writes the section (T10105). Use `cleo changeset add` to author entries. |
 | Pasting one verb into another's workflow file | Multi-step orchestration belongs in `ship-e2e-smoke`. | Use `cleo release ship-e2e-smoke … --execute` for end-to-end validation. |
 | Running the pipeline on a dirty worktree | Release commit scoops up unrelated changes. | The clean-tree gate refuses to advance. |
-| Skipping `cleo release reconcile` after a successful tag push | 11 provenance tables stay empty; canon drift. | `release-publish.yml` runs reconcile automatically — verify it ran via `cleo release show <ver>`. |
+| Skipping `cleo release reconcile` after a successful tag push | 11 provenance tables stay empty; canon drift. | The merge sweep reconciles only the newest stable tag (after its GitHub Release exists); reconcile prereleases, older tags and failed attempts by hand. Verify with `cleo release show <ver>`. |
 
 ## Critical Rules Summary
 
@@ -194,7 +195,7 @@ Exit codes (canonical):
 3. CalVer (`YYYY.MM.patch`) is the only valid version scheme.
 4. `cleo release plan` always writes the CHANGELOG section unless `--no-changelog`.
 5. The tag is created explicitly after the release PR merges; `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087).
-6. Provenance reconcile is invoked by `release-publish.yml`, not manually (unless backfilling).
+6. Provenance reconcile: every full merge sweep reconciles the newest stable tag merged into `origin/main` once its GitHub Release exists (`reconcileLatestRelease`). Run `cleo release reconcile <ver>` by hand for a prerelease, an older stable tag, after a failed sweep attempt, or to record it now. The shipped `release-publish.yml` consumer template also runs it.
 7. Per-task evidence gates use `cleo verify --gate --evidence` per ADR-051 — not the deleted batch verb.
 8. Use `cleo release ship-e2e-smoke` to validate the full pipeline before a real ship.
 9. A stable release reaches `latest` only through release.yml's release candidate gate (T13181). If the gate fails, the release is not shipped to users: re-run the failed Publish job or fix forward; never move `latest` by hand (there is no npm token).
