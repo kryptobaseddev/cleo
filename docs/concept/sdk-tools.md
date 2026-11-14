@@ -24,11 +24,21 @@ adapters in `@cleocode/adapters` and core's orchestration (`orchestrate/spawn-op
 | **A — Agent tool** | LLM-callable tools in an agent-facing registry | `packages/core/src/tools/agent-registry.ts`, `builtin-agent-tools.ts` and the `*-agent-tool(s).ts` modules. ADR-098 retires the agent-tool registry with the in-core Pi runner, its only consumer. |
 | **B — SDK tool** | Harness-agnostic infrastructure primitives (this doc) | `packages/core/src/sdk/` |
 | **C — Domain utility** | CAAMP provider/skill/adapter management ops | `packages/core/src/tools/index.ts` (`issue.*`, `skill.*`, `provider.*`, `adapter.*`) |
-| **Atomic primitives** | Raw fs/shell/pty side effects, exposed only through the deny-first `createToolGuard()` chokepoint | `packages/core/src/tools/{fs,shell,pty,guard,env-scrub}.ts` |
+| **Atomic primitives** | Raw fs/shell/pty side effects, mostly reached through the `createToolGuard()` chokepoint (exceptions below) | `packages/core/src/tools/{fs,shell,pty,guard,env-scrub}.ts` |
 
-The raw side-effecting primitives (`writeFileAtomic`, `executeShell`, `runGit`, …) are not
-re-exported from the tools barrel: a consumer calls `createToolGuard()` and uses the
-returned `ToolGuard`, so every fs/shell call passes one policy point.
+What the guard covers, and what it does not:
+
+- **Through the guard.** `createToolGuard()` returns a `ToolGuard` whose `readFileText`,
+  `writeFileAtomic`, `pathExists`, `executeShell`, `executePty` and `runGit` check the call
+  against the policy (`packages/core/src/tools/guard.ts`). `writeFileAtomic`, `executeShell` and
+  `runGit` themselves are not re-exported from the tools barrel.
+- **The guard warns by default.** Its default mode is `warn`: a policy breach is logged, not
+  blocked, unless the caller passes `mode: 'enforce'`. Flipping the default to `enforce` is
+  owner-gated and off (`GUARD_ENFORCE_FLIP_ENABLED = false`).
+- **Exported with no policy check.** The tools barrel also exports `runPty`
+  (`tools/pty.ts`, a PTY or spawn run) and `defaultShellExecutor` (`tools/shell.ts`, a
+  no-shell `spawn` with a scrubbed environment). Either one runs a command without consulting
+  the guard. The raw `runPty` export is tracked as its own task.
 
 ## SDK tools reference
 
@@ -51,8 +61,18 @@ Import from `packages/core/src/sdk/index.ts`, not from the implementation files.
 - Evidence verification resolves tool commands with `resolveToolCommand` and runs them
   through `runToolCached` instead of hardcoding `pnpm run test`.
 - A worker records its findings with `pipelineManifestAppend` (or `cleo manifest append`).
-  The specification protocol validator reports a missing manifest entry as exit 62
-  (`MANIFEST_ENTRY_MISSING`).
+  Protocol validation (`cleo check protocol <type> --task-id <id>`) fails in two different
+  ways:
+  - **No manifest entry.** Validation loads the task's entry first
+    (`loadManifestEntryByTaskId`, `packages/core/src/validation/protocols/_shared.ts`) and
+    fails with exit 4 (`NOT_FOUND`, "No manifest entry found for task …") before any protocol
+    check runs. Recovery: append the entry with `cleo manifest append`, then validate again.
+  - **Protocol violations under `--strict`.** With an entry present, `--strict` turns error
+    violations into the protocol's own exit code (`PROTOCOL_EXIT_CODES` in
+    `packages/core/src/orchestration/protocol-validators.ts`, thrown by `throwIfStrictFailed`).
+    For `specification` that code is 62, whose name, `MANIFEST_ENTRY_MISSING`, is historical:
+    it signals a strict specification violation, not a missing entry. Recovery: fix the
+    violations the error lists, then validate again.
 
 ## Related
 
