@@ -258,7 +258,7 @@ describe('GitHub matrix job names (T14579)', () => {
 
   it('an exact job name matches GitHub matrix suffixes without matching another base name', () => {
     const re = /^PR guards and affected tests$/;
-    for (const suffix of ['1/1', '1/3', 'ubuntu-latest, 24.16.0'])
+    for (const suffix of ['1/1', '1/3', 'ubuntu-latest, 24.16.0', 'Ubuntu (x64), 1/3'])
       expect(jobNameMatches(re, `${name} (${suffix})`)).toBe(true);
     expect(jobNameMatches(re, `${name} extra (1/3)`)).toBe(false);
     expect(jobNameMatches(re, `${name} (1/3) extra`)).toBe(false);
@@ -318,6 +318,55 @@ describe('GitHub matrix job names (T14579)', () => {
       name: c.name.replace(' (', ` (${i === 1 ? 'macos' : 'ubuntu'}, `),
     }));
     expect(evaluateJobs(globs, splitPlatforms, MERGE, scope).ok).toBe(false);
+  });
+
+  it.each([
+    'workflow',
+    'app',
+  ] as const)('keeps same-named matrix jobs from each %s separate', (source) => {
+    const alternate = legs.map((c) => ({
+      ...c,
+      id: c.id + 100,
+      ...(source === 'workflow'
+        ? { workflowPath: '.github/workflows/other.yml' }
+        : { appSlug: 'other-app' }),
+    }));
+    const both = { workflows: [...scope.workflows, '.github/workflows/other.yml'] };
+    expect(evaluateJobs(globs, [...legs, ...alternate], MERGE, both).ok).toBe(true);
+    const mixed = [legs[0]!, legs[1]!, alternate[2]!];
+    expect(evaluateJobs(globs, mixed, MERGE, both).ok).toBe(false);
+    expect(
+      evaluateFilterSkippedJobs(
+        globs,
+        ['scripts/a.mjs'],
+        mixed.map((c) => ({ ...c, conclusion: 'skipped' })),
+        MERGE,
+        both,
+      ).ok,
+    ).toBe(false);
+    expect(
+      evaluateJobs(
+        globs,
+        [{ ...legs[0]!, id: 10, conclusion: 'failure' }, ...legs.slice(1), ...alternate],
+        MERGE,
+        both,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('requires every encoded numeric matrix axis to be complete', () => {
+    const grid = [1, 2].flatMap((a) =>
+      [1, 2, 3].map((b) => check(`${name} (${a}/2, ${b}/3)`, { workflowPath: scope.workflows[0] })),
+    );
+    expect(evaluateJobs(globs, grid, MERGE, scope).ok).toBe(true);
+    expect(
+      evaluateJobs(
+        globs,
+        grid.filter((c) => !c.name.startsWith(`${name} (2/2`)),
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(false);
   });
 
   it('a missing matrix leg cannot be excused as a CI filter skip', () => {

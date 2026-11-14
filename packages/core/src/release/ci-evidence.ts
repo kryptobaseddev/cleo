@@ -534,8 +534,25 @@ export function jobNameMatches(re: RegExp, name: string): boolean {
   if (re.test(name)) return true;
   const expression = name.indexOf('${{');
   if (expression > 0 && re.test(name.slice(0, expression).trimEnd())) return true;
-  const suffix = name.lastIndexOf(' (');
-  return suffix > 0 && name.endsWith(')') && re.test(name.slice(0, suffix));
+  return jobMatrixSuffixStart(re, name) > 0;
+}
+
+/** The configured base can contain parentheses, as can a matrix value. */
+function jobMatrixSuffixStart(re: RegExp, name: string): number {
+  if (!name.endsWith(')')) return -1;
+  for (let at = name.indexOf(' ('); at > 0; at = name.indexOf(' (', at + 2)) {
+    if (re.test(name.slice(0, at))) return at;
+  }
+  return -1;
+}
+
+/** Same-named jobs from different workflows, apps or events cannot replace one another. */
+function jobRunSource(check: CommitCheck): string {
+  return JSON.stringify([
+    check.event,
+    check.workflowPath ?? check.workflowName,
+    check.appSlug ?? check.appId,
+  ]);
 }
 
 /** Missing N/M shard legs cannot be hidden by the legs that reported success. */
@@ -544,18 +561,20 @@ function incompleteShardMatrix(checks: readonly CommitCheck[], re: RegExp): stri
   const expected = new Map<string, number>();
   const legs = new Map<string, Set<number>>();
   for (const check of checks) {
-    if (!re.test(check.name.slice(0, check.name.lastIndexOf(' (')))) continue;
-    const matrix = /^(.* \([^()]*)\b(\d+)\/(\d+)([^()]*\))$/.exec(check.name);
-    if (!matrix) continue;
-    const leg = Number(matrix[2]);
-    const total = Number(matrix[3]);
-    const group = `${matrix[1]}*/${matrix[3]}${matrix[4]} (${check.event ?? 'unknown event'})`;
-    if (!Number.isSafeInteger(leg) || !Number.isSafeInteger(total) || leg < 1 || leg > total)
-      return `${check.name}: invalid matrix leg`;
-    const seen = legs.get(group) ?? new Set<number>();
-    seen.add(leg);
-    legs.set(group, seen);
-    expected.set(group, total);
+    const at = jobMatrixSuffixStart(re, check.name);
+    if (at < 0) continue;
+    const values = check.name.slice(at + 2, -1);
+    for (const matrix of values.matchAll(/\b(\d+)\/(\d+)\b/g)) {
+      const leg = Number(matrix[1]);
+      const total = Number(matrix[2]);
+      const group = `${check.name.slice(0, at + 2)}${values.slice(0, matrix.index)}*/${matrix[2]}${values.slice(matrix.index + matrix[0].length)}) ${jobRunSource(check)}`;
+      if (!Number.isSafeInteger(leg) || !Number.isSafeInteger(total) || leg < 1 || leg > total)
+        return `${check.name}: invalid matrix leg`;
+      const seen = legs.get(group) ?? new Set<number>();
+      seen.add(leg);
+      legs.set(group, seen);
+      expected.set(group, total);
+    }
   }
   for (const [group, seen] of legs) {
     if (seen.size !== expected.get(group))
@@ -609,7 +628,7 @@ export function evaluateFilterSkippedJobs(
     const re = globToRegExp(glob);
     const latest = new Map<string, CommitCheck>();
     for (const c of inScope.filter((c) => jobNameMatches(re, c.name))) {
-      const key = `${c.name}\u0000${c.event ?? ''}`;
+      const key = `${c.name}\u0000${jobRunSource(c)}`;
       const prev = latest.get(key);
       if (!prev || c.id > prev.id) latest.set(key, c);
     }
@@ -689,7 +708,7 @@ export function evaluateJobs(
     }
     const latest = new Map<string, CommitCheck>();
     for (const c of matched) {
-      const key = `${c.name}\u0000${c.event ?? ''}`;
+      const key = `${c.name}\u0000${jobRunSource(c)}`;
       const prev = latest.get(key);
       if (!prev || c.id > prev.id) latest.set(key, c);
     }
