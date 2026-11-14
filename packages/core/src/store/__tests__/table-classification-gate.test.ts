@@ -251,6 +251,10 @@ const SYNC_JOURNAL_TABLES = {
  */
 const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl: string }>> = {
   project: {
+    _store_generation: {
+      class: 'local-only',
+      ddl: 'packages/core/src/store/recover-malformed-db.ts',
+    },
     _exodus_database_identity: {
       class: 'local-only',
       ddl: 'packages/core/src/store/exodus/recovery.ts',
@@ -261,6 +265,10 @@ const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl
     ...SYNC_JOURNAL_TABLES,
   },
   global: {
+    _store_generation: {
+      class: 'local-only',
+      ddl: 'packages/core/src/store/recover-malformed-db.ts',
+    },
     __catalog_meta: { class: 'local-only', ddl: 'packages/core/src/llm/catalog-seeder.ts' },
     ...SYNC_JOURNAL_TABLES,
     // No global binder creates it yet; a local vector cache like its project twin (T13729).

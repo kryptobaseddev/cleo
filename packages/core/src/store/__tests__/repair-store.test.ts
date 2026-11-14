@@ -29,6 +29,7 @@ import {
 } from '../dual-scope-db.js';
 import { acquireLock } from '../lock.js';
 import { assertDoctorStoreIntegrity } from '../open-cleo-db.js';
+import { advanceStoreGeneration, readStoreGeneration } from '../recover-malformed-db.js';
 import { inspectStoreIntegrity, repairStore } from '../repair-store.js';
 import { assertRepairQuiescent, repairFileHash } from '../repair-store-files.js';
 import { getNativeTasksDb, resetDbState } from '../sqlite.js';
@@ -150,6 +151,7 @@ beforeEach(async () => {
   const backups = join(env.cleoDir, 'backups', 'sqlite');
   mkdirSync(backups, { recursive: true });
   snapshot = join(backups, 'tasks-20261001-120000.db');
+  advanceStoreGeneration(db, live);
   db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   copyFileSync(live, join(env.cleoDir, 'older-main.db'));
@@ -578,6 +580,7 @@ describe('copy-only whole-store repair', () => {
       INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES
       ('new-audit','2026-11-13T00:00:00Z','create','T950002')`);
     rmSync(snapshot);
+    advanceStoreGeneration(db, live);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
     db.close();
     copyFileSync(old, live);
@@ -703,6 +706,7 @@ describe('copy-only whole-store repair', () => {
       "INSERT INTO tasks_sessions(id,name,status,started_at) VALUES('before-checkout','recover ended session','active',?)",
     ).run(snapshotTime);
     rmSync(snapshot);
+    advanceStoreGeneration(db, live);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
     db.close();
     const manual = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120000');
@@ -726,15 +730,19 @@ describe('copy-only whole-store repair', () => {
         "INSERT INTO tasks_sessions(id,name,status,started_at,ended_at) VALUES('before-checkout','recover ended session','ended',?,?)",
       )
       .run(snapshotTime, endedAt);
+    advanceStoreGeneration(fork, live);
     fork.exec(`VACUUM INTO '${manual.replaceAll("'", "''")}'`);
     fork.close();
     const twin = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120001');
     copyFileSync(manual, twin);
-    for (const file of [snapshot, manual, twin])
+    for (const file of [snapshot, manual])
       utimesSync(file, new Date('2026-10-01'), new Date('2026-10-01'));
+    // Identical bytes remain one assessment even when the copies have different mtimes.
+    utimesSync(twin, new Date('2026-10-02'), new Date('2026-10-02'));
     copyFileSync(old, live);
     const retentionVictim = join(env.cleoDir, 'backups', 'sqlite', 'tasks-20200101-000000.db');
     copyFileSync(snapshot, retentionVictim);
+    rmSync(snapshot);
     utimesSync(retentionVictim, new Date('2026-10-01'), new Date('2026-10-01'));
     for (let day = 1; day <= 12; day++)
       copyFileSync(
@@ -858,6 +866,7 @@ describe('copy-only whole-store repair', () => {
     db.exec(
       "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950019','untrusted snapshot row','task','2026-11-01','2026-11-01')",
     );
+    advanceStoreGeneration(db, live);
     const page = Number(
       db.prepare("SELECT rootpage FROM sqlite_schema WHERE name='damage_marker'").get()?.rootpage,
     );
@@ -881,64 +890,56 @@ describe('copy-only whole-store repair', () => {
     check.close();
   });
 
-  it('keeps deletion-only history until repair restores its durable evidence', async () => {
-    const { rotateBackupDir } = await import('../backup-sidecar.js');
-    const dir = join(env.cleoDir, 'backups', 'sqlite');
-    const deleted = join(dir, 'cleo.db.snapshot-20260101-000000');
-    const stale = join(dir, 'cleo.db.snapshot-20260102-000000');
-    const checkout = join(env.tempDir, 'before-delete.db');
+  it('leaves mature pre-upgrade stores healthy without judging missing rows as ancestry', async () => {
     const db = new DatabaseSync(live);
-    db.exec(
-      "INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES('delete-only','2026-01-01','create','old')",
-    );
-    db.exec(`VACUUM INTO '${checkout.replaceAll("'", "''")}'`);
-    db.exec("DELETE FROM tasks_audit_log WHERE id='delete-only'");
-    db.exec(`VACUUM INTO '${deleted.replaceAll("'", "''")}'`);
+    db.exec('DROP TABLE _store_generation');
     db.close();
-    copyFileSync(checkout, live);
-    copyFileSync(checkout, stale);
-    utimesSync(deleted, new Date('2026-01-01'), new Date('2026-01-01'));
-    utimesSync(stale, new Date('2026-01-02'), new Date('2026-01-02'));
-    const finding = inspectStoreIntegrity(live);
-    expect(finding.healthy).toBe(false);
-    expect(finding.detail).toContain('committed deletion receipts');
-    expect(rotateBackupDir(dir, 1, 'snapshot').retained[basename(deleted)]).toContain(
-      'delete-only',
+    const old = new DatabaseSync(snapshot);
+    old.exec(
+      "DROP TABLE _store_generation; INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES('pre-upgrade-pruned','2020-01-01','create','old')",
     );
-    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
-    expect(result.status).toBe('repaired');
-    const check = new DatabaseSync(live, { readOnly: true });
-    expect(
-      check.prepare("SELECT id FROM tasks_audit_log WHERE id='delete-only'").get(),
-    ).toBeUndefined();
-    expect(
-      check
-        .prepare("SELECT deletion_count FROM _store_deleted_keys WHERE record_key='delete-only'")
-        .get()?.deletion_count,
-    ).toBe(1);
-    check.close();
+    old.close();
     const before = hashes();
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
     expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
       'healthy',
     );
     expect(hashes()).toEqual(before);
+    expect(existsSync(join(env.cleoDir, 'quarantine'))).toBe(false);
   });
 
-  it('honors committed prune and GC deletes during diagnosis, rotation and a later lossless recovery', async () => {
+  it('keeps prune, session GC and a reused brain decision id healthy after a snapshot', async () => {
     const { pruneAuditLog } = await import('../../audit-prune.js');
     const { loadConfig } = await import('../../config.js');
+    const { gcSessions } = await import('../../sessions/index.js');
+    const { purgeBrainNoise } = await import('../../memory/brain-purge.js');
+    const { getBrainDb } = await import('../memory-sqlite.js');
+    const { BrainDataAccessor } = await import('../memory-accessor.js');
     const { rotateBackupDir } = await import('../backup-sidecar.js');
-    const dir = join(env.cleoDir, 'backups', 'sqlite');
-    const oldest = join(dir, 'cleo.db.snapshot-20260101-000000');
-    const newer = join(dir, 'cleo.db.snapshot-20260102-000000');
-    const db = new DatabaseSync(live);
-    db.exec(`INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES('pruned-audit','2020-01-01T00:00:00Z','create','old');
-      INSERT INTO tasks_sessions(id,name,status,started_at,ended_at) VALUES('pruned-session','old session','ended','2020-01-01T00:00:00Z','2020-01-01T00:00:01Z');
-      VACUUM INTO '${oldest.replaceAll("'", "''")}'`);
-    db.close();
-    copyFileSync(oldest, newer);
-    utimesSync(oldest, new Date('2026-01-01'), new Date('2026-01-01'));
-    utimesSync(newer, new Date('2026-01-02'), new Date('2026-01-02'));
+    const memory = new BrainDataAccessor(await getBrainDb(env.tempDir));
+    await memory.addDecision({
+      id: 'D-mntpeeer',
+      type: 'architecture',
+      decision: 'purge anchor',
+      rationale: 'keep',
+      confidence: 'high',
+    });
+    const original = await memory.addDecisionWithSequentialId({
+      id: '',
+      type: 'architecture',
+      decision: 'old decision',
+      rationale: 'prune',
+      confidence: 'high',
+    });
+    await (await import('../sqlite.js')).getDb(env.tempDir);
+    const db = getNativeTasksDb(env.tempDir);
+    if (!db) throw new Error('missing fixture handle');
+    db.exec(
+      "INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES('pruned-audit','2020-01-01','create','old'); INSERT INTO tasks_sessions(id,name,status,started_at,ended_at) VALUES('pruned-session','old session','ended','2020-01-01','2020-01-02')",
+    );
+    rmSync(snapshot);
+    advanceStoreGeneration(db, live);
+    db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
     const config = await loadConfig(env.tempDir);
     expect(
       (
@@ -949,80 +950,80 @@ describe('copy-only whole-store repair', () => {
         })
       ).rowsDeleted,
     ).toBe(1);
-    // This test checks the committed delete, not the unrelated detached soft-reference cleanup.
-    vi.spyOn(
-      await import('../cross-db-cleanup.js'),
-      'cleanupBrainRefsOnSessionDelete',
-    ).mockResolvedValue();
-    await env.accessor.removeSingleSession('pruned-session');
+    expect((await gcSessions(env.tempDir, { maxAgeDays: 36500 })).removed).toContain(
+      'pruned-session',
+    );
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await purgeBrainNoise(env.tempDir);
+    const replacement = await memory.addDecisionWithSequentialId({
+      id: '',
+      type: 'architecture',
+      decision: 'new reused decision',
+      rationale: 'keep',
+      confidence: 'high',
+    });
+    expect(replacement.id).toBe(original.id);
     resetDbState();
     expect(inspectStoreIntegrity(live).healthy).toBe(true);
-    const rotation = rotateBackupDir(dir, 1, 'snapshot');
-    expect(rotation.retained).toEqual({});
-    expect(rotation.deleted).toContain('cleo.db.snapshot-20260101-000000');
-    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
-      'healthy',
-    );
-
-    const checkout = join(env.tempDir, 'post-prune-checkout.db');
-    // This checkout predates deletion receipts; only retained post-prune history carries them.
-    copyFileSync(snapshot, checkout);
-    const changed = new DatabaseSync(live);
-    changed.exec(
-      "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950020','recover after prune','task','2026-11-01','2026-11-01')",
-    );
-    const recovery = join(dir, 'tasks-20261101-000000.db');
-    changed.exec(`VACUUM INTO '${recovery.replaceAll("'", "''")}'`);
-    changed.close();
-    resetDbState();
-    for (const suffix of ['-wal', '-shm']) rmSync(live + suffix, { force: true });
-    copyFileSync(checkout, live);
-    // The older image is deliberately the base; its pruned rows must be removed by receipts.
-    utimesSync(newer, new Date('2099-01-01'), new Date('2099-01-01'));
-    expect(inspectStoreIntegrity(live).healthy).toBe(false);
-    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
-    expect(result.status).toBe('repaired');
-    const check = new DatabaseSync(live, { readOnly: true });
-    try {
-      expect(check.prepare("SELECT id FROM tasks_tasks WHERE id='T950020'").get()?.id).toBe(
-        'T950020',
-      );
-      expect(
-        check.prepare("SELECT id FROM tasks_audit_log WHERE id='pruned-audit'").get(),
-      ).toBeUndefined();
-      expect(
-        check.prepare("SELECT id FROM tasks_sessions WHERE id='pruned-session'").get(),
-      ).toBeUndefined();
-      expect(
-        check.prepare('SELECT count(*) AS n FROM _store_deleted_keys').get()?.n,
-      ).toBeGreaterThanOrEqual(2);
-    } finally {
-      check.close();
-    }
-    expect(result.recovery?.rows).toContainEqual(
-      expect.objectContaining({
-        kind: 'deleted',
-        table: 'tasks_audit_log',
-        values: expect.objectContaining({ id: 'pruned-audit' }),
-      }),
-    );
     const before = hashes();
     expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
       'healthy',
     );
     expect(hashes()).toEqual(before);
+    const check = new DatabaseSync(live);
+    expect(
+      check.prepare('SELECT decision FROM brain_decisions WHERE id=?').get(replacement.id)
+        ?.decision,
+    ).toBe('new reused decision');
+    expect(
+      check.prepare("SELECT id FROM tasks_audit_log WHERE id='pruned-audit'").get(),
+    ).toBeUndefined();
+    expect(
+      check.prepare("SELECT id FROM tasks_sessions WHERE id='pruned-session'").get(),
+    ).toBeUndefined();
+    const dir = join(env.cleoDir, 'backups', 'sqlite');
+    for (let day = 1; day <= 12; day++) {
+      advanceStoreGeneration(check, live);
+      check.exec(
+        `VACUUM INTO '${join(dir, `cleo.db.snapshot-202601${String(day).padStart(2, '0')}-000000`).replaceAll("'", "''")}'`,
+      );
+    }
+    check.close();
+    const rotation = rotateBackupDir(dir, 2, 'snapshot');
+    expect(rotation.retained).toEqual({});
+    expect(readdirSync(dir).filter((name) => name.startsWith('cleo.db.snapshot-'))).toHaveLength(2);
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+  });
+
+  it('bounds history while preserving an ancestor whose snapshot is still retained', () => {
+    const db = new DatabaseSync(live);
+    const first = readStoreGeneration(db)?.current;
+    expect(first).toBeTruthy();
+    for (let i = 0; i < 270; i++) advanceStoreGeneration(db, live);
+    const generation = readStoreGeneration(db);
+    expect(generation?.history).toHaveLength(256);
+    expect(generation?.history).toContain(first);
+    expect(generation?.history).toContain(generation?.current);
+    db.close();
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
   });
 
   it('preserves a losing live edit when a peer snapshot timestamp is in the future', async () => {
-    const db = new DatabaseSync(live);
+    const checkout = join(env.tempDir, 'before-peer.db');
+    copyFileSync(live, checkout);
+    let db = new DatabaseSync(live);
     db.exec(
       "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950008','peer version','task','2026-10-01T00:00:00Z','2099-01-01T00:00:00Z')",
     );
     rmSync(snapshot);
+    advanceStoreGeneration(db, live);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
-    db.prepare("UPDATE tasks_tasks SET title='real live edit',updated_at=? WHERE id='T950008'").run(
-      new Date().toISOString(),
-    );
+    db.close();
+    copyFileSync(checkout, live);
+    db = new DatabaseSync(live);
+    db.prepare(
+      "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950008','real live edit','task',?,?)",
+    ).run(new Date().toISOString(), new Date().toISOString());
     db.close();
     const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
     expect(result.status).toBe('repaired');
@@ -1047,6 +1048,7 @@ describe('copy-only whole-store repair', () => {
     db.exec(
       "INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES('T950009','intentionally rolled back','task','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z')",
     );
+    advanceStoreGeneration(db, live);
     db.exec(`VACUUM INTO '${newer.replaceAll("'", "''")}'`);
     db.close();
     const result = await recoverProjectStore({
@@ -1092,6 +1094,7 @@ describe('copy-only whole-store repair', () => {
       )
       .run(new Date().toISOString());
     const postRollback = join(env.cleoDir, 'backups', 'sqlite', 'tasks-20261115-000000.db');
+    advanceStoreGeneration(write, live);
     write.exec(`VACUUM INTO '${postRollback.replaceAll("'", "''")}'`);
     write.close();
     expect(inspectStoreIntegrity(live).healthy).toBe(true);
@@ -1130,6 +1133,7 @@ describe('copy-only whole-store repair', () => {
       ('T950005','WAL-only task','task','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');
       INSERT INTO repair_records VALUES ('wal','WAL-only record','2026-11-13T00:00:00Z')`);
     rmSync(snapshot);
+    advanceStoreGeneration(db, live);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
     copyFileSync(join(env.cleoDir, 'older-main.db'), live);
     for (const suffix of ['-wal', '-shm']) copyFileSync(writer + suffix, live + suffix);
@@ -1419,6 +1423,7 @@ describe('copy-only whole-store repair', () => {
     const global = resolveDualScopeDbPath('global');
     const handle = await openDualScopeDbAtPath('global', global, undefined, { dedicated: true });
     const db = getDualScopeNativeDb(handle);
+    advanceStoreGeneration(db, global);
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     const old = join(env.tempDir, 'old-global.db');
     copyFileSync(global, old);
@@ -1427,6 +1432,7 @@ describe('copy-only whole-store repair', () => {
     );
     const directory = join(global, '..', 'backups', 'sqlite');
     mkdirSync(directory, { recursive: true });
+    advanceStoreGeneration(db, global);
     db.exec(`VACUUM INTO '${join(directory, 'global-20261114-000000.db').replaceAll("'", "''")}'`);
     handle.close();
     copyFileSync(old, global);
@@ -1486,6 +1492,7 @@ describe('copy-only whole-store repair', () => {
       "CREATE VIRTUAL TABLE vectors USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[3]); INSERT INTO vectors VALUES('base','[1,2,3]')",
     );
     rmSync(snapshot);
+    advanceStoreGeneration(db, live);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
     db.exec("INSERT INTO vectors VALUES('delta','[4,5,6]')");
     db.close();

@@ -760,15 +760,25 @@ describe('sqlite-backup', () => {
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(backupDir, { recursive: true });
     const legacy = join(backupDir, 'brain-20200101-000000.db');
-    const old = new DatabaseSync(legacy);
-    old.exec(
-      "CREATE TABLE brain_observations(id TEXT PRIMARY KEY, created_at TEXT); INSERT INTO brain_observations VALUES('legacy-only','2020-01-01')",
-    );
-    old.close();
-    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    const target = join(tempDir, 'cleo.db');
+    const shared = new DatabaseSync(target);
     shared.exec(
       'CREATE TABLE tasks_schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY); CREATE TABLE brain_observations(id TEXT PRIMARY KEY, created_at TEXT)',
     );
+    const { advanceStoreGeneration, readStoreGeneration } = await import(
+      '../recover-malformed-db.js'
+    );
+    advanceStoreGeneration(shared, target);
+    const ancestor = readStoreGeneration(shared);
+    shared.exec("INSERT INTO brain_observations VALUES('legacy-only','2020-01-01')");
+    advanceStoreGeneration(shared, target);
+    const recovered = readStoreGeneration(shared);
+    if (!ancestor || !recovered) throw new Error('missing generation fixture');
+    shared.exec(`VACUUM INTO '${legacy.replaceAll("'", "''")}'`);
+    shared.exec("DELETE FROM brain_observations WHERE id='legacy-only'");
+    shared
+      .prepare('UPDATE _store_generation SET current=?,history=? WHERE id=1')
+      .run(ancestor.current, JSON.stringify(ancestor.history));
     vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
     vi.doMock('../memory-sqlite.js', () => ({
       getBrainNativeDb: () => shared,
@@ -788,7 +798,7 @@ describe('sqlite-backup', () => {
     try {
       await vacuumIntoBackupAll();
       expect(existsSync(legacy)).toBe(true);
-      shared.exec("INSERT INTO brain_observations VALUES('legacy-only','2020-01-01')");
+      advanceStoreGeneration(shared, target, [recovered]);
       await vacuumIntoBackupAll({ mode: 'required' });
       expect(existsSync(legacy)).toBe(false);
     } finally {

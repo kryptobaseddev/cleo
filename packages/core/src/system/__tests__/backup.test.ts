@@ -641,11 +641,15 @@ describe('system/backup — rotation (T9194)', () => {
     mkdirSync(backupDir, { recursive: true });
     const live = new DatabaseSync(join(cleoDir, 'cleo.db'));
     live.exec('CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY, updated_at TEXT)');
+    const { advanceStoreGeneration } = await import('../../store/recover-malformed-db.js');
+    const target = join(cleoDir, 'cleo.db');
+    advanceStoreGeneration(live, target);
     const keptName = 'cleo.db.snapshot-20260101-000000';
     const lost = new DatabaseSync(join(backupDir, keptName));
     lost.exec(
       "CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY, updated_at TEXT); INSERT INTO tasks_tasks VALUES('recover-me','2026-01-01')",
     );
+    advanceStoreGeneration(lost, target);
     lost.close();
     utimesSync(join(backupDir, keptName), new Date('2026-01-01'), new Date('2026-01-01'));
     vi.doMock('../../store/sqlite.js', () => ({

@@ -110,7 +110,6 @@ import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
 import { syncMigrationHooks } from './sync/migration-hooks.js';
 import { auditScrubPending } from './sync/schema.js';
 import {
-  ensureStoreDeletionEvidence,
   ensureTriggerSuspendTable,
   hasTriggerSuspendTable,
   verifyOwnedTriggers,
@@ -970,8 +969,7 @@ async function migrateScopeSchema(
     log.info({ scope, triggers: ftsRewritten }, 'brain FTS update triggers scoped (T12894)');
   }
   execution?.assertActive();
-  ensureStoreDeletionEvidence(nativeDb);
-  {
+  if (scope === 'project') {
     const findings = verifyOwnedTriggers(nativeDb, { repair: true });
     if (findings.length > 0) {
       log.warn({ scope, findings }, 'owned triggers repaired from their owned DDL (T12819)');
@@ -1046,7 +1044,7 @@ async function migrateScopeSchema(
  *   bracket is skipped;
  * - no row-identity schema to heal ({@link identityWorkOnOpen}) and no
  *   unscoped brain FTS update trigger;
- * - both scopes: delete receipts exist and every owned trigger matches its owned DDL ({@link verifyOwnedTriggers});
+ * - project: every owned trigger matches its owned DDL ({@link verifyOwnedTriggers});
  * - a live-sync open: the capture step only reads, no audit scrub is pending
  *   and every sync flag is off;
  * - the identity fill has nothing pending ({@link rowIdentityFillPending}).
@@ -1071,15 +1069,7 @@ function openSchemaAtHead(
     if (!lineageAtHead(nativeDb, migrationsFolder)) return false;
     if (identityWorkOnOpen(nativeDb, scope)) return false;
     if (unscopedBrainFtsUpdateTriggers(nativeDb).length > 0) return false;
-    if (
-      !nativeDb
-        .prepare(
-          "SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='_store_deleted_keys'",
-        )
-        .get() ||
-      verifyOwnedTriggers(nativeDb).length > 0
-    )
-      return false;
+    if (scope === 'project' && verifyOwnedTriggers(nativeDb).length > 0) return false;
     if (
       syncMode !== 'off' &&
       (!captureOpenPassReadOnly(nativeDb) || auditScrubPending(nativeDb) || anySyncFlagOn(nativeDb))

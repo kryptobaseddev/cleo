@@ -29,6 +29,7 @@ import {
   resolveBackupMaxBytes,
   rotateBackupDir,
 } from '../backup-sidecar.js';
+import { advanceStoreGeneration } from '../recover-malformed-db.js';
 
 let root: string;
 let cleoDir: string;
@@ -314,11 +315,13 @@ it('keeps missing keys and newer versions past both caps until the live store re
     "CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY, updated_at TEXT); INSERT INTO tasks_tasks VALUES ('shared','2026-01-01')",
   );
   const checkout = join(root, 'old.db');
+  advanceStoreGeneration(db, live);
   copyFileSync(live, checkout);
   db.exec(
     "UPDATE tasks_tasks SET updated_at='2026-11-13'; INSERT INTO tasks_tasks VALUES ('missing','2026-11-13')",
   );
   const good = join(dir, 'cleo.db.snapshot-20260101-000000');
+  advanceStoreGeneration(db, live);
   db.exec(`VACUUM INTO '${good.replaceAll("'", "''")}'`);
   db.close();
   copyFileSync(checkout, live);

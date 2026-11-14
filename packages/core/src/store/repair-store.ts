@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type {
-  StoreDeletionEvidence,
+  StoreGeneration,
   StoreRepairOptions,
   StoreRepairPhase,
   StoreRepairReceipt,
@@ -35,9 +35,9 @@ import {
   prepareStoreRestoreIntent,
 } from './open-cleo-db.js';
 import {
+  advanceStoreGeneration,
   collectStoreSnapshotCandidates,
-  readStoreDeletedKeys,
-  retainedStoreDeletedKeys,
+  readStoreGeneration,
 } from './recover-malformed-db.js';
 import {
   assertRepairOriginals,
@@ -387,7 +387,19 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       phase('diagnose');
       if (receipt.freshness?.length) receipt.diagnostics.push(current.detail);
       const staged = join(work, 'merged.db');
+      const divergentSources = new Set(
+        receipt.freshness
+          ?.filter((f) => f.kind === 'snapshot' && f.authoritative !== false)
+          .map((f) => f.source),
+      );
       for (const candidate of candidates(target, opts)) {
+        if (
+          !opts.fromSnapshot &&
+          !opts.noDelta &&
+          divergentSources.size > 0 &&
+          !divergentSources.has(candidate.path)
+        )
+          continue;
         const probe = join(scratch, 'snapshot.db');
         try {
           copyRepairOriginals(candidate.path, probe);
@@ -466,25 +478,20 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
         const walView = join(scratch, 'reapplied-wal.db');
         if (copyRepairWalView(original, walView)) views.unshift(walView);
       }
-      let deleted = new Map<string, Map<string, StoreDeletionEvidence>>();
-      let originalView: ReturnType<typeof openCleoDbSnapshot> | undefined;
-      try {
-        originalView = openCleoDbSnapshot(original, {
-          applyPragmas: false,
-          loadSqliteVec: true,
-        });
-        const checks = originalView.db.prepare('PRAGMA integrity_check').all();
-        if (checks.length === 1 && checks[0]?.integrity_check === 'ok')
-          readStoreDeletedKeys(originalView.db, deleted);
-      } catch {
-        // Corrupt original bytes cannot authorize dropping otherwise recoverable rows.
-      } finally {
-        originalView?.close();
+      const generations: StoreGeneration[] = [];
+      for (const view of views) {
+        let source: ReturnType<typeof openCleoDbSnapshot> | undefined;
+        try {
+          source = openCleoDbSnapshot(view, { applyPragmas: false, loadSqliteVec: true });
+          const generation = readStoreGeneration(source.db);
+          if (generation) generations.push(generation);
+        } catch {
+          // Damaged original metadata cannot establish ancestry; readable rows still salvage.
+        } finally {
+          source?.close();
+        }
       }
-      deleted = retainedStoreDeletedKeys(target, deleted, scope === 'project');
-      const finishJournal = receipt.delta
-        ? salvageIntoSnapshot(staged, views, receipt, deleted)
-        : undefined;
+      const finishJournal = receipt.delta ? salvageIntoSnapshot(staged, views, receipt) : undefined;
       phase('merge');
       await migrate(staged, scope);
       finishJournal?.();
@@ -496,6 +503,8 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
         loadSqliteVec: true,
       });
       try {
+        if (receipt.delta && (generations.length > 0 || readStoreGeneration(db.db)))
+          advanceStoreGeneration(db.db, target, generations);
         if (receipt.delta && receipt.tables.docs_fts?.rebuilt) {
           const { rebuildDocsFts } = await import('../docs/docs-fts.js');
           const result = await rebuildDocsFts(opts.projectRoot ?? dirname(dirname(target)), db.db);

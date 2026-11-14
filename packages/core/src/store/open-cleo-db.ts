@@ -72,6 +72,7 @@ import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   StoreFreshnessFinding,
+  StoreGeneration,
   StoreIntegrityInspection,
   StoreRepairFile,
   StoreRestoreIntent,
@@ -88,7 +89,7 @@ import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   collectStoreSnapshotCandidates,
   compareStoreFreshness,
-  readStoreDeletedKeys,
+  readStoreGeneration,
   storeSnapshotHash,
   storeSnapshotIdentity,
   storeSnapshotIgnored,
@@ -665,7 +666,7 @@ export function inspectStoreIntegrity(
       if (result.length !== 1 || result[0]?.integrity_check !== 'ok')
         return { healthy: false, detail: JSON.stringify(result) };
       const freshness: StoreFreshnessFinding[] = [];
-      const deleted = readStoreDeletedKeys(snap.db);
+      const liveGeneration = readStoreGeneration(snap.db);
       const restoreIntent = inspectStoreRestoreIntent(target);
       const walView = join(scratch, 'wal-view.db');
       const committedFrames = copyRepairWalView(file, walView);
@@ -688,8 +689,7 @@ export function inspectStoreIntegrity(
             });
           const checks = wal.db.prepare('PRAGMA integrity_check').all();
           if (checks.length === 1 && checks[0]?.integrity_check === 'ok') {
-            readStoreDeletedKeys(wal.db, deleted);
-            const finding = compareStoreFreshness(snap.db, wal.db, `${target}-wal`, 'wal', deleted);
+            const finding = compareStoreFreshness(snap.db, wal.db, `${target}-wal`, 'wal');
             if (finding) freshness.push(finding);
           }
         } finally {
@@ -707,6 +707,7 @@ export function inspectStoreIntegrity(
         });
       const validated: typeof snapshots = [];
       const identities = new Map<string, string>();
+      const generations = new Map<string, StoreGeneration>();
       const groups = new Map<string, string[]>();
       for (const candidate of snapshots) {
         let backup: CleoDbSnapshotHandle | undefined;
@@ -743,9 +744,12 @@ export function inspectStoreIntegrity(
               .get()
           )
             continue;
+          const generation = readStoreGeneration(backup.db);
+          if (!liveGeneration || !generation || liveGeneration.history.includes(generation.current))
+            continue;
           if (!validStoreRecoverySnapshot(backup.db, candidate.path)) continue;
-          readStoreDeletedKeys(backup.db, deleted);
           validated.push(candidate);
+          generations.set(candidate.path, generation);
           identities.set(candidate.path, identity.cacheKey);
           group.push(candidate.path);
           groups.set(identity.duplicateKey, group);
@@ -755,7 +759,22 @@ export function inspectStoreIntegrity(
           backup?.close();
         }
       }
-      for (const candidate of validated) {
+      const heads = validated.filter((candidate) => {
+        const generation = generations.get(candidate.path);
+        return (
+          generation &&
+          !validated.some((other) => {
+            const next = generations.get(other.path);
+            return (
+              next &&
+              next.current !== generation.current &&
+              next.history.includes(generation.current) &&
+              !generation.history.includes(next.current)
+            );
+          })
+        );
+      });
+      for (const candidate of heads) {
         if (storeSnapshotIdentity(candidate.path).cacheKey !== identities.get(candidate.path)) {
           // @sync-invariant none:local-only recovery authority requires stable retained images
           throw new Error(`Snapshot changed during inspection: ${candidate.path}`);
@@ -765,14 +784,15 @@ export function inspectStoreIntegrity(
           loadSqliteVec: true,
         });
         try {
-          const finding = compareStoreFreshness(
-            snap.db,
-            backup.db,
-            candidate.path,
-            'snapshot',
-            deleted,
+          const generation = readStoreGeneration(backup.db);
+          if (!liveGeneration || !generation) continue;
+          const ancestry = `Generation ${generation.current} is absent from live ancestry (head ${liveGeneration.current})`;
+          const finding = compareStoreFreshness(snap.db, backup.db, candidate.path, 'snapshot');
+          freshness.push(
+            finding
+              ? { ...finding, evidence: [ancestry, ...finding.evidence] }
+              : { source: candidate.path, kind: 'snapshot', divergent: true, evidence: [ancestry] },
           );
-          if (finding) freshness.push(finding);
         } finally {
           backup.close();
         }

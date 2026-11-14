@@ -281,6 +281,13 @@ export const EXEMPT = {
     nexus_schema_meta: { count: 1, reason: SCHEMA_STAMP },
     nexus_symbols_fts: { count: 5, reason: FTS5 },
   },
+  'packages/core/src/store/recover-malformed-db.ts': {
+    _store_generation: {
+      count: 2,
+      reason:
+        'T14572 local checkpoint ancestry advances only at capture or staged repair, never a replicated user row',
+    },
+  },
   'packages/core/src/store/snapshot-gate.ts': {
     tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
   },
@@ -608,13 +615,6 @@ export const EXEMPT = {
       count: 1,
       reason:
         "tombstone compaction (local-only): shrinks covered full tombstones in THIS store's sealer row meta to the minimal form (T12986)",
-    },
-  },
-  'packages/core/src/store/repair-store-salvage.ts': {
-    _store_deleted_keys: {
-      count: 1,
-      reason:
-        'T14572 preserves original durable deletion evidence in the private staged recovery image only',
     },
   },
   'packages/core/src/store/sync/trigger-classes.ts': {

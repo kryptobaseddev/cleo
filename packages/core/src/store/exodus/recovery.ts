@@ -2,7 +2,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants, type DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { z } from 'zod';
-import { STORE_DELETION_TABLE, STORE_FRESHNESS_TABLES } from '../recover-malformed-db.js';
 import { rowIdentityColumns } from '../row-identity-registry.js';
 
 const RECEIPTS = '_exodus_recovery_rows';
@@ -286,16 +285,6 @@ function inspectEffects(
         name === 'tasks_tasks' &&
         typeof column === 'string' &&
         TASK_CLAIM_COLUMNS.has(column)
-      )
-        return constants.SQLITE_OK;
-      // A deliberate rollback delete keeps its store-local receipt; it is not a replicated effect.
-      if (
-        action === constants.SQLITE_DELETE &&
-        trigger === `trg_recovery_delete_${table}` &&
-        STORE_FRESHNESS_TABLES.some((t) => t === table) &&
-        dbName === schema &&
-        name === STORE_DELETION_TABLE &&
-        (code === constants.SQLITE_INSERT || code === constants.SQLITE_UPDATE)
       )
         return constants.SQLITE_OK;
       // T12341: deleting an acceptance criterion records its uid in the

@@ -4,7 +4,6 @@ import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } fro
 import { basename } from 'node:path';
 import type { DatabaseSync, SQLOutputValue, StatementSync } from 'node:sqlite';
 import type {
-  StoreDeletionEvidence,
   StoreRepairReceipt,
   StoreRepairRecoveryRow,
 } from '@cleocode/contracts/db-recovery.js';
@@ -402,7 +401,6 @@ export function salvageIntoSnapshot(
   staged: string,
   views: readonly string[],
   receipt: StoreRepairReceipt,
-  deleted: ReadonlyMap<string, ReadonlyMap<string, StoreDeletionEvidence>> = new Map(),
 ): () => void {
   if (basename(realpathSync(staged)) === 'cleo.db')
     // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
@@ -706,15 +704,6 @@ export function salvageIntoSnapshot(
                 let complete = false;
                 try {
                   complete = readRows(snap.db, source, table, (row) => {
-                    if (deleted.get(table.name)?.has(String(row.id))) {
-                      recordDeleted(
-                        table.name,
-                        row,
-                        identity,
-                        'Committed logical delete recorded by the store',
-                      );
-                      return;
-                    }
                     const key = rowKey(row, identity);
                     thisRead.add(key);
                     if (view === views[0]) {
@@ -808,14 +797,9 @@ export function salvageIntoSnapshot(
           const report = reportFor(name);
           for (const row of rows) {
             const key = rowKey(row, identity);
-            const explicit = deleted.get(name)?.has(String(row.id)) === true;
-            if (
-              !explicit &&
-              (authoritative ? authoritative.has(key) : newestKeys.get(name)?.has(key))
-            )
-              continue;
-            if (!explicit && !base.has(key)) continue;
-            if (!explicit && !authoritative) {
+            if (authoritative ? authoritative.has(key) : newestKeys.get(name)?.has(key)) continue;
+            if (!base.has(key)) continue;
+            if (!authoritative) {
               report.possiblyResurrected = (report.possiblyResurrected ?? 0) + 1;
               recordRecovery(
                 receipt,
@@ -838,31 +822,9 @@ export function salvageIntoSnapshot(
             del.setReadBigInts(true);
             del.run(...identity.map((c) => row[c] ?? null));
             removeBase(name, row, identity);
-            recordDeleted(
-              name,
-              row,
-              identity,
-              explicit
-                ? 'Committed logical delete recorded by the store'
-                : 'Absent from a complete damaged view',
-            );
+            recordDeleted(name, row, identity, 'Absent from a complete damaged view');
           }
         }
-        // Keep the original receipt metadata even when its source needed no row salvage.
-        const findDeletion = db.prepare(
-          'SELECT 1 FROM main._store_deleted_keys WHERE table_name=? AND record_key=?',
-        );
-        const retainDeletion = db.prepare(`INSERT INTO main._store_deleted_keys
-          (table_name, record_key, deleted_at, deletion_count) VALUES (?, ?, ?, ?)
-          ON CONFLICT(table_name, record_key) DO UPDATE SET
-            deleted_at=max(deleted_at, excluded.deleted_at),
-            deletion_count=max(deletion_count, excluded.deletion_count)`);
-        for (const [table, keys] of deleted)
-          for (const [key, evidence] of keys) {
-            const added = !findDeletion.get(table, key);
-            retainDeletion.run(table, key, evidence.deletedAt, evidence.deletionCount);
-            if (added) reportFor('_store_deleted_keys').merged++;
-          }
         for (const retry of pending) retry();
         // Removing one orphan may expose a child orphan; converge with all actions disabled.
         for (;;) {

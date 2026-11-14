@@ -86,11 +86,11 @@ import type {
 } from '@cleocode/contracts';
 
 const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
-  _store_deleted_keys: {
+  _store_generation: {
     class: 'local-only',
-    status: 'resolved',
+    status: 'optional-transient',
     source: 'T14572',
-    note: 'durable per-key evidence of deliberate deletes; recovery must not resurrect these logical identities',
+    note: 'bounded checkpoint ancestry for retained store snapshots; never a replicated user row',
   },
 
   __drizzle_migrations: {
@@ -1465,11 +1465,11 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
 };
 
 const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
-  _store_deleted_keys: {
+  _store_generation: {
     class: 'local-only',
-    status: 'resolved',
+    status: 'optional-transient',
     source: 'T14572',
-    note: 'durable per-key evidence of deliberate deletes; recovery must not resurrect these logical identities',
+    note: 'bounded checkpoint ancestry for retained store snapshots; never a replicated user row',
   },
 
   __catalog_meta: {

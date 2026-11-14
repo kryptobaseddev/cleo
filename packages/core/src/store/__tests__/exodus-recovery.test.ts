@@ -9,13 +9,6 @@ import {
   prepareExodusRecovery,
   rollbackExodusReceipts,
 } from '../exodus/recovery.js';
-import { readStoreDeletedKeys, STORE_FRESHNESS_TABLES } from '../recover-malformed-db.js';
-import {
-  CODE_OWNED_TRIGGER_DDL,
-  ensureStoreDeletionEvidence,
-  ensureTriggerSuspendTable,
-  withTriggersSuspended,
-} from '../sync/trigger-classes.js';
 
 let root: string;
 let db: DatabaseSync;
@@ -63,42 +56,6 @@ it('preserves pre-existing rows and unrelated later writes in the same table', (
     source_db: 'source.db',
     target_db: join(root, 'cleo.db'),
   });
-});
-
-it.each(
-  STORE_FRESHNESS_TABLES,
-)('records committed %s deletes, including forward apply and deliberate rollback', (table) => {
-  db.exec(`CREATE TABLE ${table}(id TEXT PRIMARY KEY, value TEXT)`);
-  ensureTriggerSuspendTable(db);
-  ensureStoreDeletionEvidence(db);
-  const ddl = CODE_OWNED_TRIGGER_DDL[`trg_recovery_delete_${table}`];
-  if (!ddl) throw new Error('missing recovery guard');
-  db.exec(ddl);
-  db.exec(`INSERT INTO ${table} VALUES('aborted','value'); BEGIN; DELETE FROM ${table}; ROLLBACK`);
-  expect(readStoreDeletedKeys(db).get(table)).toBeUndefined();
-  db.exec('BEGIN');
-  withTriggersSuspended(db, ['capture', 'side-effect'], 'forward', () =>
-    db.exec(`DELETE FROM ${table}`),
-  );
-  db.exec('COMMIT');
-  expect(readStoreDeletedKeys(db).get(table)?.get('aborted')?.deletionCount).toBe(1);
-  db.exec("UPDATE _store_deleted_keys SET deleted_at='2099-01-01'");
-  const future = readStoreDeletedKeys(db);
-  db.exec("UPDATE _store_deleted_keys SET deleted_at='2026-01-01', deletion_count=2");
-  expect(readStoreDeletedKeys(db, future).get(table)?.get('aborted')).toEqual({
-    deletedAt: '2099-01-01',
-    deletionCount: 2,
-  });
-  db.exec(`INSERT INTO ${table} VALUES('rewound','value')`);
-  db.exec('BEGIN');
-  withTriggersSuspended(db, ['guard', 'capture', 'side-effect'], 'rewind', () =>
-    db.exec(`DELETE FROM ${table}`),
-  );
-  db.exec('COMMIT');
-  expect(readStoreDeletedKeys(db).get(table)?.has('rewound')).toBe(false);
-  insert(`INSERT INTO ${table} VALUES('owned','copy')`, table);
-  expect(rollbackExodusReceipts(db, operation)).toBe(1);
-  expect(readStoreDeletedKeys(db).get(table)?.get('owned')?.deletionCount).toBe(1);
 });
 
 it('refuses implicit rowid ownership before copying because VACUUM can renumber identical rows', () => {

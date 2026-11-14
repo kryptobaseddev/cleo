@@ -429,12 +429,14 @@ export interface DoctorRepairResult {
 export interface StoreSnapshotIdentity {
   /** Path, inode and change times invalidate cached validation after a physical rewrite. */
   cacheKey: string;
-  /** Size, modification time and SQLite/WAL headers group possible duplicate images. */
+  /** Size and SQLite/WAL headers group possible duplicate images despite differing mtimes. */
   duplicateKey: string;
 }
 
-/** Durable proof that a stable store key was deliberately deleted by a committed write. */
-export interface StoreDeletionEvidence {
-  readonly deletedAt: string;
-  readonly deletionCount: number;
+/** A store checkpoint and the retained ancestor checkpoints its history proves. */
+export interface StoreGeneration {
+  /** Random identity of a completed snapshot checkpoint. */
+  readonly current: string;
+  /** Bounded ancestor identities, including the current checkpoint. */
+  readonly history: readonly string[];
 }

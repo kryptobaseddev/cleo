@@ -26,6 +26,7 @@
  * @adr ADR-068
  */
 
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   copyFileSync,
@@ -47,12 +48,13 @@ import type {
 } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import type {
-  StoreDeletionEvidence,
   StoreFreshnessFinding,
+  StoreGeneration,
   StoreSnapshotIdentity,
   StoreTableHighWater,
 } from '@cleocode/contracts/db-recovery.js';
 import { getCleoHome } from '@cleocode/paths';
+import { z } from 'zod';
 import { inspectStoreRestoreIntent, repairFileHash } from './restore-marker.js';
 import { loadSqliteVecExtension, openNativeDatabase } from './sqlite-native.js';
 
@@ -763,8 +765,10 @@ export function collectStoreSnapshotCandidates(target: string): SnapshotCandidat
     if (!existsSync(directory)) continue;
     for (const name of readdirSync(directory)) {
       if (
-        !/^(?:cleo|tasks|brain|conduit|nexus|global)(?:\.db[.-]|-.*\.db$)/.test(name) ||
-        /pre-restore|\.restoring(?:\.|$)|(?:-wal|-shm|-journal|\.json)$/.test(name)
+        !/^(?:cleo|tasks|brain|conduit|nexus|global|skills|telemetry|signaldock)(?:\.db[.-]|-.*\.db$)/.test(
+          name,
+        ) ||
+        /pre-restore|\.restoring(?:\.|$)|\.tmp(?:[.-]|$)|(?:-wal|-shm|-journal|\.json)$/.test(name)
       )
         continue;
       const path = join(directory, name);
@@ -773,7 +777,7 @@ export function collectStoreSnapshotCandidates(target: string): SnapshotCandidat
       known.add(path);
     }
   }
-  return out.sort((a, b) => b.timestampMs - a.timestampMs);
+  return out.sort((a, b) => b.timestampMs - a.timestampMs || b.path.localeCompare(a.path));
 }
 
 /** Shared row-version fields used by freshness diagnosis and lossless merge. */
@@ -811,47 +815,144 @@ export const STORE_FRESHNESS_TABLES = [
   'nexus_audit_log',
 ] as const;
 
-/** Store-local evidence of committed logical deletes; it is never inferred from age. */
-export const STORE_DELETION_TABLE = '_store_deleted_keys';
+const STORE_GENERATION_LIMIT = 256;
+const generationHistorySchema = z.array(z.string().uuid()).min(1).max(STORE_GENERATION_LIMIT);
+const storeGenerationSchema = z
+  .object({
+    current: z.string().uuid(),
+    history: generationHistorySchema,
+  })
+  .refine((g) => g.history.includes(g.current));
 
-/** Read durable delete receipts, optionally accumulating validated snapshot history. */
-export function readStoreDeletedKeys(
-  db: DatabaseSync,
-  into: Map<string, Map<string, StoreDeletionEvidence>> = new Map(),
-): Map<string, Map<string, StoreDeletionEvidence>> {
+/** Read checkpoint ancestry without creating a record on a pre-upgrade store. */
+export function readStoreGeneration(
+  db: Pick<DatabaseSync, 'prepare'>,
+): StoreGeneration | undefined {
   if (
     !db
-      .prepare("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name=?")
-      .get(STORE_DELETION_TABLE)
+      .prepare("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='_store_generation'")
+      .get()
   )
-    return into;
-  const known = new Set<string>(STORE_FRESHNESS_TABLES);
-  for (const row of db
-    .prepare(
-      `SELECT table_name, record_key, deleted_at, deletion_count FROM main.${STORE_DELETION_TABLE}`,
-    )
-    .iterate()) {
-    if (
-      typeof row.table_name !== 'string' ||
-      typeof row.record_key !== 'string' ||
-      typeof row.deleted_at !== 'string' ||
-      typeof row.deletion_count !== 'number' ||
-      row.deletion_count < 1 ||
-      !known.has(row.table_name)
-    ) {
-      // @sync-invariant none:local-only malformed local deletion evidence cannot authorize dropping recovery rows
-      throw new Error('Malformed store deletion receipt');
+    return;
+  const row = db.prepare('SELECT current, history FROM main._store_generation WHERE id=1').get();
+  if (!row) return;
+  try {
+    if (typeof row.current === 'string' && typeof row.history === 'string') {
+      const parsed = storeGenerationSchema.safeParse({
+        current: row.current,
+        history: JSON.parse(row.history),
+      });
+      if (parsed.success) return parsed.data;
     }
-    const table = row.table_name;
-    const keys = into.get(table) ?? new Map<string, StoreDeletionEvidence>();
-    const old = keys.get(row.record_key);
-    keys.set(row.record_key, {
-      deletedAt: old && old.deletedAt > row.deleted_at ? old.deletedAt : row.deleted_at,
-      deletionCount: Math.max(old?.deletionCount ?? 0, row.deletion_count),
-    });
-    into.set(table, keys);
+  } catch {
+    // JSON decoding and schema validation authorize no ancestry.
   }
-  return into;
+  // @sync-invariant none:local-only malformed local checkpoint metadata cannot establish store ancestry
+  throw new Error('Invalid store generation history');
+}
+
+/** Write one bounded checkpoint record; snapshot publication owns the attached schema. */
+function writeStoreGeneration(
+  db: Pick<DatabaseSync, 'exec'>,
+  target: string,
+  current: string,
+  parents: string,
+  schema: 'main' | 'cleo_snapshot_generation',
+): string {
+  const retained = new Set<string>();
+  for (const candidate of collectStoreSnapshotCandidates(target)) {
+    let source: DatabaseSync | undefined;
+    try {
+      source = openStoreRecoverySnapshot(candidate.path);
+      const generation = readStoreGeneration(source);
+      if (generation) retained.add(generation.current);
+    } catch {
+      // Unreadable metadata cannot reserve a slot in this store's existing history.
+    } finally {
+      source?.close();
+    }
+  }
+  const pinned = JSON.stringify([...retained]).replaceAll("'", "''");
+  const history = (previous: string): string => `(
+    WITH parents(value, ordinal) AS (
+      SELECT value, CAST(key AS INTEGER) FROM json_each(${previous})
+      UNION ALL SELECT value, ${STORE_GENERATION_LIMIT} + CAST(key AS INTEGER) FROM json_each(${parents})
+      UNION ALL SELECT '${current}', 1000000000
+    ), distinct_parents AS (
+      SELECT value, max(ordinal) AS ordinal FROM parents GROUP BY value
+    )
+    SELECT CASE WHEN (
+      SELECT count(*) FROM distinct_parents WHERE value IN (SELECT value FROM json_each('${pinned}'))
+    ) >= ${STORE_GENERATION_LIMIT} THEN NULL ELSE (
+      SELECT json_group_array(value) FROM (
+        SELECT value FROM (
+          SELECT value, ordinal FROM distinct_parents
+          ORDER BY (value IN (SELECT value FROM json_each('${pinned}')) OR value='${current}') DESC, ordinal DESC
+          LIMIT ${STORE_GENERATION_LIMIT}
+        ) ORDER BY ordinal
+      )
+    ) END
+  )`;
+  const table = `${schema}._store_generation`;
+  const insert =
+    schema === 'main'
+      ? 'INSERT INTO main._store_generation'
+      : 'INSERT INTO cleo_snapshot_generation._store_generation';
+  const create =
+    schema === 'main'
+      ? 'CREATE TABLE IF NOT EXISTS main._store_generation'
+      : 'CREATE TABLE IF NOT EXISTS cleo_snapshot_generation._store_generation';
+  db.exec(`${create} (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    current TEXT NOT NULL,
+    history TEXT NOT NULL CHECK(json_valid(history) AND json_type(history)='array')
+  );
+  ${insert}(id, current, history)
+  VALUES(1, '${current}', ${history("'[]'")})
+  ON CONFLICT(id) DO UPDATE SET current=excluded.current,
+    history=${history(`${table}.history`)}`);
+  return current;
+}
+
+/**
+ * Mint ancestry on a private snapshot or repaired image, joining recovered histories.
+ * Retained ancestor heads keep their slots; excess unreferenced history ages out.
+ * Refuse if 256 retained heads need every slot rather than invent non-descendance.
+ */
+export function advanceStoreGeneration(
+  db: Pick<DatabaseSync, 'exec'>,
+  target: string,
+  inherited: readonly StoreGeneration[] = [],
+): string {
+  const parents = JSON.stringify([
+    ...new Set(inherited.flatMap((g) => storeGenerationSchema.parse(g).history)),
+  ]).replaceAll("'", "''");
+  return writeStoreGeneration(db, target, randomUUID(), `'${parents}'`, 'main');
+}
+
+/**
+ * Stamp a completed private VACUUM image, then acknowledge that checkpoint in live.
+ * Its ancestry comes from the same consistent view as its rows; publication follows acknowledgement.
+ */
+export function stampStoreSnapshot(
+  db: Pick<DatabaseSync, 'exec'>,
+  snapshot: string,
+  target: string,
+): void {
+  const current = randomUUID();
+  db.exec(`ATTACH DATABASE '${snapshot.replaceAll("'", "''")}' AS cleo_snapshot_generation`);
+  try {
+    writeStoreGeneration(db, target, current, "'[]'", 'cleo_snapshot_generation');
+    writeStoreGeneration(
+      db,
+      target,
+      current,
+      '(SELECT history FROM cleo_snapshot_generation._store_generation WHERE id=1)',
+      'main',
+    );
+  } finally {
+    db.exec('DETACH DATABASE cleo_snapshot_generation');
+  }
 }
 
 /** Key tables cover task, session, decision, audit and memory history in both scopes. */
@@ -883,9 +984,6 @@ export function compareStoreFreshness(
   source: DatabaseSync,
   path: string,
   kind: StoreFreshnessFinding['kind'],
-  deleted: ReadonlyMap<string, ReadonlyMap<string, StoreDeletionEvidence>> = readStoreDeletedKeys(
-    live,
-  ),
   allowPartialStore = false,
 ): StoreFreshnessFinding | undefined {
   const before = storeHighWater(live);
@@ -896,20 +994,6 @@ export function compareStoreFreshness(
   )
     return;
   const evidence: string[] = [];
-  const liveDeletes = readStoreDeletedKeys(live);
-  for (const [table, keys] of readStoreDeletedKeys(source)) {
-    let missing = 0;
-    const sample: string[] = [];
-    for (const [key, receipt] of keys) {
-      if ((liveDeletes.get(table)?.get(key)?.deletionCount ?? 0) >= receipt.deletionCount) continue;
-      missing++;
-      if (sample.length < 3) sample.push(key);
-    }
-    if (missing)
-      evidence.push(
-        `${table}: ${missing} committed deletion receipts absent or older in live (${sample.join('; ')})`,
-      );
-  }
   for (const next of after) {
     const old = before.find((t) => t.table === next.table);
     const stamp = (db: DatabaseSync): string =>
@@ -929,7 +1013,6 @@ export function compareStoreFreshness(
       older = 0;
     const sample: string[] = [];
     for (const row of rows.iterate()) {
-      if (deleted.get(next.table)?.has(String(row.id))) continue;
       const current = find?.get(row.id ?? null);
       if (!current) missing++;
       else if (Number(row.stamp) > Number(current.stamp)) older++;
@@ -956,7 +1039,6 @@ export function compareStoreFreshness(
     const keys = live.prepare(`SELECT id FROM main."${table.table}"`);
     keys.setReadBigInts(true);
     for (const row of keys.iterate()) {
-      if (deleted.get(table.table)?.has(String(row.id))) continue;
       if (!lookup.get(row.id ?? null)) {
         divergent = true;
         break;
@@ -987,7 +1069,7 @@ export function storeSnapshotIdentity(file: string): StoreSnapshotIdentity {
       closeSync(fd);
     }
     const image = `${stat.size}:${stat.mtimeNs}:${header.subarray(0, length).toString('hex')}`;
-    duplicate.push(image);
+    duplicate.push(`${stat.size}:${header.subarray(0, length).toString('hex')}`);
     cache.push(`${path}:${stat.dev}:${stat.ino}:${stat.ctimeNs}:${image}`);
   }
   return { cacheKey: cache.join('|'), duplicateKey: duplicate.join('|') };
@@ -1018,7 +1100,7 @@ export function openStoreRecoverySnapshot(file: string): DatabaseSync {
   }
 }
 
-/** Validate the entire source before its rows or delete receipts may establish recovery authority. */
+/** Validate the entire source before its rows may establish recovery authority. */
 export function validStoreRecoverySnapshot(db: DatabaseSync, file: string): boolean {
   const key = storeSnapshotIdentity(file).cacheKey;
   const cached = snapshotChecks.get(key);
@@ -1063,69 +1145,53 @@ export function storeSnapshotIgnored(target: string, snapshot: string): boolean 
   return intent.ignoredSnapshots.some((f) => f.sha256 === hash);
 }
 
-/** Read deletion evidence from every valid, non-rolled-back retained history. */
-export function retainedStoreDeletedKeys(
-  target: string,
-  into: Map<string, Map<string, StoreDeletionEvidence>>,
-  project: boolean,
-): Map<string, Map<string, StoreDeletionEvidence>> {
-  const hasTasks = (db: DatabaseSync): boolean =>
-    db
-      .prepare("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='tasks_tasks'")
-      .get() !== undefined;
-  for (const candidate of collectStoreSnapshotCandidates(target)) {
-    let db: DatabaseSync | undefined;
-    try {
-      if (storeSnapshotIgnored(target, candidate.path)) continue;
-      db = openStoreRecoverySnapshot(candidate.path);
-      if (
-        hasTasks(db) !== project &&
-        !(project && /^(brain|conduit)-/.test(basename(candidate.path)))
-      )
-        continue;
-      if (validStoreRecoverySnapshot(db, candidate.path)) readStoreDeletedKeys(db, into);
-    } catch {
-      /* Unreadable backup bytes cannot prove a deliberate deletion. */
-    } finally {
-      db?.close();
-    }
-  }
-  return into;
-}
-
-/** Protect only validated recovery rows, honoring durable deletes and explicit rollback intent. */
+/** Protect the newest validated point of a generation line the live store does not descend from. */
 export function snapshotRecoveryReason(target: string, snapshot: string): string | undefined {
   let live: DatabaseSync | undefined;
   let source: DatabaseSync | undefined;
   try {
+    if (storeSnapshotIgnored(target, snapshot)) return;
     try {
       source = openStoreRecoverySnapshot(snapshot);
-      if (!validStoreRecoverySnapshot(source, snapshot)) return;
+      const generation = readStoreGeneration(source);
+      if (!generation) return;
     } catch {
       return;
     }
-    if (storeSnapshotIgnored(target, snapshot)) return;
     live = openStoreRecoverySnapshot(target);
-    const deleted = retainedStoreDeletedKeys(
-      target,
-      readStoreDeletedKeys(live),
-      live
+    const current = readStoreGeneration(live);
+    const generation = readStoreGeneration(source);
+    if (!current || !generation || current.history.includes(generation.current)) return;
+    const hasTasks = (db: DatabaseSync): boolean =>
+      db
         .prepare("SELECT 1 FROM main.sqlite_schema WHERE name='tasks_tasks' AND type='table'")
-        .get() !== undefined,
-    );
-    const finding = compareStoreFreshness(
-      live,
-      source,
-      snapshot,
-      'snapshot',
-      deleted,
-      /^(brain|conduit)-/.test(basename(snapshot)),
-    );
-    return finding
-      ? `Recovery rows absent or older in live store: ${finding.evidence.join('; ')}`
-      : undefined;
+        .get() !== undefined;
+    if (hasTasks(live) !== hasTasks(source)) return;
+    if (!validStoreRecoverySnapshot(source, snapshot)) return;
+    const snapshots = collectStoreSnapshotCandidates(target);
+    const at = snapshots.findIndex((candidate) => candidate.path === snapshot);
+    for (const newer of snapshots.slice(0, at < 0 ? 0 : at)) {
+      let db: DatabaseSync | undefined;
+      try {
+        if (storeSnapshotIgnored(target, newer.path)) continue;
+        db = openStoreRecoverySnapshot(newer.path);
+        const next = readStoreGeneration(db);
+        if (
+          hasTasks(db) === hasTasks(source) &&
+          next?.history.includes(generation.current) &&
+          validStoreRecoverySnapshot(db, newer.path)
+        )
+          return;
+      } catch {
+        // Only a validated descendant can cover this recovery point.
+      } finally {
+        db?.close();
+      }
+    }
+    const rows = compareStoreFreshness(live, source, snapshot, 'snapshot');
+    return `Store generation ${generation.current} is absent from live ancestry (head ${current.current}); ${rows?.evidence.join('; ') ?? 'retained recovery point of a divergent history'}`;
   } catch (error) {
-    return `Live recovery coverage unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    return `Live recovery ancestry unavailable: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
     source?.close();
     live?.close();
