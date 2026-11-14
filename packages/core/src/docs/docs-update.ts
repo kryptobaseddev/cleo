@@ -37,6 +37,10 @@ import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
 import { fileBytesMatchSha256, readVerifiedBlobBytes } from '../store/blob-keep.js';
+import {
+  conduitAttachments,
+  conduitAttachmentVersions,
+} from '../store/schema/cleo-project/conduit.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
@@ -925,11 +929,29 @@ export async function updateDocBySlug(
     .from(docsAttachments)
     .where(eq(docsAttachments.sha256, newSha256))
     .get();
+  // Returning to shared historical bytes keeps the live identity row too:
+  // re-slugging those bytes could redirect another doc's stale incoming edges.
+  const ownHistory =
+    projectionInput !== null && sharedRow !== undefined
+      ? await db
+          .select({ uid: conduitAttachmentVersions.uid })
+          .from(conduitAttachmentVersions)
+          .innerJoin(
+            conduitAttachments,
+            eq(conduitAttachments.uid, conduitAttachmentVersions.attachmentUid),
+          )
+          .where(
+            and(
+              eq(conduitAttachments.slug, slug),
+              eq(conduitAttachmentVersions.contentHash, newSha256),
+            ),
+          )
+          .get()
+      : undefined;
   const keepsOwnRow =
     projectionInput !== null &&
     sharedRow !== undefined &&
-    sharedRow.slug !== null &&
-    sharedRow.slug !== slug;
+    (ownHistory !== undefined || (sharedRow.slug !== null && sharedRow.slug !== slug));
 
   let newAttachmentId: string;
   try {

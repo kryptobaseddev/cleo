@@ -356,7 +356,8 @@ describe('T14565 — supersession edges survive a successor update', () => {
     await update('guide', '# Guide\n\nv2\n');
     await seed('other', first);
     await update('other', '# Other\n\nv2\n');
-    const other = await createAttachmentStore().findBySlug('other', projectRoot);
+    await seed('target', '# Target\n');
+    const target = await createAttachmentStore().findBySlug('target', projectRoot);
     const native = getNativeDb(projectRoot);
     if (!native || !version) throw new Error('expected the original version row');
     native
@@ -366,12 +367,12 @@ describe('T14565 — supersession edges survive a successor update', () => {
     await expect(
       writer === 'add'
         ? seed('unrelated', first)
-        : updateDocBySlug(projectRoot, { slug: 'other', content: first }),
+        : updateDocBySlug(projectRoot, { slug: 'target', content: first }),
     ).rejects.toMatchObject({
-      code: 'E_DOC_LINEAGE_AMBIGUOUS',
+      codeName: 'E_DOC_LINEAGE_AMBIGUOUS',
     });
-    expect((await createAttachmentStore().findBySlug('other', projectRoot))?.metadata.id).toBe(
-      other?.metadata.id,
+    expect((await createAttachmentStore().findBySlug('target', projectRoot))?.metadata.id).toBe(
+      target?.metadata.id,
     );
     expect(
       native.prepare('SELECT slug FROM docs_attachments WHERE id = ?').get(version.metadata.id),
@@ -468,7 +469,7 @@ describe('T14565 — supersession edges survive a successor update', () => {
     await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
 
     await expect(seed('other', body)).rejects.toMatchObject({
-      code: 'E_DOC_LINEAGE_AMBIGUOUS',
+      codeName: 'E_DOC_LINEAGE_AMBIGUOUS',
       fix: "Use different content bytes for 'other'; incoming supersession requires a distinct, uniquely identified live row for the original document.",
     });
 

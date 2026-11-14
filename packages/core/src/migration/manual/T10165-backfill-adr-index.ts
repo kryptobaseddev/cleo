@@ -69,6 +69,8 @@ import { basename, join } from 'node:path';
 import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { and, eq } from 'drizzle-orm';
 import { resolveAdrHome } from '../../adrs/home.js';
+import { preserveIncomingSupersessionOnReuse } from '../../docs/supersede.js';
+import { withConduitDocWriteTransaction } from '../../store/conduit-doc-history.js';
 import { getDb } from '../../store/sqlite.js';
 import {
   ATTACHMENT_LIFECYCLE_STATUSES,
@@ -321,19 +323,24 @@ export async function backfillAdrIndex(
 
       if (wouldChange) {
         if (!dryRun) {
-          await db
-            .update(attachments)
-            .set({
-              slug,
-              type: 'adr',
-              lifecycleStatus,
-              summary,
-              keywords,
-              topics,
-              relatedTasks,
-            })
-            .where(eq(attachments.id, existing.id))
-            .run();
+          await withConduitDocWriteTransaction(projectRoot, async () => {
+            if (existing.slug !== slug) {
+              await preserveIncomingSupersessionOnReuse(db, projectRoot, existing.id, slug);
+            }
+            await db
+              .update(attachments)
+              .set({
+                slug,
+                type: 'adr',
+                lifecycleStatus,
+                summary,
+                keywords,
+                topics,
+                relatedTasks,
+              })
+              .where(eq(attachments.id, existing.id))
+              .run();
+          });
         }
         result.updated += 1;
       } else {

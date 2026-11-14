@@ -35,7 +35,13 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { DocsMigrateRekeySkip } from '@cleocode/contracts/operations/docs.js';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
-import { birthFingerprint, mintedRowUid, naturalRowUid, yieldedDocSlug } from './row-identity.js';
+import {
+  birthFingerprint,
+  isYieldedDocSlug,
+  mintedRowUid,
+  naturalRowUid,
+  yieldedDocSlug,
+} from './row-identity.js';
 import {
   conduitAttachmentApprovals,
   conduitAttachmentContributors,
@@ -492,8 +498,7 @@ export async function resolveRegistryRowDocSlug(
   if (!row) return null;
   const own = row.slug ?? null;
   // A yielded slug ends in the last 8 hex of the row's own uid.
-  const yielded =
-    own !== null && row.uid != null && own === yieldedDocSlug(own.slice(0, -9), row.uid);
+  const yielded = isYieldedDocSlug(own, row.uid);
   if (own !== null && !yielded) return own;
   const docs = await db
     .selectDistinct({ uid: conduitAttachmentVersions.attachmentUid })

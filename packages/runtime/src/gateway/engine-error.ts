@@ -312,6 +312,7 @@ export interface ErrorMeta {
  */
 interface CaughtCleoErrorShape {
   code?: number;
+  codeName?: string;
   message?: string;
   fix?: string;
   details?: Record<string, unknown>;
@@ -320,7 +321,7 @@ interface CaughtCleoErrorShape {
 
 /**
  * Convert any caught value into an {@link EngineResult}, forwarding the rich
- * `fix`, `details`, and `alternatives` fields when the caught value is a
+ * `codeName`, `fix`, `details`, and `alternatives` fields when the caught value is a
  * `CleoError` (or structurally compatible object).
  *
  * @remarks
@@ -401,9 +402,10 @@ export function cleoErrorToEngineError<T>(
   }
 
   const e = err as CaughtCleoErrorShape;
-  const code = mapNumericExitCodeToString(e.code) ?? fallbackCode;
+  const numericCodeName = mapNumericExitCodeToString(e.code);
+  const code = e.codeName ?? numericCodeName ?? fallbackCode;
   const message = e.message ?? fallbackMessage;
-  const exitCode = STRING_TO_EXIT[code] ?? 1;
+  const exitCode = STRING_TO_EXIT[code] ?? (numericCodeName ? e.code : undefined) ?? 1;
 
   return engineError<T>(code, message, {
     exitCode,

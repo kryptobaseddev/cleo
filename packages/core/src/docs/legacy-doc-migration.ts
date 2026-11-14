@@ -88,6 +88,7 @@ import {
   type MigrationStepVerificationSpec,
   runMigrationSteps,
 } from '../store/migration-safety.js';
+import { isYieldedDocSlug } from '../store/row-identity.js';
 import { conduitAttachments } from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
 import { finishCaptureFrame, openCaptureFrame } from '../store/sync/capture.js';
@@ -268,6 +269,10 @@ export async function deriveLegacyDocMigrationPlan(
   let remaining = 0;
   for (const row of rows) {
     const slug = row.slug as string;
+    if (isYieldedDocSlug(slug, row.uid)) {
+      skipped += 1;
+      continue;
+    }
     // Idempotency: a doc already receipted (captured or dangling) is done.
     if ((await findConduitDocMigration(projectRoot, slug)) !== null) {
       skipped += 1;

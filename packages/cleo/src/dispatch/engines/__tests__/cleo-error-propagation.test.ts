@@ -18,6 +18,8 @@
  * @epic T1689
  */
 
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { CleoError } from '@cleocode/core/errors';
 import { describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,22 @@ function makeCleoError(
 // ---------------------------------------------------------------------------
 
 describe('cleoErrorToEngineError', () => {
+  it('preserves a refusal name and its numeric exit class (T14584)', () => {
+    const err = new CleoError(ExitCode.VALIDATION_ERROR, 'Unsafe document reuse', {
+      codeName: 'E_DOC_LINEAGE_AMBIGUOUS',
+      fix: 'Use different content bytes.',
+    });
+    expect(cleoErrorToEngineError(err, 'E_INTERNAL', 'fallback')).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_DOC_LINEAGE_AMBIGUOUS',
+        exitCode: ExitCode.VALIDATION_ERROR,
+        fix: 'Use different content bytes.',
+        problemDetails: { title: 'E_DOC_LINEAGE_AMBIGUOUS', status: ExitCode.VALIDATION_ERROR },
+      },
+    });
+  });
+
   it('forwards fix, details, and alternatives from a full CleoError', () => {
     const err = makeCleoError(4, 'Task T999 not found', {
       fix: "Use 'cleo find T999' to search",

@@ -14,10 +14,21 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DocsAddResult, DocsFetchResult } from '@cleocode/contracts/operations/docs';
+import type {
+  DocsAddResult,
+  DocsFetchResult,
+  DocsListResult,
+} from '@cleocode/contracts/operations/docs';
+import { recordNewDocIdentity } from '@cleocode/core/docs/docs-update';
+import { getDocsWikilinks, rebuildDocsWikilinks } from '@cleocode/core/docs/wikilinks';
+import { backfillAdrIndex } from '@cleocode/core/migration/manual/T10165-backfill-adr-index';
+import { createAttachmentStore } from '@cleocode/core/store/attachment-store';
 import { awaitBackgroundOps } from '@cleocode/core/store/background-ops';
-import { closeAllDatabases } from '@cleocode/core/store/sqlite';
+import { resolveConduitDocUid } from '@cleocode/core/store/conduit-doc-history';
+import { yieldedDocSlug } from '@cleocode/core/store/row-identity';
+import { closeAllDatabases, getNativeDb } from '@cleocode/core/store/sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DispatchResponse } from '../../types.js';
 import { DocsHandler } from '../docs.js';
 
 let tempDir: string;
@@ -108,5 +119,180 @@ describe('docs.add records a head version for every doc it adds (T14329)', () =>
   it('a slug-less attachment carries no head (it is not addressable as a doc)', async () => {
     const added = await add({ content: '# Untitled scratch\n\nno slug\n' });
     expect(added.headVersionUid).toBeUndefined();
+  });
+
+  it.each([
+    'add-content',
+    'add-file',
+    'update',
+  ] as const)('unsafe %s reuse returns the lineage code and fix in its dispatch envelope (T14584)', async (writer) => {
+    const first = '# Guide\n\nv1\n';
+    const handler = new DocsHandler();
+    await add({ slug: 'old-guide', content: '# Old guide\n' });
+    await add({ slug: 'guide', content: first });
+    const version = await createAttachmentStore().findBySlug('guide', tempDir);
+    expect(
+      (await handler.mutate('update', { slug: 'guide', content: '# Guide\n\nv2\n' })).success,
+    ).toBe(true);
+    await add({ slug: 'other', content: first });
+    expect((await handler.mutate('update', { slug: 'other', content: '# Other\n' })).success).toBe(
+      true,
+    );
+    expect(
+      (await handler.mutate('supersede', { oldSlug: 'old-guide', newSlug: 'guide' })).success,
+    ).toBe(true);
+    const native = getNativeDb(tempDir);
+    if (!native || !version) throw new Error('expected the retired version');
+    native
+      .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
+      .run(version.metadata.id);
+
+    let response: DispatchResponse;
+    if (writer === 'update') {
+      await add({ slug: 'target', content: '# Target\n' });
+      response = await handler.mutate('update', { slug: 'target', content: first });
+    } else if (writer === 'add-file') {
+      const file = join(tempDir, 'reuse.md');
+      await writeFile(file, first);
+      response = await handler.mutate('add', { ownerId: 'T14329', slug: 'target', file });
+    } else {
+      response = await handler.mutate('add', { ownerId: 'T14329', slug: 'target', content: first });
+    }
+
+    expect(response).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_DOC_LINEAGE_AMBIGUOUS',
+        fix: "Use different content bytes for 'target'; incoming supersession requires a distinct, uniquely identified live row for the original document.",
+      },
+    });
+  });
+
+  it.each([
+    false,
+    true,
+  ])('migrate never adopts or lists a yielded version; already adopted=%s (T14584)', async (adopted) => {
+    const first = '# Guide\n\nv1\n';
+    const handler = new DocsHandler();
+    await add({ slug: 'guide', content: first });
+    const version = await createAttachmentStore().findBySlug('guide', tempDir);
+    expect(
+      (await handler.mutate('update', { slug: 'guide', content: '# Guide\n\nv2\n' })).success,
+    ).toBe(true);
+    const native = getNativeDb(tempDir);
+    if (!native || !version) throw new Error('expected the retired version');
+    const uid = native
+      .prepare('SELECT uid FROM docs_attachments WHERE id = ?')
+      .get(version.metadata.id)?.uid;
+    if (typeof uid !== 'string') throw new Error('expected a version uid');
+    const yielded = yieldedDocSlug('guide', uid);
+    native
+      .prepare('UPDATE docs_attachments SET slug = ?, related_tasks = ? WHERE id = ?')
+      .run(yielded, '["T14329"]', version.metadata.id);
+    if (adopted) {
+      await recordNewDocIdentity(tempDir, {
+        slug: yielded,
+        authorAgentId: 'old-migration',
+        bytes: Buffer.from(first),
+      });
+    }
+
+    const migration = await handler.mutate('migrate', {});
+    expect(migration).toMatchObject({ success: true, data: { status: 'completed', captured: 0 } });
+    if (!adopted) expect(await resolveConduitDocUid(tempDir, yielded)).toBeNull();
+    const listed = await handler.query('list', { project: true });
+    expect(listed.success).toBe(true);
+    expect((listed.data as DocsListResult).attachments.map((doc) => doc.slug)).not.toContain(
+      yielded,
+    );
+    await rebuildDocsWikilinks({ projectRoot: tempDir });
+    expect(await getDocsWikilinks(yielded, { projectRoot: tempDir })).toEqual([]);
+  });
+
+  it('update reclaims its own shared history with stale incoming pointers through the dispatch envelope (T14584)', async () => {
+    const first = '# Guide\n\nv1\n';
+    const handler = new DocsHandler();
+    await add({ slug: 'old-guide', content: '# Old guide\n' });
+    await add({ slug: 'guide', content: first });
+    const version = await createAttachmentStore().findBySlug('guide', tempDir);
+    expect(
+      (await handler.mutate('update', { slug: 'guide', content: '# Guide\n\nv2\n' })).success,
+    ).toBe(true);
+    await add({ slug: 'other', content: first });
+    expect((await handler.mutate('update', { slug: 'other', content: '# Other\n' })).success).toBe(
+      true,
+    );
+    expect(
+      (await handler.mutate('supersede', { oldSlug: 'old-guide', newSlug: 'guide' })).success,
+    ).toBe(true);
+    const native = getNativeDb(tempDir);
+    if (!native || !version) throw new Error('expected the retired version');
+    native
+      .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
+      .run(version.metadata.id);
+
+    expect(await handler.mutate('update', { slug: 'guide', content: first })).toMatchObject({
+      success: true,
+      data: { changed: true },
+    });
+    expect(
+      native.prepare('SELECT slug FROM docs_attachments WHERE id = ?').get(version.metadata.id),
+    ).toMatchObject({ slug: null });
+    const fetched = await handler.query('fetch', { attachmentRef: 'old-guide' });
+    expect(fetched).toMatchObject({
+      success: true,
+      data: { lineage: { supersededBy: 'guide', currentSlug: 'guide' } },
+    });
+  });
+
+  it('ADR backfill reuse keeps the original successor in the fetch envelope (T14584)', async () => {
+    const first = '# Guide\n\nv1\n';
+    const handler = new DocsHandler();
+    const legacy = Buffer.from('# Old guide\n');
+    await createAttachmentStore().put(
+      legacy,
+      {
+        kind: 'blob',
+        storageKey: 'fixture',
+        mime: 'text/markdown',
+        size: legacy.length,
+      },
+      'task',
+      'T14329',
+      'head-test',
+      tempDir,
+      { slug: 'old-guide', type: 'guide' },
+    );
+    await add({ slug: 'guide', content: first });
+    const version = await createAttachmentStore().findBySlug('guide', tempDir);
+    expect(
+      (await handler.mutate('update', { slug: 'guide', content: '# Guide\n\nv2\n' })).success,
+    ).toBe(true);
+    expect(
+      (await handler.mutate('supersede', { oldSlug: 'old-guide', newSlug: 'guide' })).success,
+    ).toBe(true);
+    const native = getNativeDb(tempDir);
+    if (!native || !version) throw new Error('expected the retired version');
+    native
+      .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
+      .run(version.metadata.id);
+    await mkdir(join(tempDir, '.cleo', 'adrs'));
+    await writeFile(join(tempDir, '.cleo', 'adrs', 'adr-101.md'), first);
+    await writeFile(
+      join(tempDir, '.cleo', 'adrs', 'adr-index.jsonl'),
+      JSON.stringify({ id: 'ADR-101', file: '.cleo/adrs/adr-101.md', title: 'Guide replacement' }) +
+        '\n',
+    );
+
+    expect((await backfillAdrIndex(tempDir, { dryRun: false })).updated).toBe(1);
+    const fetched = await handler.query('fetch', { attachmentRef: 'old-guide' });
+    expect(fetched).toMatchObject({
+      success: true,
+      data: { lineage: { supersededBy: 'guide', currentSlug: 'guide' } },
+    });
+    const current = await createAttachmentStore().findBySlug('guide', tempDir);
+    expect(
+      native.prepare("SELECT superseded_by FROM docs_attachments WHERE slug = 'old-guide'").get(),
+    ).toMatchObject({ superseded_by: current?.metadata.id });
   });
 });

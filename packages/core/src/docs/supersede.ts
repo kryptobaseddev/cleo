@@ -29,7 +29,6 @@
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, eq, ne, or } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
-import { EngineResultError } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { mirrorConduitDocMeta, resolveRegistryRowDocSlug } from '../store/conduit-doc-history.js';
 import { docsAttachments } from '../store/tasks-schema.js';
@@ -183,11 +182,14 @@ export async function preserveIncomingSupersessionOnReuse(
     : undefined;
   if (!prior || prior.id === rowId) {
     // @sync-invariant docs.supersession.follows-slug refusing unsafe reuse keeps incoming edges on their original document
-    throw new EngineResultError({
-      code: 'E_DOC_LINEAGE_AMBIGUOUS',
-      message: `Cannot reuse content for '${slug}': incoming supersession cannot be retained on its original document.`,
-      fix: `Use different content bytes for '${slug}'; incoming supersession requires a distinct, uniquely identified live row for the original document.`,
-    });
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Cannot reuse content for '${slug}': incoming supersession cannot be retained on its original document.`,
+      {
+        codeName: 'E_DOC_LINEAGE_AMBIGUOUS',
+        fix: `Use different content bytes for '${slug}'; incoming supersession requires a distinct, uniquely identified live row for the original document.`,
+      },
+    );
   }
   for (const id of repointIncomingSupersessionEdges(db, rowId, prior.id)) {
     await mirrorConduitDocMeta(projectRoot, { rowId: id });

@@ -282,6 +282,18 @@ export function yieldedDocSlug(slug: string, rowUid: string): string {
 }
 
 /**
+ * Whether a registry slug is the collision name derived from its own row uid.
+ * These rows retain version bytes and must not be adopted or listed as documents.
+ *
+ * @param slug - The registry row's slug.
+ * @param rowUid - The registry row's immutable uid.
+ * @returns True when the row carries its yielded collision name.
+ */
+export function isYieldedDocSlug(slug: string | null, rowUid: string | null): boolean {
+  return slug !== null && rowUid !== null && slug === yieldedDocSlug(slug.slice(0, -9), rowUid);
+}
+
+/**
  * A new uid for a row this build creates: a random UUIDv7.
  *
  * @param birthMs - The row's own birth, for a row imported with one (an
