@@ -63,6 +63,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import type { CiChecksConfig, CiJobRequirements } from '@cleocode/contracts/project-context.js';
+import { similarityScore } from '../docs/slug-similarity.js';
 import { isGitWorkTree } from '../git/work-tree.js';
 import type { ViewComponentPr } from '../tasks/component-pr.js';
 import {
@@ -521,7 +522,8 @@ function globToRegExp(glob: string): RegExp {
  * matrix job's `name:` is a template (`Type Check${{ matrix.node … }}`), and a
  * job skipped before its matrix expands reports that raw template as its check
  * name; its static prefix (`Type Check`) is the job's name, so the skip counts
- * as the job's, the same job its rendered variants run as.
+ * as the job's, the same job its rendered variants run as. GitHub also appends
+ * ` (<matrix values>)` to a name without a matrix expression (T14579).
  *
  * @param re - The configured job glob, anchored.
  * @param name - The check run's name.
@@ -531,7 +533,35 @@ function globToRegExp(glob: string): RegExp {
 export function jobNameMatches(re: RegExp, name: string): boolean {
   if (re.test(name)) return true;
   const expression = name.indexOf('${{');
-  return expression > 0 && re.test(name.slice(0, expression).trimEnd());
+  if (expression > 0 && re.test(name.slice(0, expression).trimEnd())) return true;
+  const suffix = name.lastIndexOf(' (');
+  return suffix > 0 && name.endsWith(')') && re.test(name.slice(0, suffix));
+}
+
+/** Missing N/M shard legs cannot be hidden by the legs that reported success. */
+function incompleteShardMatrix(checks: readonly CommitCheck[], re: RegExp): string | undefined {
+  // shortcut: infer missing legs from N/M names; use workflow matrix metadata for other axes.
+  const expected = new Map<string, number>();
+  const legs = new Map<string, Set<number>>();
+  for (const check of checks) {
+    if (!re.test(check.name.slice(0, check.name.lastIndexOf(' (')))) continue;
+    const matrix = /^(.* \([^()]*)\b(\d+)\/(\d+)([^()]*\))$/.exec(check.name);
+    if (!matrix) continue;
+    const leg = Number(matrix[2]);
+    const total = Number(matrix[3]);
+    const group = `${matrix[1]}*/${matrix[3]}${matrix[4]} (${check.event ?? 'unknown event'})`;
+    if (!Number.isSafeInteger(leg) || !Number.isSafeInteger(total) || leg < 1 || leg > total)
+      return `${check.name}: invalid matrix leg`;
+    const seen = legs.get(group) ?? new Set<number>();
+    seen.add(leg);
+    legs.set(group, seen);
+    expected.set(group, total);
+  }
+  for (const [group, seen] of legs) {
+    if (seen.size !== expected.get(group))
+      return `${group}: expected ${expected.get(group)} legs, found ${seen.size}`;
+  }
+  return undefined;
 }
 
 /**
@@ -585,6 +615,9 @@ export function evaluateFilterSkippedJobs(
     }
     if (latest.size === 0) return { ok: false, reason: `job ${glob} is missing, not skipped` };
     const runs = [...latest.values()];
+    const incomplete = incompleteShardMatrix(runs, re);
+    if (incomplete)
+      return { ok: false, reason: `job ${glob} has missing matrix legs: ${incomplete}` };
     if (runs.every((c) => c.status === 'completed' && c.conclusion === 'success')) {
       ran.push(...new Set(runs.map((c) => c.name)));
       continue;
@@ -644,8 +677,13 @@ export function evaluateJobs(
     const re = globToRegExp(glob);
     const matched = inScope.filter((c) => jobNameMatches(re, c.name));
     if (matched.length === 0) {
+      const closest = [...new Set(inScope.map((c) => c.name))]
+        .map((name) => [name, similarityScore(glob, name)] as const)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 3)
+        .map(([name]) => JSON.stringify(name));
       reasons.push(
-        `job ${glob}: not found in ${scope.workflows.join(', ')} on ${sha.slice(0, 12)}`,
+        `job ${glob}: not found in ${scope.workflows.join(', ')}${closest.length ? `; closest check-run names: ${closest.join(', ')}` : '; no check-run names seen in scope'} on ${sha.slice(0, 12)}`,
       );
       continue;
     }
@@ -655,16 +693,22 @@ export function evaluateJobs(
       const prev = latest.get(key);
       if (!prev || c.id > prev.id) latest.set(key, c);
     }
-    const bad = [...latest.values()].find(
-      (c) => c.status !== 'completed' || c.conclusion !== 'success',
-    );
+    const runs = [...latest.values()];
+    const bad = runs.find((c) => c.status !== 'completed' || c.conclusion !== 'success');
     if (bad) {
       reasons.push(
         `job ${bad.name}: ${bad.status !== 'completed' ? `pending (${bad.status})` : bad.conclusion} on ${sha.slice(0, 12)}`,
       );
       continue;
     }
-    jobs.push(...new Set([...latest.values()].map((c) => c.name)));
+    const incomplete = incompleteShardMatrix(runs, re);
+    if (incomplete) {
+      reasons.push(
+        `job ${glob}: not found in ${scope.workflows.join(', ')} (incomplete matrix ${incomplete}) on ${sha.slice(0, 12)}`,
+      );
+      continue;
+    }
+    jobs.push(...new Set(runs.map((c) => c.name)));
   }
   return reasons.length > 0 ? { ok: false, reasons } : { ok: true, jobs };
 }

@@ -37,6 +37,8 @@ import {
   type CommitCheck,
   CURRENT_HEAD_STAND_IN_OPEN,
   ciSatisfiesRemedy,
+  evaluateFilterSkippedJobs,
+  evaluateJobs,
   evaluateMergeCommitChecks,
   hasIncompleteIdentity,
   inheritedOnMerge,
@@ -243,6 +245,119 @@ describe('evaluateMergeCommitChecks', () => {
 
   it('refuses an empty required set rather than accepting vacuously', () => {
     expect(evaluateMergeCommitChecks([], allGreen, MERGE).ok).toBe(false);
+  });
+});
+
+describe('GitHub matrix job names (T14579)', () => {
+  const name = 'PR guards and affected tests';
+  const globs = [name];
+  const scope = { app: 'github-actions', workflows: ['.github/workflows/ci.yml'] };
+  const legs = [1, 2, 3].map((leg) =>
+    check(`${name} (${leg}/3)`, { workflowPath: scope.workflows[0] }),
+  );
+
+  it('an exact job name matches GitHub matrix suffixes without matching another base name', () => {
+    const re = /^PR guards and affected tests$/;
+    for (const suffix of ['1/1', '1/3', 'ubuntu-latest, 24.16.0'])
+      expect(jobNameMatches(re, `${name} (${suffix})`)).toBe(true);
+    expect(jobNameMatches(re, `${name} extra (1/3)`)).toBe(false);
+    expect(jobNameMatches(re, `${name} (1/3) extra`)).toBe(false);
+    expect(jobNameMatches(/^Checks \(Linux\)$/, 'Checks (Linux) (1/3)')).toBe(true);
+  });
+
+  it('accepts only after all three legs succeeded', () => {
+    expect(evaluateJobs(globs, legs, MERGE, scope)).toEqual({
+      ok: true,
+      jobs: legs.map((c) => c.name),
+    });
+    expect(
+      evaluateJobs(
+        globs,
+        [check(`${name} (1/1)`, { workflowPath: scope.workflows[0] })],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('retains an explicitly configured leg instead of expanding its literal suffix', () => {
+    expect(evaluateJobs([legs[0]!.name], [legs[0]!], MERGE, scope).ok).toBe(true);
+  });
+
+  it.each([
+    'missing',
+    'failure',
+    'skipped',
+    'cancelled',
+    'pending',
+  ] as const)('refuses a %s matrix leg', (state) => {
+    const checks =
+      state === 'missing'
+        ? legs.filter((c) => c !== legs[1])
+        : legs.map((c) =>
+            c === legs[1]
+              ? {
+                  ...c,
+                  status: state === 'pending' ? 'in_progress' : 'completed',
+                  conclusion: state === 'pending' ? null : state,
+                }
+              : c,
+          );
+    const r = evaluateJobs(globs, checks, MERGE, scope);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reasons.join(' ')).toContain(
+      state === 'missing' ? 'expected 3 legs, found 2' : state,
+    );
+  });
+
+  it('does not combine matrix legs across events or other matrix values', () => {
+    const splitEvents = legs.map((c, i) => (i === 1 ? { ...c, event: 'pull_request' } : c));
+    expect(evaluateJobs(globs, splitEvents, MERGE, scope).ok).toBe(false);
+    const splitPlatforms = legs.map((c, i) => ({
+      ...c,
+      name: c.name.replace(' (', ` (${i === 1 ? 'macos' : 'ubuntu'}, `),
+    }));
+    expect(evaluateJobs(globs, splitPlatforms, MERGE, scope).ok).toBe(false);
+  });
+
+  it('a missing matrix leg cannot be excused as a CI filter skip', () => {
+    const skipped = legs.slice(0, 2).map((c) => ({ ...c, conclusion: 'skipped' }));
+    expect(
+      evaluateFilterSkippedJobs(globs, ['scripts/a.mjs'], skipped, MERGE, scope),
+    ).toMatchObject({ ok: false, reason: expect.stringContaining('missing matrix legs') });
+  });
+
+  it('a latest failed leg is not hidden by an earlier pass', () => {
+    const r = evaluateJobs(
+      globs,
+      [...legs, { ...legs[1]!, id: 99, conclusion: 'failure' }],
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain(`${name} (2/3): failure`);
+  });
+
+  it('a glob matching nothing names the closest observed check runs on that commit and in scope', () => {
+    const r = evaluateJobs(
+      ['PR guards and affected test'],
+      [
+        ...legs,
+        check('Lint', { workflowPath: scope.workflows[0] }),
+        check('PR guards and affected test', { workflowPath: scope.workflows[0], headSha: HEAD }),
+        check('PR guards and affected test other workflow', {
+          workflowPath: '.github/workflows/other.yml',
+        }),
+      ],
+      MERGE,
+      scope,
+    );
+    expect(r.ok).toBe(false);
+    const reason = !r.ok && r.reasons.join(' ');
+    expect(reason).toContain('closest check-run names:');
+    for (const leg of legs) expect(reason).toContain(JSON.stringify(leg.name));
+    expect(reason).not.toContain('other workflow');
+    expect(reason).not.toContain('"PR guards and affected test"');
+    expect(reason).not.toContain('"Lint"');
   });
 });
 
