@@ -21,7 +21,7 @@
  *
  * Modules under this directory author the **target shape**: domain-prefixed
  * `sqliteTable` definitions with the E10 strict typing applied per
- * `docs/migration/sqlite-schema-canonical.md`. They are NOT yet the runtime
+ * docs store `sqlite-schema-canonical`. They are NOT yet the runtime
  * schema — the live runtime modules one level up
  * (`schema/{nexus-schema,code-index,skills-schema,agent-registry-schema}.ts`) keep
  * their UNPREFIXED physical names because they back live runtime queries and the
@@ -41,7 +41,7 @@
  * ## Idempotent prefixer (AC1)
  *
  * Each table's physical name is its `targetTable` from
- * `docs/migration/sqlite-schema-columns.json`. Tables already carrying a
+ * docs store `sqlite-schema-columns-data`. Tables already carrying a
  * recognized domain prefix (`nexus_audit_log`, `nexus_nodes`, …) are NOT
  * double-prefixed; bare tables gain their domain prefix (`project_registry` →
  * `nexus_project_registry`, `code_index` → `nexus_code_index`, `skills` →
@@ -86,7 +86,7 @@
  * @task T11361
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §1 (per-scope counts) · §3–§8 (typing rules)
+ * @see docs store `sqlite-schema-canonical` §1 (per-scope counts) · §3–§8 (typing rules)
  * @see ../cleo-shared/brain.ts (the mirrored brain_* family — also imported by cleo-project, T11360)
  * @see ../cleo-project/index.ts (the sibling project-scope barrel)
  * @see drizzle/cleo-global.config.ts (per-scope domain membership)

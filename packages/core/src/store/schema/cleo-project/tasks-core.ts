@@ -59,8 +59,8 @@
  * @task T11360 · T11362 (§7 idempotency key)
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §3 · §4 · §5 · §6a · §7 · §8.2
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §3 · §4 · §5 · §6a · §7 · §8.2
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  */
 
 import {

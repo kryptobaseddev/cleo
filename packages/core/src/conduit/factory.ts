@@ -4,7 +4,7 @@
  * Auto-selects the appropriate Transport based on the agent's credential
  * configuration. Priority: Local (napi-rs) > WebSocket > SSE > HTTP polling.
  *
- * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.5
+ * @see docs store `signaldock-unified-agent-registry` (SignalDock is deprecated, D11176) Section 4.5
  * @task T177
  */
 

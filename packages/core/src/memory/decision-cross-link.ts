@@ -5,7 +5,7 @@
  * rationale, then creates `affects` edges from the decision graph node to
  * matching `file` / `symbol` nodes in brain_page_nodes.  This implements
  * the cross-substrate edge described in
- * docs/research/brain-synaptic-visualization.md §3.2.
+ * docs store `brain-synaptic-visualization` §3.2.
  *
  * All database operations are best-effort — they never throw or block the
  * caller.  Nodes for referenced files / symbols are upserted on demand so

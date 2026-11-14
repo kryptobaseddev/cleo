@@ -22,7 +22,7 @@
  *   - `cleo sentient sandbox` (Tier-3 auto-merge — blocked on T992+T993+T995)
  *
  * @see packages/core/src/sentient/daemon.ts
- * @see docs/sentient-loop.md
+ * @see docs store `sentient-loop` (retired)
  * @task T946
  * @task T1008
  * @task T1021

@@ -15,7 +15,7 @@
  * - **Global** (ADR-037 §5): `HMAC-SHA256(machine-key ‖ global-salt, id)`,
  *   version `0x01`, for project-independent credentials.
  *
- * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.6
+ * @see docs store `signaldock-unified-agent-registry` (SignalDock is deprecated, D11176) Section 3.6
  * @module crypto/credentials
  */
 

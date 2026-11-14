@@ -64,8 +64,8 @@
  * @task T11361
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §1 (D1″ · global counts) · §3b · §4 · §5b
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §1 (D1″ · global counts) · §3b · §4 · §5b
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  * @see ../agent-registry-schema.ts (the legacy bare-named runtime schema module)
  * @task T11622 (Signaldock → Agent Registry rename + runtime cutover; folds T11578 AC2)
  */

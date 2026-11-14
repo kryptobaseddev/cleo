@@ -36,7 +36,7 @@
  * `id = service:${provider}:${label}` — so a service credential decrypts
  * consistently for the machine regardless of the reading project's cwd.
  *
- * ## E10 typing (per docs/migration/sqlite-schema-canonical.md)
+ * ## E10 typing (per docs store `sqlite-schema-canonical`)
  *
  * TEXT ISO-8601 timestamps (`*_at`, GLOB-checked in the migration); named enums
  * ({@link SERVICE_CONNECTION_STATUSES}); typed booleans (`enabled`); JSON-as-TEXT

@@ -26,8 +26,8 @@
  * @task T11360
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §4 · §5 · §6a
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §4 · §5 · §6a
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  */
 
 import { sql } from 'drizzle-orm';

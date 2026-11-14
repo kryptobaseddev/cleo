@@ -7,7 +7,7 @@
  * `cleo changeset add`:
  *
  *   - `.changeset/t10179-executor-probe.md`           (pnpm/changesets format)
- *   - `docs/research/t10179-executor-probe-result.md` (research note)
+ *   - docs store `t10179-executor-probe` (research note, retired from docs/)
  *   - `.changeset/t10203-napi-step-exports.md`        (CLEO-native changeset)
  *
  * The two `.changeset/*.md` files were consumed into the CHANGELOG during

@@ -7,7 +7,7 @@
  * The Conduit interface (conduit.ts) wraps Transport to provide
  * high-level messaging semantics (WHAT the agent wants to do).
  *
- * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4
+ * @see docs store `signaldock-unified-agent-registry` (SignalDock is deprecated, D11176) Section 4
  * @module transport
  */
 

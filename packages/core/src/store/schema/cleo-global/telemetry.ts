@@ -31,8 +31,8 @@
  * @saga T11242
  * @see .cleo/rcasd/adr-090-nexus-graph-residency-split.md §2.3 (telemetry → GLOBAL)
  * @see ../schema-utils.ts — re-exported as {@link makeSchemaMetaTable} (T11543 factory)
- * @see docs/migration/sqlite-schema-canonical.md §1 (D1″) · §4
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §1 (D1″) · §4
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  */
 
 import { sql } from 'drizzle-orm';

@@ -47,8 +47,8 @@
  * @task T11360
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §3b · §4 · §5b · §6a
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §3b · §4 · §5b · §6a
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  */
 
 import { CHANGESET_KINDS } from '@cleocode/contracts/changesets.js';

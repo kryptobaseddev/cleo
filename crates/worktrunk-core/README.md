@@ -13,8 +13,8 @@
 
 `worktrunk-core` is the **pure-Rust SDK** that powers `cleo orchestrate spawn`'s
 parallel git-worktree provisioning. It was extracted from
-`/mnt/projects/worktrunk` per Decision D010 and the [T10219 SDK Interface
-Audit](../../docs/research/t10219-worktrunk-sdk-interface-audit.md).
+`/mnt/projects/worktrunk` per Decision D010 and the T10219 SDK Interface
+Audit (docs store `t10219-sdk-interface-audit`).
 
 It exists to give every napi consumer (`worktree-napi`, `packages/worktree/`,
 the CLEO spawn pipeline) a **single hot-path implementation** of:
@@ -86,7 +86,7 @@ The `git` module ships:
 | `RefType`                       | `src/git/repo.rs`                     | Local / Remote / Tag / Sha / Other ref classification.                                                           |
 | `BranchRef`                     | `src/git/repo.rs`                     | Branch handle: `{name, sha, is_remote_tracking, upstream}`.                                                      |
 | `RemovalPlan`                   | `src/git/repo.rs`                     | Plan for `prepare_worktree_removal`: `{worktree_path, branch, mode, needs_force}`.                               |
-| `Repo` (trait)                  | `src/git/repo.rs`                     | The SDK-facing `Repository` substitute. **45 methods catalogued in the [T10219 audit](../../docs/research/t10219-worktrunk-sdk-interface-audit.md)** — discovery, ref lookup, target-branch resolution, commit/ancestry, refs cache, worktree management, project/user config, shell exec. Default-method bodies return `Err(unimplemented_in_sdk(...))` so an impl only implements what its consumer needs. |
+| `Repo` (trait)                  | `src/git/repo.rs`                     | The SDK-facing `Repository` substitute. **45 methods catalogued in the T10219 audit (docs store `t10219-sdk-interface-audit`)** — discovery, ref lookup, target-branch resolution, commit/ancestry, refs cache, worktree management, project/user config, shell exec. Default-method bodies return `Err(unimplemented_in_sdk(...))` so an impl only implements what its consumer needs. |
 | `ProcessRepo` (impl)            | `src/git/repo.rs`                     | Default `Repo` impl that shells out via `std::process::Command` (`git rev-parse`, `git worktree list`, etc.). Constructors: `ProcessRepo::at(path)`, `ProcessRepo::current()`.   |
 | `unimplemented_in_sdk(method)`  | `src/git/repo.rs`                     | Helper for crates that need to stub a method outside the audited surface and explicitly signal "not implemented here".                                                          |
 
@@ -289,7 +289,7 @@ for details.
 
 - [ADR-078 — Boundary Registry as SSoT](../../docs/adr/adr-078-boundary-registry.md)
   (amendment dated 2026-05-23 records this refactor)
-- [T10219 — SDK Interface Audit](../../docs/research/t10219-worktrunk-sdk-interface-audit.md)
+- T10219 — SDK Interface Audit (docs store `t10219-sdk-interface-audit`)
 - Saga T10176 SG-BOUNDARY-REGISTRY (epic + child tracker)
 - Decision D010 — vendor worktrunk → `crates/worktrunk-core`
 - `packages/worktree` — TS wrapper consuming this crate via `worktree-napi`

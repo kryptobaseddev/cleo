@@ -72,7 +72,7 @@
  * @epic T11535
  * @saga T11242
  * @see ../cleo-global/nexus.ts (the GLOBAL source these four tables move OUT of)
- * @see docs/migration/sqlite-schema-canonical.md §4 · §5b
+ * @see docs store `sqlite-schema-canonical` §4 · §5b
  * @see cleo docs fetch adr-090-nexus-graph-residency-split
  */
 

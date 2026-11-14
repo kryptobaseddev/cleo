@@ -5,7 +5,7 @@
  * HTTP. A retired SignalDock base URL is refused at connect, and every request
  * goes through {@link conduitFetch} (T13169).
  *
- * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.4
+ * @see docs store `signaldock-unified-agent-registry` (SignalDock is deprecated, D11176) Section 4.4
  * @task T177
  */
 

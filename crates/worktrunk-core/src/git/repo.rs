@@ -5,7 +5,7 @@
 
 //! `Repo` trait — the typed SDK contract for worktrunk consumer code.
 //!
-//! Per the T10219 audit (`docs/research/t10219-worktrunk-sdk-interface-audit.md`),
+//! Per the T10219 audit (docs store `t10219-sdk-interface-audit`),
 //! `worktrunk::git::Repository` exposes ~45 methods that step/* and worktree/*
 //! consumer code calls. A faithful substitute of all 45 is multi-task work; this
 //! module ships the typed trait surface so T10220 (step extraction) and T10221
@@ -62,7 +62,7 @@ use crate::git_wt::WorktreeInfo;
 pub fn unimplemented_in_sdk(method: &str) -> anyhow::Error {
     anyhow!(
         "worktrunk-core: Repo::{method} not yet implemented — see \
-        docs/research/t10219-worktrunk-sdk-interface-audit.md and the \
+        the docs store doc t10219-sdk-interface-audit and the \
         T10218 follow-up tracking trail"
     )
 }
@@ -112,10 +112,8 @@ pub struct RemovalPlan {
 
 /// The SDK-facing `Repository` substitute.
 ///
-/// See the [crate-level audit doc] for the full reasoning behind the
-/// (currently large) `unimplemented_in_sdk` surface area.
-///
-/// [crate-level audit doc]: ../../../../../docs/research/t10219-worktrunk-sdk-interface-audit.md
+/// See the T10219 SDK interface audit (docs store `t10219-sdk-interface-audit`) for the full
+/// reasoning behind the (currently large) `unimplemented_in_sdk` surface area.
 pub trait Repo {
     // ------------------------------------------------------------------
     // Constructors / discovery
