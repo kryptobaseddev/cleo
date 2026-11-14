@@ -757,7 +757,10 @@ describe('copy-only whole-store repair', () => {
     expect(existsSync(retentionVictim)).toBe(true);
     const before = hashes();
     const copies = vi.spyOn(await import('node:fs'), 'copyFileSync');
-    const comparisons = vi.spyOn(await import('../store-freshness.js'), 'compareStoreFreshness');
+    const comparisons = vi.spyOn(
+      await import('../recover-malformed-db.js'),
+      'compareStoreFreshness',
+    );
     const finding = inspectStoreIntegrity(live);
     expect(copies.mock.calls.some(([from]) => String(from) === live)).toBe(true);
     expect(

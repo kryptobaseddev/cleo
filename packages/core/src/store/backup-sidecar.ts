@@ -31,7 +31,7 @@ import { basename, dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
-import { snapshotRecoveryReason } from './store-freshness.js';
+import { snapshotRecoveryReason } from './recover-malformed-db.js';
 
 /**
  * Format a Date as `YYYYMMDD-HHmmss` (local time) — mirrors the helper of

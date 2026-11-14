@@ -127,7 +127,7 @@ function newerBackups(n: number): void {
   utimesSync(snapshotPath(), t0, t0); // the released snapshot is the oldest
   for (let i = 1; i <= n; i++) {
     const file = join(backupDir(), `cleo.db.migration-20270101-0000${String(i).padStart(2, '0')}`);
-    writeFileSync(file, `backup ${i}`);
+    db().exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
     const at = new Date(Date.UTC(2027, 0, 1, 0, 0, i));
     utimesSync(file, at, at);
   }

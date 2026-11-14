@@ -72,6 +72,7 @@ import { ensureConduitDb, getConduitNativeDb } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
 import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from './nexus-sqlite.js';
+import { snapshotRecoveryReason } from './recover-malformed-db.js';
 import { getSkillsNativeDb, openSkillsDb } from './skills-db.js';
 import {
   readSnapshotGeneration,
@@ -82,7 +83,6 @@ import {
   selectSnapshotsToKeep,
 } from './snapshot-gate.js';
 import { getDb, getNativeDb } from './sqlite.js';
-import { snapshotRecoveryReason } from './store-freshness.js';
 
 /**
  * Maximum number of snapshots retained per global-tier database and for the

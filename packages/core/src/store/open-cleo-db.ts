@@ -86,7 +86,7 @@ import { getProjectInfoSync } from '../project-info.js';
 import { getProjectRoot, isMissingProjectError } from '../project-scope.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
-import { collectStoreSnapshotCandidates } from './recover-malformed-db.js';
+import { collectStoreSnapshotCandidates, compareStoreFreshness } from './recover-malformed-db.js';
 import {
   openUnlessRestoring,
   readStoreRestoreIntentMarker,
@@ -95,7 +95,6 @@ import {
 } from './restore-marker.js';
 import { loadSqliteVecExtension } from './sqlite-native.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { compareStoreFreshness } from './store-freshness.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
 
