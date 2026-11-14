@@ -8,6 +8,10 @@
  * @task T13122
  */
 
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   RunGovernedOptions,
   RunGovernedResult,
@@ -160,6 +164,52 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(opts()).toMatchObject({ passthrough: true, foreground: false, argv });
     expect(out).toEqual([]);
     expect(err).toEqual([]);
+  });
+
+  it.each([
+    { throws: false, wait: true },
+    { throws: true, wait: true },
+    { throws: false, wait: false },
+  ])('a push reserves only light memory and always queues its hook (throws: $throws, outer wait: $wait)', async ({
+    throws,
+    wait,
+  }) => {
+    const project = mkdtempSync(join(tmpdir(), 'cleo-push-cli-'));
+    let temporary = '';
+    try {
+      execFileSync('git', ['init', '-q', project]);
+      writeFileSync(join(project, '.git', 'hooks', 'pre-push'), '#!/bin/sh\nexit 0\n', {
+        mode: 0o755,
+      });
+      runGoverned.mockImplementation(async (options) => {
+        const config = options.argv.find((word) => word.startsWith('core.hooksPath='));
+        if (config === undefined) throw new Error('missing isolated hook');
+        temporary = config.slice('core.hooksPath='.length);
+        expect(options.footprintBytes).toBe(1024 ** 3);
+        expect(options.hookKey).toBeUndefined();
+        expect(readFileSync(join(temporary, 'pre-push'), 'utf8')).toContain(
+          `'run' '--wait' '--timeout' '${wait ? '17' : '1800'}' '--urgent' '--passthrough'`,
+        );
+        if (throws) throw new Error('spawn failed');
+        return exited({ class: 'scoped-build' });
+      });
+      const result = invoke(
+        {
+          class: 'build',
+          wait,
+          ...(wait ? { timeout: '17' } : {}),
+          urgent: true,
+          passthrough: true,
+        },
+        ['git', '-C', project, 'push'],
+      );
+      if (throws) await expect(result).rejects.toThrow('exit 1');
+      else await result;
+      expect(temporary).not.toBe('');
+      expect(existsSync(temporary)).toBe(false);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 
   it('--no-pause asks runGoverned for a run that is never paused; the default does not (T14075)', async () => {

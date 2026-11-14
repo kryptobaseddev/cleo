@@ -5,11 +5,44 @@
  * @task T13921
  */
 
-import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const faults = vi.hoisted(() => ({ oldGit: false }));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFileSync: vi.fn((...args: Parameters<typeof actual.execFileSync>) => {
+      if (faults.oldGit && args[1]?.some((arg) => arg.startsWith('--to-stdin=')))
+        throw new Error('unsupported --to-stdin');
+      return actual.execFileSync(...args);
+    }),
+  };
+});
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    mkdtempSync: vi.fn(actual.mkdtempSync),
+    readdirSync: vi.fn(actual.readdirSync),
+    symlinkSync: vi.fn(actual.symlinkSync),
+  };
+});
+
 import {
   COMMAND_KEY_PREFIX,
   commandChargeKey,
@@ -17,6 +50,7 @@ import {
   MEASURED_MIN_RUNS,
   MEASURED_MIN_SAMPLES,
   MEASURED_WINDOW,
+  prepareGitPushHook,
   readCountedPeak,
   readMeasuredPeak,
   recordRunPeak,
@@ -30,6 +64,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'cleo-t13921-'));
 });
 afterEach(() => {
+  faults.oldGit = false;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -49,6 +84,104 @@ function repo(name: string, hook?: string): string {
 async function runs(key: string, peak: number, n: number, dir: string): Promise<void> {
   for (let i = 0; i < n; i++) await recordRunPeak(key, peak, MEASURED_MIN_SAMPLES, dir, i);
 }
+
+describe('push hook admission (T14555)', () => {
+  it('keeps the original push when Git cannot preserve hook stdin', () => {
+    const project = repo('old-git', '#!/bin/sh\nexit 0\n');
+    faults.oldGit = true;
+    expect(prepareGitPushHook(['git', 'push'], project, ['cleo', 'run', '--wait'])).toBeNull();
+    expect(readFileSync(join(project, '.git', 'hooks', 'pre-push'), 'utf8')).toBe(
+      '#!/bin/sh\nexit 0\n',
+    );
+  });
+
+  it.each([
+    'mkdtemp',
+    'readdir',
+    'symlink',
+  ] as const)('keeps the original push when %s fails', (operation) => {
+    const project = repo('unwritable', '#!/bin/sh\nexit 0\n');
+    const fail = (): never => {
+      throw new Error('filesystem unavailable');
+    };
+    if (operation === 'mkdtemp') vi.mocked(mkdtempSync).mockImplementationOnce(fail);
+    else if (operation === 'readdir') vi.mocked(readdirSync).mockImplementationOnce(fail);
+    else vi.mocked(symlinkSync).mockImplementationOnce(fail);
+    expect(prepareGitPushHook(['git', 'push'], project, ['cleo', 'run', '--wait'])).toBeNull();
+    expect(readFileSync(join(project, '.git', 'hooks', 'pre-push'), 'utf8')).toBe(
+      '#!/bin/sh\nexit 0\n',
+    );
+  });
+
+  it('separates hook execution, preserving paths, arguments, stdin and a rejecting exit', () => {
+    const project = repo("a quoted ' repository", '#!/bin/sh\nprintf "%s\\n" "$@"\ncat\nexit 12\n');
+    const called = join(root, 'called.json');
+    const runner = join(root, 'runner.cjs');
+    writeFileSync(
+      runner,
+      `const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+fs.writeFileSync(${JSON.stringify(called)}, JSON.stringify(args));
+const at = args.indexOf('--');
+const child = spawnSync(args[at + 1], args.slice(at + 2), { stdio: 'inherit' });
+process.exit(child.status ?? 1);
+`,
+    );
+    const prepared = prepareGitPushHook(['git', '-C', project, 'push'], root, [
+      process.execPath,
+      runner,
+      'run',
+      '--wait',
+    ]);
+    expect(prepared).not.toBeNull();
+    if (prepared === null) throw new Error('expected a wrapped push');
+    const config = prepared.argv.find((word) => word.startsWith('core.hooksPath='));
+    if (config === undefined) throw new Error('expected temporary hooks directory');
+    const temporary = config.slice('core.hooksPath='.length);
+    try {
+      const result = spawnSync(join(temporary, 'pre-push'), ['remote name', 'url with spaces'], {
+        cwd: project,
+        input: 'refs/heads/main abc refs/heads/main def\n',
+        encoding: 'utf8',
+      });
+      expect(result.status).toBe(12);
+      expect(result.stderr).toBe(
+        'remote name\nurl with spaces\nrefs/heads/main abc refs/heads/main def\n',
+      );
+      expect(JSON.parse(readFileSync(called, 'utf8'))).toEqual([
+        'run',
+        '--wait',
+        '--passthrough',
+        '--class',
+        'build',
+        '--',
+        'git',
+        '-c',
+        `core.hooksPath=${join(project, '.git', 'hooks')}`,
+        'hook',
+        'run',
+        expect.stringMatching(/^--to-stdin=/),
+        'pre-push',
+        '--',
+        'remote name',
+        'url with spaces',
+      ]);
+    } finally {
+      prepared.release();
+    }
+    expect(existsSync(temporary)).toBe(false);
+  });
+
+  it('leaves hook-free, skipped and command-running pushes on their existing admission path', () => {
+    const project = repo('plain');
+    expect(prepareGitPushHook(['git', 'push'], project, ['cleo'])).toBeNull();
+    expect(prepareGitPushHook(['git', 'push', '--no-verify'], project, ['cleo'])).toBeNull();
+    expect(
+      prepareGitPushHook(['git', '-c', 'core.sshCommand=custom', 'push'], project, ['cleo']),
+    ).toBeNull();
+  });
+});
 
 describe('hook keys (T13921)', () => {
   it('cover the repository and the hook content: an edit or another repo is a new key', () => {

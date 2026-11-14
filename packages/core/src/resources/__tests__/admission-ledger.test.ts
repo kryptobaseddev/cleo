@@ -2599,10 +2599,86 @@ describe('admit (one ledger, real critical section)', () => {
       },
     );
     expect(out.admitted).toBe(false);
-    expect(notices[0]).toMatch(
+    expect(notices[0]).toMatch(/^waiting: machine budget in use:/);
+    expect(notices[1]).toMatch(
       /^still waiting after 1m 0\ds for the machine budget \(10 GiB of 10 GiB in use, queue position 1, 0 waiting ahead\)\. Holders: tool:test pid/,
     );
     await a.grant.release();
+  });
+
+  it('reports the budget wait when memory pressure clears but a holder remains (T14555)', async () => {
+    const holder = await admit(
+      { label: 'holder', footprintBytes: capacityBytes },
+      { ...base, dir, wait: false },
+    );
+    if (!holder.admitted) throw new Error('expected an admission');
+    const stop = new AbortController();
+    const notices: string[] = [];
+    let calls = 0;
+    let t = Date.now();
+    try {
+      const result = await admit(
+        { label: 'waiter', footprintBytes: 4 * GIB },
+        {
+          ...base,
+          dir,
+          wait: true,
+          signal: stop.signal,
+          now: () => t,
+          sample: async () => sampleAt(calls++ === 0 ? 40 : 5),
+          notice: (line) => notices.push(line),
+          sleep: async () => {
+            t += 2_000;
+            if (calls >= 2) stop.abort();
+          },
+        },
+      );
+      expect(result.admitted).toBe(false);
+      expect(notices).toContainEqual(expect.stringMatching(/^waiting: machine budget in use:/));
+    } finally {
+      await holder.grant.release();
+    }
+  });
+
+  it('prints a budget wait only once while holder usage changes (T14555)', async () => {
+    const first = await admit(
+      { label: 'first', footprintBytes: 6 * GIB },
+      { ...base, dir, wait: false },
+    );
+    const second = await admit(
+      { label: 'second', footprintBytes: 4 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!first.admitted || !second.admitted) throw new Error('expected both holders');
+    const stop = new AbortController();
+    const notices: string[] = [];
+    let sleeps = 0;
+    let t = Date.now();
+    try {
+      const result = await admit(
+        { label: 'waiter', footprintBytes: 8 * GIB },
+        {
+          ...base,
+          dir,
+          wait: true,
+          signal: stop.signal,
+          now: () => t,
+          notice: (line) => notices.push(line),
+          sleep: async () => {
+            t += 2_000;
+            if (++sleeps === 1) await second.grant.release();
+            else stop.abort();
+          },
+        },
+      );
+      expect(result.admitted).toBe(false);
+      expect(
+        notices.filter((line) => line.startsWith('waiting: machine budget in use:')),
+      ).toHaveLength(1);
+    } finally {
+      await second.grant.release();
+      await first.grant.release();
+    }
   });
 
   it('a long urgent waiter reports its queue position (T13921)', async () => {
@@ -2628,7 +2704,8 @@ describe('admit (one ledger, real critical section)', () => {
       },
     );
     expect(out.admitted).toBe(false);
-    expect(notices[0]).toContain('queue position 1 (urgent), 0 waiting ahead). Holders: tool:test');
+    expect(notices[0]).toMatch(/^waiting: machine budget in use:/);
+    expect(notices[1]).toContain('queue position 1 (urgent), 0 waiting ahead). Holders: tool:test');
     await a.grant.release();
   });
 
@@ -3296,6 +3373,42 @@ const unmeasured = (): null => null;
 
 describe('a git push is charged by what actually runs (T13452)', () => {
   const RAM = 48;
+
+  it('a separated push stays light; only the hook uses its measured charge or bounded plan (T14555)', () => {
+    const hookPeak = () => ({ key: 'pre-push:measured', peakBytes: 0.4 * GIB });
+    const outer = planRunFootprint(
+      'scoped-build',
+      ['git', 'push'],
+      {},
+      RAM,
+      () => true,
+      hookPeak,
+      undefined,
+      undefined,
+      { explicitClass: true, separatePushHook: true },
+    );
+    expect(outer).toMatchObject({ footprintBytes: GIB, resources: null, overlay: {} });
+    expect(outer.hookKey).toBeUndefined();
+    const argv = [
+      'git',
+      '-c',
+      'core.hooksPath=/real',
+      'hook',
+      'run',
+      '--to-stdin=/dev/stdin',
+      'pre-push',
+      '--',
+      'origin',
+      'url',
+    ];
+    const hook = planRunFootprint('scoped-build', argv, {}, RAM, () => true, hookPeak);
+    expect(hook.footprintBytes).toBe(GIB);
+    expect(hook.hookKey).toBe('pre-push:measured');
+    expect(hook.footprintReason).toContain('measured peak 0.4 GiB + 25%');
+    const unmeasuredHook = planRunFootprint('scoped-build', argv, {}, RAM, () => true, unmeasured);
+    expect(unmeasuredHook.footprintBytes).toBeGreaterThan(GIB);
+    expect(unmeasuredHook.footprintBytes).toBeLessThanOrEqual(admissionCapacityBytes(RAM * GIB));
+  });
 
   it('a measured hook is charged its peak plus the margin, capped at its plan (T13921)', () => {
     const measured = (peakBytes: number) => () => ({ key: 'pre-push:abc', peakBytes });

@@ -40,10 +40,25 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import type { PreparedGitPushHook } from '@cleocode/contracts/resource-governor.js';
 import lockfile from 'proper-lockfile';
 import { getCleoHome } from '../paths.js';
+import { gitHookFor, parseGitInvocation, runFootprint } from './run-class.js';
 
 /** The measured peak is charged with this margin. */
 export const MEASURED_PEAK_MARGIN = 1.25;
@@ -198,6 +213,96 @@ export function gitHookPath(cwd: string, hook: string, globals: readonly string[
     `hooks/${hook}`,
   ]);
   return isAbsolute(path) ? path : join(cwd, path);
+}
+
+/**
+ * Give a push's pre-push hook its own governed run, so a network wait holds no
+ * heavy reservation. The delegated `git hook run` restores the original hooks
+ * directory and preserves Git's hook arguments, stdin and exit status.
+ *
+ * @param argv - Original command, including Git's global options.
+ * @param cwd - Directory where the command runs.
+ * @param runner - This CLI's `run` invocation, including its wait and priority flags.
+ * @returns Temporary argv and cleanup, or null when the push cannot be separated safely.
+ * @remarks The caller releases the temporary hooks after Git settles, including on spawn failure.
+ * Unsupported Git or unavailable temporary storage keeps the original guarded push.
+ * @example
+ * ```ts
+ * const push = prepareGitPushHook(['git', 'push'], process.cwd(), ['cleo', 'run', '--wait']);
+ * if (push !== null) push.release();
+ * ```
+ */
+export function prepareGitPushHook(
+  argv: readonly string[],
+  cwd: string,
+  runner: readonly string[],
+): PreparedGitPushHook | null {
+  const invocation = parseGitInvocation(argv);
+  const probe = gitHookFor(argv);
+  if (
+    invocation?.sub !== 'push' ||
+    !probe?.hooks.includes('pre-push') ||
+    runFootprint(argv, (name, globals) => gitAlias(cwd, name, globals)).size !== 'light'
+  )
+    return null;
+  let temporary: string | null = null;
+  const release = (): void => {
+    if (temporary === null) return;
+    try {
+      rmSync(temporary, { recursive: true, force: true });
+    } catch {
+      // An optional temporary hook must not turn a successful push into a failure.
+    }
+  };
+  try {
+    const hook = gitHookPath(cwd, 'pre-push', invocation.globals);
+    accessSync(hook, constants.X_OK);
+    const original = dirname(hook);
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-push-hook-'));
+    temporary = dir;
+    const stdin = join(dir, 'probe-stdin');
+    writeFileSync(stdin, '', { mode: 0o600 });
+    // Probe in an empty hooks directory: unsupported Git must run no hook here.
+    git(
+      cwd,
+      [...invocation.globals, '-c', `core.hooksPath=${dir}`],
+      ['hook', 'run', '--ignore-missing', `--to-stdin=${stdin}`, 'pre-push'],
+      1_000,
+    );
+    rmSync(stdin);
+    for (const name of readdirSync(original)) {
+      if (name !== 'pre-push') symlinkSync(join(original, name), join(dir, name));
+    }
+    const command = [
+      ...runner,
+      '--passthrough',
+      '--class',
+      'build',
+      '--',
+      'git',
+      '-c',
+      `core.hooksPath=${original}`,
+      'hook',
+      'run',
+    ]
+      .map((word) => `'${word.replaceAll("'", "'\\''")}'`)
+      .join(' ');
+    const input = join(dir, 'refs.XXXXXX').replaceAll("'", "'\\''");
+    writeFileSync(
+      join(dir, 'pre-push'),
+      `#!/bin/sh\nrefs=$(mktemp '${input}') || exit 1\ntrap 'rm -f "$refs"' 0\ncat > "$refs" || exit 1\n${command} --to-stdin="$refs" pre-push -- "$@"\n`,
+      { mode: 0o700 },
+    );
+    const at = argv.length - invocation.args.length - 1;
+    return {
+      argv: [...argv.slice(0, at), '-c', `core.hooksPath=${dir}`, ...argv.slice(at)],
+      release,
+    };
+  } catch {
+    release();
+    // Keep the original hook and its conservative admission when isolation is unavailable.
+    return null;
+  }
 }
 
 /**

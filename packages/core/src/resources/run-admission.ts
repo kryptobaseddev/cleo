@@ -42,6 +42,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
@@ -200,8 +201,10 @@ export function signalGroup(pid: number, signal: NodeJS.Signals): boolean {
 // Job registry
 // ---------------------------------------------------------------------------
 
-/** One running `cleo run` job, as recorded machine-wide. */
+/** One running or pending `cleo run` job, as recorded machine-wide. */
 export interface RunJob {
+  /** Present only before admission; explains a pending sample, ledger or governor wait. */
+  readonly waitingReason?: string;
   /** `<pid>-<startedAtMs>`, also the file name. */
   readonly id: string;
   /** The `cleo run` process. */
@@ -384,6 +387,8 @@ function isJob(v: unknown): v is RunJob {
     typeof j === 'object' &&
     j !== null &&
     typeof j.id === 'string' &&
+    (j.waitingReason === undefined ||
+      (typeof j.waitingReason === 'string' && j.waitingReason.length > 0)) &&
     isSignalablePid(j.pid) &&
     (j.childPid === null || j.childPid === undefined || isSignalablePid(j.childPid)) &&
     typeof j.startedAtMs === 'number' &&
@@ -428,6 +433,54 @@ export function listRunJobs(
       jobs.push({ ...job, command: redactCommandLine(job.command) });
   }
   return jobs.sort((a, b) => a.startedAtMs - b.startedAtMs || a.pid - b.pid);
+}
+
+/**
+ * Include pre-admission runs in the diagnostic ledger view without reserving
+ * memory or changing governor-slot admission. A run already in the ledger is
+ * shown once, with its pending reason attached only while it waits.
+ *
+ * @param entries - Actual budget entries.
+ * @param jobs - Live run records, including pending resource samples and governor waits.
+ * @returns Diagnostic entries for `doctor tool-locks`.
+ * @remarks These entries are a read-only view; governor waiters never reserve ledger memory.
+ * @example
+ * ```ts
+ * runAdmissionEntries([], listRunJobs()); // Pending runs, even before a budget entry exists.
+ * ```
+ */
+export function runAdmissionEntries(
+  entries: readonly LedgerEntry[],
+  jobs: readonly RunJob[],
+): LedgerEntry[] {
+  const waiting = jobs.filter((j) => j.waitingReason !== undefined);
+  return [
+    ...entries.map((e) => {
+      const reason = waiting.find((j) => j.pid === e.pid)?.waitingReason;
+      return e.state === 'waiting' && reason !== undefined ? { ...e, waitingReason: reason } : e;
+    }),
+    ...waiting
+      .filter((j) => !entries.some((e) => e.pid === j.pid))
+      .map(
+        (j): LedgerEntry => ({
+          id: j.id,
+          nonce: '',
+          pid: j.pid,
+          host: hostname(),
+          startedAt: j.runnerStart,
+          label: `run:${j.class}`,
+          command: j.command,
+          cwd: j.cwd,
+          footprintBytes: 0,
+          state: 'waiting',
+          enqueuedAtMs: j.startedAtMs,
+          admittedAtMs: null,
+          heartbeatAtMs: j.heartbeatAtMs,
+          toolGroups: [],
+          waitingReason: j.waitingReason,
+        }),
+      ),
+  ];
 }
 
 /**
@@ -1012,16 +1065,18 @@ export function runningEntries(
           ...(e.task !== undefined ? { task: e.task } : {}),
         };
   const entries: RunningEntry[] = [
-    ...jobs.map((j) => ({
-      source: 'run' as const,
-      class: j.class,
-      command: j.command,
-      cwd: j.cwd,
-      startedAtMs: j.startedAtMs,
-      sessionId: j.sessionId,
-      pausedAtMs: j.pausedAtMs,
-      ...ledgerFacts(admittedByPid.get(j.pid)),
-    })),
+    ...jobs
+      .filter((j) => j.waitingReason === undefined)
+      .map((j) => ({
+        source: 'run' as const,
+        class: j.class,
+        command: j.command,
+        cwd: j.cwd,
+        startedAtMs: j.startedAtMs,
+        sessionId: j.sessionId,
+        pausedAtMs: j.pausedAtMs,
+        ...ledgerFacts(admittedByPid.get(j.pid)),
+      })),
     ...ledger
       .filter((e) => e.state === 'admitted' && !jobPids.has(e.pid))
       .map((e) => ({

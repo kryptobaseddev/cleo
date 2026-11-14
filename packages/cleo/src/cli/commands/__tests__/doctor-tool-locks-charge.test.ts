@@ -10,7 +10,7 @@
  */
 
 import type { LedgerEntry } from '@cleocode/core/resources/admission-ledger.js';
-import type { RunJob } from '@cleocode/core/resources/run-admission.js';
+import { listRunJobs, type RunJob } from '@cleocode/core/resources/run-admission.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { GIB, NOW, ENTRY, JOB } = vi.hoisted(() => {
@@ -93,6 +93,39 @@ afterEach(() => {
 });
 
 describe('doctor tool-locks charge fields (T14116)', () => {
+  it('shows governor and pre-ledger waiters with a reason and no reservation (T14555)', async () => {
+    vi.mocked(listRunJobs).mockReturnValueOnce([
+      JOB,
+      {
+        ...JOB,
+        id: 'pending-db',
+        pid: process.pid + 1,
+        class: 'db-heavy',
+        childPid: null,
+        waitingReason: 'no db-heavy governor slot free',
+      },
+    ]);
+    const run = doctorToolLocksCommand.run;
+    if (typeof run !== 'function') throw new Error('missing doctor runner');
+    await run({ args: { _: [] }, rawArgs: [], cmd: doctorToolLocksCommand });
+    expect(JSON.parse(written.join('').trim())).toMatchObject({
+      data: {
+        heldCount: 1,
+        waitingCount: 1,
+        usedBytes: 0.7 * GIB,
+        entries: [
+          { id: 'push', state: 'admitted' },
+          {
+            id: 'pending-db',
+            state: 'waiting',
+            chargedBytes: 0,
+            waitingReason: 'no db-heavy governor slot free',
+          },
+        ],
+      },
+    });
+  });
+
   it('reports the measured charge as chargedBytes and the plan as plannedBytes', async () => {
     const run = doctorToolLocksCommand.run as (ctx: {
       args: Record<string, unknown>;
