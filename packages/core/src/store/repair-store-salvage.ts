@@ -329,6 +329,10 @@ function shadowTables(db: DatabaseSync, schema: readonly Table[]): Set<string> {
 /** Recreate virtual storage from logical content; never copy module-owned shadow pages. */
 function rebuildVirtual(db: DatabaseSync, table: Table): void {
   const name = repairIdentifier(table.name);
+  if (contentlessFts(table)) {
+    db.exec(`INSERT INTO main.${name} (${name}) VALUES ('delete-all')`);
+    return;
+  }
   const externalFts = /\bUSING\s+fts[345]\b/i.test(table.sql) && /\bcontent\s*=/i.test(table.sql);
   if (externalFts) {
     db.exec(`DROP TABLE main.${name}`);
@@ -344,6 +348,11 @@ function rebuildVirtual(db: DatabaseSync, table: Table): void {
   db.prepare(table.sql).run();
   db.exec(`INSERT INTO main.${name} (${cols}) SELECT ${cols} FROM temp.cleo_repair_virtual`);
   db.exec('DROP TABLE temp.cleo_repair_virtual');
+}
+
+/** Contentless FTS5 stores no text to rebuild; its owning indexer supplies the source. */
+function contentlessFts(table: Table): boolean {
+  return /\bUSING\s+fts5\b/i.test(table.sql) && /\bcontent\s*=\s*(?:''|"")/i.test(table.sql);
 }
 
 /** Locate an FK offender even in a composite-key WITHOUT ROWID table. */
@@ -597,7 +606,10 @@ export function salvageIntoSnapshot(
                 const identity = pk.length > 0 ? pk : common;
                 const col = (c: string): string => repairIdentifier(c === ROWID ? '_rowid_' : c);
                 const q = `main.${repairIdentifier(table.name)}`;
-                const where = identity.map((c) => `${col(c)} IS ?`).join(' AND ');
+                // FTS5 indexes rowid equality, but IS scans the entire virtual table for every row.
+                const where = identity
+                  .map((c) => `${col(c)} ${c === ROWID ? '=' : 'IS'} ?`)
+                  .join(' AND ');
                 const find = db.prepare(`SELECT * FROM ${q} WHERE ${where} LIMIT 1`);
                 find.setReadBigInts(true);
                 const ins = db.prepare(
@@ -774,7 +786,10 @@ export function salvageIntoSnapshot(
               continue;
             }
             const where = identity
-              .map((c) => `${repairIdentifier(c === ROWID ? '_rowid_' : c)} IS ?`)
+              .map(
+                (c) =>
+                  `${repairIdentifier(c === ROWID ? '_rowid_' : c)} ${c === ROWID ? '=' : 'IS'} ?`,
+              )
               .join(' AND ');
             const del = db.prepare(`DELETE FROM main.${repairIdentifier(name)} WHERE ${where}`);
             del.setReadBigInts(true);
@@ -811,7 +826,10 @@ export function salvageIntoSnapshot(
               report.conflicts = (report.conflicts ?? 0) + 1;
               removeBase(name, row, identity);
               const where = identity
-                .map((c) => `${repairIdentifier(c === ROWID ? '_rowid_' : c)} IS ?`)
+                .map(
+                  (c) =>
+                    `${repairIdentifier(c === ROWID ? '_rowid_' : c)} ${c === ROWID ? '=' : 'IS'} ?`,
+                )
                 .join(' AND ');
               const del = db.prepare(`DELETE FROM main.${q} WHERE ${where}`);
               del.setReadBigInts(true);
@@ -824,7 +842,11 @@ export function salvageIntoSnapshot(
             throw new Error('Foreign-key violations could not be isolated to readable rows');
         }
         for (const table of virtual.values()) {
-          if (/\bUSING\s+fts[345]\b/i.test(table.sql) && /\bcontent\s*=/i.test(table.sql)) {
+          if (
+            /\bUSING\s+fts[345]\b/i.test(table.sql) &&
+            /\bcontent\s*=/i.test(table.sql) &&
+            !contentlessFts(table)
+          ) {
             const q = repairIdentifier(table.name);
             db.exec(`INSERT INTO main.${q} (${q}) VALUES ('rebuild')`);
           }

@@ -291,6 +291,7 @@ async function recoverCorruptOpen(
       : await openDualScopeDbAtPath('global', path, cwd, retry);
   } catch (error) {
     if (error instanceof CleoError && /E_WT_STORE_REWRITE/.test(error.message)) throw error;
+    if (error instanceof CleoError && error.codeName === 'E_STORE_IN_USE') throw error;
     // @sync-invariant none:local-only corrupt local store opening or recovery was refused
     throw storeCorruptError(path, error instanceof Error ? error : cause);
   }

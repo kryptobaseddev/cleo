@@ -193,6 +193,13 @@ export const EXEMPT = {
     deriver_queue: { count: 5, reason: DERIVER_QUEUE },
   },
   'packages/core/src/doctor/knowledge.ts': { _nexus_meta: { count: 2, reason: NEXUS_META } },
+  'packages/core/src/docs/docs-fts.ts': {
+    docs_fts_rows: {
+      count: 1,
+      reason:
+        'T14558: derived doc-index row map is cleared with its contentless FTS index before the canonical docs indexer repopulates it',
+    },
+  },
   'packages/core/src/llm/catalog-seeder.ts': {
     __catalog_meta: {
       count: 1,

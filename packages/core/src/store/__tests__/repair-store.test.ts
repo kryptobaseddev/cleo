@@ -367,7 +367,7 @@ describe('copy-only whole-store repair', () => {
     expect(readdirSync(env.cleoDir)).toEqual(names);
   });
 
-  it('refuses an open handle with the exact recovery fix and unchanged originals', async () => {
+  it('refuses an open handle with its holder details, shutdown fix and unchanged originals', async () => {
     damageIndex();
     const db = new DatabaseSync(live);
     db.exec('PRAGMA journal_mode=WAL');
@@ -375,7 +375,11 @@ describe('copy-only whole-store repair', () => {
     try {
       await expect(
         repairStore({ projectRoot: env.tempDir, cwd: env.tempDir }),
-      ).rejects.toMatchObject({ codeName: 'E_DB_CORRUPT', fix: 'cleo doctor repair-store' });
+      ).rejects.toMatchObject({
+        codeName: 'E_STORE_IN_USE',
+        message: expect.stringContaining(`pid ${process.pid}`),
+        fix: expect.stringContaining('normal shutdown'),
+      });
       expect(hashes()).toEqual(before);
     } finally {
       db.close();
@@ -426,7 +430,10 @@ describe('copy-only whole-store repair', () => {
     try {
       await expect(
         repairStore({ projectRoot: env.tempDir, cwd: env.tempDir }),
-      ).rejects.toMatchObject({ codeName: 'E_DB_CORRUPT' });
+      ).rejects.toMatchObject({
+        codeName: 'E_STORE_IN_USE',
+        fix: expect.stringContaining('normal shutdown'),
+      });
     } finally {
       held.close();
     }
@@ -618,14 +625,14 @@ describe('copy-only whole-store repair', () => {
     }
   });
 
-  it('returns E_DB_CORRUPT when a failed open cannot prove exclusive access', async () => {
+  it('returns E_STORE_IN_USE when a failed open finds a live store holder', async () => {
     damageIndex('__drizzle_migrations');
     const held = new DatabaseSync(live, { readOnly: true });
     held.exec('BEGIN; SELECT name FROM sqlite_schema LIMIT 1');
     try {
       await expect(openDualScopeDbAtPath('project', live)).rejects.toMatchObject({
-        codeName: 'E_DB_CORRUPT',
-        fix: 'cleo doctor repair-store',
+        codeName: 'E_STORE_IN_USE',
+        fix: expect.stringContaining('normal shutdown'),
       });
     } finally {
       held.close();
