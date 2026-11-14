@@ -2861,12 +2861,15 @@ CANT `on Event:` blocks are validated against the canonical event registry. Even
 two sources: **provider events** (LLM-provider-lifecycle) and **domain events** (application
 business logic). Both use the same `on Event:` syntax.
 
-The canonical event registry is defined in `hook-mappings.json` (SSoT). Implementations
-MUST NOT hardcode event names. The parser SHOULD accept any PascalCase identifier in `on`
-blocks and defer validation to the validator, which reads the event registry.
+The canonical event registry is the `canonicalEvents` object in
+`packages/caamp/providers/hook-mappings.json` (SSoT). Implementations MUST NOT hardcode event
+names. The parser accepts any PascalCase identifier in `on` blocks; the validator (S06,
+`crates/cant-core/src/validate/scope/names.rs`) checks it against the event list
+`crates/cant-core/build.rs` generates from `canonicalEvents` at build time.
 
-Domain events are declared in the `domainSources` section of the event registry
-(`packages/caamp/providers/hook-mappings.json`); the validator reads them from there.
+Domain events are the `canonicalEvents` entries with `source: "domain"`. The
+`domainSources` section only records each one's D:O:P mapping; the validator does not read
+it.
 
 ### 5.0 Provider Events (16)
 
@@ -2915,8 +2918,9 @@ Domain events fire when CLEO CQRS operations complete. They use the D:O:P patter
 | 30 | ApprovalGranted | `on ApprovalGranted:` | session | `session:resume:post` | An approval was granted |
 | 31 | ApprovalExpired | `on ApprovalExpired:` | session | `session:suspend:post` | An approval token expired |
 
-Domain events are extensible. Additional domain sources (SignalDock, third-party integrations)
-MAY register events via the `domainSources` section in `hook-mappings.json`.
+To add a domain event, add it to `canonicalEvents` (with `source: "domain"`) and rebuild
+cant-core; record its D:O:P mapping under `domainSources`. An event added only to
+`domainSources` still fails S06.
 
 ### 5.2 Blocking Event Semantics
 

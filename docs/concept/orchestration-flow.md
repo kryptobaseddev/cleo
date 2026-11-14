@@ -289,8 +289,9 @@ in `tokenResolution.unresolvedTokens` by `prepareSpawn`
 the resolved agent has a `.cant` file, `applyCantBodySubstitution`
 (`packages/core/src/orchestrate/spawn-ops.ts`) fills its `{{var}}` markers from
 the spawn's session context, `.cleo/project-context.json` and the environment,
-leniently, prepends the body to the prompt, and reports missing variables under
-`data.meta.templateSubstitution`.
+leniently and prepends the body to the prompt. The native spawn result reports
+the substitution (including missing variables) under
+`data.meta.templateSubstitution`; an Orca launch result does not carry it.
 
 **Lead and worker.** A worker spawn carries no denied tools and runs in its
 worktree when provisioning succeeds (see the failure rules above). A lead spawn carries `LEAD_DENIED_TOOLS`
