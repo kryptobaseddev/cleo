@@ -29,7 +29,9 @@
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, eq, ne, or } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { EngineResultError } from '../engine-result.js';
 import { CleoError } from '../errors.js';
+import { mirrorConduitDocMeta, resolveRegistryRowDocSlug } from '../store/conduit-doc-history.js';
 import { docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 
@@ -149,6 +151,47 @@ export function repointIncomingSupersessionEdges(
       .run();
   }
   return incoming.map((row) => row.id);
+}
+
+/**
+ * Preserve a content row's incoming supersession before giving it another doc's slug.
+ *
+ * Call before clearing the original doc's live slug, inside the writer's transaction.
+ * Unsafe reuse throws without changing any pointers; the caller rolls back the write.
+ *
+ * @param db - The caller's transaction handle.
+ * @param projectRoot - Absolute project root.
+ * @param rowId - The content row being reused.
+ * @param slug - The new doc slug that will name the content row.
+ * @internal
+ */
+export async function preserveIncomingSupersessionOnReuse(
+  db: NodeSQLiteDatabase,
+  projectRoot: string,
+  rowId: string,
+  slug: string,
+): Promise<void> {
+  const incoming = db
+    .select({ id: docsAttachments.id })
+    .from(docsAttachments)
+    .where(or(eq(docsAttachments.supersedes, rowId), eq(docsAttachments.supersededBy, rowId)))
+    .get();
+  if (!incoming) return;
+  const priorSlug = await resolveRegistryRowDocSlug(projectRoot, rowId);
+  const prior = priorSlug
+    ? db.select().from(docsAttachments).where(eq(docsAttachments.slug, priorSlug)).get()
+    : undefined;
+  if (!prior || prior.id === rowId) {
+    // @sync-invariant docs.supersession.follows-slug refusing unsafe reuse keeps incoming edges on their original document
+    throw new EngineResultError({
+      code: 'E_DOC_LINEAGE_AMBIGUOUS',
+      message: `Cannot reuse content for '${slug}': incoming supersession cannot be retained on its original document.`,
+      fix: `Use different content bytes for '${slug}'; incoming supersession requires a distinct, uniquely identified live row for the original document.`,
+    });
+  }
+  for (const id of repointIncomingSupersessionEdges(db, rowId, prior.id)) {
+    await mirrorConduitDocMeta(projectRoot, { rowId: id });
+  }
 }
 
 /** Row shape projected from `docs_attachments` during the supersede transaction. */

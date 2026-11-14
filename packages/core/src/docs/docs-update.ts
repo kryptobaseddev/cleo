@@ -49,7 +49,7 @@ import {
   linksJsonOrNull,
 } from './derive-links.js';
 import type { DocUpdatePreview, ProjectDocUpdateInput } from './section-write-path.js';
-import { rehomeSupersessionEdges } from './supersede.js';
+import { preserveIncomingSupersessionOnReuse, rehomeSupersessionEdges } from './supersede.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -953,6 +953,15 @@ export async function updateDocBySlug(
       await mirrorConduitDocMeta(projectRoot, { rowId: oldRow.id });
       nativeDb.prepare('COMMIT').run();
     } else {
+      const existingNewRow = await db
+        .select()
+        .from(docsAttachments)
+        .where(eq(docsAttachments.sha256, newSha256))
+        .get();
+      if (existingNewRow && existingNewRow.slug !== slug) {
+        await preserveIncomingSupersessionOnReuse(db, projectRoot, existingNewRow.id, slug);
+      }
+
       // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
       await db
         .update(docsAttachments)
@@ -963,12 +972,6 @@ export async function updateDocBySlug(
       // 2. Insert OR update the new-sha256 row. If a row already exists
       //    for this sha256 (rare — same bytes already stored under a
       //    different slug), reuse it and just transfer the slug onto it.
-      const existingNewRow = await db
-        .select()
-        .from(docsAttachments)
-        .where(eq(docsAttachments.sha256, newSha256))
-        .get();
-
       if (existingNewRow) {
         newAttachmentId = existingNewRow.id;
         await db
