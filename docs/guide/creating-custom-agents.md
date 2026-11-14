@@ -148,7 +148,10 @@ agent backend-dev:
 | `developer` | Yes | No | Optional |
 | `orchestrator` | Yes | Yes (via spawn/fanout) | Optional |
 
-The lead tool block and the worker path ACL were enforced at runtime only by the Pi `cleo-cant-bridge` extension, which retires under ADR-098. In other harnesses they are declarations the spawn prompt carries, not a sandbox.
+Runtime enforcement today:
+
+- **Worker path ACL** (`permissions.files.write`): enforced only by the Pi `cleo-cant-bridge` extension's `tool_call` hook, which retires under ADR-098. Other harnesses get it as a declaration in the spawn prompt, not a sandbox.
+- **Lead tool block**: the no-hands lead that `cleo orchestrate lead <epicId>` starts in Claude Code runs under a tool allow list (`--allowedTools` with only the lead runner, AgentMBX and, when interactive, `AskUserQuestion`; denied tools as a second layer), built in `packages/adapters/src/providers/claude-code/lead-session.ts`. That restriction comes from the lead runner, not from a `.cant` file's `role: lead`. The Pi bridge also blocked Edit/Write/Bash for `.cant` leads until it retires.
 
 ---
 
@@ -177,9 +180,19 @@ To start from a scaffold instead of a blank file, `cleo agent create --name back
 
 ```bash
 cleo agent install backend-dev.cant            # project tier: <project>/.cleo/cant/agents/backend-dev.cant
-cleo agent install backend-dev.cant --global   # global tier: ~/.local/share/cleo/cant/agents/
+cleo agent install backend-dev.cant --global   # global tier: <cleoHome>/agents/backend-dev.cant
 cleo agent install ./backend-dev.cantz --global --attach   # install globally, attach to this project
 ```
+
+`<cleoHome>` is `getCleoHome()` (`CLEO_HOME` when set, else the OS data directory), so the global agents directory (`getCleoGlobalAgentsDir()`) is:
+
+| OS | Global agents directory |
+|----|-------------------------|
+| Linux | `$XDG_DATA_HOME/cleo/agents/` (default `~/.local/share/cleo/agents/`) |
+| macOS | `~/Library/Application Support/cleo/agents/` |
+| Windows | `%LOCALAPPDATA%\cleo\Data\agents\` |
+
+(`cleo agent install --help` still prints `~/.local/share/cleo/cant/agents/`; that string is stale, tracked in T14588.)
 
 `--force` overwrites an existing row or file, `--resync` reinstalls the registry row from the `.cant` on disk, and `--strict` fails on warnings such as unknown skill slugs.
 
@@ -192,7 +205,7 @@ At spawn time `resolveAgent` (`core/src/store/agent-resolver.ts`) picks the firs
 | Order | Tier | Source |
 |-------|------|--------|
 | 1 | `project` | Registry row installed from `<project>/.cleo/cant/agents/` |
-| 2 | `global` | Registry row installed from `~/.local/share/cleo/cant/agents/` |
+| 2 | `global` | Registry row installed from `<cleoHome>/agents/` |
 | 3 | `packaged` | Registry row installed from the bundled `@cleocode/agents/templates/` |
 | 4 | `fallback` | No row; the bundled `templates/<id>.cant` file, if present |
 | 5 | `universal` | The universal base `@cleocode/agents/cleo-subagent.cant` |
@@ -211,7 +224,7 @@ A row whose `.cant` file is gone is skipped and resolution falls through to the 
 
 ## Step 4: Assign the Agent to a Team
 
-Teams are defined in `.cant` files using the `team` syntax. Keep team definitions next to your agents (for example in `.cleo/cant/`) and validate them with `cleo cant validate`:
+Teams are defined in `.cant` files using the `team` syntax. `cleo orchestrate classify` reads team files only from `<project>/.cleo/workflows/` and `<cleoHome>/cant-workflows/`; a team file under `.cleo/cant/` is never seen. Save the team as `.cleo/workflows/platform-team.cant` and validate it with `cleo cant validate`:
 
 ```cant
 ---
@@ -242,13 +255,15 @@ To verify team routing:
 cleo orchestrate classify "build a new API endpoint for user profiles"
 ```
 
-This returns the matched team, suggested protocol, and confidence score.
+This returns the matched team, suggested protocol, and confidence score. The match is advisory: it does not route a spawn to the team or its members.
 
 ---
 
 ## Step 5: Spawn the Agent
 
-Agents are spawned through `cleo orchestrate`. There are three spawn paths:
+> **Custom personas are not selected by spawn today.** `cleo orchestrate spawn`, `spawn-execute` and `fanout` compose the spawn without an agent id (`packages/core/src/orchestrate/spawn-ops.ts`), and `classifyTask` (`packages/core/src/orchestration/classify.ts`) picks only the five packaged personas: `project-orchestrator`, `project-dev-lead`, `project-code-worker`, `project-docs-worker` and `project-security-worker`, falling back to `cleo-subagent` below the confidence floor (`packages/core/src/orchestration/spawn.ts`). No CLI flag routes a spawn to an agent you installed. Installing a `.cant` with the same id as one of those ids, at project or global tier, overrides the packaged template through the resolution order above; any other id is registered but not used by spawn. The gap is tracked in T14588.
+
+Tasks are spawned through `cleo orchestrate`. There are three spawn paths:
 
 ### Single Spawn
 
