@@ -215,7 +215,9 @@ RCASD/IVTR pipeline stage management, gate verification, evidence, tessera.
 
 **Stability**: stable
 
-Tier-1/Tier-2/Tier-3 autonomous proposals, sentient daemon, state, KMS.
+Tier-1/Tier-2/Tier-3 autonomous proposals, sentient daemon, state, KMS. CLI: `cleo sentient start|stop|status|resume|tick|propose|baseline|allowlist`.
+
+> **ADR-098 status.** These exports still ship, but CLEO Goal (ADR-097) replaces the sentient spawning loops as the way CLEO drives work, and the sentient subsystem host retires with the other ADR-098 removals in one announced release. Prefer Goal for new autonomous behaviour.
 
 | Function | Description |
 |----------|-------------|
@@ -281,6 +283,8 @@ Agent registry, health monitoring, capacity, execution learning.
 **Stability**: stable (peer-dep-gated on SQLite conduit DB or HTTP transport)
 
 Inter-agent messaging, local transport, SSE transport, HTTP transport.
+
+> **D11176 status.** AgentMBX is CLEO's messaging layer. Conduit stays as a thin legacy client over the `cleo.db` messages; SignalDock, which its SSE/HTTP transports target, is deprecated. Do not build new agent messaging on it.
 
 | Export | Description |
 |--------|-------------|
@@ -393,7 +397,7 @@ import { getCleoStatus } from '@cleocode/core/status';
 const status = await getCleoStatus(process.cwd());
 
 if (!status.daemon.running) {
-  console.warn('Sentient daemon is not running. Start with: cleo daemon start');
+  console.warn('Sentient daemon is not running. Start with: cleo sentient start');
 }
 
 const activeTransport = status.credentials.find((c) => c.isActive);
