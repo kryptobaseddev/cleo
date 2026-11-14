@@ -4639,7 +4639,10 @@ export async function taskEvidenceKindReport(
   }
   if (undecided) return { kind: classifyEvidenceTask({ task, changedPaths: paths }) };
   const codePath = paths.find((path) => !isDocumentEvidencePath(path));
-  return codePath === undefined ? { kind } : code(`its work touches ${codePath}`);
+  if (codePath === undefined) return { kind };
+  // T14557: a data receipt is named with its supported route, for every kind.
+  const route = dataReceiptRoute(task.id, `files:${codePath}`);
+  return code(`its work touches ${codePath}${route === null ? '' : `. ${route}`}`);
 }
 
 /**

@@ -76,7 +76,11 @@ async function opsTask(): Promise<string> {
     {
       title: 'Requalify the order on measured lab values',
       description: 'an ops data operation with no code change',
-      acceptance: ['Requalify diff shows criterion changes only', 'Missing data goes to the lab'],
+      acceptance: [
+        'Requalification uses only measurement-backed lab values',
+        'Requalify diff shows criterion changes only',
+        'Missing data goes to the lab',
+      ],
       kind: 'work',
       labels: ['profile:ops'],
       skipContainmentInvariant: true,
@@ -190,9 +194,69 @@ describe('T14557 AC2/AC3: a data receipt cited by its raw path names the support
   });
 });
 
+describe('T14557 AC3: a documentation task citing a receipt by its raw path', () => {
+  it('the refusal names the attachment route for a task with no profile', async () => {
+    const result = await addTask(
+      {
+        title: 'Document the readback',
+        description: 'a documentation task with no profile',
+        acceptance: ['Write the readback summary'],
+        kind: 'work',
+        files: ['docs/readback.md'],
+        skipContainmentInvariant: true,
+      },
+      root,
+      env.accessor,
+    );
+    const id = result.task.id;
+    const task = await env.accessor.loadSingleTask(id);
+    if (!task) throw new Error('seeded task missing');
+    const report = await taskEvidenceKindReport(
+      {
+        ...task,
+        verification: {
+          passed: false,
+          round: 1,
+          gates: { implemented: true },
+          lastAgent: null,
+          lastUpdated: null,
+          failureLog: [],
+          evidence: {
+            implemented: {
+              atoms: [
+                { kind: 'decision', decisionId: 'D800' },
+                { kind: 'files', files: [{ path: RECEIPT, sha256: 'a'.repeat(64) }] },
+              ],
+              capturedAt: '2026-11-13T00:00:00Z',
+              capturedBy: 'test',
+            },
+          },
+        },
+      },
+      root,
+      [],
+      root,
+      { listMergedPrHeads: async () => [] },
+    );
+    expect(report.kind).toBe('code');
+    expect(report.reason).toContain(`its work touches ${RECEIPT}`);
+    expect(report.reason).toContain(`cleo docs add ${id} ${RECEIPT} --type note`);
+  });
+});
+
 describe('T14557 AC4: an ops task closes with a decision, a canonical document and a JSON receipt', () => {
   it('records implemented from the plan and completes without testsPassed or qaPassed', async () => {
     const id = await opsTask();
+    // Completion enforcement ON (the helper turns it off): verification gates
+    // and strict lifecycle, so cleo complete's gate and staleness checks run.
+    writeFileSync(
+      join(env.cleoDir, 'config.json'),
+      JSON.stringify({
+        enforcement: { session: { requiredForMutate: false }, acceptance: { mode: 'block' } },
+        lifecycle: { mode: 'strict' },
+        verification: { enabled: true },
+      }),
+    );
     const { storeDecision } = await import('../../memory/decisions.js');
     const decision = await storeDecision(root, {
       type: 'technical',
