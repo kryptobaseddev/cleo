@@ -27,8 +27,84 @@
  */
 
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { and, eq, ne, or } from 'drizzle-orm';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
+import { docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
+
+/**
+ * Move a doc's supersession edges with its slug, from the registry row that
+ * held the slug to the row that holds it now (T14565).
+ *
+ * `supersedes` / `superseded_by` name registry rows, and a registry row is one
+ * version of a doc: `docs update` (and its modernize undo) moves the slug onto
+ * another row. The edges belong to the doc, so every writer that moves a slug
+ * between rows calls this in the same transaction:
+ *
+ * 1. the row now holding the slug takes the outgoing pointers of the row that
+ *    held it (written only when they differ);
+ * 2. every other row pointing at the old row points at the new one.
+ *
+ * The old row keeps its pointers as that version's history; it has no slug, so
+ * no reader resolves a doc through it. A pointer is never set to the row it
+ * sits on. Idempotent: a second call moves nothing.
+ *
+ * The caller mirrors the identity rows afterwards
+ * (`mirrorConduitDocMeta`): the new row's doc and each returned row's doc.
+ *
+ * @param db - The project store handle, or the caller's open transaction.
+ * @param fromRowId - `docs_attachments.id` of the row that held the slug.
+ * @param toRowId - `docs_attachments.id` of the row that holds it now.
+ * @returns The ids of the other rows whose pointer was moved.
+ * @task T14565
+ */
+// @sync-side-effect docs.supersession.follows-slug the pointers of the row that held the slug move to the row that holds it now, and every row naming the old one is re-pointed, in the caller's transaction; a superseded row stays superseded (T14565)
+export function rehomeSupersessionEdges(
+  db: NodeSQLiteDatabase,
+  fromRowId: string,
+  toRowId: string,
+): string[] {
+  if (fromRowId === toRowId) return [];
+  const pointers = { supersedes: docsAttachments.supersedes, by: docsAttachments.supersededBy };
+  const from = db.select(pointers).from(docsAttachments).where(eq(docsAttachments.id, fromRowId));
+  const to = db.select(pointers).from(docsAttachments).where(eq(docsAttachments.id, toRowId));
+  const held = from.get();
+  const now = to.get();
+  if (!held || !now) return [];
+
+  const notSelf = (id: string | null): string | null => (id === toRowId ? null : id);
+  const supersedes = notSelf(held.supersedes ?? null);
+  const supersededBy = notSelf(held.by ?? null);
+  if ((now.supersedes ?? null) !== supersedes || (now.by ?? null) !== supersededBy) {
+    db.update(docsAttachments)
+      .set({ supersedes, supersededBy })
+      .where(eq(docsAttachments.id, toRowId))
+      .run();
+  }
+
+  const others = ne(docsAttachments.id, toRowId);
+  const incoming = db
+    .select({ id: docsAttachments.id })
+    .from(docsAttachments)
+    .where(
+      and(
+        others,
+        or(eq(docsAttachments.supersedes, fromRowId), eq(docsAttachments.supersededBy, fromRowId)),
+      ),
+    )
+    .all();
+  if (incoming.length === 0) return [];
+  db.update(docsAttachments)
+    .set({ supersedes: toRowId })
+    .where(and(others, eq(docsAttachments.supersedes, fromRowId)))
+    .run();
+  db.update(docsAttachments)
+    .set({ supersededBy: toRowId })
+    .where(and(others, eq(docsAttachments.supersededBy, fromRowId)))
+    .run();
+  return incoming.map((row) => row.id);
+}
 
 /** Row shape projected from `docs_attachments` during the supersede transaction. */
 interface AttachmentSupersedeRow {

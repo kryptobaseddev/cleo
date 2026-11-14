@@ -1,0 +1,171 @@
+/**
+ * T14565 — a doc's supersession edges belong to the doc, not to the registry
+ * row of one of its versions.
+ *
+ * `cleo docs update` moves the slug onto a new `docs_attachments` row. The
+ * `supersedes` / `superseded_by` pointers name registry rows, so before the
+ * fix the new row carried no outgoing pointer and every incoming pointer was
+ * left naming the slugless old row: `docs fetch <old>` then showed
+ * `lineage.supersededBy: null` and `currentSlug` back on the superseded doc.
+ *
+ * @task T14565
+ */
+
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { BlobAttachment } from '@cleocode/contracts';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createAttachmentStore } from '../../store/attachment-store.js';
+import { mirrorConduitDocMeta, resolveConduitDocUid } from '../../store/conduit-doc-history.js';
+import { closeDb } from '../../store/sqlite.js';
+import { publishDocs } from '../docs-ops.js';
+import { updateDocBySlug } from '../docs-update.js';
+import { readDocLineage } from '../lineage.js';
+import { supersedeDoc } from '../supersede.js';
+
+describe('T14565 — supersession edges survive a successor update', () => {
+  let projectRoot: string;
+  let prevCleoDir: string | undefined;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'cleo-t14565-'));
+    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+    mkdirSync(join(projectRoot, '.git'), { recursive: true });
+    prevCleoDir = process.env['CLEO_DIR'];
+    process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
+    prevCwd = process.cwd();
+    process.chdir(projectRoot);
+  });
+
+  afterEach(() => {
+    closeDb();
+    process.chdir(prevCwd);
+    if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = prevCleoDir;
+    rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  async function seed(slug: string, body: string): Promise<void> {
+    const bytes = Buffer.from(body, 'utf-8');
+    const blob: Omit<BlobAttachment, 'sha256'> = {
+      kind: 'blob',
+      storageKey: '',
+      mime: 'text/markdown',
+      size: bytes.byteLength,
+    };
+    await createAttachmentStore().put(bytes, blob, 'task', 'T100', 'test', projectRoot, {
+      slug,
+      type: 'guide',
+    });
+  }
+
+  async function update(slug: string, content: string): Promise<void> {
+    const res = await updateDocBySlug(projectRoot, { slug, content });
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+    if (res.ok) expect(res.result.changed).toBe(true);
+  }
+
+  /** Both sides of the `older → newer` edge, as `docs fetch` reports them. */
+  async function expectEdge(older: string, newer: string): Promise<void> {
+    expect(await readDocLineage(projectRoot, older)).toMatchObject({
+      lifecycleStatus: 'superseded',
+      supersededBy: newer,
+      currentSlug: newer,
+    });
+    expect(await readDocLineage(projectRoot, newer)).toMatchObject({
+      supersedes: older,
+      supersededBy: null,
+      currentSlug: newer,
+    });
+  }
+
+  it('supersede, update the successor twice: the old doc still names its successor (AC1, AC2)', async () => {
+    // Neither doc has an identity yet, as after `cleo docs add`.
+    await seed('old-guide', '# Old guide\n\nfirst\n');
+    await seed('guide', '# Guide\n\nv1\n');
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+    await expectEdge('old-guide', 'guide');
+
+    await update('guide', '# Guide\n\nv2\n');
+    await expectEdge('old-guide', 'guide');
+
+    await update('guide', '# Guide\n\nv3\n');
+    await expectEdge('old-guide', 'guide');
+  });
+
+  it('keeps both sides when both docs carry an identity and the old doc is mirrored again', async () => {
+    await seed('old-guide', '# Old guide\n\nfirst\n');
+    await seed('guide', '# Guide\n\nv1\n');
+    // A first text update adopts each doc into the identity family.
+    await update('old-guide', '# Old guide\n\nsecond\n');
+    await update('guide', '# Guide\n\nv2\n');
+    expect(await resolveConduitDocUid(projectRoot, 'old-guide')).not.toBeNull();
+    expect(await resolveConduitDocUid(projectRoot, 'guide')).not.toBeNull();
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+
+    await update('guide', '# Guide\n\nv3\n');
+    await expectEdge('old-guide', 'guide');
+    await update('guide', '# Guide\n\nv4\n');
+    await expectEdge('old-guide', 'guide');
+
+    // Any later metadata writer mirrors the registry row onto the identity
+    // row (doctor, repair, a kind change): the edge must still be there.
+    await mirrorConduitDocMeta(projectRoot, { slug: 'old-guide' });
+    await mirrorConduitDocMeta(projectRoot, { slug: 'guide' });
+    await expectEdge('old-guide', 'guide');
+  });
+
+  it('keeps the edge when the successor returns to bytes an earlier version held', async () => {
+    await seed('old-guide', '# Old guide\n\nfirst\n');
+    await seed('guide', '# Guide\n\nv1\n');
+    await update('guide', '# Guide\n\nv2\n');
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+    // The slug moves back onto the row that already holds the v1 bytes.
+    await update('guide', '# Guide\n\nv1\n');
+    await expectEdge('old-guide', 'guide');
+  });
+
+  it('keeps a chain: updating the middle doc keeps its incoming and outgoing edges', async () => {
+    await seed('guide-v1', '# Guide\n\none\n');
+    await seed('guide-v2', '# Guide\n\ntwo\n');
+    await seed('guide-v3', '# Guide\n\nthree\n');
+    await supersedeDoc(projectRoot, { oldSlug: 'guide-v1', newSlug: 'guide-v2' });
+    await update('guide-v2', '# Guide\n\ntwo, revised\n');
+    await update('guide-v3', '# Guide\n\nthree, revised\n');
+    await supersedeDoc(projectRoot, { oldSlug: 'guide-v2', newSlug: 'guide-v3' });
+    await update('guide-v3', '# Guide\n\nthree, revised again\n');
+
+    expect(await readDocLineage(projectRoot, 'guide-v1')).toMatchObject({
+      supersededBy: 'guide-v2',
+      currentSlug: 'guide-v3',
+    });
+    expect(await readDocLineage(projectRoot, 'guide-v2')).toMatchObject({
+      supersedes: 'guide-v1',
+      supersededBy: 'guide-v3',
+      currentSlug: 'guide-v3',
+    });
+    expect(await readDocLineage(projectRoot, 'guide-v3')).toMatchObject({
+      supersedes: 'guide-v2',
+      supersededBy: null,
+    });
+  });
+
+  it('a publish after the successor updates leaves the edge in place', async () => {
+    await seed('old-guide', '# Old guide\n\nfirst\n');
+    await seed('guide', '# Guide\n\nv1\n');
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+    await update('guide', '# Guide\n\nv2\n');
+    await update('guide', '# Guide\n\nv3\n');
+
+    const published = await publishDocs({
+      ownerId: 'T100',
+      attachmentId: 'guide',
+      toPath: 'docs/guide/guide.md',
+      projectRoot,
+    });
+    expect(published.bytes).toBeGreaterThan(0);
+    await expectEdge('old-guide', 'guide');
+  });
+});

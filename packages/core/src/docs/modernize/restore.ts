@@ -19,6 +19,7 @@ import {
   type AttachmentLifecycleStatus,
   attachments,
 } from '../../store/tasks-schema.js';
+import { rehomeSupersessionEdges } from '../supersede.js';
 
 /** Narrow a stored string to a lifecycle status, defaulting to `draft`. */
 function asStatus(value: string | null | undefined): AttachmentLifecycleStatus {
@@ -127,16 +128,22 @@ export async function revertDocUpdate(
   const store = createAttachmentStore();
   const refs = await store.listRefs(previous, projectRoot);
   const db = await getDb(projectRoot);
-  db.transaction((tx) => {
+  const repointed = db.transaction((tx) => {
     tx.update(attachments)
       .set({ slug: null })
       .where(and(eq(attachments.id, created), eq(attachments.slug, slug)))
       .run();
     tx.update(attachments).set({ slug }).where(eq(attachments.id, previous)).run();
+    // T14565: the doc's supersession edges move back with its slug, so a
+    // supersession recorded since the update still names this doc and the
+    // row about to be purged is no longer pointed at.
+    return rehomeSupersessionEdges(tx, created, previous);
   });
-  // T14288: the doc's identity row carries the restored row's metadata.
+  // T14288: the doc's identity row carries the restored row's metadata, and
+  // (T14565) so do the docs whose pointer just moved.
   const { mirrorConduitDocMeta } = await import('../../store/conduit-doc-history.js');
   await mirrorConduitDocMeta(projectRoot, { rowId: previous });
+  for (const rowId of repointed) await mirrorConduitDocMeta(projectRoot, { rowId });
   for (const ref of refs) await store.deref(created, ref.ownerType, ref.ownerId, projectRoot);
   // The update re-derived the slug's body links from the merged text; put
   // back the edges the old body had.

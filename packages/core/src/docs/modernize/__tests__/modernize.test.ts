@@ -590,6 +590,67 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     });
   }
 
+  it('a run that updates a successor keeps its supersession edges, and so does the rollback (T14565)', async () => {
+    const store = createAttachmentStore();
+    const put = async (slug: string, body: string) => {
+      const bytes = Buffer.from(body, 'utf-8');
+      const blob: Omit<BlobAttachment, 'sha256'> = {
+        kind: 'blob',
+        storageKey: '',
+        mime: 'text/markdown',
+        size: bytes.byteLength,
+      };
+      return store.put(bytes, blob, 'task', '__project__', 'test', projectRoot, {
+        slug,
+        type: 'spec',
+      });
+    };
+    await put('gate-integrity-draft', '# Gate integrity draft\n\nan early draft\n');
+    const seeded = await put(
+      'gate-integrity-spec',
+      '# Gate integrity spec\n\n## Requirements\n- gates must hold\n- and stay held\n\n## History\nolder notes\n',
+    );
+    const { supersedeDoc } = await import('../../supersede.js');
+    const { readDocLineage } = await import('../../lineage.js');
+    await supersedeDoc(projectRoot, {
+      oldSlug: 'gate-integrity-draft',
+      newSlug: 'gate-integrity-spec',
+    });
+    const expectEdge = async () => {
+      expect(await readDocLineage(projectRoot, 'gate-integrity-draft')).toMatchObject({
+        lifecycleStatus: 'superseded',
+        supersededBy: 'gate-integrity-spec',
+        currentSlug: 'gate-integrity-spec',
+      });
+      expect(await readDocLineage(projectRoot, 'gate-integrity-spec')).toMatchObject({
+        supersedes: 'gate-integrity-draft',
+        supersededBy: null,
+      });
+    };
+    await expectEdge();
+
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    // The merge wrote a new version of the successor: its slug is on a new row.
+    expect(receipt.ops.some((o) => o.op === 'merge' && o.slug === 'gate-integrity-spec')).toBe(
+      true,
+    );
+    expect((await store.findBySlug('gate-integrity-spec', projectRoot))?.metadata.id).not.toBe(
+      seeded.id,
+    );
+    await expectEdge();
+
+    await rollbackDocsModernize(projectRoot, receipt.runId);
+    expect((await store.findBySlug('gate-integrity-spec', projectRoot))?.metadata.id).toBe(
+      seeded.id,
+    );
+    await expectEdge();
+  });
+
   it('skips a torn last journal line and refuses to revert a doc another writer updated', async () => {
     const store = createAttachmentStore();
     const storedBody =

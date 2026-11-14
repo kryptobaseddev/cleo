@@ -49,6 +49,7 @@ import {
   linksJsonOrNull,
 } from './derive-links.js';
 import type { DocUpdatePreview, ProjectDocUpdateInput } from './section-write-path.js';
+import { rehomeSupersessionEdges } from './supersede.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -1042,11 +1043,18 @@ export async function updateDocBySlug(
           .run();
       }
 
+      // T14565: the doc's supersession edges move with its slug. The new row
+      // takes the old row's pointers, and every doc that names this one (the
+      // docs it superseded, the doc that superseded it) names the new row.
+      const repointed = rehomeSupersessionEdges(db, oldRow.id, newAttachmentId);
+
       // T14288: the doc's identity row carries the new row's metadata, in the
       // same transaction (a first update adopts the doc later, in the
-      // projection, with this metadata).
+      // projection, with this metadata). T14565: so do the identity rows of
+      // the docs whose pointer just moved.
       const { mirrorConduitDocMeta } = await import('../store/conduit-doc-history.js');
       await mirrorConduitDocMeta(projectRoot, { rowId: newAttachmentId });
+      for (const rowId of repointed) await mirrorConduitDocMeta(projectRoot, { rowId });
 
       nativeDb.prepare('COMMIT').run();
     }

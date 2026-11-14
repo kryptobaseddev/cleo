@@ -42,6 +42,7 @@ import {
 } from '../../../cloud/secret-seal.js';
 import { DocsReadModel } from '../../../docs/docs-read-model.js';
 import { updateDocBySlug } from '../../../docs/docs-update.js';
+import { supersedeDoc } from '../../../docs/supersede.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -964,6 +965,67 @@ describe('docs reach a second device (T12919)', () => {
       expect(docState(b)).toEqual(docState(a));
     }, 120_000);
   }
+
+  it('updates of a successor keep the supersession on both devices (T14565)', async () => {
+    const OLD_SHA = sha('# Old gate doc\n');
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) uniqueDocIndexes(r.db);
+    addDoc(a.db, 'doc-old', OLD_SHA, 'gate-old', 'T1');
+    addDoc(a.db, 'doc-new', SHA, 'gate-new', 'T1');
+    mkdirSync(join(dir, 'a', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+
+    // A supersedes, then writes two new versions of the successor: each one
+    // moves the slug to a new registry row.
+    vi.stubEnv('CLEO_DIR', join(dir, 'a', '.cleo')); // the update's native handle is the ambient project
+    await supersedeDoc(join(dir, 'a'), { oldSlug: 'gate-old', newSlug: 'gate-new' });
+    for (const edit of ['v2', 'v3']) {
+      const out = await updateDocBySlug(join(dir, 'a'), {
+        slug: 'gate-new',
+        content: `${BODY}${edit}\n`,
+        attachedBy: 'agent-a',
+      });
+      expect(out.ok, JSON.stringify(out)).toBe(true);
+    }
+    vi.stubEnv('CLEO_DIR', undefined);
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+
+    /** Both ends of the edge, each pointer resolved to the slug of the row it names. */
+    const edge = (db: DatabaseSync) =>
+      db
+        .prepare(
+          `SELECT d.slug, d.lifecycle_status,
+                  (SELECT s.slug FROM docs_attachments s WHERE s.id = d.supersedes) AS supersedes_slug,
+                  (SELECT s.slug FROM docs_attachments s WHERE s.id = d.superseded_by) AS superseded_by_slug
+             FROM docs_attachments d WHERE d.slug IS NOT NULL ORDER BY d.slug`,
+        )
+        .all();
+    for (const r of [a, b]) {
+      expect(edge(r.db), r.device).toEqual([
+        {
+          slug: 'gate-new',
+          lifecycle_status: 'draft',
+          supersedes_slug: 'gate-old',
+          superseded_by_slug: null,
+        },
+        {
+          slug: 'gate-old',
+          lifecycle_status: 'superseded',
+          supersedes_slug: null,
+          superseded_by_slug: 'gate-new',
+        },
+      ]);
+      expect(inboxCounts(r.db, STREAM), r.device).not.toHaveProperty('staged');
+      expect(r.db.prepare('PRAGMA foreign_key_check').all(), r.device).toEqual([]);
+    }
+    expect(docs(b.db)).toEqual(docs(a.db));
+  }, 120_000);
 
   /**
    * A fake Nexus for doc bytes (T13721): presign/complete and the stream
