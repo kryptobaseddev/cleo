@@ -17,6 +17,7 @@
 6. [Differences from the CLI](#6-differences-from-the-cli)
 7. [Migration cookbook](#7-migration-cookbook)
 8. [Stability tiers](#8-stability-tiers)
+9. [Storage contract and package direction](#9-storage-contract-and-package-direction)
 
 ---
 
@@ -748,6 +749,24 @@ Namespaces marked as **experimental** (may be reshaped without a month-bump):
 | `compliance` | experimental | Drift detection API in flux (T-CLI-MISC-DISPATCH) |
 | `caamp` | experimental | CAAMP injection chain being formalised |
 | `research` | internal | Re-exported from `memory` barrel; use `memory` path |
+
+---
+
+## 9. Storage contract and package direction
+
+Folded from the retired `@cleocode/core` package spec (T14108 docs census).
+
+- **`DataAccessor`.** Core code that persists task data takes a `DataAccessor`
+  (interface in `packages/contracts/src/data-accessor.ts`; `engine` is
+  `'sqlite'`). `createDataAccessor` and `getAccessor`, exported from
+  `@cleocode/core`, build the default accessor over the project `cleo.db`
+  (`packages/core/src/store/data-accessor.ts`). Code outside the store uses the
+  accessor or the exported factories, never `packages/core/src/store/` directly.
+- **Package direction.** `@cleocode/core` never imports `@cleocode/cleo`: the
+  CLI and its dispatch layer depend on core, not the other way round. Shared
+  types live in `@cleocode/contracts`.
+- **Versions.** Core ships with the monorepo's CalVer (`YYYY.M.PATCH`); the
+  stability tiers in section 8 say what each subpath promises.
 
 ---
 

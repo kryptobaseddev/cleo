@@ -213,6 +213,36 @@ Runtime: cleo agent start → TransportFactory → Local or HTTP Transport
 
 ---
 
+## JSON columns: TEXT, JSONB or a junction table
+
+Folded from the retired JSON-storage decision matrix (T11354, T14108 docs census).
+A JSON-bearing column is stored one of three ways, by how it is read:
+
+| Class | Storage | When |
+|---|---|---|
+| TEXT | `text` column, `JSON.parse` on read | read whole, never queried in SQL (the default) |
+| JSONB | `blob` through the `jsonb<T>()` custom type | queried, mutated or appended inside SQL |
+| Junction | a two-column table | membership is filtered or joined in SQL |
+
+In the schema today: JSONB holds `tasks_goal.goal_kind`, `tasks_goal.criteria`,
+`tasks_goal.last_verdict` and `brain_attention.tags`; the junction tables are
+`tasks_task_labels` (task labels) and the sticky-note tag tables
+(`brain_sticky_tags`, `sticky_tags`). The 2026-05 audit also marked
+`tasks.notes_json`, the session id lists, `schema_meta.value`,
+`brain_page_nodes.metadata_json`, `brain_retrieval_log.entry_ids` and the
+attachment `related_tasks`/`topics`/`keywords` columns as JSONB candidates; they
+are still TEXT.
+
+The helper is `packages/core/src/store/schema/jsonb.ts`. Its rules hold for every
+JSONB column, because the binary encoding is opaque and not portable across
+SQLite versions:
+
+- Read a whole value through `json(col)` (the `jsonbText` select helper), never
+  by parsing the raw BLOB; the custom type's `fromDriver` throws on a raw BLOB.
+- Query inside SQL with `jsonb_extract`, `json_each` or `jsonb_insert`.
+- Every logical export or backup converts the value back with `json(col)`.
+  `VACUUM INTO` copies bytes verbatim and is safe on the same engine.
+
 ## ORM Summary
 
 **ORM Strategy**: TypeScript databases use Drizzle ORM v1.0.0-beta with `drizzle-orm/zod` validation. Rust databases use Diesel ORM with compile-time schema verification. Both provide full end-to-end type safety in their respective languages.

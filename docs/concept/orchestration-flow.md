@@ -276,6 +276,22 @@ tracked worker (one whose exit CLEO observes, T14359) is still running when the
 spawn returns, so it is not integrated at spawn. A lead has nothing to
 integrate.
 
+**Prompt tokens.** Folded from the retired token-replacement contract (T14108
+docs census). `buildSpawnPrompt` (`packages/core/src/orchestration/spawn-prompt.ts`)
+substitutes `{{TOKEN}}` markers in the sections CLEO authors: `TASK_ID`, `DATE`,
+`EPIC_ID`, `OUTPUT_DIR`, `TEST_RUNS_DIR`, `PROJECT_ROOT`, `SESSION_ID`,
+`PROTOCOL`, `TIER`, `TOPIC_SLUG` (the task title as a doc-name-rule slug),
+`WORKTREE_PATH` and `WORKTREE_BRANCH`. Embedded content (the CLEO-INJECTION and
+skill excerpts) is appended verbatim afterwards, so token examples there are not
+substituted or flagged. A marker with no value stays in the text and is listed
+in `tokenResolution.unresolvedTokens` by `prepareSpawn`
+(`packages/core/src/orchestration/index.ts`); it does not refuse the spawn. When
+the resolved agent has a `.cant` file, `applyCantBodySubstitution`
+(`packages/core/src/orchestrate/spawn-ops.ts`) fills its `{{var}}` markers from
+the spawn's session context, `.cleo/project-context.json` and the environment,
+leniently, prepends the body to the prompt, and reports missing variables under
+`data.meta.templateSubstitution`.
+
 **Lead and worker.** A worker spawn carries no denied tools and runs in its
 worktree when provisioning succeeds (see the failure rules above). A lead spawn carries `LEAD_DENIED_TOOLS`
 (`packages/contracts/src/operations/orchestrate.ts`: `Bash`, `Edit`, `Write`,

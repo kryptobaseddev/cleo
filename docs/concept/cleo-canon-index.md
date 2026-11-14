@@ -34,12 +34,6 @@ Full rationale: `docs/adr/adr-044-canon-reconciliation.md`.
 4. [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
    The formal language specification for CANT (Collaborative Agent Notation Tongue). Defines the `.cant` file format, 3-layer grammar (EBNF), AST type definitions, 42 validation rules (Scope, Pipeline Purity, Types, Hooks, Workflows), CAAMP event mapping, import resolution algorithm, hybrid runtime model (Rust pipelines + TypeScript workflows), and approval token protocol. The `cant-core` Rust crate and `cant-lsp` binary are the canonical implementations. 482 tests, 17K lines Rust, 3.8K lines TypeScript.
 
-5. [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md)
-   Formal execution semantics for the CANT workflow executor. Defines sequential execution (Warp), parallel execution (Conductors), session blocking (Scribes), approval suspension (Crown Layer), error propagation (Wardens), and output collection (Cascade to Tome). Also defines the Generic Domain Event Protocol extending CAAMP from 16 provider events to 31 total events (16 provider + 15 CLEO domain) with D:O:P metadata pattern.
-
-6. [CORE-PACKAGE-SPEC.md](../spec/core-package.md)
-   The `@cleocode/core` standalone package contract. Read this when working with the business logic kernel independently of the full product: public API surface, three consumer patterns (Facade / tree-shaking / custom store), purity rules, and build architecture. Status: APPROVED.
-
 ---
 
 ## Quick Purpose Map
@@ -48,8 +42,7 @@ Full rationale: `docs/adr/adr-044-canon-reconciliation.md`.
 - **Rules and operations**: [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
 - **Agent communication protocol (CANT)**: [CANT reference](../reference/cant.md)
 - **CANT formal language spec**: [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
-- **CANT execution semantics + domain events**: [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md)
-- **Standalone business logic kernel**: [CORE-PACKAGE-SPEC.md](../spec/core-package.md)
+- **Standalone business logic kernel**: [CORE API agent guide](../reference/core-sdk.md)
 
 ---
 
@@ -68,7 +61,7 @@ revision, while current code and CLI help remain the implementation authority.
 - [NEXUS architecture](../spec/cleo-nexus-architecture.md) — cross-project identity, registration and discovery design.
 - [Dispatch adapter](../spec/cleo-dispatch-adapter.md) — the typed boundary between registry parameters and domain handlers.
 - [Runtime logging](../spec/cleo-logging-contract.md) — diagnostics, audit ownership and retention rules.
-- [JSON storage decisions](../spec/json-storage-jsonb-decision-matrix.md) — per-column JSONB, text and denormalization choices.
+- [Database architecture](../spec/database-architecture.md) — stores, JSON-column storage classes (TEXT, JSONB, junction) and the JSONB read rules.
 - [Sync change journal](../spec/sync-change-journal.md) — replication metadata, capture, signed outbox and apply-boundary design.
 
 ### Agents, harness and integration design
@@ -80,7 +73,6 @@ revision, while current code and CLI help remain the implementation authority.
 - [Creating custom agents](../guide/creating-custom-agents.md) — CANT definitions and agent-platform setup.
 - [Orchestration flow](orchestration-flow.md) — spawn layers, spawn execution, the lead tool strip and worker isolation.
 - [Orca report relay evidence](../note/orca-report-relay-live-evidence.md) — recorded throwaway AgentMBX unread-delivery and idempotency checks, with concurrency regression results and coverage limits.
-- [Token replacement](../spec/token-replacement-contract.md) — prompt-token resolution and spawn-time validation.
 
 ### Operations, releases and verification
 
@@ -123,4 +115,4 @@ If context is limited, read in this order:
 1. [CLEO-ARCHITECTURE-GUIDE.md](cleo-architecture-guide.md)
 2. [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
 
-**Package note**: `@cleocode/core` is the standalone npm package containing all CLEO business logic. It can be installed independently of `@cleocode/cleo`. The `@cleocode/cleo` product wraps `@cleocode/core` with the `cleo` CLI -- the sole runtime surface. When working directly with business logic -- tasks, sessions, memory, orchestration, lifecycle, release -- use `@cleocode/core`. See [CORE-PACKAGE-SPEC.md](../spec/core-package.md) for the full API contract.
+**Package note**: `@cleocode/core` is the standalone npm package containing all CLEO business logic. It can be installed independently of `@cleocode/cleo`. The `@cleocode/cleo` product wraps `@cleocode/core` with the `cleo` CLI -- the sole runtime surface. When working directly with business logic -- tasks, sessions, memory, orchestration, lifecycle, release -- use `@cleocode/core`. See the [CORE API agent guide](../reference/core-sdk.md) for the API contract.

@@ -2865,8 +2865,8 @@ The canonical event registry is defined in `hook-mappings.json` (SSoT). Implemen
 MUST NOT hardcode event names. The parser SHOULD accept any PascalCase identifier in `on`
 blocks and defer validation to the validator, which reads the event registry.
 
-See [CANT-EXECUTION-SEMANTICS.md](./cant-execution-semantics.md) Section 9 for the Generic
-Domain Event Protocol and Section 10 for CLEO domain event definitions.
+Domain events are declared in the `domainSources` section of the event registry
+(`packages/caamp/providers/hook-mappings.json`); the validator reads them from there.
 
 ### 5.0 Provider Events (16)
 
@@ -2894,8 +2894,8 @@ The original 16 CAAMP canonical events. These fire during AI coding tool runtime
 ### 5.1 Domain Events (CLEO)
 
 Domain events fire when CLEO CQRS operations complete. They use the D:O:P pattern
-(Domain:Operation:Phase) as machine-readable metadata. See
-[CANT-EXECUTION-SEMANTICS.md](./cant-execution-semantics.md) Section 10 for full details.
+(Domain:Operation:Phase) as machine-readable metadata, recorded per event in
+`domainSources.cleo.operationMapping` of `hook-mappings.json`.
 
 | # | Domain Event | CANT Block | Category | D:O:P | Description |
 |---|-------------|-----------|----------|-------|-------------|
@@ -3053,36 +3053,45 @@ the two communicate via napi-rs bindings.
 
 ### 7.1 Pipeline Execution (Rust)
 
-Pipeline steps are executed by the Rust `cant-runtime` crate. Execution follows this model:
+Pipeline steps are executed by the Rust `cant-runtime` crate
+(`crates/cant-runtime/src/pipeline.rs`, `step.rs`, `env.rs`). This section
+replaces the retired `cant-execution-semantics` document, whose formal models
+for workflows, sessions, approvals and domain events described designs
+`cant-runtime` does not implement (T14108 docs census).
 
 ```
-FUNCTION execute_pipeline(pipeline: PipelineDef, variables: Env) -> PipelineResult:
-  1. For each step in pipeline.steps:
-     a. If step.condition exists:
-        - Evaluate condition against current variables
-        - If false, skip this step (record as Skipped in result)
-     b. Resolve step.command to a binary path
-     c. SECURITY CHECK (P06): Verify command is a bare binary name, no shell metacharacters
-     d. SECURITY CHECK (P07): If allowlist configured, verify command is on allowlist
-     e. Build argument vector from step.args, evaluating interpolations
-     f. Execute: Command::new(binary).args(arg_vec)
-        - If step.stdin references a prior step, pipe that step's stdout to this step's stdin
-        - Set timeout from step.timeout (subject to W08 max)
-     g. Capture stdout, stderr, exit code
-     h. Store result in variables as step.name.stdout, step.name.stderr, step.name.exitCode
-     i. If exit code != 0 and no condition guards downstream steps, fail the pipeline
-  2. Return PipelineResult with all step results
-
-  CRITICAL: The executor MUST use Command::new(binary).args(vec) directly.
-  It MUST NEVER invoke sh -c, bash -c, cmd /c, or any shell wrapper.
-  It MUST NEVER pass the command string through shell expansion or interpretation.
+FUNCTION execute_pipeline(pipeline: PipelineDef, env: StepEnv, config) -> PipelineResult:
+  For each step in pipeline.steps, in order:
+    a. Resolve `command` and `args` against env. Interpolation is a single pass of
+       {name} placeholders (T07); a missing variable fails the step with
+       VariableNotFound.
+    b. P06: reject a command containing a shell metacharacter
+       (| & ; $ ` ( ) { } < > ! \ newline * ? [ ] ~).
+    c. P07: when config.command_allowlist is set, reject a binary not on it.
+    d. Run Command::new(command).args(args) with captured stdout and stderr.
+       stdin: <step> pipes that earlier step's stdout; an unknown step fails
+       with StdinSourceNotFound. timeout: is seconds or a duration (default
+       300 s); exceeding it fails with StepTimeout.
+    e. Record <step>.stdout, <step>.stderr and <step>.exitCode in env.
+    f. A non-zero exit stops the pipeline: the result has success=false and the
+       steps run so far.
+  Return PipelineResult { name, steps, success, duration_ms }.
 ```
+
+The executor never invokes `sh -c` or any shell wrapper. Step conditions are not
+evaluated (`StepResult.skipped` is never set). The napi binding
+`cant_execute_pipeline(file, pipeline)` (`crates/cant-napi`, `executePipeline` in
+`@cleocode/cant`, `cleo cant execute <file> --pipeline <name>`) parses the file,
+finds the named pipeline and runs it with an empty environment and no allowlist;
+it reports parse, lookup and runtime errors in `error` with `success: false`
+rather than throwing, and is unavailable on the WebAssembly build.
 
 ### 7.2 Workflow Execution (TypeScript)
 
-Workflow execution is handled by `packages/core/src/cant/workflow-executor.ts` within the
-`@cleocode/core` package. The executor processes the statement list sequentially, dispatching
-to the appropriate handler for each statement type:
+No workflow executor ships in `@cleocode/core`: the TypeScript `WorkflowExecutor` was
+deleted (ADR-035 §D5). Workflow statements are interpreted only by the Pi `cant-bridge`
+extension (`packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`). The model
+below is the intended statement handling, not a guarantee of any shipped engine:
 
 ```
 FUNCTION execute_workflow(workflow: WorkflowDef, params: Record, ctx: ExecutionContext):

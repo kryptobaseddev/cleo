@@ -808,7 +808,7 @@ output name = expression
 | Document | Purpose |
 |----------|---------|
 | [`CANT-DSL-SPEC.md`](../spec/cant-dsl.md) | Formal specification (EBNF, AST types, 45 validation rules) |
-| [`CANT-EXECUTION-SEMANTICS.md`](../spec/cant-execution-semantics.md) | Workflow executor semantics, domain event protocol |
+| `cant-execution-semantics` (store slug, superseded) | Retired; what `cant-runtime` implements is in CANT-DSL-SPEC §7.1 |
 | `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) | 7-phase implementation plan with security amendments — superseded by shipped implementation + ADR-035 addendum |
-| [`CANT-TYPESCRIPT-INTEGRATION.md`](../spec/cant-typescript-integration.md) | TypeScript/WASM integration guide |
+| [`packages/cant/README.md`](../../packages/cant/README.md) | TypeScript API, native and WebAssembly backends (absorbs the retired TypeScript integration guide) |
 | `cleo-cant` (store slug, superseded) | Former protocol overview; its directive and routing rules are folded into Layer 1 above |
