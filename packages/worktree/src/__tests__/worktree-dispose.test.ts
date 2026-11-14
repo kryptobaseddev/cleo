@@ -564,6 +564,26 @@ describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
     expect(names.filter((n) => n === '.npmrc' || n.startsWith('.pnpm-store/'))).toEqual([]);
   });
 
+  it('a forced archive keeps an edited TRACKED store file beside an untracked sibling (T14554)', () => {
+    const wt = worktree('T63');
+    const shard = join(wt, '.pnpm-store', 'v10', 'files', '0a');
+    mkdirSync(shard, { recursive: true });
+    const tracked = join(shard, 'a'.repeat(126));
+    writeFileSync(tracked, 'original\n');
+    git(wt, 'add', '-f', '.pnpm-store');
+    git(wt, 'commit', '-q', '-m', 'track a store file');
+    writeFileSync(tracked, 'edited\n');
+    writeFileSync(join(shard, 'b'.repeat(126)), 'cache\n');
+    const rel = `.pnpm-store/v10/files/0a/${'a'.repeat(126)}`;
+
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T63', reason: 'manual', force: true });
+
+    const a = r.archive;
+    if (a === undefined) throw new Error('no archive');
+    expect(git(repo, 'show', `${a.archiveSha}:${rel}`)).toBe('edited');
+    expect(git(repo, 'ls-tree', '-r', '--name-only', a.archiveSha)).not.toContain('b'.repeat(126));
+  });
+
   it('a forced archive keeps an untracked .npmrc CLEO did not write, and an unprovisioned store (T14554)', () => {
     const wt = worktree('T61');
     writeFileSync(join(wt, '.npmrc'), 'registry=https://example.invalid/\n');

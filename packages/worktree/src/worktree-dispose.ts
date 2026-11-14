@@ -355,22 +355,18 @@ function archivableIgnored(
 }
 
 /**
- * The untracked (never ignored) top-level provisioning paths (`.pnpm-store`,
- * the generated `.npmrc`) CLEO regenerates on demand, which `git add -A` must
- * be told to skip (T14554). Ignored provisioning needs no pathspec (git
- * refuses one naming an ignored path): {@link archivableIgnored} drops it. A
- * tracked `.npmrc` is never one: its changes are archived.
+ * The untracked entries that are CLEO's pnpm provisioning (files in a real
+ * `.pnpm-store/`, the generated `.npmrc`), which the archive leaves out
+ * (T14554). Only `??` entries count, each named on its own: a tracked file,
+ * modified or not, is never one, so its changes are always archived even when
+ * it sits in the store beside an untracked sibling. Ignored provisioning is
+ * dropped by {@link archivableIgnored}.
  */
 function untrackedProvisioning(
   entries: readonly StatusEntry[],
   provisioning: (rel: string) => boolean,
 ): string[] {
-  return ['.pnpm-store', '.npmrc'].filter((top) =>
-    entries.some(
-      (e) =>
-        e.code === '??' && (e.rel === top || e.rel.startsWith(`${top}/`)) && provisioning(e.rel),
-    ),
-  );
+  return entries.filter((e) => e.code === '??' && provisioning(e.rel)).map((e) => e.rel);
 }
 
 /**
@@ -416,14 +412,20 @@ export function archiveWorktree(
     if (head !== null && git(worktreePath, ['read-tree', head], env) === null) {
       return { error: 'git read-tree failed' };
     }
-    const provisioning = pnpmProvisioningProbe(worktreePath);
-    const excluded = [
-      ':(exclude,glob)**/node_modules',
-      ':(exclude,glob)**/node_modules/**',
-      ...untrackedProvisioning(entries, provisioning).map((top) => `:(exclude,literal)${top}`),
-    ];
-    if (git(worktreePath, ['add', '-A', '--', '.', ...excluded], env) === null) {
+    const noNodeModules = [':(exclude,glob)**/node_modules', ':(exclude,glob)**/node_modules/**'];
+    if (git(worktreePath, ['add', '-A', '--', '.', ...noNodeModules], env) === null) {
       return { error: 'git add -A failed' };
+    }
+    // Drop exactly the untracked provisioning entries from the temporary
+    // index; tracked paths (changed or not) stay as `add -A` staged them.
+    const provisioning = pnpmProvisioningProbe(worktreePath);
+    const generated = untrackedProvisioning(entries, provisioning);
+    const literal = { ...env, GIT_LITERAL_PATHSPECS: '1' };
+    for (let i = 0; i < generated.length; i += 200) {
+      const batch = ['rm', '--cached', '-q', '--', ...generated.slice(i, i + 200)];
+      if (git(worktreePath, batch, literal) === null) {
+        return { error: 'git rm --cached of pnpm provisioning failed' };
+      }
     }
     const ignored = archivableIgnored(entries, provisioning);
     for (let i = 0; i < ignored.length; i += 200) {
