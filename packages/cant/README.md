@@ -63,16 +63,18 @@ interface CantValidationResult {
 }
 ```
 
-Used by `caamp pi cant validate` and `caamp pi cant install` to reject
-invalid `.cant` files before they hit the runtime.
+Used by `cleo cant validate` (and by the deprecated `caamp pi cant validate`
+and `caamp pi cant install`, which retire with the Pi harness under ADR-098) to
+reject invalid `.cant` files before they hit the runtime.
 
 ### `executePipeline(filePath: string, pipelineName: string): Promise<JsPipelineResult>`
 
 Runs a deterministic pipeline by name from a `.cant` file. Pipelines are
 the executable subset of CANT — declarative steps with explicit inputs,
 outputs, and exit codes. Workflow constructs (sessions, parallel arms,
-conditionals, etc.) are interpreted by the [`cant-bridge.ts`](../cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts)
-Pi extension, not by this package.
+conditionals, etc.) are not executed by this package; the only interpreter is
+the [`cant-bridge.ts`](../cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts)
+Pi extension, which retires with the Pi/CleoOS harness (ADR-098).
 
 ### `migrateMarkdown(input: string): MigrateResult`
 
@@ -143,16 +145,18 @@ validation rules. The TypeScript surface is a thin async wrapper.
 
 ## CANT execution paths
 
-There are two execution paths in the CleoOS runtime:
+There are two execution paths. Path A retires with the Pi/CleoOS harness (ADR-098, which supersedes ADR-035); Path B is the one CLEO keeps:
 
 | Path | Engine | Use case |
 |---|---|---|
-| **Path A — Pi-interactive** | `cant-bridge.ts` Pi extension | User opens a Pi session and runs `/cant:load <file>` then `/cant:run <file> <workflow>` for interactive workflow execution. The Pi extension reuses this package for parsing and validation, then interprets workflow constructs (Session, Parallel, Conditional, ApprovalGate, Repeat, ForLoop, LoopUntil, TryCatch) in TypeScript using Pi's native subagent spawning. |
+| **Path A — Pi-interactive (deprecated, ADR-098)** | `cant-bridge.ts` Pi extension | User opens a Pi session and runs `/cant:load <file>` then `/cant:run <file> <workflow>` for interactive workflow execution. The Pi extension reuses this package for parsing and validation, then interprets workflow constructs (Session, Parallel, Conditional, ApprovalGate, Repeat, ForLoop, LoopUntil, TryCatch) in TypeScript using Pi's native subagent spawning. |
 | **Path B — Deterministic pipelines** | `executePipeline()` (this package) | Pure-data pipelines with explicit inputs and outputs. Runs synchronously inside the napi binding without LLM involvement. Used for build steps, migration scripts, validation gates. |
 
-There is no third execution engine — the legacy `@cleocode/core/cant`
-WorkflowExecutor was deleted in v2026.4.7 per [ADR-035 §D5](../../docs/adr/adr-035-pi-v2-v3-harness.md)
-"single engine, cant-bridge.ts as canonical".
+There is no third execution engine: the legacy `@cleocode/core/cant`
+WorkflowExecutor was deleted in v2026.4.7 per [ADR-035 §D5](../../docs/adr/adr-035-pi-v2-v3-harness.md).
+ADR-098 supersedes ADR-035: once Path A retires, CLEO runs only deterministic
+pipelines (`cleo cant execute <file> --pipeline <name>`); CLEO Goal (ADR-097)
+is the autonomous driver.
 
 ## Testing
 
@@ -216,8 +220,9 @@ stamped with the released commit.
 
 - [`crates/cant-core`](../../crates/cant-core) — Rust SSoT (parser, validator, pipeline executor)
 - [`crates/cant-napi`](../../crates/cant-napi) — napi-rs bindings (cdylib)
-- [`packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`](../cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts) — Pi-interactive runtime (Path A)
-- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md) — architecture decisions for the CANT execution model
+- [`packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`](../cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts) — Pi-interactive runtime (Path A, deprecated)
+- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md) — the original CANT execution model (superseded by ADR-098)
+- [CANT DSL spec §7](../../docs/spec/cant-dsl.md) — what `cant-runtime` implements
 
 ## License
 

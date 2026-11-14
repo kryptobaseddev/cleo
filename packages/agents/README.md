@@ -7,7 +7,7 @@ CLEO ecosystem.
 
 ## Scope (ADR-068 — v2026.5.30 and later)
 
-Per [ADR-068](docs/adr/adr-068-canonical-agent-system.md), this package ships
+Per [ADR-068](../../docs/adr/adr-068-canonical-agent-system.md), this package ships
 exactly three surfaces:
 
 1. **`cleo-subagent.cant`** — the universal protocol base every agent extends.
@@ -81,7 +81,7 @@ validator at `packages/core/src/store/agent-install.ts`.
 ## How Variables Work
 
 CLEO uses mustache `{{var}}` syntax for template substitution, per
-[ADR-055 D033](../../docs/adr/ADR-055-agents-architecture-and-meta-agents.md).
+[ADR-055 D033](../../docs/adr/adr-055-agents-architecture-and-meta-agents.md).
 
 ### Syntax
 
@@ -115,8 +115,10 @@ Templates install with `{{...}}` placeholders intact. Resolution happens inside
 
 Per ADR-068 Decision 3, plain `cleo init` (no flags) automatically walks
 `@cleocode/agents/templates/` and calls `installAgentFromCant()` for each of the
-5 worker templates. Each template is registered in `signaldock.db.agents` with
-`tier='project'`.
+5 worker templates. Each template is registered as an `agent_registry_agents`
+row in the global `cleo.db` (`packages/core/src/store/agent-install.ts`) with
+`tier='project'`. (`signaldock.db` is retired; its tables moved into the global
+store with the `agent_registry_` prefix.)
 
 A fresh `cleo init` followed by `cleo orchestrate spawn` for any of the 5 worker
 roles succeeds without `E_AGENT_NOT_FOUND`.
@@ -182,9 +184,10 @@ unreachable, indicating a corrupt installation.
 
 ## See Also
 
-- [ADR-055 — Agents Architecture + Meta-Agents](../../docs/adr/ADR-055-agents-architecture-and-meta-agents.md) (partially superseded by ADR-068)
-- [ADR-068 — Canonical Agent System](docs/adr/adr-068-canonical-agent-system.md) (active canonical reference)
+- [ADR-055 — Agents Architecture + Meta-Agents](../../docs/adr/adr-055-agents-architecture-and-meta-agents.md) (partially superseded by ADR-068)
+- [ADR-068 — Canonical Agent System](../../docs/adr/adr-068-canonical-agent-system.md) (active canonical reference)
 - [Package boundary contract](../../AGENTS.md) — canonical layering for every CLEO package
+- [Meta-agents guide](../../docs/guide/meta-agents.md) — authoring meta-agents
 
 ## License
 

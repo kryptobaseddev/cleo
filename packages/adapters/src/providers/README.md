@@ -1,8 +1,11 @@
 # CLEO Provider Adapters
 
 This directory contains the per-provider adapters that integrate CLEO with
-individual AI coding harnesses (Claude Code, Cursor, OpenCode, Gemini CLI,
-Pi, etc.). Each adapter implements the contracts defined in
+individual AI coding harnesses: Claude Code, Codex, Cursor, Gemini CLI, Kimi
+and OpenCode, plus the two SDK spawn adapters (`claude-sdk`, `openai-sdk`) behind
+`cleo orchestrate spawn-execute`. The `pi/` adapter is deprecated: ADR-098
+retires the Pi/CleoOS harness, and the directory is removed after a release
+ships the freeze. Each adapter implements the contracts defined in
 `@cleocode/contracts` and delegates universal behaviour to CLEO core through
 the `cleo` CLI — adapters never reach into `@cleocode/core` internals at
 runtime.
@@ -27,9 +30,10 @@ providers/
 ├── gemini-cli/
 │   ├── ...
 │   └── templates/hooks/
-├── pi/
-│   ├── ...
-│   └── templates/hooks/   # README only — Pi uses TS extensions, not shell
+├── codex/, kimi/          # instruction files (+ Codex PreToolUse hook), no PreCompact shim
+├── claude-sdk/, openai-sdk/  # SDK spawn adapters (no harness install)
+├── pi/                    # deprecated, retiring under ADR-098
+│   └── templates/hooks/   # README only
 └── shared/
     ├── hook-template-installer.ts   # DRY installer for all providers
     ├── paths.ts
@@ -64,7 +68,7 @@ CLI — never bash.
    | cursor       | `precompact.sh`                         | `PreCompact`    | `preCompact`              |
    | opencode     | `precompact.sh` + `cleo-precompact.js`  | `PreCompact`    | `experimental.session.compacting` |
    | gemini-cli   | `precompact.sh`                         | `PreCompact`    | `PreCompress`             |
-   | pi           | *README-only* (uses TS extension)       | `PreCompact`    | `context`                 |
+   | pi           | *README-only* (deprecated, ADR-098)     | `PreCompact`    | `context`                 |
 
    The event mappings are sourced from `packages/caamp/providers/hook-mappings.json`
    (the CAAMP SSoT). Provider adapters import the translation via
@@ -85,9 +89,13 @@ CLI — never bash.
      - Cursor: append a `preCompact` entry to `.cursor/hooks.json`.
      - OpenCode: generate a JS plugin at
        `.opencode/plugins/cleo-precompact.js` that `spawn()`s the shim.
-     - Gemini CLI: (planned) append a `PreCompress` entry to
-       `~/.gemini/settings.json`.
-     - Pi: (planned) write a TS extension that calls the core handler.
+     - Gemini CLI: a `precompact.sh` shim ships, but the Gemini install path
+       does not call the installer yet, so nothing is wired.
+     - Pi: nothing; the provider is deprecated and retiring (ADR-098).
+
+   Codex and Kimi install no PreCompact shim: their install providers write
+   the CLEO instruction references into `AGENTS.md`, and Codex also adds the
+   heavy-command `PreToolUse` hook to `.codex/hooks.json`.
 
 ### Why this split?
 
