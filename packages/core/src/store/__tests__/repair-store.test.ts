@@ -699,6 +699,9 @@ describe('copy-only whole-store repair', () => {
     db.prepare(
       "UPDATE tasks_tasks SET title='newer shared version',updated_at=? WHERE id='T950010'",
     ).run(snapshotTime);
+    db.prepare(
+      "INSERT INTO tasks_sessions(id,name,status,started_at) VALUES('before-checkout','recover ended session','active',?)",
+    ).run(snapshotTime);
     rmSync(snapshot);
     db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
     db.close();
@@ -717,6 +720,12 @@ describe('copy-only whole-store repair', () => {
         "UPDATE tasks_tasks SET title='newest shared version',updated_at=? WHERE id='T950010'",
       )
       .run(new Date(Date.now() - 30_000).toISOString());
+    const endedAt = new Date(Date.now() - 30_000).toISOString();
+    fork
+      .prepare(
+        "INSERT INTO tasks_sessions(id,name,status,started_at,ended_at) VALUES('before-checkout','recover ended session','ended',?,?)",
+      )
+      .run(snapshotTime, endedAt);
     fork.exec(`VACUUM INTO '${manual.replaceAll("'", "''")}'`);
     fork.close();
     const twin = join(env.cleoDir, 'backups', 'sqlite', 'cleo.db.snapshot-20261113-120001');
@@ -818,6 +827,11 @@ describe('copy-only whole-store repair', () => {
       expect(
         check.prepare("SELECT id FROM tasks_sessions WHERE id='post-checkout'").get()?.id,
       ).toBe('post-checkout');
+      expect(
+        check
+          .prepare("SELECT status, ended_at FROM tasks_sessions WHERE id='before-checkout'")
+          .get(),
+      ).toMatchObject({ status: 'ended', ended_at: endedAt });
     } finally {
       check.close();
     }

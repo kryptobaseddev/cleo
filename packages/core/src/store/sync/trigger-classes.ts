@@ -85,7 +85,7 @@ export function suspendClause(cls: SuspendableClass): string {
 }
 
 /**
- * The owned guard and side-effect triggers (project store), by name. Each
+ * The owned guard and side-effect triggers in both store scopes, by name. Each
  * one's DDL comes from the migration lineage or from
  * {@link CODE_OWNED_TRIGGER_DDL} ({@link ownedTriggerDdl}).
  */
@@ -341,7 +341,7 @@ export function hasTriggerSuspendTable(db: DatabaseSync): boolean {
  * Whether triggers of `cls` are suspended right now (a flag row of `cls` or
  * `all`, §3.5 Rule 4). False when the flag table is absent. Read-only.
  *
- * @param db - A project store handle.
+ * @param db - A project or global store handle.
  * @param cls - The trigger class.
  */
 export function isTriggerClassSuspended(db: DatabaseSync, cls: SuspendableClass): boolean {
@@ -362,7 +362,7 @@ export function isTriggerClassSuspended(db: DatabaseSync, cls: SuspendableClass)
  * the owned DDL references a table the store may not have. Callers check
  * {@link hasTriggerSuspendTable} and that the owned tables exist.
  *
- * @param db - A project store handle.
+ * @param db - A project or global store handle.
  * @param options - `repair` rewrites; `ddl` overrides the owned DDL (tests).
  * @returns One finding per trigger that was not identical.
  */

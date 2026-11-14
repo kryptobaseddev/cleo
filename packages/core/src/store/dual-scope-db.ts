@@ -1046,7 +1046,7 @@ async function migrateScopeSchema(
  *   bracket is skipped;
  * - no row-identity schema to heal ({@link identityWorkOnOpen}) and no
  *   unscoped brain FTS update trigger;
- * - project: every owned trigger matches its owned DDL ({@link verifyOwnedTriggers});
+ * - both scopes: delete receipts exist and every owned trigger matches its owned DDL ({@link verifyOwnedTriggers});
  * - a live-sync open: the capture step only reads, no audit scrub is pending
  *   and every sync flag is off;
  * - the identity fill has nothing pending ({@link rowIdentityFillPending}).

@@ -776,21 +776,27 @@ export function collectStoreSnapshotCandidates(target: string): SnapshotCandidat
   return out.sort((a, b) => b.timestampMs - a.timestampMs);
 }
 
+/** Shared row-version fields used by freshness diagnosis and lossless merge. */
+export const STORE_ROW_VERSION_COLUMNS = [
+  'updated_at',
+  'updatedAt',
+  'modified_at',
+  'modifiedAt',
+  'created_at',
+  'timestamp',
+  'started_at',
+  'ended_at',
+  'last_activity',
+  'task_started_at',
+  'accepted_at',
+  'valid_at',
+] as const;
+
 /** Each key's own timestamp is compared; unrelated writes cannot hide a missing row. */
 function storeRowTimestamp(columns: readonly string[]): string {
-  const stamps = [
-    'updated_at',
-    'created_at',
-    'timestamp',
-    'started_at',
-    'ended_at',
-    'last_activity',
-    'task_started_at',
-    'accepted_at',
-    'valid_at',
-  ]
-    .filter((c) => columns.includes(c))
-    .map((c) => `coalesce(unixepoch("${c}", 'subsec'), 0)`);
+  const stamps = STORE_ROW_VERSION_COLUMNS.filter((c) => columns.includes(c)).map(
+    (c) => `coalesce(unixepoch("${c}", 'subsec'), 0)`,
+  );
   return stamps.length > 1 ? `max(${stamps.join(',')})` : (stamps[0] ?? '0');
 }
 

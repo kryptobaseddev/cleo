@@ -9,6 +9,7 @@ import type {
   StoreRepairRecoveryRow,
 } from '@cleocode/contracts/db-recovery.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
+import { STORE_ROW_VERSION_COLUMNS } from './recover-malformed-db.js';
 import { repairSalvageHeader } from './repair-store-files.js';
 import { ensureTriggerSuspendTable, withTriggersSuspended } from './sync/trigger-classes.js';
 
@@ -622,9 +623,12 @@ export function salvageIntoSnapshot(
                   `INSERT INTO ${q} (${common.map(col).join(',')}) VALUES (${common.map(() => '?').join(',')})`,
                 );
                 ins.setReadBigInts(true);
-                const stamp = ['updated_at', 'updatedAt', 'modified_at', 'modifiedAt'].find((c) =>
-                  common.includes(c),
-                );
+                const stamps = STORE_ROW_VERSION_COLUMNS.filter((c) => common.includes(c));
+                const versionAt = (row: Row): number =>
+                  stamps.reduce(
+                    (latest, c) => Math.max(latest, timestamp(row[c])),
+                    Number.NEGATIVE_INFINITY,
+                  );
                 const updates = common.filter((c) => !pk.includes(c));
                 const update =
                   updates.length > 0
@@ -649,8 +653,8 @@ export function salvageIntoSnapshot(
                     report.merged++;
                     return;
                   }
-                  const incomingAt = stamp ? timestamp(row[stamp]) : Number.NEGATIVE_INFINITY;
-                  const oldAt = stamp ? timestamp(old[stamp]) : Number.NEGATIVE_INFINITY;
+                  const incomingAt = versionAt(row);
+                  const oldAt = versionAt(old);
                   const provenOlder =
                     Number.isFinite(incomingAt) && Number.isFinite(oldAt) && oldAt > incomingAt;
                   const provenNewer =
