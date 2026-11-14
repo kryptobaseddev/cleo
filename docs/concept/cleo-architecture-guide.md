@@ -164,6 +164,34 @@ These words are for humans — they make the system feel like a workshop, not a 
 
 ---
 
+## Request Flow
+
+Folded from the retired `cleo-system-flow-atlas` (T14108 docs census). Every CLI
+operation takes the same path:
+
+1. **Parse.** The command (`packages/cleo/src/cli/commands/`, built with
+   `defineCommand`) parses flags into a dispatch request through the CLI adapter
+   (`packages/cleo/src/dispatch/adapters/cli.ts`).
+2. **Resolve.** The dispatcher (`@cleocode/runtime/gateway`) looks up the
+   operation by domain and name in the registry
+   (`packages/cleo/src/dispatch/registry.ts`, described by
+   `packages/contracts/src/dispatch/operations-registry.ts`) and checks required
+   parameters. An unknown or removed operation fails; there is no fallback.
+3. **Middleware.** The request passes the pipeline in
+   `packages/cleo/src/dispatch/middleware/`: sanitizer, session resolution,
+   rate limit, protocol enforcement, verification gates, idempotency, store
+   write guard, audit, and the field and projection filters.
+4. **Handle.** The domain handler (`packages/cleo/src/dispatch/domains/`) calls
+   its engine (`packages/cleo/src/dispatch/engines/`), which calls the
+   business logic in `@cleocode/core`.
+5. **Store.** Core reads and writes one `cleo.db` per scope (project and
+   global, prefixed tables) through `openDualScopeDb` and the store accessors.
+6. **Respond.** The result returns as one LAFS envelope on stdout (ADR-086);
+   logs go to stderr.
+
+Queries never change state; mutations may. `tasks.update` with `status=done`
+goes through the same completion checks as `tasks.complete`.
+
 ## Quick Reference Card
 
 ```
@@ -265,8 +293,8 @@ The following paths are **deprecated** and MUST NOT be used for new files:
 
 ## References
 
-- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — Formal domain definitions and operation registry
-- `docs/specs/VERB-STANDARDS.md` — Canonical verbs with disambiguation rules
-- `docs/concepts/CLEO-CANT.md` — Agent communication grammar
-- `docs/concepts/CLEO-SYSTEM-FLOW-ATLAS.md` — Technical flow diagrams
-- `CLEO-ULTRAPLAN.md` — Agent lifecycle and orchestration (supersedes `docs/specs/CLEO-ORCH-PLAN.md`, archived)
+- [CLEO canon index](cleo-canon-index.md) — read order and map of the canonical docs
+- [Operation constitution](../spec/cleo-operation-constitution.md) — formal domain definitions and operation registry
+- [Verb standards](../spec/verb-standards.md) — canonical verbs with disambiguation rules
+- [CANT reference](../reference/cant.md) — agent communication grammar (absorbs the retired `cleo-cant` overview)
+- [Orchestration flow](orchestration-flow.md) — spawn layers, spawn execution, lead and worker roles

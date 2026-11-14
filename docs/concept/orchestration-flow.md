@@ -236,6 +236,41 @@ streaming, tool calls, structured output. It is not the orchestrator.
 backward compatibility): `CleoAgent`, `CleoInputGuardrail`, `CleoTraceProcessor`,
 `CleoSpan`.
 
+## Spawn execution and roles
+
+Folded from the retired lead-vs-worker and subagent-injection guides (T14108 docs
+census). Their Pi `cleo-cant-bridge` `tool_call` enforcement, `delegate()` tool
+and `AGENT_DOMAIN_RULES`/`LEAD_MEMBERS_JSON` environment were removed with the Pi
+harness (ADR-098); what follows is what the code does today.
+
+**Execution.** `cleo orchestrate spawn <taskId>` returns the composed
+`SpawnPayload`; executing a spawn (`orchestrate.spawn.execute`) goes through
+`orchestrateSpawnExecute` (`packages/core/src/orchestrate/spawn-ops.ts`). It
+takes a resource grant before anything is provisioned, provisions the worker's
+isolation with `provisionIsolatedShell` (worktree and cwd) and hands the prompt
+to the provider's spawn provider, for example `ClaudeCodeSpawnProvider`
+(`packages/adapters/src/providers/claude-code/spawn.ts`). The provider writes the
+prompt to a private temp file, starts the harness CLI detached in the isolation
+cwd and passes the isolation environment (`CLEO_WORKTREE_ROOT`,
+`CLEO_AGENT_ROLE`, `CLEO_WORKTREE_BRANCH`, `CLEO_PROJECT_HASH`). The session
+binding (`CLEO_SESSION_ID`, `CLEO_AGENT_ID`, `CLEO_AGENT_ROLE`) reaches the agent
+as the export block its prompt tells it to run first
+(`packages/core/src/orchestration/spawn-prompt.ts`). After a worker spawn
+returns, its worktree is merged back with `git merge --no-ff` (ADR-062) unless
+auto-complete is off; a lead has nothing to integrate.
+
+**Lead and worker.** A worker spawn carries no denied tools and runs in its own
+worktree. A lead spawn carries `LEAD_DENIED_TOOLS`
+(`packages/contracts/src/operations/orchestrate.ts`: `Bash`, `Edit`, `Write`,
+`MultiEdit`, `NotebookEdit`, `WebFetch`, `WebSearch`). A provider that can strip
+them declares `leadToolStrip: 'enforced'` (claude-code, claude-sdk); any other
+provider refuses a lead spawn with `E_LEAD_TOOLS_UNSTRIPPED` before anything runs
+(`packages/adapters/src/providers/shared/lead-tool-strip.ts`). On Claude Code the
+lead also starts with a strict MCP config naming at most the lead runner
+(`cleo orchestrate lead-runner`) and the user's AgentMBX server
+(`packages/adapters/src/providers/claude-code/lead-mcp.ts`), so no other MCP
+server can hand the stripped tools back.
+
 ## Data Model
 
 | Table | DB | Purpose |

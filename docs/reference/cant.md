@@ -104,6 +104,38 @@ Parsed elements:
 Body text follows the header after a blank line. Addresses, task refs, and tags in the
 body are extracted but not interpreted as directives.
 
+#### Directives, addresses and tags
+
+Folded from the retired `cleo-cant` overview (T14108 docs census).
+
+A directive is the `/verb` at the start of a message. Directives are actionable
+(`/claim`, `/done`, `/blocked`, `/decision`, `/checkin`, `/approve`), routing
+(`/action`, `/review`, `/proposal`: someone should act, nothing is mutated) or
+informational (`/ack`, `/response`, `/info`, `/status`). A message without a
+directive is prose and is treated as `/info`.
+
+Addresses are `@agentId` (point to point) or `@all` (broadcast). Task references
+are `T` plus digits anywhere in the message. Tags (`#shipped`, `#P0`, `#security`,
+...) are metadata for filtering and search and never trigger an operation.
+
+#### Directive routing (legacy Conduit path)
+
+`parseDirective` and `routeDirective` in `packages/core/src/nexus/workspace.ts`
+turn a Conduit message into task operations. Only this legacy Conduit path
+reaches them: AgentMBX is CLEO's messaging layer and does not route directives
+(D11176).
+
+- Only a `/verb` at the very start of the content counts; a directive inside the
+  body is never executed. A message needs at least one task reference.
+- Verbs map to task operations: `claim` and `start` to `tasks.start`, `done` and
+  `complete` to `tasks.complete`, `blocked` to `tasks.update`, `stop` to
+  `tasks.stop`. Any other verb is skipped.
+- Each task reference is routed to the local NEXUS project that owns it (remote
+  vault rows are skipped). The sender must be in that project's
+  `authorizedAgents` config (`*` allows all); without the setting the ACL denies
+  every agent, and denials are audited.
+- Each agent may route at most 100 operations per minute.
+
 ### Layer 2: Instruction DSL
 
 Defines **what agents, skills, and hooks ARE** -- structured properties, not paragraphs.
@@ -777,4 +809,4 @@ output name = expression
 | [`CANT-EXECUTION-SEMANTICS.md`](../spec/cant-execution-semantics.md) | Workflow executor semantics, domain event protocol |
 | `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) | 7-phase implementation plan with security amendments — superseded by shipped implementation + ADR-035 addendum |
 | [`CANT-TYPESCRIPT-INTEGRATION.md`](../spec/cant-typescript-integration.md) | TypeScript/WASM integration guide |
-| [`CLEO-CANT.md`](../concept/cleo-cant.md) | Protocol-level spec (directive mapping, Conduit integration) |
+| `cleo-cant` (store slug, superseded) | Former protocol overview; its directive and routing rules are folded into Layer 1 above |
