@@ -15,7 +15,9 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type * as DescribeOperation from '@cleocode/core/dispatch/describe-operation';
-import { hooks } from '@cleocode/core/hooks/registry';
+import { hooks, RESPONSE_HOOK_BUDGET_MS } from '@cleocode/core/hooks/registry';
+import type { HookDispatchOutcome } from '@cleocode/core/hooks/types';
+import { pushWarning } from '@cleocode/core/output';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { trackBackgroundOp } from '@cleocode/core/store/background-ops';
 import type { GatewayHandler } from '@cleocode/runtime/gateway/dispatch';
@@ -45,6 +47,26 @@ import type { DispatchRequest, DispatchResponse, Gateway } from '../types.js';
 /** Track optional hook work without delaying the command's response. */
 function trackDeferredHook(work: Promise<void>): void {
   void trackBackgroundOp(work, undefined, { kind: 'best-effort' });
+}
+
+/** A hook dispatch that failed outright deferred nothing it can report. */
+const NO_HOOK_DEFERRAL: HookDispatchOutcome = { deferred: [] };
+
+/**
+ * Tell the caller, in `meta.warnings`, which work-capture handlers did not
+ * finish before the response (T14553). Their observations were spooled and
+ * are written by a later capture; nothing was dropped.
+ */
+function reportDeferredHooks(...outcomes: readonly HookDispatchOutcome[]): void {
+  const deferred = outcomes.flatMap((outcome) => outcome.deferred);
+  if (deferred.length === 0) return;
+  pushWarning({
+    // @sync-invariant none:input-shape the warning only reports a deferred observation; the command already ran and nothing is rejected
+    code: 'W_WORK_CAPTURE_DEFERRED',
+    message:
+      `work capture deferred (${deferred.join(', ')}): the brain writer lease stayed held past ` +
+      `the ${RESPONSE_HOOK_BUDGET_MS} ms response budget; the observation is spooled and lands on a later capture.`,
+  });
 }
 
 // Reverse mapping from string error codes to numeric exit codes.
@@ -493,8 +515,9 @@ export async function dispatchFromCli(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Finish work-capture writes before responding; defer unrelated hooks.
-  await hooks
+  // Finish work-capture writes before responding, within the response budget;
+  // defer unrelated hooks (T14553).
+  const promptHooks = await hooks
     .dispatch(
       'PromptSubmit',
       projectRoot,
@@ -506,10 +529,9 @@ export async function dispatchFromCli(
         source: 'cli',
       },
       trackDeferredHook,
+      RESPONSE_HOOK_BUDGET_MS,
     )
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+    .catch(() => NO_HOOK_DEFERRAL); // hook errors are non-fatal
 
   // Spinner is silent on --json/--quiet/non-TTY/NO_COLOR — no branching needed.
   const spinner = createDispatchSpinner(domain, operation);
@@ -530,8 +552,9 @@ export async function dispatchFromCli(
     spinner.stop();
   }
 
-  // Finish work-capture writes before responding; defer unrelated hooks.
-  await hooks
+  // Finish work-capture writes before responding, within the response budget;
+  // defer unrelated hooks (T14553).
+  const responseHooks = await hooks
     .dispatch(
       'ResponseComplete',
       projectRoot,
@@ -545,10 +568,10 @@ export async function dispatchFromCli(
         errorCode: response.error?.code,
       },
       trackDeferredHook,
+      RESPONSE_HOOK_BUDGET_MS,
     )
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+    .catch(() => NO_HOOK_DEFERRAL); // hook errors are non-fatal
+  reportDeferredHooks(promptHooks, responseHooks);
 
   if (response.success) {
     // Records mutations only: a read must not write a portable row (T13106).
@@ -701,8 +724,9 @@ export async function dispatchRaw(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Finish work-capture writes before responding; defer unrelated hooks.
-  await hooks
+  // Finish work-capture writes before responding, within the response budget;
+  // defer unrelated hooks (T14553).
+  const promptHooks = await hooks
     .dispatch(
       'PromptSubmit',
       projectRoot,
@@ -714,10 +738,9 @@ export async function dispatchRaw(
         source: 'cli',
       },
       trackDeferredHook,
+      RESPONSE_HOOK_BUDGET_MS,
     )
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+    .catch(() => NO_HOOK_DEFERRAL); // hook errors are non-fatal
 
   const spinner = createDispatchSpinner(domain, operation);
   spinner.start();
@@ -737,8 +760,9 @@ export async function dispatchRaw(
     spinner.stop();
   }
 
-  // Finish work-capture writes before responding; defer unrelated hooks.
-  await hooks
+  // Finish work-capture writes before responding, within the response budget;
+  // defer unrelated hooks (T14553).
+  const responseHooks = await hooks
     .dispatch(
       'ResponseComplete',
       projectRoot,
@@ -752,10 +776,10 @@ export async function dispatchRaw(
         errorCode: response.error?.code,
       },
       trackDeferredHook,
+      RESPONSE_HOOK_BUDGET_MS,
     )
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+    .catch(() => NO_HOOK_DEFERRAL); // hook errors are non-fatal
+  reportDeferredHooks(promptHooks, responseHooks);
 
   // T13164: a caller may hand a failure to handleRawError, which exits at once;
   // settle best-effort writes first. Bounded, and it closes nothing, so a

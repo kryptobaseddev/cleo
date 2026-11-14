@@ -76,6 +76,40 @@ describe('sqlite-backup global tier', () => {
     expect(existsSync(result.snapshotPath)).toBe(true);
   });
 
+  it('T14553: a routine global backup does not wait on a held writer', async () => {
+    vi.resetModules();
+    const cleoHome = join(tmpdir(), `cleo-global-test-held-${Date.now()}`);
+    const nexusDbPath = join(cleoHome, 'nexus.db');
+    mkdirSync(cleoHome, { recursive: true });
+    seedSqliteDb(nexusDbPath);
+
+    const nexusDb = new DatabaseSync(nexusDbPath);
+    nexusDb.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 10000');
+    // Another writer holds the write lock for the whole backup: a TRUNCATE
+    // checkpoint would wait out busy_timeout for it; PASSIVE never waits.
+    const holder = new DatabaseSync(nexusDbPath);
+    holder.exec("BEGIN IMMEDIATE; INSERT INTO test_data (value) VALUES ('held')");
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => nexusDb }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+
+    try {
+      const { vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
+      const started = Date.now();
+      const result = await vacuumIntoGlobalBackup('nexus', { cleoHomeOverride: cleoHome });
+
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(existsSync(result.snapshotPath)).toBe(true);
+      const snapshot = new DatabaseSync(result.snapshotPath, { readOnly: true });
+      const rows = snapshot.prepare('SELECT value FROM test_data').all();
+      snapshot.close();
+      expect(rows).toEqual([{ value: 'hello' }]);
+    } finally {
+      holder.exec('ROLLBACK');
+      holder.close();
+      nexusDb.close();
+    }
+  }, 30_000);
+
   it('vacuumIntoGlobalBackup XDG path: uses cleoHomeOverride, not hardcoded ~/.cleo/', async () => {
     vi.resetModules();
     const cleoHome = join(tmpdir(), `cleo-global-xdg-${Date.now()}`);

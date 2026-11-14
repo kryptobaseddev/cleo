@@ -94,4 +94,46 @@ describe('HookRegistry internal coordination events', () => {
       await Promise.all(deferred);
     }
   });
+  it('T14553: a required handler past the budget is handed to defer and reported', async () => {
+    const stuck = Promise.withResolvers<void>();
+    const backstopped: Promise<void>[] = [];
+    registry.register({
+      id: 'capture-write',
+      event: 'ResponseComplete',
+      priority: 90,
+      awaitBeforeResponse: true,
+      handler: () => stuck.promise,
+    });
+    registry.register({
+      id: 'capture-spooled',
+      event: 'ResponseComplete',
+      priority: 90,
+      awaitBeforeResponse: true,
+      handler: async () => 'deferred' as const,
+    });
+    const started = Date.now();
+    try {
+      const outcome = await registry.dispatch(
+        'ResponseComplete',
+        '/tmp/project',
+        {
+          timestamp: new Date().toISOString(),
+          gateway: 'mutate',
+          domain: 'tasks',
+          operation: 'add',
+          success: true,
+        },
+        (work) => {
+          backstopped.push(work);
+        },
+        50,
+      );
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect([...outcome.deferred].sort()).toEqual(['capture-spooled', 'capture-write']);
+      expect(backstopped).toHaveLength(1);
+    } finally {
+      stuck.resolve();
+      await Promise.all(backstopped);
+    }
+  });
 });

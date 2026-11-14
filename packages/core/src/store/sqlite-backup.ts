@@ -91,7 +91,7 @@ const MAX_SNAPSHOTS = 10;
 
 /**
  * Minimal shape of the handle used by the snapshot pipeline — only `exec()`
- * is required to issue `PRAGMA wal_checkpoint(TRUNCATE)` + `VACUUM INTO`.
+ * is required to issue `PRAGMA wal_checkpoint(...)` + `VACUUM INTO`.
  */
 type SnapshotDbHandle = { exec: (sql: string) => void };
 
@@ -1025,11 +1025,10 @@ async function snapshotOne(
   removeDeadTempSnapshots(backupDir);
 
   try {
-    // VACUUM INTO reads a consistent WAL snapshot. Routine backups must not
-    // wait for another writer to truncate it; required backups retain TRUNCATE.
-    db.exec(
-      `PRAGMA wal_checkpoint(${mode === 'routine' && target.tier === 'project' ? 'PASSIVE' : 'TRUNCATE'})`,
-    );
+    // VACUUM INTO reads a consistent WAL snapshot. A routine backup of any
+    // tier (project, derived, global) must not wait for another writer to
+    // truncate it (T14553); required backups retain TRUNCATE.
+    db.exec(`PRAGMA wal_checkpoint(${mode === 'routine' ? 'PASSIVE' : 'TRUNCATE'})`);
 
     // VACUUM INTO a temp name, fsync, then rename: a process killed
     // mid-VACUUM leaves only `<name>.tmp-<pid>`, which no reader lists,
@@ -1349,8 +1348,10 @@ export async function vacuumIntoGlobalBackup(
   removeDeadTempSnapshots(backupDir);
   try {
     // Checkpoint then VACUUM INTO a temp name, fsync, rename (T12508): a
-    // kill mid-VACUUM never leaves an empty file under a snapshot name.
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    // kill mid-VACUUM never leaves an empty file under a snapshot name. Global
+    // backups are routine: PASSIVE never waits on a held writer, and VACUUM
+    // INTO still reads a consistent WAL snapshot (T14553).
+    db.exec('PRAGMA wal_checkpoint(PASSIVE)');
     const tmp = tempSnapshotPath(snapshotPath);
     try {
       db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
