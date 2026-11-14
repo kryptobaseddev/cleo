@@ -30,6 +30,7 @@ import {
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { EvidenceAtom, VerificationGate } from '@cleocode/contracts';
+import type { ProjectContext } from '@cleocode/contracts/project-context.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // T13964: scripted memory pressure must never run the host's real top/ps probe.
@@ -982,6 +983,37 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     const ev = Object.fromEntries(plan.gates.map((g) => [g.gate, g.evidence]));
     expect(ev['testsPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
     expect(ev['qaPassed']).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
+  });
+
+  it('per-event job lists plan ci:<pr> without falling back to local tool runs (T14577)', async () => {
+    const { id, prDeps } = await mergedPrSetup(true);
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx: ProjectContext = JSON.parse(readFileSync(ctxPath, 'utf-8'));
+    ctx.evidence = {
+      ciSatisfies: true,
+      ciChecks: {
+        tests: ['CI'],
+        qa: ['CI'],
+        jobs: {
+          tests: { pullRequest: ['PR affected tests*'], push: ['Full Suite*'] },
+          qa: { pullRequest: ['PR lint'], push: ['Main lint'] },
+        },
+      },
+    };
+    writeFileSync(ctxPath, JSON.stringify(ctx));
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: prDeps,
+    });
+    expect(plan.toolRuns).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `ci:42;satisfies:${id}#AC1`,
+    );
+    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toBe(
+      `ci:42;satisfies:${id}#AC1`,
+    );
   });
 
   it.each([

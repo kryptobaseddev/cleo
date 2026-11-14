@@ -7,6 +7,27 @@
   "type": "object",
   "required": ["schemaVersion", "detectedAt", "projectTypes"],
   "additionalProperties": false,
+  "definitions": {
+    "ciJobGlobs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "ciJobRequirements": {
+      "oneOf": [
+        { "$ref": "#/definitions/ciJobGlobs" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pullRequest", "push"],
+          "properties": {
+            "pullRequest": { "$ref": "#/definitions/ciJobGlobs" },
+            "push": { "$ref": "#/definitions/ciJobGlobs" }
+          }
+        }
+      ]
+    }
+  },
   "properties": {
     "$schema": {
       "type": "string",
@@ -330,10 +351,10 @@
             "jobs": {
               "type": "object",
               "additionalProperties": false,
-              "description": "Job-name globs (* wildcard) that must each have run and succeeded in the pinned workflows before ci:<pr> attests a code task's gate.",
+              "description": "Job-name globs (* wildcard) that must each have run and succeeded in the pinned workflows before ci:<pr> attests a code task's gate. An array keeps the shared requirements; {pullRequest, push} requires separate lists on the final PR head and main (only push for a workflow-edited PR).",
               "properties": {
-                "tests": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
-                "qa": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+                "tests": { "$ref": "#/definitions/ciJobRequirements" },
+                "qa": { "$ref": "#/definitions/ciJobRequirements" }
               }
             },
             "covering": {

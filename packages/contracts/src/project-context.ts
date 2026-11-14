@@ -57,6 +57,26 @@ export type FileNamingConvention = 'kebab-case' | 'snake_case' | 'camelCase' | '
 /** Module import style. */
 export type ImportStyle = 'esm' | 'commonjs' | 'mixed';
 
+/** Job globs shared by both events, or required separately on the PR head and main. */
+export type CiJobRequirements =
+  | string[]
+  | {
+      /** Jobs required on the final PR head's `pull_request` runs. */
+      pullRequest: string[];
+      /** Jobs required on the merge commit's or a permitted stand-in's `push` runs. */
+      push: string[];
+    };
+
+/** Required checks and jobs attesting the gates of a `ci:<pr>` atom. */
+export interface CiChecksConfig {
+  /** Required checks attesting testsPassed. */
+  tests?: string[];
+  /** Required checks attesting qaPassed. */
+  qa?: string[];
+  /** Each glob must match jobs that ran and succeeded in the gate's pinned workflows. */
+  jobs?: { tests?: CiJobRequirements; qa?: CiJobRequirements };
+}
+
 /**
  * Evidence execution configured per project.
  *
@@ -94,12 +114,7 @@ export interface ProjectEvidenceContext {
    *
    * @task T12634
    */
-  ciChecks?: {
-    tests?: string[];
-    qa?: string[];
-    /** Job-name globs that must have run and succeeded for a code task's gate. */
-    jobs?: { tests?: string[]; qa?: string[] };
-  };
+  ciChecks?: CiChecksConfig;
   /**
    * Repo-relative paths or globs (`path.matchesGlob`, `**` crosses directories)
    * that never count as part of a change when evidence decides its scope —
