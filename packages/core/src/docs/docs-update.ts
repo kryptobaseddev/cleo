@@ -37,6 +37,10 @@ import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
 import { fileBytesMatchSha256, readVerifiedBlobBytes } from '../store/blob-keep.js';
+import {
+  conduitAttachments,
+  conduitAttachmentVersions,
+} from '../store/schema/cleo-project/conduit.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
@@ -49,7 +53,7 @@ import {
   linksJsonOrNull,
 } from './derive-links.js';
 import type { DocUpdatePreview, ProjectDocUpdateInput } from './section-write-path.js';
-import { rehomeSupersessionEdges } from './supersede.js';
+import { preserveIncomingSupersessionOnReuse, rehomeSupersessionEdges } from './supersede.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -925,11 +929,29 @@ export async function updateDocBySlug(
     .from(docsAttachments)
     .where(eq(docsAttachments.sha256, newSha256))
     .get();
+  // Returning to shared historical bytes keeps the live identity row too:
+  // re-slugging those bytes could redirect another doc's stale incoming edges.
+  const ownHistory =
+    projectionInput !== null && sharedRow !== undefined
+      ? await db
+          .select({ uid: conduitAttachmentVersions.uid })
+          .from(conduitAttachmentVersions)
+          .innerJoin(
+            conduitAttachments,
+            eq(conduitAttachments.uid, conduitAttachmentVersions.attachmentUid),
+          )
+          .where(
+            and(
+              eq(conduitAttachments.slug, slug),
+              eq(conduitAttachmentVersions.contentHash, newSha256),
+            ),
+          )
+          .get()
+      : undefined;
   const keepsOwnRow =
     projectionInput !== null &&
     sharedRow !== undefined &&
-    sharedRow.slug !== null &&
-    sharedRow.slug !== slug;
+    (ownHistory !== undefined || (sharedRow.slug !== null && sharedRow.slug !== slug));
 
   let newAttachmentId: string;
   try {
@@ -953,6 +975,15 @@ export async function updateDocBySlug(
       await mirrorConduitDocMeta(projectRoot, { rowId: oldRow.id });
       nativeDb.prepare('COMMIT').run();
     } else {
+      const existingNewRow = await db
+        .select()
+        .from(docsAttachments)
+        .where(eq(docsAttachments.sha256, newSha256))
+        .get();
+      if (existingNewRow && existingNewRow.slug !== slug) {
+        await preserveIncomingSupersessionOnReuse(db, projectRoot, existingNewRow.id, slug);
+      }
+
       // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
       await db
         .update(docsAttachments)
@@ -963,12 +994,6 @@ export async function updateDocBySlug(
       // 2. Insert OR update the new-sha256 row. If a row already exists
       //    for this sha256 (rare — same bytes already stored under a
       //    different slug), reuse it and just transfer the slug onto it.
-      const existingNewRow = await db
-        .select()
-        .from(docsAttachments)
-        .where(eq(docsAttachments.sha256, newSha256))
-        .get();
-
       if (existingNewRow) {
         newAttachmentId = existingNewRow.id;
         await db

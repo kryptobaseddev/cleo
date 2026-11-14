@@ -38,6 +38,7 @@ import {
   resolveConduitDocUid,
   resolveRegistryRowDocSlug,
 } from '../store/conduit-doc-history.js';
+import { isYieldedDocSlug } from '../store/row-identity.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import {
   conduitAttachments,
@@ -437,7 +438,8 @@ export async function listDocRefsFromDb(db: NodeSQLiteDatabase): Promise<DocRef[
     const row = unlanded
       ? own
       : ((own?.sha256 === contentHash ? own : undefined) ?? bySha.get(contentHash) ?? own);
-    if (!row || !doc.uid || listed.has(doc.slug)) continue;
+    if (!row || !doc.uid || listed.has(doc.slug) || isYieldedDocSlug(doc.slug, (own ?? row).uid))
+      continue;
     listed.add(doc.slug);
     out.push({
       identity: 'uid',
@@ -451,7 +453,7 @@ export async function listDocRefsFromDb(db: NodeSQLiteDatabase): Promise<DocRef[
     });
   }
   for (const [slug, row] of bySlug) {
-    if (listed.has(slug)) continue;
+    if (listed.has(slug) || isYieldedDocSlug(slug, row.uid)) continue;
     listed.add(slug);
     out.push({
       identity: 'legacy',
