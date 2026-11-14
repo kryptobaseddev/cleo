@@ -82,6 +82,13 @@ it.each(
   );
   db.exec('COMMIT');
   expect(readStoreDeletedKeys(db).get(table)?.get('aborted')?.deletionCount).toBe(1);
+  db.exec("UPDATE _store_deleted_keys SET deleted_at='2099-01-01'");
+  const future = readStoreDeletedKeys(db);
+  db.exec("UPDATE _store_deleted_keys SET deleted_at='2026-01-01', deletion_count=2");
+  expect(readStoreDeletedKeys(db, future).get(table)?.get('aborted')).toEqual({
+    deletedAt: '2099-01-01',
+    deletionCount: 2,
+  });
   db.exec(`INSERT INTO ${table} VALUES('rewound','value')`);
   db.exec('BEGIN');
   withTriggersSuspended(db, ['guard', 'capture', 'side-effect'], 'rewind', () =>

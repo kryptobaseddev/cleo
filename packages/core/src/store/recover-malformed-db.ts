@@ -845,11 +845,10 @@ export function readStoreDeletedKeys(
     const table = row.table_name;
     const keys = into.get(table) ?? new Map<string, StoreDeletionEvidence>();
     const old = keys.get(row.record_key);
-    if (!old || row.deleted_at > old.deletedAt || row.deletion_count > old.deletionCount)
-      keys.set(row.record_key, {
-        deletedAt: row.deleted_at,
-        deletionCount: row.deletion_count,
-      });
+    keys.set(row.record_key, {
+      deletedAt: old && old.deletedAt > row.deleted_at ? old.deletedAt : row.deleted_at,
+      deletionCount: Math.max(old?.deletionCount ?? 0, row.deletion_count),
+    });
     into.set(table, keys);
   }
   return into;
