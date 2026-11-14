@@ -787,35 +787,66 @@ async function scanPublicationLedger(
     recordByKey.get(key(item));
   // T14504: a drifted row is superseded only when its doc's CANONICAL head
   // (resolved the way slug-rename resolves it: conduit head, else the registry
-  // row) is already published at the same path by a newer in-sync row of the
-  // same owner, or never moved past what this row published. The blob manifest
+  // row) is already published at the same path by a newer in-sync row (of any
+  // owner, T14108), or never moved past what this row published. The blob manifest
   // sha `status` reports is best-effort (sync and SDK updates move the head
   // without it), so it is never trusted here; a head that does not resolve
   // keeps the row (fail closed).
   const { resolveDocRef } = await import('./slug-rename.js');
-  const canonicalHead = async (record: DocsPublicationRecord): Promise<string | null> => {
-    const names = [record.blobName, record.blobName.replace(/\.md$/, '')];
-    for (const name of new Set(names)) {
+  const headByName = async (blobName: string): Promise<string | null> => {
+    for (const name of new Set([blobName, blobName.replace(/\.md$/, '')])) {
       const ref = await resolveDocRef(projectRoot, name, { quiet: true }).catch(() => null);
       if (ref) return ref.sha256;
     }
     return null;
   };
+  // T14108: a row recorded under an old file name (`tmp-x-readme.md`,
+  // `ADR-054-….md`) names no doc, so its doc is found through the attachment
+  // that holds the blob it published. A slugged holder resolves to its doc's
+  // head. A slugless holder is an old version row whose doc cannot be proven,
+  // so only a newer row of the SAME owner may supersede it.
+  const holderBySha = new Map(rows.map((r) => [r.sha256, r]));
+  type Resolved = {
+    readonly head: string;
+    readonly byBlob: boolean;
+    readonly sameOwnerOnly: boolean;
+  };
+  const canonicalHead = async (record: DocsPublicationRecord): Promise<Resolved | null> => {
+    const named = await headByName(record.blobName);
+    if (named !== null) return { head: named, byBlob: false, sameOwnerOnly: false };
+    const holder = holderBySha.get(record.lastBlobSha);
+    if (!holder) return null;
+    if (holder.slug === null)
+      return { head: record.lastBlobSha, byBlob: true, sameOwnerOnly: true };
+    const ref = await resolveDocRef(projectRoot, holder.slug, { quiet: true }).catch(() => null);
+    return ref ? { head: ref.sha256, byBlob: true, sameOwnerOnly: false } : null;
+  };
   const isSuperseded = async (record: DocsPublicationRecord): Promise<boolean> => {
+    // A newer in-sync row of any owner at the same path counts (T14108): the
+    // mirror's bytes, not the owner, decide what the path publishes.
     const newerRows = status.items
       .filter((other) => other.drift === 'in-sync' && other.publishedPath === record.publishedPath)
       .map(recordFor)
       .filter(
         (newer): newer is DocsPublicationRecord =>
-          newer !== undefined &&
-          newer !== record &&
-          newer.ownerId === record.ownerId &&
-          newer.publishedAt >= record.publishedAt,
+          newer !== undefined && newer !== record && newer.publishedAt >= record.publishedAt,
       );
     if (newerRows.length === 0) return false;
-    const head = await canonicalHead(record);
-    if (head === null) return false;
-    return head === record.lastBlobSha || newerRows.some((newer) => newer.lastBlobSha === head);
+    const resolved = await canonicalHead(record);
+    if (resolved === null) return false;
+    const { head, byBlob, sameOwnerOnly } = resolved;
+    if (!byBlob) {
+      return head === record.lastBlobSha || newerRows.some((newer) => newer.lastBlobSha === head);
+    }
+    // Resolved through its blob: the row's doc must never have moved past that
+    // blob, and a newer row must be the live publication of a doc that
+    // resolves by name (its head is exactly what it published).
+    if (head !== record.lastBlobSha) return false;
+    for (const newer of newerRows) {
+      if (sameOwnerOnly && newer.ownerId !== record.ownerId) continue;
+      if ((await headByName(newer.blobName)) === newer.lastBlobSha) return true;
+    }
+    return false;
   };
   type Draft = Omit<LedgerFinding, 'action' | 'prunable' | 'detail'> & {
     readonly shas: ReadonlySet<string>;
@@ -846,7 +877,7 @@ async function scanPublicationLedger(
             held
               ? {
                   action: 'prune-publication',
-                  detail: `mirror ${record.publishedPath} is published in sync by a newer ledger row of the same owner; this row is superseded → delete the ledger row`,
+                  detail: `mirror ${record.publishedPath} is published in sync by a newer ledger row; this row is superseded → delete the ledger row`,
                 }
               : {
                   action: 'republish-or-prune',
