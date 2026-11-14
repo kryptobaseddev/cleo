@@ -177,10 +177,13 @@ operation takes the same path:
    (`packages/cleo/src/dispatch/registry.ts`, described by
    `packages/contracts/src/dispatch/operations-registry.ts`) and checks required
    parameters. An unknown or removed operation fails; there is no fallback.
-3. **Middleware.** The request passes the pipeline in
-   `packages/cleo/src/dispatch/middleware/`: sanitizer, session resolution,
-   rate limit, protocol enforcement, verification gates, idempotency, store
-   write guard, audit, and the field and projection filters.
+3. **Middleware.** The CLI dispatcher (`createCliDispatcher` in
+   `packages/cleo/src/dispatch/adapters/cli.ts`) runs, in order: store write
+   guard, session resolver, write actor, claim heartbeat, sanitizer, field
+   filter, MVI record projection, minimal mutate envelope, budget enforcement,
+   audit, idempotency and telemetry. The rate limiter, protocol enforcement and
+   verification-gate middlewares in `packages/cleo/src/dispatch/middleware/`
+   are not part of the CLI chain.
 4. **Handle.** The domain handler (`packages/cleo/src/dispatch/domains/`) calls
    its engine (`packages/cleo/src/dispatch/engines/`), which calls the
    business logic in `@cleocode/core`.

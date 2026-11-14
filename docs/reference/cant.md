@@ -134,7 +134,9 @@ reaches them: AgentMBX is CLEO's messaging layer and does not route directives
   vault rows are skipped). The sender must be in that project's
   `authorizedAgents` config (`*` allows all); without the setting the ACL denies
   every agent, and denials are audited.
-- Each agent may route at most 100 operations per minute.
+- Each agent may route at most 100 directives per minute (an in-process
+  counter). One directive can name several tasks, so it can start more than one
+  task operation; the limit counts directives, not task operations.
 
 ### Layer 2: Instruction DSL
 
@@ -806,7 +808,7 @@ output name = expression
 | Document | Purpose |
 |----------|---------|
 | [`CANT-DSL-SPEC.md`](../spec/cant-dsl.md) | Formal specification (EBNF, AST types, 45 validation rules) |
-| [`CANT-EXECUTION-SEMANTICS.md`](../spec/cant-execution-semantics.md) | Workflow executor semantics, domain event protocol |
+| `cant-execution-semantics` (store slug, superseded) | Retired; what `cant-runtime` implements is in CANT-DSL-SPEC §7.1 |
 | `CANT-DSL-IMPLEMENTATION-PLAN.md` (archived) | 7-phase implementation plan with security amendments — superseded by shipped implementation + ADR-035 addendum |
-| [`CANT-TYPESCRIPT-INTEGRATION.md`](../spec/cant-typescript-integration.md) | TypeScript/WASM integration guide |
+| [`packages/cant/README.md`](../../packages/cant/README.md) | TypeScript API, native and WebAssembly backends (absorbs the retired TypeScript integration guide) |
 | `cleo-cant` (store slug, superseded) | Former protocol overview; its directive and routing rules are folded into Layer 1 above |

@@ -492,8 +492,8 @@ Option A "Testing strategy").
 ### 8.4 CI enforcement
 
 Post-migration, a `forge-ts` rule (see
-[`docs/specs/CORE-PACKAGE-SPEC.md`](./core-package.md) for forge-ts
-integration pattern) SHOULD fail the build if any `params?.\w+ as ` pattern
+[the CORE API agent guide](../reference/core-sdk.md) for the core
+API contract) SHOULD fail the build if any `params?.\w+ as ` pattern
 appears under `packages/cleo/src/dispatch/domains/`. This rule MUST land in
 the final Wave D task (T983 or a follow-up gate task) and gate regressions.
 
@@ -579,9 +579,8 @@ migrations ship:
 
 - [`docs/specs/CLEO-API-AUTHORITY.md`](./cleo-operation-constitution.md) — pointer
   document naming the Code SSoT files that this adapter bridges.
-- [`docs/specs/CORE-PACKAGE-SPEC.md`](./core-package.md) — style model
-  for this spec; defines the `@cleocode/core` contract the dispatch layer
-  consumes.
+- [CORE API agent guide](../reference/core-sdk.md) — the `@cleocode/core`
+  contract the dispatch layer consumes.
 - [`docs/specs/SCHEMA-AUTHORITY.md`](./database-architecture.md) — parallel
   authority pointer for the DB schema layer.
 - [`docs/specs/CLEO-OPERATION-CONSTITUTION.md`](./cleo-operation-constitution.md)
