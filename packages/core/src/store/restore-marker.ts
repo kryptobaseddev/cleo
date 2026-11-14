@@ -369,7 +369,7 @@ export function isStoreCorruption(error: Error): boolean {
 
 /** Read a validated rollback marker; malformed metadata grants no recovery authority. */
 export function readStoreRestoreIntentMarker(target: string): StoreRestoreIntentMarker | undefined {
-  const file = `${target}.restore-intent.json`;
+  const file = `${target}.restore.intent.json`;
   if (!existsSync(file)) return;
   try {
     const marker = JSON.parse(readFileSync(file, 'utf8')) as StoreRestoreIntentMarker;
@@ -414,10 +414,13 @@ export function readStoreRestoreIntentMarker(target: string): StoreRestoreIntent
   }
 }
 
-/** Atomically persist intent under the caller's existing first-open lock and restore marker. */
+/**
+ * Atomically persist intent under the caller's existing first-open lock and restore marker,
+ * outside the transient `.restore-*` staging namespace.
+ */
 export function writeStoreRestoreIntentMarker(marker: StoreRestoreIntentMarker): void {
-  const file = `${marker.target}.restore-intent.json`;
-  const temporary = `${marker.target}.restore-intent.${process.pid}.${Date.now()}.json`;
+  const file = `${marker.target}.restore.intent.json`;
+  const temporary = `${marker.target}.restore.intent.${process.pid}.${Date.now()}.json`;
   const fd = openSync(temporary, 'wx', 0o600);
   try {
     writeFileSync(fd, `${JSON.stringify(marker, null, 2)}\n`);

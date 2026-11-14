@@ -594,7 +594,7 @@ describe('copy-only whole-store repair', () => {
       expect.objectContaining({ source: newer, authoritative: false }),
     );
     expect(finding.detail).toContain('deliberate restore');
-    const intentPath = `${live}.restore-intent.json`;
+    const intentPath = `${live}.restore.intent.json`;
     const intentBytes = readFileSync(intentPath);
     const prepared = JSON.parse(intentBytes.toString('utf8'));
     prepared.state = 'prepared';
