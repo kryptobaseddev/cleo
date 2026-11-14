@@ -42,6 +42,7 @@ import {
   EvidenceParseError,
   GATE_EVIDENCE_REQUIREMENTS,
   type GateProfileName,
+  PROFILE_GATE_EVIDENCE,
   parseEvidenceString,
   validateEvidenceForGate,
 } from '@cleocode/contracts/evidence-atom-schema.js';
@@ -103,6 +104,7 @@ import {
 import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool-vacuity.js';
 import {
   classifyEvidenceTask,
+  dataReceiptRoute,
   declaredEvidenceKind,
   evidenceProfileOf,
   gateProfileOf,
@@ -4179,6 +4181,40 @@ function profileForAtoms(
 }
 
 /**
+ * Why a task's gate profile added nothing to `gate` for these atoms
+ * (T14557), or `null`: the profile's combinations apply only while every
+ * `files:` path is a document ({@link profileForAtoms}), and a refusal that
+ * listed only the base combinations hid that. Names the first non-document
+ * path and, for a data receipt, its supported route.
+ *
+ * @param taskId - The task being verified.
+ * @param gate - The refused gate.
+ * @param profile - The task's gate profile ({@link evidenceProfileOf}).
+ * @param atoms - The validated atoms.
+ * @returns The explanation, or `null` when the profile applied or adds nothing to `gate`.
+ * @task T14557
+ */
+export function droppedProfileNote(
+  taskId: string,
+  gate: VerificationGate,
+  profile: GateProfileName | null,
+  atoms: readonly EvidenceAtom[],
+): string | null {
+  if (profile === null || !PROFILE_GATE_EVIDENCE[profile][gate]?.length) return null;
+  if (profileForAtoms(profile, atoms) !== null) return null;
+  const path = atoms
+    .flatMap((atom) => (atom.kind === 'files' ? atom.files.map((f) => f.path) : []))
+    .find((p) => !isDocumentEvidencePath(p));
+  if (path === undefined) return null;
+  const route = dataReceiptRoute(taskId, `files:${path}`);
+  return (
+    `profile:${profile} adds its ${gate} combinations only while every files: path is a ` +
+    `document, and ${path} is not` +
+    (route === null ? '' : `. ${route}`)
+  );
+}
+
+/**
  * Check whether a set of validated atoms satisfies the minimum evidence
  * required for a given gate.
  *
@@ -4566,11 +4602,16 @@ export async function taskEvidenceKindReport(
   // T13474: a gate profile never covers code evidence, wherever it points.
   const profile = gateProfileOf(task);
   const codeAtom = profile === null ? null : implementedCodeEvidence(task);
-  if (profile !== null && codeAtom !== null)
+  if (profile !== null && codeAtom !== null) {
+    // T14557: a data receipt cited as a path is named with its supported route.
+    const route = dataReceiptRoute(task.id, codeAtom);
     return {
       kind: 'code',
-      reason: `profile:${profile} does not apply: implemented carries ${codeAtom}, and a code change owes its tests`,
+      reason:
+        `profile:${profile} does not apply: implemented carries ${codeAtom}, and a code change owes its tests` +
+        (route === null ? '' : `. ${route}`),
     };
+  }
   const code = (reason: string): TaskEvidenceKindReport =>
     undecided ? { kind: 'code' } : { kind: 'code', reason };
   const { resolveChangeSetRoot, taskOwnWorkPaths } = await import('./change-set.js');
@@ -4598,7 +4639,10 @@ export async function taskEvidenceKindReport(
   }
   if (undecided) return { kind: classifyEvidenceTask({ task, changedPaths: paths }) };
   const codePath = paths.find((path) => !isDocumentEvidencePath(path));
-  return codePath === undefined ? { kind } : code(`its work touches ${codePath}`);
+  if (codePath === undefined) return { kind };
+  // T14557: a data receipt is named with its supported route, for every kind.
+  const route = dataReceiptRoute(task.id, `files:${codePath}`);
+  return code(`its work touches ${codePath}${route === null ? '' : `. ${route}`}`);
 }
 
 /**

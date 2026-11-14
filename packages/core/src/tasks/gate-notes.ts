@@ -52,6 +52,66 @@ export function isDocumentEvidencePath(path: string): boolean {
 }
 
 /**
+ * A source directory: a path under one is code whatever its extension
+ * (T14065). Shared by the acceptance-prose rule and the data-receipt rule.
+ */
+export const SOURCE_DIR_PATH =
+  /^(?:\.\/)?(?:packages|src|scripts|crates|tests?|apps|lib|bin|\.github)\//;
+
+/** A data file extension: what a run, census or HTTP readback records (T14557). */
+const DATA_FILE_EXTENSION = /\.(?:json|jsonl|ndjson|csv|tsv|xml|log|parquet)$/i;
+
+/** Data-format names a toolchain reads as its configuration, so they are code (T14557). */
+const CONFIG_DATA_NAME =
+  /(?:^|\/)(?:package(?:-lock)?|tsconfig(?:\.[\w-]+)?|jsconfig|biome|deno|composer|[\w.-]+\.config|\.[\w.-]*rc)\.json$/i;
+
+/**
+ * Whether a path looks like a data receipt (T14557): a data file (`.json`,
+ * `.csv`, `.ndjson`, …) outside every source directory that is not a
+ * toolchain configuration name. Such a file is still not a document, so
+ * citing it in `files:` keeps the task code; the refusal instead names the
+ * supported route ({@link dataReceiptRoute}). Classification never relies on
+ * this guess.
+ *
+ * @param path - Repo-relative path.
+ * @returns True for a likely data receipt.
+ * @example
+ * ```ts
+ * isDataReceiptPath('.capture/run-12/manifest.private.json'); // true
+ * isDataReceiptPath('packages/core/package.json'); // false
+ * ```
+ * @task T14557
+ */
+export function isDataReceiptPath(path: string): boolean {
+  const p = path.replace(/^\.\//, '');
+  return DATA_FILE_EXTENSION.test(p) && !SOURCE_DIR_PATH.test(p) && !CONFIG_DATA_NAME.test(p);
+}
+
+/**
+ * The supported route for a data receipt cited as a `files:` path (T14557),
+ * or `null` when the atom is not a `files:` data receipt. A data file is not
+ * a document, so it reclassifies a gate-profiled or documentation task as
+ * code; attached through `cleo docs add`, its bytes are stored under
+ * `.cleo/attachments/`, a hash-checked document path that `cleo done --plan`
+ * cites in `implemented` for the task.
+ *
+ * @param taskId - The task the receipt proves.
+ * @param codeAtom - The code atom as {@link implementedCodeEvidence} names it.
+ * @returns The route, as a sentence, or `null`.
+ * @task T14557
+ */
+export function dataReceiptRoute(taskId: string, codeAtom: string): string | null {
+  const path = codeAtom.startsWith('files:') ? codeAtom.slice('files:'.length) : null;
+  if (path === null || !isDataReceiptPath(path)) return null;
+  return (
+    `If ${path} is a read-only data receipt, not code: attach it ` +
+    `(cleo docs add ${taskId} ${path} --type note), then record implemented again without it ` +
+    `from cleo done ${taskId} --plan, which cites its stored .cleo/attachments/ copy, ` +
+    'hash-checked evidence that keeps the task non-code'
+  );
+}
+
+/**
  * Gate profiles a task with no code change may declare, as a `profile:<name>`
  * label (T13474): operations work, a decision, a census or an audit. A
  * profiled task owes the non-code gates of a research task (`implemented`,

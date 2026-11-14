@@ -59,6 +59,7 @@ import { validatePipelineTransition } from './pipeline-stage.js';
 import { rankingAuditEntry, rankingSnapshot, resolveRankingActor } from './ranking-audit.js';
 import { prepareSignedSeverityAttestation } from './severity-attestation.js';
 import {
+  dataReceiptRoute,
   gateProfileLabelProblem,
   gateProfileOf,
   implementedCodeEvidence,
@@ -792,7 +793,12 @@ export async function updateTask(
         // @sync-invariant none:input-shape a gate profile over recorded code evidence is refused before the write
         throw new CleoError(
           ExitCode.VALIDATION_ERROR,
-          `profile:${profileAfter} cannot be declared on ${options.taskId}: its implemented evidence carries ${codeAtom}, and a code change owes its tests`,
+          `profile:${profileAfter} cannot be declared on ${options.taskId}: its implemented evidence carries ${codeAtom}, and a code change owes its tests` +
+            // T14557: a data receipt cited as a path is named with its supported route.
+            [dataReceiptRoute(options.taskId, codeAtom)]
+              .filter((route) => route !== null)
+              .map((route) => `. ${route}`)
+              .join(''),
           {
             fix: `Keep ${options.taskId} a code task and record testsPassed/qaPassed, or re-record implemented without code evidence first`,
             details: { field: 'labels', profile: profileAfter, codeEvidence: codeAtom },

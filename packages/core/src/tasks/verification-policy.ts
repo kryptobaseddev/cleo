@@ -13,17 +13,24 @@
 import type { Task, VerificationGate } from '@cleocode/contracts';
 import type { GateProfileName } from '@cleocode/contracts/evidence-atom-schema.js';
 import { getRawConfigValue, loadConfig } from '../config.js';
-import { gateProfileOf, isDocumentArtifact, isDocumentEvidencePath } from './gate-notes.js';
+import {
+  gateProfileOf,
+  isDocumentArtifact,
+  isDocumentEvidencePath,
+  SOURCE_DIR_PATH,
+} from './gate-notes.js';
 
 // T13474: the profile and document-path rules live in gate-notes.ts so the
 // task view (`cleo show`) reads them without loading config (gate 39).
 export {
+  dataReceiptRoute,
   GATE_PROFILE_LABEL_PREFIX,
   GATE_PROFILES,
   type GateProfile,
   gateProfileLabelProblem,
   gateProfileOf,
   implementedCodeEvidence,
+  isDataReceiptPath,
   isDocumentArtifact,
   isDocumentEvidencePath,
 } from './gate-notes.js';
@@ -176,9 +183,6 @@ export function missingRequiredGates(
 const AC_CODE_EXTENSION =
   /\.(?:[cm]?[jt]sx?|json[c5]?|toml|ya?ml|sql|sh|rs|py|go|rb|java|kt|swift|c|h|cc|cpp|css|scss|html|svelte|vue|txt|lock|node|wasm)$/i;
 
-/** A source directory: a path under one is code whatever its extension (T14065). */
-const AC_CODE_DIR = /^(?:\.\/)?(?:packages|src|scripts|crates|tests?|apps|lib|bin|\.github)\//;
-
 /**
  * The path-like tokens of a task's acceptance criteria, sorted into documents
  * and code (T14065). A token is a whitespace-separated word stripped of
@@ -213,7 +217,7 @@ function acceptancePathTokens(
     for (const word of item.split(/\s+/)) {
       const token = word.replace(/^[("'`[{<]+|[)"'`\]}>,.;:!?]+$/g, '');
       if (!token || token.includes('://')) continue;
-      if (isDocumentArtifact(token) || AC_CODE_EXTENSION.test(token) || AC_CODE_DIR.test(token))
+      if (isDocumentArtifact(token) || AC_CODE_EXTENSION.test(token) || SOURCE_DIR_PATH.test(token))
         found.push({ token, criterion });
     }
   }
