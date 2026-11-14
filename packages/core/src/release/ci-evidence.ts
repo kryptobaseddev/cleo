@@ -62,6 +62,7 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
+import type { CiChecksConfig, CiJobRequirements } from '@cleocode/contracts/project-context.js';
 import { isGitWorkTree } from '../git/work-tree.js';
 import type { ViewComponentPr } from '../tasks/component-pr.js';
 import {
@@ -82,6 +83,8 @@ import {
   resolvePrEvidenceAtom,
   resolveRequiredWorkflowsDetailed,
 } from './pr-evidence.js';
+
+export type { CiChecksConfig } from '@cleocode/contracts/project-context.js';
 
 /** One check on a commit: a job (check run) or a whole workflow run. */
 export interface CommitCheck {
@@ -452,8 +455,17 @@ export function readCiChecks(projectRoot: string): CiChecksConfig {
     typeof jobs === 'object' && jobs !== null
       ? (jobs as { tests?: unknown; qa?: unknown })
       : undefined;
-  const jobTests = list(jobLists?.tests);
-  const jobQa = list(jobLists?.qa);
+  const jobList = (value: unknown): CiJobRequirements | undefined => {
+    const globs = list(value);
+    if (globs) return globs;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+    return {
+      pullRequest: list('pullRequest' in value ? value.pullRequest : undefined) ?? [],
+      push: list('push' in value ? value.push : undefined) ?? [],
+    };
+  };
+  const jobTests = jobList(jobLists?.tests);
+  const jobQa = jobList(jobLists?.qa);
   return {
     ...(list(tests) ? { tests: list(tests) } : {}),
     ...(list(qa) ? { qa: list(qa) } : {}),
@@ -461,21 +473,6 @@ export function readCiChecks(projectRoot: string): CiChecksConfig {
       ? { jobs: { ...(jobTests ? { tests: jobTests } : {}), ...(jobQa ? { qa: jobQa } : {}) } }
       : {}),
   };
-}
-
-/** `evidence.ciChecks` as read from project context (T12634). */
-export interface CiChecksConfig {
-  /** Required checks attesting testsPassed. */
-  tests?: string[];
-  /** Required checks attesting qaPassed. */
-  qa?: string[];
-  /**
-   * Job-name globs (`*` wildcard) that must each match at least one job run by
-   * the pinned workflows of that gate's checks, all `success`, before a `code`
-   * task's gate is attested — an aggregate that counts skipped jobs as a pass
-   * is not enough.
-   */
-  jobs?: { tests?: string[]; qa?: string[] };
 }
 
 /**
@@ -1778,7 +1775,8 @@ function gateJobSpecs(
 ): Array<{ globs: readonly string[]; scope: JobScope }> {
   const jobs = readCiChecks(storeRoot).jobs;
   return gateLists.flatMap((g) => {
-    const globs = jobs?.[g.key];
+    const configured = jobs?.[g.key];
+    const globs = Array.isArray(configured) ? configured : configured?.push;
     const workflows = (g.list ?? []).flatMap((n) =>
       pins[n]?.workflow ? [pins[n]!.workflow!] : [],
     );
@@ -3342,8 +3340,17 @@ export async function resolveCiEvidenceAtom(
       ? head
       : undefined;
   let checks = fetched.checks;
-  if (treeEqualHead && treeEqualHead !== pr.mergeCommitSha) {
-    const onHead = await fetchChecks(treeEqualHead, cwd);
+  const eventJobKeys = gateLists.flatMap((g) => {
+    const jobs = ciChecks.jobs?.[g.key];
+    return jobs && !Array.isArray(jobs) ? [`evidence.ciChecks.jobs.${g.key}`] : [];
+  });
+  if (
+    !mainOnly &&
+    head &&
+    head !== pr.mergeCommitSha &&
+    (treeEqualHead || eventJobKeys.length > 0)
+  ) {
+    const onHead = await fetchChecks(head, cwd);
     if (onHead.ok) checks = [...checks, ...onHead.checks];
   }
 
@@ -3567,7 +3574,10 @@ export async function resolveCiEvidenceAtom(
       reason:
         `${lead}${next}\n  Required checks (source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
         (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : '') +
-        (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : ''),
+        (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : '') +
+        (eventJobKeys.length
+          ? `\n  Check the per-event job requirements: ${eventJobKeys.map((key) => `${key}.pullRequest and ${key}.push`).join('; ')}.`
+          : ''),
     };
   }
   // Round 2 (skipped tests): the aggregate counts skipped jobs as a pass. For a
@@ -3585,14 +3595,18 @@ export async function resolveCiEvidenceAtom(
   let mergeNonTest: NonTestFailuresResult | undefined;
   if (isCode) {
     for (const g of gateLists) {
-      const globs = readCiChecks(roots.storeRoot).jobs?.[g.key];
-      if (!globs || globs.length === 0) {
+      const configured = ciChecks.jobs?.[g.key];
+      const byEvent = configured && !Array.isArray(configured) ? configured : undefined;
+      const globs = Array.isArray(configured) ? configured : byEvent?.push;
+      const configKey = `evidence.ciChecks.jobs.${g.key}`;
+      if (!globs?.length || (byEvent && !mainOnly && !byEvent.pullRequest.length)) {
         return {
           ok: false,
           codeName: 'E_EVIDENCE_INSUFFICIENT',
           reason:
             `ci:${prNumber} cannot attest ${g.gate} for code task ${context.task.id}: set ` +
-            `evidence.ciChecks.jobs.${g.key} to the job names that must run (e.g. "Unit Tests*").`,
+            `${configKey}${byEvent ? (!globs?.length ? '.push' : '.pullRequest') : ''} to the job names that must run (e.g. "Unit Tests*"). ` +
+            `When PR and main jobs differ, set ${configKey}.pullRequest and ${configKey}.push separately.`,
         };
       }
       const scopeWorkflows = (g.list ?? []).flatMap((n) =>
@@ -3607,7 +3621,13 @@ export async function resolveCiEvidenceAtom(
         };
       }
       const scope = { ...(app !== undefined ? { app } : {}), workflows: scopeWorkflows };
-      let judgedJobs = evaluateJobs(globs, checks, pr.mergeCommitSha, scope);
+      let judgedJobs = evaluateJobs(
+        globs,
+        checks,
+        pr.mergeCommitSha,
+        scope,
+        byEvent ? 'push' : undefined,
+      );
       if (!judgedJobs.ok) {
         // T13809: a job red only on the quarantine budget ran every test and
         // they all passed; for this gate it ran and succeeded.
@@ -3624,19 +3644,25 @@ export async function resolveCiEvidenceAtom(
         if (mergeNonTest.ok) {
           const passed = new Set(mergeNonTest.jobs.map((j) => j.mergeRunId));
           const asRun = checks.map((c) => (passed.has(c.id) ? { ...c, conclusion: 'success' } : c));
-          const onMerge = evaluateJobs(globs, asRun, pr.mergeCommitSha, scope);
+          const onMerge = evaluateJobs(
+            globs,
+            asRun,
+            pr.mergeCommitSha,
+            scope,
+            byEvent ? 'push' : undefined,
+          );
           if (onMerge.ok) judgedJobs = onMerge;
         }
       }
-      if (!judgedJobs.ok && treeEqualHead && !mainOnly) {
+      if (!judgedJobs.ok && treeEqualHead && !mainOnly && !byEvent) {
         const onHead = evaluateJobs(globs, checks, treeEqualHead, scope, 'pull_request');
         if (onHead.ok) judgedJobs = onHead;
       }
       if (!judgedJobs.ok && descendant) {
         // T12742: the stand-in's jobs, and the PR head's own pull_request jobs.
         const onDescendant = evaluateJobs(globs, checks, descendant.sha, scope, 'push');
-        if (!descendant.prHeadSha) {
-          // T13174: main-only — the PR's own jobs are not consulted.
+        if (byEvent || !descendant.prHeadSha) {
+          // Per-event head jobs are checked below; main-only never consults them.
           if (onDescendant.ok) judgedJobs = onDescendant;
         } else {
           const onPrHead = evaluateJobs(globs, checks, descendant.prHeadSha, scope, 'pull_request');
@@ -3651,7 +3677,7 @@ export async function resolveCiEvidenceAtom(
         const skip = evaluateFilterSkippedJobs(
           globs,
           pr.changedPaths,
-          checks,
+          byEvent ? checks.filter((c) => c.event === 'push') : checks,
           descendant?.sha ?? pr.mergeCommitSha,
           scope,
         );
@@ -3660,6 +3686,22 @@ export async function resolveCiEvidenceAtom(
           filterSkipped[g.gate] = skip.skipped;
         } else skipNote = `\n  A filter skip does not stand in: ${skip.reason}`;
       }
+      let failedKey = byEvent ? `${configKey}.push` : configKey;
+      if (byEvent && !mainOnly) {
+        const onPrHead = evaluateJobs(
+          byEvent.pullRequest,
+          checks,
+          head ?? '',
+          scope,
+          'pull_request',
+        );
+        if (!onPrHead.ok) {
+          judgedJobs = onPrHead;
+          failedKey = `${configKey}.pullRequest`;
+        } else if (judgedJobs.ok) {
+          judgedJobs = { ok: true, jobs: [...onPrHead.jobs, ...judgedJobs.jobs] };
+        }
+      }
       if (!judgedJobs.ok) {
         return {
           ok: false,
@@ -3667,7 +3709,11 @@ export async function resolveCiEvidenceAtom(
           reason:
             `${g.gate} for code task ${context.task.id} needs its jobs to have run on PR #${prNumber}:\n  - ` +
             judgedJobs.reasons.join('\n  - ') +
-            skipNote,
+            skipNote +
+            `\n  Check ${failedKey}.` +
+            (!byEvent
+              ? ` When PR and main jobs differ, set ${configKey}.pullRequest and ${configKey}.push separately.`
+              : ''),
         };
       }
       jobsByGate[g.gate] = judgedJobs.jobs;
