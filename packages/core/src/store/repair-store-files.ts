@@ -66,16 +66,33 @@ function linuxLockIdentity(file: string): string {
 
 /** A process can expose its fd directory while denying inspection of individual descriptors. */
 function skipInaccessibleProcess(pid: string, error: Error, diagnostics: string[]): boolean {
+  if (!('code' in error) || (error.code !== 'EACCES' && error.code !== 'EPERM')) return false;
+  let comm = '';
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // comm can contain spaces and parentheses; state follows its final ')'.
+    if (
+      stat
+        .slice(stat.lastIndexOf(')') + 1)
+        .trimStart()
+        .startsWith('Z ')
+    )
+      return true;
+    comm = readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
+  } catch (probeError) {
+    if (probeError instanceof Error && 'code' in probeError && probeError.code === 'ENOENT')
+      return true;
+  }
   if (
     Number(pid) === process.pid ||
-    !('code' in error) ||
-    (error.code !== 'EACCES' && error.code !== 'EPERM')
+    !comm ||
+    /^(?:node(?:js)?|cleo|bun|deno|sqlite3?)(?:$|[ .-])/i.test(comm)
   )
-    return false;
-  const comm = readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
-  if (!comm || /^(?:node(?:js)?|cleo|bun|deno|sqlite3?)(?:$|[ .-])/i.test(comm))
-    // @sync-invariant none:local-only an uninspectable possible store holder excludes repair
-    throw new Error(`Cannot inspect possible store holder pid ${pid} (${comm || 'unnamed'})`);
+    // @sync-invariant none:local-only unknown local quiescence must resolve before publication
+    throw new StoreInspectionPending(
+      Number(pid),
+      `Cannot inspect possible store holder pid ${pid} (${comm || 'unnamed'})`,
+    );
   const message = `Skipped inaccessible descriptors for non-store process pid ${pid} (${comm})`;
   if (!diagnostics.includes(message)) diagnostics.push(message);
   return true;
@@ -91,10 +108,20 @@ class StoreHolder extends Error {
   }
 }
 
+/** An unreadable process may be exiting; its handles must be probed again before repair. */
+class StoreInspectionPending extends Error {
+  constructor(
+    readonly pid: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 /**
  * Prove quiescence without SQLite-opening the damaged file. Wait at most 15 seconds
- * for identifiable CLEO processes to finish teardown, rechecking every handle and lock.
- * Persistent holders return E_STORE_IN_USE with their commands and a shutdown fix.
+ * for CLEO teardown or unreadable processes to resolve, rechecking every handle and lock.
+ * Persistent holders or unknown inspections return E_STORE_IN_USE with a shutdown fix.
  * The first-open lock and restore marker must remain held throughout the wait.
  */
 export async function assertRepairQuiescent(target: string, diagnostics: string[]): Promise<void> {
@@ -106,10 +133,12 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
       if (waited) diagnostics.push('CLEO store holders exited during the bounded teardown wait');
       return;
     } catch (error) {
-      if (!(error instanceof StoreHolder)) throw error;
+      if (!(error instanceof StoreHolder) && !(error instanceof StoreInspectionPending))
+        throw error;
       const { readProcessArgs } = await import('../sessions/terminal-identity.js');
       const { redactCommandLine } = await import('../resources/run-admission.js');
-      const holders = [...new Set(error.pids)].map((pid) => ({
+      const pids = error instanceof StoreInspectionPending ? [error.pid] : error.pids;
+      const holders = [...new Set(pids)].map((pid) => ({
         pid,
         command: readProcessArgs(pid),
       }));
@@ -125,7 +154,10 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
       const exiting =
         holders.length > 0 &&
         holders.every(({ command }) => command === null || command === '<defunct>');
-      if ((cleoOnly || exiting) && Date.now() < deadline) {
+      if (
+        (error instanceof StoreInspectionPending || cleoOnly || exiting) &&
+        Date.now() < deadline
+      ) {
         waited = true;
         await setTimeout(Math.min(200, Math.max(1, deadline - Date.now())));
         continue;
@@ -136,7 +168,7 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
             `pid ${pid} (${command === null ? 'command unavailable' : redactCommandLine(command)})`,
         )
         .join(', ');
-      // @sync-invariant none:local-only a proven local store holder prevents publication
+      // @sync-invariant none:local-only unproved local quiescence prevents publication
       throw new CleoError(
         ExitCode.LOCK_TIMEOUT,
         `E_STORE_IN_USE: ${error.message}${who ? `; ${who}` : ''}`,
@@ -211,7 +243,10 @@ async function checkRepairQuiescent(target: string, diagnostics: string[]): Prom
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
         if (error instanceof Error && skipInaccessibleProcess(pid, error, diagnostics)) continue;
         // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
-        throw new Error(`Cannot inspect open store handles for pid ${pid}`);
+        throw new StoreInspectionPending(
+          Number(pid),
+          `Cannot inspect open store handles for pid ${pid}`,
+        );
       }
       for (const descriptor of descriptors) {
         try {
@@ -223,7 +258,11 @@ async function checkRepairQuiescent(target: string, diagnostics: string[]): Prom
           if (error instanceof StoreHolder) throw error;
           if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
           if (error instanceof Error && skipInaccessibleProcess(pid, error, diagnostics)) break;
-          throw error;
+          // @sync-invariant none:local-only an unreadable descriptor prevents proving local quiescence
+          throw new StoreInspectionPending(
+            Number(pid),
+            `Cannot inspect open store handles for pid ${pid}`,
+          );
         }
       }
     }

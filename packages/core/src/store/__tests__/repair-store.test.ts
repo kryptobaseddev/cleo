@@ -41,13 +41,23 @@ const proc = vi.hoisted(() => ({
   code: 'EACCES',
   statPath: '',
   stage: 'directory',
+  state: 'S',
+  exitAfterProbe: false,
+  scans: 0,
 }));
+vi.mock('node:timers/promises', async (original) => {
+  const timers = await original<typeof import('node:timers/promises')>();
+  return { ...timers, setTimeout: vi.fn(timers.setTimeout) };
+});
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
   return {
     ...fs,
     readdirSync: (...args: Parameters<typeof fs.readdirSync>) => {
-      if (proc.enabled && args[0] === '/proc') return proc.stage === 'quiescent' ? [] : ['424242'];
+      if (proc.enabled && args[0] === '/proc')
+        return proc.stage === 'quiescent' || (proc.exitAfterProbe && proc.scans++ > 0)
+          ? []
+          : ['424242'];
       if (proc.enabled && args[0] === '/proc/424242/fd') {
         if (proc.stage === 'descriptor') return ['0'];
         throw Object.assign(new Error('injected descriptor permission refusal'), {
@@ -67,6 +77,11 @@ vi.mock('node:fs', async (original) => {
     },
     readFileSync: (...args: Parameters<typeof fs.readFileSync>) => {
       if (proc.enabled && args[0] === '/proc/locks') return '';
+      if (proc.enabled && args[0] === '/proc/424242/stat') {
+        if (proc.state === 'gone')
+          throw Object.assign(new Error('process exited during inspection'), { code: 'ENOENT' });
+        return `424242 (${proc.comm}) ${proc.state} 1 0 0`;
+      }
       if (proc.enabled && args[0] === '/proc/424242/comm') return proc.comm;
       return fs.readFileSync(...args);
     },
@@ -114,6 +129,9 @@ afterAll(() => {
   rmSync(loaderRoot, { recursive: true, force: true });
 });
 beforeEach(async () => {
+  proc.state = 'S';
+  proc.exitAfterProbe = false;
+  proc.scans = 0;
   env = await createTestDb();
   live = join(env.cleoDir, 'cleo.db');
   const db = getNativeTasksDb(env.tempDir);
@@ -135,6 +153,7 @@ beforeEach(async () => {
   resetDbState();
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   proc.enabled = false;
   Object.defineProperty(process, 'platform', { value: nativePlatform });
   resetDbState();
@@ -181,14 +200,62 @@ it.each([
   proc.stage = stage;
   proc.statPath = env.tempDir;
   Object.defineProperty(process, 'platform', { value: 'linux' });
+  const clock = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(15_000);
   try {
     await expect(assertRepairQuiescent(live, [])).rejects.toThrow(
       'possible store holder pid 424242 (node)',
     );
   } finally {
+    clock.mockRestore();
     proc.enabled = false;
     Object.defineProperty(process, 'platform', platform);
   }
+});
+
+it.each([
+  'directory',
+  'descriptor',
+])('rechecks an unreadable exiting Node process %s before proving quiescence', async (stage) => {
+  proc.enabled = true;
+  proc.comm = 'node-MainThread';
+  proc.code = 'EACCES';
+  proc.stage = stage;
+  proc.statPath = env.tempDir;
+  proc.exitAfterProbe = true;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  const before = repairFileHash(live);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+  const pause = vi
+    .spyOn(await import('node:timers/promises'), 'setTimeout')
+    .mockResolvedValue(undefined);
+  const command = vi
+    .spyOn(await import('../../sessions/terminal-identity.js'), 'readProcessArgs')
+    .mockReturnValue('node-MainThread');
+  const diagnostics: string[] = [];
+  try {
+    await assertRepairQuiescent(live, diagnostics);
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(proc.scans).toBe(2);
+    expect(diagnostics).toContain('CLEO store holders exited during the bounded teardown wait');
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    command.mockRestore();
+    pause.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+it.each(['Z', 'gone'])('skips an exited Node process with state %s', async (state) => {
+  proc.enabled = true;
+  proc.comm = 'node (worker)';
+  proc.code = 'EACCES';
+  proc.stage = 'directory';
+  proc.state = state;
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  const before = repairFileHash(live);
+  await assertRepairQuiescent(live, []);
+  expect(repairFileHash(live)).toBe(before);
 });
 
 it('refuses a registered CLEO writer lock before copying the store', async () => {
@@ -235,6 +302,50 @@ it('refuses live foreign writer leases read from a private copy', async () => {
     expect(repairFileHash(live)).toBe(before);
   } finally {
     command.mockRestore();
+  }
+});
+
+it('refuses a still-live lease for a dead holder at the teardown deadline', async () => {
+  proc.enabled = true;
+  proc.stage = 'quiescent';
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  const db = new DatabaseSync(live);
+  try {
+    db.prepare(`INSERT INTO _writer_leases
+      (scope,lane,holder_id,holder_pid,epoch,acquired_at,heartbeat_at,ttl_ms,active)
+      VALUES ('project','bulk','repair-dead-holder',424242,1,?,?,60000,1)`).run(
+      Date.now(),
+      Date.now(),
+    );
+  } finally {
+    db.close();
+  }
+  const before = repairFileHash(live);
+  const started = Date.now();
+  let now = started;
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const pause = vi
+    .spyOn(await import('node:timers/promises'), 'setTimeout')
+    .mockImplementation(async () => {
+      now += 5_000;
+    });
+  const command = vi
+    .spyOn(await import('../../sessions/terminal-identity.js'), 'readProcessArgs')
+    .mockReturnValue(null);
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toMatchObject({
+      codeName: 'E_STORE_IN_USE',
+      message: expect.stringContaining('pid 424242 (bulk)'),
+      fix: expect.stringContaining('normal shutdown'),
+    });
+    expect(now - started).toBe(15_000);
+    expect(pause).toHaveBeenCalledTimes(3);
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    command.mockRestore();
+    pause.mockRestore();
+    clock.mockRestore();
   }
 });
 
