@@ -7,7 +7,7 @@
 **Superseded-By**: none
 **Scope**: `packages/core/src/store/migration-manager.ts`, `packages/core/migrations/`, `drizzle/*.config.ts`, `scripts/`
 
-> Note: a separate `.cleo/adrs/ADR-054-manifest-unification.md` (T1103 / T1093) also
+> Note: a separate `docs/adr/adr-054-manifest-unification.md` (T1103 / T1093) also
 > bears the number 54. The two live in separate directories and cover unrelated concerns:
 > the manifest unification is in `.cleo/adrs/`; the migration system governance lives here
 > under `docs/adr/`. Future ADRs continue under `docs/adr/`.

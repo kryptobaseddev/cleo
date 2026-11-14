@@ -126,7 +126,7 @@ stable.
 
 ## Related
 
-- [ADR-064](./../.cleo/adrs/ADR-064-caamp-adapters-boundary.md) — SDK Tools taxonomy (CAAMP adapters boundary)
+- [ADR-064](./../docs/adr/adr-064-caamp-adapters-boundary.md) — SDK Tools taxonomy (CAAMP adapters boundary)
 - [T1768](cleo show T1768) — Epic: Define Core SDK Tools surface
 - [T1815](cleo show T1815) — Initial SDK Tools barrel creation
 - [T1817](cleo show T1817) — WorktreeIsolation SDK Tool promotion

@@ -1,7 +1,7 @@
 ---
 name: ct-research-agent
 description: Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase analysis. Synthesizes findings into actionable recommendations with proper citation and task traceability. Use when conducting research, investigating best practices, gathering technical information, or analyzing existing implementations. Triggers on research tasks, investigation needs, or information discovery requests.
-version: 2.0.5
+version: 2.1.0
 protocol: research
 adrRefs:
   - ADR-023
@@ -17,14 +17,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.0.5
+  version: 2.1.0
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/research.cant
     - packages/core/src/validation/protocols/protocols-markdown/research.md
   loomStage: research
-  lastReviewed: 2026-11-05
+  lastReviewed: 2026-11-14
   stability: stable
 ---
 
@@ -241,8 +241,8 @@ If research cannot proceed (access denied, topic too broad, etc.):
 
 This skill binds to the **research** LOOM lifecycle stage. Governing ADRs:
 
-- [ADR-023 — protocol validation dispatch](../../../../.cleo/adrs/ADR-023-protocol-validation-dispatch.md) — defines how research output is validated before downstream stages consume it.
-- [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Orchestrator → Phase Lead → Worker tiers; research runs as a leaf Worker.
+- [ADR-023 — protocol validation dispatch](../../../../docs/adr/adr-023-protocol-validation-dispatch.md) — defines how research output is validated before downstream stages consume it.
+- [ADR-070 — three-tier orchestration](../../../../docs/adr/adr-070-three-tier-orchestration.md) — defines the Orchestrator → Phase Lead → Worker tiers; research runs as a leaf Worker.
 
 LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).
 

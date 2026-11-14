@@ -415,8 +415,8 @@ The `Amended By` header in ADR-006 is updated to include ADR-011.
 
 ## 12. References
 
-- `.cleo/adrs/ADR-006-canonical-sqlite-storage.md` -- Storage architecture (amended by this ADR)
-- `.cleo/adrs/ADR-008-CLEO-CANONICAL-ARCHITECTURE.md` -- Shared-core architecture
+- `docs/adr/adr-006-canonical-sqlite-storage.md` -- Storage architecture (amended by this ADR)
+- `docs/adr/adr-008-cleo-canonical-architecture.md` -- Shared-core architecture
 - `src/core/config.ts` -- Configuration resolution cascade (defaults, env map, load/get/set)
 - `src/core/init.ts` -- File creation logic (`initCoreFiles`, `initProjectInfo`, `initProjectDetect`)
 - `src/core/upgrade.ts` -- Staleness refresh logic for `project-context.json`
@@ -493,4 +493,4 @@ AGENTS.md (project-level)
 The following documentation files were updated as part of this amendment:
 - `docs/specs/MCP-AGENT-INTERACTION-SPEC.md` - Updated injection evolution section
 - `docs/mintlify/developer/specifications/PRIME-ARCHITECTURE.mdx` - Fixed broken link
-- `.cleo/adrs/ADR-011-project-configuration-architecture.md` - This amendment
+- `docs/adr/adr-011-project-configuration-architecture.md` - This amendment

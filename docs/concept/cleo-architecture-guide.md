@@ -180,7 +180,7 @@ Verbs:      add show list find update delete archive restore complete start stop
 
 ## Canonical Artifact Paths
 
-Artifacts produced during work follow a standardized path structure. See [ADR-045](../../.cleo/adrs/ADR-045-cleo-scaffolding-ssot.md) and [cleo-scaffolding-ssot-spec.md](../spec/cleo-scaffolding-ssot.md) for full details.
+Artifacts produced during work follow a standardized path structure. See [ADR-045](../../docs/adr/adr-045-cleo-scaffolding-ssot.md) and [cleo-scaffolding-ssot-spec.md](../spec/cleo-scaffolding-ssot.md) for full details.
 
 ### RCASD Lifecycle Stage Artifacts
 
@@ -211,7 +211,7 @@ ADRs are stored at:
 .cleo/adrs/ADR-NNN-short-description.md
 ```
 
-Example: `.cleo/adrs/ADR-045-cleo-scaffolding-ssot.md`
+Example: `docs/adr/adr-045-cleo-scaffolding-ssot.md`
 
 ADRs are managed via `cleo adr` commands and mirrored to the `architecture_decisions` database table.
 

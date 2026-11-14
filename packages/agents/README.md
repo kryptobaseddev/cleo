@@ -7,7 +7,7 @@ CLEO ecosystem.
 
 ## Scope (ADR-068 — v2026.5.30 and later)
 
-Per [ADR-068](.cleo/adrs/ADR-068-canonical-agent-system.md), this package ships
+Per [ADR-068](docs/adr/adr-068-canonical-agent-system.md), this package ships
 exactly three surfaces:
 
 1. **`cleo-subagent.cant`** — the universal protocol base every agent extends.
@@ -183,7 +183,7 @@ unreachable, indicating a corrupt installation.
 ## See Also
 
 - [ADR-055 — Agents Architecture + Meta-Agents](../../docs/adr/ADR-055-agents-architecture-and-meta-agents.md) (partially superseded by ADR-068)
-- [ADR-068 — Canonical Agent System](.cleo/adrs/ADR-068-canonical-agent-system.md) (active canonical reference)
+- [ADR-068 — Canonical Agent System](docs/adr/adr-068-canonical-agent-system.md) (active canonical reference)
 - [Package boundary contract](../../AGENTS.md) — canonical layering for every CLEO package
 
 ## License

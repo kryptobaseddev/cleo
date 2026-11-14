@@ -6,7 +6,7 @@
 **Commit**: `f3dcceb02`
 **Scope**: `packages/playbooks`, `packages/contracts/src/playbook.ts`
 
-> Note: an earlier ADR at `.cleo/adrs/ADR-053-project-agnostic-release-pipeline.md`
+> Note: an earlier ADR at `docs/adr/adr-053-project-agnostic-release-pipeline.md`
 > also bears the number 53. The two live in separate directories and cover
 > unrelated concerns (release pipeline vs. playbook runtime). The
 > `.cleo/adrs/` tree is the historical in-repo log; `docs/adr/` is the shipping

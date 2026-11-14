@@ -19,7 +19,7 @@
  * @epic T10277
  * @saga T10326
  * @see .cleo/adrs/ADR-083-saga-as-tasktype.md §2.5
- * @see .cleo/adrs/ADR-073-above-epic-naming.md §1.2 I5
+ * @see docs/adr/adr-073-above-epic-naming.md §1.2 I5
  * @see packages/core/migrations/drizzle-tasks/20260523213708_t10277-saga-tasktype/
  */
 

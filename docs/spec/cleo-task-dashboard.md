@@ -700,7 +700,7 @@ All steps SHIPPED in v2026.4.97.
 - `.cleo/agent-outputs/T910-docs-audit/http-endpoint-inventory.md`
 
 ### Related ADRs
-- `.cleo/adrs/ADR-051-programmatic-gate-integrity.md`
+- `docs/adr/adr-051-programmatic-gate-integrity.md`
 - `docs/adr/ADR-052-sdk-consolidation.md`
 - `docs/adr/ADR-053-playbook-runtime.md`
 

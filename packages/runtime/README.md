@@ -162,7 +162,7 @@ Pi extension and runs inside a Pi session, not the daemon. Operators
 who want profile-driven behaviour should start a Pi session and use
 `/cant:load <file>` followed by `/cant:run <file> <workflow>`.
 
-This boundary was set in [ADR-035 §D5](../../.cleo/adrs/ADR-035-pi-v2-v3-harness.md)
+This boundary was set in [ADR-035 §D5](../../docs/adr/adr-035-pi-v2-v3-harness.md)
 "single engine, cant-bridge.ts as canonical" — runtime stays simple
 and profile semantics live in one place.
 
@@ -180,7 +180,7 @@ poller and service lifecycle without hitting a real backend.
 - [`@cleocode/contracts`](../contracts) — Transport interface and message types
 - [`@cleocode/core`](../core) — agent registry, credential storage, message persistence
 - [`packages/cleo/src/cli/commands/agent.ts`](../cleo/src/cli/commands/agent.ts) — `cleo agent start` CLI entry that calls `createRuntime`
-- [`.cleo/adrs/ADR-035-pi-v2-v3-harness.md`](../../.cleo/adrs/ADR-035-pi-v2-v3-harness.md) — runtime/Pi boundary decisions
+- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md) — runtime/Pi boundary decisions
 
 ## License
 

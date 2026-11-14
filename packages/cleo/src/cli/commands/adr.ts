@@ -5,10 +5,10 @@
  * Core logic lives in src/core/adrs/.
  *
  * Commands:
- *   cleo adr validate              — validate frontmatter on all .cleo/adrs/*.md
+ *   cleo adr validate              — validate frontmatter on all ADRs in docs/adr/
  *   cleo adr list [--status]       — list ADRs with optional status filter
  *   cleo adr show <id>             — show single ADR by ID (e.g., ADR-017)
- *   cleo adr sync                  — sync .cleo/adrs/ into architecture_decisions DB
+ *   cleo adr sync                  — sync docs/adr/ into architecture_decisions DB
  *   cleo adr find <query>          — fuzzy search ADRs by title, summary, keywords, topics
  *
  * Dispatch equivalents:
@@ -26,11 +26,11 @@
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 
-/** cleo adr validate — validate frontmatter on all .cleo/adrs/*.md files */
+/** cleo adr validate — validate frontmatter on all ADRs in docs/adr/ */
 const validateCommand = defineCommand({
   meta: {
     name: 'validate',
-    description: 'Validate frontmatter on all .cleo/adrs/*.md files against ADR-017 schema',
+    description: 'Validate frontmatter on all ADRs in docs/adr/ against the ADR-017 schema',
   },
   async run() {
     await dispatchFromCli(
@@ -43,11 +43,11 @@ const validateCommand = defineCommand({
   },
 });
 
-/** cleo adr list — list ADRs from .cleo/adrs/ with optional filtering */
+/** cleo adr list — list ADRs from docs/adr/ with optional filtering */
 const listCommand = defineCommand({
   meta: {
     name: 'list',
-    description: 'List ADRs from .cleo/adrs/',
+    description: 'List ADRs from docs/adr/',
   },
   args: {
     status: {
@@ -97,11 +97,11 @@ const showCommand = defineCommand({
   },
 });
 
-/** cleo adr sync — sync .cleo/adrs/ markdown files into the DB */
+/** cleo adr sync — sync docs/adr/ markdown files into the DB */
 const syncCommand = defineCommand({
   meta: {
     name: 'sync',
-    description: 'Sync .cleo/adrs/ markdown files into the architecture_decisions DB table',
+    description: 'Sync docs/adr/ markdown files into the architecture_decisions DB table',
   },
   async run() {
     await dispatchFromCli(
@@ -165,7 +165,7 @@ const findCommand = defineCommand({
 export const adrCommand = defineCommand({
   meta: {
     name: 'adr',
-    description: 'Manage and validate Architecture Decision Records in .cleo/adrs/',
+    description: 'Manage and validate Architecture Decision Records in docs/adr/',
   },
   subCommands: {
     validate: validateCommand,

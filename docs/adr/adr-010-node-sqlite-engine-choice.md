@@ -125,8 +125,8 @@ This provides earlier detection of schema definition errors that previously only
 
 ## 8. References
 
-- `.cleo/adrs/ADR-006-canonical-sqlite-storage.md` -- canonical storage architecture (amended by this ADR)
-- `.cleo/adrs/ADR-012-drizzle-kit-migration-system.md` -- drizzle-kit migration system (fulfills Section 5.2/7.5 recommendations)
+- `docs/adr/adr-006-canonical-sqlite-storage.md` -- canonical storage architecture (amended by this ADR)
+- `docs/adr/adr-012-drizzle-kit-migration-system.md` -- drizzle-kit migration system (fulfills Section 5.2/7.5 recommendations)
 - `.cleo/adrs/archive/ADR-002-hybrid-storage-strategy.md` -- original sql.js selection (superseded by ADR-006)
 - `.cleo/agent-outputs/2026-02-23_T4820-adr006-compliance-review.md` -- compliance traceability checklist
 - `package.json` -- Node.js engines field (`>=24.0.0`), drizzle-orm `1.0.0-beta.18-7eb39f0`, drizzle-kit `1.0.0-beta.18-7eb39f0`

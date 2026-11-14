@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.13.0
+version: 2.14.0
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.13.0
+  version: 2.14.0
   tier: core
   install: harness
   covers:
@@ -29,7 +29,7 @@ metadata:
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-11-09
+  lastReviewed: 2026-11-14
   stability: stable
 ---
 
@@ -437,8 +437,8 @@ cleo session gc --max-age 1
 
 This skill binds to the **implementation** LOOM lifecycle stage. Governing ADRs:
 
-- [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Worker tier that ct-task-executor occupies.
-- [ADR-062 — worktree merge, not cherry-pick](../../../../.cleo/adrs/ADR-062-worktree-merge-not-cherry-pick.md) — defines the integration path that preserves the executor's commit SHAs end-to-end.
+- [ADR-070 — three-tier orchestration](../../../../docs/adr/adr-070-three-tier-orchestration.md) — defines the Worker tier that ct-task-executor occupies.
+- [ADR-062 — worktree merge, not cherry-pick](../../../../docs/adr/adr-062-worktree-merge-not-cherry-pick.md) — defines the integration path that preserves the executor's commit SHAs end-to-end.
 
 LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).
 

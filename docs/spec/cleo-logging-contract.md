@@ -276,8 +276,8 @@ The dispatch entry is authoritative. The `appendLog()` entry provides state diff
 
 ## 11. References
 
-- [ADR-019: Canonical Logging Architecture](.cleo/adrs/ADR-019-canonical-logging-architecture.md) -- original dual-write decision
-- [ADR-024: Multi-Store Canonical Logging Architecture](.cleo/adrs/ADR-024-multi-store-canonical-logging.md) -- extensions for CLI init, retention, correlation, and brain.db
+- [ADR-019: Canonical Logging Architecture](docs/adr/adr-019-canonical-logging-architecture.md) -- original dual-write decision
+- [ADR-024: Multi-Store Canonical Logging Architecture](docs/adr/adr-024-multi-store-canonical-logging.md) -- extensions for CLI init, retention, correlation, and brain.db
 - `packages/core/src/logger.ts` -- Pino logger factory (initLogger, getLogger, closeLogger)
 - `packages/core/src/audit-prune.ts` -- audit_log retention enforcement (pruneAuditLog)
 - `packages/core/src/project-info.ts` -- projectHash/projectId reader (getProjectInfo, getProjectInfoSync)

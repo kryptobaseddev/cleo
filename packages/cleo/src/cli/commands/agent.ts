@@ -17,7 +17,7 @@
  * the `cant-bridge.ts` extension (ADR-035 §D5).
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.4
- * @see .cleo/adrs/ADR-035-pi-v2-v3-harness.md §D5 + Addendum
+ * @see docs/adr/adr-035-pi-v2-v3-harness.md §D5 + Addendum
  * @task T178
  */
 
@@ -2168,7 +2168,7 @@ const doctorCommand = defineCommand({
  * command surface and daemon vs. Pi session architectural distinction.
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3.4
- * @see .cleo/adrs/ADR-035-pi-v2-v3-harness.md §D5
+ * @see docs/adr/adr-035-pi-v2-v3-harness.md §D5
  * @task T178
  */
 export const agentCommand = defineCommand({

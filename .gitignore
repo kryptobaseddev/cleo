@@ -25,7 +25,7 @@ dev/sandbox/
 # Recovery is provided by VACUUM INTO snapshots at .cleo/backups/sqlite/
 # (auto-rotated, 10 per DB, refreshed on every `cleo session end`) plus
 # on-demand full-4-file snapshots via `cleo backup add` / `cleo backup list`
-# / `cleo restore backup`. See .cleo/adrs/ADR-013 for full rationale.
+# / `cleo restore backup`. See docs/adr/adr-013-data-integrity-checkpoint-architecture.md for full rationale.
 .cleo/tasks.db
 .cleo/tasks.db-wal
 .cleo/tasks.db-shm

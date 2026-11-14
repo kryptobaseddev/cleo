@@ -277,7 +277,7 @@ function loadSlugIndex(repoRoot, cleoBin, allowUnavailable = false) {
 
 /**
  * Derive a canonical slug candidate from a markdown filename. Examples:
- *   `.cleo/adrs/ADR-085-cross-db-invariants.md` → `adr-085-cross-db-invariants`
+ *   `docs/adr/adr-085-cross-db-invariants.md` → `adr-085-cross-db-invariants`
  *   `.cleo/research/sg-arch-solid-master-plan.md` → `sg-arch-solid-master-plan`
  *
  * @param {string} filePath

@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.8.1
+  version: 3.9.0
   tier: on-demand
   install: harness
   covers:
@@ -17,7 +17,7 @@ metadata:
     - packages/core/src/release/cut.ts
     - packages/core/src/release/authorization.ts
   loomStage: release
-  lastReviewed: 2026-11-05
+  lastReviewed: 2026-11-14
   stability: stable
 ---
 
@@ -215,9 +215,9 @@ Consult the inventory whenever:
 
 This skill binds to the **release** LOOM lifecycle stage. Governing ADRs:
 
-- [ADR-053 — project-agnostic release pipeline](../../../../.cleo/adrs/ADR-053-project-agnostic-release-pipeline.md) — language-agnostic version bump → changelog → tag flow.
-- [ADR-063 — release pipeline](../../../../.cleo/adrs/ADR-063-release-pipeline.md) — original 12-step pipeline (historical; superseded by SPEC-T9345 §4).
-- [ADR-065 — PR-required release flow](../../../../.cleo/adrs/ADR-065-pr-required-release-flow.md) — direct pushes to `main` are prohibited.
+- [ADR-053 — project-agnostic release pipeline](../../../../docs/adr/adr-053-project-agnostic-release-pipeline.md) — language-agnostic version bump → changelog → tag flow.
+- [ADR-063 — release pipeline](../../../../docs/adr/adr-063-release-pipeline.md) — original 12-step pipeline (historical; superseded by SPEC-T9345 §4).
+- [ADR-065 — PR-required release flow](../../../../docs/adr/adr-065-pr-required-release-flow.md) — direct pushes to `main` are prohibited.
 
 Live verb matrix: [docs/reference/verb-matrix.md](../../../../docs/reference/verb-matrix.md) — the single source of truth for verb-to-state mapping.
 

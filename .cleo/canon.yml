@@ -73,7 +73,7 @@ kinds:
     publishMirror: docs/adr/           # human-reviewable copy via cleo docs publish
     rawMdAllowed: false                # raw fs writes to these dirs are CI-blocked
     rawMdPaths:
-      - .cleo/adrs/                    # legacy mirror (deprecated but tolerated until v2026.6.0)
+      - .cleo/adrs/                    # retired legacy mirror (T14108): ADRs publish to docs/adr/ only
   spec:
     canonicalHome: ssot
     publishMirror: docs/spec/

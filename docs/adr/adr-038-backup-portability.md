@@ -29,7 +29,7 @@ The mechanism has five structural gaps that prevent cross-machine portability (f
 4. **No bundle format** — individual `.db` files must be transferred separately; no single portable artifact carries all of them together.
 5. **No schema version record** — importing a snapshot from a newer cleo into an older installation can silently corrupt the `__drizzle_migrations` table.
 
-Source: `packages/core/src/store/sqlite-backup.ts` (VACUUM INTO pipeline), `.cleo/adrs/ADR-036-cleoos-database-topology.md` §Cross-Machine Portability.
+Source: `packages/core/src/store/sqlite-backup.ts` (VACUUM INTO pipeline), `docs/adr/adr-036-cleoos-database-topology.md` §Cross-Machine Portability.
 
 ### Dependency on ADR-037 (T310)
 

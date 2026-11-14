@@ -6,14 +6,14 @@ adrRefs:
   - ADR-053
   - ADR-070
 metadata:
-  version: 1.0.3
+  version: 1.1.0
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/architecture-decision.cant
     - packages/core/src/validation/protocols/protocols-markdown/architecture-decision.md
   loomStage: architecture_decision
-  lastReviewed: 2026-11-05
+  lastReviewed: 2026-11-14
   stability: stable
 ---
 
@@ -282,8 +282,8 @@ Exit code 0 = valid. Exit code 65 = `HANDOFF_REQUIRED`. Exit code 18 = `CASCADE_
 
 This skill binds to the **architecture_decision** LOOM lifecycle stage (underscored canonical form — `cleo lifecycle` source of truth). Governing ADRs:
 
-- [ADR-053 — playbook runtime](../../../../.cleo/adrs/ADR-053-playbook-runtime.md) — defines the lifecycle state machine; the ADR stage is one of its 10 nodes.
-- [ADR-070 — three-tier orchestration](../../../../.cleo/adrs/ADR-070-three-tier-orchestration.md) — defines the Orchestrator HITL gate that owns the `proposed → accepted` ADR transition.
+- [ADR-053 — playbook runtime](../../../../docs/adr/adr-053-playbook-runtime.md) — defines the lifecycle state machine; the ADR stage is one of its 10 nodes.
+- [ADR-070 — three-tier orchestration](../../../../docs/adr/adr-070-three-tier-orchestration.md) — defines the Orchestrator HITL gate that owns the `proposed → accepted` ADR transition.
 
 ### Naming Note (T9672)
 

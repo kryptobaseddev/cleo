@@ -36,7 +36,7 @@
  *
  * @task T9678
  * @epic T9572
- * @see .cleo/adrs/ADR-074-skills-telemetry-pr-diff-transport.md
+ * @see docs/adr/adr-074-skills-telemetry-pr-diff-transport.md
  * @see .github/workflows/skills-council.yml
  */
 

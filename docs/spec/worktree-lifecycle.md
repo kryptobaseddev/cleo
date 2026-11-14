@@ -667,15 +667,15 @@ specification MUST satisfy every MUST and MUST NOT.
 
 ## 11. Cross-References
 
-- **ADR-055** (`.cleo/adrs/ADR-055-agents-architecture-and-meta-agents.md`) —
+- **ADR-055** (`docs/adr/adr-055-agents-architecture-and-meta-agents.md`) —
   worktree-by-default agent isolation. Establishes the canonical XDG
   worktree location and the `E_WT_LOCATION_FORBIDDEN` guard.
-- **ADR-062** (`.cleo/adrs/ADR-062-worktree-merge-not-cherry-pick.md`) —
+- **ADR-062** (`docs/adr/adr-062-worktree-merge-not-cherry-pick.md`) —
   canonical `git merge --no-ff` integration strategy. Supersedes the
   cherry-pick guidance from T1118.
 - **ADR-076** — Canonical Docs SSoT. This document is routed via
   `cleo docs add --type spec --slug worktree-lifecycle-spec`.
-- **ADR-041** (`.cleo/adrs/ADR-041-worktree-handle-spawn-contract.md`) —
+- **ADR-041** (`docs/adr/adr-041-worktree-handle-spawn-contract.md`) —
   worktree protocol: agents never touch the primary directory.
 - **T9501** (`packages/core/src/release/engine-ops.ts`) — `runGitWithLockRetry`
   60-second timeout pattern that the worktree-lifecycle commands mirror.

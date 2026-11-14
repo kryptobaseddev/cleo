@@ -30,7 +30,7 @@
  *
  * Adding a new entry to the inventory is a charter amendment — update
  * `packages/contracts/src/db-inventory.json` AND
- * `.cleo/adrs/ADR-068-cleo-database-charter.md` in the same PR (gated by
+ * `docs/adr/adr-068-cleo-database-charter.md` in the same PR (gated by
  * `cleo check arch` Gate-4 SSoT-EXEMPT lint once T10282 ships its drift
  * check).
  *

@@ -6,7 +6,7 @@ description: >-
   "consensus workflow", "multi-agent decision", "create contribution",
   "contribution start", "contribution submit", "detect conflicts",
   "weighted consensus", "decision tracking", "conflict resolution".
-version: 1.0.3
+version: 1.1.0
 protocol: contribution
 adrRefs:
   - ADR-015
@@ -21,14 +21,14 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 1.0.3
+  version: 1.1.0
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/contribution.cant
     - packages/core/src/validation/protocols/protocols-markdown/contribution.md
   loomStage: contribution
-  lastReviewed: 2026-11-05
+  lastReviewed: 2026-11-14
   stability: stable
 ---
 
@@ -601,7 +601,7 @@ Until that ADR lands, contribution gates derive from ADR-015 (multi-contributor 
 
 This skill binds to the **contribution** LOOM lifecycle stage (the final stage of the RCASD-IVTR+C pipeline). Governing ADRs:
 
-- [ADR-015 — multi-contributor architecture](../../../../.cleo/adrs/ADR-015-multi-contributor-architecture.md) — defines the multi-contributor consensus mechanics that this stage formalizes for an Epic's downstream return path.
-- [ADR-053 — playbook runtime](../../../../.cleo/adrs/ADR-053-playbook-runtime.md) — defines the lifecycle state machine; contribution is its terminal node.
+- [ADR-015 — multi-contributor architecture](../../../../docs/adr/adr-015-multi-contributor-architecture.md) — defines the multi-contributor consensus mechanics that this stage formalizes for an Epic's downstream return path.
+- [ADR-053 — playbook runtime](../../../../docs/adr/adr-053-playbook-runtime.md) — defines the lifecycle state machine; contribution is its terminal node.
 
 LOOM coverage matrix: [docs/reference/loom-coverage-matrix.md](../../../../docs/reference/loom-coverage-matrix.md).

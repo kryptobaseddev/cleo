@@ -8,8 +8,8 @@
  * surfaced FIVE orphans — files that exist on disk inside a `rawMdPaths`
  * directory but have no corresponding `attachments` row in the SSoT:
  *
- *   - `.cleo/adrs/ADR-083-cleo-persona-and-hierarchy-reconciliation.md`
- *   - `.cleo/adrs/ADR-085-cross-db-invariants.md`
+ *   - `docs/adr/adr-083-cleo-persona-and-hierarchy-reconciliation.md`
+ *   - `docs/adr/adr-085-cross-db-invariants.md`
  *   - `.cleo/agent-outputs/T10268-saga-closeout.md`
  *   - `.cleo/research/t10292-e4-cli-verb-matrix.md`
  *   - `.cleo/research/t10292-e4-sdk-import-edges.md`
@@ -56,8 +56,10 @@ let tempDir: string;
  * must be re-validated against the source files.
  */
 const CANONICAL_SHA = {
-  adr083: 'bd8c14ab55430125c0909e0b42d9f0f1e453c1116e1e25f821c6b34ece6c4c2f',
-  adr085: '677ad407b1751d889cded48aa7de9cc26274e852cc41ee9c37f8bbedd4625a13',
+  // T14108 moved both ADRs to docs/adr/ and marked them superseded in the store
+  // (census section F); these are the republished store heads.
+  adr083: '444999eea9fcd6040a44ca42126f18363030721b49d1c1af04c3c22f12691803',
+  adr085: 'c74f1c2cecb25a9e0f13c40b05436fbb23155690188e0fff045c1b6a8ab3b025',
   t10268Handoff: 'cbc9da442d4d3304fc6fb591275fe8f6b59335256cec1cb5cb3e6944a5fec75d',
   t10292CliVerbMatrix: 'b4b4240616b35f250a1b5aaa3bd84b75a859448a62b7cfa76e3eac5ada150092',
   t10292SdkImportEdges: '9e4d21fd18ad983d98dee545c239f458cbb5c96c9d3574007a030fd0c09b2b64',
@@ -70,8 +72,8 @@ const CANONICAL_SHA = {
  * loud rather than silently passing on a missing-file fallback.
  */
 const SOURCE_PATHS = {
-  adr083: '.cleo/adrs/ADR-083-cleo-persona-and-hierarchy-reconciliation.md',
-  adr085: '.cleo/adrs/ADR-085-cross-db-invariants.md',
+  adr083: 'docs/adr/adr-083-cleo-persona-and-hierarchy-reconciliation.md',
+  adr085: 'docs/adr/adr-085-cross-db-invariants.md',
   t10268Handoff: '.cleo/agent-outputs/T10268-saga-closeout.md',
   t10292CliVerbMatrix: '.cleo/research/t10292-e4-cli-verb-matrix.md',
   t10292SdkImportEdges: '.cleo/research/t10292-e4-sdk-import-edges.md',

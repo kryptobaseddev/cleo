@@ -418,6 +418,6 @@ This document defines how to interpret CLEO schema state and migration history.
 
 ## Related ADRs
 
-- `/.cleo/adrs/ADR-012-drizzle-kit-migration-system.md` (Section 8)
-- `/.cleo/adrs/ADR-006-canonical-sqlite-storage.md`
-- `/.cleo/adrs/ADR-008-CLEO-CANONICAL-ARCHITECTURE.md`
+- `/docs/adr/adr-012-drizzle-kit-migration-system.md` (Section 8)
+- `/docs/adr/adr-006-canonical-sqlite-storage.md`
+- `/docs/adr/adr-008-cleo-canonical-architecture.md`

@@ -30,7 +30,7 @@
  *    `~/.config/opencode/agents/`).
  *
  * Full rationale + provider-swap invariant probe design:
- * `.cleo/adrs/ADR-049-harness-sovereignty.md`.
+ * `docs/adr/adr-049-harness-sovereignty.md`.
  */
 
 import type { AdapterCapabilities } from './capabilities.js';
