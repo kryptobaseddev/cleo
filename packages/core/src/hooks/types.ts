@@ -190,7 +190,29 @@ export type OnToolCompletePayload = PostToolUsePayload;
 export type HookHandler<T extends HookPayload = HookPayload> = (
   projectRoot: string,
   payload: T,
-) => Promise<void> | void;
+  // biome-ignore lint/suspicious/noConfusingVoidType: existing handlers return Promise<void>; only an outcome-reporting handler returns a value
+) => Promise<HookHandlerOutcome | void> | HookHandlerOutcome | void;
+
+/**
+ * What a handler may report instead of finishing its work: `'deferred'` means
+ * the work was persisted durably and will complete later, so the transport can
+ * tell its caller (T14553). Handlers that finish simply return nothing.
+ */
+export type HookHandlerOutcome = 'deferred';
+
+/**
+ * Result of {@link import('./registry.js').HookRegistry.dispatch}.
+ *
+ * @task T14553
+ */
+export interface HookDispatchOutcome {
+  /**
+   * Ids of `awaitBeforeResponse` handlers that did not finish before the
+   * response: each either reported `'deferred'` or outlived the dispatch
+   * budget and was handed to the caller's background lifecycle.
+   */
+  readonly deferred: readonly string[];
+}
 
 /**
  * Hook registration metadata
@@ -209,7 +231,10 @@ export interface HookRegistration<T extends HookPayload = HookPayload> {
   /** Priority for execution order (higher = earlier) */
   priority: number;
 
-  /** Finish this handler before a transport emits its response; other handlers may be deferred. */
+  /**
+   * Finish this handler before a transport emits its response; other handlers
+   * may be deferred. A dispatch budget still bounds the wait (T14553).
+   */
   awaitBeforeResponse?: boolean;
 }
 

@@ -225,6 +225,8 @@ describe('hook automation E2E', () => {
           type: 'discovery',
           sourceType: 'agent',
         }),
+        // T14553: the capture write is deadline-bound, never an open-ended wait.
+        expect.objectContaining({ execution: expect.anything() }),
       );
     });
 
@@ -282,6 +284,8 @@ describe('hook automation E2E', () => {
           type: 'change',
           sourceType: 'agent',
         }),
+        // T14553: the capture write is deadline-bound, never an open-ended wait.
+        expect.objectContaining({ execution: expect.anything() }),
       );
     });
 

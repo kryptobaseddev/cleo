@@ -62,6 +62,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ObserveBrainParams, ObserveBrainResult } from '@cleocode/contracts';
+import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { NewBrainDecisionRow, NewBrainLearningRow } from '../store/schema/memory-schema.js';
@@ -566,10 +567,26 @@ const _brainBatches = new Map<string, BrainBatchState>();
  * @returns A release callback the caller MUST invoke (in a `finally`) when its
  *   write completes; the underlying row is freed only when the batch quiesces.
  */
-async function enterBrainBatchLease(dbPath: string): Promise<() => Promise<void>> {
+async function enterBrainBatchLease(
+  dbPath: string,
+  execution?: OperationExecutionContext,
+): Promise<() => Promise<void>> {
   if (resolveLeaseMode() === 'off') {
     // No lease in off-mode — pass-through (busy_timeout serializes).
     return async () => {};
+  }
+  if (execution && !_brainBatches.get(dbPath)?.handle) {
+    // T14553: a deadline-bound write takes its own scoped grant (sharing a held
+    // batch grant below costs no wait). It never joins or seeds the
+    // single-flight, so its deadline cannot fail another caller's acquire, and
+    // on contention it throws at the deadline instead of waiting the full
+    // acquire window and then writing lease-less.
+    const handle = await acquireWriterLease(BRAIN_LEASE_SCOPE, BRAIN_LEASE_LANE, {
+      priority: 50,
+      dbPath,
+      execution,
+    });
+    return () => handle.release();
   }
   let state = _brainBatches.get(dbPath);
   if (state === undefined) {
@@ -746,6 +763,21 @@ function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager 
 }
 
 /**
+ * Options for {@link enqueueBrainWrite}.
+ *
+ * @task T14553
+ */
+export interface EnqueueBrainWriteOptions {
+  /**
+   * Bounds the wait for the `brain` writer lease: when the lease is held
+   * elsewhere past `execution.deadlineAt`, the write is refused before it runs
+   * instead of waiting the full acquire window. The SQL statements themselves
+   * still run under the connection's `busy_timeout`.
+   */
+  readonly execution?: OperationExecutionContext;
+}
+
+/**
  * Enqueue a brain.db write op through the single-writer chokepoint.
  *
  * Runs inline under the brain writer lease and the in-process mutex, or on the
@@ -769,10 +801,16 @@ function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager 
  * ```
  *
  * @param op - The write op (discriminated by `kind`).
+ * @param options - Optional deadline for the writer-lease wait (T14553).
  * @throws Error when the op fails inline or in the worker.
+ * @throws {@link LeaseUnavailableError} or an `OperationExecutionError` when
+ *   `options.execution` ends before the brain lease is free; nothing was written.
  * @returns Worker result for the op.
  */
-export async function enqueueBrainWrite(op: BrainWriteOp): Promise<BrainWriteResult> {
+export async function enqueueBrainWrite(
+  op: BrainWriteOp,
+  options: EnqueueBrainWriteOptions = {},
+): Promise<BrainWriteResult> {
   let releaseBatch: (() => Promise<void>) | undefined;
 
   // Seam 2 (AC4): hold the `brain` lease for the duration of this write. The lease
@@ -781,7 +819,8 @@ export async function enqueueBrainWrite(op: BrainWriteOp): Promise<BrainWriteRes
   // The lease-less path is blocked at the write primitive by `assertWriterLeaseHeld`.
   const dbPath = resolveDualScopeDbPath(BRAIN_LEASE_SCOPE, op.projectRoot);
   try {
-    releaseBatch = await enterBrainBatchLease(dbPath);
+    releaseBatch = await enterBrainBatchLease(dbPath, options.execution);
+    options.execution?.assertActive();
     // Bypass mode — log audit warn and run inline.
     if (bypassEnabled()) {
       return await runInline(op);

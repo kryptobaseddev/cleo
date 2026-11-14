@@ -26,6 +26,7 @@ import {
   getEmbeddingProvider,
   isEmbeddingAvailable,
 } from '../brain-embedding.js';
+import type { EnqueueBrainWriteOptions } from '../brain-writer-thread.js';
 import { pendingEmbeddingsSql, scheduleEmbedding } from '../embedding-backfill.js';
 import { addGraphEdge, upsertGraphNode } from '../graph-auto-populate.js';
 import {
@@ -90,6 +91,8 @@ async function autoLinkObservationToTask(
  *
  * @param projectRoot - Project root directory
  * @param params - Observation data
+ * @param options - Optional deadline for the brain writer-lease wait; the
+ *   write is refused, not degraded, when it ends first (T14553)
  * @returns Created observation ID, type, and timestamp
  *
  * @example
@@ -111,6 +114,7 @@ async function autoLinkObservationToTask(
 export async function observeBrain(
   projectRoot: string,
   params: ObserveBrainParams,
+  options: EnqueueBrainWriteOptions = {},
 ): Promise<ObserveBrainResult> {
   const {
     text,
@@ -174,16 +178,19 @@ export async function observeBrain(
       choice = await chooseObservationType(text, titleParam, { projectRoot });
     }
     const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
-    const result = await enqueueBrainWrite({
-      kind: 'observe',
-      projectRoot,
-      params: {
-        ...params,
-        ...(choice?.source === 'system-one' ? { type: choice.type } : {}),
-        askTypeDecision: undefined,
-        sourceSessionId: validatedSourceSessionId,
+    const result = await enqueueBrainWrite(
+      {
+        kind: 'observe',
+        projectRoot,
+        params: {
+          ...params,
+          ...(choice?.source === 'system-one' ? { type: choice.type } : {}),
+          askTypeDecision: undefined,
+          sourceSessionId: validatedSourceSessionId,
+        },
       },
-    });
+      options,
+    );
     if (result.kind !== 'observe') {
       throw new Error(`Unexpected writer result kind: ${result.kind}`);
     }

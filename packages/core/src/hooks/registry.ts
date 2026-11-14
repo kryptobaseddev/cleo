@@ -11,11 +11,24 @@
 import { getLogger } from '../logger.js';
 import type {
   HookConfig,
+  HookDispatchOutcome,
   HookEvent,
   HookPayload,
   HookPayloadFor,
   HookRegistration,
 } from './types.js';
+
+/**
+ * Longest a transport waits for `awaitBeforeResponse` handlers before it
+ * responds (T14553). A handler still running at the budget is handed to the
+ * caller's background lifecycle and reported as deferred, so one contended
+ * store write (a held brain-lane lease waits up to 30 s) can no longer hold a
+ * command's envelope. Handlers that write durably bound themselves below this.
+ */
+export const RESPONSE_HOOK_BUDGET_MS = 2_000;
+
+/** A dispatch that ran no handler, or deferred nothing. */
+const NOTHING_DEFERRED: HookDispatchOutcome = Object.freeze({ deferred: Object.freeze([]) });
 
 /** Map from old `on`-prefix event names to new canonical names. Used for backward compat. */
 const LEGACY_EVENT_MAP: Record<string, HookEvent> = {
@@ -155,7 +168,11 @@ export class HookRegistry {
    * @param payload - The event payload (typed by event)
    * @param defer - Tracks optional handlers in the caller's background lifecycle;
    *   when provided, only `awaitBeforeResponse` handlers delay this call.
-   * @returns Promise that resolves when required handlers (or, by default, all handlers) complete
+   * @param budgetMs - With `defer`, the longest wait for `awaitBeforeResponse`
+   *   handlers ({@link RESPONSE_HOOK_BUDGET_MS} for transports); a handler still
+   *   running then is passed to `defer` and reported as deferred (T14553).
+   * @returns The handlers that deferred, once required handlers (or, by
+   *   default, all handlers) complete or the budget ends
    *
    * @example
    * ```typescript
@@ -177,39 +194,71 @@ export class HookRegistry {
     projectRoot: string,
     payload: HookPayloadFor<E>,
     defer?: (work: Promise<void>) => void,
-  ): Promise<void> {
+    budgetMs?: number,
+  ): Promise<HookDispatchOutcome> {
     // Check if hooks enabled globally
-    if (!this.config.enabled) return;
+    if (!this.config.enabled) return NOTHING_DEFERRED;
 
     const resolvedEvent = this.resolveEvent(event as string);
 
     // Check if this event enabled
-    if (!this.config.events[resolvedEvent]) return;
+    if (!this.config.events[resolvedEvent]) return NOTHING_DEFERRED;
 
     const handlers = this.handlers.get(resolvedEvent);
-    if (!handlers || handlers.length === 0) return;
+    if (!handlers || handlers.length === 0) return NOTHING_DEFERRED;
 
-    // Response-dependent writes settle before the envelope. Optional handlers
-    // retain the caller's bounded background lifecycle.
-    await Promise.allSettled(
-      handlers.map((reg) => {
-        const work = (async () => {
-          try {
-            await reg.handler(projectRoot, payload);
-          } catch (error) {
-            getLogger('hooks').warn(
-              { err: error, hookId: reg.id, event: resolvedEvent },
-              'Hook handler failed',
-            );
-          }
-        })();
-        if (defer && !reg.awaitBeforeResponse) {
-          defer(work);
-          return Promise.resolve();
+    // Response-dependent writes settle before the envelope, within the budget.
+    // Optional handlers retain the caller's bounded background lifecycle.
+    const deferred: string[] = [];
+    let responded = false;
+    const required: Array<{ id: string; work: Promise<void>; settled: () => boolean }> = [];
+    for (const reg of handlers) {
+      let settled = false;
+      const work = (async () => {
+        try {
+          const outcome = await reg.handler(projectRoot, payload);
+          if (outcome === 'deferred' && !responded) deferred.push(reg.id);
+        } catch (error) {
+          getLogger('hooks').warn(
+            { err: error, hookId: reg.id, event: resolvedEvent },
+            'Hook handler failed',
+          );
+        } finally {
+          settled = true;
         }
-        return work;
-      }),
-    );
+      })();
+      if (defer && !reg.awaitBeforeResponse) {
+        defer(work);
+        continue;
+      }
+      required.push({ id: reg.id, work, settled: () => settled });
+    }
+    const all = Promise.allSettled(required.map((r) => r.work));
+    if (!defer || budgetMs === undefined) {
+      await all;
+    } else {
+      let timer: NodeJS.Timeout | undefined;
+      const budget = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, budgetMs);
+        timer.unref();
+      });
+      try {
+        await Promise.race([all, budget]);
+      } finally {
+        clearTimeout(timer);
+      }
+      for (const r of required) {
+        if (r.settled()) continue;
+        defer(r.work);
+        deferred.push(r.id);
+        getLogger('hooks').warn(
+          { hookId: r.id, event: resolvedEvent, budgetMs },
+          'Hook handler outlived the response budget; deferred',
+        );
+      }
+    }
+    responded = true;
+    return deferred.length === 0 ? NOTHING_DEFERRED : { deferred };
   }
 
   /**
