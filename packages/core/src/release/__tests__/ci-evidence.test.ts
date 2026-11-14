@@ -28,13 +28,17 @@ import {
   PR_REQUIRED_WORKFLOWS_ENV_VAR,
   validateEvidenceForGate,
 } from '@cleocode/contracts';
+import type { CiChecksConfig } from '@cleocode/contracts/project-context.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
+import { checkSchema } from '../../json-schema-validator.js';
 import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js';
 import {
   type CommitCheck,
   CURRENT_HEAD_STAND_IN_OPEN,
   ciSatisfiesRemedy,
+  evaluateFilterSkippedJobs,
+  evaluateJobs,
   evaluateMergeCommitChecks,
   hasIncompleteIdentity,
   inheritedOnMerge,
@@ -49,6 +53,7 @@ import {
   missingPrHunk,
   PACKAGE_CODE_ROOTS,
   type ResolveCiEvidenceOptions,
+  readCiChecks,
   readCiSatisfies,
   recheckCiDescendantAtom,
   resolveCiEvidenceAtom,
@@ -240,6 +245,206 @@ describe('evaluateMergeCommitChecks', () => {
 
   it('refuses an empty required set rather than accepting vacuously', () => {
     expect(evaluateMergeCommitChecks([], allGreen, MERGE).ok).toBe(false);
+  });
+});
+
+describe('GitHub matrix job names (T14579)', () => {
+  const name = 'PR guards and affected tests';
+  const globs = [name];
+  const scope = { app: 'github-actions', workflows: ['.github/workflows/ci.yml'] };
+  const legs = [1, 2, 3].map((leg) =>
+    check(`${name} (${leg}/3)`, { workflowPath: scope.workflows[0] }),
+  );
+  const requiredLegs = legs.map((c) => c.name);
+
+  it('an exact job name matches GitHub matrix suffixes without matching another base name', () => {
+    const matches = (label: string, glob = name) =>
+      evaluateJobs([glob], [check(label, { workflowPath: scope.workflows[0] })], MERGE, scope).ok;
+    for (const suffix of ['1/1', '1/3', 'ubuntu-latest, 24.16.0', 'Ubuntu (x64), 1/3'])
+      expect(matches(`${name} (${suffix})`)).toBe(true);
+    expect(matches(`${name} extra (1/3)`)).toBe(false);
+    expect(matches(`${name} (1/3) extra`)).toBe(false);
+    expect(matches('Checks (Linux) (1/3)', 'Checks (Linux)')).toBe(true);
+  });
+
+  it('accepts when every reported matrix leg succeeded', () => {
+    expect(evaluateJobs(globs, legs, MERGE, scope)).toEqual({
+      ok: true,
+      jobs: legs.map((c) => c.name),
+    });
+    expect(
+      evaluateJobs(
+        globs,
+        [check(`${name} (1/1)`, { workflowPath: scope.workflows[0] })],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    'failure',
+    'skipped',
+  ] as const)('an exact base job wins over a %s non-gating variant', (conclusion) => {
+    const base = check('Type Check', { workflowPath: scope.workflows[0] });
+    const optional = check('Type Check (Node 26)', {
+      workflowPath: scope.workflows[0],
+      conclusion,
+    });
+    expect(evaluateJobs(['Type Check'], [base, optional], MERGE, scope)).toEqual({
+      ok: true,
+      jobs: ['Type Check'],
+    });
+    expect(
+      evaluateJobs(
+        ['Type Check'],
+        [
+          { ...base, conclusion: 'failure' },
+          { ...optional, conclusion: 'success' },
+        ],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(false);
+    expect(
+      evaluateFilterSkippedJobs(
+        ['Type Check'],
+        ['scripts/a.mjs'],
+        [{ ...base, conclusion: 'skipped' }, optional],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('retains an explicitly configured leg instead of expanding its literal suffix', () => {
+    expect(evaluateJobs([legs[0]!.name], [legs[0]!], MERGE, scope).ok).toBe(true);
+  });
+
+  it.each([
+    'failure',
+    'skipped',
+    'cancelled',
+    'pending',
+  ] as const)('refuses a %s matrix leg', (state) => {
+    const checks = legs.map((c) =>
+      c === legs[1]
+        ? {
+            ...c,
+            status: state === 'pending' ? 'in_progress' : 'completed',
+            conclusion: state === 'pending' ? null : state,
+          }
+        : c,
+    );
+    const r = evaluateJobs(globs, checks, MERGE, scope);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reasons.join(' ')).toContain(state);
+  });
+
+  it('requires each explicitly configured matrix leg to be present', () => {
+    expect(evaluateJobs(requiredLegs, legs, MERGE, scope).ok).toBe(true);
+    const r = evaluateJobs(
+      requiredLegs,
+      legs.filter((c) => c !== legs[1]),
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain(`job ${legs[1]!.name}: not found`);
+  });
+
+  it('keeps the verdict of each event and enforces explicit leg requirements per event', () => {
+    const splitEvents = legs.map((c, i) => (i === 1 ? { ...c, event: 'pull_request' } : c));
+    expect(evaluateJobs(requiredLegs, splitEvents, MERGE, scope, 'push').ok).toBe(false);
+    expect(
+      evaluateJobs(
+        globs,
+        [
+          ...legs,
+          { ...legs[0]!, id: 99, event: 'pull_request', conclusion: 'failure' },
+          { ...legs[0]!, id: 100 },
+        ],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it.each([
+    'workflow',
+    'app',
+  ] as const)('keeps same-named matrix jobs from each %s separate', (source) => {
+    const alternate = legs.map((c) => ({
+      ...c,
+      id: c.id + 100,
+      ...(source === 'workflow'
+        ? { workflowPath: '.github/workflows/other.yml' }
+        : { appSlug: 'other-app' }),
+    }));
+    const both = { workflows: [...scope.workflows, '.github/workflows/other.yml'] };
+    expect(evaluateJobs(globs, [...legs, ...alternate], MERGE, both).ok).toBe(true);
+    expect(
+      evaluateJobs(
+        globs,
+        [{ ...legs[0]!, id: 10, conclusion: 'failure' }, ...legs.slice(1), ...alternate],
+        MERGE,
+        both,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('treats slash-containing values as labels and never expands wildcard globs by suffix', () => {
+    const label = check('Build (node 20/22)', { workflowPath: scope.workflows[0] });
+    expect(evaluateJobs(['Build'], [label], MERGE, scope).ok).toBe(true);
+    expect(evaluateJobs(['Build*'], [label], MERGE, scope).ok).toBe(true);
+    expect(
+      evaluateJobs(
+        ['Build*20/22'],
+        [check('Build node 20/22 (linux)', { workflowPath: scope.workflows[0] })],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(false);
+    expect(evaluateJobs(globs, legs.slice(0, 2), MERGE, scope).ok).toBe(true);
+  });
+
+  it('a missing matrix leg cannot be excused as a CI filter skip', () => {
+    const skipped = legs.slice(0, 2).map((c) => ({ ...c, conclusion: 'skipped' }));
+    expect(
+      evaluateFilterSkippedJobs(requiredLegs, ['scripts/a.mjs'], skipped, MERGE, scope),
+    ).toMatchObject({ ok: false, reason: expect.stringContaining('is missing, not skipped') });
+  });
+
+  it('a latest failed leg is not hidden by an earlier pass', () => {
+    const r = evaluateJobs(
+      globs,
+      [...legs, { ...legs[1]!, id: 99, conclusion: 'failure' }],
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain(`${name} (2/3): failure`);
+  });
+
+  it('a glob matching nothing names the closest observed check runs on that commit and in scope', () => {
+    const r = evaluateJobs(
+      ['PR guards and affected test'],
+      [
+        ...legs,
+        check('Lint', { workflowPath: scope.workflows[0] }),
+        check('PR guards and affected test', { workflowPath: scope.workflows[0], headSha: HEAD }),
+        check('PR guards and affected test other workflow', {
+          workflowPath: '.github/workflows/other.yml',
+        }),
+      ],
+      MERGE,
+      scope,
+    );
+    expect(r.ok).toBe(false);
+    const reason = !r.ok && r.reasons.join(' ');
+    expect(reason).toContain('closest check-run names:');
+    for (const leg of legs) expect(reason).toContain(JSON.stringify(leg.name));
+    expect(reason).not.toContain('other workflow');
+    expect(reason).not.toContain('"PR guards and affected test"');
+    expect(reason).not.toContain('"Lint"');
   });
 });
 
@@ -1072,6 +1277,375 @@ describe('resolveCiEvidenceAtom', () => {
         isAncestor: () => true,
       });
       expect(r.ok).toBe(false);
+    });
+  });
+
+  describe('different PR and main jobs (T14577)', () => {
+    const jobs: NonNullable<CiChecksConfig['jobs']> = {
+      tests: { pullRequest: ['PR guards and affected tests*'], push: ['Full Suite*'] },
+      qa: { pullRequest: ['PR Type Check', 'PR Lint'], push: ['Main Type Check', 'Main Lint'] },
+    };
+    const mainJobs = allGreen.map((c) => ({
+      ...c,
+      name: c.name
+        .replace('Unit Tests', 'Full Suite')
+        .replace('Type Check', 'Main Type Check')
+        .replace('Lint & Format', 'Main Lint'),
+    }));
+    const prJobs = onHead.map((c) => ({
+      ...c,
+      name: c.name
+        .replace('Unit Tests', 'PR guards and affected tests')
+        .replace('Type Check', 'PR Type Check')
+        .replace('Lint & Format', 'PR Lint'),
+    }));
+    const DESC = '1'.repeat(40);
+    const laterJobs = mainJobs.map((c) => ({ ...c, headSha: DESC }));
+
+    function perEvent(
+      mergeChecks = mainJobs,
+      headChecks = prJobs,
+      extra: Partial<ResolveCiEvidenceOptions> = {},
+    ) {
+      return resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => ({ ...merged, changedPaths: ['packages/core/src/a.ts'] }),
+        treeOf: (sha) => (sha === MERGE ? TREE : 'd'.repeat(40)),
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks:
+            sha === MERGE ? mergeChecks : sha === HEAD ? headChecks : sha === DESC ? laterJobs : [],
+        }),
+        ...extra,
+      });
+    }
+
+    beforeEach(() => writeContext({ ...optedIn, ciChecks: { ...optedIn.ciChecks, jobs } }));
+
+    it('reads the per-event lists and accepts them in the shipped schema', () => {
+      expect(readCiChecks(root).jobs).toEqual(jobs);
+      const schema: Parameters<typeof checkSchema>[1] = JSON.parse(
+        readFileSync(
+          fileURLToPath(new URL('../../../schemas/project-context.schema.json', import.meta.url)),
+          'utf-8',
+        ),
+      );
+      expect(
+        checkSchema(
+          {
+            schemaVersion: '1.0.0',
+            detectedAt: '2026-11-14T00:00:00Z',
+            projectTypes: ['node'],
+            evidence: { ciChecks: { jobs } },
+          },
+          schema,
+        ),
+      ).toEqual([]);
+    });
+
+    it('accepts green PR and main jobs when main advanced, recording both job lists', async () => {
+      const r = await perEvent();
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.gateChecks).toMatchObject({
+        testsPassed: [
+          'CI',
+          ...prJobs.filter((c) => c.name.startsWith('PR guards')).map((c) => c.name),
+          ...mainJobs.filter((c) => c.name.startsWith('Full Suite')).map((c) => c.name),
+        ],
+        qaPassed: expect.arrayContaining([
+          'PR Type Check',
+          'PR Lint',
+          'Main Type Check',
+          'Main Lint',
+        ]),
+      });
+    });
+
+    it.each([
+      true,
+      false,
+    ])('pending push jobs keep wait guidance with required checks pending=%s', async (requiredPending) => {
+      const pending = mainJobs
+        .filter(
+          (c) =>
+            !requiredPending || (!c.name.startsWith('Full Suite') && !c.name.startsWith('Main ')),
+        )
+        .map((c) =>
+          (
+            requiredPending
+              ? c.workflowPath === '.github/workflows/ci.yml'
+              : c.name.startsWith('Full Suite')
+          )
+            ? { ...c, status: 'in_progress', conclusion: null }
+            : c,
+        );
+      const r = await perEvent(pending, prJobs, {
+        treeOf: () => TREE,
+        isAncestor: (a, d) => a === PARENT && d === HEAD,
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toContain('pending');
+      expect(!r.ok && r.reason).toMatch(/wait.*finish/i);
+      expect(!r.ok && r.reason).toContain('evidence.ciChecks.jobs.tests.push');
+    });
+
+    describe.each(['tests', 'qa'] as const)('%s requirements', (key) => {
+      describe.each(['pull_request', 'push'] as const)('%s runs', (event) => {
+        it.each([
+          'failure',
+          'cancelled',
+          'skipped',
+          'missing',
+          'pending',
+        ] as const)('refuses a %s job even when the other side is green, naming its config key', async (state) => {
+          const prefix =
+            key === 'tests'
+              ? event === 'push'
+                ? 'Full Suite'
+                : 'PR guards'
+              : event === 'push'
+                ? 'Main Type Check'
+                : 'PR Type Check';
+          const bad = (checks: CommitCheck[]) =>
+            state === 'missing'
+              ? checks.filter((c) => !c.name.startsWith(prefix))
+              : checks.map((c) =>
+                  c.name.startsWith(prefix)
+                    ? {
+                        ...c,
+                        status: state === 'pending' ? 'in_progress' : 'completed',
+                        conclusion: state === 'pending' ? null : state,
+                      }
+                    : c,
+                );
+          const r = await perEvent(
+            event === 'push' ? bad(mainJobs) : mainJobs,
+            event === 'pull_request' ? bad(prJobs) : prJobs,
+          );
+          expect(r.ok).toBe(false);
+          expect(!r.ok && r.reason).toContain(
+            `evidence.ciChecks.jobs.${key}.${event === 'push' ? 'push' : 'pullRequest'}`,
+          );
+        });
+      });
+    });
+
+    it.each([
+      'pullRequest',
+      'push',
+    ] as const)('refuses a missing or empty %s config list', async (key) => {
+      for (const value of [undefined, [], [' '], [1]]) {
+        writeContext({
+          ...optedIn,
+          ciChecks: {
+            ...optedIn.ciChecks,
+            jobs: {
+              ...jobs,
+              tests: { pullRequest: ['PR guards*'], push: ['Full Suite*'], [key]: value },
+            },
+          },
+        });
+        const r = await perEvent();
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.reason).toContain(`evidence.ciChecks.jobs.tests.${key}`);
+      }
+    });
+
+    it('a push run on the PR head or a non-push run on main cannot satisfy the event lists', async () => {
+      expect(
+        (
+          await perEvent(
+            mainJobs,
+            prJobs.map((c) => ({ ...c, event: 'push' })),
+          )
+        ).ok,
+      ).toBe(false);
+      expect(
+        (
+          await perEvent(
+            mainJobs.map((c) => ({ ...c, event: 'workflow_dispatch' })),
+            prJobs,
+          )
+        ).ok,
+      ).toBe(false);
+    });
+
+    it('a later green rerun of another event cannot hide a red PR job', async () => {
+      const red = prJobs.find((c) => c.name.startsWith('PR guards'))!;
+      const r = await perEvent(mainJobs, [
+        ...prJobs,
+        { ...red, id: 20, conclusion: 'failure' },
+        { ...red, id: 30, event: 'push' },
+      ]);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toContain('evidence.ciChecks.jobs.tests.pullRequest');
+    });
+
+    it('a workflow edit remains main-only, without consulting the PR head', async () => {
+      const asked: string[] = [];
+      const r = await perEvent(mainJobs, [], {
+        resolvePr: async () => ({ ...merged, changedPaths: ['.github/workflows/ci.yml'] }),
+        fetchChecks: async (sha) => {
+          asked.push(sha);
+          return { ok: true, checks: sha === MERGE ? mainJobs : [] };
+        },
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.mainOnly).toBe(true);
+      expect(asked).not.toContain(HEAD);
+    });
+
+    it('keeps the T14260 main filter skip, while requiring the PR jobs to pass', async () => {
+      const skipped = mainJobs.map((c) =>
+        c.name.startsWith('Full Suite') ? { ...c, conclusion: 'skipped' } : c,
+      );
+      const scriptsOnly: Partial<ResolveCiEvidenceOptions> = {
+        resolvePr: async () => ({ ...merged, changedPaths: ['scripts/a.mjs'] }),
+      };
+      const green = await perEvent(skipped, prJobs, scriptsOnly);
+      expect(green.ok, JSON.stringify(green)).toBe(true);
+      expect(green.ok && green.atom.filterSkippedJobs?.testsPassed).toEqual(
+        mainJobs.filter((c) => c.name.startsWith('Full Suite')).map((c) => c.name),
+      );
+      const red = await perEvent(
+        skipped,
+        prJobs.map((c) => (c.name.startsWith('PR guards') ? { ...c, conclusion: 'skipped' } : c)),
+        scriptsOnly,
+      );
+      expect(red.ok).toBe(false);
+      expect(!red.ok && red.reason).toContain('evidence.ciChecks.jobs.tests.pullRequest');
+    });
+
+    it.each([
+      false,
+      true,
+    ])('keeps the T13809 quarantine-budget exception with a tree-equal head=%s', async (equalTree) => {
+      const budget = mainJobs.map((c) =>
+        c.name === 'Full Suite (ubuntu-latest, shard 1)'
+          ? { ...c, id: 77, conclusion: 'failure' }
+          : equalTree && c.name === 'CI'
+            ? { ...c, conclusion: 'failure' }
+            : c,
+      );
+      const r = await perEvent(budget, prJobs, {
+        ...(equalTree
+          ? { treeOf: () => TREE, isAncestor: (a: string, d: string) => a === PARENT && d === HEAD }
+          : {}),
+        fetchJobLog: async (id) =>
+          id === 77
+            ? [
+                'Test Files  1 passed (1)',
+                '     Tests  1 passed (1)',
+                '  Start at  07:45:10',
+                '  Duration  1s',
+                '### Flaky quarantine over budget',
+                '11 tests are quarantined (most 10).',
+              ].join('\n')
+            : null,
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+    });
+
+    it('a legacy array still accepts green merge jobs without requiring the PR head', async () => {
+      writeContext(optedIn);
+      expect(
+        (
+          await resolve({
+            fetchChecks: async (sha) => ({ ok: true, checks: sha === MERGE ? allGreen : [] }),
+          })
+        ).ok,
+      ).toBe(true);
+    });
+
+    it('a legacy list naming PR-only jobs refuses with the per-event keys that fix it', async () => {
+      writeContext({
+        ...optedIn,
+        ciChecks: { ...optedIn.ciChecks, jobs: { tests: ['PR guards*'] } },
+      });
+      const r = await perEvent();
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toContain('evidence.ciChecks.jobs.tests.pullRequest');
+      expect(!r.ok && r.reason).toContain('evidence.ciChecks.jobs.tests.push');
+    });
+
+    describe('T12742 descendant push jobs', () => {
+      const cancelled = mainJobs.map((c) =>
+        c.workflowPath === '.github/workflows/ci.yml' ? { ...c, conclusion: 'cancelled' } : c,
+      );
+      const descendantOptions: Partial<ResolveCiEvidenceOptions> = {
+        listDescendants: () => [DESC],
+        isAncestor: (a, d) => a === MERGE && d === DESC,
+        touchingCommits: () => [],
+      };
+
+      it('accepts separate green PR and descendant job lists, recording the stand-in', async () => {
+        const r = await perEvent(cancelled, prJobs, descendantOptions);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.descendantSha).toBe(DESC);
+        expect(r.ok && r.atom.descendantPrHeadSha).toBe(HEAD);
+      });
+
+      it('a tree-equal head still searches for an unmet push side, while arrays retain head substitution', async () => {
+        const equalTree: Partial<ResolveCiEvidenceOptions> = {
+          ...descendantOptions,
+          treeOf: () => TREE,
+          isAncestor: (a, d) => (a === PARENT && d === HEAD) || (a === MERGE && d === DESC),
+        };
+        const r = await perEvent(cancelled, prJobs, equalTree);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.descendantSha).toBe(DESC);
+        expect(r.ok && r.atom.checks.some((c) => c.sha === DESC && c.event === 'push')).toBe(true);
+        writeContext({
+          ...optedIn,
+          ciChecks: {
+            ...optedIn.ciChecks,
+            jobs: { tests: ['PR guards and affected tests*'], qa: ['PR Type Check', 'PR Lint'] },
+          },
+        });
+        const legacy = await perEvent(cancelled, prJobs, equalTree);
+        expect(legacy.ok, JSON.stringify(legacy)).toBe(true);
+        expect(legacy.ok && legacy.atom.descendantSha).toBeUndefined();
+      });
+
+      it.each([
+        'pull_request',
+        'push',
+      ] as const)('refuses a red or missing %s job even when the other side is green', async (event) => {
+        for (const state of ['failure', 'missing']) {
+          const bad = (checks: CommitCheck[]) =>
+            state === 'missing'
+              ? checks.filter(
+                  (c) => !c.name.startsWith(event === 'push' ? 'Full Suite' : 'PR guards'),
+                )
+              : checks.map((c) =>
+                  c.name.startsWith(event === 'push' ? 'Full Suite' : 'PR guards')
+                    ? { ...c, conclusion: state }
+                    : c,
+                );
+          const r = await perEvent(cancelled, prJobs, {
+            ...descendantOptions,
+            fetchChecks: async (sha) => ({
+              ok: true,
+              checks:
+                sha === MERGE
+                  ? cancelled
+                  : sha === HEAD
+                    ? event === 'pull_request'
+                      ? bad(prJobs)
+                      : prJobs
+                    : sha === DESC
+                      ? event === 'push'
+                        ? bad(laterJobs)
+                        : laterJobs
+                      : [],
+            }),
+          });
+          expect(r.ok).toBe(false);
+          expect(!r.ok && r.reason).toContain(
+            `evidence.ciChecks.jobs.tests.${event === 'push' ? 'push' : 'pullRequest'}`,
+          );
+        }
+      });
     });
   });
 

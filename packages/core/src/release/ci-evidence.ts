@@ -62,6 +62,8 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
+import type { CiChecksConfig, CiJobRequirements } from '@cleocode/contracts/project-context.js';
+import { similarityScore } from '../docs/slug-similarity.js';
 import { isGitWorkTree } from '../git/work-tree.js';
 import type { ViewComponentPr } from '../tasks/component-pr.js';
 import {
@@ -82,6 +84,8 @@ import {
   resolvePrEvidenceAtom,
   resolveRequiredWorkflowsDetailed,
 } from './pr-evidence.js';
+
+export type { CiChecksConfig } from '@cleocode/contracts/project-context.js';
 
 /** One check on a commit: a job (check run) or a whole workflow run. */
 export interface CommitCheck {
@@ -452,8 +456,17 @@ export function readCiChecks(projectRoot: string): CiChecksConfig {
     typeof jobs === 'object' && jobs !== null
       ? (jobs as { tests?: unknown; qa?: unknown })
       : undefined;
-  const jobTests = list(jobLists?.tests);
-  const jobQa = list(jobLists?.qa);
+  const jobList = (value: unknown): CiJobRequirements | undefined => {
+    const globs = list(value);
+    if (globs) return globs;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+    return {
+      pullRequest: list('pullRequest' in value ? value.pullRequest : undefined) ?? [],
+      push: list('push' in value ? value.push : undefined) ?? [],
+    };
+  };
+  const jobTests = jobList(jobLists?.tests);
+  const jobQa = jobList(jobLists?.qa);
   return {
     ...(list(tests) ? { tests: list(tests) } : {}),
     ...(list(qa) ? { qa: list(qa) } : {}),
@@ -461,21 +474,6 @@ export function readCiChecks(projectRoot: string): CiChecksConfig {
       ? { jobs: { ...(jobTests ? { tests: jobTests } : {}), ...(jobQa ? { qa: jobQa } : {}) } }
       : {}),
   };
-}
-
-/** `evidence.ciChecks` as read from project context (T12634). */
-export interface CiChecksConfig {
-  /** Required checks attesting testsPassed. */
-  tests?: string[];
-  /** Required checks attesting qaPassed. */
-  qa?: string[];
-  /**
-   * Job-name globs (`*` wildcard) that must each match at least one job run by
-   * the pinned workflows of that gate's checks, all `success`, before a `code`
-   * task's gate is attested — an aggregate that counts skipped jobs as a pass
-   * is not enough.
-   */
-  jobs?: { tests?: string[]; qa?: string[] };
 }
 
 /**
@@ -537,6 +535,33 @@ export function jobNameMatches(re: RegExp, name: string): boolean {
   return expression > 0 && re.test(name.slice(0, expression).trimEnd());
 }
 
+/** Exact runs take precedence; only a bare name without a run aliases matrix variants. */
+function matchingJobRuns(glob: string, checks: readonly CommitCheck[]): CommitCheck[] {
+  const re = globToRegExp(glob);
+  if (glob.includes('*')) return checks.filter((c) => jobNameMatches(re, c.name));
+  const exact = checks.filter((c) => c.name === glob);
+  if (exact.length > 0) return exact;
+  return checks.filter((c) => jobNameMatches(re, c.name) || jobMatrixSuffixStart(re, c.name) > 0);
+}
+
+/** The configured base can contain parentheses, as can a matrix value. */
+function jobMatrixSuffixStart(re: RegExp, name: string): number {
+  if (!name.endsWith(')')) return -1;
+  for (let at = name.indexOf(' ('); at > 0; at = name.indexOf(' (', at + 2)) {
+    if (re.test(name.slice(0, at))) return at;
+  }
+  return -1;
+}
+
+/** Same-named jobs from different workflows, apps or events cannot replace one another. */
+function jobRunSource(check: CommitCheck): string {
+  return JSON.stringify([
+    check.event,
+    check.workflowPath ?? check.workflowName,
+    check.appSlug ?? check.appId,
+  ]);
+}
+
 /**
  * Judge a gate's required jobs as skipped by CI's own change filter (T14260):
  * accepted only for a diff entirely outside the {@link PACKAGE_CODE_ROOTS},
@@ -579,10 +604,9 @@ export function evaluateFilterSkippedJobs(
   const ran: string[] = [];
   const skipped: string[] = [];
   for (const glob of globs) {
-    const re = globToRegExp(glob);
     const latest = new Map<string, CommitCheck>();
-    for (const c of inScope.filter((c) => jobNameMatches(re, c.name))) {
-      const key = `${c.name}\u0000${c.event ?? ''}`;
+    for (const c of matchingJobRuns(glob, inScope)) {
+      const key = `${c.name}\u0000${jobRunSource(c)}`;
       const prev = latest.get(key);
       if (!prev || c.id > prev.id) latest.set(key, c);
     }
@@ -644,30 +668,33 @@ export function evaluateJobs(
   const reasons: string[] = [];
   const jobs: string[] = [];
   for (const glob of globs) {
-    const re = globToRegExp(glob);
-    const matched = inScope.filter((c) => jobNameMatches(re, c.name));
+    const matched = matchingJobRuns(glob, inScope);
     if (matched.length === 0) {
+      const closest = [...new Set(inScope.map((c) => c.name))]
+        .map((name) => [name, similarityScore(glob, name)] as const)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 3)
+        .map(([name]) => JSON.stringify(name));
       reasons.push(
-        `job ${glob}: not found in ${scope.workflows.join(', ')} on ${sha.slice(0, 12)}`,
+        `job ${glob}: not found in ${scope.workflows.join(', ')}${closest.length ? `; closest check-run names: ${closest.join(', ')}` : '; no check-run names seen in scope'} on ${sha.slice(0, 12)}`,
       );
       continue;
     }
     const latest = new Map<string, CommitCheck>();
     for (const c of matched) {
-      const key = `${c.name}\u0000${c.event ?? ''}`;
+      const key = `${c.name}\u0000${jobRunSource(c)}`;
       const prev = latest.get(key);
       if (!prev || c.id > prev.id) latest.set(key, c);
     }
-    const bad = [...latest.values()].find(
-      (c) => c.status !== 'completed' || c.conclusion !== 'success',
-    );
+    const runs = [...latest.values()];
+    const bad = runs.find((c) => c.status !== 'completed' || c.conclusion !== 'success');
     if (bad) {
       reasons.push(
         `job ${bad.name}: ${bad.status !== 'completed' ? `pending (${bad.status})` : bad.conclusion} on ${sha.slice(0, 12)}`,
       );
       continue;
     }
-    jobs.push(...new Set([...latest.values()].map((c) => c.name)));
+    jobs.push(...new Set(runs.map((c) => c.name)));
   }
   return reasons.length > 0 ? { ok: false, reasons } : { ok: true, jobs };
 }
@@ -1773,12 +1800,12 @@ export interface JobScope {
  */
 function gateJobSpecs(
   gateLists: ReadonlyArray<{ key: 'tests' | 'qa'; list?: readonly string[] }>,
-  storeRoot: string,
+  jobs: CiChecksConfig['jobs'],
   pins: Record<string, RequiredCheckPinSpec>,
 ): Array<{ globs: readonly string[]; scope: JobScope }> {
-  const jobs = readCiChecks(storeRoot).jobs;
   return gateLists.flatMap((g) => {
-    const globs = jobs?.[g.key];
+    const configured = jobs?.[g.key];
+    const globs = Array.isArray(configured) ? configured : configured?.push;
     const workflows = (g.list ?? []).flatMap((n) =>
       pins[n]?.workflow ? [pins[n]!.workflow!] : [],
     );
@@ -3342,11 +3369,34 @@ export async function resolveCiEvidenceAtom(
       ? head
       : undefined;
   let checks = fetched.checks;
-  if (treeEqualHead && treeEqualHead !== pr.mergeCommitSha) {
-    const onHead = await fetchChecks(treeEqualHead, cwd);
+  const eventJobKeys = gateLists.flatMap((g) => {
+    const jobs = ciChecks.jobs?.[g.key];
+    return jobs && !Array.isArray(jobs) ? [`evidence.ciChecks.jobs.${g.key}`] : [];
+  });
+  if (
+    !mainOnly &&
+    head &&
+    head !== pr.mergeCommitSha &&
+    (treeEqualHead || eventJobKeys.length > 0)
+  ) {
+    const onHead = await fetchChecks(head, cwd);
     if (onHead.ok) checks = [...checks, ...onHead.checks];
   }
 
+  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
+  const jobSpecs = docsOnlyDiff ? [] : gateJobSpecs(gateLists, ciChecks.jobs, pins);
+  const pushUnmet =
+    !docsOnlyDiff &&
+    gateJobSpecs(
+      gateLists.filter((g) => {
+        const jobs = ciChecks.jobs?.[g.key];
+        return jobs && !Array.isArray(jobs);
+      }),
+      ciChecks.jobs,
+      pins,
+    ).some((job) => !evaluateJobs(job.globs, checks, pr.mergeCommitSha, job.scope, 'push').ok);
+  // The push stand-in search must see superseded merge checks despite an equal PR tree.
+  const checkHead = pushUnmet ? undefined : treeEqualHead;
   let judgedChecks = evaluateMergeCommitChecks(required.workflows, checks, pr.mergeCommitSha, {
     ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
     pins,
@@ -3373,15 +3423,13 @@ export async function resolveCiEvidenceAtom(
   // T13846: a code task's gates need their jobs to have run, so the stand-in
   // must be a later main run where they did — not merely the first one whose
   // required checks are green (a scripts-only merge skips the test jobs).
-  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
-  const jobSpecs = docsOnlyDiff ? [] : gateJobSpecs(gateLists, roots.storeRoot, pins);
-  if (!judgedChecks.ok && onDefault.ref !== null) {
+  if ((!judgedChecks.ok || pushUnmet) && onDefault.ref !== null) {
     const found = await findGreenDescendant({
       ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
       required: required.workflows,
       checks,
       mergeCommitSha: pr.mergeCommitSha,
-      ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+      ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
       pins,
       changedPaths: pr.changedPaths,
       ...(pr.headRefOid ? { prHeadSha: pr.headRefOid } : {}),
@@ -3404,7 +3452,7 @@ export async function resolveCiEvidenceAtom(
         withDescendant,
         pr.mergeCommitSha,
         {
-          ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+          ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
           pins,
           descendantSha: found.sha,
           ...(found.inherited || found.nonTest || found.untested
@@ -3499,7 +3547,7 @@ export async function resolveCiEvidenceAtom(
       const rejudged =
         found.ok && missing === null
           ? evaluateMergeCommitChecks(required.workflows, withHead, pr.mergeCommitSha, {
-              ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+              ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
               pins,
               descendantSha: found.sha,
               currentHead: true,
@@ -3567,7 +3615,10 @@ export async function resolveCiEvidenceAtom(
       reason:
         `${lead}${next}\n  Required checks (source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
         (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : '') +
-        (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : ''),
+        (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : '') +
+        (eventJobKeys.length
+          ? `\n  Check the per-event job requirements: ${eventJobKeys.map((key) => `${key}.pullRequest and ${key}.push`).join('; ')}.`
+          : ''),
     };
   }
   // Round 2 (skipped tests): the aggregate counts skipped jobs as a pass. For a
@@ -3585,14 +3636,18 @@ export async function resolveCiEvidenceAtom(
   let mergeNonTest: NonTestFailuresResult | undefined;
   if (isCode) {
     for (const g of gateLists) {
-      const globs = readCiChecks(roots.storeRoot).jobs?.[g.key];
-      if (!globs || globs.length === 0) {
+      const configured = ciChecks.jobs?.[g.key];
+      const byEvent = configured && !Array.isArray(configured) ? configured : undefined;
+      const globs = Array.isArray(configured) ? configured : byEvent?.push;
+      const configKey = `evidence.ciChecks.jobs.${g.key}`;
+      if (!globs?.length || (byEvent && !mainOnly && !byEvent.pullRequest.length)) {
         return {
           ok: false,
           codeName: 'E_EVIDENCE_INSUFFICIENT',
           reason:
             `ci:${prNumber} cannot attest ${g.gate} for code task ${context.task.id}: set ` +
-            `evidence.ciChecks.jobs.${g.key} to the job names that must run (e.g. "Unit Tests*").`,
+            `${configKey}${byEvent ? (!globs?.length ? '.push' : '.pullRequest') : ''} to the job names that must run (e.g. "Unit Tests*"). ` +
+            `When PR and main jobs differ, set ${configKey}.pullRequest and ${configKey}.push separately.`,
         };
       }
       const scopeWorkflows = (g.list ?? []).flatMap((n) =>
@@ -3607,7 +3662,13 @@ export async function resolveCiEvidenceAtom(
         };
       }
       const scope = { ...(app !== undefined ? { app } : {}), workflows: scopeWorkflows };
-      let judgedJobs = evaluateJobs(globs, checks, pr.mergeCommitSha, scope);
+      let judgedJobs = evaluateJobs(
+        globs,
+        checks,
+        pr.mergeCommitSha,
+        scope,
+        byEvent ? 'push' : undefined,
+      );
       if (!judgedJobs.ok) {
         // T13809: a job red only on the quarantine budget ran every test and
         // they all passed; for this gate it ran and succeeded.
@@ -3624,19 +3685,25 @@ export async function resolveCiEvidenceAtom(
         if (mergeNonTest.ok) {
           const passed = new Set(mergeNonTest.jobs.map((j) => j.mergeRunId));
           const asRun = checks.map((c) => (passed.has(c.id) ? { ...c, conclusion: 'success' } : c));
-          const onMerge = evaluateJobs(globs, asRun, pr.mergeCommitSha, scope);
+          const onMerge = evaluateJobs(
+            globs,
+            asRun,
+            pr.mergeCommitSha,
+            scope,
+            byEvent ? 'push' : undefined,
+          );
           if (onMerge.ok) judgedJobs = onMerge;
         }
       }
-      if (!judgedJobs.ok && treeEqualHead && !mainOnly) {
+      if (!judgedJobs.ok && treeEqualHead && !mainOnly && !byEvent) {
         const onHead = evaluateJobs(globs, checks, treeEqualHead, scope, 'pull_request');
         if (onHead.ok) judgedJobs = onHead;
       }
       if (!judgedJobs.ok && descendant) {
         // T12742: the stand-in's jobs, and the PR head's own pull_request jobs.
         const onDescendant = evaluateJobs(globs, checks, descendant.sha, scope, 'push');
-        if (!descendant.prHeadSha) {
-          // T13174: main-only — the PR's own jobs are not consulted.
+        if (byEvent || !descendant.prHeadSha) {
+          // Per-event head jobs are checked below; main-only never consults them.
           if (onDescendant.ok) judgedJobs = onDescendant;
         } else {
           const onPrHead = evaluateJobs(globs, checks, descendant.prHeadSha, scope, 'pull_request');
@@ -3651,7 +3718,7 @@ export async function resolveCiEvidenceAtom(
         const skip = evaluateFilterSkippedJobs(
           globs,
           pr.changedPaths,
-          checks,
+          byEvent ? checks.filter((c) => c.event === 'push') : checks,
           descendant?.sha ?? pr.mergeCommitSha,
           scope,
         );
@@ -3660,14 +3727,48 @@ export async function resolveCiEvidenceAtom(
           filterSkipped[g.gate] = skip.skipped;
         } else skipNote = `\n  A filter skip does not stand in: ${skip.reason}`;
       }
+      let failedKey = byEvent ? `${configKey}.push` : configKey;
+      if (byEvent && !mainOnly) {
+        const onPrHead = evaluateJobs(
+          byEvent.pullRequest,
+          checks,
+          head ?? '',
+          scope,
+          'pull_request',
+        );
+        if (!onPrHead.ok) {
+          judgedJobs = onPrHead;
+          failedKey = `${configKey}.pullRequest`;
+        } else if (judgedJobs.ok) {
+          judgedJobs = { ok: true, jobs: [...onPrHead.jobs, ...judgedJobs.jobs] };
+        }
+      }
       if (!judgedJobs.ok) {
+        const pendingPush =
+          byEvent &&
+          failedKey.endsWith('.push') &&
+          (g.list ?? []).some((name) => {
+            const verdict = judgeOnSha(
+              checks.filter((c) => c.name === name && pinMatches(c, pins[name])),
+              descendant?.sha ?? pr.mergeCommitSha,
+              'push',
+            );
+            return !verdict.ok && verdict.verdict.startsWith('pending');
+          });
         return {
           ok: false,
           codeName: 'E_EVIDENCE_TESTS_FAILED',
           reason:
             `${g.gate} for code task ${context.task.id} needs its jobs to have run on PR #${prNumber}:\n  - ` +
             judgedJobs.reasons.join('\n  - ') +
-            skipNote,
+            skipNote +
+            `\n  Check ${failedKey}.` +
+            (byEvent && (pendingPush || judgedJobs.reasons.some((r) => r.includes(': pending (')))
+              ? `\n  The ${failedKey.endsWith('.pullRequest') ? 'PR-head pull_request' : 'main push'} run is pending; wait for it to finish, then verify again.`
+              : '') +
+            (!byEvent
+              ? ` When PR and main jobs differ, set ${configKey}.pullRequest and ${configKey}.push separately.`
+              : ''),
         };
       }
       jobsByGate[g.gate] = judgedJobs.jobs;

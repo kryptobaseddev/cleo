@@ -104,7 +104,16 @@ import {
 function ciPlannable(storeRoot: string, needsJobs: boolean): boolean {
   const lists = readCiChecks(storeRoot);
   if (!lists.tests?.length || !lists.qa?.length) return false;
-  return !(needsJobs && (!lists.jobs?.tests?.length || !lists.jobs?.qa?.length));
+  return (
+    !needsJobs ||
+    [lists.jobs?.tests, lists.jobs?.qa].every(
+      (jobs) =>
+        jobs &&
+        (Array.isArray(jobs)
+          ? jobs.length > 0
+          : jobs.pullRequest.length > 0 && jobs.push.length > 0),
+    )
+  );
 }
 
 /** Gates `cleo done` derives evidence for; every other required gate is manual. */
