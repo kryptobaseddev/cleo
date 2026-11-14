@@ -1718,8 +1718,16 @@ agent style-scanner:
 
 **Severity**: Error
 
-**Description**: The event name in an `on Event:` block MUST be one of the 16 CAAMP canonical
-events listed in Section 5. Event names are case-sensitive (PascalCase).
+**Description**: The event name in an `on Event:` block MUST be one of the canonical events
+listed in Section 5 (the `canonicalEvents` of `hook-mappings.json`, provider and domain).
+Event names are case-sensitive (PascalCase).
+
+**Where it fires**: the parser enforces this first. `parse_hook_block`
+(`crates/cant-core/src/dsl/hook.rs`) rejects an unknown event as a parse error, so a `.cant`
+file naming one never reaches validation: `cleo cant validate` (napi
+`cant_validate_document`) reports it with rule id `PARSE`, not `S06`. The S06 check in
+`crates/cant-core/src/validate/scope/names.rs` applies only to a document built without the
+parser.
 
 **Violation**:
 ```cant
@@ -1733,7 +1741,7 @@ on ResponseComplete:
   /done T1234
 ```
 
-**Diagnostic**: `S06: Unknown event '{event}' at line {line}. Must be one of: SessionStart, SessionEnd, PromptSubmit, ResponseComplete, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, SubagentStart, SubagentStop, PreModel, PostModel, PreCompact, PostCompact, Notification, ConfigChange.`
+**Diagnostic** (parser, rule id `PARSE`): `unknown event '{event}'; must be a canonical event (e.g. SessionStart, TaskCompleted, PreToolUse)`. The S06 form, for a document built without the parser: `Unknown event '{event}' at line {line}. Must be one of: {CANONICAL_EVENT_NAMES_CSV}.`, listing all canonical events.
 
 ---
 
@@ -2863,13 +2871,14 @@ business logic). Both use the same `on Event:` syntax.
 
 The canonical event registry is the `canonicalEvents` object in
 `packages/caamp/providers/hook-mappings.json` (SSoT). Implementations MUST NOT hardcode event
-names. The parser accepts any PascalCase identifier in `on` blocks; the validator (S06,
-`crates/cant-core/src/validate/scope/names.rs`) checks it against the event list
-`crates/cant-core/build.rs` generates from `canonicalEvents` at build time.
+names. `crates/cant-core/build.rs` generates the committed event list
+`crates/cant-core/src/generated/events.rs` from `canonicalEvents`; the parser checks every `on`
+event against it (`is_canonical_event`), so an unknown event fails while parsing and is
+reported as `PARSE` (see S06).
 
 Domain events are the `canonicalEvents` entries with `source: "domain"`. The
-`domainSources` section only records each one's D:O:P mapping; the validator does not read
-it.
+`domainSources` section only records each one's D:O:P mapping; neither the parser nor the
+validator reads it.
 
 ### 5.0 Provider Events (16)
 
@@ -2918,9 +2927,10 @@ Domain events fire when CLEO CQRS operations complete. They use the D:O:P patter
 | 30 | ApprovalGranted | `on ApprovalGranted:` | session | `session:resume:post` | An approval was granted |
 | 31 | ApprovalExpired | `on ApprovalExpired:` | session | `session:suspend:post` | An approval token expired |
 
-To add a domain event, add it to `canonicalEvents` (with `source: "domain"`) and rebuild
-cant-core; record its D:O:P mapping under `domainSources`. An event added only to
-`domainSources` still fails S06.
+To add a domain event, add it to `canonicalEvents` (with `source: "domain"`), rebuild
+cant-core and commit the regenerated `src/generated/events.rs`; record its D:O:P mapping under
+`domainSources`. An event added only to `domainSources` stays unknown: an `on` block naming it
+fails to parse.
 
 ### 5.2 Blocking Event Semantics
 

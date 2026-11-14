@@ -841,10 +841,15 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
   }
 
   /** Record one ledger row through the canonical accessor. */
-  async function publish(blobName: string, publishedPath: string, lastBlobSha: string) {
+  async function publish(
+    blobName: string,
+    publishedPath: string,
+    lastBlobSha: string,
+    ownerId = 'T9999',
+  ) {
     const { upsertDocsPublication } = await import('../publications-store.js');
     await upsertDocsPublication(tempDir, {
-      ownerId: 'T9999',
+      ownerId,
       blobName,
       publishedPath,
       lastBlobSha,
@@ -1063,6 +1068,59 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     expect(existsSync(PRUNE_AUDIT())).toBe(false);
     const plans = result.report.repairs.filter((r) => r.kind === 'publication-ledger-drift');
     expect(plans.map((r) => r.action)).toEqual(['republish-or-prune', 'republish-or-prune']);
+  });
+
+  /** Seed an attachment with no slug (what an old version row looks like after an update). */
+  async function seedSlugless(content: string): Promise<void> {
+    const { createAttachmentStore } = await import('../../store/attachment-store.js');
+    await createAttachmentStore().put(
+      Buffer.from(content, 'utf-8'),
+      { kind: 'blob', storageKey: '', mime: 'text/markdown', size: content.length },
+      'task',
+      'T9999',
+      'docs-doctor-test',
+      undefined,
+      { type: 'note' },
+    );
+  }
+
+  it('prunes a row named by an old file name once a newer same-owner row publishes a live doc there (T14108)', async () => {
+    await seedSlugless('# old\n');
+    await seedSlug('current', '# current\n');
+    mirror('current.md', '# current\n');
+    await publish('tmp-old-readme.md', 'docs/current.md', sha('# old\n'));
+    await publish('current', 'docs/current.md', sha('# current\n'));
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerBlobNames()).toEqual(['current']);
+    expect(readFileSync(PRUNE_AUDIT(), 'utf-8').trim().split('\n')).toHaveLength(1);
+  });
+
+  it('keeps a row held only by a slugless attachment when the live row has another owner (T14108)', async () => {
+    await seedSlugless('# old\n');
+    await seedSlug('current', '# current\n');
+    mirror('current.md', '# current\n');
+    await publish('tmp-old-readme.md', 'docs/current.md', sha('# old\n'));
+    await publish('current', 'docs/current.md', sha('# current\n'), 'T8888');
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerBlobNames()).toEqual(['current', 'tmp-old-readme.md']);
+    expect(existsSync(PRUNE_AUDIT())).toBe(false);
+  });
+
+  it('prunes a row whose slugged blob holder never moved, against a live row of another owner (T14108)', async () => {
+    await seedSlug('variant-2', '# old\n');
+    await seedSlug('current', '# current\n');
+    mirror('current.md', '# current\n');
+    await publish('ADR-OLD-name.md', 'docs/current.md', sha('# old\n'));
+    await publish('current', 'docs/current.md', sha('# current\n'), 'T8888');
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerBlobNames()).toEqual(['current']);
+    expect(readFileSync(PRUNE_AUDIT(), 'utf-8').trim().split('\n')).toHaveLength(1);
   });
 
   it('a pruned row is restorable from its audit line', async () => {
