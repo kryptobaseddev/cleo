@@ -413,20 +413,29 @@ export async function resolveLeadMailbox(
   const holder = await client.holder(name, projectRoot);
   const status = holder.ok && holder.value ? await client.status(holder.value) : null;
   if (status?.ok && status.value.name === name && status.value.state === 'bound') return name;
+  const check =
+    holder.ok && holder.value
+      ? `agentmbx status --cli ${JSON.stringify(holder.value.cli)} --session ${JSON.stringify(holder.value.session)} --json --schema mbx.status/v1`
+      : `agentmbx identity list --project ${JSON.stringify(projectRoot)} --json`;
+  const reason = !holder.ok
+    ? holder.warning
+    : !holder.value
+      ? 'no registered, non-retired identity with state held and a provider session was returned'
+      : status?.ok
+        ? `identity.name=${JSON.stringify(status.value.name)}, identity.state=${JSON.stringify(status.value.state)}`
+        : status?.warning;
+  const fix = `In the lead session use mbx_identity {"action":"list"}; register a missing identity with mbx_identity {"action":"register","name":"${name}","role":"lead"} (registration also holds it), or claim an existing available identity with mbx_identity {"action":"claim","name":"${name}"}. CLI claim: agentmbx identity claim ${name} --cli ${holder.ok && holder.value ? JSON.stringify(holder.value.cli) : '<provider>'} --session ${holder.ok && holder.value ? JSON.stringify(holder.value.session) : '<lead-provider-session-id>'} --json. Never take over a live holder.`;
+  const message = `AgentMBX does not confirm a live holder of ${name}; check ${check} failed: ${reason}.`;
   if (explicit) {
     // @sync-invariant none:local-only a report destination needs a live AgentMBX holder
-    throw new CleoError(
-      ExitCode.VALIDATION_ERROR,
-      `AgentMBX does not confirm a live holder of ${name}`,
-      {
-        codeName: 'E_LEAD_MAILBOX_UNHELD',
-        fix: `In the lead session use mbx_identity {"action":"claim","name":"${name}"}; if absent, use mbx_identity {"action":"register","name":"${name}","role":"lead"}. Check agentmbx identity list --project ${JSON.stringify(projectRoot)} --json before retrying.`,
-      },
-    );
+    throw new CleoError(ExitCode.VALIDATION_ERROR, message, {
+      codeName: 'E_LEAD_MAILBOX_UNHELD',
+      fix,
+    });
   }
   getLogger('agentmbx').warn(
-    { mailbox: name },
-    'Lead mailbox has no verified holder; omitted from worker prompts. In the lead session, claim or register this name with mbx_identity before dispatch.',
+    { mailbox: name, check, reason, fix },
+    `${message} Lead mailbox omitted from worker prompts. ${fix}`,
   );
   return undefined;
 }
