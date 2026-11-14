@@ -36,7 +36,7 @@
     "docs:check": "forge-ts check",
     "docs:test": "forge-ts test",
     "docs:build": "forge-ts build",
-    "docs:init": "forge-ts docs init --target mintlify --out-dir docs/site",
+    "docs:init": "forge-ts docs init --target mintlify --out-dir .forge-ts/site",
     "docs:dev": "forge-ts docs dev",
     "clean": "find packages -type d -name dist -prune -exec rm -rf {} + && find packages -name '*.tsbuildinfo' -delete",
     "clean:node-modules": "find packages -type d -name node_modules -prune -exec rm -rf {} + && rm -rf node_modules && pnpm install",

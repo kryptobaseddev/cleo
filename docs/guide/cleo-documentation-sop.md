@@ -60,7 +60,9 @@ folder:
 | note | `docs/note` | notes worth publishing |
 | handoff | store only | never published |
 
-`docs/generated` is generated output. Images live in `docs/assets`.
+`docs/` holds only mirrors published from the store. Build output stays out of
+it: forge-ts (`pnpm docs:build`, `pnpm docs:init`) writes to the gitignored
+`.forge-ts/` folder. Images live in `docs/assets`.
 
 ## Naming rule
 

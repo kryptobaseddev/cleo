@@ -79,6 +79,8 @@ packages/*/src/**/*.d.ts.map
 /forge-ts.config.js.map
 /forge-ts.config.d.ts
 /forge-ts.config.d.ts.map
+# forge-ts build output (outDir / docs:init); docs/ holds only store mirrors (T14108)
+/.forge-ts/
 /vitest.config.js
 /vitest.config.js.map
 /vitest.config.d.ts

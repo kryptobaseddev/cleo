@@ -8,11 +8,14 @@
  * for @example doctest blocks. The tsconfig is the core package's own
  * tsconfig which has explicit strictNullChecks/noImplicitAny (required by
  * forge-ts E009 guard).
+ *
+ * outDir is gitignored build output outside docs/: docs/ holds only mirrors
+ * published from the CLEO docs store (D11248, T14108).
  */
 export default {
   rootDir: "./packages/core",
   tsconfig: "./packages/core/tsconfig.json",
-  outDir: "./docs/generated",
+  outDir: "./.forge-ts/out",
   enforce: {
     enabled: true,
     minVisibility: "public",
