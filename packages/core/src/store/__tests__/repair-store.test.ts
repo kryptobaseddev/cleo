@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -881,6 +881,49 @@ describe('copy-only whole-store repair', () => {
     check.close();
   });
 
+  it('keeps deletion-only history until repair restores its durable evidence', async () => {
+    const { rotateBackupDir } = await import('../backup-sidecar.js');
+    const dir = join(env.cleoDir, 'backups', 'sqlite');
+    const deleted = join(dir, 'cleo.db.snapshot-20260101-000000');
+    const stale = join(dir, 'cleo.db.snapshot-20260102-000000');
+    const checkout = join(env.tempDir, 'before-delete.db');
+    const db = new DatabaseSync(live);
+    db.exec(
+      "INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES('delete-only','2026-01-01','create','old')",
+    );
+    db.exec(`VACUUM INTO '${checkout.replaceAll("'", "''")}'`);
+    db.exec("DELETE FROM tasks_audit_log WHERE id='delete-only'");
+    db.exec(`VACUUM INTO '${deleted.replaceAll("'", "''")}'`);
+    db.close();
+    copyFileSync(checkout, live);
+    copyFileSync(checkout, stale);
+    utimesSync(deleted, new Date('2026-01-01'), new Date('2026-01-01'));
+    utimesSync(stale, new Date('2026-01-02'), new Date('2026-01-02'));
+    const finding = inspectStoreIntegrity(live);
+    expect(finding.healthy).toBe(false);
+    expect(finding.detail).toContain('committed deletion receipts');
+    expect(rotateBackupDir(dir, 1, 'snapshot').retained[basename(deleted)]).toContain(
+      'delete-only',
+    );
+    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result.status).toBe('repaired');
+    const check = new DatabaseSync(live, { readOnly: true });
+    expect(
+      check.prepare("SELECT id FROM tasks_audit_log WHERE id='delete-only'").get(),
+    ).toBeUndefined();
+    expect(
+      check
+        .prepare("SELECT deletion_count FROM _store_deleted_keys WHERE record_key='delete-only'")
+        .get()?.deletion_count,
+    ).toBe(1);
+    check.close();
+    const before = hashes();
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+    expect(hashes()).toEqual(before);
+  });
+
   it('honors committed prune and GC deletes during diagnosis, rotation and a later lossless recovery', async () => {
     const { pruneAuditLog } = await import('../../audit-prune.js');
     const { loadConfig } = await import('../../config.js');
@@ -1067,7 +1110,7 @@ describe('copy-only whole-store repair', () => {
     check.close();
     const { enforceBackupByteCap } = await import('../backup-sidecar.js');
     const rotation = enforceBackupByteCap(join(env.cleoDir, 'backups', 'sqlite'), 0);
-    expect(rotation.removed.flatMap((r) => r.files)).toContain(newer.split('/').at(-1));
+    expect(rotation.removed.flatMap((r) => r.files)).toContain(basename(newer));
     expect(existsSync(newer)).toBe(false);
   });
 

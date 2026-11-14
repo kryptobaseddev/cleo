@@ -897,6 +897,20 @@ export function compareStoreFreshness(
   )
     return;
   const evidence: string[] = [];
+  const liveDeletes = readStoreDeletedKeys(live);
+  for (const [table, keys] of readStoreDeletedKeys(source)) {
+    let missing = 0;
+    const sample: string[] = [];
+    for (const [key, receipt] of keys) {
+      if ((liveDeletes.get(table)?.get(key)?.deletionCount ?? 0) >= receipt.deletionCount) continue;
+      missing++;
+      if (sample.length < 3) sample.push(key);
+    }
+    if (missing)
+      evidence.push(
+        `${table}: ${missing} committed deletion receipts absent or older in live (${sample.join('; ')})`,
+      );
+  }
   for (const next of after) {
     const old = before.find((t) => t.table === next.table);
     const stamp = (db: DatabaseSync): string =>
