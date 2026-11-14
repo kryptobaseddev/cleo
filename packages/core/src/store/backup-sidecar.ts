@@ -31,6 +31,7 @@ import { basename, dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
+import { snapshotRecoveryReason } from './recover-malformed-db.js';
 
 /**
  * Format a Date as `YYYYMMDD-HHmmss` (local time) — mirrors the helper of
@@ -58,6 +59,7 @@ export function formatBackupTimestamp(d: Date): string {
  * `<file>.<type>-<iso-with-dashes>` for backward compatibility) so it never
  * touches files produced by `vacuumIntoBackupAll` in the same directory.
  * Non-fatal — filesystem errors are silently swallowed.
+ * Recovery rows absent or older in live pin their whole backup group past the cap.
  *
  * A pinned backup, and a pre-collapse snapshot a twin-collapse marker of the
  * project store references (pinned or not: 2026.9.21 wrote them without a
@@ -82,6 +84,7 @@ export function rotateBackupDir(
   backupType: string,
 ): BackupRotation {
   const deleted: string[] = [];
+  const retained: Record<string, string> = {};
   try {
     // Match `<anything>.${backupType}-<timestamp>` where timestamp is either
     // canonical (`YYYYMMDD-HHmmss`) or legacy-ISO (`YYYY-MM-DDTHH-MM-SS-mmmZ`).
@@ -122,6 +125,7 @@ export function rotateBackupDir(
         if (skipped)
           return {
             deleted,
+            retained,
             sidecars: sweepOrphanSidecars(backupDir, backupType),
             keptAll: markers.error !== null ? 'store-unreadable' : 'marker-unreadable',
             unreadable: markers.unreadable,
@@ -135,6 +139,21 @@ export function rotateBackupDir(
     while (files.length > maxSnapshots) {
       const oldest = files.shift();
       if (!oldest) break;
+      for (const name of oldest.names) {
+        if (!name.startsWith('cleo.db.')) continue;
+        const reason = snapshotRecoveryReason(
+          join(backupDir, '..', '..', 'cleo.db'),
+          join(backupDir, name),
+        );
+        if (reason) retained[name] = reason;
+      }
+      if (oldest.names.some((name) => retained[name])) {
+        getLogger('backup-rotation').warn(
+          { backupDir, retained },
+          'Keeping recovery snapshots past the rotation cap',
+        );
+        continue;
+      }
       for (const name of oldest.names) {
         try {
           unlinkSync(join(backupDir, name));
@@ -151,6 +170,7 @@ export function rotateBackupDir(
   // files is left, and so does any earlier orphan (T12729).
   return {
     deleted,
+    retained,
     sidecars: sweepOrphanSidecars(backupDir, backupType),
     keptAll: null,
     unreadable: [],
@@ -200,6 +220,8 @@ export function sweepOrphanSidecars(backupDir: string, backupType: string): stri
 
 /** What {@link rotateBackupDir} did. */
 export interface BackupRotation {
+  /** Snapshots kept past the count cap because their recovery rows are not in the live store. */
+  readonly retained: Readonly<Record<string, string>>;
   /** Backup files deleted. */
   readonly deleted: readonly string[];
   /** Sidecars removed because their backup has no file left (T12729). */
@@ -752,7 +774,8 @@ function backupSets(names: readonly string[]): Map<string, BackupSet> {
  * strictly newer copy of that same role exists and verifies, or the set's
  * copy of it is empty (zero bytes, or a database with no schema object:
  * nothing to lose; recorded as {@link EMPTY_COPY}). So the newest
- * verified copy of every role is never removed. Also never removed: a pinned
+ * verified copy of every role is never removed. Project-store recovery rows must
+ * also be present in live before their snapshot can go. Also never removed: a pinned
  * backup (T12535), a pre-collapse snapshot a twin-collapse marker references,
  * any migration set while the markers cannot be read, a rollback point a
  * receipt under `.cleo/audit/` names ({@link readReceiptReferences}), and
@@ -861,6 +884,16 @@ export function enforceBackupByteCap(
       set.files.some((f) => isPinnedBackup(backupDir, f.name, set.kind))
     ) {
       keep('pinned');
+      continue;
+    }
+    const recovery = set.files
+      .filter((f) => f.role === 'cleo.db' && state(f.name) !== 'empty')
+      .map((f) =>
+        snapshotRecoveryReason(join(backupDir, '..', '..', 'cleo.db'), join(backupDir, f.name)),
+      )
+      .find((reason) => reason !== undefined);
+    if (recovery) {
+      keep(recovery);
       continue;
     }
     const coveredBy: Record<string, string> = {};

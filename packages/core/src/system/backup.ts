@@ -86,6 +86,7 @@ import {
 } from '../store/docs-bytes-backup.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { AbandonableLock } from '../store/lock.js';
+import { stampStoreSnapshot } from '../store/recover-malformed-db.js';
 import { getNativeDb } from '../store/sqlite.js';
 import { listSqliteBackupsAll } from '../store/sqlite-backup.js';
 import {
@@ -183,12 +184,16 @@ function isTargetTaken(err: unknown): boolean {
 function snapshotToTemp(
   db: { exec: (sql: string) => void } | null,
   destPath: string,
+  target: string,
 ): string | null {
   if (!db) return null;
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   const temp = `${destPath}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
   try {
     db.exec(`VACUUM INTO '${temp.replace(/'/g, "''")}'`);
+    stampStoreSnapshot(db, temp, target);
+    // Persist the acknowledgement now; a later refused restore must not flush it into live.
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   } catch (err) {
     // A failed VACUUM INTO can leave a partial (often empty) file (T13245).
     rmSync(temp, { force: true });
@@ -216,8 +221,12 @@ function publishNoClobber(temp: string, final: string): void {
  * Snapshot `db` to `destPath` without ever replacing an existing file there:
  * a taken target throws EEXIST and leaves it intact (T14158).
  */
-function safeSqliteSnapshot(db: { exec: (sql: string) => void } | null, destPath: string): boolean {
-  const temp = snapshotToTemp(db, destPath);
+function safeSqliteSnapshot(
+  db: { exec: (sql: string) => void } | null,
+  destPath: string,
+  target: string,
+): boolean {
+  const temp = snapshotToTemp(db, destPath, target);
   if (temp === null) return false;
   try {
     publishNoClobber(temp, destPath);
@@ -269,6 +278,8 @@ export interface BackupCaptureError {
 
 /** Result shape returned by {@link createBackup}. */
 export interface BackupResult {
+  /** Recovery snapshots kept past rotation, with the evidence that pins each one. */
+  retainedSnapshots?: Readonly<Record<string, string>>;
   /** Unique backup identifier (timestamped). */
   backupId: string;
   /** Absolute path to the directory containing the snapshot files. */
@@ -410,7 +421,12 @@ export async function createBackup(
       let ok = false;
       for (let attempt = 1; ; attempt++) {
         try {
-          ok = safeSqliteSnapshot(target.getDb(), join(backupDir, `${target.file}.${backupId}`));
+          const native = target.getDb();
+          ok = safeSqliteSnapshot(
+            native,
+            join(backupDir, `${target.file}.${backupId}`),
+            join(cleoDir, target.file),
+          );
           break;
         } catch (err) {
           // Another writer published this id first: its backup stays, take the next id.
@@ -508,9 +524,10 @@ export async function createBackup(
   // T9194: Rotate oldest backups when the cap is exceeded. Scoped to the
   // current `backupType` so vacuum-snapshot files in the same dir are never
   // touched. A destination backup is outside the window (T13209).
+  const retainedSnapshots: Record<string, string> = {};
   if (!opts?.destination) {
     const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
-    rotateBackupDir(backupDir, maxSnapshots, btype);
+    Object.assign(retainedSnapshots, rotateBackupDir(backupDir, maxSnapshots, btype).retained);
     // T14278: the directory-wide byte cap over every snapshot family.
     applyBackupByteCap(backupDir);
     // T13710: pool bytes no surviving backup references go with the rotation.
@@ -527,6 +544,7 @@ export async function createBackup(
     timestamp,
     type: btype,
     files: backedUp,
+    ...(Object.keys(retainedSnapshots).length > 0 ? { retainedSnapshots } : {}),
     ...(captureErrors.length > 0 ? { captureErrors } : {}),
   };
 }
@@ -1013,12 +1031,17 @@ export async function createGlobalBackup(opts?: {
   const backedUp: string[] = [];
   /** T13724: a failed store capture is reported, never swallowed. */
   const captureErrors: BackupCaptureError[] = [];
+  const retainedSnapshots: Record<string, string> = {};
   try {
     const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
     const db = getDualScopeNativeDb(await openDualScopeDb('global'));
     // The copy lands under a temporary name and is published, never over an
     // existing backup, only if nothing invalidated it meanwhile.
-    const staged = snapshotToTemp(db, join(backupDir, `cleo.db.${backupId}`));
+    const staged = snapshotToTemp(
+      db,
+      join(backupDir, `cleo.db.${backupId}`),
+      resolveDualScopeDbPath('global'),
+    );
     if (staged !== null) {
       const why = opts?.discardIf?.() ?? null;
       if (why !== null) {
@@ -1070,7 +1093,10 @@ export async function createGlobalBackup(opts?: {
       ),
     );
     if (!opts?.destination) {
-      rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype);
+      Object.assign(
+        retainedSnapshots,
+        rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype).retained,
+      );
     }
   }
   return {
@@ -1079,6 +1105,7 @@ export async function createGlobalBackup(opts?: {
     timestamp,
     type: btype,
     files: backedUp,
+    ...(Object.keys(retainedSnapshots).length > 0 ? { retainedSnapshots } : {}),
     ...(captureErrors.length > 0 ? { captureErrors } : {}),
   };
 }

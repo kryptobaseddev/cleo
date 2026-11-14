@@ -424,3 +424,19 @@ export interface DoctorRepairResult {
   /** Count of roles where a needed repair FAILED. */
   failedCount: number;
 }
+
+/** Cheap immutable-image identity; full hashes are needed only for candidate collisions or restore intent. */
+export interface StoreSnapshotIdentity {
+  /** Path, inode and change times invalidate cached validation after a physical rewrite. */
+  cacheKey: string;
+  /** Size and SQLite/WAL headers group possible duplicate images despite differing mtimes. */
+  duplicateKey: string;
+}
+
+/** A store checkpoint and the retained ancestor checkpoints its history proves. */
+export interface StoreGeneration {
+  /** Random identity of a completed snapshot checkpoint. */
+  readonly current: string;
+  /** Bounded ancestor identities, including the current checkpoint. */
+  readonly history: readonly string[];
+}

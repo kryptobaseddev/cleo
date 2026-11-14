@@ -28,7 +28,17 @@
  * @epic T310
  */
 
-import { existsSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -110,6 +120,43 @@ describe('sqlite-backup global tier', () => {
     }
   }, 30_000);
 
+  it('a routine canonical capture refuses a held generation writer without delaying teardown', async () => {
+    const cleoHome = mkdtempSync(join(tmpdir(), 'cleo-global-held-generation-'));
+    const target = join(cleoHome, 'cleo.db');
+    seedSqliteDb(target);
+    const db = new DatabaseSync(target);
+    db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=10000');
+    const { advanceStoreGeneration, readStoreGeneration } = await import(
+      '../recover-malformed-db.js'
+    );
+    advanceStoreGeneration(db, target);
+    const generation = readStoreGeneration(db);
+    const dir = join(cleoHome, 'backups', 'sqlite');
+    mkdirSync(dir, { recursive: true });
+    const old = join(dir, 'nexus-20200101-000000.db');
+    db.exec(`VACUUM INTO '${old.replaceAll("'", "''")}'`);
+    const holder = new DatabaseSync(target);
+    holder.exec("BEGIN IMMEDIATE; INSERT INTO test_data(value) VALUES('held')");
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => db }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    try {
+      const { vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
+      const start = Date.now();
+      await expect(
+        vacuumIntoGlobalBackup('nexus', { cleoHomeOverride: cleoHome, rotation: 1 }),
+      ).rejects.toThrow(/locked|busy/);
+      expect(Date.now() - start).toBeLessThan(5000);
+      expect(db.prepare('PRAGMA busy_timeout').get()?.timeout).toBe(10000);
+      expect(readStoreGeneration(db)).toEqual(generation);
+      expect(readdirSync(dir)).toEqual(['nexus-20200101-000000.db']);
+    } finally {
+      holder.exec('ROLLBACK');
+      holder.close();
+      db.close();
+      rmSync(cleoHome, { recursive: true, force: true });
+    }
+  });
+
   it('vacuumIntoGlobalBackup XDG path: uses cleoHomeOverride, not hardcoded ~/.cleo/', async () => {
     vi.resetModules();
     const cleoHome = join(tmpdir(), `cleo-global-xdg-${Date.now()}`);
@@ -172,6 +219,63 @@ describe('sqlite-backup global tier', () => {
       expect(ok).toBe('ok');
     } finally {
       snapshot.close();
+    }
+  });
+
+  it('keeps a divergent canonical global generation and rotates only after a successful capture', async () => {
+    const cleoHome = mkdtempSync(join(tmpdir(), 'cleo-global-generation-'));
+    const target = join(cleoHome, 'cleo.db');
+    const dir = join(cleoHome, 'backups', 'sqlite');
+    mkdirSync(dir, { recursive: true });
+    const { advanceStoreGeneration, readStoreGeneration } = await import(
+      '../recover-malformed-db.js'
+    );
+    const seed = new DatabaseSync(target);
+    seed.exec('CREATE TABLE nexus_audit_log(id TEXT PRIMARY KEY,timestamp TEXT)');
+    advanceStoreGeneration(seed, target);
+    const checkout = join(cleoHome, 'old.db');
+    seed.exec(`VACUUM INTO '${checkout.replaceAll("'", "''")}'`);
+    seed.exec("INSERT INTO nexus_audit_log VALUES('lost','2026-01-01')");
+    advanceStoreGeneration(seed, target);
+    const recovery = readStoreGeneration(seed);
+    const old = join(dir, 'nexus-20200101-000000.db');
+    seed.exec(`VACUUM INTO '${old.replaceAll("'", "''")}'`);
+    seed.close();
+    copyFileSync(checkout, target);
+    const db = new DatabaseSync(target);
+    vi.doMock('../nexus-sqlite.js', () => ({ getNexusNativeDb: () => db }));
+    vi.doMock('../../paths.js', () => ({ getCleoHome: () => cleoHome }));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { vacuumIntoGlobalBackup } = await import('../sqlite-backup.js');
+      vi.setSystemTime(new Date('2026-11-14T10:00:00Z'));
+      const capture = await vacuumIntoGlobalBackup('nexus', {
+        cleoHomeOverride: cleoHome,
+        rotation: 1,
+      });
+      expect(existsSync(old)).toBe(true);
+      expect(capture.rotated).not.toContain(old);
+      const before = readdirSync(dir).sort();
+      const exec = db.exec.bind(db);
+      const failed = vi.spyOn(db, 'exec').mockImplementation((sql) => {
+        if (sql.startsWith('VACUUM INTO')) throw new Error('injected capture failure');
+        exec(sql);
+      });
+      vi.setSystemTime(new Date('2026-11-14T10:00:01Z'));
+      await expect(
+        vacuumIntoGlobalBackup('nexus', { cleoHomeOverride: cleoHome, rotation: 1 }),
+      ).rejects.toThrow('injected capture failure');
+      expect(readdirSync(dir).sort()).toEqual(before);
+      failed.mockRestore();
+      advanceStoreGeneration(db, target, recovery ? [recovery] : []);
+      vi.setSystemTime(new Date('2026-11-14T10:00:02Z'));
+      await vacuumIntoGlobalBackup('nexus', { cleoHomeOverride: cleoHome, rotation: 1 });
+      expect(existsSync(old)).toBe(false);
+      expect(readdirSync(dir).filter((name) => /^nexus-.*\.db$/.test(name))).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      db.close();
+      rmSync(cleoHome, { recursive: true, force: true });
     }
   });
 

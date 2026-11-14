@@ -7,12 +7,14 @@
  */
 
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +27,9 @@ import {
   EMPTY_COPY,
   enforceBackupByteCap,
   resolveBackupMaxBytes,
+  rotateBackupDir,
 } from '../backup-sidecar.js';
+import { advanceStoreGeneration, snapshotRecoveryReason } from '../recover-malformed-db.js';
 
 let root: string;
 let cleoDir: string;
@@ -302,4 +306,70 @@ describe('backup byte cap (T14278)', () => {
     expect(r?.removed.map((x) => x.set)).toEqual(['vacuum-20261101-100000']);
     expect(existsSync(join(dir, 'tasks-20261102-100000.db'))).toBe(true);
   });
+});
+
+it('keeps missing keys and newer versions past both caps until the live store recovers them', () => {
+  const live = join(cleoDir, 'cleo.db');
+  const db = new DatabaseSync(live);
+  db.exec(
+    "CREATE TABLE tasks_tasks(id TEXT PRIMARY KEY, updated_at TEXT); INSERT INTO tasks_tasks VALUES ('shared','2026-01-01')",
+  );
+  const checkout = join(root, 'old.db');
+  advanceStoreGeneration(db, live);
+  copyFileSync(live, checkout);
+  db.exec(
+    "UPDATE tasks_tasks SET updated_at='2026-11-13'; INSERT INTO tasks_tasks VALUES ('missing','2026-11-13')",
+  );
+  const good = join(dir, 'cleo.db.snapshot-20260101-000000');
+  advanceStoreGeneration(db, live);
+  db.exec(`VACUUM INTO '${good.replaceAll("'", "''")}'`);
+  db.close();
+  copyFileSync(checkout, live);
+  const stale = join(dir, 'cleo.db.snapshot-20260102-000000');
+  copyFileSync(live, stale);
+  copyFileSync(live, join(dir, 'tasks-20260103-000000.db'));
+  utimesSync(good, new Date('2026-01-01'), new Date('2026-01-01'));
+  utimesSync(stale, new Date('2026-01-02'), new Date('2026-01-02'));
+  const countCap = rotateBackupDir(dir, 1, 'snapshot');
+  expect(countCap.deleted).not.toContain('cleo.db.snapshot-20260101-000000');
+  expect(countCap.retained['cleo.db.snapshot-20260101-000000']).toContain(
+    '1 missing keys, 1 older versions',
+  );
+  const byteCap = enforceBackupByteCap(dir, 1);
+  expect(byteCap.kept).toContainEqual(
+    expect.objectContaining({
+      set: 'snapshot-20260101-000000',
+      reason: expect.stringContaining('1 missing keys, 1 older versions'),
+    }),
+  );
+  expect(existsSync(good)).toBe(true);
+  copyFileSync(good, live);
+  copyFileSync(live, stale);
+  utimesSync(stale, new Date('2026-01-02'), new Date('2026-01-02'));
+  const recovered = rotateBackupDir(dir, 1, 'snapshot');
+  expect(recovered.retained).toEqual({});
+  expect(recovered.deleted).toContain('cleo.db.snapshot-20260101-000000');
+});
+
+it('does not pin a damaged checkpoint when the live store is unreadable', () => {
+  const live = join(cleoDir, 'cleo.db');
+  const source = join(dir, 'tasks-20260101-000000.db');
+  const db = new DatabaseSync(live);
+  advanceStoreGeneration(db, live);
+  db.exec(`VACUUM INTO '${source.replaceAll("'", "''")}'`);
+  db.close();
+  const snapshot = new DatabaseSync(source);
+  const rootPage = Number(
+    snapshot.prepare("SELECT rootpage FROM sqlite_schema WHERE name='t'").get()?.rootpage,
+  );
+  const pageSize = Number(snapshot.prepare('PRAGMA page_size').get()?.page_size);
+  snapshot.close();
+  const original = readFileSync(source);
+  const bytes = Buffer.from(original);
+  bytes.fill(0, (rootPage - 1) * pageSize, rootPage * pageSize);
+  writeFileSync(source, bytes);
+  writeFileSync(live, Buffer.alloc(4096));
+  expect(snapshotRecoveryReason(live, source)).toBeUndefined();
+  writeFileSync(source, original);
+  expect(snapshotRecoveryReason(live, source)).toContain('Live recovery ancestry unavailable');
 });

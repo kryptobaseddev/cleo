@@ -54,7 +54,6 @@
  * @adr ADR-068, ADR-069
  */
 
-import { createHash } from 'node:crypto';
 import {
   closeSync,
   constants,
@@ -73,11 +72,11 @@ import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   StoreFreshnessFinding,
+  StoreGeneration,
   StoreIntegrityInspection,
   StoreRepairFile,
   StoreRestoreIntent,
   StoreRestoreIntentMarker,
-  StoreTableHighWater,
 } from '@cleocode/contracts/db-recovery.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { pushWarning } from '@cleocode/lafs';
@@ -87,10 +86,19 @@ import { getProjectInfoSync } from '../project-info.js';
 import { getProjectRoot, isMissingProjectError } from '../project-scope.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
-import { collectStoreSnapshotCandidates } from './recover-malformed-db.js';
 import {
+  collectStoreSnapshotCandidates,
+  compareStoreFreshness,
+  readStoreGeneration,
+  storeSnapshotHash,
+  storeSnapshotIdentity,
+  storeSnapshotIgnored,
+  validStoreRecoverySnapshot,
+} from './recover-malformed-db.js';
+import {
+  inspectStoreRestoreIntent,
   openUnlessRestoring,
-  readStoreRestoreIntentMarker,
+  repairFileHash,
   storeCorruptError,
   writeStoreRestoreIntentMarker,
 } from './restore-marker.js';
@@ -532,37 +540,6 @@ export function assertDoctorStoreIntegrity(): void {
   }
 }
 
-/** Hash a file without holding the entire store in memory. */
-export function repairFileHash(file: string): string {
-  const hash = createHash('sha256');
-  const fd = openSync(file, 'r');
-  const buffer = Buffer.alloc(1024 * 1024);
-  try {
-    for (;;) {
-      const n = readSync(fd, buffer, 0, buffer.length, null);
-      if (n === 0) break;
-      hash.update(buffer.subarray(0, n));
-    }
-    return hash.digest('hex');
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** Resolve committed intent or prove which image a prepared marker belongs to. */
-export function inspectStoreRestoreIntent(target: string): StoreRestoreIntent | undefined {
-  const marker = readStoreRestoreIntentMarker(target);
-  if (!marker) return;
-  if (marker.state === 'committed') return marker.intent ?? undefined;
-  const matches = (main: string | undefined, wal: string | undefined): boolean =>
-    (wal !== undefined && existsSync(`${target}-wal`) && repairFileHash(`${target}-wal`) === wal) ||
-    (main !== undefined && existsSync(target) && repairFileHash(target) === main);
-  if (matches(marker.mainSha256, marker.walSha256)) return marker.intent ?? undefined;
-  if (matches(marker.previousMainSha256, marker.previousWalSha256))
-    return marker.previous ?? undefined;
-  return;
-}
-
 /** Capture the exact pre-existing backup images superseded by an explicit snapshot-only restore. */
 export function captureStoreRestoreIntent(
   target: string,
@@ -673,125 +650,7 @@ export function copyRepairWalView(from: string, to: string): number {
   return committed;
 }
 
-/** Each key's own timestamp is compared; unrelated writes cannot hide a missing row. */
-function storeRowTimestamp(columns: readonly string[]): string {
-  const stamps = [
-    'updated_at',
-    'created_at',
-    'timestamp',
-    'started_at',
-    'ended_at',
-    'last_activity',
-    'task_started_at',
-    'accepted_at',
-    'valid_at',
-  ]
-    .filter((c) => columns.includes(c))
-    .map((c) => `coalesce(unixepoch("${c}", 'subsec'), 0)`);
-  return stamps.length > 1 ? `max(${stamps.join(',')})` : (stamps[0] ?? '0');
-}
-
-/** Key tables cover task, session, decision, audit and memory history in both scopes. */
-function storeHighWater(db: DatabaseSync): StoreTableHighWater[] {
-  const out: StoreTableHighWater[] = [];
-  for (const table of [
-    'tasks_tasks',
-    'tasks_sessions',
-    'tasks_audit_log',
-    'tasks_architecture_decisions',
-    'brain_decisions',
-    'brain_observations',
-    'nexus_audit_log',
-  ]) {
-    const columns = db
-      .prepare(`PRAGMA main.table_info("${table}")`)
-      .all()
-      .map((c) => String(c.name));
-    if (!columns.includes('id')) continue;
-    const row = db
-      .prepare(`SELECT count(*) AS n, CAST(max(_rowid_) AS TEXT) AS rowid,
-      max(${storeRowTimestamp(columns)}) AS latest FROM main."${table}"`)
-      .get();
-    out.push({
-      table,
-      rows: Number(row?.n ?? 0),
-      maxRowid: typeof row?.rowid === 'string' ? row.rowid : null,
-      latestAt: typeof row?.latest === 'number' && row.latest > 0 ? row.latest : null,
-    });
-  }
-  return out;
-}
-
-/** Missing keys and older versions are evidence even after a newer live session or audit write. */
-function compareStoreFreshness(
-  live: DatabaseSync,
-  source: DatabaseSync,
-  path: string,
-  kind: StoreFreshnessFinding['kind'],
-): StoreFreshnessFinding | undefined {
-  const before = storeHighWater(live);
-  const after = storeHighWater(source);
-  if (
-    before.some((t) => t.table === 'tasks_tasks') !== after.some((t) => t.table === 'tasks_tasks')
-  )
-    return;
-  const evidence: string[] = [];
-  for (const next of after) {
-    const old = before.find((t) => t.table === next.table);
-    const stamp = (db: DatabaseSync): string =>
-      storeRowTimestamp(
-        db
-          .prepare(`PRAGMA main.table_info("${next.table}")`)
-          .all()
-          .map((c) => String(c.name)),
-      );
-    const find = old
-      ? live.prepare(`SELECT ${stamp(live)} AS stamp FROM main."${next.table}" WHERE id IS ?`)
-      : undefined;
-    find?.setReadBigInts(true);
-    const rows = source.prepare(`SELECT id, ${stamp(source)} AS stamp FROM main."${next.table}"`);
-    rows.setReadBigInts(true);
-    let missing = 0,
-      older = 0;
-    const sample: string[] = [];
-    for (const row of rows.iterate()) {
-      const current = find?.get(row.id ?? null);
-      if (!current) missing++;
-      else if (Number(row.stamp) > Number(current.stamp)) older++;
-      else continue;
-      if (sample.length < 3)
-        sample.push(
-          `${String(row.id)}: ${current ? `live timestamp ${String(current.stamp)}, source ${String(row.stamp)}` : 'missing live key'}`,
-        );
-    }
-    if (missing || older)
-      evidence.push(
-        `${next.table}: ${missing} missing keys, ${older} older versions (${sample.join('; ')}); live ${JSON.stringify(old ?? { rows: 0 })}; source ${JSON.stringify(next)}`,
-      );
-  }
-  if (!evidence.length) return;
-  let divergent = false;
-  for (const table of before) {
-    if (!after.some((t) => t.table === table.table)) {
-      divergent ||= table.rows > 0;
-      continue;
-    }
-    const lookup = source.prepare(`SELECT 1 FROM main."${table.table}" WHERE id IS ?`);
-    lookup.setReadBigInts(true);
-    const keys = live.prepare(`SELECT id FROM main."${table.table}"`);
-    keys.setReadBigInts(true);
-    for (const row of keys.iterate()) {
-      if (!lookup.get(row.id ?? null)) {
-        divergent = true;
-        break;
-      }
-    }
-    if (divergent) break;
-  }
-  return { source: path, kind, evidence, divergent };
-}
-
-/** Inspect disposable copies, including an explicit snapshot alongside the normal backup inventory. */
+/** Inspect a disposable live view and every distinct retained snapshot, opened read-only. */
 export function inspectStoreIntegrity(
   target: string,
   fromSnapshot?: string,
@@ -807,6 +666,7 @@ export function inspectStoreIntegrity(
       if (result.length !== 1 || result[0]?.integrity_check !== 'ok')
         return { healthy: false, detail: JSON.stringify(result) };
       const freshness: StoreFreshnessFinding[] = [];
+      const liveGeneration = readStoreGeneration(snap.db);
       const restoreIntent = inspectStoreRestoreIntent(target);
       const walView = join(scratch, 'wal-view.db');
       const committedFrames = copyRepairWalView(file, walView);
@@ -845,33 +705,31 @@ export function inspectStoreIntegrity(
           timestampMs: statSync(fromSnapshot).mtimeMs,
           source: 'system-snapshot',
         });
-      let newestAssessed = false;
-      for (const [index, candidate] of snapshots.entries()) {
-        const copy = join(scratch, `snapshot-${index}.db`);
+      const validated: typeof snapshots = [];
+      const identities = new Map<string, string>();
+      const generations = new Map<string, StoreGeneration>();
+      const groups = new Map<string, string[]>();
+      for (const candidate of snapshots) {
         let backup: CleoDbSnapshotHandle | undefined;
         try {
-          const snapshotHash =
-            restoreIntent &&
-            restoreIntent.ignoredSnapshots.length > 0 &&
-            candidate.path !== fromSnapshot
-              ? repairFileHash(candidate.path)
-              : undefined;
-          if (restoreIntent?.ignoredSnapshots.some((f) => f.sha256 === snapshotHash)) {
+          if (candidate.path !== fromSnapshot && storeSnapshotIgnored(target, candidate.path)) {
             freshness.push({
               kind: 'snapshot',
               source: candidate.path,
               authoritative: false,
               evidence: [
-                `Retained backup excluded by deliberate restore of ${restoreIntent.snapshot} at ${restoreIntent.restoredAt}`,
+                `Retained backup excluded by deliberate restore of ${restoreIntent?.snapshot} at ${restoreIntent?.restoredAt}`,
               ],
             });
             continue;
           }
-          if (newestAssessed && candidate.path !== fromSnapshot) continue;
-          copyRepairOriginals(candidate.path, copy);
-          backup = openCleoDbSnapshot(copy, { applyPragmas: false, loadSqliteVec: true });
-          const checks = backup.db.prepare('PRAGMA integrity_check').all();
-          if (checks.length !== 1 || checks[0]?.integrity_check !== 'ok') continue;
+          const identity = storeSnapshotIdentity(candidate.path);
+          const group = groups.get(identity.duplicateKey) ?? [];
+          if (group.length > 0) {
+            const hash = storeSnapshotHash(candidate.path);
+            if (group.some((file) => storeSnapshotHash(file) === hash)) continue;
+          }
+          backup = openCleoDbSnapshot(candidate.path, { applyPragmas: false, loadSqliteVec: true });
           const hasTasks = (db: DatabaseSync): boolean =>
             db
               .prepare("SELECT 1 FROM main.sqlite_schema WHERE name='tasks_tasks' AND type='table'")
@@ -879,20 +737,64 @@ export function inspectStoreIntegrity(
           if (hasTasks(snap.db) !== hasTasks(backup.db)) continue;
           if (
             !hasTasks(snap.db) &&
-            backup.db
+            !backup.db
               .prepare(
                 "SELECT 1 FROM main.sqlite_schema WHERE name='nexus_project_registry' AND type='table'",
               )
-              .get() === undefined
+              .get()
           )
             continue;
-          const finding = compareStoreFreshness(snap.db, backup.db, candidate.path, 'snapshot');
-          if (finding) freshness.push(finding);
-          if (candidate.path !== fromSnapshot) newestAssessed = true;
+          const generation = readStoreGeneration(backup.db);
+          if (!liveGeneration || !generation || liveGeneration.history.includes(generation.current))
+            continue;
+          if (!validStoreRecoverySnapshot(backup.db, candidate.path)) continue;
+          validated.push(candidate);
+          generations.set(candidate.path, generation);
+          identities.set(candidate.path, identity.cacheKey);
+          group.push(candidate.path);
+          groups.set(identity.duplicateKey, group);
         } catch {
-          // An unreadable backup cannot establish that a healthy live store is stale.
+          /* Unreadable snapshots never establish recovery authority. */
         } finally {
           backup?.close();
+        }
+      }
+      const heads = validated.filter((candidate) => {
+        const generation = generations.get(candidate.path);
+        return (
+          generation &&
+          !validated.some((other) => {
+            const next = generations.get(other.path);
+            return (
+              next &&
+              next.current !== generation.current &&
+              next.history.includes(generation.current) &&
+              !generation.history.includes(next.current)
+            );
+          })
+        );
+      });
+      for (const candidate of heads) {
+        if (storeSnapshotIdentity(candidate.path).cacheKey !== identities.get(candidate.path)) {
+          // @sync-invariant none:local-only recovery authority requires stable retained images
+          throw new Error(`Snapshot changed during inspection: ${candidate.path}`);
+        }
+        const backup = openCleoDbSnapshot(candidate.path, {
+          applyPragmas: false,
+          loadSqliteVec: true,
+        });
+        try {
+          const generation = readStoreGeneration(backup.db);
+          if (!liveGeneration || !generation) continue;
+          const ancestry = `Generation ${generation.current} is absent from live ancestry (head ${liveGeneration.current})`;
+          const finding = compareStoreFreshness(snap.db, backup.db, candidate.path, 'snapshot');
+          freshness.push(
+            finding
+              ? { ...finding, evidence: [ancestry, ...finding.evidence] }
+              : { source: candidate.path, kind: 'snapshot', divergent: true, evidence: [ancestry] },
+          );
+        } finally {
+          backup.close();
         }
       }
       return freshness.length
@@ -916,3 +818,6 @@ export function inspectStoreIntegrity(
     rmSync(scratch, { recursive: true, force: true });
   }
 }
+
+/** Shared restore evidence remains available at the DB chokepoint. */
+export { inspectStoreRestoreIntent, repairFileHash } from './restore-marker.js';

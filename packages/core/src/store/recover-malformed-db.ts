@@ -26,7 +26,18 @@
  * @adr ADR-068
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readSync,
+  renameSync,
+  statSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
@@ -36,8 +47,16 @@ import type {
   DbRole,
 } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
+import type {
+  StoreFreshnessFinding,
+  StoreGeneration,
+  StoreSnapshotIdentity,
+  StoreTableHighWater,
+} from '@cleocode/contracts/db-recovery.js';
 import { getCleoHome } from '@cleocode/paths';
-import { openNativeDatabase } from './sqlite-native.js';
+import { z } from 'zod';
+import { inspectStoreRestoreIntent, repairFileHash } from './restore-marker.js';
+import { loadSqliteVecExtension, openNativeDatabase } from './sqlite-native.js';
 
 /**
  * Minimal logger shape used by {@link recoverMalformedDb}.
@@ -746,8 +765,10 @@ export function collectStoreSnapshotCandidates(target: string): SnapshotCandidat
     if (!existsSync(directory)) continue;
     for (const name of readdirSync(directory)) {
       if (
-        !/^(?:cleo|tasks|brain|conduit|nexus|global)(?:\.db[.-]|-.*\.db$)/.test(name) ||
-        /pre-restore|\.restoring(?:\.|$)|(?:-wal|-shm|-journal|\.json)$/.test(name)
+        !/^(?:cleo|tasks|brain|conduit|nexus|global|skills|telemetry|signaldock)(?:\.db[.-]|-.*\.db$)/.test(
+          name,
+        ) ||
+        /pre-restore|\.restoring(?:\.|$)|\.tmp(?:[.-]|$)|(?:-wal|-shm|-journal|\.json)$/.test(name)
       )
         continue;
       const path = join(directory, name);
@@ -756,5 +777,437 @@ export function collectStoreSnapshotCandidates(target: string): SnapshotCandidat
       known.add(path);
     }
   }
-  return out.sort((a, b) => b.timestampMs - a.timestampMs);
+  return out.sort((a, b) => b.timestampMs - a.timestampMs || b.path.localeCompare(a.path));
+}
+
+/** Shared row-version fields used by freshness diagnosis and lossless merge. */
+export const STORE_ROW_VERSION_COLUMNS = [
+  'updated_at',
+  'updatedAt',
+  'modified_at',
+  'modifiedAt',
+  'created_at',
+  'timestamp',
+  'started_at',
+  'ended_at',
+  'last_activity',
+  'task_started_at',
+  'accepted_at',
+  'valid_at',
+] as const;
+
+/** Each key's own timestamp is compared; unrelated writes cannot hide a missing row. */
+function storeRowTimestamp(columns: readonly string[]): string {
+  const stamps = STORE_ROW_VERSION_COLUMNS.filter((c) => columns.includes(c)).map(
+    (c) => `coalesce(unixepoch("${c}", 'subsec'), 0)`,
+  );
+  return stamps.length > 1 ? `max(${stamps.join(',')})` : (stamps[0] ?? '0');
+}
+
+/** Key tables whose absent versions participate in recovery assessment. */
+export const STORE_FRESHNESS_TABLES = [
+  'tasks_tasks',
+  'tasks_sessions',
+  'tasks_audit_log',
+  'tasks_architecture_decisions',
+  'brain_decisions',
+  'brain_observations',
+  'nexus_audit_log',
+] as const;
+
+const STORE_GENERATION_LIMIT = 256;
+const generationHistorySchema = z.array(z.string().uuid()).min(1).max(STORE_GENERATION_LIMIT);
+const storeGenerationSchema = z
+  .object({
+    current: z.string().uuid(),
+    history: generationHistorySchema,
+  })
+  .refine((g) => g.history.includes(g.current));
+
+/** Read checkpoint ancestry without creating a record on a pre-upgrade store. */
+export function readStoreGeneration(
+  db: Pick<DatabaseSync, 'prepare'>,
+): StoreGeneration | undefined {
+  if (
+    !db
+      .prepare("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='_store_generation'")
+      .get()
+  )
+    return;
+  const row = db.prepare('SELECT current, history FROM main._store_generation WHERE id=1').get();
+  if (!row) return;
+  try {
+    if (typeof row.current === 'string' && typeof row.history === 'string') {
+      const parsed = storeGenerationSchema.safeParse({
+        current: row.current,
+        history: JSON.parse(row.history),
+      });
+      if (parsed.success) return parsed.data;
+    }
+  } catch {
+    // JSON decoding and schema validation authorize no ancestry.
+  }
+  // @sync-invariant none:local-only malformed local checkpoint metadata cannot establish store ancestry
+  throw new Error('Invalid store generation history');
+}
+
+/** Write one bounded checkpoint record; snapshot publication owns the attached schema. */
+function writeStoreGeneration(
+  db: Pick<DatabaseSync, 'exec'>,
+  target: string,
+  current: string,
+  parents: string,
+  schema: 'main' | 'cleo_snapshot_generation',
+): string {
+  const retained = new Set<string>();
+  for (const candidate of collectStoreSnapshotCandidates(target)) {
+    let source: DatabaseSync | undefined;
+    try {
+      source = openStoreRecoverySnapshot(candidate.path);
+      const generation = readStoreGeneration(source);
+      if (generation) retained.add(generation.current);
+    } catch {
+      // Unreadable metadata cannot reserve a slot in this store's existing history.
+    } finally {
+      source?.close();
+    }
+  }
+  const pinned = JSON.stringify([...retained]).replaceAll("'", "''");
+  const history = (previous: string): string => `(
+    WITH parents(value, ordinal) AS (
+      SELECT value, CAST(key AS INTEGER) FROM json_each(${previous})
+      UNION ALL SELECT value, ${STORE_GENERATION_LIMIT} + CAST(key AS INTEGER) FROM json_each(${parents})
+      UNION ALL SELECT '${current}', 1000000000
+    ), distinct_parents AS (
+      SELECT value, max(ordinal) AS ordinal FROM parents GROUP BY value
+    )
+    SELECT CASE WHEN (
+      SELECT count(*) FROM distinct_parents WHERE value IN (SELECT value FROM json_each('${pinned}'))
+    ) >= ${STORE_GENERATION_LIMIT} THEN NULL ELSE (
+      SELECT json_group_array(value) FROM (
+        SELECT value FROM (
+          SELECT value, ordinal FROM distinct_parents
+          ORDER BY (value IN (SELECT value FROM json_each('${pinned}')) OR value='${current}') DESC, ordinal DESC
+          LIMIT ${STORE_GENERATION_LIMIT}
+        ) ORDER BY ordinal
+      )
+    ) END
+  )`;
+  const table = `${schema}._store_generation`;
+  const insert =
+    schema === 'main'
+      ? 'INSERT INTO main._store_generation'
+      : 'INSERT INTO cleo_snapshot_generation._store_generation';
+  const create =
+    schema === 'main'
+      ? 'CREATE TABLE IF NOT EXISTS main._store_generation'
+      : 'CREATE TABLE IF NOT EXISTS cleo_snapshot_generation._store_generation';
+  db.exec(`${create} (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    current TEXT NOT NULL,
+    history TEXT NOT NULL CHECK(json_valid(history) AND json_type(history)='array')
+  );
+  ${insert}(id, current, history)
+  VALUES(1, '${current}', ${history("'[]'")})
+  ON CONFLICT(id) DO UPDATE SET current=excluded.current,
+    history=${history(`${table}.history`)}`);
+  return current;
+}
+
+/**
+ * Mint ancestry on a private snapshot or repaired image, joining recovered histories.
+ * Retained ancestor heads keep their slots; excess unreferenced history ages out.
+ * Refuse if 256 retained heads need every slot rather than invent non-descendance.
+ */
+export function advanceStoreGeneration(
+  db: Pick<DatabaseSync, 'exec'>,
+  target: string,
+  inherited: readonly StoreGeneration[] = [],
+): string {
+  const parents = JSON.stringify([
+    ...new Set(inherited.flatMap((g) => storeGenerationSchema.parse(g).history)),
+  ]).replaceAll("'", "''");
+  return writeStoreGeneration(db, target, randomUUID(), `'${parents}'`, 'main');
+}
+
+/**
+ * Stamp a completed private VACUUM image, then acknowledge that checkpoint in live.
+ * Its ancestry comes from the same consistent view as its rows; publication follows acknowledgement.
+ * Routine captures fail immediately on a held writer and restore the caller's busy timeout.
+ */
+export function stampStoreSnapshot(
+  db: Pick<DatabaseSync, 'exec'> & Partial<Pick<DatabaseSync, 'prepare'>>,
+  snapshot: string,
+  target: string,
+  nonBlocking = false,
+): void {
+  const current = randomUUID();
+  const timeout = nonBlocking ? db.prepare?.('PRAGMA busy_timeout').get()?.timeout : undefined;
+  try {
+    // Routine captures must not block a command's teardown behind another writer.
+    if (typeof timeout === 'number') db.exec('PRAGMA busy_timeout=0');
+    db.exec(`ATTACH DATABASE '${snapshot.replaceAll("'", "''")}' AS cleo_snapshot_generation`);
+    try {
+      writeStoreGeneration(db, target, current, "'[]'", 'cleo_snapshot_generation');
+      writeStoreGeneration(
+        db,
+        target,
+        current,
+        '(SELECT history FROM cleo_snapshot_generation._store_generation WHERE id=1)',
+        'main',
+      );
+    } finally {
+      db.exec('DETACH DATABASE cleo_snapshot_generation');
+    }
+  } finally {
+    if (typeof timeout === 'number') db.exec(`PRAGMA busy_timeout=${timeout}`);
+  }
+}
+
+/** Key tables cover task, session, decision, audit and memory history in both scopes. */
+function storeHighWater(db: DatabaseSync): StoreTableHighWater[] {
+  const out: StoreTableHighWater[] = [];
+  for (const table of STORE_FRESHNESS_TABLES) {
+    const columns = db
+      .prepare(`PRAGMA main.table_info("${table}")`)
+      .all()
+      .map((c) => String(c.name));
+    if (!columns.includes('id')) continue;
+    const row = db
+      .prepare(`SELECT count(*) AS n, CAST(max(_rowid_) AS TEXT) AS rowid,
+      max(${storeRowTimestamp(columns)}) AS latest FROM main."${table}"`)
+      .get();
+    out.push({
+      table,
+      rows: Number(row?.n ?? 0),
+      maxRowid: typeof row?.rowid === 'string' ? row.rowid : null,
+      latestAt: typeof row?.latest === 'number' && row.latest > 0 ? row.latest : null,
+    });
+  }
+  return out;
+}
+
+/** Missing keys and older versions are evidence even after a newer live session or audit write. */
+export function compareStoreFreshness(
+  live: DatabaseSync,
+  source: DatabaseSync,
+  path: string,
+  kind: StoreFreshnessFinding['kind'],
+  allowPartialStore = false,
+): StoreFreshnessFinding | undefined {
+  const before = storeHighWater(live);
+  const after = storeHighWater(source);
+  if (
+    !allowPartialStore &&
+    before.some((t) => t.table === 'tasks_tasks') !== after.some((t) => t.table === 'tasks_tasks')
+  )
+    return;
+  const evidence: string[] = [];
+  for (const next of after) {
+    const old = before.find((t) => t.table === next.table);
+    const stamp = (db: DatabaseSync): string =>
+      storeRowTimestamp(
+        db
+          .prepare(`PRAGMA main.table_info("${next.table}")`)
+          .all()
+          .map((c) => String(c.name)),
+      );
+    const find = old
+      ? live.prepare(`SELECT ${stamp(live)} AS stamp FROM main."${next.table}" WHERE id IS ?`)
+      : undefined;
+    find?.setReadBigInts(true);
+    const rows = source.prepare(`SELECT id, ${stamp(source)} AS stamp FROM main."${next.table}"`);
+    rows.setReadBigInts(true);
+    let missing = 0,
+      older = 0;
+    const sample: string[] = [];
+    for (const row of rows.iterate()) {
+      const current = find?.get(row.id ?? null);
+      if (!current) missing++;
+      else if (Number(row.stamp) > Number(current.stamp)) older++;
+      else continue;
+      if (sample.length < 3)
+        sample.push(
+          `${String(row.id)}: ${current ? `live timestamp ${String(current.stamp)}, source ${String(row.stamp)}` : 'missing live key'}`,
+        );
+    }
+    if (missing || older)
+      evidence.push(
+        `${next.table}: ${missing} missing keys, ${older} older versions (${sample.join('; ')}); live ${JSON.stringify(old ?? { rows: 0 })}; source ${JSON.stringify(next)}`,
+      );
+  }
+  if (!evidence.length) return;
+  let divergent = false;
+  for (const table of before) {
+    if (!after.some((t) => t.table === table.table)) {
+      divergent ||= table.rows > 0;
+      continue;
+    }
+    const lookup = source.prepare(`SELECT 1 FROM main."${table.table}" WHERE id IS ?`);
+    lookup.setReadBigInts(true);
+    const keys = live.prepare(`SELECT id FROM main."${table.table}"`);
+    keys.setReadBigInts(true);
+    for (const row of keys.iterate()) {
+      if (!lookup.get(row.id ?? null)) {
+        divergent = true;
+        break;
+      }
+    }
+    if (divergent) break;
+  }
+  return { source: path, kind, evidence, divergent };
+}
+
+/** Keep validation work bounded across the count, time-spread and byte-cap passes of one process. */
+const snapshotChecks = new Map<string, boolean>();
+const snapshotHashes = new Map<string, string>();
+
+/** Read only SQLite headers and stat metadata, including a committed WAL when present. */
+export function storeSnapshotIdentity(file: string): StoreSnapshotIdentity {
+  const cache: string[] = [];
+  const duplicate: string[] = [];
+  for (const path of [file, `${file}-wal`]) {
+    if (path !== file && (!existsSync(path) || statSync(path).size <= 32)) continue;
+    const stat = statSync(path, { bigint: true });
+    const fd = openSync(path, 'r');
+    const header = Buffer.alloc(100);
+    let length: number;
+    try {
+      length = readSync(fd, header, 0, header.length, 0);
+    } finally {
+      closeSync(fd);
+    }
+    const image = `${stat.size}:${stat.mtimeNs}:${header.subarray(0, length).toString('hex')}`;
+    duplicate.push(`${stat.size}:${header.subarray(0, length).toString('hex')}`);
+    cache.push(`${path}:${stat.dev}:${stat.ino}:${stat.ctimeNs}:${image}`);
+  }
+  return { cacheKey: cache.join('|'), duplicateKey: duplicate.join('|') };
+}
+
+/** Open a recovery source without writing its schema or copying its contents. */
+export function openStoreRecoverySnapshot(file: string): DatabaseSync {
+  const db = openNativeDatabase(file, {
+    readonly: true,
+    enableWal: false,
+    allowExtension: true,
+    timeout: 1000,
+  });
+  try {
+    if (
+      db
+        .prepare(
+          "SELECT 1 FROM main.sqlite_schema WHERE type='table' AND sql LIKE '%vec0%' LIMIT 1",
+        )
+        .get()
+    )
+      loadSqliteVecExtension(db);
+    db.enableLoadExtension(false);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+/** Validate the entire source before its rows may establish recovery authority. */
+export function validStoreRecoverySnapshot(db: DatabaseSync, file: string): boolean {
+  const key = storeSnapshotIdentity(file).cacheKey;
+  const cached = snapshotChecks.get(key);
+  if (cached !== undefined) return cached;
+  let valid = false;
+  try {
+    const checks = db.prepare('PRAGMA integrity_check').all();
+    valid = statSync(file).size > 0 && checks.length === 1 && checks[0]?.integrity_check === 'ok';
+  } catch {
+    /* An unreadable snapshot is ineligible, including for retention pinning. */
+  }
+  if (snapshotChecks.size >= 64) {
+    const first = snapshotChecks.keys().next().value;
+    if (first !== undefined) snapshotChecks.delete(first);
+  }
+  snapshotChecks.set(key, valid);
+  return valid;
+}
+
+/** Hash only a possible duplicate or a snapshot that might be excluded by explicit restore intent. */
+export function storeSnapshotHash(file: string, withWal = true): string {
+  const key = `${withWal ? 'view' : 'main'}:${storeSnapshotIdentity(file).cacheKey}`;
+  const old = snapshotHashes.get(key);
+  if (old !== undefined) return old;
+  const wal = `${file}-wal`;
+  const hash =
+    repairFileHash(file) +
+    (withWal && existsSync(wal) && statSync(wal).size > 32 ? `:${repairFileHash(wal)}` : '');
+  if (snapshotHashes.size >= 64) {
+    const first = snapshotHashes.keys().next().value;
+    if (first !== undefined) snapshotHashes.delete(first);
+  }
+  snapshotHashes.set(key, hash);
+  return hash;
+}
+
+/** Explicit rollback intent excludes only the exact retained bytes it names. */
+export function storeSnapshotIgnored(target: string, snapshot: string): boolean {
+  const intent = inspectStoreRestoreIntent(target);
+  if (!intent?.ignoredSnapshots.some((f) => f.bytes === statSync(snapshot).size)) return false;
+  const hash = storeSnapshotHash(snapshot, false);
+  return intent.ignoredSnapshots.some((f) => f.sha256 === hash);
+}
+
+/** Protect the newest validated point of a generation line the live store does not descend from. */
+export function snapshotRecoveryReason(target: string, snapshot: string): string | undefined {
+  let live: DatabaseSync | undefined;
+  let source: DatabaseSync | undefined;
+  try {
+    if (storeSnapshotIgnored(target, snapshot)) return;
+    try {
+      source = openStoreRecoverySnapshot(snapshot);
+      const generation = readStoreGeneration(source);
+      if (!generation) return;
+    } catch {
+      return;
+    }
+    live = openStoreRecoverySnapshot(target);
+    const current = readStoreGeneration(live);
+    const generation = readStoreGeneration(source);
+    if (!current || !generation || current.history.includes(generation.current)) return;
+    const hasTasks = (db: DatabaseSync): boolean =>
+      db
+        .prepare("SELECT 1 FROM main.sqlite_schema WHERE name='tasks_tasks' AND type='table'")
+        .get() !== undefined;
+    if (hasTasks(live) !== hasTasks(source)) return;
+    if (!validStoreRecoverySnapshot(source, snapshot)) return;
+    const snapshots = collectStoreSnapshotCandidates(target);
+    const at = snapshots.findIndex((candidate) => candidate.path === snapshot);
+    for (const newer of snapshots.slice(0, at < 0 ? 0 : at)) {
+      let db: DatabaseSync | undefined;
+      try {
+        if (storeSnapshotIgnored(target, newer.path)) continue;
+        db = openStoreRecoverySnapshot(newer.path);
+        const next = readStoreGeneration(db);
+        if (
+          hasTasks(db) === hasTasks(source) &&
+          next?.history.includes(generation.current) &&
+          validStoreRecoverySnapshot(db, newer.path)
+        )
+          return;
+      } catch {
+        // Only a validated descendant can cover this recovery point.
+      } finally {
+        db?.close();
+      }
+    }
+    const rows = compareStoreFreshness(live, source, snapshot, 'snapshot');
+    return `Store generation ${generation.current} is absent from live ancestry (head ${current.current}); ${rows?.evidence.join('; ') ?? 'retained recovery point of a divergent history'}`;
+  } catch (error) {
+    try {
+      if (!source || !validStoreRecoverySnapshot(source, snapshot)) return;
+    } catch {
+      return;
+    }
+    return `Live recovery ancestry unavailable: ${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    source?.close();
+    live?.close();
+  }
 }

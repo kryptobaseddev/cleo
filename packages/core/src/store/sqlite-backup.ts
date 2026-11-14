@@ -60,6 +60,7 @@ import { basename, dirname, join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { DbInventoryEntry, DbRole } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
+import { getLogger } from '../logger.js';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
 import { getTelemetryDb, getTelemetryNativeDb } from '../telemetry/sqlite.js';
 import {
@@ -71,6 +72,7 @@ import { ensureConduitDb, getConduitNativeDb } from './conduit-sqlite.js';
 import { getGlobalSaltPath } from './global-salt.js';
 import { getBrainDb, getBrainNativeDb } from './memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from './nexus-sqlite.js';
+import { snapshotRecoveryReason, stampStoreSnapshot } from './recover-malformed-db.js';
 import { getSkillsNativeDb, openSkillsDb } from './skills-db.js';
 import {
   readSnapshotGeneration,
@@ -586,9 +588,15 @@ function snapshotPattern(prefix: string): RegExp {
  * @param backupDir - Snapshot directory.
  * @param prefix - Snapshot prefix to prune.
  * @param justWritten - Basename of the snapshot just written; never deleted.
+ * @param source - Live database path; consolidated snapshots with unrecovered rows stay pinned.
  * @task T12508 — replaces the newest-10 rotation that a burst could flush
  */
-function rotateSnapshots(backupDir: string, prefix: string, justWritten: string): void {
+function rotateSnapshots(
+  backupDir: string,
+  prefix: string,
+  justWritten: string,
+  source: string | null,
+): void {
   try {
     const pattern = snapshotPattern(prefix);
     const names = readdirSync(backupDir).filter((f) => pattern.test(f));
@@ -598,6 +606,16 @@ function rotateSnapshots(backupDir: string, prefix: string, justWritten: string)
     });
     for (const name of names) {
       if (keep.has(name)) continue;
+      if (source !== null && basename(source) === 'cleo.db') {
+        const reason = snapshotRecoveryReason(source, join(backupDir, name));
+        if (reason) {
+          getLogger('backup-rotation').warn(
+            { snapshot: join(backupDir, name), reason },
+            'Keeping recovery snapshot past time-spread retention',
+          );
+          continue;
+        }
+      }
       try {
         unlinkSync(join(backupDir, name));
       } catch {
@@ -636,6 +654,17 @@ function pruneLegacyProjectSnapshots(backupDir: string, prefixes: Iterable<strin
       const pattern = snapshotPattern(prefix);
       for (const name of names) {
         if (!pattern.test(name) || stampOf(name) >= oldestTasks) continue;
+        const reason = snapshotRecoveryReason(
+          join(backupDir, '..', '..', 'cleo.db'),
+          join(backupDir, name),
+        );
+        if (reason) {
+          getLogger('backup-rotation').warn(
+            { snapshot: join(backupDir, name), reason },
+            'Keeping legacy recovery snapshot',
+          );
+          continue;
+        }
         try {
           unlinkSync(join(backupDir, name));
         } catch {
@@ -1037,6 +1066,8 @@ async function snapshotOne(
     try {
       // Escape single quotes in path (path is programmatic, but be safe).
       db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      if (source !== null && basename(source) === 'cleo.db')
+        stampStoreSnapshot(db, tmp, source, mode === 'routine');
       commitSnapshotFile(tmp, dest);
     } catch (err) {
       rmSync(tmp, { force: true });
@@ -1044,7 +1075,7 @@ async function snapshotOne(
     }
 
     if (source !== null) writtenBySource.set(source, dest);
-    rotateSnapshots(backupDir, filePrefix, destName);
+    rotateSnapshots(backupDir, filePrefix, destName, source);
     if (filePrefix === 'tasks' && target.prefix !== 'tasks') coveredByUnified.add(target.prefix);
     return 'written';
   } finally {
@@ -1317,33 +1348,8 @@ export async function vacuumIntoGlobalBackup(
   const snapshotName = `${target.prefix}-${formatTimestamp(now)}.db`;
   const snapshotPath = join(backupDir, snapshotName);
 
-  // Collect files that will be rotated out before writing the new one.
+  const source = sourceFileOf(db);
   const rotated: string[] = [];
-  try {
-    const pattern = snapshotPattern(target.prefix);
-    const existing = readdirSync(backupDir)
-      .filter((f) => pattern.test(f))
-      .map((f) => ({
-        name: f,
-        path: join(backupDir, f),
-        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
-      }))
-      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
-
-    // Remove oldest until we have room for the new snapshot.
-    while (existing.length >= maxSnaps) {
-      const oldest = existing.shift();
-      if (!oldest) break;
-      try {
-        unlinkSync(oldest.path);
-        rotated.push(oldest.path);
-      } catch {
-        // non-fatal rotation failure
-      }
-    }
-  } catch {
-    // non-fatal — continue even if rotation enumeration fails
-  }
 
   removeDeadTempSnapshots(backupDir);
   try {
@@ -1355,10 +1361,45 @@ export async function vacuumIntoGlobalBackup(
     const tmp = tempSnapshotPath(snapshotPath);
     try {
       db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+      if (source !== null && basename(source) === 'cleo.db')
+        stampStoreSnapshot(db, tmp, source, true);
       commitSnapshotFile(tmp, snapshotPath);
     } catch (err) {
       rmSync(tmp, { force: true });
       throw err;
+    }
+    // A failed capture never costs a prior recovery point.
+    try {
+      const existing = readdirSync(backupDir)
+        .filter((name) => snapshotPattern(target.prefix).test(name) && name !== snapshotName)
+        .map((name) => ({
+          path: join(backupDir, name),
+          mtime: statSync(join(backupDir, name)).mtimeMs,
+        }))
+        .sort((a, b) => a.mtime - b.mtime);
+      while (existing.length > Math.max(0, maxSnaps - 1)) {
+        const oldest = existing.shift();
+        if (!oldest) break;
+        const reason =
+          source !== null && basename(source) === 'cleo.db'
+            ? snapshotRecoveryReason(source, oldest.path)
+            : undefined;
+        if (reason) {
+          getLogger('backup-rotation').warn(
+            { snapshot: oldest.path, reason },
+            'Keeping global recovery generation',
+          );
+          continue;
+        }
+        try {
+          unlinkSync(oldest.path);
+          rotated.push(oldest.path);
+        } catch {
+          // Continue rotating the remaining redundant snapshots.
+        }
+      }
+    } catch {
+      // Non-fatal enumeration failures keep the existing recovery points.
     }
   } finally {
     // Release ephemeral handle for raw-file-vacuum-readonly targets.

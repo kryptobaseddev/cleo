@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type {
+  StoreGeneration,
   StoreRepairOptions,
   StoreRepairPhase,
   StoreRepairReceipt,
@@ -33,7 +34,11 @@ import {
   openCleoDbSnapshot,
   prepareStoreRestoreIntent,
 } from './open-cleo-db.js';
-import { collectStoreSnapshotCandidates } from './recover-malformed-db.js';
+import {
+  advanceStoreGeneration,
+  collectStoreSnapshotCandidates,
+  readStoreGeneration,
+} from './recover-malformed-db.js';
 import {
   assertRepairOriginals,
   assertRepairQuiescent,
@@ -382,7 +387,19 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       phase('diagnose');
       if (receipt.freshness?.length) receipt.diagnostics.push(current.detail);
       const staged = join(work, 'merged.db');
+      const divergentSources = new Set(
+        receipt.freshness
+          ?.filter((f) => f.kind === 'snapshot' && f.authoritative !== false)
+          .map((f) => f.source),
+      );
       for (const candidate of candidates(target, opts)) {
+        if (
+          !opts.fromSnapshot &&
+          !opts.noDelta &&
+          divergentSources.size > 0 &&
+          !divergentSources.has(candidate.path)
+        )
+          continue;
         const probe = join(scratch, 'snapshot.db');
         try {
           copyRepairOriginals(candidate.path, probe);
@@ -454,11 +471,25 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
           continue;
         const newer = join(scratch, `newer-snapshot-${views.length}.db`);
         copyRepairOriginals(finding.source, newer);
+        verify(newer, {}, false);
         views.unshift(newer);
       }
       if (receipt.freshness?.some((f) => f.kind === 'wal')) {
         const walView = join(scratch, 'reapplied-wal.db');
         if (copyRepairWalView(original, walView)) views.unshift(walView);
+      }
+      const generations: StoreGeneration[] = [];
+      for (const view of views) {
+        let source: ReturnType<typeof openCleoDbSnapshot> | undefined;
+        try {
+          source = openCleoDbSnapshot(view, { applyPragmas: false, loadSqliteVec: true });
+          const generation = readStoreGeneration(source.db);
+          if (generation) generations.push(generation);
+        } catch {
+          // Damaged original metadata cannot establish ancestry; readable rows still salvage.
+        } finally {
+          source?.close();
+        }
       }
       const finishJournal = receipt.delta ? salvageIntoSnapshot(staged, views, receipt) : undefined;
       phase('merge');
@@ -472,6 +503,8 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
         loadSqliteVec: true,
       });
       try {
+        if (receipt.delta && (generations.length > 0 || readStoreGeneration(db.db)))
+          advanceStoreGeneration(db.db, target, generations);
         if (receipt.delta && receipt.tables.docs_fts?.rebuilt) {
           const { rebuildDocsFts } = await import('../docs/docs-fts.js');
           const result = await rebuildDocsFts(opts.projectRoot ?? dirname(dirname(target)), db.db);
