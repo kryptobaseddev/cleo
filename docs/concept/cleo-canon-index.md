@@ -100,7 +100,7 @@ revision, while current code and CLI help remain the implementation authority.
 ### Documentation and classification
 
 - [Docs interaction contract](../spec/docs-interaction-contract.md) — update, version and supersession behavior.
-- [Canonical taxonomy](../taxonomy.md) — shared classification axes for decisions, documents and tasks.
+- [Canonical taxonomy](../reference/taxonomy.md) — shared classification axes for decisions, documents and tasks.
 
 ### Recovery and research
 

@@ -43,7 +43,7 @@
  *
  * @task T9584 / T9685-B4
  * @epic E-PROJECT-ROOT-AUDIT
- * @see docs/project-root-conventions.md
+ * @see docs/spec/project-root-conventions.md
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -308,6 +308,6 @@ console.error(
     `    (rule 1 / 2) or \`// ${PATH_DRIFT_ALLOWED_MARKER}\` (rule 3) to the offending\n` +
     `    line, OR add the file to the allowlist in this script with a one-line\n` +
     `    rationale.\n` +
-    `  • See docs/project-root-conventions.md for the full canon.\n`,
+    `  • See docs/spec/project-root-conventions.md for the full canon.\n`,
 );
 process.exit(1);

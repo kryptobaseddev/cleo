@@ -50,7 +50,7 @@
  * @task    T11019
  * @epic    T10297
  * @saga    T10295
- * @see     docs/project-root-conventions.md
+ * @see     docs/spec/project-root-conventions.md
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';

@@ -2,7 +2,7 @@
 
 **Audience**: Developers authoring new meta-agents for the CLEO ecosystem.
 **Canonical example**: `packages/agents/meta/agent-architect.cant`
-**Governing ADR**: [ADR-055 D034](./adr/ADR-055-agents-architecture-and-meta-agents.md)
+**Governing ADR**: [ADR-055 D034](../adr/adr-055-agents-architecture-and-meta-agents.md)
 **Research artifact**: `.cleo/agent-outputs/T-AGENTS-PRE-WAVE/R4-META-AGENT-DESIGN.md`
 
 ## What is a Meta-Agent?
@@ -337,7 +337,7 @@ persisted.
 
 ## See Also
 
-- [ADR-055 — Agents Architecture + Meta-Agents](./adr/ADR-055-agents-architecture-and-meta-agents.md)
+- [ADR-055 — Agents Architecture + Meta-Agents](../adr/adr-055-agents-architecture-and-meta-agents.md)
 - R4 research artifact: `.cleo/agent-outputs/T-AGENTS-PRE-WAVE/R4-META-AGENT-DESIGN.md`
 - `packages/agents/README.md` — package-level overview
 - `packages/agents/meta/agent-architect.cant` — canonical example

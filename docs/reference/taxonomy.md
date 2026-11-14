@@ -234,7 +234,7 @@ python3 scripts/backfill-taxonomy.py
 packages/contracts/src/taxonomy.ts     ← Single source of truth
 packages/core/src/memory/decisions.ts  ← Validation at creation time
 scripts/backfill-taxonomy.py           ← Ad-hoc → canonical normalization
-docs/taxonomy.md                       ← This document
+docs/reference/taxonomy.md             ← This document
 ```
 
 ## Related

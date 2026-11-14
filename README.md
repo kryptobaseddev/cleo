@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/banner.png" alt="CLEO — Agent First Task Orchestration" width="100%" />
+  <img src="docs/assets/banner.png" alt="CLEO — Agent First Task Orchestration" width="100%" />
 </p>
 
 # CLEO
