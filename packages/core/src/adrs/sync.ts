@@ -28,15 +28,8 @@
 
 import { readFileSync } from 'node:fs';
 import { adrTaskLinks, architectureDecisions, tasks } from '../store/tasks-schema.js';
-import { listAdrFiles } from './home.js';
-import { parseAdrFile } from './parse.js';
+import { loadAdrs, resolveAdrRef } from './home.js';
 import type { AdrSyncResult } from './types.js';
-
-/** Extract a bare ADR-NNN id from a frontmatter value like "ADR-006 (§3 ...)", in either case */
-function extractAdrIdFromRef(ref: string): string | null {
-  const m = ref.match(/^adr-(\d+)/i);
-  return m ? `ADR-${m[1]!}` : null;
-}
 
 /** Parse comma-separated task IDs from a Related Tasks value */
 function parseTaskIds(raw: string): string[] {
@@ -56,8 +49,8 @@ function parseTaskIds(raw: string): string[] {
 // SSoT-EXEMPT: zero-params op — no Params contract needed; ADR-057 D1 applies to parameterized ops only
 export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> {
   const result: AdrSyncResult = { inserted: 0, updated: 0, skipped: 0, errors: [], warnings: [] };
-  const activeFiles = listAdrFiles(projectRoot);
-  if (activeFiles.length === 0) {
+  const adrs = loadAdrs(projectRoot);
+  if (adrs.length === 0) {
     return result;
   }
 
@@ -72,15 +65,17 @@ export async function syncAdrsToDb(projectRoot: string): Promise<AdrSyncResult> 
   // populated by `packages/core/src/migration/manual/T10165-backfill-adr-index.ts`.
 
   // --- DB sync (active ADRs only) ---
-  for (const { name: file, absPath: filePath, relPath: dbRelPath } of activeFiles) {
+  // Ids are unique across the ADR home (loadAdrs), so ADRs sharing a number
+  // never overwrite each other's row or links (T14108).
+  for (const { file: adrFile, record } of adrs) {
+    const { name: file, absPath: filePath, relPath: dbRelPath } = adrFile;
     try {
-      const record = parseAdrFile(filePath, projectRoot);
       const fm = record.frontmatter;
       const content = readFileSync(filePath, 'utf-8');
 
-      let supersedesId = fm.Supersedes ? extractAdrIdFromRef(fm.Supersedes) : null;
-      let supersededById = fm['Superseded By'] ? extractAdrIdFromRef(fm['Superseded By']) : null;
-      let amendsId = fm.Amends ? extractAdrIdFromRef(fm.Amends) : null;
+      let supersedesId = fm.Supersedes ? resolveAdrRef(fm.Supersedes, adrs) : null;
+      let supersededById = fm['Superseded By'] ? resolveAdrRef(fm['Superseded By'], adrs) : null;
+      let amendsId = fm.Amends ? resolveAdrRef(fm.Amends, adrs) : null;
 
       // Validate FK references exist before insert/update to avoid constraint violations
       if (supersedesId) {

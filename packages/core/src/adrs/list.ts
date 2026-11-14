@@ -10,8 +10,7 @@
 
 import type { AdminAdrFindParams } from '@cleocode/contracts';
 import { paginate } from '../pagination.js';
-import { listAdrFiles } from './home.js';
-import { parseAdrFile } from './parse.js';
+import { loadAdrs } from './home.js';
 import type { AdrListResult } from './types.js';
 
 /** List ADRs from the ADR home with optional status filter */
@@ -19,7 +18,7 @@ export async function listAdrs(
   projectRoot: string,
   params: AdminAdrFindParams = {},
 ): Promise<AdrListResult> {
-  const records = listAdrFiles(projectRoot).map((f) => parseAdrFile(f.absPath, projectRoot));
+  const records = loadAdrs(projectRoot).map((adr) => adr.record);
 
   const total = records.length;
   const filtered = records.filter((r) => {

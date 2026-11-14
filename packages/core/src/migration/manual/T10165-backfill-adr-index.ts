@@ -65,9 +65,10 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { and, eq } from 'drizzle-orm';
+import { resolveAdrHome } from '../../adrs/home.js';
 import { getDb } from '../../store/sqlite.js';
 import {
   ATTACHMENT_LIFECYCLE_STATUSES,
@@ -220,6 +221,26 @@ function readAdrSha256(filePath: string): { sha256: string; bytes: Buffer } | nu
 }
 
 /**
+ * Resolve an index row's ADR file. T14108 retired the `.cleo/adrs/` markdown
+ * mirror: every ADR is now published to the ADR home (`docs/adr/`) under its
+ * lowercase file name, so a `.cleo/adrs/<name>` path that no longer exists is
+ * looked up there, with a warning naming the new path.
+ */
+function resolveIndexedAdrPath(
+  projectRoot: string,
+  file: string,
+  warnings: string[],
+  adrId: string,
+): string {
+  const indexed = join(projectRoot, file);
+  if (existsSync(indexed) || !file.startsWith('.cleo/adrs/')) return indexed;
+  const relocated = `${resolveAdrHome(projectRoot)}/${basename(file).toLowerCase()}`;
+  if (!existsSync(join(projectRoot, relocated))) return indexed;
+  warnings.push(`${adrId}: ${file} moved to ${relocated} (T14108); read from there`);
+  return join(projectRoot, relocated);
+}
+
+/**
  * One-shot backfill entry point.
  *
  * Reads `<projectRoot>/.cleo/adrs/adr-index.jsonl`, populates the
@@ -262,7 +283,7 @@ export async function backfillAdrIndex(
   const adrIdToAttachmentId = new Map<string, string>();
 
   for (const row of rows) {
-    const filePath = join(projectRoot, row.file);
+    const filePath = resolveIndexedAdrPath(projectRoot, row.file, result.warnings, row.id);
     const fileSha = readAdrSha256(filePath);
     if (!fileSha) {
       result.fileMissing += 1;

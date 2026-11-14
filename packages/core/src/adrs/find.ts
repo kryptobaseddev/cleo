@@ -18,8 +18,7 @@
  */
 
 import type { AdminAdrFindParams } from '@cleocode/contracts';
-import { listAdrFiles } from './home.js';
-import { parseAdrFile } from './parse.js';
+import { loadAdrs } from './home.js';
 import type { AdrFindResult } from './types.js';
 
 /** Normalise a string for comparison: lowercase, strip punctuation */
@@ -57,7 +56,7 @@ export async function findAdrs(
   params: AdminAdrFindParams,
 ): Promise<AdrFindResult> {
   const query = params.query ?? '';
-  const files = listAdrFiles(projectRoot);
+  const adrs = loadAdrs(projectRoot);
 
   const queryTerms = normalise(query)
     .split(' ')
@@ -67,8 +66,7 @@ export async function findAdrs(
 
   const results: AdrFindResult['adrs'] = [];
 
-  for (const file of files) {
-    const record = parseAdrFile(file.absPath, projectRoot);
+  for (const { record } of adrs) {
     const fm = record.frontmatter;
 
     // Status filter

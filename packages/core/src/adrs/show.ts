@@ -8,16 +8,22 @@
  */
 
 import type { AdminAdrShowParams } from '@cleocode/contracts';
-import { listAdrFiles } from './home.js';
-import { parseAdrFile } from './parse.js';
+import { loadAdrs } from './home.js';
 import type { AdrRecord } from './types.js';
 
-/** Retrieve a single ADR by ID or file-name prefix (e.g. 'ADR-007'), case-insensitively */
+/**
+ * Retrieve a single ADR, case-insensitively, by its id (`ADR-007` resolves to
+ * the preferred ADR of that number, see `loadAdrs`), by its slug, or by a
+ * file-name prefix.
+ */
 export async function showAdr(
   projectRoot: string,
   params: AdminAdrShowParams,
 ): Promise<AdrRecord | null> {
-  const prefix = params.adrId.toLowerCase();
-  const file = listAdrFiles(projectRoot).find((f) => f.name.toLowerCase().startsWith(prefix));
-  return file ? parseAdrFile(file.absPath, projectRoot) : null;
+  const wanted = params.adrId.toLowerCase();
+  const adrs = loadAdrs(projectRoot);
+  const match =
+    adrs.find((adr) => adr.record.id.toLowerCase() === wanted || adr.slug === wanted) ??
+    adrs.find((adr) => adr.file.name.toLowerCase().startsWith(wanted));
+  return match?.record ?? null;
 }

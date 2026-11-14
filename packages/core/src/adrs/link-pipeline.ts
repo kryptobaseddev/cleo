@@ -16,8 +16,7 @@
 
 import { readFileSync } from 'node:fs';
 import { adrRelations, adrTaskLinks, architectureDecisions } from '../store/tasks-schema.js';
-import { type AdrFile, listAdrFiles } from './home.js';
-import { parseAdrFile } from './parse.js';
+import { loadAdrs, type ResolvedAdr } from './home.js';
 
 export interface PipelineAdrLinkResult {
   linked: Array<{ adrId: string; taskId: string }>;
@@ -40,18 +39,10 @@ function parseTaskIds(raw: string | undefined): string[] {
 /**
  * Find the ADRs in the ADR home that reference the given taskId in Related Tasks.
  */
-function findAdrsForTask(projectRoot: string, taskId: string): AdrFile[] {
-  return listAdrFiles(projectRoot).filter((file) => {
-    try {
-      const content = readFileSync(file.absPath, 'utf-8');
-      // Quick check before parsing — look for task ID in Related Tasks line
-      const relatedTasksMatch = content.match(/^\*\*Related Tasks\*\*:\s*(.+)$/m);
-      if (!relatedTasksMatch) return false;
-      return parseTaskIds(relatedTasksMatch[1]).includes(taskId);
-    } catch {
-      return false;
-    }
-  });
+function findAdrsForTask(projectRoot: string, taskId: string): ResolvedAdr[] {
+  return loadAdrs(projectRoot).filter((adr) =>
+    parseTaskIds(adr.record.frontmatter['Related Tasks']).includes(taskId),
+  );
 }
 
 /**
@@ -82,9 +73,9 @@ export async function linkPipelineAdr(
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 
-  for (const { name: filename, absPath: filePath, relPath: relativePath } of matchingFiles) {
+  for (const { file: adrFile, record } of matchingFiles) {
+    const { name: filename, absPath: filePath, relPath: relativePath } = adrFile;
     try {
-      const record = parseAdrFile(filePath, projectRoot);
       const fm = record.frontmatter;
       const content = readFileSync(filePath, 'utf-8');
 

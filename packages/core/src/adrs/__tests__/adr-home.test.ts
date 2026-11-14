@@ -155,4 +155,41 @@ describe('ADR home (T14108)', () => {
       { id: 'ADR-002', filePath: 'docs/adr/ADR-002-beta.md', supersededById: 'ADR-001' },
     ]);
   });
+
+  it('keeps ADRs that share a number apart: the live one owns ADR-NNN, the rest their slug', async () => {
+    // A second ADR-002 that is accepted; ADR-002-beta is superseded.
+    write(
+      root,
+      'docs/adr/adr-002-gamma.md',
+      '# ADR-002: Gamma decision\n\n**Date**: 2026-01-05\n**Status**: accepted\n**Accepted**: 2026-01-05\n**Supersedes**: adr-002-beta\n\n---\n\nGamma.\n',
+    );
+
+    expect((await listAdrs(root)).adrs.map((a) => a.id)).toEqual([
+      'ADR-001',
+      'adr-002-beta',
+      'ADR-002',
+    ]);
+    expect((await showAdr(root, { adrId: 'ADR-002' }))?.title).toBe('ADR-002: Gamma decision');
+    expect((await showAdr(root, { adrId: 'adr-002-beta' }))?.title).toBe('ADR-002: Beta decision');
+
+    const sync = await syncAdrsToDb(root);
+    expect(sync.errors).toEqual([]);
+    expect(sync.inserted).toBe(3);
+
+    const { getDb } = await import('../../store/sqlite.js');
+    const { architectureDecisions } = await import('../../store/tasks-schema.js');
+    const rows = await (await getDb(root))
+      .select({
+        id: architectureDecisions.id,
+        title: architectureDecisions.title,
+        supersedesId: architectureDecisions.supersedesId,
+      })
+      .from(architectureDecisions)
+      .all();
+    expect(rows.sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: 'ADR-001', title: 'ADR-001: Alpha decision', supersedesId: null },
+      { id: 'ADR-002', title: 'ADR-002: Gamma decision', supersedesId: 'adr-002-beta' },
+      { id: 'adr-002-beta', title: 'ADR-002: Beta decision', supersedesId: null },
+    ]);
+  });
 });

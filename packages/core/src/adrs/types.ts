@@ -26,7 +26,7 @@ export interface AdrFrontmatter {
 }
 
 export interface AdrRecord {
-  id: string; // e.g., 'ADR-007'
+  id: string; // e.g. 'ADR-007', or the slug of a second ADR sharing that number (see loadAdrs)
   file: string; // relative path from project root
   title: string; // H1 title from markdown
   frontmatter: AdrFrontmatter;
