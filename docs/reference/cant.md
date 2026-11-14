@@ -2,7 +2,7 @@
 
 **Version**: 1.0.0 | **Spec**: [`CANT-DSL-SPEC.md`](../spec/cant-dsl.md) | **Status**: Implemented
 
-CANT (**C**LEO **A**gent **N**otation for **T**asks) is the non-prose DSL that powers the
+CANT (**C**ollaborative **A**gent **N**otation **T**ongue, the expansion ADR-044 fixes) is the non-prose DSL that powers the
 CLEO ecosystem. It defines agents, skills, hooks, workflows, and pipelines in a structured,
 parseable format with full LSP support.
 

@@ -1,18 +1,20 @@
 # Creating Custom Agents
 
-**Version**: 1.0.0
+**Version**: 2.0.0
 **Status**: ACTIVE
 **Task**: T440 (WS-3 Documentation Lead)
 
-A practical guide for creating custom subagents in the CleoOS Agent Platform using `.cant` (Collaborative Agent Notation Tongue) definition files.
+A practical guide for creating custom CLEO subagents from `.cant` (Collaborative Agent Notation Tongue) definition files: write the file, install it with `cleo agent install`, and let `cleo orchestrate spawn` resolve it.
+
+> **ADR-098 status.** Earlier versions of this guide loaded agents through the Pi `cleo-cant-bridge` extension of CleoOS. That harness is deprecated and retires under ADR-098. Agents are installed into the agent registry and resolved by the spawn pipeline, which works in every harness.
 
 ---
 
 ## Prerequisites
 
-- A working CleoOS installation with `@cleocode/cant` installed
+- The `cleo` CLI (it bundles `@cleocode/cant` for parsing and validation)
 - Familiarity with the CLEO task system (`cleo show`, `cleo start`, `cleo complete`)
-- Understanding of the base subagent protocol (see `packages/agents/cleo-subagent/AGENT.md`)
+- Understanding of the base subagent protocol (`packages/agents/cleo-subagent.cant`)
 
 ---
 
@@ -142,96 +144,22 @@ agent backend-dev:
 | Role | Can Edit/Write/Bash? | Can Delegate? | Path ACL? |
 |------|---------------------|---------------|-----------|
 | `worker` | Yes (within declared paths) | No | Yes, via `permissions.files.write` |
-| `lead` | No (blocked by `tool_call` hook) | Yes (via `delegate` tool) | N/A |
+| `lead` | No (by protocol; see the note below) | Yes (via `delegate` tool) | N/A |
 | `developer` | Yes | No | Optional |
 | `orchestrator` | Yes | Yes (via spawn/fanout) | Optional |
 
----
+Runtime enforcement today:
 
-## Step 2: Place the `.cant` File
-
-### Project Tier (recommended for project-specific agents)
-
-Place your `.cant` file in the project's `.cleo/cant/` directory:
-
-```
-<project-root>/
-  .cleo/
-    cant/
-      backend-dev.cant      <-- your agent definition
-      frontend-dev.cant
-      db-specialist.cant
-```
-
-The cleo-cant-bridge Pi extension scans this directory recursively at session start. Subdirectories are supported:
-
-```
-.cleo/
-  cant/
-    teams/
-      platform-team.cant
-    agents/
-      backend-dev.cant
-      frontend-dev.cant
-```
-
-### Global and User Tiers (implemented in T438)
-
-For agents shared across all projects, place them in the global or user tier:
-
-| Tier | Path | Precedence |
-|------|------|------------|
-| Global | `$XDG_DATA_HOME/cleo/cant/` (`~/.local/share/cleo/cant/`) | Lowest |
-| User | `$XDG_CONFIG_HOME/cleo/cant/` (`~/.config/cleo/cant/`) | Middle |
-| Project | `<project>/.cleo/cant/` | Highest |
-
-Files in higher-precedence tiers override files in lower-precedence tiers that share the same basename. For example, a project-tier `backend-dev.cant` overrides a global-tier `backend-dev.cant`.
-
-### Seed Agents (reference)
-
-The project ships seed agent definitions at `packages/agents/seed-agents/`:
-- `cleo-dev.cant` -- General-purpose development agent
-- `cleo-rust-lead.cant` -- Rust crate architecture lead
-- `cleo-historian.cant` -- Canon/documentation guardian
-- `cleo-db-lead.cant` -- Database domain lead
-- `cleo-prime.cant` -- Primary orchestrator
-- `cleoos-opus-orchestrator.cant` -- Legacy orchestrator
-
-These serve as reference examples but are not automatically loaded. Copy and customize them into your `.cleo/cant/` directory if needed.
+- **Worker path ACL** (`permissions.files.write`): enforced only by the Pi `cleo-cant-bridge` extension's `tool_call` hook, which retires under ADR-098. Other harnesses get it as a declaration in the spawn prompt, not a sandbox.
+- **Lead tool block**: the no-hands lead that `cleo orchestrate lead <epicId>` starts in Claude Code runs under a tool allow list (`--allowedTools` with only the lead runner, AgentMBX and, when interactive, `AskUserQuestion`; denied tools as a second layer), built in `packages/adapters/src/providers/claude-code/lead-session.ts`. That restriction comes from the lead runner, not from a `.cant` file's `role: lead`. The Pi bridge also blocked Edit/Write/Bash for `.cant` leads until it retires.
 
 ---
 
-## Step 3: Verify the Agent Definition
-
-### Option A: Check via Pi session
-
-Start a Pi session and verify the bridge loaded your agent:
+## Step 2: Validate the `.cant` File
 
 ```bash
-# Start Pi and look for the CANT bridge status message
-# The bridge will report: "CANT: N agent(s), M file(s)"
-
-# Use the introspection command
-/cant:bundle-info
-```
-
-The `/cant:bundle-info` command reports:
-- Number of files compiled
-- Number of agents, teams, and tools found
-- Whether the bundle is valid
-- Count of errors and warnings
-
-### Option B: Check the rendered system prompt
-
-The compiled bundle is appended to the Pi system prompt. You can verify your agent appears by checking the prompt includes:
-
-```markdown
-## CANT Bundle -- Loaded Declarations
-
-### Agents
-
-- **backend-dev** (role: worker, tier: 0)
-  You are backend-dev -- a specialized backend developer...
+cleo cant validate backend-dev.cant   # the 42-rule validator from cant-core
+cleo cant list backend-dev.cant       # agents, workflows and pipelines it declares
 ```
 
 ### Common Validation Errors
@@ -242,11 +170,61 @@ The compiled bundle is appended to the Pi system prompt. You can verify your age
 | Parse failure | Invalid CANT syntax | Check indentation and property format |
 | S01 rule violation | Missing required field | Add the required field (usually `model` or `prompt`) |
 
+To start from a scaffold instead of a blank file, `cleo agent create --name backend-dev --role worker` writes an agent package (`persona.cant` plus `manifest.json`); `cleo agent pack <dir>` turns a package into a `.cantz` archive.
+
+---
+
+## Step 3: Install the Agent
+
+`cleo agent install` accepts a `.cant` file, a `.cantz` archive or an agent package directory (`core/src/agents/install-pipeline.ts`). It copies the `.cant` into a tier directory and records the agent in the global agent registry (`agent_registry_agents`):
+
+```bash
+cleo agent install backend-dev.cant            # project tier: <project>/.cleo/cant/agents/backend-dev.cant
+cleo agent install backend-dev.cant --global   # global tier: <cleoHome>/agents/backend-dev.cant
+cleo agent install ./backend-dev.cantz --global --attach   # install globally, attach to this project
+```
+
+`<cleoHome>` is `getCleoHome()` (`CLEO_HOME` when set, else the OS data directory), so the global agents directory (`getCleoGlobalAgentsDir()`) is:
+
+| OS | Global agents directory |
+|----|-------------------------|
+| Linux | `$XDG_DATA_HOME/cleo/agents/` (default `~/.local/share/cleo/agents/`) |
+| macOS | `~/Library/Application Support/cleo/agents/` |
+| Windows | `%LOCALAPPDATA%\cleo\Data\agents\` |
+
+(`cleo agent install --help` still prints `~/.local/share/cleo/cant/agents/`; that string is stale, tracked in T14588.)
+
+`--force` overwrites an existing row or file, `--resync` reinstalls the registry row from the `.cant` on disk, and `--strict` fails on warnings such as unknown skill slugs.
+
+A `.cant` file copied into a directory by hand is not installed: the registry row is what the spawn pipeline reads. `cleo agent doctor` reports drift between the `.cant` files on disk and the registry, and `cleo agent list` shows what is registered.
+
+### Resolution Precedence
+
+At spawn time `resolveAgent` (`core/src/store/agent-resolver.ts`) picks the first match:
+
+| Order | Tier | Source |
+|-------|------|--------|
+| 1 | `project` | Registry row installed from `<project>/.cleo/cant/agents/` |
+| 2 | `global` | Registry row installed from `<cleoHome>/agents/` |
+| 3 | `packaged` | Registry row installed from the bundled `@cleocode/agents/templates/` |
+| 4 | `fallback` | No row; the bundled `templates/<id>.cant` file, if present |
+| 5 | `universal` | The universal base `@cleocode/agents/cleo-subagent.cant` |
+
+A row whose `.cant` file is gone is skipped and resolution falls through to the next tier.
+
+### Bundled Agents (reference)
+
+`packages/agents/` ships reference definitions you can copy and customize:
+- `templates/project-orchestrator.cant`, `project-dev-lead.cant`, `project-code-worker.cant`, `project-docs-worker.cant`, `project-security-worker.cant` -- the packaged per-role templates
+- `definitions/cleo-lead.cant`, `definitions/cleo-worker.cant` -- lead and worker definitions
+- `meta/agent-architect.cant`, `meta/playbook-architect.cant` -- meta-agents (`cleo agent mint` uses agent-architect)
+- `cleo-subagent.cant` -- the universal base protocol
+
 ---
 
 ## Step 4: Assign the Agent to a Team
 
-Teams are defined in `.cant` files using the `team` syntax. Place a team definition file in `.cleo/cant/` or `.cleo/workflows/`:
+Teams are defined in `.cant` files using the `team` syntax. `cleo orchestrate classify` reads team files only from `<project>/.cleo/workflows/` and `<cleoHome>/cant-workflows/`; a team file under `.cleo/cant/` is never seen. Save the team as `.cleo/workflows/platform-team.cant` and validate it with `cleo cant validate`:
 
 ```cant
 ---
@@ -269,78 +247,57 @@ team platform-team:
 
 ### Team Routing
 
-When the orchestrator receives a task, it uses `orchestrate.classify` to route the request to the best-matching team based on the `consult-when` hint. The classifier performs substring matching against the request text.
+When the orchestrator receives a task, it uses `cleo orchestrate classify` to route the request to the best-matching team based on the `consult-when` hint. The classifier performs substring matching against the request text.
 
 To verify team routing:
 
-```
-query orchestrate.classify { request: "build a new API endpoint for user profiles" }
+```bash
+cleo orchestrate classify "build a new API endpoint for user profiles"
 ```
 
-This returns the matched team, suggested protocol, and confidence score.
+This returns the matched team, suggested protocol, and confidence score. The match is advisory: it does not route a spawn to the team or its members.
 
 ---
 
 ## Step 5: Spawn the Agent
 
-Agents are spawned through the orchestrate dispatch domain. There are three spawn paths:
+> **Custom personas are not selected by spawn today.** `cleo orchestrate spawn`, `spawn-execute` and `fanout` compose the spawn without an agent id (`packages/core/src/orchestrate/spawn-ops.ts`), and `classifyTask` (`packages/core/src/orchestration/classify.ts`) picks only the five packaged personas: `project-orchestrator`, `project-dev-lead`, `project-code-worker`, `project-docs-worker` and `project-security-worker`, falling back to `cleo-subagent` below the confidence floor (`packages/core/src/orchestration/spawn.ts`). No CLI flag routes a spawn to an agent you installed. Installing a `.cant` with the same id as one of those ids, at project or global tier, overrides the packaged template through the resolution order above; any other id is registered but not used by spawn. The gap is tracked in T14588.
+
+Tasks are spawned through `cleo orchestrate`. There are three spawn paths:
 
 ### Single Spawn
 
 The orchestrator spawns a single agent for a specific task:
 
-```
-mutate orchestrate.spawn { taskId: "T1234", protocolType: "implementation" }
+```bash
+cleo orchestrate spawn T1234 --protocol implementation
 ```
 
 This validates spawn readiness, prepares the spawn context with token resolution, and returns the spawn prompt. To execute the actual spawn:
 
-```
-mutate orchestrate.spawn.execute { taskId: "T1234" }
+```bash
+cleo orchestrate spawn-execute T1234
 ```
 
 ### Fanout (Parallel Spawn)
 
-Spawn multiple agents concurrently:
+Spawn several tasks of an epic concurrently:
 
-```
-mutate orchestrate.fanout {
-  items: [
-    { team: "platform-team", taskId: "T1234" },
-    { team: "platform-team", taskId: "T1235" },
-    { team: "frontend-team", taskId: "T1236" }
-  ]
-}
-```
-
-Each item is dispatched concurrently via `Promise.allSettled`. Results include per-item status:
-
-```json
-{
-  "manifestEntryId": "fanout-1712678400000-abc123",
-  "results": [
-    { "taskId": "T1234", "status": "spawned", "instanceId": "claude-..." },
-    { "taskId": "T1235", "status": "spawned", "instanceId": "claude-..." },
-    { "taskId": "T1236", "status": "failed", "error": "No adapter available" }
-  ]
-}
+```bash
+cleo orchestrate fanout T1200 --tasks T1234,T1235,T1236
 ```
 
 ### Handoff (Session End + Spawn)
 
 Composite operation that ends the current session and spawns a successor:
 
-```
-mutate orchestrate.handoff {
-  taskId: "T1234",
-  protocolType: "implementation",
-  note: "Handing off to implementation agent"
-}
+```bash
+cleo orchestrate handoff T1234 --protocol implementation
 ```
 
 ### Spawn Lifecycle
 
-Once spawned, the subagent follows the 4-phase lifecycle defined in `AGENT.md`:
+Once spawned, the subagent follows the 4-phase lifecycle defined in `packages/agents/cleo-subagent.cant`:
 
 1. **Initialize**: Worktree guard check, then `cleo show` and `cleo start`
 2. **Execute**: Follow the injected skill protocol
@@ -351,7 +308,7 @@ Once spawned, the subagent follows the 4-phase lifecycle defined in `AGENT.md`:
 
 ## File Permissions (Path ACL)
 
-Workers with declared `permissions.files.write` globs are restricted to those paths at runtime. The `tool_call` hook in `cleo-cant-bridge.ts` enforces this.
+Workers declare the paths they may write with `permissions.files.write` globs. Only the Pi `cleo-cant-bridge.ts` extension enforced these at runtime (its `tool_call` hook), and it retires under ADR-098; elsewhere the globs are a declaration in the spawn prompt, not a sandbox.
 
 ```cant
 agent backend-dev:
@@ -370,7 +327,7 @@ agent backend-dev:
 | `[]` (empty array) | Read-only agent -- all writes blocked |
 | `["packages/api/**"]` | Writes allowed only within matching paths |
 
-If a worker attempts to write outside its declared paths, it receives:
+Under the Pi bridge, a write outside the declared paths was rejected with:
 
 ```json
 {
@@ -390,11 +347,11 @@ If a worker attempts to write outside its declared paths, it receives:
 
 | Problem | Diagnostic | Solution |
 |---------|-----------|----------|
-| Agent not appearing in bundle | Run `/cant:bundle-info` | Check file is in `.cleo/cant/` and has `.cant` extension |
-| Parse errors | Check diagnostics in bundle info | Fix CANT syntax (indentation, missing colons) |
+| Agent not resolved at spawn | Run `cleo agent doctor` and `cleo agent list` | Install it with `cleo agent install` (a hand-copied file is not registered) |
+| Parse errors | Run `cleo cant validate <file>` | Fix CANT syntax (indentation, missing colons) |
 | Spawn fails with E_SPAWN_NO_ADAPTER | No Claude CLI installed | Install `claude` CLI and ensure it is in PATH |
 | Worker writes blocked unexpectedly | Check `permissions.files.write` | Expand glob patterns or remove write ACL for unrestricted access |
-| Mental model not injecting | Agent has no prior observations | Run `cleo observe "..."` with the agent name to seed observations |
+| Mental model not injecting | Agent has no prior observations | Run `cleo memory observe "..."` with the agent name to seed observations |
 | Token resolution failure | Required tokens unresolved | Ensure task has proper fields (title, labels, parentId) |
 
 ---
@@ -403,10 +360,12 @@ If a worker attempts to write outside its declared paths, it receives:
 
 | File | Purpose |
 |------|---------|
-| `packages/agents/cleo-subagent/AGENT.md` | Base protocol every subagent inherits |
-| `packages/agents/cleo-subagent/cleo-subagent.cant` | CANT version of the base protocol |
-| `packages/agents/seed-agents/*.cant` | Reference agent definitions |
+| `packages/agents/cleo-subagent.cant` | Universal base protocol every subagent inherits |
+| `packages/agents/templates/*.cant` | Packaged per-role agent templates |
+| `packages/core/src/agents/install-pipeline.ts` | `cleo agent install` input handling (`.cant`, `.cantz`, directory) |
+| `packages/core/src/store/agent-install.ts` | `installAgentFromCant()`: tier directories and the registry row |
+| `packages/core/src/store/agent-resolver.ts` | 5-tier spawn-time resolution |
 | `packages/cant/src/bundle.ts` | `compileBundle()` implementation |
-| `packages/cleo-os/extensions/cleo-cant-bridge.ts` | Pi extension that discovers and compiles `.cant` files |
-| `docs/guides/CANT-REFERENCE.md` | Full CANT syntax reference |
-| `docs/guides/SUBAGENT-INJECTION-PIPELINE.md` | End-to-end injection pipeline documentation |
+| `packages/cleo-os/extensions/cleo-cant-bridge.ts` | Deprecated Pi extension (ADR-098) that compiled `.cant` files into the Pi prompt |
+| [`docs/reference/cant.md`](../reference/cant.md) | CANT overview |
+| [`docs/spec/cant-dsl.md`](../spec/cant-dsl.md) | Full CANT syntax specification |
