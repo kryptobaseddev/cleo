@@ -381,7 +381,6 @@ Projects SHOULD call `nexus.reconcile` after moving to a new path to update the 
 - [VERB-STANDARDS.md](verb-standards.md) -- Canonical verb definitions
 - [CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md](cleo-portable-project-brain.md) -- Portable Project BRAIN (brain.db storage pattern)
 - [CLEO-SYSTEM-FLOW-ATLAS.md](../concept/cleo-system-flow-atlas.md) -- Workshop vocabulary and system architecture
-- [CLEO-VISION.md](../concept/cleo-vision.md) -- Workshop language documentation
 - Task T5372 -- Implementation task for this specification
 - Task T5365 -- nexus.db schema definition (nexus-schema.ts)
 - Task T5366 -- Core registry operations (registry.ts)

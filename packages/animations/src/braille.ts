@@ -522,10 +522,11 @@ export default spinners;
    canon-friendly names. Generic names (helix, scan, breathe, …) remain
    first-class so the registry is purely additive.
 
-   Canon vocabulary sources:
-     - docs/concept/cleo-vision.md (six systems: TASKS LOOM BRAIN NEXUS CANT CONDUIT)
-     - docs/concept/nexus-core-aspects.md (workshop lexicon)
-     - docs/concept/cleo-manifesto.md (mythic identity)
+   Canon vocabulary sources (retired lore docs, kept in the CleoDocs store:
+   `cleo docs fetch <slug>`):
+     - cleo-vision (six systems: TASKS LOOM BRAIN NEXUS CANT CONDUIT)
+     - nexus-core-aspects (workshop lexicon)
+     - cleo-manifesto (mythic identity)
 
    Mapping rationale:
      looming      → helix       (twin strands weaving — task on the LOOM)

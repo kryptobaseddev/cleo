@@ -16,7 +16,8 @@ CLEO is the work, evidence, memory and docs layer for AI coding agents. Agents
 single JSON envelope on stdout, so any agent harness can read it. CLEO keeps
 each change traceable from task to pull request to release, demands evidence
 before a task counts as done, remembers what was learned across sessions, and
-keeps documentation from rotting.
+keeps documentation from rotting. CLEO is not an agent harness: any agent can
+call it and any project can integrate it.
 
 ## What it does
 
@@ -125,14 +126,6 @@ Repository rules (package boundaries, architecture gates, evidence) are in
 [AGENTS.md](AGENTS.md); see [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 Every change lands through a pull request that names its tasks; releases are
 cut from main with `cleo release cut`.
-
-## The story of CLEO
-
-CLEO began as one developer's refusal to keep losing the thread: powerful
-agents that forgot too easily, ambitious projects that died on the shelf.
-[The Founding Story](docs/concept/cleo-founding-story.md) tells it from the
-builder's side, and [The Awakening Story](docs/concept/cleo-awakening-story.md)
-from CLEO's.
 
 ## Support
 
