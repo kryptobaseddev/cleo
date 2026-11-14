@@ -21,6 +21,7 @@ import {
   docsModernizeReceiptSchema,
 } from '@cleocode/contracts/docs/modernize.js';
 import { gitCommonDir } from '../../git/work-tree.js';
+import { docNameViolation } from '../doc-name-rule.js';
 import { repoLinkFixAllowed } from './rules.js';
 
 /** Raised when a plan, receipt or path fails a guard. */
@@ -151,7 +152,34 @@ export function parseModernizePlan(
   }
   const plan: DocsModernizePlan = parsed.data;
   assertPlanPaths(plan, projectRoot, checkoutRoot);
+  if (plan.mode === 'store') assertStorePlanRows(plan);
   return plan;
+}
+
+/**
+ * Check the rows of a store-mode plan read from disk (T14578): it renames and
+ * re-kinds stored docs only, so it carries no file rows, and every new slug
+ * obeys the doc naming rule. Slug availability is checked against the live
+ * store right before the apply writes (`assertStoreRenamesFree`).
+ *
+ * @param plan - A `mode: 'store'` plan.
+ * @throws DocsModernizeUnsafeError when a row breaks either rule.
+ */
+export function assertStorePlanRows(plan: DocsModernizePlan): void {
+  if (plan.rows.length > 0) {
+    // @sync-invariant none:input-shape a store plan with file rows is refused before any write
+    throw new DocsModernizeUnsafeError('a store-mode plan carries storeRows only, never file rows');
+  }
+  for (const row of plan.storeRows ?? []) {
+    if (!row.newSlug || row.newSlug === row.slug) continue;
+    const violation = docNameViolation(row.newSlug, row.newKind);
+    if (violation) {
+      // @sync-invariant none:input-shape a new slug that breaks the naming rule is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `store row ${row.attachmentId}: new slug '${row.newSlug}' breaks the doc naming rule (${violation.reasons.join(', ')}); use '${violation.suggestion}'`,
+      );
+    }
+  }
 }
 
 /**

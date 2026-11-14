@@ -5,7 +5,8 @@
  * @task T14118
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
@@ -17,6 +18,7 @@ import { attachments } from '../../../store/tasks-schema.js';
 import { createDocsReadModel } from '../../docs-read-model.js';
 import { listDocSlugs, resolveDocSlug } from '../../slug-rename.js';
 import { rollbackDocsModernize } from '../apply.js';
+import { runDocsModernize } from '../index.js';
 import { applyDocsStoreModernize, planDocsStoreModernize } from '../store.js';
 
 describe('modernize --store (fixture store)', () => {
@@ -151,5 +153,106 @@ describe('modernize --store (fixture store)', () => {
     expect((await store.findBySlug('adr-051-beta', projectRoot))?.metadata.id).toBe(betaId);
     expect((await store.findBySlug('loose-requirements', projectRoot))?.type).toBeNull();
     expect((await store.listRefs(planId, projectRoot)).map((r) => r.ownerId)).not.toContain('T123');
+  });
+
+  /** Write a reviewed store-mode plan file renaming `[slug, newSlug, task?]` rows (T14578). */
+  async function writeStorePlan(rows: ReadonlyArray<readonly [string, string, string?]>) {
+    const store = createAttachmentStore();
+    const storeRows = [];
+    for (const [slug, newSlug, task] of rows) {
+      const found = await store.findBySlug(slug, projectRoot);
+      if (!found) throw new Error(`fixture slug ${slug} missing`);
+      storeRows.push({
+        attachmentId: found.metadata.id,
+        sha256: found.metadata.sha256,
+        slug,
+        newSlug,
+        kind: 'note',
+        newKind: 'note',
+        ownerTasks: task ? [task] : [],
+        reasons: ['reviewed rename'],
+        judgments: [],
+      });
+    }
+    const plan = {
+      root: projectRoot,
+      generatedAt: '2026-11-14T00:00:00Z',
+      rows: [],
+      counts: { keep: 0, rename: 0, 'merge-into': 0, delete: 0 },
+      mode: 'store',
+      storeRows,
+    };
+    const file = join(projectRoot, 'store-plan.json');
+    writeFileSync(file, JSON.stringify(plan));
+    return file;
+  }
+
+  it('applies a saved two-row store plan through --plan, and rollback restores both slugs (T14578)', async () => {
+    await seed('t100-alpha-notes', '# Alpha\n', 'note', '2026-01-01T00:00:00Z');
+    await seed('t200-beta-notes', '# Beta\n', 'note', '2026-01-02T00:00:00Z');
+    const planFile = await writeStorePlan([
+      ['t100-alpha-notes', 'alpha-notes', 'T100'],
+      ['t200-beta-notes', 'beta-notes', 'T200'],
+    ]);
+    const result = await runDocsModernize(projectRoot, { planFile, apply: true });
+    expect(result.mode).toBe('apply');
+    const receipt = result.receipt;
+    if (!receipt) throw new Error('no receipt');
+    expect(receipt.ops.map((o) => o.op).sort()).toEqual([
+      'link-task',
+      'link-task',
+      'reslug',
+      'reslug',
+    ]);
+    expect(await resolveDocSlug(projectRoot, 't100-alpha-notes')).toBe('alpha-notes');
+    expect(await resolveDocSlug(projectRoot, 't200-beta-notes')).toBe('beta-notes');
+
+    await runDocsModernize(projectRoot, { rollback: receipt.runId });
+    const store = createAttachmentStore();
+    expect(await store.findBySlug('t100-alpha-notes', projectRoot)).not.toBeNull();
+    expect(await store.findBySlug('t200-beta-notes', projectRoot)).not.toBeNull();
+    // Every rename keeps the previous slug as an alias, so the new one now resolves back.
+    expect(await resolveDocSlug(projectRoot, 'alpha-notes')).toBe('t100-alpha-notes');
+    expect(await resolveDocSlug(projectRoot, 'beta-notes')).toBe('t200-beta-notes');
+  });
+
+  it('refuses a saved store plan whose new slug is taken, before any write (T14578)', async () => {
+    await seed('t300-gamma-notes', '# Gamma\n', 'note', '2026-01-01T00:00:00Z');
+    await seed('t301-delta-notes', '# Delta\n', 'note', '2026-01-01T00:00:00Z');
+    await seed('gamma-notes', '# Another gamma\n', 'note', '2026-01-02T00:00:00Z');
+    // The first row is valid; the second collides. Nothing may be renamed.
+    const planFile = await writeStorePlan([
+      ['t301-delta-notes', 'delta-notes'],
+      ['t300-gamma-notes', 'gamma-notes'],
+    ]);
+    await expect(runDocsModernize(projectRoot, { planFile, apply: true })).rejects.toThrow(
+      /already taken/,
+    );
+    const store = createAttachmentStore();
+    expect(await store.findBySlug('t301-delta-notes', projectRoot)).not.toBeNull();
+    expect(await store.findBySlug('delta-notes', projectRoot)).toBeNull();
+  });
+
+  it('refuses a saved store plan whose new slug breaks the naming rule (T14578)', async () => {
+    await seed('t500-epsilon-notes', '# Epsilon\n', 'note', '2026-01-01T00:00:00Z');
+    const planFile = await writeStorePlan([['t500-epsilon-notes', 't500-epsilon']]);
+    await expect(runDocsModernize(projectRoot, { planFile, apply: true })).rejects.toThrow(
+      /naming rule/,
+    );
+  });
+
+  it('refuses a stale saved store plan whose slug names another doc now (T14578)', async () => {
+    await seed('t600-zeta-notes', '# Zeta\n', 'note', '2026-01-01T00:00:00Z');
+    const planFile = await writeStorePlan([['t600-zeta-notes', 'zeta-notes']]);
+    const { readFileSync } = await import('node:fs');
+    const stale = JSON.parse(readFileSync(planFile, 'utf-8')) as {
+      storeRows: Array<{ attachmentId: string }>;
+    };
+    const row = stale.storeRows[0];
+    if (row) row.attachmentId = createHash('sha256').update('not this doc').digest('hex');
+    writeFileSync(planFile, JSON.stringify(stale));
+    await expect(runDocsModernize(projectRoot, { planFile, apply: true })).rejects.toThrow(
+      /no longer names this doc/,
+    );
   });
 });

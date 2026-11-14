@@ -42,6 +42,7 @@ import { assembleAdrSlug, findHighestAdrNumber } from '../adr-allocator.js';
 import { docNameViolation } from '../doc-name-rule.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
 import { journalPath, modernizeReceiptPath, StepJournal } from './apply.js';
+import { DocsModernizeUnsafeError } from './guard.js';
 import { judgeDocKind, resolveModernizeJudgeSettings } from './judge.js';
 import { ownerIdsFromPath } from './plan.js';
 import { classifyDocByRules, MODERNIZE_CLASSIFY_FLOOR, stableSlugFor } from './rules.js';
@@ -328,6 +329,7 @@ export async function applyDocsStoreModernize(
   projectRoot: string,
   now: () => Date = () => new Date(),
 ): Promise<DocsModernizeReceipt> {
+  await assertStoreRenamesFree(plan, projectRoot);
   const started = now();
   const t0 = performance.now();
   const stamp = started.toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 15);
@@ -397,6 +399,42 @@ export async function applyDocsStoreModernize(
     await save(edgeCount, Math.round(performance.now() - t0));
   }
   return receipt(edgeCount, Math.round(performance.now() - t0));
+}
+
+/**
+ * Check a store plan's renames against the live store before any write
+ * (T14578): every renamed doc still carries its old slug, every new slug is
+ * free, and no two rows take the same new slug. A plan reviewed earlier may
+ * have gone stale; refusing up front keeps a run from stopping half-way.
+ *
+ * @param plan - A `mode: 'store'` plan.
+ * @param projectRoot - Project root.
+ * @throws DocsModernizeUnsafeError naming the first row that fails.
+ */
+export async function assertStoreRenamesFree(
+  plan: DocsModernizePlan,
+  projectRoot: string,
+): Promise<void> {
+  const { isDocSlugTaken } = await import('../slug-rename.js');
+  const store = createAttachmentStore();
+  const claimed = new Set<string>();
+  for (const row of plan.storeRows ?? []) {
+    if (!row.slug || !row.newSlug || row.newSlug === row.slug) continue;
+    const current = await store.findBySlug(row.slug, projectRoot);
+    if (current?.metadata.id !== row.attachmentId) {
+      // @sync-invariant none:input-shape a stale store plan is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `store row ${row.attachmentId}: slug '${row.slug}' no longer names this doc; re-plan`,
+      );
+    }
+    if (claimed.has(row.newSlug) || (await isDocSlugTaken(projectRoot, row.newSlug))) {
+      // @sync-invariant none:input-shape a rename onto a taken slug is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `store row ${row.attachmentId}: new slug '${row.newSlug}' is already taken`,
+      );
+    }
+    claimed.add(row.newSlug);
+  }
 }
 
 /**
