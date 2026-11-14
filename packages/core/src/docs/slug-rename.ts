@@ -68,6 +68,51 @@ export interface RenameDocSlugResult {
 }
 
 /**
+ * Why a slug rename cannot happen, or the registry row it would move.
+ *
+ * `not-found`: no doc carries `oldSlug` as its CURRENT slug (an alias does
+ * not count). `same`: the slugs are equal. `taken`: another doc answers to
+ * `newSlug` as its live slug or an alias; a doc taking back one of its own
+ * aliases is allowed.
+ */
+export type SlugRenameCheck =
+  | { readonly ok: true; readonly id: string; readonly sha256: string }
+  | { readonly ok: false; readonly reason: 'not-found' | 'same' | 'taken' };
+
+/**
+ * Check a slug rename without writing anything: the one rule
+ * {@link renameDocSlug} applies, shared with preflights that must refuse a
+ * whole batch before its first rename (T14578).
+ *
+ * @param projectRoot - Absolute project root.
+ * @param oldSlug - The doc's current slug.
+ * @param newSlug - The slug it should carry.
+ * @returns The registry row to move, or why the rename is refused.
+ */
+export async function checkSlugRename(
+  projectRoot: string,
+  oldSlug: string,
+  newSlug: string,
+): Promise<SlugRenameCheck> {
+  const registry = await getDb(projectRoot);
+  const live = await registry
+    .select({ id: attachments.id, sha256: attachments.sha256 })
+    .from(attachments)
+    .where(eq(attachments.slug, oldSlug))
+    .get();
+  if (!live) return { ok: false, reason: 'not-found' };
+  if (newSlug === oldSlug) return { ok: false, reason: 'same' };
+  // T14288: taken means a doc already answers to the slug (a live slug or an
+  // alias), unless it is this doc's own old slug (a rename back).
+  const holder = await resolveConduitDocUid(projectRoot, newSlug);
+  const own = await resolveConduitDocUid(projectRoot, oldSlug);
+  if ((await isDocSlugTaken(projectRoot, newSlug)) && !(holder !== null && holder === own)) {
+    return { ok: false, reason: 'taken' };
+  }
+  return { ok: true, id: live.id, sha256: live.sha256 };
+}
+
+/**
  * Rename a doc's slug, keeping the old one as an alias.
  *
  * @param projectRoot - Absolute project root.
@@ -82,29 +127,20 @@ export async function renameDocSlug(
 ): Promise<RenameDocSlugResult> {
   const store = createAttachmentStore();
   // The registry row the rename moves: the one carrying the live slug.
-  const registry = await getDb(projectRoot);
-  const live = await registry
-    .select({ id: attachments.id, sha256: attachments.sha256 })
-    .from(attachments)
-    .where(eq(attachments.slug, input.oldSlug))
-    .get();
-  const row = live ? { metadata: live } : null;
-  if (!row) {
+  const check = await checkSlugRename(projectRoot, input.oldSlug, input.newSlug);
+  if (!check.ok && check.reason === 'not-found') {
     // @sync-invariant none:input-shape renaming a slug no doc carries is refused before any write
     throw new CleoError(ExitCode.NOT_FOUND, `no doc has the slug '${input.oldSlug}'`);
   }
-  if (input.newSlug === input.oldSlug) {
+  if (!check.ok && check.reason === 'same') {
     // @sync-invariant none:input-shape a rename to the same slug is refused before any write
     throw new CleoError(ExitCode.VALIDATION_ERROR, 'the new slug equals the old slug');
   }
-  // T14288: taken means a doc already answers to the slug (a live slug or an
-  // alias), unless it is this doc's own old slug (a rename back).
-  const holder = await resolveConduitDocUid(projectRoot, input.newSlug);
-  const own = await resolveConduitDocUid(projectRoot, input.oldSlug);
-  if ((await isDocSlugTaken(projectRoot, input.newSlug)) && !(holder !== null && holder === own)) {
+  if (!check.ok) {
     // @sync-invariant none:input-shape a rename onto a live slug is refused before any write; slugs stay unique
     throw new CleoError(ExitCode.VALIDATION_ERROR, `the slug '${input.newSlug}' is already taken`);
   }
+  const row = { metadata: { id: check.id, sha256: check.sha256 } };
   const bytes = await store.get(row.metadata.sha256, projectRoot);
   const { uid, adopted } = await ensureConduitDoc(projectRoot, {
     slug: input.oldSlug,

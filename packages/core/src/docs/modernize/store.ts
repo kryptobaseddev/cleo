@@ -403,9 +403,11 @@ export async function applyDocsStoreModernize(
 
 /**
  * Check a store plan's renames against the live store before any write
- * (T14578): every renamed doc still carries its old slug, every new slug is
- * free, and no two rows take the same new slug. A plan reviewed earlier may
- * have gone stale; refusing up front keeps a run from stopping half-way.
+ * (T14578), with the rule `renameDocSlug` applies: each row's old slug
+ * is its doc's CURRENT slug (an alias does not count), the new slug is free
+ * or one of that doc's own aliases, and no two rows take the same new slug.
+ * A plan reviewed earlier may have gone stale; refusing up front means a plan
+ * applies all of its renames or none of them.
  *
  * @param plan - A `mode: 'store'` plan.
  * @param projectRoot - Project root.
@@ -415,20 +417,22 @@ export async function assertStoreRenamesFree(
   plan: DocsModernizePlan,
   projectRoot: string,
 ): Promise<void> {
-  const { isDocSlugTaken } = await import('../slug-rename.js');
-  const store = createAttachmentStore();
+  const { checkSlugRename } = await import('../slug-rename.js');
   const claimed = new Set<string>();
   for (const row of plan.storeRows ?? []) {
     if (!row.slug || !row.newSlug || row.newSlug === row.slug) continue;
-    const current = await store.findBySlug(row.slug, projectRoot);
-    if (current?.metadata.id !== row.attachmentId) {
+    const check = await checkSlugRename(projectRoot, row.slug, row.newSlug);
+    if (
+      (!check.ok && check.reason === 'not-found') ||
+      (check.ok && check.id !== row.attachmentId)
+    ) {
       // @sync-invariant none:input-shape a stale store plan is refused before any write
       throw new DocsModernizeUnsafeError(
-        `store row ${row.attachmentId}: slug '${row.slug}' no longer names this doc; re-plan`,
+        `store row ${row.attachmentId}: '${row.slug}' is not this doc's current slug; re-plan`,
       );
     }
-    if (claimed.has(row.newSlug) || (await isDocSlugTaken(projectRoot, row.newSlug))) {
-      // @sync-invariant none:input-shape a rename onto a taken slug is refused before any write
+    if (!check.ok || claimed.has(row.newSlug)) {
+      // @sync-invariant none:input-shape a rename onto another doc's slug is refused before any write
       throw new DocsModernizeUnsafeError(
         `store row ${row.attachmentId}: new slug '${row.newSlug}' is already taken`,
       );

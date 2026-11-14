@@ -9,7 +9,8 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BlobAttachment } from '@cleocode/contracts';
+import type { BlobAttachment, DocsModernizePlan, DocsModernizeStoreRow } from '@cleocode/contracts';
+import { docsModernizePlanSchema } from '@cleocode/contracts/docs/modernize.js';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAttachmentStore } from '../../../store/attachment-store.js';
@@ -155,15 +156,22 @@ describe('modernize --store (fixture store)', () => {
     expect((await store.listRefs(planId, projectRoot)).map((r) => r.ownerId)).not.toContain('T123');
   });
 
-  /** Write a reviewed store-mode plan file renaming `[slug, newSlug, task?]` rows (T14578). */
-  async function writeStorePlan(rows: ReadonlyArray<readonly [string, string, string?]>) {
+  /**
+   * Write a reviewed store-mode plan file (T14578). Each row is
+   * `[slug, newSlug, task?, attachmentId?]`; the attachment id defaults to the
+   * doc the slug resolves to. The plan is checked against the contracts schema
+   * the `--plan` path uses, so the fixture can never drift from it.
+   */
+  async function writeStorePlan(
+    rows: ReadonlyArray<readonly [string, string, string?, string?]>,
+  ): Promise<string> {
     const store = createAttachmentStore();
-    const storeRows = [];
-    for (const [slug, newSlug, task] of rows) {
+    const storeRows: DocsModernizeStoreRow[] = [];
+    for (const [slug, newSlug, task, attachmentId] of rows) {
       const found = await store.findBySlug(slug, projectRoot);
       if (!found) throw new Error(`fixture slug ${slug} missing`);
       storeRows.push({
-        attachmentId: found.metadata.id,
+        attachmentId: attachmentId ?? found.metadata.id,
         sha256: found.metadata.sha256,
         slug,
         newSlug,
@@ -174,7 +182,7 @@ describe('modernize --store (fixture store)', () => {
         judgments: [],
       });
     }
-    const plan = {
+    const plan: DocsModernizePlan = {
       root: projectRoot,
       generatedAt: '2026-11-14T00:00:00Z',
       rows: [],
@@ -182,6 +190,7 @@ describe('modernize --store (fixture store)', () => {
       mode: 'store',
       storeRows,
     };
+    docsModernizePlanSchema.parse(plan);
     const file = join(projectRoot, 'store-plan.json');
     writeFileSync(file, JSON.stringify(plan));
     return file;
@@ -243,16 +252,43 @@ describe('modernize --store (fixture store)', () => {
 
   it('refuses a stale saved store plan whose slug names another doc now (T14578)', async () => {
     await seed('t600-zeta-notes', '# Zeta\n', 'note', '2026-01-01T00:00:00Z');
-    const planFile = await writeStorePlan([['t600-zeta-notes', 'zeta-notes']]);
-    const { readFileSync } = await import('node:fs');
-    const stale = JSON.parse(readFileSync(planFile, 'utf-8')) as {
-      storeRows: Array<{ attachmentId: string }>;
-    };
-    const row = stale.storeRows[0];
-    if (row) row.attachmentId = createHash('sha256').update('not this doc').digest('hex');
-    writeFileSync(planFile, JSON.stringify(stale));
+    const otherId = createHash('sha256').update('not this doc').digest('hex');
+    const planFile = await writeStorePlan([['t600-zeta-notes', 'zeta-notes', undefined, otherId]]);
     await expect(runDocsModernize(projectRoot, { planFile, apply: true })).rejects.toThrow(
-      /no longer names this doc/,
+      /not this doc's current slug/,
     );
+  });
+
+  it('refuses a plan row that names a doc by an alias, so no row of the plan applies (T14578)', async () => {
+    await seed('t700-eta-notes', '# Eta\n', 'note', '2026-01-01T00:00:00Z');
+    await seed('t701-theta-notes', '# Theta\n', 'note', '2026-01-02T00:00:00Z');
+    const { renameDocSlug } = await import('../../slug-rename.js');
+    await renameDocSlug(projectRoot, {
+      oldSlug: 't701-theta-notes',
+      newSlug: 'theta-now',
+      reason: 'test',
+      authorAgentId: 'test',
+    });
+    // Theta's row still names its old slug, now only an alias: the plan is stale.
+    const planFile = await writeStorePlan([
+      ['t700-eta-notes', 'eta-notes'],
+      ['t701-theta-notes', 'theta-notes'],
+    ]);
+    await expect(runDocsModernize(projectRoot, { planFile, apply: true })).rejects.toThrow(
+      /not this doc's current slug/,
+    );
+    expect(await resolveDocSlug(projectRoot, 't700-eta-notes')).toBe('t700-eta-notes');
+  });
+
+  it('lets a doc take back its own alias: apply, rollback, apply again (T14578)', async () => {
+    await seed('t800-iota-notes', '# Iota\n', 'note', '2026-01-01T00:00:00Z');
+    const planFile = await writeStorePlan([['t800-iota-notes', 'iota-notes']]);
+    const first = await runDocsModernize(projectRoot, { planFile, apply: true });
+    if (!first.receipt) throw new Error('no receipt');
+    await runDocsModernize(projectRoot, { rollback: first.receipt.runId });
+    // 'iota-notes' is now this doc's own alias, not another doc's slug.
+    const again = await runDocsModernize(projectRoot, { planFile, apply: true });
+    expect(again.mode).toBe('apply');
+    expect(await resolveDocSlug(projectRoot, 't800-iota-notes')).toBe('iota-notes');
   });
 });
