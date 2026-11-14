@@ -1,174 +1,145 @@
-# SG-CLEO-SKILLS Architecture v3 (canonical — supersedes v1 + v2)
+# CLEO Skills Architecture
 
-**Saga:** T9560 — Skill System Maintenance + Optimization
-**Updated:** 2026-05-18 — incorporates owner's path-namespace consolidation onto `~/.cleo/*`
-**Supersedes:** `SG-CLEO-SKILLS-handoff-v2.md` (cleocode docs att_4b30bae5)
+**Saga:** T9560 (skill system) · **Metadata SSoT:** D11157 · **Gates:** 29–33 (`AGENTS.md`)
 
----
-
-## 1. Canonical paths (LOCKED — do not re-litigate)
-
-| Path | Role | Writer |
-|------|------|--------|
-| `packages/skills/skills/<name>/` | **Authoring SSoT** for Sphere A canonical skills (in cleocode git repo) | Cleocode contributors via PR |
-| `~/.cleo/skills/<name>/` | **User-machine install root** for ALL skills (both spheres) | `cleo skills` CLI + sentient daemon (B only) |
-| `~/.cleo/skills.db` | **Per-user registry** (Drizzle SQLite) — alongside `~/.cleo/tasks.db`, `~/.cleo/brain.db` | CLEO core |
-| `~/.claude/skills/agents-shared/` | Claude Code discovery mount; symlinks INTO `~/.cleo/skills/<name>/` | `cleo skills doctor` |
-| `~/.agents/skills` | **Single bridge symlink** → `~/.claude/skills/agents-shared` | `cleo skills doctor` |
-| `<project>/.agents/skills/` | Project-local skills (per-project, in repo) | Project contributors |
-
-**Discovery chain (Claude Code):** Claude resolves `~/.claude/skills/agents-shared/<name>` → symlink → `~/.cleo/skills/<name>/` (canonical) or to user-created `~/.cleo/skills/<name>/` (depending on `source_type` in db).
-
-**Other harnesses** (Cursor, Aider, Codeium, etc.) resolve from `~/.agents/skills` (which is the bridge symlink). CLEO does NOT maintain per-harness symlinks.
-
-**LEGACY paths** (must fall back gracefully during migration):
-- `~/.local/share/agents/skills/` — old XDG canonical (handoff v2 model). Read-only fallback.
-- `~/.agents/skills/` (as a real dir) — currently 88+ entries on owner machine. Must migrate + replace with bridge symlink.
-- `~/.claude/skills/` direct entries (not under `agents-shared/`) — must be reconciled or removed.
-
-`resolveSkillsRoot()` checks `~/.cleo/skills/` first, falls back to `~/.local/share/agents/skills/` with deprecation warning. `cleo skills doctor` performs one-shot migration with backup.
+How CLEO's canonical `ct-*` skills are authored, indexed, installed into
+harnesses and kept in step with the code they describe. The v3 design note this
+page replaces (2026-05) planned the storage, registry and write-guard; those
+parts shipped, and the parts that changed since are marked below.
 
 ---
 
-## 2. Two-sphere model (LOCKED)
+## 1. Authoring: SKILL.md frontmatter is the SSoT
 
-### Sphere A — Canonical CLEO Skills (`ct-*` + bundled)
+Canonical skills live in the cleocode repo under `packages/skills/skills/<name>/`
+and change only through PRs. Each `SKILL.md` carries its metadata in
+frontmatter (gate 29, `scripts/lint-skills-manifest.mjs`):
 
-| Aspect | Value |
-|--------|-------|
-| **SSoT** | `packages/skills/skills/` (cleocode git repo) |
-| **Install path** | `~/.cleo/skills/<name>/` |
-| **`source_type` in db** | `canonical` |
-| **Maintained by** | CLEO maintainers via PR ONLY |
-| **User-machine state** | READ-ONLY; never auto-modified |
-| **Improvement loop** | **OWNER-SIDE** GH Actions weekly council + grade → PR to cleocode |
-| **Write-guard** | `is_canonical()` check refuses writes from sentient daemon |
-
-### Sphere B — User-level skills (user-authored, community, agent-created)
-
-| Aspect | Value |
-|--------|-------|
-| **SSoT** | User's `~/.cleo/skills/<name>/` (same dir as canonical, flagged by db) |
-| **`source_type` in db** | `user` \| `community` \| `agent-created` |
-| **Maintained by** | User + local sentient daemon (with provenance gating) |
-| **Improvement loop** | **USER-SIDE** sentient daemon background review (Hermes-mirror) |
-| **Telemetry** | Drizzle `~/.cleo/skills.db` (CLEO diverges from Hermes file sidecars) |
-| **Lifecycle** | 30/90 day default (Hermes-standard) + per-project config override |
-
-**Critical invariant:** local sentient daemon NEVER writes to canonical skills on user's machine. All canonical improvements flow via owner-CI PR to cleocode repo.
-
----
-
-## 3. Saga structure (9 epics, 1 deleted, ship in 2 releases)
-
-| # | Epic | Sphere | Wave | Release |
-|---|------|--------|------|---------|
-| T9571 | E-SKILLS-STORAGE-CLEANUP | A+B | W0 | v2026.5.82 |
-| T9566 | E-SKILLS-IMMEDIATE | A | W0 | v2026.5.82 |
-| T9567 | E-SKILLS-DEPTH-BACKFILL | A | W1 | v2026.5.82 |
-| T9568 | E-SKILLS-LOOM-COVERAGE-AUDIT | A | W1 | v2026.5.82 |
-| T9572 | E-SKILLS-OWNER-CI | A | W2 | v2026.5.82 |
-| T9561 | E-SKILLS-TELEMETRY | B | W3 | v2026.5.83 |
-| T9562 | E-SKILLS-CURATOR | B | W4 | v2026.5.83 |
-| T9563 | E-SKILLS-AUTO-IMPROVE | B | W5 | v2026.5.83 |
-| T9564 | E-SKILLS-FEDERATION-DISCOVERY | B | W5 | v2026.5.83 |
-| ~T9565~ | ~E-SKILLS-DOGFOOD-LOOP~ | — | — | **archived** |
-
----
-
-## 4. skills.db Drizzle schema (per-user at `~/.cleo/skills.db`)
-
-```typescript
-// packages/core/src/store/skills-schema.ts (NEW)
-
-skills = sqliteTable("skills", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  name: text("name").notNull().unique(),            // e.g., "ct-orchestrator"
-  version: text("version"),                          // semver from frontmatter
-  sourceType: text("source_type", {
-    enum: ["canonical", "user", "community", "agent-created"]
-  }).notNull(),
-  sourceUrl: text("source_url"),                     // github/marketplace; null for user
-  installPath: text("install_path").notNull(),       // resolved path on disk
-  canonicalPath: text("canonical_path"),             // XDG path (Sphere A) or null
-  installedAt: text("installed_at").notNull(),
-  lastUpdatedAt: text("last_updated_at"),
-  lifecycleState: text("lifecycle_state", {
-    enum: ["active", "stale", "archived"]
-  }).default("active"),
-  pinned: integer("pinned", { mode: "boolean" }).default(false),
-  isAgentCreated: integer("is_agent_created", { mode: "boolean" }).default(false),
-  archivedAt: text("archived_at"),
-  archivedFromPath: text("archived_from_path"),
-}, (t) => [
-  index("idx_skills_state").on(t.lifecycleState),
-  index("idx_skills_source").on(t.sourceType),
-]);
-
-skill_usage = sqliteTable("skill_usage", { /* per-event telemetry */ });
-skill_reviews = sqliteTable("skill_reviews", { /* council + grade outcomes */ });
-skill_patches = sqliteTable("skill_patches", { /* auto-improve diffs */ });
+```yaml
+name: ct-example            # must equal the directory name
+description: ...            # at most 1024 characters
+metadata:
+  version: 2.0.0            # bump on every material change
+  tier: core                # core | on-demand | internal
+  install: harness          # harness | internal
+  covers:                   # code this skill documents (gate 32)
+    - packages/cleo/src/cli/commands/example.ts
+  lastReviewed: 2026-05-21
+  stability: stable         # experimental | stable | deprecated
 ```
 
-(Full schema in v2 handoff §4.)
+No top-level `tier`, `core` or `category`, and no duplicate keys.
+`cleo skills validate <path>` checks a SKILL.md against the Agent Skills
+standard and, for a bundled skill, against this contract.
 
----
+## 2. The index: generated `manifest.json`
 
-## 5. Telemetry & opt-out (Sphere A → owner CI top-N council)
+`packages/skills/skills/manifest.json` is the only skills index. It is
+generated by `node scripts/skills/generate-manifest.mjs` from the frontmatter
+and never hand-edited; gate 29 fails when the file differs from the generator's
+output, and a `packages/skills/skills.json` fails it too. Per skill the
+generator writes `name`, `version`, `description`, `path`, `deliveryTier`
+(`metadata.tier`), a numeric `tier` for older readers (0 core, 1 on-demand,
+3 internal), `install`, `status` (`deprecated` when `stability` is), `core`,
+`category` and `loomStage`; curated fields with no frontmatter home
+(`capabilities`, the dispatch matrix, retired skills) are kept.
 
-- **Anonymous telemetry** default-on in `cleo wizard` (T9572 acceptance criterion)
-- **Single opt-out**: `cleo telemetry disable` (project-level + global)
-- **Payload**: ONLY `{canonicalSkillName, loadCount, period}` — no user/session data
-- **Sink**: phones home to owner-side ingestion endpoint OR scrubbed PR diff to cleocode repo (TBD in T9572)
-- **Drives**: top-N selection for `skills-council.yml` weekly cron
+## 3. Tiers and install selection
 
----
+| `metadata.tier` | Meaning | Rule |
+|---|---|---|
+| `core` | `ct-cleo`, `ct-orchestrator`, `ct-lead`, `ct-task-executor`, `ct-dev-workflow`, `ct-documentor`, `ct-lean` | A change to a covered path must update the skill; no trailer override |
+| `on-demand` | LOOM-stage and specialist skills (ct-council, ct-codebase-mapper, …) | A covered change updates the skill or carries `Skill-Drift-Reviewed: <skill>: <reason>` |
+| `internal` | Owner tooling (`ct-grade`, `ct-skill-author`) | Never installed into a harness |
 
-## 6. is_canonical() resolution logic (LOCKED)
+`metadata.install: harness` decides what reaches agents: `initCoreSkills`
+(`packages/core/src/init.ts`) installs exactly the manifest's `install: harness`
+entries through CAAMP (`installResolvedSkill`) for every detected provider, and
+`internal` skills never reach a harness (gate 30 holds a tripwire on that
+selection). A skill that the spawn prompt, stage guidance, the skill name map,
+skill dispatch or a `.cant` `skillRef:` names must exist, be `install: harness`
+and be installed (gate 30, `scripts/lint-emitted-skills.mjs`).
 
-```typescript
-function is_canonical(skillPath: string): boolean {
-  const resolved = fs.realpathSync(skillPath);
+Spawn prompts can still read a skill that is not installed (T12646): in the
+default `CLEO_SKILL_SOURCE=auto` mode (`caamp` means installed skills only,
+`embedded` project skills only), `resolveSkillPath` falls back to the copy
+bundled in `@cleocode/skills`. `findSkill` falls back only when the caller also
+passes `includeBundled: true`, as stage guidance does
+(`packages/core/src/skills/discovery.ts`); otherwise a skill that is not
+installed returns `null`.
 
-  // 1. Check skills.db source_type === 'canonical'
-  const dbRow = db.select().from(skills).where(eq(skills.installPath, resolved)).get();
-  if (dbRow?.sourceType === "canonical") return true;
+## 4. Keeping skills current (gates 31–33)
 
-  // 2. Check manifest membership (packages/skills/manifest.json)
-  const canonicalNames = readManifest().skills;
-  if (canonicalNames.includes(path.basename(resolved))) return true;
+- **Gate 31** (`lint-skill-commands.mjs`): every `cleo <verb> [<sub>]` in a
+  skill's markdown exists, with declared flags and resolvable `--field`
+  pointers. Core skills are zero-tolerance.
+- **Gate 32** (`lint-skill-coverage.mjs`): every core and LOOM-stage skill
+  declares `metadata.covers`, each glob matches a tracked file, and in PR mode a
+  changed covered path requires a change to the skill, whose `metadata.version`
+  must rise above the branch point (bump the minor so parallel PRs carry the
+  same line) and above the newest stable release tag cut since.
+- **Gate 33** (`check-ct-cleo-thin.mjs`): `ct-cleo` stays a thin pointer and may
+  not grow past its baseline.
 
-  // 3. Fallback: path under legacy XDG canonical store
-  if (resolved.startsWith(path.join(home, ".local/share/agents/skills/"))) return true;
+## 5. Machine layout
 
-  return false;
-}
-```
+| Path | Role |
+|---|---|
+| `<cleoHome>/skills/<name>/` | Install root for all skills on a machine (`resolveSkillsRoot()`; `CLEO_HOME` overrides `<cleoHome>`). Linux `~/.local/share/cleo/skills`, macOS `~/Library/Application Support/cleo/skills`, Windows `%LOCALAPPDATA%\cleo\Data\skills`. It used to be `~/.cleo/skills`; since T12598 installs target the physical directory and `~/.cleo` is only an alias |
+| `~/.claude/skills/agents-shared/<name>` | Claude Code discovery links into the install root |
+| `~/.agents/skills` | One bridge link to `~/.claude/skills/agents-shared`, read by other harnesses |
+| `<project>/.agents/skills/` | Project-local skills |
 
-All Sphere B writes call `is_canonical(target)` first. If true → refuse with `E_CANONICAL_READ_ONLY`. The owner-CI workflow is the ONLY writer to canonical paths.
+`cleo skills doctor` checks and repairs this layout (`bridge`, `adopt-orphans`,
+`prune`, `restore`; `packages/core/src/skills/doctor-bridge.ts`). A pre-v3
+install under `~/.local/share/agents/skills/` moves with `cleo skills migrate`.
 
----
+## 6. Registry and the canonical write-guard
 
-## 7. Anti-patterns (instant rejection)
+The per-user skills registry is the `skills_*` tables (`skills_skills`,
+`skills_skill_usage`, `skills_skill_reviews`, `skills_skill_patches`) in the
+**global** `cleo.db` under `<cleoHome>`, opened through `openDualScopeDb('global')`
+(`packages/core/src/store/skills-db.ts`, T11525). The separate `~/.cleo/skills.db`
+of the v3 design no longer exists; the `drizzle-skills` migration folder is not
+run.
 
-- ❌ Auto-modifying canonical skills on user machine
-- ❌ Same db row without `source_type` discriminator
-- ❌ Shipping owner-CI workflows to users (live in cleocode repo only)
-- ❌ File sidecars instead of `skills.db` (owner chose DB for queryability)
-- ❌ Auto-archive without provenance check
-- ❌ Squash-merge skill PRs (preserve task↔commit traceability per ADR-062)
-- ❌ Writing canonical skills to `~/.cleo/skills/` directly on a non-owner-CI machine
+Each row carries a `source_type`: `canonical` (Sphere A, the bundled `ct-*`
+skills) or `user` / `community` / `agent-created` (Sphere B).
+`is_canonical()` (`packages/core/src/skills/skill-root.ts`) is the write-guard:
+a `canonical` row or membership in the canonical manifest marks a skill
+read-only on user machines (callers pass the row's `source_type` or the
+manifest names; with neither, it returns `false`).
 
----
+## 7. Improvement loops
 
-## 8. Files to read first (for fresh sessions / agents)
+- **Canonical skills (owner side).** `skills-council.yml` (Sundays 06:00 UTC)
+  and `skills-grade.yml` (Mondays 07:00 UTC) are scaffolds today: each writes a
+  stub report per selected skill; the real council and grader invocations were
+  never wired (the workflow comments still defer them to T9563, which is done). Grading also selects nothing, because it reads the
+  obsolete `packages/skills/manifest.json` instead of
+  `packages/skills/skills/manifest.json` (T14573). Skill fixes land as ordinary
+  PRs; `cleo skills propose-patch` opens one from a user machine.
+- **User skills (machine side).** The sentient curator and background review
+  (`packages/core/src/sentient/curator.ts`, `background-review.ts`) sweep
+  Sphere B rows: lifecycle transitions and provenance-gated patches. They never
+  write a canonical skill. The sentient host retires under ADR-098, so this loop
+  is frozen; `cleo skills stats`, `prune-telemetry` and `import-hermes` work on
+  the registry directly.
+- **Usage data.** Skill usage events land in `skills_skill_usage`;
+  `cleo skills prune-telemetry` deletes rows older than a retention window
+  (default 180 days).
 
-1. **This file** (`.cleo/research/SG-CLEO-SKILLS-architecture-v3.md`)
-2. `cleo saga members T9560`
-3. `packages/core/src/sentient/daemon.ts` (existing CLEO daemon to extend, NOT replace)
-4. `packages/caamp/src/commands/skills/install.ts` (CAAMP install flow)
-5. `.github/workflows/freshness-sentinel.yml` (cron pattern to mirror for owner CI)
-6. `/mnt/projects/hermes-agent/tools/skill_manager_tool.py` lines 730–790 (create flow + provenance gate)
-7. `/mnt/projects/hermes-agent/tools/skill_usage.py` (full — `.usage.json` schema CLEO is converting to DB)
-8. `/mnt/projects/hermes-agent/agent/curator.py` lines 256–296 (automatic transitions)
-9. `/mnt/projects/hermes-agent/run_agent.py` lines 3981 (review prompt) + 4216 (spawn fork)
+## 8. Anti-patterns
+
+- Hand-editing `manifest.json` or adding a second skills index.
+- Changing covered code without updating (or, for on-demand skills, reviewing)
+  the skill, or without the version bump.
+- Installing an `internal` skill into a harness.
+- Writing a canonical skill on a user machine instead of through a PR.
+
+## 9. Read next
+
+- `AGENTS.md` — Skill Maintenance section and gates 29–33
+- `packages/skills/skills/manifest.json` and `scripts/skills/generate-manifest.mjs`
+- `packages/core/src/skills/skill-root.ts`, `packages/core/src/store/skills-db.ts`
+- `cleo skills --help`
