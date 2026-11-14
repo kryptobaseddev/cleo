@@ -312,7 +312,9 @@ export const runCommand = defineCommand({
             process.execPath,
             ...process.argv.slice(1, 2),
             'run',
-            ...(args.wait ? ['--wait', '--timeout', String(timeoutMs / 1000)] : []),
+            '--wait',
+            '--timeout',
+            String(timeoutMs / 1000),
             ...(args.urgent === true ? ['--urgent'] : []),
           ])
         : null;

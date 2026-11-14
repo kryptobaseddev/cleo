@@ -2960,11 +2960,22 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       return { admitted: false, refusal: refusal(first.doc, first.reading) };
     }
 
-    let reportedReason: string | null = null;
+    let reportedState: string | null = null;
     const reportWait = (): void => {
       const reason = first.reading === null ? refusal(first.doc, first.reading).reason : null;
-      if (reason !== null && reason !== reportedReason) opts.notice?.(`waiting: ${reason}`);
-      reportedReason = reason;
+      const state =
+        first.reading !== null
+          ? 'pressure'
+          : neverPauseHold(first.doc, first.mine ?? entry) !== null
+            ? 'backoff'
+            : entry.exclusive === true &&
+                first.doc.entries.some(
+                  (e) => e.id !== entry.id && e.state === 'admitted' && e.exclusive === true,
+                )
+              ? 'exclusive'
+              : 'budget';
+      if (reason !== null && state !== reportedState) opts.notice?.(`waiting: ${reason}`);
+      reportedState = state;
     };
     reportWait();
     let lastPassAt = now();

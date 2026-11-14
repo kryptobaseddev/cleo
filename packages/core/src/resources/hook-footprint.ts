@@ -225,6 +225,7 @@ export function gitHookPath(cwd: string, hook: string, globals: readonly string[
  * @param runner - This CLI's `run` invocation, including its wait and priority flags.
  * @returns Temporary argv and cleanup, or null when the push cannot be separated safely.
  * @remarks The caller releases the temporary hooks after Git settles, including on spawn failure.
+ * Unsupported Git or unavailable temporary storage keeps the original guarded push.
  * @example
  * ```ts
  * const push = prepareGitPushHook(['git', 'push'], process.cwd(), ['cleo', 'run', '--wait']);
@@ -244,18 +245,31 @@ export function prepareGitPushHook(
     runFootprint(argv, (name, globals) => gitAlias(cwd, name, globals)).size !== 'light'
   )
     return null;
-  const hook = gitHookPath(cwd, 'pre-push', invocation.globals);
+  let temporary: string | null = null;
+  const release = (): void => {
+    if (temporary === null) return;
+    try {
+      rmSync(temporary, { recursive: true, force: true });
+    } catch {
+      // An optional temporary hook must not turn a successful push into a failure.
+    }
+  };
   try {
+    const hook = gitHookPath(cwd, 'pre-push', invocation.globals);
     accessSync(hook, constants.X_OK);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    if ((err as NodeJS.ErrnoException).code === 'EACCES') return null;
-    throw err;
-  }
-  const original = dirname(hook);
-  const dir = mkdtempSync(join(tmpdir(), 'cleo-push-hook-'));
-  const release = (): void => rmSync(dir, { recursive: true, force: true });
-  try {
+    const original = dirname(hook);
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-push-hook-'));
+    temporary = dir;
+    const stdin = join(dir, 'probe-stdin');
+    writeFileSync(stdin, '', { mode: 0o600 });
+    // Probe in an empty hooks directory: unsupported Git must run no hook here.
+    git(
+      cwd,
+      [...invocation.globals, '-c', `core.hooksPath=${dir}`],
+      ['hook', 'run', '--ignore-missing', `--to-stdin=${stdin}`, 'pre-push'],
+      1_000,
+    );
+    rmSync(stdin);
     for (const name of readdirSync(original)) {
       if (name !== 'pre-push') symlinkSync(join(original, name), join(dir, name));
     }
@@ -284,9 +298,10 @@ export function prepareGitPushHook(
       argv: [...argv.slice(0, at), '-c', `core.hooksPath=${dir}`, ...argv.slice(at)],
       release,
     };
-  } catch (err) {
+  } catch {
     release();
-    throw err;
+    // Keep the original hook and its conservative admission when isolation is unavailable.
+    return null;
   }
 }
 

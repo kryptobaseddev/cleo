@@ -2640,6 +2640,47 @@ describe('admit (one ledger, real critical section)', () => {
     }
   });
 
+  it('prints a budget wait only once while holder usage changes (T14555)', async () => {
+    const first = await admit(
+      { label: 'first', footprintBytes: 6 * GIB },
+      { ...base, dir, wait: false },
+    );
+    const second = await admit(
+      { label: 'second', footprintBytes: 4 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!first.admitted || !second.admitted) throw new Error('expected both holders');
+    const stop = new AbortController();
+    const notices: string[] = [];
+    let sleeps = 0;
+    let t = Date.now();
+    try {
+      const result = await admit(
+        { label: 'waiter', footprintBytes: 8 * GIB },
+        {
+          ...base,
+          dir,
+          wait: true,
+          signal: stop.signal,
+          now: () => t,
+          notice: (line) => notices.push(line),
+          sleep: async () => {
+            t += 2_000;
+            if (++sleeps === 1) await second.grant.release();
+            else stop.abort();
+          },
+        },
+      );
+      expect(result.admitted).toBe(false);
+      expect(
+        notices.filter((line) => line.startsWith('waiting: machine budget in use:')),
+      ).toHaveLength(1);
+    } finally {
+      await second.grant.release();
+      await first.grant.release();
+    }
+  });
+
   it('a long urgent waiter reports its queue position (T13921)', async () => {
     const a = await admit(
       { label: 'tool:test', footprintBytes: 10 * GIB },

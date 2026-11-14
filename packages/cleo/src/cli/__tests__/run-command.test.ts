@@ -167,9 +167,13 @@ describe('cleo run --passthrough (#1777 R7)', () => {
   });
 
   it.each([
-    false,
-    true,
-  ])('a push reserves only light memory and cleans its hook wrapper (runner throws: %s)', async (throws) => {
+    { throws: false, wait: true },
+    { throws: true, wait: true },
+    { throws: false, wait: false },
+  ])('a push reserves only light memory and always queues its hook (throws: $throws, outer wait: $wait)', async ({
+    throws,
+    wait,
+  }) => {
     const project = mkdtempSync(join(tmpdir(), 'cleo-push-cli-'));
     let temporary = '';
     try {
@@ -184,13 +188,19 @@ describe('cleo run --passthrough (#1777 R7)', () => {
         expect(options.footprintBytes).toBe(1024 ** 3);
         expect(options.hookKey).toBeUndefined();
         expect(readFileSync(join(temporary, 'pre-push'), 'utf8')).toContain(
-          "'run' '--wait' '--timeout' '17' '--urgent' '--passthrough'",
+          `'run' '--wait' '--timeout' '${wait ? '17' : '1800'}' '--urgent' '--passthrough'`,
         );
         if (throws) throw new Error('spawn failed');
         return exited({ class: 'scoped-build' });
       });
       const result = invoke(
-        { class: 'build', wait: true, timeout: '17', urgent: true, passthrough: true },
+        {
+          class: 'build',
+          wait,
+          ...(wait ? { timeout: '17' } : {}),
+          urgent: true,
+          passthrough: true,
+        },
         ['git', '-C', project, 'push'],
       );
       if (throws) await expect(result).rejects.toThrow('exit 1');

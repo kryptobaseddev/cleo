@@ -11,13 +11,38 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const faults = vi.hoisted(() => ({ oldGit: false }));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFileSync: vi.fn((...args: Parameters<typeof actual.execFileSync>) => {
+      if (faults.oldGit && args[1]?.some((arg) => arg.startsWith('--to-stdin=')))
+        throw new Error('unsupported --to-stdin');
+      return actual.execFileSync(...args);
+    }),
+  };
+});
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    mkdtempSync: vi.fn(actual.mkdtempSync),
+    readdirSync: vi.fn(actual.readdirSync),
+    symlinkSync: vi.fn(actual.symlinkSync),
+  };
+});
+
 import {
   COMMAND_KEY_PREFIX,
   commandChargeKey,
@@ -39,6 +64,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'cleo-t13921-'));
 });
 afterEach(() => {
+  faults.oldGit = false;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -60,6 +86,33 @@ async function runs(key: string, peak: number, n: number, dir: string): Promise<
 }
 
 describe('push hook admission (T14555)', () => {
+  it('keeps the original push when Git cannot preserve hook stdin', () => {
+    const project = repo('old-git', '#!/bin/sh\nexit 0\n');
+    faults.oldGit = true;
+    expect(prepareGitPushHook(['git', 'push'], project, ['cleo', 'run', '--wait'])).toBeNull();
+    expect(readFileSync(join(project, '.git', 'hooks', 'pre-push'), 'utf8')).toBe(
+      '#!/bin/sh\nexit 0\n',
+    );
+  });
+
+  it.each([
+    'mkdtemp',
+    'readdir',
+    'symlink',
+  ] as const)('keeps the original push when %s fails', (operation) => {
+    const project = repo('unwritable', '#!/bin/sh\nexit 0\n');
+    const fail = (): never => {
+      throw new Error('filesystem unavailable');
+    };
+    if (operation === 'mkdtemp') vi.mocked(mkdtempSync).mockImplementationOnce(fail);
+    else if (operation === 'readdir') vi.mocked(readdirSync).mockImplementationOnce(fail);
+    else vi.mocked(symlinkSync).mockImplementationOnce(fail);
+    expect(prepareGitPushHook(['git', 'push'], project, ['cleo', 'run', '--wait'])).toBeNull();
+    expect(readFileSync(join(project, '.git', 'hooks', 'pre-push'), 'utf8')).toBe(
+      '#!/bin/sh\nexit 0\n',
+    );
+  });
+
   it('separates hook execution, preserving paths, arguments, stdin and a rejecting exit', () => {
     const project = repo("a quoted ' repository", '#!/bin/sh\nprintf "%s\\n" "$@"\ncat\nexit 12\n');
     const called = join(root, 'called.json');
