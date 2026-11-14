@@ -640,6 +640,8 @@ export function createAttachmentStore(): AttachmentStore {
       const derivedLinks = isScannableTextMime(attachmentMime)
         ? deriveDocLinks(buf.toString('utf-8'), fullAttachment.labels)
         : undefined;
+      // Module loading must finish before the supersession repair's write transaction.
+      if (slug !== undefined) await import('../docs/supersede.js');
 
       return withWriteLock(async () => {
         const db = await getDb(cwd);
@@ -749,7 +751,7 @@ export function createAttachmentStore(): AttachmentStore {
             const updates: Record<string, string | null> = {};
             if (slug !== undefined) updates.slug = slug;
             if (type !== undefined) updates.type = type;
-            if (slug !== undefined && existing.slug === null) {
+            if (slug !== undefined && existing.slug !== slug) {
               // T14580: preserve the old doc's incoming edges before these bytes name a new doc.
               const incoming = await db
                 .select({ id: attachments.id })
@@ -772,11 +774,11 @@ export function createAttachmentStore(): AttachmentStore {
                   ? await db.select().from(attachments).where(eq(attachments.slug, priorSlug)).get()
                   : undefined;
                 if (!prior || prior.id === attachmentId) {
-                  // @sync-invariant docs.supersession.follows-slug refusing reuse preserves incoming edges when their original document cannot be resolved
+                  // @sync-invariant docs.supersession.follows-slug refusing unsafe reuse keeps incoming edges on their original document
                   throw new EngineResultError({
                     code: 'E_DOC_LINEAGE_AMBIGUOUS',
-                    message: `Cannot reuse content for '${slug}': existing supersession points at a version whose document is unresolved.`,
-                    fix: 'Repair the existing supersession with cleo docs supersede <old> <new> before reusing these bytes.',
+                    message: `Cannot reuse content for '${slug}': incoming supersession cannot be retained on its original document.`,
+                    fix: 'Keep the original document or repair incoming links with cleo docs supersede <old> <new> before reusing these bytes.',
                   });
                 }
                 const { repointIncomingSupersessionEdges } = await import('../docs/supersede.js');
