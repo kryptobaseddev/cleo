@@ -280,6 +280,20 @@ describe('modernize --store (fixture store)', () => {
     expect(await resolveDocSlug(projectRoot, 't700-eta-notes')).toBe('t700-eta-notes');
   });
 
+  it('refuses a plan that renames one doc twice, before any write (T14578)', async () => {
+    await seed('t900-kappa-notes', '# Kappa\n', 'note', '2026-01-01T00:00:00Z');
+    const planFile = await writeStorePlan([
+      ['t900-kappa-notes', 'kappa-first'],
+      ['t900-kappa-notes', 'kappa-second'],
+    ]);
+    await expect(runDocsModernize(projectRoot, { planFile, apply: true })).rejects.toThrow(
+      /renamed by more than one row/,
+    );
+    expect(await resolveDocSlug(projectRoot, 't900-kappa-notes')).toBe('t900-kappa-notes');
+    const store = createAttachmentStore();
+    expect(await store.findBySlug('kappa-first', projectRoot)).toBeNull();
+  });
+
   it('lets a doc take back its own alias: apply, rollback, apply again (T14578)', async () => {
     await seed('t800-iota-notes', '# Iota\n', 'note', '2026-01-01T00:00:00Z');
     const planFile = await writeStorePlan([['t800-iota-notes', 'iota-notes']]);

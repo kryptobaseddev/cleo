@@ -405,7 +405,8 @@ export async function applyDocsStoreModernize(
  * Check a store plan's renames against the live store before any write
  * (T14578), with the rule `renameDocSlug` applies: each row's old slug
  * is its doc's CURRENT slug (an alias does not count), the new slug is free
- * or one of that doc's own aliases, and no two rows take the same new slug.
+ * or one of that doc's own aliases, no doc is renamed by two rows (same
+ * attachment id or same old slug), and no two rows take the same new slug.
  * A plan reviewed earlier may have gone stale; refusing up front means a plan
  * applies all of its renames or none of them.
  *
@@ -419,8 +420,20 @@ export async function assertStoreRenamesFree(
 ): Promise<void> {
   const { checkSlugRename } = await import('../slug-rename.js');
   const claimed = new Set<string>();
+  const sourceIds = new Set<string>();
+  const sourceSlugs = new Set<string>();
   for (const row of plan.storeRows ?? []) {
     if (!row.slug || !row.newSlug || row.newSlug === row.slug) continue;
+    // One rename per doc: a second row from the same source would find its
+    // old slug gone after the first commits.
+    if (sourceIds.has(row.attachmentId) || sourceSlugs.has(row.slug)) {
+      // @sync-invariant none:input-shape a plan renaming one doc twice is refused before any write
+      throw new DocsModernizeUnsafeError(
+        `store row ${row.attachmentId}: '${row.slug}' is renamed by more than one row`,
+      );
+    }
+    sourceIds.add(row.attachmentId);
+    sourceSlugs.add(row.slug);
     const check = await checkSlugRename(projectRoot, row.slug, row.newSlug);
     if (
       (!check.ok && check.reason === 'not-found') ||
