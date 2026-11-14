@@ -141,7 +141,7 @@ import type { DocsDriftItem, DocsPublicationRecord } from './docs-ops.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
 import { assertCheckoutOfProject } from './modernize/guard.js';
 import { deleteDocsPublication, readDocsPublications } from './publications-store.js';
-import { deriveWikilinkEdges, rebuildDocsWikilinks, type WikilinkEdge } from './wikilinks.js';
+import { readDerivedDocWikilinks, rebuildDocsWikilinks, type WikilinkEdge } from './wikilinks.js';
 
 /**
  * Maximum age of the backup receipt accepted before an `apply` run.
@@ -1054,21 +1054,7 @@ async function scanStore(
   }
 
   // ── wikilinks-drift ────────────────────────────────────────────────────────
-  const slugById = new Map<string, string>();
-  for (const row of rows) {
-    if (row.slug !== null) slugById.set(row.id, row.slug);
-  }
-  const expectedEdges = deriveWikilinkEdges(
-    rows
-      .filter((r): r is DoctorRow & { slug: string } => r.slug !== null)
-      .map((r) => ({
-        slug: r.slug,
-        supersedesSlug: r.supersedes ? (slugById.get(r.supersedes) ?? null) : null,
-        supersededBySlug: r.supersededBy ? (slugById.get(r.supersededBy) ?? null) : null,
-        relatedTasks: r.relatedTasks,
-        topics: r.topics,
-      })),
-  );
+  const expectedEdges = await readDerivedDocWikilinks(projectRoot);
   const existingEdges = await db
     .select({
       fromSlug: docsWikilinks.fromSlug,

@@ -966,7 +966,7 @@ describe('docs reach a second device (T12919)', () => {
     }, 120_000);
   }
 
-  it('concurrent updates of a successor on two devices keep the edge on the doc, not on a version row (T14565)', async () => {
+  it('concurrent successor updates keep lineage, graph and doctor on the doc identity (T14565, T14580 AC2)', async () => {
     const OLD_SHA = sha('# Old gate doc\n');
     const { a, b } = await twoDevices();
     const stream = fakeStream();
@@ -1011,6 +1011,8 @@ describe('docs reach a second device (T12919)', () => {
     expect(docs(b.db)).toEqual(docs(a.db));
     const { readDocLineage } = await import('../../../docs/lineage.js');
     const { rebuildDocsWikilinks, getDocsWikilinks } = await import('../../../docs/wikilinks.js');
+    const { buildDocProvenanceGraph } = await import('../../../docs/build-provenance-graph.js');
+    const { runDocsDoctor } = await import('../../../docs/doctor.js');
     for (const [r, name] of [
       [a, 'a'],
       [b, 'b'],
@@ -1037,6 +1039,26 @@ describe('docs reach a second device (T12919)', () => {
         out.filter((e) => e.relation === 'superseded-by').map((e) => e.toSlug),
         r.device,
       ).toEqual(['gate-new']);
+      const graph = await buildDocProvenanceGraph({ root: 'gate-old', projectRoot: root });
+      expect(
+        graph.edges.filter((e) => e.relation === 'superseded-by'),
+        r.device,
+      ).toContainEqual(expect.objectContaining({ from: 'gate-old', to: 'gate-new' }));
+      for (const graphRoot of ['gate-old', 'T1']) {
+        const read = await buildDocProvenanceGraph({ root: graphRoot, projectRoot: root });
+        expect(
+          read.nodes
+            .filter((n) => n.kind === 'doc')
+            .map((n) => n.id)
+            .sort(),
+          r.device,
+        ).toEqual(['gate-new', 'gate-old']);
+      }
+      const checked = await runDocsDoctor(root, {});
+      expect(
+        checked.report.diagnostics.find((d) => d.kind === 'wikilinks-drift'),
+        r.device,
+      ).toMatchObject({ count: 0 });
       vi.stubEnv('CLEO_DIR', undefined);
     }
   }, 120_000);
