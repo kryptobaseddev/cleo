@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { type SpawnSyncReturns, spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   copyFileSync,
@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -48,6 +49,10 @@ const proc = vi.hoisted(() => ({
 vi.mock('node:timers/promises', async (original) => {
   const timers = await original<typeof import('node:timers/promises')>();
   return { ...timers, setTimeout: vi.fn(timers.setTimeout) };
+});
+vi.mock('node:child_process', async (original) => {
+  const child = await original<typeof import('node:child_process')>();
+  return { ...child, spawnSync: vi.fn(child.spawnSync) };
 });
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
@@ -256,6 +261,88 @@ it.each(['Z', 'gone'])('skips an exited Node process with state %s', async (stat
   const before = repairFileHash(live);
   await assertRepairQuiescent(live, []);
   expect(repairFileHash(live)).toBe(before);
+});
+
+it('accepts an unrelated macOS mount warning only after proving its device is unrelated', async () => {
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  const device = (BigInt.asUintN(32, statSync(live, { bigint: true }).dev) ^ 1n).toString(16);
+  const warning = `lsof: WARNING: can't stat() smbfs file system /Volumes/unreachable-backup
+      Output information may be incomplete.
+      assuming "dev=${device}" from mount table
+`;
+  const result: SpawnSyncReturns<string> = {
+    pid: 424243,
+    output: [null, '', warning],
+    stdout: '',
+    stderr: warning,
+    status: 1,
+    signal: null,
+  };
+  const probe = vi.spyOn(await import('node:child_process'), 'spawnSync').mockReturnValue(result);
+  const diagnostics: string[] = [];
+  const before = repairFileHash(live);
+  try {
+    await assertRepairQuiescent(live, diagnostics);
+    expect(diagnostics.join('\n')).toContain(`Unrelated filesystem warning (device 0x${device})`);
+    expect(probe).toHaveBeenCalledWith(
+      '/usr/sbin/lsof',
+      ['-nP', '-S2', '-F', 'p', '-f', '--', live],
+      expect.objectContaining({ encoding: 'utf8' }),
+    );
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    probe.mockRestore();
+  }
+});
+
+it.each([
+  'target filesystem',
+  'unknown warning',
+  'failed probe',
+  'spawn failure',
+])('refuses a macOS %s at the existing teardown deadline', async (failure) => {
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  const device = BigInt.asUintN(32, statSync(live, { bigint: true }).dev);
+  const warningDevice = failure === 'target filesystem' ? device : device ^ 1n;
+  const warning =
+    failure === 'unknown warning'
+      ? 'lsof: WARNING: target handle coverage unavailable\n'
+      : `lsof: WARNING: can't stat() smbfs file system /Volumes/unreachable-backup
+      Output information may be incomplete.
+      assuming "dev=${warningDevice.toString(16)}" from mount table
+`;
+  const result: SpawnSyncReturns<string> = {
+    pid: 424243,
+    output: [null, '', warning],
+    stdout: '',
+    stderr: warning,
+    status: failure === 'spawn failure' ? null : failure === 'failed probe' ? 2 : 1,
+    signal: null,
+    ...(failure === 'spawn failure' ? { error: new Error('injected lsof spawn failure') } : {}),
+  };
+  const probe = vi.spyOn(await import('node:child_process'), 'spawnSync').mockReturnValue(result);
+  const started = Date.now();
+  let now = started;
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const pause = vi
+    .spyOn(await import('node:timers/promises'), 'setTimeout')
+    .mockImplementation(async () => {
+      now += 5_000;
+    });
+  const before = repairFileHash(live);
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toMatchObject({
+      codeName: 'E_STORE_IN_USE',
+      message: expect.stringContaining('Cannot prove the store is closed'),
+    });
+    expect(now - started).toBe(15_000);
+    expect(probe).toHaveBeenCalledTimes(4);
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    pause.mockRestore();
+    clock.mockRestore();
+    probe.mockRestore();
+  }
 });
 
 it('refuses a registered CLEO writer lock before copying the store', async () => {

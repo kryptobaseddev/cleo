@@ -90,7 +90,7 @@ function skipInaccessibleProcess(pid: string, error: Error, diagnostics: string[
   )
     // @sync-invariant none:local-only unknown local quiescence must resolve before publication
     throw new StoreInspectionPending(
-      Number(pid),
+      [Number(pid)],
       `Cannot inspect possible store holder pid ${pid} (${comm || 'unnamed'})`,
     );
   const message = `Skipped inaccessible descriptors for non-store process pid ${pid} (${comm})`;
@@ -108,10 +108,10 @@ class StoreHolder extends Error {
   }
 }
 
-/** An unreadable process may be exiting; its handles must be probed again before repair. */
+/** An incomplete holder probe must resolve before repair can prove quiescence. */
 class StoreInspectionPending extends Error {
   constructor(
-    readonly pid: number,
+    readonly pids: readonly number[],
     message: string,
   ) {
     super(message);
@@ -120,7 +120,7 @@ class StoreInspectionPending extends Error {
 
 /**
  * Prove quiescence without SQLite-opening the damaged file. Wait at most 15 seconds
- * for CLEO teardown or unreadable processes to resolve, rechecking every handle and lock.
+ * for CLEO teardown or incomplete handle probes to resolve, rechecking every handle and lock.
  * Persistent holders or unknown inspections return E_STORE_IN_USE with a shutdown fix.
  * The first-open lock and restore marker must remain held throughout the wait.
  */
@@ -129,7 +129,7 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
   let waited = false;
   for (;;) {
     try {
-      await checkRepairQuiescent(target, diagnostics);
+      await checkRepairQuiescent(target, diagnostics, deadline);
       if (waited) diagnostics.push('CLEO store holders exited during the bounded teardown wait');
       return;
     } catch (error) {
@@ -137,8 +137,7 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
         throw error;
       const { readProcessArgs } = await import('../sessions/terminal-identity.js');
       const { redactCommandLine } = await import('../resources/run-admission.js');
-      const pids = error instanceof StoreInspectionPending ? [error.pid] : error.pids;
-      const holders = [...new Set(pids)].map((pid) => ({
+      const holders = [...new Set(error.pids)].map((pid) => ({
         pid,
         command: readProcessArgs(pid),
       }));
@@ -211,8 +210,31 @@ async function checkRepairLeases(target: string, diagnostics: string[]): Promise
     );
 }
 
+/** Retain every warning except a complete mount warning proven to concern another device. */
+function macProbeWarnings(stderr: string, paths: readonly string[], diagnostics: string[]): string {
+  // Darwin dev_t is 32 bits; lsof renders mount-table devices as unsigned hexadecimal.
+  const devices = new Set(
+    paths.map((path) => BigInt.asUintN(32, statSync(path, { bigint: true }).dev)),
+  );
+  return stderr
+    .replace(
+      /^lsof: WARNING: can't (?:l?stat)\(\) \S+ file system (.+)\r?\n[ \t]+Output information may be incomplete\.\r?\n[ \t]+assuming "dev=(?:0x)?([0-9a-fA-F]+)" from mount table(?:\r?\n|$)/gm,
+      (warning: string, _mount: string, device: string) => {
+        if (devices.has(BigInt(`0x${device}`))) return warning;
+        const message = `Unrelated filesystem warning (device 0x${device}): ${warning.trim()}`;
+        if (!diagnostics.includes(message)) diagnostics.push(message);
+        return '';
+      },
+    )
+    .trim();
+}
+
 /** Check kernel locks and idle handles without opening any store file with SQLite. */
-async function checkRepairQuiescent(target: string, diagnostics: string[]): Promise<void> {
+async function checkRepairQuiescent(
+  target: string,
+  diagnostics: string[],
+  deadline: number,
+): Promise<void> {
   const paths = REPAIR_SIDECARS.map((s) => target + s).filter(existsSync);
   if (process.platform === 'linux') {
     const inodes = new Set(paths.map(linuxLockIdentity));
@@ -244,7 +266,7 @@ async function checkRepairQuiescent(target: string, diagnostics: string[]): Prom
         if (error instanceof Error && skipInaccessibleProcess(pid, error, diagnostics)) continue;
         // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
         throw new StoreInspectionPending(
-          Number(pid),
+          [Number(pid)],
           `Cannot inspect open store handles for pid ${pid}`,
         );
       }
@@ -260,7 +282,7 @@ async function checkRepairQuiescent(target: string, diagnostics: string[]): Prom
           if (error instanceof Error && skipInaccessibleProcess(pid, error, diagnostics)) break;
           // @sync-invariant none:local-only an unreadable descriptor prevents proving local quiescence
           throw new StoreInspectionPending(
-            Number(pid),
+            [Number(pid)],
             `Cannot inspect open store handles for pid ${pid}`,
           );
         }
@@ -289,24 +311,49 @@ async function checkRepairQuiescent(target: string, diagnostics: string[]): Prom
       throw new Error(`Cannot exclusively open the store: ${probe.error?.message ?? probe.stderr}`);
     return checkRepairLeases(target, diagnostics);
   }
-  const probe = spawnSync('/usr/bin/fuser', ['-f', ...paths], {
+  if (paths.length === 0)
+    // @sync-invariant none:local-only vanished target files cannot prove store quiescence
+    throw new StoreInspectionPending([], `Store files disappeared during inspection: ${target}`);
+  const probe = spawnSync('/usr/sbin/lsof', ['-nP', '-S2', '-F', 'p', '-f', '--', ...paths], {
     encoding: 'utf8',
-    timeout: 15_000,
+    timeout: Math.max(1, deadline - Date.now()),
   });
-  const unexpected = probe.stderr
-    .split('\n')
-    .filter((line) => line.trim() && !paths.some((path) => line.trim() === `${path}:`));
-  if (probe.error || probe.status !== 0 || unexpected.length > 0) {
-    // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
-    throw new Error(`Cannot prove the store is closed: ${probe.error?.message ?? probe.stderr}`);
-  }
-  if (probe.stdout.trim()) {
-    const pids = [...new Set(probe.stdout.trim().split(/\s+/).map(Number))];
-    // @sync-invariant none:local-only proven open descriptors prevent replacing the store
-    throw new StoreHolder(
-      pids.filter((pid) => Number.isInteger(pid) && pid > 0),
-      'Store is open',
+  if (probe.error || probe.status === null)
+    // @sync-invariant none:local-only an unsuccessful process probe leaves target handle coverage unknown
+    throw new StoreInspectionPending(
+      [],
+      `Cannot prove the store is closed: ${probe.error?.message ?? 'lsof did not exit normally'}`,
     );
+  let unexpected: string;
+  try {
+    unexpected = macProbeWarnings(probe.stderr, paths, diagnostics);
+  } catch (error) {
+    // @sync-invariant none:local-only target device identity must be proven before ignoring a mount warning
+    throw new StoreInspectionPending(
+      [],
+      `Cannot inspect store filesystem: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const records = probe.stdout.trim().split('\n').filter(Boolean);
+  const pids = [
+    ...new Set(records.filter((line) => line.startsWith('p')).map((line) => Number(line.slice(1)))),
+  ];
+  if (
+    (probe.status !== 0 && !(probe.status === 1 && records.length === 0)) ||
+    unexpected ||
+    records.some((line) => !/^(?:p[1-9]\d*|f(?!NOFD)\S+)$/.test(line)) ||
+    (records.length > 0 && pids.length === 0) ||
+    pids.some((pid) => !Number.isSafeInteger(pid))
+  ) {
+    // @sync-invariant none:local-only incomplete target handle coverage excludes local store publication
+    throw new StoreInspectionPending(
+      [],
+      `Cannot prove the store is closed: ${probe.error?.message ?? (probe.stderr || `lsof exited ${probe.status}`)}`,
+    );
+  }
+  if (pids.length) {
+    // @sync-invariant none:local-only proven open descriptors prevent replacing the store
+    throw new StoreHolder(pids, 'Store is open');
   }
   return checkRepairLeases(target, diagnostics);
 }
