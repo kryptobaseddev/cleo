@@ -13,11 +13,9 @@ When canon documents conflict, resolve in this order (higher entry wins):
 1. **Code** — `packages/cleo/src/dispatch/types.ts` (`CANONICAL_DOMAINS`), `packages/cleo/src/dispatch/registry.ts` (`OPERATIONS`). Final arbiter for domain + operation lists.
 2. **Constitution** — `docs/specs/CLEO-OPERATION-CONSTITUTION.md`. Normative spec derived from the code.
 3. **Owner Memory** — `~/.claude/projects/-mnt-projects-cleocode/memory/MEMORY.md`. Owner corrections; wins over aged canon on identity.
-4. **Vision** — `CLEO-VISION.md`. Conceptual identity charter.
-5. **Architecture Guide** — `CLEO-ARCHITECTURE-GUIDE.md`. Plain-English reference; mirrors Vision + Constitution.
-6. **System Flow Atlas** — `CLEO-SYSTEM-FLOW-ATLAS.md`. Visual diagrams; mirrors Architecture Guide.
-7. **Design docs** — `docs/design/*`. UI / interaction specs; consume canon, never define it.
-8. **Narrative stories** — Manifesto + Awakening + Founding. Historical voice; MAY preserve legacy terminology inline with editorial notes.
+4. **Architecture Guide** — `CLEO-ARCHITECTURE-GUIDE.md`. Plain-English reference for what CLEO is; mirrors the Constitution.
+5. **System Flow Atlas** — `CLEO-SYSTEM-FLOW-ATLAS.md`. Visual diagrams; mirrors Architecture Guide.
+6. **Design docs** — `docs/design/*`. UI / interaction specs; consume canon, never define it.
 
 Full rationale: `.cleo/adrs/ADR-044-canon-reconciliation.md`.
 
@@ -25,8 +23,8 @@ Full rationale: `.cleo/adrs/ADR-044-canon-reconciliation.md`.
 
 ## Read Order
 
-1. [CLEO-VISION.md](cleo-vision.md)
-   The constitutional identity of CLEO. Read this first to understand what CLEO is, what the six canonical systems are (TASKS, LOOM, BRAIN, NEXUS, CANT, CONDUIT), what is shipped vs planned, and which terms are non-negotiable.
+1. [CLEO-ARCHITECTURE-GUIDE.md](cleo-architecture-guide.md)
+   What CLEO is. Read this first: the harness-agnostic core any agent can call through `cleo <command>`, its systems and how they fit together.
 
 2. [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
    The runtime contract. Read this second to understand the 11 canonical domains, the internal `query`/`mutate` CQRS split, canonical verbs, and what operations are actually legal in the system.
@@ -46,37 +44,17 @@ Full rationale: `.cleo/adrs/ADR-044-canon-reconciliation.md`.
 7. [CORE-PACKAGE-SPEC.md](../spec/core-package.md)
    The `@cleocode/core` standalone package contract. Read this when working with the business logic kernel independently of the full product: public API surface, three consumer patterns (Facade / tree-shaking / custom store), purity rules, and build architecture. Status: APPROVED.
 
-8. [CLEO-MANIFESTO.md](cleo-manifesto.md)
-   The mythic but practical canon. Read this to understand the narrative identity of CLEO, NEXUS, CAAMP, and the larger worldview behind the system.
-
-9. [CLEO-WORLD-MAP.md](cleo-world-map.md)
-   The short visual companion to the manifesto. Read this when you want the world explained quickly: layers, powers, characters, and the workshop around the Core.
-
-10. [NEXUS-CORE-ASPECTS.md](nexus-core-aspects.md)
-    The workshop lexicon. Read this to understand the shaping language around the NEXUS Core and the live workshop overlay: Sticky Notes, Threads, Looms, Tapestries, Tesserae, Cogs, Clicks, Cascade, Tome, The Hearth, The Impulse, Conduit, Watchers, The Sweep, Refinery, Looming Engine, Living BRAIN, and The Proving. Includes a mapping table from workshop concepts to `@cleocode/core` module paths.
-
-11. [CLEO-FOUNDING-STORY.md](cleo-founding-story.md)
-    The founder-side origin story. Read this for the emotional and human reason CLEO exists.
-
-12. [CLEO-AWAKENING-STORY.md](cleo-awakening-story.md)
-    The CLEO-side origin story. Read this as the companion narrative told from CLEO's perspective.
-
 ---
 
 ## Quick Purpose Map
 
-- **Identity first**: [CLEO-VISION.md](cleo-vision.md)
+- **What CLEO is**: [CLEO-ARCHITECTURE-GUIDE.md](cleo-architecture-guide.md)
 - **Rules and operations**: [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
 - **System flow, ownership, and runtime forms**: [CLEO-SYSTEM-FLOW-ATLAS.md](cleo-system-flow-atlas.md)
 - **Agent communication protocol (CANT)**: [CLEO-CANT.md](cleo-cant.md)
 - **CANT formal language spec**: [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
 - **CANT execution semantics + domain events**: [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md)
 - **Standalone business logic kernel**: [CORE-PACKAGE-SPEC.md](../spec/core-package.md)
-- **Mythic canon**: [CLEO-MANIFESTO.md](cleo-manifesto.md)
-- **Fast visual summary**: [CLEO-WORLD-MAP.md](cleo-world-map.md)
-- **Workshop vocabulary and live orchestration language**: [NEXUS-CORE-ASPECTS.md](nexus-core-aspects.md)
-- **Founder origin**: [CLEO-FOUNDING-STORY.md](cleo-founding-story.md)
-- **CLEO origin**: [CLEO-AWAKENING-STORY.md](cleo-awakening-story.md)
 
 ---
 
@@ -100,9 +78,6 @@ revision, while current code and CLI help remain the implementation authority.
 
 ### Agents, harness and integration design
 
-- [Pi harness architecture](cleo-pi-harness-architecture.md) — the Hearth UI's component and role design.
-- [Pi harness wireframes](cleo-pi-harness-wireframes.md) — proposed layouts, interactions and accessibility behavior.
-- [Pi extension mapping](pi-extension-mapping.md) — which UI designs the extension API can support and its limitations.
 - [CAAMP integration](../spec/caamp-integration.md) — provider capabilities, spawn adapters and hooks, including target features.
 - [CANT persona MVI](../spec/cant-persona-mvi.md) — draft tiered persona-loading rules.
 - [Autonomous runtime](../spec/cleo-autonomous-runtime.md) — planned Hearth, Impulse and Watcher behavior.
@@ -138,18 +113,13 @@ revision, while current code and CLI help remain the implementation authority.
 
 ## One-Line Distinctions
 
-- **Vision** defines what CLEO is.
+- **Architecture Guide** defines what CLEO is.
 - **Constitution** defines what CLEO may do.
 - **Atlas** shows how CLEO moves and where the live workshop sits on the contract.
 - **CANT** defines how agents speak to each other and how the system answers.
 - **CANT DSL Spec** defines the formal .cant file format, grammar, validation, and runtime.
 - **CANT Execution Semantics** defines workflow execution and the domain event protocol.
 - **Core Package Spec** defines the standalone `@cleocode/core` kernel's public API contract.
-- **Manifesto** explains why CLEO matters.
-- **World Map** makes the myth easy to scan.
-- **Core Aspects** defines the workshop language of work and autonomous motion.
-- **Founding Story** explains why the builder needed CLEO.
-- **Awakening Story** explains how CLEO remembers its own birth.
 
 ---
 
@@ -157,11 +127,8 @@ revision, while current code and CLI help remain the implementation authority.
 
 If context is limited, read in this order:
 
-1. [CLEO-VISION.md](cleo-vision.md)
+1. [CLEO-ARCHITECTURE-GUIDE.md](cleo-architecture-guide.md)
 2. [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
 3. [CLEO-SYSTEM-FLOW-ATLAS.md](cleo-system-flow-atlas.md)
-4. [NEXUS-CORE-ASPECTS.md](nexus-core-aspects.md)
-
-Then load the manifesto or stories only if narrative framing is needed.
 
 **Package note**: `@cleocode/core` is the standalone npm package containing all CLEO business logic. It can be installed independently of `@cleocode/cleo`. The `@cleocode/cleo` product wraps `@cleocode/core` with the `cleo` CLI -- the sole runtime surface. When working directly with business logic -- tasks, sessions, memory, orchestration, lifecycle, release -- use `@cleocode/core`. See [CORE-PACKAGE-SPEC.md](../spec/core-package.md) for the full API contract.

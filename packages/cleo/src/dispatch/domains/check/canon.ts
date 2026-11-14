@@ -4,8 +4,8 @@
  * Compares structural claims in canonical docs against live code:
  *   - CANONICAL_DOMAINS length from packages/cleo/src/dispatch/types.ts
  *   - OPERATIONS count from packages/cleo/src/dispatch/registry.ts
- *   - Phrase assertions in docs/concept/cleo-architecture-guide.md, docs/concept/cleo-vision.md,
- *     and docs/spec/cleo-operation-constitution.md
+ *   - Phrase assertions in docs/concept/cleo-architecture-guide.md and
+ *     docs/spec/cleo-operation-constitution.md (the vision doc was retired by T14108)
  *
  * Returns a structured result with per-file pass/fail and exit-non-zero
  * when any drift is detected.
@@ -16,11 +16,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  ARCHITECTURE_GUIDE_DOC,
-  OPERATION_CONSTITUTION_DOC,
-  VISION_DOC,
-} from '../../../cli/paths.js';
+import { ARCHITECTURE_GUIDE_DOC, OPERATION_CONSTITUTION_DOC } from '../../../cli/paths.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -74,17 +70,6 @@ const FORBIDDEN_PHRASES: readonly string[] = [
   'Circle of Ten',
   'exactly 10 domains',
   'exactly ten domains',
-];
-
-/**
- * Historical narrative files excluded per ADR-044.
- * These are story/manifesto files that may reference superseded counts.
- */
-const EXCLUDED_FILENAMES: readonly string[] = [
-  'cleo-cant.md',
-  'cleo-awakening-story.md',
-  'cleo-founding-story.md',
-  'cleo-manifesto.md',
 ];
 
 // ---------------------------------------------------------------------------
@@ -178,8 +163,9 @@ export interface CanonCheckParams {
  * Run the full canon drift check.
  *
  * Reads live code from `packages/cleo/src/dispatch/types.ts` and
- * `packages/cleo/src/dispatch/registry.ts`, then audits the three
- * canonical doc files for forbidden phrases and required assertions.
+ * `packages/cleo/src/dispatch/registry.ts`, then audits the
+ * architecture guide and the operation constitution for forbidden phrases
+ * and required assertions.
  *
  * @param params - Check parameters (projectRoot required).
  * @returns Structured result with violations, assertions, and pass/fail flag.
@@ -193,21 +179,14 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
   const typesFile = join(projectRoot, 'packages/cleo/src/dispatch/types.ts');
   const registryFile = join(projectRoot, 'packages/cleo/src/dispatch/registry.ts');
   const archGuide = join(projectRoot, ARCHITECTURE_GUIDE_DOC);
-  const visionDoc = join(projectRoot, VISION_DOC);
   const constitution = join(projectRoot, OPERATION_CONSTITUTION_DOC);
 
   // Read code sources
   const domainsInCode = countCanonicalDomains(typesFile);
   const operationsInCode = countOperations(registryFile);
 
-  // Determine excluded basenames (ADR-044)
-  const excludedSet = new Set(EXCLUDED_FILENAMES);
-
-  // Docs to audit — only non-excluded files
-  const auditedDocs = [archGuide, visionDoc, constitution].filter((f) => {
-    const basename = f.split('/').pop() ?? '';
-    return !excludedSet.has(basename);
-  });
+  // Docs to audit. The ADR-044 narrative files it once excluded were retired (T14108).
+  const auditedDocs = [archGuide, constitution];
 
   // Scan forbidden phrases
   const allViolations: CanonViolation[] = [];
@@ -231,19 +210,6 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
     file: archGuide,
     assertion: 'Contains "Circle of Eleven"',
     passed: archText.includes('Circle of Eleven'),
-  });
-
-  // The vision doc must contain at least one reference to "six systems"
-  const visionLines = readLines(visionDoc);
-  const visionText = visionLines.join('\n');
-  assertions.push({
-    file: visionDoc,
-    assertion: 'Contains reference to six systems',
-    passed:
-      visionText.includes('six systems') ||
-      visionText.includes('Six systems') ||
-      visionText.includes('6 systems') ||
-      visionText.includes('six canonical systems'),
   });
 
   // The operation constitution must reference 11 canonical domains

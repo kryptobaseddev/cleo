@@ -97,7 +97,7 @@ See the reference above for:
 
 ## Task Lifecycle Integration (LOOM)
 
-All work follows the **LOOM** (Logical Order of Operations Methodology) framework through the RCASD-IVTR+C pipeline stages. See `docs/concept/cleo-vision.md` for the complete LOOM framework, neural hierarchy model, and brain metaphor mapping.
+All work follows the **LOOM** (Logical Order of Operations Methodology) framework through the RCASD-IVTR+C pipeline stages. See `docs/reference/loom-coverage-matrix.md` for the stages and the skills that cover them.
 
 Reference: @skills/_shared/task-system-integration.md
 

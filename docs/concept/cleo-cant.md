@@ -8,17 +8,14 @@
 
 ## Canon Placement
 
-This document is the specification for CANT, the unified agent communication protocol in the CLEO ecosystem. It sits between the [CLEO Operation Constitution](../spec/cleo-operation-constitution.md) (which defines what operations exist) and the [NEXUS Core Aspects](nexus-core-aspects.md) (which defines the workshop vocabulary). CANT defines how agents speak those operations to each other and to the system.
+This document is the specification for CANT, the unified agent communication protocol in the CLEO ecosystem. It builds on the [CLEO Operation Constitution](../spec/cleo-operation-constitution.md) (which defines what operations exist). CANT defines how agents speak those operations to each other and to the system.
 
 ### Relationship to Existing Canon
 
 | Canon Document | What It Defines | Relationship to CANT |
 |---|---|---|
-| [CLEO-VISION.md](cleo-vision.md) | Identity, six canonical systems, pillars | CANT serves the "Agent Communication Contract" pillar |
 | [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md) | 11 domains, canonical verbs, CQRS gateways | CANT's directives map to these operations |
 | [CLEO-SYSTEM-FLOW-ATLAS.md](cleo-system-flow-atlas.md) | Runtime flow, package boundaries | CANT flows through this system |
-| [NEXUS-CORE-ASPECTS.md](nexus-core-aspects.md) | Workshop vocabulary (Thread, Loom, Conduit) | CANT is spoken over the Conduit relay path |
-| [CLEO-MANIFESTO.md](cleo-manifesto.md) | Mythic identity, the Circle | CANT is the language the Circle speaks when building together |
 
 ### Where LAFS Fits
 
