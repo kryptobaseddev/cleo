@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.11.7] (2026-11-13)
+
+### Fixed
+
+- Census: keep reports interruptible, retain partial measurements and the last complete census, and allow a larger scan budget. _(provenance: [T14538](https://github.com/kryptobaseddev/cleo/search?q=T14538&type=commits))_
+- `cleo docs doctor --apply` prunes a publication-ledger row only when a newer in-sync row of the same owner provably supersedes it _(provenance: [T14504](https://github.com/kryptobaseddev/cleo/search?q=T14504&type=commits))_
+- Hierarchy profiles: preserve preset caps unless configuration explicitly overrides them _(provenance: [T14541](https://github.com/kryptobaseddev/cleo/search?q=T14541&type=commits))_
+- Store repair: preserve readable post-snapshot rows and commit recovery atomically _(provenance: [T14548](https://github.com/kryptobaseddev/cleo/search?q=T14548&type=commits))_
+- Orca report relay: serialize report reservations and delivery acknowledgements _(provenance: [T14502](https://github.com/kryptobaseddev/cleo/search?q=T14502&type=commits))_
+- cleo doctor now catches the two known causes of a malformed store: git-tracked .cleo runtime files (with a lossless --fix) and a project inside a cloud-synced folder _(provenance: [T14549](https://github.com/kryptobaseddev/cleo/search?q=T14549&type=commits))_
+- cleo orchestrate spawn no longer times out on projects with many worktrees, and finished worktrees holding only CLEO's pnpm .npmrc are pruned _(provenance: [T14552](https://github.com/kryptobaseddev/cleo/search?q=T14552&type=commits))_
+- Finish ordinary writes under contention: commit task graph nodes atomically, avoid blocking routine WAL snapshots, and remove obsolete operation-envelope evaluation. _(provenance: [T12577](https://github.com/kryptobaseddev/cleo/search?q=T12577&type=commits))_
+- ci: evidence trusts a workflow-name pin only when one workflow carries that name; an access 404 keeps the merge sweep waiting _(provenance: [T14540](https://github.com/kryptobaseddev/cleo/search?q=T14540&type=commits))_
+
 ## [2026.11.6] (2026-11-13)
 
 ### Fixed
