@@ -348,7 +348,7 @@ async function checkRepairQuiescent(
     // @sync-invariant none:local-only incomplete target handle coverage excludes local store publication
     throw new StoreInspectionPending(
       [],
-      `Cannot prove the store is closed: ${probe.error?.message ?? (probe.stderr || `lsof exited ${probe.status}`)}`,
+      `Cannot prove the store is closed: ${probe.stderr || `lsof exited ${probe.status}`}`,
     );
   }
   if (pids.length) {
