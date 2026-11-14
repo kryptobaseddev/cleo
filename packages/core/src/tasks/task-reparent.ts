@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { Task, TaskStatus } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { isAllowedWorkGraphParentType } from '@cleocode/contracts/workgraph.js';
+import { loadConfig } from '../config.js';
 import type { TransactionAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -15,7 +16,7 @@ import {
   assertParentNotIrreversiblyTerminal,
 } from './child-disposition.js';
 import { childTypeForParentType } from './hierarchy.js';
-import { getHierarchyLimits } from './task-tree.js';
+import { countActiveChildren, resolveHierarchyPolicy } from './hierarchy-policy.js';
 
 /** Task record shape expected from the data layer. */
 type TaskRecord = Task;
@@ -33,7 +34,7 @@ function taskLogId(): string {
  * @returns Confirmation with old/new parent IDs, reopened ancestors, and the updated subtree IDs
  *
  * @remarks
- * Validates circular references, depth limits, sibling limits, and the PM-Core
+ * Validates circular references, resolved hierarchy limits, and the PM-Core
  * V2 parent/type matrix before writing. Reparenting moves the whole subtree;
  * Saga and Epic types are preserved while Task/Subtask descendants are adjusted
  * only when their new parent tier requires it.
@@ -78,7 +79,7 @@ export async function coreTaskReparent(
   const effectiveParentId = newParentId || null;
   const now = new Date().toISOString();
   const subtree = (await accessor.getSubtree(taskId)).filter((node) => node.id !== taskId);
-  const reparentLimits = getHierarchyLimits(projectRoot);
+  const reparentLimits = resolveHierarchyPolicy(await loadConfig(projectRoot));
 
   if (effectiveParentId === taskId) {
     throw new Error(`Moving '${taskId}' under itself would create circular reference`);
@@ -112,11 +113,21 @@ export async function coreTaskReparent(
     parentDepth = newParentAncestors.length;
 
     // Check sibling limit (0 = unlimited)
-    const children = await accessor.getChildren(effectiveParentId);
-    const siblingCount = children.filter((t: TaskRecord) => t.id !== taskId).length;
+    const siblings = (await accessor.getChildren(effectiveParentId)).filter((t) => t.id !== taskId);
+    const siblingCount = reparentLimits.countDoneInLimit
+      ? siblings.length
+      : siblings.filter((t) => t.status !== 'done').length;
     if (reparentLimits.maxSiblings > 0 && siblingCount >= reparentLimits.maxSiblings) {
       throw new Error(
         `Cannot add child to ${effectiveParentId}: max siblings (${reparentLimits.maxSiblings}) exceeded`,
+      );
+    }
+
+    const activeCount = countActiveChildren(effectiveParentId, siblings);
+    if (reparentLimits.maxActiveSiblings > 0 && activeCount >= reparentLimits.maxActiveSiblings) {
+      // @sync-invariant none:input-shape active sibling caps are local placement policy, not synced-row validity
+      throw new Error(
+        `Parent ${effectiveParentId} already has ${activeCount} active children (maxActiveSiblings=${reparentLimits.maxActiveSiblings})`,
       );
     }
   }
