@@ -272,8 +272,36 @@ async function checkRepairQuiescent(target: string, diagnostics: string[]): Prom
 }
 
 /**
+ * Whether a WAL covers every data page of its committed image. SQLite never writes
+ * its reserved lock-byte page at 1 GiB (sqlite.org/fileformat2.html#lockbyte).
+ * All other pages, including the header and final page, must be present.
+ */
+export function repairWalCoversPages(
+  pages: ReadonlySet<number>,
+  last: number,
+  pageSize: number,
+): boolean {
+  if (
+    !Number.isInteger(pageSize) ||
+    pageSize < 512 ||
+    pageSize > 65536 ||
+    (pageSize & (pageSize - 1)) !== 0
+  )
+    return false;
+  const lockPage = Math.floor(0x40000000 / pageSize) + 1;
+  const reserved = lockPage <= last && !pages.has(lockPage) ? 1 : 0;
+  return (
+    last >= 1 &&
+    pages.size + reserved === last &&
+    pages.has(1) &&
+    pages.has(last) &&
+    [...pages].every((page) => page >= 1 && page <= last)
+  );
+}
+
+/**
  * Build an installable, full-image WAL with SQLite itself. VACUUM in WAL mode
- * writes every output page in one transaction. Publishing that WAL is ONE
+ * writes every data page in one transaction. Publishing that WAL is ONE
  * rename: there is no interval with a missing original WAL or an old WAL
  * overlaying a new main file. A subsequent ordinary checkpoint folds it in.
  * The WAL supplies page 1 too, so even a destroyed main header is replaced.
@@ -296,7 +324,8 @@ export function prepareRepairCommit(staged: string, original: string, candidate:
     try {
       const header = Buffer.alloc(32);
       readSync(walFd, header, 0, 32, 0);
-      const frameSize = header.readUInt32BE(8) + 24;
+      const pageSize = header.readUInt32BE(8);
+      const frameSize = pageSize + 24;
       const n = (statSync(candidate).size - 32) / frameSize;
       const pages = new Set<number>();
       const frame = Buffer.alloc(24);
@@ -306,14 +335,7 @@ export function prepareRepairCommit(staged: string, original: string, candidate:
         pages.add(frame.readUInt32BE(0));
         last = frame.readUInt32BE(4);
       }
-      if (
-        !Number.isInteger(n) ||
-        last < 1 ||
-        pages.size !== last ||
-        !pages.has(1) ||
-        !pages.has(last) ||
-        [...pages].some((page) => page < 1 || page > last)
-      ) {
+      if (!Number.isInteger(n) || !repairWalCoversPages(pages, last, pageSize)) {
         // @sync-invariant none:local-only local recovery refuses before publishing a staged store image
         throw new Error('SQLite did not produce a complete repair WAL');
       }

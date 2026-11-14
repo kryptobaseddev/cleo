@@ -14,7 +14,11 @@ import { bindBrainDomain } from '../memory-sqlite.js';
 import { bindNexusDomain } from '../nexus-sqlite.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { repairStore } from '../repair-store.js';
-import { assertRepairQuiescent, repairFileHash } from '../repair-store-files.js';
+import {
+  assertRepairQuiescent,
+  repairFileHash,
+  repairWalCoversPages,
+} from '../repair-store-files.js';
 import { repairTableCounts } from '../repair-store-salvage.js';
 import { getNativeTasksDb, resetDbState } from '../sqlite.js';
 import { createTestDb, makeTasks, type TestDbEnv } from './test-db-helper.js';
@@ -49,6 +53,29 @@ async function fullSchema(): Promise<DatabaseSync> {
   expect(ensureFts5Tables(db)).toBe(true);
   return db;
 }
+
+it("requires every data page while allowing only SQLite's reserved lock-byte page to be absent", () => {
+  expect(repairWalCoversPages(new Set([1, 2, 3]), 3, 4096)).toBe(true);
+  expect(repairWalCoversPages(new Set([1, 3]), 3, 4096)).toBe(false);
+  expect(repairWalCoversPages(new Set(), 0, 4096)).toBe(false);
+  expect(repairWalCoversPages(new Set([1]), 1, 0)).toBe(false);
+  expect(repairWalCoversPages(new Set([1]), 1, 12345)).toBe(false);
+  for (const pageSize of [4096, 65536]) {
+    const lock = Math.floor(0x40000000 / pageSize) + 1;
+    const last = lock + 1;
+    const pages = new Set(Array.from({ length: last }, (_, i) => i + 1));
+    pages.delete(lock);
+    expect(repairWalCoversPages(pages, last, pageSize)).toBe(true);
+    pages.delete(lock - 1);
+    expect(repairWalCoversPages(pages, last, pageSize)).toBe(false);
+    pages.add(lock);
+    expect(repairWalCoversPages(pages, last, pageSize)).toBe(false);
+    pages.add(lock - 1);
+    expect(repairWalCoversPages(pages, last, pageSize)).toBe(true);
+    pages.add(last + 1);
+    expect(repairWalCoversPages(pages, last, pageSize)).toBe(false);
+  }
+});
 
 it('repairs the complete current schema with contentless/external FTS and vectors, without losing source rows', async () => {
   const db = await fullSchema();
