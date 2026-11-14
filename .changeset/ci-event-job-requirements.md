@@ -13,6 +13,10 @@ their meaning, workflow edits remain main-only, and job refusals name the
 configuration key to correct. The evidence planner and project-context
 schema accept the new form.
 
-Exact job names also match GitHub's appended matrix values, every N/M shard
-leg must be present and green, and unmatched globs list the closest check
-names observed on the commit in the pinned workflows.
+An exact reported job name keeps its meaning; when it is absent, a bare
+configured name matches GitHub's appended matrix values and requires every
+reported leg to pass. Wildcards retain direct matching, names imply no
+numeric cardinality, and an explicitly required missing leg still refuses.
+Unmatched globs list the closest check names observed in the pinned workflows.
+Tree-equal PR heads cannot mask an unmet push side: a cancelled merge run
+uses the descendant search, and a pending run retains wait guidance.

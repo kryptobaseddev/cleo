@@ -522,8 +522,7 @@ function globToRegExp(glob: string): RegExp {
  * matrix job's `name:` is a template (`Type Check${{ matrix.node … }}`), and a
  * job skipped before its matrix expands reports that raw template as its check
  * name; its static prefix (`Type Check`) is the job's name, so the skip counts
- * as the job's, the same job its rendered variants run as. GitHub also appends
- * ` (<matrix values>)` to a name without a matrix expression (T14579).
+ * as the job's, the same job its rendered variants run as.
  *
  * @param re - The configured job glob, anchored.
  * @param name - The check run's name.
@@ -533,8 +532,16 @@ function globToRegExp(glob: string): RegExp {
 export function jobNameMatches(re: RegExp, name: string): boolean {
   if (re.test(name)) return true;
   const expression = name.indexOf('${{');
-  if (expression > 0 && re.test(name.slice(0, expression).trimEnd())) return true;
-  return jobMatrixSuffixStart(re, name) > 0;
+  return expression > 0 && re.test(name.slice(0, expression).trimEnd());
+}
+
+/** Exact runs take precedence; only a bare name without a run aliases matrix variants. */
+function matchingJobRuns(glob: string, checks: readonly CommitCheck[]): CommitCheck[] {
+  const re = globToRegExp(glob);
+  if (glob.includes('*')) return checks.filter((c) => jobNameMatches(re, c.name));
+  const exact = checks.filter((c) => c.name === glob);
+  if (exact.length > 0) return exact;
+  return checks.filter((c) => jobNameMatches(re, c.name) || jobMatrixSuffixStart(re, c.name) > 0);
 }
 
 /** The configured base can contain parentheses, as can a matrix value. */
@@ -553,34 +560,6 @@ function jobRunSource(check: CommitCheck): string {
     check.workflowPath ?? check.workflowName,
     check.appSlug ?? check.appId,
   ]);
-}
-
-/** Missing N/M shard legs cannot be hidden by the legs that reported success. */
-function incompleteShardMatrix(checks: readonly CommitCheck[], re: RegExp): string | undefined {
-  // shortcut: infer missing legs from N/M names; use workflow matrix metadata for other axes.
-  const expected = new Map<string, number>();
-  const legs = new Map<string, Set<number>>();
-  for (const check of checks) {
-    const at = jobMatrixSuffixStart(re, check.name);
-    if (at < 0) continue;
-    const values = check.name.slice(at + 2, -1);
-    for (const matrix of values.matchAll(/\b(\d+)\/(\d+)\b/g)) {
-      const leg = Number(matrix[1]);
-      const total = Number(matrix[2]);
-      const group = `${check.name.slice(0, at + 2)}${values.slice(0, matrix.index)}*/${matrix[2]}${values.slice(matrix.index + matrix[0].length)}) ${jobRunSource(check)}`;
-      if (!Number.isSafeInteger(leg) || !Number.isSafeInteger(total) || leg < 1 || leg > total)
-        return `${check.name}: invalid matrix leg`;
-      const seen = legs.get(group) ?? new Set<number>();
-      seen.add(leg);
-      legs.set(group, seen);
-      expected.set(group, total);
-    }
-  }
-  for (const [group, seen] of legs) {
-    if (seen.size !== expected.get(group))
-      return `${group}: expected ${expected.get(group)} legs, found ${seen.size}`;
-  }
-  return undefined;
 }
 
 /**
@@ -625,18 +604,14 @@ export function evaluateFilterSkippedJobs(
   const ran: string[] = [];
   const skipped: string[] = [];
   for (const glob of globs) {
-    const re = globToRegExp(glob);
     const latest = new Map<string, CommitCheck>();
-    for (const c of inScope.filter((c) => jobNameMatches(re, c.name))) {
+    for (const c of matchingJobRuns(glob, inScope)) {
       const key = `${c.name}\u0000${jobRunSource(c)}`;
       const prev = latest.get(key);
       if (!prev || c.id > prev.id) latest.set(key, c);
     }
     if (latest.size === 0) return { ok: false, reason: `job ${glob} is missing, not skipped` };
     const runs = [...latest.values()];
-    const incomplete = incompleteShardMatrix(runs, re);
-    if (incomplete)
-      return { ok: false, reason: `job ${glob} has missing matrix legs: ${incomplete}` };
     if (runs.every((c) => c.status === 'completed' && c.conclusion === 'success')) {
       ran.push(...new Set(runs.map((c) => c.name)));
       continue;
@@ -693,8 +668,7 @@ export function evaluateJobs(
   const reasons: string[] = [];
   const jobs: string[] = [];
   for (const glob of globs) {
-    const re = globToRegExp(glob);
-    const matched = inScope.filter((c) => jobNameMatches(re, c.name));
+    const matched = matchingJobRuns(glob, inScope);
     if (matched.length === 0) {
       const closest = [...new Set(inScope.map((c) => c.name))]
         .map((name) => [name, similarityScore(glob, name)] as const)
@@ -717,13 +691,6 @@ export function evaluateJobs(
     if (bad) {
       reasons.push(
         `job ${bad.name}: ${bad.status !== 'completed' ? `pending (${bad.status})` : bad.conclusion} on ${sha.slice(0, 12)}`,
-      );
-      continue;
-    }
-    const incomplete = incompleteShardMatrix(runs, re);
-    if (incomplete) {
-      reasons.push(
-        `job ${glob}: not found in ${scope.workflows.join(', ')} (incomplete matrix ${incomplete}) on ${sha.slice(0, 12)}`,
       );
       continue;
     }
@@ -1833,10 +1800,9 @@ export interface JobScope {
  */
 function gateJobSpecs(
   gateLists: ReadonlyArray<{ key: 'tests' | 'qa'; list?: readonly string[] }>,
-  storeRoot: string,
+  jobs: CiChecksConfig['jobs'],
   pins: Record<string, RequiredCheckPinSpec>,
 ): Array<{ globs: readonly string[]; scope: JobScope }> {
-  const jobs = readCiChecks(storeRoot).jobs;
   return gateLists.flatMap((g) => {
     const configured = jobs?.[g.key];
     const globs = Array.isArray(configured) ? configured : configured?.push;
@@ -3417,6 +3383,20 @@ export async function resolveCiEvidenceAtom(
     if (onHead.ok) checks = [...checks, ...onHead.checks];
   }
 
+  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
+  const jobSpecs = docsOnlyDiff ? [] : gateJobSpecs(gateLists, ciChecks.jobs, pins);
+  const pushUnmet =
+    !docsOnlyDiff &&
+    gateJobSpecs(
+      gateLists.filter((g) => {
+        const jobs = ciChecks.jobs?.[g.key];
+        return jobs && !Array.isArray(jobs);
+      }),
+      ciChecks.jobs,
+      pins,
+    ).some((job) => !evaluateJobs(job.globs, checks, pr.mergeCommitSha, job.scope, 'push').ok);
+  // The push stand-in search must see superseded merge checks despite an equal PR tree.
+  const checkHead = pushUnmet ? undefined : treeEqualHead;
   let judgedChecks = evaluateMergeCommitChecks(required.workflows, checks, pr.mergeCommitSha, {
     ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
     pins,
@@ -3443,15 +3423,13 @@ export async function resolveCiEvidenceAtom(
   // T13846: a code task's gates need their jobs to have run, so the stand-in
   // must be a later main run where they did — not merely the first one whose
   // required checks are green (a scripts-only merge skips the test jobs).
-  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
-  const jobSpecs = docsOnlyDiff ? [] : gateJobSpecs(gateLists, roots.storeRoot, pins);
-  if (!judgedChecks.ok && onDefault.ref !== null) {
+  if ((!judgedChecks.ok || pushUnmet) && onDefault.ref !== null) {
     const found = await findGreenDescendant({
       ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
       required: required.workflows,
       checks,
       mergeCommitSha: pr.mergeCommitSha,
-      ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+      ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
       pins,
       changedPaths: pr.changedPaths,
       ...(pr.headRefOid ? { prHeadSha: pr.headRefOid } : {}),
@@ -3474,7 +3452,7 @@ export async function resolveCiEvidenceAtom(
         withDescendant,
         pr.mergeCommitSha,
         {
-          ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+          ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
           pins,
           descendantSha: found.sha,
           ...(found.inherited || found.nonTest || found.untested
@@ -3569,7 +3547,7 @@ export async function resolveCiEvidenceAtom(
       const rejudged =
         found.ok && missing === null
           ? evaluateMergeCommitChecks(required.workflows, withHead, pr.mergeCommitSha, {
-              ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+              ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
               pins,
               descendantSha: found.sha,
               currentHead: true,
@@ -3766,6 +3744,17 @@ export async function resolveCiEvidenceAtom(
         }
       }
       if (!judgedJobs.ok) {
+        const pendingPush =
+          byEvent &&
+          failedKey.endsWith('.push') &&
+          (g.list ?? []).some((name) => {
+            const verdict = judgeOnSha(
+              checks.filter((c) => c.name === name && pinMatches(c, pins[name])),
+              descendant?.sha ?? pr.mergeCommitSha,
+              'push',
+            );
+            return !verdict.ok && verdict.verdict.startsWith('pending');
+          });
         return {
           ok: false,
           codeName: 'E_EVIDENCE_TESTS_FAILED',
@@ -3774,6 +3763,9 @@ export async function resolveCiEvidenceAtom(
             judgedJobs.reasons.join('\n  - ') +
             skipNote +
             `\n  Check ${failedKey}.` +
+            (byEvent && (pendingPush || judgedJobs.reasons.some((r) => r.includes(': pending (')))
+              ? `\n  The ${failedKey.endsWith('.pullRequest') ? 'PR-head pull_request' : 'main push'} run is pending; wait for it to finish, then verify again.`
+              : '') +
             (!byEvent
               ? ` When PR and main jobs differ, set ${configKey}.pullRequest and ${configKey}.push separately.`
               : ''),

@@ -255,17 +255,19 @@ describe('GitHub matrix job names (T14579)', () => {
   const legs = [1, 2, 3].map((leg) =>
     check(`${name} (${leg}/3)`, { workflowPath: scope.workflows[0] }),
   );
+  const requiredLegs = legs.map((c) => c.name);
 
   it('an exact job name matches GitHub matrix suffixes without matching another base name', () => {
-    const re = /^PR guards and affected tests$/;
+    const matches = (label: string, glob = name) =>
+      evaluateJobs([glob], [check(label, { workflowPath: scope.workflows[0] })], MERGE, scope).ok;
     for (const suffix of ['1/1', '1/3', 'ubuntu-latest, 24.16.0', 'Ubuntu (x64), 1/3'])
-      expect(jobNameMatches(re, `${name} (${suffix})`)).toBe(true);
-    expect(jobNameMatches(re, `${name} extra (1/3)`)).toBe(false);
-    expect(jobNameMatches(re, `${name} (1/3) extra`)).toBe(false);
-    expect(jobNameMatches(/^Checks \(Linux\)$/, 'Checks (Linux) (1/3)')).toBe(true);
+      expect(matches(`${name} (${suffix})`)).toBe(true);
+    expect(matches(`${name} extra (1/3)`)).toBe(false);
+    expect(matches(`${name} (1/3) extra`)).toBe(false);
+    expect(matches('Checks (Linux) (1/3)', 'Checks (Linux)')).toBe(true);
   });
 
-  it('accepts only after all three legs succeeded', () => {
+  it('accepts when every reported matrix leg succeeded', () => {
     expect(evaluateJobs(globs, legs, MERGE, scope)).toEqual({
       ok: true,
       jobs: legs.map((c) => c.name),
@@ -280,44 +282,91 @@ describe('GitHub matrix job names (T14579)', () => {
     ).toBe(true);
   });
 
+  it.each([
+    'failure',
+    'skipped',
+  ] as const)('an exact base job wins over a %s non-gating variant', (conclusion) => {
+    const base = check('Type Check', { workflowPath: scope.workflows[0] });
+    const optional = check('Type Check (Node 26)', {
+      workflowPath: scope.workflows[0],
+      conclusion,
+    });
+    expect(evaluateJobs(['Type Check'], [base, optional], MERGE, scope)).toEqual({
+      ok: true,
+      jobs: ['Type Check'],
+    });
+    expect(
+      evaluateJobs(
+        ['Type Check'],
+        [
+          { ...base, conclusion: 'failure' },
+          { ...optional, conclusion: 'success' },
+        ],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(false);
+    expect(
+      evaluateFilterSkippedJobs(
+        ['Type Check'],
+        ['scripts/a.mjs'],
+        [{ ...base, conclusion: 'skipped' }, optional],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(true);
+  });
+
   it('retains an explicitly configured leg instead of expanding its literal suffix', () => {
     expect(evaluateJobs([legs[0]!.name], [legs[0]!], MERGE, scope).ok).toBe(true);
   });
 
   it.each([
-    'missing',
     'failure',
     'skipped',
     'cancelled',
     'pending',
   ] as const)('refuses a %s matrix leg', (state) => {
-    const checks =
-      state === 'missing'
-        ? legs.filter((c) => c !== legs[1])
-        : legs.map((c) =>
-            c === legs[1]
-              ? {
-                  ...c,
-                  status: state === 'pending' ? 'in_progress' : 'completed',
-                  conclusion: state === 'pending' ? null : state,
-                }
-              : c,
-          );
+    const checks = legs.map((c) =>
+      c === legs[1]
+        ? {
+            ...c,
+            status: state === 'pending' ? 'in_progress' : 'completed',
+            conclusion: state === 'pending' ? null : state,
+          }
+        : c,
+    );
     const r = evaluateJobs(globs, checks, MERGE, scope);
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.reasons.join(' ')).toContain(
-      state === 'missing' ? 'expected 3 legs, found 2' : state,
-    );
+    expect(!r.ok && r.reasons.join(' ')).toContain(state);
   });
 
-  it('does not combine matrix legs across events or other matrix values', () => {
+  it('requires each explicitly configured matrix leg to be present', () => {
+    expect(evaluateJobs(requiredLegs, legs, MERGE, scope).ok).toBe(true);
+    const r = evaluateJobs(
+      requiredLegs,
+      legs.filter((c) => c !== legs[1]),
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain(`job ${legs[1]!.name}: not found`);
+  });
+
+  it('keeps the verdict of each event and enforces explicit leg requirements per event', () => {
     const splitEvents = legs.map((c, i) => (i === 1 ? { ...c, event: 'pull_request' } : c));
-    expect(evaluateJobs(globs, splitEvents, MERGE, scope).ok).toBe(false);
-    const splitPlatforms = legs.map((c, i) => ({
-      ...c,
-      name: c.name.replace(' (', ` (${i === 1 ? 'macos' : 'ubuntu'}, `),
-    }));
-    expect(evaluateJobs(globs, splitPlatforms, MERGE, scope).ok).toBe(false);
+    expect(evaluateJobs(requiredLegs, splitEvents, MERGE, scope, 'push').ok).toBe(false);
+    expect(
+      evaluateJobs(
+        globs,
+        [
+          ...legs,
+          { ...legs[0]!, id: 99, event: 'pull_request', conclusion: 'failure' },
+          { ...legs[0]!, id: 100 },
+        ],
+        MERGE,
+        scope,
+      ).ok,
+    ).toBe(false);
   });
 
   it.each([
@@ -333,17 +382,6 @@ describe('GitHub matrix job names (T14579)', () => {
     }));
     const both = { workflows: [...scope.workflows, '.github/workflows/other.yml'] };
     expect(evaluateJobs(globs, [...legs, ...alternate], MERGE, both).ok).toBe(true);
-    const mixed = [legs[0]!, legs[1]!, alternate[2]!];
-    expect(evaluateJobs(globs, mixed, MERGE, both).ok).toBe(false);
-    expect(
-      evaluateFilterSkippedJobs(
-        globs,
-        ['scripts/a.mjs'],
-        mixed.map((c) => ({ ...c, conclusion: 'skipped' })),
-        MERGE,
-        both,
-      ).ok,
-    ).toBe(false);
     expect(
       evaluateJobs(
         globs,
@@ -354,26 +392,26 @@ describe('GitHub matrix job names (T14579)', () => {
     ).toBe(false);
   });
 
-  it('requires every encoded numeric matrix axis to be complete', () => {
-    const grid = [1, 2].flatMap((a) =>
-      [1, 2, 3].map((b) => check(`${name} (${a}/2, ${b}/3)`, { workflowPath: scope.workflows[0] })),
-    );
-    expect(evaluateJobs(globs, grid, MERGE, scope).ok).toBe(true);
+  it('treats slash-containing values as labels and never expands wildcard globs by suffix', () => {
+    const label = check('Build (node 20/22)', { workflowPath: scope.workflows[0] });
+    expect(evaluateJobs(['Build'], [label], MERGE, scope).ok).toBe(true);
+    expect(evaluateJobs(['Build*'], [label], MERGE, scope).ok).toBe(true);
     expect(
       evaluateJobs(
-        globs,
-        grid.filter((c) => !c.name.startsWith(`${name} (2/2`)),
+        ['Build*20/22'],
+        [check('Build node 20/22 (linux)', { workflowPath: scope.workflows[0] })],
         MERGE,
         scope,
       ).ok,
     ).toBe(false);
+    expect(evaluateJobs(globs, legs.slice(0, 2), MERGE, scope).ok).toBe(true);
   });
 
   it('a missing matrix leg cannot be excused as a CI filter skip', () => {
     const skipped = legs.slice(0, 2).map((c) => ({ ...c, conclusion: 'skipped' }));
     expect(
-      evaluateFilterSkippedJobs(globs, ['scripts/a.mjs'], skipped, MERGE, scope),
-    ).toMatchObject({ ok: false, reason: expect.stringContaining('missing matrix legs') });
+      evaluateFilterSkippedJobs(requiredLegs, ['scripts/a.mjs'], skipped, MERGE, scope),
+    ).toMatchObject({ ok: false, reason: expect.stringContaining('is missing, not skipped') });
   });
 
   it('a latest failed leg is not hidden by an earlier pass', () => {
@@ -1286,7 +1324,7 @@ describe('resolveCiEvidenceAtom', () => {
 
     it('reads the per-event lists and accepts them in the shipped schema', () => {
       expect(readCiChecks(root).jobs).toEqual(jobs);
-      const schema = JSON.parse(
+      const schema: Parameters<typeof checkSchema>[1] = JSON.parse(
         readFileSync(
           fileURLToPath(new URL('../../../schemas/project-context.schema.json', import.meta.url)),
           'utf-8',
@@ -1321,6 +1359,34 @@ describe('resolveCiEvidenceAtom', () => {
           'Main Lint',
         ]),
       });
+    });
+
+    it.each([
+      true,
+      false,
+    ])('pending push jobs keep wait guidance with required checks pending=%s', async (requiredPending) => {
+      const pending = mainJobs
+        .filter(
+          (c) =>
+            !requiredPending || (!c.name.startsWith('Full Suite') && !c.name.startsWith('Main ')),
+        )
+        .map((c) =>
+          (
+            requiredPending
+              ? c.workflowPath === '.github/workflows/ci.yml'
+              : c.name.startsWith('Full Suite')
+          )
+            ? { ...c, status: 'in_progress', conclusion: null }
+            : c,
+        );
+      const r = await perEvent(pending, prJobs, {
+        treeOf: () => TREE,
+        isAncestor: (a, d) => a === PARENT && d === HEAD,
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toContain('pending');
+      expect(!r.ok && r.reason).toMatch(/wait.*finish/i);
+      expect(!r.ok && r.reason).toContain('evidence.ciChecks.jobs.tests.push');
     });
 
     describe.each(['tests', 'qa'] as const)('%s requirements', (key) => {
@@ -1450,13 +1516,21 @@ describe('resolveCiEvidenceAtom', () => {
       expect(!red.ok && red.reason).toContain('evidence.ciChecks.jobs.tests.pullRequest');
     });
 
-    it('keeps the T13809 quarantine-budget exception for main jobs', async () => {
+    it.each([
+      false,
+      true,
+    ])('keeps the T13809 quarantine-budget exception with a tree-equal head=%s', async (equalTree) => {
       const budget = mainJobs.map((c) =>
         c.name === 'Full Suite (ubuntu-latest, shard 1)'
           ? { ...c, id: 77, conclusion: 'failure' }
-          : c,
+          : equalTree && c.name === 'CI'
+            ? { ...c, conclusion: 'failure' }
+            : c,
       );
       const r = await perEvent(budget, prJobs, {
+        ...(equalTree
+          ? { treeOf: () => TREE, isAncestor: (a: string, d: string) => a === PARENT && d === HEAD }
+          : {}),
         fetchJobLog: async (id) =>
           id === 77
             ? [
@@ -1509,6 +1583,28 @@ describe('resolveCiEvidenceAtom', () => {
         expect(r.ok, JSON.stringify(r)).toBe(true);
         expect(r.ok && r.atom.descendantSha).toBe(DESC);
         expect(r.ok && r.atom.descendantPrHeadSha).toBe(HEAD);
+      });
+
+      it('a tree-equal head still searches for an unmet push side, while arrays retain head substitution', async () => {
+        const equalTree: Partial<ResolveCiEvidenceOptions> = {
+          ...descendantOptions,
+          treeOf: () => TREE,
+          isAncestor: (a, d) => (a === PARENT && d === HEAD) || (a === MERGE && d === DESC),
+        };
+        const r = await perEvent(cancelled, prJobs, equalTree);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.descendantSha).toBe(DESC);
+        expect(r.ok && r.atom.checks.some((c) => c.sha === DESC && c.event === 'push')).toBe(true);
+        writeContext({
+          ...optedIn,
+          ciChecks: {
+            ...optedIn.ciChecks,
+            jobs: { tests: ['PR guards and affected tests*'], qa: ['PR Type Check', 'PR Lint'] },
+          },
+        });
+        const legacy = await perEvent(cancelled, prJobs, equalTree);
+        expect(legacy.ok, JSON.stringify(legacy)).toBe(true);
+        expect(legacy.ok && legacy.atom.descendantSha).toBeUndefined();
       });
 
       it.each([
