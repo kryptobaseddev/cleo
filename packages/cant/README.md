@@ -85,6 +85,28 @@ new format without losing semantics.
 Parses an inline CANT message embedded in agent transcripts (used by the
 brain memory bridge for cross-provider transcript hooks).
 
+```ts
+interface ParsedCANTMessage {
+  directive?: string;           // e.g. 'done', 'action', 'info'
+  directive_type: 'actionable' | 'routing' | 'informational';
+  addresses: string[];          // without the @
+  task_refs: string[];          // e.g. ['T1234']
+  tags: string[];               // without the #
+  header_raw: string;           // first line
+  body: string;                 // everything after the header
+}
+
+parseCANTMessage('/done @all T1234 #shipped');
+// { directive: 'done', directive_type: 'actionable', addresses: ['all'],
+//   task_refs: ['T1234'], tags: ['shipped'], ... }
+```
+
+Parsing goes through the cant-core addon (native or WebAssembly, see below).
+When neither backend loads, the call throws; set
+`CLEO_CANT_ALLOW_JS_FALLBACK=1` to use the degraded regex parser instead, which
+warns on every use. `initCantParser()` is a no-op kept for compatibility: the
+addon loads synchronously.
+
 ## Architecture
 
 ```
