@@ -340,19 +340,45 @@ export function unpreservedCommits(path: string, defaultBranch?: string): string
 // Archive
 // ---------------------------------------------------------------------------
 
-/** Paths `git add -f` must capture: ignored content bar `node_modules` and build output. */
-function archivableIgnored(entries: readonly StatusEntry[]): string[] {
+/** Paths `git add -f` must capture: ignored content bar `node_modules`, build output and CLEO's pnpm provisioning. */
+function archivableIgnored(
+  entries: readonly StatusEntry[],
+  provisioning: (rel: string) => boolean,
+): string[] {
   return entries
     .filter((e) => e.code === '!!')
     .map((e) => e.rel)
-    .filter((rel) => !rel.split('/').includes('node_modules') && !isRegenerable(rel));
+    .filter(
+      (rel) =>
+        !rel.split('/').includes('node_modules') && !isRegenerable(rel) && !provisioning(rel),
+    );
+}
+
+/**
+ * The untracked (never ignored) top-level provisioning paths (`.pnpm-store`,
+ * the generated `.npmrc`) CLEO regenerates on demand, which `git add -A` must
+ * be told to skip (T14554). Ignored provisioning needs no pathspec (git
+ * refuses one naming an ignored path): {@link archivableIgnored} drops it. A
+ * tracked `.npmrc` is never one: its changes are archived.
+ */
+function untrackedProvisioning(
+  entries: readonly StatusEntry[],
+  provisioning: (rel: string) => boolean,
+): string[] {
+  return ['.pnpm-store', '.npmrc'].filter((top) =>
+    entries.some(
+      (e) =>
+        e.code === '??' && (e.rel === top || e.rel.startsWith(`${top}/`)) && provisioning(e.rel),
+    ),
+  );
 }
 
 /**
  * Archive everything a worktree holds before it is removed (T13924): an
  * archive commit whose parent is HEAD and whose tree is the checkout's
- * tracked, untracked and ignored content (bar `node_modules`, and ignored
- * build output), held by `refs/cleo/archive/<name>/<stamp>`, plus a binary patch from
+ * tracked, untracked and ignored content (bar `node_modules`, ignored
+ * build output, and CLEO's own pnpm provisioning: a real `.pnpm-store/` and
+ * the `.npmrc` provisioning wrote, unchanged; T14554), held by `refs/cleo/archive/<name>/<stamp>`, plus a binary patch from
  * HEAD and a JSON receipt under `<projectRoot>/.cleo/archive/worktrees/`. The
  * worktree's own index and files are not touched (a temporary index is used).
  *
@@ -390,11 +416,16 @@ export function archiveWorktree(
     if (head !== null && git(worktreePath, ['read-tree', head], env) === null) {
       return { error: 'git read-tree failed' };
     }
-    const noNodeModules = [':(exclude,glob)**/node_modules', ':(exclude,glob)**/node_modules/**'];
-    if (git(worktreePath, ['add', '-A', '--', '.', ...noNodeModules], env) === null) {
+    const provisioning = pnpmProvisioningProbe(worktreePath);
+    const excluded = [
+      ':(exclude,glob)**/node_modules',
+      ':(exclude,glob)**/node_modules/**',
+      ...untrackedProvisioning(entries, provisioning).map((top) => `:(exclude,literal)${top}`),
+    ];
+    if (git(worktreePath, ['add', '-A', '--', '.', ...excluded], env) === null) {
       return { error: 'git add -A failed' };
     }
-    const ignored = archivableIgnored(entries);
+    const ignored = archivableIgnored(entries, provisioning);
     for (let i = 0; i < ignored.length; i += 200) {
       if (git(worktreePath, ['add', '-f', '--', ...ignored.slice(i, i + 200)], env) === null) {
         return { error: 'git add -f of ignored content failed' };
@@ -540,6 +571,7 @@ function disposeChecked(opts: DisposeWorktreeOptions, releaseLock: boolean): Dis
     projectRoot,
     evidence: opts.evidence,
     dryRun: opts.dryRun,
+    dependentsScan: opts.dependentsScan,
   });
   if (kept !== null) return keep(describeDisposalBlockers(worktreePath, kept), { kept });
 

@@ -120,13 +120,15 @@ export async function listWorktrees(
   const staleThresholdMs = staleDays * 24 * 60 * 60 * 1000;
   const nowMs = Date.now();
   // Lazy: keeps @cleocode/worktree out of this module's static graph (T13696).
-  const { disposeWorktree, readKeepMarker, readWorktreeTaskLock } = await import(
-    '@cleocode/worktree'
-  );
+  const { createWorktreeDependentsScan, disposeWorktree, readKeepMarker, readWorktreeTaskLock } =
+    await import('@cleocode/worktree');
+  // T14554: one dependents scan for the whole listing, so each other checkout
+  // is read once, not once per proven worktree (O(n), not O(n^2)).
+  const dependentsScan = createWorktreeDependentsScan();
   /**
    * T14274: what the one disposal proof says, for a disposal candidate. A dry
    * run: nothing is written, archived or removed (prune re-proves with the
-   * task's evidence before it acts).
+   * task's evidence, and a fresh scan, before it acts).
    */
   const proveRedundant = (path: string, taskId: string | null, isMerged: boolean) =>
     disposeWorktree({
@@ -137,6 +139,7 @@ export async function listWorktrees(
       exemptRegenerable: opts.exemptRegenerable !== false && isMerged,
       inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
       dryRun: true,
+      dependentsScan,
     });
 
   let porcelainEntries: PorcelainEntry[];

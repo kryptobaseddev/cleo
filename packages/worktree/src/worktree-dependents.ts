@@ -20,6 +20,7 @@
 
 import { createHash } from 'node:crypto';
 import {
+  type Dirent,
   existsSync,
   lstatSync,
   readdirSync,
@@ -31,8 +32,10 @@ import {
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type {
   EvidenceAtom,
+  WorktreeDependentsScan,
   WorktreeDisposalBlockers,
   WorktreeKeepMarker,
+  WorktreeScannedCheckout,
 } from '@cleocode/contracts';
 import { gitSync } from './git.js';
 
@@ -65,19 +68,55 @@ function entries(dir: string): string[] {
   }
 }
 
+/** Directory entries with their types, bounded; `[]` when unreadable. */
+function dirents(dir: string): Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).slice(0, MAX_ENTRIES_PER_DIR);
+  } catch {
+    return [];
+  }
+}
+
+/** Whether `path` is a symlink; `false` when it cannot be read. */
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Paths a checkout could link into another worktree through: `node_modules`
- * itself, its top-level entries and `.pnpm` entries, and each workspace
- * package's `node_modules`.
+ * The symlinks a checkout could link into another worktree through, with
+ * their resolved targets: `node_modules` itself, its top-level entries and
+ * `.pnpm` entries, and each workspace package's `node_modules`. Entry types
+ * come from the directory read, so the thousands of `.pnpm` entries cost no
+ * `lstat` each (T14554).
  */
-function linkCandidates(checkout: string): string[] {
+function readLinks(checkout: string): Array<{ path: string; target: string | null }> {
   const nm = join(checkout, 'node_modules');
-  const packageNms = entries(join(checkout, 'packages')).map((p) => join(p, 'node_modules'));
-  return [nm, ...entries(nm), ...entries(join(nm, '.pnpm')), ...packageNms];
+  const links: string[] = isSymlink(nm) ? [nm] : [];
+  for (const dir of [nm, join(nm, '.pnpm')]) {
+    for (const entry of dirents(dir)) {
+      if (entry.isSymbolicLink()) links.push(join(dir, entry.name));
+    }
+  }
+  for (const pkg of entries(join(checkout, 'packages'))) {
+    const pkgNm = join(pkg, 'node_modules');
+    if (isSymlink(pkgNm)) links.push(pkgNm);
+  }
+  return links.map((path) => ({ path, target: realOrNull(path) }));
 }
 
 /** Every other checkout that could hold a link: registered git worktrees and siblings under the worktree root. */
-function otherCheckouts(worktreePath: string, gitRoot: string): string[] {
+function otherCheckouts(
+  worktreePath: string,
+  gitRoot: string,
+  scan?: WorktreeDependentsScan,
+): readonly string[] {
+  const key = `${dirname(worktreePath)}\0${gitRoot}`;
+  const cached = scan?.checkouts.get(key);
+  if (cached !== undefined) return cached;
   const found = new Set<string>(entries(dirname(worktreePath)));
   try {
     for (const line of gitSync(['worktree', 'list', '--porcelain'], gitRoot).split('\n')) {
@@ -86,7 +125,30 @@ function otherCheckouts(worktreePath: string, gitRoot: string): string[] {
   } catch {
     // Not a git checkout: the sibling scan still runs.
   }
-  return [...found];
+  const checkouts = [...found];
+  scan?.checkouts.set(key, checkouts);
+  return checkouts;
+}
+
+/** A checkout's real path, from the scan when it has read it. */
+function scannedCheckout(checkout: string, scan?: WorktreeDependentsScan): WorktreeScannedCheckout {
+  const cached = scan?.scanned.get(checkout);
+  if (cached !== undefined) return cached;
+  const read: WorktreeScannedCheckout = { real: realOrNull(checkout) };
+  scan?.scanned.set(checkout, read);
+  return read;
+}
+
+/**
+ * A fresh dependents scan for one listing's dry-run proofs (T14554): pass it
+ * as `dependentsScan` to every `disposeWorktree({ dryRun: true })` of the
+ * listing, and each other checkout is read once instead of once per proof.
+ *
+ * @returns An empty scan.
+ * @task T14554
+ */
+export function createWorktreeDependentsScan(): WorktreeDependentsScan {
+  return { checkouts: new Map(), scanned: new Map(), linkScans: 0 };
 }
 
 /**
@@ -94,27 +156,28 @@ function otherCheckouts(worktreePath: string, gitRoot: string): string[] {
  *
  * @param worktreePath - The worktree about to be disposed.
  * @param gitRoot - Git root whose registered worktrees are scanned.
+ * @param scan - A scan shared across one listing's dry runs (T14554); omit to read the disk afresh.
  * @returns The linking paths (empty when nothing depends on it).
  *
  * @task T13696
  */
-export function findWorktreeDependents(worktreePath: string, gitRoot: string): string[] {
+export function findWorktreeDependents(
+  worktreePath: string,
+  gitRoot: string,
+  scan?: WorktreeDependentsScan,
+): string[] {
   const self = realOrNull(worktreePath);
   if (self === null) return [];
   const dependents: string[] = [];
-  for (const checkout of otherCheckouts(worktreePath, gitRoot)) {
-    const real = realOrNull(checkout);
-    if (real === null || isWithin(self, real)) continue;
-    for (const candidate of linkCandidates(checkout)) {
-      let isLink = false;
-      try {
-        isLink = lstatSync(candidate).isSymbolicLink();
-      } catch {
-        continue;
-      }
-      if (!isLink) continue;
-      const target = realOrNull(candidate);
-      if (target !== null && isWithin(self, target)) dependents.push(candidate);
+  for (const checkout of otherCheckouts(worktreePath, gitRoot, scan)) {
+    const read = scannedCheckout(checkout, scan);
+    if (read.real === null || isWithin(self, read.real)) continue;
+    if (read.links === undefined) {
+      read.links = readLinks(checkout);
+      if (scan !== undefined) scan.linkScans += 1;
+    }
+    for (const link of read.links) {
+      if (link.target !== null && isWithin(self, link.target)) dependents.push(link.path);
     }
   }
   return dependents;
@@ -292,6 +355,7 @@ export function readKeepMarker(worktreePath: string): WorktreeKeepMarker | null 
  * @param opts.projectRoot - Main checkout evidence falls back to; defaults to the marker's.
  * @param opts.evidence - The task's recorded evidence atoms, when the caller has them.
  * @param opts.dryRun - Report only; never write or remove the marker.
+ * @param opts.dependentsScan - A listing's shared scan (T14554); honoured only with `dryRun`.
  * @returns The blockers, or `null` when disposal is safe.
  *
  * @task T13700
@@ -305,6 +369,7 @@ export function guardWorktreeDisposal(
     projectRoot?: string;
     evidence?: readonly EvidenceAtom[];
     dryRun?: boolean;
+    dependentsScan?: WorktreeDependentsScan;
   },
 ): WorktreeDisposalBlockers | null {
   const marker = readKeepMarker(worktreePath);
@@ -316,7 +381,9 @@ export function guardWorktreeDisposal(
       files: marker.evidence.map((f) => ({ ...f, resolvedPath: f.path })),
     });
   }
-  const dependents = findWorktreeDependents(worktreePath, opts.gitRoot ?? worktreePath);
+  // A shared scan is a snapshot: only a dry run may read from it (T14554).
+  const scan = opts.dryRun === true ? opts.dependentsScan : undefined;
+  const dependents = findWorktreeDependents(worktreePath, opts.gitRoot ?? worktreePath, scan);
   const lost = unrecoverableEvidenceFiles(worktreePath, projectRoot, evidence);
   const blockers =
     dependents.length > 0 || lost.length > 0
