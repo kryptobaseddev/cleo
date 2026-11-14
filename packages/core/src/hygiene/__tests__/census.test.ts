@@ -17,6 +17,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -487,8 +488,14 @@ describe('worktree census (T14275)', () => {
   it('the lazy spawn claims at most one census per 24 h, never in CI, vitest or a git hook', () => {
     const now = Date.parse('2026-01-01T00:00:00Z');
     expect(claimCensus(now, recordDir)).toBe(true);
+    expect(statSync(join(recordDir, 'census.claim')).mtimeMs).toBe(now);
     expect(claimCensus(now + 60_000, recordDir)).toBe(false);
-    expect(claimCensus(now + CENSUS_INTERVAL_MS + 1, recordDir)).toBe(true);
+    expect(claimCensus(now + CENSUS_INTERVAL_MS - 1, recordDir)).toBe(false);
+    expect(claimCensus(now + CENSUS_INTERVAL_MS, recordDir)).toBe(true);
+    expect(statSync(join(recordDir, 'census.claim')).mtimeMs).toBe(now + CENSUS_INTERVAL_MS);
+    expect(claimCensus(now + CENSUS_INTERVAL_MS, recordDir)).toBe(false);
+    expect(claimCensus(now + 2 * CENSUS_INTERVAL_MS - 1, recordDir)).toBe(false);
+    expect(claimCensus(now + 2 * CENSUS_INTERVAL_MS, recordDir)).toBe(true);
     expect(claimCensus(now, recordDir, a)).toBe(true);
     expect(claimCensus(now, recordDir, b)).toBe(true);
     expect(claimCensus(now + 60_000, recordDir, a)).toBe(false);
@@ -744,7 +751,6 @@ describe('bounded census reports (T14538)', () => {
         },
         { timeout: 6_000 },
       );
-      const scanningPid = Number(readFileSync(marker, 'utf8'));
       const stoppedAt = Date.now();
       if (signal !== 'deadline') expect(child.kill(signal)).toBe(true);
       const [code, killedBy] = await exited;
@@ -767,6 +773,9 @@ describe('bounded census reports (T14538)', () => {
         expect(result.record.apparentBytes).toBeLessThan(baseline.record.apparentBytes);
       }
       expect(existsSync(parentWalk)).toBe(false);
+      // The scanner rewrites the marker; only read it after close, once writes have stopped.
+      const scanningPid = Number(readFileSync(marker, 'utf8'));
+      expect(scanningPid).toBeGreaterThan(0);
       expect(() => process.kill(scanningPid, 0)).toThrow();
       expect(existsSync(join(output, '1999.js'))).toBe(true);
     } finally {
