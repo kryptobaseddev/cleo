@@ -10,7 +10,8 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setConfigValue } from '../../config.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
@@ -25,7 +26,8 @@ const now = new Date().toISOString();
 beforeEach(async () => {
   env = await createTestDb();
   accessor = env.accessor;
-  process.env['CLEO_DIR'] = env.cleoDir;
+  vi.stubEnv('CLEO_DIR', env.cleoDir);
+  vi.stubEnv('CLEO_HOME', join(env.tempDir, '.cleo-home'));
   await writeFile(
     join(env.cleoDir, 'config.json'),
     JSON.stringify({
@@ -37,7 +39,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  delete process.env['CLEO_DIR'];
+  vi.unstubAllEnvs();
   resetDbState();
   await env.cleanup();
 });
@@ -126,5 +128,124 @@ describe('T12883 R1 — terminal parent with live children', () => {
     // Restoring the parent with --cascade brings both back.
     const restored = await coreTaskRestore(env.tempDir, 'T500', { cascade: true });
     expect(restored.restored.sort()).toEqual(['T500', 'T501']);
+  });
+});
+
+describe('coreTaskReparent — resolved hierarchy policy', () => {
+  it.each([
+    {
+      name: 'human-cognitive sibling preset',
+      hierarchy: { enforcementProfile: 'human-cognitive' },
+      statuses: Array.from({ length: 7 }, () => 'cancelled' as const),
+      error: 'max siblings (7)',
+    },
+    {
+      name: 'human-cognitive active preset',
+      hierarchy: { enforcementProfile: 'human-cognitive' },
+      statuses: ['pending', 'active', 'blocked'],
+      error: 'maxActiveSiblings=3',
+    },
+    {
+      name: 'explicit sibling cap',
+      hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 2 },
+      statuses: ['cancelled', 'cancelled'],
+      error: 'max siblings (2)',
+    },
+    {
+      name: 'explicit active cap',
+      hierarchy: { enforcementProfile: 'human-cognitive', maxActiveSiblings: 1 },
+      statuses: ['blocked'],
+      error: 'maxActiveSiblings=1',
+    },
+    {
+      name: 'explicit unlimited caps',
+      hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 0, maxActiveSiblings: 0 },
+      statuses: Array.from({ length: 8 }, () => 'pending' as const),
+    },
+    {
+      name: 'explicit raised caps',
+      hierarchy: { enforcementProfile: 'human-cognitive', maxSiblings: 9, maxActiveSiblings: 9 },
+      statuses: Array.from({ length: 8 }, () => 'pending' as const),
+    },
+    {
+      name: 'no profile',
+      hierarchy: {},
+      statuses: Array.from({ length: 8 }, () => 'pending' as const),
+    },
+    {
+      name: 'no profile with an explicit cap',
+      hierarchy: { maxActiveSiblings: 1 },
+      statuses: ['active'],
+      error: 'maxActiveSiblings=1',
+    },
+  ])('honors $name without changing rejected moves', async ({ hierarchy, statuses, error }) => {
+    await setConfigValue('hierarchy', hierarchy, env.tempDir);
+    await seedTasks(accessor, [
+      live('T600', { type: 'epic' }),
+      live('T601', { type: 'epic' }),
+      live('T602', { type: 'task', parentId: 'T601' }),
+      ...statuses.map((status, i) =>
+        live(`T${610 + i}`, {
+          type: 'task',
+          parentId: 'T600',
+          status,
+          pipelineStage: status === 'cancelled' ? 'cancelled' : 'implementation',
+        }),
+      ),
+    ]);
+
+    const move = coreTaskReparent(env.tempDir, 'T602', 'T600');
+    if (error) {
+      await expect(move).rejects.toThrow(error);
+      expect((await accessor.loadSingleTask('T602'))?.parentId).toBe('T601');
+    } else {
+      await expect(move).resolves.toMatchObject({ reparented: true, newParent: 'T600' });
+      expect((await accessor.loadSingleTask('T602'))?.parentId).toBe('T600');
+    }
+  });
+
+  it.each([false, true])('honors countDoneInLimit=%s', async (countDoneInLimit) => {
+    await setConfigValue(
+      'hierarchy',
+      { enforcementProfile: 'human-cognitive', maxSiblings: 1, countDoneInLimit },
+      env.tempDir,
+    );
+    await seedTasks(accessor, [
+      live('T700', { type: 'epic' }),
+      live('T701', {
+        type: 'task',
+        parentId: 'T700',
+        status: 'done',
+        pipelineStage: 'contribution',
+      }),
+      live('T702', { type: 'task' }),
+    ]);
+    const move = coreTaskReparent(env.tempDir, 'T702', 'T700');
+    if (countDoneInLimit) {
+      await expect(move).rejects.toThrow('max siblings (1)');
+    } else {
+      await expect(move).resolves.toMatchObject({ newParent: 'T700' });
+    }
+  });
+
+  it('does not count the moved task or terminal children as active siblings', async () => {
+    await setConfigValue('hierarchy', { enforcementProfile: 'human-cognitive' }, env.tempDir);
+    await seedTasks(accessor, [
+      live('T800', { type: 'epic' }),
+      live('T801', { type: 'task', parentId: 'T800', status: 'active' }),
+      live('T802', { type: 'task', parentId: 'T800', status: 'pending' }),
+      live('T803', { type: 'task', parentId: 'T800', status: 'blocked' }),
+      live('T804', {
+        type: 'task',
+        parentId: 'T800',
+        status: 'done',
+        pipelineStage: 'contribution',
+      }),
+      cancelled('T805', { type: 'task', parentId: 'T800' }),
+      live('T806', { type: 'task', parentId: 'T800', status: 'archived' }),
+    ]);
+    await expect(coreTaskReparent(env.tempDir, 'T801', 'T800')).resolves.toMatchObject({
+      newParent: 'T800',
+    });
   });
 });
