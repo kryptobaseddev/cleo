@@ -1,5 +1,16 @@
 # Changelog
 
+## [2026.11.10] (2026-11-14)
+
+### Fixed
+
+- CI evidence: support separate PR/main jobs and GitHub matrix job names _(provenance: [T14577](https://github.com/kryptobaseddev/cleo/search?q=T14577&type=commits), [T14579](https://github.com/kryptobaseddev/cleo/search?q=T14579&type=commits))_
+- Keep incoming document supersession on its original identity during blob reuse and align graph and doctor readers after sync collisions _(provenance: [T14580](https://github.com/kryptobaseddev/cleo/search?q=T14580&type=commits))_
+- cleo docs update on a doc that supersedes another (or is superseded) keeps the supersession on both docs, and docs fetch lineage lists every doc a survivor replaced (predecessors) _(provenance: [T14565](https://github.com/kryptobaseddev/cleo/search?q=T14565&type=commits))_
+- Recover missing rows and newer versions from retained divergent store histories after a stale session backup; record bounded snapshot ancestry, protect recovery sources during project and global rotation, preserve deliberate pruning and ID reuse, and reject corrupt recovery sources. _(provenance: [T14572](https://github.com/kryptobaseddev/cleo/search?q=T14572&type=commits))_
+- docs doctor prunes a stale publication-ledger row recorded under an old file name, or beside another owner's in-sync row _(provenance: [T14504](https://github.com/kryptobaseddev/cleo/search?q=T14504&type=commits), [T14108](https://github.com/kryptobaseddev/cleo/search?q=T14108&type=commits))_
+- cleo docs modernize --plan applies a reviewed store-mode plan; renames are checked against the live store before any write _(provenance: [T14578](https://github.com/kryptobaseddev/cleo/search?q=T14578&type=commits))_
+
 ## [2026.11.9] (2026-11-14)
 
 ### Changed
