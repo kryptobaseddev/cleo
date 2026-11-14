@@ -3,7 +3,7 @@
 **Task:** T9661 (epic T9568 — E-SKILLS-LOOM-COVERAGE-AUDIT)
 **Last updated:** 2026-05-19
 **Source of truth (stage names):** `cleo lifecycle --help` → `research|consensus|architecture_decision|specification|decomposition|implementation|validation|testing|release|contribution`
-**Source of truth (skill bindings):** [packages/skills/skills/manifest.json](../../packages/skills/skills/manifest.json) → `dispatch_matrix.by_protocol`
+**Source of truth (skill bindings):** [packages/skills/skills/manifest.json](../../packages/skills/skills/manifest.json) → `dispatch_matrix.by_protocol`. The manifest is generated from SKILL.md frontmatter by `node scripts/skills/generate-manifest.mjs` and checked by gate 29; never edit it by hand.
 
 ---
 
@@ -34,7 +34,7 @@ The 10 rows below are the canonical LOOM stages emitted by `cleo lifecycle start
 | 5 | `decomposition` | `ct-epic-architect` | `decomposition` | full | ADR-066 (task-taxonomy-consolidation), ADR-073 (above-epic-naming) |
 | 6 | `implementation` | `ct-task-executor` | `implementation` | full | ADR-070 (three-tier-orchestration), ADR-062 (worktree-merge-not-cherry-pick) |
 | 7 | `validation` | `ct-validator` | `validation` | full | ADR-051 (programmatic-gate-integrity), ADR-023 (protocol-validation-dispatch) |
-| 8 | `testing` | `ct-ivt-looper` | `testing` | full | ADR-051 (programmatic-gate-integrity), ADR-061 (project-agnostic-verify-tools) |
+| 8 | `testing` | `ct-validator` *(was `ct-ivt-looper`, deleted by T14311)* | `testing` | full | ADR-051 (programmatic-gate-integrity), ADR-061 (project-agnostic-verify-tools) |
 | 9 | `release` | `ct-release-orchestrator` | `release` | full | ADR-053 (project-agnostic-release-pipeline), ADR-063 (release-pipeline), ADR-065 (pr-required-release-flow) |
 | 10 | `contribution` | `ct-contribution` *(bound by T9670)* | `contribution` | full | ADR-015 (multi-contributor-architecture), ADR-053 (playbook-runtime) |
 
@@ -59,29 +59,21 @@ This section is the canonical mapping the `ct-skill-validator` build gate consul
 | decomposition | ct-epic-architect | `ADR-066`, `ADR-073` | ADR-070 |
 | implementation | ct-task-executor | `ADR-070`, `ADR-062` | ADR-051 |
 | validation | ct-validator | `ADR-051`, `ADR-023` | — |
-| testing | ct-ivt-looper | `ADR-051`, `ADR-061` | — |
+| testing | ct-validator | `ADR-051`, `ADR-061` | — |
 | release | ct-release-orchestrator | `ADR-053`, `ADR-063`, `ADR-065` | ADR-026 (release-system-consolidation) |
 | contribution | ct-contribution | `ADR-015`, `ADR-053` | ADR-073 |
 
-The validator MUST verify (a) each referenced ADR file exists under `.cleo/adrs/` and (b) the `adrRefs` frontmatter array on each canonical LOOM-stage skill is a superset of the **Required** column above.
+The validator MUST verify (a) each referenced ADR file exists under `docs/adr/` (`packages/skills/skills/_shared/__tests__/loom-adr-links.test.ts`) and (b) the `adrRefs` frontmatter array on each canonical LOOM-stage skill is a superset of the **Required** column above.
 
 ---
 
-## Boundary Clarifications (governs T9675)
+## Validation and testing (T14311)
 
-The validation and testing stages are adjacent but **not interchangeable**. T9675 codifies the boundary in both SKILL.md files; this section is the matrix-level authoritative summary.
-
-| Aspect | `ct-validator` (validation stage) | `ct-ivt-looper` (testing stage) |
-|---|---|---|
-| Stage in LOOM lifecycle | `validation` (stage 7) | `testing` (stage 8) |
-| What it does | Schema, compliance, and audit verification of **static artifacts** (specs, manifests, JSON Schema, ADR markdown structure, RFC 2119 keyword usage). | Autonomous **dynamic** Implement→Validate→Test loop on a git worktree; framework-detect; iterate until convergence. |
-| Input | A specification, schema, or document. | A worktree containing implementation + spec + test framework config. |
-| Output | Pass/fail compliance report. | Convergence report (`ivtLoopConverged`, `framework`, `testsRun`, `testsPassed`, `testsFailed`, iterations). |
-| Out of scope | Does NOT execute test loops. Chains to `ct-ivt-looper` when dynamic verification is required. | Does NOT do schema/RFC-2119/spec-document audit. Chains to `ct-validator` for post-test compliance checks. |
-| Chain direction | `ct-validator` → `ct-ivt-looper` (validation finds spec gaps; ivt-looper iterates on them). | `ct-ivt-looper` → `ct-validator` (after a green loop, validator audits the resulting artifacts). |
-| Governing ADR | ADR-051 (programmatic-gate-integrity), ADR-023 (protocol-validation-dispatch) | ADR-051 (programmatic-gate-integrity), ADR-061 (project-agnostic-verify-tools) |
-
-**Rule of thumb:** If the artifact under inspection is **text on disk** (spec, JSON, ADR markdown), use `ct-validator`. If the artifact is **code that runs** (and the framework is auto-detectable), use `ct-ivt-looper`.
+`ct-ivt-looper`, the autonomous Implement→Validate→Test loop that used to own the
+`testing` stage, was deleted with the IVTR loop by T14311 (ADR-098: CLEO Goal is the one
+autonomous driver). Both the `validation` and `testing` stages now bind `ct-validator`
+(`dispatch_matrix.by_protocol` in the manifest). Tests themselves are proven through the
+evidence gates (`cleo done <id> --plan`, `ci:<pr>`, `tool:test`), not by a skill loop.
 
 ---
 
