@@ -1066,7 +1066,8 @@ async function snapshotOne(
     try {
       // Escape single quotes in path (path is programmatic, but be safe).
       db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
-      if (source !== null && basename(source) === 'cleo.db') stampStoreSnapshot(db, tmp, source);
+      if (source !== null && basename(source) === 'cleo.db')
+        stampStoreSnapshot(db, tmp, source, mode === 'routine');
       commitSnapshotFile(tmp, dest);
     } catch (err) {
       rmSync(tmp, { force: true });
@@ -1360,7 +1361,8 @@ export async function vacuumIntoGlobalBackup(
     const tmp = tempSnapshotPath(snapshotPath);
     try {
       db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
-      if (source !== null && basename(source) === 'cleo.db') stampStoreSnapshot(db, tmp, source);
+      if (source !== null && basename(source) === 'cleo.db')
+        stampStoreSnapshot(db, tmp, source, true);
       commitSnapshotFile(tmp, snapshotPath);
     } catch (err) {
       rmSync(tmp, { force: true });

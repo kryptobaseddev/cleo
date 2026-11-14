@@ -933,25 +933,34 @@ export function advanceStoreGeneration(
 /**
  * Stamp a completed private VACUUM image, then acknowledge that checkpoint in live.
  * Its ancestry comes from the same consistent view as its rows; publication follows acknowledgement.
+ * Routine captures fail immediately on a held writer and restore the caller's busy timeout.
  */
 export function stampStoreSnapshot(
-  db: Pick<DatabaseSync, 'exec'>,
+  db: Pick<DatabaseSync, 'exec'> & Partial<Pick<DatabaseSync, 'prepare'>>,
   snapshot: string,
   target: string,
+  nonBlocking = false,
 ): void {
   const current = randomUUID();
-  db.exec(`ATTACH DATABASE '${snapshot.replaceAll("'", "''")}' AS cleo_snapshot_generation`);
+  const timeout = nonBlocking ? db.prepare?.('PRAGMA busy_timeout').get()?.timeout : undefined;
   try {
-    writeStoreGeneration(db, target, current, "'[]'", 'cleo_snapshot_generation');
-    writeStoreGeneration(
-      db,
-      target,
-      current,
-      '(SELECT history FROM cleo_snapshot_generation._store_generation WHERE id=1)',
-      'main',
-    );
+    // Routine captures must not block a command's teardown behind another writer.
+    if (typeof timeout === 'number') db.exec('PRAGMA busy_timeout=0');
+    db.exec(`ATTACH DATABASE '${snapshot.replaceAll("'", "''")}' AS cleo_snapshot_generation`);
+    try {
+      writeStoreGeneration(db, target, current, "'[]'", 'cleo_snapshot_generation');
+      writeStoreGeneration(
+        db,
+        target,
+        current,
+        '(SELECT history FROM cleo_snapshot_generation._store_generation WHERE id=1)',
+        'main',
+      );
+    } finally {
+      db.exec('DETACH DATABASE cleo_snapshot_generation');
+    }
   } finally {
-    db.exec('DETACH DATABASE cleo_snapshot_generation');
+    if (typeof timeout === 'number') db.exec(`PRAGMA busy_timeout=${timeout}`);
   }
 }
 
@@ -1191,6 +1200,11 @@ export function snapshotRecoveryReason(target: string, snapshot: string): string
     const rows = compareStoreFreshness(live, source, snapshot, 'snapshot');
     return `Store generation ${generation.current} is absent from live ancestry (head ${current.current}); ${rows?.evidence.join('; ') ?? 'retained recovery point of a divergent history'}`;
   } catch (error) {
+    try {
+      if (!source || !validStoreRecoverySnapshot(source, snapshot)) return;
+    } catch {
+      return;
+    }
     return `Live recovery ancestry unavailable: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
     source?.close();

@@ -29,7 +29,7 @@ import {
   resolveBackupMaxBytes,
   rotateBackupDir,
 } from '../backup-sidecar.js';
-import { advanceStoreGeneration } from '../recover-malformed-db.js';
+import { advanceStoreGeneration, snapshotRecoveryReason } from '../recover-malformed-db.js';
 
 let root: string;
 let cleoDir: string;
@@ -349,4 +349,27 @@ it('keeps missing keys and newer versions past both caps until the live store re
   const recovered = rotateBackupDir(dir, 1, 'snapshot');
   expect(recovered.retained).toEqual({});
   expect(recovered.deleted).toContain('cleo.db.snapshot-20260101-000000');
+});
+
+it('does not pin a damaged checkpoint when the live store is unreadable', () => {
+  const live = join(cleoDir, 'cleo.db');
+  const source = join(dir, 'tasks-20260101-000000.db');
+  const db = new DatabaseSync(live);
+  advanceStoreGeneration(db, live);
+  db.exec(`VACUUM INTO '${source.replaceAll("'", "''")}'`);
+  db.close();
+  const snapshot = new DatabaseSync(source);
+  const rootPage = Number(
+    snapshot.prepare("SELECT rootpage FROM sqlite_schema WHERE name='t'").get()?.rootpage,
+  );
+  const pageSize = Number(snapshot.prepare('PRAGMA page_size').get()?.page_size);
+  snapshot.close();
+  const original = readFileSync(source);
+  const bytes = Buffer.from(original);
+  bytes.fill(0, (rootPage - 1) * pageSize, rootPage * pageSize);
+  writeFileSync(source, bytes);
+  writeFileSync(live, Buffer.alloc(4096));
+  expect(snapshotRecoveryReason(live, source)).toBeUndefined();
+  writeFileSync(source, original);
+  expect(snapshotRecoveryReason(live, source)).toContain('Live recovery ancestry unavailable');
 });

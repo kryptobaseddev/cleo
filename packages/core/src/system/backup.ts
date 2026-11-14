@@ -192,6 +192,8 @@ function snapshotToTemp(
   try {
     db.exec(`VACUUM INTO '${temp.replace(/'/g, "''")}'`);
     stampStoreSnapshot(db, temp, target);
+    // Persist the acknowledgement now; a later refused restore must not flush it into live.
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   } catch (err) {
     // A failed VACUUM INTO can leave a partial (often empty) file (T13245).
     rmSync(temp, { force: true });
