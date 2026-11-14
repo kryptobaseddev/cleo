@@ -530,6 +530,74 @@ describe("CLEO's pnpm provisioning is regenerable (T14552)", () => {
     expect(existsSync(wt)).toBe(true);
   });
 
+  it('a forced archive leaves out the store and the generated .npmrc, and keeps everything else (T14554)', () => {
+    const wt = provisioned('T60');
+    writeFileSync(join(wt, 'untracked.ts'), 'untracked\n');
+    writeFileSync(join(wt, '.env'), 'SECRET=1\n');
+
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T60', reason: 'manual', force: true });
+
+    expect(r.removed).toBe(true);
+    const a = r.archive;
+    if (a === undefined) throw new Error('no archive');
+    const names = git(repo, 'ls-tree', '-r', '--name-only', a.archiveSha).split('\n');
+    expect(names).toContain('untracked.ts');
+    expect(names).toContain('.env');
+    expect(names.filter((n) => n === '.npmrc' || n.startsWith('.pnpm-store/'))).toEqual([]);
+  });
+
+  it('a forced archive leaves out an untracked (pre-T14552) generated .npmrc and store (T14554)', () => {
+    const wt = worktree('T62');
+    writeFileSync(join(wt, '.npmrc'), `store-dir=${join(wt, '.pnpm-store')}\n`);
+    const files = join(wt, '.pnpm-store', 'v10', 'files', '0a');
+    mkdirSync(files, { recursive: true });
+    writeFileSync(join(files, 'a'.repeat(126)), 'cached\n');
+    writeFileSync(join(wt, 'untracked.ts'), 'untracked\n');
+    expect(git(wt, 'status', '--porcelain')).toContain('.npmrc');
+
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T62', reason: 'manual', force: true });
+
+    const a = r.archive;
+    if (a === undefined) throw new Error('no archive');
+    const names = git(repo, 'ls-tree', '-r', '--name-only', a.archiveSha).split('\n');
+    expect(names).toContain('untracked.ts');
+    expect(names.filter((n) => n === '.npmrc' || n.startsWith('.pnpm-store/'))).toEqual([]);
+  });
+
+  it('a forced archive keeps an edited TRACKED store file beside an untracked sibling (T14554)', () => {
+    const wt = worktree('T63');
+    const shard = join(wt, '.pnpm-store', 'v10', 'files', '0a');
+    mkdirSync(shard, { recursive: true });
+    const tracked = join(shard, 'a'.repeat(126));
+    writeFileSync(tracked, 'original\n');
+    git(wt, 'add', '-f', '.pnpm-store');
+    git(wt, 'commit', '-q', '-m', 'track a store file');
+    writeFileSync(tracked, 'edited\n');
+    writeFileSync(join(shard, 'b'.repeat(126)), 'cache\n');
+    const rel = `.pnpm-store/v10/files/0a/${'a'.repeat(126)}`;
+
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T63', reason: 'manual', force: true });
+
+    const a = r.archive;
+    if (a === undefined) throw new Error('no archive');
+    expect(git(repo, 'show', `${a.archiveSha}:${rel}`)).toBe('edited');
+    expect(git(repo, 'ls-tree', '-r', '--name-only', a.archiveSha)).not.toContain('b'.repeat(126));
+  });
+
+  it('a forced archive keeps an untracked .npmrc CLEO did not write, and an unprovisioned store (T14554)', () => {
+    const wt = worktree('T61');
+    writeFileSync(join(wt, '.npmrc'), 'registry=https://example.invalid/\n');
+    mkdirSync(join(wt, '.pnpm-store'));
+    writeFileSync(join(wt, '.pnpm-store', 'notes.txt'), 'mine\n');
+
+    const r = disposeWorktree({ worktreePath: wt, taskId: 'T61', reason: 'manual', force: true });
+
+    const a = r.archive;
+    if (a === undefined) throw new Error('no archive');
+    expect(git(repo, 'show', `${a.archiveSha}:.npmrc`)).toBe('registry=https://example.invalid/');
+    expect(git(repo, 'show', `${a.archiveSha}:.pnpm-store/notes.txt`)).toBe('mine');
+  });
+
   it('keeps a worktree whose .npmrc names another store', () => {
     const wt = worktree('T36');
     writeFileSync(join(wt, '.npmrc'), 'store-dir=/shared/store\n');

@@ -33,6 +33,7 @@ export type {
   PruneWorktreesOptions,
   PruneWorktreesResult,
   WorktreeArchiveReceipt,
+  WorktreeDependentsScan,
   WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
@@ -78,6 +79,7 @@ export {
 } from './worktree-audit.js';
 export { buildWorktreeEnvVars, createWorktree } from './worktree-create.js';
 export {
+  createWorktreeDependentsScan,
   describeDisposalBlockers,
   findDisposalBlockers,
   findUnrecoverableEvidence,

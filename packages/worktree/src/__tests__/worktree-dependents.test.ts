@@ -21,8 +21,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeProjectHash } from '../paths.js';
-import { guardWorktreeDisposal, keepMarkerPath, readKeepMarker } from '../worktree-dependents.js';
+import {
+  createWorktreeDependentsScan,
+  guardWorktreeDisposal,
+  keepMarkerPath,
+  readKeepMarker,
+} from '../worktree-dependents.js';
 import { destroyWorktree } from '../worktree-destroy.js';
+import { disposeWorktree } from '../worktree-dispose.js';
 import { pruneWorktrees } from '../worktree-prune.js';
 
 function git(cwd: string, args: string[]): string {
@@ -115,5 +121,77 @@ describe('keep marker honoured by the batch prune (T13700)', () => {
     const second = pruneWorktrees({ projectRoot: repo, preserveTaskIds: new Set(['T000']) });
     expect(second.errors).toEqual([]);
     expect(existsSync(keepMarkerPath(wt))).toBe(false);
+  });
+});
+
+describe('a listing shares one dependents scan (T14554)', () => {
+  /** `count` finished worktrees, the first one linked into by the second. */
+  function fleet(count: number): { paths: string[]; link: string } {
+    const paths: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const wt = join(root, `T98${i}`);
+      git(repo, ['worktree', 'add', '-q', '-b', `task/T98${i}`, wt]);
+      mkdirSync(join(wt, 'node_modules', '.pnpm', `dep${i}@1.0.0`), { recursive: true });
+      symlinkSync(
+        join(wt, 'node_modules', '.pnpm', `dep${i}@1.0.0`),
+        join(wt, 'node_modules', `dep${i}`),
+      );
+      paths.push(wt);
+    }
+    const link = join(paths[1] as string, 'node_modules', '.pnpm', 'shared@1.0.0');
+    symlinkSync(join(paths[0] as string, 'node_modules', '.pnpm', 'dep0@1.0.0'), link);
+    return { paths, link };
+  }
+
+  it('reads each checkout once for the whole listing and proves exactly what a fresh scan does', () => {
+    const { paths, link } = fleet(6);
+    const scan = createWorktreeDependentsScan();
+    const prove = (wt: string, dependentsScan?: typeof scan) =>
+      disposeWorktree({
+        worktreePath: wt,
+        projectRoot: repo,
+        taskId: null,
+        reason: 'list',
+        dryRun: true,
+        dependentsScan,
+      });
+
+    const shared = paths.map((wt) => prove(wt, scan));
+    const fresh = paths.map((wt) => prove(wt));
+
+    expect(shared).toEqual(fresh);
+    expect(shared[0]?.kept?.dependents).toEqual([link]);
+    expect(shared.slice(1).every((r) => r.kept === undefined)).toBe(true);
+    // Bounded by the checkout count (6 worktrees + the main checkout), never 6 x 6.
+    expect(scan.linkScans).toBeLessThanOrEqual(paths.length + 1);
+    expect(scan.checkouts.size).toBe(1);
+    // A dry run writes no keep marker, shared scan or not.
+    expect(existsSync(keepMarkerPath(paths[0] as string))).toBe(false);
+  });
+
+  it('a removal ignores a shared scan: a link made after the listing still keeps the worktree', () => {
+    const { paths } = fleet(3);
+    const owner = paths[2] as string;
+    const scan = createWorktreeDependentsScan();
+    expect(
+      guardWorktreeDisposal(owner, {
+        taskId: 'T982',
+        reason: 'list',
+        gitRoot: repo,
+        dryRun: true,
+        dependentsScan: scan,
+      }),
+    ).toBeNull();
+
+    const late = join(paths[0] as string, 'node_modules', '.pnpm', 'late@1.0.0');
+    symlinkSync(join(owner, 'node_modules', '.pnpm', 'dep2@1.0.0'), late);
+
+    const kept = guardWorktreeDisposal(owner, {
+      taskId: 'T982',
+      reason: 'prune',
+      gitRoot: repo,
+      dependentsScan: scan,
+    });
+    expect(kept?.dependents).toEqual([late]);
   });
 });

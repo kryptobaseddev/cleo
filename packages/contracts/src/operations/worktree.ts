@@ -510,6 +510,38 @@ export interface DestroyWorktreeOptions {
 }
 
 /**
+ * One checkout read by the dependents scan (T14554): its real path, and each
+ * symlink it could link into another worktree through with the link's
+ * resolved target (`null` when the target does not resolve). `links` stays
+ * unset until a disposal needs it.
+ *
+ * @task T14554
+ */
+export interface WorktreeScannedCheckout {
+  /** The checkout's real path, or `null` when it does not resolve. */
+  real: string | null;
+  /** Its candidate symlinks, read at most once per scan. */
+  links?: ReadonlyArray<{ path: string; target: string | null }>;
+}
+
+/**
+ * A memo shared by the dry-run disposal proofs of one listing (T14554), so
+ * finding a worktree's dependents reads every other checkout once per listing
+ * instead of once per proven worktree. Honoured only by dry runs: a removal
+ * always rescans the disk.
+ *
+ * @task T14554
+ */
+export interface WorktreeDependentsScan {
+  /** The other checkouts per scanned directory and git root. */
+  checkouts: Map<string, readonly string[]>;
+  /** Each checkout read so far, by path. */
+  scanned: Map<string, WorktreeScannedCheckout>;
+  /** How many checkouts had their links read (bounded by the checkout count). */
+  linkScans: number;
+}
+
+/**
  * Why a worktree disposal was refused (T13696). Disposal deletes the whole
  * directory, so it is skipped while anything outside it still needs a file in it.
  *
@@ -664,6 +696,11 @@ export interface DisposeWorktreeOptions {
    * a reason when it does, `null` when not. A probe that throws counts as in use.
    */
   inUse?: () => string | null;
+  /**
+   * A dependents scan shared across one listing's proofs (T14554). Used only
+   * with `dryRun`; any other disposal scans afresh.
+   */
+  dependentsScan?: WorktreeDependentsScan;
 }
 
 /**

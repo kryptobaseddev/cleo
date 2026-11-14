@@ -2160,6 +2160,7 @@ export type {
   PruneWorktreesOptions,
   PruneWorktreesResult,
   WorktreeArchiveReceipt,
+  WorktreeDependentsScan,
   WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
@@ -2176,6 +2177,7 @@ export type {
   WorktreeLockRecord,
   WorktreeLockSessionProbe,
   WorktreeLockSessionState,
+  WorktreeScannedCheckout,
   WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
