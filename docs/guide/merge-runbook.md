@@ -3,133 +3,76 @@ covers:
   - .github/workflows/release-prepare.yml
   - packages/core/src/release/preflight-skip.ts
 ---
-# Merge Queue Runbook
+# Merge Runbook
 
-> **Not in use (T13480 · #1268):** no GitHub Merge Queue is configured on this
-> repository (personal-account repo; GraphQL `repository.mergeQueue` is `null`).
-> PRs merge serially once their own required `CI` is green. This runbook describes
-> a setup that is not in use; see the Release & Branching section of `AGENTS.md`.
+> **Owner:** Saga T10431 · **Tasks:** T13480, T14101, T14122, T14143
 
-> **Status:** Live · **Owner:** Saga T10431 · **Task:** T10446  
-> **Last updated:** 2026-10-03
-
-This document is the operator-facing runbook for GitHub Merge Queue on the
-`cleocode` repository. It covers setup, day-to-day commands, the zero-admin-merge
-policy, troubleshooting, and FAQ.
+How a PR reaches `main` in this repository, how a merged PR closes its tasks,
+and how the release bump-PR is merged. There is **no GitHub Merge Queue**: this
+is a personal-account repository, where GraphQL `repository.mergeQueue` is
+`null` (T13480 · #1268). `ci.yml` and a few other workflows still declare
+`merge_group:`; nothing fires it.
 
 ---
 
-## Setup
+## How a PR merges
 
-### Prerequisites
+1. **Branch.** Work on `feat/T####-<slug>` or `task/T####-<slug>` (agents: in
+   their CLEO worktree). Never push to `main`.
+2. **Open a ready PR to `main`.** Its body names the tasks it delivers, one
+   line per task (ADR-099):
+   - `Closes: T#### AC1,AC2` completes the task once the merged PRs that name
+     it cover every criterion.
+   - `Refs: T#### AC1` binds those criteria and leaves the task open (partial
+     delivery). A bare `Refs: T####` with no criteria is malformed.
 
-- Repository admin access (or ask an owner).
-- `gh` CLI authenticated (`gh auth status`).
-- Default branch is `main`.
+   `pr-task-lines.yml` flags a PR whose body names no task or whose lines are
+   malformed. It is a flag, not a merge gate (exempt: `release/*`, bot authors,
+   the `no-task` label).
+3. **Required checks.** Branch protection on `main` requires `CI` and
+   `Contracts Dep Lint`, with `strict: false`: a PR merges once its own `CI` is
+   green, without re-running after every other merge. Main-push CI catches a
+   break that only the combination of two PRs causes. Setup commands:
+   [`branch-protection-setup.md`](./branch-protection-setup.md).
+4. **Independent review.** A reviewer who is not an author of the task records
+   a verdict per criterion on the PR's current head:
 
-### How `merge_group` triggers work
+   ```bash
+   cleo review packet <pr> --task T####            # the diff and criteria, PR prose withheld
+   cleo review verdict <pr> --task T#### --ac AC1 --met --reason "..." --packet <packetSha256>
+   cleo review check <pr> --task T####             # exits 1 while any criterion lacks a met verdict
+   ```
 
-When a PR is added to the merge queue, GitHub creates a temporary merge branch
-(`gh-readonly-queue/<target>/<pr>-<sha>`) and pushes it. This push fires the
-`merge_group` event. Any workflow whose `on:` block includes `merge_group:` will
-run against that temporary branch. The queue waits for all required checks to
-pass before fast-forwarding the target branch.
+   A new push moves the head, and verdicts on the old head no longer count.
+5. **Pre-merge status.** The store owner's sweep sets the `cleo/merge-close`
+   commit status on each open PR's head: green when every named criterion is
+   known and has a met verdict on that head (and, for `Closes:`, every
+   criterion is bound), otherwise red with the reason (for example
+   `T#### AC4: no verdict on head <sha>`). It is not a required check; it shows
+   before merge whether the merge will close anything. Check the same thing
+   locally with `cleo done --from-merge <pr> --dry-run`.
+6. **Merge** serially once `CI` is green on the PR head. A repo admin can merge
+   without `CI` (`enforce_admins: false`, T12152): that is the owner's escape
+   hatch, used for the release bump-PR below and otherwise only as an audited
+   break-glass step (log it in `.cleo/audit/force-bypass.jsonl` with PR,
+   reason, operator and time).
 
-Key points:
-- `merge_group` is a distinct event from `pull_request` or `push`.
-- Workflows that do **not** declare `merge_group:` will not run in the queue.
-- If a required status check is listed in branch protection but its workflow
-  lacks `merge_group:`, the PR will stall forever.
+## How a merged PR closes its tasks (merge sweep, T14101)
 
-### Which workflows have `merge_group:`
-
-Every workflow that must run in the queue needs `merge_group:` in its `on:`
-block. As of 2026-05-24, the following 12 PR-gated workflows declare it:
-
-| Workflow | `merge_group:` present? |
-|---|---|
-| `arch-boundary-check.yml` | ✓ |
-| `auto-tag-on-release-merge.yml` | ✓ |
-| `boundary-registry-lint.yml` | ✓ |
-| `ci.yml` | ✓ |
-| `docs-reingest.yml` | ✓ |
-| `dual-implementation-lint.yml` | ✓ |
-| `identity-pollution-check.yml` | ✓ |
-| `lockfile-check.yml` | ✓ |
-| `release-pipeline-matrix.yml` | ✓ |
-| `skills-depth-check.yml` | ✓ |
-| `worktree-cleanup.yml` | ✓ |
-| `worktree-napi-prebuild.yml` | ✓ |
-
-The following 5 workflows do **not** need `merge_group:` because they are
-triggered by non-PR events:
-
-| Workflow | Trigger | Why no `merge_group:` |
-|---|---|---|
-| `release-prepare.yml` | `workflow_dispatch` | Manual dispatch only |
-| `release.yml` | `push: tags:` + `workflow_dispatch` | Tag push or manual |
-| `freshness-sentinel.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
-| `skills-council.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
-| `skills-grade.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
-
-If a new PR-gated workflow is added, it **must** include `merge_group:` or
-merge queue will skip its checks and the PR will stall.
-
-### Enable merge queue on the repository
-
-GitHub Merge Queue is enabled at the repository level via the web UI or API.
-
-**Web UI (recommended):**
-1. Go to **Settings → General → Pull Requests**.
-2. Under **Merge button**, check **Allow merge queue**.
-3. Choose **Build strategy**: **All checks required** (recommended) or
-   **Only required checks**.
-4. Set **Maximum pull requests to build**: `5` (default).
-5. Set **Maximum pull requests to merge**: `5` (default).
-6. Set **Minimum pull requests to merge**: `1` (default).
-7. Set **Maximum build time for a pull request**: `60` minutes.
-8. Save.
-
-**API (automation / reproducibility):**
-
-```bash
-# Enable merge queue (requires admin token)
-gh api -X PATCH repos/:owner/:repo \
-  -f allow_merge_queue=true \
-  -f merge_queue_build_strategy='all' \
-  -f merge_queue_maximum_entries=5 \
-  -f merge_queue_maximum_entries_to_merge=5 \
-  -f merge_queue_minimum_entries_to_merge=1 \
-  -f merge_queue_maximum_build_time=60
-```
-
-> **Note:** The `gh` CLI does not yet expose a first-class `merge queue enable`
-> command. Use the web UI or the REST API above.
-
-### Verify branch protection works with merge queue
-
-Merge queue requires branch protection rules (or a ruleset) that:
-- Require status checks to pass before merging.
-- Require pull request reviews (optional but recommended).
-
-Run the protection setup from `docs/release/branch-protection-setup.md`:
-
-```bash
-gh api -X PUT repos/:owner/:repo/branches/main/protection \
-  -f required_status_checks[strict]=true \
-  -f required_status_checks[contexts][]=CI \
-  -f required_status_checks[contexts][]="Lockfile Check" \
-  -f required_status_checks[contexts][]="Contracts Dep Lint" \
-  -f enforce_admins=false \
-  -f required_pull_request_reviews[required_approving_review_count]=0 \
-  -f restrictions=null
-```
-
-Then verify the queue is active:
-
-```bash
-gh api repos/:owner/:repo/branches/main/protection | jq '.required_pull_request_reviews, .required_status_checks'
-```
+- On merge, `merge-close.yml` runs `cleo done --from-merge <pr> --receipt
+  --comment`: it judges the PR without a task store and posts a receipt comment
+  (the tasks named, and whether the required checks were green on the exact
+  head). CI never writes to a task store.
+- The store owner's machine applies the receipt (`sweepMergedClosures` in
+  `packages/core/src/tasks/merge-close.ts`): from the daemon loop, lazily from
+  `cleo briefing`, `next`, `current`, `show` and `release`, or by hand with
+  `cleo done --from-merge <pr>` (or `all`). It re-derives everything from `gh`
+  and records through the same path as `cleo done --pr`, so `pr:`, `ci:` and
+  reviewer-bound `satisfies:` evidence land without an agent step.
+- Each applied line writes one `merge_close` audit row keyed by PR, merge
+  commit and task, so a rerun records nothing twice. A PR merged with red `CI`,
+  no task lines, malformed lines or missing verdicts closes nothing, and its
+  receipt says why.
 
 ---
 
@@ -216,8 +159,7 @@ Rules:
   wait.
 - `--merge` (a merge commit), not squash: the tag is cut from `main` after the
   merge and must contain the bump commit as prepared.
-- This is the ONE sanctioned use of `--admin` under the Zero-Admin-Merge Policy
-  below (owner-approved; `enforce_admins: false` is the intended escape hatch,
+- This is the ONE sanctioned use of `--admin` (owner-approved; `enforce_admins: false` is the intended escape hatch,
   T12152). Record it in `.cleo/audit/force-bypass.jsonl` like any other bypass,
   with reason `release bump-PR: dispatched CI green on <sha>`.
 - `cleo release open` does not watch or merge the bump-PR (it dispatches
@@ -366,287 +308,49 @@ so never add a new package in a hotfix. The automatic candidate is
 writes `"cleo": { "hotfix": true }` into `@cleocode/cleo`'s package.json from
 the committed plan (T13184), so the `latest` publish carries the flag, and
 installed CLIs show the stronger HOTFIX notice once it is `latest` (see
-`docs/release/verb-matrix.md`). Nothing else is needed.
-
-## Operator Commands
-
-### Add a PR to the merge queue
-
-**Web UI:**
-1. Open the PR.
-2. Click the dropdown next to the green **Merge** button.
-3. Select **Merge when ready** (or **Add to merge queue**).
-4. GitHub creates a temporary merge branch and runs CI.
-
-**CLI (no native `gh merge-queue` command yet):**
-
-Use the GitHub GraphQL API or the web UI. A helper alias:
-
-```bash
-# Add PR #<num> to merge queue (requires GraphQL token)
-gh api graphql -f query='
-  mutation($id: ID!) {
-    enqueuePullRequest(input: {pullRequestId: $id}) {
-      mergeQueueEntry {
-        id
-        state
-      }
-    }
-  }
-' -f id="$(gh pr view <num> --json id -q .id)"
-```
-
-### Check queue status
-
-```bash
-# List PRs currently in the merge queue
-gh api repos/:owner/:repo/pulls?state=open | \
-  jq '.[] | select(.merge_queue_entry != null) | {number, title, merge_queue_entry: .merge_queue_entry.state}'
-```
-
-Or view the queue in the web UI:
-- **Repository → Pull requests → Merge queue** (tab near the top).
-
-You can also use `cleo orchestrate status --merge-queue` (when available) to
-see a project-local summary of queued PRs and their CI state.
-
-### Remove a PR from the queue
-
-**Web UI:**
-1. Open the PR.
-2. Click **Remove from merge queue**.
-
-**CLI:**
-
-```bash
-gh api graphql -f query='
-  mutation($id: ID!) {
-    dequeuePullRequest(input: {pullRequestId: $id}) {
-      mergeQueueEntry {
-        id
-        state
-      }
-    }
-  }
-' -f id="$(gh pr view <num> --json id -q .id)"
-```
-
-### View merge queue history
-
-```bash
-# Recent merge-group events (push to gh-readonly-queue/* branches)
-gh api repos/:owner/:repo/events?per_page=30 | \
-  jq '.[] | select(.type == "PushEvent") | select(.payload.ref | contains("gh-readonly-queue")) | {created_at, ref: .payload.ref, before, after}'
-```
-
-### Check a specific merge-group CI run
-
-Merge-group builds appear in the Actions tab with branch names like
-`gh-readonly-queue/main/pr-123-<sha>`.
-
-```bash
-# List recent merge-group runs
-gh run list --branch "gh-readonly-queue/main" --limit 10
-
-# View a specific run
-gh run view <run-id>
-```
-
----
-
-## Zero-Admin-Merge Policy
-
-**All PRs must pass CI. No bypass.**
-
-This repository operates under a strict zero-admin-merge policy:
-
-1. **No human clicks "Merge"** — once a PR is approved and CI-green, the
-   author (or any collaborator) adds it to the merge queue.
-2. **The queue is the only path to `main`** — every commit on `main` has
-   passed CI on the exact merge commit, not just the PR branch tip.
-3. **Admin bypass is audited** — repository admins can technically bypass
-   the queue via **Admin merge** or `gh pr merge --admin`, but this is
-   reserved for true break-glass scenarios. Any bypass must be logged in
-   `.cleo/audit/force-bypass.jsonl` with:
-   - PR number
-   - Reason
-   - Operator identity
-   - Timestamp
-
-   The release bump-PR is the one standing, owner-approved exception: it is
-   admin-merged once its dispatched CI is green on the head SHA (see
-   "Merging the bump-PR" above).
-
-Consequences of bypassing:
-- Unreviewed or broken code can reach `main`.
-- The "green PR + stale main" race condition is reintroduced.
-- Release automation (auto-tag, worktree cleanup) may behave unexpectedly
-  because it expects the `merge_group` lifecycle.
-
----
+[`verb-matrix.md`](../reference/verb-matrix.md)). Nothing else is needed.
 
 ## Troubleshooting
 
-### Queue blocked — CI never starts
+### `cleo/merge-close` is red on a green PR
 
-**Symptom:** PR shows "Waiting for checks to pass" indefinitely.
+Read its description: a missing, unmet or stale verdict, an unknown task or
+criterion, or a malformed line. Fix the body (`gh pr edit <pr> --body-file
+...`) or get a verdict on the current head, then re-check with
+`cleo done --from-merge <pr> --dry-run`. After a push, verdicts must be
+recorded again on the new head.
 
-**Diagnosis:**
-1. Check whether the temporary merge branch exists:
-   ```bash
-   git ls-remote origin 'refs/heads/gh-readonly-queue/*'
-   ```
-2. If the branch exists but no Actions run started, verify the workflow
-   files declare `merge_group:`.
-3. Check **Settings → Actions → General** — ensure Actions are enabled
-   for merge-group events (they are by default).
+### PR `CI` tested an old `main`
 
-**Fix:**
-- If a workflow is missing `merge_group:`, add it and re-queue the PR.
-- If the branch does not exist, remove and re-add the PR to the queue.
+A PR run tests the merge ref GitHub built when the run started. A rerun or a
+close-and-reopen keeps that ref; updating the branch (`gh pr update-branch` or
+a rebase and push) builds a fresh one. Read the checkout step to see which
+`main` was tested.
 
-### Stuck PRs — fails in queue but passes on the PR branch
+### A unit shard is red but every test passed
 
-**Symptom:** Green PR CI, red merge-group CI.
+The flaky-quarantine budget (more than 10 quarantined tests) fails main's CI;
+see "Flaky tests" above. Fix one flake, close its issue, then rerun.
 
-**Cause:** Merge queue tests the *merge commit* (`main` + PR), not the
-PR branch tip. A conflicting change landed on `main` after the PR's last
-rebase.
+### Merged, but the task stayed open
 
-**Fix:**
-1. Rebase the PR on latest `main`:
-   ```bash
-   git fetch origin
-   git rebase origin/main
-   git push --force-with-lease
-   ```
-2. Re-add the PR to the queue.
+Run `cleo done --from-merge <pr> --dry-run`. Typical causes: a `Refs:` line
+(partial by design), a criterion with no met verdict on the merged head, red
+`CI` on that head, or criteria still unbound by any merged PR. A PR merged
+before the sweep existed is closed with `cleo done <id> --plan`, then
+`cleo verify` and `cleo complete`.
 
-### Flake diagnosis — "Required status check "X" was not reported"
+### Worktree not removed after merge
 
-**Symptom:** Merge queue complains that a required check is missing.
-
-**Cause:** The branch protection rule lists a check name that does not
-match the job name reported by GitHub Actions. This is common after
-renaming a workflow job.
-
-**Fix:**
-1. Find the exact check name from a recent PR:
-   ```bash
-   gh pr checks <pr-number>
-   ```
-2. Update the branch protection rule to match the exact string:
-   ```bash
-   gh api -X PUT repos/:owner/:repo/branches/main/protection \
-     -f required_status_checks[contexts][]="Exact Job Name"
-   ```
-
-### Merge queue disabled / missing from UI
-
-**Symptom:** No "Merge when ready" button; only "Merge pull request".
-
-**Cause:** Merge queue is not enabled in repository settings, or the
-branch protection rules do not require status checks.
-
-**Fix:**
-1. Re-run the setup steps in the Setup section above.
-2. Ensure at least one status check is required by protection rules.
-
-### Auto-tag workflow (`auto-tag-on-release-merge.yml`) not firing
-
-**Symptom:** Release PR merged, but no tag created.
-
-**Diagnosis:**
-1. Check whether the merge was performed by the merge queue or a manual
-   merge. The workflow triggers on `pull_request: types: [closed]` with
-   `merged == true`. Merge-queue merges *do* emit this event, but verify
-   in the Actions tab.
-2. Check the PR title matches `^release: ship v<version>`.
-
-**Fix:**
-- If the title is wrong, rename the PR and re-merge (or tag manually as
-  a break-glass measure).
-- If the workflow did not run, check `.github/workflows/auto-tag-on-release-merge.yml`
-  for syntax errors.
-
-### Worktree cleanup not running after merge-queue merge
-
-**Symptom:** Merged PR's worktree still exists.
-
-**Cause:** `worktree-cleanup.yml` triggers on `pull_request: types: [closed]`
-and `push: branches: [main]`. Merge-queue merges emit the `closed` event,
-but the `merged` flag must be `true`.
-
-**Fix:**
-- Verify the workflow's `if:` guard:
-  ```yaml
-  if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.merged == true) || github.event_name == 'push' }}
-  ```
-- If the guard is correct, check the Actions log for the specific run.
-
----
-
-## FAQ
-
-### Q1: Do I need to rebase before adding to the merge queue?
-
-**A:** No. The queue creates the merge commit automatically. However, if
-your PR branch is far behind `main`, the queue build may fail due to
-conflicts. Rebase proactively to reduce queue churn.
-
-### Q2: Can I merge manually (bypass the queue)?
-
-**A:** Admins can bypass, but this is audited. The zero-admin-merge policy
-expects *all* merges to go through the queue. If you must bypass:
-1. Use **Admin merge** (GitHub UI) or `gh pr merge --admin`.
-2. Log the bypass reason in `.cleo/audit/force-bypass.jsonl`.
-
-### Q3: Does merge queue work with release PRs?
-
-**A:** Yes. Release PRs (title `release: ship vX.Y.Z`) are added to the
-queue like any other PR. After the queue merges them, `auto-tag-on-release-merge.yml`
-fires and creates the tag.
-
-### Q4: What happens if two PRs conflict in the queue?
-
-**A:** GitHub builds them sequentially. If PR #2's merge commit conflicts
-with PR #1 (which just merged), PR #2 is kicked out of the queue and the
-author is notified. Rebase and re-queue.
-
-### Q5: How do I disable merge queue temporarily?
-
-**A:** Repository admins can disable it in **Settings → General → Pull Requests**.
-This is a break-glass measure — document the reason in the audit log and
-re-enable as soon as possible.
-
-### Q6: Why do some workflows have `merge_group:` and others don't?
-
-**A:** Only workflows that need to run *before* a PR can merge need
-`merge_group:`. Workflows triggered by tags, cron, or manual dispatch
-never run in the queue context, so they omit the trigger.
-
-### Q7: Can I see the temporary merge branch locally?
-
-**A:** GitHub does not push `gh-readonly-queue/*` branches to the remote
-by default (they are internal). You can inspect the merge commit after the
-queue finishes via:
-
-```bash
-git fetch origin main
-git log --oneline -5 origin/main
-```
-
-### Q8: What is `cleo orchestrate status --merge-queue`?
-
-**A:** When implemented, this command surfaces a project-local summary of
-queued PRs, their CI state, and estimated time-to-merge. Until then, use
-the `gh api` and web UI commands documented in the Operator Commands section.
+`worktree-cleanup.yml` runs on `pull_request: closed` with `merged == true` and
+on pushes to `main`, and runs `cleo worktree destroy <taskId>` for each task id it finds. Check its run log. Every removal goes through `disposeWorktree`, which keeps a worktree that holds anything not proven safe to delete.
 
 ---
 
 ## References
 
-- `AGENTS.md` — Release & Branching (ADR-065) section
-- `docs/release/branch-protection-setup.md` — Branch protection API commands
-- `docs/release/verb-matrix.md` — Release verb surface
-- GitHub Docs: [Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)
+- `AGENTS.md` — Release & Branching (ADR-065 · ADR-087) section
+- [`branch-protection-setup.md`](./branch-protection-setup.md) — branch protection API commands
+- [`verb-matrix.md`](../reference/verb-matrix.md) — release verb surface
+- [`pr-cadence.md`](../spec/pr-cadence.md) — task-to-PR-to-release traceability (ADR-099)
+- `packages/core/src/tasks/merge-close.ts` — sweep, receipt and pre-merge status
