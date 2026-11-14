@@ -172,6 +172,13 @@ caamp advanced instructions --content-file ./AGENT-BLOCK.md --scope project
 caamp advanced configure -a claude-code --global-mcp-file ./global-mcp.json --project-mcp-file ./project-mcp.json
 ```
 
+### Pi harness verbs (deprecated)
+
+`caamp pi …` still ships but prints a deprecation warning: ADR-098 retires the
+Pi/CleoOS harness, and the `caamp pi` verbs, `harness/pi.ts` and the Pi
+exclusivity mode are removed after a release ships the freeze. Pi stays a
+normal provider in the registry (medium priority), like any other.
+
 ## Global Flags
 
 | Flag | Description |
@@ -185,12 +192,12 @@ caamp advanced configure -a claude-code --global-mcp-file ./global-mcp.json --pr
 
 ## Supported Providers
 
-CAAMP supports **44 AI coding agents** across 3 priority tiers:
+CAAMP supports **46 AI coding agents** across 3 priority tiers (`packages/caamp/providers/registry.json`):
 
 | Priority | Providers |
 |----------|-----------|
 | **High** | Claude Code, Cursor, Windsurf |
-| **Medium** | Codex CLI, Gemini CLI, GitHub Copilot, OpenCode, Cline, Kimi, VS Code, Zed, Claude Desktop, Amazon Q Developer, GitHub Copilot CLI |
+| **Medium** | Codex CLI, Gemini CLI, GitHub Copilot, OpenCode, Cline, Kimi, VS Code, Zed, Claude Desktop, Amazon Q Developer, GitHub Copilot CLI, Pi Coding Agent, OpenAI SDK (Vercel AI SDK) |
 | **Low** | Roo, Continue, Goose, Antigravity, Kiro, Amp, Trae, Aide, Pear AI, Void AI, Cody, Kilo Code, Qwen Code, OpenHands, CodeBuddy, CodeStory, Aider, Tabnine, Augment, JetBrains AI, Devin, Replit Agent, Mentat, Sourcery, Blackbox AI, Double, Codegen, SWE-Agent, Forge, Gemini Code Assist |
 
 ### Config Key Mapping

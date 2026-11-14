@@ -2,7 +2,7 @@
 
 > Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
 
-Unified provider adapters for CLEO - Claude Code, OpenCode, Cursor integration.
+Unified provider adapters for CLEO: install, hook and instruction-injection code for each AI coding harness, plus the SDK spawn adapters.
 
 ## Overview
 
@@ -12,9 +12,16 @@ This package provides standardized adapters for integrating CLEO with various AI
 
 | Provider | Status | Features |
 |----------|--------|----------|
-| **Claude Code** | ✅ Production | Full integration with statusline sync, context monitoring |
-| **OpenCode** | ✅ Production | Spawn hooks, task synchronization |
-| **Cursor** | ✅ Production | Basic adapter with install hooks |
+| **Claude Code** | ✅ Production | Full integration with statusline sync, context monitoring, PreCompact hook |
+| **OpenCode** | ✅ Production | Spawn hooks, task synchronization, PreCompact plugin |
+| **Cursor** | ✅ Production | Basic adapter with install hooks, PreCompact hook |
+| **Codex** | Adapter | `AGENTS.md` instruction references; heavy-command `PreToolUse` hook in `.codex/hooks.json` |
+| **Gemini CLI** | Adapter | `GEMINI.md` instruction references; a PreCompact shim ships but is not wired yet |
+| **Kimi** | Adapter | `AGENTS.md` instruction references |
+| **claude-sdk**, **openai-sdk** | SDK spawn | Programmatic subagent execution behind `cleo orchestrate spawn-execute` (Vercel AI SDK); whether to keep them is an open owner call in ADR-098 |
+| **Pi** | Deprecated | Retiring with the Pi/CleoOS harness (ADR-098); removed after a release ships the freeze |
+
+Per-provider detail: [`src/providers/README.md`](src/providers/README.md).
 
 ## Installation
 
@@ -502,4 +509,4 @@ Example manifest:
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
+MIT License - see [LICENSE](../../LICENSE) for details.

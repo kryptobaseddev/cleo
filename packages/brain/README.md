@@ -2,30 +2,38 @@
 
 > Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
 
-The unified-graph **Brain** substrate for CLEO — a substrate-agnostic projection
-across all five CLEO databases: **BRAIN**, **NEXUS**, **TASKS**, **CONDUIT**,
-and **SIGNALDOCK**.
+The unified-graph **Brain** substrate for CLEO: a substrate-agnostic projection
+across five substrates: **brain** (memory), **nexus** (code graph), **tasks**,
+**conduit** (messages) and **agent-registry** (agents).
+
+> **Known defect (T14583).** The adapters still open the legacy per-domain
+> files (`brain.db`, `tasks.db`, `conduit.db` under the project `.cleo/`,
+> `signaldock.db` and `nexus.db` under CLEO home). The live store is one
+> `cleo.db` per scope with prefixed tables (`tasks_tasks`,
+> `agent_registry_agents`, …); `tasks.db` and `brain.db` are decoys and
+> `signaldock.db` is retired. Until T14583 lands, `getAllSubstrates()` reads
+> stale or empty files.
 
 ## Purpose
 
 `@cleocode/brain` promotes the unified-graph substrate from a studio-internal
 module to a first-class workspace package, mirroring `@cleocode/nexus`. Operator
 mandate per T962 reconciliation: BRAIN is the super-domain (wraps memory +
-nexus + tasks + conduit + signaldock), deserves CLI access, and needs a package
-standalone publish lane.
+nexus + tasks + conduit + the agent registry), deserves CLI access, and needs a
+package standalone publish lane.
 
 ## Substrates
 
 Every node carries a substrate-prefixed ID so cross-substrate edges can
 reference nodes unambiguously, e.g. `brain:O-abc` vs `nexus:sym-123`.
 
-| Substrate    | Database             | Node kinds                                   |
-|--------------|----------------------|----------------------------------------------|
-| `brain`      | brain.db (project)   | observation, decision, pattern, learning     |
-| `nexus`      | nexus.db (global)    | symbol, file                                 |
-| `tasks`      | tasks.db (project)   | task, session                                |
-| `conduit`    | conduit.db (project) | message                                      |
-| `signaldock` | signaldock.db (global) | agent                                      |
+| Substrate        | File the adapter opens today (see T14583) | Node kinds                               |
+|------------------|-------------------------------------------|------------------------------------------|
+| `brain`          | `brain.db` (project)                      | observation, decision, pattern, learning |
+| `nexus`          | `nexus.db` (global)                       | symbol, file                             |
+| `tasks`          | `tasks.db` (project)                      | task, session                            |
+| `conduit`        | `conduit.db` (project)                    | message                                  |
+| `agent-registry` | `signaldock.db` (global)                  | agent                                    |
 
 ## Usage
 
@@ -42,8 +50,8 @@ Individual substrate adapters are exported from `@cleocode/brain/adapters`:
 import {
   getBrainSubstrate,
   getConduitSubstrate,
+  getAgentRegistrySubstrate,
   getNexusSubstrate,
-  getSignaldockSubstrate,
   getTasksSubstrate,
 } from '@cleocode/brain/adapters';
 ```
