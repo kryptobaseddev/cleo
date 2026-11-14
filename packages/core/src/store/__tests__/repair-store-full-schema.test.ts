@@ -3,7 +3,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { syncDocsFts } from '../../docs/docs-fts.js';
 import { ensureFts5Tables } from '../../memory/brain-search.js';
@@ -140,7 +140,21 @@ it('repairs the complete current schema with contentless/external FTS and vector
   Buffer.from('GARBAGE-NOT-SQLITE').copy(damaged);
   writeFileSync(live, damaged);
 
+  const prepare = DatabaseSync.prototype.prepare;
+  const ftsLookupPlans: string[] = [];
+  vi.spyOn(DatabaseSync.prototype, 'prepare').mockImplementation(function (
+    this: DatabaseSync,
+    sql: string,
+  ) {
+    if (sql.startsWith('SELECT * FROM main."nexus_symbols_fts" WHERE')) {
+      const plan = prepare.call(this, `EXPLAIN QUERY PLAN ${sql}`).get(1);
+      ftsLookupPlans.push(String(plan?.detail));
+    }
+    return prepare.call(this, sql);
+  });
   const receipt = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+  expect(ftsLookupPlans.length).toBeGreaterThan(0);
+  expect(ftsLookupPlans.every((plan) => /VIRTUAL TABLE INDEX \d+:=/.test(plan))).toBe(true);
   expect(receipt).toMatchObject({ status: 'repaired', integrityOK: true, snapshot });
   const repaired = openCleoDbSnapshot(live, { loadSqliteVec: true });
   try {

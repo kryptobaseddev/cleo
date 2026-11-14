@@ -606,7 +606,10 @@ export function salvageIntoSnapshot(
                 const identity = pk.length > 0 ? pk : common;
                 const col = (c: string): string => repairIdentifier(c === ROWID ? '_rowid_' : c);
                 const q = `main.${repairIdentifier(table.name)}`;
-                const where = identity.map((c) => `${col(c)} IS ?`).join(' AND ');
+                // FTS5 indexes rowid equality, but IS scans the entire virtual table for every row.
+                const where = identity
+                  .map((c) => `${col(c)} ${c === ROWID ? '=' : 'IS'} ?`)
+                  .join(' AND ');
                 const find = db.prepare(`SELECT * FROM ${q} WHERE ${where} LIMIT 1`);
                 find.setReadBigInts(true);
                 const ins = db.prepare(
@@ -783,7 +786,10 @@ export function salvageIntoSnapshot(
               continue;
             }
             const where = identity
-              .map((c) => `${repairIdentifier(c === ROWID ? '_rowid_' : c)} IS ?`)
+              .map(
+                (c) =>
+                  `${repairIdentifier(c === ROWID ? '_rowid_' : c)} ${c === ROWID ? '=' : 'IS'} ?`,
+              )
               .join(' AND ');
             const del = db.prepare(`DELETE FROM main.${repairIdentifier(name)} WHERE ${where}`);
             del.setReadBigInts(true);
@@ -820,7 +826,10 @@ export function salvageIntoSnapshot(
               report.conflicts = (report.conflicts ?? 0) + 1;
               removeBase(name, row, identity);
               const where = identity
-                .map((c) => `${repairIdentifier(c === ROWID ? '_rowid_' : c)} IS ?`)
+                .map(
+                  (c) =>
+                    `${repairIdentifier(c === ROWID ? '_rowid_' : c)} ${c === ROWID ? '=' : 'IS'} ?`,
+                )
                 .join(' AND ');
               const del = db.prepare(`DELETE FROM main.${q} WHERE ${where}`);
               del.setReadBigInts(true);
