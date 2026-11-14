@@ -13,12 +13,12 @@
  *    5 — id contains query term
  *
  * @task T4942
+ * @task T14108 — reads the canon ADR home instead of `.cleo/adrs/`
  * @see ADR-017 §5.4 for cognitive search spec
  */
 
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { AdminAdrFindParams } from '@cleocode/contracts';
+import { listAdrFiles } from './home.js';
 import { parseAdrFile } from './parse.js';
 import type { AdrFindResult } from './types.js';
 
@@ -57,15 +57,7 @@ export async function findAdrs(
   params: AdminAdrFindParams,
 ): Promise<AdrFindResult> {
   const query = params.query ?? '';
-  const adrsDir = join(projectRoot, '.cleo', 'adrs');
-
-  if (!existsSync(adrsDir)) {
-    return { adrs: [], query, total: 0 };
-  }
-
-  const files = readdirSync(adrsDir)
-    .filter((f) => f.endsWith('.md') && f.startsWith('ADR-'))
-    .sort();
+  const files = listAdrFiles(projectRoot);
 
   const queryTerms = normalise(query)
     .split(' ')
@@ -76,7 +68,7 @@ export async function findAdrs(
   const results: AdrFindResult['adrs'] = [];
 
   for (const file of files) {
-    const record = parseAdrFile(join(adrsDir, file), projectRoot);
+    const record = parseAdrFile(file.absPath, projectRoot);
     const fm = record.frontmatter;
 
     // Status filter

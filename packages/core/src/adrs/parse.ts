@@ -11,10 +11,13 @@ import { readFileSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 import type { AdrFrontmatter, AdrRecord } from './types.js';
 
-/** Extract ADR ID from filename (e.g., 'ADR-007-domain-consolidation.md' -> 'ADR-007') */
+/**
+ * Extract the ADR ID from a file name, in either case
+ * (e.g. `ADR-007-domain-consolidation.md` or `adr-007-domain-consolidation.md` -> `ADR-007`).
+ */
 export function extractAdrId(filename: string): string {
-  const match = filename.match(/^(ADR-\d+)/);
-  return match ? match[1]! : filename.replace('.md', '');
+  const match = filename.match(/^adr-(\d+)/i);
+  return match ? `ADR-${match[1]!}` : filename.replace('.md', '');
 }
 
 /** Parse bold-key frontmatter pattern: **Key**: value */

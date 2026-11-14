@@ -3,7 +3,7 @@
  *
  * When an architecture_decision stage completes for a pipeline task, this
  * module automatically:
- *   1. Finds ADRs in .cleo/adrs/ that reference the task in Related Tasks
+ *   1. Finds ADRs in the ADR home (`docs/adr/`, see `home.ts`) that reference the task in Related Tasks
  *   2. Upserts those ADRs into architecture_decisions DB
  *   3. Creates adr_task_links with link_type='implements'
  *   4. Links related ADRs via adr_relations if cross-references exist
@@ -14,9 +14,9 @@
  * @see ADR-017 §5.3 for adr_task_links and adr_relations schemas
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { adrRelations, adrTaskLinks, architectureDecisions } from '../store/tasks-schema.js';
+import { type AdrFile, listAdrFiles } from './home.js';
 import { parseAdrFile } from './parse.js';
 
 export interface PipelineAdrLinkResult {
@@ -38,27 +38,20 @@ function parseTaskIds(raw: string | undefined): string[] {
 }
 
 /**
- * Scan .cleo/adrs/ for ADRs that reference the given taskId in Related Tasks.
- * Returns file paths of matching ADRs.
+ * Find the ADRs in the ADR home that reference the given taskId in Related Tasks.
  */
-function findAdrsForTask(adrsDir: string, taskId: string): string[] {
-  if (!existsSync(adrsDir)) return [];
-
-  return readdirSync(adrsDir)
-    .filter((f) => f.endsWith('.md') && /^ADR-\d+/.test(f))
-    .filter((file) => {
-      try {
-        const content = readFileSync(join(adrsDir, file), 'utf-8');
-        // Quick check before parsing — look for task ID in Related Tasks line
-        const relatedTasksMatch = content.match(/^\*\*Related Tasks\*\*:\s*(.+)$/m);
-        if (!relatedTasksMatch) return false;
-        const taskIds = parseTaskIds(relatedTasksMatch[1]);
-        return taskIds.includes(taskId);
-      } catch {
-        return false;
-      }
-    })
-    .map((f) => join(adrsDir, f));
+function findAdrsForTask(projectRoot: string, taskId: string): AdrFile[] {
+  return listAdrFiles(projectRoot).filter((file) => {
+    try {
+      const content = readFileSync(file.absPath, 'utf-8');
+      // Quick check before parsing — look for task ID in Related Tasks line
+      const relatedTasksMatch = content.match(/^\*\*Related Tasks\*\*:\s*(.+)$/m);
+      if (!relatedTasksMatch) return false;
+      return parseTaskIds(relatedTasksMatch[1]).includes(taskId);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
@@ -78,8 +71,7 @@ export async function linkPipelineAdr(
     errors: [],
   };
 
-  const adrsDir = join(projectRoot, '.cleo', 'adrs');
-  const matchingFiles = findAdrsForTask(adrsDir, taskId);
+  const matchingFiles = findAdrsForTask(projectRoot, taskId);
 
   if (matchingFiles.length === 0) {
     return result;
@@ -90,13 +82,11 @@ export async function linkPipelineAdr(
   const db = await getDb(projectRoot);
   const now = new Date().toISOString();
 
-  for (const filePath of matchingFiles) {
-    const filename = basename(filePath);
+  for (const { name: filename, absPath: filePath, relPath: relativePath } of matchingFiles) {
     try {
       const record = parseAdrFile(filePath, projectRoot);
       const fm = record.frontmatter;
       const content = readFileSync(filePath, 'utf-8');
-      const relativePath = `.cleo/adrs/${filename}`;
 
       // Upsert ADR row
       const existing = await db

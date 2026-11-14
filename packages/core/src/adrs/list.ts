@@ -1,34 +1,25 @@
 /**
  * ADR List Operation (ADR-017)
  *
- * Lists ADR records from .cleo/adrs/ with optional filtering.
+ * Lists ADR records from the ADR home (`docs/adr/`, see `home.ts`) with
+ * optional filtering.
  *
  * @task T4792
+ * @task T14108 — reads the canon ADR home instead of `.cleo/adrs/`
  */
 
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { AdminAdrFindParams } from '@cleocode/contracts';
 import { paginate } from '../pagination.js';
+import { listAdrFiles } from './home.js';
 import { parseAdrFile } from './parse.js';
 import type { AdrListResult } from './types.js';
 
-/** List ADRs from .cleo/adrs/ directory with optional status filter */
+/** List ADRs from the ADR home with optional status filter */
 export async function listAdrs(
   projectRoot: string,
   params: AdminAdrFindParams = {},
 ): Promise<AdrListResult> {
-  const adrsDir = join(projectRoot, '.cleo', 'adrs');
-
-  if (!existsSync(adrsDir)) {
-    return { adrs: [], total: 0, filtered: 0 };
-  }
-
-  const files = readdirSync(adrsDir)
-    .filter((f) => f.endsWith('.md') && f.startsWith('ADR-'))
-    .sort();
-
-  const records = files.map((f) => parseAdrFile(join(adrsDir, f), projectRoot));
+  const records = listAdrFiles(projectRoot).map((f) => parseAdrFile(f.absPath, projectRoot));
 
   const total = records.length;
   const filtered = records.filter((r) => {
