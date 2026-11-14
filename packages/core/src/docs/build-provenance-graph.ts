@@ -173,7 +173,7 @@ export async function buildDocProvenanceGraph(
         ['superseded-by', links.supersededBy],
       ] as const) {
         if (!slug) continue;
-        const [target] = await resolveRootDocs(db, slug, projectRoot);
+        const [target] = await resolveRootDocs(db, slug, projectRoot, true);
         if (!target) continue;
         pushDocNeighbor(target, relation, row, nodes, edges, visitedKeys);
         if (!visitedDocIds.has(target.id)) {
@@ -365,13 +365,14 @@ async function resolveRootDocs(
   db: Awaited<ReturnType<typeof getDb>>,
   root: string,
   projectRoot: string,
+  quiet = false,
 ): Promise<AttachmentRow[]> {
   const looksLikeTask = /^T\d+$/.test(root);
 
   if (!looksLikeTask) {
     // T14288: a slug (live or an alias) resolves to the doc's head content row.
     const { resolveDocRef } = await import('./slug-rename.js');
-    const ref = await resolveDocRef(projectRoot, root);
+    const ref = await resolveDocRef(projectRoot, root, { quiet });
     return ref ? [normalizeRow({ ...ref.ownRow, sha256: ref.sha256, slug: ref.slug })] : [];
   }
 
