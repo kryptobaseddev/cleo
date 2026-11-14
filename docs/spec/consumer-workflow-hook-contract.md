@@ -169,6 +169,27 @@ Supported release command surfaces are CLI/API operations that manage release pl
 
 The machine-readable form of this table is `RELEASE_SHARED_SURFACE_CONTRACT` in `packages/contracts/src/operations/release.ts` (T10483). It classifies each command and template as `shared-surface` or `shipped-consumer-tooling`. The `cleocode-dogfood-workflow` audience is reserved for this repository's owner CI and is never assigned to a shipped surface.
 
+## Repository workflow classes and trigger policy
+
+Folded from the retired CI/hooks taxonomy runbook (T10478, T14108 docs census).
+
+| Class | Examples | Rule |
+|---|---|---|
+| Shipped consumer tooling | the four release workflow templates, the CLEO-managed git hooks | Product contract: no cleocode-only paths, credentials, branch names or assumptions unless templated or documented. |
+| Dogfood-only repository workflow | arch and boundary lints, worktree cleanup, freshness sentinel, skills council, skills grade | May encode cleocode policy; never documented as consumer setup. |
+| Shared surface | `Lockfile Check`, `Identity Pollution Check`, `Release`, `Release Prepare`, release readiness, worktree-napi prebuild | The workflow is repository-local; the invariant or artifact it protects is product-relevant, so document both roles. |
+
+Trigger policy for this repository's workflows:
+
+1. PR checks are the quality path for changes to `main`. No merge queue is configured, so `merge_group` triggers are inert.
+2. Push-to-`main` workflows are backstops for merged changes, not a substitute for PR checks.
+3. No workflow targets a `dev` branch; adding one needs explicit filters and a branch-protection update.
+4. Tag triggers are limited to release and prebuild publication.
+5. Cron workflows are owner and dogfood only.
+6. `workflow_dispatch` is for explicit operator actions and re-runs, never counted as automatic PR or main coverage.
+
+Branch protection itself (required contexts `CI` and `Contracts Dep Lint`, `strict=false`) is set and verified with `docs/guide/branch-protection-setup.md`. Stop and ask the owner before any change that removes a required check, enables force pushes or deletions, or otherwise weakens protection, when you are not a repository admin, or when a consumer asks to copy dogfood-only workflows as product requirements.
+
 ## Ownership and support expectations
 
 | Surface | Owner | Support expectation |

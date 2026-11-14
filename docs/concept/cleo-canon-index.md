@@ -24,24 +24,21 @@ Full rationale: `docs/adr/adr-044-canon-reconciliation.md`.
 ## Read Order
 
 1. [CLEO-ARCHITECTURE-GUIDE.md](cleo-architecture-guide.md)
-   What CLEO is. Read this first: the harness-agnostic core any agent can call through `cleo <command>`, its systems and how they fit together.
+   What CLEO is. Read this first: the harness-agnostic core any agent can call through `cleo <command>`, its systems, how they fit together, and how a request flows from the CLI to the store.
 
 2. [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
    The runtime contract. Read this second to understand the 11 canonical domains, the internal `query`/`mutate` CQRS split, canonical verbs, and what operations are actually legal in the system.
 
-3. [CLEO-SYSTEM-FLOW-ATLAS.md](cleo-system-flow-atlas.md)
-   The visual map. Read this third to see how the conceptual systems, workshop vocabulary, and live runtime forms map to the runtime domains, how requests flow, and where data lives. Includes the package boundary diagram showing `@cleocode/core` vs `@cleocode/cleo`.
-
-4. [CLEO-CANT.md](cleo-cant.md)
+3. [CANT reference](../reference/cant.md)
    The agent communication protocol. Read this to understand how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). Includes the formal BNF grammar (with `cant-core` Rust crate as parsing SSoT), directive-to-operation mapping, and how CANT relates to AgentMBX, CLEO's messaging layer (D11176).
 
-5. [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
+4. [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
    The formal language specification for CANT (Collaborative Agent Notation Tongue). Defines the `.cant` file format, 3-layer grammar (EBNF), AST type definitions, 42 validation rules (Scope, Pipeline Purity, Types, Hooks, Workflows), CAAMP event mapping, import resolution algorithm, hybrid runtime model (Rust pipelines + TypeScript workflows), and approval token protocol. The `cant-core` Rust crate and `cant-lsp` binary are the canonical implementations. 482 tests, 17K lines Rust, 3.8K lines TypeScript.
 
-6. [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md)
+5. [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md)
    Formal execution semantics for the CANT workflow executor. Defines sequential execution (Warp), parallel execution (Conductors), session blocking (Scribes), approval suspension (Crown Layer), error propagation (Wardens), and output collection (Cascade to Tome). Also defines the Generic Domain Event Protocol extending CAAMP from 16 provider events to 31 total events (16 provider + 15 CLEO domain) with D:O:P metadata pattern.
 
-7. [CORE-PACKAGE-SPEC.md](../spec/core-package.md)
+6. [CORE-PACKAGE-SPEC.md](../spec/core-package.md)
    The `@cleocode/core` standalone package contract. Read this when working with the business logic kernel independently of the full product: public API surface, three consumer patterns (Facade / tree-shaking / custom store), purity rules, and build architecture. Status: APPROVED.
 
 ---
@@ -50,8 +47,7 @@ Full rationale: `docs/adr/adr-044-canon-reconciliation.md`.
 
 - **What CLEO is**: [CLEO-ARCHITECTURE-GUIDE.md](cleo-architecture-guide.md)
 - **Rules and operations**: [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
-- **System flow, ownership, and runtime forms**: [CLEO-SYSTEM-FLOW-ATLAS.md](cleo-system-flow-atlas.md)
-- **Agent communication protocol (CANT)**: [CLEO-CANT.md](cleo-cant.md)
+- **Agent communication protocol (CANT)**: [CANT reference](../reference/cant.md)
 - **CANT formal language spec**: [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
 - **CANT execution semantics + domain events**: [CANT-EXECUTION-SEMANTICS.md](../spec/cant-execution-semantics.md)
 - **Standalone business logic kernel**: [CORE-PACKAGE-SPEC.md](../spec/core-package.md)
@@ -83,14 +79,13 @@ revision, while current code and CLI help remain the implementation authority.
 - [Autonomous runtime](../spec/cleo-autonomous-runtime.md) — planned Hearth, Impulse and Watcher behavior.
 - [Conduit protocol](../spec/cleo-conduit-protocol.md) — the planned agent relay contract and its implementation-status caveats.
 - [Creating custom agents](../guide/creating-custom-agents.md) — CANT definitions and agent-platform setup.
-- [Lead and worker roles](../guide/lead-vs-worker-roles.md) — role-specific injection, tool access and enforcement.
+- [Orchestration flow](orchestration-flow.md) — spawn layers, spawn execution, the lead tool strip and worker isolation.
 - [Orca report relay evidence](../note/orca-report-relay-live-evidence.md) — recorded throwaway AgentMBX unread-delivery and idempotency checks, with concurrency regression results and coverage limits.
-- [Subagent injection](../guide/subagent-injection-pipeline.md) — the path from agent definition to spawned process.
 - [Token replacement](../spec/token-replacement-contract.md) — prompt-token resolution and spawn-time validation.
 
 ### Operations, releases and verification
 
-- [CI and hooks taxonomy](../guide/ci-hooks-taxonomy-runbook.md) — consumer versus repository workflows and branch-protection checks.
+- [Consumer workflow and hook contract](../spec/consumer-workflow-hook-contract.md) — consumer versus repository workflows, trigger policy and branch-protection checks.
 - [Release verb matrix](../reference/verb-matrix.md) — current release entry points and gates.
 - [Historical release process](../guide/releasing.md) — the superseded start/ship pipeline, retained as incident and migration history.
 - [Template and config inventory](../reference/template-config-inventory.md) — the recorded template/config audit, precedence and drift contracts.
@@ -128,6 +123,5 @@ If context is limited, read in this order:
 
 1. [CLEO-ARCHITECTURE-GUIDE.md](cleo-architecture-guide.md)
 2. [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
-3. [CLEO-SYSTEM-FLOW-ATLAS.md](cleo-system-flow-atlas.md)
 
 **Package note**: `@cleocode/core` is the standalone npm package containing all CLEO business logic. It can be installed independently of `@cleocode/cleo`. The `@cleocode/cleo` product wraps `@cleocode/core` with the `cleo` CLI -- the sole runtime surface. When working directly with business logic -- tasks, sessions, memory, orchestration, lifecycle, release -- use `@cleocode/core`. See [CORE-PACKAGE-SPEC.md](../spec/core-package.md) for the full API contract.
