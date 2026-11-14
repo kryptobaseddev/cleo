@@ -1,6 +1,7 @@
 # ADR-072: Nexus DB Topology Split — nexus-registry.db + nexus-graph/<projectId>.db
 
-**Status**: SUPERSEDED by ADR-090 (dual-cleo.db residency) — 2026-06-04  
+**Status**: superseded
+**Superseded By**: ADR-090 (`adr-090-nexus-graph-residency-split`); T14108 docs census 2026-11-14: already marked superseded by ADR-090
 **Date**: 2026-05-12  
 **Task**: T9150 (W6 — Nexus Restructure Release 2) — **CANCELLED 2026-06-04**  
 **Supersedes**: none (extended existing nexus.db design)

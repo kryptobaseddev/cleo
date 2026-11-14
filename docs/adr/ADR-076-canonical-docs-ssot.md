@@ -17,6 +17,12 @@ amendments:
     epic: E1-DOCS-SLUG-NAMESPACE (T10289)
     section: "§6 Global Slug Namespace"
     summary: "Records the decision to keep slug uniqueness GLOBAL across all DocKinds (no migration to per-(kind, slug) index)."
+  - id: AMD-002
+    date: 2026-06-05
+    task: T11820
+    saga: SG-DOCS-SSOT-VAULT (T11778)
+    section: "§7 DB-Master Authority, Generated-Read-Only Projections, Slug-Primary"
+    summary: "docs/adr is a generated read-only artifact; the Obsidian vault is a view-only live render of the DB; cleo.db docs_* is master; ADR numbers are display aliases (slug-primary, codified in ADR-090); the raw-markdown canon CI gate is forward-only; PROJECT scope now with GLOBAL reserved post-exodus."
 ---
 
 # ADR-076: Canonical Docs SSoT
@@ -356,6 +362,45 @@ This decision SHOULD be revisited if any of the following become true:
    restructured for performance or schema-evolution reasons.
 
 Absent any of the above, the decision stands.
+
+---
+
+## 7. Amendment AMD-002 — DB-Master Authority + Generated-Read-Only Projections + Slug-Primary (T11820, Saga T11778)
+
+This amendment reconciles ADR-076 with the owner-ratified
+`docs-ssot-vault-reconciliation` decisions (2026-06-04, council wf_972cc40b-121).
+ADR-076 is **amended, not superseded** — its routing registry and CI gate remain in force.
+
+### 7.1 Decisions
+
+1. **cleo.db `docs_*` is the master.** The `docs_*` domain in cleo.db is the single source
+   of truth for all project documentation. `docs/adr/`, `docs/generated/`, and the Obsidian
+   vault are **derived, non-authoritative projections**. On drift, the DB wins.
+2. **`docs/adr` is a generated, read-only artifact.** On-disk ADR markdown is produced by
+   regenerating from the DB; it MUST NOT be hand-edited as an authoritative source.
+3. **The Obsidian vault is view-only.** The vault renders cleo docs live via the `docs.read`
+   SDK API — it is never a merge-back source.
+4. **Slug-primary; numbers are display aliases.** The kebab slug is the canonical handle.
+   ADR numbers are non-authoritative display aliases (next-free, no reuse, no `v#`/`-vN`/`-rN`
+   suffixes). Collisions are resolved by content-review + supersession, never by renumbering a
+   slug. This is codified in full by **ADR-090** (`adr-090-canonical-adr-policy`, T11193).
+5. **Forward-only canon CI gate.** The raw-markdown canon gate (`cleo check canon docs`)
+   remains forward-only — legacy T9791 imports are grandfathered; only newly-added bypassing
+   `*.md` are flagged.
+6. **PROJECT scope now; GLOBAL reserved.** ADR canon is PROJECT-scoped today; GLOBAL-scope
+   canon is reserved for a dedicated post-exodus saga.
+
+### 7.2 Relationship to AMD-001
+
+AMD-001 (global slug namespace) is unaffected — slug uniqueness remains GLOBAL across
+DocKinds. AMD-002 layers the DB-master/projection-read-only/slug-primary authority model on
+top.
+
+### 7.3 References
+
+- `docs-ssot-vault-reconciliation` (ratified decision record, cleo docs note).
+- ADR-090 (`adr-090-canonical-adr-policy`, T11193) — slug-primary policy in full.
+- Idempotent publish + `cleo check canon publish` gate — held under T11820.
 
 ---
 

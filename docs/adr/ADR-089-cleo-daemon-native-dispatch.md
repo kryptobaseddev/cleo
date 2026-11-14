@@ -2,7 +2,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Proposed |
+| **Status** | superseded |
+| **Superseded By** | ADR-097 (`adr-097-goal-protocol-ocg-runtime`); T14108 docs census 2026-11-14: CLEO Goal is the driver (ADR-097, ADR-098); never left Proposed |
 | **Saga** | T10401 (SG-HARNESS-DAEMON-IPC) |
 | **Epic** | T10400 (E-CLEO-SDK-API) |
 | **Author** | Prime (post-mortem of T10538) |
