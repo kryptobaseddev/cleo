@@ -2,13 +2,15 @@
 
 > Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
 
-Long-running process layer for CLEO. Provides the daemon services that
-let an agent stay resident on a host: message polling, SSE connection
-management, heartbeat reporting, and credential key rotation.
+Runtime layer for CLEO. It has three parts, exported as separate subpaths:
 
-This package powers `cleo agent start` — when an operator starts an
-autonomous agent, this is the runtime that keeps it alive between
-human interactions.
+| Subpath | What it is | Status |
+|---|---|---|
+| `@cleocode/runtime/gateway` (+ `/gateway/dispatch`, `/gateway/http`, `/gateway/rpc`, `/gateway/mcp`) | The transport-agnostic CQRS dispatcher behind the CLI: the CLI adapter injects the domain handlers and middleware (`packages/cleo/src/dispatch/adapters/cli.ts`) | Kept (ADR-098). The MCP server under `/gateway/mcp` is not wired to any command; wiring it as `cleo mcp serve` or deleting it is an open owner call in ADR-098. |
+| `@cleocode/runtime/daemon` | `defineSubsystem` and the subsystem registry: one `start → healthProbe → shutdown` lifecycle for long-running concerns (the web server, the docs viewer, the GC cron), reported to the Rust `cleo-supervisor` | In use |
+| `@cleocode/runtime` (root) | `createRuntime()` and the agent services below (poller, heartbeat, key rotation, SSE) | **Retiring (ADR-098).** No CLI command calls `createRuntime`; the services are removed with the other npm-breaking ADR-098 parts in one announced release. They target the SignalDock backend, which is deprecated (D11176: AgentMBX is CLEO's messaging layer). |
+
+The rest of this README documents the root services as they ship today.
 
 ## Install
 
@@ -155,16 +157,11 @@ present in the config.
 
 ## CANT profile execution
 
-`createRuntime()` does **not** execute `.cant` workflow profiles
-directly. Profile-driven workflow execution lives in the
-[`cant-bridge.ts`](../cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts)
-Pi extension and runs inside a Pi session, not the daemon. Operators
-who want profile-driven behaviour should start a Pi session and use
-`/cant:load <file>` followed by `/cant:run <file> <workflow>`.
-
-This boundary was set in [ADR-035 §D5](../../docs/adr/adr-035-pi-v2-v3-harness.md)
-"single engine, cant-bridge.ts as canonical" — runtime stays simple
-and profile semantics live in one place.
+`createRuntime()` does **not** execute `.cant` workflow profiles. The only
+workflow interpreter is the Pi `cant-bridge` extension, which retires with the
+Pi/CleoOS harness (ADR-098, which supersedes ADR-035). CLEO keeps deterministic
+`.cant` pipelines (`cleo cant execute <file> --pipeline <name>`); CLEO Goal
+(ADR-097) is the autonomous driver.
 
 ## Testing
 
@@ -179,8 +176,8 @@ poller and service lifecycle without hitting a real backend.
 
 - [`@cleocode/contracts`](../contracts) — Transport interface and message types
 - [`@cleocode/core`](../core) — agent registry, credential storage, message persistence
-- [`packages/cleo/src/cli/commands/agent.ts`](../cleo/src/cli/commands/agent.ts) — `cleo agent start` CLI entry that calls `createRuntime`
-- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md) — runtime/Pi boundary decisions
+- [`packages/cleo/src/dispatch/adapters/cli.ts`](../cleo/src/dispatch/adapters/cli.ts) — the CLI adapter over the gateway dispatcher
+- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md) — the original runtime/Pi boundary (superseded by ADR-098)
 
 ## License
 

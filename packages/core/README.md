@@ -66,11 +66,11 @@ mandated by [ADR-057](../../docs/adr/ADR-057-contracts-core-ssot.md).
 |--------|---------|---------|
 | `admin` | `@cleocode/core/admin` | Import/export, project health checks, backup |
 | `check` | `@cleocode/core` *(via internal)* | Protocol compliance, canon validation |
-| `conduit` | `@cleocode/core/conduit` | Inter-agent messaging, local transport |
+| `conduit` | `@cleocode/core/conduit` | Conduit messages in `cleo.db`, kept as a thin legacy client; AgentMBX is CLEO's messaging layer (D11176) |
 | `nexus` | `@cleocode/core/nexus` | Code-intelligence graph, cross-project linking |
 | `pipeline` | `@cleocode/core/pipeline` | RCASD/IVTR pipeline stage management |
 | `playbook` | `@cleocode/core` *(via internal)* | `.cantbook` playbook runtime |
-| `sentient` | `@cleocode/core/sentient` | Tier-2 autonomous proposals, sentient daemon |
+| `sentient` | `@cleocode/core/sentient` | Tier-2 autonomous proposals. Its spawning loops are replaced by CLEO Goal, and the sentient subsystem host retires with ADR-098 |
 | `sessions` | `@cleocode/core/sessions` | Session lifecycle, briefing, handoff |
 | `tasks` | `@cleocode/core/tasks` | Task CRUD, dependencies, lifecycle, archival |
 
@@ -82,7 +82,7 @@ mandated by [ADR-057](../../docs/adr/ADR-057-contracts-core-ssot.md).
 | `llm` | `@cleocode/core` | LLM-extraction, transcript ingestion, brain backfill |
 | `memory` | `@cleocode/core/memory` | BRAIN storage, search, STDP, observation |
 | `lifecycle` | `@cleocode/core/lifecycle` | Gate verification, evidence, pipeline stages |
-| `harness` | `@cleocode/core/harness` | CleoOS adapter surface, Pi harness integration |
+| `harness` | `@cleocode/core/harness` | Provider selection and adapter routing (spawn-provider selection, ask enforcement); CLEO itself ships no agent harness (ADR-098) |
 
 ## Subpath exports
 
@@ -96,8 +96,8 @@ Prefer the **narrowest** subpath that satisfies your need — it reduces import 
 | `@cleocode/core/memory` | stable | Brain observe/search/timeline |
 | `@cleocode/core/nexus` | stable | Code-intelligence graph queries |
 | `@cleocode/core/lifecycle` | stable | Gate verification, pipeline stages |
-| `@cleocode/core/conduit` | stable | Conduit messaging |
-| `@cleocode/core/sentient` | stable | Sentient daemon, proposals |
+| `@cleocode/core/conduit` | stable | Conduit messages (legacy thin client, D11176) |
+| `@cleocode/core/sentient` | stable | Tier-2 proposals (spawning loops retire, ADR-098) |
 | `@cleocode/core/gc` | stable | Garbage-collection daemon |
 | `@cleocode/core/contracts` | stable | Pure `@cleocode/contracts` re-export (types only) |
 | `@cleocode/core` | stable | All namespaces + flat free functions |
@@ -246,7 +246,7 @@ If this package is ever forked as a standalone SDK (decoupled from the CLEO CLI 
 
 ## Package boundary
 
-`@cleocode/core` is the **SDK** — runtime primitives, domain logic, store, memory, sentient, and GC.
+`@cleocode/core` is the **SDK** — runtime primitives, domain logic, store, memory and GC.
 
 | Do | Do not |
 |---|---|

@@ -30,6 +30,7 @@ call it and any project can integrate it.
 | **Memory (BRAIN)** | Observations, decisions and lessons kept across sessions and searchable | `cleo memory observe`, `cleo memory find`, `cleo briefing` |
 | **Code intelligence (Nexus)** | A symbol graph of your repo: callers, blast radius, impact before you edit | `cleo nexus analyze`, `cleo nexus impact <symbol>` |
 | **Release** | One command tags the newest commit on main with green CI and publishes from changesets | `cleo release cut <version> --dry-run` |
+| **Multi-agent work** | A lead splits an epic into waves and spawns workers in any harness; each worker gets its own worktree, session binding and a return address. AgentMBX is the messaging layer between agents: `--lead-mbx` names the lead's mailbox in each worker prompt | `cleo orchestrate start <epic>`, `cleo orchestrate spawn <task>` |
 
 Run `cleo <command> --help` for the full flags of any command.
 

@@ -9,19 +9,32 @@ This is the living guide for authoring, maintaining, and recovering migrations i
 
 ---
 
-## Overview — 5 DBs and Their Purpose
+## Overview: two stores, one journal each
 
-CLEO manages five SQLite databases. Four use `packages/core/src/store/migration-manager.ts`
-as their runtime migration orchestrator. `signaldock.db` has a structurally distinct
-embedded runner (see [signaldock note](#signaldock-structural-note) below).
+CLEO keeps its data in two SQLite stores, each one `cleo.db` with domain-prefixed tables:
+the **project** store (`<project>/.cleo/cleo.db`) and the **global** store
+(`<CLEO home>/cleo.db`). The former per-domain files (`tasks.db`, `brain.db`, `nexus.db`,
+`conduit.db`, `signaldock.db`) are legacy; their data moved into the two stores, and
+`signaldock.db` is retired.
 
-| DB | Scope | Schema file | Migration folder | Runtime runner |
-|---|---|---|---|---|
-| `tasks` | project-level | `packages/core/src/store/tasks-schema.ts` | `drizzle-tasks/` | `migration-manager.ts` |
-| `brain` | project-level | `packages/core/src/store/memory-schema.ts` | `drizzle-brain/` | `migration-manager.ts` |
-| `nexus` | global/cross-project | `packages/core/src/store/nexus-schema.ts` | `drizzle-nexus/` | `migration-manager.ts` |
-| `signaldock` | global/cross-project | `packages/core/src/store/signaldock-schema.ts` | `drizzle-signaldock/` | bespoke embedded runner |
-| `telemetry` | opt-in CLI telemetry | `packages/core/src/telemetry/schema.ts` | `drizzle-telemetry/` | `migration-manager.ts` |
+Every open goes through `openDualScopeDb` (`packages/core/src/store/dual-scope-db.ts`), which
+migrates the store before returning it. Each store has ONE migration journal, and that journal
+runs several lineages (folders) in order, the consolidated one first
+(`PROJECT_LINEAGES` / `GLOBAL_LINEAGES` in `packages/core/src/doctor/migrations.ts`):
+
+| Store | Lineages in its journal (in order) | Where new migrations land |
+|---|---|---|
+| project `cleo.db` | `drizzle-cleo-project`, `drizzle-tasks`, `drizzle-brain`, `drizzle-nexus`, `drizzle-conduit` | `drizzle-cleo-project` (newest folders through 2026-11); `drizzle-brain` last gained one in 2026-10, `drizzle-tasks` in 2026-09 |
+| global `cleo.db` | `drizzle-cleo-global`, `drizzle-agent-registry`, `drizzle-skills`, `drizzle-telemetry` | `drizzle-cleo-global` (newest folders through 2026-10) |
+
+Schemas: `packages/core/src/store/schema/cleo-project/` and `.../cleo-global/` (the per-domain
+schema files still define each domain's tables). drizzle-kit configs per lineage live in
+`drizzle/<lineage>.config.ts`. `cleo doctor migrations` reports each store's journal per
+lineage: applied, pending, and drift.
+
+`scripts/new-migration.mjs` (`pnpm db:new`) scaffolds into the per-domain lineages only
+(`--db tasks|brain|nexus|agent-registry|telemetry`); it has no `cleo-project` or `cleo-global`
+target.
 
 The canonical tree lives here at `packages/core/migrations/`. This is the **single source of
 truth** for all CLEO migration SQL. Consumers (including `@cleocode/cleo`) locate migration
@@ -227,14 +240,11 @@ removing any causes hard failures on existing installations.
 T1137 may be deprecated in v2026.6.0 once all installations have passed the drizzle v1-beta
 upgrade window. The other five patches must remain indefinitely.
 
-### signaldock structural note
+### Retired: signaldock
 
-`drizzle-signaldock/` is covered by a drizzle-kit config for scaffolding, but `signaldock.db`
-itself uses a bespoke embedded runner (`_signaldock_migrations` table,
-`GLOBAL_EMBEDDED_MIGRATIONS` array in `signaldock-sqlite.ts`) rather than `migration-manager.ts`.
-Running `pnpm db:new -- --db signaldock` emits a warning and proceeds; the linter catches
-any convention violations. Bringing signaldock fully into the `migration-manager.ts` runtime
-is an epic-scale refactor out of scope for Wave 2A (ADR-054 R3 §6.1).
+`signaldock.db` and its bespoke embedded runner are retired. Its tables moved into the global
+`cleo.db` with the `agent_registry_` prefix, migrated by the `drizzle-agent-registry` lineage in
+the global journal. There is no `drizzle-signaldock/` folder or `signaldock-schema.ts` any more.
 
 ### sync-journal: not a drizzle lineage
 
@@ -318,7 +328,7 @@ prevent authoring mistakes.
 
 ## Adding a New DB Set
 
-Follow these steps when introducing a new fifth (or later) database to CLEO.
+Follow these steps when introducing a new lineage. Since the consolidation, new tables normally go into `drizzle-cleo-project` or `drizzle-cleo-global` instead of a new database.
 
 **1. Author the schema file.**
 
@@ -462,8 +472,11 @@ If the reconciler did not self-heal a partial migration, file a bug with:
 - `packages/core/src/store/migration-manager.ts` — runtime reconciler (663 lines, 6 patches)
 - `scripts/new-migration.mjs` — generator wrapper (T1164)
 - `scripts/lint-migrations.mjs` — migration linter (T1168)
-- `drizzle/tasks.config.ts`, `drizzle/brain.config.ts`, `drizzle/nexus.config.ts`,
-  `drizzle/signaldock.config.ts`, `drizzle/telemetry.config.ts` — drizzle-kit configs (T1163)
+- `drizzle/<lineage>.config.ts` — drizzle-kit configs, one per lineage (`cleo-project`,
+  `cleo-global`, `tasks`, `brain`, `nexus`, `conduit`, `agent-registry`, `skills`, `telemetry`)
+- `packages/core/src/store/dual-scope-db.ts` — `openDualScopeDb`, the store chokepoint that migrates each `cleo.db`
+- `packages/core/src/store/migration-runner.ts` — the bracketed per-file migration runner
+- `packages/core/src/doctor/migrations.ts` — `cleo doctor migrations` and the lineage lists
 
 ---
 
