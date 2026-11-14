@@ -97,7 +97,10 @@ function resetCallCounts(): void {
   }
 }
 
-const { heldMailboxes } = vi.hoisted(() => ({ heldMailboxes: new Set<string>() }));
+const { heldMailboxes, mailboxChecks } = vi.hoisted(() => ({
+  heldMailboxes: new Set<string>(),
+  mailboxChecks: [] as Array<string | undefined>,
+}));
 vi.mock('../agentmbx.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../agentmbx.js')>();
   const client = actual.createAgentMbxClient(async (args) => ({
@@ -123,8 +126,10 @@ vi.mock('../agentmbx.js', async (importOriginal) => {
   }));
   return {
     ...actual,
-    resolveLeadMailbox: (root: string, explicit?: string) =>
-      actual.resolveLeadMailbox(root, explicit, client),
+    resolveLeadMailbox: (root: string, explicit?: string) => {
+      mailboxChecks.push(explicit);
+      return actual.resolveLeadMailbox(root, explicit, client);
+    },
   };
 });
 
@@ -506,6 +511,27 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
         leadMailbox: 'other',
       });
       expect(lead(explicit.prompt)).toBe('other');
+    });
+
+    it('checks only the explicit MCP-held mailbox, never the unused default during precheck (T14559)', async () => {
+      await writeConfig(true);
+      heldMailboxes.delete('proj-lead');
+      mailboxChecks.length = 0;
+      const result = await orchestrateSpawn(
+        'T9321',
+        undefined,
+        TEST_ROOT,
+        TIER,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'other',
+      );
+      expect(result.success).toBe(true);
+      expect(lead((result.data as OrchestrateSpawnResult).prompt)).toBe('other');
+      expect(mailboxChecks).toEqual(['other']);
     });
 
     it('with orchestrate.leadWorker.v1 off, spawn and fanout name no recorded mailbox', async () => {

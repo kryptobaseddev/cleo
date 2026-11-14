@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../config.js';
+import { buildSpawnPrompt } from '../../orchestration/spawn-prompt.js';
 import { getProjectRoot } from '../../paths.js';
 import { validateSchema } from '../../validation/schema-validator.js';
 import {
@@ -130,6 +131,45 @@ describe('createAgentMbxClient.send', () => {
 
 describe('runAgentMbx', () => {
   afterEach(() => vi.unstubAllEnvs());
+  it.skipIf(!process.env['CLEO_MBX_LIVE_NAME'])(
+    'verifies an existing Claude MCP holder from a CLI and names it in the worker prompt (T14559)',
+    async () => {
+      vi.stubEnv('CLEO_ROOT', undefined);
+      vi.stubEnv('CLEO_DIR', undefined);
+      const name = process.env['CLEO_MBX_LIVE_NAME'];
+      const session = process.env['CLEO_MBX_LIVE_SESSION'];
+      if (!name || !session || !process.env['MBX_HOME'])
+        throw new Error('Set CLEO_MBX_LIVE_NAME, CLEO_MBX_LIVE_SESSION and the real MBX_HOME');
+      const client = createAgentMbxClient(runAgentMbx);
+      const projectRoot = process.cwd();
+      const selector = { cli: 'claude', session };
+      expect(await client.holder(name, projectRoot)).toEqual({ ok: true, value: selector });
+      expect(await client.status(selector)).toMatchObject({
+        ok: true,
+        value: { name, state: 'bound', role: 'lead' },
+      });
+      const mailbox = await resolveLeadMailbox(projectRoot, name, client);
+      expect(mailbox).toBe(name);
+      const { prompt } = buildSpawnPrompt({
+        task: {
+          id: 'T14559',
+          title: 'Mailbox verification',
+          status: 'pending',
+          priority: 'high',
+          createdAt: '2026-11-14T00:00:00Z',
+        },
+        protocol: 'implementation',
+        tier: 0,
+        projectRoot,
+        leadWorkerV1: true,
+        leadMailbox: mailbox,
+      });
+      expect(prompt).toContain(`**Report to your lead:** \`mbx_send\` to \`${name}\``);
+      process.stderr.write(
+        `Read-only AgentMBX verification: ${JSON.stringify({ selector, mailbox })}\n`,
+      );
+    },
+  );
   it.skipIf(!process.env['CLEO_MBX_LIVE_PACKAGE'])(
     'pins the installed AgentMBX rule and generates the real epic mailbox (T14477)',
     async () => {
@@ -144,7 +184,7 @@ describe('runAgentMbx', () => {
       process.stderr.write(`Generated T14351 mailbox: ${name}\n`);
     },
   );
-  it.skipIf(!process.env['CLEO_MBX_LIVE_SESSION'])(
+  it.skipIf(!process.env['CLEO_MBX_LIVE_PACKAGE'] || !process.env['CLEO_MBX_LIVE_SESSION'])(
     'verifies a real MCP-registered lead and its exact provider holder (T14477)',
     async () => {
       const session = process.env['CLEO_MBX_LIVE_SESSION'];
@@ -342,26 +382,30 @@ describe('live report destinations (T14477)', () => {
     actual,
     expected,
   }) => {
-    const runner: MbxRunner = async (args) => ({
-      missing: false,
-      exitCode: 0,
-      stderr: '',
-      stdout: JSON.stringify(
-        args[0] === 'identity'
-          ? {
-              identities: [
-                {
-                  name: 'epic-lead',
-                  registered: true,
-                  retired: false,
-                  state: held ? 'held' : 'available',
-                  holder: { cli: 'codex', session_id: 's1' },
-                },
-              ],
-            }
-          : { identity: { name: actual, state, role: 'lead' }, unread: 0 },
-      ),
-    });
+    const calls: string[][] = [];
+    const runner: MbxRunner = async (args) => {
+      calls.push([...args]);
+      return {
+        missing: false,
+        exitCode: 0,
+        stderr: '',
+        stdout: JSON.stringify(
+          args[0] === 'identity'
+            ? {
+                identities: [
+                  {
+                    name: 'epic-lead',
+                    registered: true,
+                    retired: false,
+                    state: held ? 'held' : 'available',
+                    holder: { cli: 'claude', session_id: 'mcp-session' },
+                  },
+                ],
+              }
+            : { identity: { name: actual, state, role: 'lead' }, unread: 0 },
+        ),
+      };
+    };
     const client = createAgentMbxClient(runner);
     const root = await mkdtemp(join(tmpdir(), 'cleo-mbx-held-'));
     try {
@@ -377,14 +421,102 @@ describe('live report destinations (T14477)', () => {
         }),
       );
       expect(await resolveLeadMailbox(root, undefined, client)).toBe(expected);
+      if (held)
+        expect(calls[1]).toEqual([
+          'status',
+          '--cli',
+          'claude',
+          '--session',
+          'mcp-session',
+          '--json',
+          '--schema',
+          'mbx.status/v1',
+        ]);
       if (!expected)
         expect(mailboxWarning).toHaveBeenCalledWith(
-          { mailbox: 'epic-lead' },
+          expect.objectContaining({ mailbox: 'epic-lead' }),
           expect.stringContaining('omitted from worker prompts'),
         );
       if (expected) expect(await resolveLeadMailbox(root, expected, client)).toBe(expected);
       else
         await expect(resolveLeadMailbox(root, 'epic-lead', client)).rejects.toThrow('live holder');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'holder',
+    'identity',
+    'status',
+    'mismatch',
+  ])('reports the exact failed %s check and recovery command (T14559)', async (failure) => {
+    const calls: string[][] = [];
+    const runner: MbxRunner = async (args) => {
+      calls.push([...args]);
+      return {
+        missing: false,
+        exitCode: failure === args[0] ? 2 : 0,
+        stderr: 'daemon unavailable',
+        stdout: JSON.stringify(
+          args[0] === 'identity'
+            ? {
+                identities:
+                  failure === 'holder'
+                    ? []
+                    : [
+                        {
+                          name: 'project-lead',
+                          registered: true,
+                          retired: false,
+                          state: 'held',
+                          holder: { cli: 'claude', session_id: 'mcp-lead-session' },
+                        },
+                      ],
+              }
+            : { identity: { name: 'other-lead', state: 'bound' } },
+        ),
+      };
+    };
+    const root = await mkdtemp(join(tmpdir(), 'cleo-mbx-check-'));
+    try {
+      await mkdir(join(root, '.cleo'));
+      await mkdir(join(root, '.git'));
+      await writeFile(
+        join(root, '.cleo', 'config.json'),
+        JSON.stringify({
+          orchestrate: {
+            leadWorker: { v1: true },
+            leadMailbox: {
+              name: 'project-lead',
+              projectId: 'p1',
+              cli: 'claude',
+            },
+          },
+        }),
+      );
+      const client = createAgentMbxClient(runner);
+      expect(await resolveLeadMailbox(root, undefined, client)).toBeUndefined();
+      const check =
+        failure === 'holder' || failure === 'identity'
+          ? `agentmbx identity list --project ${JSON.stringify(root)} --json`
+          : 'agentmbx status --cli "claude" --session "mcp-lead-session" --json --schema mbx.status/v1';
+      expect(mailboxWarning).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mailbox: 'project-lead',
+          check,
+          fix: expect.stringContaining('agentmbx identity claim project-lead'),
+        }),
+        expect.stringContaining(check),
+      );
+      await expect(resolveLeadMailbox(root, 'project-lead', client)).rejects.toMatchObject({
+        codeName: 'E_LEAD_MAILBOX_UNHELD',
+        message: expect.stringContaining(check),
+        fix: expect.stringContaining('"action":"register"'),
+      });
+      expect(
+        calls.every((args) => (args[0] === 'identity' ? args[1] === 'list' : args[0] === 'status')),
+      ).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

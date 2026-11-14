@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.21.0
+  version: 4.22.0
   tier: core
   install: harness
   covers:
@@ -377,6 +377,15 @@ mailbox in it. Tier-0 prompts stay minimal and have no such section; with
 `orchestrate.leadWorker.v1` on and `--lead-mbx` given, they carry one line naming your mailbox
 and asking for a report of at most 100 words (conclusion, blocker, proof) (T14429). The conduit messaging verbs, including the `conduit-*` sub-commands of
 orchestrate, were removed (T13955).
+
+`--lead-mbx` can name the held owner-designated project mailbox or an epic
+coordinator mailbox; the destination does not change AgentMBX's owner designation.
+Spawn verifies the registered holder and its exact provider session through the
+read-only CLI, including identities held by MCP. Atomicity-only prechecks do not
+resolve mailboxes. An unverified destination reports the failed CLI check and
+recovery command: register a missing identity through `mbx_identity` (which also
+holds it), or claim an existing available identity in the lead's provider session.
+Never claim, release or send as another session's live holder to verify it.
 
 Spawn adapter discovery uses the installed `@cleocode/adapters` package, including in
 projects without `packages/`. Session adapter activation still discovers only

@@ -723,8 +723,10 @@ export async function composeSpawnForTask(
       ? options.tier
       : resolveEffectiveTier(task, inferredRole ?? 'worker', undefined);
 
-  // Every path verifies the report destination has a live AgentMBX holder.
-  const leadMailbox = await resolveLeadMailbox(root, options.leadMailbox);
+  // Verdict-only prechecks have no report destination and omit the explicit dispatch mailbox.
+  const leadMailbox = options.verdictOnly
+    ? undefined
+    : await resolveLeadMailbox(root, options.leadMailbox);
   const db = await openAgentRegistryDbForComposer();
   try {
     return await composeSpawnPayload(db, task, {
