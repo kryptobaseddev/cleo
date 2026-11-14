@@ -729,3 +729,32 @@ export function recoverMalformedDb(opts: RecoverMalformedDbOptions): DbRecoveryR
 
   return result;
 }
+
+/** Enumerate historical consolidated-store snapshots, newest first; callers validate contents. */
+export function collectStoreSnapshotCandidates(target: string): SnapshotCandidate[] {
+  const home = dirname(target);
+  const snapshotDir = join(home, 'backups', 'snapshot');
+  const vacuumSnapshotDir = join(home, 'backups', 'sqlite');
+  const out = collectSnapshotCandidatesForRole({
+    role: 'tasks',
+    snapshotDir,
+    vacuumSnapshotDir,
+    legacyArtifactDir: home,
+  });
+  const known = new Set(out.map((s) => s.path));
+  for (const directory of [snapshotDir, vacuumSnapshotDir, home]) {
+    if (!existsSync(directory)) continue;
+    for (const name of readdirSync(directory)) {
+      if (
+        !/^(?:cleo|tasks|brain|conduit|nexus|global)(?:\.db[.-]|-.*\.db$)/.test(name) ||
+        /pre-restore|\.restoring(?:\.|$)|(?:-wal|-shm|-journal|\.json)$/.test(name)
+      )
+        continue;
+      const path = join(directory, name);
+      if (known.has(path) || !statSync(path).isFile()) continue;
+      out.push({ path, timestampMs: statSync(path).mtimeMs, source: 'system-snapshot' });
+      known.add(path);
+    }
+  }
+  return out.sort((a, b) => b.timestampMs - a.timestampMs);
+}

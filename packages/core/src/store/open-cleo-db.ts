@@ -71,7 +71,12 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { StoreIntegrityInspection, StoreRepairFile } from '@cleocode/contracts/db-recovery.js';
+import type {
+  StoreFreshnessFinding,
+  StoreIntegrityInspection,
+  StoreRepairFile,
+  StoreTableHighWater,
+} from '@cleocode/contracts/db-recovery.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
@@ -79,6 +84,7 @@ import { getProjectInfoSync } from '../project-info.js';
 import { getProjectRoot, isMissingProjectError } from '../project-scope.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb, resolveDualScopeDbPath } from './dual-scope-db.js';
+import { collectStoreSnapshotCandidates } from './recover-malformed-db.js';
 import { openUnlessRestoring, storeCorruptError } from './restore-marker.js';
 import { loadSqliteVecExtension } from './sqlite-native.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
@@ -563,7 +569,123 @@ export function copyRepairOriginals(from: string, to: string, sidecars = true): 
   return files;
 }
 
-/** A full integrity probe for doctor and healthy no-op detection, using disposable copies. */
+/**
+ * Rebuild a private WAL index; SQLite validates checksums and committed frames on open.
+ * @returns The last apparent committed frame, or zero when no commit is present.
+ */
+export function copyRepairWalView(from: string, to: string): number {
+  const path = `${from}-wal`;
+  if (!existsSync(path) || statSync(path).size < 32) return 0;
+  const bytes = statSync(path).size;
+  const fd = openSync(path, 'r');
+  let committed = 0;
+  try {
+    const header = Buffer.alloc(32);
+    readSync(fd, header, 0, header.length, 0);
+    const pageSize = header.readUInt32BE(8);
+    if (
+      (header.readUInt32BE(0) & 0xfffffffe) !== 0x377f0682 ||
+      pageSize < 512 ||
+      pageSize > 65536 ||
+      (pageSize & (pageSize - 1)) !== 0
+    )
+      return 0;
+    const frame = Buffer.alloc(24);
+    for (let offset = 32; offset + 24 + pageSize <= bytes; offset += 24 + pageSize) {
+      readSync(fd, frame, 0, frame.length, offset);
+      if (!frame.subarray(8, 16).equals(header.subarray(16, 24))) break;
+      if (frame.readUInt32BE(4) > 0) committed = (offset - 32) / (24 + pageSize) + 1;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  if (!committed) return 0;
+  copyRepairOriginals(from, to);
+  rmSync(`${to}-shm`, { force: true });
+  return committed;
+}
+
+/** Key tables cover task, session, audit and memory history in both physical scopes. */
+function storeHighWater(db: DatabaseSync): StoreTableHighWater[] {
+  const out: StoreTableHighWater[] = [];
+  for (const table of [
+    'tasks_tasks',
+    'tasks_sessions',
+    'tasks_audit_log',
+    'brain_observations',
+    'nexus_audit_log',
+  ]) {
+    const columns = db.prepare(`PRAGMA main.table_info("${table}")`).all();
+    if (!columns.some((c) => c.name === 'id')) continue;
+    const stamps = ['updated_at', 'created_at', 'timestamp', 'started_at', 'ended_at']
+      .filter((c) => columns.some((column) => column.name === c))
+      .map((c) => `coalesce(unixepoch("${c}", 'subsec'), 0)`);
+    const stamp = stamps.length > 1 ? `max(${stamps.join(',')})` : (stamps[0] ?? '0');
+    const row = db
+      .prepare(`SELECT count(*) AS n, CAST(max(_rowid_) AS TEXT) AS rowid,
+      max(${stamp}) AS latest FROM main."${table}"`)
+      .get();
+    out.push({
+      table,
+      rows: Number(row?.n ?? 0),
+      maxRowid: typeof row?.rowid === 'string' ? row.rowid : null,
+      latestAt: typeof row?.latest === 'number' && row.latest > 0 ? row.latest : null,
+    });
+  }
+  return out;
+}
+
+/** High-water advances require content evidence; filesystem clocks never establish freshness. */
+function compareStoreFreshness(
+  live: DatabaseSync,
+  source: DatabaseSync,
+  path: string,
+  kind: StoreFreshnessFinding['kind'],
+): StoreFreshnessFinding | undefined {
+  const before = storeHighWater(live);
+  const after = storeHighWater(source);
+  // A project snapshot cannot recover a global store, or vice versa.
+  if (
+    before.some((t) => t.table === 'tasks_tasks') !== after.some((t) => t.table === 'tasks_tasks')
+  )
+    return;
+  const latest = (marks: StoreTableHighWater[]): number =>
+    Math.max(0, ...marks.map((t) => t.latestAt ?? 0));
+  if (kind === 'snapshot' && latest(after) < latest(before)) return;
+  const evidence: string[] = [];
+  for (const next of after) {
+    const old = before.find((t) => t.table === next.table);
+    if (!old) continue;
+    if (
+      (next.latestAt ?? 0) > (old.latestAt ?? 0) ||
+      (next.rows > old.rows && BigInt(next.maxRowid ?? 0) > BigInt(old.maxRowid ?? 0))
+    ) {
+      evidence.push(`${next.table}: live ${JSON.stringify(old)}; source ${JSON.stringify(next)}`);
+    }
+  }
+  if (!evidence.length) return;
+  let divergent = false;
+  for (const table of before) {
+    const exists = source
+      .prepare(`SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name=?`)
+      .get(table.table);
+    if (!exists) {
+      divergent ||= table.rows > 0;
+      continue;
+    }
+    const lookup = source.prepare(`SELECT 1 FROM main."${table.table}" WHERE id=?`);
+    for (const row of live.prepare(`SELECT id FROM main."${table.table}"`).iterate()) {
+      if (!lookup.get(row.id ?? null)) {
+        divergent = true;
+        break;
+      }
+    }
+    if (divergent) break;
+  }
+  return { source: path, kind, evidence, divergent };
+}
+
+/** A full integrity and freshness probe for doctor, using disposable copies only. */
 export function inspectStoreIntegrity(target: string): StoreIntegrityInspection {
   if (!existsSync(target)) return { healthy: true, detail: 'absent' };
   const scratch = mkdtempSync(join(tmpdir(), 'cleo-store-probe-'));
@@ -573,10 +695,81 @@ export function inspectStoreIntegrity(target: string): StoreIntegrityInspection 
     const snap = openCleoDbSnapshot(file, { applyPragmas: false, loadSqliteVec: true });
     try {
       const result = snap.db.prepare('PRAGMA integrity_check').all();
-      return {
-        healthy: result.length === 1 && result[0]?.integrity_check === 'ok',
-        detail: JSON.stringify(result),
-      };
+      if (result.length !== 1 || result[0]?.integrity_check !== 'ok')
+        return { healthy: false, detail: JSON.stringify(result) };
+      const freshness: StoreFreshnessFinding[] = [];
+      const walView = join(scratch, 'wal-view.db');
+      const committedFrames = copyRepairWalView(file, walView);
+      if (committedFrames > 0) {
+        const wal = openCleoDbSnapshot(walView, {
+          readOnly: false,
+          applyPragmas: false,
+          loadSqliteVec: true,
+        });
+        try {
+          const checkpoint = wal.db.prepare('PRAGMA wal_checkpoint(PASSIVE)').get();
+          if (Number(checkpoint?.log) < committedFrames)
+            freshness.push({
+              source: `${target}-wal`,
+              kind: 'wal',
+              divergent: true,
+              unreadable: true,
+              evidence: [
+                `${committedFrames} apparent committed WAL frames, but SQLite accepted ${Math.max(0, Number(checkpoint?.log))} (${JSON.stringify(checkpoint)}); original bytes require quarantine`,
+              ],
+            });
+          const checks = wal.db.prepare('PRAGMA integrity_check').all();
+          if (checks.length === 1 && checks[0]?.integrity_check === 'ok') {
+            const finding = compareStoreFreshness(snap.db, wal.db, `${target}-wal`, 'wal');
+            if (finding) freshness.push(finding);
+          }
+        } finally {
+          wal.close();
+        }
+      }
+      for (const [index, candidate] of collectStoreSnapshotCandidates(target).entries()) {
+        const copy = join(scratch, `snapshot-${index}.db`);
+        let backup: CleoDbSnapshotHandle | undefined;
+        try {
+          copyRepairOriginals(candidate.path, copy);
+          backup = openCleoDbSnapshot(copy, { applyPragmas: false, loadSqliteVec: true });
+          const checks = backup.db.prepare('PRAGMA integrity_check').all();
+          if (checks.length !== 1 || checks[0]?.integrity_check !== 'ok') continue;
+          const hasTasks = (db: DatabaseSync): boolean =>
+            db
+              .prepare("SELECT 1 FROM main.sqlite_schema WHERE name='tasks_tasks' AND type='table'")
+              .get() !== undefined;
+          if (hasTasks(snap.db) !== hasTasks(backup.db)) continue;
+          if (
+            !hasTasks(snap.db) &&
+            backup.db
+              .prepare(
+                "SELECT 1 FROM main.sqlite_schema WHERE name='nexus_project_registry' AND type='table'",
+              )
+              .get() === undefined
+          )
+            continue;
+          const finding = compareStoreFreshness(snap.db, backup.db, candidate.path, 'snapshot');
+          if (finding) freshness.push(finding);
+          break;
+        } catch {
+          // An unreadable backup cannot establish that a healthy live store is stale.
+        } finally {
+          backup?.close();
+        }
+      }
+      return freshness.length
+        ? {
+            healthy: false,
+            detail: freshness
+              .map(
+                (f) =>
+                  `${f.kind === 'wal' ? 'Unapplied WAL' : 'Store older than its own backup'}: ${f.source}; ${f.evidence.join('; ')}${f.divergent ? '; divergent histories: retain live-only rows and report conflicts' : ''}`,
+              )
+              .join('\n'),
+            freshness,
+          }
+        : { healthy: true, detail: JSON.stringify(result) };
     } finally {
       snap.close();
     }

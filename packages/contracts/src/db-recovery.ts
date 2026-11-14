@@ -28,12 +28,40 @@
 
 import type { DbRole } from './db-inventory.js';
 
-/** Read-only integrity assessment performed on a disposable copy. */
+/** High-water marks from a key table in a disposable store image. */
+export interface StoreTableHighWater {
+  /** Physical table name. */
+  table: string;
+  /** Number of readable rows. */
+  rows: number;
+  /** Largest rowid, encoded without losing 64-bit precision. */
+  maxRowid: string | null;
+  /** Latest created, updated, session or audit timestamp in Unix seconds. */
+  latestAt: number | null;
+}
+
+/** Evidence of newer snapshot history or WAL commits that SQLite cannot apply. */
+export interface StoreFreshnessFinding {
+  /** Snapshot or original WAL path. */
+  source: string;
+  /** Recovery source whose contents advanced beyond the visible store. */
+  kind: 'snapshot' | 'wal';
+  /** Compared high-water marks naming the affected tables. */
+  evidence: string[];
+  /** SQLite rejected apparent commits; the quarantine remains necessary for investigation. */
+  unreadable?: boolean;
+  /** Live-only keys prevent treating the source as a replacement image. */
+  divergent: boolean;
+}
+
+/** Read-only integrity and freshness assessment performed on disposable copies. */
 export interface StoreIntegrityInspection {
-  /** True when integrity_check returns exactly one ok row, or the store is absent. */
+  /** True when integrity and freshness checks pass, or the store is absent. */
   healthy: boolean;
   /** Integrity findings, a read failure, or absent. */
   detail: string;
+  /** Newer recoverable history, when physical integrity alone would pass. */
+  freshness?: StoreFreshnessFinding[];
 }
 
 /** Restartable phases of a whole-store repair; the commit is one atomic rename. */
@@ -147,6 +175,8 @@ export interface StoreRepairReceipt {
   missingTaskIds: string[];
   /** Extraction failures and unavailable optional tools. */
   diagnostics: string[];
+  /** Freshness evidence that triggered a lossless union instead of deletion inference. */
+  freshness?: StoreFreshnessFinding[];
   /** Excluded data and deletion accounting; also persisted beside the immutable originals. */
   recovery?: StoreRepairRecovery;
   /** True only after integrity, foreign-key, and base-count verification. */

@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -332,6 +333,202 @@ describe('copy-only whole-store repair', () => {
     expect(readdirSync(join(env.cleoDir, 'quarantine'))).toEqual(directories);
   });
 
+  it.each([
+    { divergent: false, pin: false },
+    { divergent: true, pin: false },
+    { divergent: false, pin: true },
+  ])('recovers an integrity-clean checkout from its newer snapshot (%o)', async ({
+    divergent,
+    pin,
+  }) => {
+    const pinned = join(env.tempDir, 'pinned.db');
+    copyFileSync(snapshot, pinned);
+    const db = new DatabaseSync(live);
+    db.exec(`INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES
+      ('T950001','shared task','task','2026-10-01T00:00:00Z','2026-10-01T00:00:00Z');
+      INSERT INTO tasks_sessions(id,name,status,started_at) VALUES
+      ('shared','snapshot session','ended','2026-10-01T00:00:00Z');
+      PRAGMA wal_checkpoint(TRUNCATE)`);
+    const old = join(env.tempDir, 'checkout.db');
+    copyFileSync(live, old);
+    db.exec(`INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES
+      ('T950002','newer snapshot task','task','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');
+      INSERT INTO tasks_sessions(id,name,status,started_at) VALUES
+      ('new-session','newer session','ended','2026-11-13T00:00:00Z');
+      INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES
+      ('new-audit','2026-11-13T00:00:00Z','create','T950002')`);
+    rmSync(snapshot);
+    db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+    db.close();
+    copyFileSync(old, live);
+    if (divergent) {
+      const changed = new DatabaseSync(live);
+      changed.exec(`INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES
+        ('T950003','live-only task','task','2026-10-02T00:00:00Z','2026-10-02T00:00:00Z');
+        UPDATE tasks_sessions SET status='active' WHERE id='shared'`);
+      changed.close();
+    }
+    const physical = new DatabaseSync(live, { readOnly: true });
+    expect(physical.prepare('PRAGMA integrity_check').get()?.integrity_check).toBe('ok');
+    physical.close();
+    const before = hashes();
+    const finding = inspectStoreIntegrity(live);
+    expect(finding).toMatchObject({
+      healthy: false,
+      freshness: [{ kind: 'snapshot', source: snapshot, divergent }],
+    });
+    expect(finding.detail).toContain('tasks_audit_log');
+    expect(finding.detail).toContain('tasks_sessions');
+    expect(() => assertDoctorStoreIntegrity()).toThrowError(
+      expect.objectContaining({
+        codeName: 'E_DB_CORRUPT',
+        cause: expect.objectContaining({ message: expect.stringContaining(snapshot) }),
+      }),
+    );
+    expect(hashes()).toEqual(before);
+    const preview = await repairStore({
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+      dryRun: true,
+      fromSnapshot: pin ? pinned : undefined,
+    });
+    expect(preview.status).toBe('dry-run');
+    expect(hashes()).toEqual(before);
+    expect(existsSync(join(env.cleoDir, 'quarantine'))).toBe(false);
+    const result = await repairStore({
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+      fromSnapshot: pin ? pinned : undefined,
+    });
+    expect(result.status).toBe('repaired');
+    expect(result.freshness).toEqual(finding.freshness);
+    const check = new DatabaseSync(live);
+    try {
+      expect(
+        check
+          .prepare('SELECT id FROM tasks_tasks ORDER BY id')
+          .all()
+          .map((r) => r.id),
+      ).toEqual(divergent ? ['T950001', 'T950002', 'T950003'] : ['T950001', 'T950002']);
+      expect(check.prepare("SELECT id FROM tasks_audit_log WHERE id='new-audit'").get()?.id).toBe(
+        'new-audit',
+      );
+      expect(check.prepare("SELECT id FROM tasks_sessions WHERE id='new-session'").get()?.id).toBe(
+        'new-session',
+      );
+      if (divergent)
+        expect(
+          check.prepare("SELECT status FROM tasks_sessions WHERE id='shared'").get()?.status,
+        ).toBe('ended');
+    } finally {
+      check.close();
+    }
+    if (divergent) {
+      expect(result.recovery?.rows).toContainEqual(
+        expect.objectContaining({
+          kind: 'conflict',
+          table: 'tasks_sessions',
+          values: expect.objectContaining({ id: 'shared', status: 'active' }),
+        }),
+      );
+      expect(JSON.parse(readFileSync(result.recovery?.file ?? '', 'utf8'))).toEqual(
+        result.recovery?.rows,
+      );
+    }
+    expect(values()).toEqual(['base', 'delta']);
+    expect(repairFileHash(join(result.quarantineDir ?? '', 'cleo.db'))).toBe(before['']);
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+  });
+
+  it('keeps a newer live store byte-identical even when its older backup has a future mtime', async () => {
+    const db = new DatabaseSync(live);
+    db.exec(`INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES
+      ('T950004','live task','task','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z')`);
+    db.close();
+    utimesSync(snapshot, new Date('2099-01-01'), new Date('2099-01-01'));
+    const before = hashes();
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+    expect(hashes()).toEqual(before);
+    expect(existsSync(join(env.cleoDir, 'quarantine'))).toBe(false);
+  });
+
+  it('does not resurrect a task deleted after the backup with newer audit history', async () => {
+    const db = new DatabaseSync(live);
+    db.exec(`INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES
+      ('T950006','deleted task','task','2026-10-01T00:00:00Z','2026-10-01T00:00:00Z')`);
+    rmSync(snapshot);
+    db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+    db.exec(`DELETE FROM tasks_tasks WHERE id='T950006';
+      INSERT INTO tasks_audit_log(id,timestamp,action,task_id) VALUES
+      ('deletion','2026-11-13T00:00:00Z','delete','T950006')`);
+    db.close();
+    const before = hashes();
+    expect(inspectStoreIntegrity(live).healthy).toBe(true);
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+    expect(hashes()).toEqual(before);
+  });
+
+  it.each([
+    false,
+    true,
+  ])('reports a discarded WAL and recovers only with newer snapshot evidence (snapshot: %s)', async (hasSnapshot) => {
+    const writer = join(env.tempDir, 'ignored-wal.db');
+    copyFileSync(live, writer);
+    const db = new DatabaseSync(writer);
+    db.exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
+      INSERT INTO tasks_tasks(id,title,type,created_at,updated_at) VALUES
+      ('T950005','WAL-only task','task','2026-11-13T00:00:00Z','2026-11-13T00:00:00Z');
+      INSERT INTO repair_records VALUES ('wal','WAL-only record','2026-11-13T00:00:00Z')`);
+    rmSync(snapshot);
+    db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+    copyFileSync(join(env.cleoDir, 'older-main.db'), live);
+    for (const suffix of ['-wal', '-shm']) copyFileSync(writer + suffix, live + suffix);
+    db.close();
+    if (!hasSnapshot) rmSync(snapshot);
+    const wal = readFileSync(`${live}-wal`);
+    wal[24] = (wal[24] ?? 0) ^ 0xff; // A discarded header checksum leaves integrity-clean older rows visible.
+    writeFileSync(`${live}-wal`, wal);
+    const before = hashes();
+    const finding = inspectStoreIntegrity(live);
+    expect(finding).toMatchObject({
+      healthy: false,
+      freshness: [
+        { kind: 'wal', source: `${live}-wal`, unreadable: true },
+        ...(hasSnapshot ? [{ kind: 'snapshot', source: snapshot }] : []),
+      ],
+    });
+    expect(finding.detail).toContain('Unapplied WAL');
+    expect(finding.detail).toContain('SQLite accepted 0');
+    if (hasSnapshot) expect(finding.detail).toContain('tasks_tasks');
+    expect(hashes()).toEqual(before);
+    if (!hasSnapshot) {
+      await expect(repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).rejects.toThrow(
+        'no newer snapshot proves recovery',
+      );
+      expect(hashes()).toEqual(before);
+      return;
+    }
+    const result = await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result.status).toBe('repaired');
+    expect(values()).toEqual(['base', 'delta', 'wal']);
+    const check = new DatabaseSync(live, { readOnly: true });
+    expect(check.prepare("SELECT title FROM tasks_tasks WHERE id='T950005'").get()?.title).toBe(
+      'WAL-only task',
+    );
+    check.close();
+    expect(repairFileHash(join(result.quarantineDir ?? '', 'cleo.db-wal'))).toBe(before['-wal']);
+    expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+      'healthy',
+    );
+  });
+
   it('repairs the canonical configured directory used by normal store opens', async () => {
     damageIndex();
     const before = hashes();
@@ -560,6 +757,39 @@ describe('copy-only whole-store repair', () => {
     expect(result.status).toBe('repaired');
     expect(result.scope).toBe('global');
     expect(values(global)).toEqual(['base', 'delta']);
+    expect(
+      (await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir, scope: 'global' })).status,
+    ).toBe('healthy');
+  });
+
+  it('detects and merges a newer global audit snapshot', async () => {
+    _resetDualScopeDbCache();
+    const global = resolveDualScopeDbPath('global');
+    const handle = await openDualScopeDbAtPath('global', global, undefined, { dedicated: true });
+    const db = getDualScopeNativeDb(handle);
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    const old = join(env.tempDir, 'old-global.db');
+    copyFileSync(global, old);
+    db.exec(
+      "INSERT INTO nexus_audit_log(id,timestamp,action) VALUES('new-global-audit','2099-01-01T00:00:00Z','proof')",
+    );
+    const directory = join(global, '..', 'backups', 'sqlite');
+    mkdirSync(directory, { recursive: true });
+    db.exec(`VACUUM INTO '${join(directory, 'global-20261114-000000.db').replaceAll("'", "''")}'`);
+    handle.close();
+    copyFileSync(old, global);
+    expect(inspectStoreIntegrity(global).detail).toContain('nexus_audit_log');
+    const result = await repairStore({
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+      scope: 'global',
+    });
+    expect(result.status).toBe('repaired');
+    const check = new DatabaseSync(global, { readOnly: true });
+    expect(
+      check.prepare("SELECT id FROM nexus_audit_log WHERE id='new-global-audit'").get()?.id,
+    ).toBe('new-global-audit');
+    check.close();
     expect(
       (await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir, scope: 'global' })).status,
     ).toBe('healthy');

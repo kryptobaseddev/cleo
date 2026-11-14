@@ -392,7 +392,7 @@ function orphanRows(db: DatabaseSync, violation: Row): Row[] {
 
 /**
  * Merge readable content from private damaged views, preserving incompatible rows separately.
- * The first view is authoritative only for tables it reads completely. Later views fill gaps;
+ * The first view is authoritative only for complete reads without newer or divergent history. Later views fill gaps;
  * timestamps can establish a newer value, but never turn an older main-only view authoritative.
  * All writes target the staged snapshot (gate 28), under trigger suspension (gate 36).
  */
@@ -407,6 +407,8 @@ export function salvageIntoSnapshot(
       'Salvage writes require a staged snapshot, never a canonical store or quarantine original',
     );
   Object.setPrototypeOf(receipt.tables, null);
+  const preserveHistory =
+    receipt.freshness?.some((f) => f.kind === 'snapshot' || f.divergent) === true;
   const journal: Row[] = [];
   const journalKeys = new Set<string>();
   const target = openCleoDbSnapshot(staged, {
@@ -658,7 +660,7 @@ export function salvageIntoSnapshot(
                       : a !== b;
                   });
                   if (!different) return;
-                  if (!provenNewer && (!first || view !== views[0])) {
+                  if (!provenNewer && (preserveHistory || !first || view !== views[0])) {
                     const version = `${table.name}\0${view}\0${rowKey(row, identity)}`;
                     if (!alternateVersions.has(version)) {
                       alternateVersions.add(version);
@@ -736,6 +738,7 @@ export function salvageIntoSnapshot(
                   );
                 }
                 if (
+                  !preserveHistory &&
                   (source === views[0] || source === `${views[0]}.header-recovered`) &&
                   complete &&
                   !incompleteSchema
@@ -780,7 +783,9 @@ export function salvageIntoSnapshot(
                 receipt,
                 'possibly-resurrected',
                 name,
-                'Incomplete damaged read cannot prove this snapshot row was deleted',
+                preserveHistory
+                  ? 'Newer history retained: the stale live view cannot prove deletion'
+                  : 'Incomplete damaged read cannot prove this snapshot row was deleted',
                 row,
               );
               continue;
