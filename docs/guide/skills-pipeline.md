@@ -129,7 +129,7 @@ The full rationale (including the locked anti-patterns) is in
 | `docs/owner-ci/skills-pipeline.md` | This doc | T9679 |
 | `docs/skills/telemetry-aggregate.json` | Aggregate sink (created by first operator PR) | — |
 | `docs/skills/council-reports/<skill>.md` | Per-skill council output | T9662 |
-| `docs/skills/grade-reports/<skill>.md` | Per-skill grade output | T9667 |
+| `$RUNNER_TEMP/skills-grade-reports/<skill>.md` | Per-skill grade output (runner scratch, never committed) | T9667 |
 
 ---
 

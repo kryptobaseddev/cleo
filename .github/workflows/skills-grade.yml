@@ -5,7 +5,8 @@ name: Skills Grade (Owner CI)
 #
 # Weekly cron that runs the multi-rubric "grade" evaluation pass against
 # canonical skills, producing per-skill scorecards under
-# docs/skills/grade-reports/. Owner-CI only, fork-guarded, and NOT
+# $RUNNER_TEMP/skills-grade-reports/ (runner scratch, never committed; docs/
+# holds only store mirrors, T14108). Owner-CI only, fork-guarded, and NOT
 # bundled in the npm package.
 #
 # The cron lands at 07:00 UTC on Mondays so it slots in one hour after
@@ -15,7 +16,7 @@ name: Skills Grade (Owner CI)
 # Inputs / outputs:
 #   - Reads:  packages/skills/manifest.json (canonical skill registry)
 #             docs/skills/telemetry-aggregate.json (optional ranking input)
-#   - Writes: docs/skills/grade-reports/<canonicalSkillName>.md per skill.
+#   - Writes: $RUNNER_TEMP/skills-grade-reports/<canonicalSkillName>.md per skill.
 #
 # See: docs/adr/adr-074-skills-telemetry-pr-diff-transport.md
 # See: docs/guide/skills-pipeline.md (T9679)
@@ -91,12 +92,12 @@ jobs:
           SELECTED_JSON: ${{ steps.enumerate.outputs.selected }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p docs/skills/grade-reports
+          mkdir -p "${RUNNER_TEMP}/skills-grade-reports"
           for skill in $(echo "$SELECTED_JSON" | jq -r '.[]'); do
             echo "::group::Grade — $skill"
             # The grader invocation is deferred to T9563 (E-SKILLS-AUTO-IMPROVE).
             # This stub establishes the report path + filename contract end-to-end.
-            cat > "docs/skills/grade-reports/${skill}.md" <<EOF
+            cat > "${RUNNER_TEMP}/skills-grade-reports/${skill}.md" <<EOF
           # Grade report — \`${skill}\`
 
           - **Run:** ${GITHUB_RUN_ID}
