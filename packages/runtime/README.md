@@ -123,7 +123,7 @@ automatically to pure polling on connection loss.
 
 ```
 ┌──────────────────────────────────────────┐
-│ cleo agent start  (CLI entry)            │
+│ caller (no CLI command calls it today)   │
 └────────────────┬─────────────────────────┘
                  │
                  ▼

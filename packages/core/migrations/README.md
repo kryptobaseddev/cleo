@@ -1,6 +1,6 @@
 # CLEO Migration System — Hybrid Path A+
 
-> **Decision record**: [`docs/adr/ADR-054-migration-system-hybrid-path-a-plus.md`](../../../docs/adr/ADR-054-migration-system-hybrid-path-a-plus.md)
+> **Decision record**: [`docs/adr/adr-054-migration-system-hybrid-path-a-plus.md`](../../../docs/adr/adr-054-migration-system-hybrid-path-a-plus.md)
 > **Epic**: T1150 (T-MSR RCASD) — Wave 2A implementation
 > **Synthesis**: [`.cleo/agent-outputs/T-MSR/RECOMMENDATION.md`](../../../.cleo/agent-outputs/T-MSR/RECOMMENDATION.md)
 
@@ -18,14 +18,20 @@ the **project** store (`<project>/.cleo/cleo.db`) and the **global** store
 `signaldock.db` is retired.
 
 Every open goes through `openDualScopeDb` (`packages/core/src/store/dual-scope-db.ts`), which
-migrates the store before returning it. Each store has ONE migration journal, and that journal
-runs several lineages (folders) in order, the consolidated one first
-(`PROJECT_LINEAGES` / `GLOBAL_LINEAGES` in `packages/core/src/doctor/migrations.ts`):
+migrates the store with its consolidated lineage before returning it. Domain store modules then
+apply the legacy lineages they still own to the same file, into the same journal:
 
-| Store | Lineages in its journal (in order) | Where new migrations land |
+| Store | Lineages that run against it | Where new migrations land |
 |---|---|---|
-| project `cleo.db` | `drizzle-cleo-project`, `drizzle-tasks`, `drizzle-brain`, `drizzle-nexus`, `drizzle-conduit` | `drizzle-cleo-project` (newest folders through 2026-11); `drizzle-brain` last gained one in 2026-10, `drizzle-tasks` in 2026-09 |
-| global `cleo.db` | `drizzle-cleo-global`, `drizzle-agent-registry`, `drizzle-skills`, `drizzle-telemetry` | `drizzle-cleo-global` (newest folders through 2026-10) |
+| project `cleo.db` | `drizzle-cleo-project` (on open); `drizzle-tasks` (`store/sqlite.ts`), `drizzle-brain` (`store/memory-sqlite.ts`), `drizzle-nexus` (`store/nexus-sqlite.ts`, the delta only) and `drizzle-conduit` (`store/conduit-sqlite.ts`, the FTS5 quartet) | `drizzle-cleo-project` (newest folders through 2026-11); `drizzle-brain` last gained one in 2026-10, `drizzle-tasks` in 2026-09 |
+| global `cleo.db` | `drizzle-cleo-global` (on open); `drizzle-agent-registry` (its forward migration, `store/agent-registry-store.ts`) | `drizzle-cleo-global` (newest folders through 2026-10) |
+| opt-in `telemetry.db` (CLEO home, its own file and journal) | `drizzle-telemetry` (`telemetry/sqlite.ts`) | `drizzle-telemetry` |
+
+`drizzle-skills` is NOT run: `store/skills-db.ts` reads the `skills_*` tables that
+`drizzle-cleo-global` creates, because the legacy lineage would create a bare `skills` table that
+collides with the agent registry. `cleo doctor migrations` still lists `drizzle-skills` and
+`drizzle-telemetry` among the global lineages it reports on (`GLOBAL_LINEAGES` in
+`packages/core/src/doctor/migrations.ts`).
 
 Schemas: `packages/core/src/store/schema/cleo-project/` and `.../cleo-global/` (the per-domain
 schema files still define each domain's tables). drizzle-kit configs per lineage live in
@@ -393,7 +399,7 @@ In most cases the reconciler self-heals without operator intervention.
 ### When operator action is required
 
 If `__drizzle_migrations` rows are visibly out of sync with schema state and the reconciler
-has not self-healed (observable via `cleo admin` or direct `sqlite3` inspection):
+has not self-healed (observable via `cleo doctor migrations`):
 
 **Step 1 — Take a backup before touching anything.**
 
@@ -404,8 +410,12 @@ cleo backup add
 **Step 2 — Inspect the journal.**
 
 ```bash
-sqlite3 .cleo/tasks.db "SELECT id, hash, name FROM __drizzle_migrations ORDER BY created_at;"
+cleo doctor migrations
 ```
+
+It reads each store's journal (project and global `cleo.db`) as a read-only snapshot and reports,
+per lineage, the applied and pending files and any hash drift. Do not open `.cleo/tasks.db`: it is
+a legacy decoy, not the live store.
 
 **Step 3 — Identify the offending migration.**
 
@@ -423,16 +433,20 @@ shortcut, restart the CLEO process; the reconciler will attempt Scenario 3 on th
 
 ```bash
 cleo doctor
+cleo doctor migrations
 ```
 
-If the DB passes doctor checks, the recovery is complete.
+If the DB passes doctor checks, the recovery is complete. If the store itself is damaged
+(corruption rather than a journal gap), `cleo doctor repair-store --dry-run`, then
+`cleo doctor repair-store`, repairs `cleo.db` losslessly, keeping the originals and a recovery
+receipt.
 
 **Step 6 — File a bug.**
 
 If the reconciler did not self-heal a partial migration, file a bug with:
 - The migration name and the set of columns that were/were not present.
 - The CLEO version (`cleo version`).
-- The full output of `cleo admin` and `sqlite3 .cleo/<db>.db ".schema"`.
+- The full output of `cleo doctor migrations`.
 
 ---
 
@@ -440,9 +454,9 @@ If the reconciler did not self-heal a partial migration, file a bug with:
 
 ### Decision records
 
-- [`docs/adr/ADR-054-migration-system-hybrid-path-a-plus.md`](../../../docs/adr/ADR-054-migration-system-hybrid-path-a-plus.md) — canonical governance contract (supersedes ADR-012, ADR-027 §2.6)
-- [`docs/adr/ADR-051-programmatic-gate-integrity.md`](../../../docs/adr/ADR-051-programmatic-gate-integrity.md) — evidence-based verify; informs the linter/guard/generator triad
-- [`docs/adr/ADR-012-drizzle-kit-migration-system.md`](../../../docs/adr/ADR-012-drizzle-kit-migration-system.md) — original drizzle-kit adoption (superseded)
+- [`docs/adr/adr-054-migration-system-hybrid-path-a-plus.md`](../../../docs/adr/adr-054-migration-system-hybrid-path-a-plus.md) — canonical governance contract (supersedes ADR-012, ADR-027 §2.6)
+- [`docs/adr/adr-051-programmatic-gate-integrity.md`](../../../docs/adr/adr-051-programmatic-gate-integrity.md) — evidence-based verify; informs the linter/guard/generator triad
+- [`docs/adr/adr-012-drizzle-kit-migration-system.md`](../../../docs/adr/adr-012-drizzle-kit-migration-system.md) — original drizzle-kit adoption (superseded)
 
 ### Research synthesis
 

@@ -60,7 +60,7 @@ yarn add @cleocode/core
 
 These domains map 1:1 to the CLEO CLI dispatch surface and follow the uniform
 `(projectRoot: string, params: <Op>Params) => Promise<<Op>Result>` signature
-mandated by [ADR-057](../../docs/adr/ADR-057-contracts-core-ssot.md).
+mandated by [ADR-057](../../docs/adr/adr-057-contracts-core-ssot.md).
 
 | Domain | Subpath | Purpose |
 |--------|---------|---------|
@@ -239,8 +239,8 @@ If this package is ever forked as a standalone SDK (decoupled from the CLEO CLI 
 
 ## Architecture references
 
-- [ADR-057: Contracts/Core SSoT layering — uniform `(projectRoot, params)` Core API](../../docs/adr/ADR-057-contracts-core-ssot.md)
-- [ADR-058: Dispatch type inference via `OpsFromCore<C>`](../../docs/adr/ADR-058-dispatch-type-inference.md)
+- [ADR-057: Contracts/Core SSoT layering — uniform `(projectRoot, params)` Core API](../../docs/adr/adr-057-contracts-core-ssot.md)
+- [ADR-058: Dispatch type inference via `OpsFromCore<C>`](../../docs/adr/adr-058-dispatch-type-inference.md)
 - [STABILITY.md](./STABILITY.md) — per-subpath stability tiers and breaking-change policy
 - [`@cleocode/contracts`](../contracts/README.md) — all shared types (Params, Results, envelopes)
 
