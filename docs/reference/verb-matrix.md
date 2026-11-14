@@ -60,6 +60,14 @@ commit. This receipt check is shared by `open` and `cut` in
 The plan/open fallback tracks state on a `releases` row keyed by version.
 Valid `status` values (in lifecycle order):
 
+> **Which workflows exist (checked 2026-11-14, T14108).** `release-publish.yml`
+> is a shipped consumer template (`packages/core/templates/workflows/release-publish.yml.tmpl`);
+> this repository has no `.github/workflows/release-publish.yml`. Here the tag
+> push runs `release.yml`, which builds, publishes and opens the CHANGELOG
+> PR, and no workflow runs `cleo release reconcile`; run it by hand after a
+> fallback release. Rows below that name `release-publish.yml` describe a
+> consumer project that installed the templates.
+
 | Order | `releases.status`   | Set by                                                          | Meaning |
 |------:|---------------------|-----------------------------------------------------------------|---------|
 |  0    | _(no row)_          | —                                                               | Version has never been planned |
@@ -104,6 +112,57 @@ in-memory plan envelope.
 Mac by `node scripts/release-mac-smoke.mjs --sha <full-sha>`. Since T14250, a
 stable `open` requires the matching passing receipt before dispatch, and a
 stable `cut` requires it before tagging.
+
+## npm dist-tags and the CHANGELOG gate (`release.yml`)
+
+`release.yml` picks the npm dist-tag from the version suffix:
+
+| Version | Dist-tag | Notes |
+|---|---|---|
+| `X.Y.Z-canary.N` | `canary` | A `-canary` suffix without a number is refused. |
+| `X.Y.Z-alpha…`, `X.Y.Z-dev…` | `dev` | |
+| `X.Y.Z-beta…`, `X.Y.Z-rc…` | `beta` | |
+| `X.Y.Z` (stable) | `latest` | First publishes `X.Y.Z-rc.ci.<run number>` to `canary`, proves it installs from npm and runs the sandbox soak, then publishes `X.Y.Z` to `latest` from the same commit (T13181). Both go through OIDC; no npm token. |
+
+Before the GitHub Release is built, `release.yml` runs two CHANGELOG steps in
+order: `cleo release write-changelog <ver>` writes the version section from the
+changesets added since the previous tag (a tag from `cut` carries none;
+T14102), then `cleo release validate-changelog <ver>` asserts the canonical
+`## [<ver>]` header (T9937, ADR-028 §2.5). A plan-PR release already has the
+section, and `write-changelog` leaves it alone.
+
+## SPEC-T9345 status (sections 4 and 5, checked 2026-11-14)
+
+`spec-t9345-release-pipeline-v2` is superseded by this document. Of its
+normative sections, checked against the code:
+
+- **Verbs (§4.2-4.5):** `plan`, `open`, `reconcile` and `rollback` exist as the
+  fallback, with more scope options than the spec (`--saga`, `--tasks`,
+  `--channel canary`, `--no-changelog`, `--skip-readiness` on `plan`; `--ref`,
+  `--commit-plan` on `open`). `plan` refuses `E_DIRTY_TREE`, `E_EPIC_NOT_FOUND`,
+  `E_EPIC_EMPTY` and `E_CHANNEL_MISMATCH`. `--dry-run` previews without writing;
+  the spec's `CLEO_DRY_RUN=1` environment switch is not read.
+- **Read verbs (§4.6):** only `cleo provenance backfill` and `cleo provenance
+  verify` exist. `cleo release graph|diff|impact|authors|orphans` and the other
+  `cleo provenance` reads were never built.
+- **Error codes (§4.7):** `E_PLAN_NOT_FOUND`, `E_WORKFLOW_NOT_FOUND`,
+  `E_INVALID_STATE`, `E_GH_NOT_AUTHENTICATED`, `E_EPIC_NOT_FOUND`,
+  `E_DIRTY_TREE`, `E_EPIC_EMPTY` and `E_CHANNEL_MISMATCH` are defined and used.
+  `E_TAG_NOT_FOUND`, `E_INSUFFICIENT_SCOPE`, `E_TAG_MISMATCH`,
+  `E_PROVENANCE_FAILED`, `E_PROVENANCE_INCOMPLETE` and `E_TIMEOUT` are not
+  defined.
+- **`release-prepare.yml` (§5.1):** `workflow_dispatch` only, with `version`
+  and `plan-blob-sha256` (plus `epic`, `tasks`, `channel` and the preflight-reuse
+  inputs) and concurrency `release-prepare-<version>` without cancel, as the
+  spec requires. Its jobs are `dispatch-preconditions`, three split preflight
+  jobs, `prepare` and `cleanup-on-failure`, not the spec's
+  `preflight` → `prepare` → `notify`.
+- **`release-publish.yml` (§5.2):** shipped as a consumer template only (see
+  the note under the lifecycle states); this repository publishes from
+  `release.yml` on the tag push.
+
+The spec's remaining requirements (subprocess timeouts and kill paths, status
+check names, failure artifacts) were not checked here.
 
 ## What was removed (DO NOT use)
 
@@ -206,10 +265,10 @@ notice with `CLEO_NO_UPDATE_NOTICE=1`; CI runs never show one.
 
 ## Related docs
 
-- `docs/release/branch-protection-setup.md` — GitHub branch protection setup
-- `docs/release/dep-pruning.md` — Dependency pruning before publish
-- `docs/release/pre-push-reconcile-gate.md` — Pre-push reconcile guard
+- [Branch protection setup](../guide/branch-protection-setup.md) — GitHub branch protection setup
+- [Merge runbook](../guide/merge-runbook.md) — merging release and feature PRs
+- [Pre-push reconcile gate](../spec/pre-push-reconcile-gate.md) — pre-push reconcile guard
 - `AGENTS.md` "Release & Branching" — Operator-facing release flow
-- `.cleo/adrs/ADR-065-release-pipeline.md` — Design ADR
-- `.cleo/specs/SPEC-T9345-release-pipeline-v2.md` — Detailed spec
+- [ADR-065](../adr/adr-065-pr-required-release-flow.md) — PR-required release flow
+- [Consumer workflow and hook contract](../spec/consumer-workflow-hook-contract.md) — the shipped release workflow templates
 - `packages/skills/skills/ct-release-orchestrator/SKILL.md` — Agent-facing release skill
