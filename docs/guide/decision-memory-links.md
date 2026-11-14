@@ -19,8 +19,8 @@ cleo memory decision-store \
 
 Output: `{ "id": "D001", "decision": "...", ... }`
 
-The decision is stored in `brain.db` with the task context, quality score,
-and auto-populated graph node.
+The decision is stored in the project `cleo.db` (table `brain_decisions`) with the task
+context, quality score, and auto-populated graph node.
 
 ### Step 2: Link the decision to the task
 
@@ -101,10 +101,10 @@ resolution supports test contexts.
    by T11023 (cross-mount divergence) because `resolveProjectByCwd`
    requires nexus registration. The tests pass `tempDir` as the project
    root but `getBrainDbPath` → `resolveProjectByCwd` → `resolveCanonicalCleoDir`
-   requires the project to be in nexus.db.
+   requires the project to be registered in the NEXUS project registry.
 
 ## Verification
 
-The workflow was manually verified via direct `node:sqlite` access to
-brain.db, confirming all steps succeed when nexus resolution is not
-involved. Full verification output available in the T11059 task record.
+The workflow was manually verified (T11059, when decisions still lived in
+`brain.db`; they now live in the project `cleo.db`) via direct `node:sqlite`
+access, confirming all steps succeed when nexus resolution is not involved. Full verification output available in the T11059 task record.

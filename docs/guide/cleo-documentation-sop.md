@@ -6,6 +6,15 @@ new doc instead of updating the one that exists, or that put task ids and
 dates in names, are the documentation rot this guide exists to prevent
 (decision D11210).
 
+## The store is the only source of truth (D11248)
+
+Every canonical doc lives in the CLEO docs store; `docs/` is generated from it
+by `cleo docs publish`. An edit made only to a file under `docs/` is lost the
+next time that doc is published, and `cleo docs doctor` reports the file as
+edited outside the store. Change a doc with `cleo docs update` and then
+publish it. A generated index of every published doc is planned (T14543); until
+it lands, `docs/concept/cleo-canon-index.md` is the hand-kept map.
+
 ## Before you write: find the existing doc
 
 ```bash
@@ -20,8 +29,8 @@ If a doc on the topic exists, update it. Do not add a second one.
 cleo docs update <slug> --file <path> --message "<what changed>"
 ```
 
-`cleo docs list --limit 0` currently stops at 200 rows (T14115), so do not
-use it to prove a doc is absent.
+`cleo docs list --limit 0` returns every doc in the store (T14115), but
+`cleo docs query` is the faster way to find one by topic.
 
 ## Adding a new doc
 
