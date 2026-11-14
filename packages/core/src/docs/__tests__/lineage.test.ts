@@ -73,12 +73,14 @@ describe('T14110 — doc lineage', () => {
       lifecycleStatus: 'superseded',
       supersedes: null,
       supersededBy: 'plan-revised',
+      predecessors: [],
       currentSlug: 'plan',
       servesTasks: ['T100'],
     });
     expect(await readDocLineage(projectRoot, 'plan')).toMatchObject({
       supersedes: 'plan-revised',
       supersededBy: null,
+      predecessors: ['plan-revised'],
       currentSlug: 'plan',
       servesTasks: ['T100', 'T200'],
     });

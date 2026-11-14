@@ -2,7 +2,7 @@
 id: docs-update-keeps-supersession
 tasks: [T14565]
 kind: fix
-summary: "cleo docs update on a doc that supersedes another (or is superseded) keeps the supersession on both docs; before, the old doc's lineage lost its successor"
+summary: "cleo docs update on a doc that supersedes another (or is superseded) keeps the supersession on both docs, and docs fetch lineage lists every doc a survivor replaced (predecessors)"
 ---
 
 `cleo docs supersede A B` links the two docs through their registry rows, and
@@ -20,5 +20,11 @@ way to get the edge back, until the next update dropped it again.
 - `cleo docs modernize --rollback` moves the edges back with the slug when it
   reverts an update, so the superseded doc never points at the row the
   rollback purges.
-- Edges already lost on a store are not rebuilt by this change: run
-  `cleo docs supersede <old> <new>` once more for each; they now stay.
+- `cleo docs fetch <slug>` lineage has a new `predecessors` list: every doc
+  this one replaced. The `supersedes` pointer holds one doc, so a survivor that
+  replaced several named only the latest; the list is read from the replaced
+  docs, each of which names its successor. It needs no store change: existing
+  supersessions show both sides as soon as this version is installed.
+- An edge already lost on the superseded doc's side (its `supersededBy` reads
+  null) is repaired by running `cleo docs supersede <old> <new>` again; it now
+  stays through later updates.

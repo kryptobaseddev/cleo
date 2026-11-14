@@ -625,6 +625,7 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       expect(await readDocLineage(projectRoot, 'gate-integrity-spec')).toMatchObject({
         supersedes: 'gate-integrity-draft',
         supersededBy: null,
+        predecessors: ['gate-integrity-draft'],
       });
     };
     await expectEdge();

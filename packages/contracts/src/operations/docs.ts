@@ -481,10 +481,20 @@ export interface DocsFetchResult {
 export interface DocsLineage {
   /** The doc's lifecycle status (`superseded` when replaced). */
   readonly lifecycleStatus: string;
-  /** Slug of the doc this one replaced, when any. */
+  /**
+   * Slug of the doc this one replaced, when any: the one its `supersedes`
+   * pointer names, so the latest when it replaced several. Every doc it
+   * replaced is in {@link predecessors}.
+   */
   readonly supersedes: string | null;
   /** Slug of the doc that replaced this one, when any. */
   readonly supersededBy: string | null;
+  /**
+   * Slugs of every doc this one replaced (T14565), sorted: each doc whose
+   * `supersededBy` is this doc, and the doc {@link supersedes} names. Empty
+   * when it replaced none.
+   */
+  readonly predecessors: readonly string[];
   /**
    * Slug of the current doc at the end of the `superseded_by` chain: this
    * doc's own slug when it is current. Read this one instead.

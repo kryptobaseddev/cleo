@@ -8,6 +8,10 @@
  * left naming the slugless old row: `docs fetch <old>` then showed
  * `lineage.supersededBy: null` and `currentSlug` back on the superseded doc.
  *
+ * The lineage also lists every doc a survivor replaced (`predecessors`): the
+ * `supersedes` pointer holds one doc, so a survivor of several named only the
+ * latest.
+ *
  * @task T14565
  */
 
@@ -18,10 +22,11 @@ import type { BlobAttachment } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { mirrorConduitDocMeta, resolveConduitDocUid } from '../../store/conduit-doc-history.js';
-import { closeDb } from '../../store/sqlite.js';
+import { closeDb, getNativeDb } from '../../store/sqlite.js';
 import { publishDocs } from '../docs-ops.js';
 import { updateDocBySlug } from '../docs-update.js';
 import { readDocLineage } from '../lineage.js';
+import { renameDocSlug } from '../slug-rename.js';
 import { supersedeDoc } from '../supersede.js';
 
 describe('T14565 — supersession edges survive a successor update', () => {
@@ -74,11 +79,14 @@ describe('T14565 — supersession edges survive a successor update', () => {
       supersededBy: newer,
       currentSlug: newer,
     });
-    expect(await readDocLineage(projectRoot, newer)).toMatchObject({
+    const successor = await readDocLineage(projectRoot, newer);
+    expect(successor).toMatchObject({
       supersedes: older,
       supersededBy: null,
       currentSlug: newer,
     });
+    // The reciprocal side: the successor lists the doc it replaced.
+    expect(successor?.predecessors).toContain(older);
   }
 
   it('supersede, update the successor twice: the old doc still names its successor (AC1, AC2)', async () => {
@@ -150,6 +158,88 @@ describe('T14565 — supersession edges survive a successor update', () => {
       supersedes: 'guide-v2',
       supersededBy: null,
     });
+  });
+
+  it('a survivor that replaced several docs lists every one, through updates of either side', async () => {
+    await seed('cant-old', '# CANT, old\n');
+    await seed('cant-ts', '# CANT TypeScript integration\n');
+    await seed('cant', '# CANT\n\nv1\n');
+    await supersedeDoc(projectRoot, { oldSlug: 'cant-old', newSlug: 'cant' });
+    // The single `supersedes` pointer now names the latest doc only.
+    await supersedeDoc(projectRoot, { oldSlug: 'cant-ts', newSlug: 'cant' });
+
+    const expectBothSides = async (predecessors: string[]) => {
+      expect(await readDocLineage(projectRoot, 'cant')).toMatchObject({
+        supersededBy: null,
+        predecessors,
+        currentSlug: 'cant',
+      });
+      for (const slug of predecessors) {
+        expect(await readDocLineage(projectRoot, slug)).toMatchObject({
+          lifecycleStatus: 'superseded',
+          supersededBy: 'cant',
+          predecessors: [],
+          currentSlug: 'cant',
+        });
+      }
+    };
+    await expectBothSides(['cant-old', 'cant-ts']);
+
+    await update('cant', '# CANT\n\nv2\n');
+    await expectBothSides(['cant-old', 'cant-ts']);
+    await update('cant', '# CANT\n\nv3\n');
+    await expectBothSides(['cant-old', 'cant-ts']);
+
+    // Writes to a predecessor: re-asserting its status, and a rename.
+    const reasserted = await updateDocBySlug(projectRoot, {
+      slug: 'cant-old',
+      status: 'superseded',
+    });
+    expect(reasserted.ok).toBe(true);
+    await renameDocSlug(projectRoot, {
+      oldSlug: 'cant-ts',
+      newSlug: 'cant-typescript',
+      reason: 'test',
+      authorAgentId: 'test',
+    });
+    await expectBothSides(['cant-old', 'cant-typescript']);
+
+    for (const slug of ['cant-old', 'cant-typescript', 'cant'])
+      await mirrorConduitDocMeta(projectRoot, { slug });
+    await update('cant', '# CANT\n\nv4\n');
+    await expectBothSides(['cant-old', 'cant-typescript']);
+  });
+
+  it('re-running docs supersede repairs an edge lost before the fix, and it then stays', async () => {
+    await seed('old-guide', '# Old guide\n\nfirst\n');
+    await seed('guide', '# Guide\n\nv1\n');
+    await update('old-guide', '# Old guide\n\nsecond\n');
+    const v1 = await createAttachmentStore().findBySlug('guide', projectRoot);
+    await update('guide', '# Guide\n\nv2\n');
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+
+    // The store as an unfixed update left it: the old doc names the slugless
+    // row of an earlier version, the successor's row names nothing, and the
+    // identity rows were mirrored from that.
+    const native = getNativeDb(projectRoot);
+    if (!native || !v1) throw new Error('expected a native handle and the v1 row');
+    native
+      .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
+      .run(v1.metadata.id);
+    native.prepare("UPDATE docs_attachments SET supersedes = NULL WHERE slug = 'guide'").run();
+    await mirrorConduitDocMeta(projectRoot, { slug: 'old-guide' });
+    await mirrorConduitDocMeta(projectRoot, { slug: 'guide' });
+    expect(await readDocLineage(projectRoot, 'old-guide')).toMatchObject({
+      supersededBy: null,
+      currentSlug: 'old-guide',
+    });
+    expect((await readDocLineage(projectRoot, 'guide'))?.predecessors).toEqual([]);
+
+    // The supported repair: `cleo docs supersede <old> <new>` again.
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+    await expectEdge('old-guide', 'guide');
+    await update('guide', '# Guide\n\nv3\n');
+    await expectEdge('old-guide', 'guide');
   });
 
   it('a publish after the successor updates leaves the edge in place', async () => {
