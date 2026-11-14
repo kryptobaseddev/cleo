@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026.11.9] (2026-11-14)
+
+### Changed
+
+- Post-merge and NEXUS commit hook tests wait for the stub's whole record instead of its file appearing (gh#2901, gh#2808) _(provenance: [T14568](https://github.com/kryptobaseddev/cleo/search?q=T14568&type=commits))_
+
+### Fixed
+
+- Make hygiene census regression tests deterministic: publish scanner PIDs atomically and verify claim times at exact daily boundaries _(provenance: [T14567](https://github.com/kryptobaseddev/cleo/search?q=T14567&type=commits))_
+- An ops task's data receipt is refused with its supported route, not a silent base-requirement list _(provenance: [T14557](https://github.com/kryptobaseddev/cleo/search?q=T14557&type=commits))_
+- Charge pre-push hooks separately and expose pending run waits _(provenance: [T14555](https://github.com/kryptobaseddev/cleo/search?q=T14555&type=commits))_
+- Repair-store: wait for exiting Linux processes and scope macOS mount warnings _(provenance: [T14566](https://github.com/kryptobaseddev/cleo/search?q=T14566&type=commits), [T14571](https://github.com/kryptobaseddev/cleo/search?q=T14571&type=commits))_
+- Reparent: enforce resolved hierarchy profiles and active sibling limits _(provenance: [T14550](https://github.com/kryptobaseddev/cleo/search?q=T14550&type=commits), [T14551](https://github.com/kryptobaseddev/cleo/search?q=T14551&type=commits))_
+- spawn mailbox verification: skip unused defaults during atomicity prechecks and report exact failed checks _(provenance: [T14559](https://github.com/kryptobaseddev/cleo/search?q=T14559&type=commits))_
+- Store recovery: detect and merge history hidden by a stale main file _(provenance: [T14556](https://github.com/kryptobaseddev/cleo/search?q=T14556&type=commits))_
+- cleo adr list, show, find, validate and sync read ADRs from the canon ADR home (docs/adr/, the adr publishMirror in .cleo/canon.yml) instead of the retired .cleo/adrs/ mirror, accept lowercase adr-NNN file names, and validate against the schema @cleocode/core ships. _(provenance: [T14108](https://github.com/kryptobaseddev/cleo/search?q=T14108&type=commits))_
+- Bound awaited work-capture hooks: a held brain writer lease now defers the observation to a durable spool within a 2 s response budget (reported as W_WORK_CAPTURE_DEFERRED) instead of holding the command up to 60 s, and routine global and derived backups no longer wait on a held writer. _(provenance: [T14553](https://github.com/kryptobaseddev/cleo/search?q=T14553&type=commits))_
+- cleo worktree list proves every finished worktree with one shared dependents scan; destroy --force archives leave out the pnpm store and the generated .npmrc _(provenance: [T14554](https://github.com/kryptobaseddev/cleo/search?q=T14554&type=commits))_
+
 ## [2026.11.8] (2026-11-14)
 
 ### Fixed
