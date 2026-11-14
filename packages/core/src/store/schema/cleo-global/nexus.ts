@@ -61,8 +61,8 @@
  * @epic T11245 · T11535 (nexus residency)
  * @saga T11242
  * @see ../cleo-project/nexus-graph.ts (the PROJECT-scope home of the 4 graph tables)
- * @see docs/migration/sqlite-schema-canonical.md §1 (D1″ · global counts) · §4 · §5b
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §1 (D1″ · global counts) · §4 · §5b
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  * @see ../nexus-schema.ts · ../code-index.ts (the runtime source modules)
  * @see cleo docs fetch adr-090-nexus-graph-residency-split
  */

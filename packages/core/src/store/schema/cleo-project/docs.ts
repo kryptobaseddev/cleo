@@ -23,7 +23,7 @@
  *   - `docs_manifest_entries`   ← `manifest_entries`
  *   - `docs_pipeline_manifest`  ← `pipeline_manifest`
  *
- * ## E10 typing applied (per docs/migration/sqlite-schema-canonical.md)
+ * ## E10 typing applied (per docs store `sqlite-schema-canonical`)
  *
  * - **§3b boolean non-conformer:** `pipeline_manifest.distilled` was already
  *   `integer({ mode: 'boolean' })` — preserved.
@@ -47,8 +47,8 @@
  * @task T11360
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §1 (D1″) · §3b · §5 · §6a
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §1 (D1″) · §3b · §5 · §6a
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  */
 
 import { sql } from 'drizzle-orm';

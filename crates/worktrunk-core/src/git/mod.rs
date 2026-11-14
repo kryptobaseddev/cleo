@@ -13,9 +13,8 @@
 //! - [`Repo`] trait + [`ProcessRepo`] default impl — the substitute boundary
 //!   for worktrunk's `Repository` god-object.
 //!
-//! See the [T10219 audit doc] for the operation-count rationale.
-//!
-//! [T10219 audit doc]: ../../../../docs/research/t10219-worktrunk-sdk-interface-audit.md
+//! See the T10219 SDK interface audit (docs store `t10219-sdk-interface-audit`) for the
+//! operation-count rationale.
 
 pub mod branch;
 pub mod ref_snapshot;

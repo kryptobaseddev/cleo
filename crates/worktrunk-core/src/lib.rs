@@ -40,7 +40,7 @@
 //! - [`git`] — substitute SDK surface for worktrunk's `git::*` types
 //!   ([`git::BranchDeletionMode`], [`git::RefSnapshot`], [`git::Repo`] trait,
 //!   [`git::ProcessRepo`] default impl). See
-//!   `docs/research/t10219-worktrunk-sdk-interface-audit.md` for rationale.
+//!   the docs store doc `t10219-sdk-interface-audit` for rationale.
 //! - [`config`] — field-only SDK projection of worktrunk's
 //!   `config::UserConfig` ([`config::UserConfigDto`],
 //!   [`config::CopyIgnoredConfig`]).

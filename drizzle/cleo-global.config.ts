@@ -43,7 +43,7 @@
  * @task T11363
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §1 (canonical per-scope counts)
+ * @see docs store `sqlite-schema-canonical` §1 (canonical per-scope counts)
  * @see packages/core/src/store/schema/cleo-global/index.ts (consolidated target barrel)
  */
 

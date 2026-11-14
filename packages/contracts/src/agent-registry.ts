@@ -5,7 +5,7 @@
  * local project database (`.cleo/tasks.db`). API keys are encrypted at
  * rest using AES-256-GCM with a machine-bound key.
  *
- * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 3
+ * @see docs store `signaldock-unified-agent-registry` (SignalDock is deprecated, D11176) Section 3
  * @module agent-registry
  */
 

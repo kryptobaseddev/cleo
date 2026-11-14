@@ -9,7 +9,7 @@
  * Priority: LocalTransport is preferred over HttpTransport when
  * conduit.db is available (see factory.ts).
  *
- * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.4
+ * @see docs store `signaldock-unified-agent-registry` (SignalDock is deprecated, D11176) Section 4.4
  * @task T213
  * @task T356
  * @epic T310

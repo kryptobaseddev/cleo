@@ -4,7 +4,7 @@
  * This is the WHAT layer: send messages, subscribe to events, manage presence.
  * The Transport adapter (HttpTransport, LocalTransport, etc.) handles the HOW.
  *
- * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.3
+ * @see docs store `signaldock-unified-agent-registry` (SignalDock is deprecated, D11176) Section 4.3
  * @task T177
  */
 

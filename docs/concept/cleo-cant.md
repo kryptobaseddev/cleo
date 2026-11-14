@@ -294,7 +294,7 @@ IDENTIFIER    ::= [a-zA-Z][a-zA-Z0-9_-]*
 DIGITS        ::= [0-9]+
 ```
 
-> **Implementation note**: This grammar will grow complex. The `cant-core` Rust crate uses a proper parser (not regex) to handle current and future grammar extensions. Both SignalDock (Rust, native import) and the TypeScript ecosystem (`@cleocode/cant` via napi-rs) consume `cant-core` as the single parsing SSoT. See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full crate architecture.
+> **Implementation note**: This grammar will grow complex. The `cant-core` Rust crate uses a proper parser (not regex) to handle current and future grammar extensions. Both SignalDock (Rust, native import) and the TypeScript ecosystem (`@cleocode/cant` via napi-rs) consume `cant-core` as the single parsing SSoT.
 
 ---
 
@@ -460,7 +460,7 @@ SignalDock (the Rust backend at `api.signaldock.io`) is the first and currently 
 
 > **Removed (T13954, 2026-10-24):** the `conduit-core` crate (later renamed `cleo-conduit-core`) is no longer in the cleocode monorepo. Conduit messaging is retiring (epic T13933) and agents message each other over AgentMBX. External consumers that still need the types pin the crates.io release `=2026.5.105`. Mentions of `conduit-core` below are historical.
 
-**Target**: SignalDock replaces `extract_from_content()` with `cant-core::parse()`, replaces `envelope.rs` with `lafs-core`, and replaces `conduit.rs` with `conduit-core`. All three are git deps from the `cleocode/` monorepo. See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) Section 3.
+**Target**: SignalDock replaces `extract_from_content()` with `cant-core::parse()`, replaces `envelope.rs` with `lafs-core`, and replaces `conduit.rs` with `conduit-core`. All three are git deps from the `cleocode/` monorepo.
 
 ### 5.2 Where SignalDock Fits
 
@@ -472,8 +472,6 @@ SignalDock remains a separate, closed-source service. It imports three crates fr
 - `lafs-core` — canonical LAFS envelope types (replaces SignalDock's hand-rolled `envelope.rs`)
 - `conduit-core` — canonical Conduit wire types (replaces SignalDock's duplicated `conduit.rs`)
 - `cant-core` — canonical CANT grammar parser (replaces SignalDock's `extract_from_content()`)
-
-See [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full integration architecture.
 
 ---
 
@@ -651,7 +649,7 @@ A misbehaving agent could flood actionable directives.
 This document should be added to the [CLEO Canon Index](cleo-canon-index.md) as entry 3.5 (after the Atlas, before the Core Package Spec):
 
 > **3.5. [CLEO-CANT.md](cleo-cant.md)**
-> The agent communication protocol. Read this to understand how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). Includes the formal grammar (with `cant-core` Rust crate as parsing SSoT), directive-to-operation mapping, and the relationship between CANT (protocol), Conduit (client interface), and SignalDock (backend service). See also [CLEOCODE-ECOSYSTEM-PLAN.md](../plan/cleocode-ecosystem.md) for the full crate and package architecture.
+> The agent communication protocol. Read this to understand how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). Includes the formal grammar (with `cant-core` Rust crate as parsing SSoT), directive-to-operation mapping, and the relationship between CANT (protocol), Conduit (client interface), and SignalDock (backend service).
 
 ---
 

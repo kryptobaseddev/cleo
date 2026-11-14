@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.39.0
+version: 3.40.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.39.0
+  version: 3.40.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-11-13
+  lastReviewed: 2026-11-14
   stability: stable
 ---
 
@@ -511,7 +511,7 @@ Saga T10176's two known raw-write workarounds are normalised:
 
 | Original file | SSoT slug | Type | Notes |
 |---|---|---|---|
-| `docs/research/t10179-executor-probe-result.md` | `t10179-executor-probe` | research | in-sync via earlier T9791 import — verified by SHA. |
+| `docs/research/t10179-executor-probe-result.md` (retired from docs/ by T14108; store record only) | `t10179-executor-probe` | research | in-sync via earlier T9791 import — verified by SHA. |
 | `.changeset/t10179-executor-probe.md` (consumed v5.108) | `t10179-changeset-archive` | note | bytes preserved verbatim from git `cc48ca10e`; archived because the pnpm/changesets `"@cleocode/cleo": patch` frontmatter does not satisfy the `changeset` DocKind schema. |
 | `.changeset/t10203-napi-step-exports.md` (consumed v5.108) | `t10203-napi-step-exports` | changeset | in-sync via the `cleo changeset add` dual-write at PR-time. |
 

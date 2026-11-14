@@ -87,8 +87,8 @@
  * @task T11360 · T11362 (§7 idempotency key)
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §1 (mirrored) · §3 · §4 · §5b · §6 · §7 · §8.1
- * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
+ * @see docs store `sqlite-schema-canonical` §1 (mirrored) · §3 · §4 · §5b · §6 · §7 · §8.1
+ * @see docs store `sqlite-schema-columns-data` (per-column affinity SSoT)
  */
 
 import { BRAIN_OBSERVATION_SOURCE_TYPES } from '@cleocode/contracts/memory/observe.js';
@@ -296,7 +296,7 @@ const brainPeerColumns = () => ({
  *   `peer_scope`.
  * @task T11542
  * @epic T11535
- * @see docs/migration/sqlite-schema-canonical.md §3
+ * @see docs store `sqlite-schema-canonical` §3
  */
 export function brainMemoryColumns(opts: BrainMemoryColumnsOptions) {
   return {

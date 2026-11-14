@@ -10,7 +10,7 @@
  * `drizzle-kit generate` over the consolidated `cleo-project` / `cleo-global`
  * schema families emits `CREATE TABLE`s with **no** CHECK constraints (verified:
  * `grep -c CHECK` on the freshly-generated migration returns 0). The canonical
- * mapping SSoT (`docs/migration/sqlite-schema-canonical.md` §3 / §4 / §5)
+ * mapping SSoT (docs store `sqlite-schema-canonical` §3 / §4 / §5)
  * mandates that the boolean / timestamp / enum CHECKs ship as **raw DDL in the
  * generated migration**, and — critically — that the values be **derived from
  * the schema's own enum/boolean column metadata, NEVER hand-typed**.
@@ -48,7 +48,7 @@
  * @task T11363
  * @epic T11245
  * @saga T11242
- * @see docs/migration/sqlite-schema-canonical.md §3 (boolean) · §4 (timestamp) · §5 (enum)
+ * @see docs store `sqlite-schema-canonical` §3 (boolean) · §4 (timestamp) · §5 (enum)
  */
 
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
