@@ -233,7 +233,7 @@ function reportViolations(offenders) {
       '  4. See:\n' +
       '       - scripts/lint-project-root-anti-pattern.mjs (T9584) for the\n' +
       '         in-source regression gate.\n' +
-      '       - docs/project-root-conventions.md for the canonical resolution\n' +
+      '       - docs/spec/project-root-conventions.md for the canonical resolution\n' +
       '         chain.\n' +
       '       - Saga T9580 / T9685 history for prior incidents.\n',
   );
