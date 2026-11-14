@@ -43,9 +43,16 @@ function hookEnv(): NodeJS.ProcessEnv {
 const git = (args: string[], input?: string): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf-8', env: hookEnv(), input }).trim();
 
-/** Wait for the detached stub to record a call; the lines it recorded. */
+/**
+ * True once the stub cleo has recorded a whole call. The shell's `>>` creates
+ * the file before `echo` writes the line, so the file existing is not yet a
+ * record: a read in that gap sees an empty file (gh#2808).
+ */
+const recorded = (): boolean => existsSync(called) && readFileSync(called, 'utf-8').endsWith('\n');
+
+/** Wait for the detached stub to record a whole call; the lines it recorded. */
 async function calls(): Promise<string[]> {
-  for (let i = 0; i < 40 && !existsSync(called); i++) await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; i < 40 && !recorded(); i++) await new Promise((r) => setTimeout(r, 50));
   return existsSync(called) ? readFileSync(called, 'utf-8').trim().split('\n') : [];
 }
 

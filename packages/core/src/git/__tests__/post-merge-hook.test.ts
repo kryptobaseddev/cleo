@@ -63,6 +63,13 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * True once the stub cleo has recorded a whole call. The shell's `>>` creates
+ * the file before `echo` writes the line, so the file existing is not yet a
+ * record: a read in that gap sees an empty file (gh#2901).
+ */
+const recorded = (): boolean => existsSync(called) && readFileSync(called, 'utf-8').endsWith('\n');
+
 /** Run the hook in the repo with the stub cleo first on PATH; true when cleo was started. */
 async function runHook(auto = false): Promise<boolean> {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}` };
@@ -73,8 +80,8 @@ async function runHook(auto = false): Promise<boolean> {
   delete env['GIT_WORK_TREE'];
   const result = spawnSync('/bin/sh', [HOOK], { cwd: repo, env, encoding: 'utf-8' });
   expect(result.status).toBe(0);
-  // The hook backgrounds cleo; give a started process a moment to write.
-  for (let i = 0; i < 20 && !existsSync(called); i++) await new Promise((r) => setTimeout(r, 50));
+  // The hook backgrounds cleo; give a started process a moment to write its whole line.
+  for (let i = 0; i < 20 && !recorded(); i++) await new Promise((r) => setTimeout(r, 50));
   return existsSync(called);
 }
 
