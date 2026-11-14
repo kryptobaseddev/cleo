@@ -5,10 +5,15 @@ kind: fix
 summary: "Store recovery: detect and merge history hidden by a stale main file"
 ---
 
-Doctor compares task, session, audit and memory high-water marks with the newest
-validated snapshot and a SQLite-validated WAL view, without opening live files.
-Repair preserves newer snapshot rows and live-only rows, quarantines originals,
-and records ambiguous versions in recovery.json instead of inferring deletions
-from a stale checkout. Rejected WAL commits without a newer recovery snapshot
-refuse replacement and preserve the originals. A pinned recovery base still
-merges newer snapshot history.
+Doctor compares task, session, decision, audit and observation keys and each
+row's own timestamp against validated snapshots. A current session or audit
+write cannot hide rows lost after checkout. Rejected WAL commits are named
+without opening live stores.
+
+Repair preserves newer snapshot rows, live-only rows and every losing version
+in recovery.json. It supports older pinned bases and external snapshots, and
+refuses unreadable WAL recovery without a newer source.
+
+Snapshot-only restores record durable intent and the exact superseded backup
+images. Doctor still reports those backups without reapplying them; snapshots
+created after the rollback remain authoritative.

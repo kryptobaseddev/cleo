@@ -23,10 +23,16 @@ import type {
   StoreRepairOptions,
   StoreRepairPhase,
   StoreRepairReceipt,
+  StoreRestoreIntentMarker,
 } from '@cleocode/contracts/db-recovery.js';
 import { CleoError } from '../errors.js';
 import { lockCompromiseTracker, withLock } from './lock.js';
-import { openCleoDbSnapshot } from './open-cleo-db.js';
+import {
+  captureStoreRestoreIntent,
+  inspectStoreRestoreIntent,
+  openCleoDbSnapshot,
+  prepareStoreRestoreIntent,
+} from './open-cleo-db.js';
 import { collectStoreSnapshotCandidates } from './recover-malformed-db.js';
 import {
   assertRepairOriginals,
@@ -40,7 +46,11 @@ import {
   repairFsync,
 } from './repair-store-files.js';
 import { repairTableCounts, salvageIntoSnapshot } from './repair-store-salvage.js';
-import { holdRestoreMarker, storeCorruptError } from './restore-marker.js';
+import {
+  holdRestoreMarker,
+  storeCorruptError,
+  writeStoreRestoreIntentMarker,
+} from './restore-marker.js';
 
 /**
  * The error's exact repair command also handles global damage encountered by
@@ -198,10 +208,20 @@ function checkpointImage(file: string): void {
 function candidates(target: string, opts: StoreRepairOptions) {
   const out = collectStoreSnapshotCandidates(target);
   const pin = opts.fromSnapshot;
+  const ignored = inspectStoreRestoreIntent(target)?.ignoredSnapshots ?? [];
   if (pin && isAbsolute(pin) && !out.some((s) => s.path === resolve(pin)))
     out.push({ path: resolve(pin), timestampMs: statSync(pin).mtimeMs, source: 'system-snapshot' });
   return out
     .filter((s) => !pin || s.path === resolve(opts.cwd, pin) || basename(s.path).includes(pin))
+    .filter((s) => {
+      if (pin || opts.restoreSnapshot || ignored.length === 0) return true;
+      try {
+        const hash = repairFileHash(s.path);
+        return !ignored.some((f) => f.sha256 === hash);
+      } catch {
+        return true;
+      }
+    })
     .sort((a, b) => b.timestampMs - a.timestampMs);
 }
 
@@ -264,6 +284,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
     snapshot: null,
     snapshotAt: null,
     delta: opts.noDelta !== true,
+    restoreIntent: !opts.noDelta && (opts.restoreSnapshot || opts.fromSnapshot) ? null : undefined,
     files: [],
     tables: {},
     missingTaskIds: [],
@@ -276,7 +297,8 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
     receipt.integrityOK = true;
     return receipt;
   }
-  const inspection = inspectStoreIntegrity(target);
+  const fromSnapshot = opts.fromSnapshot ? resolve(opts.cwd, opts.fromSnapshot) : undefined;
+  const inspection = inspectStoreIntegrity(target, fromSnapshot);
   receipt.freshness = inspection.freshness;
   if (opts.restoreSnapshot !== true && inspection.healthy && !pendingCheckpoint(target, scope)) {
     receipt.status = 'healthy';
@@ -292,6 +314,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
   const execute = async (): Promise<StoreRepairReceipt> => {
     let committed = false;
     let checkpointed = false;
+    let intentMarker: StoreRestoreIntentMarker | undefined;
     const finishCheckpoint = (file: string, expected: Readonly<Record<string, number>>): void => {
       phase('checkpoint');
       checkpointImage(file);
@@ -299,6 +322,14 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       const alone = join(scratch, 'checkpoint-main.db');
       copyRepairOriginals(file, alone, false);
       verify(alone, expected);
+      if (!opts.dryRun && receipt.restoreIntent !== undefined) {
+        intentMarker ??= prepareStoreRestoreIntent(
+          target,
+          receipt.restoreIntent,
+          repairFileHash(file),
+        );
+        writeStoreRestoreIntentMarker({ ...intentMarker, state: 'committed' });
+      }
       checkpointed = true;
       receipt.integrityOK = true;
       receipt.status = opts.dryRun ? 'dry-run' : 'repaired';
@@ -306,7 +337,7 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
     };
     try {
       // Re-check after admission: a different repair may have won the race.
-      const current = inspectStoreIntegrity(target);
+      const current = inspectStoreIntegrity(target, fromSnapshot);
       receipt.freshness = current.freshness;
       if (opts.restoreSnapshot !== true && current.healthy) {
         const pending = pendingCheckpoint(target, scope);
@@ -398,18 +429,29 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       if (
         receipt.delta &&
         receipt.freshness?.some((f) => f.unreadable) &&
-        !receipt.freshness.some((f) => f.kind === 'snapshot')
+        !receipt.freshness.some((f) => f.kind === 'snapshot' && f.authoritative !== false)
       )
         // @sync-invariant none:local-only undecodable WAL commits require a newer recovery source
         throw new Error(
           'Unapplied WAL commits are unreadable and no newer snapshot proves recovery; originals remain quarantined',
+        );
+      if (opts.noDelta && receipt.snapshot)
+        receipt.restoreIntent = captureStoreRestoreIntent(
+          target,
+          receipt.snapshot,
+          receipt.startedAt,
         );
       // Upgrade the base before selecting shared columns; newer damaged values must fit.
       await migrate(staged, scope);
       phase('salvage');
       const views = [withWal, withoutWal];
       for (const finding of receipt.freshness ?? []) {
-        if (finding.kind !== 'snapshot' || finding.source === receipt.snapshot) continue;
+        if (
+          finding.kind !== 'snapshot' ||
+          finding.authoritative === false ||
+          finding.source === receipt.snapshot
+        )
+          continue;
         const newer = join(scratch, `newer-snapshot-${views.length}.db`);
         copyRepairOriginals(finding.source, newer);
         views.unshift(newer);
@@ -483,6 +525,13 @@ export async function repairStore(opts: StoreRepairOptions): Promise<StoreRepair
       receipt.status = 'checkpoint-pending';
       phase('commit');
       assertCommitGuard();
+      if (receipt.restoreIntent !== undefined)
+        intentMarker = prepareStoreRestoreIntent(
+          target,
+          receipt.restoreIntent,
+          receipt.commitMainSha256,
+          receipt.commitWalSha256,
+        );
       commitRepairImage(wal, target);
       committed = true;
       if (process.platform !== 'win32') repairFsync(dirname(target));

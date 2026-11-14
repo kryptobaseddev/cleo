@@ -18,8 +18,23 @@
  * @module store/restore-marker
  */
 
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { hostname } from 'node:os';
+import { dirname } from 'node:path';
+import type {
+  StoreRestoreIntent,
+  StoreRestoreIntentMarker,
+} from '@cleocode/contracts/db-recovery.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { resolveStableDeviceIdPath } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
@@ -350,4 +365,77 @@ export function isStoreCorruption(error: Error): boolean {
     ('errcode' in error && typeof error.errcode === 'number' && (error.errcode & 255) === 11) ||
     (error.cause instanceof Error && isStoreCorruption(error.cause))
   );
+}
+
+/** Read a validated rollback marker; malformed metadata grants no recovery authority. */
+export function readStoreRestoreIntentMarker(target: string): StoreRestoreIntentMarker | undefined {
+  const file = `${target}.restore-intent.json`;
+  if (!existsSync(file)) return;
+  try {
+    const marker = JSON.parse(readFileSync(file, 'utf8')) as StoreRestoreIntentMarker;
+    const hash = (value: string | undefined): boolean =>
+      value === undefined || (typeof value === 'string' && /^[a-f0-9]{64}$/.test(value));
+    const intent = (value: StoreRestoreIntent | null): boolean =>
+      value === null ||
+      (!!value &&
+        typeof value.snapshot === 'string' &&
+        value.snapshot.length > 0 &&
+        typeof value.snapshotSha256 === 'string' &&
+        /^[a-f0-9]{64}$/.test(value.snapshotSha256) &&
+        typeof value.restoredAt === 'string' &&
+        Number.isFinite(Date.parse(value.restoredAt)) &&
+        Array.isArray(value.ignoredSnapshots) &&
+        value.ignoredSnapshots.every(
+          (s) =>
+            s &&
+            typeof s.name === 'string' &&
+            typeof s.sha256 === 'string' &&
+            /^[a-f0-9]{64}$/.test(s.sha256) &&
+            Number.isSafeInteger(s.bytes) &&
+            s.bytes >= 0,
+        ));
+    if (
+      !marker ||
+      marker.version !== 1 ||
+      marker.target !== target ||
+      (marker.state !== 'prepared' && marker.state !== 'committed') ||
+      typeof marker.mainSha256 !== 'string' ||
+      !hash(marker.mainSha256) ||
+      !hash(marker.walSha256) ||
+      !hash(marker.previousMainSha256) ||
+      !hash(marker.previousWalSha256) ||
+      !intent(marker.intent) ||
+      !intent(marker.previous)
+    )
+      return;
+    return marker;
+  } catch {
+    return;
+  }
+}
+
+/** Atomically persist intent under the caller's existing first-open lock and restore marker. */
+export function writeStoreRestoreIntentMarker(marker: StoreRestoreIntentMarker): void {
+  const file = `${marker.target}.restore-intent.json`;
+  const temporary = `${marker.target}.restore-intent.${process.pid}.${Date.now()}.json`;
+  const fd = openSync(temporary, 'wx', 0o600);
+  try {
+    writeFileSync(fd, `${JSON.stringify(marker, null, 2)}\n`);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameSync(temporary, file);
+    if (process.platform !== 'win32') {
+      const directory = openSync(dirname(file), 'r');
+      try {
+        fsyncSync(directory);
+      } finally {
+        closeSync(directory);
+      }
+    }
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }

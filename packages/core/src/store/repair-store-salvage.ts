@@ -408,7 +408,9 @@ export function salvageIntoSnapshot(
     );
   Object.setPrototypeOf(receipt.tables, null);
   const preserveHistory =
-    receipt.freshness?.some((f) => f.kind === 'snapshot' || f.divergent) === true;
+    receipt.freshness?.some(
+      (f) => f.authoritative !== false && (f.kind === 'snapshot' || f.divergent || f.unreadable),
+    ) === true;
   const journal: Row[] = [];
   const journalKeys = new Set<string>();
   const target = openCleoDbSnapshot(staged, {
@@ -651,7 +653,7 @@ export function salvageIntoSnapshot(
                     Number.isFinite(incomingAt) && Number.isFinite(oldAt) && oldAt > incomingAt;
                   const provenNewer =
                     Number.isFinite(incomingAt) && Number.isFinite(oldAt) && incomingAt > oldAt;
-                  if (!update || provenOlder) return;
+                  if (!update) return;
                   const different = updates.some((c) => {
                     const a = row[c] ?? null,
                       b = old[c] ?? null;
@@ -660,7 +662,10 @@ export function salvageIntoSnapshot(
                       : a !== b;
                   });
                   if (!different) return;
-                  if (!provenNewer && (preserveHistory || !first || view !== views[0])) {
+                  if (
+                    provenOlder ||
+                    (!provenNewer && (preserveHistory || !first || view !== views[0]))
+                  ) {
                     const version = `${table.name}\0${view}\0${rowKey(row, identity)}`;
                     if (!alternateVersions.has(version)) {
                       alternateVersions.add(version);
@@ -669,13 +674,26 @@ export function salvageIntoSnapshot(
                         receipt,
                         'conflict',
                         table.name,
-                        'An alternate damaged view disagrees with the retained row; no timestamp proves it newer',
+                        provenOlder
+                          ? 'Live version has an older timestamp; retained separately because timestamps alone cannot discard an edit'
+                          : 'An alternate damaged view disagrees with the retained row; no timestamp proves it newer',
                         row,
                         source,
                       );
                     }
                     return;
                   }
+                  const losing = { ...old };
+                  for (const c of identity) losing[c] = row[c] ?? null;
+                  report.conflicts = (report.conflicts ?? 0) + 1;
+                  recordRecovery(
+                    receipt,
+                    'conflict',
+                    table.name,
+                    'Earlier version retained before a timestamp-selected or authoritative update',
+                    losing,
+                    staged,
+                  );
                   update.run(...updates.map((c) => row[c] ?? null), ...values);
                   report.merged++;
                 };

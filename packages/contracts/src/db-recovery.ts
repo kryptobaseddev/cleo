@@ -50,8 +50,10 @@ export interface StoreFreshnessFinding {
   evidence: string[];
   /** SQLite rejected apparent commits; the quarantine remains necessary for investigation. */
   unreadable?: boolean;
-  /** Live-only keys prevent treating the source as a replacement image. */
-  divergent: boolean;
+  /** False for a retained backup excluded by an explicit rollback. */
+  authoritative?: boolean;
+  /** Whether assessed history has live-only keys; omitted when not assessed. */
+  divergent?: boolean;
 }
 
 /** Read-only integrity and freshness assessment performed on disposable copies. */
@@ -128,6 +130,40 @@ export interface StoreRepairFile {
   bytes: number;
 }
 
+/** Explicit rollback intent retained with the repair receipt and the store marker. */
+export interface StoreRestoreIntent {
+  /** Explicitly selected snapshot. */
+  snapshot: string;
+  /** SHA-256 of the selected snapshot's original main file. */
+  snapshotSha256: string;
+  /** Time the deliberate rollback began. */
+  restoredAt: string;
+  /** Pre-existing backup images excluded from subsequent automatic recovery. */
+  ignoredSnapshots: StoreRepairFile[];
+}
+
+/** A rollback marker prepared before publication and finalized before releasing restore exclusion. */
+export interface StoreRestoreIntentMarker {
+  /** Marker format. */
+  version: 1;
+  /** Canonical store to which the intent applies. */
+  target: string;
+  /** Prepared markers need image proof; committed intent survives later writes. */
+  state: 'prepared' | 'committed';
+  /** New intent, or an explicit clear. */
+  intent: StoreRestoreIntent | null;
+  /** Earlier intent remains applicable while the old image is still present. */
+  previous: StoreRestoreIntent | null;
+  /** Main image installed by this restore. */
+  mainSha256: string;
+  /** Full-image WAL installed by repair, when applicable. */
+  walSha256?: string;
+  /** Original main image before publication. */
+  previousMainSha256?: string;
+  /** Original WAL before publication, when present. */
+  previousWalSha256?: string;
+}
+
 /** Recovery file reference and its losslessly encoded records. */
 export interface StoreRepairRecovery {
   /** Quarantine JSON path, or null for a dry run. */
@@ -167,6 +203,8 @@ export interface StoreRepairReceipt {
   commitMainSha256?: string;
   /** Whether readable live rows were merged. */
   delta: boolean;
+  /** Rollback intent; null explicitly clears an earlier deliberate rollback. */
+  restoreIntent?: StoreRestoreIntent | null;
   /** Preserved original file hashes. */
   files: StoreRepairFile[];
   /** Per-table accounting. */

@@ -420,6 +420,8 @@ export type {
   StoreRepairRecoveryRow,
   StoreRepairTable,
   StoreRepairValue,
+  StoreRestoreIntent,
+  StoreRestoreIntentMarker,
   StoreTableHighWater,
 } from './db-recovery.js';
 // === Dependency Registry Contracts ===
