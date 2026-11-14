@@ -691,7 +691,8 @@ describe('bounded census reports (T14538)', () => {
         const wait = new Int32Array(new SharedArrayBuffer(4));
         fs.lstatSync = function(path, ...args) {
           if (String(path).startsWith(${JSON.stringify(output)})) {
-            fs.writeFileSync(${JSON.stringify(marker)}, String(process.pid));
+            fs.writeFileSync(${JSON.stringify(`${marker}.tmp`)}, String(process.pid));
+            fs.renameSync(${JSON.stringify(`${marker}.tmp`)}, ${JSON.stringify(marker)});
             Atomics.wait(wait, 0, 0, 10);
           }
           return original.call(this, path, ...args);
