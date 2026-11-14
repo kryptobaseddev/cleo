@@ -501,7 +501,7 @@ export async function resolveRegistryRowDocSlug(
     .where(eq(conduitAttachmentVersions.contentHash, row.sha256))
     .all();
   const [only] = docs;
-  if (docs.length !== 1 || !only) return own;
+  if (docs.length !== 1 || !only?.uid) return own;
   const doc = await db
     .select({ slug: conduitAttachments.slug })
     .from(conduitAttachments)
