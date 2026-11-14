@@ -42,13 +42,18 @@ import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
  * another row. The edges belong to the doc, so every writer that moves a slug
  * between rows calls this in the same transaction:
  *
- * 1. the row now holding the slug takes the outgoing pointers of the row that
- *    held it (written only when they differ);
- * 2. every other row pointing at the old row points at the new one.
+ * 1. the row now holding the slug takes the outgoing `supersedes` pointer of
+ *    the row that held it;
+ * 2. a superseded doc stays superseded: when the row that held the slug is
+ *    `superseded`, the row holding it now takes that status and the successor
+ *    together (one merge group), so it is never left a draft with a successor;
+ *    otherwise it carries no successor;
+ * 3. every other row pointing at the old row points at the new one;
+ * 4. the old row gives its pointers up. It is a blob version now, with no
+ *    slug: a doc added later with the same bytes takes that row, and must not
+ *    inherit another doc's edges.
  *
- * The old row keeps its pointers as that version's history; it has no slug, so
- * no reader resolves a doc through it. A pointer is never set to the row it
- * sits on. Idempotent: a second call moves nothing.
+ * A pointer is never set to the row it sits on. Call once per slug transfer.
  *
  * The caller mirrors the identity rows afterwards
  * (`mirrorConduitDocMeta`): the new row's doc and each returned row's doc.
@@ -59,26 +64,39 @@ import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
  * @returns The ids of the other rows whose pointer was moved.
  * @task T14565
  */
-// @sync-side-effect docs.supersession.follows-slug the pointers of the row that held the slug move to the row that holds it now, and every row naming the old one is re-pointed, in the caller's transaction; a superseded row stays superseded (T14565)
+// @sync-side-effect docs.supersession.follows-slug the edges of the row that held the slug move to the row that holds it now (a superseded doc keeps its status and successor together), every row naming the old one is re-pointed and the old row gives its pointers up, in the caller's transaction (T14565)
 export function rehomeSupersessionEdges(
   db: NodeSQLiteDatabase,
   fromRowId: string,
   toRowId: string,
 ): string[] {
   if (fromRowId === toRowId) return [];
-  const pointers = { supersedes: docsAttachments.supersedes, by: docsAttachments.supersededBy };
-  const from = db.select(pointers).from(docsAttachments).where(eq(docsAttachments.id, fromRowId));
-  const to = db.select(pointers).from(docsAttachments).where(eq(docsAttachments.id, toRowId));
-  const held = from.get();
-  const now = to.get();
+  const edges = {
+    lifecycleStatus: docsAttachments.lifecycleStatus,
+    supersedes: docsAttachments.supersedes,
+    supersededBy: docsAttachments.supersededBy,
+  };
+  const rowOf = (id: string) =>
+    db.select(edges).from(docsAttachments).where(eq(docsAttachments.id, id)).get();
+  const held = rowOf(fromRowId);
+  const now = rowOf(toRowId);
   if (!held || !now) return [];
 
   const notSelf = (id: string | null): string | null => (id === toRowId ? null : id);
   const supersedes = notSelf(held.supersedes ?? null);
-  const supersededBy = notSelf(held.by ?? null);
-  if ((now.supersedes ?? null) !== supersedes || (now.by ?? null) !== supersededBy) {
+  // The status and its successor travel together (docs.lifecycle.transitions):
+  // a superseded doc stays superseded, with its successor, on the row that
+  // takes its slug.
+  const superseded = held.lifecycleStatus === 'superseded';
+  const lifecycleStatus = superseded ? 'superseded' : now.lifecycleStatus;
+  const supersededBy = superseded ? notSelf(held.supersededBy ?? null) : null;
+  if (
+    (now.supersedes ?? null) !== supersedes ||
+    (now.supersededBy ?? null) !== supersededBy ||
+    now.lifecycleStatus !== lifecycleStatus
+  ) {
     db.update(docsAttachments)
-      .set({ supersedes, supersededBy })
+      .set({ supersedes, supersededBy, lifecycleStatus })
       .where(eq(docsAttachments.id, toRowId))
       .run();
   }
@@ -94,15 +112,22 @@ export function rehomeSupersessionEdges(
       ),
     )
     .all();
-  if (incoming.length === 0) return [];
-  db.update(docsAttachments)
-    .set({ supersedes: toRowId })
-    .where(and(others, eq(docsAttachments.supersedes, fromRowId)))
-    .run();
-  db.update(docsAttachments)
-    .set({ supersededBy: toRowId })
-    .where(and(others, eq(docsAttachments.supersededBy, fromRowId)))
-    .run();
+  if (incoming.length > 0) {
+    db.update(docsAttachments)
+      .set({ supersedes: toRowId })
+      .where(and(others, eq(docsAttachments.supersedes, fromRowId)))
+      .run();
+    db.update(docsAttachments)
+      .set({ supersededBy: toRowId })
+      .where(and(others, eq(docsAttachments.supersededBy, fromRowId)))
+      .run();
+  }
+  if (held.supersedes != null || held.supersededBy != null) {
+    db.update(docsAttachments)
+      .set({ supersedes: null, supersededBy: null })
+      .where(eq(docsAttachments.id, fromRowId))
+      .run();
+  }
   return incoming.map((row) => row.id);
 }
 

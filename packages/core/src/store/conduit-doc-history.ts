@@ -35,7 +35,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { DocsMigrateRekeySkip } from '@cleocode/contracts/operations/docs.js';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
-import { birthFingerprint, mintedRowUid, naturalRowUid } from './row-identity.js';
+import { birthFingerprint, mintedRowUid, naturalRowUid, yieldedDocSlug } from './row-identity.js';
 import {
   conduitAttachmentApprovals,
   conduitAttachmentContributors,
@@ -452,9 +452,72 @@ export async function mirrorUnmirroredConduitDocs(projectRoot: string): Promise<
 }
 
 /**
+ * The live slug of the doc a registry row belongs to (T14565), for resolving a
+ * supersession pointer, which names a registry row, to a doc.
+ *
+ * A registry row is one version of a doc, and only the row holding the slug
+ * names the doc directly. A pointer can be left on another version row: sync
+ * merges a pointer field by last write, so after concurrent updates of the
+ * successor on two devices it can name the version row that yielded the slug
+ * (renamed `<slug>-<8 hex>`, {@link yieldedDocSlug}), and a pointer written
+ * while another device updated the successor names a row that has no slug any
+ * more. Both are versions of one doc, and the doc's version history says
+ * which: the row resolves to the single doc identity whose history records
+ * its content.
+ *
+ * A row holding a slug of its own resolves to that slug, whatever its bytes:
+ * a doc added with the bytes of another doc's old version is its own doc.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param rowId - A `docs_attachments.id`, or null.
+ * @returns The doc's live slug; the row's own slug when no single doc's
+ *   history records it; null for no row or a slugless row of no known doc.
+ * @task T14565
+ */
+export async function resolveRegistryRowDocSlug(
+  projectRoot: string,
+  rowId: string | null,
+): Promise<string | null> {
+  if (rowId === null) return null;
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select({
+      slug: docsAttachments.slug,
+      sha256: docsAttachments.sha256,
+      uid: docsAttachments.uid,
+    })
+    .from(docsAttachments)
+    .where(eq(docsAttachments.id, rowId))
+    .get();
+  if (!row) return null;
+  const own = row.slug ?? null;
+  // A yielded slug ends in the last 8 hex of the row's own uid.
+  const yielded =
+    own !== null && row.uid != null && own === yieldedDocSlug(own.slice(0, -9), row.uid);
+  if (own !== null && !yielded) return own;
+  const docs = await db
+    .selectDistinct({ uid: conduitAttachmentVersions.attachmentUid })
+    .from(conduitAttachmentVersions)
+    .where(eq(conduitAttachmentVersions.contentHash, row.sha256))
+    .all();
+  const [only] = docs;
+  if (docs.length !== 1 || !only) return own;
+  const doc = await db
+    .select({ slug: conduitAttachments.slug })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.uid, only.uid))
+    .get();
+  if (!doc?.slug) return own;
+  // A yielded row is a version of the doc whose slug it yielded, of no other.
+  if (own !== null && row.uid != null && own !== yieldedDocSlug(doc.slug, row.uid)) return own;
+  return doc.slug;
+}
+
+/**
  * A registry row's doc metadata in identity-row form (T14288): supersession
  * pointers (registry row ids) become doc uids, NULL when the other doc has no
- * identity yet.
+ * identity yet. A pointer resolves to its doc, not to the row it names
+ * (T14565, {@link resolveRegistryRowDocSlug}).
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param row - The `docs_attachments` row.
@@ -465,15 +528,9 @@ export async function conduitDocMetaOfRow(
   projectRoot: string,
   row: typeof docsAttachments.$inferSelect,
 ): Promise<ConduitDocMeta> {
-  const db = await getDb(projectRoot);
   const uidOfRow = async (id: string | null): Promise<string | null> => {
-    if (id === null) return null;
-    const other = await db
-      .select({ slug: docsAttachments.slug })
-      .from(docsAttachments)
-      .where(eq(docsAttachments.id, id))
-      .get();
-    return other?.slug ? resolveConduitDocUid(projectRoot, other.slug) : null;
+    const slug = await resolveRegistryRowDocSlug(projectRoot, id);
+    return slug ? resolveConduitDocUid(projectRoot, slug) : null;
   };
   return {
     docType: row.type ?? null,

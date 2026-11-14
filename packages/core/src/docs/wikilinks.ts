@@ -104,22 +104,21 @@ export async function rebuildDocsWikilinks(
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const db = await getDb(projectRoot);
 
-  // T14288: every doc through its identity (a legacy doc through its row);
-  // supersession uids resolve to live slugs in memory, as do a legacy row's
-  // pointers (registry ids).
-  const { listDocRefs } = await import('./slug-rename.js');
+  // T14288: every doc through its identity (a legacy doc through its row).
+  const { listDocRefs, supersessionSlugs } = await import('./slug-rename.js');
   const refs = await listDocRefs(projectRoot);
-  const slugByUid = new Map(refs.flatMap((r) => (r.docUid ? [[r.docUid, r.slug] as const] : [])));
-  const slugByRowId = new Map(refs.map((r) => [r.ownRow.id, r.slug] as const));
-  const linked = (uid: string | null, rowId: string | null | undefined): string | null =>
-    (uid ? slugByUid.get(uid) : undefined) ?? (rowId ? (slugByRowId.get(rowId) ?? null) : null);
-  const slugged: DerivationRow[] = refs.map((r) => ({
-    slug: r.slug,
-    supersedesSlug: linked(r.meta.supersedesUid, r.ownRow.supersedes),
-    supersededBySlug: linked(r.meta.supersededByUid, r.ownRow.supersededBy),
-    relatedTasks: r.meta.relatedTasks,
-    topics: r.meta.topics,
-  }));
+  // T14565: use the same doc identity resolution as lineage after sync collisions.
+  const slugged: DerivationRow[] = [];
+  for (const r of refs) {
+    const links = await supersessionSlugs(projectRoot, r);
+    slugged.push({
+      slug: r.slug,
+      supersedesSlug: links.supersedes,
+      supersededBySlug: links.supersededBy,
+      relatedTasks: r.meta.relatedTasks,
+      topics: r.meta.topics,
+    });
+  }
 
   const edges = deriveWikilinkEdges(slugged);
 

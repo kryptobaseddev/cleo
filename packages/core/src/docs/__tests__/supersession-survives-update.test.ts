@@ -210,36 +210,91 @@ describe('T14565 — supersession edges survive a successor update', () => {
     await expectBothSides(['cant-old', 'cant-typescript']);
   });
 
-  it('re-running docs supersede repairs an edge lost before the fix, and it then stays', async () => {
+  it('a pointer left on an old version row resolves through the doc history; one no history records is repaired by re-running docs supersede', async () => {
     await seed('old-guide', '# Old guide\n\nfirst\n');
     await seed('guide', '# Guide\n\nv1\n');
+    await seed('scratch', '# Scratch\n');
     await update('old-guide', '# Old guide\n\nsecond\n');
     const v1 = await createAttachmentStore().findBySlug('guide', projectRoot);
+    const scratch = await createAttachmentStore().findBySlug('scratch', projectRoot);
     await update('guide', '# Guide\n\nv2\n');
     await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
-
-    // The store as an unfixed update left it: the old doc names the slugless
-    // row of an earlier version, the successor's row names nothing, and the
-    // identity rows were mirrored from that.
     const native = getNativeDb(projectRoot);
-    if (!native || !v1) throw new Error('expected a native handle and the v1 row');
-    native
-      .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
-      .run(v1.metadata.id);
-    native.prepare("UPDATE docs_attachments SET supersedes = NULL WHERE slug = 'guide'").run();
-    await mirrorConduitDocMeta(projectRoot, { slug: 'old-guide' });
-    await mirrorConduitDocMeta(projectRoot, { slug: 'guide' });
+    if (!native || !v1 || !scratch) throw new Error('expected a native handle and both rows');
+    const damage = async (rowId: string) => {
+      native
+        .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
+        .run(rowId);
+      native.prepare("UPDATE docs_attachments SET supersedes = NULL WHERE slug = 'guide'").run();
+      await mirrorConduitDocMeta(projectRoot, { slug: 'old-guide' });
+      await mirrorConduitDocMeta(projectRoot, { slug: 'guide' });
+    };
+
+    // As an unfixed update (or a sync merge) leaves it: the old doc names the
+    // slugless row of an earlier version, the successor's row names nothing.
+    // The successor's history records that version, so the edge still reads.
+    await damage(v1.metadata.id);
+    expect(await readDocLineage(projectRoot, 'old-guide')).toMatchObject({
+      supersededBy: 'guide',
+      currentSlug: 'guide',
+    });
+    expect((await readDocLineage(projectRoot, 'guide'))?.predecessors).toEqual(['old-guide']);
+
+    // A slugless row that no doc's history records resolves to nothing.
+    native.prepare("UPDATE docs_attachments SET slug = NULL WHERE slug = 'scratch'").run();
+    await damage(scratch.metadata.id);
     expect(await readDocLineage(projectRoot, 'old-guide')).toMatchObject({
       supersededBy: null,
       currentSlug: 'old-guide',
     });
     expect((await readDocLineage(projectRoot, 'guide'))?.predecessors).toEqual([]);
 
-    // The supported repair: `cleo docs supersede <old> <new>` again.
+    // The supported repair: `cleo docs supersede <old> <new>` once more.
     await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
     await expectEdge('old-guide', 'guide');
     await update('guide', '# Guide\n\nv3\n');
     await expectEdge('old-guide', 'guide');
+  });
+
+  it("a doc added with the bytes of a successor's old version is its own doc and inherits no edge", async () => {
+    const V1 = '# Guide\n\nv1\n';
+    const V2 = '# Guide\n\nv2\n';
+    await seed('old-guide', '# Old guide\n\nfirst\n');
+    await seed('guide', V1);
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+    await update('guide', V2);
+
+    // The registry holds one row per content hash: this doc takes the row the
+    // successor's first version left behind.
+    const store = createAttachmentStore();
+    const v2RowId = (await store.findBySlug('guide', projectRoot))?.metadata.id;
+    await seed('unrelated', V1);
+    const alone = {
+      supersedes: null,
+      supersededBy: null,
+      predecessors: [],
+    };
+    expect(await readDocLineage(projectRoot, 'unrelated')).toMatchObject({
+      ...alone,
+      currentSlug: 'unrelated',
+    });
+    await expectEdge('old-guide', 'guide');
+    expect((await readDocLineage(projectRoot, 'guide'))?.predecessors).toEqual(['old-guide']);
+
+    // A version row an unfixed update left with its pointer: the doc that
+    // takes the row drops it.
+    await update('guide', '# Guide\n\nv3\n');
+    const native = getNativeDb(projectRoot);
+    const oldRow = (await store.findBySlug('old-guide', projectRoot))?.metadata.id;
+    if (!native || !v2RowId || !oldRow) throw new Error('expected a native handle and both rows');
+    native.prepare('UPDATE docs_attachments SET supersedes = ? WHERE id = ?').run(oldRow, v2RowId);
+    await seed('another', V2);
+    expect(await readDocLineage(projectRoot, 'another')).toMatchObject({
+      ...alone,
+      currentSlug: 'another',
+    });
+    expect((await readDocLineage(projectRoot, 'guide'))?.predecessors).toEqual(['old-guide']);
+    expect((await readDocLineage(projectRoot, 'old-guide'))?.supersededBy).toBe('guide');
   });
 
   it('a publish after the successor updates leaves the edge in place', async () => {

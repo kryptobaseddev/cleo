@@ -652,6 +652,68 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     await expectEdge();
   });
 
+  it('a rollback of an update of a doc superseded since keeps it superseded with its successor (T14565)', async () => {
+    const store = createAttachmentStore();
+    const put = async (slug: string, body: string) => {
+      const bytes = Buffer.from(body, 'utf-8');
+      const blob: Omit<BlobAttachment, 'sha256'> = {
+        kind: 'blob',
+        storageKey: '',
+        mime: 'text/markdown',
+        size: bytes.byteLength,
+      };
+      return store.put(bytes, blob, 'task', '__project__', 'test', projectRoot, {
+        slug,
+        type: 'spec',
+      });
+    };
+    const seeded = await put(
+      'gate-integrity-spec',
+      '# Gate integrity spec\n\n## Requirements\n- gates must hold\n- and stay held\n\n## History\nolder notes\n',
+    );
+    await put('gate-integrity-next', '# Gate integrity, next\n\nthe replacement\n');
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    expect((await store.findBySlug('gate-integrity-spec', projectRoot))?.metadata.id).not.toBe(
+      seeded.id,
+    );
+    // The updated doc is superseded after the run, then the run is undone.
+    const { supersedeDoc } = await import('../../supersede.js');
+    const { readDocLineage } = await import('../../lineage.js');
+    await supersedeDoc(projectRoot, {
+      oldSlug: 'gate-integrity-spec',
+      newSlug: 'gate-integrity-next',
+    });
+    await rollbackDocsModernize(projectRoot, receipt.runId);
+
+    // The slug is back on the pre-update row, which is superseded with its
+    // successor: never a draft that names a successor.
+    const restored = await store.findBySlug('gate-integrity-spec', projectRoot);
+    expect(restored?.metadata.id).toBe(seeded.id);
+    expect(restored?.lifecycleStatus).toBe('superseded');
+    expect(await readDocLineage(projectRoot, 'gate-integrity-spec')).toMatchObject({
+      lifecycleStatus: 'superseded',
+      supersededBy: 'gate-integrity-next',
+      currentSlug: 'gate-integrity-next',
+    });
+    expect(await readDocLineage(projectRoot, 'gate-integrity-next')).toMatchObject({
+      supersedes: 'gate-integrity-spec',
+      predecessors: ['gate-integrity-spec'],
+    });
+    // So the lifecycle guard still refuses an edit of the superseded doc.
+    const { updateDocBySlug } = await import('../../docs-update.js');
+    const edit = await updateDocBySlug(projectRoot, {
+      slug: 'gate-integrity-spec',
+      content: '# Gate integrity spec\n\nedited after being superseded\n',
+    });
+    expect(edit.ok).toBe(false);
+    if (!edit.ok) expect(edit.error.code).toBe('E_INVALID_STATUS');
+  });
+
   it('skips a torn last journal line and refuses to revert a doc another writer updated', async () => {
     const store = createAttachmentStore();
     const storedBody =

@@ -65,6 +65,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerActor, LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
+import { yieldedDocSlug } from '../../row-identity.js';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
 import {
@@ -1096,7 +1097,7 @@ function yieldDocSlug(
     .get(field.value, op.u) as { uid: string | null } | undefined;
   if (!holder?.uid) return none;
   const loser = holder.uid > op.u ? holder.uid : op.u;
-  const slug = `${field.value}-${loser.replaceAll('-', '').slice(-8)}`;
+  const slug = yieldedDocSlug(field.value, loser);
   const conflicts = [
     ...out.conflicts,
     {

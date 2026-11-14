@@ -19,7 +19,13 @@ way to get the edge back, until the next update dropped it again.
   following the chain to the current doc.
 - `cleo docs modernize --rollback` moves the edges back with the slug when it
   reverts an update, so the superseded doc never points at the row the
-  rollback purges.
+  rollback purges. A doc superseded since the update keeps its superseded
+  status and successor together, so a rollback cannot make it editable again.
+- After concurrent updates on two devices, lineage and wikilinks resolve a
+  version row's pointer through its doc identity, including a version that
+  yielded its slug during sync collision settlement.
+- Version rows give up their supersession pointers when the slug moves. A
+  new doc that reuses an old version's bytes starts with no supersession.
 - `cleo docs fetch <slug>` lineage has a new `predecessors` list: every doc
   this one replaced. The `supersedes` pointer holds one doc, so a survivor that
   replaced several named only the latest; the list is read from the replaced

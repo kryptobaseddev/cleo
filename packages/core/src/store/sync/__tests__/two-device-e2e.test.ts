@@ -966,6 +966,81 @@ describe('docs reach a second device (T12919)', () => {
     }, 120_000);
   }
 
+  it('concurrent updates of a successor on two devices keep the edge on the doc, not on a version row (T14565)', async () => {
+    const OLD_SHA = sha('# Old gate doc\n');
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) uniqueDocIndexes(r.db);
+    // The predecessor has no identity (never updated or migrated).
+    addDoc(a.db, 'doc-old', OLD_SHA, 'gate-old', 'T1');
+    addDoc(a.db, 'doc-new', SHA, 'gate-new', 'T1');
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+    for (const name of ['a', 'b']) {
+      mkdirSync(join(dir, name, '.cleo', 'blobs', 'blobs'), { recursive: true });
+      writeFileSync(join(dir, name, '.cleo', 'blobs', 'blobs', SHA), BODY);
+    }
+    vi.stubEnv('CLEO_DIR', join(dir, 'a', '.cleo'));
+    await supersedeDoc(join(dir, 'a'), { oldSlug: 'gate-old', newSlug: 'gate-new' });
+    vi.stubEnv('CLEO_DIR', undefined);
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+
+    // Each device writes a new version of the successor before seeing the other's.
+    for (const [r, name] of [
+      [a, 'a'],
+      [b, 'b'],
+    ] as const) {
+      vi.stubEnv('CLEO_DIR', join(dir, name, '.cleo'));
+      const out = await updateDocBySlug(join(dir, name), {
+        slug: 'gate-new',
+        content: `${BODY}edit from ${name}\n`,
+        attachedBy: `agent-${name}`,
+      });
+      expect(out.ok, `${name}: ${JSON.stringify(out)}`).toBe(true);
+      await push(r, stream);
+    }
+    vi.stubEnv('CLEO_DIR', undefined);
+    for (const r of [b, a]) await pull(r, stream);
+    for (const r of [b, a]) await pull(r, stream);
+
+    // The registry converges, and one of the two version rows yielded the
+    // slug: the old doc's pointer was merged by last write and can name it.
+    expect(docs(b.db)).toEqual(docs(a.db));
+    const { readDocLineage } = await import('../../../docs/lineage.js');
+    const { rebuildDocsWikilinks, getDocsWikilinks } = await import('../../../docs/wikilinks.js');
+    for (const [r, name] of [
+      [a, 'a'],
+      [b, 'b'],
+    ] as const) {
+      expect(inboxCounts(r.db, STREAM), r.device).not.toHaveProperty('staged');
+      expect(r.db.prepare('PRAGMA foreign_key_check').all(), r.device).toEqual([]);
+      const root = join(dir, name);
+      vi.stubEnv('CLEO_DIR', join(root, '.cleo'));
+      // The edge resolves to the doc on both devices, never to a version row
+      // or to the `<slug>-<8 hex>` key the yielding row was renamed to.
+      expect(await readDocLineage(root, 'gate-old'), r.device).toMatchObject({
+        lifecycleStatus: 'superseded',
+        supersededBy: 'gate-new',
+        currentSlug: 'gate-new',
+      });
+      expect(await readDocLineage(root, 'gate-new'), r.device).toMatchObject({
+        supersedes: 'gate-old',
+        supersededBy: null,
+        predecessors: ['gate-old'],
+      });
+      await rebuildDocsWikilinks({ projectRoot: root });
+      const out = await getDocsWikilinks('gate-old', { direction: 'out', projectRoot: root });
+      expect(
+        out.filter((e) => e.relation === 'superseded-by').map((e) => e.toSlug),
+        r.device,
+      ).toEqual(['gate-new']);
+      vi.stubEnv('CLEO_DIR', undefined);
+    }
+  }, 120_000);
+
   it('updates of a successor keep the supersession on both devices (T14565)', async () => {
     const OLD_SHA = sha('# Old gate doc\n');
     const { a, b } = await twoDevices();

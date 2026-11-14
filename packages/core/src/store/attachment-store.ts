@@ -749,6 +749,18 @@ export function createAttachmentStore(): AttachmentStore {
             const updates: Record<string, string | null> = {};
             if (slug !== undefined) updates.slug = slug;
             if (type !== undefined) updates.type = type;
+            // T14565: a slugless row is a stored blob, often an old version of
+            // another doc. Taking a slug makes it a new doc, keyed by that
+            // slug and not by its bytes: it starts with no supersession, never
+            // with the edges the bytes' earlier doc left on the row.
+            if (
+              slug !== undefined &&
+              existing.slug === null &&
+              (existing.supersedes != null || existing.supersededBy != null)
+            ) {
+              updates.supersedes = null;
+              updates.supersededBy = null;
+            }
             await db.update(attachments).set(updates).where(eq(attachments.id, attachmentId)).run();
           }
           // T13357: refresh derived provenance on an existing row whose bytes

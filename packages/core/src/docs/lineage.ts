@@ -17,8 +17,11 @@ import type {
   SearchBrainCompactResult,
 } from '@cleocode/contracts/memory/search.js';
 import type { DocsLineage } from '@cleocode/contracts/operations/docs.js';
-import { eq } from 'drizzle-orm';
-import { conduitAttachments } from '../store/schema/cleo-project/conduit.js';
+import { eq, inArray } from 'drizzle-orm';
+import {
+  conduitAttachments,
+  conduitAttachmentVersions,
+} from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
 import { attachmentRefs, attachments } from '../store/tasks-schema.js';
 import type { DocRef } from './slug-rename.js';
@@ -68,10 +71,33 @@ async function predecessorsOf(
       .all();
     for (const { slug } of named) if (slug) candidates.add(slug);
   }
+  // A pointer names a registry row, one version of the doc: the row holding
+  // the slug, or (after a sync merge) another row of its version history.
+  const rowIds = [ref.ownRow.id];
+  if (ref.docUid !== null) {
+    const hashes = await db
+      .select({ hash: conduitAttachmentVersions.contentHash })
+      .from(conduitAttachmentVersions)
+      .where(eq(conduitAttachmentVersions.attachmentUid, ref.docUid))
+      .all();
+    if (hashes.length > 0) {
+      const versions = await db
+        .select({ id: attachments.id })
+        .from(attachments)
+        .where(
+          inArray(
+            attachments.sha256,
+            hashes.map((v) => v.hash),
+          ),
+        )
+        .all();
+      for (const { id } of versions) if (id !== ref.ownRow.id) rowIds.push(id);
+    }
+  }
   const pointing = await db
     .select({ slug: attachments.slug })
     .from(attachments)
-    .where(eq(attachments.supersededBy, ref.ownRow.id))
+    .where(inArray(attachments.supersededBy, rowIds))
     .all();
   for (const { slug } of pointing) if (slug) candidates.add(slug);
 
