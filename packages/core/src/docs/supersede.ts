@@ -101,6 +101,32 @@ export function rehomeSupersessionEdges(
       .run();
   }
 
+  const incoming = repointIncomingSupersessionEdges(db, fromRowId, toRowId);
+  if (held.supersedes != null || held.supersededBy != null) {
+    db.update(docsAttachments)
+      .set({ supersedes: null, supersededBy: null })
+      .where(eq(docsAttachments.id, fromRowId))
+      .run();
+  }
+  return incoming;
+}
+
+/**
+ * Repoint incoming supersession to an existing live row without changing its outgoing edges.
+ *
+ * @param db - The caller's transaction handle.
+ * @param fromRowId - The version row being retired or reused.
+ * @param toRowId - The existing row holding that document's live slug.
+ * @returns The ids of rows whose pointer moved; callers mirror their doc metadata.
+ * @internal
+ */
+// @sync-side-effect docs.supersession.follows-slug incoming edges keep naming the same document when its retired content row is reused (T14580)
+export function repointIncomingSupersessionEdges(
+  db: NodeSQLiteDatabase,
+  fromRowId: string,
+  toRowId: string,
+): string[] {
+  if (fromRowId === toRowId) return [];
   const others = ne(docsAttachments.id, toRowId);
   const incoming = db
     .select({ id: docsAttachments.id })
@@ -120,12 +146,6 @@ export function rehomeSupersessionEdges(
     db.update(docsAttachments)
       .set({ supersededBy: toRowId })
       .where(and(others, eq(docsAttachments.supersededBy, fromRowId)))
-      .run();
-  }
-  if (held.supersedes != null || held.supersededBy != null) {
-    db.update(docsAttachments)
-      .set({ supersedes: null, supersededBy: null })
-      .where(eq(docsAttachments.id, fromRowId))
       .run();
   }
   return incoming.map((row) => row.id);

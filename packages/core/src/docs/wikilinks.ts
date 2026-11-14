@@ -79,6 +79,29 @@ interface DerivationRow {
 }
 
 /**
+ * Read derived edges through the same document identities used by lineage.
+ *
+ * @param projectRoot - Absolute project root.
+ * @returns Supersession, task and topic edges, without writing the derived table.
+ * @internal
+ */
+export async function readDerivedDocWikilinks(projectRoot: string): Promise<WikilinkEdge[]> {
+  const { listDocRefs, supersessionSlugs } = await import('./slug-rename.js');
+  const slugged: DerivationRow[] = [];
+  for (const ref of await listDocRefs(projectRoot)) {
+    const links = await supersessionSlugs(projectRoot, ref);
+    slugged.push({
+      slug: ref.slug,
+      supersedesSlug: links.supersedes,
+      supersededBySlug: links.supersededBy,
+      relatedTasks: ref.meta.relatedTasks,
+      topics: ref.meta.topics,
+    });
+  }
+  return deriveWikilinkEdges(slugged);
+}
+
+/**
  * Idempotently rebuild the `docs_wikilinks` edge table from the provenance
  * columns on `attachments`.
  *
@@ -104,23 +127,7 @@ export async function rebuildDocsWikilinks(
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const db = await getDb(projectRoot);
 
-  // T14288: every doc through its identity (a legacy doc through its row).
-  const { listDocRefs, supersessionSlugs } = await import('./slug-rename.js');
-  const refs = await listDocRefs(projectRoot);
-  // T14565: use the same doc identity resolution as lineage after sync collisions.
-  const slugged: DerivationRow[] = [];
-  for (const r of refs) {
-    const links = await supersessionSlugs(projectRoot, r);
-    slugged.push({
-      slug: r.slug,
-      supersedesSlug: links.supersedes,
-      supersededBySlug: links.supersededBy,
-      relatedTasks: r.meta.relatedTasks,
-      topics: r.meta.topics,
-    });
-  }
-
-  const edges = deriveWikilinkEdges(slugged);
+  const edges = await readDerivedDocWikilinks(projectRoot);
 
   const nowIso = new Date().toISOString();
   // The node:sqlite driver is synchronous — drizzle's transaction callback must

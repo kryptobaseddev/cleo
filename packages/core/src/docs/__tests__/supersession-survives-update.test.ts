@@ -22,6 +22,7 @@ import type { BlobAttachment } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { mirrorConduitDocMeta, resolveConduitDocUid } from '../../store/conduit-doc-history.js';
+import { yieldedDocSlug } from '../../store/row-identity.js';
 import { closeDb, getNativeDb } from '../../store/sqlite.js';
 import { publishDocs } from '../docs-ops.js';
 import { updateDocBySlug } from '../docs-update.js';
@@ -295,6 +296,75 @@ describe('T14565 — supersession edges survive a successor update', () => {
     });
     expect((await readDocLineage(projectRoot, 'guide'))?.predecessors).toEqual(['old-guide']);
     expect((await readDocLineage(projectRoot, 'old-guide'))?.supersededBy).toBe('guide');
+  });
+
+  it.each([
+    false,
+    true,
+  ])('reusing old successor bytes preserves incoming version pointers; collision slug=%s (T14580 AC1)', async (collision) => {
+    const first = '# Guide\n\nv1\n';
+    await seed('old-guide', '# Old guide\n');
+    await seed('guide', first);
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+    const store = createAttachmentStore();
+    const version = await store.findBySlug('guide', projectRoot);
+    await update('guide', '# Guide\n\nv2\n');
+    const current = await store.findBySlug('guide', projectRoot);
+    const native = getNativeDb(projectRoot);
+    if (!native || !version || !current) throw new Error('expected both version rows');
+    if (collision) {
+      const uid = native
+        .prepare('SELECT uid FROM docs_attachments WHERE id = ?')
+        .get(version.metadata.id)?.uid;
+      if (typeof uid !== 'string') throw new Error('expected the retired version uid');
+      native
+        .prepare('UPDATE docs_attachments SET slug = ? WHERE id = ?')
+        .run(yieldedDocSlug('guide', uid), version.metadata.id);
+    }
+    native
+      .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
+      .run(version.metadata.id);
+    await expectEdge('old-guide', 'guide');
+
+    await seed('unrelated', first);
+
+    await expectEdge('old-guide', 'guide');
+    expect(await readDocLineage(projectRoot, 'unrelated')).toMatchObject({
+      supersedes: null,
+      supersededBy: null,
+      predecessors: [],
+      currentSlug: 'unrelated',
+    });
+    expect(
+      native.prepare("SELECT superseded_by FROM docs_attachments WHERE slug = 'old-guide'").get(),
+    ).toMatchObject({ superseded_by: current.metadata.id });
+    expect(native.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+  });
+
+  it('refuses content reuse when an incoming edge has no unique original doc (T14580)', async () => {
+    const first = '# Guide\n\nv1\n';
+    await seed('old-guide', '# Old guide\n');
+    await seed('guide', first);
+    await supersedeDoc(projectRoot, { oldSlug: 'old-guide', newSlug: 'guide' });
+    const version = await createAttachmentStore().findBySlug('guide', projectRoot);
+    await update('guide', '# Guide\n\nv2\n');
+    await seed('other', first);
+    await update('other', '# Other\n\nv2\n');
+    const native = getNativeDb(projectRoot);
+    if (!native || !version) throw new Error('expected the original version row');
+    native
+      .prepare("UPDATE docs_attachments SET superseded_by = ? WHERE slug = 'old-guide'")
+      .run(version.metadata.id);
+
+    await expect(seed('unrelated', first)).rejects.toMatchObject({
+      code: 'E_DOC_LINEAGE_AMBIGUOUS',
+    });
+    expect(
+      native.prepare('SELECT slug FROM docs_attachments WHERE id = ?').get(version.metadata.id),
+    ).toMatchObject({ slug: null });
+    expect(
+      native.prepare("SELECT superseded_by FROM docs_attachments WHERE slug = 'old-guide'").get(),
+    ).toMatchObject({ superseded_by: version.metadata.id });
   });
 
   it('a publish after the successor updates leaves the edge in place', async () => {

@@ -8,7 +8,7 @@
  *     or any doc whose `related_tasks` JSON list contains the ID).
  *
  * Traversal walks the supersession chain in both directions (forward via
- * `attachments.supersedes`, reverse via `attachments.superseded_by`) plus the
+ * document identities behind `supersedes` / `superseded_by`) plus the
  * cross-entity link from each visited doc to every owning task (via the
  * `attachment_refs` junction). `depth` bounds the BFS — `depth=0` returns only
  * the root, `depth=N` returns the root plus all neighbors reachable in `N` hops.
@@ -131,6 +131,8 @@ export async function buildDocProvenanceGraph(
 
   const projectRoot = options.projectRoot ?? getProjectRoot();
   const db = await getDb(projectRoot);
+  const { resolveDocRef, supersessionSlugs } = await import('./slug-rename.js');
+  const { resolveRegistryRowDocSlug } = await import('../store/conduit-doc-history.js');
 
   const rootDocs = await resolveRootDocs(db, options.root, projectRoot);
   if (rootDocs.length === 0) {
@@ -158,33 +160,25 @@ export async function buildDocProvenanceGraph(
 
     // 1. Supersession chain — forward (this doc supersedes prior) + reverse
     //    (this doc is superseded by newer). Each link emits one edge.
-    const supersedeTargetIds = new Set<string>();
     for (const row of frontier) {
-      if (row.supersedes) supersedeTargetIds.add(row.supersedes);
-      if (row.supersededBy) supersedeTargetIds.add(row.supersededBy);
-    }
-    const supersedeRows = await loadAttachmentsByIds(db, [...supersedeTargetIds]);
-    const supersedeIndex = new Map(supersedeRows.map((r) => [r.id, r]));
-
-    for (const row of frontier) {
-      if (row.supersedes) {
-        const target = supersedeIndex.get(row.supersedes);
-        if (target) {
-          pushDocNeighbor(target, 'supersedes', row, nodes, edges, visitedKeys);
-          if (!visitedDocIds.has(target.id)) {
-            visitedDocIds.add(target.id);
-            nextFrontier.push(target);
-          }
-        }
-      }
-      if (row.supersededBy) {
-        const target = supersedeIndex.get(row.supersededBy);
-        if (target) {
-          pushDocNeighbor(target, 'superseded-by', row, nodes, edges, visitedKeys);
-          if (!visitedDocIds.has(target.id)) {
-            visitedDocIds.add(target.id);
-            nextFrontier.push(target);
-          }
+      const ref = row.slug ? await resolveDocRef(projectRoot, row.slug, { quiet: true }) : null;
+      const links = ref
+        ? await supersessionSlugs(projectRoot, ref)
+        : {
+            supersedes: await resolveRegistryRowDocSlug(projectRoot, row.supersedes),
+            supersededBy: await resolveRegistryRowDocSlug(projectRoot, row.supersededBy),
+          };
+      for (const [relation, slug] of [
+        ['supersedes', links.supersedes],
+        ['superseded-by', links.supersededBy],
+      ] as const) {
+        if (!slug) continue;
+        const [target] = await resolveRootDocs(db, slug, projectRoot);
+        if (!target) continue;
+        pushDocNeighbor(target, relation, row, nodes, edges, visitedKeys);
+        if (!visitedDocIds.has(target.id)) {
+          visitedDocIds.add(target.id);
+          nextFrontier.push(target);
         }
       }
     }
@@ -403,20 +397,18 @@ async function resolveRootDocs(
     )
     .all();
 
-  return relatedRows.map(normalizeRow);
-}
-
-async function loadAttachmentsByIds(
-  db: Awaited<ReturnType<typeof getDb>>,
-  ids: readonly string[],
-): Promise<AttachmentRow[]> {
-  if (ids.length === 0) return [];
-  const rows = await db
-    .select()
-    .from(attachments)
-    .where(inArray(attachments.id, [...ids]))
-    .all();
-  return rows.map(normalizeRow);
+  const { resolveDocRef } = await import('./slug-rename.js');
+  const { resolveRegistryRowDocSlug } = await import('../store/conduit-doc-history.js');
+  const resolved = new Map<string, AttachmentRow>();
+  for (const row of relatedRows) {
+    const slug = await resolveRegistryRowDocSlug(projectRoot, row.id);
+    const ref = slug ? await resolveDocRef(projectRoot, slug, { quiet: true }) : null;
+    const current = ref
+      ? normalizeRow({ ...ref.ownRow, sha256: ref.sha256, slug: ref.slug })
+      : normalizeRow(row);
+    resolved.set(current.id, current);
+  }
+  return [...resolved.values()];
 }
 
 function normalizeRow(row: typeof attachments.$inferSelect): AttachmentRow {

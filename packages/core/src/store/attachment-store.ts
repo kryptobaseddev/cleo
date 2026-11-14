@@ -640,6 +640,8 @@ export function createAttachmentStore(): AttachmentStore {
       const derivedLinks = isScannableTextMime(attachmentMime)
         ? deriveDocLinks(buf.toString('utf-8'), fullAttachment.labels)
         : undefined;
+      // Module loading must finish before the supersession repair's write transaction.
+      if (slug !== undefined) await import('../docs/supersede.js');
 
       return withWriteLock(async () => {
         const db = await getDb(cwd);
@@ -749,15 +751,42 @@ export function createAttachmentStore(): AttachmentStore {
             const updates: Record<string, string | null> = {};
             if (slug !== undefined) updates.slug = slug;
             if (type !== undefined) updates.type = type;
-            // T14565: a slugless row is a stored blob, often an old version of
-            // another doc. Taking a slug makes it a new doc, keyed by that
-            // slug and not by its bytes: it starts with no supersession, never
-            // with the edges the bytes' earlier doc left on the row.
-            if (
-              slug !== undefined &&
-              existing.slug === null &&
-              (existing.supersedes != null || existing.supersededBy != null)
-            ) {
+            if (slug !== undefined && existing.slug !== slug) {
+              // T14580: preserve the old doc's incoming edges before these bytes name a new doc.
+              const incoming = await db
+                .select({ id: attachments.id })
+                .from(attachments)
+                .where(
+                  or(
+                    eq(attachments.supersedes, attachmentId),
+                    eq(attachments.supersededBy, attachmentId),
+                  ),
+                )
+                .get();
+              if (incoming) {
+                const { getProjectRoot } = await import('../paths.js');
+                const { mirrorConduitDocMeta, resolveRegistryRowDocSlug } = await import(
+                  './conduit-doc-history.js'
+                );
+                const projectRoot = cwd ?? getProjectRoot();
+                const priorSlug = await resolveRegistryRowDocSlug(projectRoot, attachmentId);
+                const prior = priorSlug
+                  ? await db.select().from(attachments).where(eq(attachments.slug, priorSlug)).get()
+                  : undefined;
+                if (!prior || prior.id === attachmentId) {
+                  // @sync-invariant docs.supersession.follows-slug refusing unsafe reuse keeps incoming edges on their original document
+                  throw new EngineResultError({
+                    code: 'E_DOC_LINEAGE_AMBIGUOUS',
+                    message: `Cannot reuse content for '${slug}': incoming supersession cannot be retained on its original document.`,
+                    fix: 'Keep the original document or repair incoming links with cleo docs supersede <old> <new> before reusing these bytes.',
+                  });
+                }
+                const { repointIncomingSupersessionEdges } = await import('../docs/supersede.js');
+                for (const rowId of repointIncomingSupersessionEdges(db, attachmentId, prior.id)) {
+                  await mirrorConduitDocMeta(projectRoot, { rowId });
+                }
+              }
+              // Retired version bytes never give a new document their outgoing lineage.
               updates.supersedes = null;
               updates.supersededBy = null;
             }
