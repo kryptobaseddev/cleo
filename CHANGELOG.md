@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.11.8] (2026-11-14)
+
+### Fixed
+
+- Store repair: rebuild contentless FTS and wait for CLEO teardown _(provenance: [T14558](https://github.com/kryptobaseddev/cleo/search?q=T14558&type=commits))_
+
 ## [2026.11.7] (2026-11-13)
 
 ### Fixed
