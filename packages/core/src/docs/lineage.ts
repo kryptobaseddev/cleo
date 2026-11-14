@@ -17,9 +17,14 @@ import type {
   SearchBrainCompactResult,
 } from '@cleocode/contracts/memory/search.js';
 import type { DocsLineage } from '@cleocode/contracts/operations/docs.js';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
+import {
+  conduitAttachments,
+  conduitAttachmentVersions,
+} from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
-import { attachmentRefs } from '../store/tasks-schema.js';
+import { attachmentRefs, attachments } from '../store/tasks-schema.js';
+import type { DocRef } from './slug-rename.js';
 
 /** Hops followed along `superseded_by` before giving up (a cycle guard). */
 export const DOC_LINEAGE_MAX_HOPS = 32;
@@ -35,6 +40,76 @@ function taskIdsOf(raw: string | null): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Every doc a resolved doc replaced (T14565): each doc whose `superseded_by`
+ * resolves to it, and the doc its own `supersedes` pointer names. The pointer
+ * holds one doc, so a doc that replaced several names only the latest there;
+ * the docs it replaced each name it, which is what this reads. A candidate
+ * counts only when its own lineage resolves to this doc, the way
+ * `supersededBy` is reported for it.
+ *
+ * @param projectRoot - Project root.
+ * @param ref - The resolved doc.
+ * @param supersedes - The slug its `supersedes` pointer resolves to, if any.
+ * @returns The live slugs of the docs it replaced, unique and sorted.
+ */
+async function predecessorsOf(
+  projectRoot: string,
+  ref: DocRef,
+  supersedes: string | null,
+): Promise<string[]> {
+  const db = await getDb(projectRoot);
+  const { resolveDocRef, supersessionSlugs } = await import('./slug-rename.js');
+  const candidates = new Set<string>();
+  if (ref.docUid !== null) {
+    const named = await db
+      .select({ slug: conduitAttachments.slug })
+      .from(conduitAttachments)
+      .where(eq(conduitAttachments.supersededByUid, ref.docUid))
+      .all();
+    for (const { slug } of named) if (slug) candidates.add(slug);
+  }
+  // A pointer names a registry row, one version of the doc: the row holding
+  // the slug, or (after a sync merge) another row of its version history.
+  const rowIds = [ref.ownRow.id];
+  if (ref.docUid !== null) {
+    const hashes = await db
+      .select({ hash: conduitAttachmentVersions.contentHash })
+      .from(conduitAttachmentVersions)
+      .where(eq(conduitAttachmentVersions.attachmentUid, ref.docUid))
+      .all();
+    if (hashes.length > 0) {
+      const versions = await db
+        .select({ id: attachments.id })
+        .from(attachments)
+        .where(
+          inArray(
+            attachments.sha256,
+            hashes.map((v) => v.hash),
+          ),
+        )
+        .all();
+      for (const { id } of versions) if (id !== ref.ownRow.id) rowIds.push(id);
+    }
+  }
+  const pointing = await db
+    .select({ slug: attachments.slug })
+    .from(attachments)
+    .where(inArray(attachments.supersededBy, rowIds))
+    .all();
+  for (const { slug } of pointing) if (slug) candidates.add(slug);
+
+  const out = new Set<string>();
+  if (supersedes) out.add(supersedes);
+  for (const slug of candidates) {
+    const other = await resolveDocRef(projectRoot, slug, { quiet: true });
+    if (other && (await supersessionSlugs(projectRoot, other)).supersededBy === ref.slug)
+      out.add(other.slug);
+  }
+  out.delete(ref.slug);
+  return [...out].sort();
 }
 
 /**
@@ -82,6 +157,7 @@ export async function readDocLineage(
     lifecycleStatus: ref.meta.lifecycleStatus ?? row.lifecycleStatus,
     supersedes: links.supersedes,
     supersededBy: links.supersededBy,
+    predecessors: await predecessorsOf(projectRoot, ref, links.supersedes),
     currentSlug,
     servesTasks: [...servesTasks].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))),
   };

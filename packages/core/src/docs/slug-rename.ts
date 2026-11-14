@@ -36,6 +36,7 @@ import {
   getConduitAttachmentVersion,
   getConduitDocHead,
   resolveConduitDocUid,
+  resolveRegistryRowDocSlug,
 } from '../store/conduit-doc-history.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import {
@@ -433,7 +434,8 @@ export async function listDocRefsFromDb(db: NodeSQLiteDatabase): Promise<DocRef[
 /**
  * The live slugs of the docs a resolved doc supersedes and is superseded by
  * (T14288 PR 3b): through the doc uids of its metadata, else (a doc the other
- * side of which has no identity yet) through the registry row's pointer.
+ * side of which has no identity yet) through the registry row's pointer,
+ * resolved to the doc that row is a version of (T14565).
  *
  * @param projectRoot - Absolute project root.
  * @param ref - A resolved doc.
@@ -454,15 +456,10 @@ export async function supersessionSlugs(
       .get();
     return row?.slug ?? null;
   };
-  const slugOfRow = async (id: string | null): Promise<string | null> => {
-    if (id === null) return null;
-    const row = await db
-      .select({ slug: attachments.slug })
-      .from(attachments)
-      .where(eq(attachments.id, id))
-      .get();
-    return row?.slug ?? null;
-  };
+  // T14565: a pointer names a registry row, one version of a doc; it resolves
+  // to that doc, not to whatever slug the row itself carries.
+  const slugOfRow = (id: string | null): Promise<string | null> =>
+    resolveRegistryRowDocSlug(projectRoot, id);
   return {
     supersedes:
       (await slugOfUid(ref.meta.supersedesUid)) ?? (await slugOfRow(ref.ownRow.supersedes ?? null)),

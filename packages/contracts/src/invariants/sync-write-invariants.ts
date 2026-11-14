@@ -588,6 +588,17 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     reason:
       'a rename moves the live slug on docs_attachments and conduit_attachments in one transaction and records the old slug as an alias of the immutable doc uid, so every replica resolves the old and the new slug to one doc',
   },
+  // T14565 — a supersession names the doc, not the registry row of one of its
+  // versions: when a docs update (or its modernize undo) moves the slug onto
+  // another row, the supersedes / superseded_by pointers move with it.
+  {
+    id: 'docs.supersession.follows-slug',
+    class: 'identity-layer',
+    tables: ['docs_attachments', 'conduit_attachments'],
+    sites: [],
+    reason:
+      'supersedes and superseded_by name registry rows, and a docs update moves the slug to another row: the row taking the slug takes the pointers and every row naming the old one is re-pointed in the same transaction, then the identity rows are mirrored, so every replica keeps resolving a superseded doc to its successor',
+  },
   // T13359 (D11165) — decisions-vs-ADRs link table; the natural composite key
   // makes identical links merge to one row, and the revoke is a one-way latch.
   // T13597: enforced at merge, not just by the local accessor — 'revoked' is an

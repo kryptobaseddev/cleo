@@ -268,6 +268,20 @@ function formatUuid(bytes: Buffer): string {
 }
 
 /**
+ * The slug a doc registry row takes when it yields its slug to another row in
+ * a sync collision (T12919): `<slug>-<last 8 hex of the row's uid>`. One
+ * recipe for the apply that renames the row and for the readers that
+ * recognise a renamed version row of a doc (T14565).
+ *
+ * @param slug - The contested slug.
+ * @param rowUid - The yielding row's uid.
+ * @returns The slug the yielding row carries afterwards.
+ */
+export function yieldedDocSlug(slug: string, rowUid: string): string {
+  return `${slug}-${rowUid.replaceAll('-', '').slice(-8)}`;
+}
+
+/**
  * A new uid for a row this build creates: a random UUIDv7.
  *
  * @param birthMs - The row's own birth, for a row imported with one (an
