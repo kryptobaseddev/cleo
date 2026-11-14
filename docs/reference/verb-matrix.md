@@ -64,9 +64,30 @@ Valid `status` values (in lifecycle order):
 > is a shipped consumer template (`packages/core/templates/workflows/release-publish.yml.tmpl`);
 > this repository has no `.github/workflows/release-publish.yml`. Here the tag
 > push runs `release.yml`, which builds, publishes and opens the CHANGELOG
-> PR, and no workflow runs `cleo release reconcile`; run it by hand after a
-> fallback release. Rows below that name `release-publish.yml` describe a
-> consumer project that installed the templates.
+> PR; no workflow runs `cleo release reconcile`. Rows below that name
+> `release-publish.yml` describe a consumer project that installed the
+> templates.
+
+### When provenance is reconciled
+
+Every full merge sweep (the daemon loop, the throttled lazy sweep agents'
+commands start, and the sweep `cleo release` runs before deciding what ships)
+calls `reconcileLatestRelease` (`packages/core/src/release/reconcile-latest.ts`,
+from `packages/core/src/tasks/merge-close.ts`). It looks at ONE tag: the newest
+stable `vX.Y.Z` tag (no suffix) merged into `origin/main`. It reconciles that
+tag when its `releases` row is not already `reconciled` and its GitHub Release
+exists; with no GitHub Release yet it does nothing and the next sweep retries.
+
+Run `cleo release reconcile <ver>` by hand when:
+
+- the version is a prerelease (`-canary.N`, `-beta`, `-rc`, …): the sweep only
+  reconciles stable tags;
+- the version is an older stable tag: once a newer stable tag exists, the sweep
+  never looks at it;
+- the sweep's attempt failed: the sweep reports `action: failed` with the reason
+  and keeps the row unreconciled;
+- you need it now, without waiting for a sweep. A targeted sweep
+  (`cleo done --from-merge <pr>`) and a dry run never reconcile.
 
 | Order | `releases.status`   | Set by                                                          | Meaning |
 |------:|---------------------|-----------------------------------------------------------------|---------|
@@ -145,12 +166,16 @@ normative sections, checked against the code:
 - **Read verbs (§4.6):** only `cleo provenance backfill` and `cleo provenance
   verify` exist. `cleo release graph|diff|impact|authors|orphans` and the other
   `cleo provenance` reads were never built.
-- **Error codes (§4.7):** `E_PLAN_NOT_FOUND`, `E_WORKFLOW_NOT_FOUND`,
-  `E_INVALID_STATE`, `E_GH_NOT_AUTHENTICATED`, `E_EPIC_NOT_FOUND`,
-  `E_DIRTY_TREE`, `E_EPIC_EMPTY` and `E_CHANNEL_MISMATCH` are defined and used.
-  `E_TAG_NOT_FOUND`, `E_INSUFFICIENT_SCOPE`, `E_TAG_MISMATCH`,
-  `E_PROVENANCE_FAILED`, `E_PROVENANCE_INCOMPLETE` and `E_TIMEOUT` are not
-  defined.
+- **Error codes (§4.7):** exported constants in
+  `packages/contracts/src/exit-codes.ts` that release modules emit:
+  `E_PLAN_NOT_FOUND`, `E_WORKFLOW_NOT_FOUND`, `E_INVALID_STATE`,
+  `E_GH_NOT_AUTHENTICATED`, `E_EPIC_NOT_FOUND`, `E_DIRTY_TREE`, `E_EPIC_EMPTY`,
+  `E_CHANNEL_MISMATCH`. Emitted at runtime but with no exported constant:
+  `E_TAG_NOT_FOUND`, `E_TAG_MISMATCH` and `E_PROVENANCE_FAILED`
+  (`cleo release reconcile`, `release/reconcile.ts`) and `E_PROVENANCE_INCOMPLETE`
+  (`cleo provenance verify`, `release/verify-provenance.ts`). Not emitted by any
+  release verb: `E_TIMEOUT` (the spawn pipeline uses it, not release) and
+  `E_INSUFFICIENT_SCOPE` (not used anywhere).
 - **`release-prepare.yml` (§5.1):** `workflow_dispatch` only, with `version`
   and `plan-blob-sha256` (plus `epic`, `tasks`, `channel` and the preflight-reuse
   inputs) and concurrency `release-prepare-<version>` without cancel, as the
