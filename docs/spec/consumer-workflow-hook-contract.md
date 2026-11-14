@@ -188,7 +188,7 @@ Trigger policy for this repository's workflows:
 5. Cron workflows are owner and dogfood only.
 6. `workflow_dispatch` is for explicit operator actions and re-runs, never counted as automatic PR or main coverage.
 
-Branch protection itself (required contexts `CI` and `Contracts Dep Lint`, `strict=false`) is set and verified with `docs/guide/branch-protection-setup.md`. Stop and ask the owner before any change that removes a required check, enables force pushes or deletions, or otherwise weakens protection, when you are not a repository admin, or when a consumer asks to copy dogfood-only workflows as product requirements.
+Live branch protection on `main` requires only the `CI` check, with `strict=false` (GitHub branch-protection API, checked 2026-11-14). `docs/guide/branch-protection-setup.md` holds the setup and verify commands; read the live state with its verify command rather than trusting a list written here. Stop and ask the owner before any change that removes a required check, enables force pushes or deletions, or otherwise weakens protection, when you are not a repository admin, or when a consumer asks to copy dogfood-only workflows as product requirements.
 
 ## Ownership and support expectations
 

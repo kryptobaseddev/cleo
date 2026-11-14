@@ -246,21 +246,38 @@ harness (ADR-098); what follows is what the code does today.
 **Execution.** `cleo orchestrate spawn <taskId>` returns the composed
 `SpawnPayload`; executing a spawn (`orchestrate.spawn.execute`) goes through
 `orchestrateSpawnExecute` (`packages/core/src/orchestrate/spawn-ops.ts`). It
-takes a resource grant before anything is provisioned, provisions the worker's
-isolation with `provisionIsolatedShell` (worktree and cwd) and hands the prompt
-to the provider's spawn provider, for example `ClaudeCodeSpawnProvider`
-(`packages/adapters/src/providers/claude-code/spawn.ts`). The provider writes the
-prompt to a private temp file, starts the harness CLI detached in the isolation
-cwd and passes the isolation environment (`CLEO_WORKTREE_ROOT`,
-`CLEO_AGENT_ROLE`, `CLEO_WORKTREE_BRANCH`, `CLEO_PROJECT_HASH`). The session
-binding (`CLEO_SESSION_ID`, `CLEO_AGENT_ID`, `CLEO_AGENT_ROLE`) reaches the agent
-as the export block its prompt tells it to run first
-(`packages/core/src/orchestration/spawn-prompt.ts`). After a worker spawn
-returns, its worktree is merged back with `git merge --no-ff` (ADR-062) unless
-auto-complete is off; a lead has nothing to integrate.
+takes a resource grant before anything is provisioned, then tries to provision
+the worker's worktree (`spawnWorktree`, then `provisionIsolatedShell` for its cwd
+and environment). `resolveIsolation`
+(`packages/core/src/orchestrate/isolation-policy.ts`) decides what a provisioning
+failure means:
 
-**Lead and worker.** A worker spawn carries no denied tools and runs in its own
-worktree. A lead spawn carries `LEAD_DENIED_TOOLS`
+- a task worktree held by a live lock always refuses the spawn, so two agents
+  never work one task;
+- with `orchestrate.leadWorker.v1` on (default off), for an Orca launch, or when
+  `--base` was given, the spawn is refused with the provisioning error;
+- otherwise the worker runs in the project root without isolation, and only a
+  warning is logged (T14575 tracks closing this fallback).
+
+A lead is never provisioned and runs in the project root. The spawn provider, for
+example `ClaudeCodeSpawnProvider`
+(`packages/adapters/src/providers/claude-code/spawn.ts`), writes the prompt to a
+private temp file and starts the harness CLI detached in that working directory.
+Its environment carries the session binding (`CLEO_SESSION_ID`, `CLEO_AGENT_ID`,
+`CLEO_AGENT_ROLE`) and, when isolated, the worktree variables
+(`CLEO_WORKTREE_ROOT`, `CLEO_WORKTREE_BRANCH`, `CLEO_PROJECT_HASH`); the prompt
+repeats the binding as an export block the agent runs first
+(`packages/core/src/orchestration/spawn-prompt.ts`).
+
+Integration at spawn: a worker whose run finishes inside the spawn call with
+exit code 0 has its worktree merged back with `git merge --no-ff` (ADR-062),
+unless auto-complete is off or `CLEO_NO_AUTO_WORKTREE_COMPLETE` is set. A
+tracked worker (one whose exit CLEO observes, T14359) is still running when the
+spawn returns, so it is not integrated at spawn. A lead has nothing to
+integrate.
+
+**Lead and worker.** A worker spawn carries no denied tools and runs in its
+worktree when provisioning succeeds (see the failure rules above). A lead spawn carries `LEAD_DENIED_TOOLS`
 (`packages/contracts/src/operations/orchestrate.ts`: `Bash`, `Edit`, `Write`,
 `MultiEdit`, `NotebookEdit`, `WebFetch`, `WebSearch`). A provider that can strip
 them declares `leadToolStrip: 'enforced'` (claude-code, claude-sdk); any other

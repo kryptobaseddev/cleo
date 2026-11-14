@@ -134,7 +134,9 @@ reaches them: AgentMBX is CLEO's messaging layer and does not route directives
   vault rows are skipped). The sender must be in that project's
   `authorizedAgents` config (`*` allows all); without the setting the ACL denies
   every agent, and denials are audited.
-- Each agent may route at most 100 operations per minute.
+- Each agent may route at most 100 directives per minute (an in-process
+  counter). One directive can name several tasks, so it can start more than one
+  task operation; the limit counts directives, not task operations.
 
 ### Layer 2: Instruction DSL
 

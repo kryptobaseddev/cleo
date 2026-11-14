@@ -11,11 +11,10 @@ Core canon documents live in this `concept/` folder, with contracts in `spec/` a
 When canon documents conflict, resolve in this order (higher entry wins):
 
 1. **Code** — `packages/cleo/src/dispatch/types.ts` (`CANONICAL_DOMAINS`), `packages/cleo/src/dispatch/registry.ts` (`OPERATIONS`). Final arbiter for domain + operation lists.
-2. **Constitution** — `docs/specs/CLEO-OPERATION-CONSTITUTION.md`. Normative spec derived from the code.
+2. **Constitution** — `docs/spec/cleo-operation-constitution.md`. Normative spec derived from the code.
 3. **Owner Memory** — `~/.claude/projects/-mnt-projects-cleocode/memory/MEMORY.md`. Owner corrections; wins over aged canon on identity.
-4. **Architecture Guide** — `CLEO-ARCHITECTURE-GUIDE.md`. Plain-English reference for what CLEO is; mirrors the Constitution.
-5. **System Flow Atlas** — `CLEO-SYSTEM-FLOW-ATLAS.md`. Visual diagrams; mirrors Architecture Guide.
-6. **Design docs** — `docs/design/*`. UI / interaction specs; consume canon, never define it.
+4. **Architecture Guide** — `docs/concept/cleo-architecture-guide.md`. Plain-English reference for what CLEO is, including the request flow (it absorbed the retired System Flow Atlas); mirrors the Constitution.
+5. **Design docs** — `docs/design/*`. UI / interaction specs; consume canon, never define it.
 
 Full rationale: `docs/adr/adr-044-canon-reconciliation.md`.
 
