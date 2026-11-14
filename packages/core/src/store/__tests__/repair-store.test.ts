@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { type SpawnSyncReturns, spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   copyFileSync,
@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -34,19 +35,34 @@ import { loadSqliteVecExtension } from '../sqlite-native.js';
 import { OWNER_STORE_REWRITE_AUDIT_FILE } from '../worktree-isolation-guard.js';
 import { createTestDb, type TestDbEnv } from './test-db-helper.js';
 
+const nativePlatform = process.platform;
 const proc = vi.hoisted(() => ({
   enabled: false,
   comm: 'systemd',
   code: 'EACCES',
   statPath: '',
   stage: 'directory',
+  state: 'S',
+  exitAfterProbe: false,
+  scans: 0,
 }));
+vi.mock('node:timers/promises', async (original) => {
+  const timers = await original<typeof import('node:timers/promises')>();
+  return { ...timers, setTimeout: vi.fn(timers.setTimeout) };
+});
+vi.mock('node:child_process', async (original) => {
+  const child = await original<typeof import('node:child_process')>();
+  return { ...child, spawnSync: vi.fn(child.spawnSync) };
+});
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
   return {
     ...fs,
     readdirSync: (...args: Parameters<typeof fs.readdirSync>) => {
-      if (proc.enabled && args[0] === '/proc') return ['424242'];
+      if (proc.enabled && args[0] === '/proc')
+        return proc.stage === 'quiescent' || (proc.exitAfterProbe && proc.scans++ > 0)
+          ? []
+          : ['424242'];
       if (proc.enabled && args[0] === '/proc/424242/fd') {
         if (proc.stage === 'descriptor') return ['0'];
         throw Object.assign(new Error('injected descriptor permission refusal'), {
@@ -66,6 +82,11 @@ vi.mock('node:fs', async (original) => {
     },
     readFileSync: (...args: Parameters<typeof fs.readFileSync>) => {
       if (proc.enabled && args[0] === '/proc/locks') return '';
+      if (proc.enabled && args[0] === '/proc/424242/stat') {
+        if (proc.state === 'gone')
+          throw Object.assign(new Error('process exited during inspection'), { code: 'ENOENT' });
+        return `424242 (${proc.comm}) ${proc.state} 1 0 0`;
+      }
       if (proc.enabled && args[0] === '/proc/424242/comm') return proc.comm;
       return fs.readFileSync(...args);
     },
@@ -113,6 +134,9 @@ afterAll(() => {
   rmSync(loaderRoot, { recursive: true, force: true });
 });
 beforeEach(async () => {
+  proc.state = 'S';
+  proc.exitAfterProbe = false;
+  proc.scans = 0;
   env = await createTestDb();
   live = join(env.cleoDir, 'cleo.db');
   const db = getNativeTasksDb(env.tempDir);
@@ -134,7 +158,9 @@ beforeEach(async () => {
   resetDbState();
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   proc.enabled = false;
+  Object.defineProperty(process, 'platform', { value: nativePlatform });
   resetDbState();
   await env.cleanup();
 });
@@ -179,17 +205,152 @@ it.each([
   proc.stage = stage;
   proc.statPath = env.tempDir;
   Object.defineProperty(process, 'platform', { value: 'linux' });
+  const clock = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(15_000);
   try {
     await expect(assertRepairQuiescent(live, [])).rejects.toThrow(
       'possible store holder pid 424242 (node)',
     );
   } finally {
+    clock.mockRestore();
     proc.enabled = false;
     Object.defineProperty(process, 'platform', platform);
   }
 });
 
+it.each([
+  'directory',
+  'descriptor',
+])('rechecks an unreadable exiting Node process %s before proving quiescence', async (stage) => {
+  proc.enabled = true;
+  proc.comm = 'node-MainThread';
+  proc.code = 'EACCES';
+  proc.stage = stage;
+  proc.statPath = env.tempDir;
+  proc.exitAfterProbe = true;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  const before = repairFileHash(live);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+  const pause = vi
+    .spyOn(await import('node:timers/promises'), 'setTimeout')
+    .mockResolvedValue(undefined);
+  const command = vi
+    .spyOn(await import('../../sessions/terminal-identity.js'), 'readProcessArgs')
+    .mockReturnValue('node-MainThread');
+  const diagnostics: string[] = [];
+  try {
+    await assertRepairQuiescent(live, diagnostics);
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(proc.scans).toBe(2);
+    expect(diagnostics).toContain('CLEO store holders exited during the bounded teardown wait');
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    command.mockRestore();
+    pause.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+it.each(['Z', 'gone'])('skips an exited Node process with state %s', async (state) => {
+  proc.enabled = true;
+  proc.comm = 'node (worker)';
+  proc.code = 'EACCES';
+  proc.stage = 'directory';
+  proc.state = state;
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  const before = repairFileHash(live);
+  await assertRepairQuiescent(live, []);
+  expect(repairFileHash(live)).toBe(before);
+});
+
+it('accepts an unrelated macOS mount warning only after proving its device is unrelated', async () => {
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  const device = (BigInt.asUintN(32, statSync(live, { bigint: true }).dev) ^ 1n).toString(16);
+  const warning = `lsof: WARNING: can't stat() smbfs file system /Volumes/unreachable-backup
+      Output information may be incomplete.
+      assuming "dev=${device}" from mount table
+`;
+  const result: SpawnSyncReturns<string> = {
+    pid: 424243,
+    output: [null, '', warning],
+    stdout: '',
+    stderr: warning,
+    status: 1,
+    signal: null,
+  };
+  const probe = vi.spyOn(await import('node:child_process'), 'spawnSync').mockReturnValue(result);
+  const diagnostics: string[] = [];
+  const before = repairFileHash(live);
+  try {
+    await assertRepairQuiescent(live, diagnostics);
+    expect(diagnostics.join('\n')).toContain(`Unrelated filesystem warning (device 0x${device})`);
+    expect(probe).toHaveBeenCalledWith(
+      '/usr/sbin/lsof',
+      ['-nP', '-S2', '-F', 'p', '-f', '--', live],
+      expect.objectContaining({ encoding: 'utf8' }),
+    );
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    probe.mockRestore();
+  }
+});
+
+it.each([
+  'target filesystem',
+  'unknown warning',
+  'failed probe',
+  'spawn failure',
+])('refuses a macOS %s at the existing teardown deadline', async (failure) => {
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  const device = BigInt.asUintN(32, statSync(live, { bigint: true }).dev);
+  const warningDevice = failure === 'target filesystem' ? device : device ^ 1n;
+  const warning =
+    failure === 'unknown warning'
+      ? 'lsof: WARNING: target handle coverage unavailable\n'
+      : `lsof: WARNING: can't stat() smbfs file system /Volumes/unreachable-backup
+      Output information may be incomplete.
+      assuming "dev=${warningDevice.toString(16)}" from mount table
+`;
+  const result: SpawnSyncReturns<string> = {
+    pid: 424243,
+    output: [null, '', warning],
+    stdout: '',
+    stderr: warning,
+    status: failure === 'spawn failure' ? null : failure === 'failed probe' ? 2 : 1,
+    signal: null,
+    ...(failure === 'spawn failure' ? { error: new Error('injected lsof spawn failure') } : {}),
+  };
+  const probe = vi.spyOn(await import('node:child_process'), 'spawnSync').mockReturnValue(result);
+  const started = Date.now();
+  let now = started;
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const pause = vi
+    .spyOn(await import('node:timers/promises'), 'setTimeout')
+    .mockImplementation(async () => {
+      now += 5_000;
+    });
+  const before = repairFileHash(live);
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toMatchObject({
+      codeName: 'E_STORE_IN_USE',
+      message: expect.stringContaining('Cannot prove the store is closed'),
+    });
+    expect(now - started).toBe(15_000);
+    expect(probe).toHaveBeenCalledTimes(4);
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    pause.mockRestore();
+    clock.mockRestore();
+    probe.mockRestore();
+  }
+});
+
 it('refuses a registered CLEO writer lock before copying the store', async () => {
+  // Unrelated runner processes must not preempt the writer-lock refusal.
+  proc.enabled = true;
+  proc.stage = 'quiescent';
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
   const release = await acquireLock(live, { retries: 0 });
   const before = repairFileHash(live);
   try {
@@ -203,6 +364,11 @@ it('refuses a registered CLEO writer lock before copying the store', async () =>
 });
 
 it('refuses live foreign writer leases read from a private copy', async () => {
+  // Keep the OS scan and synthetic lease owner's identity independent of the host.
+  proc.enabled = true;
+  proc.stage = 'quiescent';
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
   const db = new DatabaseSync(live);
   try {
     db.prepare(`INSERT INTO _writer_leases
@@ -215,8 +381,59 @@ it('refuses live foreign writer leases read from a private copy', async () => {
     db.close();
   }
   const before = repairFileHash(live);
-  await expect(assertRepairQuiescent(live, [])).rejects.toThrow('pid 424242 (bulk)');
-  expect(repairFileHash(live)).toBe(before);
+  const command = vi
+    .spyOn(await import('../../sessions/terminal-identity.js'), 'readProcessArgs')
+    .mockReturnValue('node repair-foreign-holder');
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toThrow('pid 424242 (bulk)');
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    command.mockRestore();
+  }
+});
+
+it('refuses a still-live lease for a dead holder at the teardown deadline', async () => {
+  proc.enabled = true;
+  proc.stage = 'quiescent';
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  const db = new DatabaseSync(live);
+  try {
+    db.prepare(`INSERT INTO _writer_leases
+      (scope,lane,holder_id,holder_pid,epoch,acquired_at,heartbeat_at,ttl_ms,active)
+      VALUES ('project','bulk','repair-dead-holder',424242,1,?,?,60000,1)`).run(
+      Date.now(),
+      Date.now(),
+    );
+  } finally {
+    db.close();
+  }
+  const before = repairFileHash(live);
+  const started = Date.now();
+  let now = started;
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const pause = vi
+    .spyOn(await import('node:timers/promises'), 'setTimeout')
+    .mockImplementation(async () => {
+      now += 5_000;
+    });
+  const command = vi
+    .spyOn(await import('../../sessions/terminal-identity.js'), 'readProcessArgs')
+    .mockReturnValue(null);
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toMatchObject({
+      codeName: 'E_STORE_IN_USE',
+      message: expect.stringContaining('pid 424242 (bulk)'),
+      fix: expect.stringContaining('normal shutdown'),
+    });
+    expect(now - started).toBe(15_000);
+    expect(pause).toHaveBeenCalledTimes(3);
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    command.mockRestore();
+    pause.mockRestore();
+    clock.mockRestore();
+  }
 });
 
 it('plain doctor diagnoses global damage without auto-repair or original changes', () => {
