@@ -34,6 +34,7 @@ import { loadSqliteVecExtension } from '../sqlite-native.js';
 import { OWNER_STORE_REWRITE_AUDIT_FILE } from '../worktree-isolation-guard.js';
 import { createTestDb, type TestDbEnv } from './test-db-helper.js';
 
+const nativePlatform = process.platform;
 const proc = vi.hoisted(() => ({
   enabled: false,
   comm: 'systemd',
@@ -46,7 +47,7 @@ vi.mock('node:fs', async (original) => {
   return {
     ...fs,
     readdirSync: (...args: Parameters<typeof fs.readdirSync>) => {
-      if (proc.enabled && args[0] === '/proc') return ['424242'];
+      if (proc.enabled && args[0] === '/proc') return proc.stage === 'quiescent' ? [] : ['424242'];
       if (proc.enabled && args[0] === '/proc/424242/fd') {
         if (proc.stage === 'descriptor') return ['0'];
         throw Object.assign(new Error('injected descriptor permission refusal'), {
@@ -135,6 +136,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   proc.enabled = false;
+  Object.defineProperty(process, 'platform', { value: nativePlatform });
   resetDbState();
   await env.cleanup();
 });
@@ -190,6 +192,11 @@ it.each([
 });
 
 it('refuses a registered CLEO writer lock before copying the store', async () => {
+  // Unrelated runner processes must not preempt the writer-lock refusal.
+  proc.enabled = true;
+  proc.stage = 'quiescent';
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
   const release = await acquireLock(live, { retries: 0 });
   const before = repairFileHash(live);
   try {
@@ -203,6 +210,11 @@ it('refuses a registered CLEO writer lock before copying the store', async () =>
 });
 
 it('refuses live foreign writer leases read from a private copy', async () => {
+  // Keep the OS scan and synthetic lease owner's identity independent of the host.
+  proc.enabled = true;
+  proc.stage = 'quiescent';
+  proc.statPath = env.tempDir;
+  Object.defineProperty(process, 'platform', { value: 'linux' });
   const db = new DatabaseSync(live);
   try {
     db.prepare(`INSERT INTO _writer_leases
@@ -215,8 +227,15 @@ it('refuses live foreign writer leases read from a private copy', async () => {
     db.close();
   }
   const before = repairFileHash(live);
-  await expect(assertRepairQuiescent(live, [])).rejects.toThrow('pid 424242 (bulk)');
-  expect(repairFileHash(live)).toBe(before);
+  const command = vi
+    .spyOn(await import('../../sessions/terminal-identity.js'), 'readProcessArgs')
+    .mockReturnValue('node repair-foreign-holder');
+  try {
+    await expect(assertRepairQuiescent(live, [])).rejects.toThrow('pid 424242 (bulk)');
+    expect(repairFileHash(live)).toBe(before);
+  } finally {
+    command.mockRestore();
+  }
 });
 
 it('plain doctor diagnoses global damage without auto-repair or original changes', () => {
