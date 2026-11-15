@@ -275,6 +275,10 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "Workflow file path that must produce this check."
+                  },
+                  "event": {
+                    "enum": ["pull_request", "push"],
+                    "description": "Require this check on the final PR head or main push, respectively. Omitted preserves legacy semantics."
                   }
                 }
               }

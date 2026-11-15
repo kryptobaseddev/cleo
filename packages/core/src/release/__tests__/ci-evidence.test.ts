@@ -28,7 +28,7 @@ import {
   PR_REQUIRED_WORKFLOWS_ENV_VAR,
   validateEvidenceForGate,
 } from '@cleocode/contracts';
-import type { CiChecksConfig } from '@cleocode/contracts/project-context.js';
+import type { CiChecksConfig, ProjectReleaseContext } from '@cleocode/contracts/project-context.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { checkSchema } from '../../json-schema-validator.js';
@@ -1646,6 +1646,277 @@ describe('resolveCiEvidenceAtom', () => {
           );
         }
       });
+    });
+  });
+
+  describe('PR-only aggregate and main-only required checks (T14602)', () => {
+    const workflow = '.github/workflows/ci.yml';
+    const mainNames = ['Main build', 'Main types', 'Main lint', 'Main tests', 'Main security'];
+    const release: ProjectReleaseContext = {
+      prRequiredWorkflows: [
+        { name: 'PR checks', app: 'github-actions', workflow, event: 'pull_request' },
+        ...mainNames.map((name) => ({
+          name,
+          app: 'github-actions',
+          workflow,
+          event: 'push' as const,
+        })),
+      ],
+    };
+    const prChecks = [
+      check('PR checks', { headSha: HEAD, event: 'pull_request', workflowPath: workflow }),
+      ...mainNames.map((name) =>
+        check(name, {
+          headSha: HEAD,
+          event: 'pull_request',
+          workflowPath: workflow,
+          conclusion: 'skipped',
+        }),
+      ),
+    ];
+    const mergeChecks = [
+      check('PR checks', { workflowPath: workflow, conclusion: 'skipped' }),
+      ...mainNames.map((name) => check(name, { workflowPath: workflow })),
+    ];
+    const DESC = '1'.repeat(40);
+    const later = mergeChecks.map((c) => ({ ...c, headSha: DESC }));
+
+    function axiom(
+      main = mergeChecks,
+      pr = prChecks,
+      extra: Partial<ResolveCiEvidenceOptions> = {},
+    ) {
+      return resolve({
+        projectContext: { release },
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => ({ ...merged, changedPaths: ['packages/core/src/a.ts'] }),
+        treeOf: (sha) => (sha === MERGE ? TREE : 'd'.repeat(40)),
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? main : sha === HEAD ? pr : sha === DESC ? later : [],
+        }),
+        workspaceWideReason: async () => null,
+        listDescendants: () => [],
+        ...extra,
+      });
+    }
+
+    beforeEach(() => {
+      delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+      writeContext({
+        ciSatisfies: true,
+        ciChecks: {
+          tests: ['PR checks', 'Main tests'],
+          qa: ['PR checks', 'Main build', 'Main types', 'Main lint', 'Main security'],
+          jobs: {
+            tests: { pullRequest: ['PR checks'], push: ['Main tests'] },
+            qa: {
+              pullRequest: ['PR checks'],
+              push: ['Main build', 'Main types', 'Main lint', 'Main security'],
+            },
+          },
+        },
+      });
+    });
+
+    it('accepts both green sides after main advanced, ignoring opposite-event skips', async () => {
+      const r = await axiom();
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'PR checks', sha: HEAD, event: 'pull_request' }),
+          ...mainNames.map((name) => expect.objectContaining({ name, sha: MERGE, event: 'push' })),
+        ]),
+      );
+    });
+
+    it.each([
+      'pull_request',
+      'push',
+    ] as const)('refuses red, missing, skipped, cancelled or pending %s checks', async (event) => {
+      const name = event === 'pull_request' ? 'PR checks' : 'Main tests';
+      for (const state of ['failure', 'missing', 'skipped', 'cancelled', 'pending']) {
+        const bad = (checks: CommitCheck[]) =>
+          state === 'missing'
+            ? checks.filter((c) => c.name !== name)
+            : checks.map((c) =>
+                c.name === name
+                  ? {
+                      ...c,
+                      conclusion: state === 'pending' ? null : state,
+                      status: state === 'pending' ? 'in_progress' : 'completed',
+                    }
+                  : c,
+              );
+        const r = await axiom(
+          event === 'push' ? bad(mergeChecks) : mergeChecks,
+          event === 'pull_request' ? bad(prChecks) : prChecks,
+        );
+        expect(r.ok, `${event}: ${state}`).toBe(false);
+        expect(!r.ok && r.reason).toContain(name);
+        expect(!r.ok && r.reason).toContain('release.prRequiredWorkflows[].event');
+      }
+    });
+
+    it('never substitutes a tree-equal PR head for an explicitly required push check', async () => {
+      const r = await axiom(
+        mergeChecks.filter((c) => c.name !== 'Main tests'),
+        [
+          ...prChecks.filter((c) => c.name !== 'Main tests'),
+          check('Main tests', { headSha: HEAD, event: 'pull_request', workflowPath: workflow }),
+        ],
+        { treeOf: () => TREE, isAncestor: (a, d) => a === PARENT && d === HEAD },
+      );
+      expect(r.ok).toBe(false);
+    });
+
+    it('accepts a qualifying T12742 descendant with different PR and push checks, and rechecks each side', async () => {
+      const cancelled = mergeChecks.map((c) => ({ ...c, conclusion: 'cancelled' }));
+      const r = await axiom(cancelled, prChecks, {
+        listDescendants: () => [DESC],
+        isAncestor: (a, d) => a === MERGE && d === DESC,
+        touchingCommits: () => [],
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      if (!r.ok) return;
+      expect(r.atom.descendantSha).toBe(DESC);
+      expect(r.atom.descendantPrHeadSha).toBe(HEAD);
+      const fetch: NonNullable<ResolveCiEvidenceOptions['fetchChecks']> = async (sha) => ({
+        ok: true,
+        checks: sha === HEAD ? prChecks : later,
+      });
+      expect(await recheckCiDescendantAtom(r.atom, root, fetch)).toEqual({ ok: true });
+      for (const sha of [HEAD, DESC]) {
+        const red = await recheckCiDescendantAtom(r.atom, root, async (at) => {
+          const fetched = await fetch(at, root);
+          return fetched.ok && at === sha
+            ? { ok: true, checks: fetched.checks.map((c) => ({ ...c, conclusion: 'failure' })) }
+            : fetched;
+        });
+        expect(red.ok).toBe(false);
+      }
+    });
+
+    it('refuses cancelled merge CI without a qualifying descendant and names the rule', async () => {
+      const r = await axiom(mergeChecks.map((c) => ({ ...c, conclusion: 'cancelled' })));
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toContain(
+        'cancelled merge run is refused unless a qualifying descendant exists under the T12742 descendant rule',
+      );
+    });
+
+    it('preserves evolved hunks while rejecting missing hunks or changed CI definitions', async () => {
+      const cancelled = mergeChecks.map((c) => ({ ...c, conclusion: 'cancelled' }));
+      const descendants: Partial<ResolveCiEvidenceOptions> = {
+        listDescendants: () => [DESC],
+        isAncestor: (a, d) => a === MERGE && d === DESC,
+        touchingCommits: (_merge, _desc, paths) =>
+          paths.includes('packages/core/src/a.ts') ? [{ sha: DESC, parents: 1 }] : [],
+        missingPrHunk: () => null,
+        defaultBranchHead: () => null,
+      };
+      expect((await axiom(cancelled, prChecks, descendants)).ok).toBe(true);
+      const rewritten = await axiom(cancelled, prChecks, {
+        ...descendants,
+        missingPrHunk: () => 'a.ts: added hunk was removed',
+      });
+      expect(rewritten.ok).toBe(false);
+      expect(!rewritten.ok && rewritten.reason).toContain('no longer intact');
+      const changedCi = await axiom(cancelled, prChecks, {
+        ...descendants,
+        touchingCommits: () => [{ sha: DESC, parents: 1 }],
+      });
+      expect(changedCi.ok).toBe(false);
+      expect(!changedCi.ok && changedCi.reason).toContain('CI definition');
+    });
+
+    it('preserves the nonTest quarantine rule before accepting a green descendant', async () => {
+      const budget = [
+        ...mergeChecks.map((c) => (c.name === 'Main tests' ? { ...c, conclusion: 'failure' } : c)),
+        check('Test shard', { id: 77, workflowPath: workflow, conclusion: 'failure' }),
+      ];
+      const r = await axiom(budget, prChecks, {
+        listDescendants: () => [DESC],
+        isAncestor: (a, d) => a === MERGE && d === DESC,
+        touchingCommits: () => [],
+        fetchJobLog: async (id) =>
+          id === 77
+            ? 'Test Files  1 passed (1)\n     Tests  1 passed (1)\n  Start at  07:45:10\n  Duration  1s\n### Flaky quarantine over budget\n11 tests are quarantined (most 10).'
+            : null,
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.nonTestFailures).toEqual([{ name: 'Test shard', mergeRunId: 77 }]);
+    });
+
+    it('retains both event sides when a workspace-wide change uses the current main head', async () => {
+      const r = await axiom(
+        mergeChecks.map((c) => ({ ...c, conclusion: 'cancelled' })),
+        prChecks,
+        {
+          workspaceWideReason: async () => 'pnpm-lock.yaml',
+          defaultBranchHead: () => DESC,
+          isAncestor: (a, d) => a === MERGE && d === DESC,
+        },
+      );
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      if (!r.ok) return;
+      expect(r.atom.descendantPrHeadSha).toBe(HEAD);
+      expect(r.atom.pullRequestChecks).toEqual(['PR checks']);
+      const rechecked = await recheckCiDescendantAtom(r.atom, root, async (sha) => ({
+        ok: true,
+        checks: sha === HEAD ? [] : later,
+      }));
+      expect(rechecked.ok).toBe(false);
+      expect(!rechecked.ok && rechecked.reason).toContain('PR checks');
+    });
+
+    it('keeps workflow edits main-only and never fetches the PR head', async () => {
+      const asked: string[] = [];
+      const r = await axiom(mergeChecks, [], {
+        resolvePr: async () => ({ ...merged, changedPaths: [workflow] }),
+        fetchChecks: async (sha) => {
+          asked.push(sha);
+          return { ok: true, checks: sha === MERGE ? mergeChecks : [] };
+        },
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.mainOnly).toBe(true);
+      expect(asked).not.toContain(HEAD);
+      expect(r.ok && r.atom.gateChecks.testsPassed).not.toContain('PR checks');
+    });
+
+    it('validates event pins in the shipped schema and rejects malformed or duplicate events', async () => {
+      const schema: Parameters<typeof checkSchema>[1] = JSON.parse(
+        readFileSync(
+          fileURLToPath(new URL('../../../schemas/project-context.schema.json', import.meta.url)),
+          'utf-8',
+        ),
+      );
+      expect(
+        checkSchema(
+          {
+            schemaVersion: '1.0.0',
+            detectedAt: '2026-11-15T00:00:00Z',
+            projectTypes: ['node'],
+            release,
+          },
+          schema,
+        ),
+      ).toEqual([]);
+      for (const event of ['schedule', 'pull_request']) {
+        const bad = await axiom(mergeChecks, prChecks, {
+          projectContext: {
+            release: {
+              prRequiredWorkflows: [
+                ...(release.prRequiredWorkflows ?? []),
+                { name: 'PR checks', app: 'github-actions', workflow, event },
+              ],
+            },
+          },
+        });
+        expect(bad.ok).toBe(false);
+        expect(!bad.ok && bad.reason).toContain('release.prRequiredWorkflows');
+      }
     });
   });
 

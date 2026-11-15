@@ -1934,9 +1934,15 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   },
   async requiredChecks(storeRoot) {
     const { loadProjectContext } = await import('../agents/variable-substitution.js');
-    const { resolveRequiredWorkflows } = await import('../release/pr-evidence.js');
+    const { readRequiredCheckPins, resolveRequiredWorkflows } = await import(
+      '../release/pr-evidence.js'
+    );
     const ctx = loadProjectContext(storeRoot);
-    return resolveRequiredWorkflows(process.env, ctx.loaded ? ctx.context : null);
+    const context = ctx.loaded ? ctx.context : null;
+    const pins = readRequiredCheckPins(context);
+    return resolveRequiredWorkflows(process.env, context).filter(
+      (name) => pins[name]?.event !== 'push',
+    );
   },
   async ghAvailable() {
     const { isGhCliAvailable } = await import('../release/github-pr.js');

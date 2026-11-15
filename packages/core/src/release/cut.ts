@@ -274,7 +274,9 @@ function requiredChecks(runner: ReleaseCutRunner, cwd: string, ref: string): Req
     context = null;
   }
   const pins = readRequiredCheckPins(context);
-  return resolveRequiredWorkflows(process.env, context).map((name) => ({ name, ...pins[name] }));
+  return resolveRequiredWorkflows(process.env, context)
+    .filter((name) => pins[name]?.event !== 'pull_request')
+    .map((name) => ({ name, ...pins[name] }));
 }
 
 /**

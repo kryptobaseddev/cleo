@@ -163,6 +163,8 @@ export interface RequiredCheckPin {
   app?: string | number;
   /** Workflow file path (e.g. `.github/workflows/ci.yml`). */
   workflow?: string;
+  /** Require the final PR head's pull_request run or main's push run; omitted keeps legacy semantics. */
+  event?: 'pull_request' | 'push';
 }
 
 /** Release and evidence behavior configured per project. */

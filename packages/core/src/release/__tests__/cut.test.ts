@@ -284,6 +284,51 @@ function errorOf(result: {
 }
 
 describe('releaseCut (T14102)', () => {
+  it('selects main push checks without requiring the PR-only aggregate (T14602)', async () => {
+    write(
+      work,
+      '.cleo/project-context.json',
+      JSON.stringify({
+        release: {
+          prRequiredWorkflows: [
+            {
+              name: 'PR checks',
+              app: 'github-actions',
+              workflow: '.github/workflows/ci.yml',
+              event: 'pull_request',
+            },
+            {
+              name: 'CI',
+              app: 'github-actions',
+              workflow: '.github/workflows/ci.yml',
+              event: 'push',
+            },
+            {
+              name: 'Contracts Dep Lint',
+              app: 'github-actions',
+              workflow: '.github/workflows/ci.yml',
+              event: 'push',
+            },
+          ],
+        },
+      }),
+    );
+    git(work, 'add', '.cleo/project-context.json');
+    git(work, 'commit', '--quiet', '-m', 'require checks per event');
+    const sha = git(work, 'rev-parse', 'HEAD');
+    git(work, 'push', '--quiet', 'origin', 'main');
+    smokeReceipt(sha, true);
+    const { runner } = fakeRunner({ [sha]: 'success' });
+    const result = await releaseCut({
+      version: NEXT,
+      projectRoot: work,
+      dryRun: true,
+      sha,
+      runner,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
   it('dry run picks the newest green commit and reports notes, packages, migrations and tasks', async () => {
     const { runner, calls } = fakeRunner({ [shas.head]: 'in_progress', [shas.fix]: 'success' });
     const lead = join(work, 'lead.md');

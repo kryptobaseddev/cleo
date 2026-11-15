@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.11.0
+  version: 3.12.0
   tier: on-demand
   install: harness
   covers:
@@ -56,6 +56,8 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 **Single release PR (T13825, owner choice 2026-10-16).** `node scripts/release-run.mjs <ver> --epic <id> --notes-review <file> [--execute]` runs plan → independent notes review (`{"reviewer","notesSha256","approved":true}` by someone other than the operator, for the plan's exact `meta.releaseNotes`) → `release/plan-<ver>` (one commit, plan + CHANGELOG.md, on the default branch's HEAD, made through the GitHub API) → `cleo release open <ver> --ref release/plan-<ver>` → waits for release-prepare and the bump PR's dispatched `CI` on its exact head → version-only assert against the merge-base → `gh pr merge --admin --merge --match-head-commit` plus the `.cleo/audit/force-bypass.jsonl` line → explicit `git tag -a` on the merge commit and push. The bump PR carries the plan and the bump. Dry-run by default; every step resumes on re-run. `--ref` alone dispatches on any plan branch; preflight skips carry over only when it adds release-plan files alone.
 
 ## One-command release (default, T14102)
+
+Required checks may declare `event: pull_request` or `event: push` in `release.prRequiredWorkflows` (T14602). Release selection judges the push entries and unscoped entries only; PR-only aggregates do not gate a main push. For `ci:<pr>`, both explicit event lists must succeed; a cancelled merge needs a qualifying descendant under T12742 or the applicable current-HEAD rule. See the evidence section of `CLEO-REFERENCE.md` for configuration and preserved guards.
 
 ```bash
 cleo release cut v2026.10.28 --lead lead.md         # report: commit, notes, packages, migrations, task status, confirm command

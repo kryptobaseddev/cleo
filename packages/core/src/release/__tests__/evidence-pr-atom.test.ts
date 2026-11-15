@@ -359,6 +359,32 @@ describe('parseEvidence — pr atom (T9764)', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolvePrEvidenceAtom — happy path', () => {
+  it('judges only PR-side names when required checks are event-scoped (T14602)', async () => {
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      payload: makePrPayload({
+        statusCheckRollup: [{ name: 'PR checks', conclusion: 'SUCCESS', status: 'COMPLETED' }],
+      }),
+    });
+    const r = await resolvePrEvidenceAtom(
+      357,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      {
+        fetchGhPrPayload: mockFetch,
+        projectContext: {
+          release: {
+            prRequiredWorkflows: [
+              { name: 'PR checks', app: 'github-actions', event: 'pull_request' },
+              { name: 'Main gate', app: 'github-actions', event: 'push' },
+            ],
+          },
+        },
+      },
+    );
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+  });
+
   it('accepts a merged PR with all required checks SUCCESS', async () => {
     fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
     const r = await resolvePrEvidenceAtom(
