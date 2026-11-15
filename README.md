@@ -11,13 +11,19 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H2H815OTBU)
 
-CLEO is the work, evidence, memory and docs layer for AI coding agents. Agents
-(and you) drive it through one CLI, `cleo <command>`, and every call returns a
-single JSON envelope on stdout, so any agent harness can read it. CLEO keeps
-each change traceable from task to pull request to release, demands evidence
-before a task counts as done, remembers what was learned across sessions, and
-keeps documentation from rotting. CLEO is not an agent harness: any agent can
-call it and any project can integrate it.
+CLEO is a harness-agnostic core for AI coding agents: project management,
+evidence, memory and docs, plus the coordination that lets agents in different
+harnesses work on one project. It has no agent loop of its own. Agents run in
+their own harness (Claude Code, Codex, OpenCode, Kimi, Gemini and others) and
+call one CLI, `cleo <command>`; every call returns a single JSON envelope on
+stdout, so any harness can read it. Any agent can call it and any project can
+integrate it.
+
+CLEO keeps each change traceable from task to pull request to release, demands
+evidence before a task counts as done, remembers what was learned across
+sessions, and keeps documentation from rotting. Its data lives in one SQLite
+store per scope: `<project>/.cleo/cleo.db` for the project, and a global
+`cleo.db` in the CLEO home directory for what spans projects.
 
 ## What it does
 
@@ -30,7 +36,8 @@ call it and any project can integrate it.
 | **Memory (BRAIN)** | Observations, decisions and lessons kept across sessions and searchable | `cleo memory observe`, `cleo memory find`, `cleo briefing` |
 | **Code intelligence (Nexus)** | A symbol graph of your repo: callers, blast radius, impact before you edit | `cleo nexus analyze`, `cleo nexus impact <symbol>` |
 | **Release** | One command tags the newest commit on main with green CI and publishes from changesets | `cleo release cut <version> --dry-run` |
-| **Multi-agent work** | A lead splits an epic into waves and spawns workers in any harness; each worker gets its own worktree and session binding. AgentMBX is the messaging layer between agents: `--lead-mbx` names the lead's mailbox, which tier 1 and 2 prompts carry in their coordination block and a tier 0 prompt carries only when `orchestrate.leadWorker.v1` is on | `cleo orchestrate start <epic>`, `cleo orchestrate spawn <task>` |
+| **Multi-agent work** | A lead splits an epic into waves; `cleo orchestrate spawn` prepares a worker's prompt for any harness, and `cleo orchestrate spawn-execute` can start a harness CLI through a provider adapter. Each worker gets its own worktree and session binding. AgentMBX is the messaging layer between agents: `--lead-mbx` names the lead's mailbox in the worker's prompt | `cleo orchestrate start <epic>`, `cleo orchestrate spawn <task>` |
+| **Autonomous runs (CLEO Goal)** | CLEO Goal (`@cleocode/goal`, bin `cleo-goal`) is the one autonomous driver: it keeps a harness working toward a goal through that harness's own hook. CLEO drafts the goal from task criteria and closes tasks from the run's evidence | `cleo goal draft`, `cleo goal install`, `cleo goal status` |
 
 Run `cleo <command> --help` for the full flags of any command.
 
@@ -44,10 +51,15 @@ cleo init
 cleo session start --scope global --name "first session"
 
 # Work is a tree: a saga at the root, epics under it, tasks under those.
-cleo saga create --title "Ship the auth hardening" --acceptance "login is rate limited|sessions expire"
-cleo add "Auth hardening" --type epic --parent T001 --acceptance "rate limit shipped|session expiry shipped"
+# By default every task needs at least 3 acceptance criteria, and an epic
+# needs 5 plus a description.
+cleo saga create --title "Ship the auth hardening" \
+  --acceptance "login is rate limited|sessions expire|both are documented"
+cleo add "Auth hardening" --type epic --parent T001 \
+  --description "Rate limiting and session expiry are live and tested" \
+  --acceptance "rate limit shipped|session expiry shipped|tests cover both|docs updated|no new lint errors"
 cleo add "Rate-limit the login endpoint" --parent T002 \
-  --acceptance "returns 429 after 5 failed attempts|a test covers the limit"
+  --acceptance "returns 429 after 5 failed attempts|the limit resets after 15 minutes|a test covers the limit"
 
 cleo next          # what to work on
 cleo focus T003    # identity, blockers, docs and memory for one task
@@ -124,7 +136,9 @@ pnpm run build
 ```
 
 Repository rules (package boundaries, architecture gates, evidence) are in
-[AGENTS.md](AGENTS.md); see [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
+[AGENTS.md](AGENTS.md); the system overview is
+[docs/concept/cleo-architecture-guide.md](docs/concept/cleo-architecture-guide.md);
+see [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 Every change lands through a pull request that names its tasks; releases are
 cut from main with `cleo release cut`.
 

@@ -2,510 +2,125 @@
 
 > Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
 
-Unified provider adapters for CLEO: install, hook and instruction-injection code for each AI coding harness, plus the SDK spawn adapters.
+Provider adapters for CLEO: the install, hook and instruction-injection code for each AI coding harness, plus the spawn providers behind `cleo orchestrate spawn-execute`.
 
 ## Overview
 
-This package provides standardized adapters for integrating CLEO with various AI coding assistants and providers. Each adapter implements a common interface, allowing CLEO to work seamlessly across different environments.
+CLEO is a harness-agnostic core (ADR-098): the harness (Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Kimi) launches the agent, and CLEO installs its instructions and hooks into that harness. Each provider directory under `src/providers/` exports an adapter class implementing `CLEOProviderAdapter` from `@cleocode/contracts`, plus the hook, install and (where present) spawn providers it is built from.
 
-### Supported Providers
+### Providers
 
-| Provider | Status | Features |
-|----------|--------|----------|
-| **Claude Code** | ✅ Production | Full integration with statusline sync, context monitoring, PreCompact hook |
-| **OpenCode** | ✅ Production | Spawn hooks, task synchronization, PreCompact plugin |
-| **Cursor** | ✅ Production | Basic adapter with install hooks, PreCompact hook |
-| **Codex** | Adapter | `AGENTS.md` instruction references; heavy-command `PreToolUse` hook in `.codex/hooks.json` |
-| **Gemini CLI** | Adapter | `GEMINI.md` instruction references; a PreCompact shim ships but is not wired yet |
-| **Kimi** | Adapter | `AGENTS.md` instruction references |
-| **claude-sdk**, **openai-sdk** | SDK spawn | Programmatic subagent execution behind `cleo orchestrate spawn-execute` (Vercel AI SDK); whether to keep them is an open owner call in ADR-098 |
-| **Pi** | Deprecated | Retiring with the Pi/CleoOS harness (ADR-098); removed after a release ships the freeze |
+Capabilities below are the flags each adapter class declares in its `adapter.ts`.
 
-Per-provider detail: [`src/providers/README.md`](src/providers/README.md).
+| Provider | Install writes | Hooks | Spawn |
+|----------|----------------|-------|-------|
+| **claude-code** | `CLAUDE.md` references; PreCompact shim and heavy-command `PreToolUse` hook in the project's `.claude/` | Yes; also context monitor, statusline, provider paths, TodoWrite task sync | Starts the `claude` CLI as a child process. Lead spawns are supported (`leadToolStrip: 'enforced'`) |
+| **opencode** | `AGENTS.md` references; PreCompact shim + `.opencode/plugins/cleo-precompact.js`; heavy-command plugin `.opencode/plugins/cleo-heavy-command.js` | Yes | Starts the `opencode` CLI as a child process |
+| **cursor** | `AGENTS.md`, `.cursor/rules/cleo.mdc` and legacy `.cursorrules`; PreCompact shim wired into `.cursor/hooks.json` | Declared `true` in `adapter.ts`, `false` in `manifest.json` | None: `spawn()` throws |
+| **codex** | `AGENTS.md` references; heavy-command `PreToolUse` hook in `.codex/hooks.json` | Yes (`SessionStart`, `UserPromptSubmit`, `Stop`) | Declared unsupported (see note) |
+| **gemini-cli** | `GEMINI.md` references. A PreCompact shim ships, but the install path does not wire it yet | Yes | Declared unsupported (see note) |
+| **kimi** | `AGENTS.md` references | No | Declared unsupported (see note) |
+| **claude-sdk** | Nothing (no-op install) | No | Programmatic Claude run through the Vercel AI SDK; lead spawns supported (`leadToolStrip: 'enforced'`). The claude-code adapter switches to it when `provider.claude.mode` is `sdk` |
+| **openai-sdk** | `AGENTS.md` references and a `.openai/` stub | No | Programmatic run through the Vercel AI SDK; needs `OPENAI_API_KEY` |
+| **pi** | Frozen | Frozen | Frozen. ADR-098 retires the Pi/CleoOS harness: the `pi/` directory is still in the source and still registered, and is deleted after a release ships the freeze |
+
+ADR-098 leaves one open owner call: whether to keep, freeze or delete the two SDK spawn adapters (`claude-sdk`, `openai-sdk`).
+
+**Spawn note.** `cleo orchestrate spawn-execute` registers a provider's spawn provider only when its `manifest.json` sets `supportsSpawn: true` (`packages/core/src/spawn/adapter-registry.ts`, `initializeSpawnAdapters`). Codex, Gemini CLI and Kimi ship a `spawn.ts` (`codex` and `gemini` start their CLIs; Kimi calls the Moonshot API), but their manifests declare `supportsSpawn: false`, so that path does not use them. A lead spawn on a provider whose spawn provider does not declare `leadToolStrip: 'enforced'` is refused with `E_LEAD_TOOLS_UNSTRIPPED` before anything runs (`src/providers/shared/lead-tool-strip.ts`).
+
+Per-provider hook detail: [`src/providers/README.md`](src/providers/README.md).
 
 ## Installation
-
-```bash
-npm install @cleocode/adapters
-```
 
 ```bash
 pnpm add @cleocode/adapters
 ```
 
-```bash
-yarn add @cleocode/adapters
-```
+## Exports
 
-## API Overview
+| Subpath | Contents |
+|---------|----------|
+| `@cleocode/adapters` | Adapter classes and providers for claude-code, claude-sdk, codex, cursor, gemini-cli, kimi and opencode; `createClaudeCodeAdapter`, `createCodexAdapter`, `createCursorAdapter`, `createGeminiCliAdapter`, `createKimiAdapter`, `createOpenCodeAdapter`, `createClaudeSDKAdapter`; the CANT/NEXUS prompt-context builders; the PreCompact template installer; the heavy-command hook delivery API; `discoverProviders`, `getProviderManifests` |
+| `@cleocode/adapters/manifests` | `getProviderManifests()` without loading provider code |
+| `@cleocode/adapters/heavy-command-hook` | Project-level heavy-command hook delivery (T13124) |
+| `@cleocode/adapters/project-hook-delivery`, `/project-hook-native` | Project-local delivery of shared checks and the provider payload adapters for them (T13344) |
+| `@cleocode/adapters/orca-execution` | Local Orca execution |
 
-### Provider Adapters
-
-Each provider has its own adapter class with specialized capabilities:
-
-#### Claude Code Adapter
-
-```typescript
-import { 
-  ClaudeCodeAdapter,
-  createClaudeCodeAdapter,
-  ClaudeCodeContextMonitorProvider,
-  ClaudeCodeHookProvider,
-  ClaudeCodeInstallProvider,
-  ClaudeCodePathProvider,
-  ClaudeCodeSpawnProvider,
-  ClaudeCodeTransportProvider,
-  checkStatuslineIntegration,
-  getSetupInstructions,
-  getStatuslineConfig
-} from '@cleocode/adapters';
-
-// Create adapter
-const adapter = createClaudeCodeAdapter({
-  projectPath: './my-project'
-});
-
-// Check statusline integration
-const status = await checkStatuslineIntegration('./my-project');
-
-// Get setup instructions
-const instructions = getSetupInstructions();
-```
-
-#### OpenCode Adapter
+The SDK factories take no arguments. An adapter is bound to a project with `initialize(projectDir)`:
 
 ```typescript
-import { 
-  OpenCodeAdapter,
-  createOpenCodeAdapter,
-  OpenCodeHookProvider,
-  OpenCodeInstallProvider,
-  OpenCodeSpawnProvider
-} from '@cleocode/adapters';
+import { createClaudeCodeAdapter, checkStatuslineIntegration } from '@cleocode/adapters';
 
-// Create adapter
-const adapter = createOpenCodeAdapter({
-  projectPath: './my-project'
-});
-```
+const adapter = createClaudeCodeAdapter();
+await adapter.initialize('/path/to/project'); // registers the project's native hooks
+const health = await adapter.healthCheck();   // { healthy, provider, details? }
 
-#### Cursor Adapter
+// 'configured' | 'not_configured' | 'custom_no_cleo' | 'no_settings'
+const statusline = checkStatuslineIntegration();
 
-```typescript
-import { 
-  CursorAdapter,
-  createCursorAdapter,
-  CursorHookProvider,
-  CursorInstallProvider
-} from '@cleocode/adapters';
-
-// Create adapter
-const adapter = createCursorAdapter({
-  projectPath: './my-project'
-});
+await adapter.dispose();
 ```
 
 ### Registry
 
-Discover and manage provider manifests:
-
-```typescript
-import { 
-  discoverProviders, 
-  getProviderManifests,
-  type AdapterManifest 
-} from '@cleocode/adapters';
-
-// Discover available providers
-const providers = await discoverProviders('./my-project');
-
-// Get all manifests
-const manifests = getProviderManifests();
-
-// Check specific provider
-const claudeManifest = manifests.find(m => m.name === 'claude-code');
-```
-
-## Adapter Capabilities
-
-Each provider adapter implements specific capability interfaces:
-
-### Install Provider
-
-Handles installation and setup:
-
-```typescript
-import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
-
-const installProvider: AdapterInstallProvider = {
-  async install(options: InstallOptions): Promise<InstallResult> {
-    // Install provider-specific files
-    return { success: true, installed: ['file1', 'file2'] };
-  },
-  
-  async detect(projectPath: string): Promise<boolean> {
-    // Check if provider is installed
-    return fs.existsSync(path.join(projectPath, '.claude'));
-  }
-};
-```
-
-### Hook Provider
-
-Provides lifecycle hooks:
-
-```typescript
-import type { AdapterHookProvider } from '@cleocode/contracts';
-
-const hookProvider: AdapterHookProvider = {
-  async onTaskCreate(context) {
-    // Called when a task is created
-  },
-  
-  async onTaskComplete(context) {
-    // Called when a task is completed
-  },
-  
-  async onSessionStart(context) {
-    // Called when a session starts
-  },
-  
-  async onSessionEnd(context) {
-    // Called when a session ends
-  }
-};
-```
-
-### Spawn Provider
-
-Handles subagent spawning:
-
-```typescript
-import type { AdapterSpawnProvider, SpawnContext, SpawnResult } from '@cleocode/contracts';
-
-const spawnProvider: AdapterSpawnProvider = {
-  async spawn(context: SpawnContext): Promise<SpawnResult> {
-    // Spawn a subagent
-    return {
-      pid: 12345,
-      stdout: process.stdout,
-      stderr: process.stderr,
-      exitCode: 0
-    };
-  }
-};
-```
-
-### Context Monitor Provider
-
-Monitors provider context:
-
-```typescript
-import type { AdapterContextMonitorProvider } from '@cleocode/contracts';
-
-const contextProvider: AdapterContextMonitorProvider = {
-  async getContext(projectPath: string) {
-    return {
-      activeTask: 'T1234',
-      sessionId: 'session-abc',
-      memoryUsage: 1024000
-    };
-  }
-};
-```
-
-### Transport Provider
-
-Handles communication:
-
-```typescript
-import type { AdapterTransportProvider } from '@cleocode/contracts';
-
-const transportProvider: AdapterTransportProvider = {
-  async send(message) {
-    // Send message to provider
-  },
-  
-  async receive() {
-    // Receive message from provider
-    return { type: 'response', data: {} };
-  }
-};
-```
-
-### Path Provider
-
-Provides provider-specific paths:
-
-```typescript
-import type { AdapterPathProvider } from '@cleocode/contracts';
-
-const pathProvider: AdapterPathProvider = {
-  getConfigPath(projectPath: string) {
-    return path.join(projectPath, '.claude', 'settings.json');
-  },
-  
-  getDataPath(projectPath: string) {
-    return path.join(projectPath, '.claude', 'data');
-  }
-};
-```
-
-### Task Sync Provider
-
-Synchronizes tasks with provider:
-
-```typescript
-import type { AdapterTaskSyncProvider, ReconcileOptions, ReconcileResult } from '@cleocode/contracts';
-
-const syncProvider: AdapterTaskSyncProvider = {
-  async getExternalTasks(projectPath: string) {
-    // Get tasks from provider
-    return [];
-  },
-  
-  async reconcile(options: ReconcileOptions): Promise<ReconcileResult> {
-    // Reconcile tasks
-    return {
-      actions: [],
-      conflicts: []
-    };
-  }
-};
-```
-
-## Usage Examples
-
-### Detecting Available Providers
-
 ```typescript
 import { discoverProviders, getProviderManifests } from '@cleocode/adapters';
 
-async function detectProviders() {
-  const projectPath = './my-project';
-  
-  // Auto-detect installed providers
-  const available = await discoverProviders(projectPath);
-  
-  console.log('Available providers:');
-  for (const provider of available) {
-    console.log(`  - ${provider.name}: ${provider.version}`);
-  }
-  
-  // Get detailed manifests
-  const manifests = getProviderManifests();
-  for (const manifest of manifests) {
-    console.log(`\n${manifest.name}:`);
-    console.log(`  Capabilities: ${manifest.capabilities.join(', ')}`);
-    console.log(`  Patterns: ${manifest.patterns.join(', ')}`);
-  }
-}
+// Bundled manifests: every src/providers/<id>/manifest.json that parses.
+const manifests = getProviderManifests();
+
+// Lazy factories for claude-code, opencode, cursor and pi.
+const factories = await discoverProviders();
+const adapter = await factories.get('claude-code')?.();
 ```
 
-### Setting Up Claude Code Integration
+`claude-sdk` has no `manifest.json`, so `getProviderManifests()` does not list it.
 
-```typescript
-import { 
-  createClaudeCodeAdapter,
-  checkStatuslineIntegration,
-  getSetupInstructions 
-} from '@cleocode/adapters';
+## Adapter contract
 
-async function setupClaudeCode() {
-  const projectPath = './my-project';
-  
-  // Check if already integrated
-  const status = await checkStatuslineIntegration(projectPath);
-  
-  if (!status.integrated) {
-    console.log('Claude Code not yet integrated');
-    console.log(getSetupInstructions());
-    
-    // Create adapter and install
-    const adapter = createClaudeCodeAdapter({ projectPath });
-    const result = await adapter.install({ force: false });
-    
-    if (result.success) {
-      console.log('Claude Code integration installed');
-    }
-  } else {
-    console.log('Claude Code is already integrated ✓');
-  }
-}
-```
+The contracts live in `@cleocode/contracts`. `CLEOProviderAdapter` (`adapter.ts`) has `id`, `name`, `version`, `capabilities`, a required `install` provider, the optional `hooks`, `spawn`, `paths`, `contextMonitor`, `transport` and `taskSync` providers, and the lifecycle methods `initialize(projectDir)`, `dispose()` and `healthCheck()`.
 
-### Working with Hooks
+| Provider interface | Methods |
+|--------------------|---------|
+| `AdapterInstallProvider` (`install.ts`) | `install(options)`, `uninstall()`, `isInstalled()`, `ensureInstructionReferences(projectDir)` |
+| `AdapterHookProvider` (`hooks.ts`) | `mapProviderEvent(event)`, `registerNativeHooks(projectDir)`, `unregisterNativeHooks()`, optional `getEventMap()`, `getTranscript()` |
+| `AdapterSpawnProvider` (`spawn.ts`) | `canSpawn()`, `spawn(context)`, `listRunning()`, `terminate(instanceId)` |
+| `AdapterPathProvider` (`provider-paths.ts`) | `getProviderDir()`, `getSettingsPath()`, `getAgentInstallDir()`, `getMemoryDbPath()` |
+| `AdapterContextMonitorProvider` (`context-monitor.ts`) | `processContextInput()`, `checkStatuslineIntegration()`, `getStatuslineConfig()`, `getSetupInstructions()` |
+| `AdapterTransportProvider` (`transport.ts`) | `createTransport()`, `transportName`. The claude-code transport is a stub that returns `null` |
+| `ExternalTaskProvider` (`task-sync.ts`) | `getExternalTasks(projectDir)`, optional outbound push |
 
-```typescript
-import { createClaudeCodeAdapter } from '@cleocode/adapters';
+`AdapterCapabilities` (`capabilities.ts`) is a set of flags: `supportsHooks`, `supportedHookEvents`, `supportsSpawn`, `supportsInstall`, `supportsInstructionFiles`, `instructionFilePattern`, `supportsContextMonitor`, `supportsStatusline`, `supportsProviderPaths`, `supportsTransport`, `supportsTaskSync`.
 
-async function setupHooks() {
-  const adapter = createClaudeCodeAdapter({
-    projectPath: './my-project'
-  });
-  
-  // Register task creation hook
-  adapter.hooks.register('onTaskCreate', async (context) => {
-    console.log(`Task ${context.taskId} created in Claude Code`);
-    // Update Claude Code statusline
-    await adapter.updateStatusline({ activeTask: context.taskId });
-  });
-  
-  // Register task completion hook
-  adapter.hooks.register('onTaskComplete', async (context) => {
-    console.log(`Task ${context.taskId} completed`);
-    // Clear statusline
-    await adapter.updateStatusline({ activeTask: null });
-  });
-}
-```
+## Manifest format
 
-### Spawning Subagents
-
-```typescript
-import { createClaudeCodeAdapter } from '@cleocode/adapters';
-
-async function spawnSubagent() {
-  const adapter = createClaudeCodeAdapter({
-    projectPath: './my-project'
-  });
-  
-  // Spawn a Claude Code subagent
-  const result = await adapter.spawn({
-    taskId: 'T1234',
-    context: {
-      instructions: 'Implement the authentication endpoint',
-      files: ['src/auth.ts', 'src/routes.ts']
-    }
-  });
-  
-  if (result.pid) {
-    console.log(`Spawned subagent with PID ${result.pid}`);
-    
-    // Wait for completion
-    result.stdout?.on('data', (data) => {
-      console.log(`Output: ${data}`);
-    });
-  }
-}
-```
-
-### Synchronizing Tasks
-
-```typescript
-import { createClaudeCodeAdapter } from '@cleocode/adapters';
-
-async function syncTasks() {
-  const adapter = createClaudeCodeAdapter({
-    projectPath: './my-project'
-  });
-  
-  // Get external tasks from Claude Code
-  const externalTasks = await adapter.getExternalTasks();
-  
-  // Reconcile with CLEO tasks
-  const result = await adapter.reconcile({
-    conflictPolicy: 'prefer-external',
-    dryRun: false
-  });
-  
-  console.log(`Reconciliation complete:`);
-  console.log(`  Created: ${result.created.length}`);
-  console.log(`  Updated: ${result.updated.length}`);
-  console.log(`  Conflicts: ${result.conflicts.length}`);
-}
-```
-
-### Custom Provider Adapter
-
-```typescript
-import type { 
-  CLEOProviderAdapter,
-  AdapterCapabilities,
-  AdapterHealthStatus 
-} from '@cleocode/contracts';
-
-class MyCustomAdapter implements CLEOProviderAdapter {
-  name = 'my-custom-provider';
-  version = '1.0.0';
-  
-  getCapabilities(): AdapterCapabilities {
-    return {
-      spawn: true,
-      hooks: true,
-      install: true,
-      contextMonitor: false,
-      transport: true,
-      paths: true,
-      taskSync: false
-    };
-  }
-  
-  async healthCheck(projectPath: string): Promise<AdapterHealthStatus> {
-    const isInstalled = await this.detect(projectPath);
-    return {
-      healthy: isInstalled,
-      message: isInstalled ? 'Ready' : 'Not installed'
-    };
-  }
-  
-  async detect(projectPath: string): Promise<boolean> {
-    // Check for provider-specific files
-    return fs.existsSync(path.join(projectPath, '.my-provider'));
-  }
-  
-  // Implement other provider methods...
-}
-
-// Register adapter
-import { discoverProviders } from '@cleocode/adapters';
-discoverProviders.register(new MyCustomAdapter());
-```
-
-## Provider Manifest Format
-
-Adapters expose their capabilities through manifests:
-
-```typescript
-interface AdapterManifest {
-  name: string;
-  version: string;
-  description: string;
-  capabilities: Array<'spawn' | 'hooks' | 'install' | 'contextMonitor' | 'transport' | 'paths' | 'taskSync'>;
-  patterns: DetectionPattern[];
-}
-
-interface DetectionPattern {
-  type: 'file' | 'directory' | 'config';
-  path: string;
-  content?: string; // Optional: check file content
-}
-```
-
-Example manifest:
+Each provider directory may ship a `manifest.json` matching `AdapterManifest` (`@cleocode/contracts`, `discovery.ts`). `packagePath` and `entryPoint` are filled in at discovery time.
 
 ```json
 {
-  "name": "claude-code",
+  "id": "claude-code",
+  "name": "Claude Code Adapter",
   "version": "1.0.0",
-  "description": "Claude Code integration",
-  "capabilities": ["spawn", "hooks", "install", "contextMonitor", "transport", "paths", "taskSync"],
-  "patterns": [
-    { "type": "directory", "path": ".claude" },
-    { "type": "file", "path": ".claude/CLAUDE.md" }
+  "description": "CLEO adapter for Anthropic Claude Code CLI",
+  "provider": "claude-code",
+  "entryPoint": "src/index.ts",
+  "capabilities": { "supportsHooks": true, "supportsSpawn": true, "...": "..." },
+  "detectionPatterns": [
+    { "type": "env", "pattern": "CLAUDE_CODE_ENTRYPOINT", "description": "Claude Code sets this env var" },
+    { "type": "file", "pattern": ".claude/settings.json", "description": "Claude Code config directory" },
+    { "type": "cli", "pattern": "claude", "description": "Claude CLI available in PATH" }
   ]
 }
 ```
 
+Detection pattern types are `env`, `file`, `process` and `cli`.
+
 ## Dependencies
 
-### Production Dependencies
-
-- `@cleocode/contracts` - Type definitions and interfaces
-
-### Development Dependencies
-
-- `@types/node` - Node.js type definitions
+- `@cleocode/contracts`: adapter, spawn, hook and install contracts
+- `@cleocode/caamp`: provider registry and hook event mappings
+- `@cleocode/paths`: path resolution
+- `ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`: the SDK spawn adapters
 
 ## License
 

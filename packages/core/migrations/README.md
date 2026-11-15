@@ -27,6 +27,11 @@ apply the legacy lineages they still own to the same file, into the same journal
 | global `cleo.db` | `drizzle-cleo-global` (on open); `drizzle-agent-registry` (its forward migration, `store/agent-registry-store.ts`) | `drizzle-cleo-global` (newest folders through 2026-10) |
 | opt-in `telemetry.db` (CLEO home, its own file and journal) | `drizzle-telemetry` (`telemetry/sqlite.ts`) | `drizzle-telemetry` |
 
+All nine `drizzle-*` lineages are listed in `CONSOLIDATED_JOURNAL_LINEAGES`
+(`packages/core/src/store/resolve-migrations-folder.ts`). Because lineages share one
+`__drizzle_migrations` journal per file, each lineage's reconcile treats the others' rows as
+known, never as orphans (T11829).
+
 `drizzle-skills` is NOT run: `store/skills-db.ts` reads the `skills_*` tables that
 `drizzle-cleo-global` creates, because the legacy lineage would create a bare `skills` table that
 collides with the agent registry. `cleo doctor migrations` still lists `drizzle-skills` and
@@ -40,7 +45,11 @@ lineage: applied, pending, and drift.
 
 `scripts/new-migration.mjs` (`pnpm db:new`) scaffolds into the per-domain lineages only
 (`--db tasks|brain|nexus|agent-registry|telemetry`); it has no `cleo-project` or `cleo-global`
-target.
+target. In `drizzle-cleo-project` and `drizzle-cleo-global` only the consolidation folder
+(`20260531000001_t11363-consolidation-cleo-project` and its global twin) carries a
+`snapshot.json`; the folders after it are hand-authored `migration.sql` files. The root
+`package.json` also has `pnpm db:generate:cleo-project` / `db:generate:cleo-global`, which run
+drizzle-kit against those configs and then `scripts/inject-consolidation-checks.mjs`.
 
 The canonical tree lives here at `packages/core/migrations/`. This is the **single source of
 truth** for all CLEO migration SQL. Consumers (including `@cleocode/cleo`) locate migration
@@ -50,13 +59,15 @@ step is required (ADR-054 Wave 3, T1177).
 > **Historical note**: Prior to v2026.4.109 (Wave 3), a build-time copy of migration folders
 > was written to `packages/cleo/migrations/` by `syncMigrationsToCleoPackage()` in
 > `build.mjs` to work around `__dirname` math in the bundled CLI. This sync step was removed
-> in T1180 (commit `1a9738cf9`) and the `packages/cleo/migrations/` folder was deleted in
-> T1182 (commit `158717cde`). Do not recreate that folder or the sync function.
+> in T1180 and the `packages/cleo/migrations/` folder was deleted in T1182. Do not recreate
+> that folder or the sync function.
 
 ### Core Principle (Hybrid Path A+)
 
-`migration-manager.ts` (`reconcileJournal()` and six production patches) is the **runtime
-SSoT**. drizzle-kit is retained as a `devDependency` for **scaffolding only**: it generates
+`migration-manager.ts` (`reconcileJournal()` and its production patches) is the **runtime
+SSoT** for journal state. `openDualScopeDb` applies each store's consolidated lineage through
+the bracketed runner (`migrateBracketed` in `migration-runner.ts`); the domain store modules call
+`migrateWithRetry`, which wraps `migrateSanitized`. drizzle-kit is retained as a `devDependency` for **scaffolding only**: it generates
 DDL proposals that developers curate, then rename and promote to the canonical tree via
 `scripts/new-migration.mjs`. drizzle-kit does NOT own the `__drizzle_migrations` journal,
 does NOT gate deploys, and does NOT run at startup.
@@ -71,8 +82,7 @@ does NOT gate deploys, and does NOT run at startup.
 
 Modify the appropriate schema TypeScript file for your DB (see table above). Use
 drizzle-orm column builders — `sqliteTable`, `text`, `integer`, `index`, etc. For partial
-indexes, use `.where()` on `IndexBuilder` (supported in drizzle-orm beta.22+; see
-[Partial Indexes](#partial-indexes) below).
+indexes, use `.where()` on `IndexBuilder` (see [Partial Indexes](#partial-indexes) below).
 
 **2. Run the generator.**
 
@@ -118,7 +128,7 @@ Inspect `migration.sql` and `snapshot.json` in the newly created folder. Verify:
 
 - The DDL delta matches your schema change exactly.
 - No `PRAGMA foreign_keys=OFF` block unless you specifically intended a table rebuild
-  (brain.db FK-off blocks require human review before production apply — see ADR-054 R3 §3.2).
+  (brain FK-off blocks require human review before production apply — see ADR-054 R3 §3.2).
 - No trailing `--> statement-breakpoint` (the generator strips these, but verify).
 
 **5. Commit with a task-linked message.**
@@ -133,36 +143,32 @@ Or use `--commit` flag on the generator to auto-commit after the linter passes.
 ### Migration folder anatomy
 
 ```
-packages/core/migrations/drizzle-tasks/
-  20260421000001_t1126-sentient-proposal-index/
+packages/core/migrations/drizzle-cleo-project/
+  20260531000001_t11363-consolidation-cleo-project/
     migration.sql      ← DDL applied by the runtime (readMigrationFiles reads this)
     snapshot.json      ← drizzle-kit state snapshot (advisory; NOT read at runtime)
+  20261109120000_t14311-retire-ivtr-state/
+    migration.sql      ← hand-authored, no snapshot
 ```
 
-Both files are committed together. `snapshot.json` is the anchor for `drizzle-kit generate`
-to produce incremental diffs on the next migration — do not delete it.
+When drizzle-kit generates a folder, both files are committed together. `snapshot.json` is the
+anchor for `drizzle-kit generate` to produce incremental diffs on the next migration — do not
+delete it.
 
 ---
 
 ## Partial Indexes
 
-Use `.where()` on `IndexBuilder` in the schema TypeScript file. drizzle-orm beta.22+
-supports it correctly (the previous comment in `tasks-schema.ts` claiming `.where()` was
-unsupported was incorrect — corrected by T1170).
+Use `.where()` on `IndexBuilder` in the schema TypeScript file. The repo pins drizzle-orm
+`1.0.0-rc.4`, which supports it (T1170 corrected an old comment claiming it did not).
 
 ```typescript
-// packages/core/src/store/tasks-schema.ts
-export const idxTasksSentientProposalsToday = index(
-  'idx_tasks_sentient_proposals_today',
-).on(tasks.type, tasks.sentientProposedAt)
-  .where(sql`sentient_proposed_at >= strftime('%s','now','-1 day')`);
+// packages/core/src/store/schema/cleo-project/docs.ts
+index('idx_docs_attachments_type').on(table.type).where(sql`${table.type} IS NOT NULL`),
 ```
 
-After editing the schema, generate the migration via `pnpm db:new` as normal. The generator
-invokes drizzle-kit which emits the `CREATE INDEX ... WHERE ...` SQL.
-
-See T1126 (`20260421000001_t1126-sentient-proposal-index`) as the canonical example once
-T1174 lands. Prior to T1174, that index was hand-authored — T1174 regenerates it via schema.
+drizzle-kit emits the matching `CREATE INDEX ... WHERE ...` SQL when it generates the
+migration.
 
 ---
 
@@ -174,8 +180,10 @@ issues.
 
 ### What the reconciler does
 
-`reconcileJournal(nativeDb, migrationsFolder, existenceTable, logSubsystem)` runs before
-every `migrate()` call and handles four scenarios:
+`reconcileJournal(nativeDb, migrationsFolder, existenceTable, logSubsystem,
+siblingMigrationsFolders)` runs before every migrate and handles four scenarios. The last
+argument names the other lineages sharing the same journal (from
+`resolveConsolidatedJournalSiblings`), so their rows are never treated as orphans:
 
 **Scenario 1 — Tables exist but no `__drizzle_migrations` journal (fresh-to-upgraded install)**
 
@@ -217,8 +225,8 @@ the local migration files matched by hash.
 
 ### `migrateSanitized`
 
-All call sites use `migrateSanitized(db, { migrationsFolder })` rather than drizzle's
-`migrate()` directly. `migrateSanitized` filters two classes of non-executable SQL
+Domain-module call sites use `migrateSanitized(db, { migrationsFolder })` (directly or through
+`migrateWithRetry`) rather than drizzle's `migrate()`. `migrateSanitized` filters two classes of non-executable SQL
 statements before they reach drizzle's `session.run()`:
 
 1. **Whitespace-only** — produced by drizzle-kit's trailing `--> statement-breakpoint`
@@ -231,8 +239,8 @@ authoring time; `migrateSanitized` catches any that slip through.
 
 ### Accumulated patches
 
-The reconciler carries six production patches. All are still required for production safety;
-removing any causes hard failures on existing installations.
+The reconciler carries these original production patches. All are still in
+`migration-manager.ts`; removing any causes hard failures on existing installations.
 
 | Patch | Task | Edge case handled |
 |-------|------|-------------------|
@@ -243,14 +251,25 @@ removing any causes hard failures on existing installations.
 | Bootstrap baseline for orphaned tables | T1141 | Tables existing without a journal required probe-and-mark-applied on first run |
 | SQLITE_BUSY exponential backoff | T5185 | Parallel CLI invocations on the same DB race on the SQLite write lock |
 
-T1137 may be deprecated in v2026.6.0 once all installations have passed the drizzle v1-beta
-upgrade window. The other five patches must remain indefinitely.
+Later safeguards in the same path:
+
+- **Shared-journal siblings (T11829):** an entry is an orphan only when its hash belongs to no
+  lineage sharing the file (see `siblingMigrationsFolders` above).
+- **Worktree build guard (T12687):** a worktree build with pending migrations fails fast
+  instead of touching the journal of a store outside its worktree
+  (`assertNoPendingMigrationsForWorktreeBuild`, `store/worktree-build-guard.ts`).
+- **`-- cleo:probe-never-stamp` (T12819):** a migration carrying this marker line is never
+  probe-stamped as applied; it always runs, so it must be idempotent. Use it for a migration that
+  rewrites objects that already exist (for example, replacing triggers).
 
 ### Retired: signaldock
 
 `signaldock.db` and its bespoke embedded runner are retired. Its tables moved into the global
-`cleo.db` with the `agent_registry_` prefix, migrated by the `drizzle-agent-registry` lineage in
-the global journal. There is no `drizzle-signaldock/` folder or `signaldock-schema.ts` any more.
+`cleo.db` as the `agent_registry_*` tables, renamed and maintained by `drizzle-cleo-global`
+(`20260602000001_t11622-agent-registry-rename`); put new agent-registry changes there. The
+`drizzle-agent-registry` lineage only carries the legacy bare-shape schema
+(`agent-registry-schema.ts`) and its forward migration. There is no `drizzle-signaldock/` folder
+or `signaldock-schema.ts` any more.
 
 ### sync-journal: not a drizzle lineage
 
@@ -269,7 +288,9 @@ same `YYYYMMDDHHMMSS_tNNNN-<slug>/migration.sql` naming.
 ## Linter Rules
 
 `scripts/lint-migrations.mjs` runs automatically at the end of every `pnpm db:new`
-invocation. It is also wired into the pre-commit hook and the CI `migration-lint` job.
+invocation, and CI runs it with `--fail-on=error` as the `Migration Lint` step of the
+`Repo Lints` job (`.github/workflows/ci.yml`). The same job runs `pnpm db:check`
+(drizzle-kit check for the tasks, brain, nexus, agent-registry and telemetry configs).
 
 Run manually:
 
@@ -283,6 +304,7 @@ With options:
 node scripts/lint-migrations.mjs --migrations-root packages/core/migrations
 node scripts/lint-migrations.mjs --fail-on=warn    # exit 1 on any violation
 node scripts/lint-migrations.mjs --fail-on=none    # report-only, always exit 0
+node scripts/lint-migrations.mjs --disable-rule-5  # emergency bypass of RULE-5 (warns)
 ```
 
 ### RULE-1 (ERROR): No trailing `--> statement-breakpoint`
@@ -290,7 +312,7 @@ node scripts/lint-migrations.mjs --fail-on=none    # report-only, always exit 0
 A `migration.sql` file MUST NOT end with `--> statement-breakpoint` followed by only
 whitespace. This marker is a drizzle-kit hint for its own runner; it signals that the last
 SQL statement was never written. The generator strips it automatically; the linter enforces
-it at both pre-commit and CI stages.
+it in CI.
 
 ### RULE-2 (ERROR): No timestamp collisions
 
@@ -311,8 +333,12 @@ the baseline reset, breaking the snapshot chain. Always use the generator.
 Standard migration folders MUST match `/^\d{14}_[a-z0-9-]+$/`. The 14-digit prefix is the
 UTC timestamp; the suffix is the task-linked slug (e.g., `t1234-add-priority-column`).
 Flat `.sql` files found directly in a DB set directory (not inside a subfolder) are flagged
-as WARN — this was the signaldock structural anomaly before T1166 converted it to the
-standard folder structure.
+as WARN.
+
+### RULE-5 (ERROR): Missing statement breakpoints
+
+A multi-statement `migration.sql` needs a `--> statement-breakpoint` between each pair of
+statements: `node:sqlite` `prepare()` silently runs only the first statement otherwise (T9163).
 
 ---
 
@@ -329,6 +355,7 @@ prevent authoring mistakes.
 | Bypassing the generator and hand-writing migrations without `snapshot.json` | Breaks the drizzle-kit diff chain; RULE-3 WARN accumulates until baseline reset | Always use `pnpm db:new` |
 | Writing migrations to `drizzle/migrations/` | This directory no longer exists (deleted by T1167); it was a stale scratchpad | Write to `packages/core/migrations/drizzle-<db>/` only — the generator does this automatically |
 | Using `pnpm dlx drizzle-kit` | Incompatible with the custom drizzle-orm build (ADR-054 R3 §1.1) | Use `node_modules/.bin/drizzle-kit` — the generator calls it correctly |
+| Editing or deleting a released migration; non-deterministic DML (`datetime('now')`, `random()`); a table rebuild that deletes from or re-keys an FK parent; an owned guard/side-effect `CREATE TRIGGER` without its `cleo_trigger_suspend` clause | Breaks the change journal and sync (gate 36, `scripts/lint-sync-schema.mjs`; rules in AGENTS.md) | Add a new forward migration that follows gate 36 |
 
 ---
 
@@ -369,13 +396,16 @@ presence signals the DB has existing data) and a `logSubsystem` string for traci
 
 **6. Add a smoke test.**
 
-Add a migration smoke test under `packages/core/src/store/__tests__/migration-smoke.test.ts`
+Add a migration smoke test in `packages/core/src/store/__tests__/migration-smoke.test.ts`
 verifying that the migration applies cleanly to a fresh in-memory SQLite DB.
 
 **7. Update CI.**
 
 Add the new DB to the `db:check` script loop in root `package.json`. Verify the
-`migration-lint` CI job scans the new `drizzle-<db>/` folder.
+`Migration Lint` CI step scans the new `drizzle-<db>/` folder (it scans every `drizzle-*` set
+under `packages/core/migrations`), and add the lineage to `CONSOLIDATED_JOURNAL_LINEAGES` and to
+`PROJECT_LINEAGES` / `GLOBAL_LINEAGES` in `packages/core/src/doctor/migrations.ts` if it shares a
+`cleo.db`.
 
 ---
 
@@ -422,12 +452,10 @@ a legacy decoy, not the live store.
 Compare journal entries against `packages/core/migrations/drizzle-<db>/` folder names. A
 folder with no matching journal row is the candidate.
 
-**Step 4 — Insert the missing journal entry manually (last resort).**
+**Step 4 — Let the reconciler retry.**
 
-Only do this if the schema DDL for the migration has already been applied and the
-reconciler Scenario 3 did not auto-heal. Obtain the hash from the local migration folder
-(it is the SHA-256 of the migration SQL — drizzle-orm derives it internally). As a
-shortcut, restart the CLEO process; the reconciler will attempt Scenario 3 on the next run.
+Run any `cleo` command again: every open reconciles the journal, so Scenario 3 gets another
+attempt. Do not hand-edit `__drizzle_migrations` or open `.cleo/*.db` directly.
 
 **Step 5 — Verify with `cleo doctor`.**
 
@@ -477,13 +505,13 @@ If the reconciler did not self-heal a partial migration, file a bug with:
 | T1169 | W2A-07: Wire drizzle-kit check into CI as schema-consistency gate |
 | T1170 | W2A-08: Fix stale `.where()`-not-supported comment in tasks-schema.ts |
 | T1171 | W2A-10: Scan schema files for hand-rolled partial indexes |
-| T1172 | W2A-11: Author this README (current task) |
+| T1172 | W2A-11: Author this README |
 | T1173 | W2A-12: Author ADR-054 |
 | T1174 | W2A-09: Adopt `.where()` for T1126 partial index via schema |
 
 ### Source files
 
-- `packages/core/src/store/migration-manager.ts` — runtime reconciler (663 lines, 6 patches)
+- `packages/core/src/store/migration-manager.ts` — runtime reconciler
 - `scripts/new-migration.mjs` — generator wrapper (T1164)
 - `scripts/lint-migrations.mjs` — migration linter (T1168)
 - `drizzle/<lineage>.config.ts` — drizzle-kit configs, one per lineage (`cleo-project`,
@@ -491,7 +519,9 @@ If the reconciler did not self-heal a partial migration, file a bug with:
 - `packages/core/src/store/dual-scope-db.ts` — `openDualScopeDb`, the store chokepoint that migrates each `cleo.db`
 - `packages/core/src/store/migration-runner.ts` — the bracketed per-file migration runner
 - `packages/core/src/doctor/migrations.ts` — `cleo doctor migrations` and the lineage lists
+- `packages/core/src/store/resolve-migrations-folder.ts` — folder resolution and `CONSOLIDATED_JOURNAL_LINEAGES`
+- `packages/core/src/store/sync/schema.ts` — the `sync-journal/` applier
 
 ---
 
-Last updated: 2026-04-21
+Last updated: 2026-11-15

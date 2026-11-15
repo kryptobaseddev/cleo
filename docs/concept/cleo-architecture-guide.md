@@ -14,11 +14,15 @@ call returns one LAFS envelope on stdout (ADR-086).
 CLEO can start a harness, but it does not run it.
 `cleo orchestrate spawn-execute` launches a worker: it calls the provider
 adapter's `spawn()` (`packages/core/src/orchestrate/spawn-ops.ts`), which
-starts the harness CLI as a child process, for example `claude`, `codex` or
-`opencode` (`packages/adapters/src/providers/*/spawn.ts`). Some adapters
-cannot spawn; Cursor's throws. Run inside Orca, the launch goes through Orca's
-execution port (`OrcaRoutingAdapter`) and the worker opens in an Orca
-terminal. From then on, the turns, tools and model belong to the
+starts the harness CLI as a child process. Natively only adapters whose
+manifest declares `supportsSpawn: true` are registered
+(`initializeSpawnAdapters`, `packages/core/src/spawn/adapter-registry.ts`):
+`claude` (Claude Code) and `opencode`, plus the `openai-sdk` adapter and the
+frozen Pi adapter. Codex, Gemini CLI and Kimi ship a `spawn.ts` but declare
+`supportsSpawn: false`, and Cursor's `spawn()` throws. Run inside Orca, the
+launch goes through Orca's execution port (`OrcaRoutingAdapter`) and the
+worker opens in an Orca terminal; that is how Codex and other harnesses get
+workers. From then on, the turns, tools and model belong to the
 harness.
 
 CLEO keeps the state that outlives one agent session:
