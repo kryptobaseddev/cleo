@@ -1,262 +1,283 @@
 # CAAMP Integration Specification
 
-**Version**: 1.6.1
 **Status**: ACTIVE
-**Last Updated**: 2026-03-06
 
 ---
 
 ## 1. Overview
 
-This specification consolidates all CAAMP (Central AI Agent Managed Packages) integration documentation for CLEO. It documents the actual implemented integration points and marks aspirational/design-only features as [TARGET].
+CAAMP (Central AI Agent Managed Packages, `@cleocode/caamp`) is the provider
+registry and package manager for AI coding agents. CLEO uses it to know which
+providers (agent harnesses) exist and what each supports, to install skills and
+MCP server entries, and to own the managed instruction blocks
+(`<!-- CAAMP:START -->` … `<!-- CAAMP:END -->`) in provider instruction files.
 
-### CAAMP Library
-- **Location**: `/mnt/projects/caamp` (peer dependency)
-- **Package**: `@cleocode/caamp`
-- **Version**: 1.6.1
+This specification documents the integration points that exist in source.
+Unimplemented designs are marked [TARGET].
 
-### CLEO Integration Status
+### CAAMP package
+
+- **Location**: `packages/caamp/` in this monorepo
+- **Consumed by**: `@cleocode/core` and `@cleocode/cleo` as `workspace:*`
+  dependencies
+- **Provider registry data**: `packages/caamp/providers/registry.json`
+- **CLI**: `caamp` (`packages/caamp/src/cli.ts`)
+
+### CLI surface
+
+`caamp` registers these command groups (`cli.ts`):
+
+| Group | Subcommands |
+|-------|-------------|
+| `providers` | `list`, `detect`, `show`, `skills-map`, `hooks` (`list`, `matrix`, `translate`), `capabilities` |
+| `skills` | `find`, `install`, `init`, `validate`, `list`, `remove`, `update`, `audit`, `check` |
+| `instructions` | `inject`, `check`, `update` |
+| `mcp` | `install`, `list`, `detect`, `remove` |
+| `config` | `show`, `path` |
+| `doctor` | — |
+| `advanced` | `providers`, `batch`, `instructions` (LAFS wrappers) |
+
+### Pi harness surface (retired, not part of this integration)
+
+ADR-098 (`cleo docs fetch adr-098-retire-the-pi-cleoos-harness`) retires
+CAAMP's Pi harness surface: `harness/pi.ts`, `caamp pi *` and the Pi
+exclusivity mode. CLEO does not depend on it. It is frozen, not yet deleted:
+
+- `caamp pi` is still registered (`cli.ts`, `registerPiCommands`) and every
+  verb prints a deprecation notice first (`commands/pi/index.ts`,
+  `PI_VERBS_DEPRECATION_NOTICE`).
+- `packages/caamp/src/core/harness/pi.ts` is still present.
+- The default exclusivity mode is `legacy` (`core/config/caamp-config.ts`,
+  `DEFAULT_EXCLUSIVITY_MODE`): CAAMP prefers no harness. `auto` and
+  `force-pi` remain explicit opt-ins (`setExclusivityMode` or
+  `CAAMP_EXCLUSIVITY_MODE`).
+- The Pi registry entry has `priority: "medium"`
+  (`providers/registry.json`).
+
+### CLEO integration status
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Provider Capability API | ✅ Implemented | 11/11 functions used in production |
-| Spawn Adapter | ✅ Implemented | `CLEOSpawnAdapter` wrapping CAAMP |
-| Universal Hooks | ✅ Implemented | Hook registry with CAAMP event types |
-| CLEO Profile Management | ✅ Implemented | MCP profile installation via CAAMP |
-| Channel Management | ✅ Implemented | stable/beta/dev channels |
+| Provider capability API | Implemented | Section 2 |
+| Spawn adapters | Implemented | Section 3; adapters live in `packages/adapters/` |
+| Hooks | Implemented | Section 4; CAAMP canonical event taxonomy |
+| Skills and instruction injection | Implemented | `packages/core/src/caamp/adapter.ts` |
+| MCP server entries | Implemented in CAAMP | Section 5 |
 
 ---
 
-## 2. Provider Capability API (IMPLEMENTED)
+## 2. Provider Capability API
 
-All 11 CAAMP provider capability API functions are implemented and used in production:
+### 2.1 Function usage
 
-### 2.1 Function Usage Matrix
+| Function | CLEO location |
+|----------|---------------|
+| `getProviderCapabilities` | `packages/core/src/skills/precedence-integration.ts` |
+| `getProvider` | `packages/core/src/caamp/adapter.ts`, `packages/core/src/skills/precedence-integration.ts` |
+| `getProvidersByHookEvent` | `packages/core/src/hooks/provider-hooks.ts` |
+| `getCommonHookEvents` | `packages/core/src/hooks/provider-hooks.ts` |
+| `getProvidersBySkillsPrecedence` | `packages/core/src/skills/precedence-integration.ts` |
+| `getEffectiveSkillsPaths` | `packages/core/src/skills/precedence-integration.ts` |
+| `buildSkillsMap` | `packages/core/src/skills/precedence-integration.ts` |
+| `getSpawnCapableProviders` | `packages/core/src/spawn/adapter-registry.ts` |
+| `getProvidersBySpawnCapability` | `packages/core/src/spawn/adapter-registry.ts` |
+| `providerSupports` | `packages/core/src/caamp/capability-check.ts` |
+| `providerSupportsById` | `packages/core/src/caamp/capability-check.ts`, `packages/core/src/spawn/adapter-registry.ts` |
 
-| Function | Status | CLEO Location | Purpose |
-|----------|--------|---------------|---------|
-| `getProviderCapabilities` | ✅ | `packages/core/src/skills/precedence-integration.ts` | Get full capabilities object |
-| `getProvider` | ✅ | `packages/core/src/caamp/adapter.ts` | Get provider by ID |
-| `getProvidersByHookEvent` | ✅ | `packages/core/src/hooks/provider-hooks.ts` | Filter providers by hook support |
-| `getProvidersBySkillsPrecedence` | ✅ | `packages/core/src/skills/precedence-integration.ts` | Filter by precedence mode |
-| `getSpawnCapableProviders` | ✅ | `packages/core/src/spawn/adapter-registry.ts` | Get all spawn-capable providers |
-| `getProvidersBySpawnCapability` | ✅ | `packages/core/src/spawn/adapter-registry.ts` | Filter by specific spawn capability |
-| `providerSupports` | ✅ | `packages/core/src/caamp/capability-check.ts` | Check capability on provider object |
-| `providerSupportsById` | ✅ | `packages/core/src/caamp/capability-check.ts` | Check capability by provider ID |
-| `getCommonHookEvents` | ✅ | `packages/core/src/hooks/provider-hooks.ts` | Find common hooks across providers |
-| `getEffectiveSkillsPaths` | ✅ | `packages/core/src/skills/precedence-integration.ts` | Get effective skill paths |
-| `buildSkillsMap` | ✅ | `packages/core/src/skills/precedence-integration.ts` | Build complete skills map |
+All of these are exported from `packages/caamp/src/core/registry/providers.ts`.
+`packages/core/src/caamp/adapter.ts` also wraps CAAMP's provider registry
+(`getAllProviders`, `getInstalledProviders`, `detectAllProviders`) and
+injection APIs (`checkInjection`, `checkAllInjections`,
+`generateInjectionContent`, `getInstructionFiles`) as `EngineResult`-returning
+functions.
 
-### 2.2 Usage Examples
+### 2.2 Usage examples
 
 ```typescript
-// Spawn capability check
-import { providerSupportsById } from '@cleocode/caamp';
+import {
+  getProvidersByHookEvent,
+  getProvidersBySkillsPrecedence,
+  providerSupportsById,
+} from '@cleocode/caamp';
 
+// Capability check by dotted path
 if (providerSupportsById('claude-code', 'spawn.supportsSubagents')) {
-  // Use spawn adapter
+  // use a spawn adapter
 }
 
-// Hook provider query
-import { getProvidersByHookEvent } from '@cleocode/caamp';
-
-const providers = getProvidersByHookEvent('onToolComplete');
-// Returns providers supporting this hook
+// Providers whose registry entry lists a hook event
+const providers = getProvidersByHookEvent('SessionStart');
 
 // Skills precedence
-import { getProvidersBySkillsPrecedence } from '@cleocode/caamp';
-
 const agentsFirst = getProvidersBySkillsPrecedence('agents-first');
 ```
 
-### 2.3 MCP Operations Added
+### 2.3 Dispatch operations
 
-| Operation | Domain | Purpose |
-|-----------|--------|---------|
-| `orchestrate.spawn.execute` | orchestrate | Execute subagent spawn |
-| `tools.provider.hooks` | tools | Query providers by hook support |
-| `tools.provider.supports` | tools | Check provider capability |
-| `tools.skill.precedence.show` | tools | Show precedence mapping |
-| `tools.skill.precedence.resolve` | tools | Resolve paths for provider |
-| `tools.skill.spawn.providers` | tools | List spawn-capable providers |
+Defined in `packages/contracts/src/dispatch/operations-registry.ts`:
+
+| Operation | Gateway | Purpose |
+|-----------|---------|---------|
+| `tools.provider.list` | query | List providers |
+| `tools.provider.detect` | query | Detect installed providers |
+| `tools.provider.supports` | query | Check a provider capability |
+| `tools.provider.hooks` | query | List providers by hook event support |
+| `tools.provider.inject.status` | query | Instruction injection status |
+| `tools.provider.inject` | mutate | Inject instructions |
+| `tools.skill.precedence` | query | Precedence mapping; `action: show` (default) or `resolve` with a provider id |
+| `tools.skill.spawn.providers` | query | List spawn-capable providers by capability |
+| `orchestrate.spawn.execute` | mutate | Execute a spawn through the adapter registry (`cleo orchestrate spawn-execute`) |
 
 ---
 
-## 3. Spawn Adapter (IMPLEMENTED)
+## 3. Spawn Adapters
 
-### 3.1 CLEO's SpawnAdapter Interface
+### 3.1 `CLEOSpawnAdapter`
+
+Declared in `packages/contracts/src/spawn-types.ts`:
 
 ```typescript
 export interface CLEOSpawnAdapter {
-  readonly provider: string;
-  readonly description: string;
-  canSpawn(): boolean;
+  readonly id: string;
+  readonly providerId: string;
+  canSpawn(): Promise<boolean>;
   spawn(context: CLEOSpawnContext): Promise<CLEOSpawnResult>;
   listRunning(): Promise<CLEOSpawnResult[]>;
   terminate(instanceId: string): Promise<void>;
-  supports(capability: SpawnCapability): boolean;
 }
 ```
 
-### 3.2 CAAMP to CLEO Mapping
+### 3.2 CAAMP to CLEO mapping
 
-| CAAMP SpawnAdapter | CLEO CLEOSpawnAdapter | Notes |
-|--------------------|-----------------------|-------|
-| `canSpawn(provider)` | `canSpawn()` | Check if adapter can spawn |
-| `spawn(provider, options)` | `spawn(context)` | Execute spawn with CLEO context |
-| `listRunning(provider)` | `listRunning()` | List running spawns |
-| `terminate(provider, instanceId)` | `terminate(instanceId)` | Terminate a spawn |
+CAAMP's `SpawnAdapter` (`packages/caamp/src/core/registry/spawn-adapter.ts`)
+takes the provider on every call; CLEO's adapter is bound to one provider.
 
-### 3.3 Adapter Implementations
+| CAAMP `SpawnAdapter` | `CLEOSpawnAdapter` |
+|----------------------|--------------------|
+| `canSpawn(provider)` | `canSpawn()` |
+| `spawn(provider, options)` | `spawn(context)` |
+| `listRunning(provider)` | `listRunning()` |
+| `terminate(provider, instanceId)` | `terminate(instanceId)` |
 
-**ClaudeCodeAdapter**: Wraps CAAMP provider for Claude Code with Task tool support
-**SubprocessAdapter**: Fallback adapter using CLI subprocess when CAAMP providers unavailable
+### 3.3 Adapter implementations
 
----
-
-## 4. Universal Hooks (IMPLEMENTED)
-
-### 4.1 CAAMP HookEvent Type
-
-```typescript
-type HookEvent = 
-  | "onSessionStart"
-  | "onSessionEnd"
-  | "onToolStart"
-  | "onToolComplete"
-  | "onFileChange"
-  | "onError"
-  | "onPromptSubmit"
-  | "onResponseComplete";
-```
-
-**CLEO extension**: CLEO's hook registry also supports internal coordination events for autonomous runtime features:
-`onWorkAvailable`, `onAgentSpawn`, `onAgentComplete`, `onCascadeStart`, and `onPatrol`.
-These are CLEO-local signals and are intentionally not returned by CAAMP provider capability discovery.
-
-### 4.2 CLEO Lifecycle Event Mapping
-
-| CLEO Event | CAAMP HookEvent | Trigger |
-|------------|-----------------|---------|
-| `session.start` | `onSessionStart` | Session begins |
-| `session.end` | `onSessionEnd` | Session ends |
-| `task.start` | `onToolStart` | Task becomes active |
-| `task.complete` | `onToolComplete` | Task marked done |
-| `file.write` | `onFileChange` | File modified |
-| `error.caught` | `onError` | Error handled |
-
-### 4.3 Hook Registry
-
-CLEO implements `CLEOHookRegistry` class:
-- Handler registration (`on`, `once`)
-- Handler unregistration (`off`, `offAll`)
-- Event firing with priority ordering
-- Provider/session filtering
-- Execution counting and limits
+`SpawnAdapterRegistry` (`packages/core/src/spawn/adapter-registry.ts`) loads
+adapter packages from their manifests and bridges each exported
+`<Name>SpawnProvider` (`AdapterSpawnProvider`) to `CLEOSpawnAdapter`. Spawn
+providers exist under `packages/adapters/src/providers/<name>/spawn.ts` for
+`claude-code`, `claude-sdk`, `codex`, `cursor`, `gemini-cli`, `kimi`,
+`openai-sdk`, `opencode` and `pi`. ADR-098 lists `adapters/providers/pi` for
+deletion.
 
 ---
 
-## 5. CLEO Profile Management (IMPLEMENTED)
+## 4. Hooks
 
-### 5.1 CAAMP CLEO Functions
+### 4.1 CAAMP canonical events
 
-```typescript
-// From CAAMP core/mcp/cleo.ts
-buildCleoProfile(channel: CleoChannel): CleoProfileBuildResult
-normalizeCleoChannel(channel: string): CleoChannel
-resolveCleoServerName(channel: CleoChannel): string
-resolveChannelFromServerName(serverName: string): CleoChannel
-checkCommandReachability(command: string): Promise<boolean>
-```
+`CANONICAL_HOOK_EVENTS` (`packages/caamp/src/core/hooks/generated.ts`) has two
+groups:
 
-### 5.2 MCP Profile Installation
+- **Provider events (16):** `SessionStart`, `SessionEnd`, `PromptSubmit`,
+  `ResponseComplete`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`,
+  `PermissionRequest`, `SubagentStart`, `SubagentStop`, `PreModel`,
+  `PostModel`, `PreCompact`, `PostCompact`, `Notification`, `ConfigChange`.
+- **Domain events:** `ApprovalExpired`, `ApprovalGranted`,
+  `ApprovalRequested`, `MemoryDecisionStored`, `MemoryLearningStored`,
+  `MemoryObserved`, `MemoryPatternStored`, `PipelineManifestAppended`,
+  `PipelineStageCompleted`, `SessionEnded`, `SessionStarted`, `TaskBlocked`,
+  `TaskCompleted`, `TaskCreated`, `TaskStarted`.
 
-CAAMP supports CLEO channel selection and MCP profile installation:
+CAAMP translates between canonical and provider-native names with `toNative`,
+`toCanonical` and `supportsHook` (`core/hooks/normalizer.ts`); CLEO wraps them
+in `packages/core/src/hooks/provider-hooks.ts`.
+
+**CLEO internal events:** `onWorkAvailable`, `onAgentSpawn`,
+`onAgentComplete`, `onCascadeStart`, `onPatrol`
+(`INTERNAL_HOOK_EVENTS`, `packages/core/src/hooks/types.ts`). These are
+CLEO-local and are not part of CAAMP's provider capability registry.
+
+### 4.2 CLEO lifecycle event mapping
+
+`CLEO_TO_CAAMP_HOOK_MAP` (`packages/core/src/hooks/types.ts`):
+
+| CLEO event | CAAMP event |
+|------------|-------------|
+| `session.start` | `SessionStart` |
+| `session.end` | `SessionEnd` |
+| `task.start` | `PreToolUse` |
+| `task.complete` | `PostToolUse` |
+| `file.change` | `Notification` |
+| `system.error` | `PostToolUseFailure` |
+| `prompt.submit` | `PromptSubmit` |
+| `response.complete` | `ResponseComplete` |
+
+### 4.3 Hook registry
+
+`HookRegistry` (`packages/core/src/hooks/registry.ts`, singleton `hooks`):
+
+- `register(registration)` adds a handler with an id, event and priority and
+  returns an unregister function.
+- `dispatch(event, projectRoot, payload, …)` runs the event's handlers
+  (sorted by priority, highest first) in parallel with `Promise.allSettled`;
+  one handler's error does not block the others. When the caller passes a
+  background lifecycle, only `awaitBeforeResponse` handlers delay the call, up
+  to `RESPONSE_HOOK_BUDGET_MS` (2000 ms).
+- `isEnabled`, `setConfig`, `getConfig` and `listHandlers` manage per-event
+  configuration (all 16 provider events and the 5 internal events are enabled
+  by default).
+- Legacy `on`-prefixed names (`onSessionStart`, `onToolComplete`, …) are
+  remapped to canonical names with a deprecation warning.
+
+---
+
+## 5. MCP Server Entries
+
+CAAMP writes MCP server entries into provider config files:
 
 ```bash
-# Non-interactive CLI
-caamp mcp install cleo --channel stable --provider <provider>
-caamp mcp install cleo --channel beta --provider <provider>
-caamp mcp install cleo --channel dev --provider <provider> --command <local-command>
-
-# Update and uninstall
-caamp mcp update cleo --channel <channel> --provider <provider>
-caamp mcp uninstall cleo --channel <channel> --provider <provider>
+caamp mcp install <serverName> [args...] --provider <id> [--from <file>] \
+  [--scope project|global] [--force] [--project-dir <path>]
+caamp mcp list
+caamp mcp detect
+caamp mcp remove <serverName>
 ```
+
+CAAMP has no CLEO-specific MCP profile or release-channel installer.
 
 ---
 
 ## 6. [TARGET] Future Enhancements
 
-The following are documented design targets, not yet implemented:
+### 6.1 [TARGET] Skill precedence mutations
 
-### 6.1 [TARGET] skill.precedence.* Operations
+Not in the operations registry:
 
-| Operation | Domain | Status | Notes |
-|-----------|--------|--------|-------|
-| `tools.skill.precedence.set` | tools | ❌ Not implemented | Set precedence mode |
-| `tools.skill.precedence.clear` | tools | ❌ Not implemented | Clear precedence override |
-| `tools.skill.precedence.list` | tools | ❌ Not implemented | List available precedence modes |
-
-### 6.2 [TARGET] Advanced Hook Features
-
-- **Async hooks with blocking**: Allow handlers to block/await
-- **Hook metrics**: Track handler execution time, success rates
-- **Hook debugger**: CLI command to inspect registered hooks
-- **Conditional hooks**: Only fire based on task metadata
-
-### 6.3 [TARGET] Multi-Provider Spawning
-
-- Spawn to multiple CAAMP providers simultaneously
-- Provider-specific options configuration
-- Cross-provider spawn coordination
+| Operation | Purpose |
+|-----------|---------|
+| `tools.skill.precedence.set` | Set precedence mode |
+| `tools.skill.precedence.clear` | Clear precedence override |
+| `tools.skill.precedence.list` | List available precedence modes |
 
 ---
 
-## 7. Files Changed
+## 7. Source Files
 
-### Source Files
-
-- `packages/core/src/spawn/adapter-registry.ts` - Spawn adapter registration
-- `packages/core/src/spawn/adapters/claude-code-adapter.ts` - Claude Code adapter
-- `packages/core/src/hooks/provider-hooks.ts` - Hook provider queries
-- `packages/core/src/hooks/types.ts` - Hook type definitions
-- `packages/core/src/caamp/capability-check.ts` - Capability checking
-- `packages/core/src/skills/precedence-integration.ts` - Skills precedence
-- `packages/cleo/src/dispatch/engines/orchestrate-engine.ts` - Spawn execution
-- `packages/cleo/src/dispatch/engines/hooks-engine.ts` - Hook engine
-- `packages/cleo/src/dispatch/domains/tools.ts` - Tool operations
-- `packages/cleo/src/dispatch/registry.ts` - Operation registry
-
-### Test Files
-
-- `packages/cleo/src/mcp/__mocks__/@cleocode/caamp.ts` - CAAMP mocks
+- `packages/caamp/src/core/registry/providers.ts` — provider capability API
+- `packages/caamp/src/core/hooks/` — canonical events and normalizer
+- `packages/caamp/src/core/instructions/injector.ts` — managed instruction blocks
+- `packages/core/src/caamp/adapter.ts` — CLEO's CAAMP adapter
+- `packages/core/src/caamp/capability-check.ts` — capability checks
+- `packages/core/src/skills/precedence-integration.ts` — skills precedence
+- `packages/core/src/hooks/provider-hooks.ts`, `types.ts`, `registry.ts` — hooks
+- `packages/core/src/spawn/adapter-registry.ts` — spawn adapter registry
+- `packages/contracts/src/spawn-types.ts` — `CLEOSpawnAdapter`
+- `packages/cleo/src/dispatch/domains/tools.ts` — `tools` domain handler
+- `packages/contracts/src/dispatch/operations-registry.ts` — operation definitions
 
 ---
 
-## 8. Verification
+## 8. References
 
-All implemented functions are verified in production code:
-
-- **Coverage**: 11/11 API functions (100%)
-- **Tests**: Unit and integration tests for all adapters
-- **Documentation**: This specification is the canonical reference
-
----
-
-## 9. References
-
-- CAAMP Library: `/mnt/projects/caamp`
-- CLEO Integration: `packages/core/src/caamp/`
-- MCP Operations: `packages/cleo/src/dispatch/registry.ts`
-
----
-
-**Specification Status**: ACTIVE  
-**Consolidated From**: 
-- CAAMP-1.6.1-API-INTEGRATION.md
-- T5236-CAAMP-SPAWN-ADAPTER-DESIGN.md
-- T5237-UNIVERSAL-HOOKS-DESIGN.md
-- CAAMP-CLEO-INTEGRATION-REQUIREMENTS.md
-
-**Notes**: This specification supersedes all previous CAAMP integration documents. Design-only sections are marked [TARGET] and tracked as aspirational features.
+- CAAMP package: `packages/caamp/` (`packages/caamp/README.md`)
+- ADR-098, Pi/CleoOS harness retirement: `cleo docs fetch adr-098-retire-the-pi-cleoos-harness`
