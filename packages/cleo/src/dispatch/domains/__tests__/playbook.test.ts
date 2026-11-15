@@ -206,7 +206,7 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
     expect(result.error?.message).toMatch(/context/i);
   });
 
-  it('playbook.run — approval playbook pauses and returns a resume token', async () => {
+  it('playbook.run — approval playbook pauses with a v2 token and refuses legacy tokens', async () => {
     const result = await handler.mutate('run', {
       name: 'approval-smoke',
       context: JSON.stringify({ taskId: 'T500' }),
@@ -215,13 +215,29 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.terminalStatus).toBe('pending_approval');
-    expect(typeof data.approvalToken).toBe('string');
-    expect((data.approvalToken as string).length).toBe(32);
+    const token = data.approvalToken as string;
+    expect(token).toMatch(/^v2:[0-9a-f]{32}$/);
 
     // The approval row should be pending in the DB.
     const approvals = listPlaybookApprovals(db, data.runId as string);
     expect(approvals).toHaveLength(1);
     expect(approvals[0]?.status).toBe('pending');
+
+    // Legacy gates stored the same HMAC without a version prefix.
+    const legacyToken = token.slice(3);
+    db.prepare('UPDATE tasks_playbook_approvals SET token = ? WHERE token = ?').run(
+      legacyToken,
+      token,
+    );
+    expect(() => approveGate(db, legacyToken, 'test-approver')).toThrowError(
+      expect.objectContaining({
+        codeName: 'E_APPROVAL_TOKEN_LEGACY',
+        fix: expect.stringContaining('cleo playbook run <name>'),
+      }),
+    );
+    expect(listPlaybookApprovals(db, data.runId as string)).toEqual([
+      expect.objectContaining({ token: legacyToken, status: 'pending' }),
+    ]);
   });
 
   // -------------------------------------------------------------------------
