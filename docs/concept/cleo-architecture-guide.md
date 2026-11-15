@@ -53,9 +53,10 @@ the database.
 These run beside CLEO and talk to it through the CLI or a published contract:
 
 - **AgentMBX** carries every agent-to-agent message, same project or across
-  machines: one mailbox, one inbox, one history (D11176). CLEO runs no message
-  transport of its own. Conduit survives only as a thin client over AgentMBX,
-  and SignalDock is retired.
+  machines: one mailbox, one inbox, one history (D11176). Conduit is legacy and retiring under T13933: it still
+  ships its own local SQLite, SSE and HTTP transports
+  (`packages/core/src/conduit/factory.ts`) and is not yet a client over
+  AgentMBX. SignalDock is retired.
 - **Orca** launches workers in harness terminals, supervises them and relays
   their reports to the lead over AgentMBX (D11242, epic T14451).
 - **CLEO Goal** (`@cleocode/goal`, bin `cleo-goal`) is the one autonomous

@@ -1,17 +1,79 @@
 # CANT DSL Specification
 
 **Version**: 1.0.0-draft
-**Status**: Phase 0 deliverable — Formal language specification
-**Author**: @cleo-rust-lead
-**Reviewers**: @versionguard-opencode (security), @signaldock-core-agent (Rust architecture), @claude-opus-llmtxt (documentation)
-**Date**: 2026-03-26
-**Canonical Location**: `docs/specs/CANT-DSL-SPEC.md`
-**Implementation Plan**: `docs/specs/CANT-DSL-IMPLEMENTATION-PLAN.md` (archived — superseded by shipped implementation + ADR-035 addendum)
+**Status**: Draft. The parser and validator (`crates/cant-core`) and the pipeline executor
+(`crates/cant-runtime`) implement most of this grammar; no workflow runtime ships. See
+[Implementation Status](#implementation-status) for what is and is not implemented.
+
+CANT (Collaborative Agent Notation Tongue, [ADR-044](../adr/adr-044-canon-reconciliation.md))
+is the `.cant` language for agents, skills, hooks, workflows and pipelines. The user-facing
+reference is [docs/reference/cant.md](../reference/cant.md).
+
+---
+
+## Implementation Status
+
+The implementation lives in these crates and packages:
+
+| Component | Location | Role |
+|-----------|----------|------|
+| `cant-core` | `crates/cant-core` | Parser (`src/dsl/`), validator (`src/validate/`), Layer 1 message parser |
+| `cant-runtime` | `crates/cant-runtime` | Deterministic pipeline executor (Section 7.1) |
+| `cant-napi` | `crates/cant-napi` | Node bindings over `cant-core` and `cant-runtime` |
+| `cant-lsp` | `crates/cant-lsp` | Language server |
+| `@cleocode/cant` | `packages/cant` | TypeScript wrapper: parse, validate, `compileBundle()`, markdown migration |
+| `cleo cant` | `packages/cleo/src/cli/commands/cant.ts` | `parse`, `validate`, `list`, `execute`, `migrate` |
+
+**Parsed top-level blocks** (`crates/cant-core/src/dsl/mod.rs`): `agent`, `skill`, `on`,
+`workflow`, `pipeline`, `team`, `tool`, `@import`, `let`/`const`.
+
+**Parsed workflow statements** (`crates/cant-core/src/dsl/statement.rs`, `Statement` enum in
+`dsl/ast.rs`): `session`, `parallel`, `if`/`elif`/`else`, `repeat`, `for ... in`,
+`loop:`/`until`, `try`/`catch`/`finally`, `approve:`, inline `pipeline`/`step`, `output`,
+`/directive` lines, `let`/`const` and `key: value` properties.
+
+**Specified here but not implemented**: `choice`/`option`, `throw`, and reusable `block`
+definitions and block calls. The parser has no rule and the AST no variant for them, so the
+rules that depend on them (W12, W13, P08) have no validator. S04 (import target existence) is
+also not checked. These items are marked where they appear.
+
+**Implemented but not specified here**: `team` and `tool` blocks (`dsl/team.rs`,
+`dsl/tool.rs`), prose block values (`key: |` followed by indented text, `dsl/prose_block.rs`),
+the frontmatter kinds `message`, `protocol`, `lifecycle`, `team`, `tool`, `model-routing` and
+`mental-model` (`dsl/frontmatter.rs`), and eight hierarchy lint rules in
+`validate/hierarchy.rs`: TEAM-001, TEAM-002, TEAM-003, TIER-001, TIER-002, JIT-001, MM-001,
+MM-002.
+
+**Validation rules**: the validator defines 41 of the 42 numbered rules in Section 4:
+S01–S03, S05–S13, P01–P07, T01–T07, H01–H04 and W01–W11 (counted from the rule-id string
+literals under `crates/cant-core/src/validate/`), plus the eight hierarchy rules above.
+S04 is never defined. `validate()` (`crates/cant-core/src/validate/mod.rs:31`) does not run
+all of them:
+
+- **S03** (circular imports, `check_circular_import`) and **S12** (permission escalation,
+  `check_permission_escalation`) are never called.
+- **S11** (import depth) runs against the fresh `ValidationContext` that `validate()`
+  creates, whose import chain is always empty, so it never fires.
+
+So a cyclic import chain, an over-deep chain and an imported agent that escalates
+permissions all validate cleanly today. T14603 tracks the fix. Limits use the defaults in `ValidationLimits`
+(`validate/context.rs`); `.cleo/config.json` is not read (see Appendix B).
+
+**Runtime**: only pipelines execute (Section 7.1). The TypeScript `WorkflowExecutor` was
+deleted, and the Pi `cant-bridge` extension that interpreted workflow statements belongs to
+the Pi/CleoOS harness that ADR-098 (`cleo docs fetch adr-098-retire-the-pi-cleoos-harness`)
+retires. Sections 7.2–7.5 (workflows, discretion, sessions, parallel) and Section 8 (approval
+tokens) describe a design with no shipped implementation.
+
+**Where `.cant` files are used**: provider spawn adapters discover `.cant` files across three
+tiers and compile them into the spawn prompt (Appendix E). Named agents resolve through the
+Agent Registry in the global `cleo.db` (`resolveAgent`, `packages/core/src/store/agent-resolver.ts`).
 
 ---
 
 ## Table of Contents
 
+0. [Implementation Status](#implementation-status)
 1. [File Format](#1-file-format)
 2. [Complete EBNF Grammar](#2-complete-ebnf-grammar)
 3. [AST Type Definitions](#3-ast-type-definitions)
@@ -56,7 +118,8 @@ and the validation mode applied by parsers and tooling.
 ### 1.2 Encoding
 
 All `.cant` files MUST be encoded in UTF-8. A byte order mark (BOM) SHOULD NOT be present.
-Implementations MUST reject files containing null bytes (`\0`).
+Implementations MUST reject files containing null bytes (`\0`). (The current parser does not
+check for a BOM or null bytes.)
 
 ### 1.3 Line Endings
 
@@ -90,6 +153,7 @@ Comments MUST NOT appear inside YAML frontmatter blocks, where `#` follows YAML 
 
 Implementations MUST enforce a maximum input size of 1 MB (1,048,576 bytes). Files exceeding
 this limit MUST be rejected before parsing begins. See rule W11 for AST node count limits.
+(Neither the size limit nor an AST node limit is enforced by `cant-core` today.)
 
 ### 1.7 Document Modes
 
@@ -132,6 +196,11 @@ The `kind` field controls which validation rules apply:
 | `workflow` | `workflow`, `pipeline`, `agent`, `@import`, `let` |
 | `pipeline` | `pipeline`, `@import`, `let` |
 | `config` | property assignments only |
+
+In the current parser `kind:` is optional, and the validator does not restrict top-level
+constructs by kind: the table above is not enforced. `parse_document_kind`
+(`crates/cant-core/src/dsl/frontmatter.rs`) also accepts `message`, `protocol`, `lifecycle`,
+`team`, `tool`, `model-routing` and `mental-model`; an unknown value leaves `kind` unset.
 
 ---
 
@@ -556,6 +625,9 @@ block_def       = "block" , WS , NAME , [ params ] , ":" , LINE_END ,
 
 block_call      = NAME , "(" , [ expression , { "," , [ WS ] , expression } ] , ")" , LINE_END ;
 (* Invokes a previously defined block by name, passing arguments positionally. *)
+
+(* NOT IMPLEMENTED: choice_stmt, throw_stmt, block_def and block_call are not
+   parsed by cant-core (crates/cant-core/src/dsl/statement.rs). *)
 
 (* -- Approval gate -- *)
 
@@ -1028,6 +1100,10 @@ pub struct PipeStep {
 ```
 
 ### 3.8 Statement
+
+The shipped `Statement` enum (`crates/cant-core/src/dsl/ast.rs`) has no `Choice`, `Throw`,
+`BlockDef` or `BlockCall` variant; it adds `Property` and `Comment`. Sections 3.12–3.14
+(Choice, Throw, Reusable Block) describe unimplemented constructs.
 
 ```rust
 /// All statement types that may appear in workflow and hook bodies.
@@ -1568,7 +1644,9 @@ pub struct TextEdit {
 ## 4. Validation Rules
 
 This section defines 42 numbered validation rules organized into five categories: Scope (S),
-Pipeline Purity (P), Types (T), Hooks (H), and Workflows (W).
+Pipeline Purity (P), Types (T), Hooks (H), and Workflows (W), plus three rules (W12, W13, P08)
+for constructs the parser does not implement. `cant-core` emits 41 of the 42 (all but S04);
+W12, W13 and P08 have no validator. See [Implementation Status](#implementation-status).
 
 For each rule, the specification provides:
 - **Rule ID** and **Severity**
@@ -1667,6 +1745,8 @@ file B (directly or transitively) imports file A, the parser MUST reject the cyc
 #### S04 -- Import Target Existence
 
 **Severity**: Error
+
+**Status**: Not implemented. No validator emits S04.
 
 **Description**: The target file of an `@import` statement MUST exist on the filesystem at
 the resolved path. See Section 6 for the resolution algorithm.
@@ -2142,7 +2222,8 @@ pipeline deploy:
 
 **Description**: Pipeline `command:` values SHOULD be validated against a configurable command
 allowlist. If a command is not on the allowlist, the validator MUST emit a warning. The
-allowlist is defined in the project's `.cleo/config.json` under `cant.pipeline.allowedCommands`.
+allowlist is `ValidationContext.command_allowlist`, empty by default; nothing populates it
+from `.cleo/config.json` today.
 
 An empty or absent allowlist disables this check.
 
@@ -2164,7 +2245,7 @@ pipeline example:
     args: ["run", "build"]
 ```
 
-**Diagnostic**: `P07: Command '{command}' at line {line} is not in the pipeline command allowlist. Allowed commands: {allowlist}. Configure in .cleo/config.json under cant.pipeline.allowedCommands.`
+**Diagnostic**: `P07: Command '{command}' at line {line} is not in the pipeline command allowlist. Allowed commands: {allowlist}.`
 
 ---
 
@@ -2192,6 +2273,11 @@ property types are:
 | `args` | array |
 | `condition` | expression (boolean) |
 | `stdin` | string (step name reference) |
+
+The shipped checker (`KNOWN_PROPERTY_TYPES`, `crates/cant-core/src/validate/types/helpers.rs`)
+checks only `model`, `prompt` and `description` (string), `timeout` (duration), `args`
+(array) and `persist`, which it expects to be a **boolean**, not the string values above. A
+`persist: "session"` value therefore fails T01 today.
 
 **Violation**:
 ```cant
@@ -2659,7 +2745,7 @@ workflow example:
 is 3600 seconds (1 hour). This prevents resource exhaustion from workflows or pipeline steps
 that hang indefinitely.
 
-The maximum is configurable via `.cleo/config.json` under `cant.maxTimeout`.
+The maximum is `ValidationLimits.max_timeout_seconds` (Appendix B).
 
 **Violation**:
 ```cant
@@ -2679,7 +2765,7 @@ pipeline bounded:
     timeout: 300s
 ```
 
-**Diagnostic**: `W08: SECURITY: Timeout value {value}s at line {line} exceeds the maximum of {max}s. Configure cant.maxTimeout in .cleo/config.json.`
+**Diagnostic**: `W08: SECURITY: Timeout value {value}s at line {line} exceeds the maximum of {max}s.`
 
 ---
 
@@ -2691,7 +2777,7 @@ pipeline bounded:
 of arms. The default maximum is 32. This prevents resource exhaustion from spawning too many
 concurrent operations.
 
-The maximum is configurable via `.cleo/config.json` under `cant.maxParallelArms`.
+The maximum is `ValidationLimits.max_parallel_arms` (Appendix B).
 
 **Violation**:
 ```cant
@@ -2710,7 +2796,7 @@ parallel:
   logic = session "Logic review"
 ```
 
-**Diagnostic**: `W09: SECURITY: Parallel block at line {line} has {count} arms, exceeding the maximum of {max}. Configure cant.maxParallelArms in .cleo/config.json.`
+**Diagnostic**: `W09: SECURITY: Parallel block at line {line} has {count} arms, exceeding the maximum of {max}.`
 
 ---
 
@@ -2722,7 +2808,7 @@ parallel:
 maximum. The default maximum is 10,000. This prevents accidental or intentional resource
 exhaustion from excessive iteration.
 
-The maximum is configurable via `.cleo/config.json` under `cant.maxRepeatCount`.
+The maximum is `ValidationLimits.max_repeat_count` (Appendix B).
 
 **Violation**:
 ```cant
@@ -2736,7 +2822,7 @@ repeat 5:
   session "Retry the operation"
 ```
 
-**Diagnostic**: `W10: SECURITY: Repeat count {count} at line {line} exceeds the maximum of {max}. Configure cant.maxRepeatCount in .cleo/config.json.`
+**Diagnostic**: `W10: SECURITY: Repeat count {count} at line {line} exceeds the maximum of {max}.`
 
 ---
 
@@ -2752,8 +2838,8 @@ Control flow constructs that increase nesting depth: `if`, `elif`, `else`, `for`
 
 Additionally, the parser MUST enforce a maximum AST node count of 100,000 per file.
 
-The maximum nesting depth is configurable via `.cleo/config.json` under
-`cant.maxNestingDepth`.
+The maximum nesting depth is `ValidationLimits.max_nesting_depth` (Appendix B). The AST node
+count limit is not enforced today.
 
 **Violation**:
 ```cant
@@ -2771,13 +2857,15 @@ workflow flat:
     /info @all "All conditions met"
 ```
 
-**Diagnostic**: `W11: SECURITY: Nesting depth of {depth} at line {line} exceeds the maximum of {max}. Flatten your control flow. Configure cant.maxNestingDepth in .cleo/config.json.`
+**Diagnostic**: `W11: SECURITY: Nesting depth of {depth} at line {line} exceeds the maximum of {max}. Flatten your control flow.`
 
 ---
 
 #### W12 -- Choice Requires At Least Two Options
 
 **Severity**: Error
+
+**Status**: Not implemented. The parser does not accept `choice`.
 
 **Description**: A `choice` block MUST contain at least 2 `option` clauses. A single-option
 choice is meaningless — use `if` instead.
@@ -2805,6 +2893,8 @@ choice **which approach**:
 #### W13 -- Block Must Not Contain Output Bindings
 
 **Severity**: Error
+
+**Status**: Not implemented. The parser does not accept `block`.
 
 **Description**: Reusable `block` definitions MUST NOT contain `output` statements. Outputs
 are workflow-level declarations that feed the ExecutionResult. Allowing them in blocks would
@@ -2834,6 +2924,8 @@ workflow deploy:
 #### P08 -- No Throw in Pipelines
 
 **Severity**: Error
+
+**Status**: Not implemented. The parser does not accept `throw`.
 
 **Description**: Pipeline bodies MUST NOT contain `throw` statements. Pipelines are
 deterministic — errors are signaled by non-zero exit codes from pipeline steps, not by
@@ -3062,8 +3154,9 @@ Resolution from `workflows/deploy.cant`:
 
 ## 7. Runtime Execution Model
 
-CANT has a hybrid runtime: pipelines execute in Rust, workflows execute in TypeScript, and
-the two communicate via napi-rs bindings.
+Only pipelines have a runtime: they execute in Rust (`cant-runtime`), reachable from
+TypeScript through napi-rs. No workflow runtime ships (Section 7.2), so Sections 7.2–7.5
+describe the intended design, not shipped behavior.
 
 ### 7.1 Pipeline Execution (Rust)
 
@@ -3071,7 +3164,7 @@ Pipeline steps are executed by the Rust `cant-runtime` crate
 (`crates/cant-runtime/src/pipeline.rs`, `step.rs`, `env.rs`). This section
 replaces the retired `cant-execution-semantics` document, whose formal models
 for workflows, sessions, approvals and domain events described designs
-`cant-runtime` does not implement (T14108 docs census).
+`cant-runtime` does not implement.
 
 ```
 FUNCTION execute_pipeline(pipeline: PipelineDef, env: StepEnv, config) -> PipelineResult:
@@ -3102,10 +3195,11 @@ rather than throwing, and is unavailable on the WebAssembly build.
 
 ### 7.2 Workflow Execution (TypeScript)
 
-No workflow executor ships in `@cleocode/core`: the TypeScript `WorkflowExecutor` was
-deleted (ADR-035 §D5). Workflow statements are interpreted only by the Pi `cant-bridge`
-extension (`packages/cleo/templates/cleoos-hub/pi-extensions/cant-bridge.ts`). The model
-below is the intended statement handling, not a guarantee of any shipped engine:
+No workflow executor ships: the TypeScript `WorkflowExecutor` was deleted (ADR-035 §D5).
+The Pi `cant-bridge` extension that interpreted workflow statements is part of the Pi/CleoOS
+harness that ADR-098 retires (frozen for removal). CLEO Goal (ADR-097) is CLEO's one
+autonomous driver; it does not execute `.cant` workflows. The model below is the intended
+statement handling, not a description of any shipped engine:
 
 ```
 FUNCTION execute_workflow(workflow: WorkflowDef, params: Record, ctx: ExecutionContext):
@@ -3157,8 +3251,8 @@ use parameter or JSON mode field). The condition MUST NOT be concatenated into t
 prompt. The evaluator uses structured prompting to separate the condition from evaluation
 instructions. The LLM returns a boolean `true`/`false` judgment.
 
-**Pluggable evaluators**: Custom evaluators may be registered with the `WorkflowExecutor`
-constructor. Use cases include regex-based evaluators for testing, rule-based evaluators for
+**Pluggable evaluators** (design): custom evaluators would be registered with the workflow
+executor. Use cases include regex-based evaluators for testing, rule-based evaluators for
 common patterns, and alternative model evaluators.
 
 **Rate limiting**: Implementations MUST enforce a configurable maximum number of discretion
@@ -3204,6 +3298,10 @@ Arm results are bound to their names in the enclosing scope after the parallel b
 ---
 
 ## 8. Approval Token Protocol
+
+**Status**: Design only. No CANT approval-token implementation ships, and the sessions table
+has no `approvalTokensJson` column. `approve:` gates parse (`dsl/approval.rs`) and are
+validated (W01), but nothing executes them.
 
 ### 8.1 Token Schema
 
@@ -3348,8 +3446,9 @@ exclusively through the `args:` array. The Rust pipeline executor MUST use
 **Threat**: A pipeline step executes an arbitrary binary (e.g., `curl`, `nc`) to exfiltrate
 project data to an external endpoint.
 
-**Defense**: Rule P07 provides a configurable command allowlist. Projects SHOULD define an
-explicit allowlist in `.cleo/config.json`. Additionally, the runtime SHOULD support optional
+**Defense**: Rule P07 checks commands against a command allowlist (no project configuration
+source exists yet; see P07). `cant-runtime` also enforces an allowlist when its caller passes
+one. Additionally, the runtime SHOULD support optional
 network namespace isolation for untrusted `.cant` files.
 
 **Validation**: Rule P07 emits warnings for commands not on the allowlist.
@@ -3434,7 +3533,9 @@ authorization.
 
 ### 9.9 Audit Trail
 
-The runtime MUST log the following events to the existing CLEO `audit_log` table:
+The runtime MUST log the following events to the CLEO `audit_log` table. (Not implemented:
+`cant-runtime` writes no audit rows, and the workflow, discretion and approval events have no
+runtime to emit them.)
 
 | Event | Fields Logged |
 |-------|---------------|
@@ -3452,8 +3553,16 @@ Token values (`token` field) MUST NEVER appear in audit logs.
 
 ## 10. Example .cant Files
 
-This section provides 10 complete, syntactically valid `.cant` files demonstrating every
-major language feature.
+This section provides 10 `.cant` files demonstrating the major language features. Against
+the shipped validator (`cleo cant validate`), Examples 3, 4, 6 and 10 validate cleanly; the
+others fail on behavior that differs from this spec:
+
+- Examples 1 and 2: `persist: "session"` fails T01 (the checker expects a boolean).
+- Examples 5 and 8: `@import "<path>" as <name>` is not accepted (the parser expects a
+  quoted path; the grammar's form is `@import Name from "path"`).
+- Example 7: `let x = session "..."` is not parsed as a binding value, and the statements
+  after it are then read as top-level constructs.
+- Example 9: arithmetic (`attempts + 1`) is not a recognized expression.
 
 ### Example 1: Simple Agent Definition
 
@@ -3816,7 +3925,7 @@ workflow safe-migration(db_name: string):
 ## 11. Migration Guide
 
 This section describes how to convert existing AGENTS.md markdown instruction files into
-`.cant` files. The `cant migrate` CLI command automates this process; this guide explains the
+`.cant` files. The `cleo cant migrate` command automates part of this process; this guide explains the
 conversion rules for manual or review purposes.
 
 ### 11.1 Conversion Principles
@@ -3825,10 +3934,11 @@ conversion rules for manual or review purposes.
    representation, it MUST emit a `# TODO: manual conversion needed` comment rather than
    guessing.
 2. **@import bridge**: Converted `.cant` files are referenced from AGENTS.md via `@import`
-   within CAAMP markers.
+   within CAAMP markers. `cleo cant migrate` writes only the `.cant` files; adding the
+   `@import` lines is a manual step.
 3. **Incremental adoption**: Not all content needs to be converted at once. Markdown and
    `.cant` files coexist.
-4. **Round-trip fidelity**: `cant migrate` followed by manual review should not lose
+4. **Round-trip fidelity**: `cleo cant migrate` followed by manual review should not lose
    information.
 
 ### 11.2 Before/After: Agent Definition
@@ -3989,15 +4099,18 @@ The converter MUST flag such content with:
 ### 11.7 CLI Usage
 
 ```bash
-# Preview what would be converted (dry run)
-cant migrate AGENTS.md --dry-run
+# Preview what would be converted (dry run, the default)
+cleo cant migrate AGENTS.md --dry-run
 
-# Convert and write .cant files, update AGENTS.md with @import references
-cant migrate AGENTS.md --write
+# Convert and write .cant files (default output directory: .cleo/agents/)
+cleo cant migrate AGENTS.md --write
 
-# Convert a specific section only
-cant migrate AGENTS.md --section "Code Review Agent" --write
+# Write to another directory and show the conversion log
+cleo cant migrate AGENTS.md --write --output-dir .cleo/cant/agents --verbose
 ```
+
+The converter classifies sections as agent, hook, permissions, skill, workflow or unknown
+(`packages/cant/src/migrate/converter.ts`); there is no per-section option.
 
 ---
 
@@ -4047,17 +4160,20 @@ contexts where they would be ambiguous:
 
 ## Appendix B: Configuration Keys
 
-CANT validation rules reference the following configuration keys in `.cleo/config.json`:
+The validator's limits are the defaults of `ValidationLimits` and
+`ValidationContext.command_allowlist` (`crates/cant-core/src/validate/context.rs`).
+`validate()` always uses `ValidationContext::new()`, so no `.cleo/config.json` key changes
+them today. The `cant.*` names are reserved for a future configuration source.
 
-| Key | Type | Default | Used By |
-|-----|------|---------|---------|
-| `cant.maxTimeout` | number (seconds) | 3600 | W08 |
-| `cant.maxParallelArms` | number | 32 | W09 |
-| `cant.maxRepeatCount` | number | 10000 | W10 |
-| `cant.maxNestingDepth` | number | 16 | W11 |
-| `cant.maxImportDepth` | number | 64 | S11 |
-| `cant.pipeline.allowedCommands` | string[] | [] (disabled) | P07 |
-| `cant.discretion.maxEvaluations` | number | 100 | Runtime |
+| Reserved key | Field | Type | Default | Used By |
+|--------------|-------|------|---------|---------|
+| `cant.maxTimeout` | `max_timeout_seconds` | number (seconds) | 3600 | W08 |
+| `cant.maxParallelArms` | `max_parallel_arms` | number | 32 | W09 |
+| `cant.maxRepeatCount` | `max_repeat_count` | number | 10000 | W10 |
+| `cant.maxNestingDepth` | `max_nesting_depth` | number | 16 | W11 |
+| `cant.maxImportDepth` | `max_import_depth` | number | 64 | S11 |
+| `cant.pipeline.allowedCommands` | `command_allowlist` | string[] | [] (disabled) | P07 |
+| `cant.discretion.maxEvaluations` | (none) | number | 100 | Workflow runtime (not implemented) |
 
 ---
 
@@ -4067,11 +4183,11 @@ CANT validation rules reference the following configuration keys in `.cleo/confi
 |--------|---------------------|
 | **AGENTS.md** | Industry-standard entry point. `.cant` files are referenced via `@import`. AGENTS.md is NOT replaced. |
 | **LAFS** | Response protocol. CANT encompasses LAFS as its response syntax. `@cleocode/lafs` continues to exist independently. |
-| **CAAMP** | Hook event taxonomy. CANT's `on Event:` blocks map 1:1 to the 16 CAAMP canonical events. |
-| **Conduit** | Transport layer. CANT messages are carried over Conduit; CANT defines content, Conduit defines transport. |
+| **CAAMP** | Hook event taxonomy. CANT's `on Event:` blocks name the 31 `canonicalEvents` in `packages/caamp/providers/hook-mappings.json` (16 provider, 15 domain; Section 5). |
+| **AgentMBX** | Agent messaging (D11176). CANT defines message content; it does not define a transport. Conduit is legacy and retiring under D11176/T13933. It is not an AgentMBX client yet: `resolveTransport` (`packages/core/src/conduit/factory.ts:36`) still picks its own local SQLite, SSE or HTTP transport. SignalDock is retired. |
 | **CLEO Dispatch** | Operation router. CANT directives map to CLEO CQRS operations via the directive-to-operation table. |
 | **cant-core (Rust)** | The canonical parser implementation. Layer 1 is frozen in the existing crate; Layers 2-3 are additive modules. |
-| **@cleocode/cant (TS)** | WASM/napi-rs wrapper providing `parseCantDocument()` to the TypeScript ecosystem. |
+| **@cleocode/cant (TS)** | WASM/napi-rs wrapper (`packages/cant`) exposing parsing, validation, pipeline execution and `compileBundle()` to TypeScript. |
 | **OpenProse (.prose)** | Inspiration for sessions, parallel, discretion. CANT differs by having a real parser and real runtime, not an LLM-simulated VM. |
 | **Lobster (.lobster)** | Inspiration for deterministic pipelines, approval tokens, resume semantics. |
 
@@ -4093,60 +4209,40 @@ Backward compatibility guarantees:
 
 ---
 
-*Specification authored by @cleo-rust-lead. Security review by @versionguard-opencode.
-Rust architecture review by @signaldock-core-agent. Documentation review by
-@claude-opus-llmtxt. Based on the CANT DSL Implementation Plan v2 and the existing cant-core
-parser (47 Rust tests, 8 TypeScript tests).*
 
-<!-- merged from `cant-hierarchy-spec` by cleo docs modernize -->
+## Appendix E: Three-Tier `.cant` Discovery
 
-## From `cant-hierarchy-spec`
+This appendix defines how `.cant` files are found and merged when an agent is spawned. It is
+implemented by `discoverCantFilesMultiTier()` and `resolveThreeTierPaths()` in
+`packages/adapters/src/cant-context.ts`, which `buildCantEnrichedPrompt()` calls from the
+provider spawn adapters (for example `packages/adapters/src/providers/claude-code/spawn.ts`).
 
-# CANT 3-Tier Hierarchy Specification
-
-**Status**: DRAFT
-**Date**: 2026-04-09
-**Epic**: T438 -- CleoOS Agent Platform
-**Reference**: CLEO-ULTRAPLAN.md Section 2.4
-
----
-
-
-## 1. Overview
-
-CANT (Configuration-As-Code for Agents aNd Teams) files define agent
-personas, team structures, tools, routing rules, and lifecycle stages.
-This specification defines the 3-tier discovery and resolution algorithm
-that governs how `.cant` files are located and merged at session start.
-
-Prior to this specification, the CANT bridge (`cleo-cant-bridge.ts`)
-only scanned the project tier (`<cwd>/.cleo/cant/`). This spec extends
-discovery to three tiers with deterministic override semantics.
-
-## 2. Tier Definitions
+### E.1 Tiers
 
 Three tiers exist, ordered from lowest to highest precedence:
 
-| Tier | Precedence | XDG Variable | Default Path | Purpose |
-|------|-----------|--------------|--------------|---------|
-| Global | 1 (lowest) | `XDG_DATA_HOME` | `~/.local/share/cleo/cant/` | Shared agents available to all projects |
-| User | 2 | `XDG_CONFIG_HOME` | `~/.config/cleo/cant/` | User-customized agents and overrides |
-| Project | 3 (highest) | N/A | `<cwd>/.cleo/cant/` | Project-specific agents and teams |
+| Tier | Precedence | Path | Purpose |
+|------|-----------|------|---------|
+| Global | 1 (lowest) | `<cleoHome>/cant/` | Shared agents available to all projects |
+| User | 2 | `<cleoConfigDir>/cant/` | User-customized agents and overrides |
+| Project | 3 (highest) | `<project>/.cleo/cant/` | Project-specific agents and teams |
 
-### 2.1 Path Resolution
+`<cleoHome>` is `getCleoHome()` and `<cleoConfigDir>` is `getCleoPlatformPaths().config`, both
+from `@cleocode/paths`: on Linux `$XDG_DATA_HOME/cleo` and `$XDG_CONFIG_HOME/cleo`; on macOS
+`~/Library/Application Support/cleo` and `~/Library/Preferences/cleo`.
 
-Paths MUST be resolved using `resolveCleoOsPaths()` from
-`packages/cleo-os/src/xdg.ts`. The function respects `XDG_DATA_HOME`
-and `XDG_CONFIG_HOME` environment variables when set, falling back to
-XDG defaults.
+Project-tier agents go to `<project>/.cleo/cant/agents/`. The global tier is split in
+the code today:
 
-```
-Global tier:  resolveCleoOsPaths().cant       // ~/.local/share/cleo/cant/
-User tier:    resolveCleoOsPaths().config + '/cant/'  // ~/.config/cleo/cant/
-Project tier: join(ctx.cwd, '.cleo', 'cant')  // <cwd>/.cleo/cant/
-```
+- `cleo agent create --global` (`packages/core/src/agents/scaffold.ts:188`) and the
+  postinstall seed (`getCleoGlobalCantAgentsDir`) write `<cleoHome>/cant/agents/`, which
+  is the global directory this discovery scans.
+- `cleo agent install --global` writes `<cleoHome>/agents/`
+  (`getCleoGlobalAgentsDir`, `packages/core/src/store/agent-install.ts:251`), outside the
+  scanned tier. The agent still resolves through its registry row (`resolveAgent`), but
+  file discovery does not see it. T14588 tracks the mismatch.
 
-### 2.2 Directory Structure
+### E.2 Directory Structure
 
 Each tier MAY contain any of the following subdirectories:
 
@@ -4160,135 +4256,73 @@ Each tier MAY contain any of the following subdirectories:
   *.cant            -- top-level definitions
 ```
 
-Subdirectory structure is informational. The discovery algorithm scans
-recursively regardless of subdirectory names.
+Subdirectory structure is informational. Discovery scans each tier recursively regardless of
+subdirectory names.
 
-## 3. Override Semantics
+### E.3 Override Semantics
 
-Override resolution uses **filename-based deduplication**. When the same
-filename appears in multiple tiers, the highest-precedence tier wins.
-
-### 3.1 Matching Rule
-
-Two `.cant` files are considered "the same" when their **basenames**
-(filename without directory path) are identical. For example:
+Override resolution uses **filename-based deduplication**: two `.cant` files are "the same"
+when their basenames are identical, and the highest-precedence tier wins
+(Project > User > Global). For example:
 
 ```
-~/.local/share/cleo/cant/agents/backend-dev.cant   (global)
-~/.config/cleo/cant/agents/backend-dev.cant         (user)
-.cleo/cant/agents/backend-dev.cant                  (project)
+<cleoHome>/cant/agents/backend-dev.cant        (global)
+<cleoConfigDir>/cant/agents/backend-dev.cant   (user)
+.cleo/cant/agents/backend-dev.cant             (project)
 ```
 
-All three have basename `backend-dev.cant`. The project-tier file wins.
+All three have basename `backend-dev.cant`; the project-tier file wins. Files with distinct
+basenames across tiers are all included.
 
-### 3.2 Precedence Chain
-
-```
-Project > User > Global
-```
-
-- If a file exists at the project tier, the user-tier and global-tier
-  files with the same basename are excluded.
-- If a file exists at the user tier but not the project tier, the
-  global-tier file with the same basename is excluded.
-- If a file exists only at the global tier, it is included.
-
-### 3.3 Additive Discovery
-
-Files with unique basenames across tiers are all included. For example:
+### E.4 Discovery Algorithm
 
 ```
-Global:  agents/security-reviewer.cant
-User:    agents/custom-reviewer.cant
-Project: agents/backend-dev.cant
-```
+function discoverCantFilesMultiTier(projectDir):
+    paths = resolveThreeTierPaths(projectDir)
+    globalFiles  = discoverCantFiles(paths.global)    // recursive scan
+    userFiles    = discoverCantFiles(paths.user)
+    projectFiles = discoverCantFiles(paths.project)
 
-All three files are included in the merged set because their basenames
-are distinct.
-
-## 4. Discovery Algorithm
-
-The bridge MUST implement the following algorithm at `session_start`:
-
-```
-function discoverCantFilesMultiTier(projectDir, globalDir, userDir):
-    // Phase 1: Scan all tiers (order does not matter)
-    globalFiles  = discoverCantFiles(globalDir)   // recursive scan
-    userFiles    = discoverCantFiles(userDir)      // recursive scan
-    projectFiles = discoverCantFiles(projectDir)   // recursive scan
-
-    // Phase 2: Build basename-keyed map (highest precedence last)
     fileMap = new Map<basename, absolutePath>()
+    for file in globalFiles:  fileMap.set(basename(file), file)
+    for file in userFiles:    fileMap.set(basename(file), file)   // overrides global
+    for file in projectFiles: fileMap.set(basename(file), file)   // overrides user + global
 
-    for file in globalFiles:
-        fileMap.set(basename(file), file)
-
-    for file in userFiles:
-        fileMap.set(basename(file), file)    // overrides global
-
-    for file in projectFiles:
-        fileMap.set(basename(file), file)    // overrides user + global
-
-    // Phase 3: Return merged list
-    return Array.from(fileMap.values())
+    return { files: values(fileMap),
+             stats: { global, user, project, overrides, merged } }
 ```
 
-### 4.1 Error Handling
+A missing or unreadable tier directory yields no files and no error (`discoverCantFiles`
+returns `[]`). CANT enrichment is best-effort: if discovery or compilation fails, the agent
+still spawns with its base prompt.
 
-- If a tier directory does not exist, it is silently skipped (no error).
-- If a tier directory exists but is unreadable (permissions), it is
-  silently skipped and a diagnostic warning is emitted if the UI is
-  available.
-- The bridge MUST NOT crash Pi if any tier scan fails. Best-effort
-  semantics apply (per ULTRAPLAN guardrails).
+### E.5 `compileBundle()` Contract
 
-### 4.2 Diagnostic Reporting
+The merged file list is passed to `compileBundle()` from `@cleocode/cant`
+(`packages/cant/src/bundle.ts`). The compiler does not need to know which tier each file came
+from; tier information is a discovery-time concern.
 
-The `/cant:bundle-info` command SHOULD report:
+### E.6 Named Agent Resolution
 
-- Total files discovered per tier
-- Number of overrides (files that were shadowed by a higher tier)
-- The final merged file count passed to `compileBundle()`
+Resolving an agent by name is a separate path: `resolveAgent()`
+(`packages/core/src/store/agent-resolver.ts`) reads the Agent Registry tables in the global
+`cleo.db` with five tiers (project, global, packaged, fallback, universal). Spawn never selects
+a custom persona by name.
 
-## 5. `compileBundle()` Contract
+### E.7 Packages
 
-The merged file list from the discovery algorithm is passed directly to
-`compileBundle()` from `@cleocode/cant`. The compiler does not need to
-know which tier each file came from. Tier information is purely a
-discovery-time concern.
+Packaged agents (`.cantz` archives) install their `.cant` files into a tier directory, after
+which they take part in normal discovery. See the
+[CANTZ Package Standard](cantz-package-standard.md).
 
-## 6. Future Extensions
-
-### 6.1 `.cantz` Package Format
-
-Packaged agents (`.cantz` archives) install their contents into a tier
-directory. Once extracted, their `.cant` files participate in the normal
-3-tier discovery. See `CANTZ-PACKAGE-STANDARD.md` for the packaging
-specification.
-
-### 6.2 Tier Pinning
-
-A future CANT grammar extension MAY allow files to declare
-`tier-pin: project` to prevent global/user overrides. This is not part
-of the current specification.
-
-## 7. Compliance Requirements
+### E.8 Compliance Requirements
 
 | ID | Requirement | Level |
 |----|-------------|-------|
-| HIER-001 | The bridge MUST scan all three tier directories | MUST |
+| HIER-001 | Discovery MUST scan all three tier directories | MUST |
 | HIER-002 | Project-tier files MUST override user-tier files with the same basename | MUST |
 | HIER-003 | User-tier files MUST override global-tier files with the same basename | MUST |
 | HIER-004 | Missing tier directories MUST NOT cause errors | MUST |
-| HIER-005 | Scan failures MUST NOT crash Pi | MUST |
+| HIER-005 | A tier scan failure MUST NOT prevent the agent from spawning | MUST |
 | HIER-006 | The discovery algorithm MUST be deterministic | MUST |
-| HIER-007 | Diagnostic output SHOULD report per-tier file counts | SHOULD |
-
-## 8. References
-
-| Document | Path |
-|----------|------|
-| CLEO-ULTRAPLAN.md Section 2.4 | `docs/plans/CLEO-ULTRAPLAN.md` |
-| XDG path resolution | `packages/cleo-os/src/xdg.ts` |
-| CANT bridge | `packages/cleo-os/extensions/cleo-cant-bridge.ts` |
-| CANTZ Package Standard | `docs/specs/CANTZ-PACKAGE-STANDARD.md` |
+| HIER-007 | Discovery SHOULD report per-tier file counts | SHOULD |
