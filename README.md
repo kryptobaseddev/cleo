@@ -68,7 +68,7 @@ cleo focus T003    # identity, blockers, docs and memory for one task
 Then do the work and close it.
 
 - **With a pull request** (the normal path): work on a branch, open a PR whose
-  body says `Closes: T003 AC1,AC2`, check it with
+  body says `Closes: T003 AC1,AC2,AC3` (every criterion the task has), check it with
   `cleo done --from-merge <pr> --dry-run`, get a per-criterion review
   (`cleo review packet <pr> --task T003`, then `cleo review verdict`), and
   merge on green CI. The merge sweep records the evidence and closes the task.
