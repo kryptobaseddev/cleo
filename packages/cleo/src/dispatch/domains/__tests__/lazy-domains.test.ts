@@ -59,6 +59,15 @@ describe('createLazyDomainHandlers (T13126)', () => {
     expect(real.mutate).toHaveBeenCalledWith('add', { title: 'x' });
   });
 
+  it('preserves the caller transport through both lazy gateways', async () => {
+    const real = stubHandler(ok({}));
+    const lazy = new LazyDomainHandler('orchestrate', async () => real);
+    await lazy.query('pending', {}, 'http');
+    await lazy.mutate('approve', { resumeToken: 'token' }, 'http');
+    expect(real.query).toHaveBeenCalledWith('pending', {}, 'http');
+    expect(real.mutate).toHaveBeenCalledWith('approve', { resumeToken: 'token' }, 'http');
+  });
+
   it('answers getSupportedOperations from the operation registry without loading', () => {
     const load = vi.fn(async (): Promise<DomainHandler> => {
       throw new Error('must not load');

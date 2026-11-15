@@ -31,6 +31,7 @@
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import type { GatewaySource } from '@cleocode/contracts/gateway';
 import { CleoError } from '../errors.js';
 import {
   appendOwnerOverrideAudit,
@@ -70,18 +71,32 @@ export type OwnerOverrideAuthority =
  *
  * @param projectRoot - Project whose session store supplies the owner mark.
  * @param sessionId - Already-resolved session, or resolve the caller's binding.
+ * @param source - Transport of the caller; only a direct CLI call can prove terminal ownership.
  * @returns The authoritative owner session id.
- * @throws {CleoError} A typed refusal with the owner-session repair command.
+ * @throws A {@link CleoError} with the owner-session repair command.
  * @remarks Uses the owner override's same-OS-user authority rule, without requesting an override.
  * @example
  * ```typescript
- * const ownerSessionId = await requireOwnerAuthority(projectRoot);
+ * const ownerSessionId = await requireOwnerAuthority(projectRoot, sessionId, 'cli');
  * ```
  */
 export async function requireOwnerAuthority(
   projectRoot: string,
   sessionId?: string | null,
+  source: GatewaySource = 'cli',
 ): Promise<string> {
+  const refuse = (codeName: string, message: string): never => {
+    // @sync-invariant none:local-only owner authority is checked before a protected write
+    throw new CleoError(ExitCode.VALIDATION_ERROR, message, {
+      codeName,
+      fix: `The owner must run \`${OWNER_SESSION_COMMAND}\` in their own terminal, then retry there.`,
+    });
+  };
+  if (source !== 'cli')
+    return refuse(
+      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
+      `the ${source} transport cannot prove caller ownership; the serving process cannot grant its owner session or terminal to a client. Use the direct CLI in the owner's terminal.`,
+    );
   const sessions = await import('../store/session-store.js');
   if (!sessionId) {
     try {
@@ -90,13 +105,6 @@ export async function requireOwnerAuthority(
       sessionId = null;
     }
   }
-  const refuse = (codeName: string, message: string): never => {
-    // @sync-invariant none:local-only owner authority is checked before a protected write
-    throw new CleoError(ExitCode.VALIDATION_ERROR, message, {
-      codeName,
-      fix: `The owner must run \`${OWNER_SESSION_COMMAND}\` in their own terminal, then retry there.`,
-    });
-  };
   if (isAgentRoleForbidden())
     return refuse(
       BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_FORBIDDEN_AGENT_ROLE,

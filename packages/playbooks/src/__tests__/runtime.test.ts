@@ -8,7 +8,7 @@
  * @task T930 — Playbook Runtime State Machine
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -20,7 +20,7 @@ import type {
   PlaybookDefinition,
   PlaybookDeterministicNode,
 } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { approveGate, rejectGate } from '../approval.js';
 import { parsePlaybook } from '../parser.js';
 import {
@@ -315,6 +315,99 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
 
     const run = getPlaybookRun(db, first.runId);
     expect(run?.status).toBe('completed');
+    const trace = listPlaybookApprovals(db, first.runId).find((gate) =>
+      gate.token.startsWith('resume:'),
+    );
+    expect(trace).toMatchObject({ status: 'approved', autoPassed: true });
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: trace?.token ?? '', dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_RESUME_TRACE' }));
+  });
+
+  it('refuses an already-approved legacy gate without executing its successor', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'legacy-resume',
+      nodes: [approvalNode('gate'), agenticNode('ship')],
+      edges: [{ from: 'gate', to: 'ship' }],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({ status: 'success', output: {} }));
+    const first = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'legacy',
+      initialContext: {},
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const legacyToken = 'a'.repeat(32);
+    db.prepare('UPDATE tasks_playbook_approvals SET token = ?, status = ? WHERE token = ?').run(
+      legacyToken,
+      'approved',
+      first.approvalToken ?? '',
+    );
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: legacyToken, dispatcher }),
+    ).rejects.toThrowError(
+      expect.objectContaining({
+        codeName: 'E_APPROVAL_TOKEN_LEGACY',
+        fix: expect.stringContaining('cleo playbook run <name>'),
+      }),
+    );
+    expect(dispatcher.calls).toEqual([]);
+    expect(getPlaybookRun(db, first.runId)?.status).toBe('paused');
+  });
+
+  it('ignores an invalid installation key until an approval node is reached, including on resume', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'playbook-lazy-key-'));
+    vi.stubEnv('CLEO_HOME', home);
+    vi.stubEnv('CLEO_PLAYBOOK_SECRET', '');
+    writeFileSync(join(home, 'machine-key'), 'corrupt', { mode: 0o600 });
+    try {
+      const dispatcher = makeRecordingDispatcher(() => ({ status: 'success', output: {} }));
+      const linear = await executePlaybook({
+        db,
+        playbook: linearPlaybook('no-gate', ['a']),
+        playbookHash: 'no-gate',
+        initialContext: {},
+        dispatcher,
+      });
+      expect(linear.terminalStatus).toBe('completed');
+      const playbook: PlaybookDefinition = {
+        version: '1.0',
+        name: 'lazy-key',
+        nodes: [approvalNode('gate'), agenticNode('ship')],
+        edges: [{ from: 'gate', to: 'ship' }],
+      };
+      const first = await executePlaybook({
+        db,
+        playbook,
+        playbookHash: 'lazy',
+        initialContext: {},
+        dispatcher,
+        approvalSecret: 'unit-test-secret',
+      });
+      approveGate(db, first.approvalToken ?? '', 'owner');
+      const resumed = await resumePlaybook({
+        db,
+        playbook,
+        approvalToken: first.approvalToken ?? '',
+        dispatcher,
+      });
+      expect(resumed.terminalStatus).toBe('completed');
+      await expect(
+        executePlaybook({
+          db,
+          playbook,
+          playbookHash: 'lazy',
+          initialContext: {},
+          dispatcher,
+        }),
+      ).rejects.toThrow(/invalid length/);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   // 5 ------------------------------------------------------------------------

@@ -230,10 +230,18 @@ export type GatewayStreamEvent = z.infer<typeof gatewayStreamEventSchema>;
  * tools, admin, nexus, sticky, intelligence) implements this interface.
  */
 export interface DomainHandler {
-  /** Execute a read-only query operation. */
-  query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse>;
-  /** Execute a state-modifying mutation operation. */
-  mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse>;
+  /** Execute a read-only query with its transport-supplied caller source. */
+  query(
+    operation: string,
+    params?: Record<string, unknown>,
+    source?: GatewaySource,
+  ): Promise<DispatchResponse>;
+  /** Execute a mutation with its transport-supplied caller source, never a params field. */
+  mutate(
+    operation: string,
+    params?: Record<string, unknown>,
+    source?: GatewaySource,
+  ): Promise<DispatchResponse>;
   /** Declared operations for introspection and validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] };
 }

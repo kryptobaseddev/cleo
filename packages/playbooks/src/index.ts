@@ -32,6 +32,7 @@ export {
   createApprovalGate,
   E_APPROVAL_ALREADY_DECIDED,
   E_APPROVAL_NOT_FOUND,
+  E_APPROVAL_RESUME_TRACE,
   E_APPROVAL_TOKEN_LEGACY,
   generateResumeToken,
   getPendingApprovals,

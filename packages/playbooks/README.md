@@ -229,18 +229,26 @@ The secret comes from `getPlaybookSecret(env)`:
 move a `pending` gate: an unknown token fails with `E_APPROVAL_NOT_FOUND`, an
 already-decided gate with `E_APPROVAL_ALREADY_DECIDED`.
 
-Legacy tokens are refused with `E_APPROVAL_TOKEN_LEGACY`: request a fresh gate with
+Legacy tokens are refused for decisions and resume, including gates approved
+before the upgrade, with `E_APPROVAL_TOKEN_LEGACY`: request a fresh gate with
 `cleo playbook run <name>`. Existing legacy rows remain intact; restarting a
 playbook executes its earlier steps again, so the owner must review those steps
-before restarting it.
+before restarting it. A `resume:...` row is an audit trace, never an approval
+token. The owner can clear an old pending trace with
+`cleo orchestrate reject <resumeToken> --reason "clear resume trace"`;
+approval or resume of a trace refuses with `E_APPROVAL_RESUME_TRACE`. New traces
+are recorded as already approved and never appear in pending approvals.
 
 `cleo orchestrate approve` and `reject` require the same human owner authority as
 the owner override: an unrestricted bootstrap role, an owner-marked bound session
 (`cleo session start --scope global --name owner --owner`), and the owner's own
-stdin/stderr terminal. Setting an approver label or `CLEO_OWNER_OVERRIDE` does not
-grant authority. `cleo orchestrate pending` includes tokens only for that owner;
-agents can see pending gate metadata. The SDK's synchronous database primitives
-are trusted in-process APIs; the dispatch boundary enforces caller authority.
+stdin/stderr terminal, through the direct CLI. HTTP, MCP and RPC clients cannot
+inherit the serving process's owner authority. Setting an approver label or
+`CLEO_OWNER_OVERRIDE` does not grant authority. `cleo orchestrate pending` and
+`cleo playbook run|resume` disclose tokens only to that owner; other callers see
+pending metadata and paused run results without tokens. The installation key is
+read only when execution reaches an approval node. The SDK's synchronous database
+primitives are trusted in-process APIs; dispatch enforces caller authority.
 
 ## Error codes
 
@@ -249,6 +257,7 @@ are trusted in-process APIs; the dispatch boundary enforces caller authority.
 | `E_APPROVAL_NOT_FOUND` | No approval row matches the token |
 | `E_APPROVAL_ALREADY_DECIDED` | The approval is already `approved` or `rejected` |
 | `E_APPROVAL_TOKEN_LEGACY` | Re-request the gate using a fresh playbook run |
+| `E_APPROVAL_RESUME_TRACE` | Audit traces cannot approve or resume; the owner can reject an old pending trace |
 | `E_OVERRIDE_NOT_OWNER` | The caller has no owner-marked session or own terminal |
 | `E_OVERRIDE_FORBIDDEN_AGENT_ROLE` | The caller runs as a restricted agent role |
 | `E_PLAYBOOK_PARSE` | `PlaybookParseError` from `parsePlaybook` (exit code 70), with the offending `field` and `value` |

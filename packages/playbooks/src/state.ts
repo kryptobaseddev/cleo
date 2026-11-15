@@ -345,7 +345,7 @@ export function deletePlaybookRun(db: DatabaseSync, runId: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Inserts a new approval record with a freshly generated UUID, `status='pending'`,
+ * Inserts a new approval record with a freshly generated UUID, pending unless auto-passed,
  * and the caller-supplied opaque token. Returns the hydrated
  * {@link PlaybookApproval} so callers see the server-defaulted `requested_at`.
  */
@@ -359,8 +359,15 @@ export function createPlaybookApproval(
   db.prepare(
     `INSERT INTO tasks_playbook_approvals (
        approval_id, run_id, node_id, token, status, auto_passed
-     ) VALUES (?, ?, ?, ?, 'pending', ?)`,
-  ).run(approvalId, input.runId, input.nodeId, input.token, autoPassed);
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    approvalId,
+    input.runId,
+    input.nodeId,
+    input.token,
+    autoPassed ? 'approved' : 'pending',
+    autoPassed,
+  );
 
   const row = db
     .prepare('SELECT * FROM tasks_playbook_approvals WHERE approval_id = ?')

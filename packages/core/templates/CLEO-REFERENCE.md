@@ -220,7 +220,9 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 | List awaiting HITL approvals (tokens redacted for non-owners) | `cleo orchestrate pending` |
 
 Approve/reject require the owner override's authority rule: an unrestricted
-bootstrap role, an owner-marked bound session, and the owner's own terminal.
+bootstrap role, an owner-marked bound session, and the owner's own terminal
+through the direct CLI. HTTP, MCP and RPC cannot inherit the server's authority;
+pending and playbook run/resume responses omit tokens for those clients.
 The owner starts that session with `cleo session start --scope global --name owner --owner`.
 Agents return the decision to their coordinator for the human ask tool.
 <!-- /CLEO-INJECTION:section=orchestration -->

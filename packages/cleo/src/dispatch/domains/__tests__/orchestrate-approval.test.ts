@@ -16,8 +16,16 @@ import { fileURLToPath } from 'node:url';
 import { OWNER_SESSION_MARK } from '@cleocode/core/security/owner-override-auth';
 import { createTestDb, type TestDbEnv } from '@cleocode/core/store/__tests__/test-db-helper';
 import { createSession, setSessionOwnerAuthToken } from '@cleocode/core/store/session-store';
-import { createApprovalGate, createPlaybookRun, getPendingApprovals } from '@cleocode/playbooks';
+import {
+  createApprovalGate,
+  createPlaybookApproval,
+  createPlaybookRun,
+  getPendingApprovals,
+} from '@cleocode/playbooks';
+import { createGatewayHandler, type GatewayHandler } from '@cleocode/runtime/gateway/dispatch';
+import { routeUnary } from '@cleocode/runtime/gateway/http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LazyDomainHandler } from '../lazy.js';
 import { OrchestrateHandler } from '../orchestrate.js';
 import { __playbookRuntimeOverrides } from '../playbook.js';
 
@@ -91,6 +99,7 @@ function seedPendingGate(
 describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   let db: DatabaseSync;
   let handler: OrchestrateHandler;
+  let gateway: GatewayHandler;
   let env: TestDbEnv;
   const tty = { stdin: process.stdin.isTTY, stderr: process.stderr.isTTY };
 
@@ -125,6 +134,11 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
 
     __playbookRuntimeOverrides.db = db;
     handler = new OrchestrateHandler();
+    gateway = createGatewayHandler({
+      handlers: new Map([
+        ['orchestrate', new LazyDomainHandler('orchestrate', async () => handler)],
+      ]),
+    });
   });
 
   afterEach(async () => {
@@ -180,6 +194,48 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     vi.stubEnv('CLEO_SESSION_ID', 'ses_approval_owner');
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     expect(JSON.stringify((await handler.query('pending', {})).data)).not.toContain(token);
+  });
+
+  it.each([
+    'approve',
+    'reject',
+  ])('HTTP orchestrate.%s refuses clients even when the server has owner authority', async (operation) => {
+    const { token } = seedPendingGate(db);
+    const { body } = await routeUnary(gateway, {
+      gateway: 'mutate',
+      domain: 'orchestrate',
+      operation,
+      sessionId: 'ses_approval_owner',
+      params: { resumeToken: token, reason: 'reviewed', source: 'cli', approver: 'owner' },
+    });
+    expect(body).toMatchObject({
+      success: false,
+      error: { code: 'E_OVERRIDE_NOT_OWNER', fix: expect.stringContaining('own terminal') },
+      meta: { source: 'http' },
+    });
+    expect(getPendingApprovals(db)).toEqual([
+      expect.objectContaining({ token, status: 'pending' }),
+    ]);
+  });
+
+  it('HTTP pending never returns tokens from an owner-marked server', async () => {
+    const { token } = seedPendingGate(db);
+    const { body } = await routeUnary(gateway, {
+      gateway: 'query',
+      domain: 'orchestrate',
+      operation: 'pending',
+      sessionId: 'ses_approval_owner',
+    });
+    expect(body).toMatchObject({
+      success: true,
+      data: { approvals: [expect.objectContaining({ status: 'pending' })], count: 1 },
+    });
+    expect(JSON.stringify(body)).not.toContain(token);
+    expect(body.data).toEqual({
+      approvals: [expect.not.objectContaining({ token: expect.anything() })],
+      count: 1,
+      total: 1,
+    });
   });
 
   it.each([
@@ -255,6 +311,23 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
       },
     });
     expect(getPendingApprovals(db)).toHaveLength(1);
+  });
+
+  it('the owner can reject an old pending resume trace, but cannot approve it', async () => {
+    const { token, runId, nodeId } = seedPendingGate(db);
+    const traceToken = `resume:${token}:1234`;
+    createPlaybookApproval(db, { runId, nodeId, token: traceToken });
+    expect(await handler.mutate('approve', { resumeToken: traceToken })).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_APPROVAL_RESUME_TRACE',
+        fix: expect.stringContaining('cleo orchestrate reject'),
+      },
+    });
+    expect(
+      await handler.mutate('reject', { resumeToken: traceToken, reason: 'clear resume trace' }),
+    ).toMatchObject({ success: true, data: { token: traceToken, status: 'rejected' } });
+    expect(getPendingApprovals(db)).toEqual([expect.objectContaining({ token })]);
   });
 
   // -------------------------------------------------------------------------

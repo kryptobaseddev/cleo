@@ -84,13 +84,13 @@ export class LazyDomainHandler implements DomainHandler {
   }
 
   /** @inheritdoc */
-  async query(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
-    return (await this.resolve()).query(operation, params);
+  async query(...args: Parameters<DomainHandler['query']>): Promise<DispatchResponse> {
+    return (await this.resolve()).query(...args);
   }
 
   /** @inheritdoc */
-  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
-    return (await this.resolve()).mutate(operation, params);
+  async mutate(...args: Parameters<DomainHandler['mutate']>): Promise<DispatchResponse> {
+    return (await this.resolve()).mutate(...args);
   }
 
   /** @inheritdoc */

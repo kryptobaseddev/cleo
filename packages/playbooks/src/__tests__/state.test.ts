@@ -160,6 +160,18 @@ describe('W4-8: playbook state CRUD', () => {
       expect(approval.nodeId).toBe('approval-publish');
     });
 
+    it('auto-passed approval records are already approved, including resume traces', () => {
+      const run = createPlaybookRun(db, { playbookName: 'p', playbookHash: 'h' });
+      const trace = createPlaybookApproval(db, {
+        runId: run.runId,
+        nodeId: 'gate',
+        token: 'resume:v2:token:1234',
+        autoPassed: true,
+      });
+      expect(trace).toMatchObject({ status: 'approved', autoPassed: true });
+      expect(getPlaybookApprovalByToken(db, trace.token)?.status).toBe('approved');
+    });
+
     it('getPlaybookApprovalByToken finds approval by exact token', () => {
       const run = createPlaybookRun(db, {
         playbookName: 'p',

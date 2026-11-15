@@ -41,20 +41,39 @@ export const E_APPROVAL_ALREADY_DECIDED = 'E_APPROVAL_ALREADY_DECIDED' as const;
 /** Legacy tokens must be re-requested rather than accepted under the new trust rule. */
 export const E_APPROVAL_TOKEN_LEGACY = 'E_APPROVAL_TOKEN_LEGACY' as const;
 
+/** Resume audit records cannot authorize another playbook execution. */
+export const E_APPROVAL_RESUME_TRACE = 'E_APPROVAL_RESUME_TRACE' as const;
+
 /**
- * Refuse a legacy gate before deciding it, including idempotent decisions.
- * Existing rows stay intact and pending runs remain paused for explicit recovery.
+ * Refuse legacy gates and resume traces as approval or execution authority.
+ * Rejection can clear an old pending trace without authorizing execution.
  *
  * @param token - Token of a stored approval gate.
- * @throws {CleoError} A typed refusal naming how to request a fresh gate.
+ * @param decision - Rejection may clear an old pending resume audit record.
+ * @throws A {@link CleoError} naming how to re-request a gate or clear a trace.
  * @remarks This version check follows exact-token lookup; it does not grant caller authority.
  * @example
  * ```typescript
- * assertCurrentApprovalToken(approval.token);
+ * assertCurrentApprovalToken(approval.token, 'approved');
  * ```
  */
-export function assertCurrentApprovalToken(token: string): void {
+export function assertCurrentApprovalToken(
+  token: string,
+  decision?: Exclude<PlaybookApprovalStatus, 'pending'>,
+): void {
   if (/^v2:[0-9a-f]{32}$/.test(token)) return;
+  if (token.startsWith('resume:')) {
+    if (decision === 'rejected') return;
+    // @sync-invariant none:input-shape resume audit records cannot authorize a gate decision or execution
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      'This row is a resume audit trace, not an approval gate.',
+      {
+        codeName: E_APPROVAL_RESUME_TRACE,
+        fix: 'The owner can clear a pending resume trace with cleo orchestrate reject <resumeToken> --reason "clear resume trace". Resolved traces need no action and cannot resume a playbook.',
+      },
+    );
+  }
   // @sync-invariant none:input-shape legacy approval tokens cannot authorize a new decision
   throw new CleoError(ExitCode.VALIDATION_ERROR, 'This gate uses a legacy approval token.', {
     codeName: E_APPROVAL_TOKEN_LEGACY,
@@ -304,7 +323,7 @@ function transitionGate(
   if (existing === undefined) {
     throw new Error(`${E_APPROVAL_NOT_FOUND}: no approval gate for token`);
   }
-  assertCurrentApprovalToken(readString(existing, 'token'));
+  assertCurrentApprovalToken(readString(existing, 'token'), next);
   const existingStatus = narrowStatus(readString(existing, 'status'));
   if (existingStatus !== 'pending') {
     const approvalId = readString(existing, 'approval_id');

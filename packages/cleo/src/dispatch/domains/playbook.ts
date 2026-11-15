@@ -42,12 +42,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PlaybookApproval, PlaybookRun, PlaybookRunStatus } from '@cleocode/contracts';
+import type { GatewaySource } from '@cleocode/contracts/gateway';
 import type { playbook as corePlaybook } from '@cleocode/core';
+import { CleoError } from '@cleocode/core/errors';
 import {
   listPlaybooks,
   PlaybookNotFoundError,
   resolvePlaybook,
 } from '@cleocode/core/playbooks/playbook-resolver';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { requireOwnerAuthority } from '@cleocode/core/security/owner-override-authority';
 import {
   type AgentDispatcher,
   type AgentDispatchInput,
@@ -784,7 +788,9 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
     // Locate the most recent approval row for this run via the token stored
     // on the run's most recent approval; fall back to re-loading by runId
     // when no approval has been issued yet.
-    const approvals = loadApprovalsForRun(db, runId);
+    const approvals = loadApprovalsForRun(db, runId).filter(
+      (approval) => !approval.token.startsWith('resume:'),
+    );
     if (approvals.length === 0) {
       return lafsError(
         'E_APPROVAL_NOT_FOUND',
@@ -854,6 +860,7 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
       const result = await resumePlaybook(opts);
       return lafsSuccess(toRunEnvelope(result), 'resume');
     } catch (err) {
+      if (err instanceof CleoError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       if (message.startsWith(E_PLAYBOOK_RESUME_BLOCKED)) {
         return lafsError(E_PLAYBOOK_RESUME_BLOCKED, message, 'resume');
@@ -927,7 +934,11 @@ export class PlaybookHandler implements DomainHandler {
   /**
    * Mutate gateway — `run` and `resume`.
    */
-  async mutate(operation: string, params?: Record<string, unknown>): Promise<DispatchResponse> {
+  async mutate(
+    operation: string,
+    params?: Record<string, unknown>,
+    source: GatewaySource = 'cli',
+  ): Promise<DispatchResponse> {
     const startTime = Date.now();
     if (!MUTATE_OPS.has(operation)) {
       return unsupportedOp('mutate', 'playbook', operation, startTime);
@@ -938,6 +949,25 @@ export class PlaybookHandler implements DomainHandler {
         operation as keyof PlaybookOps & string,
         params ?? {},
       );
+      if (
+        envelope.success &&
+        typeof envelope.data === 'object' &&
+        envelope.data !== null &&
+        'approvalToken' in envelope.data
+      ) {
+        try {
+          await requireOwnerAuthority(getProjectRoot(), undefined, source);
+        } catch (error) {
+          if (
+            !(error instanceof CleoError) ||
+            !['E_OVERRIDE_NOT_OWNER', 'E_OVERRIDE_FORBIDDEN_AGENT_ROLE'].includes(
+              error.codeName ?? '',
+            )
+          )
+            throw error;
+          delete envelope.data.approvalToken;
+        }
+      }
       return {
         meta: dispatchMeta('mutate', 'playbook', operation, startTime),
         success: envelope.success,

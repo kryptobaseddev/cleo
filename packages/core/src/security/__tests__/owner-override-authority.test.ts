@@ -23,7 +23,11 @@ import {
   deriveOwnerAuthToken,
   OWNER_SESSION_MARK,
 } from '../owner-override-auth.js';
-import { ownerMarkRefusal, resolveOwnerOverride } from '../owner-override-authority.js';
+import {
+  ownerMarkRefusal,
+  requireOwnerAuthority,
+  resolveOwnerOverride,
+} from '../owner-override-authority.js';
 
 // The fixtures simulate the owner independently of the worker invoking vitest.
 vi.hoisted(() => {
@@ -100,6 +104,19 @@ describe('resolveOwnerOverride (T13790)', () => {
       reason: 'T13790 test',
       sessionId: id,
     });
+  });
+
+  it.each([
+    'http',
+    'rpc',
+    'mcp',
+  ] as const)('%s cannot borrow the serving process owner session and terminal', async (source) => {
+    const id = await session('ses_owner_server', true);
+    await expect(requireOwnerAuthority(env.tempDir, id, source)).rejects.toMatchObject({
+      codeName: 'E_OVERRIDE_NOT_OWNER',
+      fix: expect.stringContaining('own terminal'),
+    });
+    await expect(requireOwnerAuthority(env.tempDir, id, 'cli')).resolves.toBe(id);
   });
 
   it('red: an unlabelled agent (no CLEO_AGENT_ROLE, session not owner-marked) is refused and audited', async () => {

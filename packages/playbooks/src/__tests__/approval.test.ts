@@ -23,6 +23,7 @@ import {
   getPlaybookSecret,
   rejectGate,
 } from '../approval.js';
+import { createPlaybookApproval } from '../state.js';
 import { applyPlaybookTwinSchema } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
@@ -229,6 +230,26 @@ describe('W4-16: Approval DB operations', () => {
         status: 'pending',
       }),
     ]);
+  });
+
+  it('a resume trace can only be rejected to clear it from pending', () => {
+    const trace = createPlaybookApproval(db, {
+      runId: 'run-1',
+      nodeId: 'gate',
+      token: 'resume:legacy-token:1234',
+    });
+    expect(() => approveGate(db, trace.token, 'owner')).toThrowError(
+      expect.objectContaining({
+        codeName: 'E_APPROVAL_RESUME_TRACE',
+        fix: expect.stringContaining('cleo orchestrate reject <resumeToken>'),
+      }),
+    );
+    expect(getPendingApprovals(db)).toHaveLength(1);
+    expect(rejectGate(db, trace.token, 'owner', 'clear resume trace')).toMatchObject({
+      status: 'rejected',
+      reason: 'clear resume trace',
+    });
+    expect(getPendingApprovals(db)).toEqual([]);
   });
 
   it('rejectGate throws E_APPROVAL_ALREADY_DECIDED for already-rejected gate', () => {
