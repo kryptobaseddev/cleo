@@ -242,7 +242,9 @@ These are tracked in T14606.
    so `/api/brain/stream` never emits `message.send`.
 3. **Two maintenance endpoints call missing commands.** `cleo nexus doctor` and
    `cleo nexus gc` do not exist, so `/api/project/doctor` and `/api/project/gc`
-   always fail with `400 CLI_FAILURE`.
+   always fail with HTTP 400 and code `E_DOCTOR_FAILED` or `E_GC_FAILED`
+   (`doctor/+server.ts:52`, `gc/+server.ts:47`; `executeCliAction` defaults to
+   `CLI_FAILURE` only when a route passes no code).
 4. **Write routes outside the guard.** The same-origin guard covers only `/api/project`
    and `/api/tasks`. `POST`/`DELETE /api/credentials*`, `POST /api/setup/section/*`
    and the `POST /api/memory/*` writes are unguarded.
