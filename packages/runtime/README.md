@@ -6,11 +6,11 @@ Runtime layer for CLEO. It has three parts, exported as separate subpaths:
 
 | Subpath | What it is | Status |
 |---|---|---|
-| `@cleocode/runtime/gateway` (+ `/gateway/dispatch`, `/gateway/http`, `/gateway/rpc`, `/gateway/mcp`) | The transport-agnostic CQRS dispatcher behind the CLI: the CLI adapter injects the domain handlers and middleware (`packages/cleo/src/dispatch/adapters/cli.ts`) | Kept (ADR-098). The MCP server under `/gateway/mcp` is not wired to any command; wiring it as `cleo mcp serve` or deleting it is an open owner call in ADR-098. |
-| `@cleocode/runtime/daemon` | `defineSubsystem` and the subsystem registry: one `start → healthProbe → shutdown` lifecycle for long-running concerns (the web server, the docs viewer, the GC cron), reported to the Rust `cleo-supervisor` | In use |
-| `@cleocode/runtime` (root) | `createRuntime()` and the agent services below (poller, heartbeat, key rotation, SSE) | **Retiring (ADR-098).** No CLI command calls `createRuntime`; the services are removed with the other npm-breaking ADR-098 parts in one announced release. They target the SignalDock backend, which is deprecated (D11176: AgentMBX is CLEO's messaging layer). |
+| `@cleocode/runtime/gateway` (+ `/gateway/dispatch`, `/gateway/http`, `/gateway/rpc`, `/gateway/mcp`) | The transport-agnostic dispatcher behind the CLI. The CLI adapter injects the domain handlers and middleware (`packages/cleo/src/dispatch/adapters/cli.ts`). `/gateway/http` is the HTTP gateway with the versioned `/v1` REST facade, which `cleo daemon serve` starts (loopback `127.0.0.1:7777` by default) | Kept (ADR-098). The MCP server under `/gateway/mcp` is not wired to any command; wiring it as `cleo mcp serve` or deleting it is an open owner call in ADR-098. |
+| `@cleocode/runtime/daemon` | `defineSubsystem` and `SubsystemRegistry`: one `start → healthProbe → shutdown` lifecycle for long-running concerns. `cleo web` and `cleo docs viewer start` run as subsystems built with it; the core GC subsystem (`createGcSubsystem`) implements the same `Subsystem` contract. Also ships the NDJSON IPC clients for the Rust `cleo-supervisor` | In use |
+| `@cleocode/runtime` (root) | `createRuntime()`, the agent services (poller, heartbeat, key rotation, SSE) and the sentient subsystem adapter (`createSentientSubsystem`, `bootstrapSentientRegistry`) | **Frozen for removal (ADR-098).** Nothing in the CLI imports the root entry. ADR-098 deletes the services and the sentient subsystem host together with the other npm-breaking parts, in one announced release, after a release has shipped the freeze. The services were built for SignalDock, which is retired; AgentMBX is CLEO's messaging layer (D11176). |
 
-The rest of this README documents the root services as they ship today.
+The rest of this README documents the frozen root exports as they ship today.
 
 ## Install
 
@@ -18,7 +18,7 @@ The rest of this README documents the root services as they ship today.
 pnpm add @cleocode/runtime
 ```
 
-## Public API
+## Public API (root)
 
 ```ts
 import {
@@ -29,21 +29,20 @@ import {
   HeartbeatService,
   KeyRotationService,
   SseConnectionService,
+  createSentientSubsystem,
+  bootstrapSentientRegistry,
 } from '@cleocode/runtime';
 ```
 
-### `createRuntime(registry, config)`
+### `createRuntime(registry, config?)`
 
-Top-level entry point. Resolves an agent credential from the registry,
-configures the poller and ancillary services, opens the transport, and
-starts polling. Returns a `RuntimeHandle` for registering message
-handlers and stopping the runtime cleanly.
+Resolves an agent credential from the registry (`config.agentId`, else the active agent), resolves and connects a transport, configures the poller and the ancillary services, and returns a `RuntimeHandle`. `registry` is an `AgentRegistryAPI` (`@cleocode/contracts`); core's implementation is `AgentRegistryAccessor`. It throws when no agent credential is found.
 
 ```ts
 import { createRuntime } from '@cleocode/runtime';
-import { AgentRegistryAPI } from '@cleocode/core/internal';
+import { AgentRegistryAccessor } from '@cleocode/core/internal';
 
-const registry = new AgentRegistryAPI(/* ... */);
+const registry = new AgentRegistryAccessor('/path/to/project');
 const handle = await createRuntime(registry, {
   agentId: 'cleo-prime',
   pollIntervalMs: 5000,
@@ -63,7 +62,7 @@ handle.stop();
 
 ```ts
 interface RuntimeConfig {
-  agentId?: string;              // defaults to most recently active agent
+  agentId?: string;              // defaults to the active agent
   pollIntervalMs?: number;       // default: 5000
   groupConversationIds?: string[];
   groupPollLimit?: number;       // default: 15
@@ -89,79 +88,52 @@ interface RuntimeHandle {
 }
 ```
 
-`stop()` cleanly shuts down all services in order: SSE connection,
-heartbeat, key rotation, poller, transport.
+`heartbeat` and `keyRotation` are `null` when disabled or when the credential's base URL is a retired SignalDock host (T13169). `stop()` stops the poller, heartbeat, key rotation and SSE connection, then disconnects the transport.
 
 ## Services
 
 ### `AgentPoller`
 
-The core polling loop. Fetches direct messages and group-mention
-messages on a configurable interval, deduplicates against a high-water
-mark, and dispatches each new message to registered handlers.
+The polling loop. Fetches direct messages and group-conversation messages that mention the agent on a configurable interval, deduplicates by message ID across both sources, and dispatches each new message to the handlers registered with `onMessage()`.
 
 ### `HeartbeatService`
 
-Periodic agent presence reporting. Tells the SignalDock backend that
-the agent is alive so other agents can route messages to it without
-hitting offline timeouts. Disabled when `heartbeatIntervalMs === 0`.
+Sends a periodic online-status heartbeat to the agent's cloud API. Failures are retried silently. A retired SignalDock host is refused before any network I/O. Disabled when `heartbeatIntervalMs === 0`.
 
 ### `KeyRotationService`
 
-Watches the agent's transport credential age and rotates the API key
-before it expires. Maintains zero-downtime rotation by overlapping the
-old and new keys for one poll cycle. Disabled when `maxKeyAgeMs === 0`.
+Checks the credential's age on an interval and calls the registry's `rotateKey()` once it is older than `maxKeyAgeMs`. A failed rotation is retried on the next check. Disabled when `maxKeyAgeMs === 0`.
 
 ### `SseConnectionService`
 
-Optional persistent Server-Sent Events connection for sub-second
-message delivery. When configured, the poller throttles down to a
-slower interval and SSE handles the realtime path. Falls back
-automatically to pure polling on connection loss.
+Optional persistent Server-Sent Events connection for real-time delivery, started only when an SSE endpoint and a `createSseTransport` factory are both present. When the SSE transport falls back to HTTP polling, the service keeps running.
 
-## Architecture
+### Sentient subsystem
+
+`createSentientSubsystem` expresses the sentient daemon lifecycle as one `Subsystem` for hosts that drive a `SubsystemRegistry`; `bootstrapSentientRegistry(projectRoot, opts?)` boots the sentient daemon through a `SubsystemRegistry`, installing SIGTERM/SIGINT handlers that shut it down. ADR-098 removes this host along with the services.
+
+## Transport resolution
+
+When `config.transport` is not given, `createRuntime()` uses core's `conduit.resolveTransport()` (`packages/core/src/conduit/factory.ts`):
+
+1. `LocalTransport` when the project store exists: messages are read and written in the project `cleo.db`, with no network.
+2. `SseTransport` when the credential is cloud-backed and has an SSE endpoint.
+3. `HttpTransport` otherwise. Its `connect()` refuses a retired SignalDock host.
 
 ```
-┌──────────────────────────────────────────┐
-│ caller (no CLI command calls it today)   │
-└────────────────┬─────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────┐
-│ @cleocode/runtime  createRuntime()       │
-│   ┌────────────────────────────────┐     │
-│   │ AgentPoller        (poll loop) │     │
-│   │ HeartbeatService   (presence)  │     │
-│   │ KeyRotationService (creds)     │     │
-│   │ SseConnectionService (realtime)│     │
-│   └────────────────────────────────┘     │
-└────────────────┬─────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────┐
-│ @cleocode/contracts  Transport interface │
-│   resolves to Local | SSE | HTTP         │
-└────────────────┬─────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────┐
-│ SignalDock backend (local or cloud)      │
-└──────────────────────────────────────────┘
+caller (nothing in the CLI calls it today)
+        │
+        ▼
+@cleocode/runtime  createRuntime()
+  AgentPoller · HeartbeatService · KeyRotationService · SseConnectionService
+        │
+        ▼
+Transport (@cleocode/contracts), resolved by core conduit: Local | SSE | HTTP
 ```
-
-The runtime is **transport-agnostic**: it works with the local
-napi-rs SignalDock binding (in-process), SSE realtime, or HTTP polling
-against `api.signaldock.io`. The transport layer is selected by
-`createRuntime()` based on whether `sseEndpoint` and `transport` are
-present in the config.
 
 ## CANT profile execution
 
-`createRuntime()` does **not** execute `.cant` workflow profiles. The only
-workflow interpreter is the Pi `cant-bridge` extension, which retires with the
-Pi/CleoOS harness (ADR-098, which supersedes ADR-035). CLEO keeps deterministic
-`.cant` pipelines (`cleo cant execute <file> --pipeline <name>`); CLEO Goal
-(ADR-097) is the autonomous driver.
+`createRuntime()` does **not** execute `.cant` workflow profiles. CLEO runs deterministic `.cant` pipelines with `cleo cant execute <file> --pipeline <name>`; LLM-dependent constructs go through the Pi `cant-bridge` extension (`packages/cleo-os/extensions/cleo-cant-bridge.ts`), which retires with the Pi/CleoOS harness (ADR-098, which supersedes ADR-035). CLEO Goal (ADR-097) is the autonomous driver.
 
 ## Testing
 
@@ -169,15 +141,14 @@ Pi/CleoOS harness (ADR-098, which supersedes ADR-035). CLEO keeps deterministic
 pnpm --filter @cleocode/runtime test
 ```
 
-Tests use mocked transports from `@cleocode/contracts` to exercise the
-poller and service lifecycle without hitting a real backend.
+Tests live in `src/__tests__/`, `src/daemon/__tests__/` and `src/gateway/**/__tests__/`.
 
 ## Related
 
-- [`@cleocode/contracts`](../contracts) — Transport interface and message types
-- [`@cleocode/core`](../core) — agent registry, credential storage, message persistence
-- [`packages/cleo/src/dispatch/adapters/cli.ts`](../cleo/src/dispatch/adapters/cli.ts) — the CLI adapter over the gateway dispatcher
-- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md) — the original runtime/Pi boundary (superseded by ADR-098)
+- [`@cleocode/contracts`](../contracts): Transport interface, `AgentRegistryAPI`, `Subsystem` and message types
+- [`@cleocode/core`](../core): agent registry, credential storage, conduit transports
+- [`packages/cleo/src/dispatch/adapters/cli.ts`](../cleo/src/dispatch/adapters/cli.ts): the CLI adapter over the gateway dispatcher
+- [`docs/adr/adr-035-pi-v2-v3-harness.md`](../../docs/adr/adr-035-pi-v2-v3-harness.md): the original runtime/Pi boundary (superseded by ADR-098)
 
 ## License
 

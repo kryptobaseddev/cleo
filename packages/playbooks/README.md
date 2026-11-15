@@ -2,44 +2,71 @@
 
 > Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
 
-**Playbook DSL + runtime for CLEO — T889 Orchestration Coherence v3.**
+**Playbook DSL and runtime for CLEO.**
 
-Playbooks are `.cantbook` YAML documents that describe a multi-step agent workflow as a DAG of nodes (agentic, deterministic, and approval gates) connected by typed edges. This package parses them, persists execution state to the project `cleo.db` (`tasks_playbook_runs`, `tasks_playbook_approvals`), evaluates HITL auto-policies, and manages HMAC-signed approval tokens for human-in-the-loop gates.
+Playbooks are `.cantbook` YAML documents that describe a multi-step workflow as
+a DAG of nodes (agentic, deterministic and approval gates) joined by edges
+with optional contracts. This package parses them, runs them as a state
+machine, persists run state to the project `cleo.db`
+(`tasks_playbook_runs`, `tasks_playbook_approvals`), and issues HMAC resume
+tokens for human-in-the-loop approval gates.
 
-## Status
+> **ADR-098** (`cleo docs fetch adr-098-retire-the-pi-cleoos-harness`): CLEO
+> Goal ([ADR-097](../../docs/adr/ADR-097-goal-protocol-ocg-runtime.md)) is
+> CLEO's one autonomous driver and replaces playbook *agent* steps as the way
+> CLEO drives work. Deterministic and approval nodes stay. The `playbooks`
+> namespace parts ADR-098 removes ship together in one announced release.
 
-| Wave | Concern | Status |
-|------|---------|--------|
-| W4-6 | Drizzle tables + types | shipped |
-| W4-7 | `.cantbook` YAML parser | shipped |
-| W4-8 | State layer CRUD | shipped |
-| W4-9 | HITL auto-policy evaluator | shipped |
-| W4-10 | State-machine runtime (`runtime.ts`) | shipped |
-| W4-16 | Approval resume tokens (HMAC) | shipped |
+## CLI
 
-The runtime executor (`runtime.ts`) ships, and the CLI exposes it: `cleo playbook run|status|resume|list|create|validate` and `cleo orchestrate approve|reject|pending` for the HITL gates.
+- `cleo playbook run <name>`: walks the graph until it completes, fails or
+  pauses at an approval gate.
+- `cleo playbook status`, `cleo playbook resume`, `cleo playbook list`:
+  inspect a run, resume a paused run once its gate is approved, list runs.
+- `cleo playbook create` / `cleo playbook validate`: scaffold a `.cantbook`
+  (via the playbook-architect meta-agent) or parse one (exit 70 on a parse
+  error).
+- `cleo orchestrate pending|approve|reject`: list pending gates, approve one by
+  its resume token, or reject one with a reason.
 
-> **ADR-098:** CLEO Goal (ADR-097) replaces playbook *agent* steps as the way CLEO drives work. Deterministic and approval nodes stay; the `playbooks` namespace parts ADR-098 removes ship together in one announced release.
+`cleo playbook run` resolves `<name>.cantbook` from three tiers
+(`packages/core/src/playbooks/playbook-resolver.ts`):
+`<project>/.cleo/playbooks/`, then `<cleoHome>/playbooks/`, then this
+package's `starter/` (`rcasd`, `ivtr`, `release`).
 
-## Install
+## How nodes run
 
-This is an internal monorepo package. Consumers use it via workspace dependency:
+The runtime (`src/runtime.ts`) is a pure state machine: it imports no
+subprocess code. The caller injects an `AgentDispatcher` for `agentic` nodes
+and a `DeterministicRunner` for `deterministic` nodes. The CLI wiring
+(`packages/cleo/src/dispatch/domains/playbook.ts`) does this:
 
-```jsonc
-// package.json
-{
-  "dependencies": {
-    "@cleocode/playbooks": "workspace:*"
-  }
-}
-```
+- **agentic**: the agent id is `node.agent ?? node.skill`.
+  `runSkillNodeOrSpawn` (`packages/core/src/playbooks/skill-node-executor.ts`)
+  runs the node **in-process** through the skill executor when that id is a
+  skill `findSkill` resolves and the dispatch context does not set
+  `isolation`. Otherwise it spawns a subagent through
+  `orchestrateSpawnExecute`.
+- **deterministic**: runs through the guarded runner
+  (`packages/core/src/playbooks/guarded-deterministic-runner.ts`), which sends
+  every command through the `createToolGuard` shell policy in `enforce` mode.
+  A denied command fails the node instead of spawning.
+- **approval**: the run is marked `paused`, an approval row with a resume
+  token is written, and the runtime returns `terminalStatus: 'pending_approval'`
+  with `approvalToken`. Approve or reject the gate, then resume.
+
+The runtime reports one of four terminal statuses: `completed`, `failed`,
+`pending_approval` or `exceeded_iteration_cap`. A failing node is retried up
+to its `on_failure.max_iterations` (runtime default 3); `requires`/`ensures`
+contract violations are appended to `.cleo/audit/contract-violations.jsonl`
+and trigger the `contract_violation` error handler.
 
 ## What a `.cantbook` looks like
 
 ```yaml
 version: "1.0"
 name: release-cut
-description: Cut a CalVer release and publish to npm
+description: Build, test, and publish after a human approves
 
 inputs:
   - name: version
@@ -57,15 +84,18 @@ nodes:
     command: pnpm
     args: [run, test]
     depends: [build]
+    on_failure:
+      max_iterations: 2
 
   - id: review
     type: approval
-    prompt: "Build + tests green. Publish {{ version }} to npm?"
+    policy: conservative
+    prompt: "Build + tests green. Publish {{inputs.version}} to npm?"
     depends: [test]
 
-  - id: publish
+  - id: notes
     type: agentic
-    skill: release-publisher
+    skill: ct-documentor
     depends: [review]
 
 edges:
@@ -77,94 +107,102 @@ edges:
   - from: test
     to: review
   - from: review
-    to: publish
+    to: notes
 
 error_handlers:
-  - on: test-failed
+  - on: contract_violation
     action: abort
-    message: "Tests failed — aborting release."
+    message: "Contract violated — aborting release."
 ```
 
-Validation rules enforced by the parser:
-- `version` MUST be `"1.0"`.
-- `name` MUST be non-empty.
-- Node `id`s MUST be unique.
-- Every `edges[].from` / `edges[].to` MUST reference a known node id.
-- Nodes + edges MUST form a DAG (no cycles).
-- `agentic` nodes MUST have `skill` OR `agent` (at least one).
-- `deterministic` nodes MUST have `command` + `args`.
-- `approval` nodes MUST have `prompt`.
-- `depends[]` entries MUST be valid node ids.
-- `iteration_cap` / `max_iterations` MUST be in `0..10` (hard limit).
+Parser rules (`src/parser.ts`; the first violation throws `PlaybookParseError`):
+
+- `version` MUST be `"1.0"`; `name` MUST be non-empty; `nodes` MUST be a
+  non-empty array.
+- Node `id`s MUST be unique; `type` MUST be `agentic`, `deterministic` or
+  `approval`.
+- `agentic` nodes MUST have `skill` or `agent` (at least one); `role`, when
+  set, is `orchestrator`, `lead` or `worker`.
+- `deterministic` nodes MUST have a non-empty `command` (`args` defaults to
+  `[]`).
+- `approval` nodes MUST have `prompt`; `policy`, when set, is `conservative`,
+  `permissive` or `custom`.
+- Every `edges[].from` / `edges[].to` and every `depends[]` entry MUST name a
+  known node; edges and `depends` together MUST form a DAG.
+- `on_failure.max_iterations` MUST be in `0..10`.
+- `error_handlers[].on` is `agentic_timeout`, `iteration_cap_exceeded` or
+  `contract_violation`; `action` is `inject_hint`, `hitl_escalate` or `abort`.
 
 ## Quick API
 
 ```typescript
 import {
-  parsePlaybook,
-  createPlaybookRun,
-  updatePlaybookRun,
-  evaluatePolicy,
-  createApprovalGate,
   approveGate,
-  rejectGate,
-  DEFAULT_POLICY_RULES,
+  createApprovalGate,
+  createPlaybookRun,
+  evaluatePolicy,
+  executePlaybook,
+  parsePlaybook,
+  resumePlaybook,
 } from '@cleocode/playbooks';
 
 // 1. Parse a .cantbook file
-const { playbook, hash } = parsePlaybook(yamlSource);
+const { definition, sourceHash } = parsePlaybook(yamlSource);
 
-// 2. Create a persisted run
-const run = createPlaybookRun(tasksDb, {
-  runId: 'run_abc123',
-  playbookName: playbook.name,
-  playbookHash: hash,
-  bindings: { version: '2026.4.90' },
-  epicId: 'T889',
-  sessionId: 'ses_xyz',
+// 2. Run it (db is the project cleo.db handle)
+const result = await executePlaybook({
+  db,
+  playbook: definition,
+  playbookHash: sourceHash,
+  initialContext: { version: '2026.4.90' },
+  dispatcher,            // AgentDispatcher for agentic nodes
+  deterministicRunner,   // optional; without one, deterministic nodes go to the dispatcher
 });
 
-// 3. Evaluate auto-policy at an approval node
-const { autoPassed, reason } = evaluatePolicy(node, DEFAULT_POLICY_RULES, context);
+// 3. A gate paused the run: approve it, then resume
+if (result.terminalStatus === 'pending_approval' && result.approvalToken) {
+  approveGate(db, result.approvalToken, 'keaton', 'LGTM');
+  await resumePlaybook({ db, playbook: definition, approvalToken: result.approvalToken, dispatcher });
+}
 
-// 4. Create an approval gate (pending) or auto-pass it
-const approval = createApprovalGate(tasksDb, {
-  runId: run.runId,
-  nodeId: 'review',
-  autoPassed,
-});
-
-// 5. Resolve the gate (human approves via the resume token)
-approveGate(tasksDb, approval.token, { approver: 'keaton', reason: 'LGTM' });
+// Lower-level pieces
+const run = createPlaybookRun(db, { playbookName: definition.name, playbookHash: sourceHash });
+const gate = createApprovalGate(db, { runId: run.runId, nodeId: 'review', bindings: {} });
+const decision = evaluatePolicy('git push origin main'); // { action: 'require-human', reason: 'push', ... }
 ```
 
 ## Database tables
 
-Both tables live in the project `cleo.db` as `tasks_playbook_runs` and `tasks_playbook_approvals` (schema: `packages/core/src/store/schema/cleo-project/`). They were first created by `packages/core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/` in the legacy `tasks.db`, before the store consolidated into `cleo.db`.
+Both tables live in the project `cleo.db` (schema:
+`packages/core/src/store/schema/cleo-project/runtime.ts`). They were first
+created in the legacy `tasks.db` by
+`packages/core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/`,
+before the store consolidated into `cleo.db`.
 
-### `playbook_runs`
+### `tasks_playbook_runs`
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `run_id` | text PK | caller-supplied run id |
-| `playbook_name` | text | from parsed playbook |
-| `playbook_hash` | text | SHA-256 of source (parser computes) |
+| `run_id` | text PK | generated by `createPlaybookRun` (UUID) |
+| `playbook_name` | text | from the parsed playbook |
+| `playbook_hash` | text | SHA-256 of the source (parser computes) |
 | `current_node` | text | id of the active node, `null` when done |
-| `bindings` | json text | accumulated input + per-node output bindings |
+| `bindings` | json text | accumulated input and per-node output bindings |
 | `error_context` | json text | populated when `status = 'failed'` |
-| `status` | text | `running \| paused \| failed \| succeeded \| cancelled` |
-| `iteration_counts` | json text | `{ nodeId: count }` — enforced against `iteration_cap` |
-| `epic_id` | text | linked task epic (optional) |
+| `status` | text | `running \| paused \| completed \| failed \| cancelled` |
+| `iteration_counts` | json text | `{ nodeId: count }`, checked against each node's cap |
+| `epic_id` | text | linked epic (optional) |
 | `session_id` | text | linked CLEO session (optional) |
-| `started_at` | text | ISO-8601, defaults to `now()` |
+| `started_at` | text | ISO-8601, defaults to now |
 | `completed_at` | text | ISO-8601 when terminal |
+| `uid` | text | unique row identity |
 
-### `playbook_approvals`
+### `tasks_playbook_approvals`
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `approval_id` | text PK | |
-| `run_id` | text | FK → `playbook_runs.run_id` |
+| `approval_id` | text PK | UUID |
+| `run_id` | text | the run (no foreign-key constraint) |
 | `node_id` | text | approval node id in the playbook |
 | `token` | text UNIQUE | HMAC resume token |
 | `requested_at` | text | ISO-8601 |
@@ -172,21 +210,26 @@ Both tables live in the project `cleo.db` as `tasks_playbook_runs` and `tasks_pl
 | `approver` | text | who acted |
 | `reason` | text | free-form rationale |
 | `status` | text | `pending \| approved \| rejected` |
-| `auto_passed` | int 0/1 | set by the policy evaluator |
+| `auto_passed` | int 0/1 | gate created already approved |
+| `uid` | text | unique row identity |
 
 ## Approval tokens (HMAC)
 
-Resume tokens are HMAC-SHA-256 signed with the secret resolved from `getPlaybookSecret(env)`:
+`generateResumeToken(runId, nodeId, bindings, secret)` returns `v2:` followed by
+the first 32 lowercase hex characters of HMAC-SHA-256 over
+`runId:nodeId:<bindings as sorted-key JSON>`.
+The secret comes from `getPlaybookSecret(env)`:
 
 1. A nonempty `CLEO_PLAYBOOK_SECRET`, when configured.
 2. Otherwise a purpose-bound key derived from the installation's private
    `machine-key` in CLEO home. The credential machinery creates that key once,
    exclusively, with permission and length checks. There is no public fallback.
 
-Tokens have the form `v2:<32 hex characters>`, binding the run id, node id and
-canonical bindings through HMAC. Decisions look up the exact stored token and
-refuse already-decided gates (`E_APPROVAL_ALREADY_DECIDED`). Legacy tokens are
-refused with `E_APPROVAL_TOKEN_LEGACY`: request a fresh gate with
+`approveGate` / `rejectGate` look the gate up by its exact stored token and only
+move a `pending` gate: an unknown token fails with `E_APPROVAL_NOT_FOUND`, an
+already-decided gate with `E_APPROVAL_ALREADY_DECIDED`.
+
+Legacy tokens are refused with `E_APPROVAL_TOKEN_LEGACY`: request a fresh gate with
 `cleo playbook run <name>`. Existing legacy rows remain intact; restarting a
 playbook executes its earlier steps again, so the owner must review those steps
 before restarting it.
@@ -201,24 +244,36 @@ are trusted in-process APIs; the dispatch boundary enforces caller authority.
 
 ## Error codes
 
-| Constant | Meaning |
-|----------|---------|
-| `E_APPROVAL_NOT_FOUND` | Token does not match any pending approval row |
-| `E_APPROVAL_ALREADY_DECIDED` | Approval is already `approved` or `rejected` |
+| Code | Meaning |
+|------|---------|
+| `E_APPROVAL_NOT_FOUND` | No approval row matches the token |
+| `E_APPROVAL_ALREADY_DECIDED` | The approval is already `approved` or `rejected` |
 | `E_APPROVAL_TOKEN_LEGACY` | Re-request the gate using a fresh playbook run |
 | `E_OVERRIDE_NOT_OWNER` | The caller has no owner-marked session or own terminal |
 | `E_OVERRIDE_FORBIDDEN_AGENT_ROLE` | The caller runs as a restricted agent role |
-| `PlaybookParseError` | Thrown by `parsePlaybook` with a list of validation issues |
+| `E_PLAYBOOK_PARSE` | `PlaybookParseError` from `parsePlaybook` (exit code 70), with the offending `field` and `value` |
+| `E_PLAYBOOK_RESUME_BLOCKED` | `resumePlaybook` got a token that does not resolve to an `approved` gate |
+| `E_PLAYBOOK_RUNTIME_INVALID` | Invalid runtime input, e.g. no entry node, or a node with more than one unconditional successor |
 
 ## Policy evaluator
 
-`evaluatePolicy(node, rules, context)` matches an approval node against an ordered list of `PolicyRule`s. The first rule that matches decides: `autoPassed: true | false` plus a `reason`. Used to let low-risk approval gates auto-pass (e.g. "build dist unchanged from last green run") without bothering a human. `DEFAULT_POLICY_RULES` ships a safe conservative default set.
+`evaluatePolicy(command, rules = DEFAULT_POLICY_RULES)` classifies a resolved
+command string as `auto-approve` or `require-human`. Every `require-human`
+rule is tested before any `auto-approve` rule, so an appended auto-approve
+rule cannot override a block in the same list, and an unmatched command
+returns `{ action: 'require-human', reason: 'default' }`.
+`DEFAULT_POLICY_RULES` blocks publish, push, tag, release and workflow
+triggers, and auto-approves a small set of QA tools and read-only `cleo`
+verbs.
 
 ## Related packages
 
-- **`@cleocode/contracts`** — `PlaybookDefinition`, `PlaybookRun`, `PlaybookApproval` type contracts consumed here.
-- **`@cleocode/core`** — owns the `cleo.db` lifecycle and its migrations.
-- **`@cleocode/cleo`** — CLI surface: `cleo playbook run|status|resume|list|create|validate` and `cleo orchestrate approve|reject|pending`.
+- **`@cleocode/contracts`**: `PlaybookDefinition`, `PlaybookRun`,
+  `PlaybookApproval` and the other playbook types used here.
+- **`@cleocode/core`**: owns `cleo.db` and its migrations, the playbook
+  resolver, the skill-node executor and the guarded deterministic runner.
+- **`@cleocode/cleo`**: the `cleo playbook` and `cleo orchestrate
+  approve|reject|pending` commands.
 
 ## Testing
 
@@ -226,4 +281,5 @@ are trusted in-process APIs; the dispatch boundary enforces caller authority.
 pnpm --filter @cleocode/playbooks test
 ```
 
-Smoke, parser, schema, state, policy, and approval test suites cover the shipped surface.
+Suites in `src/__tests__/` cover the parser, schema, state, policy, approvals,
+runtime, guarded deterministic dispatch and the starter playbooks.
