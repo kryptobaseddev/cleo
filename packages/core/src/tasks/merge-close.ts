@@ -994,7 +994,6 @@ function headCiUnfinished(pr: MergedPrRecord): boolean {
 async function applyDirective(
   storeRoot: string,
   root: string,
-  required: readonly string[],
   pr: MergedPrRecord,
   receipt: MergeReceipt,
   directive: MergeDirective,
@@ -1190,16 +1189,7 @@ async function applyMergedPrs(
       continue;
     }
     for (const directive of receipt.directives) {
-      const applied = applyDirective(
-        storeRoot,
-        root,
-        required,
-        pr,
-        receipt,
-        directive,
-        deps,
-        dryRun,
-      );
+      const applied = applyDirective(storeRoot, root, pr, receipt, directive, deps, dryRun);
       const { reran, ciWait, ...outcome } = await applied.catch(
         (err: Error): MergeTaskOutcome & { reran?: boolean; ciWait?: boolean } => ({
           taskId: directive.taskId,
