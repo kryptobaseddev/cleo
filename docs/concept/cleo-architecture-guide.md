@@ -6,10 +6,20 @@ and the code disagree, the code wins.
 
 ## What CLEO is
 
-CLEO is a harness-agnostic core for agent work (ADR-098, D11170). It does not
-launch or run agents. Claude Code, Codex, OpenCode, Kimi, Gemini and other
-harnesses do that, and their agents call CLEO through the `cleo` CLI. Every
+CLEO is a harness-agnostic core for agent work (ADR-098, D11170). It has no
+agent loop of its own. Agents run inside a harness (Claude Code, Codex,
+OpenCode, Kimi, Gemini and others) and call CLEO through the `cleo` CLI. Every
 call returns one LAFS envelope on stdout (ADR-086).
+
+CLEO can start a harness, but it does not run it.
+`cleo orchestrate spawn-execute` launches a worker: it calls the provider
+adapter's `spawn()` (`packages/core/src/orchestrate/spawn-ops.ts`), which
+starts the harness CLI as a child process, for example `claude`, `codex` or
+`opencode` (`packages/adapters/src/providers/*/spawn.ts`). Some adapters
+cannot spawn; Cursor's throws. Run inside Orca, the launch goes through Orca's
+execution port (`OrcaRoutingAdapter`) and the worker opens in an Orca
+terminal. From then on, the turns, tools and model belong to the
+harness.
 
 CLEO keeps the state that outlives one agent session:
 
@@ -23,7 +33,7 @@ CLEO used to plan its own harness: Pi, then the CleoOS distribution around it.
 ADR-098 retired that plan. `@cleocode/cleo-os` and the Pi surfaces are frozen
 for removal, and nothing in the core loop imports them.
 
-## The core systems
+## The Six Great Systems
 
 | System | What it holds | Where to start |
 |---|---|---|
@@ -50,8 +60,13 @@ These run beside CLEO and talk to it through the CLI or a published contract:
   their reports to the lead over AgentMBX (D11242, epic T14451).
 - **CLEO Goal** (`@cleocode/goal`, bin `cleo-goal`) is the one autonomous
   driver (ADR-097). It keeps an agent working toward a `goal/v1` contract
-  through each harness's own Stop hook. It talks to CLEO only through the CLI.
+  through the harness's own Stop hook, and talks to CLEO only through the CLI.
   `cleo goal draft|install|status|close` manages it from the CLEO side.
+  `cleo goal install --harness` supports `opencode` (through
+  `cleo-goal install --project`), `claude` and `codex` (through the project
+  Stop dispatcher, `cleo hook stop`). `hermes` and `kimi` refuse with
+  `E_NOT_IMPLEMENTED` until their pilot lands (T13822;
+  `packages/core/src/goal/runtime.ts`).
 - **CAAMP** (`@cleocode/caamp`) is the provider registry and package manager
   for agent harnesses. It knows each provider's config, skills and instruction
   files, and owns the managed instruction blocks CLEO writes into them.
@@ -84,7 +99,7 @@ from.
 `.cleo/cleo.db` and the other runtime files are never committed. The identity
 files `.cleo/project.json` and `.cleo/project-id` are (ADR-094, ADR-096).
 
-## Dispatch domains
+## Dispatch domains (once the Circle of Eleven)
 
 Every operation is addressed as `{domain}.{operation}` (for example
 `tasks.add`, `memory.observe`) through one of two gateways: `query` (reads,
@@ -103,7 +118,8 @@ never change state) or `mutate` (writes). The closed list of domains is
 The registry (`packages/cleo/src/dispatch/registry.ts`) and the
 [operation constitution](../spec/cleo-operation-constitution.md) list each
 domain's operations. Messaging is not a domain: T13955 removed `conduit` when
-messaging moved to AgentMBX.
+messaging moved to AgentMBX. The "Circle of Eleven" was the original eleven
+domains, from `tasks` to `intelligence`; the other seventeen came later.
 
 ## Request flow
 
