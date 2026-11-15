@@ -1,173 +1,129 @@
-# CLEO Architecture Guide — How Everything Fits Together
+# CLEO Architecture Guide
 
-**Version**: 1.0.0
-**Status**: CANONICAL
-**Author**: @cleo-historian
-**Date**: 2026-03-31
-**Canonical Location**: `docs/concepts/CLEO-ARCHITECTURE-GUIDE.md`
+How the parts of CLEO fit together, in plain words. Read this before the
+formal specs. Checked against the code on 2026-11-15 (T14108); where this guide
+and the code disagree, the code wins.
 
----
+## What CLEO is
 
-## Purpose
+CLEO is a harness-agnostic core for agent work (ADR-098, D11170). It has no
+agent loop of its own. Agents run inside a harness (Claude Code, Codex,
+OpenCode, Kimi, Gemini and others) and call CLEO through the `cleo` CLI. Every
+call returns one LAFS envelope on stdout (ADR-086).
 
-This is the plain-English guide to the CLEO architecture. No jargon soup. No abbreviation storms. If you're an agent coming online for the first time, a developer trying to understand the codebase, or a human who wants to know what all these names mean — start here.
+CLEO can start a harness, but it does not run it.
+`cleo orchestrate spawn-execute` launches a worker: it calls the provider
+adapter's `spawn()` (`packages/core/src/orchestrate/spawn-ops.ts`), which
+starts the harness CLI as a child process, for example `claude`, `codex` or
+`opencode` (`packages/adapters/src/providers/*/spawn.ts`). Some adapters
+cannot spawn; Cursor's throws. Run inside Orca, the launch goes through Orca's
+execution port (`OrcaRoutingAdapter`) and the worker opens in an Orca
+terminal. From then on, the turns, tools and model belong to the
+harness.
 
-The technical specs live in `docs/specs/`. This document tells you *what things are* and *how they relate* before you dive into the formal contracts.
+CLEO keeps the state that outlives one agent session:
 
----
+- the work (tasks, epics, acceptance criteria, evidence);
+- the lifecycle each piece of work is in;
+- what agents learned (memory and decisions);
+- the canonical docs;
+- the links between projects and their code.
 
-## Agent Messaging
-
-CLEO does not run its own message transport. **AgentMBX** is CLEO's messaging layer (D11176): every agent-to-agent message, same project or across machines, goes through the `mbx` mailbox and its daemon, with one inbox and one history. Orca dispatches workers and relays their reports over the same mailbox (D11242).
-
-```
-CANT       — WHAT agents say        (the grammar)
-AgentMBX   — HOW messages move      (the mailbox: send, inbox, read, reply, ack)
-Dispatch   — WHERE work routes      (11 domains, `cleo <command>`)
-LOOM       — WHAT STAGE work is in  (the lifecycle)
-CAAMP      — WHEN events fire       (the hooks)
-```
-
-### CANT — The Language Agents Speak
-
-Collaborative Agent Notation Tongue. When an agent posts:
-
-```
-/done @all T213 #shipped
-```
-
-That's CANT. The `/done` is a directive. `@all` is an address. `T213` is a task reference. `#shipped` is a tag. CANT is the grammar — the rules for how agents talk to each other and to CLEO.
-
-CANT is **not** a transport. It defines what messages look like; AgentMBX carries them.
-
-### Conduit and SignalDock (legacy)
-
-- **Conduit** is legacy: only a thin client over AgentMBX, with no standalone database or transport of its own.
-- **SignalDock** is deprecated. Its cloud API, `signaldock.db` and the Local/SSE/HTTP transport stack are no longer how CLEO agents talk.
-
----
+CLEO used to plan its own harness: Pi, then the CleoOS distribution around it.
+ADR-098 retired that plan. `@cleocode/cleo-os` and the Pi surfaces are frozen
+for removal, and nothing in the core loop imports them.
 
 ## The Six Great Systems
 
-These are the foundational systems that define what CLEO *is*. They are immutable — they don't change, they don't merge, they don't get replaced.
+| System | What it holds | Where to start |
+|---|---|---|
+| **TASKS** | Work: epics, tasks, subtasks, dependencies, acceptance criteria, evidence gates, claims, audit history | `cleo focus <id>`, `cleo find`, `cleo show <id> --full` |
+| **LOOM** | The lifecycle: research, consensus, architecture decision, specification, decomposition, implementation, validation, testing, release, plus a cross-cutting contribution stage (`packages/core/src/lifecycle/stages.ts`) | `cleo lifecycle`, `cleo orchestrate` |
+| **BRAIN** | Memory: observations, lessons, decisions and the links between them, searched cheaply first and fetched in full only when needed | `cleo memory find`, `timeline`, `fetch`, `observe` |
+| **NEXUS** | The project registry and code intelligence: which projects exist on this machine, and a symbol graph for impact and context queries | `cleo nexus impact <symbol>`, `cleo nexus context` |
+| **Docs store** | Canonical docs (ADRs, specs, guides, plans and the rest) as content-addressed blobs; `docs/` holds published mirrors (ADR-076) | `cleo docs query`, `fetch`, `update`, `publish` |
+| **CANT** | The agent definition language: `.cant` files that declare agents, skills, hooks and workflows, parsed and validated by `@cleocode/cant` | [CANT reference](../reference/cant.md) |
 
-### TASKS — Work Tracking
+BRAIN, NEXUS and the docs store are systems, not files. Each has its own
+search, linking and repair verbs. Reach them through `cleo`, never by reading
+the database.
 
-The task management system. TASKS is the foundation: every piece of work from epics to subtasks lives here. It stores task hierarchy, dependencies, status, audit history, and lifecycle pipeline state in `tasks.db`.
+## Around the core
 
-### LOOM — Logical Order of Operations Methodology
+These run beside CLEO and talk to it through the CLI or a published contract:
 
-The lifecycle framework. LOOM defines how work flows from idea to shipped product through the **RCASD-IVTR+C pipeline**:
+- **AgentMBX** carries every agent-to-agent message, same project or across
+  machines: one mailbox, one inbox, one history (D11176). CLEO runs no message
+  transport of its own. Conduit survives only as a thin client over AgentMBX,
+  and SignalDock is retired.
+- **Orca** launches workers in harness terminals, supervises them and relays
+  their reports to the lead over AgentMBX (D11242, epic T14451).
+- **CLEO Goal** (`@cleocode/goal`, bin `cleo-goal`) is the one autonomous
+  driver (ADR-097). It keeps an agent working toward a `goal/v1` contract
+  through the harness's own Stop hook, and talks to CLEO only through the CLI.
+  `cleo goal draft|install|status|close` manages it from the CLEO side.
+  `cleo goal install --harness` supports `opencode` (through
+  `cleo-goal install --project`), `claude` and `codex` (through the project
+  Stop dispatcher, `cleo hook stop`). `hermes` and `kimi` refuse with
+  `E_NOT_IMPLEMENTED` until their pilot lands (T13822;
+  `packages/core/src/goal/runtime.ts`).
+- **CAAMP** (`@cleocode/caamp`) is the provider registry and package manager
+  for agent harnesses. It knows each provider's config, skills and instruction
+  files, and owns the managed instruction blocks CLEO writes into them.
+- **Provider adapters** (`@cleocode/adapters`) deliver CLEO's instructions and
+  hooks into each harness.
+- **LAFS** (`@cleocode/lafs`) is the envelope format every `cleo` call returns
+  ([LAFS envelope contract](../spec/lafs-envelope-contract.md)).
+- **Skills** (`packages/skills/skills/`) are the `ct-*` instructions spawned
+  agents read ([skills architecture](skills-architecture.md)).
 
-**Planning Phase (RCASD)**:
-1. **R**esearch — Gather information before deciding
-2. **C**onsensus — Validate recommendations with evidence
-3. **A**rchitecture — Document decisions (ADRs)
-4. **S**pecification — Formal requirements (RFC 2119)
-5. **D**ecomposition — Break into atomic tasks
+## Where the data lives
 
-**Execution Phase (IVTR)**:
-6. **I**mplementation — Write code
-7. **V**alidation — Verify against spec
-8. **T**esting — Test suites
-9. **R**elease — Version, document, ship
+CLEO keeps its state in one SQLite file per scope, opened only through
+`openDualScopeDb` (`packages/core/src/store/dual-scope-db.ts`):
 
-**Cross-Cutting (+C)**:
-10. **C**ontribution — Attribution tracking across all stages
+| Scope | File | Holds |
+|---|---|---|
+| Project | `<project>/.cleo/cleo.db` | `tasks_*`, project `brain_*` memory, `docs_*`, lifecycle, provenance, playbooks, agents, telemetry |
+| Global | `<cleoHome>/cleo.db` | `nexus_*`, `skills_*`, global `brain_*` memory |
 
-LOOM is **not** a pipeline. `pipeline` is a domain (The Weavers) that *implements* LOOM's lifecycle gates. LOOM is the methodology — the framework that says "work flows through these stages in this order." The domain enforces it at runtime.
+`<cleoHome>` is `~/.local/share/cleo` on Linux and
+`~/Library/Application Support/cleo` on macOS; `CLEO_HOME` overrides it.
 
-### BRAIN — Memory & Cognition
+Small `tasks.db` files and `tasks-*.db` backup snapshots are decoys. Never read
+`.cleo/*.db` directly; `cleo doctor superseded-store` proves which store holds
+the data. Doc content lives in the blob store under `.cleo/blobs/`, and the
+`docs_publications` table records which blob each `docs/` mirror was written
+from.
 
-The memory system. BRAIN stores everything agents learn across sessions: observations, patterns, learnings, decisions. It lives in `brain.db` with FTS5 full-text search and vector embeddings.
+`.cleo/cleo.db` and the other runtime files are never committed. The identity
+files `.cleo/project.json` and `.cleo/project-id` are (ADR-094, ADR-096).
 
-BRAIN is **not** a database. `brain.db` is a database. BRAIN is the *system* — the intelligence layer that includes search, retrieval, compression, knowledge graphs, and memory linking. Calling BRAIN "the database" is like calling a human "the skull."
+## Dispatch domains (once the Circle of Eleven)
 
-**Three-Layer Retrieval**: Find (search index, cheap) → Timeline (chronological context) → Fetch (full details by ID). Always search before fetching. Never dump the whole database into context.
+Every operation is addressed as `{domain}.{operation}` (for example
+`tasks.add`, `memory.observe`) through one of two gateways: `query` (reads,
+never change state) or `mutate` (writes). The closed list of domains is
+`CANONICAL_DOMAINS` in `packages/contracts/src/dispatch/identity.ts`, 28 in all:
 
-### NEXUS — Cross-Project Coordination
+| Group | Domains |
+|---|---|
+| Work | `tasks`, `session`, `focus`, `sticky`, `attention` |
+| Lifecycle and release | `pipeline`, `check`, `release`, `upgrade`, `worktree`, `playbook` |
+| Knowledge | `memory`, `docs`, `nexus`, `intelligence`, `provenance` |
+| Agents | `orchestrate`, `tools`, `sentient`, `selfimprove` |
+| Models and services | `llm`, `account`, `provider`, `model`, `profile`, `service` |
+| System | `admin`, `diagnostics` |
 
-The network that connects separate CLEO projects together. If you have three repos each with their own `.cleo/` directory, NEXUS lets them discover each other's tasks, share patterns, and coordinate dependencies.
+The registry (`packages/cleo/src/dispatch/registry.ts`) and the
+[operation constitution](../spec/cleo-operation-constitution.md) list each
+domain's operations. Messaging is not a domain: T13955 removed `conduit` when
+messaging moved to AgentMBX. The "Circle of Eleven" was the original eleven
+domains, from `tasks` to `intelligence`; the other seventeen came later.
 
-NEXUS is **not** a registry. It uses registries internally, but NEXUS is the *system* — the federation layer, the cross-project intelligence, the shared knowledge graph. Calling NEXUS "the registry" is like calling the internet "the DNS server."
+## Request flow
 
-### CANT — Collaborative Agent Notation Tongue
-
-The agent communication protocol. CANT defines how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). It is the grammar of the workshop floor.
-
-CANT is **not** a transport. It defines what messages look like — AgentMBX moves them.
-
-### CONDUIT — Agent-to-Agent Relay (legacy)
-
-Agent-to-agent messages travel over AgentMBX (D11176). Conduit remains only as a thin client over AgentMBX, with no standalone database or transport.
-
-Conduit is **not** a domain. It lives *through* existing domains — `orchestrate` for coordination, `session` for context, `nexus` for cross-project relay.
-
----
-
-## The Circle of Eleven
-
-CLEO has exactly **eleven** canonical domains. These are the rooms in the building where work gets done.
-
-| Domain | House Name | What Happens Here |
-|--------|-----------|-------------------|
-| `tasks` | The Smiths | Creating, tracking, and completing work |
-| `session` | The Scribes | Managing active work sessions |
-| `memory` | The Archivists | Storing and retrieving knowledge (BRAIN) |
-| `check` | The Wardens | Validation, quality gates, compliance |
-| `pipeline` | The Weavers | Lifecycle stages, releases (LOOM) |
-| `orchestrate` | The Conductors | Multi-agent coordination |
-| `tools` | The Artificers | Skills, providers, capabilities |
-| `admin` | The Keepers | Config, diagnostics, system health |
-| `nexus` | The Wayfinders | Cross-project intelligence (NEXUS) |
-| `sticky` | The Catchers | Quick captures before formal task creation |
-| `intelligence` | The Seers | Quality prediction, pattern extraction, impact analysis |
-
-Every operation in CLEO is addressed as `{domain}.{action}` — for example `tasks.add`, `memory.observe`, `pipeline.stage.validate`. Two gateways route them:
-
-- **Query** (read-only): `show`, `find`, `list`, `status`, `plan`
-- **Mutate** (writes): `add`, `update`, `delete`, `complete`, `start`, `stop`
-
----
-
-## The Allies
-
-These support the system but are **not** systems and **not** domains:
-
-| Ally | Role | Metaphor |
-|------|------|----------|
-| **CAAMP** | Hook system — fires events before/after operations | The alarm system |
-| **CANT** | Message grammar — defines what agents say | The language |
-| **AgentMBX** | Agent messaging — mailbox, delivery and history (D11176) | The post office |
-
----
-
-## The Workshop Vocabulary
-
-CLEO uses a non-normative workshop vocabulary to make work intuitive:
-
-| Term | What It Means |
-|------|---------------|
-| **Thread** | A single piece of work (maps to a task) |
-| **Loom** | A frame holding related Threads (maps to an epic) |
-| **Tapestry** | Multiple Looms forming a visible design (maps to a campaign) |
-| **Warp** | The vertical structure — protocol chains and quality gates |
-| **Cascade** | Work flowing through lifecycle gates (governed momentum) |
-| **Cog** | A discrete callable capability (maps to a skill/tool) |
-| **Click** | A single execution of a Cog |
-| **Tome** | Rendered understanding — living documentation |
-| **The Hearth** | The terminal surface where agents work |
-| **Tessera** | A repeatable pattern template |
-| **Sticky Note** | Quick ephemeral capture before formal classification |
-
-These words are for humans — they make the system feel like a workshop, not a spreadsheet. The runtime still uses the eleven canonical domains.
-
----
-
-## Request Flow
-
-Folded from the retired `cleo-system-flow-atlas` (T14108 docs census). Every CLI
-operation takes the same path:
+Every CLI operation takes the same path:
 
 1. **Parse.** The command (`packages/cleo/src/cli/commands/`, built with
    `defineCommand`) parses flags into a dispatch request through the CLI adapter
@@ -187,117 +143,56 @@ operation takes the same path:
 4. **Handle.** The domain handler (`packages/cleo/src/dispatch/domains/`) calls
    its engine (`packages/cleo/src/dispatch/engines/`), which calls the
    business logic in `@cleocode/core`.
-5. **Store.** Core reads and writes one `cleo.db` per scope (project and
-   global, prefixed tables) through `openDualScopeDb` and the store accessors.
+5. **Store.** Core reads and writes the project or global `cleo.db` through
+   `openDualScopeDb` and the store accessors.
 6. **Respond.** The result returns as one LAFS envelope on stdout (ADR-086);
    logs go to stderr.
 
-Queries never change state; mutations may. `tasks.update` with `status=done`
-goes through the same completion checks as `tasks.complete`.
+`tasks.update` with `status=done` goes through the same completion checks as
+`tasks.complete`.
 
-## Quick Reference Card
+## Where documents go
 
-```
-Systems:    TASKS (work) | LOOM (lifecycle) | BRAIN (memory) | NEXUS (network) | CANT (protocol) | CONDUIT (relay)
-Allies:     CAAMP (hooks) | LAFS (envelope format) | AgentMBX (messaging) | intelligence (quality)
-Domains:    tasks | session | memory | check | pipeline | orchestrate | tools | admin | nexus | sticky | intelligence
-Gateways:   query (read) | mutate (write)
-Messaging:  AgentMBX (mbx send / inbox / read / reply / ack)
-Pipeline:   R → C → A → S → D → I → V → T → R → +C
-Verbs:      add show list find update delete archive restore complete start stop
-```
+Canonical docs are written through the docs store, never with a raw file write
+(ADR-076). `.cleo/canon.yml` routes each kind to its mirror folder, one kind
+per folder: `docs/adr/`, `docs/spec/`, `docs/guide/`, `docs/concept/`,
+`docs/reference/`, `docs/plan/`, `docs/research/`, `docs/note/`,
+`docs/release/` and the others. Handoffs are store-only and never published.
+RCASD stage output publishes under `.cleo/rcasd/`; the `.cleo/` layout is in
+the [scaffolding spec](../spec/cleo-scaffolding-ssot.md) (ADR-045).
 
----
+Names follow one rule (T14107, D11210): lowercase kebab-case, at most 64
+characters, with no task id, session id or date. Task and decision links live
+in the doc's metadata. The how-to is the
+[documentation SOP](../guide/cleo-documentation-sop.md).
 
-## Canonical Artifact Paths
+## Package map
 
-Artifacts produced during work follow a standardized path structure. See [ADR-045](../../docs/adr/adr-045-cleo-scaffolding-ssot.md) and [cleo-scaffolding-ssot-spec.md](../spec/cleo-scaffolding-ssot.md) for full details.
+| Package | Role |
+|---|---|
+| `packages/core/` | The SDK: domain logic, store, memory, lifecycle, docs, release |
+| `packages/cleo/` | The CLI: thin dispatch and command handlers only |
+| `packages/contracts/` | Shared types: envelope, operations, errors |
+| `packages/runtime/` | The dispatch gateway behind the CLI; its long-running services are slated for removal (ADR-098) |
+| `packages/paths/` | Platform paths, project hash and the worktree root |
+| `packages/worktree/` | The worktree backend |
+| `packages/nexus/` | Project registry and code intelligence |
+| `packages/caamp/`, `packages/adapters/` | Provider registry and per-harness delivery |
+| `packages/cant/` | The `.cant` parser and validator |
+| `packages/lafs/` | The envelope spec and validator |
+| `packages/skills/` | The bundled `ct-*` skills |
+| `packages/studio/` | The web portal for tasks, memory and the graph |
+| `packages/cleo-os/` | Retired Pi harness, frozen for removal (ADR-098) |
 
-### RCASD Lifecycle Stage Artifacts
-
-All RCASD (Research–Consensus–Architecture–Specification–Decomposition) stage outputs for epic `{epicId}` are stored at:
-
-```
-.cleo/rcasd/{epicId}/{stageSubdir}/{epicId}-{stageSlug}.md
-```
-
-| Stage | Subdir | Slug | Example Path |
-|-------|--------|------|--------------|
-| Research | `research` | `research` | `.cleo/rcasd/T687/research/T687-research.md` |
-| Consensus | `consensus` | `consensus` | `.cleo/rcasd/T687/consensus/T687-consensus.md` |
-| Architecture Decision | `architecture` | `architecture-decision` | `.cleo/rcasd/T687/architecture/T687-architecture-decision.md` |
-| Specification | `specification` | `specification` | `.cleo/rcasd/T687/specification/T687-specification.md` |
-| Decomposition | `decomposition` | `decomposition` | `.cleo/rcasd/T687/decomposition/T687-decomposition.md` |
-| Implementation | `implementation` | `implementation` | `.cleo/rcasd/T687/implementation/T687-implementation.md` |
-| Validation | `validation` | `validation` | `.cleo/rcasd/T687/validation/T687-validation.md` |
-| Testing | `testing` | `testing` | `.cleo/rcasd/T687/testing/T687-testing.md` |
-| Release | `release` | `release` | `.cleo/rcasd/T687/release/T687-release.md` |
-| Contribution | `contributions` | `contribution` | `.cleo/rcasd/T687/contributions/T687-contribution.md` |
-
-### Architecture Decision Records (ADRs)
-
-ADRs are stored at:
-
-```
-.cleo/adrs/ADR-NNN-short-description.md
-```
-
-Example: `docs/adr/adr-045-cleo-scaffolding-ssot.md`
-
-ADRs are managed via `cleo adr` commands and mirrored to the `architecture_decisions` database table.
-
-### Agent Output Files (Ad-hoc)
-
-Ad-hoc agent outputs (non-RCASD) are stored at:
-
-```
-.cleo/agent-outputs/{taskId}-{slug}.md
-```
-
-Examples:
-- `.cleo/agent-outputs/T687-scaffolding-rcasd-plan.md`
-- `.cleo/agent-outputs/T505-CLI-audit-report.md`
-- `.cleo/agent-outputs/T684-browser-validation/validation-report.md`
-
-### Published Specifications
-
-Normative, human-facing specifications (RFC 2119 language, stable contracts) are stored at:
-
-```
-docs/specs/SPEC-NAME.md
-```
-
-Example: `docs/specs/cleo-scaffolding-ssot-spec.md`
-
-### Engineering Plans
-
-Active engineering plans are stored at:
-
-```
-docs/plans/PLAN-NAME.md
-```
-
-Examples:
-- `docs/plans/CLEO-ULTRAPLAN.md`
-- `docs/plans/T662-council-round-table-report.md`
-
-### Deprecated Paths (Do Not Use)
-
-The following paths are **deprecated** and MUST NOT be used for new files:
-
-- `claudedocs/agent-outputs/` → use `.cleo/agent-outputs/`
-- `claudedocs/research-outputs/` → use `.cleo/agent-outputs/`
-- `.cleo/research/` → use `.cleo/rcasd/{epicId}/research/`
-- `.cleo/consensus/` → use `.cleo/rcasd/{epicId}/consensus/`
-- `.cleo/specs/` → use `.cleo/rcasd/{epicId}/specification/`
-- `.cleo/decomposition/` → use `.cleo/rcasd/{epicId}/decomposition/`
-
----
+The package boundary rules are in `AGENTS.md`.
 
 ## References
 
-- [CLEO canon index](cleo-canon-index.md) — read order and map of the canonical docs
-- [Operation constitution](../spec/cleo-operation-constitution.md) — formal domain definitions and operation registry
-- [Verb standards](../spec/verb-standards.md) — canonical verbs with disambiguation rules
-- [CANT reference](../reference/cant.md) — agent communication grammar (absorbs the retired `cleo-cant` overview)
-- [Orchestration flow](orchestration-flow.md) — spawn layers, spawn execution, lead and worker roles
+- [CLEO canon index](cleo-canon-index.md): read order and map of the canonical docs
+- ADR-098, harness-agnostic core: `cleo docs fetch adr-098-retire-the-pi-cleoos-harness`
+- [ADR-097: CLEO Goal](../adr/ADR-097-goal-protocol-ocg-runtime.md)
+- [ADR-076: canonical docs SSoT](../adr/ADR-076-canonical-docs-ssot.md)
+- [Operation constitution](../spec/cleo-operation-constitution.md): domain and operation definitions
+- [Verb standards](../spec/verb-standards.md): canonical verbs
+- [Core SDK](../reference/core-sdk.md): the `@cleocode/core` API
+- [Orchestration flow](orchestration-flow.md): spawn layers, lead and worker roles
