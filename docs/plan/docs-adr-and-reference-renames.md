@@ -17,13 +17,14 @@ renamed entry removed from `scripts/.docs-name-baseline.json`.
 |---|---|---|---|
 | Store plan | `taxonomy`: kind `note` → `reference`, slug unchanged | `1 stored docs to re-kind or re-slug; dry run, nothing written` | apply after review |
 | Tree plan | `adr/README.md` → `adr/adr-index.md`, named after the doc's store slug `adr-index` | `1 files: 0 keep, 1 rename, 0 merge, 0 delete, 0 link-fix; dry run, nothing written` | apply after review |
-| ADR case plan | the 11 case-only renames below, plus 5 link fixes | `11 files: 0 keep, 11 rename, 0 merge, 0 delete, 5 link-fix; dry run, nothing written` | **blocked by T14610** |
+| ADR case plan | the 11 case-only renames below, plus 16 link fixes | `11 files: 0 keep, 11 rename, 0 merge, 0 delete, 16 link-fix; dry run, nothing written` | **blocked by T14610** |
 
 Each hash is the sha256 of the rows array as printed with two-space indent:
 
 - store plan `storeRows`: `6c0af667fdcfd0619b6961a746b09c5615615353caf13944375d126be4a17ae6`
 - tree plan `rows`: `86cab151d3ec77d8ce389c1435e3ad7f543045ec8153bcb5685d588e1c90ba44`
 - ADR case plan `rows`: `9443272ae16a96db8fc2cc0e416b5865c50c2dfa96cc85b8069f7e99e8795fed`
+- ADR case plan `linkFixes`: `72ab929a1c6ca2f51cada0bda728ee14aea5d6dbd6e54db109ed57889f8a9dee`
 
 ## Why the ADR case plan is blocked
 
@@ -50,9 +51,17 @@ is applied once T14610 ships, or from a case-sensitive checkout.
 | `ADR-089-cleo-daemon-native-dispatch.md` | `adr-089-cleo-daemon-native-dispatch.md` |
 | `ADR-097-goal-protocol-ocg-runtime.md` | `adr-097-goal-protocol-ocg-runtime.md` |
 
-The case plan's 5 link fixes repoint `ADR-0xx` links to the lowercase names
-in `adr/adr-073-above-epic-naming.md`, `concept/cleo-architecture-guide.md`
-(two links), `spec/cleo-nexus-architecture.md` and `spec/cleo-tasks-api.md`.
+The case plan's 16 link fixes repoint `ADR-0xx` links to the lowercase names:
+
+- 5 found by the plan: `adr/adr-073-above-epic-naming.md`,
+  `concept/cleo-architecture-guide.md` (two links), `spec/cleo-nexus-architecture.md`
+  and `spec/cleo-tasks-api.md`.
+- 11 added by hand for the ADR index, covering all 13 uppercase ADR links in it
+  (two targets appear twice). They are keyed to `adr/adr-index.md`, the index's
+  path once the tree plan above lands. The plan's scan missed them because the
+  index was a `README.md`. Re-run the case plan's dry run after the tree plan
+  merges, before applying it under T14610.
+
 All 11 files have entries in `scripts/.docs-name-baseline.json`, and those
 entries leave the baseline with the case plan.
 
@@ -71,14 +80,19 @@ Apply steps for the store and tree plans, after review:
 3. `cleo docs modernize --plan <tree plan> --apply`. The file's bytes already
    belong to the `adr-index` doc, so the store row stays and only the file
    moves (T14231).
-4. Because the tree apply does not move the ledger row (T14610):
-   `cleo docs publish adr-index --for T14108 --to docs/adr/adr-index.md`, then
-   `cleo docs doctor --only publication-ledger-drift`, dry run first and then
-   `--apply`, to prune the old `docs/adr/README.md` row.
+4. Because the tree apply does not move the ledger row (T14610), publish the
+   doc at its new path: `cleo docs publish adr-index --for T14108 --to docs/adr/adr-index.md`.
 5. Link `docs/adr/adr-index.md` from the canon index. The orphan check exempts
    the name `README.md` but not `adr-index.md`.
 6. Gate on `cleo check canon`, the `cleo docs rot` summary and
-   `cleo check canon docs`, and post the receipt as a PR comment.
+   `cleo check canon docs`, commit and push, and post the apply receipt as a
+   PR comment.
+7. After the PR merges, fetch so `main` has the rename, then run
+   `cleo docs doctor --only publication-ledger-drift` (dry run, then `--apply`)
+   to prune the old `docs/adr/README.md` row. It cannot run earlier: the doctor
+   refuses to prune while HEAD and `main` still track `docs/adr/README.md`
+   (`packages/core/src/docs/doctor.ts:751`). Post that receipt as a follow-up
+   PR comment.
 
 `adr/README.md` has no baseline entry, so these two plans need no baseline
 edit. The only other reference the plan found is a test fixture
@@ -104,6 +118,79 @@ but the file name already follows the rule. The real problems are different:
   `skills remove` do not exist.
 
 That is content work, proposed for the README PR.
+
+## ADR case plan: link fixes added for the index
+
+```json
+[
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-068-per-worktree-handoff.md",
+    "newHref": "adr-068-per-worktree-handoff.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-072-nexus-db-split.md",
+    "newHref": "adr-072-nexus-db-split.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-076-canonical-docs-ssot.md",
+    "newHref": "adr-076-canonical-docs-ssot.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-077-worktreeinclude-canonical-location.md",
+    "newHref": "adr-077-worktreeinclude-canonical-location.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-078-boundary-registry.md",
+    "newHref": "adr-078-boundary-registry.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-086-nested-nexus-disposition.md",
+    "newHref": "adr-086-nested-nexus-disposition.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-087-worktree-ffi-topology.md",
+    "newHref": "adr-087-worktree-ffi-topology.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md",
+    "newHref": "adr-088-pm-core-v2-workgraph-relations-completion-criteria.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-088-release-pipeline-coherence.md",
+    "newHref": "adr-088-release-pipeline-coherence.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-089-cleo-daemon-native-dispatch.md",
+    "newHref": "adr-089-cleo-daemon-native-dispatch.md"
+  },
+  {
+    "kind": "link-fix",
+    "path": "adr/adr-index.md",
+    "href": "ADR-097-goal-protocol-ocg-runtime.md",
+    "newHref": "adr-097-goal-protocol-ocg-runtime.md"
+  }
+]
+```
 
 ## Store plan JSON (root redacted)
 
