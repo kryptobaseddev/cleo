@@ -142,7 +142,8 @@ Canonical docs are written through the docs store, never with a raw file write
 per folder: `docs/adr/`, `docs/spec/`, `docs/guide/`, `docs/concept/`,
 `docs/reference/`, `docs/plan/`, `docs/research/`, `docs/note/`,
 `docs/release/` and the others. Handoffs are store-only and never published.
-RCASD stage output publishes under `.cleo/rcasd/`.
+RCASD stage output publishes under `.cleo/rcasd/`; the `.cleo/` layout is in
+the [scaffolding spec](../spec/cleo-scaffolding-ssot.md) (ADR-045).
 
 Names follow one rule (T14107, D11210): lowercase kebab-case, at most 64
 characters, with no task id, session id or date. Task and decision links live
