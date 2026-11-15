@@ -36,6 +36,15 @@ receipt for the exact selected commit; prereleases report those two findings as
 warnings. A lower release still running blocks the cut unless explicitly allowed
 with `--allow-in-flight`.
 
+The required checks come from `CLEO_PR_REQUIRED_WORKFLOWS` when set, else
+`release.prRequiredWorkflows` in `.cleo/project-context.json`, else the built-in
+default (`resolveRequiredWorkflows`, `packages/core/src/release/pr-evidence.ts`).
+A `project-context.json` entry may declare `event: pull_request` or
+`event: push` (T14602). `cut` judges the selected commit
+on every entry except those declared `event: pull_request`, which only gate the
+final PR head (`requiredChecks`, `packages/core/src/release/cut.ts`). An entry
+with no `event` keeps its earlier behaviour, so `cut` still judges it.
+
 ### Stable `open` smoke gate (T14250)
 
 The fallback `open` path also enforces the smoke gate for versions without a
