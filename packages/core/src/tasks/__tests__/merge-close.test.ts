@@ -959,6 +959,32 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
 });
 
 describe("the merge run is found by the required check's workflow, not its name (T14535)", () => {
+  it('uses only PR-side required checks for the merge sweep and train precheck (T14602)', async () => {
+    const prior = process.env['CLEO_PR_REQUIRED_WORKFLOWS'];
+    delete process.env['CLEO_PR_REQUIRED_WORKFLOWS'];
+    try {
+      writeFileSync(
+        join(root, '.cleo', 'project-context.json'),
+        JSON.stringify({
+          release: {
+            prRequiredWorkflows: [
+              { name: 'PR checks', app: 'github-actions', event: 'pull_request' },
+              { name: 'Main gate', app: 'github-actions', event: 'push' },
+              'Shared check',
+            ],
+          },
+        }),
+      );
+      expect(await defaultMergeCloseDeps.requiredChecks(root)).toEqual([
+        'PR checks',
+        'Shared check',
+      ]);
+    } finally {
+      if (prior === undefined) delete process.env['CLEO_PR_REQUIRED_WORKFLOWS'];
+      else process.env['CLEO_PR_REQUIRED_WORKFLOWS'] = prior;
+    }
+  });
+
   const ciRefusal = "Required CI on PR #45's merge commit is not green: PR checks: pending";
   /** A green head whose required check "PR checks" is a job of workflow "CI". */
   const prChecks: GhPrViewPayload['statusCheckRollup'] = [

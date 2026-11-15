@@ -50,6 +50,10 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import type { GhPrViewPayload } from '@cleocode/contracts';
+import type {
+  ProjectReleaseContext,
+  RequiredCheckPin,
+} from '@cleocode/contracts/project-context.js';
 import {
   ghPrViewSchema,
   PR_REQUIRED_WORKFLOWS,
@@ -602,13 +606,8 @@ function extractProjectContextRequiredWorkflows(
     .filter((s) => s.length > 0);
 }
 
-/** The app (slug or id) and workflow a required check must come from. */
-export interface RequiredCheckPinSpec {
-  /** GitHub App slug or numeric id. */
-  readonly app?: string | number;
-  /** Workflow file path or workflow name. */
-  readonly workflow?: string;
-}
+/** The app, workflow and optional event a required check must come from. */
+export type RequiredCheckPinSpec = Readonly<Omit<RequiredCheckPin, 'name'>>;
 
 /**
  * Resolve a workflow file selector to its repository path; names stay names.
@@ -639,12 +638,14 @@ export function readRequiredCheckPins(
   if (!Array.isArray(declared)) return pins;
   for (const entry of declared) {
     if (typeof entry !== 'object' || entry === null) continue;
-    const { name, app, workflow } = entry as { name?: unknown; app?: unknown; workflow?: unknown };
+    const { name, app, workflow, event } = entry as Partial<RequiredCheckPin>;
     if (typeof name !== 'string' || name.trim() === '') continue;
-    const pin: { app?: string | number; workflow?: string } = {};
+    const pin: Omit<RequiredCheckPin, 'name'> = {};
     if (typeof app === 'string' || typeof app === 'number') pin.app = app;
     if (typeof workflow === 'string' && workflow !== '') pin.workflow = workflow;
-    if (pin.app !== undefined || pin.workflow !== undefined) pins[name.trim()] = pin;
+    if (event === 'pull_request' || event === 'push') pin.event = event;
+    if (pin.app !== undefined || pin.workflow !== undefined || pin.event !== undefined)
+      pins[name.trim()] = pin;
   }
   return pins;
 }
@@ -796,6 +797,38 @@ function resolveSyncTier(
   }
   const fromContext = extractProjectContextRequiredWorkflows(projectContext);
   if (fromContext !== null) {
+    const declared = (projectContext?.release as ProjectReleaseContext | undefined)
+      ?.prRequiredWorkflows;
+    const eventScoped = declared?.some(
+      (entry) => typeof entry === 'object' && entry !== null && entry.event !== undefined,
+    );
+    const seen = new Set<string>();
+    for (const entry of declared ?? []) {
+      const name =
+        typeof entry === 'string'
+          ? entry.trim()
+          : typeof entry?.name === 'string'
+            ? entry.name.trim()
+            : undefined;
+      if (
+        (typeof entry === 'object' &&
+          entry !== null &&
+          entry.event !== undefined &&
+          entry.event !== 'pull_request' &&
+          entry.event !== 'push') ||
+        (eventScoped && name !== undefined && seen.has(name))
+      ) {
+        return {
+          workflows: [],
+          source: {
+            tier: 'unknown',
+            reason:
+              'release.prRequiredWorkflows entries need unique names and event "pull_request" or "push"',
+          },
+        };
+      }
+      if (name) seen.add(name);
+    }
     return { workflows: fromContext, source: { tier: 'project-context' } };
   }
   return null;
@@ -1596,7 +1629,9 @@ export async function resolvePrEvidenceAtom(
     requiredSource: describeRequiredWorkflowsSource(required.source),
     prNumber,
   };
-  let rollupResult = evaluateRollup(payload.statusCheckRollup, required.workflows, rollupOptions);
+  const pins = readRequiredCheckPins(opts.projectContext);
+  const prRequired = required.workflows.filter((name) => pins[name]?.event !== 'push');
+  let rollupResult = evaluateRollup(payload.statusCheckRollup, prRequired, rollupOptions);
   // T13611: the PR head's last run can stay red from a stale merge ref while
   // the merged change itself passed. Every required check green on the merge
   // commit's own (default-branch push) run proves the merged code; red or
@@ -1605,7 +1640,7 @@ export async function resolvePrEvidenceAtom(
     const fetchMerge = opts.fetchGhCommitCheckRuns ?? defaultFetchGhCommitCheckRuns;
     const merged = await fetchMerge(mergeCommitSha, executionRoot);
     const onMerge = merged.ok
-      ? evaluateRollup(merged.checks, required.workflows, rollupOptions)
+      ? evaluateRollup(merged.checks, prRequired, rollupOptions)
       : { ok: false as const, reason: merged.reason };
     rollupResult = onMerge.ok
       ? onMerge

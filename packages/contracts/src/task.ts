@@ -707,6 +707,8 @@ export type EvidenceAtom =
        * vouches for a PR that was not itself green.
        */
       descendantPrHeadSha?: string;
+      /** Required PR-head check names when pull_request and push requirements differ (T14602). */
+      pullRequestChecks?: string[];
       /**
        * The merge commit's own run FAILED, but every failing job had already
        * failed on its nearest decided first-parent ancestor: the PR inherited

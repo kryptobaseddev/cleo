@@ -14,10 +14,9 @@
  *  - the required-check list comes from the SAME resolver `pr:` uses
  *    (env → `release.prRequiredWorkflows` → branch protection), and an
  *    undetermined list refuses rather than accepting vacuously;
- *  - each required name is judged on the merge commit's own check runs and
- *    workflow runs (GitHub REST, by SHA). A run whose `head_sha` is anything
- *    else — the PR head included — never counts, and a required check found
- *    only there is named as such.
+ *  - unscoped required names retain their merge-commit judgement; an explicit
+ *    `event` requires either the final PR head's `pull_request` checks or the
+ *    merge commit's `push` checks. Both configured sides must pass (T14602).
  *
  * Pending, failed, cancelled, skipped and missing required checks are each
  * refused with the check's name and state.
@@ -146,6 +145,8 @@ export type MergeCommitCheckResult =
 
 /** Options for {@link evaluateMergeCommitChecks}. */
 export interface EvaluateMergeCommitChecksOptions {
+  /** Final PR head for checks explicitly scoped to pull_request (T14602). */
+  prHeadSha?: string;
   /**
    * PR head whose `pull_request` runs tested exactly the merged tree (tree
    * equal AND the merge's first parent is an ancestor of it). Its runs stand
@@ -779,7 +780,9 @@ function pinMatch(
 }
 
 function pinMatches(check: CommitCheck, pin: RequiredCheckPinSpec | undefined): boolean {
-  return pinMatch(check, pin) === 'match';
+  return (
+    pinMatch(check, pin) === 'match' && (pin?.event === undefined || check.event === pin.event)
+  );
 }
 
 /**
@@ -811,8 +814,9 @@ function describeApp(check: CommitCheck): string {
  * triggering event, and within a group only the LATEST attempt counts; every
  * group on the merge commit must be `completed`/`success`. A pinned name only
  * considers runs from its pinned app/workflow. When `treeEquivalentSha` is
- * given, that commit's `pull_request` runs (and only those) stand in for a
- * merge-commit verdict that failed or is missing.
+ * given, that commit's `pull_request` runs (and only those) stand in for an
+ * unscoped merge-commit verdict. Explicit event pins require the PR head's
+ * `pull_request` run or the merge/descendant's `push` run, respectively.
  *
  * @param required - Required check names.
  * @param checks - Every check reported for the commits involved.
@@ -839,12 +843,27 @@ export function evaluateMergeCommitChecks(
   for (const name of required) {
     const named = checks.filter((c) => c.name === name);
     const pinned = named.filter((c) => pinMatches(c, pins[name]));
-    const onMerge = judgeOnSha(pinned, mergeCommitSha);
+    const event = pins[name]?.event;
+    if (event === 'pull_request') {
+      const head = opts.prHeadSha;
+      const onHead = judgeOnSha(pinned, head ?? '', event);
+      if (onHead.ok && head) matched.push(judged(name, onHead.run, head));
+      else
+        reasons.push(
+          `${name}: ${onHead.ok ? 'missing' : onHead.verdict} on PR head ${head?.slice(0, 12) ?? '(unknown)'} (pull_request)`,
+        );
+      continue;
+    }
+    const onMerge = judgeOnSha(pinned, mergeCommitSha, event);
     if (onMerge.ok) {
       matched.push(judged(name, onMerge.run, mergeCommitSha));
       continue;
     }
-    if (treeEquivalentSha !== undefined && treeEquivalentSha !== mergeCommitSha) {
+    if (
+      event === undefined &&
+      treeEquivalentSha !== undefined &&
+      treeEquivalentSha !== mergeCommitSha
+    ) {
       const onHead = judgeOnSha(pinned, treeEquivalentSha, 'pull_request');
       if (onHead.ok) {
         matched.push(judged(name, onHead.run, treeEquivalentSha));
@@ -1735,6 +1754,8 @@ export async function failedBeforeAnyTest(
 export interface FindGreenDescendantInput {
   /** Required check names. */
   required: readonly string[];
+  /** Explicit PR-head checks; push-only names do not need PR runs (T14602). */
+  prRequired?: readonly string[];
   /** Checks already fetched for the merge commit (and a tree-equivalent PR head). */
   checks: readonly CommitCheck[];
   /** The merge commit. */
@@ -1747,8 +1768,8 @@ export interface FindGreenDescendantInput {
   changedPaths: readonly string[];
   /**
    * The PR's final head (`headRefOid`). Its latest `pull_request` runs must be
-   * green for every superseded check: a later main run never vouches for a
-   * PR that was not itself green.
+   * green for every superseded unscoped check and every `prRequired` check:
+   * a later main run never vouches for a PR that was not itself green.
    */
   prHeadSha?: string;
   /**
@@ -2033,7 +2054,11 @@ export async function findGreenDescendant(
     if (!onHead.ok) return { ok: false, reason: onHead.reason };
     headChecks = onHead.checks;
   }
-  const redHead = head ? notGreenOnPrHead(supersededNames, headChecks, head, pins) : null;
+  const headRequired =
+    input.prRequired === undefined
+      ? supersededNames
+      : [...input.prRequired, ...supersededNames.filter((name) => pins[name]?.event === undefined)];
+  const redHead = head ? notGreenOnPrHead(headRequired, headChecks, head, pins) : null;
   if (redHead !== null) {
     return {
       ok: false,
@@ -2055,7 +2080,7 @@ export async function findGreenDescendant(
     return refuse(`cannot list commits on ${input.ref} after ${merge.slice(0, 12)}`);
   }
   const scope = pinnedScope(required, pins);
-  const ciPaths = ciDefinitionPaths(required, pins);
+  const ciPaths = ciDefinitionPaths([...required, ...(input.prRequired ?? [])], pins);
   const guarded: ReadonlyArray<readonly [string, readonly string[]]> = [
     ["the PR's files", input.changedPaths],
     [`a CI definition (${ciPaths.join(', ')})`, ciPaths],
@@ -3082,7 +3107,15 @@ export async function recheckCiDescendantAtom(
     }
     // T14434: a current-head atom rests on every required check of the PR
     // head, not only on those the head run stood in for.
-    for (const c of event === 'pull_request' && atom.currentHead ? atom.checks : stoodIn) {
+    const required =
+      event === 'push'
+        ? stoodIn
+        : atom.pullRequestChecks !== undefined
+          ? atom.checks.filter((c) => atom.pullRequestChecks?.includes(c.name))
+          : atom.currentHead
+            ? atom.checks
+            : stoodIn;
+    for (const c of required) {
       const verdict = judgeOnSha(
         fetched.checks.filter((run) => sameSource(run, c)),
         sha,
@@ -3291,7 +3324,10 @@ export async function resolveCiEvidenceAtom(
   // Round 2 (MEDIUM): a check that attests a gate must be pinned to the app
   // that posts it — an unpinned name would match a run from any app.
   const mapped = [...new Set(gateLists.flatMap((g) => g.list ?? []))];
-  const unpinned = mapped.filter((name) => pins[name]?.app === undefined);
+  const unpinned = required.workflows.filter(
+    (name) =>
+      (mapped.includes(name) || pins[name]?.event !== undefined) && pins[name]?.app === undefined,
+  );
   if (unpinned.length > 0) {
     return {
       ok: false,
@@ -3327,8 +3363,13 @@ export async function resolveCiEvidenceAtom(
   // attested by default-branch `push` runs only — the merge commit's, or a
   // later main commit's under the T12742 rule — which run the workflow as it
   // stands on main after review. Its PR runs are never consulted.
+  const eventChecks = required.workflows.some((name) => pins[name]?.event !== undefined);
   const pinnedWorkflows = [
-    ...new Set(mapped.flatMap((name) => (pins[name]?.workflow ? [pins[name]!.workflow!] : []))),
+    ...new Set(
+      (eventChecks ? required.workflows : mapped).flatMap((name) =>
+        pins[name]?.workflow ? [pins[name]!.workflow!] : [],
+      ),
+    ),
   ];
   const editedWorkflows = pr.changedPaths.filter((path) =>
     pinnedWorkflows.some((workflow) => {
@@ -3337,6 +3378,21 @@ export async function resolveCiEvidenceAtom(
     }),
   );
   const mainOnly = editedWorkflows.length > 0;
+  const prRequired = required.workflows.filter((name) => pins[name]?.event === 'pull_request');
+  const pushRequired = required.workflows.filter((name) => pins[name]?.event !== 'pull_request');
+  if (
+    eventChecks &&
+    ((!mainOnly && prRequired.length === 0) ||
+      !pushRequired.some((name) => pins[name]?.event === 'push'))
+  ) {
+    // @sync-invariant none:input-shape event-scoped CI configuration must declare both sides
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `ci:${prNumber}: release.prRequiredWorkflows[].event needs both "pull_request" and "push" checks (workflow edits require only "push"); a PR-head check alone proves no main push CI.`,
+    };
+  }
+  const judgedRequired = mainOnly ? pushRequired : required.workflows;
 
   const fetchChecks = refetchIncompleteIdentity(
     withoutScheduledRuns(opts.fetchChecks ?? defaultFetchChecks),
@@ -3377,7 +3433,7 @@ export async function resolveCiEvidenceAtom(
     !mainOnly &&
     head &&
     head !== pr.mergeCommitSha &&
-    (treeEqualHead || eventJobKeys.length > 0)
+    (treeEqualHead || eventJobKeys.length > 0 || prRequired.length > 0)
   ) {
     const onHead = await fetchChecks(head, cwd);
     if (onHead.ok) checks = [...checks, ...onHead.checks];
@@ -3397,8 +3453,9 @@ export async function resolveCiEvidenceAtom(
     ).some((job) => !evaluateJobs(job.globs, checks, pr.mergeCommitSha, job.scope, 'push').ok);
   // The push stand-in search must see superseded merge checks despite an equal PR tree.
   const checkHead = pushUnmet ? undefined : treeEqualHead;
-  let judgedChecks = evaluateMergeCommitChecks(required.workflows, checks, pr.mergeCommitSha, {
+  let judgedChecks = evaluateMergeCommitChecks(judgedRequired, checks, pr.mergeCommitSha, {
     ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+    ...(head && !mainOnly ? { prHeadSha: head } : {}),
     pins,
   });
   // T12742: a merge-commit push run cancelled by a concurrency group (merges
@@ -3426,7 +3483,8 @@ export async function resolveCiEvidenceAtom(
   if ((!judgedChecks.ok || pushUnmet) && onDefault.ref !== null) {
     const found = await findGreenDescendant({
       ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
-      required: required.workflows,
+      required: pushRequired,
+      ...(eventChecks ? { prRequired } : {}),
       checks,
       mergeCommitSha: pr.mergeCommitSha,
       ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
@@ -3448,11 +3506,12 @@ export async function resolveCiEvidenceAtom(
     if (found.ok) {
       const withDescendant = [...checks, ...found.checks];
       const rejudged = evaluateMergeCommitChecks(
-        required.workflows,
+        judgedRequired,
         withDescendant,
         pr.mergeCommitSha,
         {
           ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
+          ...(head && !mainOnly ? { prHeadSha: head } : {}),
           pins,
           descendantSha: found.sha,
           ...(found.inherited || found.nonTest || found.untested
@@ -3506,7 +3565,12 @@ export async function resolveCiEvidenceAtom(
     const scopedHead = wide === null ? cleared?.prHeadSha : undefined;
     const scoped = cleared && scopedHead ? { ...cleared, prHeadSha: scopedHead } : undefined;
     const redHead = scoped
-      ? notGreenOnPrHead(required.workflows, scoped.headChecks, scoped.prHeadSha, pins)
+      ? notGreenOnPrHead(
+          required.workflows.filter((name) => pins[name]?.event !== 'push'),
+          scoped.headChecks,
+          scoped.prHeadSha,
+          pins,
+        )
       : null;
     const scopedLead = `the merge commit's run is not the PR's failure, so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (D11241), but `;
     if (redHead !== null) {
@@ -3514,7 +3578,7 @@ export async function resolveCiEvidenceAtom(
     } else if (wide !== null || scoped) {
       const found = await findGreenCurrentHead({
         ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
-        required: required.workflows,
+        required: pushRequired,
         mergeCommitSha: pr.mergeCommitSha,
         pins,
         ref: onDefault.ref,
@@ -3546,8 +3610,9 @@ export async function resolveCiEvidenceAtom(
         : checks;
       const rejudged =
         found.ok && missing === null
-          ? evaluateMergeCommitChecks(required.workflows, withHead, pr.mergeCommitSha, {
+          ? evaluateMergeCommitChecks(judgedRequired, withHead, pr.mergeCommitSha, {
               ...(checkHead ? { treeEquivalentSha: checkHead } : {}),
+              ...(head && !mainOnly ? { prHeadSha: head } : {}),
               pins,
               descendantSha: found.sha,
               currentHead: true,
@@ -3559,7 +3624,9 @@ export async function resolveCiEvidenceAtom(
         descendant = {
           sha: found.sha,
           range: found.range,
-          ...(scoped?.prHeadSha ? { prHeadSha: scoped.prHeadSha } : {}),
+          ...(scoped?.prHeadSha || (eventChecks && !mainOnly && head)
+            ? { prHeadSha: scoped?.prHeadSha ?? head }
+            : {}),
           ...(scoped?.inherited ? { inherited: scoped.inherited } : {}),
           ...(scoped?.nonTest ? { nonTest: scoped.nonTest } : {}),
           ...(scoped?.untested ? { untested: scoped.untested } : {}),
@@ -3616,6 +3683,10 @@ export async function resolveCiEvidenceAtom(
         `${lead}${next}\n  Required checks (source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
         (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : '') +
         (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : '') +
+        '\n  When PR and main checks differ, set release.prRequiredWorkflows[].event to "pull_request" or "push" for each check.' +
+        (eventChecks
+          ? '\n  A cancelled merge run is refused unless a qualifying descendant exists under the T12742 descendant rule (or the applicable current-HEAD rule).'
+          : '') +
         (eventJobKeys.length
           ? `\n  Check the per-event job requirements: ${eventJobKeys.map((key) => `${key}.pullRequest and ${key}.push`).join('; ')}.`
           : ''),
@@ -3776,7 +3847,10 @@ export async function resolveCiEvidenceAtom(
   }
   const gateChecks: { testsPassed?: string[]; qaPassed?: string[] } = {};
   for (const g of gateLists)
-    gateChecks[g.gate] = [...(g.list ?? []), ...(jobsByGate[g.gate] ?? [])];
+    gateChecks[g.gate] = [
+      ...(g.list ?? []).filter((name) => !mainOnly || pins[name]?.event !== 'pull_request'),
+      ...(jobsByGate[g.gate] ?? []),
+    ];
   return {
     ok: true,
     atom: {
@@ -3784,6 +3858,20 @@ export async function resolveCiEvidenceAtom(
       prNumber,
       mergeCommitSha: pr.mergeCommitSha,
       checks: judgedChecks.checks,
+      ...(eventChecks && !mainOnly
+        ? {
+            pullRequestChecks: [
+              ...prRequired,
+              ...judgedChecks.checks
+                .filter(
+                  (c) =>
+                    pins[c.name]?.event === undefined &&
+                    (currentHead || (!workspaceWide && c.sha === descendant?.sha)),
+                )
+                .map((c) => c.name),
+            ],
+          }
+        : {}),
       ...(mergeTree !== null ? { testedTree: mergeTree } : {}),
       ...(descendant
         ? {
