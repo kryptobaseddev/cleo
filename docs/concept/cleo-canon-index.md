@@ -82,6 +82,7 @@ revision, while current code and CLI help remain the implementation authority.
 
 - [Docs interaction contract](../spec/docs-interaction-contract.md) — update, version and supersession behavior.
 - [Canonical taxonomy](../reference/taxonomy.md) — shared classification axes for decisions, documents and tasks.
+- [Docs slug renames plan](../plan/docs-ac3-slug-renames.md) — the reviewed store plan that renames 15 task-named and `-spec` slugs to stable ones.
 
 ### Recovery and research
 
