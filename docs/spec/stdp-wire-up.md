@@ -1,18 +1,19 @@
 # STDP Phase 5 Wire-Up — Master Specification
 
 > **Spec ID**: STDP-WIRE-UP-V2
-> **Status**: AUTHORITATIVE — supersedes STDP-WIRE-UP-V1
+> **Status**: Implemented — the STDP code ships (`packages/core/src/memory/brain-stdp.ts`,
+>   `packages/core/src/memory/brain-plasticity-class.ts`). Supersedes STDP-WIRE-UP-V1.
+>   Implementation record: [ADR-046](../adr/adr-046-stdp-phase-5-implementation.md).
+>   Where the shipped code differs from the design below, a **Current implementation** note says so.
 > **Date**: 2026-04-15
-> **Author**: T673 Plasticity Council Synthesis Lead (session ses_20260415172452_9cf242)
 > **Parent task**: T673
 > **Epic**: T627 (T-BRAIN-LIVING Stabilization)
-> **Synthesized from**:
-> - Lead A Schema Council (`T673-council-schema.md`)
-> - Lead B Algorithm Council (`T673-council-algorithm.md`)
-> - Lead C Integration Council (`T673-council-integration.md`)
-> - RCASD Plan (`T673-stdp-rcasd-plan.md`)
 > **Locked decisions**: D-BRAIN-VIZ-04, D-BRAIN-VIZ-05, D-BRAIN-VIZ-08, D-BRAIN-VIZ-09,
->   D-BRAIN-VIZ-12, D-BRAIN-VIZ-13, D013 (owner Q1–Q5 answers 2026-04-15)
+>   D-BRAIN-VIZ-12, D-BRAIN-VIZ-13, D013
+> **Store**: every `brain_*` table named here lives in the project `<project>/.cleo/cleo.db`,
+>   opened through `openDualScopeDb` (`packages/core/src/store/memory-sqlite.ts`). The separate
+>   `brain.db` and `tasks.db` files are legacy; task and session rows are the `tasks_*` tables of
+>   the same `cleo.db`.
 
 ---
 
@@ -21,9 +22,7 @@
 ### §1.1 Purpose
 
 This specification is the single authoritative source of truth for completely wiring CLEO BRAIN's
-STDP-inspired plasticity substrate. It replaces all prior partial specifications and council
-reports. Workers MUST implement this specification straight-through without consulting the
-superseded council reports for decisions.
+STDP-inspired plasticity substrate. It replaces all prior partial specifications.
 
 ### §1.2 Scope
 
@@ -38,7 +37,7 @@ This specification governs:
 7. Session_id backfill for the 38 historical `brain_retrieval_log` rows
 8. CLI surface additions
 9. Studio UI integration requirements (planning-level for Phase 6)
-10. Functional test architecture (real brain.db, no mocks)
+10. Functional test architecture (real project store, no mocks)
 11. Migration sequence with rollback
 12. Observability and health metrics
 13. Acceptance criteria for the full STDP epic
@@ -47,7 +46,7 @@ This specification governs:
 
 This specification does NOT govern:
 
-- Phase 6+ Studio visualization details beyond those noted in §4.5
+- Phase 6+ Studio visualization details beyond those noted in §4.7
 - Biological SNN frameworks (BindsNET, Brian2) — excluded per D-BRAIN-VIZ-09
 - Cross-project meta-brain plasticity (future phase)
 - `brain_retrieval_entries` junction table (Option C) — Phase 6+ only, tracked in T709
@@ -55,7 +54,10 @@ This specification does NOT govern:
 
 ### §1.4 Root Causes of Broken State (Phase 5 Shipped Half-Built)
 
-Three confirmed root-cause bugs prevent any plasticity events from firing:
+Three confirmed root-cause bugs prevented any plasticity events from firing in v2026.4.51.
+All three are fixed. The file names and line numbers in this section describe that pre-fix code;
+the schema now lives in `packages/core/src/store/schema/memory-schema.ts` and `logRetrieval`
+in `packages/core/src/memory/retrieval/log-retrieval.ts`, which writes `JSON.stringify(entryIds)`.
 
 **BUG-1 — Lookback/Pairing Window Conflation**
 
@@ -64,8 +66,7 @@ This single value is used as BOTH (a) the SQL lookback cutoff for fetching rows 
 spike-pair Δt comparison gate. The 38 live `brain_retrieval_log` rows span 2026-04-13 to
 2026-04-15 — all older than 5 minutes. Zero rows qualify. Zero events fire.
 
-The plan at `docs/plans/stdp-feasibility.md §4` specifies a 30-day lookback. The implementation
-contradicts the plan.
+The STDP feasibility plan specified a 30-day lookback. The implementation contradicted the plan.
 
 **BUG-2 — `entry_ids` Format Mismatch**
 
@@ -91,13 +92,13 @@ permanently empty.
 
 ### §2.1 Target Schema — Complete Column Inventory
 
-All additions use the patterns established in `packages/core/src/store/brain-schema.ts`.
-The `ensureColumns` safety net in `packages/core/src/store/brain-sqlite.ts:runBrainMigrations`
-MUST be extended for every column addition per §5.3.
+All additions use the patterns established in `packages/core/src/store/schema/memory-schema.ts`
+(formerly `brain-schema.ts`). The Drizzle migrations M1–M4 (§5) carry every change; the old
+`ensureColumns` safety net is gone (§5.5).
 
 #### §2.1.1 `brain_retrieval_log` — Target (post-migration)
 
-**File**: `packages/core/src/store/brain-schema.ts:694–724` plus additions.
+**File**: `packages/core/src/store/schema/memory-schema.ts` (`brainRetrievalLog`).
 
 | Column | Type | Constraint | Notes |
 |--------|------|------------|-------|
@@ -141,7 +142,7 @@ index('idx_retrieval_log_reward').on(table.rewardSignal),
 
 #### §2.1.2 `brain_plasticity_events` — Target (post-migration)
 
-**File**: `packages/core/src/store/brain-schema.ts:740–770` plus additions.
+**File**: `packages/core/src/store/schema/memory-schema.ts` (`brainPlasticityEvents`).
 
 | Column | Type | Constraint | Notes |
 |--------|------|------------|-------|
@@ -186,7 +187,7 @@ index('idx_plasticity_reward').on(table.rewardSignal),
 
 #### §2.1.3 `brain_page_edges` — Target (post-migration)
 
-**File**: `packages/core/src/store/brain-schema.ts:648–678` plus additions.
+**File**: `packages/core/src/store/schema/memory-schema.ts` (`brainPageEdges`).
 
 | Column | Type | Constraint | Notes |
 |--------|------|------------|-------|
@@ -250,8 +251,16 @@ UPDATE brain_page_edges SET plasticity_class = 'hebbian' WHERE edge_type = 'co_r
 
 #### §2.1.4 `brain_weight_history` — NEW TABLE (M4)
 
-Immutable audit log of every edge weight change. Retention: rolling 90 days via DELETE sweep in
-`runConsolidation` Step 9d. Decay events are NOT written here (only ltp/ltd/hebbian/prune/external
+Immutable audit log of every edge weight change. Retention: DELETE sweep in `runConsolidation`
+Step 9d. The design set a rolling 90 days.
+
+> **Current implementation**: Step 9d calls `pruneStaleHistory` (`brain-stdp.ts`), which prunes
+> both `brain_weight_history` and `brain_plasticity_events` to 30 days
+> (`MAX_WEIGHT_HISTORY_RETENTION_DAYS`, `MAX_PLASTICITY_EVENTS_RETENTION_DAYS`) and caps each at
+> 50,000 rows (`MAX_*_ROW_CAP`). `CLEO_BRAIN_HISTORY_RETENTION_DAYS` overrides the day count;
+> `0` disables pruning.
+
+Decay events are NOT written here (only ltp/ltd/hebbian/prune/external
 events). Routine daily decay writes only to `brain_page_edges`.
 
 ```typescript
@@ -279,7 +288,7 @@ export const brainWeightHistory = sqliteTable('brain_weight_history', {
 ]);
 ```
 
-**Write scope decision** (resolved from Lead A open question Q-A1):
+**Write scope decision**:
 `writeWeightHistory` MUST be called for every LTP and LTD event that actually changes the DB
 (skip events below the `1e-6` negligibility threshold). Hebbian events MUST also write history.
 Routine exponential decay events MUST NOT write history rows (too voluminous). Prune events
@@ -313,8 +322,9 @@ export const brainModulators = sqliteTable('brain_modulators', {
 
 `backfillRewardSignals` MUST insert a `brain_modulators` row for each task outcome it processes.
 Both writes (retrieval_log UPDATE and modulators INSERT) MUST occur in the same conceptual pass,
-using two separate transactions (approach (a): read tasks.db → compute → write brain.db
-separately), matching the pattern in `cross-db-cleanup.ts`. Do NOT use ATTACH.
+using two separate transactions (read the `tasks_*` tables → compute → write the `brain_*`
+tables separately), matching the pattern in `packages/core/src/store/cross-db-cleanup.ts`.
+Do NOT use ATTACH. Both handles (`getDb`, `getBrainDb`) now resolve to the same project `cleo.db`.
 
 #### §2.1.6 `brain_consolidation_events` — NEW TABLE (M4)
 
@@ -342,6 +352,10 @@ export const brainConsolidationEvents = sqliteTable('brain_consolidation_events'
 (`'session_end' | 'maintenance' | 'scheduled' | 'manual'`) and MUST insert one row per run.
 `ConsolidationResult` MUST be exported from `brain-lifecycle.ts` so the INSERT can serialize it.
 
+> **Current implementation**: `runConsolidation(projectRoot, sessionId?, trigger = 'session_end')`
+> in `packages/core/src/memory/brain-lifecycle.ts` returns `RunConsolidationResult`; Step 9e writes
+> the row.
+
 ### §2.2 `entry_ids` Format — Final Ruling (Q1 Resolved)
 
 **Phase 5 (now)**: Option B — JSON array string (`'["obs:A","obs:B"]'`).
@@ -349,7 +363,8 @@ export const brainConsolidationEvents = sqliteTable('brain_consolidation_events'
 The `logRetrieval` function at `brain-retrieval.ts:1517` MUST store `JSON.stringify(entryIds)`
 instead of `entryIds.join(',')`. Both readers (`strengthenCoRetrievedEdges:971` and
 `applyStdpPlasticity:235`) already call `JSON.parse()` — this fixes BUG-2 with a one-line
-writer change.
+writer change. Done: `logRetrieval` (`packages/core/src/memory/retrieval/log-retrieval.ts`)
+writes `JSON.stringify(entryIds)`.
 
 **Phase 6+ (T709)**: Option C — normalized junction table `brain_retrieval_entries(retrieval_id,
 entry_id, rank)`. Scheduled when `brain_retrieval_log` exceeds ~10K rows. Not in scope for T673.
@@ -392,7 +407,7 @@ exists for synthetic sessions.
 brain_retrieval_log
   id ←── brain_plasticity_events.retrieval_log_id (soft FK)
   id ←── brain_weight_history.retrieval_log_id (soft FK)
-  session_id ──→ [tasks.db sessions] (soft FK cross-DB)
+  session_id ──→ [tasks_sessions] (soft FK)
 
 brain_plasticity_events
   id ←── brain_weight_history.source_plasticity_event_id (soft FK)
@@ -409,14 +424,15 @@ brain_weight_history
   retrieval_log_id → brain_retrieval_log.id (soft FK)
 
 brain_modulators
-  session_id → [tasks.db sessions] (soft FK cross-DB)
+  session_id → [tasks_sessions] (soft FK)
   source_event_id → [task ID or memory entry ID] (polymorphic soft FK)
 
 brain_consolidation_events
-  session_id → [tasks.db sessions] (soft FK cross-DB)
+  session_id → [tasks_sessions] (soft FK)
 ```
 
-All tables cross-link without circular dependencies.
+All tables cross-link without circular dependencies. The links to `tasks_sessions` stay soft
+(no SQL foreign key) even though both tables now live in the project `cleo.db`.
 
 ---
 
@@ -470,10 +486,11 @@ The decay function `f(Δt) = exp(−Δt / τ)` uses a context-sensitive τ:
 | Cross-session | 2 h — 24 h | τ_episodic = 43,200,000 ms | Episodic reconsolidation (~12 h) |
 
 ```typescript
-function computeTau(deltaT: number, opts: PlasticityOptions): number {
-  if (deltaT <= 30_000)     return opts.tauNearMs;      // 20 s
-  if (deltaT <= 7_200_000)  return opts.tauSessionMs;   // 2 h
-  return opts.tauEpisodicMs;                             // 12 h
+// packages/core/src/memory/brain-stdp.ts — τ values are module constants
+export function computeTau(deltaT: number): number {
+  if (deltaT <= TAU_NEAR_THRESHOLD_MS) return TAU_NEAR_MS;       // Δt ≤ 30 s → 20 s
+  if (deltaT <= TAU_SESSION_THRESHOLD_MS) return TAU_SESSION_MS; // Δt ≤ 2 h → 30 min
+  return TAU_EPISODIC_MS;                                        // 12 h
 }
 ```
 
@@ -664,7 +681,7 @@ for (const [sessionId, sessionSpikes] of adjacentBucketPairs(sessionBuckets)) {
       if (deltaT > opts.pairingWindowMs) break;     // sorted → safe early exit
       if (spikeA.entryId === spikeB.entryId) continue; // §3.8 self-pair guard
 
-      const tau = computeTau(deltaT, opts);
+      const tau = computeTau(deltaT);
       let deltaWLtp = opts.aPre * Math.exp(-deltaT / tau);
       if (Math.abs(deltaWLtp) < 1e-6) continue;
 
@@ -723,7 +740,11 @@ export interface StdpPlasticityResult {
 | `decay_threshold_days` | 7 | `brain.plasticity.decay_threshold_days` |
 | `min_weight` | 0.05 | `brain.plasticity.min_weight` |
 
-All parameters are Phase 5 hardcoded defaults. Config-based tuning is Phase 6+.
+All parameters are Phase 5 hardcoded defaults. Config-based tuning is Phase 6+: the config
+paths above are proposed names and nothing reads them yet. The amplitudes, τ values and
+`k_novelty` are module constants in `brain-stdp.ts`; `lookbackDays` and `pairingWindowMs` are
+`StdpPlasticityOptions` fields; the decay parameters are `HomeostaticDecayOptions` fields
+(`decayRatePerDay`, `gracePeriodDays`, `pruneThreshold`).
 
 ---
 
@@ -732,9 +753,9 @@ All parameters are Phase 5 hardcoded defaults. Config-based tuning is Phase 6+.
 ### §4.1 Writer Hook Location — Session-End Batch (LOCKED)
 
 **Decision**: `applyStdpPlasticity` runs as Step 9b of `runConsolidation`, called from
-`handleSessionEndConsolidation` at hook priority 5. This is already wired at
-`brain-lifecycle.ts:710`. The fix is correctness (lookback window, session_id, τ tiers),
-not relocation.
+`handleSessionEndConsolidation` (`packages/core/src/hooks/handlers/session-hooks.ts`) at hook
+priority 5. Step 9b is wired in `runConsolidation` (`packages/core/src/memory/brain-lifecycle.ts`).
+The fix is correctness (lookback window, session_id, τ tiers), not relocation.
 
 **Justification**:
 1. Already wired — no new wiring required
@@ -751,14 +772,23 @@ not relocation.
 ### §4.2 Observer/Reflector Ordering
 
 ```
-priority 100  brain-session-end         handleSessionEnd          (transcript extraction, memory bridge)
-priority 10   backup-session-end        handleSessionEndBackup    (SQLite VACUUM INTO)
-priority 5    consolidation-session-end handleSessionEndConsolidation (runConsolidation incl. STDP)
-priority 4    reflector-session-end     handleSessionEndReflector (runReflector — LLM synthesis)
+priority 100  brain-session-end               handleSessionEnd                    (transcript extraction, memory bridge)
+priority 5    consolidation-session-end       handleSessionEndConsolidation       (runConsolidation incl. STDP)
+priority 4.5  observer-session-end            handleSessionEndObserver            (observer compression)
+priority 4    reflector-session-end           handleSessionEndReflector           (runReflector — LLM synthesis)
+priority 3    transcript-schedule-session-end handleSessionEndTranscriptSchedule  (warm-tier extraction tombstone)
+priority 2    journal-session-end             handleSessionEndJournal             (session journal entry)
 ```
 
-Plasticity (priority 5) MUST run BEFORE the LLM reflector (priority 4). Correct causal
-direction: plasticity reads retrievals → updates edges → reflector synthesizes from updated graph.
+The intended causal direction is plasticity reads retrievals → updates edges → reflector
+synthesizes from the updated graph, so plasticity (priority 5) is listed before the reflector
+(priority 4).
+
+> **Current implementation**: `hooks.dispatch` runs every `SessionEnd` handler concurrently
+> (`Promise.allSettled`); priority orders the handler list, not execution, so no handler can rely
+> on another having finished (NOTE at the registrations in `session-hooks.ts`). The consolidation
+> handler also defers `runConsolidation` with `setImmediate`. The session-end SQLite snapshot is
+> not a hook: `endSession` calls `snapshotAfterSessionEnd` after the session is persisted.
 
 **Sub-step ordering within `runConsolidation`**:
 
@@ -774,9 +804,17 @@ Step 9e   logConsolidationEvent        (INSERT into brain_consolidation_events)
 Step 6 MUST precede Step 9b (Hebbian creates edges; STDP refines them via LTD).
 Step 9a MUST precede Step 9b (reward signals must exist before STDP reads them).
 
+> **Current implementation** (`runConsolidation`, `brain-lifecycle.ts`): the order is 6 → 6b
+> (NEXUS co-access plasticity) → 6c (plasticity decay) → … → 9a `backfillRewardSignals` → 9a.5
+> outcome correlation → 9b `applyStdpPlasticity` (behind the `shouldRunPlasticity` gate) → 9c
+> `applyHomeostaticDecay` → 9d `pruneStaleHistory` (30 days, both history tables; §2.1.4) → 9f
+> hard-sweeper → 9g attention consolidation → 9e consolidation event row (last, so its JSON
+> includes 9f) → 10 LLM sleep consolidation. Every step is best-effort.
+
 **Minimum-pair gate**: Before running Step 9b, check if `brain_retrieval_log` has fewer than
 2 new rows since the last `brain_plasticity_events` timestamp. If so, skip Step 9b — it is a
-no-op and avoids unnecessary overhead on sessions with no retrievals.
+no-op and avoids unnecessary overhead on sessions with no retrievals. Implemented as
+`shouldRunPlasticity(projectRoot, sessionId, 2)` in `brain-stdp.ts`.
 
 ### §4.3 `backfillRewardSignals` Specification
 
@@ -788,29 +826,35 @@ export interface RewardBackfillResult {
 
 export async function backfillRewardSignals(
   projectRoot: string,
-  sessionId: string,
-  lookbackDays?: number, // default: 30
+  sessionId: string | null | undefined, // null/undefined → no-op
+  lookbackDays = 30,
 ): Promise<RewardBackfillResult>
 ```
 
 The function MUST:
 1. Query `brain_retrieval_log` for rows where `session_id = sessionId` AND `reward_signal IS NULL`
    AND `session_id NOT LIKE 'ses_backfill_%'` (skip synthetic sessions — no task correlation)
-2. Query `tasks.db` for tasks completed/cancelled in the last `lookbackDays` days, with
-   session attribution matching `sessionId`
+2. Query the `tasks_tasks` table for tasks completed/cancelled in the last `lookbackDays` days,
+   with session attribution matching `sessionId`
 3. Assign reward values: +1.0 (verified done), +0.5 (done unverified), −0.5 (cancelled)
 4. UPDATE `brain_retrieval_log SET reward_signal = ?` for rows in that session
 5. INSERT a `brain_modulators` row for each task outcome processed (in a separate
-   `brain.db` transaction after the tasks.db read completes)
+   transaction after the task read completes)
 6. Return `{ rowsLabeled, rowsSkipped }`
 
-**Transaction pattern**: two separate SQLite connections (not ATTACH). Read tasks.db →
-compute reward map → write brain.db in two separate transactions. This matches the
-`cross-db-cleanup.ts` pattern.
+**Transaction pattern**: two separate handles (not ATTACH). Read the task rows (`getDb`) →
+compute reward map → write the `brain_*` tables (`getBrainDb`) in a separate transaction. This
+matches the `cross-db-cleanup.ts` pattern. Both handles open the project `cleo.db`.
+
+> **Current implementation**: the session-end hook calls `runConsolidation(projectRoot)` with no
+> session ID (`session-hooks.ts`, `handleSessionEndConsolidation`), so Step 9a is a no-op on that
+> path. The dream cycle passes its session ID (`dream-cycle.ts`). T13075 tracks passing the
+> session ID on session end.
 
 ### §4.4 `session_id` at `logRetrieval` Call Sites
 
-The `logRetrieval` function at `brain-retrieval.ts:1483` accepts `sessionId?: string`.
+The `logRetrieval` function (`packages/core/src/memory/retrieval/log-retrieval.ts`) accepts
+`sessionId?: string`.
 Every call site MUST pass the active session ID from context. Call sites MUST be audited and
 updated. If no session is active, `session_id = NULL` (existing behavior).
 
@@ -831,10 +875,20 @@ T628 scope expansion (required, not optional):
 **Session-end consolidation backstop**: Session end continues to fire `runConsolidation`. The
 minimum-pair gate (§4.2) prevents no-op overhead when sessions have no retrievals.
 
+> **Current implementation**: `packages/core/src/memory/dream-cycle.ts` runs
+> `runConsolidation(projectRoot, sessionId ?? null, 'scheduled')` from its triggers and
+> `'manual'` for a forced run.
+
 ### §4.6 CLI Surface
 
 All new commands add to `packages/cleo/src/cli/commands/brain.ts` under the existing
 `brain plasticity` subcommand group.
+
+> **Current implementation**: `brain plasticity` has one subcommand, `stats [--limit <n>] [--json]`
+> (`cleo brain plasticity --help`), backed by `getPlasticityStats(projectRoot, limit = 20)`.
+> `events`, `apply`, `history` and `reset` (§4.6.1–§4.6.4) are not built, and
+> `getPlasticityEvents` does not exist. `cleo memory dream` and `cleo memory consolidate` exist
+> with the flags noted in §4.6.5–§4.6.6.
 
 #### §4.6.1 `cleo brain plasticity events`
 
@@ -884,6 +938,10 @@ cleo memory dream [--dry-run] [--json]
 Manually triggers the full dream cycle (= `runConsolidation`). With `--dry-run`, reports
 what would run. Output includes per-step counts.
 
+> **Current implementation**: the shipped command is `cleo memory dream [--apply] [--status]`.
+> It is destructive and a bare run refuses and writes nothing: `--apply` runs the cycle,
+> `--status` reports engine liveness read-only. There is no `--dry-run`.
+
 #### §4.6.6 `cleo memory consolidate`
 
 ```
@@ -893,9 +951,16 @@ cleo memory consolidate [--json]
 Verify this exists. If missing, add as alias for `cleo memory dream` but executing only
 Steps 1–8 (no STDP). Satisfies T628's "disable auto-trigger" requirement.
 
+> **Current implementation**: `cleo memory consolidate` exists, takes no flags, and runs the full
+> `runConsolidation(root)` pipeline, STDP steps included (`packages/cleo/src/cli/commands/memory.ts`).
+
 ### §4.7 Studio UI Integration (Phase 6 planning)
 
 These items are NOT in T673 scope. They are planning requirements for Phase 6 (T660 expansion).
+
+> **Current state**: `packages/studio/src/lib/components/LivingBrainGraph.svelte` exists.
+> `PlasticityFeed.svelte`, the `api/brain/plasticity-events` route and an `adapters/brain.ts`
+> file do not exist yet.
 
 **Already working (no changes needed)**: `LivingBrainGraph.svelte` already renders edge
 thickness proportional to `edge.weight`. Once STDP writes non-trivial weights, the canvas
@@ -929,15 +994,22 @@ LIMIT 1
 ```
 
 If a matching recent event exists, skip the INSERT. This makes repeated consolidation runs
-safe without requiring a complex global dedup strategy.
+safe without requiring a complex global dedup strategy. Implemented in `brain-stdp.ts` with a
+1-hour default window.
 
 ---
 
 ## §5 Migration Sequence
 
 All migration files go under `packages/core/migrations/drizzle-brain/`.
-Latest existing: `20260415000001_t626-normalize-co-retrieved-edge-type`.
-New migrations use `20260416` prefix to guarantee ordering.
+Latest existing at design time: `20260415000001_t626-normalize-co-retrieved-edge-type`.
+New migrations use `20260416` prefix to guarantee ordering. All four (M1–M4) ship in that folder.
+
+> **Current implementation**: the brain tables now live in the project `cleo.db`, created by the
+> consolidated `drizzle-cleo-project` migrations (`20260531000001_t11363-consolidation-cleo-project`
+> creates `brain_weight_history` and the other plasticity tables). The legacy `drizzle-brain`
+> folder is still applied to the same handle during the transition (`memory-sqlite.ts` header);
+> its statements are additive and idempotent.
 
 ### §5.1 M1 — `brain_retrieval_log` Columns + Data Fix
 
@@ -1126,64 +1198,16 @@ CREATE INDEX IF NOT EXISTS `idx_consolidation_events_session` ON `brain_consolid
 **Rollback**: `DROP TABLE IF EXISTS brain_weight_history; DROP TABLE IF EXISTS brain_modulators;
 DROP TABLE IF EXISTS brain_consolidation_events;` — fully reversible.
 
-### §5.5 `ensureColumns` Safety Net
+### §5.5 `ensureColumns` Safety Net (removed)
 
-Add to `packages/core/src/store/brain-sqlite.ts:runBrainMigrations`:
+The design added `ensureColumns` guards and self-healing `CREATE TABLE IF NOT EXISTS` statements
+for every M1–M4 column and table to `runBrainMigrations` in `brain-sqlite.ts`.
 
-```typescript
-// T673: plasticity columns on brain_retrieval_log
-if (tableExists(nativeDb, 'brain_retrieval_log')) {
-  ensureColumns(nativeDb, 'brain_retrieval_log', [
-    { name: 'session_id', ddl: 'text' },
-    { name: 'reward_signal', ddl: 'real' },
-    { name: 'retrieval_order', ddl: 'integer' },
-    { name: 'delta_ms', ddl: 'integer' },
-  ], 'brain');
-}
-
-// T673: observability columns on brain_plasticity_events
-if (tableExists(nativeDb, 'brain_plasticity_events')) {
-  ensureColumns(nativeDb, 'brain_plasticity_events', [
-    { name: 'weight_before', ddl: 'real' },
-    { name: 'weight_after', ddl: 'real' },
-    { name: 'retrieval_log_id', ddl: 'integer' },
-    { name: 'reward_signal', ddl: 'real' },
-    { name: 'delta_t_ms', ddl: 'integer' },
-  ], 'brain');
-}
-
-// T673: plasticity tracking columns on brain_page_edges
-ensureColumns(nativeDb, 'brain_page_edges', [
-  { name: 'last_reinforced_at', ddl: 'text' },
-  { name: 'reinforcement_count', ddl: 'integer NOT NULL DEFAULT 0' },
-  { name: 'plasticity_class', ddl: "text NOT NULL DEFAULT 'static'" },
-  { name: 'last_depressed_at', ddl: 'text' },
-  { name: 'depression_count', ddl: 'integer NOT NULL DEFAULT 0' },
-  { name: 'stability_score', ddl: 'real' },
-], 'brain');
-
-// T673: new tables — self-healing CREATE IF NOT EXISTS
-nativeDb.exec(`CREATE TABLE IF NOT EXISTS brain_weight_history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  edge_from_id TEXT NOT NULL, edge_to_id TEXT NOT NULL, edge_type TEXT NOT NULL,
-  weight_before REAL, weight_after REAL NOT NULL, delta_weight REAL NOT NULL,
-  event_kind TEXT NOT NULL, source_plasticity_event_id INTEGER,
-  retrieval_log_id INTEGER, reward_signal REAL,
-  changed_at TEXT NOT NULL DEFAULT (datetime('now'))
-)`);
-nativeDb.exec(`CREATE TABLE IF NOT EXISTS brain_modulators (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  modulator_type TEXT NOT NULL, valence REAL NOT NULL, magnitude REAL NOT NULL DEFAULT 1.0,
-  source_event_id TEXT, session_id TEXT, description TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-)`);
-nativeDb.exec(`CREATE TABLE IF NOT EXISTS brain_consolidation_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trigger TEXT NOT NULL, session_id TEXT, step_results_json TEXT NOT NULL,
-  duration_ms INTEGER, succeeded INTEGER NOT NULL DEFAULT 1,
-  started_at TEXT NOT NULL DEFAULT (datetime('now'))
-)`);
-```
+> **Current implementation**: that helper and file are gone. `getBrainDb` routes through
+> `openDualScopeDb('project')` (`packages/core/src/store/memory-sqlite.ts`), and every brain
+> `ensureColumns` guard and raw `CREATE TABLE IF NOT EXISTS` was removed as redundant with the
+> migration files (T11522, `memory-sqlite.ts` header). The migrations (§5.1–§5.4) are the only
+> schema source. `ensureColumns` itself lives in `packages/core/src/store/migration-manager.ts`.
 
 ### §5.6 Migration Ordering and Dependencies
 
@@ -1204,7 +1228,7 @@ application order.
 "Tested functionally for REAL — no fake mock or just vitests, we need automated testing but
 that doesn't test real world."
 
-Existing `brain-stdp.test.ts` uses `vi.mock('../../store/brain-sqlite.js')`. These unit tests
+Existing `brain-stdp.test.ts` uses `vi.mock('../../store/memory-sqlite.js')` (formerly `brain-sqlite.js`). These unit tests
 are sound for LTP/LTD math but cannot detect the three root-cause bugs (window conflation,
 entry_ids format, missing session_id) — all of which are runtime integration failures invisible
 to mocked tests.
@@ -1219,12 +1243,19 @@ The existing unit tests MUST be augmented (not replaced):
 4. Novelty boost — novel pair gets 1.5× weight; repeated pair gets standard weight
 5. `computeTau` function — all three tier boundaries
 
-**No `vi.mock` on brain-sqlite.js in these new tests.** The existing mocked tests remain
+**No `vi.mock` on `memory-sqlite.js` in these new tests.** The existing mocked tests remain
 but do NOT cover the functional correctness requirements.
 
-### §6.3 Functional Test — Real brain.db, No Mocks
+### §6.3 Functional Test — Real Store, No Mocks
 
 **File**: `packages/core/src/memory/__tests__/brain-stdp-functional.test.ts`
+
+> **Current implementation**: the shipped file has three cases (T682-1 to T682-3). They seed a
+> temp project, spawn `cleo memory dream --apply --json` with `CLEO_DIR` pointing at it, and assert
+> LTP rows in `brain_plasticity_events`, `totalEvents > 0` from `cleo brain plasticity stats --json`,
+> and non-zero `delta_w`. No `vi.mock` is used. Further STDP tests sit beside it
+> (`brain-stdp-*.test.ts`); the planned cases STDP-F1 to STDP-F8 below are not mapped to them
+> one to one.
 
 This test MUST NOT call `vi.mock` for any brain or SQLite module.
 
@@ -1241,7 +1272,7 @@ No `sleep()` calls. No time mocking. Test runs in < 1 second.
 **Test cases**:
 
 ```typescript
-describe('STDP Functional — real brain.db, no mocks', () => {
+describe('STDP Functional — real store, no mocks', () => {
 
   it('STDP-F1: LTP event written after two correlated retrievals', async () => {
     // Insert brain_page_nodes for obs:A, obs:B
@@ -1309,6 +1340,8 @@ Add to the existing `brain-lifecycle.test.ts` or create `brain-lifecycle-integra
 
 - Step ordering: verify 9a runs before 9b, 9b before 9c
 - `RunConsolidationResult` has `rewardBackfilled`, `ltpEvents`, `ltdEvents`, `edgesPruned`
+  (shipped shape: `rewardBackfilled`, `stdpPlasticity.{ltpEvents,ltdEvents,…}`,
+  `homeostaticDecay.{edgesDecayed,edgesPruned}`, `historyRetention`)
 - Consolidation-event row inserted after each run
 
 ### §6.5 Test Placement in CI
@@ -1337,6 +1370,10 @@ existing `**/*.test.ts` glob. No separate CI step required. Use `pool: 'forks'` 
 ### §7.2 `cleo brain plasticity stats` Enhancements
 
 The existing `getPlasticityStats` function MUST be extended to return:
+
+> **Current implementation**: not extended. `getPlasticityStats(projectRoot, limit = 20)` returns
+> `PlasticityStatsSummary` `{ totalEvents, ltpCount, ltdCount, netDeltaW, lastEventAt,
+> recentEvents }` (`brain-stdp.ts`). The interface below is the target.
 
 ```typescript
 export interface PlasticityStats {
@@ -1371,13 +1408,13 @@ A healthy plasticity system shows:
 | M2 (plasticity_events ALTER) | No (SQLite) | Accept; 0 rows affected |
 | M3 (page_edges ALTER) | No (SQLite) | Accept; new columns nullable or have defaults |
 | M4 (new tables CREATE) | Yes — `DROP TABLE IF EXISTS ...` for all three | Full rollback |
-| ensureColumns guard | Self-idempotent | Safe to re-run |
 
 **Practical rollback**: M1–M3 ALTER TABLE operations are not reversible in SQLite without
 table recreation. Given that the live `brain_plasticity_events` has 0 rows and
 `brain_retrieval_log` has 38 rows, a full rollback would require restoring from the last
-`cleo backup` snapshot. The `cleo backup add` command creates a VACUUM INTO snapshot of
-all four CLEO database files and MUST be run before applying migrations.
+`cleo backup` snapshot. The `cleo backup add` command creates a VACUUM INTO snapshot of the
+CLEO SQLite stores, including the project `cleo.db` that holds the `brain_*` tables, and MUST be
+run before applying migrations.
 
 ---
 
@@ -1389,7 +1426,7 @@ All of the following MUST be true before T673 is marked complete:
 |----|-----------|
 | AC-1 | Running `cleo brain maintenance` on a project with at least 2 retrieval log rows in the 30-day window produces `brain_plasticity_events COUNT(*) > 0` |
 | AC-2 | `cleo brain plasticity stats` reports `totalEvents > 0` after running the functional test |
-| AC-3 | `brain_retrieval_log` has `session_id` and `reward_signal` columns in the live project brain.db (confirmed via `PRAGMA table_info`) |
+| AC-3 | `brain_retrieval_log` has `session_id` and `reward_signal` columns in the live project `cleo.db` (confirmed via `PRAGMA table_info`) |
 | AC-4 | `brain_plasticity_events` rows contain `session_id`, `weight_before`, `weight_after`, `retrieval_log_id`, `reward_signal`, `delta_t_ms` values (non-null for events triggered with real session context) |
 | AC-5 | Functional test at `brain-stdp-functional.test.ts` passes via `pnpm run test` with ZERO mocked DB components |
 | AC-6 | `brain_page_edges` has `last_reinforced_at`, `reinforcement_count`, `plasticity_class` columns; `co_retrieved` edges have `plasticity_class = 'stdp'` after at least one STDP pass |
@@ -1399,19 +1436,18 @@ All of the following MUST be true before T673 is marked complete:
 | AC-10 | Homeostatic decay (`applyHomeostaticDecay`) deletes edges idle > 7 days with weight < 0.05 (verified by STDP-F8 test) |
 | AC-11 | R-STDP: `reward_signal = +1.0` causes measured delta_w ≈ 0.10 (vs standard 0.05) for a same-batch pair (verified by STDP-F7 test) |
 | AC-12 | Cross-session pairs (retrievals in two sessions 2d apart) produce LTP events (verified by STDP-F3 test) |
-| AC-13 | `docs/plans/stdp-feasibility.md §10` updated to show Phase 5 DONE with link to functional test |
-| AC-14 | ADR written and committed documenting the three root-cause bugs and all architectural decisions |
+| AC-13 | The STDP feasibility plan §10 updated to show Phase 5 DONE with link to functional test |
+| AC-14 | ADR written and committed documenting the three root-cause bugs and all architectural decisions ([ADR-046](../adr/adr-046-stdp-phase-5-implementation.md)) |
 | AC-15 | `pnpm biome check --write .` passes; `pnpm run build` passes; `pnpm run test` passes with zero new failures |
 
 ---
 
 ## §10 Open Questions
 
-As of synthesis date 2026-04-15, there are **zero open questions** requiring owner decision
-before workers begin. All Q1–Q5 from the RCASD plan and all cross-council open questions have
-been resolved in this specification.
+There are **no open questions**. The owner's Q1–Q5 answers and every design question are
+resolved in this specification.
 
-**Owner-acknowledged choices** (not questions — decisions made in this synthesis):
+**Decided choices**:
 
 | Choice | Decision | Rationale |
 |--------|----------|-----------|
@@ -1421,18 +1457,21 @@ been resolved in this specification.
 | `brain_weight_history` scope | IN SCOPE for T673 (Phase 5) | Owner directive: do NOT delay |
 | Decay events in weight_history | NOT written to history | Too voluminous; only LTP/LTD/prune/hebbian written |
 | `plasticity_class` upgrade trigger | On first STDP touch (UPDATE or INSERT) | Simplest rule; class = most recent algorithm |
-| `stability_score` formula | `tanh(rc/10) × exp(-(days_since/30))` | Validated by Algorithm Lead B |
+| `stability_score` formula | `tanh(rc/10) × exp(-(days_since/30))` | Implemented as `computeStabilityScore` (`brain-plasticity-class.ts`) |
 | `delta_t_ms` source | Δt between retrieval ROWS (not intra-batch entry ordering) | What the algorithm actually computes |
-| `backfillRewardSignals` transaction | Two separate connections (read tasks.db, write brain.db) | Matches `cross-db-cleanup.ts` pattern |
+| `backfillRewardSignals` transaction | Two separate handles (read `tasks_*`, write `brain_*`) | Matches `cross-db-cleanup.ts` pattern |
 | Writer hook location | Session-end consolidation Step 9 | Already wired; correct causal model |
 | `pairingWindowMs` default | 24 h | Cross-session pairs; owner Q2 LOCKED |
 
 **Retained for owner awareness** (informational, not blocking):
 
-- `brain_weight_history` retention: this spec sets 90-day rolling. Owner may tune via
-  `cleo config set brain.plasticity.weight_history_retention_days <N>` in Phase 6+.
+- `brain_weight_history` retention: this spec set 90-day rolling; the shipped
+  `pruneStaleHistory` keeps 30 days and caps rows at 50,000 (§2.1.4). Tune it with the
+  `CLEO_BRAIN_HISTORY_RETENTION_DAYS` environment variable (`0` disables pruning); there is no
+  config key.
 - Session-end consolidation overhead: the minimum-pair gate (§4.2) prevents no-op STDP on
-  sessions with no retrievals. This is a heuristic; owner may disable the gate via config.
+  sessions with no retrievals. This is a heuristic; its threshold of 2 is hardcoded at the
+  `runConsolidation` call site, with no config switch.
 
 ---
 
@@ -1450,5 +1489,4 @@ been resolved in this specification.
 
 ---
 
-*This specification is complete. Workers implementing T673 subtasks MUST treat this document
-as the canonical source of truth. The three original council reports are superseded (reference only).*
+*This specification is complete and is the canonical source of truth for the STDP substrate.*

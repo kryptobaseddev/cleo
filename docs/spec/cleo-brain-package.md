@@ -1,27 +1,78 @@
 # CLEO Brain Package Specification
 
-**Version**: 2026.4.96
 **Status**: SPECIFIED
-**Date**: 2026-04-17
-**Task**: T985 (authoring) · T969 (extraction) · T968 (contracts) · T962 (epic)
-**Package**: `@cleocode/brain`
+**Package**: `@cleocode/brain` (`packages/brain/`)
 
 > **Companion specs**:
-> - `docs/specs/CLEO-API-AUTHORITY.md` — authority chain for wire contracts
-> - `docs/specs/CLEO-NEXUS-ARCHITECTURE.md` — NEXUS substrate backing
-> - `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md` — CONDUIT substrate backing
-> - `docs/specs/memory-architecture-spec.md` — memory substrate (distinct domain)
-> - `docs/specs/CLEO-TASKS-API-SPEC.md` — TASKS substrate backing
-> - `docs/specs/CORE-PACKAGE-SPEC.md` — sibling package publish lane
-> - `.cleo/agent-outputs/T910-reconciliation/living-brain-architecture.md` — base reference
+> - [database-architecture.md](database-architecture.md) — the dual-scope `cleo.db` store
+> - [cleo-nexus-architecture.md](cleo-nexus-architecture.md) — NEXUS semantics
+> - [cleo-conduit-protocol.md](cleo-conduit-protocol.md) — legacy Conduit message semantics
+> - [memory-architecture.md](memory-architecture.md) — the memory domain (distinct from this package)
+> - [cleo-tasks-api.md](cleo-tasks-api.md) — TASKS semantics
+> - [cleo-studio-http.md](cleo-studio-http.md) — Studio HTTP surface
+> - `.cleo/agent-outputs/T910-reconciliation/living-brain-architecture.md` — original architecture audit
 
 ---
 
 ## 1. Summary
 
-`@cleocode/brain` is the unified-graph substrate package for CLEO — a substrate-agnostic projection that wraps **memory + nexus + tasks + conduit + signaldock** into a single navigable super-graph. It was extracted from `packages/studio/src/lib/server/living-brain/` to its own workspace package at T969 (commit `725fc4231`) to mirror `@cleocode/nexus`, give BRAIN first-class CLI access, and open a standalone publish lane.
+`@cleocode/brain` is CLEO's unified-graph package: a read-side projection that
+merges **memory + nexus + tasks + conduit + agent registry** into one navigable
+graph. It was extracted from the Studio living-brain code into its own
+workspace package.
 
-The super-graph is **live-computed**, not materialized. Each query runs five pure adapters — one per substrate — against their respective SQLite databases, merges the outputs, prefixes every node ID with its substrate tag, then runs a second-pass stub-node loader to recover cross-substrate edges whose targets fall outside the initial node budget. The result is a single `LBGraph` object that unifies cognitive memory, code structure, task hierarchy, agent messaging, and agent identity under one node/edge schema.
+The graph is **computed per request**, not materialized. Each query runs one
+adapter per substrate, merges the outputs, prefixes every node ID with its
+substrate name, then runs a second-pass stub loader so cross-substrate edges
+whose targets fell outside the node budget still resolve. The result is one
+`BrainGraph` object (`packages/contracts/src/brain-graph.ts:172`).
+
+### 1.1 Storage status
+
+CLEO's store is one `cleo.db` per scope, opened through `openDualScopeDb`
+(`packages/core/src/store/dual-scope-db.ts`):
+
+- **Project** `<project>/.cleo/cleo.db`: `tasks_*` (tasks, sessions, lifecycle,
+  provenance, playbooks), project `brain_*` memory, `conduit_*`, `docs_*`, and
+  the NEXUS code graph (`nexus_nodes`, `nexus_relations`,
+  `packages/core/src/store/schema/cleo-project/nexus-graph.ts`).
+- **Global** `<cleoHome>/cleo.db`: the NEXUS project registry (`nexus_project_registry`, …),
+  `skills_*`, the agent registry (`agent_registry_*`,
+  `packages/core/src/store/schema/cleo-global/agent-registry.ts`), and global
+  `brain_*` memory. `cleoHome` is `~/.local/share/cleo` on Linux and
+  `~/Library/Application Support/cleo` on macOS; `CLEO_HOME` overrides it.
+
+The separate files `tasks.db`, `brain.db`, `nexus.db`, `conduit.db` and
+`signaldock.db` are legacy.
+
+**This package has not moved to `cleo.db` yet.** Its connection getters still
+open the legacy per-domain files with per-line `db-open-allowed` markers, and
+its adapters query the legacy bare table names (`packages/brain/src/db-connections.ts:20-30`):
+
+| Adapter | File it opens | Tables it queries |
+|---|---|---|
+| `brain` | `ctx.brainDbPath` (default `<project>/.cleo/brain.db`) | `brain_observations`, `brain_decisions`, `brain_patterns`, `brain_learnings`, `brain_page_edges`, `brain_memory_links` |
+| `nexus` | `<cleoHome>/nexus.db` | `nexus_nodes`, `nexus_relations` |
+| `tasks` | `ctx.tasksDbPath` (default `<project>/.cleo/tasks.db`) | bare `tasks`, `sessions`, `task_relations`, `task_dependencies` |
+| `conduit` | `conduit.db` beside `ctx.brainDbPath` | bare `messages` |
+| `agent-registry` | `<cleoHome>/signaldock.db` | bare `agents`, `agent_connections` |
+
+Sources: `packages/brain/src/cleo-home.ts:66-88`, `packages/brain/src/project-context.ts:59-60`,
+`packages/brain/src/db-connections.ts:117-239`, and the SQL in each adapter.
+
+Consequences, until the read path is migrated (T14583):
+
+- A getter returns `null`, and its adapter returns no nodes, when the legacy file
+  does not exist.
+- Studio passes its own `ProjectContext`, whose `brainDbPath` and `tasksDbPath`
+  both point at the project `cleo.db` (`packages/studio/src/lib/server/project-context.ts:118-119`).
+  The memory adapter's `brain_*` tables exist there under the same names. The
+  tasks adapter queries bare legacy names, not the prefixed `tasks_*` tables
+  that hold the live data. The conduit, nexus and agent-registry adapters still
+  look for their legacy files.
+- Messaging now runs on AgentMBX; Conduit is legacy and SignalDock is retired.
+  The `conduit` and `agent-registry` substrates only surface data that a legacy
+  file still holds.
 
 ---
 
@@ -29,15 +80,18 @@ The super-graph is **live-computed**, not materialized. Each query runs five pur
 
 | Term | Definition |
 |---|---|
-| **substrate** | One of the five backing databases: `memory` (brain.db), `nexus` (nexus.db, global), `tasks` (tasks.db), `conduit` (conduit.db), `signaldock` (signaldock.db, global). |
-| **BrainNode** | A single super-graph vertex. Every node carries a substrate-prefixed ID so cross-substrate edges reference nodes unambiguously. |
-| **BrainEdge** | A directed edge between two `BrainNode`s. May be in-substrate or cross-substrate (bridge). |
-| **BrainNodeId** | Substrate-prefixed identifier. Examples: `memory:O-abc`, `nexus:pkg/file.ts::Sym`, `tasks:T949`, `conduit:msg-7f3a`, `signaldock:agent-cleo`. |
-| **bridge** | A cross-substrate edge. `substrate: 'cross'` on the edge distinguishes bridges from intra-substrate edges. |
-| **adapter** | A pure function `(options) => { nodes, edges }` registered in `ADAPTER_MAP` that projects one substrate into the unified schema. |
-| **stub node** | A minimal `BrainNode` (id + substrate + kind + label) loaded in the second pass to satisfy an edge target that was not in the budgeted result set. Carries `meta.isStub: true`. |
-| **per-substrate budget** | Fair-share node cap computed as `ceil(limit / substrates.length)`. Default overall limit is 500; per-substrate becomes 100 when all five are requested. |
-| **LB-prefix** | Historical naming. Current exports use `LB*` (`LBNode`, `LBEdge`, `LBGraph`). T973 will rename to `Brain*` across contracts and studio in a separate focused change. Both spellings are documented here. |
+| **substrate** | One of the five sources the graph merges. Runtime names: `brain` (memory), `nexus`, `tasks`, `conduit`, `agent-registry` (`packages/contracts/src/brain-graph.ts:65`). |
+| **BrainNode** | One graph vertex. Its ID carries the substrate prefix, so cross-substrate edges reference nodes unambiguously. |
+| **BrainEdge** | A directed edge between two nodes. `substrate: 'cross'` marks a bridge between substrates. |
+| **bridge** | A cross-substrate edge. |
+| **adapter** | A function `(options) => { nodes, edges }` registered in `ADAPTER_MAP` that projects one substrate into the shared schema. |
+| **stub node** | A minimal node loaded in the second pass for an edge target outside the budgeted result. Carries `meta.isStub: true`. |
+| **per-substrate budget** | Each adapter computes `ceil(limit / 5)`, whatever subset was requested. Default `limit` is 500, so each adapter takes 100. |
+
+The runtime shapes use the `Brain*` names. Wire-format shapes in
+`packages/contracts/src/operations/brain.ts` carry a `Wire` suffix
+(`BrainNodeWire`, `BrainEdgeWire`, `BrainStreamEventWire`) to avoid colliding
+with them.
 
 ---
 
@@ -46,10 +100,10 @@ The super-graph is **live-computed**, not materialized. Each query runs five pur
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ LAYER 1 · CODE SSoT (binding)                                             │
+│   packages/contracts/src/brain-graph.ts       ← runtime graph types       │
 │   packages/contracts/src/operations/brain.ts  ← wire-format contract      │
-│   packages/brain/src/types.ts                 ← runtime types (LB*)       │
 │   packages/brain/src/adapters/*.ts            ← substrate adapters        │
-│   packages/brain/src/db-connections.ts        ← read-only SQLite getters  │
+│   packages/brain/src/db-connections.ts        ← SQLite getters            │
 │                                                                           │
 │   RULE: when code and docs disagree, code wins.                           │
 └───────────────────────────────────────────────────────────────────────────┘
@@ -57,180 +111,190 @@ The super-graph is **live-computed**, not materialized. Each query runs five pur
                               ▼
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ LAYER 2 · NARRATIVE (this file)                                           │
-│   docs/specs/CLEO-BRAIN-PACKAGE-SPEC.md                                   │
+│   docs/spec/cleo-brain-package.md                                         │
 └───────────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ LAYER 3 · HTTP SURFACE                                                    │
-│   packages/studio/src/routes/api/living-brain/*  ← current route prefix   │
-│   T970 WILL rename to /api/brain/* (tracked — see §7.4)                   │
+│   packages/studio/src/routes/api/brain/*                                  │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
-Callers MUST cite Layer-1 files when updating this spec. Section 11 enumerates the authoritative file paths.
+Callers MUST cite Layer-1 files when updating this spec. Section 16 lists them.
 
 ---
 
 ## 4. The Five Substrates
 
-Every node carries a substrate-prefixed ID. Cross-substrate edges reference nodes unambiguously, e.g. `memory:O-abc` vs `nexus:sym-123`. The table below summarises node vocabularies and adapter sources.
+| Substrate | Node ID prefix | Node kinds | Adapter |
+|---|---|---|---|
+| `brain` (memory) | `brain:` | `observation`, `decision`, `pattern`, `learning` | `packages/brain/src/adapters/brain.ts:154` |
+| `nexus` | `nexus:` | `symbol`, `file` | `packages/brain/src/adapters/nexus.ts:46` |
+| `tasks` | `tasks:` | `task`, `session` | `packages/brain/src/adapters/tasks.ts:66` |
+| `conduit` | `conduit:` | `message` | `packages/brain/src/adapters/conduit.ts:48` |
+| `agent-registry` | `agent-registry:` | `agent` | `packages/brain/src/adapters/agent-registry.ts:63` |
 
-| Substrate    | Database              | Scope     | Node kinds                                | Adapter file:line |
-|--------------|-----------------------|-----------|-------------------------------------------|-------------------|
-| `memory`     | `brain.db`            | project   | `observation`, `decision`, `pattern`, `learning` | `packages/brain/src/adapters/brain.ts:154` |
-| `nexus`      | `nexus.db`            | global    | `symbol`, `file`                          | `packages/brain/src/adapters/nexus.ts:46` |
-| `tasks`      | `tasks.db`            | project   | `task`, `session`                         | `packages/brain/src/adapters/tasks.ts:66` |
-| `conduit`    | `conduit.db`          | project   | `message`                                 | `packages/brain/src/adapters/conduit.ts:48` |
-| `signaldock` | `signaldock.db`       | global    | `agent`                                   | `packages/brain/src/adapters/signaldock.ts:53` |
+The runtime substrate key for memory is `brain`; the wire contract's
+`BrainSubstrateName` uses `memory` (`packages/contracts/src/operations/brain.ts:58`).
+Callers that translate between the runtime graph and the wire format MUST map
+the key.
 
-> **Note on substrate naming**: The runtime `LBSubstrate` type (`packages/brain/src/types.ts:35`) still uses `brain` for the memory substrate to preserve a stable extraction diff. The contract (`packages/contracts/src/operations/brain.ts:50`) uses `memory` per the T965 rename. T973 will unify them.
+### 4.1 memory (`brain`)
 
-### 4.1 memory (brain.db)
+Typed memory: observations, decisions, patterns, learnings. Node weight comes
+from `quality_score`; `minWeight` filters low-weight rows. Intra-memory edges
+come from `brain_page_edges`. Bridges:
 
-Typed cognitive memory — observations, decisions, patterns, learnings. Node weight comes from `quality_score` (0.0–1.0). Intra-memory edges are sourced from `brain_page_edges` (Hebbian/STDP-trained weights). Cross-substrate bridges:
+- `brain_page_edges` whose `to_id` starts with `task:` → `tasks:*` (`brain.ts:309`)
+- `brain_page_edges` whose `to_id` looks like a NEXUS ID (contains `::`, or has a `/` and no `:`) → `nexus:*` (`brain.ts:317`)
+- `brain_memory_links` rows → `tasks:*` (`brain.ts:345`)
+- `brain_observations.files_modified_json` entries → `nexus:*`, edge type `modified_by` (`brain.ts:364`)
+- `brain_decisions.context_task_id` → `tasks:*`, edge type `applies_to` (`brain.ts:387`)
 
-- `brain_page_edges` whose `to_id` starts with `task:` → `tasks:*` (see `packages/brain/src/adapters/brain.ts:307`)
-- `brain_page_edges` whose `to_id` matches `isNexusStyleId` (contains `::` or looks like a file path) → `nexus:*` (see `packages/brain/src/adapters/brain.ts:316`)
-- `brain_memory_links` rows → `tasks:*` (see `packages/brain/src/adapters/brain.ts:341`)
-- `brain_observations.files_modified_json` entries → `nexus:*` file paths (see `packages/brain/src/adapters/brain.ts:361`)
-- `brain_decisions.context_task_id` soft-FK → `tasks:*` (see `packages/brain/src/adapters/brain.ts:385`)
+### 4.2 nexus
 
-### 4.2 nexus (nexus.db)
+The code symbol and file graph indexed by `@cleocode/nexus`. The adapter
+fetches the highest in-degree nodes, capped at the per-substrate budget, and
+the relations between them. Node weight is `min(1, in_degree / 50)`
+(`nexus.ts:83`). See [cleo-nexus-architecture.md](cleo-nexus-architecture.md).
 
-Code symbol and file graph indexed by `@cleocode/nexus`. The adapter fetches the highest in-degree nodes (capped at per-substrate budget) and loads relations between them only. Node weight is `min(1, in_degree / 50)`. See `CLEO-NEXUS-ARCHITECTURE.md` for full nexus semantics.
+### 4.3 tasks
 
-### 4.3 tasks (tasks.db)
+Tasks, dependencies and sessions. Tasks take 80% of the per-substrate budget,
+ordered by priority, excluding `archived` and `cancelled`; sessions take 20%
+(`tasks.ts:94`, `tasks.ts:127`). Intra-tasks edge types:
 
-Task hierarchy, dependencies, and sessions. Tasks are fetched priority-ordered (critical → high → medium → low) with 80% of the per-substrate budget; sessions take the remaining 20%. Intra-tasks edges:
-
-- `parent_of` — from `tasks.parent_id`
+- `parent_of` — from `parent_id`
 - `depends_on` — from `task_dependencies`
-- relation-typed — from `task_relations.relation_type`
+- the row's `relation_type` — from `task_relations`
 
-See `CLEO-TASKS-API-SPEC.md` for full task semantics.
+See [cleo-tasks-api.md](cleo-tasks-api.md).
 
-### 4.4 conduit (conduit.db)
+### 4.4 conduit
 
-Agent-to-agent messages. Each message becomes a node; aggregated `from_agent_id → to_agent_id` pairs become cross-substrate edges pointing into the `signaldock` agent graph (see `packages/brain/src/adapters/conduit.ts:104`). Weight is `min(1, pair_count / 10)`. See `CLEO-CONDUIT-PROTOCOL-SPEC.md` for message envelope semantics.
+Agent-to-agent messages from a legacy `conduit.db`. Each message becomes a
+node. Aggregated `from_agent_id → to_agent_id` pairs become `messages` bridges
+into the agent-registry graph, weight `min(1, pair_count / 10)`
+(`conduit.ts:104-113`).
 
-### 4.5 signaldock (signaldock.db)
+### 4.5 agent-registry
 
-Global agent identity. Agents serve as the cross-substrate identity anchor — they appear in TASKS (as assignee), CONDUIT (as from/to), and MEMORY (as source agent). `agent_connections` rows produce intra-signaldock edges.
+Agent identity from a legacy `signaldock.db`. Agent nodes anchor identity
+across substrates. `agent_connections` rows become intra-substrate edges
+(`agent-registry.ts:105-128`).
 
 ---
 
 ## 5. Unified Node/Edge Model
 
-The super-graph wire format is defined authoritatively in `packages/contracts/src/operations/brain.ts` (T968). The runtime types in `packages/brain/src/types.ts` mirror this shape under the transitional `LB*` prefix.
+The runtime types live in `packages/contracts/src/brain-graph.ts` and are
+re-exported by `packages/brain/src/types.ts`.
 
 ### 5.1 BrainNode
 
 ```ts
 interface BrainNode {
-  /** Substrate-prefixed identifier, e.g. "memory:O-abc", "nexus:sym-123". */
-  id: BrainNodeId;
-  /** Source substrate name. */
-  substrate: BrainSubstrateName;
-  /** Concrete node type within the substrate (observation, symbol, task, …). */
-  type: BrainNodeType;
-  /** Human-readable display label. */
+  id: string;                     // substrate-prefixed, e.g. "brain:O-abc", "tasks:T949"
+  kind: BrainNodeKind;            // observation | decision | pattern | learning | task | session | symbol | file | agent | message
+  substrate: BrainSubstrate;      // brain | nexus | tasks | conduit | agent-registry
   label: string;
-  /** Substrate-specific opaque payload. */
-  data: Record<string, unknown>;
-  /** ISO 8601 creation timestamp, when exposed by the substrate. */
-  createdAt?: string;
-  /** ISO 8601 last-update timestamp, when exposed by the substrate. */
-  updatedAt?: string;
+  weight?: number;
+  createdAt: string | null;       // ISO 8601
+  meta: Record<string, unknown>;  // substrate-specific payload
 }
 ```
 
-Source: `packages/contracts/src/operations/brain.ts:117`.
-
-The runtime `LBNode` (`packages/brain/src/types.ts:43`) additionally carries a numeric `weight` field and normalises `createdAt: string | null`. Both representations describe the same entity.
+Source: `packages/contracts/src/brain-graph.ts:43`, `:65`, `:88`.
 
 ### 5.2 BrainEdge
 
 ```ts
 interface BrainEdge {
-  /** Source node id (substrate-prefixed). */
-  from: BrainNodeId;
-  /** Target node id (substrate-prefixed). */
-  to: BrainNodeId;
-  /** Semantic edge kind. */
-  kind: BrainEdgeKind;
-  /** Normalised weight in [0, 1]. Higher = stronger / more confident. */
-  weight?: number;
-  /** Substrate-specific opaque payload. */
-  data?: Record<string, unknown>;
+  source: string;                       // node id
+  target: string;                       // node id
+  type: string;                         // edge type, e.g. parent_of, modified_by, messages
+  weight: number;
+  substrate: BrainSubstrate | 'cross';  // 'cross' marks a bridge
 }
 ```
 
-Source: `packages/contracts/src/operations/brain.ts:147`.
+Source: `packages/contracts/src/brain-graph.ts:136`.
 
-### 5.3 BrainNodeId
+### 5.3 BrainGraph
 
-Substrate-prefixed identifier. The prefix before the first `:` MUST match one of `BrainSubstrateName`. The remainder is substrate-specific and opaque to super-graph callers. See `packages/contracts/src/operations/brain.ts:79`.
+```ts
+interface BrainGraph {
+  nodes: BrainNode[];
+  edges: BrainEdge[];
+  counts: {
+    nodes: Record<BrainSubstrate, number>;
+    edges: Record<BrainSubstrate | 'cross', number>;
+  };
+  truncated: boolean;
+}
+```
 
-Examples:
+Source: `packages/contracts/src/brain-graph.ts:172`.
 
-- `task:T949` — TASKS substrate, task ID `T949`
-- `memory:O-mo4abc123` — memory substrate, observation ID `O-mo4abc123`
-- `nexus:packages/core/src/store/sqlite-data-accessor.ts::createSqliteDataAccessor` — NEXUS substrate, symbol path
-- `conduit:msg-7f3a2b1c` — CONDUIT substrate, message ID
-- `signaldock:agent-cleo-prime` — SIGNALDOCK substrate, agent ID
+### 5.4 Node IDs
 
-### 5.4 BrainEdgeKind
+The prefix before the first `:` names the substrate; the remainder is
+substrate-specific and opaque. Examples the adapters emit:
 
-Open-ended string taxonomy. Built-in values enumerated for tooling autocompletion at `packages/contracts/src/operations/brain.ts:93`:
+- `tasks:T949`
+- `brain:O-mo4abc123`
+- `nexus:packages/core/src/store/sqlite-data-accessor.ts::createSqliteDataAccessor`
+- `conduit:msg-7f3a2b1c`
+- `agent-registry:agent-cleo-prime`
 
-`parent` · `depends` · `blocks` · `references` · `discusses` · `cites` · `embeds` · `touches_code` · `messages` · `string` fallback
+### 5.5 Edge types
 
-Substrate adapters MAY introduce new kinds (e.g. `applies_to`, `modified_by`, `supersedes`, `derived_from`) without a schema migration at this layer.
+`BrainEdge.type` is an open string. Adapters MAY introduce new types without a
+schema change. The wire contract enumerates built-ins for autocompletion in
+`BrainEdgeKind` (`packages/contracts/src/operations/brain.ts:101`).
 
 ---
 
-## 6. Cross-Substrate Edge Bridges
+## 6. Cross-Substrate Bridges
 
-The super-graph becomes more than five isolated databases because of the bridges. Every bridge source is enumerated below with its file:line anchor.
+| Bridge | Edge type | Source mechanism | File:line |
+|---|---|---|---|
+| memory → tasks (page edges) | the row's `edge_type` | `brain_page_edges` with `to_id` starting `task:` | `packages/brain/src/adapters/brain.ts:309` |
+| memory → nexus (page edges) | the row's `edge_type` | `brain_page_edges` whose `to_id` is NEXUS-style | `packages/brain/src/adapters/brain.ts:317` |
+| memory → tasks (memory links) | the row's `link_type` | `brain_memory_links` rows | `packages/brain/src/adapters/brain.ts:345` |
+| memory → nexus (files modified) | `modified_by` | `brain_observations.files_modified_json` | `packages/brain/src/adapters/brain.ts:364` |
+| memory → tasks (decision context) | `applies_to` | `brain_decisions.context_task_id` | `packages/brain/src/adapters/brain.ts:387` |
+| conduit → agent-registry | `messages` | aggregated `from_agent_id → to_agent_id` counts | `packages/brain/src/adapters/conduit.ts:104` |
 
-| Bridge                           | Kind (example)      | Source mechanism                                 | File:line |
-|----------------------------------|---------------------|--------------------------------------------------|-----------|
-| memory → tasks (via page_edges)  | `discusses`, custom | `brain_page_edges` with `to_id` starting `task:` | `packages/brain/src/adapters/brain.ts:307` |
-| memory → nexus (via page_edges)  | custom              | `brain_page_edges` whose `to_id` is nexus-style  | `packages/brain/src/adapters/brain.ts:316` |
-| memory → tasks (memory_links)    | `link_type`         | `brain_memory_links` rows                        | `packages/brain/src/adapters/brain.ts:341` |
-| memory → nexus (files_modified)  | `modified_by`       | `brain_observations.files_modified_json` array   | `packages/brain/src/adapters/brain.ts:361` |
-| memory → tasks (context)         | `applies_to`        | `brain_decisions.context_task_id` soft FK        | `packages/brain/src/adapters/brain.ts:385` |
-| conduit → signaldock (social)    | `messages`          | Aggregated `from_agent_id → to_agent_id` counts  | `packages/brain/src/adapters/conduit.ts:104` |
-
-Every bridge edge carries `substrate: 'cross'`, distinguishing it from the substrate's intra-graph edges. See `packages/brain/src/types.ts:101`.
+Every bridge carries `substrate: 'cross'`.
 
 ```mermaid
 graph LR
-  subgraph memory["memory (brain.db)"]
+  subgraph memory["brain (memory)"]
     O[observation]
     D[decision]
     P[pattern]
     L[learning]
   end
-  subgraph nexus["nexus (nexus.db)"]
+  subgraph nexus["nexus"]
     S[symbol]
     F[file]
   end
-  subgraph tasks["tasks (tasks.db)"]
+  subgraph tasks["tasks"]
     T[task]
     SE[session]
   end
-  subgraph conduit["conduit (conduit.db)"]
+  subgraph conduit["conduit (legacy)"]
     M[message]
   end
-  subgraph signaldock["signaldock (signaldock.db)"]
+  subgraph agents["agent-registry"]
     A[agent]
   end
-  O -- "discusses / cites" --> T
+  O -- "page edge / memory link" --> T
   O -- "modified_by" --> F
   D -- "applies_to" --> T
-  P -- "cites" --> S
+  O -- "page edge" --> S
   M -- "messages" --> A
   A -- "agent_connections" --> A
 ```
@@ -239,382 +303,351 @@ graph LR
 
 ## 7. Adapter Pattern
 
-### 7.1 Adapter Signature
-
-Every substrate adapter is a pure function with the following signature:
+### 7.1 Signature and registration
 
 ```ts
-type SubstrateAdapter = (options: LBQueryOptions) => { nodes: LBNode[]; edges: LBEdge[] };
-```
+type SubstrateAdapter = (options: BrainQueryOptions) => { nodes: BrainNode[]; edges: BrainEdge[] };
 
-Source: `packages/brain/src/adapters/index.ts:28`.
+const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'];
 
-### 7.2 Registration
-
-Adapters are registered in `ADAPTER_MAP` at `packages/brain/src/adapters/index.ts:27`:
-
-```ts
-const ADAPTER_MAP: Record<LBSubstrate, SubstrateAdapter> = {
+const ADAPTER_MAP: Record<BrainSubstrate, SubstrateAdapter> = {
   brain: getBrainSubstrate,
   nexus: getNexusSubstrate,
   tasks: getTasksSubstrate,
   conduit: getConduitSubstrate,
-  signaldock: getSignaldockSubstrate,
+  'agent-registry': getAgentRegistrySubstrate,
 };
 ```
 
-`getAllSubstrates()` iterates the requested substrates (default all five) and calls each adapter with the shared `LBQueryOptions`.
+Source: `packages/brain/src/adapters/index.ts:30-42`. `BrainQueryOptions`
+carries `substrates`, `limit`, `minWeight` and `projectCtx`
+(`packages/contracts/src/brain-graph.ts:226`).
 
-### 7.3 Budget Allocation
+### 7.2 Budget
 
-`limit` is a cross-substrate total cap. Adapters share the budget fairly: `perSubstrateLimit = ceil(limit / 5)` when all five substrates are active (default). Within a substrate, the adapter MAY further subdivide its budget by node kind (e.g. the memory adapter spends 40% on observations, 25% on decisions, 20% on patterns, 15% on learnings — see `packages/brain/src/adapters/brain.ts:181`-`268`).
+`getAllSubstrates()` passes the overall `limit` (default 500) to each adapter,
+and each adapter caps itself at `ceil(limit / 5)`. Within a substrate the
+adapter MAY split its budget by kind: the memory adapter spends 40% on
+observations, 25% on decisions, 20% on patterns and 15% on learnings
+(`brain.ts:181`, `:211`, `:241`, `:268`); the tasks adapter 80% tasks, 20%
+sessions.
 
-After all adapters run, `getAllSubstrates()` runs a second-pass stub-node loader for cross-substrate edges whose targets fall outside the budgeted node set. Stub nodes carry `meta.isStub: true` and include only `{id, substrate, kind, label}` (see `packages/brain/src/adapters/index.ts:51`).
+### 7.3 Merge and stub pass
 
-### 7.4 Concrete Example — The TASKS Adapter
+`getAllSubstrates()` (`index.ts:167`):
 
-```ts
-// packages/brain/src/adapters/tasks.ts:66
-export function getTasksSubstrate(options: LBQueryOptions = {}) {
-  const ctx = options.projectCtx ?? resolveDefaultProjectContext();
-  const db = getTasksDb(ctx);
-  if (!db) return { nodes: [], edges: [] };
+1. Runs the requested adapters (default all five).
+2. Deduplicates nodes by ID.
+3. Loads stub nodes for edge targets not yet loaded (`index.ts:57`). NEXUS
+   stubs are looked up in `nexus_nodes` and typed `file` or `symbol`; stubs for
+   other substrates are built without a query and typed `observation`. When the
+   caller passed a `substrates` filter, stubs from other substrates are dropped.
+4. Sets `truncated` when the node count reaches `limit` and slices to `limit`.
 
-  const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
-  const nodes: LBNode[] = [];
-  const edges: LBEdge[] = [];
-
-  const taskRows = allTyped<TaskRow>(
-    db.prepare(`SELECT ... FROM tasks WHERE status NOT IN ('archived','cancelled')
-                ORDER BY priority, created_at DESC LIMIT ?`),
-    Math.ceil(perSubstrateLimit * 0.8),
-  );
-  // ... emit task nodes, session nodes, parent_of/depends_on/relation edges ...
-
-  return { nodes, edges };
-}
-```
-
-All five adapters follow this template: open a read-only connection via `getXxxDb`, bound the fetch by per-substrate budget, emit substrate-prefixed nodes, synthesize edges between loaded IDs, return. Partial results are returned on error (try/catch wraps every adapter body).
+Every adapter wraps its queries in `try/catch` and returns partial results on
+error.
 
 ---
 
-## 8. Query Operations (8 ops from T968)
+## 8. Wire Contract
 
-The contract defines eight super-graph operations in `packages/contracts/src/operations/brain.ts`. Each maps to a runtime adapter or HTTP endpoint.
+`packages/contracts/src/operations/brain.ts` defines params and results for
+eight super-graph operations:
 
-| Op                   | Purpose                                             | Params                       | Result                       | Contract line |
-|----------------------|-----------------------------------------------------|------------------------------|------------------------------|---------------|
-| `brain.query`        | Fetch unified graph with substrate filter           | `BrainQueryParams`           | `BrainQueryResult`           | `:211`        |
-| `brain.node`         | Single node + inbound/outbound neighbor edges       | `BrainNodeParams`            | `BrainNodeResult`            | `:253`        |
-| `brain.substrate`    | All nodes/edges for one substrate                   | `BrainSubstrateParams`       | `BrainSubstrateResult`       | `:293`        |
-| `brain.stream`       | SSE mutation events (7-variant union)               | `BrainStreamParams`          | `BrainStreamResult`          | `:385`        |
-| `brain.bridges`      | List cross-substrate edges                          | `BrainBridgesParams`         | `BrainBridgesResult`         | `:429`        |
-| `brain.neighborhood` | BFS from seed N hops                                | `BrainNeighborhoodParams`    | `BrainNeighborhoodResult`    | `:472`        |
-| `brain.search`       | Text/label search across substrates with fusion     | `BrainSearchParams`          | `BrainSearchResult`          | `:532`        |
-| `brain.stats`        | Per-substrate node/edge counters + timestamps       | `BrainStatsParams`           | `BrainStatsResult`           | `:587`        |
+| Op | Purpose | Params | Result |
+|---|---|---|---|
+| `brain.query` | Unified graph with substrate filter | `BrainQueryParams` | `BrainQueryResult` |
+| `brain.node` | One node with its neighbour edges | `BrainNodeParams` | `BrainNodeResult` |
+| `brain.substrate` | All nodes/edges for one substrate | `BrainSubstrateParams` | `BrainSubstrateResult` |
+| `brain.stream` | Mutation event stream | `BrainStreamParams` | `BrainStreamResult` |
+| `brain.bridges` | Cross-substrate edges | `BrainBridgesParams` | `BrainBridgesResult` |
+| `brain.neighborhood` | BFS from a seed node | `BrainNeighborhoodParams` | `BrainNeighborhoodResult` |
+| `brain.search` | Text search across substrates | `BrainSearchParams` | `BrainSearchResult` |
+| `brain.stats` | Per-substrate counters | `BrainStatsParams` | `BrainStatsResult` |
 
-### 8.1 `brain.query` — Canonical Entry Point
+These are wire types only. No dispatch domain implements them and no code
+outside the contract file imports the params types; `cleo brain` is a separate
+memory-maintenance command group. The live surface is the Studio HTTP routes
+in §9, which call `getAllSubstrates()` directly.
 
-Fetches the unified graph with substrate filtering and an overall node cap. The reference adapter is `getAllSubstrates()` in `packages/brain/src/adapters/index.ts:161`.
-
-```ts
-interface BrainQueryParams {
-  substrates?: BrainSubstrateName[]; // default: all five
-  limit?: number;                     // default 500, max 2000 at HTTP surface
-  filter?: BrainGraphFilter;
-}
-```
-
-### 8.2 `brain.stream` — Mutation Event Stream
-
-Server-Sent Events emitted for live graph mutations. Seven variants discriminated by `type`:
-
-| Variant            | Trigger                                         |
-|--------------------|-------------------------------------------------|
-| `hello`            | Sent immediately on connect                     |
-| `heartbeat`        | Every 30 s to prevent connection timeout        |
-| `node.create`      | New row in substrate's node source              |
-| `node.update`      | Existing node metadata changed                  |
-| `edge.strengthen`  | Edge weight updated (Hebbian/STDP or relation)  |
-| `edge.create`      | New edge appeared                               |
-| `task.status`      | Shortcut for tasks-substrate status changes     |
-| `message.send`     | Shortcut for conduit-substrate message inserts  |
-
-Source: `packages/contracts/src/operations/brain.ts:344`.
-
-Clients MAY resume with `sinceTs: string` after reconnection — the server replays events emitted at or after the cursor before tailing the live stream.
+The contract's stream union `BrainStreamEventWire` has eight variants:
+`hello`, `heartbeat`, `node.create`, `node.update`, `edge.strengthen`,
+`edge.create`, `task.status`, `message.send`
+(`packages/contracts/src/operations/brain.ts:359`). `BrainStreamParams.sinceTs`
+declares a resume cursor (`:400`).
 
 ---
 
 ## 9. HTTP Endpoints
 
-Current Studio route surface under `packages/studio/src/routes/api/living-brain/`:
+Studio routes under `packages/studio/src/routes/api/brain/`:
 
-| Endpoint                              | Handler                 | Maps to        | Source                                                                      |
-|---------------------------------------|-------------------------|----------------|-----------------------------------------------------------------------------|
-| `GET /api/living-brain`               | unified query           | `brain.query`  | `packages/studio/src/routes/api/living-brain/+server.ts:23`                 |
-| `GET /api/living-brain/node/[id]`     | single node + neighbors | `brain.node`   | `packages/studio/src/routes/api/living-brain/node/[id]/+server.ts`          |
-| `GET /api/living-brain/substrate/[name]` | single-substrate projection | `brain.substrate` | `packages/studio/src/routes/api/living-brain/substrate/[name]/+server.ts` |
-| `GET /api/living-brain/stream`        | SSE mutation events     | `brain.stream` | `packages/studio/src/routes/api/living-brain/stream/+server.ts`             |
+| Endpoint | Behaviour |
+|---|---|
+| `GET /api/brain` | Unified graph (`+server.ts`) |
+| `GET /api/brain/chunks` | NDJSON stream of tier 1 or 2 graph chunks (`chunks/+server.ts`) |
+| `GET /api/brain/node/[id]` | One node and its neighbours, from `getAllSubstrates({ limit: 2000 })` (`node/[id]/+server.ts:42`) |
+| `GET /api/brain/substrate/[name]` | One substrate's projection (`substrate/[name]/+server.ts`) |
+| `GET /api/brain/stream` | Server-Sent Events (`stream/+server.ts`) |
 
-### 9.1 Query Parameters for `GET /api/living-brain`
+Typed-memory endpoints (observations, decisions, tier stats and the rest) live
+under `/api/memory/*`.
 
-| Param        | Type      | Default | Semantics                                                |
-|--------------|-----------|---------|----------------------------------------------------------|
-| `limit`      | integer   | `500`   | Max nodes. Clamped to `[1, 2000]`.                       |
-| `substrates` | CSV       | `all`   | Comma-separated list of substrate names.                 |
-| `min_weight` | float     | `0`     | Minimum quality/weight threshold in `[0, 1]`.            |
+### 9.1 Query parameters for `GET /api/brain`
 
-### 9.2 Route Rename (T970)
+| Param | Default | Semantics |
+|---|---|---|
+| `tier` | `0` | `0` = up to 200 nodes, `1` = up to 1000, `2` = up to 5000. Drives `limit` when `limit` is omitted. |
+| `limit` | tier-driven | Explicit override, clamped to `[1, 5000]`. |
+| `substrates` | all | Comma-separated: `brain`, `nexus`, `tasks`, `conduit`, `agent-registry`. Unknown names are dropped. |
+| `min_weight` | `0` | Minimum weight threshold. |
 
-The current `/api/living-brain/*` prefix is historical — the operator mental model calls the super-graph "BRAIN." T970 tracks the rename to `/api/brain/*`. The older `/api/brain/*` typed-memory endpoints (observations, decisions, graph, quality, tier-stats) will demote to `/api/memory/*` in the same change. Until T970 ships, this spec documents the current prefix and anticipates the future one.
+Source: `packages/studio/src/routes/api/brain/+server.ts:48-96`. Tier 0
+responses are cached in memory for 30 seconds, keyed by project, substrates and
+limit; tiers 1 and 2 bypass the cache.
 
-Implementations SHOULD NOT hard-code the `/living-brain` prefix; consumers MUST resolve routes through the Studio HTTP contract (`CLEO-STUDIO-HTTP-SPEC.md`).
+### 9.2 Stream events
+
+`GET /api/brain/stream` emits the runtime `BrainStreamEvent` union
+(`packages/contracts/src/brain-graph.ts:259`): `hello`, `heartbeat` (every
+30 s), `node.create` (new `brain_observations` row), `edge.strengthen`
+(`brain_page_edges` weight change), `task.status`, `message.send`. It polls its
+sources every second using per-source watermarks, so delivered rows are not
+replayed. It does not implement the contract's `sinceTs` replay.
+
+Consumers SHOULD resolve routes through the Studio HTTP contract
+([cleo-studio-http.md](cleo-studio-http.md)) rather than hard-coding paths.
 
 ---
 
 ## 10. Performance Characteristics
 
-### 10.1 Live Computation
+### 10.1 Per-request computation
 
-There is no materialized super-graph table. Every `brain.query` request:
+No graph table exists. Every `getAllSubstrates()` call opens connections, runs
+the adapters in sequence, deduplicates, and runs the stub pass.
 
-1. Opens read-only SQLite connections per substrate (sub-millisecond with `node:sqlite`).
-2. Runs five adapters in sequence, each bounded by per-substrate budget.
-3. Deduplicates nodes by substrate-prefixed ID (substrate prefix guarantees uniqueness across substrates; dedupe within a substrate handles malformed data).
-4. Runs second-pass stub loader for unresolved cross-substrate edge targets.
+Connection caching (`packages/brain/src/db-connections.ts`):
 
-Connection caching:
+- **Global legacy files** (`nexus.db`, `signaldock.db`) are cached at module
+  scope; their path is fixed per machine (`:98-142`).
+- **Per-project files** (memory, tasks, conduit) are opened fresh per call from
+  the caller's `ProjectContext`. Caching across project contexts is the bug the
+  Studio counterpart was rewritten to avoid (`:144-239`).
 
-- **Global DBs** (`nexus.db`, `signaldock.db`) — cached at module scope; path is machine-scoped and never changes (`packages/brain/src/db-connections.ts:76`).
-- **Per-project DBs** (`brain.db`, `tasks.db`, `conduit.db`) — opened fresh per call. Caching across `ProjectContext` values is the precise bug this module's Studio counterpart was rewritten to avoid. See `packages/brain/src/db-connections.ts:111`.
+Every open applies the shared pragma set via `applyPerfPragmas`.
 
-### 10.2 Budget Guardrails
+### 10.2 Budget guardrails
 
-- HTTP layer clamps `limit` to `[1, 2000]` (`packages/studio/src/routes/api/living-brain/+server.ts:24`).
-- Per-substrate budget = `ceil(limit / 5)` when all substrates are active.
-- Intra-substrate kinds further partition budget (memory: 40/25/20/15% for obs/dec/pat/learn).
+- `GET /api/brain` clamps `limit` to `[1, 5000]`.
+- Each adapter caps itself at `ceil(limit / 5)`.
+- The memory adapter splits its share 40/25/20/15 across observations,
+  decisions, patterns and learnings.
 
-### 10.3 Test Coverage
+### 10.3 Tests
 
-27+ unit tests verify adapter correctness and cross-substrate behaviour:
+`packages/brain/src/__tests__/`:
 
-| Test file                                                              | Lines | Focus |
-|------------------------------------------------------------------------|-------|-------|
-| `packages/brain/src/__tests__/bridges.test.ts`                         | 777   | All five memory-adapter bridge synthesis paths. Synthetic in-memory fixtures. |
-| `packages/brain/src/__tests__/stub-loader.test.ts`                     | 401   | Second-pass stub loader: missing targets, substrate partitioning, requested-filter contract, `isStub` marker. |
-| `packages/brain/src/__tests__/types.test.ts`                           | 281   | Schema contract invariants for `LBNode` / `LBEdge` / `LBGraph`. |
-| `packages/brain/src/__tests__/created-at-projection.test.ts`           | 226   | Timestamp normalisation across heterogeneous columns (ISO text vs UNIX epoch). |
+| Test file | Focus |
+|---|---|
+| `bridges.test.ts` | Memory-adapter bridge synthesis |
+| `stub-loader.test.ts` | Second-pass stub loader, substrate filter contract, `isStub` marker |
+| `types.test.ts` | Graph type invariants |
+| `created-at-projection.test.ts` | Timestamp normalisation (ISO text vs UNIX epoch) |
+| `brain-idempotency.test.ts` | Opening the memory reader twice does not mutate the store |
+| `cleo-home-clone-isolation.test.ts` | Two clones of one project resolve their own `.cleo/` |
 
 ---
 
-## 11. Relationship: `@cleocode/brain` vs `packages/core/src/memory/`
+## 11. Relationship to `packages/core/src/memory/`
 
-These are TWO DISTINCT LAYERS that coexist:
+| Layer | Package | Scope | Contract |
+|---|---|---|---|
+| **Unified graph** | `@cleocode/brain` | Read-only projection over five substrates | `packages/contracts/src/brain-graph.ts`, `packages/contracts/src/operations/brain.ts` |
+| **Memory domain** | `packages/core/src/memory/` | Typed memory, tiers, quality scoring, Hebbian/STDP plasticity, the page graph | `packages/contracts/src/operations/memory.ts` |
 
-| Layer             | Package                            | Scope                                    | Contract file                                      |
-|-------------------|------------------------------------|------------------------------------------|----------------------------------------------------|
-| **Super-graph**   | `@cleocode/brain`                  | Unified 5-substrate graph                | `packages/contracts/src/operations/brain.ts` (T968) |
-| **Memory domain** | `packages/core/src/memory/` (T966) | Typed cognitive memory (obs/dec/pat/learn + PageIndex) | `packages/contracts/src/operations/memory.ts` (T965) |
+The graph reads the memory domain as one substrate (§4.1). The memory domain
+owns all writes and lifecycle rules; see [memory-architecture.md](memory-architecture.md).
 
-The super-graph queries the memory domain as one of five substrates (see §4.1). The memory domain is orthogonal — it owns tier management, quality scoring, Hebbian/STDP training, and PageIndex graph semantics scoped to `brain.db`. See `docs/specs/memory-architecture-spec.md` for the memory-domain specification.
-
-Callers using the super-graph MUST NOT reach into memory-domain internals; they MUST go through the `brain.*` operations enumerated in §8.
+Graph callers MUST NOT reach into memory-domain internals.
 
 ---
 
 ## 12. Public API Surface
 
-### 12.1 Top-level exports (`@cleocode/brain`)
+### 12.1 `@cleocode/brain`
 
 From `packages/brain/src/index.ts`:
 
 ```ts
-// Substrate adapters + unified query
+// Substrate adapters and unified query
 export {
+  getAgentRegistrySubstrate,
   getAllSubstrates,
   getBrainSubstrate,
   getConduitSubstrate,
   getNexusSubstrate,
-  getSignaldockSubstrate,
   getTasksSubstrate,
 } from './adapters/index.js';
 
-// Wire-format types
-export type {
-  LBConnectionStatus, LBEdge, LBGraph, LBNode,
-  LBNodeKind, LBQueryOptions, LBStreamEvent, LBSubstrate,
-} from './types.js';
-
-// Low-level connection getters (advanced consumers)
+// Path helpers
 export {
-  getBrainDb, getConduitDb, getNexusDb,
-  getSignaldockDb, getTasksDb,
+  dbExists,
+  getAgentRegistryDbPath,
+  getBrainDbPath,
+  getCleoHome,
+  getCleoProjectDir,
+  getConduitDbPath,
+  getNexusDbPath,
+  getTasksDbPath,
+} from './cleo-home.js';
+
+// Low-level connection getters
+export {
+  getAgentRegistryDb,
+  getBrainDb,
+  getConduitDb,
+  getNexusDb,
+  getTasksDb,
 } from './db-connections.js';
 
-// Path helpers + project context
-export {
-  dbExists, getBrainDbPath, getCleoHome, getCleoProjectDir,
-  getConduitDbPath, getNexusDbPath, getSignaldockDbPath, getTasksDbPath,
-} from './cleo-home.js';
+// Project context
 export type { ProjectContext } from './project-context.js';
 export { resolveDefaultProjectContext } from './project-context.js';
+
+// Graph types (re-exported from @cleocode/contracts)
+export type {
+  BrainConnectionStatus, BrainEdge, BrainGraph, BrainNode, BrainNodeKind,
+  BrainProjectContext, BrainQueryOptions, BrainStreamEvent, BrainSubstrate,
+} from './types.js';
 ```
 
-### 12.2 Adapter subpath (`@cleocode/brain/adapters`)
+The path helpers return the legacy file paths listed in §1.1.
 
-Individual adapter functions re-exported for callers that only need one substrate:
+### 12.2 `@cleocode/brain/adapters`
+
+The adapter functions, for callers that need one substrate:
 
 ```ts
 import {
+  getAgentRegistrySubstrate,
   getBrainSubstrate,
   getConduitSubstrate,
   getNexusSubstrate,
-  getSignaldockSubstrate,
   getTasksSubstrate,
 } from '@cleocode/brain/adapters';
 ```
 
-### 12.3 Contract subpath (`@cleocode/contracts`)
+### 12.3 `@cleocode/contracts`
 
-Wire-format types and operation params/results:
-
-```ts
-import type {
-  BrainNode, BrainEdge, BrainNodeId, BrainSubstrateName, BrainEdgeKind,
-  BrainQueryParams, BrainQueryResult,
-  BrainNodeParams, BrainNodeResult,
-  BrainSubstrateParams, BrainSubstrateResult,
-  BrainStreamParams, BrainStreamEvent, BrainStreamResult,
-  BrainBridgesParams, BrainBridgesResult,
-  BrainNeighborhoodParams, BrainNeighborhoodResult,
-  BrainSearchParams, BrainSearchResult, BrainSearchHit,
-  BrainStatsParams, BrainStatsResult, BrainSubstrateReport,
-} from '@cleocode/contracts';
-```
+The runtime graph types (`BrainNode`, `BrainEdge`, `BrainGraph`,
+`BrainQueryOptions`, `BrainStreamEvent`, …) are exported from the
+`@cleocode/contracts` root. The wire types (`BrainNodeWire`, `BrainQueryParams`,
+`BrainQueryResult`, …) are reachable through the `@cleocode/contracts/operations/brain.js`
+subpath or the `ops` namespace export.
 
 ---
 
 ## 13. Extension Points
 
-### 13.1 Adding a Sixth Substrate
+### 13.1 Adding a substrate
 
-1. Create `packages/brain/src/adapters/<name>.ts` with `export function get<Name>Substrate(options: LBQueryOptions): { nodes: LBNode[]; edges: LBEdge[] }`.
-2. Open the source DB via a new getter in `packages/brain/src/db-connections.ts` (fresh connection per call for per-project DBs, module-cached for global DBs).
-3. Add the substrate name to `LBSubstrate` (`packages/brain/src/types.ts:35`) AND `BrainSubstrateName` (`packages/contracts/src/operations/brain.ts:50`).
-4. Register in `ADAPTER_MAP` and `ALL_SUBSTRATES` at `packages/brain/src/adapters/index.ts:24`.
-5. Prefix every emitted node ID with `<name>:` to maintain cross-substrate uniqueness.
-6. Emit any cross-substrate edges with `substrate: 'cross'` on the edge.
-7. Add unit tests under `packages/brain/src/__tests__/` covering node emission, intra-substrate edges, and any new bridges.
-8. Update the budget formula if node-budget fairness requires new weighting.
+1. Create `packages/brain/src/adapters/<name>.ts` exporting
+   `get<Name>Substrate(options: BrainQueryOptions): { nodes: BrainNode[]; edges: BrainEdge[] }`.
+2. Open the source through `openDualScopeDb` (re-exported by
+   `packages/brain/src/db-connections.ts:51`). New code MUST NOT add another raw
+   open of a legacy file.
+3. Add the name to `BrainSubstrate` (`packages/contracts/src/brain-graph.ts:65`)
+   and to `BrainSubstrateName` (`packages/contracts/src/operations/brain.ts:58`).
+4. Register it in `ALL_SUBSTRATES`, `ADAPTER_MAP` and the stub loader's
+   substrate list in `packages/brain/src/adapters/index.ts`.
+5. Prefix every node ID with `<name>:`.
+6. Emit cross-substrate edges with `substrate: 'cross'`.
+7. Add tests under `packages/brain/src/__tests__/`.
+8. Revisit the `ceil(limit / 5)` divisor, which is hard-coded in each adapter.
 
-### 13.2 Adding a New Edge Kind
+### 13.2 Adding an edge type
 
-`BrainEdgeKind` is an open-ended `string` type with enumerated built-ins for tooling autocomplete (`packages/contracts/src/operations/brain.ts:93`). Adapters MAY emit new kinds without a contract change:
+1. Choose a stable snake_case identifier matching its neighbours (`applies_to`, `modified_by`).
+2. Emit it from the adapter as the edge `type`.
+3. Add a test in `packages/brain/src/__tests__/bridges.test.ts`.
+4. If it becomes common, add it to `BrainEdgeKind` for tooling support.
 
-1. Choose a stable kebab-case or snake_case identifier (match existing neighbors, e.g. `applies_to`, `modified_by`).
-2. Emit the edge from the appropriate adapter with the new `kind` value.
-3. Add a test in `packages/brain/src/__tests__/bridges.test.ts` asserting the new edge is synthesized correctly.
-4. If the kind becomes widespread, add it to the enumerated literals in `BrainEdgeKind` for better tooling support.
+### 13.3 Studio rendering
 
-### 13.3 Extending the Frontend 3D Visualization
-
-The 3D renderer lives in `packages/studio/src/lib/components/LivingBrain3D.svelte` (765 LoC, THREE.js + `3d-force-graph` + `UnrealBloomPass`). It consumes the `LBGraph` wire format directly.
-
-- **New node kinds** require adding a color/glyph mapping in the component's style table.
-- **New edge kinds** require adding a stroke-width / pulse-animation rule.
-- **New stream events** require a handler in the SSE wiring that updates live synapse pulses.
-
-See `.cleo/agent-outputs/T910-reconciliation/living-brain-architecture.md` §"Components" for the full renderer inventory.
+`packages/studio/src/lib/components/LivingBrain3D.svelte` is a thin shim over
+`packages/studio/src/lib/graph/renderers/ThreeBrainRenderer.svelte`;
+`packages/studio/src/lib/graph/brain-adapter.ts` maps `BrainGraph` into the
+renderer's graph types. New node kinds, edge types or stream events need a
+mapping there, not in the shim.
 
 ---
 
-## 14. Backward Compatibility
+## 14. Naming
 
-### 14.1 Naming Transition (`LB*` → `Brain*`)
-
-The runtime package currently exports `LB*` names to preserve a stable extraction diff (T969). The contract package uses `Brain*` names (T968). T973 will unify them:
-
-- Runtime `LBNode` → `BrainNode`
-- Runtime `LBEdge` → `BrainEdge`
-- Runtime `LBGraph` → `BrainQueryResult`-shaped
-- Runtime `LBSubstrate` → `BrainSubstrateName`
-- Runtime `LBStreamEvent` → `BrainStreamEvent`
-- Runtime `LBQueryOptions` → `BrainQueryParams`-shaped
-- Runtime `LBNodeKind` → removed (substrate-owned vocabulary)
-- Runtime `LBConnectionStatus` → `BrainConnectionStatus`
-
-Consumers SHOULD import from `@cleocode/contracts` where possible (already uses `Brain*`). Consumers that MUST use runtime types SHOULD centralise the import so the T973 rename is a single-file diff.
-
-### 14.2 Substrate Key Drift (`brain` vs `memory`)
-
-The runtime `LBSubstrate` union includes `'brain'` for the memory substrate; the contract `BrainSubstrateName` uses `'memory'`. T965 renamed the contract; T973 will rename the runtime. Callers that build substrate-keyed maps MUST bridge the key in the interim — do NOT hard-code either spelling without a commented `// TODO(T973): unify substrate key` marker.
-
-### 14.3 HTTP Route Prefix (`/living-brain` → `/brain`)
-
-See §9.2. Until T970 ships, callers MUST use `/api/living-brain/*`. After T970, the `/api/living-brain/*` routes will redirect (or be removed after a deprecation window).
+- Runtime types use `Brain*`; the earlier `LB*` names are gone.
+- The runtime memory substrate key is `brain`; the wire contract uses `memory`.
+- The agent substrate is `agent-registry` in both planes; it was `signaldock`.
 
 ---
 
 ## 15. Versioning and Publish Lane
 
-- **Current version**: `2026.4.96` (matches monorepo CalVer).
-- **Publish target**: `@cleocode/brain` on npm (public). Ships in the same release train as `@cleocode/core`, `@cleocode/contracts`, and `@cleocode/nexus`.
-- **Dependencies**: `@cleocode/contracts` workspace link. Zero runtime deps beyond `node:sqlite` built-in and `node:fs`.
-- **Engines**: `node >= 24.0.0` (node:sqlite availability).
+- Published to npm as `@cleocode/brain` (public) from the release workflow
+  (`.github/workflows/release.yml`, `publish_pkg brain`), versioned with the
+  monorepo CalVer.
+- Dependencies: `@cleocode/contracts`, `@cleocode/core`, `@cleocode/paths`
+  (workspace links), plus `node:sqlite` and `node:fs`.
+- Engines: the root `engines.node` floor (`>=24.16.0`).
 
-Subsequent versions MUST follow CalVer (`YYYY.M.patch`) and MUST preserve the public entry-point exports enumerated in §12 until a breaking-change migration is coordinated across all five substrates.
+Releases MUST preserve the exports in §12 unless a breaking change is
+coordinated with Studio, the only consumer in the repo.
 
 ---
 
 ## 16. Non-Goals
 
-- `@cleocode/brain` MUST NOT write to any substrate database. All adapters open connections with `{ open: true }` for read-only access (`packages/brain/src/db-connections.ts:93`).
-- `@cleocode/brain` MUST NOT materialize a super-graph table. Live computation with bounded budget is the contract; any cache layer belongs to consumers (Studio SSR, CLI).
-- `@cleocode/brain` MUST NOT replace substrate-owned specifications. Each substrate's semantic rules live in its own spec (nexus, conduit, tasks, memory).
+- `@cleocode/brain` MUST NOT write store data. Adapters issue `SELECT`
+  statements only; the one write on open is the pragma set. The connections are
+  not opened with `readOnly`, so this is a code rule, not a driver guarantee.
+- It MUST NOT materialize a graph table. Any cache belongs to consumers (Studio
+  caches tier-0 responses).
+- It MUST NOT replace substrate specifications. Each substrate's rules live in
+  its own spec.
 
 ---
 
 ## 17. References
 
-### 17.1 Tasks
+### 17.1 Code SSoT (Layer 1)
 
-- **T962** — Orchestration Coherence v4 epic (BRAIN super-domain).
-- **T968** — `operations/brain.ts` contract authoring. Commit `62bcdc25e`.
-- **T969** — Extract `@cleocode/brain` from `studio/living-brain`. Commit `725fc4231`.
-- **T970** — Rename `/api/living-brain/*` → `/api/brain/*` (pending).
-- **T973** — Unify `LB*` → `Brain*` naming across runtime and studio (pending).
-- **T985** — Author `CLEO-BRAIN-PACKAGE-SPEC.md` (this document).
+- `packages/contracts/src/brain-graph.ts` — runtime graph types.
+- `packages/contracts/src/operations/brain.ts` — wire-format contract.
+- `packages/brain/src/types.ts` — re-export of the runtime types.
+- `packages/brain/src/adapters/index.ts` — `getAllSubstrates()` and the stub loader.
+- `packages/brain/src/adapters/brain.ts` — memory adapter.
+- `packages/brain/src/adapters/nexus.ts` — NEXUS adapter.
+- `packages/brain/src/adapters/tasks.ts` — TASKS adapter.
+- `packages/brain/src/adapters/conduit.ts` — Conduit adapter.
+- `packages/brain/src/adapters/agent-registry.ts` — agent-registry adapter.
+- `packages/brain/src/db-connections.ts` — SQLite getters and `allTyped<T>`.
+- `packages/brain/src/cleo-home.ts` — path helpers.
+- `packages/core/src/store/dual-scope-db.ts` — the `cleo.db` chokepoint.
 
-### 17.2 Code SSoT (Layer 1)
+### 17.2 Companion specs
 
-- `packages/contracts/src/operations/brain.ts` — Wire-format contract (T968).
-- `packages/brain/src/types.ts` — Runtime types (`LB*` transitional).
-- `packages/brain/src/adapters/index.ts` — `getAllSubstrates()` orchestrator, stub loader.
-- `packages/brain/src/adapters/brain.ts` — Memory substrate adapter.
-- `packages/brain/src/adapters/nexus.ts` — NEXUS substrate adapter.
-- `packages/brain/src/adapters/tasks.ts` — TASKS substrate adapter.
-- `packages/brain/src/adapters/conduit.ts` — CONDUIT substrate adapter.
-- `packages/brain/src/adapters/signaldock.ts` — SIGNALDOCK substrate adapter.
-- `packages/brain/src/db-connections.ts` — Read-only SQLite getters + `allTyped<T>` helper.
-- `packages/brain/src/__tests__/` — 27+ unit tests.
+- [database-architecture.md](database-architecture.md) — store layout.
+- [cleo-nexus-architecture.md](cleo-nexus-architecture.md) — NEXUS.
+- [cleo-conduit-protocol.md](cleo-conduit-protocol.md) — legacy Conduit.
+- [memory-architecture.md](memory-architecture.md) — memory domain.
+- [cleo-tasks-api.md](cleo-tasks-api.md) — TASKS.
+- [cleo-studio-http.md](cleo-studio-http.md) — Studio HTTP surface.
+- ADR-098, harness-agnostic core: `cleo docs fetch adr-098-retire-the-pi-cleoos-harness`
 
-### 17.3 Companion Specs
+### 17.3 Audit and context
 
-- `docs/specs/CLEO-API-AUTHORITY.md` — Authority chain (T984).
-- `docs/specs/CLEO-NEXUS-ARCHITECTURE.md` — NEXUS substrate spec.
-- `docs/specs/CLEO-CONDUIT-PROTOCOL-SPEC.md` — CONDUIT substrate spec.
-- `docs/specs/memory-architecture-spec.md` — Memory substrate spec.
-- `docs/specs/CLEO-TASKS-API-SPEC.md` — TASKS substrate spec.
-- `docs/specs/CORE-PACKAGE-SPEC.md` — Sibling package publish lane.
-- `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` — Studio HTTP surface.
-
-### 17.4 Audit and Context
-
-- `.cleo/agent-outputs/T910-reconciliation/living-brain-architecture.md` — Base architectural audit.
-- `.cleo/agent-outputs/T910-reconciliation/brain-memory-reconciliation.md` — Naming-collision resolution plan.
-- `docs/plans/brain-synaptic-visualization-research.md` §5.2 — Research origin for the super-graph projection.
+- `.cleo/agent-outputs/T910-reconciliation/living-brain-architecture.md` — original architecture audit.
+- `.cleo/agent-outputs/T910-reconciliation/brain-memory-reconciliation.md` — naming-collision resolution plan.
 
 ---
 

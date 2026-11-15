@@ -1,74 +1,48 @@
 # CLEO Memory Architecture — Master Specification
 
 > **Spec ID**: MEMORY-ARCH-V1
-> **Status**: AUTHORITATIVE — supersedes council reports T726-council-transcripts.md,
->   T726-council-tiers.md, T726-council-extraction.md
-> **Date**: 2026-04-15
-> **Author**: T726 Council Synthesis Lead
-> **Parent task**: T726 (EPIC: Memory Architecture Reality Check + Long-Term Tier Wire-Up + Transcript Lifecycle)
-> **Synthesized from**:
->   - Lead A: Transcript Lifecycle Council (`T726-council-transcripts.md`)
->   - Lead B: Tier Architecture Council (`T726-council-tiers.md`)
->   - Lead C: Extraction Pipeline Council (`T726-council-extraction.md`)
->   - Prior spec: `docs/specs/stdp-wire-up-spec.md` (STDP cross-reference)
->   - Prior decisions: D008 (7-technique memory architecture), D009 (no LadybugDB replacement)
-> **Related specs**: `docs/specs/stdp-wire-up-spec.md` (plasticity layer)
+> **Status**: AUTHORITATIVE
+> **Related**: [stdp-wire-up.md](stdp-wire-up.md) (plasticity layer),
+> [database-architecture.md](database-architecture.md) (store layout),
+> [ADR-048](../adr/adr-048-memory-extraction-pipeline.md) (extraction pipeline contract),
+> [ADR-047](../adr/adr-047-autonomous-gc-and-disk-safety.md) (transcript GC),
+> [ADR-009](../adr/adr-009-brain-cognitive-architecture.md) (BRAIN cognitive architecture)
 
 ---
 
-## §1 Purpose and Current State
+## §1 Purpose and Scope
 
 ### §1.1 Purpose
 
-This specification is the single authoritative source of truth for CLEO's complete memory
-architecture. It governs:
+This specification is the source of truth for CLEO's memory architecture. It
+governs:
 
-1. Transcript lifecycle — storage, extraction triggers, and garbage collection
-2. Three-layer architecture — the end-to-end pipeline from raw session transcripts to
-   long-term semantic memory
-3. Schema — all brain.db tables involved in memory storage and retrieval
-4. Extraction pipeline — the 7-technique D008 system with all gaps identified and remediated
-5. Tier promotion — short/medium/long memory lifecycle with promotion rules and decay
-6. CLI surface — all commands required for owner visibility and control
-7. Studio surface — observability for the `/brain` page
-8. Migration sequence — how to get from broken current state to fully-wired target state
+1. Transcript lifecycle — where provider transcripts live, how they are
+   extracted, and how they are pruned
+2. The three-layer pipeline from raw transcripts to long-term memory
+3. Schema — the `brain_*` tables involved in storage and retrieval
+4. Extraction — the write-time gate and the extraction paths
+5. Tier promotion — the short/medium/long lifecycle
+6. CLI and Studio surfaces
 
-Workers implementing T726 subtasks MUST treat this document as the canonical source of truth.
-The three council reports are superseded (reference only).
+When this document and the code disagree, the code wins and this document is
+corrected.
 
-### §1.2 Current State (as of 2026-04-15)
+### §1.2 Where memory lives
 
-**Memory tier distribution** (live brain.db):
+Memory is the `brain_*` table family. It is the one domain present in both
+`cleo.db` scopes, with the same DDL in each
+(`packages/core/src/store/schema/cleo-shared/brain.ts`):
 
-| Table | short | medium | long | Total active |
-|-------|-------|--------|------|-------------|
-| `brain_observations` | 849 | 148 | 0 | 997 |
-| `brain_decisions` | 0 | 16 | 0 | 16 |
-| `brain_learnings` | 0 | 7 | 0 | 7 |
-| `brain_patterns` | 0 | 2 | 0 | 2 |
-| **TOTAL** | **849** | **173** | **0** | **1022** |
+- **Project memory**: `<project>/.cleo/cleo.db`.
+- **Global memory**: `<cleoHome>/cleo.db`, where `cleoHome` is
+  `~/.local/share/cleo` on Linux and `~/Library/Application Support/cleo` on
+  macOS (`CLEO_HOME` overrides it).
 
-**Long tier empty**: By design — the 7-day age gate + citation≥5 threshold has not elapsed
-for any entry. The oldest eligible entry crosses the threshold ~2026-04-18. No bug.
-
-**Transcript state**:
-- `~/.claude/projects/` contains 750MB (cleocode) / 3.5GB (all projects) with zero GC
-- 86 root session JSONLs + 964 subagent JSONLs for cleocode alone
-- `getTranscript()` P0 bug: reads UUID subdirs for *.jsonl — always returns null
-
-**Pipeline gaps** (confirmed P0 — never running in production):
-1. LLM extraction has never received a transcript (P0: `getTranscript` wrong path)
-2. `runSleepConsolidation()` is orphaned — exported but never called
-3. LLM extraction bypasses `verifyAndStore` gate — zero dedup on extracted memories
-4. `hashDedupCheck` covers `brain_observations` only — decisions/patterns/learnings can dupe
-
-**What IS working**:
-- `runTierPromotion()` — fully functional, correct logic
-- `runConsolidation()` Steps 1–9e — all wired except Step 10
-- Write-time tier routing for decisions/patterns/learnings — correct
-- `observer-reflector.ts` Observer+Reflector — functional with two gaps (T740/T742)
-- `cleo memory consolidate` CLI — manual trigger works
-- `brain-similarity.ts` sqlite-vec integration — wired
+`getBrainDb()` opens the project store through `openDualScopeDb`
+(`packages/core/src/store/memory-sqlite.ts:5-24`). The separate `brain.db`
+file is legacy. Where this spec says "the store", it means the `brain_*`
+tables in `cleo.db`.
 
 ---
 
@@ -76,759 +50,610 @@ for any entry. The oldest eligible entry crosses the threshold ~2026-04-18. No b
 
 ### §2.1 Overview
 
-The memory system operates in three conceptual layers:
-
 ```
-LAYER 1: RAW TRANSCRIPTS
-  ~/.claude/projects/<project>/<session>.jsonl
-  ~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl
-  Lifecycle: HOT (0-24h) → WARM (1-7d) → deleted (COLD = brain.db only)
-  Owner: T729 (bug fix), T730 (extractor), T731 (GC), T732 (hook), T733 (migration)
+LAYER 1: RAW TRANSCRIPTS (provider-owned)
+  ~/.claude/projects/<project-slug>/<session>.jsonl
+  ~/.claude/projects/<project-slug>/<session>/subagents/agent-*.jsonl
+  Lifecycle: HOT (<24h) → WARM (24h–7d) → COLD (>7d: memory rows only)
 
-LAYER 2: WRITE-TIME GATE + BRAIN.DB STORAGE
-  Input: LLM-extracted memories from transcripts + direct observe/decide/learn calls
-  Gate: verifyAndStore() → hashDedupCheck (all 4 tables) → embeddingDedupCheck → confidence
+LAYER 2: WRITE-TIME GATE + STORAGE
+  Input: LLM-extracted memories + direct observe/decide/learn calls
+  Gate: verifyAndStore() → title blocklist → content-hash dedup → embedding similarity → confidence
   Tables: brain_observations, brain_decisions, brain_patterns, brain_learnings
-  Default tiers: observations=short, decisions=medium, patterns=medium, learnings=short|medium
-  Owner: T736 (gate bypass fix), T737 (hashDedup all tables), T746 (schema default fix)
+  Default tiers: observations=short, decisions=medium, patterns=medium, learnings=short
 
-LAYER 3: CONSOLIDATION + TIER PROMOTION + LONG-TERM SEMANTIC MEMORY
-  Input: brain.db entries from Layer 2
-  Processing: runConsolidation() Steps 1-10 at every session end
-    Step 1: deduplicateByEmbedding
-    Step 2: recomputeQualityScores
-    Step 3: runTierPromotion (short→medium→long)
-    Step 4: detectContradictions
-    Step 5: softEvictLowQualityMedium
-    Step 6: strengthenCoRetrievedEdges (Hebbian)
-    Step 7: consolidateMemories (cluster-based)
-    Step 8: autoLinkMemories (brain↔nexus graph bridge)
-    Step 9a: backfillRewardSignals (R-STDP)
-    Step 9b: applyStdpPlasticity (STDP timing-dependent)
-    Step 9c: applyHomeostaticDecay
-    Step 9d: weight_history retention sweep
-    Step 9e: logConsolidationEvent
-    Step 10: runSleepConsolidation [T734 — currently orphaned]
-  Observer+Reflector: compress+synthesize session observations (priority 4/3 hooks)
-  Long tier: permanent; first entries expected 2026-04-18
-  Owner: T734 (Step 10 wire), T741/T743 (schema+logic), T747 (tests)
+LAYER 3: CONSOLIDATION + TIER PROMOTION
+  runConsolidation(): Steps 1–10 (see §4.5)
+  Observer + Reflector: compress and synthesize session observations
+  Long tier: never auto-evicted
 ```
 
-### §2.2 Data Flow (Target State)
+### §2.2 Data flow
 
 ```
- Session work  ──────────────────────────────────────────────────────────────────────►
-                                                                                       │
- ~/.claude/projects/<project>/<session>.jsonl  ◄──── Claude Code writes live ─────────┤
-                                                                                       │
- session.end fires:                                                                    │
-   Priority 100: getTranscript() ─► condensed turns ─► llm-extraction.ts              │
-                 [T729 fixes path]   [T730 condenses]   [extracts 7 types]             │
-                 └─► ExtractedMemory[] ─► verifyAndStore() [T736]                     │
-                                          ├── hashDedupCheck (all 4 tables) [T737]    │
-                                          ├── embeddingDedupCheck (sqlite-vec)         │
-                                          └── write to brain.db at short/medium tier  │
-   Priority 10:  VACUUM INTO backup                                                    │
-   Priority 5:   runConsolidation() Steps 1-10                                         │
-                   Step 3: runTierPromotion                                             │
-                     short→medium: 24h + (cite≥3 OR quality≥0.7 OR verified=1)        │
-                     medium→long:   7d + (cite≥5 OR verified=1)                        │
-                   Step 10: runSleepConsolidation [T734]                               │
-                     merge-dups → prune-stale → strengthen-patterns → insights         │
-   Priority 4:   runObserver() [T740 — unconditional at session end]                   │
-                   compress ≥1 observations → observer-compressed entries              │
-   Priority 3:   runReflector()                                                        │
-                   synthesize patterns+learnings → addGraphEdge() [T742]               │
-   Priority 2:   write transcript_pending_extraction record [T732]                     │
-                                                                                       │
- nightly (02:00): cleo-transcript-gc.timer [T731 — requires Q5 owner decision]        │
-   ├── Sessions >7d: extract (if ANTHROPIC_API_KEY or local model per Q4)              │
-   └── After extraction: delete JSONL, write tombstone                                 │
-                                                                                       │
- brain.db long-tier: cite≥5 OR verified=1 entries after 7d = permanent semantic KB ◄─┘
+Session work
+   │
+   ├─ provider writes ~/.claude/projects/<slug>/<session>.jsonl
+   │
+   └─ SessionEnd hooks (all dispatched concurrently; see §6.5)
+        brain-session-end         → if brain.autoCapture: adapter.getTranscript()
+                                    → llm-extraction.extractFromTranscript()
+                                    → verifyAndStore() / storeDecision()
+        consolidation-session-end → runConsolidation() (setImmediate)
+        observer-session-end      → runObserver(threshold 1) (setImmediate)
+        reflector-session-end     → runReflector() (setImmediate)
+        transcript-schedule       → transcript_pending_extraction:<session> observation
+        journal-session-end       → .cleo/session-journals/ entry
+
+   endSession() itself takes the session-end SQLite snapshot after the session row is written.
+
+Manual / on demand
+   cleo transcript extract | migrate → TranscriptExtractor → typed store functions → tombstone, JSONL deleted
+   cleo memory consolidate | dream --apply → runConsolidation()
+   cleo memory reflect → runObserver() + runReflector()
+
+GC daemon (cleo daemon start, daily 03:00 UTC)
+   runGC(): age + disk-pressure pruning of ~/.claude/projects/ (no extraction)
 ```
+
+Sources: `packages/core/src/hooks/handlers/session-hooks.ts`,
+`packages/core/src/sessions/session-end-snapshot.ts`,
+`packages/core/src/gc/gc-subsystem.ts:53`, `packages/core/src/gc/runner.ts`.
 
 ---
 
 ## §3 Schema
 
-### §3.1 Brain Tables — Memory Tier Column
+### §3.1 Memory tier column
 
-All four primary brain tables have `memory_tier` as an ALTER-added column.
+**Enum** (`packages/core/src/store/schema/memory-schema.ts:54`):
 
-**Enum** (from `packages/core/src/store/brain-schema.ts:27`):
 ```typescript
 export const BRAIN_MEMORY_TIERS = ['short', 'medium', 'long'] as const;
-export type BrainMemoryTier = (typeof BRAIN_MEMORY_TIERS)[number];
 ```
 
-**Default tiers at write time** (current state and target):
+**Default tier per table** (`packages/core/src/store/schema/cleo-shared/brain.ts:351`, `:453`, `:514`, `:590`):
 
-| Table | Schema DEFAULT | Write-Time Default | Correct? |
-|-------|---------------|-------------------|---------|
-| `brain_observations` | `'short'` | `'short'` | YES |
-| `brain_decisions` | `'short'` (schema bug) | `'medium'` (correct) | NO — fix via T746 |
-| `brain_patterns` | `'short'` (schema bug) | `'medium'` (correct) | NO — fix via T746 |
-| `brain_learnings` | `'short'` | `'short'` (auto) or `'medium'` (manual) | YES |
+| Table | `memory_tier` default |
+|---|---|
+| `brain_observations` | `'short'` |
+| `brain_decisions` | `'medium'` |
+| `brain_patterns` | `'medium'` |
+| `brain_learnings` | `'short'` |
 
-### §3.2 Missing Schema Columns (Target — add via T741)
+### §3.2 Tier audit columns
 
-The following columns MUST be added to all four brain tables via migration:
+All four tables carry:
 
 | Column | Type | Purpose |
-|--------|------|---------|
-| `tier_promoted_at` | TEXT (ISO 8601) | Timestamp of last tier promotion; null = never promoted |
-| `tier_promotion_reason` | TEXT | Why entry was promoted: 'citation', 'quality', 'verified', 'manual' |
+|---|---|---|
+| `tier_promoted_at` | TEXT | Timestamp of the last promotion; null if never promoted |
+| `tier_promotion_reason` | TEXT | Free-text reason written by the promoter, e.g. `citationCount=4 >= 3, age > 24h` |
 
-Migration file: `packages/core/migrations/drizzle-brain/20260416000005_t726-tier-audit-columns/migration.sql`
+The columns were added by `packages/core/migrations/drizzle-brain/20260416000005_t726-dedup-tier-columns/migration.sql`,
+which also added `content_hash` to decisions, patterns and learnings, and are
+part of the consolidated schema in `cleo-shared/brain.ts`.
 
-```sql
--- T726-M5: Tier audit columns — all four brain tables
--- Idempotent: SQLite ADD COLUMN skips if column already exists
+`brain_promotion_log` (`cleo-shared/brain.ts:1304`) records observation
+promotions decided by the composite scorer (`from_tier`, `to_tier`, `score`,
+`decided_by`, `rationale_json`).
 
-ALTER TABLE `brain_observations` ADD COLUMN `tier_promoted_at` text;
---> statement-breakpoint
-ALTER TABLE `brain_observations` ADD COLUMN `tier_promotion_reason` text;
---> statement-breakpoint
-ALTER TABLE `brain_decisions` ADD COLUMN `tier_promoted_at` text;
---> statement-breakpoint
-ALTER TABLE `brain_decisions` ADD COLUMN `tier_promotion_reason` text;
---> statement-breakpoint
-ALTER TABLE `brain_patterns` ADD COLUMN `tier_promoted_at` text;
---> statement-breakpoint
-ALTER TABLE `brain_patterns` ADD COLUMN `tier_promotion_reason` text;
---> statement-breakpoint
-ALTER TABLE `brain_learnings` ADD COLUMN `tier_promoted_at` text;
---> statement-breakpoint
-ALTER TABLE `brain_learnings` ADD COLUMN `tier_promotion_reason` text;
-```
+### §3.3 Transcript records in `brain_observations`
 
-**`ensureColumns` safety net** (add to `brain-sqlite.ts:runBrainMigrations`):
-```typescript
-// T726: tier audit columns — all four brain tables
-for (const table of ['brain_observations', 'brain_decisions', 'brain_patterns', 'brain_learnings']) {
-  ensureColumns(nativeDb, table, [
-    { name: 'tier_promoted_at', ddl: 'text' },
-    { name: 'tier_promotion_reason', ddl: 'text' },
-  ], 'brain');
-}
-```
+Two observation records track transcripts. Both are written through
+`observeBrain` with `type = 'discovery'`, `sourceType = 'agent'` and
+`sourceSessionId` set to the session:
 
-### §3.3 brain_observations Transcript Tombstone Fields
+| Record | Title | Writer |
+|---|---|---|
+| Queued | `transcript_pending_extraction:<sessionId>` | session-end hook (`session-hooks.ts:204`) |
+| Extracted (tombstone) | `transcript-extracted:<sessionId>` | `TranscriptExtractor` (`transcript-extractor.ts:560`) |
 
-The transcript tombstone record uses `brain_observations` with these field values:
+The extractor skips a session when a row with that `source_session_id` and a
+title starting `transcript-extracted:` exists (`transcript-extractor.ts:543`).
 
-| Field | Value |
-|-------|-------|
-| `source_type` | `'transcript-extracted'` |
-| `content` | `"Session <id>: extracted <N> memories"` |
-| `memory_tier` | `'short'` |
-| `tags` | JSON array including `"transcript"`, `"tombstone"` |
-| `source_session_id` | The original session UUID |
+### §3.4 STDP schema (cross-reference)
 
-This record is idempotent: upsert on `source_session_id + source_type = 'transcript-extracted'`.
-
-### §3.4 STDP Schema (Cross-Reference)
-
-The following tables are defined in `docs/specs/stdp-wire-up-spec.md` and MUST NOT be
-modified by T726 workers. They are referenced here for completeness:
+These tables are specified in [stdp-wire-up.md](stdp-wire-up.md); this spec
+does not redefine them:
 
 - `brain_retrieval_log` — retrieval events (STDP input)
-- `brain_plasticity_events` — LTP/LTD events written by STDP
+- `brain_plasticity_events` — LTP/LTD events
 - `brain_page_edges` — memory graph with plasticity columns
-- `brain_weight_history` — immutable audit log of edge weight changes
-- `brain_modulators` — R-STDP reward modulator events
-- `brain_consolidation_events` — one row per `runConsolidation` execution
-
-T726 ADDS `step_results_json` content in `brain_consolidation_events` by extending the
-`ConsolidationResult` type with extraction metrics (Lead C GAP-11). This is additive.
+- `brain_weight_history` — edge weight audit log
+- `brain_modulators` — R-STDP reward events
+- `brain_consolidation_events` — one row per `runConsolidation` run; `step_results_json` holds the per-step results
 
 ---
 
 ## §4 Extraction Pipeline
 
-### §4.1 D008 Seven-Technique Status
+### §4.1 Technique status
 
-D008 (2026-04-13) mandated seven extraction techniques. Current status after gap remediation:
+| # | Technique | Status in code |
+|---|---|---|
+| 1 | LLM extraction at session end | Wired. Runs when `brain.autoCapture` is on and the active adapter returns a transcript (`session-hooks.ts:72-90`) |
+| 2 | Write-time dedup | Wired. Content-hash dedup covers all four tables; embedding similarity runs when embeddings are available (§4.2) |
+| 3 | Observer / Reflector compression | Wired at session end and via `cleo memory reflect` (§4.4) |
+| 4 | Temporal supersession | `detectSupersession()` exists (`temporal-supersession.ts:366`) but no production code calls it |
+| 5 | BRAIN↔NEXUS graph bridge | Wired as consolidation Step 8, `autoLinkMemories()` (`graph-memory-bridge.ts:619`) |
+| 6 | Sleep-time consolidation | Wired as consolidation Step 10 (§4.5) |
+| 7 | Reciprocal Rank Fusion retrieval | Implemented in `hybridSearch()` (`brain-search.ts:1202`, `RRF_K = 60`), exposed as `cleo memory search-hybrid` |
 
-| # | Technique | Status | Gap | Fix |
-|---|-----------|--------|-----|-----|
-| 1 | LLM extraction gate at session end | SHIPPED + WIRED but broken input | T729 (getTranscript wrong path) | T729 |
-| 2 | Write-time dedup with embedding similarity | PARTIAL | LLM extraction bypasses gate (T736), hash dedup only covers observations (T737) | T736, T737 |
-| 3 | Observer/Reflector 3-6x compression | SHIPPED + WIRED | Observer only fires on task-complete, not session-end (T740); Reflector missing supersedes edges (T742) | T740, T742 |
-| 4 | Temporal supersession with pointers | SHIPPED | Never auto-fires (T738); embedding branch stubbed (T739) | T738, T739 |
-| 5 | Graph memory bridge BRAIN↔NEXUS | SHIPPED + WIRED | Regex-only entity extraction (T726-H deferred P2) | T726-H (future) |
-| 6 | Sleep-time consolidation | SHIPPED but ORPHANED | runSleepConsolidation() never called (T734) | T734 |
-| 7 | Reciprocal Rank Fusion retrieval | PARTIAL | Hybrid search exists; full RRF needs verification | Future task |
+### §4.2 Write-time gate
 
-### §4.2 Write-Time Gate Architecture (Target State)
-
-ALL memory write paths MUST route through `verifyAndStore()`. Direct calls to
-`storeLearning`/`storePattern`/`storeDecision`/`observeBrain` from extraction pipelines
-are prohibited after T736 ships.
+`verifyAndStore(projectRoot, candidate)` (`packages/core/src/memory/extraction-gate.ts:600`)
+runs `verifyCandidate()` and stores only on `action: 'stored'`:
 
 ```
-[Input: MemoryCandidate]
-        │
-        ▼
-verifyAndStore(candidate)
-  ├── [A] hashDedupCheck(all 4 tables)          ← T737 extends from observations-only
-  │         match found → increment citationCount, return existing ID
-  │         no match → continue
-  ├── [B] embeddingDedupCheck (sqlite-vec)
-  │         similarity > 0.9 → merge (return existing + increment citation)
-  │         similarity 0.7-0.9 → store new + create 'related' edge
-  │         similarity < 0.7 → no overlap
-  ├── [C] confidenceThreshold >= 0.40
-  └── [D] detectSupersession (only for sourceConfidence='owner'|'task-outcome') ← T738
-              Jaccard + embedding combined score > 0.8
-              → mark old invalid_at + create 'supersedes' edge
-        │
-        ▼
-  Write to brain.db table per memory type
-  Assign source_type = 'llm-extracted' for LLM extraction path  ← T730
-  Assign initial memory_tier per write-time routing rules
-        │
-        ▼
-  Async: enqueue for embedding computation (all-MiniLM-L6-v2)
-  Async: entity extraction for graph bridge (regex + LLM NER for zero-match)
+[MemoryCandidate]
+   │
+   ├── [A0] title-prefix noise blocklist            → rejected
+   ├── [A]  content-hash dedup on the routed table  → merged (citation_count incremented)
+   │          semantic → brain_learnings, procedural → brain_patterns, episodic → brain_observations
+   ├── [B]  embedding similarity (untrusted sources, when embeddings are available)
+   │          cosine distance < 0.15 → stored, flagged potential duplicate
+   │          distance < 0.30 with opposite polarity → stored, flagged potential contradiction
+   │          distance < 0.30 otherwise → stored as similar-but-distinct
+   └── [C]  confidence < 0.40                       → pending
+   │
+   ▼
+ storeVerifiedCandidate()
 ```
 
-### §4.3 LLM Extraction Gate (Technique 1)
+Sources: `extraction-gate.ts:101-108` (thresholds), `:354-470` (checks).
+Owner and task-outcome candidates are trusted and skip check B. Similarity
+never merges two rows by itself; it only flags candidates.
+
+Decisions do not go through `verifyAndStore`. The LLM extraction path runs
+`checkHashDedup(..., 'brain_decisions')` and then calls `storeDecision`
+directly (`llm-extraction.ts:186-224`).
+
+New extraction paths MUST use `verifyAndStore()` for patterns, learnings and
+observations, and `checkHashDedup()` before `storeDecision()`.
+
+### §4.3 LLM extraction (Technique 1)
 
 **Location**: `packages/core/src/memory/llm-extraction.ts`
-**Model**: `claude-haiku-4-5-20251001` (configurable via `brain.llmExtraction.model`)
-**Input**: condensed transcript (user+assistant turns, tool results summarized)
-**Output**: `ExtractedMemory[]` (up to 7 per call, configurable)
-**Types extracted**: `decision | pattern | learning | constraint | correction`
-**Importance gate**: 0.6 minimum (configurable)
-**Transcript clip**: 60,000 chars head+tail
 
-**What to extract from session transcripts** (Lead A §3.2):
-1. Decisions — `Agent` tool prompts revealing architectural choices; assistant reasoning blocks
-2. File modifications — `Edit` tool calls (filename + change summary, NOT full diff)
-3. Task completions — `TaskUpdate` with status transition to `done`
-4. Errors+recovery — bash commands with non-zero exit + subsequent assistant recovery
-5. Learnings — text containing "I learned", "the issue was", "this means", "we should"
-6. Owner directives — user turns containing "never", "always", "must", "do not"
+| Setting | Value | Source |
+|---|---|---|
+| Enable flag | `brain.llmExtraction.enabled`, default `true` | `packages/core/src/config.ts` |
+| Model | `brain.llmExtraction.model`, else the `extraction` role, else `IMPLICIT_FALLBACK_MODEL` (`claude-haiku-4-5-20251001`) | `llm-extraction.ts:414`, `packages/core/src/llm/fallback-model.ts:24` |
+| Types | `decision`, `pattern`, `learning`, `constraint`, `correction` | `llm-extraction.ts` `ExtractionType` |
+| Max memories per call | `brain.llmExtraction.maxExtractions`, default 7 | `llm-extraction.ts:398` |
+| Importance floor | `brain.llmExtraction.minImportance`, default 0.6 | `llm-extraction.ts:397` |
+| Transcript clip | `brain.llmExtraction.maxTranscriptChars`, default 60,000, head + tail | `llm-extraction.ts:399` |
 
-**What NOT to extract**: Raw tool inputs/outputs, system prompt injections,
-file-history snapshots, permission events.
+Routing: decisions → `brain_decisions`; patterns and corrections →
+`brain_patterns`; learnings and constraints → `brain_learnings`. Candidates
+carry `source: 'transcript'` and the session ID.
 
-**Source confidence**: All LLM-extracted memories MUST set `source_type = 'llm-extracted'`
-(not the default `'agent'`) to enable targeted queries (fix in T730).
+Extraction never throws; when no credential resolves it returns nothing.
 
 ### §4.4 Observer / Reflector (Technique 3)
 
-**Observer** (`observer-reflector.ts`):
-- Fires on task completion when count ≥ threshold (default 10)
-- ALSO fires unconditionally at session end (T740 adds session-end hook, priority 4)
-- Batch limit: 30 observations
-- Output: `source_type='observer-compressed'` entries + `supersedes` graph edges
+`packages/core/src/memory/observer-reflector.ts`. Both route through
+`executeForRole` with the `consolidation` role; `CLEO_OBSERVER_MODEL`
+overrides the resolved model. With no credential they no-op.
 
-**Reflector** (`observer-reflector.ts`):
-- Fires at session end, priority 3 (after Observer at 4)
-- Reads up to 50 session observations (raw + compressed)
-- Produces: patterns via `storePattern()`, learnings via `storeLearning()`
-- MUST call `addGraphEdge()` from new entry to each superseded observation ID (T742 fix)
-- Tagged `reflector-synthesized`
+**Observer** (`runObserver`, `:541`):
+- Runs when uncompressed observations reach `brain.observer.threshold` (default 10).
+- The session-end hook passes `thresholdOverride: 1`, so it runs for every session.
+- Batch limit: 30 observations.
+- Writes `source_type = 'observer-compressed'` observations and a `supersedes`
+  edge from each compressed note to its source observations (`:464`).
 
-### §4.5 Sleep Consolidation (Technique 6) — T734 Critical Fix
+**Reflector** (`runReflector`, `:671`):
+- Reads up to 50 session observations, raw and compressed.
+- Stores patterns via `storePattern()` and learnings via `storeLearning()`,
+  tagged `reflector-synthesized`.
+- Returns the model's proposed superseded IDs as `proposedSupersededIds` but
+  writes no supersession: LLM synthesis is not evidence that a source
+  observation stopped being true (`:809-819`).
 
-`runSleepConsolidation()` in `packages/core/src/memory/sleep-consolidation.ts` MUST be
-wired as Step 10 in `runConsolidation()` (`brain-lifecycle.ts`). Current state: exported
-but never called from any production path.
+Session-end Observer and Reflector are dispatched concurrently with the other
+handlers, so the Reflector is not guaranteed to see the Observer's output
+(§6.5).
 
-**Four sub-steps**:
-1. Merge duplicates — embedding cosine > 0.85, LLM confirmation
-2. Prune stale — short-tier entries older than 7d with quality < 0.4
-3. Strengthen patterns — synthesize frequently-cited learnings (citation_count ≥ 3) into patterns
-4. Generate insights — cluster observations by token overlap, LLM extracts cross-cutting insights
+### §4.5 Consolidation and sleep-time consolidation (Technique 6)
 
-**Step ordering in runConsolidation** (complete with Step 10):
+`runConsolidation(projectRoot, sessionId?, trigger)` in
+`packages/core/src/memory/brain-lifecycle.ts:958` runs each step best-effort;
+a failing step logs and the run continues.
+
 ```
-Steps 1-5: dedup, quality, tier promotion, contradictions, eviction
-Step 6:    strengthenCoRetrievedEdges (Hebbian)
-Step 7:    consolidateMemories (cluster)
-Step 8:    autoLinkMemories (graph bridge)
+Step 1:    deduplicateByEmbedding
+Step 2:    recomputeQualityScores
+Step 3:    runTierPromotion (§5)
+Step 3b:   fulfillPromotionLog — turns promotion-log rows into learnings/patterns
+Step 4:    detectContradictions
+Step 4b:   dedupePatterns
+Step 5:    softEvictLowQualityMedium
+Step 6:    strengthenCoRetrievedEdges (Hebbian, brain_page_edges)
+Step 6b:   NEXUS co-access strengthening (nexus_relations)
+Step 6c:   NEXUS plasticity decay
+Step 7:    consolidateMemories (cluster summaries)
+Step 8:    autoLinkMemories (BRAIN↔NEXUS bridge)
 Step 9a:   backfillRewardSignals (R-STDP)
-Step 9b:   applyStdpPlasticity (STDP)
+Step 9a.5: correlateOutcomes (quality feedback)
+Step 9b:   applyStdpPlasticity (when shouldRunPlasticity)
 Step 9c:   applyHomeostaticDecay
-Step 9d:   weight_history retention
-Step 9e:   logConsolidationEvent
-Step 10:   runSleepConsolidation  ← T734 adds this
+Step 9d:   pruneStaleHistory (plasticity events + weight history retention)
+Step 9f:   runPruneSweep (hard delete of prune candidates)
+Step 9g:   consolidateAttention
+Step 9e:   log the run to brain_consolidation_events (runs after 9f and 9g)
+Step 10:   runSleepConsolidation
 ```
+
+`runSleepConsolidation()` (`packages/core/src/memory/sleep-consolidation.ts:940`)
+runs four sub-steps through the `consolidation` LLM role, enabled unless
+`brain.sleepConsolidation.enabled` is `false`:
+
+1. Merge near-duplicates — embedding similarity > 0.85
+2. Prune stale — short-tier entries older than 7 days with quality < 0.4
+3. Strengthen patterns — synthesize learnings cited at least 3 times into patterns
+4. Generate insights — cross-cutting insights from clusters of observations
+
+With no credential the LLM steps no-op and the structural steps still run.
+
+**Triggers**: the session-end hook (§6.5); `cleo memory consolidate`;
+`cleo memory dream --apply`. The autonomous auto-dream trigger
+(`packages/core/src/memory/dream-cycle.ts`) is hosted by the sentient daemon
+tick. ADR-098 makes CLEO a harness-agnostic core and freezes the long-running
+runtime services, the sentient host among them, for removal, so no part of
+this spec depends on that trigger.
 
 ---
 
 ## §5 Tier Promotion
 
-### §5.1 Three-Tier Model
+### §5.1 Three-tier model
 
-| Tier | Biological Analog | Purpose | Write-Time Assignment |
-|------|------------------|---------|----------------------|
-| **short** | Working memory / hippocampal buffer | Recent session observations; quick-write, may be noisy | Default for `brain_observations`; LLM-extracted items |
-| **medium** | Episodic memory | Survived dedup + quality gate; cross-session durable | Default for `brain_decisions`, `brain_patterns`; promoted from short |
-| **long** | Semantic memory / neocortical | High-confidence knowledge; repeated citation or owner verification | Promoted from medium; PERMANENT |
+| Tier | Purpose | Assignment |
+|---|---|---|
+| **short** | Recent, possibly noisy | Default for observations and learnings |
+| **medium** | Survived the promotion gate; durable across sessions | Default for decisions and patterns; promoted from short |
+| **long** | High-confidence knowledge | Promoted from medium; never auto-evicted |
 
-### §5.2 Promotion Rules (Current — Keep These Thresholds)
+### §5.2 Promotion rules
+
+`runTierPromotion(projectRoot)` (`packages/core/src/memory/brain-lifecycle.ts:407`)
+covers `brain_observations`, `brain_learnings`, `brain_patterns` (age from
+`extracted_at`) and `brain_decisions`:
 
 ```
-short → medium (24h age gate required):
-  A. citation_count >= 3    (co-retrieval Hebbian signal)
-  B. quality_score >= 0.7   (quality fast-track)
-  C. verified = 1           (owner-verified track)
+short → medium (age > 24h AND any of):
+  A. citation_count >= 3
+  B. quality_score >= 0.7
+  C. verified = 1
 
-medium → long (7d age gate required):
-  A. citation_count >= 5    (repeated co-retrieval across sessions)
-  B. verified = 1           (owner-verified at any citation count)
+medium → long (age > 7d AND any of):
+  A. citation_count >= 5
+  B. verified = 1
 
-Eviction (short entries after 7d):
-  verified = 0 AND quality_score < 0.5 → invalid_at = now
+Soft eviction of short entries (age > 7d):
+  not verified AND (quality_score IS NULL OR quality_score < 0.5) → invalid_at = now
 
-Long-tier entries: NEVER auto-evicted. Cap: 2000 entries total.
-When at cap: lowest-quality current long-tier entry demotes to medium.
+Step 5 soft eviction of medium entries:
+  quality_score < 0.30 AND age > 30d → invalid_at = now
+
+Long-tier entries are never auto-evicted.
 ```
 
-### §5.3 Promotion Persistence (T743 Fix)
+There is no cap on the long tier.
 
-`runTierPromotion()` in `brain-lifecycle.ts` currently computes `tier_promoted_at` and
-`tier_promotion_reason` in memory but does NOT persist them to the DB row. After T743:
+### §5.3 Promotion persistence
 
-```typescript
-// After UPDATE memory_tier, also write:
-await db.update(table)
-  .set({
-    tierPromotedAt: new Date().toISOString(),
-    tierPromotionReason: reason,  // 'citation' | 'quality' | 'verified' | 'manual'
-  })
-  .where(eq(table.id, entry.id));
+Every automatic promotion writes `memory_tier`, `updated_at`,
+`tier_promoted_at` and `tier_promotion_reason` in one `UPDATE`
+(`brain-lifecycle.ts:490-496`, `:530-535`).
+
+### §5.4 Manual override
+
+```
+cleo memory tier promote <id> --to medium|long --reason "<text>"   # bypasses the age gate
+cleo memory tier demote  <id> --to short|medium --reason "<text>"  # --force required from long
 ```
 
-### §5.4 Manual Override
+### §5.5 Medium→short demotion (not implemented)
 
-`cleo memory tier promote <id> --to <tier> --reason "<text>"` (T744):
-- Bypasses age gate
-- Writes `tier_promoted_at` and `tier_promotion_reason` immediately
-- For demotion from long: requires `--force` flag
-
-### §5.5 Medium→Short LTD Analog (Deferred)
-
-Medium entries with `citation_count = 0 AND verified = 0 AND quality_score < 0.4` older
-than 30 days SHOULD demote to short (not evict). This provides homeostatic medium-tier
-scaling. Implementation deferred to ADR approval (T749) then a follow-on task. Current
-state (medium never demotes) is conservative but not harmful.
+Low-value medium entries are soft-evicted by Step 5 (§5.2); nothing demotes
+them to short. A demotion rule would need its own decision before
+implementation.
 
 ---
 
 ## §6 Transcript Lifecycle
 
-### §6.1 Three-Tier Hot/Warm/Cold Model
+### §6.1 Hot / warm / cold
 
 ```
-HOT (0–24h)                WARM (1–7d)               COLD (>7d)
+HOT (<24h)                 WARM (24h–7d)              COLD (>7d)
 ────────────────────────   ─────────────────────────  ───────────────────────────
-Full JSONL retained         Pending extraction          brain.db entries only
-Agents can re-read          Scheduled at session end    Raw JSONL deleted
-No modification             LLM extracts → brain.db     tool-results dir deleted
-~25MB for 7 sessions        via TranscriptExtractor      Tombstone in brain_obs
-                            (T730)                       No JSONL recovery possible
+Full JSONL retained         Eligible for extraction     Raw JSONL gone
+Agents can re-read          (cleo transcript extract)   Memory rows + tombstone remain
 ```
 
-### §6.2 Storage Layout
+Tier boundaries: `packages/core/src/gc/transcript.ts` (`HOT_MAX_MS`,
+`WARM_MAX_MS`). `cleo transcript scan` reports the breakdown.
+
+### §6.2 Storage layout
 
 ```
 ~/.claude/projects/
-  -mnt-projects-cleocode/           ← project-slug dir
-    <session-uuid>.jsonl             ← ROOT-LEVEL: main session transcript (HOT/WARM)
-    <session-uuid>/                  ← SESSION DIR (created when subagents spawned)
+  <project-slug>/
+    <session-uuid>.jsonl             ← root-level main session transcript
+    <session-uuid>/                  ← present when subagents ran
       subagents/
-        agent-<agentId>.jsonl        ← subagent transcript (HOT/WARM)
-        agent-<agentId>.meta.json    ← {"agentType":"...", "description":"..."}
+        agent-<agentId>.jsonl        ← subagent transcript
+        agent-<agentId>.meta.json
       tool-results/
-        <toolUseId>.json             ← raw tool result (delete at COLD transition)
-        <toolUseId>.txt
+        <toolUseId>.json
 ```
 
-`~/.temp/claude-1000/` contains symlinks only — GC targets `~/.claude/projects/` exclusively.
+### §6.3 Reading transcripts
 
-### §6.3 getTranscript P0 Bug Fix (T729)
+The Claude Code adapter's `getTranscript()`
+(`packages/adapters/src/providers/claude-code/hooks.ts:422`) reads the
+root-level `*.jsonl` files and the `subagents/agent-*.jsonl` files under each
+session directory, and returns the user/assistant turn text. It returns `null`
+when nothing is found or a read fails. The Codex and Gemini CLI adapters read
+the latest transcript under `~/.codex` and `~/.gemini` through the shared
+`readLatestTranscript` helper (`packages/adapters/src/providers/shared/transcript-reader.ts`).
+The lifecycle in §6.1–§6.2 and the GC in §8 cover only `~/.claude/projects/`.
 
-**Current broken implementation** (`packages/adapters/src/providers/claude-code/hooks.ts:364`):
-Iterates UUID subdirectories looking for `*.jsonl` inside them. UUID directories contain
-only `subagents/` and `tool-results/` — no root JSONL at that depth. Returns null always.
+### §6.4 Circuit breakers
 
-**Fixed implementation** (two-pass read):
-1. Read `~/.claude/projects/<slug>/*.jsonl` (root-level files = session transcripts)
-2. Sort by mtime descending to find the most-recent session
-3. Read `~/.claude/projects/<slug>/<session-uuid>/subagents/agent-*.jsonl` for the matching
-   session UUID to include subagent transcripts
+| Condition | Action | Source |
+|---|---|---|
+| `ANTHROPIC_API_KEY` absent | `cleo transcript prune` deletes only sessions older than 30 days, whatever `--older-than` says | `packages/core/src/gc/transcript.ts:241-265` |
+| Disk usage ≥ 70 / 85 / 90 / 95 % | GC daemon shortens retention (see §8) | `packages/core/src/gc/runner.ts:53-63` |
 
-### §6.4 Hard Caps and Circuit Breakers
+### §6.5 Session-end hooks
 
-| Condition | Action |
-|-----------|--------|
-| Per-session directory > 100MB | Trigger immediate warm extraction (skip 7d wait) |
-| Total `~/.claude/projects/` > 5GB | Emergency prune: extract all warm sessions now, delete cold immediately |
-| `ANTHROPIC_API_KEY` absent (or local model not configured) | Skip extraction; delete only sessions > 30d (raw preservation fallback) |
-| Extraction failure rate > 50% of batch | Abort prune; log error; do NOT delete un-extracted files |
+Registered in `packages/core/src/hooks/handlers/session-hooks.ts:275-339`:
 
-### §6.5 Session-End Hook Priority Order
+| Priority | Hook id | Work |
+|---|---|---|
+| 100 | `brain-session-end` | Session grading; LLM extraction when `brain.autoCapture` is on; memory bridge refresh |
+| 5 | `consolidation-session-end` | `runConsolidation()` via `setImmediate` |
+| 4.5 | `observer-session-end` | `runObserver(..., { thresholdOverride: 1 })` via `setImmediate` |
+| 4 | `reflector-session-end` | `runReflector()` via `setImmediate` |
+| 3 | `transcript-schedule-session-end` | Writes the `transcript_pending_extraction:<sessionId>` observation |
+| 2 | `journal-session-end` | Appends to `.cleo/session-journals/` (awaited) |
 
-```
-Priority 100  handleSessionEnd                  (LLM extraction + memory bridge)
-Priority 10   handleSessionEndBackup            (VACUUM INTO all DBs)
-Priority 5    handleSessionEndConsolidation     (runConsolidation Steps 1–10)
-Priority 4    handleSessionEndObserver          (runObserver unconditional) [T740]
-Priority 3    handleSessionEndReflector         (runReflector + supersedes edges) [T742]
-Priority 2    handleSessionEndTranscriptSchedule (write transcript_pending_extraction) [T732]
-```
+`hooks.dispatch` runs every handler for an event concurrently
+(`Promise.allSettled`). Priority orders the handler list, not execution; no
+handler may rely on another having finished. The session-end SQLite snapshot
+is not a hook: `endSession` calls `snapshotAfterSessionEnd`
+(`packages/core/src/sessions/session-end-snapshot.ts:140`) after the session
+is persisted.
 
 ---
 
 ## §7 LLM Model Choices
 
-> **OWNER OVERRIDE APPLIED 2026-04-15** — Q4 and Q5 are now locked. See §14 for the
-> rationale. Workers implementing T730/T731 MUST use the locked choices below.
+### §7.1 Transcript extraction (`cleo transcript extract` / `migrate`)
 
-### §7.1 Transcript Extraction Model (Q4 — LOCKED)
+`TranscriptExtractor` (`packages/core/src/memory/transcript-extractor.ts:168`)
+resolves a backend with `resolveLlmBackend()`
+(`packages/core/src/memory/llm-backend-resolver.ts`):
 
-**Owner decision (T726 Wave 1E, 2026-04-15)**: Hybrid with Sonnet for cold path.
+| Tier | Chain |
+|---|---|
+| `warm` (default) | `extraction` role profile → Ollama at `localhost:11434` (`gemma4:e4b-it`, then `gemma4:e2b-it`, then `gemma4:e2b`) → `@huggingface/transformers` (`onnx-community/Qwen2.5-0.5B-Instruct`) → `claude-sonnet-4-6` → none |
+| `cold` | `extraction` role profile → `claude-sonnet-4-6` → none |
 
-| Path | Model | Notes |
-|------|-------|-------|
-| Warm (local model available) | Ollama + Gemma 4 E4B-it | Auto-installed via `scripts/install-ollama.mjs` |
-| Cold (no local model) | `claude-sonnet-4-6` | Owner-specified; best quality for cold extraction |
-| Fallback chain | Ollama → `@huggingface/transformers` → `claude-sonnet-4-6` → skip | Graceful degradation |
+The cold tier MUST use `claude-sonnet-4-6`, not Haiku (owner decision,
+`llm-backend-resolver.ts:100`). `scripts/install-ollama.mjs` installs Ollama.
+With no backend, extraction is skipped.
 
-The `TranscriptExtractor` (T730) MUST implement this fallback chain. Configuration:
-```json
-{
-  "brain": {
-    "llmExtraction": {
-      "warmModel": "ollama:gemma-4-e4b-it",
-      "coldModel": "claude-sonnet-4-6",
-      "requireApiKey": false
-    }
-  }
-}
-```
+The extractor writes decisions, patterns and learnings through
+`storeDecision`, `storePattern` and `storeLearning` with
+`source = 'transcript-warm-extract:<sessionId>'`, writes the tombstone, then
+deletes the source JSONL unless `--dry-run` is passed.
 
-> **Key auth note**: `requireApiKey: false` is correct. `tryAnthropic()` calls
-> `resolveAnthropicApiKey()` which auto-discovers the Claude Code OAuth token from
-> `~/.claude/.credentials.json` — no explicit API key required for users logged in
-> to Claude Code. The cold-tier path is zero-config for Claude Code users.
+### §7.2 Session-end extraction, Observer, Reflector, sleep consolidation
 
-### §7.2 Observer/Reflector Model (Resolved)
+| Component | Role / model |
+|---|---|
+| Session-end LLM extraction | `brain.llmExtraction.model`, else the `extraction` role, else `claude-haiku-4-5-20251001` (§4.3) |
+| Observer, Reflector | `consolidation` role; `CLEO_OBSERVER_MODEL` overrides |
+| Sleep consolidation | `consolidation` role |
 
-| Component | Model | Rationale |
-|-----------|-------|-----------|
-| Observer | `claude-haiku-4-5` | Compression is mechanical; Haiku is adequate |
-| Reflector | `claude-haiku-4-5` (default), override via `brain.reflector.model` | Synthesis benefits from Sonnet; expose config key |
+Role resolution follows `config.llm.roles.<role>` → `config.llm.default` →
+implicit fallback (`sleep-consolidation.ts:11-17`). Reading the Claude Code
+OAuth credential from `~/.claude/.credentials.json` requires
+`auth.claudeCodeConsentGiven = true`, which defaults to `false`
+(`packages/core/src/config.ts`, `packages/core/src/llm/credential-seeders/claude-code-seeder.ts`).
 
-### §7.3 Embedding Model (Resolved — No Change)
+### §7.3 Embedding model
 
-Local `all-MiniLM-L6-v2` via `sqlite-vec` + `@huggingface/transformers` (384-dim, ~22MB).
-No Anthropic embedding API calls for the background dedup pipeline. The model is already
-wired in `packages/core/src/memory/embedding-local.ts`. No change needed.
+Local `Xenova/all-MiniLM-L6-v2` via `@huggingface/transformers` (384
+dimensions), stored in the `brain_embeddings` vec0 table through sqlite-vec
+(`packages/core/src/memory/embedding-local.ts:5-29`,
+`packages/core/src/memory/brain-similarity.ts`). The model downloads only when
+`brain.embedding.allowModelDownload` is `true`. No embedding API calls are made.
 
 ---
 
-## §8 Transcript GC Automation
+## §8 Transcript GC
 
-### §8.1 Q5 — LOCKED (Owner Override 2026-04-15)
+### §8.1 GC daemon
 
-**Owner decision**: Hybrid mode (Option C). Sidecar daemon via `node-cron v4` (not systemd).
+`cleo daemon start` spawns a detached sidecar (`packages/core/src/gc/daemon.ts`)
+that schedules `runGC()` daily at 03:00 UTC with `node-cron`, and on start
+runs a missed GC when more than 24 hours have passed
+(`packages/core/src/gc/gc-subsystem.ts:53-56`). `cleo daemon stop` and
+`cleo daemon status` manage it. Its PID and run state live in
+`<cleoDir>/gc-state.json`; its log in `<cleoDir>/logs/gc.log`.
 
-| Component | Behavior |
-|-----------|----------|
-| Extraction (non-destructive) | Automatic nightly at 02:00 via `cleo daemon` cron job |
-| File deletion (destructive) | Requires `--confirm` flag; never automatic |
-| Daemon management | `cleo daemon start` / `cleo daemon stop` / `cleo daemon status` |
-| GC thresholds | 70% → warn, 85% → extract warm sessions, 90% → extract all, 95% → alert |
+`runGC()` (`packages/core/src/gc/runner.ts:283`) does no extraction. It
+measures disk usage, picks a retention window, and deletes transcript paths
+under `~/.claude/projects/` older than that window, writing the pending list to
+`gc-state.json` before deleting so an interrupted run resumes:
 
-Implementation: `packages/core/src/memory/transcript-gc.ts` using `node-cron` v4.
-The daemon is a long-running sidecar spawned by `cleo daemon start` and managed
-as a background process with PID file at `.cleo/daemon.pid`. See ADR-047 for full
-daemon architecture.
+| Disk used | Tier | Retention |
+|---|---|---|
+| < 70 % | ok | 30 days |
+| 70–85 % | watch | 30 days |
+| 85–90 % | warn | 7 days, escalation flag set |
+| 90–95 % | urgent | 3 days, escalation flag set |
+| ≥ 95 % | emergency | 1 day, escalation flag set |
 
-T731 (systemd timer) is CANCELLED — owner prefers `cleo daemon` over systemd for
-portability across Linux, macOS, and Pi OS.
+Source: `runner.ts:53-63`, `:139-150`, `:346-350`. Committed
+`.cleo/agent-outputs/*.md` files are never pruned.
 
-### §8.2 systemd Units (T731)
+The daemon deletes without a confirmation flag. Manual deletion through
+`cleo transcript prune` is a dry run unless `--confirm` is passed (§9.1).
 
-`cleo-transcript-gc.timer`:
-```ini
-[Unit]
-Description=CLEO Transcript Garbage Collection
+### §8.2 System service units
 
-[Timer]
-OnCalendar=*-*-* 02:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-`cleo-transcript-gc.service`:
-```ini
-[Unit]
-Description=CLEO Transcript GC Service
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStartPre=/usr/bin/env sh -c 'du -sb ~/.claude/projects/ | awk "{if(\$1 > 5368709120) exit 0; else exit 1}" && cleo transcript prune --older-than 3d --confirm || true'
-ExecStart=cleo transcript prune --older-than 7d --confirm
-```
-
-Install script: `packages/caamp/src/platform/linux/install-transcript-gc.sh`
+No systemd timer or service unit for transcript GC ships in the repo. The GC
+daemon runs as the sidecar in §8.1. (`cleo daemon install` registers a
+user-level service for the sentient daemon, not for transcript GC.)
 
 ---
 
 ## §9 CLI Surface
 
-### §9.1 Transcript Commands (T728)
+### §9.1 Transcript commands
 
 ```
-cleo transcript scan                          # counts, sizes, age buckets
-cleo transcript scan --pending                # sessions queued for extraction
-cleo transcript extract <session-id>          # run extraction on one session now
-cleo transcript extract --all-warm            # extract all warm-tier sessions
-cleo transcript prune --older-than 7d         # dry-run by default
-cleo transcript prune --older-than 7d --confirm  # destructive (requires Q5 decision)
-cleo transcript migrate                       # one-time backfill of all existing sessions
-cleo transcript migrate --dry-run             # report only
+cleo transcript scan [--pending] [--projects-dir <dir>]
+cleo transcript extract <session-id> [--tier warm|cold] [--dry-run]
+cleo transcript extract --all-warm [--tier warm|cold] [--dry-run]
+cleo transcript migrate [--dry-run] [--tier warm|cold] [--older-than-hours N] [--project-filter <slug>] [--limit N]
+cleo transcript prune --older-than <7d|24h|30m> [--confirm] [--projects-dir <dir>]
 ```
 
-### §9.2 Memory Tier Commands (T744)
+`extract` and `migrate` delete each source JSONL after a successful
+extraction unless `--dry-run` is given. `prune` dry-runs without `--confirm`.
+
+### §9.2 Memory tier commands
 
 ```
-cleo memory tier stats                        # tier distribution + countdown to long
-cleo memory tier promote <id> --to <tier> --reason "<text>"  # manual override
-cleo memory tier demote <id> --to <tier> --reason "<text>"   # requires --force from long
+cleo memory tier stats
+cleo memory tier promote <id> --to medium|long --reason "<text>"
+cleo memory tier demote  <id> --to short|medium --reason "<text>" [--force]
 ```
 
-`cleo memory tier stats` output MUST include:
-- Count per tier per table
-- Top-10 entries by days-until-next-promotion
-- First expected long-tier promotion date
+`tier stats` shows the tier distribution across all four tables and the
+top-10 entries closest to long-tier promotion.
 
-### §9.3 Extraction Pipeline Commands (T745)
+### §9.3 Extraction and consolidation commands
 
 ```
-cleo memory reflect                           # manually trigger Observer+Reflector
-cleo memory dedup-scan                        # report potential duplicates by table
-cleo memory reflect --dry-run                 # report what would be produced
-cleo memory dedup-scan --fix                  # merge confirmed duplicates
+cleo memory reflect [--session <id>]   # run Observer + Reflector (default: most recent session)
+cleo memory dedup-scan [--apply]       # report duplicates; --apply runs consolidation
+cleo memory consolidate                # run runConsolidation now
+cleo memory dream --apply              # full auto-dream cycle, destructive; --status is read-only
+cleo memory llm-status                 # which LLM credential resolved, extraction readiness
 ```
 
-### §9.4 Existing Commands (Verified Working)
+### §9.4 Retrieval and verification commands
 
 ```
-cleo memory consolidate                       # manual runConsolidation trigger
-cleo memory find "<query>"                    # brain.db semantic search
-cleo memory fetch <id>                        # full entry details
-cleo memory timeline <id>                     # entry history
-cleo memory verify <id>                       # set verified=1 on entry (R-STDP +1.0 reward)
-cleo memory invalidate <id>                   # set invalid_at on entry (R-STDP -1.0 reward)
+cleo memory find "<query>"             # search (filter with --type)
+cleo memory timeline <id>              # chronological context around an anchor
+cleo memory fetch <id>                 # full entry details
+cleo memory search-hybrid "<query>"    # FTS5 + vector + graph, fused with RRF
+cleo memory verify <id>                # set verified=true (owner or cleo-prime)
+cleo memory pending-verify             # unverified but highly cited entries
 ```
+
+Run `cleo memory --help` for the full verb list.
 
 ---
 
 ## §10 Studio Surface
 
-### §10.1 `/brain/overview` Tier Distribution Chart (T748)
+| Surface | Path | Shows |
+|---|---|---|
+| Page | `/brain/tier-stats` (`packages/studio/src/routes/brain/tier-stats/`) | Tier distribution and upcoming promotions |
+| API | `GET /api/memory/tier-stats` (`packages/studio/src/routes/api/memory/tier-stats/+server.ts`) | Per-table short/medium/long counts and the top-5 upcoming long-tier promotions, via `getTierStats()` from `@cleocode/core` |
 
-**New component**: Add to `packages/studio/src/routes/brain/+page.svelte` (or a sub-route):
-
-1. **Tier distribution bar chart**: short/medium/long counts for all four brain tables,
-   stacked by table. Updates on page load. No streaming required.
-
-2. **Promotion countdown panel**: Top 5 entries closest to long-tier promotion.
-   Shows: entry ID, type, current citation count vs threshold, days remaining, tier_promoted_at.
-
-3. **Transcript stats panel** (new, T728 dependency):
-   - Hot/warm/cold session counts
-   - Total storage (MB)
-   - Sessions pending extraction
-   - Last extraction run timestamp
-
-### §10.2 New SvelteKit API Routes Required
-
-| Route | Method | Returns | Depends On |
-|-------|--------|---------|------------|
-| `/api/brain/tier-stats` | GET | `{ tiers: TierDistribution[], nextPromotions: PromotionCountdown[] }` | T741/T743 |
-| `/api/brain/transcript-stats` | GET | `{ hot: N, warm: N, cold: N, totalMB: N, pending: N }` | T728/T732 |
+Studio has no transcript-stats route; transcript counts come from
+`cleo transcript scan`.
 
 ---
 
-## §11 Migration Sequence
+## §11 Schema Change Rules
 
-### §11.1 Wave 0 (P0 Bug Fixes — run immediately, no owner decisions needed)
-
-| Step | Task | File | Risk |
-|------|------|------|------|
-| M0a | Fix getTranscript path | `packages/adapters/src/providers/claude-code/hooks.ts:364` | Low — 2-line fix |
-| M0b | Wire runSleepConsolidation | `packages/core/src/memory/brain-lifecycle.ts` | Low — Step 10 addition |
-| M0c | Route LLM extraction through verifyAndStore | `packages/core/src/memory/llm-extraction.ts` | Medium — behavior change |
-| M0d | Extend hashDedupCheck to all 4 tables | `packages/core/src/memory/extraction-gate.ts` | Low — additive |
-
-### §11.2 Wave 1 (Schema Migrations)
-
-**Migration file**: `20260416000005_t726-tier-audit-columns/migration.sql` (T741)
-
-```sql
--- Add tier audit columns to all four brain tables
-ALTER TABLE brain_observations  ADD COLUMN tier_promoted_at text;
---> statement-breakpoint
-ALTER TABLE brain_observations  ADD COLUMN tier_promotion_reason text;
---> statement-breakpoint
-ALTER TABLE brain_decisions     ADD COLUMN tier_promoted_at text;
---> statement-breakpoint
-ALTER TABLE brain_decisions     ADD COLUMN tier_promotion_reason text;
---> statement-breakpoint
-ALTER TABLE brain_patterns      ADD COLUMN tier_promoted_at text;
---> statement-breakpoint
-ALTER TABLE brain_patterns      ADD COLUMN tier_promotion_reason text;
---> statement-breakpoint
-ALTER TABLE brain_learnings     ADD COLUMN tier_promoted_at text;
---> statement-breakpoint
-ALTER TABLE brain_learnings     ADD COLUMN tier_promotion_reason text;
-```
-
-**MUST run `cleo backup add` before applying any schema migration.** See ADR-013 §9.
-
-### §11.3 Rollback Plan
-
-| Migration | Reversible? | Method |
-|-----------|-------------|--------|
-| M0a-M0d (code changes) | Yes | git revert |
-| T726-M5 (ALTER TABLE ADD COLUMN) | No (SQLite limitation) | Accept; new columns nullable, zero data impact |
-| T746 (Drizzle DEFAULT change) | Yes (schema only) | git revert + `cleo upgrade` |
-| T731 (systemd timer install) | Yes | `systemctl --user disable cleo-transcript-gc.timer` |
+- Take `cleo backup add` before applying any schema migration
+  ([ADR-013](../adr/adr-013-data-integrity-checkpoint-architecture.md)).
+- Memory columns are added with nullable `ALTER TABLE … ADD COLUMN`, which
+  SQLite cannot drop in place; a rollback leaves the column and ignores it.
+- Code-only changes roll back with a revert.
 
 ---
 
-## §12 Functional Tests
+## §12 Tests
 
-### §12.1 Transcript Lifecycle Tests (T735)
+### §12.1 Transcript lifecycle
 
-**File**: `packages/adapters/src/providers/claude-code/__tests__/transcript-lifecycle.test.ts`
+`packages/core/src/gc/__tests__/transcript.test.ts`: tier classification,
+duration parsing, scanning, and pruning, including:
 
-All tests MUST use a `mkdtemp` project root. No mocking of the file system.
+- TL-F5: `prune` without `--confirm` makes zero filesystem mutations
+- TL-F7: with `ANTHROPIC_API_KEY` absent, sessions younger than 30 days are kept
 
-```
-TL-F1: getTranscript reads root-level *.jsonl, not UUID subdirs
-TL-F2: getTranscript also reads subagent JSONLs for the matching session UUID
-TL-F3: TranscriptExtractor processes a real JSONL and writes to brain_observations
-TL-F4: Tombstone written after successful extraction; prevents re-extraction
-TL-F5: prune --dry-run makes zero filesystem mutations
-TL-F6: Budget cap triggers early prune when total size > threshold
-TL-F7: API key absent falls back to 30d-only deletion (no extraction attempted)
-```
+`packages/adapters/src/providers/claude-code/__tests__/hooks-get-transcript.test.ts`
+covers `getTranscript()`; `packages/core/src/memory/__tests__/transcript-extractor.test.ts`
+covers the extractor.
 
-### §12.2 Tier Promotion Tests (T747)
+### §12.2 Tier promotion
 
-**File**: `packages/core/src/memory/__tests__/brain-tier-promotion.test.ts`
+`packages/core/src/memory/__tests__/brain-lifecycle-tier-promotion.test.ts`:
+each short→medium track (quality, citation, verified), both medium→long
+tracks, soft eviction of stale short entries, and coverage of all four
+tables. Related: `tier-promotion.test.ts`, `tier-promotion-auto-rows.test.ts`.
 
-Real brain.db (no mocks). Each test gets own `mkdtemp` dir.
+### §12.3 Extraction gate and pipeline
 
-```
-TP-F1: short→medium via citation track (cite_count incremented to 3, 24h elapsed)
-TP-F2: short→medium via quality track (quality_score ≥ 0.7, 24h elapsed)
-TP-F3: short→medium via verified track (verified=1, age irrelevant)
-TP-F4: medium→long via citation track (cite_count ≥ 5, 7d elapsed)
-TP-F5: medium→long via verified track (verified=1, 7d elapsed)
-TP-F6: long-tier entries NEVER evicted by soft-eviction pass
-TP-F7: tier_promoted_at and tier_promotion_reason written on promotion (T743)
-TP-F8: cleo memory tier promote --to long bypasses age gate (T744)
-```
+`dedup-gates.test.ts`, `brain-dedup.test.ts`, `llm-extraction.test.ts`,
+`observer-reflector.test.ts` and `sleep-consolidation.test.ts` under
+`packages/core/src/memory/__tests__/`.
 
-### §12.3 Extraction Gate Tests (T736/T737 workers define these)
+### §12.4 Test rules
 
-```
-EG-F1: LLM-extracted decision is deduped (hashDedupCheck on brain_decisions)
-EG-F2: LLM-extracted pattern is deduped (hashDedupCheck on brain_patterns)
-EG-F3: LLM-extracted observation goes through verifyAndStore (no direct storeLearning call)
-EG-F4: Duplicate LLM-extracted memory increments citationCount on existing entry
-EG-F5: runSleepConsolidation called as Step 10 and returns results (T734)
-```
-
-### §12.4 CI Compliance
-
-All functional tests discoverable by `pnpm run test` via existing `**/*.test.ts` glob.
-Zero mocked SQLite modules in functional tests.
-`pnpm biome check --write .` MUST pass before any worker marks a task complete.
+Tests use a `mkdtemp` project root and a real store; they do not mock SQLite
+modules.
 
 ---
 
-## §13 Acceptance Criteria for the Full Epic
+## §13 Conformance Invariants
 
-All of the following MUST be true before T726 child tasks are collectively done.
-T726 epic itself stays `active` until all children are complete.
+An implementation conforms to this spec when all of the following hold:
 
-| ID | Criterion | Task(s) |
-|----|-----------|---------|
-| AC-1 | `getTranscript()` returns non-null on a project with at least one session JSONL | T729 |
-| AC-2 | LLM extraction runs end-to-end after session end without error (pipeline fully wired) | T729+T730+T732 |
-| AC-3 | `brain_observations` receives at least one entry with `source_type='transcript-extracted'` after running `cleo transcript extract <session-id>` | T730 |
-| AC-4 | Duplicate LLM-extracted decision is NOT inserted as a second row (hashDedupCheck covers brain_decisions) | T737 |
-| AC-5 | `runSleepConsolidation()` is called as Step 10 of `runConsolidation()` and logs results in `brain_consolidation_events.step_results_json` | T734 |
-| AC-6 | `brain_observations`, `brain_decisions`, `brain_patterns`, `brain_learnings` all have `tier_promoted_at` and `tier_promotion_reason` columns | T741 |
-| AC-7 | `runTierPromotion()` writes `tier_promoted_at` and `tier_promotion_reason` on every promotion event | T743 |
-| AC-8 | `cleo memory tier stats` outputs tier distribution + promotion countdown for top-10 entries | T744 |
-| AC-9 | `cleo transcript scan` outputs correct hot/warm/cold counts for an existing `~/.claude/projects/` layout | T728 |
-| AC-10 | All functional tests in `brain-tier-promotion.test.ts` pass (real brain.db, no mocks) | T747 |
-| AC-11 | All functional tests in `transcript-lifecycle.test.ts` pass | T735 |
-| AC-12 | `runObserver()` fires at session end unconditionally (sessions with < 10 observations still get compression) | T740 ✓ |
-| AC-13 | `runReflector()` writes `supersedes` graph edges from new entries to each superseded observation ID | T742 ✓ |
-| AC-14 | `brain_decisions.memoryTier` Drizzle DEFAULT is `'medium'` (not `'short'`) | T746 |
-| AC-15 | Studio `/brain/overview` shows tier distribution chart and promotion countdown | T748 |
-| AC-16 | `pnpm biome check --write .` passes; `pnpm run build` passes; `pnpm run test` passes zero new failures | All |
-| AC-17 | ADR written for transcript lifecycle policy (T735) and unified extraction pipeline (T749) | T735+T749 ✓ |
-| AC-18 | `detectSupersession()` uses sqlite-vec ANN query when embeddings available | T739 ✓ |
-| AC-19 | `storePattern()`/`storeLearning()` with `sourceConfidence='agent'` does NOT auto-fire detectSupersession | T738 ✓ |
-| AC-20 | `cleo memory reflect` and `cleo memory dedup-scan` commands operational | T745 ✓ |
+| ID | Invariant |
+|---|---|
+| INV-1 | Patterns, learnings and observations from extraction paths pass through `verifyAndStore()`; decisions pass through `checkHashDedup()` before `storeDecision()` (§4.2). |
+| INV-2 | Content-hash dedup covers all four memory tables; a hash match increments `citation_count` and creates no row. |
+| INV-3 | Embedding similarity alone never merges two rows. |
+| INV-4 | Every automatic promotion persists `tier_promoted_at` and `tier_promotion_reason`. |
+| INV-5 | Long-tier entries are never auto-evicted. |
+| INV-6 | Decision and pattern rows default to `memory_tier = 'medium'`. |
+| INV-7 | Session-end memory hooks never block or fail session end. |
+| INV-8 | No session-end hook depends on another hook having finished. |
+| INV-9 | LLM output never marks an observation superseded by itself. |
+| INV-10 | `cleo transcript prune` deletes nothing without `--confirm`. |
+| INV-11 | A transcript is extracted at most once per session (tombstone check). |
 
 ---
 
-## §14 Owner-Locked Decisions
+## §14 Owner Decisions
 
-> **All questions answered as of 2026-04-15 (T726 Wave 1E).** No open questions remain.
-> Workers implementing T730/T731/T732 MUST use the locked choices in §7 and §8.
+### Q4: Transcript extraction model
 
-### Q4: LLM Extraction Model — LOCKED
+Warm extraction prefers local inference (Ollama with Gemma 4, then
+transformers.js) and escalates to `claude-sonnet-4-6`; cold extraction uses
+`claude-sonnet-4-6`, never Haiku. Implemented in
+`packages/core/src/memory/llm-backend-resolver.ts` (§7.1).
 
-**Context**: T730 (`TranscriptExtractor`) calls `llm-extraction.ts` to process session
-transcripts.
+### Q5: Transcript GC automation
 
-**Owner decision (2026-04-15)**: Hybrid with Sonnet for cold path.
-- Warm path (local Ollama available): use Ollama + Gemma 4 E4B-it
-- Cold path (no local model): use `claude-sonnet-4-6`
-- Fallback chain: Ollama → transformers.js → claude-sonnet-4-6 → skip
-
-See §7.1 for full configuration details.
-
-**T730 is UNBLOCKED.** Workers may spawn T730 against this decision.
-
----
-
-### Q5: Transcript GC Automation Mode — LOCKED
-
-**Context**: GC automation for `~/.claude/projects/` transcripts.
-
-**Owner decision (2026-04-15)**: Hybrid mode (Option C) via `cleo daemon` (NOT systemd).
-- Automatic nightly extraction (non-destructive) via `node-cron v4` sidecar
-- File deletion requires explicit `--confirm` flag
-- `cleo daemon start/stop/status` manages the cron process
-
-T731 (systemd timer) is CANCELLED. See §8.1 for full implementation details.
-
-**T731 replacement task T731-daemon is UNBLOCKED.** Workers may spawn against this decision.
-
----
-
-*This specification is complete. All questions answered. Workers MUST
-implement T726 subtasks against this document as the canonical source of truth. The three
-council reports are superseded (reference only) per the SUPERSEDED notices prepended to them.*
+GC runs as a `node-cron` sidecar started by `cleo daemon start`, not a systemd
+timer. Manual pruning needs `--confirm`. The sidecar prunes by age and disk
+pressure without confirmation (§8.1).

@@ -1,23 +1,24 @@
 # CLEO NEXUS Specification
 
-**Version**: 2026.3
 **Status**: APPROVED
-**Date**: 2026-03-05
-**Task**: T5372
 
 ---
 
 ## 1. Overview
 
-NEXUS is CLEO's cross-project coordination layer. It maintains a global registry of all CLEO-managed projects, enabling cross-project dependency analysis, critical path calculation, and orphan detection across a developer's entire project portfolio.
+NEXUS is CLEO's cross-project layer. It has two parts:
 
-The registry lives at `~/.local/share/cleo/nexus.db` (SQLite) and is accessible from any CLEO-managed project. Each project MUST register itself with NEXUS on initialization and reconcile its identity on upgrade.
+1. **The project registry** — a machine-wide index of every CLEO project, keyed by each project's tracked identity. It backs cross-project task queries (`project:T###`), cross-project dependency analysis (critical path, blockers, orphans) and project discovery.
+2. **The code-intelligence graph** — the symbols, relations and contracts of one project's source, built by `cleo nexus analyze` and read by `cleo nexus context`, `impact`, `search-code` and related verbs.
 
-NEXUS operates on a portability model where each project's `.cleo/` directory travels with the project (containing `project-info.json` with a stable UUID), while the global registry at `~/.local/share/cleo/nexus.db` stores machine-specific path mappings. When a project moves to a new filesystem location, the reconciliation protocol detects the path change and updates the global registry without losing the project's identity or audit history.
+The two parts live in different stores (ADR-090):
 
-NEXUS enables three primary capabilities: (1) unified task querying across project boundaries using `project:taskId` syntax, (2) cross-project dependency graph construction for critical path and blocker analysis, and (3) orphan detection for broken cross-project references. These capabilities are exposed through 31 MCP operations organized into core registry operations and `nexus.share.*` relay operations.
+- The registry is cross-project, so it lives in the **global** `<cleoHome>/cleo.db`.
+- The graph belongs to one project, so it lives in that project's `<projectRoot>/.cleo/cleo.db` and travels with the project.
 
-The relationship between NEXUS and other CLEO databases is complementary: `tasks.db` stores per-project task state (portable), `brain.db` stores cognitive memory (portable), and `nexus.db` stores the global project index (machine-specific). NEXUS reads from project-local `tasks.db` files during sync operations but never writes to them.
+`<cleoHome>` is `~/.local/share/cleo` on Linux and `~/Library/Application Support/cleo` on macOS; `CLEO_HOME` overrides it. The store model is specified in [database-architecture](database-architecture.md).
+
+NEXUS is reached through the CLI (`cleo nexus <verb>`, §7). It reads each registered project's task store when it syncs, queries or discovers across projects; only `cleo nexus transfer` writes tasks into another project.
 
 ---
 
@@ -25,401 +26,303 @@ The relationship between NEXUS and other CLEO databases is complementary: `tasks
 
 | Term | Definition |
 |---|---|
-| **projectId** | UUID (v4) assigned at project creation. Stored in `.cleo/project-info.json`. Stable across path moves. Primary identity key. |
-| **projectHash** | `SHA-256(absolutePath).substring(0, 12)`. Path-derived, changes on move. Used as unique index for fast lookups. |
-| **registry** | The `project_registry` table in `~/.local/share/cleo/nexus.db`. |
-| **reconcile** | Process of verifying a project's identity against the global registry and resolving discrepancies via the 4-scenario policy. |
-| **orphan** | A cross-project dependency reference pointing to a project not present in the registry. |
-| **critical path** | The longest dependency chain across registered projects that determines minimum completion sequence. |
-| **permission level** | Access tier assigned to a project: `read`, `write`, or `execute`. |
-| **health status** | Registry-tracked project state: `unknown`, `healthy`, `degraded`, or `unreachable`. |
+| **projectId** | The project's identity, read from the tracked `.cleo/project.json`, else the legacy `.cleo/project-id`; `.cleo/project-info.json` is only a cache used when nothing is tracked yet. Written once, stable across moves. Must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`. |
+| **projectHash** | `SHA-256(path).substring(0, 12)` of the canonical (`realpath`) project path. Path-derived; changes when the project moves. A lookup aid, never an identity. |
+| **registry** | The `nexus_project_registry` table in the global `cleo.db`. |
+| **location** | A (projectId, device, path) row in `nexus_project_locations`, with state `live`, `missing`, `superseded` or `candidate`. |
+| **reconcile** | Checking the current checkout against the registry and updating the row (§6.2). |
+| **orphan** | A cross-project dependency whose target project is not registered, or whose target task does not exist. |
+| **critical path** | The longest dependency chain across registered projects. |
+| **permission level** | A project's access tier: `read`, `write` or `execute` (default `read`). |
+| **health status** | `unknown`, `healthy`, `degraded` or `unreachable` (default `unknown`). |
 
 ---
 
-## 3. Storage Model
+## 3. Storage model
 
-NEXUS uses SQLite at `~/.local/share/cleo/nexus.db` -- a global file outside any project directory. The database is managed via Drizzle ORM with migrations stored in `drizzle-nexus/`.
+### 3.1 Residency
 
-### 3.1 Tables
+| Scope | File | NEXUS tables |
+|---|---|---|
+| Global | `<cleoHome>/cleo.db` | `nexus_project_registry`, `nexus_project_id_aliases`, `nexus_project_paths`, `nexus_project_locations`, `nexus_devices`, `nexus_project_git_state`, `nexus_audit_log`, `nexus_schema_meta`, `nexus_user_profile`, `nexus_sigils` |
+| Project | `<projectRoot>/.cleo/cleo.db` | `nexus_nodes`, `nexus_relations`, `nexus_relation_weights`, `nexus_contracts`, `nexus_code_index` |
 
-#### 3.1.1 project_registry
+Schemas: `packages/core/src/store/schema/cleo-global/nexus.ts` and `packages/core/src/store/schema/cleo-project/nexus-graph.ts`. The graph tables have no `project_id` column; scope is implied by which project's `cleo.db` is open.
 
-Central registry of all CLEO projects known to the NEXUS.
+The `drizzle-nexus` migration lineage adds what the consolidated migrations do not model: the `nexus_symbols_fts` FTS5 table and its triggers on `nexus_nodes`, `nexus_relation_weights`, and the `_nexus_meta` health-probe table.
+
+### 3.2 Accessor
+
+`getNexusDb()` (`packages/core/src/store/nexus-sqlite.ts`) opens the project `cleo.db` as `main` through `openDualScopeDb('project')` and `ATTACH`es the global `cleo.db` as `nexus_global`. A bare table name resolves to `main` first, so graph tables are read from the project file and registry tables fall through to the global file. The global file may still hold empty graph tables from an earlier migration; `main` shadows them. `cleo doctor nexus-residency` reports NEXUS tables found in the wrong scope (read-only).
+
+### 3.3 `nexus_project_registry`
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `project_id` | text | PRIMARY KEY | UUID (v4), stable across path moves |
-| `project_hash` | text | NOT NULL, UNIQUE | SHA-256(path).substring(0,12) |
-| `project_path` | text | NOT NULL, UNIQUE | Absolute filesystem path |
-| `name` | text | NOT NULL | Human-readable project name |
-| `registered_at` | text | NOT NULL, DEFAULT datetime('now') | ISO 8601 registration timestamp |
-| `last_seen` | text | NOT NULL, DEFAULT datetime('now') | ISO 8601 last reconciliation timestamp |
-| `health_status` | text | NOT NULL, DEFAULT 'unknown' | One of: unknown, healthy, degraded, unreachable |
-| `health_last_check` | text | nullable | ISO 8601 timestamp of last health check |
-| `permissions` | text | NOT NULL, DEFAULT 'read' | One of: read, write, execute |
-| `last_sync` | text | NOT NULL, DEFAULT datetime('now') | ISO 8601 last metadata sync timestamp |
-| `task_count` | integer | NOT NULL, DEFAULT 0 | Cached count of tasks in project |
-| `labels_json` | text | NOT NULL, DEFAULT '[]' | JSON array of unique task labels |
+| `project_id` | text | PRIMARY KEY | projectId |
+| `project_hash` | text | NOT NULL | projectHash of `project_path` |
+| `project_path` | text | NOT NULL | Absolute path of the checkout seen most recently |
+| `name` | text | NOT NULL | Display name; unique among registered projects (enforced at registration) |
+| `registered_at` | text | NOT NULL, DEFAULT `datetime('now')` | Registration time |
+| `last_seen` | text | NOT NULL, DEFAULT `datetime('now')` | Last reconcile |
+| `health_status` | text | NOT NULL, DEFAULT `'unknown'` | Health status |
+| `health_last_check` | text | nullable | Last health check |
+| `permissions` | text | NOT NULL, DEFAULT `'read'` | Permission level |
+| `last_sync` | text | NOT NULL, DEFAULT `datetime('now')` | Last metadata sync |
+| `task_count` | integer | NOT NULL, DEFAULT 0 | Cached task count |
+| `labels_json` | text | NOT NULL, DEFAULT `'[]'` | JSON array of task labels |
+| `brain_db_path` | text | nullable | The project store path (`<path>/.cleo/cleo.db`) |
+| `tasks_db_path` | text | nullable | The project store path (`<path>/.cleo/cleo.db`) |
+| `last_indexed` | text | nullable | Last code-graph index |
+| `stats_json` | text | NOT NULL, DEFAULT `'{}'` | Index statistics |
+| `last_probed_at` | text | nullable | Last git-state probe |
+| `last_opened_at` | text | nullable | Last open |
 
-**Indexes**: `idx_project_registry_hash` (projectHash), `idx_project_registry_health` (healthStatus), `idx_project_registry_name` (name).
+**Indexes** (non-unique): `idx_nexus_project_registry_hash`, `_path`, `_health`, `_name`, `_last_indexed`, `_last_opened`.
 
-#### 3.1.2 nexus_audit_log
+The other global tables:
 
-Append-only audit log for all NEXUS operations across projects.
+- `nexus_project_id_aliases` maps a legacy or path-derived id to its canonical projectId.
+- `nexus_project_paths` records every path a project was seen at.
+- `nexus_project_locations` and `nexus_devices` record each checkout per device.
+- `nexus_project_git_state` holds the last git probe per checkout (branch, head, dirty count, ahead/behind).
+- `nexus_user_profile` and `nexus_sigils` hold peer profile and sigil rows.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| `id` | text | PRIMARY KEY | UUID (v4), unique per audit entry |
-| `timestamp` | text | NOT NULL, DEFAULT datetime('now') | ISO 8601 event timestamp |
-| `action` | text | NOT NULL | Operation action name (e.g., register, sync, reconcile) |
-| `project_hash` | text | nullable | Hash of affected project |
-| `project_id` | text | nullable | UUID of affected project |
-| `domain` | text | nullable | Always 'nexus' for nexus operations |
-| `operation` | text | nullable | MCP operation name |
-| `session_id` | text | nullable | Active session ID if available |
-| `request_id` | text | nullable | MCP request correlation ID |
-| `source` | text | nullable | Operation source (mcp, cli, internal) |
-| `gateway` | text | nullable | Gateway type (query, mutate) |
-| `success` | integer | nullable | 1 for success, 0 for failure |
-| `duration_ms` | integer | nullable | Operation duration in milliseconds |
-| `details_json` | text | DEFAULT '{}' | JSON object with operation-specific details |
-| `error_message` | text | nullable | Error description on failure |
+### 3.4 `nexus_audit_log`
 
-**Indexes**: `idx_nexus_audit_timestamp` (timestamp), `idx_nexus_audit_action` (action), `idx_nexus_audit_project_hash` (projectHash), `idx_nexus_audit_project_id` (projectId), `idx_nexus_audit_session` (sessionId).
+| Column | Type | Description |
+|---|---|---|
+| `id` | text PRIMARY KEY | UUID per entry |
+| `timestamp` | text NOT NULL, DEFAULT `datetime('now')` | Event time |
+| `action` | text NOT NULL | e.g. `register`, `reconcile`, `set-permission` |
+| `project_hash` | text | Affected project's hash |
+| `project_id` | text | Affected projectId |
+| `domain` | text | Always `nexus` |
+| `operation` | text | Operation name |
+| `session_id` | text | Session id, when known |
+| `request_id` | text | Request correlation id, when known |
+| `source` | text | Caller source, when known |
+| `gateway` | text | Gateway, when known |
+| `success` | integer | 1 success, 0 failure |
+| `duration_ms` | integer | Duration |
+| `details_json` | text, DEFAULT `'{}'` | Operation details (redacted column) |
+| `error_message` | text | Error text (redacted column) |
+| `uid` | text | Row uid (unique index `uq_nexus_audit_log_uid`) |
 
-#### 3.1.3 nexus_schema_meta
+**Indexes**: `idx_nexus_audit_timestamp`, `idx_nexus_audit_action`, `idx_nexus_audit_project_hash`, `idx_nexus_audit_project_id`, `idx_nexus_audit_session`.
 
-Key-value store for nexus.db schema versioning and metadata.
+### 3.5 Initialization
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| `key` | text | PRIMARY KEY | Metadata key |
-| `value` | text | NOT NULL | Metadata value |
+`nexusInit()` (`packages/core/src/nexus/registry.ts`) is idempotent. It:
 
-### 3.2 Initialization
-
-`nexusInit()` MUST be called before any registry operation. It is idempotent and safe to call multiple times. On first call:
-
-1. Creates the `~/.local/share/cleo/nexus/` directory and `~/.local/share/cleo/nexus/cache/` subdirectory.
-2. Initializes `nexus.db` via Drizzle ORM (runs pending migrations).
-3. Checks if `project_registry` is empty. If so, calls `migrateJsonToSqlite()` to import from any legacy `~/.cleo/projects-registry.json` file.
+1. Creates the NEXUS home `<cleoHome>/nexus/` and its `cache/` subdirectory (overridable with `NEXUS_HOME` and `NEXUS_CACHE_DIR`).
+2. Opens the stores through `getNexusDb()`, which runs pending migrations.
+3. If `nexus_project_registry` is empty, runs `migrateJsonToSqlite()` to import a legacy `projects-registry.json` (§10).
 
 ---
 
-## 4. Identity Model
+## 4. Identity model
 
-### 4.1 projectId (Primary Identifier)
+### 4.1 projectId
 
-`projectId` is a UUID (v4) assigned at project creation time and stored in `.cleo/project-info.json`. It is the **stable** identifier -- it does NOT change when a project moves to a new path.
+The projectId is the only identity. NEXUS reads it from the tracked `.cleo/project.json` (or the legacy `.cleo/project-id`) through `readPortableProjectId`, and falls back to the `project-info.json` cache only when nothing is tracked (`readProjectId`, `packages/core/src/nexus/registry.ts`). It is the registry primary key and the stable reference in cross-project dependencies.
 
-`projectId` MUST be used as the database primary key and as the stable reference in cross-project dependencies.
+Reconcile never mints an identity. A project that declares none is refused with a fix that says to run `cleo init`. Minting happens only in `cleo init`, `cleo nexus register` or `cleo doctor project-identity --resolve`.
 
-### 4.2 projectHash (Path-Derived Index)
+### 4.2 projectHash
 
-`projectHash` = `SHA-256(absolutePath).substring(0, 12)`. It provides a short, unique index for fast lookups but MUST NOT be used as a stable reference across path changes.
+`generateProjectHash(path)` (`packages/core/src/nexus/hash.ts`) returns the first 12 hex characters of `SHA-256(path)`. Registration hashes the `realpath` of the project, so relative and symlinked spellings produce one hash. Because the hash follows the path, it is never used as an identity or ownership key.
 
-The hash is a 12-character lowercase hexadecimal string validated by the pattern `/^[a-f0-9]{12}$/`.
+### 4.3 Portability
 
-When a project moves, its `projectHash` changes but its `projectId` remains constant.
-
-### 4.3 Portability Contract
-
-The `.cleo/` directory is portable -- it moves with the project. The global registry (`~/.local/share/cleo/nexus.db`) stores path-dependent data. When a project moves:
-
-1. The project's `.cleo/project-info.json` retains the same `projectId`.
-2. The global registry MUST be updated via `nexus.reconcile` to reflect the new path and hash.
-3. Cross-project dependency references using `projectId` remain valid without updates.
+The project's `.cleo/` moves with it: the tracked identity files and the project `cleo.db`, including its code graph. Only the global registry row is machine-specific. After a move, reconcile (§6.2) updates the row's path and hash, and cross-project references by projectId stay valid.
 
 ---
 
-## 5. Registration and Reconciliation Lifecycle
+## 5. Permissions
 
-### 5.1 Auto-Registration
-
-Projects MUST be registered on `cleo init` and reconciled on `cleo upgrade`. Both entry points call `nexusReconcile()`.
-
-Registration validates that the target path contains a readable CLEO project (has `.cleo/tasks.db`) before inserting into the registry. If the project lacks task data, registration fails with exit code 1 (NOT_FOUND).
-
-### 5.2 Reconciliation Policy
-
-`nexusReconcile(projectRoot)` implements a 4-scenario handshake:
-
-| Scenario | Condition | Action | Result |
-|---|---|---|---|
-| **ok** | `projectId` in registry, path matches | Update `lastSeen` | `{status: 'ok'}` |
-| **path_updated** | `projectId` in registry, path differs | Update path + hash + `lastSeen` | `{status: 'path_updated', oldPath, newPath}` |
-| **auto_registered** | `projectId` not in registry | Register project via `nexusRegister()` | `{status: 'auto_registered'}` |
-| **identity_conflict** | `projectHash` matches but different `projectId` | Throw `CleoError(75)` | Error: manual resolution required |
-
-The reconciliation algorithm proceeds in order:
-
-1. **Conflict check**: If the current `projectHash` exists in the registry with a different `projectId`, throw identity conflict (exit code 75).
-2. **Stable lookup**: Search by `projectId`. If found and path matches, scenario 1. If found and path differs, scenario 2.
-3. **Hash fallback**: For projects without a `projectId` in `project-info.json`, fall back to hash-based lookup.
-4. **Auto-register**: If no match found by either key, register the project as new.
-
-### 5.3 Conflict Resolution
-
-Identity conflicts (scenario 4) indicate registry corruption or a hash collision. The developer MUST manually run `nexus.unregister` for the conflicting entry followed by `nexus.register` to resolve the conflict. The conflict is logged to the audit trail with `success: false` before the error is thrown.
+`packages/core/src/nexus/permissions.ts` orders the levels `read` < `write` < `execute`. A cross-project operation requires the target project's granted level to meet the required level; operations inside one project always have full permission. `cleo nexus permission set` changes a project's level and writes a `set-permission` audit entry.
 
 ---
 
-## 6. Operation Surface
+## 6. Registration and reconciliation
 
-NEXUS exposes 17 query and 14 mutate operations through the MCP gateway (31 total). All operations are tier 2 except `nexus.reconcile` which is tier 1.
+### 6.1 Registration
 
-### 6.1 Query Operations (17)
+- `cleo init` calls `nexusReconcile()` through `initNexusRegistration` (`packages/core/src/init.ts`). A project under a temp directory is not auto-registered; it can still be registered with `cleo nexus register`.
+- `cleo upgrade` records an encounter instead. The encounter never mints an identity and never moves an existing row to this checkout.
+- `nexusRegister()` requires the path to contain a `.cleo/` directory and fails with `NOT_FOUND` otherwise. It refuses a display name another project already holds (`VALIDATION_ERROR`). It records the path fingerprint and legacy id as aliases.
 
-#### Core Registry Queries
+### 6.2 Reconciliation
 
-| Operation | Tier | Description |
+`nexusReconcile(projectRoot)` looks the project up by projectId alone. The path and its hash are never consulted for ownership.
+
+| Status | Condition | Action |
 |---|---|---|
-| `nexus.status` | 2 | Overall NEXUS health status |
-| `nexus.list` | 2 | List all registered NEXUS projects |
-| `nexus.show` | 2 | Show a specific project by name or hash |
-| `nexus.query` | 2 | Resolve a cross-project `project:taskId` query |
-| `nexus.search` | 2 | Search for patterns across registered projects |
-| `nexus.discover` | 2 | Discover related tasks across registered projects |
+| `ok` | projectId registered, path matches | Update `last_seen`; record the checkout |
+| `path_updated` | projectId registered, path differs, old path gone or superseded | Update path, hash, `last_seen` and store paths |
+| `candidate` | projectId registered, path differs, old path still exists on this device | Record this checkout as a `candidate` location; the row is NOT repointed |
+| `auto_registered` | projectId not registered | Register via `nexusRegister()` |
 
-#### Dependency Analysis Queries
+A `candidate` result is a second checkout or a clone, not a move. `cleo init` prints a warning naming `cleo doctor project-identity --resolve` or `--force-rebind` to make this checkout the owner.
 
-| Operation | Tier | Description |
-|---|---|---|
-| `nexus.deps` | 2 | Cross-project dependency analysis |
-| `nexus.graph` | 2 | Global dependency graph across all projects |
-| `nexus.critical-path` | 2 | Global critical path across all registered projects |
-| `nexus.blocking` | 2 | Blocking impact analysis for a task |
-| `nexus.orphans` | 2 | Detect broken cross-project dependency references |
-| `nexus.path.show` | 2 | Show critical dependency path across projects |
-| `nexus.blockers.show` | 2 | Show blocking impact for a task query |
-| `nexus.orphans.list` | 2 | List orphaned cross-project dependencies |
+A registry row at this path under a different projectId is not a conflict. It is a stale location of another project and is marked `superseded` in `nexus_project_locations`.
 
-#### Sharing Queries
-
-| Operation | Tier | Description |
-|---|---|---|
-| `nexus.share.status` | 2 | Sharing status for current project |
-| `nexus.share.remotes` | 2 | List configured remotes |
-| `nexus.share.sync.status` | 2 | Sync status with remotes |
-
-### 6.2 Mutate Operations (14)
-
-#### Core Registry Mutations
-
-| Operation | Tier | Description |
-|---|---|---|
-| `nexus.init` | 2 | Initialize NEXUS (creates registry and directories) |
-| `nexus.register` | 2 | Register a project in NEXUS |
-| `nexus.unregister` | 2 | Remove a project from NEXUS |
-| `nexus.sync` | 2 | Sync project metadata (task count, labels) |
-| `nexus.sync.all` | 2 | Sync all registered projects |
-| `nexus.permission.set` | 2 | Update project permissions |
-| `nexus.reconcile` | 1 | Reconcile project identity with global nexus registry |
-
-#### Sharing Mutations
-
-| Operation | Tier | Description |
-|---|---|---|
-| `nexus.share.snapshot.export` | 2 | Export project snapshot |
-| `nexus.share.snapshot.import` | 2 | Import project snapshot |
-| `nexus.share.sync.gitignore` | 2 | Sync gitignore for shared files |
-| `nexus.share.remote.add` | 2 | Add a remote for sharing |
-| `nexus.share.remote.remove` | 2 | Remove a remote |
-| `nexus.share.push` | 2 | Push to remote |
-| `nexus.share.pull` | 2 | Pull from remote |
+Every reconcile writes a `reconcile` audit entry with the status in `details_json`.
 
 ---
 
+## 7. CLI surface
+
+All NEXUS operations run through `cleo nexus <verb>`. Run `cleo nexus <verb> --help` for flags.
+
+### 7.1 Registry
+
+| Verb | Purpose |
+|---|---|
+| `init` | Create the NEXUS directories and registry |
+| `register` / `unregister` | Add or remove a project |
+| `list`, `show` | List projects; show one by name |
+| `sync [PROJECT]` | Refresh task count and labels (default: all projects) |
+| `reconcile` | Reconcile the current project (§6.2) |
+| `permission set` | Set a project's permission level |
+| `projects list\|register\|remove\|scan\|clean\|status` | Registry management; `scan` finds unregistered `.cleo/` directories, `status` is the fleet view per device, `clean` bulk-purges rows (always run `--dry-run` first) |
+
+### 7.2 Cross-project tasks
+
+| Verb | Purpose |
+|---|---|
+| `resolve` | Resolve `project:T###` or `T###` across projects |
+| `search` | Search tasks across projects by pattern |
+| `discover` | Find related tasks across projects (§8) |
+| `deps`, `graph`, `critical-path`, `blocking`, `orphans` | Cross-project dependency analysis |
+| `transfer-preview`, `transfer` | Move tasks between projects (`transfer-preview` is a dry run) |
+| `share export\|import`, `share-status` | Snapshot sharing for multiple contributors |
+
+### 7.3 Code intelligence
+
+| Verb | Purpose |
+|---|---|
+| `analyze [PATH]` | Build the code graph for a repository |
+| `status` | Index freshness: file, node and relation counts, last indexed time, stale files |
+| `context`, `impact`, `impact-full`, `full-context`, `why` | Callers, callees and blast radius of a symbol, alone or merged with tasks and memory |
+| `search-code`, `query` | BM25 symbol search; recursive CTE queries over the graph |
+| `clusters`, `flows`, `wiki`, `route-map`, `shape-check`, `contracts` | Communities, execution flows, wiki index, routes and contract checks |
+| `diff`, `affected` | Index changes between commits; tests and symbols a change reaches |
+| `task-footprint`, `task-symbols`, `brain-anchors` | Links between tasks, memory and symbols |
+| `hot-paths`, `hot-nodes`, `cold-symbols`, `top-entries` | Plasticity weights |
+| `hooks`, `auto-reindex`, `reindex-on-merge` | Keep the index current from git hooks |
+| `augment`, `setup` | PreToolUse hook augmenter |
+| `refresh-bridge`, `export` | Regenerate `.cleo/nexus-bridge.md`; export the graph to GEXF or JSON |
+| `sigil` | Sigil (peer-card) rows |
+
 ---
 
-## 7. Cross-Project Discovery (Graph-RAG)
+## 8. Cross-project discovery
 
-The `nexus.discover` operation implements Graph-RAG (Graph Retrieval-Augmented Generation) for finding related tasks across registered projects. Discovery uses multiple similarity methods combined with hierarchical proximity scoring.
+`cleo nexus discover <query> [--method labels|description|files|auto] [--limit N]` runs `discoverRelated()` (`packages/core/src/nexus/discover.ts`). The default method is `auto` and the default limit is 10.
 
-### Discovery Methods
+1. The query must be a single task (`T001`, `project:T001` or `.:T001`); a wildcard `*:T001` is refused.
+2. For each registered project, every task except the source is scored:
+   - **labels** (`labels`, `auto`): shared labels ÷ the larger of the two label-set sizes.
+   - **description** (`description`, `auto`): shared keywords (title + description, stop words removed) ÷ the larger keyword count.
+   - In `auto` mode the higher of the two scores wins and sets the match `type`.
+3. Tasks with a score above 0 are returned, rounded to two decimals, highest first.
 
-| Method | Algorithm | Score Range | Description |
-|--------|-----------|-------------|-------------|
-| `labels` | Jaccard similarity | 0.0-1.0 | Matches tasks by shared label overlap |
-| `description` | Tokenized Jaccard | 0.0-1.0 | Keyword extraction from title + description |
-| `files` | File path overlap | 0.0-1.0 | Matches tasks referencing same files |
-| `hierarchy` | Fixed boosts | 0.08-0.15 | Siblings (0.15) and cousins (0.08) |
-| `auto` | Weighted combination | 0.0-1.0 | Combines all methods with hierarchy boosts |
-
-### Auto Mode Scoring
-
-The default `auto` method combines results from all discovery methods:
-
-1. **Base Scores**: Highest score per task from labels/description/files
-2. **Hierarchy Boost**: Adds sibling (0.15) or cousin (0.08) proximity bonus
-3. **Cap**: Final score capped at 1.0
-4. **Sort**: Results sorted by score descending
-
-### Example Output
+The `files` method is accepted but has no scoring branch, so it returns no results. A project whose tasks cannot be read is skipped.
 
 ```json
 {
+  "query": "web-app:T017",
+  "method": "auto",
   "results": [
     {
       "project": "backend-api",
       "taskId": "T042",
       "title": "Implement auth middleware",
-      "score": 0.85,
+      "score": 0.75,
       "type": "labels",
-      "reason": "3 shared label(s): auth, security, middleware"
+      "reason": "Shared labels: auth, security, middleware"
     }
-  ]
+  ],
+  "total": 1
 }
 ```
 
 ---
 
-## 8. Logging and Audit Model
+## 9. Logging and audit
 
-### 7.1 Operational Logging
+All NEXUS operations log through `getLogger('nexus')`.
 
-All nexus operations emit structured Pino logs via `getLogger('nexus')`. Log level: `info` for successful operations, `warn` for non-fatal failures (including audit write failures).
-
-### 7.2 Audit Trail
-
-All mutate operations write to `nexus_audit_log` in nexus.db via `writeNexusAudit()`. Each audit entry includes correlation fields for tracing:
-
-- **id**: UUID (v4) unique to this audit entry
-- **timestamp**: ISO 8601 datetime (defaults to current time)
-- **action**: The operation performed (register, unregister, sync, reconcile, etc.)
-- **projectHash**: Hash of the affected project (nullable for global operations like sync-all)
-- **projectId**: UUID of the affected project (nullable)
-- **domain**: Always `'nexus'`
-- **operation**: MCP operation name
-- **sessionId**: Active CLEO session ID if available
-- **requestId**: MCP request correlation ID if available
-- **source**: Operation source (mcp, cli, internal)
-- **gateway**: Gateway type (query, mutate)
-- **success**: Boolean (stored as integer: 1 or 0)
-- **durationMs**: Operation duration in milliseconds
-- **detailsJson**: JSON object with operation-specific details (e.g., `{status: 'path_updated', oldPath, newPath}`)
-- **errorMessage**: Error description on failure
-
-Audit failures MUST NOT interrupt primary operations. The `writeNexusAudit()` function catches all errors and logs them as warnings via Pino. This ensures that audit infrastructure issues never break registry operations.
+Registry mutations write to `nexus_audit_log` through `writeNexusAudit()` (`packages/core/src/nexus/registry.ts`), with the fields in §3.4. An audit failure is caught and logged as a warning; it never fails the operation.
 
 ---
 
-## 9. Migration Plan
+## 10. Legacy JSON registry migration
 
-### 9.1 Legacy JSON Migration
+When `nexus_project_registry` is empty, `nexusInit()` runs `migrateJsonToSqlite()` (`packages/core/src/nexus/migrate-json-to-sqlite.ts`) against `<cleoHome>/projects-registry.json` (overridable with `NEXUS_REGISTRY_FILE`):
 
-For projects using the legacy `~/.cleo/projects-registry.json` backend, NEXUS automatically migrates on first initialization:
-
-1. `nexusInit()` detects an empty `project_registry` table.
-2. Calls `migrateJsonToSqlite()` which reads the JSON file.
-3. For each project entry, reads the target project's `.cleo/project-info.json` for a stable `projectId`. Falls back to a newly generated UUID if `project-info.json` is absent.
-4. Upserts each entry into `project_registry` (on conflict by `projectHash`: updates path, name, and `lastSeen`).
-5. Renames `projects-registry.json` to `projects-registry.json.migrated`.
-6. Logs migration count via Pino.
-
-### 9.2 Rollback
-
-The `.migrated` file is retained for recovery. To roll back:
-
-1. Rename `projects-registry.json.migrated` back to `projects-registry.json`.
-2. Delete or reset `~/.local/share/cleo/nexus.db`.
-3. On next `nexusInit()`, the migration will re-run from the restored JSON file.
+1. For each entry, it reads the target project's declared id from `.cleo/project.json`, then `.cleo/project-id`, then `.cleo/project-info.json`.
+2. If the project declares none, it falls back to a new random UUID.
+3. On success it renames the file to `projects-registry.json.migrated`, which prevents a second import and is kept for recovery.
 
 ---
 
-## 10. Failure and Recovery Semantics
+## 11. Failure semantics
 
-### 10.1 Exit Codes
+### 11.1 Exit codes
 
-NEXUS operations use exit codes 70-79:
+NEXUS errors use exit codes 70-79 (`packages/contracts/src/exit-codes.ts`):
 
-| Code | Name | Description |
+| Code | Name |
+|---|---|
+| 70 | `NEXUS_NOT_INITIALIZED` |
+| 71 | `NEXUS_PROJECT_NOT_FOUND` |
+| 72 | `NEXUS_PERMISSION_DENIED` |
+| 73 | `NEXUS_INVALID_SYNTAX` |
+| 74 | `NEXUS_SYNC_FAILED` |
+| 75 | `NEXUS_REGISTRY_CORRUPT` |
+| 76 | `NEXUS_PROJECT_EXISTS` |
+| 77 | `NEXUS_QUERY_FAILED` |
+| 78 | `NEXUS_GRAPH_ERROR` |
+| 79 | `NEXUS_IMPACT_CRITICAL` |
+
+Code 111, `NEXUS_INDEX_STALE` (`E_NEXUS_INDEX_STALE`), refuses a graph answer when the index trails the checked-out HEAD by more than `nexus.freshness.maxCommitsBehind` commits, or when the queried symbol is missing from an index that is stale for this checkout. `error.fix` names the reindex command. `--allow-stale` (or `CLEO_NEXUS_ALLOW_STALE=1`) accepts the stale answer.
+
+### 11.2 Orphans
+
+`cleo nexus orphans` returns cross-project dependency references whose target is broken, each with a `reason`: `project_not_registered` or `task_not_found` (`packages/core/src/nexus/deps.ts`).
+
+### 11.3 Recovery
+
+- The registry is store data. It is backed up and restored with the global `cleo.db` (see [database-architecture](database-architecture.md) §8.3).
+- `cleo doctor projects` checks machine-wide registry integrity: it rebinds moved projects by id and flags split, missing, temp and home/root rows. It is a dry run unless `--apply`, and `--rollback <receiptId>` restores the prior rows.
+- The code graph is derived from source. `cleo nexus analyze` rebuilds it.
+
+---
+
+## 12. Portability guarantees
+
+| Data | Location | Portable? |
 |---|---|---|
-| 70 | NEXUS_NOT_INITIALIZED | Registry not initialized; run `cleo nexus init` |
-| 71 | NEXUS_PROJECT_NOT_FOUND | Referenced project not in registry |
-| 72 | NEXUS_PERMISSION_DENIED | Operation exceeds project permission level |
-| 73 | NEXUS_INVALID_SYNTAX | Malformed cross-project query syntax |
-| 74 | NEXUS_SYNC_FAILED | Metadata sync operation failed |
-| 75 | NEXUS_REGISTRY_CORRUPT | Identity conflict detected during reconciliation |
-| 76 | NEXUS_PROJECT_EXISTS | Project already registered (duplicate registration attempt) |
-| 77 | NEXUS_QUERY_FAILED | Cross-project query execution failed |
-| 78 | NEXUS_GRAPH_ERROR | Dependency graph construction failed |
-| 79 | NEXUS_RESERVED | Reserved for future use |
+| Project identity | `.cleo/project.json` (+ legacy `.cleo/project-id`), tracked in git | Yes |
+| Tasks, memory, docs | `<projectRoot>/.cleo/cleo.db` | Yes (moves with the directory; never committed) |
+| Code graph | `<projectRoot>/.cleo/cleo.db` (`nexus_*` graph tables) | Yes; rebuildable with `cleo nexus analyze` |
+| Project registry, locations, audit log | `<cleoHome>/cleo.db` | No — machine-specific |
+| NEXUS cache | `<cleoHome>/nexus/cache/` | No — regenerable |
 
-### 10.2 Conflict Policy
-
-Identity conflicts exit with code 75 (`NEXUS_REGISTRY_CORRUPT`). This occurs when `nexusReconcile()` detects that the current path's `projectHash` is already registered to a different `projectId`. Manual resolution: run `nexus.unregister` for the conflicting entry, then `nexus.register` for the current project.
-
-### 10.3 Orphan Detection
-
-`nexus.orphans` scans all cross-project dependency references and returns entries where the referenced project is not in the registry. Each orphan entry includes a `reason` field explaining why the reference is broken.
-
-### 10.4 Database Recovery
-
-If `~/.local/share/cleo/nexus.db` is corrupt or missing, `nexusInit()` recreates it from the Drizzle schema and runs `migrateJsonToSqlite()` if the legacy JSON backup (`.migrated` or original) exists. The migration is idempotent: it checks for an empty `project_registry` before attempting import.
-
----
-
-## 11. Portability Guarantees
-
-| Data | Location | Portable? | Notes |
-|---|---|---|---|
-| Project identity (`projectId`) | `.cleo/project-info.json` | Yes | Moves with project |
-| Task database | `.cleo/tasks.db` | Yes | Moves with project |
-| Brain database | `.cleo/brain.db` | Yes | Moves with project |
-| Global registry | `~/.local/share/cleo/nexus.db` | No | Machine-specific, global |
-| Audit log | `~/.local/share/cleo/nexus.db` (nexus_audit_log) | No | Machine-specific, global |
-| NEXUS cache | `~/.local/share/cleo/nexus/cache/` | No | Regenerable |
-
-Projects SHOULD call `nexus.reconcile` after moving to a new path to update the global registry. Cross-project dependency references using `projectId` remain valid across moves without requiring updates to the referencing project.
+After moving a project, run `cleo nexus reconcile` (or `cleo init`) to update the registry. References by projectId need no update.
 
 ---
 
 ## References
 
-- [CLEO-OPERATION-CONSTITUTION.md](cleo-operation-constitution.md) -- Full operation listing across all domains
-- [VERB-STANDARDS.md](verb-standards.md) -- Canonical verb definitions
-- [CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md](cleo-portable-project-brain.md) -- Portable Project BRAIN (brain.db storage pattern)
-- [CLEO architecture guide](../concept/cleo-architecture-guide.md) -- Workshop vocabulary, systems and request flow
-- Task T5372 -- Implementation task for this specification
-- Task T5365 -- nexus.db schema definition (nexus-schema.ts)
-- Task T5366 -- Core registry operations (registry.ts)
-- Task T5368 -- Reconciliation protocol (nexusReconcile)
-- Task T4529 -- Graph-RAG discovery algorithms (packages/core/src/tasks/graph-rag.ts)
-
----
-
-## Appendix: Operation Reference (merged from CLEO-NEXUS-API.md)
-
-Complete operation matrix for all 28 NEXUS operations. Gateway column indicates whether the operation is a read (`query`) or write (`mutate`).
-
-| Operation | Gateway | Params | Returns |
-|-----------|---------|--------|---------|
-| `nexus.init` | mutate | `{}` | `{ message, registryPath, created }` |
-| `nexus.status` | query | `{}` | `{ initialized, projectCount, lastUpdated }` |
-| `nexus.register` | mutate | `{ path, name?, permission? }` | `{ hash, message }` |
-| `nexus.unregister` | mutate | `{ name }` | `{ message }` |
-| `nexus.list` | query | `{}` | `{ projects[], count }` |
-| `nexus.show` | query | `{ name }` | `NexusProject` |
-| `nexus.sync` | mutate | `{ name }` | `{ message, taskCount, labels[] }` |
-| `nexus.sync.all` | mutate | `{}` | `{ synced, failed, results[] }` |
-| `nexus.permission.set` | mutate | `{ name, level }` | `{ message, previousLevel, newLevel }` |
-| `nexus.reconcile` | mutate | `{ projectRoot? }` | `{ action, project }` |
-| `nexus.query` | query | `{ query, currentProject? }` | `CrossProjectTask \| CrossProjectTask[]` |
-| `nexus.search` | query | `{ pattern, project?, limit? }` | `{ pattern, results[], resultCount }` |
-| `nexus.discover` | query | `{ query, method?, limit? }` | `{ query, method, results[], total }` |
-| `nexus.deps` | query | `{ query, direction? }` | `{ query, direction, dependencies[], blockedBy[], blocks[] }` |
-| `nexus.graph` | query | `{}` | `NexusGraph` |
-| `nexus.path.show` | query | `{}` | `{ path[], length, bottleneck }` |
-| `nexus.blockers.show` | query | `{ query }` | `{ query, blocking[], totalBlocked, impactScore }` |
-| `nexus.orphans.list` | query | `{}` | `{ orphans[], count }` |
-| `nexus.share.status` | query | `{}` | `{ shared, remoteCount, remotes[], lastPush?, lastPull? }` |
-| `nexus.share.remotes` | query | `{}` | `{ remotes[] }` |
-| `nexus.share.sync.status` | query | `{ remote? }` | `{ remote, ahead, behind, synced, lastSync? }` |
-| `nexus.share.snapshot.export` | mutate | `{ outputPath? }` | `{ path, taskCount, checksum }` |
-| `nexus.share.snapshot.import` | mutate | `{ inputPath }` | `{ imported, merged, conflicts, message }` |
-| `nexus.share.sync.gitignore` | mutate | `{}` | `{ updated, entriesAdded[], message }` |
-| `nexus.share.remote.add` | mutate | `{ url, name? }` | `{ name, url }` |
-| `nexus.share.remote.remove` | mutate | `{ name? }` | `{ name, removed }` |
-| `nexus.share.push` | mutate | `{ remote?, force?, setUpstream? }` | `{ remote, pushed, commits, branch }` |
-| `nexus.share.pull` | mutate | `{ remote? }` | `{ remote, pulled, commits, merged }` |
+- [database-architecture](database-architecture.md) — Store model: the two `cleo.db` files
+- [CLEO-OPERATION-CONSTITUTION.md](cleo-operation-constitution.md) — Operation listing across all domains
+- [VERB-STANDARDS.md](verb-standards.md) — Canonical verb definitions
+- [CLEO-PORTABLE-PROJECT-BRAIN-SPEC.md](cleo-portable-project-brain.md) — Portable project brain
+- [CLEO architecture guide](../concept/cleo-architecture-guide.md) — Workshop vocabulary, systems and request flow
+- ADR-090 — NEXUS graph residency split: `cleo docs fetch adr-090-nexus-graph-residency-split`
+- [ADR-072](../adr/ADR-072-nexus-db-split.md) — Superseded by ADR-090
+- [ADR-036](../adr/adr-036-cleoos-database-topology.md) — Superseded; its global-only NEXUS rule no longer holds for the graph tables

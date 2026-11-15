@@ -1,221 +1,174 @@
 # CLEO Database Architecture
 
 > **Status**: CANONICAL
-> **Author**: signaldock-dev
-> **Date**: 2026-03-25
-> **Scope**: All databases in the CLEO ecosystem (local + cloud)
+> **Scope**: Every SQLite store CLEO opens on a machine: the project store, the global store, and the files around them
 
 ---
 
-## Overview
+## 1. Overview
 
-CLEO uses **6 databases** — 3 per-project, 1 project-tier messaging, 1 global, and 1 core-only telemetry. As of v2026.4.12 (ADR-037), the former single `signaldock.db` was split into a project-tier `conduit.db` (messaging + project_agent_refs) and a global-tier `signaldock.db` (canonical agent identity + cloud-sync). The sixth database, `telemetry.db`, is a global opt-in CLI telemetry store introduced by T624 and managed exclusively by `@cleocode/core`. TypeScript databases use `node:sqlite` directly or Drizzle ORM v1.0.0-beta.
+CLEO keeps its data in **two `cleo.db` files**, one per scope:
+
+| Scope | File | Holds |
+|---|---|---|
+| Project | `<projectRoot>/.cleo/cleo.db` | Everything that belongs to one project: tasks, sessions, lifecycle, provenance, project memory, docs, the NEXUS code graph, conduit (legacy messaging) state |
+| Global | `<cleoHome>/cleo.db` | Everything that spans projects on this machine: the NEXUS project registry, skills, agent identity, global memory, telemetry, providers and services |
+
+`<cleoHome>` is the CLEO data directory resolved by `getCleoHome()` (`packages/core/src/paths.ts`, from `@cleocode/paths`):
+
+- Linux: `~/.local/share/cleo`
+- macOS: `~/Library/Application Support/cleo`
+- `CLEO_HOME` overrides it.
+
+Both files use `node:sqlite` (`DatabaseSync`) with Drizzle ORM (`drizzle-orm` `1.0.0-rc.4`, `packages/core/package.json`). Tables carry a domain prefix (`tasks_`, `brain_`, `conduit_`, `docs_`, `nexus_`, `skills_`, `agent_registry_`, `telemetry_`) so one file can hold many domains.
+
+The older per-domain files (`tasks.db`, `brain.db`, `conduit.db`, `nexus.db`, `signaldock.db`, `skills.db`, `telemetry.db`) are legacy. Their data was moved into the two `cleo.db` files; see §5.
 
 ---
 
-## Project-Level Databases
+## 2. Opening a store
 
-### 1. `tasks.db` — Task Management + Agent Identity
+Every open of either `cleo.db` goes through `openDualScopeDb(scope, cwd)` in `packages/core/src/store/dual-scope-db.ts`. It:
 
-**Location**: `.cleo/tasks.db`
-**ORM**: Drizzle ORM (TypeScript, node:sqlite `DatabaseSync`)
-**Migration**: Drizzle Kit
-**Purpose**: CLEO's core operational database — tasks, sessions, lifecycle pipelines, ADRs, agent identity, and encrypted credentials.
+1. Resolves the path: `resolveCleoDir(cwd)` + `cleo.db` for the project scope, `getCleoHome()` + `cleo.db` for the global scope (`resolveDualScopeDbPath`).
+2. Opens a `node:sqlite` `DatabaseSync` handle.
+3. Applies the pragma set from `specs/sqlite-pragmas.json` (`applyPerfPragmas`, `packages/core/src/store/sqlite-pragmas.ts`).
+4. Runs pending migrations for that scope.
+5. Caches the handle per (scope, path).
 
-| Table | Purpose |
+`openCleoDb(scope, cwd)` in `packages/core/src/store/open-cleo-db.ts` accepts only `'project'` or `'global'` and delegates to `openDualScopeDb`. The older role-based API (`tasks`, `brain`, `conduit`, `nexus`, `signaldock`, …) was removed. Domain accessors such as `getDb`, `getBrainDb`, `ensureConduitDb` and `getNexusDb` bind the same consolidated handles.
+
+**Raw opens are forbidden.** `new DatabaseSync(` outside the allowlist fails arch gate 3 (`scripts/lint-no-direct-db-open.mjs --strict`). The allowlist is `packages/core/src/store/**`, `packages/core/src/migration/**` and `packages/studio/src/lib/server/db/connections.ts`; tests may open raw for seeding, and any other legitimate open carries `// db-open-allowed: <reason>`. Agents never read `.cleo/*.db` directly; they ask the CLI.
+
+### 2.1 Migrations
+
+Each scope has its own migrations folder:
+
+- `packages/core/migrations/drizzle-cleo-project/`
+- `packages/core/migrations/drizzle-cleo-global/`
+
+The legacy per-domain migration folders (`drizzle-tasks`, `drizzle-brain`, `drizzle-nexus`, `drizzle-conduit`, `drizzle-agent-registry`, `drizzle-skills`, `drizzle-telemetry`) still apply to the consolidated files and share one journal with the two scope folders. The full list is `CONSOLIDATED_JOURNAL_LINEAGES` in `packages/core/src/store/resolve-migrations-folder.ts`. `cleo doctor migrations` reports the journal of both stores per lineage (read-only).
+
+---
+
+## 3. What each scope holds
+
+Schemas live in `packages/core/src/store/schema/`:
+
+- `cleo-project/` — project-only tables (barrel: `cleo-project/index.ts`)
+- `cleo-global/` — global-only tables (barrel: `cleo-global/index.ts`)
+- `cleo-shared/` — the `brain_*` memory family, re-exported by **both** barrels, so the same tables exist in both files with data split by scope (project memory vs cross-project memory)
+
+### 3.1 Project scope (`<projectRoot>/.cleo/cleo.db`)
+
+| Module | Tables |
 |---|---|
-| `tasks` | Task tree with title, description, status, priority, size, assignee |
-| `taskDependencies` | Task dependency edges |
-| `taskRelations` | Cross-task relationships (blocks, relates-to, duplicates) |
-| `sessions` | Agent work sessions (start/end timestamps, agent identity) |
-| `taskWorkHistory` | Record of work performed on each task |
-| `lifecyclePipelines` | RCASD-IVTR+C lifecycle pipeline definitions |
-| `lifecycleStages` | Pipeline stage configurations |
-| `lifecycleGateResults` | Gate pass/fail/warn results |
-| `lifecycleEvidence` | Evidence attached to gate results |
-| `lifecycleTransitions` | Stage transition audit trail |
-| `manifestEntries` | Build manifest entries |
-| `pipelineManifest` | Pipeline-level manifest metadata |
-| `releaseManifests` | Release tracking |
-| `auditLog` | Operation audit trail |
-| `tokenUsage` | LLM token accounting (method, confidence, transport) |
-| `architectureDecisions` | ADR records |
-| `adrTaskLinks` | ADR ↔ task cross-references |
-| `adrRelations` | ADR relationship graph |
-| `externalTaskLinks` | Links to external systems (GitHub issues, etc.) |
-| `statusRegistryTable` | Task status registry |
-| `agentInstances` | Which agents work on which tasks in this project |
-| `agent_credentials` | Encrypted API keys + transport config — LOCAL CACHE of signaldock.db agent identity (see T234) |
-| `schema_meta` | Schema version tracking |
+| `tasks-core.ts`, `tasks-core-batch2.ts` | `tasks_tasks`, acceptance criteria and their history, dependencies, relations, sessions, session handoff entries, work history, external task links, background jobs, experiments, evidence AC bindings, `tasks_task_labels` |
+| `audit.ts` | `tasks_schema_meta`, `tasks_audit_log`, `tasks_token_usage`, `tasks_architecture_decisions`, `tasks_adr_task_links`, `tasks_adr_relations`, `tasks_status_registry` |
+| `lifecycle.ts` | `tasks_lifecycle_pipelines`, `_stages`, `_gate_results`, `_evidence`, `_transitions` |
+| `provenance-commits.ts`, `provenance-rest.ts`, `provenance-orphans.ts` | commits, pull requests, releases and their link tables; `tasks_agent_credentials`; `tasks_brain_release_links`; `brain_task_observations` |
+| `runtime.ts` | `tasks_warp_chains`, `tasks_warp_chain_instances`, `tasks_agent_instances`, `tasks_agent_error_log`, `tasks_playbook_runs`, `tasks_playbook_approvals` |
+| `docs.ts` | `docs_attachments`, `docs_attachment_refs`, `docs_manifest_entries`, `docs_pipeline_manifest`, `docs_publications`, `decision_adr_links`, `conduit_doc_migration_ledger` |
+| `conduit.ts` | `conduit_conversations`, `conduit_messages`, delivery jobs, dead letters, pins, attachments and their versions/approvals/contributors, doc heads and slug aliases, `section_crdt_states`, topics and subscriptions, `conduit_project_agent_refs` |
+| `nexus-graph.ts` | `nexus_nodes`, `nexus_relations`, `nexus_relation_weights`, `nexus_contracts`, `nexus_code_index` |
 
-### 2. `brain.db` — Knowledge & Memory
+### 3.2 Global scope (`<cleoHome>/cleo.db`)
 
-**Location**: `.cleo/brain.db`
-**ORM**: Drizzle ORM (TypeScript, node:sqlite `DatabaseSync` + sqlite-vec extension)
-**Migration**: Drizzle Kit
-**Purpose**: CLEO's memory system — recorded decisions, detected patterns, lessons learned, raw observations from agent sessions.
-
-| Table | Purpose |
+| Module | Tables |
 |---|---|
-| `brainDecisions` | Recorded decisions with context, rationale, outcomes |
-| `brainPatterns` | Detected patterns (recurring, anti-pattern, improvement) |
-| `brainLearnings` | Lessons learned with confidence levels |
-| `brainObservations` | Raw observations from agent sessions |
-| `brainStickyNotes` | Quick ephemeral capture before formal classification |
-| `brainMemoryLinks` | Cross-references between brain entries and tasks |
-| `brain_schema_meta` | Schema version tracking |
+| `nexus.ts` | `nexus_project_registry`, `nexus_project_id_aliases`, `nexus_project_paths`, `nexus_project_locations`, `nexus_devices`, `nexus_project_git_state`, `nexus_audit_log`, `nexus_schema_meta`, `nexus_user_profile`, `nexus_sigils` |
+| `skills.ts` | `skills_skills`, `skills_skill_usage`, `skills_skill_reviews`, `skills_skill_patches` |
+| `agent-registry.ts` | `agent_registry_agents`, `_users`, `_organization`, `_claim_codes`, `_capabilities`, `_skills`, `_agent_capabilities`, `_agent_skills`, `_agent_connections`, `_accounts`, `_sessions`, `_verifications`, `_org_agent_keys` |
+| `telemetry.ts` | `telemetry_events`, `telemetry_schema_meta` |
+| `accounts.ts`, `providers.ts`, `models-catalog.ts`, `services.ts`, `session-manifest.ts` | `accounts`, `providers`, `models_catalog`, `service_connections`, `service_configs`, `agent_service_grants`, `session_manifest` |
 
-**sqlite-vec**: Vector extension loaded for semantic similarity search on observations.
+### 3.3 Both scopes (`cleo-shared/brain.ts`)
 
-### 3. `conduit.db` — Project-Tier Messaging (node:sqlite, TypeScript)
+`brain_decisions`, `brain_patterns`, `brain_learnings`, `brain_observations`, `brain_observations_staging`, `brain_sticky_notes`, `brain_sticky_tags`, `brain_attention`, `brain_memory_links`, `brain_memory_trees`, `brain_page_nodes`, `brain_page_edges`, `brain_retrieval_log`, `brain_usage_log`, `brain_plasticity_events`, `brain_weight_history`, `brain_modulators`, `brain_consolidation_events`, `brain_transcript_events`, `brain_promotion_log`, `brain_backfill_runs`, `brain_session_narrative`, `brain_deriver_queue`, `brain_schema_meta`.
 
-**Location**: `.cleo/conduit.db` (per-project)
-**ORM**: `node:sqlite` `DatabaseSync` via `packages/core/src/store/conduit-sqlite.ts`
-**Migration**: embedded DDL applied on first open (idempotent `CREATE TABLE IF NOT EXISTS`)
-**ADR**: ADR-037 — conduit.db holds all project-local messaging state and the `project_agent_refs` override table
+### 3.4 Table counts
 
-Tables: `conversations`, `messages`, `messages_fts` (FTS5), `delivery_jobs`, `dead_letters`, `message_pins`, `attachments`, `attachment_versions`, `attachment_approvals`, `attachment_contributors`, `project_agent_refs`.
+Counted by collecting the distinct names passed to `sqliteTable('…')` or `makeSchemaMetaTable('…')` in each folder's `.ts` files, with comments stripped:
 
-`project_agent_refs` is a soft-FK reference table to `global signaldock.db:agents`. An agent must have an `enabled=1` row in this table to be visible to project-scoped queries (`cleo agent list`). See ADR-037 §3 for the full visibility contract.
-
-### 4. `signaldock.db` — Global-Tier Agent Identity (node:sqlite, TypeScript)
-
-**Location**: `$XDG_DATA_HOME/cleo/signaldock.db` (global — one per machine, NOT per-project)
-**ORM**: `node:sqlite` `DatabaseSync` via `packages/core/src/store/signaldock-sqlite.ts`
-**Migration**: embedded DDL applied on first open (idempotent)
-**ADR**: ADR-037 — signaldock.db is the canonical cross-project agent identity registry
-
-> **NOTE**: Prior to v2026.4.12, signaldock.db was a per-project file at `.cleo/signaldock.db`. The T310 migration moved agent identity to the global tier and created `conduit.db` for project-local messaging. See ADR-037 for the migration procedure.
-
-Tables (canonical identity + cloud-sync): `agents`, `capabilities`, `skills`, `agent_capabilities`, `agent_skills`, `agent_connections`, `users`, `accounts`, `sessions`, `verifications`, `organization`, `claim_codes`, `org_agent_keys`.
-
-#### Agent Visibility Model (ADR-037)
-
-`cleo agent list` performs an INNER JOIN between `conduit.db:project_agent_refs` (enabled=1) and `global signaldock.db:agents`. An agent must be explicitly attached to a project to appear in project-scoped listing. Use `cleo agent list --global` to list all globally registered agents regardless of project attachment.
-
-| CLI verb | Effect |
+| Folder | Tables |
 |---|---|
-| `cleo agent attach <id>` | Creates `project_agent_refs` row (enabled=1) in current project's conduit.db |
-| `cleo agent detach <id>` | Sets `project_agent_refs.enabled=0` (soft-delete; global identity preserved) |
-| `cleo agent list` | INNER JOIN — shows only project-attached agents |
-| `cleo agent list --global` | Full scan of global signaldock.db:agents |
-| `cleo agent remove <id>` | Removes project ref only; does NOT touch global identity |
-| `cleo agent remove --global <id>` | Deletes global identity row (warns if cross-project refs exist) |
+| `cleo-project/` | 76 |
+| `cleo-global/` | 36 |
+| `cleo-shared/` | 24 (present in both files) |
 
-> **Dual ORM note**: The server-side SignalDock platform (`crates/signaldock-storage/`) uses Diesel ORM
-> with SQLite + PostgreSQL backends. The local CLEO-managed `signaldock.db` at
-> `$XDG_DATA_HOME/cleo/signaldock.db` uses `node:sqlite` DatabaseSync via
-> `packages/core/src/store/signaldock-sqlite.ts`.
+These counts cover only the scope modules. They leave out tables a legacy lineage still creates in the consolidated file (for example `tasks_goal`, declared in `schema/goal.ts` and created by a `drizzle-tasks` migration), FTS5 virtual tables (for example `nexus_symbols_fts`), and sync-journal tables.
 
-#### API Key KDF (ADR-037 §5)
+### 3.5 Other SQLite files
 
-As of v2026.4.12, API keys use `HMAC-SHA256(machineKey || globalSalt, agentId)`. The `global-salt` file lives at `$XDG_DATA_HOME/cleo/global-salt` (32 bytes, 0o600). Loss of this file invalidates all stored API keys — agents must re-authenticate. See `packages/core/src/store/global-salt.ts` (T348) and `api-key-kdf.ts` (T349).
+- `<projectRoot>/.cleo/blobs/manifest.db` — the content-addressed doc blob manifest. Its inventory entry marks it `derived` and rebuildable from the blob store, so snapshots skip it.
+- `.cleo/attachments/index.db` is a legacy attachments store; `cleo docs doctor` reports it as `legacy-store-present` (`packages/core/src/docs/doctor.ts`).
 
-> **HISTORICAL NOTE**: Prior to v2026.4.12, signaldock.db was managed by Diesel ORM (Rust) and lived at `.cleo/signaldock.db` per-project. That architecture is superseded by ADR-037. The Diesel migration history above is retained for reference only.
+Agents reach docs storage only through `cleo docs …`, never by opening these files.
 
 ---
 
-## Global Databases
+## 4. Cross-scope references
 
-### 5. `nexus.db` — Cross-Project Routing
+SQLite cannot enforce a foreign key across two files, so references between the project and global stores are **soft**: plain text ids, checked by application code. Examples: `conduit_project_agent_refs` (project) → `agent_registry_agents` (global), `nexus_audit_log.session_id` (global) → `tasks_sessions` (project). References inside one file keep native `.references()` where the source declared them.
 
-**Location**: `~/.local/share/cleo/nexus.db` (Linux: `~/.local/share/cleo/`, macOS: `~/Library/Application Support/cleo/`, Windows: `%APPDATA%/cleo/`)
-**ORM**: Drizzle ORM (TypeScript, node:sqlite `DatabaseSync`)
-**Migration**: Drizzle Kit
-**Purpose**: NEXUS cross-project task routing, project discovery, and multi-project workflow orchestration (warp chains).
+Two accessors join across the scopes:
 
-| Table | Purpose |
+- **Agents** — `packages/core/src/store/agent-registry-accessor.ts` reads both handles and joins in Node.
+- **NEXUS** — `getNexusDb()` (`packages/core/src/store/nexus-sqlite.ts`) opens the project store as `main` and `ATTACH`es the global store as `nexus_global`. Graph tables resolve in the project file; registry tables fall through to the global file.
+
+`reconcileOrphanedRefs()` (`packages/core/src/store/cross-db-cleanup.ts`) removes stale brain references to deleted tasks.
+
+---
+
+## 5. Legacy per-domain files
+
+Before consolidation each domain had its own file. The data was moved into `cleo.db` by the exodus migration, which runs on open.
+
+| Legacy file | Now in |
 |---|---|
-| `projectRegistry` | Known projects with paths and metadata |
-| `nexusAuditLog` | Cross-project operation audit trail |
-| `warpChains` | Multi-project workflow chain definitions |
-| `warpChainInstances` | Running workflow instances |
-| `nexus_schema_meta` | Schema version tracking |
+| `.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/conduit.db` | project `cleo.db` |
+| `<cleoHome>/nexus.db`, `<cleoHome>/signaldock.db`, `<cleoHome>/skills.db`, `<cleoHome>/telemetry.db` | global `cleo.db` (NEXUS graph tables: project `cleo.db`) |
+| `.cleo/signaldock.db` (project) | historical; folded into conduit before consolidation |
 
-### 6. `telemetry.db` — CLI Telemetry (opt-in)
+Rules:
 
-**Location**: `$XDG_DATA_HOME/cleo/telemetry.db` (global — one per machine, opt-in)
-**ORM**: Drizzle ORM v1 beta (TypeScript, node:sqlite `DatabaseSync`)
-**Migration**: `packages/core/migrations/drizzle-telemetry/` via `migration-manager.ts`
-**Schema**: `packages/core/src/telemetry/schema.ts`
-**Introduced by**: T624
-**Baseline-reset**: T1176 (Wave 2A of T1150 T-MSR)
+- The live store is `.cleo/cleo.db`. A small `.cleo/tasks.db`, `tasks-*.db` snapshots under `.cleo/backups/sqlite/`, and an empty bare `tasks` table are normal decoys.
+- `cleo doctor superseded-store` reports legacy store files still on disk under their old live names and proves which file holds the data by row counts. It is read-only.
+- `cleo doctor exodus-health` reports per-scope migration state; `cleo doctor exodus-residue` finds legacy source files left after a cutover and `--fix` archives them (a move, never a delete).
+- `cleo doctor nexus-residency` reports NEXUS tables stored in the wrong scope.
 
-`telemetry.db` stores opt-in CLI telemetry events. It is managed exclusively by `@cleocode/core` — it is not tied to project init and is not created unless the user has opted in to telemetry. The database is not part of the per-project `.cleo/` directory.
+The inventory of these roles, with legacy paths, is `packages/contracts/src/db-inventory.json` (exported as `DB_INVENTORY`). Some of its global rows still name the legacy file paths.
 
-| Table | Purpose |
+---
+
+## 6. Agent identity and messaging
+
+Agent identity is global. It lives in `agent_registry_agents` and the other `agent_registry_*` tables in the global `cleo.db` (renamed from `signaldock_*`; header of `agent-registry-accessor.ts`). A project sees an agent only through a `conduit_project_agent_refs` row in its project store.
+
+| Command | Effect |
 |---|---|
-| `telemetry_events` | Opt-in CLI command invocations and timing data |
+| `cleo agent attach <id>` | Attach a global agent to the current project |
+| `cleo agent detach <id>` | Detach it from the project; the global identity stays |
+| `cleo agent list` | Agents attached to the current project |
+| `cleo agent list --global` | Every global agent, attached or not |
+| `cleo agent remove <id>` | Detach from the current project (default) |
+| `cleo agent remove <id> --global` | Remove the global identity |
 
-> **Note**: This database does not participate in the project lifecycle (no `cleo init` interaction) and is not backed up by `cleo backup`. It is core-only: `cleo-os` and other harness layers interact with it only via the `cleo` CLI subprocess boundary (ADR-054 Appendix: Wave 4).
+Agent-to-agent messaging is AgentMBX (D11176). The `conduit_*` tables are legacy messaging state, and SignalDock is retired.
 
----
+### 6.1 Credential keys
 
-## Database Relationships
+Credential encryption keys derive from two machine-local files in `<cleoHome>`:
 
-```
-                    signaldock.db (node:sqlite, server: Diesel ORM) — AGENT SSoT
-                    ┌──────────────────────────┐
-                    │ agents (identity SSoT)    │
-                    │ agent_connections         │
-                    │ agent_capabilities/skills │
-                    │ conversations, messages   │
-                    │ delivery_jobs, dead_ltrs  │
-                    │ users, accounts, sessions │
-                    │ organization              │
-                    │ attachments, message_pins │
-                    │ messages_fts (FTS5)       │
-                    └─────────┬────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              │ soft FK       │ soft FK       │
-              ▼               ▼               ▼
-tasks.db (Drizzle)    brain.db (Drizzle)   nexus.db (GLOBAL)
-┌─────────────────┐   ┌────────────────┐   ┌────────────────┐
-│ tasks           │   │ observations   │   │ projectRegistry│
-│ sessions        │   │ decisions      │   │ nexusAuditLog  │
-│ agentInstances  │──▶│ patterns       │   │ warpChains     │
-│ agent_credentials│  │ learnings      │   └────────────────┘
-│ (encrypted keys │   │ memory_links   │
-│  + transport —  │   └────────────────┘
-│  CACHE of       │
-│  signaldock.db) │
-│ lifecycle       │
-│ audit_log       │
-└─────────────────┘
+- `machine-key` — 32 bytes; every credential key derives from it (`packages/core/src/crypto/credentials.ts`).
+- `global-salt` — 32 bytes, mode `0600` (`packages/core/src/store/global-salt.ts`).
 
-Data flow: signaldock.db → tasks.db (credential cache) → brain.db (soft refs)
-Registration: cleo agent register → signaldock.db (SSoT) → tasks.db (cache)
-Runtime: cleo agent start → TransportFactory → Local or HTTP Transport
-```
-
-**Cross-database relationships are soft FKs** (text IDs, no enforced foreign keys across database files). Application-layer write-guards (T185, T238) validate cross-DB references before insert. `reconcileOrphanedRefs()` cleans stale references during brain maintenance.
-
-**SSoT Rule**: signaldock.db `agents` table is the single source of truth for agent identity. `tasks.db.agent_credentials` is a LOCAL CACHE of encrypted credentials — it MUST NOT be the primary registration target. `cleo agent register` writes to signaldock.db FIRST, then caches credentials locally.
+Global credentials (agent API keys in `agent_registry_agents.api_key_encrypted`) use `HMAC-SHA256(machine-key ‖ global-salt, id)` as the encryption key, and the stored value is the encrypted real key (`packages/core/src/store/agent-api-key.ts`). Credentials move to another device through passphrase-sealed credential transfer (`packages/core/src/store/credential-transfer.ts`), never by copying `machine-key`. `cleo doctor credentials` reports keys that cannot be recovered.
 
 ---
 
-## File System Layout
+## 7. JSON columns: TEXT, JSONB or a junction table
 
-```
-~/.local/share/cleo/             ← GLOBAL (env-paths / $XDG_DATA_HOME/cleo/)
-├── nexus.db                     ← Cross-project NEXUS routing (global-tier)
-├── signaldock.db                ← Agent identity SSoT (global-tier, moved from per-project in v2026.4.12)
-├── telemetry.db                 ← Opt-in CLI telemetry (core-only, created only if opted in)
-└── machine-key                  ← Encryption key for credentials
-
-/path/to/project/.cleo/          ← PROJECT-LEVEL
-├── tasks.db                     ← Tasks, sessions, lifecycle, ADRs, credentials
-├── brain.db                     ← Knowledge: decisions, patterns, observations
-├── conduit.db                   ← Project-tier agent messaging (ADR-037)
-└── config.json                  ← Project configuration
-```
-
----
-
-## JSON columns: TEXT, JSONB or a junction table
-
-Folded from the retired JSON-storage decision matrix (T11354, T14108 docs census).
 A JSON-bearing column is stored one of three ways, by how it is read:
 
 | Class | Storage | When |
@@ -224,230 +177,92 @@ A JSON-bearing column is stored one of three ways, by how it is read:
 | JSONB | `blob` through the `jsonb<T>()` custom type | queried, mutated or appended inside SQL |
 | Junction | a two-column table | membership is filtered or joined in SQL |
 
-In the schema today: JSONB holds `tasks_goal.goal_kind`, `tasks_goal.criteria`,
-`tasks_goal.last_verdict` and `brain_attention.tags`; the junction tables are
-`tasks_task_labels` (task labels) and the sticky-note tag tables
-(`brain_sticky_tags`, `sticky_tags`). The 2026-05 audit also marked
-`tasks.notes_json`, the session id lists, `schema_meta.value`,
-`brain_page_nodes.metadata_json`, `brain_retrieval_log.entry_ids` and the
-attachment `related_tasks`/`topics`/`keywords` columns as JSONB candidates; they
-are still TEXT.
+In the schema today, JSONB holds `tasks_goal.goal_kind`, `tasks_goal.criteria`, `tasks_goal.last_verdict` (`schema/goal.ts`) and `brain_attention.tags` (`cleo-shared/brain.ts`). The junction tables are `tasks_task_labels` (task labels) and the sticky-note tag tables (`brain_sticky_tags`, plus its bare legacy twin `sticky_tags`, which `cleo doctor twin-collapse` keeps in step). Columns such as `tasks_tasks.notes_json`, `brain_page_nodes.metadata_json`, `brain_retrieval_log.entry_ids` and the attachment `related_tasks`/`topics`/`keywords` columns are TEXT.
 
-The helper is `packages/core/src/store/schema/jsonb.ts`. Its rules hold for every
-JSONB column, because the binary encoding is opaque and not portable across
-SQLite versions:
+The helper is `packages/core/src/store/schema/jsonb.ts`. Its rules hold for every JSONB column, because the binary encoding is opaque and not portable across SQLite versions:
 
-- Read a whole value through `json(col)` (the `jsonbText` select helper), never
-  by parsing the raw BLOB; the custom type's `fromDriver` throws on a raw BLOB.
+- Read a whole value through `json(col)` (the `jsonbText` select helper), never by parsing the raw BLOB; the custom type's `fromDriver` throws on a raw BLOB.
 - Query inside SQL with `jsonb_extract`, `json_each` or `jsonb_insert`.
-- Every logical export or backup converts the value back with `json(col)`.
-  `VACUUM INTO` copies bytes verbatim and is safe on the same engine.
-
-## ORM Summary
-
-**ORM Strategy**: TypeScript databases use Drizzle ORM v1.0.0-beta with `drizzle-orm/zod` validation. Rust databases use Diesel ORM with compile-time schema verification. Both provide full end-to-end type safety in their respective languages.
-
-| Database | ORM | Language | Backend | Migration System |
-|---|---|---|---|---|
-| `tasks.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | `packages/core/migrations/drizzle-tasks/` via `migration-manager.ts` |
-| `brain.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite + sqlite-vec) | SQLite | `packages/core/migrations/drizzle-brain/` via `migration-manager.ts` |
-| `conduit.db` | node:sqlite (embedded DDL) | TypeScript | SQLite | Embedded `CREATE TABLE IF NOT EXISTS` on first open |
-| `nexus.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | `packages/core/migrations/drizzle-nexus/` via `migration-manager.ts` |
-| `signaldock.db` | Diesel ORM (server) / node:sqlite (local) | Rust / TypeScript | SQLite (local) / PostgreSQL (cloud) | `packages/core/migrations/drizzle-signaldock/` (folder structure) + bespoke embedded runner |
-| `telemetry.db` | Drizzle ORM v1 beta | TypeScript (node:sqlite) | SQLite | `packages/core/migrations/drizzle-telemetry/` via `migration-manager.ts` |
+- Every logical export or backup converts the value back with `json(col)`. `VACUUM INTO` copies bytes verbatim and is safe on the same engine.
 
 ---
 
-## Cloud vs Local
+## 8. Data integrity
 
-| Database | Local | Cloud (SignalDock server) |
-|---|---|---|
-| `tasks.db` | Per-project `.cleo/tasks.db` | N/A (CLEO-only, not on cloud) |
-| `brain.db` | Per-project `.cleo/brain.db` | N/A (CLEO-only, not on cloud) |
-| `conduit.db` | Per-project `.cleo/conduit.db` (SQLite) | N/A (local only — project messaging) |
-| `signaldock.db` | Global `$XDG_DATA_HOME/cleo/signaldock.db` (SQLite) | PostgreSQL (production) or SQLite — cloud-sync tables preserved |
-| `nexus.db` | Global `~/.local/share/cleo/nexus.db` | N/A (local NEXUS only; cloud has its own routing) |
+### 8.1 What git may track
 
-The cloud SignalDock server uses the SAME `signaldock-storage` crate but typically connects to **PostgreSQL** in production (Railway). The schema is compatible across SQLite and Postgres — the crate abstracts the difference.
+The project `cleo.db` and its `-wal`/`-shm` sidecars MUST NOT be committed to any git repository: git overwriting a live SQLite file while its WAL sidecars stay behind loses data (ADR-013 §9). The same holds for `.cleo/config.json` and `.cleo/project-info.json`.
+
+`.cleo/.gitignore` (template: `packages/core/templates/cleo-gitignore`) ignores everything in `.cleo/`, allows a short list back in, and then denies `*.db`, `*.db-shm`, `*.db-wal` and `*.db-journal` again as a safety net. The allowed files include:
+
+- `.cleo/project.json` — `{schemaVersion, id, name}`; the id is written once and never changed (ADR-096).
+- `.cleo/project-id` — the legacy id-only mirror (ADR-094).
+- `.cleo/project-context.json`, `.cleo/owner-settings.json`, `adrs/**`, `agent-outputs/**`.
+
+Commit both identity files; never edit or regenerate an id. `cleo doctor project-identity` checks them.
+
+### 8.2 Checkpoint repository
+
+CLEO keeps an isolated git repository for checkpoints at `.cleo/checkpoint.git` (`CHECKPOINT_GIT_DIRNAME`, `packages/core/src/store/checkpoint-git-dir.ts`). It is deliberately not named `.git`, because git refuses to index an untracked nested repository with no commits, which broke `git add -A` in fresh projects.
+
+- Every checkpoint command runs with `GIT_DIR=<cleoDir>/checkpoint.git` and `GIT_WORK_TREE=<cleoDir>` (`makeCleoGitEnv`, `packages/core/src/store/git-checkpoint.ts`); it never uses the project's `.git` index.
+- Checkpoints track only human-editable JSON and doc directories: `config.json`, `project-info.json`, `project-context.json`, `adrs/`, `agent-outputs/` (`STATE_FILES`), plus entries in `config.json` `checkpoint.stateFileAllowlist`. No `.db` file is ever a checkpoint state file.
+- `isCleoGitInitialized()` checks for `checkpoint.git/HEAD`.
+- `cleo doctor` reports check `cleo_git_repo` with status `warning` when that `HEAD` is missing (`packages/core/src/system/health.ts`).
+
+### 8.3 Snapshots and backups
+
+SQLite stores are backed up with `VACUUM INTO`, which writes a WAL-free copy (`packages/core/src/store/sqlite-backup.ts`):
+
+- Project-tier snapshots go to `.cleo/backups/sqlite/`, global-tier snapshots to `<cleoHome>/backups/sqlite/`.
+- Snapshot names match `<prefix>-YYYYMMDD-HHmmss.db`.
+- Project-tier retention is time-spread: the latest, quarter-hourly, hourly and daily slots are kept (`selectSnapshotsToKeep`, `packages/core/src/store/snapshot-gate.ts`). Global-tier snapshots keep the newest 10.
+- Snapshot failures never interrupt the operation. Before a destructive step, the data-safety layer takes a `mode: 'required'` snapshot and waits for it to finish; a failure is logged at error level, not thrown.
+- The data-safety layer (`packages/core/src/store/data-safety-central.ts`) calls `vacuumIntoBackup` alongside `gitCheckpoint`. `cleo session end` runs `vacuumIntoBackupAll` (`packages/core/src/sessions/session-end-snapshot.ts`).
+
+Commands:
+
+| Command | Effect |
+|---|---|
+| `cleo backup add` | Back up all CLEO data files |
+| `cleo backup list` | List available backups |
+| `cleo backup verify` | Report freshness and integrity of each snapshot |
+| `cleo backup export` / `import` | Portable `.cleobundle.tar.gz` (scopes `project`, `global`, `all`, `machine`) |
+| `cleo restore backup --id <backupId>` or `--snapshot <file>` | Restore the project store after verifying the snapshot; live writers refuse it and the replaced store is kept as a pre-restore backup |
+| `cleo doctor repair-store` | Repair a damaged `cleo.db` losslessly, keeping the originals and a recovery receipt |
+| `cleo doctor fk-check` | `PRAGMA foreign_key_check` on both stores (read-only) |
 
 ---
 
-## Cloud Deployment Note
+## 9. Schema authority
 
-The cloud SignalDock server at `api.signaldock.io` uses the same `signaldock-storage` crate compiled with `diesel/postgres` feature, connecting to **PostgreSQL** in production (Railway). The Diesel backend abstraction handles SQLite vs Postgres differences transparently. The `better-auth-diesel` adapter (upgraded from `better-auth-diesel-sqlite`) connects to the same Postgres database for authentication.
+The current shape of the stores is defined by:
 
-The `tasks.db`, `brain.db`, and `nexus.db` databases are LOCAL-ONLY. They do not exist on the cloud server. The cloud server only has `signaldock.db` (or its Postgres equivalent).
+1. The scope schema modules: `packages/core/src/store/schema/cleo-project/`, `cleo-global/` and `cleo-shared/`.
+2. The latest effective migration state of every lineage in §2.1. A historical migration file may contain superseded intermediate constraints; never read one alone as the current schema.
+3. `packages/contracts/src/status-registry.ts` for status enums (ADR-018). Do not duplicate status constants in schema files.
+4. `LIFECYCLE_STAGE_NAMES` in `packages/core/src/store/schema/lifecycle.ts` for lifecycle stage names.
 
-<!-- merged from `cleo-data-integrity-spec` by cleo docs modernize -->
+`packages/core/src/store/tasks-schema.ts` is a barrel over the per-domain modules directly under `packages/core/src/store/schema/` (for example `goal.ts`, `memory-schema.ts`, `nexus-schema.ts`), which the legacy lineages and some accessors still use.
 
-## From `cleo-data-integrity-spec`
+### 9.1 Contributor checklist
+
+1. Change the table in the scope module that owns it (§3).
+2. Add a migration under the matching scope folder (`drizzle-cleo-project/` or `drizzle-cleo-global/`). Never edit or delete a migration that has been released (arch gate 36).
+3. Run the schema parity tests that cover the change, for example `packages/core/src/store/__tests__/lifecycle-schema-parity.test.ts` and `consolidated-schema-parity-fk.test.ts`, one file at a time through `cleo run --wait --class test -- …`.
+4. Run `pnpm biome check --write .` and the build.
+5. Run `cleo check arch`: gates 3 (DB open guard), 21 (dual-scope unqualified reads), 28 (raw table writes), 36 (change-journal schema rules) and 37 (row-identity coverage) all apply to store changes.
+6. Commit schema, migration and tests together.
 
 ---
-version: 1.0.0
-status: partially implemented
-task: T4870
-date: 2026-02-25
----
-
-# CLEO Data Integrity Specification
-
-*Note: `git-checkpoint.ts` exists and is partially implemented based on this specification.*
-
-## 1. Git Checkpoint Isolation
-
-CLEO checkpoints MUST be committed to a dedicated `.cleo/.git` repository, isolated from the project git repository.
-
-The checkpoint system MUST NOT stage or commit files using the project's `.git` index.
-
-The checkpoint git environment MUST be configured via `GIT_DIR=<cleoDir>/.git` and `GIT_WORK_TREE=<cleoDir>` environment variables passed to all git subprocesses.
-
-State file paths in git commands MUST be relative to `<cleoDir>` (e.g., `config.json`, not `.cleo/config.json`).
-
-The `initCleoGitRepo()` function MUST be idempotent -- it MUST check for the existence of `.cleo/.git/HEAD` before running `git init`.
-
-The function `makeCleoGitEnv(cleoDir)` MUST return `{ GIT_DIR: join(cleoDir, '.git'), GIT_WORK_TREE: cleoDir }`.
-
-The function `cleoGitCommand(args, cleoDir)` MUST pass the environment from `makeCleoGitEnv()` to all `execFileAsync('git', ...)` calls and MUST set `cwd` to `cleoDir`.
-
-### Acceptance Criteria
-
-- **AC1**: After `cleo init`, the file `.cleo/.git/HEAD` MUST exist.
-- **AC2**: Running `git log --oneline` in the project root MUST show no `chore(cleo):` checkpoint commits.
-- **AC3**: Pre-staging a project source file and triggering a checkpoint MUST NOT include that file in the `.cleo/.git` commit.
-
-## 2. SQLite State Files in Git
-
-SQLite state files MUST NOT appear in the `STATE_FILES` array in `packages/core/src/store/git-checkpoint.ts`.
-
-These files MUST be listed in `.cleo/.gitignore` to prevent accidental tracking in the isolated `.cleo/.git` repository.
-
-SQLite state files (MUST NOT be tracked in git per ADR-013 §9):
-- `tasks.db`, `tasks.db-shm`, `tasks.db-wal`
-- `brain.db`, `brain.db-shm`, `brain.db-wal`
-- `conduit.db`, `conduit.db-shm`, `conduit.db-wal`
-- `signaldock.db` (global tier — not in project `.cleo/` but at `$XDG_DATA_HOME/cleo/`)
-- `nexus.db` (global tier — at `$XDG_DATA_HOME/cleo/`)
-
-The `.cleo/.gitignore` MUST contain at minimum:
-
-```
-tasks.db
-tasks.db-shm
-tasks.db-wal
-brain.db
-brain.db-shm
-brain.db-wal
-conduit.db
-conduit.db-shm
-conduit.db-wal
-.git/
-```
-
-> **Note**: `signaldock.db` and `nexus.db` are global-tier databases stored outside the project `.cleo/` directory (`$XDG_DATA_HOME/cleo/`). They are not subject to the project `.cleo/.gitignore` but MUST NOT be committed to any git repository.
-
-### Acceptance Criteria
-
-- **AC4**: The file `.cleo/.gitignore` MUST contain the entry `tasks.db`.
-- **AC5**: The `STATE_FILES` array MUST contain no entries with a `.db` extension.
-
-## 3. VACUUM INTO Backup System
-
-When a SQLite backup is triggered, the system MUST first execute `PRAGMA wal_checkpoint(TRUNCATE)` to flush the WAL file before running `VACUUM INTO`.
-
-The `vacuumIntoBackup()` function MUST obtain the native database handle via `getNativeDb()` from `packages/core/src/store/sqlite.ts`. If `getNativeDb()` returns `null`, the backup MUST be skipped silently (non-fatal).
-
-The backup directory MUST be `.cleo/backups/sqlite/`.
-
-Snapshot filenames MUST follow the pattern `tasks-YYYYMMDD-HHmmss.db`.
-
-The system MUST retain at most 10 snapshots, deleting the oldest when the limit is exceeded.
-
-Backup failures MUST be non-fatal -- the operation MUST log the error and continue without throwing.
-
-The backup function MUST implement debouncing to avoid excessive I/O during high-write sessions. The debounce interval SHOULD match the git checkpoint debounce (configurable, default 5 minutes).
-
-The `vacuumIntoBackup()` function MUST be called alongside `gitCheckpoint()` at all checkpoint trigger sites:
-- `packages/core/src/store/data-safety.ts:206` via `triggerCheckpoint()`
-- `packages/core/src/store/data-safety-central.ts:125` via `checkpoint()` helper
-- `packages/core/src/store/data-safety-central.ts:393` via `forceSafetyCheckpoint()`
-- `packages/core/src/store/data-safety.ts:396` via `forceCheckpointBeforeOperation()`
-
-### Acceptance Criteria
-
-- **AC6**: After a write operation, a `.db` file MUST exist in `.cleo/backups/sqlite/`.
-- **AC7**: After 11 write operations, the number of files in `.cleo/backups/sqlite/` MUST be <=10.
-- **AC8**: Any snapshot in `.cleo/backups/sqlite/` MUST be a valid, readable SQLite database.
-- **AC9**: Copying a snapshot to `.cleo/tasks.db` and running `cleo dash` MUST succeed without errors.
-
-## 4. Integration Requirements
-
-`cleo init` MUST initialize the `.cleo/.git` repository via `initCleoGitRepo()` if it does not already exist. This step MUST execute after core files are created (step 1 in `initProject()` at `packages/core/src/init.ts:759`) and before all subsequent initialization steps.
-
-`cleo doctor` MUST include a `cleo_git_repo` health check that reports `warn` status if `.cleo/.git/HEAD` does not exist, using the standard check shape: `{ check: string, status: 'ok' | 'warning' | 'error', message: string, details?: Record<string, unknown> }`.
-
-The `shouldCheckpoint()` function MUST include an `isCleoGitInitialized()` guard that returns `false` when `.cleo/.git/HEAD` does not exist, preventing checkpoint attempts before the isolated repo is initialized.
-
-The `vacuumIntoBackup()` function MUST be called alongside `gitCheckpoint()` at all checkpoint trigger sites in `packages/core/src/store/data-safety.ts` and `packages/core/src/store/data-safety-central.ts`.
-
-### Acceptance Criteria
-
-- **AC10**: Running `cleo init` on a fresh project MUST create `.cleo/.git/HEAD`.
-- **AC11**: Running `cleo doctor` when `.cleo/.git` does not exist MUST produce a check with `status: 'warning'` and `check: 'cleo_git_repo'`.
-
-<!-- merged from `schema-authority` by cleo docs modernize -->
-
-## From `schema-authority`
-
-# Schema Authority
-
-This document defines how to interpret CLEO schema state and migration history.
-
-## Canonical Sources
-
-1. The schema files below are the single source of truth for current DB structure, constraints, and types:
-   - `packages/core/src/store/tasks-schema.ts` — tasks.db (tasks, sessions, lifecycle, audit, agents, token usage, WarpChain, ADR)
-   - `packages/core/src/store/brain-schema.ts` — brain.db (decisions, patterns, learnings, observations, graph)
-   - `packages/core/src/store/chain-schema.ts` — WarpChain tables (re-exported from tasks-schema.ts)
-   - `packages/core/src/agents/agent-schema.ts` — agent_instances, agent_error_log tables (re-exported from tasks-schema.ts)
-   - `packages/core/src/store/nexus-schema.ts` — nexus.db (project_registry, nexus_audit_log)
-   - `packages/core/src/store/conduit-sqlite.ts` — conduit.db DDL (project-tier messaging, project_agent_refs)
-   - `packages/core/src/store/signaldock-sqlite.ts` — signaldock.db DDL (global-tier agent identity)
-   - `packages/contracts/src/status-registry.ts` — canonical status enum constants (SSoT per ADR-018)
-2. The latest effective migration state under `packages/core/migrations/` is the runtime DDL history:
-   - `drizzle-tasks/` — tasks.db migrations
-   - `drizzle-brain/` — brain.db migrations
-3. `packages/core/src/store/tasks-schema.ts` also exports all lifecycle stage constant names via `LIFECYCLE_STAGE_NAMES`.
-
-> **Note**: The legacy `packages/core/src/store/schema.ts` no longer exists. All references to it should point to `tasks-schema.ts` instead.
-
-## Migration History Rules
-
-- Historical migration files MAY contain superseded intermediate constraints.
-- Do not treat an older migration file as the current schema by itself.
-- Always compare current behavior against `packages/core/src/store/schema.ts` plus latest effective migration state.
-
-## Validation Guardrails
-
-- Lifecycle parity guardrail: `packages/core/src/store/__tests__/lifecycle-schema-parity.test.ts`
-- Recovery DDL anti-hardcoding guardrail: `packages/core/src/store/__tests__/recover-tooling-guardrail.test.ts`
-- AJV canonical path checks: `packages/core/src/__tests__/schema.test.ts`
-
-## Contributor Checklist
-
-1. Update schema definitions in the appropriate file under `packages/core/src/store/` (see Canonical Sources above).
-   - Status enums go in `packages/contracts/src/status-registry.ts` only (ADR-018).
-   - Do not duplicate status constants in schema files.
-2. Generate/update migrations under `packages/core/migrations/drizzle-tasks/` or `drizzle-brain/`.
-3. Run guardrails:
-   - `pnpm vitest run packages/core/src/store/__tests__/lifecycle-schema-parity.test.ts`
-   - `pnpm vitest run packages/core/src/store/__tests__/recover-tooling-guardrail.test.ts`
-4. Run typecheck: `pnpm tsc --noEmit`.
-5. Run biome: `pnpm biome check --write .`
-6. Commit schema + migration + tests/docs together (single coherent change set).
-7. Update `docs/architecture/DATABASE-ERDS.md` to reflect any table/column/index changes.
 
 ## Related ADRs
 
-- `/docs/adr/adr-012-drizzle-kit-migration-system.md` (Section 8)
-- `/docs/adr/adr-006-canonical-sqlite-storage.md`
-- `/docs/adr/adr-008-cleo-canonical-architecture.md`
+- [ADR-013 — Data integrity checkpoint architecture](../adr/adr-013-data-integrity-checkpoint-architecture.md)
+- [ADR-008 — CLEO canonical architecture](../adr/adr-008-cleo-canonical-architecture.md)
+- [ADR-068 — CLEO database charter](../adr/adr-068-cleo-database-charter.md) (superseded; historical 12-database charter)
+- [ADR-037 — Conduit/SignalDock separation](../adr/adr-037-conduit-signaldock-separation.md) (superseded)
+- [ADR-012 — Drizzle Kit migration system](../adr/adr-012-drizzle-kit-migration-system.md) (superseded)
+- [ADR-006 — Canonical SQLite storage](../adr/adr-006-canonical-sqlite-storage.md) (superseded)
+- ADR-090 — NEXUS graph residency split: `cleo docs fetch adr-090-nexus-graph-residency-split`
+- ADR-094 / ADR-096 — tracked project identity
