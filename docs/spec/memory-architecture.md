@@ -290,7 +290,10 @@ Step 10:   runSleepConsolidation
 runs four sub-steps through the `consolidation` LLM role, enabled unless
 `brain.sleepConsolidation.enabled` is `false`:
 
-1. Merge near-duplicates — embedding similarity > 0.85
+1. Merge near-duplicates — designed as embedding similarity > 0.85. **Known no-op
+   today:** the step selects `brain_observations.embedding`, a column that does
+   not exist, and swallows the error, so it never merges anything
+   (`sleep-consolidation.ts:360-377`). T14599 tracks the fix.
 2. Prune stale — short-tier entries older than 7 days with quality < 0.4
 3. Strengthen patterns — synthesize learnings cited at least 3 times into patterns
 4. Generate insights — cross-cutting insights from clusters of observations
@@ -618,8 +621,11 @@ tables. Related: `tier-promotion.test.ts`, `tier-promotion-auto-rows.test.ts`.
 
 ### §12.4 Test rules
 
-Tests use a `mkdtemp` project root and a real store; they do not mock SQLite
-modules.
+Many memory tests use a `mkdtemp` project root and a real store, but not all.
+Some mock the store accessor instead: for example, `sleep-consolidation.test.ts`
+replaces `store/memory-sqlite.js` with `vi.mock`, and 19 test files under
+`packages/core/src/memory/__tests__/` mock a SQLite module. A passing mocked
+test does not prove the SQL runs against the real schema (see T14599).
 
 ---
 
