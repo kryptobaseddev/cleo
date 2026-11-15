@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import type { PlaybookRunResult } from '@cleocode/contracts/operations/playbook';
 import { actAsOwner } from '@cleocode/core/security/__tests__/owner-session';
 import { createTestDb, type TestDbEnv } from '@cleocode/core/store/__tests__/test-db-helper';
 import { createSession } from '@cleocode/core/store/session-store';
@@ -282,7 +283,7 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
     const result = await handler.mutate('run', { name: 'approval-smoke' });
     expect(result).toMatchObject({ success: true, data: { terminalStatus: 'pending_approval' } });
     expect(result.data).not.toHaveProperty('approvalToken');
-    const approvals = listPlaybookApprovals(db, (result.data as { runId: string }).runId);
+    const approvals = listPlaybookApprovals(db, (result.data as PlaybookRunResult).runId);
     expect(approvals).toEqual([
       expect.objectContaining({
         status: 'pending',
@@ -407,7 +408,8 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
 
   it('playbook.resume refuses a gate approved under the legacy token rule and preserves the run', async () => {
     const first = await handler.mutate('run', { name: 'approval-smoke' });
-    const { runId, approvalToken } = first.data as { runId: string; approvalToken: string };
+    const { runId, approvalToken } = first.data as PlaybookRunResult;
+    if (approvalToken === undefined) throw new Error('expected approval token');
     db.prepare('UPDATE tasks_playbook_approvals SET token = ?, status = ? WHERE token = ?').run(
       'a'.repeat(32),
       'approved',
@@ -442,7 +444,8 @@ edges:
 `,
     );
     const first = await handler.mutate('run', { name: 'two-gates' });
-    const { runId, approvalToken } = first.data as { runId: string; approvalToken: string };
+    const { runId, approvalToken } = first.data as PlaybookRunResult;
+    if (approvalToken === undefined) throw new Error('expected approval token');
     approveGate(db, approvalToken, 'owner');
     createPlaybookApproval(db, { runId, nodeId: 'first', token: `resume:${approvalToken}:1234` });
     const gateway = createGatewayHandler({
