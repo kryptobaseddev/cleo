@@ -1,8 +1,8 @@
-# T12342 + T12343: HLC replication metadata and the captured, signed change journal
+# HLC replication metadata and the captured, signed change journal
 
 **Status**: v11.7 (v11.7 narrows `triggerSetHash` to owned triggers, T13298; v11.6 lets the origin of a settled uid collision re-mint the loser's counter key, T13405; v11.5 makes a `retire` count only once the server confirms it, T13366; v11.4 narrows the K trigger so an identity fill never captures a K, T13311). v11.1 was APPROVED by cleo-dev (round 10), 2026-09-29; v11.2 adds the §3.6 summary of the T12859 write-validator inventory (not yet reviewed); v11.3 records cleo-dev's S2 rulings (a)–(c) from the shadow-mode measurements (§0.13). Design only; implementation follows `t12343-journal-builder-checklist`.
 **Tasks**: T12342 (HLC, origin, version, tombstones, uniform timestamps), T12343 (signed outbox covering every synced mutation, with a per-write bypass check). Epic T12323, saga T12320.
-**Builds on**: Gate A registry (`packages/core/src/store/table-classification.ts`, T12332), the uid scheme (`t12341-uid-scheme` v7, T12341), Gates B/C (`cleo-nexus/docs/research/gates-b-c-spec.md`), ADR-095 and the cloud contract (`cleo-nexus/packages/shared/src/api.ts`, `ids.ts`), the core cloud client (`packages/core/src/cloud/*`), the write chokepoints (`openDualScopeDb`, `sqlite-data-accessor.ts` with #1698 CAS, #1701 claim leases, #1706 `insertNewTask`), and gate 28 (`scripts/lint-no-raw-table-writes.mjs`).
+**Builds on**: Gate A registry (`packages/core/src/store/table-classification.ts`, T12332), the uid scheme (`uid-scheme` v7, T12341), Gates B/C (`cleo-nexus/docs/research/gates-b-c-spec.md`), ADR-095 and the cloud contract (`cleo-nexus/packages/shared/src/api.ts`, `ids.ts`), the core cloud client (`packages/core/src/cloud/*`), the write chokepoints (`openDualScopeDb`, `sqlite-data-accessor.ts` with #1698 CAS, #1701 claim leases, #1706 `insertNewTask`), and gate 28 (`scripts/lint-no-raw-table-writes.mjs`).
 **Consumed by**: T12344 (merge engine), T12338 (checkpoints and elected writers), T12345 (shared projects).
 **Read at**: cleocode `origin/main` 7e752fb68 (2026-09-29 15:15 PDT). The local checkout at `~/projects/cleocode` is 141 commits behind; every file reference below was read from `origin/main`.
 **Decisions**: schema and design choices are team decisions reviewed by cleo-dev. Section 7 lists the open ones as options with a recommendation.
@@ -241,9 +241,9 @@ C1–C4 are in the text. S2 may proceed once D4 is in. T12343 depends on T12825�
 | D5 forced rebind needs the network (MED) | T12828 | At 100%: warn and keep writing undo; rebind at the next connectivity; the rebind retires the old id; late old-id segments are inherited history | §3.5 Rule 2 |
 | D6 drain order; per-stream genesis (LOW-MED) | T12828 | Drain never reorders the stream (fast path per echo, in `seq` order); undo dropped for folded captures and for captures routed only to non-pushing streams | §3.5 Rule 2 |
 
-### 0.13 S2 rulings (v11.2 → v11.3, cleo-dev, 2026-09-30)
+### 0.13 S2 rulings (v11.2 → v11.3, cleo-dev)
 
-The S2 shadow-mode measurements ("T12341 sync set (10 tables)", scratch copies of cleocode, llmtxt and claude-todo; Gate B passed with released 9.23, 9.24 and 9.25) raised three decisions. cleo-dev ruled:
+Ruled 2026-09-30. The S2 shadow-mode measurements ("T12341 sync set (10 tables)", scratch copies of cleocode, llmtxt and claude-todo; Gate B passed with released 9.23, 9.24 and 9.25) raised three decisions. cleo-dev ruled:
 
 | Ruling | Decision | Where |
 |---|---|---|
@@ -253,7 +253,9 @@ The S2 shadow-mode measurements ("T12341 sync set (10 tables)", scratch copies o
 
 Related S2 decisions recorded here: the open-time identity fill, refill and graveyard relink are derived rewrites run with the capture triggers dropped and their tables marked suspect; an identity that a captured write cleared (T12806 snapshot-overwrite import, K old → NULL) gets a re-mint K NULL → new in a `remint` frame, so the pair nets to old → new. Suspending the `guard` class is allowed only to rewind or undo (T12344 AC5, `E_GUARD_SUSPEND_FORWARD`). Nits N1 and N2 were already fixed in v11.1.
 
-## 1. HLC and replication metadata (T12342)
+## 1. HLC and replication metadata
+
+Task: T12342.
 
 ### 1.1 Format
 
@@ -466,7 +468,9 @@ It does not use `parseStoreTimestamp` (`split-brain-import.ts:217-224`), which r
 
 `tasks_display_id_aliases.displaced_hlc` and `tasks_uid_aliases.displaced_hlc` (T12341 §9.3) are NULL until HLC exists. The sealer fills them with the HLC of the op that records the displacement, and the alias rows themselves travel as ordinary portable-project ops.
 
-## 2. Capture and the outbox (T12343)
+## 2. Capture and the outbox
+
+Task: T12343.
 
 ### 2.1 The sync set
 
@@ -882,7 +886,9 @@ interface LedgerOp {
 - The sealer asserts that every op's table is in the sync set and every column is captured. A violation is a hard error and is tested.
 - `_sync_*` tables are themselves classified local-only in Gate A, with the note "sync machinery; `_sync_row_meta` travels inside checkpoint bundles". The Gate A test covers them. They are backed up under tier 1 like every table.
 
-### 2.11 Deltas and the checkpoint regression rule under concurrency (H2, N2, C, T12752, T12758, T12776)
+### 2.11 Deltas and the checkpoint regression rule under concurrency (H2, N2, C)
+
+Tasks: T12752, T12758, T12776.
 
 **Problem.** `checkManifest` (`manifest-check.ts:34-61`) requires `rows == parent.rows + Σcreated − Σdeleted`. Deltas are the *declared intents* of each writer, and the manifest is the merged state. They diverge whenever writers race: concurrent inserts of the same uid, double deletes, resurrection-guard drops, a D that loses to a U, guard refusals, and ops not yet applicable.
 
@@ -992,7 +998,9 @@ S4 does not merge until T12758, T12776 and T12777 are implemented and this chang
 - Captures after the cut seal normally. The stream's first segment has `replicaSeq` 0, and genesis has `coversSeq` 0 with an empty window.
 - A store that feeds two streams may reach genesis on them at different times. The cut is tracked per stream, so a capture can be `folded` for one stream and live for the other: a row routed by `peer_scope`, or a secret companion op.
 
-## 3. Receive and the apply boundary (T12343 → T12344)
+## 3. Receive and the apply boundary
+
+Tasks: T12343 hands over to T12344.
 
 ### 3.1 Pipeline
 
@@ -1023,7 +1031,9 @@ CREATE TABLE _sync_inbox (           -- local-only
 );
 ```
 
-### 3.2 The contract T12343 offers T12344
+### 3.2 The contract the journal offers the merge engine
+
+Tasks: T12343 (journal) to T12344 (merge engine).
 
 - `stagedTxns(stream, limit): StagedTxn[]` returns transactions in (seq, txn_idx) order.
   - It holds a skewed replica's transactions FIFO (§1.3).
@@ -1076,7 +1086,9 @@ CREATE TABLE _sync_inbox (           -- local-only
   - A lazy resolver writes the local key into the row when the target appears, in an `apply`-kind frame with intents, so nothing is re-emitted (R5-9).
 - `ConflictSummary.byKind` kinds include `clock-skew`, `refused-schema`, `dangling-ref`, `uncaptured-write`, `uid-collision` and `field`.
 
-### 3.3 Echo suppression by field-level apply intents (H1, N1, T12751, T12757)
+### 3.3 Echo suppression by field-level apply intents (H1, N1)
+
+Tasks: T12751, T12757.
 
 **v3's exact-image matching under-dropped** (cleo-dev, N1). An unmatched echo is re-sealed with fresh HLCs, which corrupts LWW, and secrets ping-pong between devices. The capture image differs from the incoming op's image whenever:
 - LWW accepts only some of the fields;
@@ -1129,7 +1141,9 @@ The marker is written to `tasks_row_identity_meta` (T12341 §12.1; local-only), 
   - `CLEO_DISABLE_ROW_UID_FILL` is ignored for rows that must be sealed.
 - The sealer refuses to seal while `row_identity_recipe` is stale (§2.5 step 0), so no pre-release uid can ever leave.
 
-### 3.5 Stream-derived conflict decisions and a scoped rebase (R5-1, T12794; R6-1..R6-8, T12807, T12808, T12810)
+### 3.5 Stream-derived conflict decisions and a scoped rebase (R5-1; R6-1..R6-8)
+
+Tasks: T12794 (R5-1); T12807, T12808, T12810 (R6-1..R6-8).
 
 **Problem (R5-1, unchanged).** Void decisions must not depend on local apply order:
 - **Case 1.** A's D(P) is sequenced before C's I(K under P). Every replica must void K, including C.
@@ -1329,9 +1343,11 @@ CREATE TABLE _sync_undo (             -- local-only
 - **No idle watermark ping-pong (R7-7):** two idle replicas pulling in a loop exchange no segments after the first round.
 - **Trigger classification (R7-1) and guard footprints (R7-6):** Gate tests fail on an unclassified trigger or a guard without a declared footprint.
 
-### 3.6 Write validators under merged apply (T12859; summary, full inventory in `t12859-sync-write-validator-inventory`)
+### 3.6 Write validators under merged apply (summary)
 
-**Problem.** The applier's write calls (`writeField`, `insertRow`, `deleteRow`, §3.2) never run the TypeScript write paths. On apply, only triggers, CHECKs, UNIQUE indexes and FKs fire. A merge of two ops that were each valid on its own device can therefore produce a state the CLI would refuse, and nothing reports it. T12859 inventoried every TypeScript rule enforced on write to a synced table (Gate A classes portable-project, portable-personal and portable-secret) in `packages/core`, `packages/cleo` and `packages/playbooks`. The full row tables are in spec doc **`t12859-sync-write-validator-inventory`**, with file:line, the tables protected, trigger coverage, merge risk, class and footprint for each row.
+Task: T12859. Full inventory in spec doc `sync-write-validator-inventory`.
+
+**Problem.** The applier's write calls (`writeField`, `insertRow`, `deleteRow`, §3.2) never run the TypeScript write paths. On apply, only triggers, CHECKs, UNIQUE indexes and FKs fire. A merge of two ops that were each valid on its own device can therefore produce a state the CLI would refuse, and nothing reports it. T12859 inventoried every TypeScript rule enforced on write to a synced table (Gate A classes portable-project, portable-personal and portable-secret) in `packages/core`, `packages/cleo` and `packages/playbooks`. The full row tables are in spec doc **`sync-write-validator-inventory`**, with file:line, the tables protected, trigger coverage, merge risk, class and footprint for each row.
 
 **Classes (475 rows; a rule found by two domain passes counts twice):**
 
@@ -1787,7 +1803,7 @@ Still open:
 - v11.4 (2026-10-09): T13311. `_sync_cap_<t>_k` no longer fires on a `birth_fp` going NULL → value: that is the TEMP fill's second UPDATE, which `_f` patches into the I. With row uids on by default (T13305) the v11.3 condition captured a stray K on every minted insert. Decision recorded in §2.3: no stray K, rather than a sealer-dropped K.
 - v11.3 (2026-09-30): records cleo-dev's S2 rulings (§0.13). (a) Per-frame labels replace the per-capture TEMP stamp trigger; I and D images omit NULL columns; hot-path budget ≤ 3.5 ms p95 for insert-heavy transactions and ≤ 2 ms for updates, from the measured result. (b) D5 amendment: an update's undo holds only the changed columns. (c) Unframed captures are singleton transactions flagged `unframed`; `min_writer_version` is written when capture turns on and enforced at open. Also: the open-time identity fill is an uncaptured derived rewrite with suspect marking plus a re-mint K for cleared identities, and guards are suspended only to rewind or undo (T12344 AC5). N1 and N2 were already fixed in v11.1.
 
-- v11.2 (2026-09-30): adds §3.6, a summary of the T12859 write-validator inventory (spec doc `t12859-sync-write-validator-inventory`). It gives the class counts, the PAC-01..15 post-apply families for T12344, the typed-merge-rule groups, the weaker guards, the convergence risks (including guard-set divergence for `triggerSetHash`), and the gate (T12881). It changes no rule in §1–§5.
+- v11.2 (2026-09-30): adds §3.6, a summary of the T12859 write-validator inventory (spec doc `sync-write-validator-inventory`). It gives the class counts, the PAC-01..15 post-apply families for T12344, the typed-merge-rule groups, the weaker guards, the convergence risks (including guard-set divergence for `triggerSetHash`), and the gate (T12881). It changes no rule in §1–§5.
 - v11.1 (2026-09-29): v11 APPROVED in round 10. Nits: N1, the §3.5 "Undo bounded" test now says `seq` order with the fast path per echo; N2, the §6 undo line now names every locally authored, pushed kind.
 - v11 (2026-09-29): answers cleo-dev round 9 (map in §0.12, tasks T12825–T12828).
   - The flag table is created at open-pass step 0.

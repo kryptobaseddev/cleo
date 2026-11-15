@@ -84,8 +84,11 @@ CLEO keeps its state in one SQLite file per scope, opened only through
 
 | Scope | File | Holds |
 |---|---|---|
-| Project | `<project>/.cleo/cleo.db` | `tasks_*`, project `brain_*` memory, `docs_*`, lifecycle, provenance, playbooks, agents, telemetry |
-| Global | `<cleoHome>/cleo.db` | `nexus_*`, `skills_*`, global `brain_*` memory |
+| Project | `<project>/.cleo/cleo.db` | `tasks_*` (tasks, sessions, lifecycle, provenance, playbooks), project `brain_*` memory, `docs_*`, `conduit_*`, and the project's NEXUS code graph (`nexus_nodes`, `nexus_relations` and others) |
+| Global | `<cleoHome>/cleo.db` | the NEXUS project registry (`nexus_*`), `agent_registry_*`, `skills_*`, `telemetry_*`, accounts, providers, models, services, and global `brain_*` memory |
+
+The schemas are `packages/core/src/store/schema/cleo-project/`,
+`cleo-global/`, and `cleo-shared/` (the `brain_*` tables both scopes carry).
 
 `<cleoHome>` is `~/.local/share/cleo` on Linux and
 `~/Library/Application Support/cleo` on macOS; `CLEO_HOME` overrides it.
