@@ -150,9 +150,20 @@ server can hand the stripped tools back.
 `.cantbook` playbooks (`packages/playbooks/`) are deterministic state machines
 with three node kinds: `agentic`, `deterministic` and `approval`
 (`packages/contracts/src/playbook.ts`). `cleo playbook run|status|resume|list`
-runs them. An `agentic` node goes through the same `orchestrateSpawnExecute`
-path as `spawn-execute`. A `deterministic` node runs a shell step through the
-deny-first tool guard. An `approval` node pauses the run with an HMAC resume
+runs them. An `agentic` node takes one of two paths
+(`runSkillNodeOrSpawn`, `packages/core/src/playbooks/skill-node-executor.ts`):
+
+- **In-process.** When its agent id names a `ct-*` skill that `findSkill`
+  resolves and the node does not set `isolation`, the skill runs in the
+  `cleo` process through `SkillExecutorAdapter`, scoped to the project root by
+  the tool guard. It gets no worktree and no worker.
+- **Spawned worker.** Otherwise, or when `isolation` is set, the node goes
+  through `orchestrateSpawnExecute`, the same path as `spawn-execute`, with a
+  worktree and a harness worker.
+
+A `deterministic` node runs its shell command through the same deny-first
+tool guard (`guarded-deterministic-runner.ts`); it also gets no worktree and
+no worker. An `approval` node pauses the run with an HMAC resume
 token, which `cleo orchestrate approve|reject|pending` act on.
 
 Three starters ship in `packages/playbooks/starter/`: `rcasd.cantbook`,
@@ -165,7 +176,8 @@ is removed (T14311).
 | Table | Store | Holds |
 |---|---|---|
 | `agent_registry_agents` | global `cleo.db` | The agent registry: one row per agent id, with the tier whose directory holds its `.cant` |
-| `agent_registry_skills`, `agent_registry_capabilities` | global `cleo.db` | Skills and capabilities attached to agents |
+| `agent_registry_skills`, `agent_registry_capabilities` | global `cleo.db` | The skill and capability catalogs |
+| `agent_registry_agent_skills`, `agent_registry_agent_capabilities` | global `cleo.db` | Junction tables linking each agent to its skills and capabilities |
 | `tasks_playbook_runs` | project `cleo.db` | One row per playbook run: current node, bindings, iteration counts, status |
 | `tasks_playbook_approvals` | project `cleo.db` | One row per approval gate: HMAC token, status, approver, reason |
 
@@ -179,4 +191,4 @@ Schemas: `packages/core/src/store/schema/cleo-global/agent-registry.ts` and
 - [Creating custom agents](../guide/creating-custom-agents.md): `.cant` agents and teams
 - ADR-062: worktree integration with `git merge --no-ff`
 - ADR-098, harness-agnostic core: `cleo docs fetch adr-098-retire-the-pi-cleoos-harness`
-- [ADR-053: playbook runtime](../adr/ADR-053-playbook-runtime.md)
+- [ADR-053: playbook runtime](../adr/adr-053-playbook-runtime.md)
