@@ -26,13 +26,16 @@ Full rationale: `docs/adr/adr-044-canon-reconciliation.md`.
    What CLEO is. Read this first: the harness-agnostic core any agent can call through `cleo <command>`, its systems, how they fit together, and how a request flows from the CLI to the store.
 
 2. [CLEO-OPERATION-CONSTITUTION.md](../spec/cleo-operation-constitution.md)
-   The runtime contract. Read this second to understand the 11 canonical domains, the internal `query`/`mutate` CQRS split, canonical verbs, and what operations are actually legal in the system.
+   The runtime contract. Read this second to understand the dispatch domains, the internal `query`/`mutate` CQRS split, canonical verbs, and what operations are actually legal in the system. The live domain list is `CANONICAL_DOMAINS` in `packages/contracts/src/dispatch/identity.ts`.
 
 3. [CANT reference](../reference/cant.md)
    The agent communication protocol. Read this to understand how agents speak to each other (conversation syntax: directives, addressing, task references, tags) and how the system speaks back (response syntax: LAFS envelopes). Includes the formal BNF grammar (with `cant-core` Rust crate as parsing SSoT), directive-to-operation mapping, and how CANT relates to AgentMBX, CLEO's messaging layer (D11176).
 
 4. [CANT-DSL-SPEC.md](../spec/cant-dsl.md)
-   The formal language specification for CANT (Collaborative Agent Notation Tongue). Defines the `.cant` file format, 3-layer grammar (EBNF), AST type definitions, 42 validation rules (Scope, Pipeline Purity, Types, Hooks, Workflows), CAAMP event mapping, import resolution algorithm, hybrid runtime model (Rust pipelines + TypeScript workflows), and approval token protocol. The `cant-core` Rust crate and `cant-lsp` binary are the canonical implementations. 482 tests, 17K lines Rust, 3.8K lines TypeScript.
+   The formal language specification for CANT (Collaborative Agent Notation Tongue). Defines the `.cant` file format, the grammar (EBNF), AST types, the numbered validation rules, CAAMP event mapping and import resolution, and says which parts are implemented: only pipelines execute, and some specified rules are not run yet (T14603). The `cant-core` Rust crate and `cant-lsp` binary are the canonical implementations.
+
+5. [New contributor walkthrough](../guide/new-contributor-walkthrough.md)
+   Seven commands for a new contributor, from `cleo briefing` to a PR the merge sweep closes.
 
 ---
 
