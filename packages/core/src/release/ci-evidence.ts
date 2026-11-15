@@ -3865,7 +3865,8 @@ export async function resolveCiEvidenceAtom(
               ...judgedChecks.checks
                 .filter(
                   (c) =>
-                    pins[c.name]?.event === undefined && (c.sha === descendant?.sha || currentHead),
+                    pins[c.name]?.event === undefined &&
+                    (currentHead || (!workspaceWide && c.sha === descendant?.sha)),
                 )
                 .map((c) => c.name),
             ],

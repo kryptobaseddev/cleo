@@ -1870,6 +1870,40 @@ describe('resolveCiEvidenceAtom', () => {
       expect(!rechecked.ok && rechecked.reason).toContain('PR checks');
     });
 
+    it('keeps unscoped workspace-wide checks push-only when mixed with event-scoped entries', async () => {
+      const cancelled = [
+        ...mergeChecks.map((c) => ({ ...c, conclusion: 'cancelled' })),
+        check('Shared check', { workflowPath: workflow, conclusion: 'cancelled' }),
+      ];
+      const current = [...later, check('Shared check', { workflowPath: workflow, headSha: DESC })];
+      const r = await axiom(cancelled, prChecks, {
+        projectContext: {
+          release: {
+            prRequiredWorkflows: [
+              ...(release.prRequiredWorkflows ?? []),
+              { name: 'Shared check', app: 'github-actions', workflow },
+            ],
+          },
+        },
+        workspaceWideReason: async () => 'pnpm-lock.yaml',
+        defaultBranchHead: () => DESC,
+        isAncestor: (a, d) => a === MERGE && d === DESC,
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? cancelled : sha === HEAD ? prChecks : sha === DESC ? current : [],
+        }),
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      if (!r.ok) return;
+      expect(r.atom.pullRequestChecks).toEqual(['PR checks']);
+      expect(
+        await recheckCiDescendantAtom(r.atom, root, async (sha) => ({
+          ok: true,
+          checks: sha === HEAD ? prChecks : current,
+        })),
+      ).toEqual({ ok: true });
+    });
+
     it('keeps workflow edits main-only and never fetches the PR head', async () => {
       const asked: string[] = [];
       const r = await axiom(mergeChecks, [], {
