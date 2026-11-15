@@ -979,6 +979,10 @@ describe("the merge run is found by the required check's workflow, not its name 
         'PR checks',
         'Shared check',
       ]);
+      expect(await defaultMergeCloseDeps.requiredChecks(root, 'push')).toEqual([
+        'Main gate',
+        'Shared check',
+      ]);
     } finally {
       if (prior === undefined) delete process.env['CLEO_PR_REQUIRED_WORKFLOWS'];
       else process.env['CLEO_PR_REQUIRED_WORKFLOWS'] = prior;
@@ -990,6 +994,69 @@ describe("the merge run is found by the required check's workflow, not its name 
   const prChecks: GhPrViewPayload['statusCheckRollup'] = [
     { name: 'PR checks', workflowName: 'CI', conclusion: 'SUCCESS', status: 'COMPLETED' },
   ];
+
+  it.each([
+    'cancelled',
+    'pending',
+    'failure',
+  ] as const)('a %s merge waits on the push workflow when its PR check is in a separate workflow (T14611)', async (state) => {
+    const id = await seedTask(['only criterion']);
+    const { deps, calls, world } = fakeDeps([pr(45, `Closes: ${id} AC1`, prChecks)]);
+    const prior = process.env['CLEO_PR_REQUIRED_WORKFLOWS'];
+    delete process.env['CLEO_PR_REQUIRED_WORKFLOWS'];
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({
+        release: {
+          prRequiredWorkflows: [
+            {
+              name: 'PR checks',
+              app: 'github-actions',
+              workflow: '.github/workflows/pr-only.yml',
+              event: 'pull_request',
+            },
+            {
+              name: 'Main gate',
+              app: 'github-actions',
+              workflow: '.github/workflows/main-only.yml',
+              event: 'push',
+            },
+          ],
+        },
+      }),
+    );
+    const asked: string[] = [];
+    world.recordRefusal = ciRefusal;
+    world.mergeRun = {
+      runId: 99,
+      status: state === 'pending' ? 'in_progress' : 'completed',
+      conclusion: state === 'pending' ? null : state,
+    };
+    try {
+      const result = await sweepMergedClosures(
+        root,
+        { force: true },
+        {
+          ...deps,
+          requiredChecks: defaultMergeCloseDeps.requiredChecks,
+          requiredCheckWorkflow: defaultMergeCloseDeps.requiredCheckWorkflow,
+          mergeCiRun: async (_root, _sha, workflow) => {
+            asked.push(workflow);
+            return workflow === 'main-only.yml' ? world.mergeRun : null;
+          },
+        },
+      );
+      expect(asked).toEqual(['main-only.yml']);
+      expect(result.prs[0]?.outcomes[0]).toMatchObject({
+        action: state === 'failure' ? 'refused' : 'waiting',
+        reason: expect.stringContaining('main-only.yml'),
+      });
+      expect(calls.reruns).toEqual(state === 'cancelled' ? [99] : []);
+    } finally {
+      if (prior === undefined) delete process.env['CLEO_PR_REQUIRED_WORKFLOWS'];
+      else process.env['CLEO_PR_REQUIRED_WORKFLOWS'] = prior;
+    }
+  });
 
   it.each([
     ['.github/workflows/ci.yml', 'ci.yml'],

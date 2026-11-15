@@ -37,6 +37,7 @@ import {
   type CommitCheck,
   CURRENT_HEAD_STAND_IN_OPEN,
   ciSatisfiesRemedy,
+  defaultFetchChecks,
   evaluateFilterSkippedJobs,
   evaluateJobs,
   evaluateMergeCommitChecks,
@@ -59,13 +60,14 @@ import {
   resolveCiEvidenceAtom,
   resolveWorkflowNamePins,
 } from '../ci-evidence.js';
-import type { PrAtomResolution } from '../pr-evidence.js';
+import { type PrAtomResolution, readRequiredCheckPins } from '../pr-evidence.js';
 
 const MERGE = 'a'.repeat(40);
 const HEAD = 'b'.repeat(40);
 const PARENT = 'e'.repeat(40);
 const TREE = 'c'.repeat(40);
 const REQUIRED = ['CI', 'Lockfile Check', 'Contracts Dep Lint'];
+const AXIOM_MATRIX_TEMPLATE = `PR guards and affected tests (\${{ matrix.shard }}/\${{ needs.pr-inputs.outputs.shardCount }})`;
 
 function check(name: string, extra: Partial<CommitCheck> = {}): CommitCheck {
   return {
@@ -422,6 +424,88 @@ describe('GitHub matrix job names (T14579)', () => {
       scope,
     );
     expect(!r.ok && r.reasons.join(' ')).toContain(`${name} (2/3): failure`);
+  });
+
+  const oldRun = 43671121362;
+  const newRun = 43671128931;
+  const placeholder = check(AXIOM_MATRIX_TEMPLATE, {
+    workflowPath: scope.workflows[0],
+    runId: oldRun,
+    conclusion: 'skipped',
+  });
+  const currentLegs = legs.map((c) => ({ ...c, runId: newRun }));
+
+  it('ignores axiom #2496’s superseded template skip when the newer run expanded its legs', () => {
+    for (const glob of [name, `${name}*`]) {
+      expect(evaluateJobs([glob], [placeholder, ...currentLegs], MERGE, scope)).toEqual({
+        ok: true,
+        jobs: currentLegs.map((c) => c.name),
+      });
+    }
+  });
+
+  it('a newer placeholder-only run cannot reuse older green legs', () => {
+    const r = evaluateJobs(
+      globs,
+      [...legs.map((c) => ({ ...c, runId: oldRun })), { ...placeholder, runId: newRun }],
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain('skipped');
+  });
+
+  it('an older exact name cannot hide a newer failed matrix leg', () => {
+    const r = evaluateJobs(
+      globs,
+      [
+        check(name, { workflowPath: scope.workflows[0], runId: oldRun }),
+        ...currentLegs.map((c, i) => (i === 1 ? { ...c, conclusion: 'failure' } : c)),
+      ],
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain(`${name} (2/3): failure`);
+  });
+
+  it('never fills a required missing leg from a superseded workflow run', () => {
+    const r = evaluateJobs(
+      requiredLegs,
+      [
+        ...legs.map((c) => ({ ...c, runId: oldRun })),
+        ...currentLegs.filter((c) => c.name !== requiredLegs[1]),
+      ],
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain(`job ${name} (2/3): not found`);
+  });
+
+  it('a newer workflow without any jobs cannot borrow the older run’s jobs', () => {
+    const r = evaluateJobs(
+      globs,
+      [
+        ...currentLegs,
+        check('CI', { source: 'workflow-run', workflowPath: scope.workflows[0], id: newRun + 1 }),
+      ],
+      MERGE,
+      scope,
+    );
+    expect(!r.ok && r.reasons.join(' ')).toContain('not found');
+  });
+
+  it('the filter-skip path also judges only the newest workflow run', () => {
+    expect(
+      evaluateFilterSkippedJobs(
+        globs,
+        ['scripts/a.mjs'],
+        [
+          ...legs.map((c) => ({ ...c, runId: oldRun, conclusion: 'failure' })),
+          { ...placeholder, runId: newRun },
+        ],
+        MERGE,
+        scope,
+      ),
+    ).toMatchObject({ ok: true, skipped: [placeholder.name] });
   });
 
   it('a glob matching nothing names the closest observed check runs on that commit and in scope', () => {
@@ -1728,6 +1812,188 @@ describe('resolveCiEvidenceAtom', () => {
           ...mainNames.map((name) => expect.objectContaining({ name, sha: MERGE, event: 'push' })),
         ]),
       );
+    });
+
+    // Reduced from the read-only board-repair/event-map captures and their GitHub check suites.
+    const axiomPrs = [
+      {
+        number: 2536,
+        head: '5210e10279108aa6f9dc57c0809f24ae686a91f5',
+        merge: 'a97457cc6a76ed8dea03094bbca26ce74bfaaebf',
+        prRun: 43689966012,
+        suite: 118288880719,
+        mergeConclusion: 'success',
+      },
+      {
+        number: 2532,
+        head: '26593567c8ea1d0cebed455786972e348c767d6f',
+        merge: 'a996a72742dac1864381dd01be1e495acd574f2e',
+        prRun: 43728679722,
+        suite: 118389831327,
+        mergeConclusion: 'success',
+      },
+      {
+        number: 2496,
+        head: '152452df293d0278e22ac17cf2df7b2e192f7693',
+        merge: 'd865c0e0b721e8145761dce1fd3922cd51b17989',
+        prRun: 43671128931,
+        suite: 118239386859,
+        mergeConclusion: 'failure',
+      },
+      {
+        number: 2514,
+        head: '7854f031fac3756c64846ce1b66822f2c07f99e4',
+        merge: '1aca47e58f15f16afa029e075d3704ac117af189',
+        prRun: 43661659134,
+        suite: 118214879567,
+        mergeConclusion: 'cancelled',
+      },
+    ];
+
+    it.each(
+      axiomPrs,
+    )('axiom #$number: judges its captured PR matrix and merge verdict separately', async (fixture) => {
+      const checks = [
+        ...prChecks.map((c) => ({ ...c, headSha: fixture.head, runId: fixture.prRun })),
+        ...[1, 2, 3].map((leg) =>
+          check(`PR guards and affected tests (${leg}/3)`, {
+            headSha: fixture.head,
+            event: 'pull_request',
+            workflowPath: workflow,
+            runId: fixture.prRun,
+          }),
+        ),
+      ];
+      if (fixture.number === 2496) {
+        checks.push(
+          check(AXIOM_MATRIX_TEMPLATE, {
+            headSha: fixture.head,
+            event: 'pull_request',
+            workflowPath: workflow,
+            runId: 43671121362,
+            conclusion: 'skipped',
+          }),
+        );
+      }
+      expect(
+        evaluateJobs(
+          ['PR guards and affected tests'],
+          checks,
+          fixture.head,
+          { app: 'github-actions', workflows: [workflow] },
+          'pull_request',
+        ).ok,
+      ).toBe(true);
+      const main = mergeChecks.map((c) => ({
+        ...c,
+        headSha: fixture.merge,
+        conclusion: c.name === 'PR checks' ? 'skipped' : fixture.mergeConclusion,
+      }));
+      const r = evaluateMergeCommitChecks(
+        ['PR checks', ...mainNames],
+        [...checks, ...main],
+        fixture.merge,
+        {
+          prHeadSha: fixture.head,
+          pins: readRequiredCheckPins({ release }),
+        },
+      );
+      expect(r.ok).toBe(fixture.mergeConclusion === 'success');
+      if (!r.ok) expect(r.reasons.join(' ')).toContain(fixture.mergeConclusion);
+    });
+
+    it('carries check-suite workflow identities through the default fetch for axiom #2496', async () => {
+      const fixture = axiomPrs.find((p) => p.number === 2496)!;
+      execFileSync('git', ['init', root], { stdio: 'ignore' });
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      const runs = [
+        { id: 43671121362, check_suite_id: 118239368095, conclusion: 'skipped' },
+        { id: fixture.prRun, check_suite_id: fixture.suite, conclusion: 'success' },
+      ];
+      const jobs = [
+        {
+          name: AXIOM_MATRIX_TEMPLATE,
+          conclusion: 'skipped',
+          check_suite: { id: 118239368095 },
+        },
+        ...[1, 2, 3].map((leg) => ({
+          name: `PR guards and affected tests (${leg}/3)`,
+          conclusion: 'success',
+          check_suite: { id: fixture.suite },
+        })),
+      ];
+      writeFileSync(
+        join(bin, 'gh'),
+        [
+          '#!/bin/sh',
+          'case "$*" in',
+          '  --version) exit 0 ;;',
+          `  *actions/runs*) printf '%s' '${JSON.stringify({ workflow_runs: runs.map((r) => ({ ...r, name: 'CI', head_sha: fixture.head, event: 'pull_request', path: workflow, status: 'completed' })) })}' ;;`,
+          `  *check-runs*) printf '%s' '${JSON.stringify({ check_runs: jobs.map((j, i) => ({ ...j, id: i + 1, head_sha: fixture.head, status: 'completed', app: { slug: 'github-actions' } })) })}' ;;`,
+          '  *) exit 1 ;;',
+          'esac',
+        ].join('\n'),
+        { mode: 0o755 },
+      );
+      const priorPath = process.env['PATH'];
+      process.env['PATH'] = `${bin}:${priorPath}`;
+      try {
+        const fetched = await defaultFetchChecks(fixture.head, root);
+        expect(fetched.ok).toBe(true);
+        if (!fetched.ok) return;
+        expect(fetched.checks.filter((c) => c.source === 'check-run').map((c) => c.runId)).toEqual([
+          43671121362,
+          fixture.prRun,
+          fixture.prRun,
+          fixture.prRun,
+        ]);
+        expect(
+          evaluateJobs(
+            ['PR guards and affected tests'],
+            fetched.checks,
+            fixture.head,
+            { app: 'github-actions', workflows: [workflow] },
+            'pull_request',
+          ).ok,
+        ).toBe(true);
+      } finally {
+        if (priorPath === undefined) delete process.env['PATH'];
+        else process.env['PATH'] = priorPath;
+      }
+    });
+
+    it.each([
+      'pull_request',
+      'push',
+    ] as const)('names the missing %s config side and gives a concrete entry', async (event) => {
+      const names = event === 'push' ? ['PR checks'] : mainNames;
+      writeContext({ ciSatisfies: true, ciChecks: { tests: names, qa: names } });
+      const r = await axiom(mergeChecks, prChecks, {
+        projectContext: {
+          release: {
+            prRequiredWorkflows: release.prRequiredWorkflows?.filter(
+              (pin) => typeof pin === 'string' || pin.event !== event,
+            ),
+          },
+        },
+      });
+      expect(!r.ok && r.reason).toContain(`missing a "${event}" required check`);
+      expect(!r.ok && r.reason).toContain(`"event": "${event}"`);
+      expect(!r.ok && r.reason).toContain('keep the other event entry');
+    });
+
+    it.each([
+      'pull_request',
+      'push',
+    ] as const)('refuses a status-only %s pin with its event limitation', async (event) => {
+      const r = await axiom(
+        event === 'push' ? mergeChecks.filter((c) => c.name !== 'Main tests') : mergeChecks,
+        event === 'pull_request' ? [] : prChecks,
+      );
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toContain('commit statuses carry no triggering event');
+      expect(!r.ok && r.reason).toContain('status-only event pin is refused');
     });
 
     it.each([
