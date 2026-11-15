@@ -1,4 +1,6 @@
-# CLEO Canonical Taxonomy (T11186)
+# CLEO Canonical Taxonomy
+
+Task: T11186. Checked against `packages/contracts/src/taxonomy.ts` on 2026-11-15.
 
 > Unified classification vocabulary for decisions, documents, tasks, and routing surfaces.
 
@@ -51,7 +53,7 @@ The single source of truth is `packages/contracts/src/taxonomy.ts`.
 | `cli` | Command-line interface and dispatch |
 | `core` | Core engine and shared utilities |
 | `contracts` | Type contracts and schemas |
-| `caamp` | Cross-Agent Adaptive Messaging Protocol |
+| `caamp` | Hooks, adapters and providers. The registry's description expands CAAMP as "Cross-Agent Adaptive Messaging Protocol"; the package is `@cleocode/caamp`, the provider registry and package manager |
 | `skills` | Agent skill definitions |
 | `brain` | Cognitive memory system |
 | `nexus` | Code intelligence surface |
@@ -59,13 +61,13 @@ The single source of truth is `packages/contracts/src/taxonomy.ts`.
 | `sessions` | Session lifecycle |
 | `tasks` | Task management |
 | `docs` | Document storage and retrieval |
-| `cleoos` | CleoOS runtime and gateway |
+| `cleoos` | CleoOS runtime. Still a registry tag, but ADR-098 retired the CleoOS harness; it now mostly collects the legacy `sentient` and `facade` labels |
 | `worktrunk` | Git worktree management |
 | `agents` | Agent profiles and execution |
 | `routing` | Operation routing |
 | `studio` | Web UI and dashboard |
 
-### Type Tags (13 tags)
+### Type Tags (15 tags)
 
 | Tag | Description |
 |-----|-------------|
@@ -83,6 +85,7 @@ The single source of truth is `packages/contracts/src/taxonomy.ts`.
 | `migration` | Data or schema migration |
 | `unification` | System consolidation |
 | `bootstrap` | Initial setup or scaffolding |
+| `release` | Release work (also a lifecycle tag) |
 
 ### Lifecycle Tags (8 tags — LOOM order)
 
@@ -127,6 +130,10 @@ Valid types: architecture, architectural, technical, process, ...
 Use 'cleo taxonomy list --axis type' to see all valid type tags.
 ```
 
+The `cleo taxonomy` command named in this message does not exist; read the
+tags from `CANONICAL_TYPE_TAGS` and `TaxonomyRegistry` in
+`packages/contracts/src/taxonomy.ts` (and `decisions.ts:613`).
+
 ### In task labels
 
 Task labels (`labels_json`) can use any canonical tag. The backfill script
@@ -156,9 +163,13 @@ Document kinds use the `doc_kind` axis tags, which absorb the prior
 `docs-taxonomy.ts`:
 
 ```bash
-cleo docs add --type adr --slug t9788-docs-taxonomy
-cleo docs add --type spec --slug gateway-protocol
+cleo docs add T1234 ./decision.md --type adr --title "Docs taxonomy"
+cleo docs add T1234 ./gateway.md --type spec --slug gateway-protocol
 ```
+
+Slugs follow the naming rule (D11210): no task id, session id or date. The
+doc-kind registry is `BUILTIN_DOC_KINDS` in `packages/contracts/src/docs-taxonomy.ts`;
+list the kinds with `cleo docs schema`.
 
 ## Migration Guide
 
@@ -204,26 +215,15 @@ import { CANONICAL_TYPE_TAGS } from '@cleocode/contracts';
 | `testing` | `validation` |
 | `rfc` | `specification` |
 
-## CLI Commands
+## Commands
+
+There is no `cleo taxonomy` command, although two error messages name one
+(`packages/contracts/src/taxonomy.ts:611`, `packages/core/src/memory/decisions.ts:613`).
+Validation runs inside the code that writes tags: `storeDecision()` rejects a
+non-canonical decision type. To normalize existing task labels, run the
+backfill script:
 
 ```bash
-# List all canonical tags
-cleo taxonomy list
-
-# List tags by axis
-cleo taxonomy list --axis type
-cleo taxonomy list --axis domain
-cleo taxonomy list --axis lifecycle
-
-# Validate a tag
-cleo taxonomy validate architectural  # → valid (type)
-cleo taxonomy validate sentient       # → not canonical; maps to 'cleoos'
-
-# Normalize ad-hoc labels
-cleo taxonomy normalize sentient,prime-tier1,not-pi
-# → cleoos, p0, not-pi
-
-# Run backfill
 python3 scripts/backfill-taxonomy.py --dry-run
 python3 scripts/backfill-taxonomy.py
 ```
@@ -243,4 +243,4 @@ docs/reference/taxonomy.md             ← This document
 - **T10520**: Epic — Decision-routing ergonomics
 - **T11044**: Inventory of decision-store routing and help gaps
 - **T11143**: Decision-to-doc routing path map
-- **docker/docs-taxonomy.ts**: Prior doc-kind registry (absorbed)
+- `packages/contracts/src/docs-taxonomy.ts`: the doc-kind registry (`BUILTIN_DOC_KINDS`)
