@@ -17,8 +17,10 @@ import {
   detectCircularDeps,
   getBlockedTasks,
   getLeafBlockers,
+  getReadinessDependencyBlockers,
   getReadyTasks,
   getTransitiveBlockers,
+  loadReadinessDependencyLookup,
   validateDependencies,
 } from './dependency-check.js';
 import { addBatchRelations } from './relates.js';
@@ -41,6 +43,8 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
  * @remarks
  * Aggregates dependency data across all tasks to provide a high-level view of
  * the dependency graph health, including which tasks are blocked and what would unblock them.
+ * Canonical archived dependency evidence is loaded separately from selected tasks;
+ * missing identities remain blockers and required dependency-read failures propagate.
  *
  * @example
  * ```typescript
@@ -57,13 +61,14 @@ export async function coreTaskDepsOverview(projectRoot: string): Promise<{
   readyTasks: TaskRef[];
   validation: { valid: boolean; errorCount: number; warningCount: number };
 }> {
-  const allTasks = await loadAllTasks(projectRoot);
-  const tasksAsTask = allTasks;
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
 
   const tasksWithDeps = allTasks.filter((t) => t.depends && t.depends.length > 0);
-  const blocked = getBlockedTasks(tasksAsTask);
-  const ready = getReadyTasks(tasksAsTask);
-  const validation = validateDependencies(tasksAsTask);
+  const blocked = getBlockedTasks(allTasks, dependencyLookup);
+  const ready = getReadyTasks(allTasks, dependencyLookup);
+  const validation = validateDependencies(allTasks, [...dependencyLookup.values()]);
 
   return {
     totalTasks: allTasks.length,
@@ -72,18 +77,9 @@ export async function coreTaskDepsOverview(projectRoot: string): Promise<{
       id: t.id,
       title: t.title,
       status: t.status,
-      unblockedBy: (t.depends ?? []).filter((depId) => {
-        const dep = allTasks.find((x) => x.id === depId);
-        return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-      }),
+      unblockedBy: getReadinessDependencyBlockers(t.depends, dependencyLookup),
     })),
-    readyTasks: ready
-      .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-      .map((t) => ({
-        id: t.id,
-        title: t.title,
-        status: t.status,
-      })),
+    readyTasks: ready.map((t) => ({ id: t.id, title: t.title, status: t.status })),
     validation: {
       valid: validation.valid,
       errorCount: validation.errors.length,

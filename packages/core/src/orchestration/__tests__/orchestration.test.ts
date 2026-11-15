@@ -6,8 +6,11 @@
 
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { orchestrateAnalyze, orchestrateReport } from '../../orchestrate/query-ops.js';
+import { sagaTraversal } from '../../sagas/rollup.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import * as taskAccessors from '../../store/data-accessor.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { archiveTasks } from '../../tasks/archive.js';
@@ -15,6 +18,7 @@ import {
   getTaskPipelineStageSource,
   resolveDefaultPipelineStage,
 } from '../../tasks/pipeline-stage.js';
+import { coreTaskDepsOverview } from '../../tasks/task-data.js';
 import { buildBrainState } from '../bootstrap.js';
 import {
   analyzeEpic,
@@ -194,6 +198,30 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       taskId: 'T121',
       ready: true,
     });
+    expect(await orchestrateAnalyze('T100', env.tempDir)).toMatchObject({
+      success: true,
+      data: { totalTasks: 1, missingDependencies: [] },
+    });
+    expect(await orchestrateReport('T100', env.tempDir)).toMatchObject({
+      success: true,
+      data: {
+        totalTasks: 1,
+        groups: expect.arrayContaining([
+          {
+            group: 'ready',
+            count: 1,
+            label: expect.any(String),
+            tasks: [expect.objectContaining({ id: 'T121' })],
+          },
+          { group: 'invalid', count: 0, label: expect.any(String), tasks: [] },
+        ]),
+      },
+    });
+    const overview = await coreTaskDepsOverview(env.tempDir);
+    expect(overview.totalTasks).toBe(status === 'archived' ? 3 : 4);
+    expect(overview.readyTasks.map((task) => task.id)).toContain('T121');
+    expect(overview.blockedTasks).toEqual([]);
+    expect(overview.validation).toMatchObject({ valid: true, errorCount: 0 });
   });
 
   it.each(['pending', 'cancelled'] as const)('keeps external %s work blocked', async (status) => {
@@ -208,6 +236,28 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       completedTasks: [],
     });
     expect(await getNextTask('T100', env.tempDir, accessor)).toBeNull();
+    expect(await orchestrateAnalyze('T100', env.tempDir)).toMatchObject({
+      success: true,
+      data: { missingDependencies: [] },
+    });
+    expect(await orchestrateReport('T100', env.tempDir)).toMatchObject({
+      success: true,
+      data: {
+        groups: expect.arrayContaining([
+          { group: 'ready', count: 0, label: expect.any(String), tasks: [] },
+          {
+            group: 'blockedBy',
+            count: 1,
+            label: expect.any(String),
+            tasks: [expect.objectContaining({ id: 'T121', reason: 'T111' })],
+          },
+          { group: 'invalid', count: 0, label: expect.any(String), tasks: [] },
+        ]),
+      },
+    });
+    const overview = await coreTaskDepsOverview(env.tempDir);
+    expect(overview.readyTasks.map((task) => task.id)).not.toContain('T121');
+    expect(overview.blockedTasks).toMatchObject([{ id: 'T121', unblockedBy: ['T111'] }]);
   });
 
   it('retains a persisted missing edge as a blocker with FK enforcement restored', async () => {
@@ -246,6 +296,108 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       title: 'Task T121',
       remainingBlocker: { id: 'T999', title: 'T999' },
     });
+    expect(await orchestrateReport('T100', env.tempDir)).toMatchObject({
+      success: true,
+      data: {
+        groups: expect.arrayContaining([
+          {
+            group: 'invalid',
+            count: 1,
+            label: expect.any(String),
+            tasks: [expect.objectContaining({ id: 'T121', reason: 'missing-dep' })],
+          },
+        ]),
+      },
+    });
+    expect(await coreTaskDepsOverview(env.tempDir)).toMatchObject({
+      readyTasks: expect.not.arrayContaining([expect.objectContaining({ id: 'T121' })]),
+      blockedTasks: [{ id: 'T121', title: 'Task T121', status: 'pending', unblockedBy: ['T999'] }],
+      validation: { valid: false, errorCount: 1 },
+    });
+  });
+
+  it('public reports propagate required missing-dependency read failures', async () => {
+    await seedExternal('done');
+    const db = await getDb(env.tempDir);
+    const native = getNativeDb(env.tempDir);
+    if (!native) throw new Error('Expected canonical native fixture handle');
+    native.exec('PRAGMA foreign_keys = OFF');
+    try {
+      await db.update(schema.taskDependencies).set({ dependsOn: 'T999' }).run();
+    } finally {
+      native.exec('PRAGMA foreign_keys = ON');
+    }
+    expect(native.prepare('PRAGMA foreign_key_check').all()).toHaveLength(1);
+    expect(await accessor.loadSingleTask('T121')).toMatchObject({ depends: ['T999'] });
+    const read = vi
+      .spyOn(accessor, 'loadTasks')
+      .mockRejectedValue(new Error('fixture dependency read failed'));
+    const access = vi.spyOn(taskAccessors, 'getTaskAccessor').mockResolvedValue(accessor);
+    try {
+      expect(await orchestrateReport('T100', env.tempDir)).toMatchObject({
+        success: false,
+        error: { message: 'fixture dependency read failed' },
+      });
+      expect(await orchestrateAnalyze('T100', env.tempDir)).toMatchObject({
+        success: false,
+        error: { message: 'fixture dependency read failed' },
+      });
+      await expect(coreTaskDepsOverview(env.tempDir)).rejects.toThrow(
+        'fixture dependency read failed',
+      );
+    } finally {
+      read.mockRestore();
+      access.mockRestore();
+    }
+  });
+
+  it('saga traversal propagates a required archived-dependency read failure', async () => {
+    await writeTodo([
+      { id: 'T090', type: 'saga' },
+      { id: 'T100', type: 'epic', parentId: 'T090' },
+      { id: 'T110', type: 'epic', parentId: 'T090' },
+      { id: 'T111', parentId: 'T110', status: 'done' },
+      { id: 'T121', parentId: 'T100', depends: ['T111'] },
+    ]);
+    await archiveTasks({ taskIds: ['T111'] }, env.tempDir, accessor);
+    const read = vi
+      .spyOn(accessor, 'loadTasks')
+      .mockRejectedValue(new Error('fixture dependency read failed'));
+    const access = vi.spyOn(taskAccessors, 'getTaskAccessor').mockResolvedValue(accessor);
+    try {
+      expect(await sagaTraversal(env.tempDir, 'T090')).toMatchObject({
+        success: false,
+        error: { message: 'fixture dependency read failed' },
+      });
+    } finally {
+      read.mockRestore();
+      access.mockRestore();
+    }
+  });
+
+  it('public reports keep blocked and proposed children out of the ready frontier', async () => {
+    await writeTodo([
+      { id: 'T100', type: 'epic' },
+      { id: 'T121', parentId: 'T100', status: 'blocked', blockedBy: 'waiting for a key' },
+      { id: 'T122', parentId: 'T100', status: 'proposed' },
+    ]);
+    expect(await orchestrateReport('T100', env.tempDir)).toMatchObject({
+      success: true,
+      data: {
+        groups: expect.arrayContaining([
+          { group: 'ready', count: 0, label: expect.any(String), tasks: [] },
+          {
+            group: 'blocked',
+            count: 1,
+            label: expect.any(String),
+            tasks: [expect.objectContaining({ id: 'T121', reason: 'waiting for a key' })],
+          },
+        ]),
+      },
+    });
+    const readyIds = (await coreTaskDepsOverview(env.tempDir)).readyTasks.map((task) => task.id);
+    expect(readyIds).not.toContain('T121');
+    expect(readyIds).not.toContain('T122');
   });
 
   it('propagates required dependency-read failures instead of empty or healthy readiness', async () => {

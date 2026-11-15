@@ -85,21 +85,29 @@ export function detectCircularDependencies(
 }
 
 /**
- * Find missing dependencies — deps that reference tasks outside the epic
- * that are not yet completed.
+ * Find dependencies whose identity is absent from the assessed population.
+ * Known unfinished external tasks are blockers, not missing references.
+ *
+ * @remarks
+ * Supply canonical external and archived evidence; containment does not satisfy hard dependencies.
  *
  * @param children - Child tasks of the epic
- * @param allTasks - All tasks in the project (to check if deps are completed elsewhere)
+ * @param allTasks - Canonical dependency evidence, including archived external tasks.
  * @returns Array of missing dependency references
+ * @example
+ * ```ts
+ * const lookup = await loadReadinessDependencyLookup(children, accessor);
+ * const missing = findMissingDependencies(children, [...lookup.values()]);
+ * ```
  */
 export function findMissingDependencies(children: Task[], allTasks: Task[]): MissingDependency[] {
-  const childIds = new Set(children.map((t) => t.id));
+  const knownIds = new Set([...children, ...allTasks].map((task) => task.id));
   const missingDeps: MissingDependency[] = [];
 
   for (const task of children) {
     if (task.depends) {
       for (const dep of task.depends) {
-        if (!childIds.has(dep) && !allTasks.find((t) => t.id === dep && t.status === 'done')) {
+        if (!knownIds.has(dep)) {
           missingDeps.push({ taskId: task.id, missingDep: dep });
         }
       }
