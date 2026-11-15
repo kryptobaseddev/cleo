@@ -136,26 +136,13 @@ tags from `CANONICAL_TYPE_TAGS` and `TaxonomyRegistry` in
 
 ### In task labels
 
-Task labels (`labels_json`) can use any canonical tag. The backfill script
-normalizes ad-hoc labels to canonical form:
+Task labels (`labels_json`) can use any canonical tag. The ad-hoc label
+normalization map below says which canonical tag each old label means; for
+example `["sentient", "prime-tier1"]` means `["cleoos", "p0"]`.
 
-```bash
-# Preview changes:
-python3 scripts/backfill-taxonomy.py --dry-run
-
-# Apply:
-python3 scripts/backfill-taxonomy.py
-```
-
-Before:
-```json
-["sentient", "prime-tier1", "not-pi"]
-```
-
-After:
-```json
-["cleoos", "not-pi", "p0"]
-```
+`scripts/backfill-taxonomy.py` does not change live labels: it opens the
+legacy `.cleo/tasks.db` and `.cleo/brain.db` (line 22), not `.cleo/cleo.db`.
+Do not rely on it; T14609 tracks the fix.
 
 ### In documents
 
@@ -175,8 +162,9 @@ list the kinds with `cleo docs schema`.
 
 ### For existing ad-hoc labels
 
-The `scripts/backfill-taxonomy.py` script handles normalization automatically.
-Labels without a canonical mapping are passed through unchanged.
+There is no working automatic migration for existing labels today. `scripts/backfill-taxonomy.py` does not change live labels: it opens the
+legacy `.cleo/tasks.db` and `.cleo/brain.db` (line 22), not `.cleo/cleo.db`.
+Do not rely on it; T14609 tracks the fix.
 
 ### For decision types
 
@@ -220,20 +208,15 @@ import { CANONICAL_TYPE_TAGS } from '@cleocode/contracts';
 There is no `cleo taxonomy` command, although two error messages name one
 (`packages/contracts/src/taxonomy.ts:611`, `packages/core/src/memory/decisions.ts:613`).
 Validation runs inside the code that writes tags: `storeDecision()` rejects a
-non-canonical decision type. To normalize existing task labels, run the
-backfill script:
-
-```bash
-python3 scripts/backfill-taxonomy.py --dry-run
-python3 scripts/backfill-taxonomy.py
-```
+non-canonical decision type. There is no working tool that normalizes
+existing task labels (T14609).
 
 ## Architecture
 
 ```
 packages/contracts/src/taxonomy.ts     ← Single source of truth
 packages/core/src/memory/decisions.ts  ← Validation at creation time
-scripts/backfill-taxonomy.py           ← Ad-hoc → canonical normalization
+scripts/backfill-taxonomy.py           ← Legacy label backfill (reads tasks.db/brain.db; T14609)
 docs/reference/taxonomy.md             ← This document
 ```
 

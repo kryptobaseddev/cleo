@@ -79,7 +79,8 @@ and `cleo docs publish` writes the mirror under `docs/<kind>/`.
 `.cleo/agent-outputs/` by hand. A raw write skips the slug, kind and naming
 checks, and CI's canon drift check fails it. Before adding a doc, look for an
 existing one (`cleo docs query "<topic>"`) and update it instead
-(`cleo docs update <slug> --file <path>`).
+(`cleo docs update <slug> --file <path>`; a file inside a worktree also needs
+`--allow-external true`).
 
 ```bash
 # add a note owned by a task, from a file
@@ -143,13 +144,16 @@ complete the task.
 
 ```bash
 cleo done T1234 --plan       # names the gates and the evidence each needs
-cleo verify T1234 --gate implemented --evidence "commit:<sha>;files:src/a.ts,src/b.ts"
-cleo verify T1234 --gate testsPassed --evidence "tool:test"
-cleo verify T1234 --gate qaPassed --evidence "tool:lint;tool:typecheck"
+cleo verify T1234 --gate implemented --evidence "commit:<sha>;files:src/a.ts,src/b.ts;satisfies:T1234#AC1"
+cleo verify T1234 --gate testsPassed --evidence "tool:test;satisfies:T1234#AC1"
+cleo verify T1234 --gate qaPassed --evidence "tool:lint;tool:typecheck;satisfies:T1234#AC1"
 cleo complete T1234
 ```
 
-A decision-only task uses `decision:<id>` as its `implemented` evidence.
+A task with acceptance criteria needs a `satisfies:<taskId>#AC<n>` atom on each
+gate, naming the criteria that evidence proves; without one the write is
+refused (`packages/core/src/tasks/evidence.ts:4004`). A decision-only task uses
+`decision:<id>` as its `implemented` evidence.
 
 **Why**: evidence is checked against git, files and tools (ADR-051), not taken
 on trust. `cleo verify --all` without evidence is refused with
@@ -192,7 +196,8 @@ cleo focus T1234                      # 2. orient
 git switch -c task/T1234              # or let spawn-execute provision it
 
 # 4. a doc change goes through the store, never a raw write
-cleo docs update onboarding-walk --file ./walk.md --message "Add the PR flow"
+#    (a --file inside a worktree needs --allow-external true)
+cleo docs update onboarding-walk --file ./walk.md --allow-external true --message "Add the PR flow"
 cleo docs publish onboarding-walk --for T1234 --to docs/note/onboarding-walk.md
 
 # 5. check, commit and open a PR that names the task
