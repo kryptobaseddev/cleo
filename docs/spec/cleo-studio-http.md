@@ -1,510 +1,268 @@
 # CLEO Studio HTTP Specification
 
-**Version**: 1.0.0
-**Status**: AUTHORITY (current surface + PROPOSED CRUD additions)
-**Scope**: `packages/studio/src/routes/api/**` — all HTTP endpoints exposed by the Studio SvelteKit app
-**Authority pointer**: `docs/specs/CLEO-API-AUTHORITY.md` §2 (row: Studio HTTP)
+**Status**: current surface (describes what ships; no proposed endpoints)
+**Scope**: `packages/studio/src/routes/api/**/+server.ts` — every HTTP endpoint the Studio SvelteKit app exposes, plus the server code they share
 
-This document is the canonical reference for the Studio HTTP surface. It
-describes (a) the 30 endpoints live today, (b) the envelope contract they use
-and how it diverges from canonical LAFS, (c) the 41 PROPOSED endpoints needed
-to close the CRUD gap, and (d) the proposed auth model.
-
-> **Companion specs**:
-> - `docs/specs/CLEO-API-AUTHORITY.md` — authority chain
-> - `docs/specs/CLEO-TASKS-API-SPEC.md` — per-domain Tasks spec
-> - `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` — Studio UI layer
->
-> **Evidence base**:
-> - `.cleo/agent-outputs/T910-docs-audit/http-endpoint-inventory.md`
-> - `/tmp/task-viz/CRUD-API-AUDIT.md` and `/tmp/task-viz/CRUD-ARCHITECTURE-CORRECTED.md`
+Studio is a SvelteKit application under `packages/studio/`. Its `/api/**`
+endpoints serve its own pages; `cleo web start|stop|restart|status|open`
+runs and opens it (default host `127.0.0.1`).
 
 ---
 
-## 1. Scope and Purpose
+## 1. Stores
 
-Studio is a SvelteKit application under `packages/studio/`. It exposes an
-HTTP API under `/api/**` used by both its own server-rendered UI and
-(optionally) external consumers on `127.0.0.1`.
+CLEO keeps one `cleo.db` per scope; Studio reads both:
 
-**Today (2026-04-17):** 30 endpoints, heavily skewed toward reads. **0 task
-writes**, **0 BRAIN writes**, **0 orchestration exposure**.
+| Scope | File | What Studio reads there |
+|-------|------|-------------------------|
+| Project | `<project>/.cleo/cleo.db` | `tasks_*` (tasks, sessions, audit), `brain_*`, `conduit_*`, and the NEXUS code graph (`nexus_nodes`, `nexus_relations`, …) |
+| Global | `<cleoHome>/cleo.db` | the NEXUS project registry (`nexus_project_registry`), `agent_registry_*` |
 
-**Architectural intent** (per
-`/tmp/task-viz/CRUD-ARCHITECTURE-CORRECTED.md` §1 and
-`docs/specs/CLEO-API-AUTHORITY.md` §3): HTTP is a **transport adapter**,
-structurally symmetric with the CLI adapter. Every endpoint MUST translate
-its request into a dispatch call and return the resulting LAFS envelope
-unchanged. No business logic lives in `+server.ts` handlers.
+`<cleoHome>` is `~/.local/share/cleo` on Linux and `~/Library/Application Support/cleo`
+on macOS; `CLEO_HOME` overrides it. Paths are resolved by
+`packages/studio/src/lib/server/cleo-home.ts`, which delegates to core's
+`resolveDualScopeDbPath('project' | 'global')`.
 
-The HTTP adapter module is PROPOSED at
-`packages/cleo/src/dispatch/adapters/http.ts` (sibling of
-`packages/cleo/src/dispatch/adapters/cli.ts` — already exists).
+Store opens live in `packages/studio/src/lib/server/db/connections.ts`
+(on the DB-open allowlist). Its getters keep legacy names, but each one opens a
+`cleo.db`:
 
----
+| Getter | Opens |
+|--------|-------|
+| `getTasksDb(ctx)`, `getBrainDb(ctx)` | the project `cleo.db` (both `ctx.tasksDbPath` and `ctx.brainDbPath` point at it), a fresh handle per call |
+| `getNexusDb()`, `getAgentRegistryDb()` | the global `cleo.db`, cached per process |
+| `getConduitDb(ctx)` | `<project>/.cleo/conduit.db` — a file that no longer exists, so this returns `null` (see §8) |
+| `withStudioReadSnapshot(path, read)` | a read-only snapshot, closed after `read` (used by `/api/health`) |
 
-## 2. Current HTTP Surface (30 endpoints)
-
-All endpoints live under `packages/studio/src/routes/api/**`. Every handler
-opens `tasks.db`, `brain.db`, or `nexus.db` through
-`packages/studio/src/lib/server/db/connections.ts`, with one exception
-flagged in §5.
-
-Authentication: **none today**. Project context is resolved from a cookie by
-`packages/studio/src/hooks.server.ts:19-24`. §6 proposes token-based auth.
-
-### 2.1 Full endpoint table
-
-| # | Path | Method | Domain | Purpose | Data source | Auth | Streaming |
-|---|------|--------|--------|---------|-------------|------|-----------|
-| 1 | `/api/brain/decisions` | GET | BRAIN | List `brain_decisions` chronologically | Direct SQL on `brain.db` via `getBrainDb(ctx)` | none | no |
-| 2 | `/api/brain/graph` | GET | BRAIN | Top-500 nodes + endpoint-bounded edges | Direct SQL on `brain.db` (`brain_page_nodes`, `brain_page_edges`) | none | no |
-| 3 | `/api/brain/observations` | GET | BRAIN | Filterable observations (200-row cap) | Direct SQL on `brain.db` (`brain_observations`) | none | no |
-| 4 | `/api/brain/quality` | GET | BRAIN | Quality/tier/type histogram (4 tables) | Direct SQL on `brain.db` | none | no |
-| 5 | `/api/brain/tier-stats` | GET | BRAIN | Tier distribution + upcoming long-tier promotions | Direct SQL on `brain.db` (4 tables) | none | no |
-| 6 | `/api/health` | GET | system | Service heartbeat + per-DB availability | Helper `getDbStatus(ctx)` | none | no |
-| 7 | `/api/living-brain` | GET | LB | Unified cross-substrate graph (5 substrates) | `getAllSubstrates()` → 5 adapters | none | no |
-| 8 | `/api/living-brain/node/[id]` | GET | LB | Ego network for substrate-prefixed node | `getAllSubstrates({limit:2000})` then filter | none | no |
-| 9 | `/api/living-brain/stream` | GET | LB | Live stream of cross-substrate events | Polling `brain.db`, `tasks.db`, `conduit.db` @1s | none | **SSE** |
-| 10 | `/api/living-brain/substrate/[name]` | GET | LB | Single-substrate filtered graph | `getAllSubstrates({substrates:[name]})` | none | no |
-| 11 | `/api/nexus` | GET | NEXUS | List all communities + member counts | Direct SQL on global `nexus.db` via `getNexusDb()` | none | no |
-| 12 | `/api/nexus/community/[id]` | GET | NEXUS | Community drill-down (≤500 nodes, ≤2000 edges) | Direct SQL on global `nexus.db` | none | no |
-| 13 | `/api/nexus/search` | GET | NEXUS | Symbol search (LIKE on label/id) | Direct SQL on global `nexus.db` | none | no |
-| 14 | `/api/nexus/symbol/[name]` | GET | NEXUS | 2-hop ego network for symbol | Direct SQL on global `nexus.db` | none | no |
-| 15 | `/api/project/clean` | POST | project | Dry-run cleanup of registered projects | CLI shell-out `cleo nexus projects clean --json` via `executeCliAction()` | none | no |
-| 16 | `/api/project/[id]/index` | POST | project | Trigger full nexus analyze | CLI shell-out `cleo nexus analyze <path> --json` | none | no |
-| 17 | `/api/project/[id]/reindex` | POST | project | Re-index alias | CLI shell-out `cleo nexus analyze <path> --json` | none | no |
-| 18 | `/api/project/[id]` | DELETE | project | Remove project from registry | CLI shell-out `cleo nexus projects remove <id> --json` | none | no |
-| 19 | `/api/project/scan` | POST | project | FS scan + optional auto-register | CLI shell-out `cleo nexus projects scan --json` | none | no |
-| 20 | `/api/project/switch` | POST | project | Set active-project cookie | Helper `setActiveProjectId(cookies, id)` | none | no |
-| 21 | `/api/search` | GET | NEXUS | Cross-project symbol search | Direct SQL on global `nexus.db` (opens OWN `DatabaseSync` — see §5) | project cookie read if `scope=current` | no |
-| 22 | `/api/tasks` | GET | tasks | List with filters | Direct SQL on `tasks.db` | none | no |
-| 23 | `/api/tasks/events` | GET | tasks | MAX(updated_at) / row-count SSE | Polling `tasks.db` @2s | none | **SSE** |
-| 24 | `/api/tasks/graph` | GET | tasks | Sigma-ready epic graph / 1-hop neighborhood | Direct SQL on `tasks.db` (recursive CTE + `task_dependencies`) | none | no |
-| 25 | `/api/tasks/[id]` | GET | tasks | Single task + its subtasks | Direct SQL on `tasks.db` | none | no |
-| 26 | `/api/tasks/[id]/deps` | GET | tasks | Upstream + downstream + `allUpstreamReady` | Direct SQL on `tasks.db` | none | no |
-| 27 | `/api/tasks/pipeline` | GET | tasks | Tasks grouped by `pipeline_stage` (RCASD-IVTR+C) | Direct SQL on `tasks.db` | none | no |
-| 28 | `/api/tasks/search` | GET | tasks | ID or fuzzy-title search | Direct SQL on `tasks.db` | none | no |
-| 29 | `/api/tasks/sessions` | GET | session | Recent sessions enriched with tasks (≤50) | Direct SQL on `tasks.db` (`sessions`, `task_work_history`, `tasks`) | none | no |
-| 30 | `/api/tasks/tree/[epicId]` | GET | tasks | Nested epic tree (3 levels) + stats | Direct SQL on `tasks.db` (recursive CTE) | none | no |
-
-**Totals**: 30 files, 30 handlers. 24× GET, 6× POST/DELETE. 2× SSE
-(`/api/tasks/events`, `/api/living-brain/stream`). 0× WebSocket.
-
-### 2.2 Evidence files
-
-Inventoried in
-`/mnt/projects/cleocode/.cleo/agent-outputs/T910-docs-audit/http-endpoint-inventory.md`:
-
-```
-packages/studio/src/routes/api/brain/decisions/+server.ts
-packages/studio/src/routes/api/brain/graph/+server.ts
-packages/studio/src/routes/api/brain/observations/+server.ts
-packages/studio/src/routes/api/brain/quality/+server.ts
-packages/studio/src/routes/api/brain/tier-stats/+server.ts
-packages/studio/src/routes/api/health/+server.ts
-packages/studio/src/routes/api/living-brain/+server.ts
-packages/studio/src/routes/api/living-brain/node/[id]/+server.ts
-packages/studio/src/routes/api/living-brain/stream/+server.ts
-packages/studio/src/routes/api/living-brain/substrate/[name]/+server.ts
-packages/studio/src/routes/api/nexus/+server.ts
-packages/studio/src/routes/api/nexus/community/[id]/+server.ts
-packages/studio/src/routes/api/nexus/search/+server.ts
-packages/studio/src/routes/api/nexus/symbol/[name]/+server.ts
-packages/studio/src/routes/api/project/clean/+server.ts
-packages/studio/src/routes/api/project/scan/+server.ts
-packages/studio/src/routes/api/project/switch/+server.ts
-packages/studio/src/routes/api/project/[id]/+server.ts
-packages/studio/src/routes/api/project/[id]/index/+server.ts
-packages/studio/src/routes/api/project/[id]/reindex/+server.ts
-packages/studio/src/routes/api/search/+server.ts
-packages/studio/src/routes/api/tasks/+server.ts
-packages/studio/src/routes/api/tasks/events/+server.ts
-packages/studio/src/routes/api/tasks/graph/+server.ts
-packages/studio/src/routes/api/tasks/pipeline/+server.ts
-packages/studio/src/routes/api/tasks/search/+server.ts
-packages/studio/src/routes/api/tasks/sessions/+server.ts
-packages/studio/src/routes/api/tasks/tree/[epicId]/+server.ts
-packages/studio/src/routes/api/tasks/[id]/+server.ts
-packages/studio/src/routes/api/tasks/[id]/deps/+server.ts
-```
-
-Supporting infra:
-
-- `packages/studio/src/hooks.server.ts` — project-context middleware.
-- `packages/studio/src/lib/server/db/connections.ts` — `getNexusDb`,
-  `getSignaldockDb`, `getBrainDb`, `getTasksDb`, `getConduitDb`,
-  `getDbStatus`.
-- `packages/studio/src/lib/server/cli-action.ts` — `executeCliAction()`
-  wraps `runCleoCli()` (`spawn-cli.ts`) and emits LAFS envelopes. Used by
-  the 5 `/api/project/*` write endpoints.
-- `packages/studio/src/lib/server/living-brain/adapters/{index,brain,nexus,tasks,conduit,signaldock}.ts`
-  — 5 substrate adapters.
+Many endpoints do not open a store themselves: they call `@cleocode/core`
+(task, session and memory APIs) or `@cleocode/brain` (`getAllSubstrates`), or shell
+out to the `cleo` CLI.
 
 ---
 
-## 3. Envelope Contract (current vs canonical)
+## 2. Request context, guards and audit
 
-### 3.1 Current state (non-compliant)
-
-Most current handlers return **non-LAFS** shapes:
-
-```json
-// success
-{ "tasks": [...], "total": 42 }
-
-// error
-{ "error": "not found" }   // + HTTP 404
-```
-
-Evidence: `packages/studio/src/routes/api/tasks/+server.ts:32-82`,
-`/api/tasks/[id]/+server.ts:9-45`, etc. HTTP status is set directly via
-`new Response(..., { status })`.
-
-Only the 5 CLI-backed project endpoints
-(`/api/project/{scan,clean,[id],[id]/index,[id]/reindex}`) emit LAFS
-envelopes, because `executeCliAction()` forwards the CLI's envelope
-unchanged.
-
-**Consequences**:
-
-- REST callers cannot receive the same structured error as CLI callers.
-- Error `code`, `fix`, `alternatives`, and `details` are dropped.
-- `_meta.page`, `_meta.durationMs`, `_meta.gateway` are absent.
-
-### 3.2 Canonical LAFS envelope
-
-Source: `packages/contracts/src/lafs.ts:52-299` and the re-exported
-`@cleocode/lafs` package.
-
-```ts
-// Success
-interface LafsEnvelopeSuccess<T> {
-  success: true;
-  data: T;
-  warnings?: LAFSWarning[];
-  _meta?: {
-    gateway: string;            // e.g. 'studio-http'
-    domain: string;             // e.g. 'tasks'
-    durationMs: number;
-    mvi?: 'standard' | 'minimal';
-    transport?: 'http' | 'cli' | 'sse';
-    page?: LAFSPageOffset;      // if paginated
-    [key: string]: unknown;
-  };
-}
-
-// Error
-interface LafsEnvelopeError {
-  success: false;
-  error: {
-    code: number | string;      // numeric or ExitCode name
-    category: LAFSErrorCategory;
-    message: string;
-    fix?: string;
-    alternatives?: string[];
-    details?: Record<string, unknown>;
-  };
-  _meta?: { gateway; domain; durationMs; ... };
-}
-```
-
-### 3.3 Migration path
-
-Every current handler MUST be migrated to emit LAFS envelopes. Priority:
-
-1. **Phase 1** (PROPOSED immediate): every new handler from §4 ships with
-   LAFS from day one via `dispatchAsHttp()` — no legacy contract to preserve.
-2. **Phase 2** (PROPOSED next): migrate existing read endpoints on
-   `/api/tasks/*`, `/api/brain/*`, `/api/nexus/*` to LAFS. Studio UI
-   components that read these endpoints MUST be updated to unwrap `data`.
-3. **Phase 3** (PROPOSED): deprecate the old non-LAFS shapes with a 1-release
-   overlap (both shapes returned simultaneously, guarded by an `Accept:
-   application/lafs+json` header).
+- **Project context.** `packages/studio/src/hooks.server.ts` reads the
+  `cleo_project_id` cookie and resolves it against `nexus_project_registry` in the
+  global `cleo.db` (`resolveProjectContext`). With no cookie, or an unknown id, it
+  falls back to the project of the Studio process (`resolveDefaultProjectContext`).
+  The result is `event.locals.projectCtx`. The cookie lasts 7 days and is set by
+  `POST /api/project/switch`.
+- **Same-origin guard.** `POST`, `PUT`, `PATCH` and `DELETE` on paths that start with
+  `/api/project` or `/api/tasks` must carry an `Origin` or `Referer` header whose
+  host matches the server's. A request with neither header fails the guard. A
+  failure returns `403` with
+  `{ success: false, error: { code: "E_CROSS_ORIGIN", message } }`.
+  The guard does not cover any other route (see §8).
+- **CSRF cookie.** Every response refreshes a `cleo_csrf` cookie (a hash of a
+  per-process salt and the project id). The server does not validate the `X-CSRF`
+  header yet (`packages/studio/src/lib/server/csrf.ts`).
+- **Authentication.** None. Studio binds to loopback by default.
+- **Action audit.** `/api/project/{backup,doctor,gc,reindex-all}` append a line to
+  `<projectPath>/.cleo/audit/studio-actions.jsonl`
+  (`packages/studio/src/lib/server/audit-log.ts`); `GET /api/project/audit` reads it.
 
 ---
 
-## 4. Proposed CRUD Additions (41 endpoints)
+## 3. Response shapes
 
-These endpoints close the write-side gap. Each ships as a thin
-`+server.ts` handler that calls
-`dispatchAsHttp('studio-http', '<domain>', '<op>', params)` — the helper
-translates HTTP → dispatch params, forwards the LAFS envelope, and sets the
-HTTP status per §3 ExitCode mapping.
+The surface does not use one envelope. Four shapes are in use:
 
-Source design:
-- `/tmp/task-viz/CRUD-API-AUDIT.md` §2 (original 68 CLI ops catalogued)
-- `/tmp/task-viz/CRUD-ARCHITECTURE-CORRECTED.md` §2 (thin-adapter model)
+| Shape | Where |
+|-------|-------|
+| Bare JSON (`{ tasks, rollups, total }`, `{ nodes, edges, … }`), errors as `{ error: "<message>" }` with an HTTP status | most read endpoints: `/api/tasks` GET, `/api/tasks/[id]` GET, `/api/brain/*`, `/api/nexus/*`, `/api/memory/quality` |
+| `{ success, data \| error: { code, message }, meta: { at } }` from `routes/api/memory/_lafs.ts` and `routes/api/tasks/_dispatch.ts` | memory writes, `/api/credentials*`, `/api/setup/section/[name]`, the task write endpoints |
+| The CLI's own LAFS envelope, passed through by `executeCliAction()` (`packages/studio/src/lib/server/cli-action.ts`); a failing CLI call returns `400` with `{ success: false, error: { code, message }, meta: { exitCode } }` | `/api/project/{[id],[id]/index,[id]/reindex,clean,scan,doctor,gc}`, `POST /api/project/backup` |
+| `{ success, data, meta: { operation, duration_ms, timestamp } }` | `/api/search` |
 
-> **Legend**
-> Req body = TypeScript type sourced from `packages/contracts/src/operations/<domain>.ts`.
-> Resp = `CleoResponse<T>` = LAFS envelope wrapping the named result type.
-> Idempotent: Y iff same body → same final state; N iff each call creates new state.
-
-### 4.1 Tasks CRUD (16 writes + 3 reads — 19 additions)
-
-| # | Method | Path | Req body / query | Resp | Key error codes | Idempotent |
-|---|--------|------|------------------|------|-----------------|------------|
-| T1 | POST | `/api/tasks` | `TasksCreateParams` | `CleoResponse<{task}>` | `VALIDATION_ERROR` (400), `PARENT_NOT_FOUND` (404), `DEPTH_EXCEEDED` (409), `SIBLING_LIMIT` (409), `INVALID_PARENT_TYPE` (409), `ID_COLLISION` (409) | N |
-| T2 | PATCH | `/api/tasks/:id` | `TasksUpdateParams` (merge) | `CleoResponse<{task, changes}>` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `TASK_COMPLETED` (409), `LIFECYCLE_GATE_FAILED` (422), `CIRCULAR_REFERENCE` (409) | Y |
-| T3 | DELETE | `/api/tasks/:id?cascade=…&force=…` | — | `CleoResponse<{deletedIds}>` | `NOT_FOUND` (404), `HAS_CHILDREN` (409), `HAS_DEPENDENTS` (409) | Y |
-| T4 | POST | `/api/tasks/:id/complete` | `{notes?}` | `CleoResponse<{task, gates}>` | `NOT_FOUND` (404), `E_EVIDENCE_MISSING` (422), `E_EVIDENCE_STALE` (422), `E_FLAG_REMOVED` (410) | Y |
-| T5 | POST | `/api/tasks/:id/cancel` | `{reason?}` | `CleoResponse<{task}>` | `NOT_FOUND` (404), `TASK_COMPLETED` (409) | Y |
-| T6 | POST | `/api/tasks/:id/archive` | `{dryRun?}` | `CleoResponse<{task}>` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | Y |
-| T7 | POST | `/api/tasks/:id/restore` | `{from?, status?, reason?, cascade?}` | `CleoResponse<{task}>` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | Y |
-| T8 | POST | `/api/tasks/:id/reparent` | `{newParentId: string\|null}` | `CleoResponse<{task}>` | `NOT_FOUND` (404), `CIRCULAR_REFERENCE` (409) | Y |
-| T9 | POST | `/api/tasks/:id/reorder` | `{position: number}` | `CleoResponse<{task}>` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | Y |
-| T10 | POST | `/api/tasks/:id/start` | — | `CleoResponse<{task, sessionId}>` | `NOT_FOUND` (404), `SESSION_REQUIRED` (409), `TASK_CLAIMED` (409) | Y |
-| T11 | POST | `/api/tasks/stop` | — | `CleoResponse<{previousTaskId}>` | — | Y |
-| T12 | POST | `/api/tasks/:id/claim` | `{agentId}` | `CleoResponse<{task}>` | `NOT_FOUND` (404), `TASK_CLAIMED` (409) | Y |
-| T13 | POST | `/api/tasks/:id/unclaim` | — | `CleoResponse<{task}>` | `NOT_FOUND` (404) | Y |
-| T14 | POST | `/api/tasks/:id/relates` | `{relatedId, type, reason?}` | `CleoResponse<{relation}>` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `ALREADY_EXISTS` (200 NO_CHANGE) | Y |
-| T15 | POST | `/api/tasks/:id/verify` | `{gate, evidence, ownerOverride?}` | `CleoResponse<{gate, passed, atoms}>` | `NOT_FOUND` (404), `INVALID_GATE` (400), `E_EVIDENCE_*` (422) | Y |
-| T16 | GET | `/api/tasks/:id/gates` | — | `CleoResponse<{gates, allPassed}>` | `NOT_FOUND` (404) | Y |
-| T17 | POST | `/api/tasks/sync/reconcile` | `{providerId, externalTasks, …}` | `CleoResponse<{reconciled, conflicts}>` | `VALIDATION_ERROR` (400) | Y |
-| T18 | DELETE | `/api/tasks/sync/links` | `{providerId}` | `CleoResponse<{removed}>` | — | Y |
-| T19 | HEAD | `/api/tasks/:id` | — | 200/404 + `TasksExistsResult` | — | Y |
-
-### 4.2 Session (9 additions)
-
-| # | Method | Path | Req body | Resp | Key error codes | Idempotent |
-|---|--------|------|----------|------|-----------------|------------|
-| S1 | GET | `/api/sessions/current` | — | `CleoResponse<{session?}>` | — | Y |
-| S2 | GET | `/api/sessions?status=&limit=&offset=` | — | `CleoResponse<{sessions, total}>` | — | Y |
-| S3 | GET | `/api/sessions/:id` | — | `CleoResponse<{session}>` | `SESSION_NOT_FOUND` (404) | Y |
-| S4 | POST | `/api/sessions` | `{scope?, agent?, name?}` | `CleoResponse<{session}>` | `SESSION_EXISTS` (409) | N |
-| S5 | POST | `/api/sessions/:id/end` | `{note: string}` (required) | `CleoResponse<{session}>` / `202 Accepted` if backup runs async | `SESSION_NOT_FOUND` (404), `SESSION_CLOSE_BLOCKED` (409), `VALIDATION_ERROR` (400) | Y |
-| S6 | POST | `/api/sessions/:id/resume` | — | `CleoResponse<{session}>` | `SESSION_NOT_FOUND` (404) | Y |
-| S7 | POST | `/api/sessions/:id/suspend` | — | `CleoResponse<{session}>` | `SESSION_NOT_FOUND` (404) | Y |
-| S8 | POST | `/api/sessions/:id/decisions` | `{text, category?}` | `CleoResponse<{decision}>` | `SESSION_NOT_FOUND` (404), `VALIDATION_ERROR` (400) | N |
-| S9 | POST | `/api/sessions/:id/gc` | — | `CleoResponse<{purged}>` | `SESSION_NOT_FOUND` (404) | Y |
-
-### 4.3 Orchestrate (13 additions)
-
-| # | Method | Path | Req body / query | Resp | Key error codes | Idempotent |
-|---|--------|------|------------------|------|-----------------|------------|
-| O1 | GET | `/api/orchestrate/ready?epic=T###` | — | `CleoResponse<{wave}>` | `NOT_FOUND` (404) | Y |
-| O2 | GET | `/api/orchestrate/waves/:epicId` | — | `CleoResponse<{waves}>` | `NOT_FOUND` (404) | Y |
-| O3 | GET | `/api/orchestrate/plan/:epicId` | — | `CleoResponse<{plan}>` | `NOT_FOUND` (404) | Y |
-| O4 | GET | `/api/orchestrate/status/:taskId` | — | `CleoResponse<{status, ivtr}>` | `NOT_FOUND` (404) | Y |
-| O5 | GET | `/api/orchestrate/pending` | — | `CleoResponse<{pending}>` | — | Y |
-| O6 | POST | `/api/orchestrate/start/:epicId` | — | `CleoResponse<{pipeline}>` | `NOT_FOUND` (404), `LIFECYCLE_GATE_FAILED` (422), `SESSION_EXISTS` (409) | N |
-| O7 | POST | `/api/orchestrate/spawn/:taskId` | `{tier?: 0\|1\|2}` | `CleoResponse<{spawnPayload}>` | `NOT_FOUND` (404), `SPAWN_VALIDATION_FAILED` (422) | Y |
-| O8 | POST | `/api/orchestrate/spawn/:taskId/execute` | `{adapter?}` | `CleoResponse<{spawnResult}>` | `THIN_AGENT_VIOLATION` (403), `ATOMICITY_VIOLATION` (422) | N |
-| O9 | POST | `/api/orchestrate/approve/:token` | — | `CleoResponse<{token, approved: true}>` | `NOT_FOUND` (404) | Y |
-| O10 | POST | `/api/orchestrate/reject/:token` | `{reason?}` | `CleoResponse<{token, rejected: true}>` | `NOT_FOUND` (404) | Y |
-| O11 | POST | `/api/orchestrate/ivtr/:taskId/start` | — | `CleoResponse<{phase}>` | `NOT_FOUND` (404) | N |
-| O12 | POST | `/api/orchestrate/ivtr/:taskId/next` | — | `CleoResponse<{phase}>` | `NOT_FOUND` (404), `E_IVTR_INCOMPLETE` (422) | N |
-| O13 | POST | `/api/orchestrate/ivtr/:taskId/release` | `{note?}` | `CleoResponse<{phase}>` | `NOT_FOUND` (404) | Y |
-
-### Summary counts
-
-- Tasks: 19 new (16 writes + 3 reads)
-- Session: 9 new
-- Orchestrate: 13 new
-- **Total: 41 new endpoints**
-
-Plus migration of the 30 existing endpoints to LAFS envelope format (§3.3).
-
-BRAIN and NEXUS writes are **deferred** pending contract SSoT work (see
-`docs/specs/CLEO-API-AUTHORITY.md` §2 "Open gaps" and the
-`docs/specs/memory-architecture-spec.md` roadmap).
+None of these is the canonical LAFS envelope (`docs/spec/lafs-envelope-contract.md`)
+except where the CLI's envelope passes through unchanged.
 
 ---
 
-## 5. Known Drift and Inconsistencies (MUST FIX)
+## 4. Endpoints
 
-Flagged during the T910 audit. Each is a SHOULD-fix in the CRUD rollout.
+### 4.1 Tasks (`/api/tasks`)
 
-### 5.1 Hardcoded version in `/api/health`
+Reads go through `@cleocode/core` (`listTasks`, `showTask`, `taskDeps`, `taskTree`,
+`findTasks`, `listSessions`, `computeTaskRollups`, `computeTaskViews`); no raw SQL,
+except the `/api/tasks/events` poll.
 
-`packages/studio/src/routes/api/health/+server.ts` embeds a literal version
-string `"2026.4.47"`. Current package version at audit time is `2026.4.96`.
+| Method | Path | Params / body | Response |
+|--------|------|---------------|----------|
+| GET | `/api/tasks` | `status` (pending, active, blocked, done, cancelled, archived, proposed), `priority` (critical, high, medium, low), `type` (epic, task, subtask), `limit` (default 200, max 1000) | `{ tasks, rollups, views, total }` |
+| POST | `/api/tasks` | `{ title, acceptance (string[] or newline/pipe-separated string, required), parent?, priority? }` | `{ success, data: { taskId, via: "gateway" \| "core" } }` |
+| GET | `/api/tasks/[id]` | — | task row (snake_case), `subtasks`, `view`; `404 { error: "not found" }` |
+| PATCH | `/api/tasks/[id]` | any of `{ title, status, priority, assignee }` | `{ success, data: { taskId, via, changed } }`; `400 E_VALIDATION` when no field is patchable |
+| DELETE | `/api/tasks/[id]` | — | `{ success, data: { taskId, via, changed: ["deleted"] } }` |
+| GET | `/api/tasks/[id]/deps` | — | upstream and downstream tasks plus a readiness flag |
+| POST | `/api/tasks/[id]/transition` | `{ fromLane, toLane }` | re-validates the lane move, then a `tasks.update`; an invalid move returns `422` with code `E_INVALID_TRANSITION:<reason>` |
+| POST | `/api/tasks/[id]/dispatch` | `{ tier?: 0 \| 1 \| 2 }` (default 1) | spawns a worker through the gateway (`orchestrate.spawn`): `{ taskId, tier, spawn }`; `503 E_GATEWAY_UNREACHABLE` when the daemon is down |
+| GET | `/api/tasks/[id]/stream` | — | SSE worker view for one task (frames `connected`, `output`, `usage`, `checkpoint`, `heartbeat`, `done`), built from the session claiming the task and its token usage |
+| GET | `/api/tasks/events` | — | SSE: polls `tasks_tasks` every 2 s; events `connected`, `task-updated { latestChange, activeCount }`, `heartbeat` |
+| GET | `/api/tasks/subscribe` | `root?` | SSE of `GatewayStreamEvent` frames: proxies the gateway's `GET /v1/tasks/subscribe` when the daemon answers, else a local change detector over `listTasks` |
+| GET | `/api/tasks/graph` | `epic=T###` (epic subtree) or `taskId=T###` (one-hop neighbourhood) | `{ nodes, edges }` |
+| GET | `/api/tasks/pipeline` | — | `{ stages: [{ id, label, count, tasks, rollups }] }`, grouped by the rollup's `pipelineStage` |
+| GET | `/api/tasks/search` | `q` | `{ kind: "id", task }`, `{ kind: "title", tasks, total }` or `{ kind: "empty" }` |
+| GET | `/api/tasks/sessions` | `limit` (default 50, max 200) | recent sessions; `workedTasks` is always empty |
+| GET | `/api/tasks/tree/[epicId]` | — | nested epic tree, three levels |
 
-**Fix** (PROPOSED): replace with a dynamic read from the cleocode `package.json`
-at startup, or call `dispatch.query('admin', 'system.version', {})` and
-surface the result. A test MUST assert the embedded string does not drift.
+**Write path.** `POST /api/tasks`, `PATCH`/`DELETE /api/tasks/[id]` and
+`/transition` call the `/v1` gateway SDK client first (`createCleoClient`, base URL
+from `CLEO_GATEWAY_URL`, default `http://127.0.0.1:7421`). When the daemon is
+unreachable they fall back to the in-process `@cleocode/core` engine (`addTask`,
+`updateTask`, `deleteTask`). `/dispatch` has no fallback.
 
-### 5.2 Second `nexus.db` connection in `/api/search`
+### 4.2 Memory (`/api/memory`)
 
-`packages/studio/src/routes/api/search/+server.ts` constructs its own
-`DatabaseSync` instead of reusing the cached `getNexusDb()` from
-`packages/studio/src/lib/server/db/connections.ts`. This bypasses the
-connection helper and risks lock contention.
+All read the project `cleo.db`.
 
-**Fix** (PROPOSED): route all nexus reads through `getNexusDb()`.
+| Method | Path | Params / body | Source |
+|--------|------|---------------|--------|
+| GET | `/api/memory/decisions` | — | `getDecisions` → `{ decisions, total }` |
+| GET | `/api/memory/learnings` | `limit` | `getLearnings` |
+| GET | `/api/memory/patterns` | `type` (workflow, blocker, success, failure, optimization), `limit` | `getPatterns` |
+| GET | `/api/memory/observations` | `tier`, `type`, `min_quality` | `getObservations` |
+| GET | `/api/memory/find` | `q`, `tables` (csv), `limit` (default 25, max 100) | `findMemoryEntries` |
+| GET | `/api/memory/graph` | — | `getMemoryGraph` (aggregate counts only) |
+| GET | `/api/memory/tier-stats` | — | per-table tier counts and upcoming long-tier promotions |
+| GET | `/api/memory/pending-verify` | `minCitations` (default 5), `limit` (default 50, max 200) | unverified, cited entries |
+| GET | `/api/memory/quality` | — | raw SQL over the `brain_*` tables |
+| GET | `/api/memory/reason-why` | `taskId` | raw SQL walk of unresolved blockers over `tasks_*` and `brain_*` |
+| POST | `/api/memory/observe` | `{ title, text, type?, project? }` | `observeBrain` |
+| POST | `/api/memory/decision-store` | `{ decision, rationale, alternatives?, taskId?, contextEpicId?, contextPhase? }` | raw insert into `brain_decisions` |
+| POST | `/api/memory/learning-store` | `{ insight, source, confidence?, actionable?, application?, applicableTypes? }` | raw insert into `brain_learnings` (dedups on insight) |
+| POST | `/api/memory/pattern-store` | `{ pattern, context, type?, impact?, antiPattern?, mitigation?, examples? }` | raw insert into `brain_patterns` |
+| POST | `/api/memory/verify` | `{ id, agent? }` | sets `verified` on the row; the id prefix (`O-`, `D-`, `P-`, `L-`) picks the table |
 
-### 5.3 Non-LAFS envelopes on 25 of 30 endpoints
+### 4.3 Brain super-graph (`/api/brain`, `/api/v1/graph`)
 
-See §3.1. Migration plan in §3.3.
+`/api/brain*` call `getAllSubstrates()` from `@cleocode/brain`. The substrate names
+are `brain`, `nexus`, `tasks`, `conduit` and `agent-registry`.
 
-### 5.4 Zero authentication
+| Method | Path | Params | Response |
+|--------|------|--------|----------|
+| GET | `/api/brain` | `tier` (0 = 200 nodes, 1 = 1000, 2 = 5000), `limit` (max 5000), `substrates` (csv), `min_weight` | `{ nodes, edges, counts, truncated }`; tier 0 is cached |
+| GET | `/api/brain/chunks` | `tier` (1 or 2), `substrates`, `min_weight` | `application/x-ndjson`: `chunk` lines, then a `done` line |
+| GET | `/api/brain/node/[id]` | substrate-prefixed id (`brain:O-…`, `tasks:T…`, …) | `{ node, neighbors, edges }`; `404` when absent |
+| GET | `/api/brain/substrate/[name]` | `limit` (default 500, max 2000), `min_weight` | one substrate's graph; `400` for an unknown name |
+| GET | `/api/brain/stream` | — | SSE: `hello`, `heartbeat` (30 s), `node.create`, `edge.strengthen`, `task.status`, `message.send`; polls every 1 s |
+| GET | `/api/v1/graph` | `limit` (default 500, max 5000) | `{ nodes, edges, totalNodes, totalEdges }` from `brain_page_nodes` / `brain_page_edges` |
 
-See §6. Today any local process on localhost can write via POST/DELETE on
-the 5 CLI-backed routes. With the 41 new write endpoints from §4, this
-becomes a material risk.
+### 4.4 Code graph and search (`/api/nexus`, `/api/search`)
 
-### 5.5 Two SSE endpoints use 1s and 2s poll intervals
+These read `nexus_nodes` and `nexus_relations` through `getNexusDb()`, which opens
+the **global** `cleo.db`. The code graph lives in the **project** `cleo.db`, so these
+endpoints read the global store's empty graph tables (see §8).
 
-`/api/living-brain/stream` polls at 1s
-(`packages/studio/src/routes/api/living-brain/stream/+server.ts`).
-`/api/tasks/events` polls at 2s
-(`packages/studio/src/routes/api/tasks/events/+server.ts:15-86`). This is
-acceptable for local development but NOT for multi-client load.
+| Method | Path | Params | Response |
+|--------|------|--------|----------|
+| GET | `/api/nexus` | `only=communities` | `{ communities, edges, totalNodes, totalRelations }` |
+| GET | `/api/nexus/community/[id]` | — | community members and their edges |
+| GET | `/api/nexus/search` | `q` | symbol matches |
+| GET | `/api/nexus/symbol/[name]` | — | the symbol and its two-hop neighbourhood |
+| GET | `/api/search` | `q` (at least 2 characters), `scope` (`all` or `current`), `limit` (default 20, max 100) | `{ success, data: { query, scope, results, totalHits }, meta }` |
 
-**Fix** (PROPOSED): unify behind a per-DB watermark notifier and
-bias toward WebSocket or Server-Sent-Events with proper backpressure
-before enabling multi-client use.
+### 4.5 Projects and maintenance (`/api/project`)
 
----
+| Method | Path | Body | Does |
+|--------|------|------|------|
+| POST | `/api/project/switch` | `{ projectId }` | sets the `cleo_project_id` cookie; `{ success: true }` |
+| DELETE | `/api/project/[id]` | — | `cleo nexus projects remove <id> --json` |
+| POST | `/api/project/[id]/index` | — | `cleo nexus analyze <path> --json` |
+| POST | `/api/project/[id]/reindex` | — | the same command as `/index` |
+| POST | `/api/project/reindex-all` | `{ onlyStale?, staleDays? (default 7) }` | `cleo nexus analyze` over every registered project, one at a time |
+| POST | `/api/project/scan` | `{ roots?, maxDepth?, autoRegister? }` | `cleo nexus projects scan --json` |
+| POST | `/api/project/clean` | `{ includeTemp?, includeTests?, includeUnhealthy?, includeNeverIndexed?, pattern?, dryRun? }` | `cleo nexus projects clean --json`; dry run unless `dryRun: false` |
+| GET | `/api/project/backup` | — | lists `<project>/.cleo/backups/sqlite/` |
+| POST | `/api/project/backup` | `{ note? }` | `cleo backup add --json` |
+| GET | `/api/project/migrate` | — | `PRAGMA user_version` of the global and project stores; never migrates |
+| GET | `/api/project/audit` | `limit` (default 50, max 500) | newest entries of `studio-actions.jsonl` |
+| POST | `/api/project/doctor` | `{ projectId?, path? }` | shells out to `cleo nexus doctor --json`, a command that does not exist (see §8) |
+| POST | `/api/project/gc` | `{ dryRun? }` | shells out to `cleo nexus gc --json`, a command that does not exist (see §8) |
 
-## 6. Auth Model (PROPOSED)
+The CLI is spawned by `packages/studio/src/lib/server/spawn-cli.ts`
+(`CLEO_BIN`, default `cleo`).
 
-### 6.1 Current state
+### 4.6 System, credentials and setup
 
-Zero authentication. Cookie-based project context only.
-
-### 6.2 Phase 1 — Token header (Jupyter-style)
-
-All `POST / PATCH / DELETE` endpoints MUST require:
-
-```
-X-CLEO-Token: <hex>
-```
-
-- The token is auto-generated on `cleo studio start` into
-  `~/.cleo/studio-token` with `0600` perms.
-- Studio UI reads it server-side and injects it on the first page load as
-  an HTTP-only cookie for XHR calls.
-- Absence or mismatch returns `401 Unauthorized` + LAFS error envelope.
-
-### 6.3 Phase 1 — Localhost bind
-
-Studio dev server SHOULD bind to `127.0.0.1` by default. Exposing beyond
-localhost requires explicit `--host 0.0.0.0` flag + token as above.
-
-### 6.4 Phase 1 — Owner override header
-
-Maps to the existing `CLEO_OWNER_OVERRIDE=1` env var:
-
-```
-X-CLEO-Owner-Override: 1
-X-CLEO-Override-Reason: <non-empty string>
-```
-
-Each request with these headers writes a line to
-`.cleo/audit/force-bypass.jsonl`. Rejecting with `400` when
-`X-CLEO-Owner-Override: 1` is present without a reason header.
-
-### 6.5 Phase 1 — Rate limiting
-
-Writes capped at 60/min per token to prevent runaway agent loops.
-Exceeded → `429 Too Many Requests` + LAFS envelope with
-`error.category: 'rate_limit'`.
-
-### 6.6 Phase 2 (PROPOSED — out of scope for T910)
-
-If Studio ever exposes beyond localhost, Better-Auth session cookies with
-RBAC (`admin` / `orchestrator` / `read-only`). Not in this spec.
-
----
-
-## 7. Implementation Plan
-
-Per `/tmp/task-viz/CRUD-ARCHITECTURE-CORRECTED.md` §1 and
-`docs/specs/CLEO-API-AUTHORITY.md` §3:
-
-1. **Create HTTP adapter module** at
-   `packages/cleo/src/dispatch/adapters/http.ts` (sibling of `cli.ts`).
-   Exports `dispatchAsHttp(gateway, domain, op, params)`.
-2. **Create `+server.ts` per endpoint** (~41 new files), each ≤ 40 lines,
-   each calling `dispatchAsHttp()`.
-3. **Migrate existing handlers** to use the same helper (Phase 2 of §3.3).
-4. **Add auth middleware** in `packages/studio/src/hooks.server.ts` per §6.
-5. **Fix drift** from §5 in the same PR wave.
-6. **Add tests**:
-   - Each new endpoint: one happy-path + one error-path integration test.
-   - Envelope compliance: snapshot every response.
-   - ExitCode → HTTP status mapping: unit test of `dispatchAsHttp()`.
-7. **Document** in `docs/specs/CLEO-TASKS-API-SPEC.md` §5 (flip PROPOSED
-   rows to "live").
-
-Estimated scope: ~1500 LoC across 41 new handlers + 1 adapter module + 1
-auth middleware + ~150 tests.
+| Method | Path | Body | Does |
+|--------|------|------|------|
+| GET | `/api/health` | — | read-only snapshot probes: `nexus_nodes`, `brain_observations`, `tasks_tasks` and `conduit_messages` in the project store; `nexus_project_registry` and `agent_registry_agents` in the global store. Returns `{ ok, okScope, service, version, checkedAt, uptime, projectId, coverage, databases }`; `version` comes from Studio's `package.json` |
+| GET | `/api/credentials` | — | credential-pool entries with all secret material removed |
+| POST | `/api/credentials` | `{ provider, label, apiKey }` | adds an `api_key` credential |
+| DELETE | `/api/credentials/[provider]/[label]` | — | removes a credential (same steps as `cleo auth remove`); returns `cleaned[]` and `hints[]` |
+| POST | `/api/setup/section/[name]` | wizard options (`nonInteractive`, `provider`, `apiKey`, `harness`, …) | runs one `@cleocode/core/setup` wizard section; `{ section, success, changes, summary }` |
 
 ---
 
-## 8. Relationship to CLEO-API-AUTHORITY
+## 5. Streams
 
-This spec is a **Layer-3 narrative** (per the authority chain in
-`docs/specs/CLEO-API-AUTHORITY.md` §1). It describes ONE transport
-(HTTP) of the CLEO dispatch API. The CLI transport
-(`packages/cleo/src/dispatch/adapters/cli.ts`) is the only other
-currently-shipping transport.
+| Endpoint | Transport | Cadence |
+|----------|-----------|---------|
+| `/api/tasks/events` | SSE | 2 s poll |
+| `/api/tasks/[id]/stream` | SSE | 2 s poll |
+| `/api/tasks/subscribe` | SSE | gateway proxy, else local poll |
+| `/api/brain/stream` | SSE | 1 s poll, 30 s heartbeat |
+| `/api/brain/chunks` | NDJSON | one response per tier |
 
-When an operation moves from PROPOSED to live, this spec's §2 tables MUST
-be updated, the per-domain spec (e.g. `CLEO-TASKS-API-SPEC.md`) MUST flip
-the PROPOSED marker, and `CLEO-OPERATION-CONSTITUTION.md` MUST be
-re-synced with the registry.
-
----
-
-## 9. Open Questions (HITL)
-
-- **Q1 — DELETE cascade default** (`@HITL`). CLI defaults to REJECT
-  (`HAS_CHILDREN 16`). Mirror on HTTP? Recommended: YES, require
-  explicit `?cascade=true`. From `/tmp/task-viz/CRUD-API-AUDIT.md` §Open Q1.
-- **Q2 — Evidence body format** (`@HITL`). Structured
-  `evidence: EvidenceAtom[]` array vs CLI string format
-  (`"commit:sha;files:a.ts,b.ts"`). Recommended: structured.
-  From `/tmp/task-viz/CRUD-API-AUDIT.md` §Open Q3.
-- **Q3 — Idempotency keys** (`@HITL`). `Idempotency-Key: <uuid>` header
-  (Stripe-style) vs body-based idempotency? Recommended: body-based for v1.
-- **Q4 — `POST /api/sessions/:id/end` sync vs async** (`@HITL`).
-  `session.end` triggers auto-backup (slow). Sync response vs `202
-  Accepted` + `jobId`? Recommended: `202` when backup queue empty.
-- **Q5 — Unknown PATCH fields** (`@HITL`). 400 with `details.unknownFields`
-  vs silent drop? Recommended: 400.
-- **Q6 — Graph/tree pagination** (`@HITL`). Current endpoints hard-limit
-  to 1000 nodes. Cursor pagination needed?
-- **Q7 — SSE vs WebSocket** (`@HITL`). Unify on WebSocket for multi-domain
-  events or keep per-domain SSE?
+No endpoint uses WebSocket.
 
 ---
 
-## 10. Backward Compatibility
+## 6. Page routes
 
-The 30 existing endpoints MUST keep working during the Phase-2 envelope
-migration. The `Accept` header gate:
+Pages (`+page.svelte`, most with a `+page.server.ts` load): `/`, `/brain` and
+`/brain/{3d,causal,decisions,graph,learnings,observations,overview,patterns,quality,search,tier-stats}`,
+`/code`, `/code/community/[id]`, `/code/flows`, `/code/symbol/[name]`, `/keys`,
+`/projects`, `/settings/vault`, `/setup`, `/studio/[projectId]`,
+`/studio/[projectId]/[sagaId]`, `/tasks`, `/tasks/[id]`, `/tasks/graph`,
+`/tasks/kanban`, `/tasks/pipeline`, `/tasks/sessions`, `/tasks/tree/[epicId]`.
 
-- `Accept: application/json` → legacy shape (for now).
-- `Accept: application/lafs+json` → canonical LAFS envelope.
+---
 
-After one full release cycle with `Accept: application/lafs+json` working,
-the default flips and the legacy shape is retired.
+## 7. Renamed endpoints
+
+Earlier versions of this spec listed `/api/brain/{decisions,graph,observations,quality,tier-stats}`
+and `/api/living-brain/*`. They are gone: the memory reads are under `/api/memory/*`
+and the super-graph is under `/api/brain/*`.
+
+---
+
+## 8. Known defects
+
+These are tracked in T14606.
+
+1. **Code-graph endpoints read the wrong store.** `/api/nexus/*` and `/api/search`
+   query `nexus_nodes` through `getNexusDb()`, which opens the global `cleo.db`.
+   The graph is in the project `cleo.db` (`packages/core/src/store/nexus-sqlite.ts`
+   header; `/api/health` probes it there). The global store holds only empty graph tables.
+2. **Conduit is never read.** `getConduitDb()` and `getDbStatus()` look for
+   `<project>/.cleo/conduit.db`. `conduit_messages` is in the project `cleo.db`,
+   so `/api/brain/stream` never emits `message.send`.
+3. **Two maintenance endpoints call missing commands.** `cleo nexus doctor` and
+   `cleo nexus gc` do not exist, so `/api/project/doctor` and `/api/project/gc`
+   always fail with `400 CLI_FAILURE`.
+4. **Write routes outside the guard.** The same-origin guard covers only `/api/project`
+   and `/api/tasks`. `POST`/`DELETE /api/credentials*`, `POST /api/setup/section/*`
+   and the `POST /api/memory/*` writes are unguarded.
+5. **Unclosed handles.** `getTasksDb`/`getBrainDb` open a fresh handle on every call.
+   `/api/tasks/events`, `/api/brain/stream` and several memory reads never close
+   them; the two streams open a new one on every tick.
+6. **Substrate error text.** `/api/brain/substrate/[name]` accepts `agent-registry`,
+   but its 400 message lists `signaldock`.
 
 ---
 
 ## References
 
-- `packages/studio/src/routes/api/**/+server.ts` — 30 current handlers
-- `packages/studio/src/hooks.server.ts` — middleware
-- `packages/studio/src/lib/server/db/connections.ts` — DB helpers
-- `packages/studio/src/lib/server/cli-action.ts` — CLI passthrough wrapper
-- `packages/studio/src/lib/server/spawn-cli.ts` — subprocess wrapper
-- `packages/contracts/src/lafs.ts` — envelope contract
-- `packages/contracts/src/exit-codes.ts` — error code enum
-- `packages/cleo/src/dispatch/registry.ts` — op registration
-- `packages/cleo/src/dispatch/adapters/cli.ts` — CLI adapter (sibling model)
-- PROPOSED: `packages/cleo/src/dispatch/adapters/http.ts` — HTTP adapter
-- `.cleo/agent-outputs/T910-docs-audit/http-endpoint-inventory.md`
-- `/tmp/task-viz/CRUD-API-AUDIT.md`
-- `/tmp/task-viz/CRUD-ARCHITECTURE-CORRECTED.md`
-- `/tmp/task-viz/CRUD-CONTRACT.json`
-- `docs/specs/CLEO-API-AUTHORITY.md`
-- `docs/specs/CLEO-TASKS-API-SPEC.md`
-- `docs/adr/adr-051-programmatic-gate-integrity.md`
-
----
-
-**End.**
+- `packages/studio/src/routes/api/**/+server.ts` — handlers
+- `packages/studio/src/hooks.server.ts` — project context and same-origin guard
+- `packages/studio/src/lib/server/db/connections.ts` — store opens
+- `packages/studio/src/lib/server/project-context.ts` — cookie and registry lookup
+- `packages/studio/src/lib/server/cleo-home.ts` — store paths
+- `packages/studio/src/lib/server/csrf.ts`, `audit-log.ts`, `cli-action.ts`, `spawn-cli.ts`
+- `packages/studio/src/routes/api/memory/_lafs.ts`, `packages/studio/src/routes/api/tasks/_dispatch.ts` — envelope helpers and gateway client
+- `docs/spec/lafs-envelope-contract.md` — canonical envelope
+- `docs/spec/cleo-tasks-api.md` — tasks API
+- `docs/spec/cleo-task-dashboard.md` — Studio task UI

@@ -1,23 +1,25 @@
 # CLEO Production Runtime Logging Contract
 
-**Version**: 2026.03.05
+**Version**: 2026.03.05 (store names and code paths updated to the current source)
 **Status**: APPROVED
-**Task**: T5309
-**Supersedes**: (none -- first canonical logging contract)
 **Related ADRs**: ADR-019, ADR-024
 
 ---
 
 ## 1. Overview
 
-CLEO has exactly one runtime surface -- the `cleo` CLI. The `source` column on `audit_log` is retained for forward compatibility but is currently always `'cli'`.
-
 CLEO uses a two-store logging architecture that separates operational diagnostics from structured audit trails:
 
-1. **Pino structured logs** -- operational events, startup lifecycle, warnings, and debug traces written to rotating log files via pino-roll.
-2. **SQLite audit_log** -- every audited CLI dispatch operation written to the `audit_log` table in `.cleo/tasks.db`.
+1. **Pino structured logs**: operational events, startup lifecycle, warnings and debug traces, written to rotating log files through pino-roll.
+2. **SQLite audit log**: every audited dispatch operation, written to the `tasks_audit_log` table in the project store `<project>/.cleo/cleo.db`.
 
-Both stores share a common set of correlation fields (`projectHash`, `requestId`, `sessionId`, `taskId`) that enable cross-referencing entries between the two systems. The dual-write principle is established in ADR-019 and extended by ADR-024.
+Both stores share a common set of correlation fields (`projectHash`, `requestId`, `sessionId`, `taskId`) that let entries in one be matched to entries in the other. The dual-write principle is established in ADR-019 and extended by ADR-024.
+
+The audit middleware is mounted on the CLI dispatcher (`packages/cleo/src/dispatch/adapters/cli.ts`). The `source` column records where a request came from. The allowed values are `GATEWAY_SOURCES` in `packages/contracts/src/gateway/index.ts` (`cli`, `mcp`, `rpc`, `http`). Requests built by the CLI adapter carry `'cli'`.
+
+Separate from both stores, the CLI output contract (ADR-086) puts exactly one LAFS envelope on stdout per call. All logs and progress go to stderr or to the log files.
+
+> **Current gap (see §12):** nothing in production calls `initLogger()`, so the Pino file sink in §2.1 is never opened. Pino output goes to the stderr fallback logger, which drops everything below `warn`. T14605 tracks the fix.
 
 ---
 
@@ -27,13 +29,13 @@ Both stores share a common set of correlation fields (`projectHash`, `requestId`
 
 **What goes here**: Operational events, debug traces, startup/shutdown lifecycle, warnings, error diagnostics, cache decisions, migration progress, and any non-audit diagnostic output.
 
-**Where written**: Log files under `.cleo/logs/` via pino-roll transport. The default file path is `.cleo/logs/cleo.log`. Rotation occurs daily and when files exceed `maxFileSize`. A pre-init fallback logger writes to stderr (fd 2) when the root logger has not yet been initialized.
+**Where written**: `initLogger(cleoDir, config, projectHash)` writes to `join(cleoDir, config.filePath)`; the default is `.cleo/logs/cleo.log`. pino-roll rotates daily (`dateFormat: 'yyyy-MM-dd'`) and when a file exceeds `maxFileSize`, producing files named `cleo.<yyyy-MM-dd>.<n>.log`. Before `initLogger()` runs, `getLogger()` returns a fallback logger that writes to stderr (fd 2) at `warn`, or at `silent` when `--quiet` set `setLoggerQuiet(true)`.
 
-**Retention**: Managed by pino-roll's built-in retention mechanism. The `maxFiles` configuration (default: 5) controls how many rotated log files are kept. pino-roll removes older files automatically via `limit.count` with `removeOtherLogFiles: true`. CLEO does not implement custom log file pruning.
+**Retention**: Managed by pino-roll. `maxFiles` (default 5) is passed as `limit.count` with `removeOtherLogFiles: true`. CLEO does not prune log files itself.
 
-**Owner**: `packages/core/src/logger.ts` -- provides `initLogger()`, `getLogger()`, `getLogDir()`, and `closeLogger()`.
+**Owner**: `packages/core/src/logger.ts`, which provides `initLogger()`, `getLogger()`, `getLogDir()`, `closeLogger()`, `setLoggerQuiet()` and `isLoggerQuiet()`. Read access to log files lives in `packages/core/src/observability/` (`discoverLogFiles`, `getProjectLogDir`, `getGlobalLogDir`, which is `<cleoHome>/logs`).
 
-**Format**: Newline-delimited JSON (NDJSON). Each line is a Pino JSON object with uppercase level labels and ISO-8601 timestamps. Example fields per entry:
+**Format**: Newline-delimited JSON (NDJSON). Each line is a Pino JSON object with an uppercase level label and an ISO-8601 timestamp. The root logger's `base` adds `platform`, `arch`, `nodeVersion` and, when known, `projectHash` to every entry; each child logger adds `subsystem`. Example:
 
 ```json
 {
@@ -47,45 +49,48 @@ Both stores share a common set of correlation fields (`projectHash`, `requestId`
 }
 ```
 
-### 2.2 SQLite audit_log (tasks.db)
+### 2.2 SQLite audit log (`tasks_audit_log` in the project `cleo.db`)
 
-**What goes here**: Every audited CLI dispatch operation -- mutations always, queries only during grade sessions. Each row captures the full request/response lifecycle of a dispatch operation.
+**What goes here**: Every audited dispatch operation: mutations always, queries only in grade mode (§10.1). Since T13777 the dispatch audit writes `tasks_audit_log`. Rows an older build writes to the bare `audit_log` table are drained into it when the store opens. The table syncs.
 
-**Columns per row** (from `packages/core/src/store/schema.ts`):
+**Columns** (from `packages/core/src/store/schema/cleo-project/audit.ts`):
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | TEXT PK | UUID per entry (`crypto.randomUUID()`) |
 | `timestamp` | TEXT NOT NULL | ISO-8601 timestamp of operation completion |
-| `action` | TEXT NOT NULL | Operation name (legacy column, mirrors `operation`) |
-| `task_id` | TEXT NOT NULL | Affected task ID or `'system'` for non-task ops |
-| `actor` | TEXT NOT NULL | User/agent identifier (default: `'system'`) |
-| `details_json` | TEXT | JSON-serialized request parameters |
-| `before_json` | TEXT | Pre-operation state snapshot (from `appendLog()` data accessor) |
-| `after_json` | TEXT | Post-operation state snapshot (from `appendLog()` data accessor) |
-| `domain` | TEXT | Dispatch domain (e.g., `'tasks'`, `'session'`, `'memory'`) |
-| `operation` | TEXT | Dispatch operation (e.g., `'add'`, `'complete'`, `'find'`) |
+| `action` | TEXT NOT NULL | Operation name (legacy column; the middleware writes the operation) |
+| `task_id` | TEXT NOT NULL | Affected task ID, or `'system'` for non-task ops |
+| `actor` | TEXT NOT NULL | Actor identity. Column default `'system'`; the dispatch middleware writes `'agent'` when no user id is known |
+| `details_json` | TEXT | JSON-serialized request parameters (redacted column) |
+| `before_json` | TEXT | Pre-operation state snapshot (from `appendLog()`; redacted column) |
+| `after_json` | TEXT | Post-operation state (from `appendLog()`); for a dispatch row with an idempotency key, the response envelope (redacted column) |
+| `domain` | TEXT | Dispatch domain (e.g. `'tasks'`, `'session'`, `'memory'`) |
+| `operation` | TEXT | Dispatch operation (e.g. `'add'`, `'complete'`, `'find'`) |
 | `session_id` | TEXT | Active session ID (NULL if no session) |
-| `request_id` | TEXT | Per-request UUID from dispatch layer |
+| `request_id` | TEXT | Per-request id from the dispatch layer |
+| `idempotency_key` | TEXT | Caller-supplied idempotency key; UNIQUE together with `project_hash`, `domain` and `operation` |
 | `duration_ms` | INTEGER | Operation duration in milliseconds |
 | `success` | INTEGER | 1 for success, 0 for failure |
-| `source` | TEXT | Entry point: currently always `'cli'` (nullable text column retained for forward compatibility) |
-| `gateway` | TEXT | Gateway type: `'mutate'`, `'query'` |
-| `error_message` | TEXT | Error message on failure (NULL on success) |
-| `project_hash` | TEXT | 12-char SHA-256 hex of project root path |
+| `source` | TEXT | Request origin (§1) |
+| `gateway` | TEXT | `'mutate'` or `'query'` |
+| `error_message` | TEXT | Error message on failure, NULL on success (redacted column) |
+| `project_hash` | TEXT | 12-char SHA-256 hex of the project root path |
+| `uid` | TEXT | Row uid (UUIDv8 over the audit id), unique |
+| `dispatch_idempotency_key` | TEXT | A dispatch request's idempotency key; not unique (a failed attempt and its retry both record a row) |
 
-**Indexes**: `task_id`, `action`, `timestamp`, `domain`, `request_id`, `project_hash`.
+**Indexes**: `task_id`, `action`, `timestamp`, `domain`, `request_id`, `idempotency_key`, `project_hash`, `actor`, `(session_id, timestamp)`, `(domain, operation)`, `(project_hash, domain, operation, dispatch_idempotency_key)`, and unique `uid`.
 
-**Retention**: CLEO-controlled via `pruneAuditLog()` in `packages/core/src/audit-prune.ts`. Default retention: 90 days (`auditRetentionDays`). When `archiveBeforePrune` is true (default), prunable rows are exported to `.cleo/backups/logs/audit-YYYY-MM-DD.jsonl.gz` before deletion.
+**Retention**: `pruneAuditLog()` in `packages/core/src/audit-prune.ts` (§9.2).
 
-**Owner**: `packages/cleo/src/dispatch/middleware/audit.ts` (write path via `createAudit()` middleware) and `packages/core/src/audit-prune.ts` (retention enforcement).
+**Owner**: `packages/cleo/src/dispatch/middleware/audit.ts` (write path, `createAudit()`) and `packages/core/src/audit-prune.ts` (retention).
 
 ### 2.3 Store Boundary Rules
 
-- Operational/debug log events MUST NOT be written to `audit_log`. The audit store captures dispatch operations only.
+- Operational/debug log events MUST NOT be written to the audit log. The audit store captures dispatch operations only.
 - Dispatch operation audit events MUST be written to both Pino (immediate structured log) and SQLite (persistent audit trail). This is the dual-write contract from ADR-019.
-- `brain.db` is a cognitive memory store, NOT a logging store. Brain write operations route through dispatch and are therefore audit-logged to `tasks.db.audit_log` with `domain='memory'`.
-- `nexus.db` (when implemented) is a project sync store, NOT a logging store. It will have its own `nexus_audit_log` table for cross-project operations per ADR-024 section 2.6.
+- The `brain_*` tables are a cognitive memory store, NOT a logging store. Memory writes that route through dispatch are audit-logged to `tasks_audit_log` with `domain='memory'`.
+- Cross-project NEXUS operations have their own `nexus_audit_log` table in the global `<cleoHome>/cleo.db` (ADR-024 §2.6). It is not a dispatch audit store.
 
 ---
 
@@ -93,22 +98,22 @@ Both stores share a common set of correlation fields (`projectHash`, `requestId`
 
 Every log entry (both stores) MUST include the following correlation fields where available:
 
-| Field | Pino Binding | audit_log Column | Source | Availability |
-|-------|-------------|------------------|--------|-------------|
+| Field | Pino Binding | Audit column | Source | Availability |
+|-------|-------------|--------------|--------|-------------|
 | `projectHash` | Root logger `base` object (inherited by all children) | `project_hash` | `project-info.json` via `getProjectInfoSync()` | Always (warn if absent) |
-| `requestId` | Per-request child logger binding | `request_id` | `req.requestId` from dispatch layer | Dispatch operations only |
-| `sessionId` | Per-audit-entry field | `session_id` | `req.sessionId` from session-resolver middleware, fallback to `CLEO_SESSION_ID` env var | When session is active |
-| `taskId` | Per-audit-entry field | `task_id` | `req.params.taskId` or `req.params.parent` | When operation is task-scoped |
+| `requestId` | — (not bound on the Pino audit entry) | `request_id` | `req.requestId` from the dispatch layer | Dispatch operations only |
+| `sessionId` | Field on the audit entry | `session_id` | `req.sessionId` from the session-resolver middleware; fallback described below | When a session is active |
+| `taskId` | Field on the audit entry | `task_id` | `req.params.taskId` or `req.params.parent` | When the operation is task-scoped |
 
 ### How Each Is Populated
 
-**projectHash**: Read synchronously from `.cleo/project-info.json` via `getProjectInfoSync()` at startup. For Pino, it is bound to the root logger's `base` object in `initLogger()`, so every child logger inherits it automatically. For `audit_log`, it is resolved in `writeToSqlite()` via a cached `resolveProjectHash()` call. The value is a 12-character hex string derived from `SHA-256(projectRootPath)`, generated once at scaffold time by `generateProjectHash()` in `packages/core/src/scaffold.ts`.
+**projectHash**: Read from `.cleo/project-info.json` via `getProjectInfoSync()`. For Pino, `initLogger()` binds it to the root logger's `base` object, so every child logger inherits it. For the audit log, `writeToSqlite()` resolves it through a cached `resolveProjectHash()`. The value is `generateProjectHash()` (`packages/core/src/nexus/hash.ts`): the first 12 hex characters of `SHA-256(projectRootPath)`, written by scaffold.
 
-**requestId**: Assigned by the dispatch layer as a per-request UUID. Passed to `writeToSqlite()` from the audit middleware. Links the Pino audit entry to its corresponding SQLite row.
+**requestId**: Assigned by the dispatch layer per request and passed to `writeToSqlite()` by the audit middleware. It links an `appendLog()` row to its dispatch row (§10.3).
 
-**sessionId**: Populated by the session-resolver middleware (`req.sessionId`) before the audit middleware runs. Falls back to `CLEO_SESSION_ID` or `CLEO_SESSION_GRADE_ID` environment variables when the resolver is not in the pipeline.
+**sessionId**: Populated by the session-resolver middleware (`req.sessionId`) before the audit middleware runs. When it is missing, the middleware uses `CLEO_SESSION_GRADE_ID` (in grade mode), then the env-first resolver `resolveSessionIdFromEnv()`.
 
-**taskId**: Extracted from request parameters (`params.taskId` or `params.parent`) by the audit middleware. Set to `'system'` when no task is in scope.
+**taskId**: Taken from `params.taskId` or `params.parent` by the audit middleware. Set to `'system'` when no task is in scope.
 
 ---
 
@@ -116,14 +121,14 @@ Every log entry (both stores) MUST include the following correlation fields wher
 
 | Level | Numeric | When to Use | Example |
 |-------|---------|-------------|---------|
-| `fatal` | 60 | Process-ending errors that require immediate termination | DB corruption, unrecoverable bootstrap failure, unsupported Node.js version |
-| `error` | 50 | Operation failures requiring attention but not process termination | Engine errors, unhandled exceptions caught at the top level, SQLite write failures in critical paths |
-| `warn` | 40 | Degraded behavior where a fallback was taken or optional config is missing | `projectHash` not provided to `initLogger()`, audit archive failure (continues with deletion), automatic audit prune failure, audit SQLite write failure (fire-and-forget) |
-| `info` | 30 | Normal operational events worth recording | Audit entries (dual-write), server startup/ready, dispatch layer initialized, audit prune completed with row counts, shutdown signals received |
-| `debug` | 20 | Detailed operation flow useful for troubleshooting | Tool call arguments, cache hit/miss decisions, budget enforcement details, tool call results |
+| `fatal` | 60 | Process-ending errors that require immediate termination | DB corruption, unrecoverable bootstrap failure |
+| `error` | 50 | Operation failures requiring attention but not process termination | Engine errors, unhandled exceptions caught at the top level, a failed startup migration |
+| `warn` | 40 | Degraded behavior where a fallback was taken or optional config is missing | `projectHash` not provided to `initLogger()`, audit archive failure (deletion continues), automatic audit prune failure, audit SQLite write failure |
+| `info` | 30 | Normal operational events worth recording | Audit entries (dual-write), audit prune completed with row counts, global-salt fingerprint at startup |
+| `debug` | 20 | Detailed operation flow useful for troubleshooting | Prune skipped, migration check skipped with no project |
 | `trace` | 10 | Fine-grained tracing for deep debugging | SQL queries, middleware chain execution steps |
 
-**Default level**: `info` (configurable via `logging.level` in config or `CLEO_LOG_LEVEL` env var).
+**Default level**: `info` (`logging.level` in config, or the `CLEO_LOG_LEVEL` env var). The stderr fallback logger ignores this setting and runs at `warn`.
 
 ---
 
@@ -131,72 +136,74 @@ Every log entry (both stores) MUST include the following correlation fields wher
 
 ### 5.1 CLI Startup Sequence
 
-The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook for logger initialization:
+The CLI entry point `packages/cleo/src/cli/index.ts` runs:
 
-1. **Node.js version check** (synchronous, pre-citty): If below minimum, writes directly to `process.stderr` and exits with code 1. This runs before any logger is available.
-2. **preAction hook -- Logger init** (first command invocation only):
-   - Loads core config via `loadCoreConfig()`.
-   - Calls `initCliLogger(cwd, config.logging)` which reads `projectHash` from `project-info.json` synchronously and calls `initLogger()`.
-   - Best-effort: if config loading fails, commands still work with the stderr fallback logger.
-3. **preAction hook -- Output format resolution**: Resolves `--json`/`--human`/`--quiet` flags.
-4. **preAction hook -- Storage migration preflight**: Checks if JSON-to-SQLite migration is needed. Warnings written to `process.stderr` (not Pino) to avoid polluting stdout JSON output. Skipped for `version`, `init`, `self-update`, `upgrade`, and `help` commands.
+1. **Node.js version check**: `enforceNodeVersion()` (`packages/paths/src/node-version-gate.ts`) runs at module load. Below the floor it prints upgrade guidance to stderr and exits 1. No logger is involved.
+2. **Fast path**: `--version` and `--help` return before any startup maintenance.
+3. **Quiet mode**: with `--quiet`, `setLoggerQuiet(true)` silences the fallback logger before startup maintenance.
+4. **Startup maintenance** (`runStartupMaintenance`), through `getLogger('cli-startup')`: one-shot legacy-file cleanup, the signaldock-to-conduit migration check (`error` on failure, `warn` if the check throws, `debug` when there is no project), and the global-salt check (`info` fingerprint, `warn` on failure).
+
+No step calls `initLogger()` (see §12). `packages/cleo/src/cli/logger-bootstrap.ts` defines `initCliLogger(cwd, loggingConfig)`, which reads `projectHash` from `project-info.json` and calls `initLogger()`, but nothing calls it.
 
 ### 5.2 Install / Scaffold
 
-Scaffold operations in `packages/core/src/scaffold.ts` create the `.cleo/` directory structure including `project-info.json` with `projectHash` and `projectId`. Scaffold runs before the logger is typically initialized (it creates the infrastructure the logger depends on), so scaffold events are not logged to Pino. The `project-info.json` file is the source of truth for `projectHash` used by all subsequent logging.
+Scaffold (`packages/core/src/scaffold.ts`) creates the `.cleo/` directory structure, including `logs/` (`REQUIRED_CLEO_SUBDIRS` in `packages/core/src/scaffold/ensure-dirs.ts`) and `project-info.json` with `projectHash` and `projectId`. Scaffold events are not logged to Pino. `project-info.json` is the source of `projectHash` for all later logging.
 
 ### 5.3 Upgrade / Migrate
 
-Migration events are logged via both `MigrationLogger` (a migration-specific logger) and Pino `getLogger('migration')` when available. Migration started, completed, and failed events are logged at `info`, `info`, and `error` levels respectively.
+Migration events are written by `MigrationLogger` (`packages/core/src/migration/logger.ts`) as JSONL to `.cleo/logs/migration-<timestamp>.jsonl`, with levels `info`, `warn`, `error` and `debug`.
 
 ---
 
 ## 6. Actionable Event Taxonomy
 
-Required events that MUST always be logged:
+Required events that MUST always be logged. "Emitter" names the code that logs the event today; rows marked **none** are required by this contract but no emitter was found in `packages/cleo/src`, `packages/core/src` or `packages/runtime/src`.
 
-| Event | Store | Level | Required Fields |
-|-------|-------|-------|----------------|
-| CLI logger initialized | Pino | info | `logLevel` |
-| CLI dispatch layer initialized | Pino | info | (message only) |
-| CLI background job manager initialized | Pino | info | `maxJobs`, `retentionMs` |
-| CLI query cache initialized | Pino | info | `enabled`, `ttlMs` |
-| CLI command received | Pino | debug | `command` |
-| CLI command error | Pino | error | `err` |
-| CLI fatal startup error | Pino | fatal | `err` |
-| CLI uncaught exception | Pino | fatal | `err`, `errorType` |
-| Node.js version unsupported | Pino | fatal | `minimumNodeMajor`, `nodeVersion`, `recommendedUpgrade` |
-| Dispatch operation audited | Pino + SQLite | info | `domain`, `operation`, `sessionId`, `taskId`, `gateway`, `success`, `exitCode`, `durationMs` |
-| Audit SQLite write failed | Pino | warn | `err` |
-| Audit SQLite persist failed | Pino | error | `err` |
-| Audit prune completed | Pino | info | `rowsArchived`, `archivePath` (archive) and `rowsDeleted`, `cutoff` (delete) |
-| Audit prune skipped (no old rows) | Pino | debug | (message only) |
-| Audit prune skipped (retention=0) | Pino | debug | (message only) |
-| Audit archive failed | Pino | warn | `err` |
-| Audit prune failed | Pino | warn | `err` |
-| projectHash missing at init | Pino | warn | (message only) |
-| Query cache hit | Pino | debug | `domain`, `operation` |
-| Query cache invalidated | Pino | debug | `domain`, `invalidated` |
-| Budget enforcement applied | Pino | debug | `estimatedTokens`, `tokenBudget`, `truncated` |
-| Global bootstrap warning | Pino | warn | `err`, `errorMessage` |
+| Event | Store | Level | Required Fields | Emitter |
+|-------|-------|-------|----------------|---------|
+| Dispatch operation audited | Pino + SQLite | info | `domain`, `operation`, `sessionId`, `taskId`, `gateway`, `success`, `exitCode`, `durationMs` (plus `idempotencyKey` when given) | `dispatch/middleware/audit.ts` |
+| Audit payload failed validation | Pino | warn | `issues` | `dispatch/middleware/audit.ts` |
+| Audit SQLite write failed | Pino | warn | `err` | `dispatch/middleware/audit.ts` |
+| Audit prune completed | Pino | info | `rowsArchived`, `archivePath` (archive) and `rowsDeleted`, `cutoff` (delete) | `core/audit-prune.ts` |
+| Audit prune skipped (no old rows) | Pino | debug | (message only) | `core/audit-prune.ts` |
+| Audit prune skipped (retention=0) | Pino | debug | (message only) | `core/audit-prune.ts` |
+| Audit archive failed | Pino | warn | `err` | `core/audit-prune.ts` |
+| Audit prune failed | Pino | warn | `err` | `core/audit-prune.ts` |
+| Automatic audit prune failed | Pino | warn | `err`, `projectRoot` | `core/audit-prune.ts` |
+| projectHash missing at init | Pino | warn | (message only) | `core/logger.ts` |
+| Startup migration failed | Pino | error | `errors`, `projectRoot` | `cli/index.ts` |
+| Global-salt fingerprint | Pino | info | `fingerprint` | `cli/index.ts` |
+| Node.js version unsupported | stderr | — | upgrade guidance | `paths/node-version-gate.ts` |
+| CLI logger initialized | Pino | info | `logLevel` | none |
+| CLI dispatch layer initialized | Pino | info | (message only) | none |
+| CLI background job manager initialized | Pino | info | `maxJobs`, `retentionMs` | none |
+| CLI query cache initialized | Pino | info | `enabled`, `ttlMs` | none |
+| CLI command received | Pino | debug | `command` | none |
+| CLI command error | Pino | error | `err` | none |
+| CLI fatal startup error | Pino | fatal | `err` | none |
+| CLI uncaught exception | Pino | fatal | `err`, `errorType` | none |
+| Audit SQLite persist failed | Pino | error | `err` | none (write failures log at `warn`) |
+| Query cache hit | Pino | debug | `domain`, `operation` | none |
+| Query cache invalidated | Pino | debug | `domain`, `invalidated` | none |
+| Budget enforcement applied | Pino | debug | `estimatedTokens`, `tokenBudget`, `truncated` | none |
+| Global bootstrap warning | Pino | warn | `err`, `errorMessage` | none |
 
 ---
 
 ## 7. CLI Logging Rules
 
-- CLI operations are the sole logging path. Every `cleo <command>` invocation calls `initLogger()` via the citty `preAction` hook before any operation runs.
-- All CLI commands route through the dispatch layer, which includes the `createAudit()` middleware for dual-write to Pino and SQLite.
-- CLI stdout is reserved for command output (LAFS envelopes with `--json`, or human renders with `--human`); all diagnostic logging MUST go to Pino file sinks or stderr. The `initLogger()` function configures pino-roll to write to `.cleo/logs/cleo.log`, keeping stdout clean.
-- Pre-init fallback: Before `initLogger()` is called, `getLogger()` returns a stderr-bound logger at `warn` level. This ensures early startup code and error paths never crash due to missing logger infrastructure.
-- No `console.log()` or `console.error()` in post-init paths. Pre-init `console.error()` is acceptable only for the Node.js version check (which runs before any logger is available).
+- All CLI commands that dispatch go through the CLI dispatcher, whose middleware chain includes `createAudit()` for the Pino + SQLite dual-write.
+- CLI stdout is reserved for command output: one LAFS envelope per call, or a human render with `--human` (ADR-086). All diagnostic logging MUST go to the Pino file sink or stderr.
+- CLI startup MUST initialize the file logger before dispatching (`initLogger()`, via `initCliLogger()`). This is not implemented today (§12); the stderr fallback logger handles all logging.
+- Pre-init fallback: before `initLogger()` is called, `getLogger()` returns a stderr-bound logger at `warn` (`silent` under `--quiet`), so early startup code and error paths never crash for lack of a logger.
+- No `console.log()` or `console.error()` in post-init paths. The Node.js version check writes to stderr directly because it runs before any logger exists.
 
 ---
 
 ## 8. CLI Initialization Rules
 
-- CLI startup MUST call `initLogger()` before any operations. This is done in the `preAction` hook via `initCliLogger()` in `packages/cleo/src/cli/logger-bootstrap.ts`.
-- All CLI commands route through the dispatch layer via `dispatchRaw()` in `packages/cleo/src/dispatch/adapters/cli.ts`, which applies the `createAudit()` middleware to produce `audit_log` entries with `source: 'cli'`.
-- The `initCliLogger()` function in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring every CLI log entry carries the correct correlation context.
+- `initCliLogger(cwd, loggingConfig)` in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger(join(cwd, '.cleo'), …)`, so every log entry carries the correlation context. It MUST run before any operation; today it is never called (§12).
+- CLI commands dispatch through `packages/cleo/src/dispatch/adapters/cli.ts` (`getCliDispatcher()`, `dispatchRaw()`), which applies `createAudit()` and writes rows with `source: 'cli'`.
 
 ---
 
@@ -206,39 +213,39 @@ Required events that MUST always be logged:
 
 | Setting | Config Key | Default | Description |
 |---------|-----------|---------|-------------|
-| Log level | `logging.level` | `'info'` | Minimum level to record |
+| Log level | `logging.level` | `'info'` | Minimum level to record (env `CLEO_LOG_LEVEL`) |
 | File path | `logging.filePath` | `'logs/cleo.log'` | Relative to `.cleo/` |
 | Max file size | `logging.maxFileSize` | 10,485,760 (10 MB) | Triggers size-based rotation |
 | Max files | `logging.maxFiles` | 5 | Number of rotated files to retain |
 | Rotation frequency | (hardcoded) | `'daily'` | Time-based rotation via pino-roll |
-| Date format | (hardcoded) | `'yyyy-MM-dd'` | Suffix for rotated files |
+| Date format | (hardcoded) | `'yyyy-MM-dd'` | Date part of rotated file names |
 
-Retention is enforced by pino-roll via `limit.count` with `removeOtherLogFiles: true`. CLEO does not manage log file deletion independently.
+Defaults are in `packages/core/src/config.ts`. Retention is enforced by pino-roll via `limit.count` with `removeOtherLogFiles: true`.
 
-### 9.2 SQLite audit_log
+### 9.2 SQLite audit log
 
 | Setting | Config Key | Env Var | Default | Description |
 |---------|-----------|---------|---------|-------------|
-| Retention days | `logging.auditRetentionDays` | `CLEO_AUDIT_RETENTION_DAYS` | 90 | Days to retain rows before pruning |
+| Retention days | `logging.auditRetentionDays` | `CLEO_AUDIT_RETENTION_DAYS` | 90 | Days to retain rows before pruning; values below 30 are raised to 30 |
 | Archive before prune | `logging.archiveBeforePrune` | (none) | `true` | Export rows to gzip JSONL before deletion |
 
 **Archive location**: `.cleo/backups/logs/audit-YYYY-MM-DD.jsonl.gz`
 
-**Archive format**: Gzip-compressed newline-delimited JSON. Each line is a JSON object representing one `audit_log` row with all columns.
+**Archive format**: Gzip-compressed newline-delimited JSON, one audit row per line with all columns.
 
 **Pruning behavior**:
-1. If `auditRetentionDays` is 0 or unset, pruning is skipped entirely.
-2. Compute cutoff: `new Date(Date.now() - auditRetentionDays * 86_400_000).toISOString()`.
-3. Select rows where `timestamp < cutoff`.
-4. If no old rows exist, return early.
-5. If `archiveBeforePrune` is true, write selected rows to archive file. Archive failure does NOT prevent deletion (logged at `warn`).
-6. Delete rows where `timestamp < cutoff`.
-7. Log result at `info` level with `rowsDeleted` and `cutoff`.
+1. If `auditRetentionDays` is 0 or unset, pruning is skipped.
+2. Compute the cutoff from `max(auditRetentionDays, AUDIT_RETENTION_FLOOR_DAYS)` (floor 30). Pruned rows sync, so the delete reaches every device; the floor keeps one device set to a short retention from erasing everyone's recent history.
+3. Select prunable rows: `timestamp < cutoff`, excluding the receipt actions in `AUDIT_PRUNE_EXEMPT_ACTIONS` (`ac.bindings.pruned`, `saga_reconciled`, `ranking_changed`) and `gate.verify.typed` rows of tasks that are not done or cancelled.
+4. If there are none, return early.
+5. If `archiveBeforePrune` is true, write the selected rows to the archive file. Archive failure does NOT prevent deletion (logged at `warn`).
+6. Delete the same rows.
+7. Log the result at `info` with `rowsDeleted` and `cutoff`.
 
-**Idempotency**: `pruneAuditLog()` is safe to call multiple times. It never throws -- returns zero counts on any error.
+**Idempotency**: `pruneAuditLog()` is safe to call repeatedly. It never throws; it returns zero counts on any error.
 
 **When it runs** (T13828):
-- Automatically at session end, after the session-end snapshot (`snapshotAfterSessionEnd`), through `autoPruneAuditLog()`: at most once a day per project, stamped in `.cleo/logs/audit-prune.last`.
+- Automatically at session end, after the session-end snapshot, through `autoPruneAuditLog()`: at most once a day per project, stamped in `.cleo/logs/audit-prune.last`.
 - On demand with `cleo admin cleanup --target logs`.
 
 Both apply the same retention days, the 30-day floor and the receipt exemptions.
@@ -249,44 +256,60 @@ Both apply the same retention days, the 30-day floor and the receipt exemptions.
 
 ### 10.1 What Is Audited
 
-The `createAudit()` middleware in `packages/cleo/src/dispatch/middleware/audit.ts` audits:
+`createAudit()` in `packages/cleo/src/dispatch/middleware/audit.ts` audits:
 
-- **All mutate operations**: Every `gateway === 'mutate'` request is audited.
-- **Query operations during grade sessions only**: When `CLEO_SESSION_GRADE === 'true'`, query operations are also audited for behavioral analysis.
-- **Audit toggle**: If `config.auditLog` is falsy, auditing is disabled entirely.
+- **All mutate operations**: every `gateway === 'mutate'` request.
+- **Query operations in grade mode only**: when `CLEO_SESSION_GRADE === 'true'`, or when the caller's bound session has `gradeMode` set.
+- **Audit toggle**: if the dispatch config's `auditLog` is false, auditing is off. It defaults to `true` (`packages/cleo/src/dispatch/lib/defaults.ts`).
 
 ### 10.2 Write Semantics
 
-- **Pino write**: Immediate, non-blocking `log.info()` call with structured fields.
-- **SQLite write (normal mode)**: Fire-and-forget -- `writeToSqlite()` is called without `await`. Failures are caught and logged at `error` level.
-- **SQLite write (grade mode)**: Awaited -- ensures the audit row is committed before the response is returned, preventing race conditions with grading queries.
+- **Pino write**: one `log.info()` call with the structured fields in §6, message `"<gateway> <domain>.<operation>"`.
+- **SQLite write**: awaited in every mode, so the row exists before the response leaves the dispatcher (T13164). The payload is checked against `AuditLogInsertSchema` first; a validation failure or a write failure is logged at `warn` and never thrown.
 
 ### 10.3 Deduplication Contract
 
-Per ADR-024 section 2.7, every mutation produces exactly one canonical audit record. When both `createAudit()` middleware and `appendLog()` data accessor write entries for the same operation:
+Per ADR-024 §2.7, every mutation produces exactly one canonical audit record. When both the `createAudit()` middleware and the `appendLog()` data accessor (`packages/core/src/store/sqlite-data-accessor.ts`) write rows for the same operation:
 
-| Writer | Authority | Columns |
-|--------|-----------|---------|
-| `createAudit()` middleware | Dispatch-level events | All 18 columns |
-| `appendLog()` data accessor | Task CRUD state diff | Base 8 columns + `before_json` / `after_json` |
+| Writer | Authority | Columns written |
+|--------|-----------|-----------------|
+| `createAudit()` middleware | Dispatch-level events | All dispatch columns (§2.2) except `before_json`, `idempotency_key`, `uid` |
+| `appendLog()` data accessor | Task CRUD state diff | `id`, `timestamp`, `action`, `task_id`, `actor`, `details_json`, `before_json`, `after_json`, `session_id` |
 
-The dispatch entry is authoritative. The `appendLog()` entry provides state diffs not captured by dispatch. `request_id` links them.
+The dispatch entry is authoritative; the `appendLog()` entry adds the state diff. `appendLog()` does not write `request_id`, so the two rows are not joined by that column.
 
 ---
 
-## 11. References
+## 11. Other diagnostic stores
 
-- [ADR-019: Canonical Logging Architecture](docs/adr/adr-019-canonical-logging-architecture.md) -- original dual-write decision
-- [ADR-024: Multi-Store Canonical Logging Architecture](docs/adr/adr-024-multi-store-canonical-logging.md) -- extensions for CLI init, retention, correlation, and brain.db
-- `packages/core/src/logger.ts` -- Pino logger factory (initLogger, getLogger, closeLogger)
-- `packages/core/src/audit-prune.ts` -- audit_log retention enforcement (pruneAuditLog)
-- `packages/core/src/project-info.ts` -- projectHash/projectId reader (getProjectInfo, getProjectInfoSync)
-- `packages/cleo/src/dispatch/adapters/cli.ts` -- CLI dispatch adapter (`dispatchRaw`, middleware pipeline)
-- `packages/cleo/src/dispatch/middleware/audit.ts` -- dual-write audit middleware (createAudit, writeToSqlite, queryAudit)
-- `packages/cleo/src/cli/logger-bootstrap.ts` -- CLI logger initialization (initCliLogger)
-- `packages/cleo/src/cli/index.ts` -- CLI entry point with preAction hooks
-- `packages/core/src/config.ts` -- configuration defaults including LoggingConfig
-- `src/types/config.ts` -- LoggingConfig type definition
-- `packages/core/src/store/schema.ts` -- audit_log Drizzle schema definition
-- T5318 -- implementation epic
-- T5309 -- this contract document
+- **Telemetry** (opt-in, off by default; `cleo diagnostics enable`): the dispatch `createTelemetry()` middleware records shape, timing and exit code (no params or output) to `telemetry_events` in the global `<cleoHome>/cleo.db`. Opt-in state is kept in `<cleoHome>/telemetry-config.json` (`packages/core/src/telemetry/index.ts`). Telemetry is not part of the logging contract.
+- **Studio actions**: CLEO Studio appends its admin actions to `<project>/.cleo/audit/studio-actions.jsonl` (`packages/studio/src/lib/server/audit-log.ts`).
+
+---
+
+## 12. Known gaps
+
+The missing logger initialization is tracked in T14605.
+
+1. **The file logger is never initialized.** `initLogger()` has no production caller; `initCliLogger()` is defined but unused (`packages/cleo/src/cli/logger-bootstrap.ts:9`). Every `getLogger()` call returns the stderr fallback at `warn`, so `info` and `debug` events, including the Pino half of every audited dispatch, are dropped, and `.cleo/logs/cleo.log` is not written.
+2. **Required events with no emitter.** The §6 rows marked **none**.
+3. **Stale comments.** The header of `packages/cleo/src/dispatch/middleware/audit.ts` still names `.cleo/tasks.db`, and `packages/runtime/src/gateway/engine-error.ts` refers to a "preAction hook" that calls `initLogger()`; neither exists.
+
+---
+
+## 13. References
+
+- [ADR-019: Canonical Logging Architecture](../adr/adr-019-canonical-logging-architecture.md): original dual-write decision
+- [ADR-024: Multi-Store Canonical Logging Architecture](../adr/adr-024-multi-store-canonical-logging.md): extensions for CLI init, retention, correlation and memory
+- [ADR-086: CLI Output Contract](../adr/adr-086-cli-output-contract-e9.md): one envelope on stdout, logs on stderr
+- `packages/core/src/logger.ts`: Pino logger factory (`initLogger`, `getLogger`, `closeLogger`, `setLoggerQuiet`)
+- `packages/core/src/observability/`: log-file discovery and reading
+- `packages/core/src/audit-prune.ts`: audit retention (`pruneAuditLog`, `autoPruneAuditLog`)
+- `packages/core/src/project-info.ts`: `projectHash`/`projectId` reader (`getProjectInfoSync`)
+- `packages/core/src/config.ts`: logging defaults and env mapping
+- `packages/contracts/src/logger.ts` (`LoggerConfig`), `packages/contracts/src/config/types.ts` (`LoggingConfig`)
+- `packages/core/src/store/schema/cleo-project/audit.ts`: `tasks_audit_log` schema
+- `packages/cleo/src/dispatch/adapters/cli.ts`: CLI dispatcher and middleware chain
+- `packages/cleo/src/dispatch/middleware/audit.ts`: dual-write audit middleware (`createAudit`, `writeToSqlite`)
+- `packages/cleo/src/cli/logger-bootstrap.ts`: `initCliLogger`
+- `packages/cleo/src/cli/index.ts`: CLI entry point and startup maintenance

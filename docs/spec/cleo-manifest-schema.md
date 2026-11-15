@@ -1,13 +1,6 @@
-# CLEO Manifest Schema Specification
+# CLEO Pipeline Manifest Specification
 
-**Version**: 2026.3.6
-**Status**: APPROVED
-**Date**: 2026-03-06
-**Task**: T5577
-**Epic**: T5576
-**Authors**: CLEO Agent Team
-
----
+**Status**: ACTIVE
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
@@ -15,1072 +8,247 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## 1. Overview
 
-This specification defines the schema for the `pipeline_manifest` table in `tasks.db`, the migration protocol from the legacy flat-file manifest, and the distillation lifecycle for pipeline manifest entries.
+The pipeline manifest records agent output artifacts (research, implementation, specification and other deliverables) produced during CLEO work. It lives in the project store, `<project>/.cleo/cleo.db`, in the table `docs_pipeline_manifest`. It replaced the legacy append-only `MANIFEST.jsonl` file (ADR-027, ADR-054).
 
-The `pipeline_manifest` table is the authoritative store for all agent output artifacts, research deliverables, and implementation records written during CLEO sessions. It supersedes the legacy flat-file manifest per ADR-027.
+Source of truth for this spec:
 
----
-
-## 2. Terminology
-
-| Term | Definition |
-|------|------------|
-| **pipeline_manifest** | SQLite table in `tasks.db` storing agent artifact metadata |
-| **legacy flat-file** | Legacy append-only JSONL file (renamed to `legacy-manifest.jsonl`) retired by this spec |
-| **entry** | One row in `pipeline_manifest` |
-| **distillation** | Process of summarizing an active entry into brain.db as an observation |
-| **active** | Entry status: in use, not yet archived or distilled |
-| **distilled** | Entry status: content has been summarized to brain.db |
-| **archived** | Entry status: retained for history, excluded from active queries |
-| **brain_obs_id** | ID of the brain.db observation created during distillation |
-| **content_hash** | SHA-256 hex digest of the `content` field, used for deduplication |
+| Concern | Source |
+|---|---|
+| Table schema | `packages/core/src/store/schema/cleo-project/docs.ts` (`docsPipelineManifest`) |
+| Legacy table schema (read-only history) | `packages/core/src/store/schema/manifest.ts` (`pipelineManifest`, physical name `pipeline_manifest`) |
+| Operations | `packages/core/src/memory/pipeline-manifest-sqlite.ts` |
+| Entry identity and file-reference checks | `packages/core/src/memory/manifest-identity.ts` |
+| CLI shorthand entry builder | `packages/core/src/memory/manifest-builder.ts` |
+| RCASD and loose-file ingestion | `packages/core/src/memory/manifest-ingestion.ts` |
+| Dispatch handlers (`pipeline` domain) | `packages/cleo/src/dispatch/domains/pipeline.ts` |
+| CLI | `packages/cleo/src/cli/commands/manifest.ts`, `research.ts`, `migrate-claude-mem.ts` |
 
 ---
 
-## 3. Table Schema
+## 2. Storage
 
-### 3.1 pipeline_manifest
+### 2.1 Tables
 
-```sql
-CREATE TABLE pipeline_manifest (
-  id            text PRIMARY KEY NOT NULL,
-  session_id    text,
-  task_id       text,
-  epic_id       text,
-  type          text NOT NULL,
-  content       text NOT NULL,
-  content_hash  text,
-  status        text NOT NULL DEFAULT 'active',
-  distilled     integer NOT NULL DEFAULT 0,
-  brain_obs_id  text,
-  source_file   text,
-  metadata_json text,
-  created_at    text NOT NULL DEFAULT (datetime('now')),
-  archived_at   text
-);
-```
+| Table | Role |
+|---|---|
+| `docs_pipeline_manifest` | Canonical table. Every write goes here. |
+| `pipeline_manifest` | Legacy bare twin in the same `cleo.db`. Read on every query and merged with the canonical rows; never written by the manifest operations. |
 
-### 3.2 Column Definitions
+Both tables are classified `portable-project` (synced and backed up) in `packages/core/src/store/table-classification.ts`.
 
-| Column | Type | Nullable | Description |
-|--------|------|----------|-------------|
-| `id` | text | NOT NULL | Primary key. Format: `{TASK_ID}-{slug}` (e.g., `T5577-release-adr`). MUST be globally unique across all projects sharing a `tasks.db`. |
-| `session_id` | text | NULL | CLEO session ID that created this entry. NULL for entries created outside a session. |
-| `task_id` | text | NULL | CLEO task ID this entry is associated with (e.g., `T5577`). |
-| `epic_id` | text | NULL | CLEO epic ID this entry is associated with (e.g., `T5576`). |
-| `type` | text | NOT NULL | Entry type. See §3.3 for valid values. |
-| `content` | text | NOT NULL | Full entry content as a string. MUST be UTF-8. No length limit enforced at DB level. |
-| `content_hash` | text | NULL | SHA-256 hex digest of `content`. SHOULD be populated on insert for deduplication. |
-| `status` | text | NOT NULL | Lifecycle status. See §4 for valid values. Default: `active`. |
-| `distilled` | integer | NOT NULL | Boolean flag (0 or 1). 1 = content has been distilled to brain.db. Default: 0. |
-| `brain_obs_id` | text | NULL | ID of the brain.db observation created during distillation. NULL until distilled. |
-| `source_file` | text | NULL | Relative path of the source file (e.g., `claudedocs/agent-outputs/T5577-adr.md`). |
-| `metadata_json` | text | NULL | JSON object with additional key/value metadata. No fixed schema. |
-| `created_at` | text | NOT NULL | ISO-8601 UTC timestamp. Default: `datetime('now')`. |
-| `archived_at` | text | NULL | ISO-8601 UTC timestamp set when status transitions to `archived`. |
+Reads merge both tables by `id` (`readStoredRows`, `pipeline-manifest-sqlite.ts:83`). Each returned row carries `provenance: { databasePath, tables[] }` naming the table(s) it came from. When the same `id` exists in both tables with different stored values, the read fails with `E_MANIFEST_ID_CONFLICT`, listing both payloads and their SHA-256 hashes.
 
-### 3.3 Type Values
+A mutation that touches a row present in the legacy table fails with `E_MANIFEST_LEGACY_REPAIR_REQUIRED` (`requireModernRows`, `pipeline-manifest-sqlite.ts:152`). Legacy rows are never migrated or rewritten implicitly.
 
-| Type | Description |
-|------|-------------|
-| `research` | Research output from a Research subagent |
-| `implementation` | Implementation artifact from a code-writing subagent |
-| `specification` | Formal spec or design document |
-| `design` | Architecture or design artifact |
-| `analysis` | Analysis or audit output |
-| `decision` | Decision record or ADR content |
-| `note` | General session note or observation |
+### 2.2 `docs_pipeline_manifest` columns
 
-The `type` column MUST contain one of the values above. New types MAY be added via a future ADR without a table migration (CHECK constraint is not enforced at DB level to allow forward compatibility).
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `id` | text | PK | | Entry id (see §3.1). |
+| `session_id` | text | yes | | Session id. |
+| `task_id` | text | yes | | Primary task. Set from `linked_tasks[0]` on append. |
+| `epic_id` | text | yes | | Not set by any current writer. |
+| `type` | text | no | | Entry type (open taxonomy, no CHECK constraint). Holds `agent_type` on append. |
+| `content` | text | no | | Append: the full entry serialized as JSON. Ingestion: the file's markdown. |
+| `content_hash` | text | yes | | SHA-256 hex of `content`; see §2.4. |
+| `status` | text | no | `'active'` | No CHECK constraint; see §2.3. |
+| `distilled` | integer (boolean) | no | `false` | No writer sets it to true (§4.8). |
+| `brain_obs_id` | text | yes | | Not set by any current writer. |
+| `source_file` | text | yes | | Entry `file` reference, or the ingested file's repo-relative path. |
+| `metadata_json` | text | yes | | JSON object; see §3.3. |
+| `created_at` | text | no | `datetime('now')` | See §2.4 for the formats writers use. |
+| `archived_at` | text | yes | | Set by archive; NULL while live. |
 
----
+Indexes: `idx_docs_pipeline_manifest_task_id`, `_session_id`, `_distilled`, `_status`, `_content_hash` (`docs.ts:278-282`).
 
-## 4. Distillation Lifecycle
+The legacy `pipeline_manifest` table has the same columns; in it `session_id`, `task_id` and `epic_id` reference `sessions`/`tasks` with `ON DELETE SET NULL`, and `created_at` has no default (`schema/manifest.ts:44-69`).
 
-Entries progress through the following status values:
+### 2.3 Status values
 
-```
-active ──► archived
-  │
-  └──► distilled ──► archived
-```
+On append, an entry `status` of `completed` is stored as `active`; `partial` and `blocked` are stored as given (`entryToRow`, `pipeline-manifest-sqlite.ts:796`). Ingestion stores `active`. On read, a stored `active` is returned as `completed` (`rowToEntry`, `pipeline-manifest-sqlite.ts:747`).
 
-| Status | `distilled` | `brain_obs_id` | `archived_at` | Description |
-|--------|-------------|----------------|---------------|-------------|
-| `active` | 0 | NULL | NULL | Normal operating state |
-| `distilled` | 1 | set | NULL | Content summarized to brain.db |
-| `archived` | 0 or 1 | NULL or set | set | Retained for history only |
+Archiving sets `archived_at` only; it does not change `status`. Rows with a non-NULL `archived_at` are excluded from every list, find, pending and stats read; `show` still returns them.
 
-**Transition rules**:
+### 2.4 Hash and timestamp formats
 
-1. `active` → `archived`: Set `archived_at = datetime('now')`, `status = 'archived'`. MUST NOT clear `content`.
-2. `active` → `distilled`: Set `distilled = 1`, `brain_obs_id = {id}`, `status = 'distilled'`. Content MUST be preserved.
-3. `distilled` → `archived`: Set `archived_at = datetime('now')`, `status = 'archived'`. `distilled` and `brain_obs_id` MUST remain set.
+Writers do not agree on these formats today:
 
-**Phase 3 note**: Distillation logic (transitions to `distilled` status) is deferred to Phase 3 (T5152). In Phase 2, all entries remain `active` or move directly to `archived`. The `distilled` and `brain_obs_id` columns MUST be present in the schema but MUST NOT be written by Phase 2 code.
+| Writer | `content_hash` | `created_at` |
+|---|---|---|
+| `pipelineManifestAppend`, `migrateManifestJsonlToSqlite` | first 16 hex chars of SHA-256 (`pipeline-manifest-sqlite.ts:254`) | `<entry.date> 00:00:00` (`:808`) |
+| `ingestRcasdDirectories`, `ingestLooseAgentOutputs` | full 64-char SHA-256 hex (`manifest-ingestion.ts:80`) | file mtime as ISO-8601 (`manifest-ingestion.ts:207, 267`) |
+| `pipelineManifestArchive` (`archived_at`) | | `YYYY-MM-DD HH:MM:SS` UTC (`now()`, `:250`) |
+
+`content_hash` is not used for deduplication on append. `compact` compares full `content` (§4.7).
 
 ---
 
-## 5. Indexes
+## 3. Entry contract
 
-Five indexes MUST exist on `pipeline_manifest`:
+The operations exchange `ExtendedManifestEntry` objects (`packages/core/src/memory/index.ts:46, 458`), not raw rows.
 
-```sql
-CREATE INDEX idx_pm_task_id      ON pipeline_manifest(task_id);
-CREATE INDEX idx_pm_session_id   ON pipeline_manifest(session_id);
-CREATE INDEX idx_pm_distilled    ON pipeline_manifest(distilled);
-CREATE INDEX idx_pm_status       ON pipeline_manifest(status);
-CREATE INDEX idx_pm_content_hash ON pipeline_manifest(content_hash);
-```
+### 3.1 Fields
 
-**Rationale**:
-- `task_id`: Most manifest queries filter by task — this is the most frequent access pattern
-- `session_id`: Session-scoped queries (e.g., "what did this session produce?")
-- `distilled`: Phase 3 distillation worker queries all undistilled entries in bulk
-- `status`: Active-entry queries exclude archived entries
-- `content_hash`: Deduplication checks on insert
+| Field | Required on append | Notes |
+|---|---|---|
+| `id` | yes | At most 200 characters, matching `/^[A-Za-z0-9][A-Za-z0-9._:@+-]*$/` (`manifest-identity.ts:36, 44`). |
+| `file` | yes | Project-relative path or `cleo://docs/<reference>` (§4.1). At most 1024 characters, no segment over 255 bytes, never escaping the project root. |
+| `title` | yes | |
+| `date` | yes | `YYYY-MM-DD`. |
+| `status` | yes | `completed`, `partial` or `blocked`. |
+| `agent_type` | yes | Stored in `type`. |
+| `topics` | yes | string[] |
+| `actionable` | yes | boolean |
+| `key_findings` | no | string[] |
+| `needs_followup` | no | string[] |
+| `linked_tasks` | no | string[] of task ids. The first becomes `task_id`. |
+| `confidence` | no | number |
+| `file_checksum` | no | string |
+| `duration_seconds` | no | number |
 
----
+Missing required fields fail with `E_VALIDATION_FAILED`; a malformed id, linked task id or file reference fails with `E_VALIDATION`. Through the CLI/dispatch path a `linked_tasks` id that names no task in the project fails with `E_NOT_FOUND` (`requireExistingTasks`, `pipeline.ts:354-357`).
 
-## 6. Migration from the Legacy Flat-File Manifest
+### 3.2 Row mapping on append
 
-### 6.1 Migration Function Contract
+`entryToRow` (`pipeline-manifest-sqlite.ts:773`): `content` = `JSON.stringify(entry)`; `type` = `agent_type`; `task_id` = `linked_tasks[0]`; `source_file` = `file`; `metadata_json` = the fields `file`, `title`, `topics`, `key_findings`, `actionable`, `needs_followup`, `linked_tasks`, `confidence`, `file_checksum`, `duration_seconds`.
 
-A one-time migration function `migrateManifestJsonl(db, jsonlPath)` MUST be provided:
+### 3.3 `metadata_json` read contract
 
-**Inputs**:
-- `db`: Drizzle database instance (tasks.db)
-- `jsonlPath`: absolute path to the legacy flat-file (`.cleo/agent-outputs/legacy-manifest.jsonl`)
+Readers validate `metadata_json` against the field types in §3.1 (`manifestMetadataSchema`, `pipeline-manifest-sqlite.ts`). Unknown keys are kept. A legacy boolean `needs_followup` reads as `[]` (false) or `["follow-up needed (no task named)"]` (true).
 
-**Algorithm**:
-1. Check if `jsonlPath` exists; if absent, return `{ migrated: 0, skipped: 0 }` (no-op)
-2. Read file line by line, skipping blank lines and lines that fail JSON parse
-3. For each valid JSON object, map legacy fields to `pipeline_manifest` columns:
+Ingested rows carry their own keys: `phase`, `rcasd_origin`, `filename_note`, `cross_task_ref` (RCASD), or `loose_origin`, `original_filename`, `flat_rcasd` (loose files).
 
-| Legacy flat-file field | pipeline_manifest column | Notes |
-|----------------------|-------------------------|-------|
-| `id` | `id` | Direct mapping |
-| `file` | `source_file` | Direct mapping |
-| `title` | stored in `metadata_json.title` | |
-| `date` | `created_at` | Convert to ISO-8601 if not already |
-| `status` | `status` | Map `complete` → `active`, `partial` → `active`, `blocked` → `archived` |
-| `agent_type` | `type` | Direct mapping |
-| `topics` | stored in `metadata_json.topics` | JSON array |
-| `key_findings` | stored in `metadata_json.key_findings` | JSON array |
-| `actionable` | stored in `metadata_json.actionable` | |
-| `needs_followup` | stored in `metadata_json.needs_followup` | |
-| `linked_tasks` | `task_id` (first element), remaining in `metadata_json.linked_tasks` | |
-| *(all fields)* | `content` | Full JSON object serialized as string |
-
-4. Insert each row using `INSERT OR IGNORE` (conflict on `id` → skip)
-5. Return `{ migrated: N, skipped: M }`
-
-**Idempotency**: The function MUST be safe to call multiple times. Duplicate `id` values are silently skipped.
-
-### 6.2 Post-Migration File Handling
-
-After a successful migration call:
-1. Rename the legacy flat-file to `<legacy-name>.migrated`
-2. Do NOT delete the original file; retain for one release cycle as a rollback reference
-3. Do NOT write new entries to the `.migrated` file
-
-The `.migrated` file MAY be deleted after the first stable release that ships with `pipeline_manifest` support.
-
-### 6.3 Migration Guard
-
-The migration function MUST be called during store initialization, guarded by a migration version flag. The guard pattern (pseudocode):
-
-```typescript
-const MANIFEST_MIGRATION_VERSION = 1;
-const current = await getMigrationFlag('manifest_jsonl_migration');
-if (current < MANIFEST_MIGRATION_VERSION) {
-  await migrateManifestJsonl(db, manifestPath);
-  await setMigrationFlag('manifest_jsonl_migration', MANIFEST_MIGRATION_VERSION);
-}
-```
+List, find, pending and stats skip a row whose `metadata_json` is not a JSON object or breaks the field contract, and report it in `data.malformed[]` with `data.malformedRemedy: "cleo doctor manifest-rows --repair"`. `show` fails on such a row with `E_MANIFEST_METADATA_INVALID`.
 
 ---
 
-## 7. Operation Contract
+## 4. Operations
 
-The `pipeline-manifest-sqlite.ts` module MUST implement the following 14 operations. All functions MUST return `EngineResult<T>` matching the signatures in the deleted `pipeline-manifest-compat.ts`.
+Registered dispatch operations in the `pipeline` domain (`pipeline.ts:426-432`):
 
-### 7.1 Query Operations (7)
+| Operation | Gateway | Core function | Params |
+|---|---|---|---|
+| `manifest.show` | query | `pipelineManifestShow` | `entryId` |
+| `manifest.list` | query | `pipelineManifestList` | `taskId`, `status`, `type` / `agent_type`, `topic`, `actionable`, `dateAfter`, `dateBefore`, `limit`, `offset` |
+| `manifest.find` | query | `pipelineManifestFind` | `query`, `confidence`, `limit` |
+| `manifest.stats` | query | `pipelineManifestStats` | `epicId` |
+| `manifest.append` | mutate | `pipelineManifestAppend` | `entry` |
+| `manifest.update` | mutate | `pipelineManifestUpdate` | `id`, `title`, `topics`, `key_findings`, `status`, `linkTask` |
+| `manifest.archive` | mutate | `pipelineManifestArchive` | `beforeDate` (required) |
 
-| Operation | Function | Description | Required Params |
-|-----------|----------|-------------|-----------------|
-| `manifest.show` | `manifestShow(id)` | Get single entry by ID | `id` |
-| `manifest.list` | `manifestList(filters?)` | List entries with optional filters | — |
-| `manifest.find` | `manifestFind(query)` | FTS search across id, content, metadata | `query` |
-| `manifest.pending` | `manifestPending()` | Get active entries with `actionable=true` in metadata | — |
-| `manifest.stats` | `manifestStats()` | Aggregate counts by type, status, distilled | — |
-| `manifest.by-task` | `manifestByTask(taskId)` | All entries for a given task ID | `taskId` |
-| `manifest.by-session` | `manifestBySession(sessionId)` | All entries for a given session ID | `sessionId` |
+SDK-only functions in `pipeline-manifest-sqlite.ts` with no dispatch operation: `pipelineManifestPending`, `pipelineManifestRead`, `pipelineManifestCompact`, `pipelineManifestValidate`, `pipelineManifestContradictions`, `pipelineManifestSuperseded`, `pipelineManifestLink`, `distillManifestEntry`, `migrateManifestJsonlToSqlite`, plus the repair functions behind `cleo doctor manifest-rows`.
 
-### 7.2 Mutate Operations (7)
+### 4.1 show
 
-| Operation | Function | Description | Required Params |
-|-----------|----------|-------------|-----------------|
-| `manifest.append` | `manifestAppend(entry)` | Insert new entry | `entry` object |
-| `manifest.archive` | `manifestArchive(id)` | Set status = archived, archived_at = now | `id` |
-| `manifest.archive-before` | `manifestArchiveBefore(date)` | Archive all active entries created before date | `date` |
-| `manifest.update` | `manifestUpdate(id, fields)` | Update mutable fields | `id`, `fields` |
-| `manifest.distill` | `manifestDistill(id, brainObsId)` | Set distilled=1, brain_obs_id (Phase 3) | `id`, `brainObsId` |
-| `manifest.delete` | `manifestDelete(id)` | Hard delete (admin use only) | `id` |
-| `manifest.migrate` | `manifestMigrate(jsonlPath)` | Run one-time JSONL migration | `jsonlPath` |
+Returns the entry (archived included) plus `fileContent` and `fileExists`. A `cleo://docs/<reference>` file is resolved through the docs read model by slug or attachment id; any other URI scheme fails with `E_MANIFEST_REFERENCE_UNSUPPORTED`. A path that escapes the project fails with `E_MANIFEST_FILE_UNSAFE`. A missing ordinary file gives `fileExists: false`. Unknown id: `E_NOT_FOUND`.
 
-**Note**: `manifest.distill` MUST be implemented in the module but MUST return `E_NOT_IMPLEMENTED` until Phase 3 (T5152) activates it.
+### 4.2 list
 
----
+Returns `{ entries, total, filtered }` plus a page object. Filters apply in the order `taskId` (id prefix or `linked_tasks` membership), `status`, `agent_type`, `topic`, `actionable`, `dateAfter`, `dateBefore` (`manifest-filter.ts`). Archived rows are excluded. Results are newest first.
 
-## 8. Content Hash Computation
+### 4.3 find
 
-When inserting a new entry, `content_hash` MUST be computed as:
+Selects rows whose `content` or `type` contains `query` (SQL `LIKE`), then scores each entry: title match +0.5, topic +0.3, key finding +0.2, id +0.1. Entries scoring below `confidence` (default 0.1) are dropped, so a row that matches only inside `content` is not returned. Returns `{ query, results[] (with relevanceScore), total }`.
 
-```
-SHA-256(content as UTF-8 string) → lowercase hex string
-```
+### 4.4 stats
 
-The hash is used for deduplication in `manifest.append`: if an entry with the same `content_hash` already exists with status `active`, the insert MUST return the existing entry ID rather than creating a duplicate. Entries with `archived` status MAY be re-inserted (a new row is created).
+Returns `total`, `byStatus`, `byType`, `actionable`, `needsFollowup`, `averageFindings`. `epicId` restricts to entries whose id starts with it or whose `linked_tasks` contains it.
 
----
+### 4.5 append
 
-## 9. Metadata JSON Structure
+Validates §3.1, then upserts into `docs_pipeline_manifest`: an existing `id` has `content`, `content_hash`, `status`, `metadata_json`, `source_file` and `task_id` replaced (`pipeline-manifest-sqlite.ts:1279`). Returns `{ appended: true, entryId }`.
 
-The `metadata_json` column stores a JSON object with no fixed schema. The following keys are RECOMMENDED for compatibility with the legacy JSONL format:
+### 4.6 update
 
-```json
-{
-  "title": "Human-readable title",
-  "topics": ["topic1", "topic2"],
-  "key_findings": ["Finding one.", "Finding two."],
-  "actionable": true,
-  "needs_followup": ["T5580", "T5581"],
-  "linked_tasks": ["T5576", "T5577"]
-}
-```
+Changes only the given fields of an existing entry in one transaction. `linkTask` is added to `linked_tasks` (kept unique) and never removes a link. Unknown id: `E_NOT_FOUND`.
 
-The `metadata_json` field MUST be valid JSON when non-NULL. A NULL value is permitted and means no additional metadata.
+### 4.7 archive and compact
+
+`archive` sets `archived_at` on every live row whose `created_at` date is before `beforeDate` (`YYYY-MM-DD`) and returns `{ archived, remaining }`. There is no archive-by-id operation.
+
+`compact` (SDK only) hard-deletes rows whose full `content` duplicates a newer row's.
+
+### 4.8 Distillation
+
+`distillManifestEntry` is a stub that returns `{ skipped: true, reason: 'distillation_pending_phase3' }` (`pipeline-manifest-sqlite.ts:1891`). Nothing writes `distilled = true` or `brain_obs_id`.
 
 ---
 
-## 10. References
+## 5. CLI
 
-- ADR-006: SQLite as Single Source of Truth
-- ADR-021: Memory Domain Refactor (introduced pipeline-manifest-compat.ts)
-- ADR-027: Manifest SQLite Migration (normative decision backing this spec)
-- ADR-028: CHANGELOG Generation Model
-- `docs/specs/CLEO-RELEASE-PIPELINE-SPEC.md`
-- `packages/core/src/memory/pipeline-manifest-compat.ts` (to be deleted; this spec defines its replacement)
-- `packages/core/src/store/schema.ts` (Drizzle schema source of truth)
-- T5149: BRAIN Database & Cognitive Infrastructure (Phase 3: distillation)
-- T5152: SQLite-vec & PageIndex (distillation target)
-- T5576: LOOM Release Pipeline Remediation (epic)
-- T5577: Release System Consolidation documentation task
+### 5.1 `cleo manifest`
 
-<!-- merged from `t1096-manifest-unification-spec` by cleo docs modernize -->
+| Command | Dispatches | Flags |
+|---|---|---|
+| `cleo manifest show <id>` | `manifest.show` (`entryId`) | |
+| `cleo manifest list` | `manifest.list` | `--task`, `--type`, `--limit` (CLI default 50), `--offset`; `--filter`, `--epic`, `--json` are accepted but have no effect (§7) |
+| `cleo manifest find <query>` | `manifest.find` | `--limit` (default 20); `--json` has no effect |
+| `cleo manifest stats` | `manifest.stats` | `--json` has no effect; no epic filter is passed |
+| `cleo manifest append` | `manifest.append` | `--entry <json>`, `--file <path>` or JSON on stdin; or shorthand `--task`, `--type`, `--content`, `--title`, `--status` |
+| `cleo manifest archive` | `manifest.archive` | `--before-date <YYYY-MM-DD>`; the `<id>` positional is accepted but rejected by dispatch (§7) |
 
-## From `t1096-manifest-unification-spec`
+Shorthand append (`buildManifestEntryFromShorthand`, `manifest-builder.ts:101`) builds: `id` = `<task>-<type>-<YYYYMMDDHHMMSS>` (or `manifest-<stamp>` without a task); `type` defaults to `implementation`; `title` = first line of `--content` (120 chars); `file` = `.cleo/agent-outputs/<task>-<type>-<stamp>.md` (the file is not created); `status` = `completed`; `topics` = `[task, type]`; `key_findings` = `[content]`; `actionable` = `false`; `linked_tasks` = `[task]`. With `--entry` or `--file`, the shorthand flags override individual fields.
 
-# T1096 — Unified Manifest CLI Surface, Migration Contract, Deprecation Plan & ADR-054 Outline
+### 5.2 `cleo research`
 
-**Version**: 1.0.0
-**Status**: APPROVED
-**Date**: 2026-04-21
-**Task**: T1096
-**Epic**: T1093 — MANIFEST/RCASD Architecture Unification
-**Depends On**: T1094 (inventory), T1095 (drift map)
-**Supersedes**: ADR-027 §6.2 (migration execution gap)
-**Authors**: cleo-db-lead (Wave 2 Spec)
+`cleo research` subcommands are wrappers over the same operations:
 
----
+| Command | Dispatches |
+|---|---|
+| `add` | `manifest.append` (id `res_<epoch-ms>`) |
+| `show` | `manifest.show` |
+| `list` | `manifest.list` (`--task`, `--status`, `--limit`) |
+| `pending` | `manifest.list` with `status: 'pending'` |
+| `link`, `update` | `manifest.update` |
+| `stats` | `manifest.stats` |
+| `links <taskId>` | `manifest.find` with `taskId` only |
+| `archive` | `manifest.archive` (`--before-date`) |
+| `manifest` | `manifest.list`; prints a deprecation warning to stderr |
 
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
-"SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
-document are to be interpreted as described in RFC 2119.
+### 5.3 Ingestion and repair
 
----
+`cleo migrate manifest-ingest [--rcasd] [--loose]` (no flag = both) runs:
 
+- `ingestRcasdDirectories`: every `.cleo/rcasd/<taskId>/<phase>/*.md`. `id` = `<taskId>-rcasd-<phase>-<slug>`; `type` from the phase (`testing` maps to `validation`; unknown phases to `implementation`); `metadata_json.phase` keeps the directory name.
+- `ingestLooseAgentOutputs`: top-level `.cleo/agent-outputs/*.md` only. `id` = `<taskId>-loose-<slug>` or `loose-<slug>`; `task_id` from a leading `T<digits>`; `type` from a fixed override list, then filename patterns, falling back to `implementation`.
 
-## 0. Executive Summary
+Slugs are the lowercased filename without `.md`, non-alphanumeric runs replaced by `-`. Each batch commits atomically; an identical existing row is skipped, a differing one fails with `E_MANIFEST_ID_CONFLICT`. Output: `ingested` and `skipped` counts per source.
 
-ADR-027 retired `MANIFEST.jsonl` in favour of the `pipeline_manifest` table in
-`tasks.db`. That decision was correct. The execution gap (ADR-027 §6.2) is that
-the **CLI surface** was never unified, `rcasd/` phase files were never ingested,
-390 loose agent-output markdown files have no canonical home in `pipeline_manifest`,
-and compiled agent prompts still instruct agents to `echo >> MANIFEST.jsonl`.
+`cleo doctor manifest-rows` lists rows whose metadata breaks the contract and (read-only) rows with an invalid id, linked task id or file reference. `--repair` prints the plan; `--repair --apply` moves each bad field under `_malformed` and writes a receipt; `--rollback <receipt>` undoes it.
 
-This spec closes all four gaps:
+### 5.4 Legacy `MANIFEST.jsonl` import
 
-1. Defines the exact `cleo manifest <subcommand>` CLI surface (§2)
-2. Specifies `rcasd/` FOLDING into `pipeline_manifest` (§3)
-3. Specifies loose `.cleo/agent-outputs/*.md` ingestion (§4)
-4. Provides the field-level migration contract from JSONL schema to `pipeline_manifest` (§5)
-5. Defines the deprecation plan for `cleo research manifest` (§6)
-6. Updates agent compilation requirements (§7)
-7. Outlines ADR-054 (§8)
-8. Provides programmatically verifiable acceptance criteria for T1097, T1098, T1099 (§9)
+`migrateManifestJsonlToSqlite` (SDK only, no CLI or startup caller) reads `<project>/.cleo/MANIFEST.jsonl`, skips blank and unparseable lines, entries without an id, entries failing the identity checks, and ids already stored; inserts the rest through `entryToRow`; then renames the file to `MANIFEST.jsonl.migrated`. Returns `{ migrated, skipped, invalid[] }`.
 
 ---
 
-## 1. Background & Problem Statement
+## 6. Agent use
 
-### 1.1 Current State (from T1094 inventory)
-
-| Store | Count | State |
-|-------|-------|-------|
-| `MANIFEST.jsonl` lines | 319 | Active append target (MUST stop) |
-| `.cleo/rcasd/` markdown files | 182 | Never ingested into `pipeline_manifest` |
-| `.cleo/agent-outputs/*.md` loose files | 390 | Never ingested into `pipeline_manifest` |
-| `pipeline_manifest` rows | 1 | Seed entry only — effectively empty |
-
-### 1.2 Root Causes (from T1095 drift map)
-
-- **P0**: Compiled agent prompt (`cleo-subagent.md`) BASE-001 still names
-  `MANIFEST.jsonl` as the append target; Phase 3 `echo >> MANIFEST.jsonl`
-  instruction actively conflicts with ADR-027
-- **P0**: `orchestrator.md` (both `.claude/commands/` and adapters copy) instruct
-  agents to call `cleo manifest show` — a command that does not exist
-- **P0**: `ct-orchestrator/orchestrator-prompt.txt:20` references MANIFEST.jsonl
-  write path
-- **P1**: 45+ references across skill docs, shared protocol files, and CANT
-  source files continue to instruct direct JSONL writes
-
-### 1.3 Scope of This Spec
-
-This spec is **normative for T1097, T1098, T1099** (implementation wave). It does
-not implement anything itself — it defines the contracts those tasks MUST satisfy.
+Agents record deliverables with `cleo manifest append` (shorthand or `--entry`). Canonical documents (spec, ADR, research, handoff and the other doc kinds) go through `cleo docs add|update|publish`, not through manifest entries or raw files; an entry may point at one with `file: "cleo://docs/<slug>"`.
 
 ---
 
-## 2. `cleo manifest` CLI Surface
+## 7. Known defects
 
-### 2.1 Top-Level Command Registration
+The CLI defects below are tracked in T14604.
 
-A new top-level command group `cleo manifest` MUST be registered in the CLEO CLI
-(`packages/cleo/src/cli/index.ts`). It MUST expose the following subcommands:
-
-| Subcommand | Dispatch Operation | Gateway | Description |
-|------------|-------------------|---------|-------------|
-| `show <id>` | `pipeline.manifest.show` | query | Show single entry by ID |
-| `list` | `pipeline.manifest.list` | query | List entries with filters |
-| `find <query>` | `pipeline.manifest.find` | query | FTS search across content + metadata |
-| `stats` | `pipeline.manifest.stats` | query | Aggregate counts by type/status |
-| `append` | `pipeline.manifest.append` | mutate | Insert new entry |
-| `archive <id>` | `pipeline.manifest.archive` | mutate | Archive entry by ID |
-
-### 2.2 Argument Schema
-
-#### 2.2.1 `cleo manifest show <id>`
-
-```
-cleo manifest show <id>
-
-Arguments:
-  id  (positional, required)  Pipeline manifest entry ID
-
-Exit codes:
-  0   Success — entry printed as JSON to stdout
-  4   Entry not found (E_NOT_FOUND)
-  1   Unexpected error
-```
-
-#### 2.2.2 `cleo manifest list`
-
-```
-cleo manifest list [options]
-
-Options:
-  --filter <value>    Filter by status: active|archived|distilled|pending
-                      "pending" = entries where metadata_json.actionable = true
-  --task <id>         Filter by task_id
-  --epic <id>         Filter by epic_id
-  --type <type>       Filter by entry type (see §5.2 type enum)
-  --limit <n>         Maximum rows to return (default: 50, max: 500)
-  --offset <n>        Pagination offset (default: 0)
-  --json              Output as JSON array (default: table)
-
-Exit codes:
-  0   Success
-  1   Invalid filter value or unexpected error
-```
-
-#### 2.2.3 `cleo manifest find <query>`
-
-```
-cleo manifest find <query>
-
-Arguments:
-  query  (positional, required)  Full-text search string
-
-Options:
-  --limit <n>   Maximum rows to return (default: 20)
-  --json        Output as JSON array
-
-Exit codes:
-  0   Success (zero results is still exit 0)
-  1   Unexpected error
-```
-
-#### 2.2.4 `cleo manifest stats`
-
-```
-cleo manifest stats [options]
-
-Options:
-  --json   Output as JSON object
-
-Output structure:
-  total: number
-  by_type: Record<string, number>
-  by_status: Record<string, number>
-  distilled: number
-  pending_distillation: number
-
-Exit codes:
-  0   Success
-  1   Unexpected error
-```
-
-#### 2.2.5 `cleo manifest append`
-
-```
-cleo manifest append [options]
-
-Options:
-  --entry <json>    (required) JSON string of entry fields
-  --task <id>       Task ID to associate with this entry (shorthand for entry.task_id)
-  --type <type>     Entry type (shorthand for entry.type) — see §5.2
-  --content <text>  Entry content string (shorthand for entry.content)
-
-Behaviour:
-  - Computes SHA-256 content_hash from --content or entry.content
-  - If an active entry with identical content_hash exists, returns existing ID
-    without inserting (idempotent by ADR-027 §8)
-  - Assigns created_at = datetime('now') if not provided in --entry
-
-Exit codes:
-  0   Success — entry ID printed to stdout
-  9   Duplicate suppressed — existing entry ID printed with note to stderr
-  1   Missing required fields or unexpected error
-```
-
-#### 2.2.6 `cleo manifest archive <id>`
-
-```
-cleo manifest archive <id>
-
-Arguments:
-  id  (positional, required)  Entry ID to archive
-
-Options:
-  --before <date>   Archive all active entries created before ISO date
-                    (mutually exclusive with positional id)
-
-Exit codes:
-  0   Success
-  4   Entry not found (E_NOT_FOUND)
-  1   Unexpected error
-```
-
-### 2.3 Dispatch Mapping
-
-All `cleo manifest` subcommands MUST dispatch via `dispatchFromCli()` to the
-`pipeline` domain using the operation names in §2.1. They MUST NOT call
-`dispatchFromCli('query', 'memory', ...)` — the manifest operations live in the
-`pipeline` domain per ADR-021.
-
-```typescript
-// Canonical dispatch examples:
-dispatchFromCli('query',  'pipeline', 'manifest.show',   { entryId: id })
-dispatchFromCli('query',  'pipeline', 'manifest.list',   { filter, taskId, type, limit, offset })
-dispatchFromCli('query',  'pipeline', 'manifest.find',   { query })
-dispatchFromCli('query',  'pipeline', 'manifest.stats',  {})
-dispatchFromCli('mutate', 'pipeline', 'manifest.append', { entry })
-dispatchFromCli('mutate', 'pipeline', 'manifest.archive',{ id } | { beforeDate })
-```
-
-### 2.4 Help Text Requirements
-
-`cleo manifest --help` MUST display the subcommand table from §2.1.
-Each subcommand MUST display its own `--help` with argument schema per §2.2.
-The help text MUST NOT reference `MANIFEST.jsonl` — only `pipeline_manifest`.
+| Defect | Location |
+|---|---|
+| `cleo manifest archive <id>` sends `{ id }`; the handler requires `beforeDate` and always returns `E_INVALID_INPUT`. | `cli/commands/manifest.ts:335`, `dispatch/domains/pipeline.ts:676-683` |
+| `cleo manifest list --filter` and `--epic` send `filter` / `epicId`, which `filterManifestEntries` does not read. `--filter archived` could not work anyway: list excludes archived rows. | `cli/commands/manifest.ts:95, 97`, `memory/manifest-filter.ts` |
+| `cleo research pending` filters on `status: 'pending'`, a value no entry has, so it is always empty. | `cli/commands/research.ts:161-167` |
+| `cleo research links <taskId>` sends `{ taskId }` to `manifest.find`, which requires `query`; it always fails with `E_INVALID_INPUT`. | `cli/commands/research.ts:264-270`, `pipeline.ts:649-652` |
+| `cleo research manifest --agent-type` sends `agentType`; the filter reads `agent_type` / `type`. | `cli/commands/research.ts:338` |
+| `cleo research manifest` still ships; its warning promised removal in v2026.6.x. | `cli/commands/research.ts:326-330` |
+| `content_hash` and `created_at` formats differ between append and ingestion (§2.4). | `pipeline-manifest-sqlite.ts:254, 808`; `manifest-ingestion.ts:80, 207, 267` |
+| The `docs_pipeline_manifest.id` doc comment says "UUID v4"; ids are caller-chosen strings (§3.1). | `store/schema/cleo-project/docs.ts:237` |
 
 ---
 
-## 3. `rcasd/` Fate Decision — FOLD into `pipeline_manifest`
-
-### 3.1 Decision
-
-All `.cleo/rcasd/<task_id>/<phase>/<filename>.md` files MUST be ingested into
-`pipeline_manifest` as individual rows. The `rcasd/` directory tree MUST be
-retained on disk (do NOT delete); the files serve as `source_file` references.
-
-### 3.2 ID Generation
-
-Each `rcasd` file generates a `pipeline_manifest` entry with:
-
-```
-id = "<task_id>-rcasd-<phase>-<slug>"
-```
-
-where `<slug>` is the filename without `.md` extension, lowercased,
-non-alphanumeric characters replaced with hyphens.
-
-Example:
-- File: `.cleo/rcasd/T876/research/T876-research.md`
-- ID: `T876-rcasd-research-t876-research`
-
-The ID MUST be globally unique. If a collision occurs (same task + phase +
-slug already exists in `pipeline_manifest`), the existing entry MUST be updated
-via `manifest.update` (not re-inserted) to preserve the `content_hash`
-deduplication invariant.
-
-### 3.3 Column Mapping for RCASD Files
-
-| `pipeline_manifest` column | Source | Derivation |
-|---------------------------|--------|------------|
-| `id` | filename + path | `<task_id>-rcasd-<phase>-<slug>` per §3.2 |
-| `task_id` | parent directory name | First path segment under `.cleo/rcasd/` |
-| `epic_id` | NULL | Not resolvable from filesystem; set NULL on import |
-| `session_id` | NULL | Not tracked in rcasd files |
-| `type` | phase directory name | MUST apply §3.4 phase → type mapping |
-| `content` | file contents | Full UTF-8 content of the `.md` file |
-| `content_hash` | computed | SHA-256 of `content` |
-| `status` | constant | `active` |
-| `source_file` | file path | Relative path from project root |
-| `metadata_json` | derived | `{"phase": "<phase>", "rcasd_origin": true}` |
-| `created_at` | file mtime | ISO-8601 UTC; fallback to current datetime |
-| `distilled` | constant | `0` |
-| `brain_obs_id` | NULL | Not yet distilled |
-| `archived_at` | NULL | Not archived |
-
-### 3.4 Phase → `pipeline_manifest.type` Mapping (Normative)
-
-| `rcasd/` phase directory | `pipeline_manifest.type` | `metadata_json.phase` |
-|--------------------------|--------------------------|----------------------|
-| `research` | `research` | `research` |
-| `specification` | `specification` | `specification` |
-| `architecture` | `architecture` | `architecture` |
-| `consensus` | `consensus` | `consensus` |
-| `decomposition` | `decomposition` | `decomposition` |
-| `implementation` | `implementation` | `implementation` |
-| `testing` | `validation` | `testing` |
-| `validation` | `validation` | `validation` |
-| `release` | `release` | `release` |
-
-The `metadata_json.phase` field MUST preserve the original directory name
-verbatim (e.g., `testing`, not `validation`) so that the RCASD phase is
-recoverable from the SQLite record.
-
-### 3.5 Atypical File Handling
-
-The four atypical files identified in T1094 §4c MUST be handled as follows:
-
-| File | Action |
-|------|--------|
-| `.cleo/rcasd/T919/consensus/auto-complete-policy.md` | Ingest as `type=consensus`, `task_id=T919`; note in `metadata_json.filename_note = "non-T-prefixed policy doc"` |
-| `.cleo/rcasd/T1000/decomposition/worker-specs.md` | Ingest as `type=decomposition`, `task_id=T1000`; `metadata_json.filename_note = "worker allocation sub-document"` |
-| `.cleo/rcasd/T991/decomposition/worker-specs.md` | Same pattern as T1000 |
-| `.cleo/rcasd/T1007/decomposition/T1008-worker-spec.md` | Ingest as `type=decomposition`, `task_id=T1007`; `metadata_json.cross_task_ref = "T1008"` |
-
-These entries MUST NOT be skipped; they contain valid RCASD content.
-
-### 3.6 Idempotency
-
-The RCASD ingestion function MUST be idempotent. Calling it multiple times on the
-same `.cleo/rcasd/` tree MUST NOT create duplicate rows. Idempotency is enforced
-via:
-1. Primary key conflict (`INSERT OR IGNORE`) on `id`
-2. `content_hash` deduplication check per ADR-027 §8
-
----
-
-## 4. Loose `.cleo/agent-outputs/*.md` Ingestion
-
-### 4.1 Scope
-
-The 390 files at `.cleo/agent-outputs/*.md` (maxdepth=1) MUST be ingested into
-`pipeline_manifest`. Subdirectory files (e.g., `T1007-tier3-design/`) are treated
-separately and MAY be ingested in a future task.
-
-### 4.2 Task ID Extraction
-
-Task ID MUST be extracted from the filename using the following rules, in priority order:
-
-1. **Standard pattern** `T\d+-...`: extract first `T\d+` segment as `task_id`
-   - Example: `T523-R1-brain-audit-report.md` → `task_id = T523`
-2. **Multi-task pattern** `T\d+-T\d+-...`: extract first `T\d+` as `task_id`;
-   store remaining task IDs in `metadata_json.linked_tasks`
-   - Example: `T760-T761-research.md` → `task_id = T760`, `linked_tasks = ["T761"]`
-3. **Session/planning files** (`MASTER-*`, `NEXT-*`, `prime-*`): `task_id = NULL`;
-   `type = documentation`
-4. **Research standalone** (`R-*.md`): `task_id = NULL`; `type = research`
-5. **Release notes** (`RELEASE-*.md`, `release-*.md`): `task_id = NULL`;
-   `type = release`
-6. **Special/unclassified** (see §4.3): `task_id = NULL`; type inferred per §4.3
-
-### 4.3 Type Inference from Filename
-
-When no explicit `type` field exists in file front-matter, MUST apply these
-inference rules in order:
-
-| Filename pattern (regex) | Inferred `type` |
-|--------------------------|-----------------|
-| `.*-research.*` | `research` |
-| `.*-specification.*\|.*-spec.*` | `specification` |
-| `.*-architecture.*\|.*-arch.*` | `architecture` |
-| `.*-consensus.*` | `consensus` |
-| `.*-decomposition.*\|.*-decomp.*` | `decomposition` |
-| `.*-implementation.*\|.*-impl.*` | `implementation` |
-| `.*-validation.*\|.*-validate.*` | `validation` |
-| `.*-audit.*` | `research` |
-| `.*-report.*` | `research` |
-| `.*-fix.*\|.*-hotfix.*` | `implementation` |
-| `.*-release.*` | `release` |
-| `MASTER-.*\|NEXT-.*\|prime-.*` | `documentation` |
-| `R-.*` | `research` |
-| (none of the above) | `implementation` (fallback) |
-
-### 4.4 Unclassified File Handling (17 files)
-
-The 17 special/unclassified files identified in T1094 §5b MUST be ingested with
-the following explicit overrides:
-
-| Filename | `type` | `task_id` |
-|----------|--------|-----------|
-| `CANT-V2-PERSONA-SCHEMA-PLAN.md` | `specification` | NULL |
-| `CLI-SYSTEM-AUDIT-2026-04-10.md` | `research` | NULL |
-| `DOC-SYNC-AUDIT-2026-04-20.md` | `research` | NULL |
-| `STAB-3-clean-install-results.md` | `validation` | NULL |
-| `SYSTEM-VALIDATION-REPORT.md` | `validation` | NULL |
-| `T-ladybugdb-research-report.md` | `research` | NULL |
-| `T-verify-specs-report.md` | `validation` | NULL |
-| `ci-workflow-complete.md` | `implementation` | NULL |
-| `cicd-validation-report.md` | `validation` | NULL |
-| `conduit-orchestration-wiring.md` | `implementation` | NULL |
-| `deploy-templates-complete.md` | `implementation` | NULL |
-| `fix-cant-core-size.md` | `implementation` | NULL |
-| `fix-cant-lsp-match.md` | `implementation` | NULL |
-| `github-templates-complete.md` | `implementation` | NULL |
-| `graph-memory-bridge-implementation.md` | `implementation` | NULL |
-| `llmtxt-my-sitrep-2026-04-11.md` | `research` | NULL |
-| `research-node-sqlite.md` | `research` | NULL |
-
-These entries MUST be ingested with `task_id = NULL`. A post-ingestion linking
-pass MAY update `task_id` based on content analysis (out of scope for T1097–T1099).
-
-### 4.5 Column Mapping for Loose Files
-
-| `pipeline_manifest` column | Source | Derivation |
-|---------------------------|--------|------------|
-| `id` | filename | `<task_id>-loose-<slug>` or `loose-<slug>` if no task_id |
-| `task_id` | filename | Per §4.2 rules |
-| `epic_id` | NULL | Not resolvable from filename |
-| `session_id` | NULL | Not tracked in loose files |
-| `type` | filename | Per §4.3 inference rules |
-| `content` | file contents | Full UTF-8 content of the `.md` file |
-| `content_hash` | computed | SHA-256 of `content` |
-| `status` | constant | `active` |
-| `source_file` | file path | Relative path: `.cleo/agent-outputs/<filename>` |
-| `metadata_json` | derived | `{"loose_origin": true, "original_filename": "<filename>"}` |
-| `created_at` | file mtime | ISO-8601 UTC; fallback to current datetime |
-
-### 4.6 Flat RCASD Phase Files (25 files)
-
-The 25 files in `.cleo/agent-outputs/` that follow RCASD phase naming conventions
-(e.g., `T523-R1-brain-audit-report.md`, `T549-CA1-tiered-typed-memory-spec.md`)
-MUST be ingested as type `research` or `specification` per §4.3 filename pattern,
-AND additionally tagged with `metadata_json.flat_rcasd = true` so they can be
-identified for future migration into the `rcasd/` tree.
-
----
-
-## 5. Migration Contract — JSONL Schema to `pipeline_manifest`
-
-### 5.1 Field-by-Field Mapping (Normative)
-
-This table supersedes the preliminary mapping in T1094 §3 and the partial mapping
-in CLEO-MANIFEST-SCHEMA-SPEC.md §6.1, incorporating all field variants observed
-in the 319-line corpus.
-
-| JSONL legacy field(s) | `pipeline_manifest` column | Transformation |
-|----------------------|---------------------------|----------------|
-| `id` | `id` | Use as-is. If absent: generate `<taskId>-<timestamp>` |
-| `task` / `taskId` / `task_id` | `task_id` | Use first non-null match in this order |
-| `epic` | `epic_id` | Use as-is; NULL if absent |
-| (not in JSONL) | `session_id` | Set NULL on JSONL import |
-| `type` / `agent_type` | `type` | Apply §5.2 normalization table |
-| (entire JSONL line, serialized) | `content` | Full JSON string of the source line |
-| (computed) | `content_hash` | SHA-256 hex of `content` string |
-| `status` | `status` | Apply §5.3 status normalization |
-| (constant) | `distilled` | `0` |
-| (none) | `brain_obs_id` | NULL |
-| `output` / `outputFile` / `file` / `output_file` | `source_file` | First non-null match in this order |
-| `key_findings` | `metadata_json.key_findings` | JSON array |
-| `needs_followup` | `metadata_json.needs_followup` | JSON array |
-| `topics` | `metadata_json.topics` | JSON array |
-| `linked_tasks` | `metadata_json.linked_tasks` | JSON array |
-| `evidence` | `metadata_json.evidence` | JSON array |
-| `title` | `metadata_json.title` | String |
-| `summary` | `metadata_json.summary` | String |
-| `role` | `metadata_json.role` | String |
-| `agent` | `metadata_json.agent` | String |
-| `commit` | `metadata_json.commit` | String |
-| `files` | `metadata_json.files` | JSON array |
-| `slug` | `metadata_json.slug` | String |
-| `date` / `timestamp` | `created_at` | Normalize to ISO-8601 UTC; if date-only (`YYYY-MM-DD`) append `T00:00:00Z` |
-| (not in JSONL unless status=archived) | `archived_at` | Set to current datetime only if source `status = archived`; otherwise NULL |
-
-All JSONL fields not listed above MUST be captured in `metadata_json` under their
-original key name to prevent data loss.
-
-### 5.2 Type Normalization Table (Normative)
-
-This table is the authoritative source for mapping JSONL `type`/`agent_type`
-values to canonical `pipeline_manifest.type` values. Implementations MUST
-use this table, not ad-hoc string matching.
-
-| JSONL type value(s) | `pipeline_manifest.type` |
-|--------------------|--------------------------|
-| `implementation`, `fix`, `worker`, `scaffolding`, `build-fix`, `completion`, `work`, `summary`, `task-output`, `task-completion-report`, `worker-output`, `refactor` | `implementation` |
-| `research`, `audit`, `analysis`, `forensic`, `assessment`, `diagnostic`, `triage`, `investigation`, `rcasd-lead`, `lead` | `research` |
-| `validation`, `verification`, `attestation`, `smoke-test` | `validation` |
-| `specification` | `specification` |
-| `consensus`, `synthesis`, `algorithm-council`, `schema-council`, `council-lead`, `council-audit`, `council-synthesis` | `consensus` |
-| `decomposition`, `planning` | `decomposition` |
-| `architecture-spec`, `design`, `Design` | `architecture` |
-| `documentation` | `documentation` |
-| `release`, `release-recovery` | `release` |
-| (no type field) | Apply §5.4 fallback inference |
-
-Case-insensitive matching MUST be applied before lookup (normalize input to lowercase).
-
-### 5.3 Status Normalization Table (Normative)
-
-| JSONL `status` value | `pipeline_manifest.status` |
-|---------------------|---------------------------|
-| `complete` | `active` |
-| `completed` | `active` |
-| `done` | `active` |
-| `partial` | `active` |
-| `archived` | `archived` (set `archived_at = created_at` if available) |
-| `deferred` | `archived` |
-| (absent) | `active` |
-
-Note: MANIFEST.jsonl `complete`/`partial` status reflects agent completion state,
-not entry lifecycle state. In `pipeline_manifest`, the entry lifecycle is
-`active`/`distilled`/`archived`. Agent completion metadata SHOULD be stored in
-`metadata_json.agent_status = "complete"` during migration.
-
-### 5.4 Missing-Type Fallback Inference
-
-For the 73 entries with no `type` or `agent_type` field, apply these inference
-rules in order (first match wins):
-
-1. Has `files`, `commit`, `tests_added`, or `files_changed` key → `implementation`
-2. Has `key_findings` or `topics` without implementation keys → `research`
-3. Has `version` or `tag` key → `release`
-4. Has `summary` containing the word "audit" (case-insensitive) → `research`
-5. Fallback → `implementation`
-
-Entries that cannot be classified by these rules MUST be ingested with
-`type = implementation` and `metadata_json.type_inferred = true` so they can be
-manually corrected.
-
-### 5.5 Idempotency via `content_hash`
-
-The migration function MUST:
-1. Compute `content_hash = SHA-256(content)` for each entry before insert
-2. Use `INSERT OR IGNORE` on primary key `id` for idempotency
-3. Additionally check `content_hash` uniqueness among `status = active` entries;
-   if a duplicate hash exists, skip insert and log the collision
-
-Calling `migrateManifestJsonl()` on an already-migrated dataset MUST return
-`{ migrated: 0, skipped: N }` without errors.
-
-### 5.6 Overlap Deduplication (JSONL + RCASD)
-
-Some tasks have entries in both MANIFEST.jsonl AND `.cleo/rcasd/` (e.g., T487,
-T870, T876, T882, T861, T1000, T991 per T1094 §7d).
-
-Resolution rule:
-- RCASD phase files (structured, per-phase markdown) take precedence over
-  JSONL entries for the **same task + phase combination**
-- JSONL entries for a task+phase that already has an RCASD file MUST be marked
-  `metadata_json.superseded_by = "<rcasd-entry-id>"` and status set to `archived`
-  during migration
-- JSONL entries for tasks without corresponding RCASD files MUST be ingested
-  normally
-
----
-
-## 6. Deprecation Plan — `cleo research manifest`
-
-### 6.1 Current State
-
-`cleo research manifest` is a subcommand of `cleo research` that queries
-`MANIFEST.jsonl` directly. This command exists in
-`packages/cleo/src/cli/commands/research.ts` and wraps legacy file operations.
-
-### 6.2 Deprecation Timeline
-
-| Phase | CalVer | Action |
-|-------|--------|--------|
-| Phase 1 (immediate) | v2026.4.current | `cleo research manifest` MUST print a deprecation warning to stderr before executing |
-| Phase 2 (next CalVer month bump) | v2026.5.x | `cleo research manifest` MUST delegate to `cleo manifest list` instead of reading JSONL directly; warning persists |
-| Phase 3 (following month) | v2026.6.x | `cleo research manifest` subcommand MUST be removed entirely |
-
-### 6.3 Deprecation Warning Text (Normative)
-
-Phase 1 and Phase 2 MUST print this exact warning to stderr before producing output:
-
-```
-DEPRECATED: `cleo research manifest` is deprecated and will be removed in v2026.6.x.
-Use `cleo manifest list` instead. See docs/specs/T1096-manifest-unification-spec.md
-```
-
-### 6.4 Phase 1 Implementation Requirements
-
-The Phase 1 change (T1097 scope) MUST:
-1. Add a deprecation warning print to `stderr` in `research.ts` `manifest` subcommand
-2. Continue to execute the original functionality after printing the warning
-3. NOT break existing callers during the transition period
-
-### 6.5 `cleo research add` Alias
-
-`cleo research add` MUST be preserved as an alias for `cleo manifest append`
-for backwards compatibility. It MUST print the same deprecation warning. Removal
-follows the same Phase 3 timeline.
-
-### 6.6 Legacy Return Messages Preserved
-
-The return message strings of the form `"[Type] complete. See MANIFEST.jsonl for
-summary."` are **intentionally preserved** per T1095 §Key Decision. These strings
-are agent-visible summary strings and do not instruct agents to perform file
-operations. They MUST NOT be changed in this epic.
-
----
-
-## 7. Agent Compilation Requirements
-
-### 7.1 BASE-001 Update (Normative)
-
-`BASE-001` in compiled agent prompts MUST be updated from:
-
-```
-BASE-001 | MUST append ONE line to MANIFEST.jsonl | Required
-```
-
-to:
-
-```
-BASE-001 | MUST call pipeline.manifest.append before cleo complete | Required
-```
-
-This change MUST be made in all of the following files (P0 severity per T1095):
-- `/home/keatonhoskins/.claude/agents/cleo-subagent.md`
-- `packages/agents/README.md`
-- `packages/skills/skills/ct-cleo/references/loom-lifecycle.md`
-- `packages/skills/skills/ct-orchestrator/references/SUBAGENT-PROTOCOL-BLOCK.md`
-
-### 7.2 Phase 3 Echo Pattern Removal (Normative)
-
-The following instruction MUST be removed from all compiled agent prompts:
-
-```bash
-echo '{"id":"{{TASK_ID}}-slug",...}' >> {{MANIFEST_PATH}}
-```
-
-And MUST be replaced with:
-
-```bash
-mutate pipeline.manifest.append {entry: {id: "{{TASK_ID}}-slug", type: "...", content: "...", taskId: "{{TASK_ID}}"}}
-```
-
-Equivalently, agents MAY use the new `cleo manifest append` CLI:
-
-```bash
-cleo manifest append --task {{TASK_ID}} --type <type> --content "<summary>"
-```
-
-### 7.3 `{{MANIFEST_PATH}}` Token Deprecation
-
-The `{{MANIFEST_PATH}}` token in agent prompt templates MUST be deprecated.
-All occurrences of `{{MANIFEST_PATH}}` in token tables MUST be removed from:
-- `packages/skills/skills/_shared/subagent-protocol-base.md` (line 181)
-- `packages/skills/skills/ct-orchestrator/references/orchestrator-tokens.md` (lines 74, 159)
-- `packages/skills/skills/ct-epic-architect/references/commands.md` (line 201)
-- `packages/skills/skills/_shared/task-system-integration.md` (line 172)
-- `packages/core/templates/config.template.json` (deprecate `manifestFile` key)
-- `packages/skills/skills/_shared/placeholders.json` (lines 74–76)
-
-The `MANIFEST_PATH` placeholder in `placeholders.json` MUST have its `default`
-value updated to `"pipeline_manifest"` and `description` updated to
-`"Deprecated — use pipeline.manifest.append op instead"`.
-
-### 7.4 `cleo manifest show` References (Normative)
-
-All references to `cleo manifest show <id>` in orchestrator prompts MUST be
-replaced with the correct dispatch form:
-
-```
-query pipeline manifest.show {entryId: "<id>"}
-```
-
-Files requiring this fix (P0 per T1095):
-- `.claude/commands/orchestrator.md` (lines 92, 117, 128)
-- `packages/adapters/src/providers/claude-code/commands/orchestrator.md` (same lines)
-- `packages/skills/skills/ct-orchestrator/orchestrator-prompt.txt` (line 20)
-
-### 7.5 cleo-subagent.cant and Compiled .md MUST Use `cleo manifest append`
-
-The `cleo-subagent.cant` source file (already correct per T1095 §7) MUST be the
-canonical source of truth for the compiled `cleo-subagent.md`. When compiled,
-the `.md` MUST instruct agents to call:
-
-```
-cleo manifest append --task {{TASK_ID}} --type <type> --content "<content>"
-```
-
-or equivalently:
-
-```
-mutate pipeline manifest.append {entry: {...}}
-```
-
-The compiled `.md` MUST NOT instruct `echo >> MANIFEST.jsonl` in any section.
-This requirement applies to ALL agent protocol compilation targets.
-
----
-
-## 8. ADR-054 Outline
-
-**Status**: Draft
-**Supersedes**: ADR-027 §6.2 (migration execution gap)
-**Related**: ADR-006, ADR-021, ADR-027, ADR-051
-
-### 8.1 Context
-
-ADR-027 (Manifest SQLite Migration) established `pipeline_manifest` as the
-authoritative store for agent output artifacts and specified a one-time
-`migrateManifestJsonl()` function. The migration function was specified but the
-following execution gaps remained unaddressed:
-
-1. No `cleo manifest` top-level CLI was created; agents have no ergonomic CLI
-   for manifest operations
-2. `rcasd/` phase files (182 files, 36 tasks) were never ingested into
-   `pipeline_manifest`
-3. 390 loose `.cleo/agent-outputs/*.md` files have no pipeline_manifest rows
-4. Compiled agent prompts still instruct `echo >> MANIFEST.jsonl` despite ADR-027
-
-### 8.2 Decision
-
-ADR-054 MUST formally:
-
-1. **Extend ADR-027** with the `cleo manifest` CLI surface (§2 of this spec)
-2. **Mandate RCASD ingestion** as a required step in the RCASD-IVTR+C lifecycle
-   model: any RCASD phase file written MUST be registered in `pipeline_manifest`
-   via `cleo manifest append` before the phase is marked complete
-3. **Mandate loose file ingestion** via the one-time migration task (T1098 scope)
-4. **Retire the `{{MANIFEST_PATH}}` token** from all template files and
-   placeholder systems
-5. **Establish a `cleo manifest append` pre-complete requirement**: the CLEO
-   lifecycle gate `cleo complete <task>` MUST verify that at least one
-   `pipeline_manifest` entry exists for the task being completed (gate:
-   `manifestAppended`) for tasks of type task (not epic/milestone)
-
-### 8.3 Consequences
-
-**Positive**:
-- Single CLI surface for all manifest operations (`cleo manifest *`)
-- `pipeline_manifest` becomes the true SSoT for agent artifact provenance
-- RCASD phase history fully queryable via SQL
-- Agents receive unambiguous, working CLI instructions
-
-**Negative**:
-- Compiled agent prompts require coordinated update across skills, prompts, and
-  CANT source files (tracked in T1095 drift map)
-- One-time migration of 571 artifacts (319 JSONL + 182 RCASD + ~70 unique loose)
-  requires careful idempotency handling
-
-**Neutral**:
-- MANIFEST.jsonl retained as `.migrated` for one release cycle (existing ADR-027 §6.2 plan)
-- Return message strings (`"See MANIFEST.jsonl for summary"`) preserved intentionally
-
-### 8.4 ADR Number
-
-This outline SHALL become **ADR-054** upon formal ratification. The file MUST
-be created at `.cleo/adrs/ADR-054-manifest-cli-unification.md`.
-
----
-
-## 9. Acceptance Criteria for Wave 3 Implementation Tasks
-
-The following criteria are programmatically verifiable. Each MUST be checked by
-the implementing agent before marking the task complete.
-
-### 9.1 T1097 — `cleo manifest` CLI Registration + Deprecation Warning
-
-| # | Criterion | Verification Command |
-|---|-----------|---------------------|
-| AC-1097-1 | `cleo manifest --help` exits 0 and lists all 6 subcommands | `cleo manifest --help \| grep -c "show\|list\|find\|stats\|append\|archive"` returns `6` |
-| AC-1097-2 | `cleo manifest show <nonexistent>` exits 4 | `cleo manifest show NONEXISTENT_ID; echo $?` returns `4` |
-| AC-1097-3 | `cleo manifest stats` exits 0 and returns valid JSON with `total` key | `cleo manifest stats --json \| jq '.total'` returns a number |
-| AC-1097-4 | `cleo manifest append --task T1097 --type research --content "test"` exits 0 and returns an ID | `cleo manifest append --task T1097 --type research --content "test" \| grep -E "^[a-z]"` |
-| AC-1097-5 | `cleo research manifest` prints deprecation warning to stderr | `cleo research manifest 2>&1 \| grep "DEPRECATED"` matches |
-| AC-1097-6 | `pnpm biome ci .` exits 0 | `pnpm biome ci . ; echo $?` returns `0` |
-| AC-1097-7 | `pnpm run build` exits 0 | `pnpm run build ; echo $?` returns `0` |
-| AC-1097-8 | `pnpm run test` introduces zero new failures vs main | `pnpm run test 2>&1 \| tail -5` shows no new failures |
-| AC-1097-9 | dispatch mapping uses `pipeline` domain (not `memory` domain) | `grep -n "dispatchFromCli" packages/cleo/src/cli/commands/manifest.ts \| grep "pipeline"` matches |
-
-### 9.2 T1098 — RCASD Ingestion into `pipeline_manifest`
-
-| # | Criterion | Verification Command |
-|---|-----------|---------------------|
-| AC-1098-1 | All 182 RCASD files have corresponding `pipeline_manifest` rows | `node -e "import('./...')" or SQL: `SELECT COUNT(*) FROM pipeline_manifest WHERE json_extract(metadata_json, '$.rcasd_origin') = 1` returns `≥ 182` |
-| AC-1098-2 | Every ingested row has `content_hash` populated | `SELECT COUNT(*) FROM pipeline_manifest WHERE rcasd_origin AND content_hash IS NULL` returns `0` |
-| AC-1098-3 | Phase mapping is correct: `testing` phase → `type = validation` | `SELECT COUNT(*) FROM pipeline_manifest WHERE json_extract(metadata_json, '$.phase') = 'testing' AND type != 'validation'` returns `0` |
-| AC-1098-4 | Ingestion is idempotent: running twice produces same row count | Run migration twice; row count identical |
-| AC-1098-5 | Task ID correctly extracted from path for all 36 task dirs | `SELECT DISTINCT task_id FROM pipeline_manifest WHERE json_extract(metadata_json, '$.rcasd_origin') = 1 ORDER BY task_id` returns 36 distinct non-NULL task IDs |
-| AC-1098-6 | Atypical files are ingested (not skipped) | `SELECT COUNT(*) FROM pipeline_manifest WHERE source_file LIKE '%T919%auto-complete%'` returns `1` |
-| AC-1098-7 | `pnpm biome ci .` and `pnpm run build` exit 0 | Standard gate |
-
-### 9.3 T1099 — Loose `.md` Ingestion + JSONL Migration + Agent Prompt Fixes
-
-| # | Criterion | Verification Command |
-|---|-----------|---------------------|
-| AC-1099-1 | All 390 loose `.md` files have corresponding `pipeline_manifest` rows | `SELECT COUNT(*) FROM pipeline_manifest WHERE json_extract(metadata_json, '$.loose_origin') = 1` returns `≥ 390` |
-| AC-1099-2 | All 319 MANIFEST.jsonl entries have corresponding rows | `SELECT COUNT(*) FROM pipeline_manifest WHERE json_extract(metadata_json, '$.jsonl_origin') = 1` returns `≥ 319` (after dedup, may be less if overlaps archived) |
-| AC-1099-3 | `content_hash` populated on all migrated rows | `SELECT COUNT(*) FROM pipeline_manifest WHERE content_hash IS NULL` returns `0` |
-| AC-1099-4 | Status normalization applied: no rows with `status = 'complete'` or `status = 'done'` | `SELECT COUNT(*) FROM pipeline_manifest WHERE status IN ('complete','completed','done')` returns `0` |
-| AC-1099-5 | Type normalization applied: no rows with legacy type values | `SELECT COUNT(*) FROM pipeline_manifest WHERE type IN ('fix','worker','audit','attestation','verification','design','release-recovery')` returns `0` |
-| AC-1099-6 | `BASE-001` text in `cleo-subagent.md` references `pipeline.manifest.append` not `MANIFEST.jsonl` | `grep "BASE-001" ~/.claude/agents/cleo-subagent.md \| grep "MANIFEST.jsonl"` returns empty |
-| AC-1099-7 | `echo >> MANIFEST.jsonl` pattern absent from compiled agent prompts | `grep -r "echo.*MANIFEST.jsonl" ~/.claude/agents/ packages/skills/skills/` returns empty |
-| AC-1099-8 | `cleo manifest show` references in orchestrator.md replaced | `grep "cleo manifest show" .claude/commands/orchestrator.md` returns empty |
-| AC-1099-9 | `{{MANIFEST_PATH}}` token removed from template files | `grep -r "MANIFEST_PATH" packages/skills/skills/_shared/ packages/core/templates/` returns only deprecated description strings |
-| AC-1099-10 | `pnpm biome ci .`, `pnpm run build`, `pnpm run test` all exit 0 | Standard quality gates |
-
----
-
-## 10. References (from `t1096-manifest-unification-spec`)
-
-- ADR-006: SQLite as Single Source of Truth
-- ADR-021: Memory Domain Refactor (manifest ops moved from memory to pipeline domain)
-- ADR-027: Manifest SQLite Migration (normative retirement of MANIFEST.jsonl)
-- ADR-051: Programmatic Gate Integrity (evidence requirements)
-- `docs/specs/CLEO-MANIFEST-SCHEMA-SPEC.md` — table schema and 14 operations
-- `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — pipeline domain operations table
-- `packages/cleo/src/cli/commands/research.ts` — existing research command (deprecation target)
-- `packages/contracts/src/operations/research.ts` — research operations contract
-- `/mnt/projects/cleocode/.cleo/agent-outputs/T1094-inventory.md` — Wave 1 inventory
-- `/mnt/projects/cleocode/.cleo/agent-outputs/T1095-drift-map.md` — Wave 2 drift map
-- T1094: Inventory audit (Wave 1)
-- T1095: Drift map (Wave 2)
-- T1097: `cleo manifest` CLI registration + deprecation (Wave 3)
-- T1098: RCASD ingestion into `pipeline_manifest` (Wave 3)
-- T1099: Loose md ingestion + JSONL migration + agent prompt fixes (Wave 3)
-
----
-
-**END OF SPEC T1096**
+## 8. References
+
+- [ADR-006: canonical SQLite storage](../adr/adr-006-canonical-sqlite-storage.md)
+- [ADR-021: memory domain refactor](../adr/adr-021-memory-domain-refactor.md)
+- [ADR-027: manifest SQLite migration](../adr/adr-027-manifest-sqlite-migration.md)
+- [ADR-054: manifest unification](../adr/adr-054-manifest-unification.md)
+- [CLEO operation constitution](cleo-operation-constitution.md)
