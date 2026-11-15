@@ -1,129 +1,126 @@
 # CLEO Tasks API Specification
 
-**Version**: 1.0.0
+**Version**: 2.0.0
 **Status**: AUTHORITY (narrative spec, cites code layer)
 **Domain**: `tasks`
-**Contract file**: `packages/contracts/src/operations/tasks.ts`
+**Contract file**: `packages/contracts/src/operations/tasks.ts` (`TasksOps`)
+**Operation registry**: `packages/contracts/src/dispatch/operations-registry.ts`
 **Implementation root**: `packages/core/src/tasks/`
 **Dispatch handler**: `packages/cleo/src/dispatch/domains/tasks.ts`
-**Authority pointer**: `docs/specs/CLEO-API-AUTHORITY.md` §2
+**Authority pointer**: `cleo docs fetch cleo-api-authority`
 
 This specification MUST be used by anyone reading, mutating, or exposing task
 data. When this spec disagrees with the contract or the registry, the code
 wins and this spec is a bug.
 
-> **Related specs**:
-> - `docs/specs/CLEO-API-AUTHORITY.md` — authority chain
-> - `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` — HTTP exposure and envelope
-> - `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` — Studio `/tasks` UI
-> - `docs/specs/T832-gate-integrity-spec.md` — evidence grammar (ADR-051)
-> - `.cleo/adrs/ADR-051-programmatic-gate-integrity.md`
-> - `docs/specs/TASK-RECONCILIATION-SPEC.md` — external task links
+> **Related docs**:
+> - `cleo docs fetch cleo-api-authority`: authority chain
+> - [`docs/spec/cleo-studio-http.md`](cleo-studio-http.md): Studio HTTP exposure
+> - [`docs/spec/cleo-task-dashboard.md`](cleo-task-dashboard.md): Studio `/tasks` UI
+> - [`docs/spec/gate-integrity.md`](gate-integrity.md): evidence grammar (ADR-051)
+> - [`docs/adr/adr-051-programmatic-gate-integrity.md`](../adr/adr-051-programmatic-gate-integrity.md)
+> - [`docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md`](../adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md): containment, relations, reparent and retype rules
+> - [`docs/spec/cleo-operation-constitution.md`](cleo-operation-constitution.md): runtime operation tables
+> - §9 below: external task links (sync)
 
 ---
 
 ## 1. Overview
 
 The **tasks** domain is the authoritative record of every unit of work in a
-CLEO project. A task is a row in `tasks` table in `tasks.db`. Tasks are
-typed (`saga` / `epic` / `task` / `subtask`), contained via `parent_id`,
-blocked for scheduling via `task_dependencies`, connected by soft relation
-edges via `task_relations`, and tracked through two orthogonal axes:
-**status** and **pipeline_stage**.
+CLEO project. A task is a row of the `tasks_tasks` table in the project store
+`<project>/.cleo/cleo.db` (`packages/core/src/store/schema/cleo-project/tasks-core.ts:107`).
+The bare legacy tables (`tasks`, `task_dependencies`, …) are no longer read or
+written at runtime: `packages/core/src/store/tasks-schema.ts` re-exports the
+prefixed tables under the old names (`tasks_tasks as tasks`, …).
 
-PM-Core V2 uses three separate graph surfaces:
+Tasks are typed (`saga` / `epic` / `task` / `subtask`), contained via
+`parent_id`, blocked for scheduling via `tasks_task_dependencies`, connected by
+soft relation edges via `tasks_task_relations`, and tracked on two orthogonal
+axes: **status** and **pipeline_stage**.
+
+PM-Core V2 (ADR-088) uses three separate graph surfaces:
 
 | Surface | Storage | Semantics |
 |---------|---------|-----------|
-| Containment | `tasks.parent_id` | The solid parent/child tree. Drives direct children, ancestors, descendants, rollups, completion projection, and cascade mutation planning. |
-| Hard dependency | `task_dependencies` | Scheduler/readiness edge. A task, epic, or saga cannot be considered dependency-ready until upstream dependencies are satisfied. Inherited Saga/Epic dependency projection is tracked by T11202. |
-| Soft relation | `task_relations` | Dotted-line context graph. Useful for related work, provenance, duplicate/supersede/extend/fix links, advisory blocks, and cross-saga grouping. It never creates containment and never blocks scheduling by itself. |
+| Containment | `tasks_tasks.parent_id` | The parent/child tree. Drives direct children, ancestors, descendants, rollups, completion projection, and cascade mutation planning. |
+| Hard dependency | `tasks_task_dependencies` | Scheduler/readiness edge. A task, epic, or saga is not dependency-ready until its upstream dependencies are satisfied. |
+| Soft relation | `tasks_task_relations` | Dotted-line context graph: related work, provenance, duplicate/supersede/extend/fix links, advisory blocks, cross-saga grouping. It never creates containment and never blocks scheduling by itself. |
 
 Evidence:
-- Schema: `packages/core/src/store/tasks-schema.ts:137-219` (column list)
-- Status taxonomy: `packages/contracts/src/status-registry.ts:15-22`
+- Tables: `packages/core/src/store/schema/cleo-project/tasks-core.ts` (`tasks_tasks` :107, `tasks_task_dependencies` :369, `tasks_task_relations` :398)
+- Status taxonomy: `packages/contracts/src/status-registry.ts:15-23`
 - Pipeline stages: `packages/core/src/tasks/pipeline-stage.ts:54-66`
 
 ### Invariants (MUST hold at all times)
 
-- **INV-1 — Status is one of six values.** `status ∈ {pending, active, blocked,
-  done, cancelled, archived}`. Source: `packages/contracts/src/status-registry.ts:15-22`.
+- **INV-1 — Status is one of seven values.** `status ∈ {pending, active,
+  blocked, done, cancelled, archived, proposed}`. Source:
+  `packages/contracts/src/status-registry.ts:15-23`.
 - **INV-2 — Pipeline stage is one of 11 values OR NULL.** `pipeline_stage ∈
   {research, consensus, architecture_decision, specification, decomposition,
   implementation, validation, testing, release, contribution, cancelled} ∪
   {NULL}`. Source: `packages/core/src/tasks/pipeline-stage.ts:54-66`.
-- **INV-3 — T877 coupling.** `status = 'done'` REQUIRES `pipeline_stage ∈
-  {contribution, cancelled}`. `status = 'cancelled'` REQUIRES `pipeline_stage
-  = 'cancelled'`. Enforced by SQLite triggers in
-  `packages/core/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql:155-173`.
+- **INV-3 — Status × stage coupling (T877).** `status = 'done'` REQUIRES
+  `pipeline_stage ∈ {contribution, cancelled}`. `status = 'cancelled'` REQUIRES
+  `pipeline_stage = 'cancelled'`. Enforced by SQLite triggers on `tasks_tasks`;
+  the current update trigger is
+  `packages/core/migrations/drizzle-cleo-project/20261105120000_t14218-guard-triggers-compare-old/migration.sql:39-50`.
 - **INV-4 — Forward-only pipeline.** `isPipelineTransitionForward()` rejects
-  backward transitions unless current or new stage is unknown. Source:
-  `packages/core/src/tasks/pipeline-stage.ts:285-290`.
+  backward transitions unless the current or new stage is unknown. Source:
+  `packages/core/src/tasks/pipeline-stage.ts:332-337`.
 - **INV-5 — Terminal archive.** `status = 'archived'` has no outgoing
-  transitions. Source: `packages/core/src/validation/engine.ts:403-411`.
-- **INV-6 — Evidence-gated completion.** `tasks.complete` REJECTS when any of
-  the 5 required gates lacks validated evidence atoms per ADR-051.
-  Source: `packages/cleo/src/dispatch/domains/tasks.ts:321-340` +
-  `docs/specs/T832-gate-integrity-spec.md`.
+  transitions. Source: `packages/core/src/validation/engine.ts:413-421`.
+- **INV-6 — Evidence-gated completion.** `tasks.complete` rejects when any
+  required verification gate lacks validated evidence (ADR-051). The required
+  gates come from `verification.requiredGates` (default `implemented`,
+  `testsPassed`, `qaPassed`: `packages/core/src/config.ts:66`); a
+  documentation or research task drops `testsPassed` and `qaPassed`
+  (`packages/core/src/tasks/verification-policy.ts:98-157`). Dispatch:
+  `packages/cleo/src/dispatch/domains/tasks.ts:502-546`; grammar in
+  [`gate-integrity.md`](gate-integrity.md).
 - **INV-7 — Containment is `parent_id` only.** Saga/Epic/Task/Subtask hierarchy,
   child listing, rollups, closure, and reparent cascades MUST derive from
-  `tasks.parent_id`, not `task_relations`.
-- **INV-8 — Soft relations are non-blocking.** `task_relations` rows, including
+  `parent_id`, not `tasks_task_relations` (ADR-088 Decision 2).
+- **INV-8 — Soft relations are non-blocking.** Relation rows, including
   `groups` and `blocks`, MUST NOT be treated as scheduler dependencies. Use
-  `task_dependencies` for execution blocking.
+  `tasks_task_dependencies` for execution blocking (ADR-088 Decision 3).
 
 ---
 
 ## 2. Status State Machine
 
-**Canonical taxonomy** (6 values, exact):
-`pending | active | blocked | done | cancelled | archived`
+**Canonical taxonomy** (7 values, exact):
+`pending | active | blocked | done | cancelled | archived | proposed`
 
-Source: `packages/contracts/src/status-registry.ts:15-22`.
+Source: `packages/contracts/src/status-registry.ts:15-23`.
 
-Transitions (source: `packages/core/src/validation/engine.ts:403-411`):
+Transitions (source: `packages/core/src/validation/engine.ts:413-421`):
 
 ```
+proposed   → [pending, cancelled]   (intake: admit or reject)
 pending    → [active, blocked, cancelled]
 active     → [done, blocked, pending, cancelled]
 done       → [pending, archived]
 blocked    → [pending, active, cancelled]
 cancelled  → [pending]
-archived   → []                 (terminal)
+archived   → []                     (terminal)
 ```
 
-Diagram:
+`proposed` is the intake status: a proposed task is admitted (→ `pending`) or
+rejected (→ `cancelled`) and cannot jump to `active` or `done`
+(`packages/core/src/validation/engine.ts:404-412`).
 
-```
-                       ┌───────────┐
-                       │  pending  │◄────────┐
-                       └─────┬─────┘         │
-            ┌────────────────┼────────────────┼────────────────┐
-            ▼                ▼                ▼                ▼
-      ┌─────────┐      ┌─────────┐      ┌──────────┐     ┌───────────┐
-      │ active  │◄────►│ blocked │      │cancelled │     │           │
-      └────┬────┘      └────┬────┘      └────┬─────┘     │           │
-           │                │                │           │           │
-           ▼                ▼                ▼           │           │
-      ┌─────────┐           │           (to pending)     │           │
-      │  done   │───────────┘                            │           │
-      └────┬────┘                                        │           │
-           ▼                                             │           │
-      ┌──────────┐                                       │           │
-      │ archived │  ◄── TERMINAL (no outgoing)           │           │
-      └──────────┘                                       └───────────┘
-```
-
-Terminal set: `{done, cancelled, archived}` — source
-`packages/contracts/src/status-registry.ts:69-73`.
+Terminal set: `{done, cancelled, archived}`. Source:
+`packages/contracts/src/status-registry.ts:70-74`.
 
 ---
 
 ## 3. Pipeline Stage
 
-`pipeline_stage` is an **orthogonal** column to `status`. It tracks where a
-task is in the RCASD-IVTR+C lifecycle. A task MAY progress through pipeline
-stages while remaining `status = 'active'`.
+`pipeline_stage` is a column **orthogonal** to `status`. It tracks where a task
+is in the RCASD-IVTR+C lifecycle. A task MAY progress through pipeline stages
+while remaining `status = 'active'`.
 
 Canonical stages (11 values, order-significant):
 
@@ -131,7 +128,7 @@ Canonical stages (11 values, order-significant):
 |---|-------|-----------|---------|
 | 1 | `research` | No | Explore problem space |
 | 2 | `consensus` | No | Multi-agent agreement |
-| 3 | `architecture_decision` | No | ADR captured (labelled "Design / ADR" in UI per T880) |
+| 3 | `architecture_decision` | No | ADR captured |
 | 4 | `specification` | No | Spec written |
 | 5 | `decomposition` | No | Broken into atomic tasks |
 | 6 | `implementation` | No | Code written |
@@ -143,248 +140,278 @@ Canonical stages (11 values, order-significant):
 
 Source: `packages/core/src/tasks/pipeline-stage.ts:54-66`.
 
-A sibling enum `LIFECYCLE_STAGE_NAMES` at
-`packages/core/src/store/tasks-schema.ts:87-98` lists stages 1–10 only (no
-`cancelled`) for the `lifecycle_stages.stage_name` column. The 11th marker
-lives ONLY on `tasks.pipeline_stage`. This divergence is intentional per
-`packages/core/src/tasks/pipeline-stage.ts:48-53`.
+`LIFECYCLE_STAGE_NAMES` in `packages/core/src/store/schema/lifecycle.ts:12-23`
+lists stages 1–10 only (no `cancelled`) for lifecycle stage rows. The 11th
+marker lives only on `tasks_tasks.pipeline_stage`; it sits at order 11 so a move
+into `cancelled` is always forward (`packages/core/src/tasks/pipeline-stage.ts:40-50`).
+
+### Default stage on creation
+
+`resolveDefaultPipelineStage` (`packages/core/src/tasks/pipeline-stage.ts:210-232`):
+
+1. An explicit valid `--pipeline-stage` wins.
+2. Otherwise inherit the parent's stage.
+3. Otherwise `research` for an epic.
+4. Otherwise `implementation`.
+
+Move a task forward with `cleo update <id> --pipeline-stage <stage>`; a backward
+move is rejected (INV-4). `cancelled` is set by `cleo cancel`, not by
+`--pipeline-stage` (its accepted values stop at `contribution`).
 
 ### Status × pipeline_stage coupling (T877)
 
-INV-3 above is enforced by SQLite triggers at
-`packages/core/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql:155-173`.
-Attempts that would violate it raise `T877_INVARIANT_VIOLATION` at
-INSERT/UPDATE time.
+INV-3 is enforced by triggers. A write that would violate it aborts with
+`T877_INVARIANT_VIOLATION`. Since T14218 the update trigger fires only when
+`status` or `pipeline_stage` actually changes, so a legacy row with an invalid
+pair can still take unrelated edits.
 
 | `status` | Legal `pipeline_stage` |
 |----------|------------------------|
-| `pending` | any of 11 |
-| `active` | any of 11 |
-| `blocked` | any of 11 |
+| `proposed`, `pending`, `active`, `blocked` | any of 11 |
 | `done` | `contribution` OR `cancelled` ONLY |
 | `cancelled` | `cancelled` ONLY |
-| `archived` | inherited from pre-archive state |
+| `archived` | unconstrained by the trigger (keeps its pre-archive value) |
 
 ---
 
 ## 4. The "Deferred" Clarification
 
-There is NO `deferred` status, column, or enum value. `deferred` appears
-**exclusively as a Studio UI synonym** for `status = 'cancelled'` applied
-to `type = 'epic'` rows, toggled by the URL query param `?deferred=1`.
+There is NO `deferred` status, column, or enum value. "Deferred" was only ever
+a Studio UI label for `status = 'cancelled'` on epics. Studio now names it
+"cancelled": the canonical URL parameter is `?cancelled=1`; a legacy
+`?deferred=1` still maps to the same filter for one release with a one-time
+warning, and the `includeDeferred` option was renamed `includeCancelled`
+(`packages/studio/src/routes/tasks/+page.server.ts:23-27`, `:150-160`).
 
-**Evidence** (cited verbatim from the audit):
+`deferred` is absent from `packages/contracts/src/status-registry.ts`.
 
-- `packages/studio/src/routes/tasks/+page.server.ts:151` reads the URL:
-  `const showDeferred = url.searchParams.get('deferred') === '1';`
-- `packages/studio/src/routes/tasks/+page.server.ts:109-112`:
-  ```ts
-  const epicFilter = includeDeferred
-    ? `status != 'archived'`
-    : `status NOT IN ('archived','cancelled')`;
-  ```
-- `packages/studio/src/routes/tasks/+page.svelte:384-391` renders a
-  `deferred` badge on cancelled epics when the toggle is on.
-- T878/T900 design note in `+page.server.ts:96-97`: *"status is now returned
-  so the UI can render a 'Deferred' badge, and `cancelled` bucket is surfaced
-  for the same reason."*
-
-Grep confirmation that `deferred` is NOT in Layer-1:
-
-- Absent from `packages/contracts/src/status-registry.ts`.
-- Absent from `packages/core/src/store/tasks-schema.ts`.
-- Absent from every `migration.sql` under
-  `packages/core/migrations/drizzle-tasks/`.
-- `packages/core/src/tasks/crossref-extract.ts:13,20` uses `'deferred-to'`
-  as a **relation type** (`task_relations.relation_type`), NOT a status.
-
-### Recommendation (PROPOSED — @HITL)
-
-Rename the Studio UI filter label from "Show deferred epics" to
-**"Show cancelled epics"**. The URL param `?deferred=1` MAY stay for backward
-compatibility with bookmarks, but the rendered label and tooltip MUST match the
-underlying data. See `docs/specs/CLEO-TASK-DASHBOARD-SPEC.md` §10.
-
-### Agent guidance (non-negotiable)
-
-Agents MUST NOT use `deferred` as if it were a status. Any code path that
-writes `status = 'deferred'` is a bug; the SQLite column enum will reject
-it. Use `status = 'cancelled'` with `pipeline_stage = 'cancelled'` and,
-separately, display as "Deferred" in UI if the filter is active.
+Agents MUST NOT use `deferred` as a status. Any code path that writes
+`status = 'deferred'` is a bug. Use `status = 'cancelled'` with
+`pipeline_stage = 'cancelled'`.
 
 ---
 
 ## 5. Operation Catalogue
 
-The **tasks** contract at `packages/contracts/src/operations/tasks.ts`
-declares **22 operations** (10 query + 12 mutate). The registry
-(`packages/cleo/src/dispatch/registry.ts`) registers additional wrapping ops
-such as `tasks.sync.reconcile`, `tasks.claim`, `tasks.unclaim`,
-`tasks.complexity.estimate`, and `tasks.label.list` — see
-`docs/specs/CLEO-OPERATION-CONSTITUTION.md` §6.1 for the fully-enumerated
-runtime list (32 ops at v2026.4.42).
-
-Each row cites `packages/cleo/src/dispatch/domains/tasks.ts` (the dispatch
-surface). Error codes are drawn from
-`packages/contracts/src/exit-codes.ts` and mapped to HTTP status per
-`docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §3.
-
-> **Legend**
-> - HTTP column: either `verb /path` (currently exposed by Studio) or `(CLI only)` (MUST NOT be assumed reachable over HTTP today). Proposed additions are marked `PROPOSED verb /path`.
-> - Idempotent: "yes" iff same request body → same final state; retries are safe.
+The authoritative wire format is the `TasksOps` map in
+`packages/contracts/src/operations/tasks.ts:2353-2429`. An operation is
+reachable only when it is also listed in `QUERY_OPS` / `MUTATE_OPS` of the
+dispatch handler (`packages/cleo/src/dispatch/domains/tasks.ts:783-860`) and
+registered in `packages/contracts/src/dispatch/operations-registry.ts`.
+Parameter and result shapes are the `Tasks<Op>Params` / `Tasks<Op>Result`
+types named in `TasksOps`; this spec does not copy them.
 
 ### 5.1 Query operations
 
-| Op | CLI verb | HTTP | Params | Result | Error codes | Idempotent | Description | Cite |
-|----|----------|------|--------|--------|-------------|------------|-------------|------|
-| `tasks.show` | `cleo show <id>` | `GET /api/tasks/:id` | `taskId`, `history?`, `ivtrHistory?` | `{ task, subtasks }` | `NOT_FOUND` (404) | yes | Single task + its subtasks | `tasks.ts:78-91` |
-| `tasks.list` | `cleo list --parent` | `GET /api/tasks` (limited) | `parent?`, `status?`, `priority?`, `type?`, `phase?`, `label?`, `children?`, `limit?`, `offset?`, `compact?` | `{ tasks, total }` | `VALIDATION_ERROR` (400) | yes | Filter-scoped task list | `tasks.ts:93-107` |
-| `tasks.find` | `cleo find "query"` | `GET /api/tasks/search` | `query`, `limit?`, `id?`, `exact?`, `status?`, `includeArchive?`, `offset?`, `fields?`, `verbose?` | `{ kind, task?, tasks?, total? }` | `VALIDATION_ERROR` (400) | yes | ID lookup or fuzzy title/description search | `tasks.ts:109-125` |
-| `tasks.exists` | `cleo exists <id>` | PROPOSED `HEAD /api/tasks/:id` | `taskId` | `{ exists: boolean }` | — | yes | Non-throwing existence check | (PROPOSED) |
-| `tasks.tree` | `cleo tree <id>` | `GET /api/tasks/tree/:epicId` | `taskId?` | `{ epic: TreeNode, stats }` | `NOT_FOUND` (404) | yes | Recursive subtree (500-cap) | `tasks.ts:127-131` |
-| `tasks.blockers` | `cleo blockers` | PARTIAL `GET /api/tasks/:id/deps` | `analyze?`, `limit?` | `{ blockers }` | — | yes | Enumerates upstream-blocked tasks | `tasks.ts:133-139` |
-| `tasks.depends` | `cleo deps <id>` | `GET /api/tasks/:id/deps` | `taskId?`, `action?` ({overview, cycles}), `direction?` ({upstream, downstream, both}), `tree?` | `{ taskId, upstream, downstream, allUpstreamReady, blockedCount, blockingCount }` | `NOT_FOUND` (404) | yes | Upstream + downstream dep graph | `tasks.ts:141-168` |
-| `tasks.analyze` | `cleo analyze` | PROPOSED `GET /api/tasks/analyze` | `taskId?`, `tierLimit?` | `{ analysis }` | — | yes | Aggregate analytics | `tasks.ts:170-175` |
-| `tasks.impact` | `cleo impact` | PROPOSED `GET /api/tasks/impact` | `change` (required), `matchLimit?` | `{ matches }` | `VALIDATION_ERROR` (400) | yes | Keyword-match tasks affected by a change | `tasks.ts:177-192` |
-| `tasks.next` | `cleo next` | PROPOSED `GET /api/tasks/next` | `count?`, `explain?` | `{ candidates }` | — | yes | Next-best-work suggestions | `tasks.ts:194-200` |
-| `tasks.plan` | `cleo plan` | PROPOSED `GET /api/tasks/plan` | — | `{ plan }` | — | yes | Composite multi-query view | `tasks.ts:202-205` |
-| `tasks.relates` | `cleo relates <id>` | PROPOSED `GET /api/tasks/:id/relates` | `taskId`, `mode?` ({suggest, discover}), `threshold?` | `{ related }` | `NOT_FOUND` (404) | yes | Find related tasks | `tasks.ts:207-219` |
-| `tasks.complexity.estimate` | `cleo complexity <id>` | PROPOSED `GET /api/tasks/:id/complexity` | `taskId` | `{ estimate }` | `NOT_FOUND` (404) | yes | Heuristic sizing estimate | `tasks.ts:221-226` |
-| `tasks.current` | `cleo current` | PROPOSED `GET /api/tasks/current` | — | `{ task? }` | — | yes | Current active task for session | `tasks.ts:228-231` |
-| `tasks.history` | `cleo history [<id>]` | PROPOSED `GET /api/tasks/:id/history` | `taskId?`, `limit?` | `{ events }` | — | yes | Task lifecycle audit | `tasks.ts:233-241` |
-| `tasks.label.list` | `cleo label list` | PROPOSED `GET /api/tasks/labels` | — | `{ labels }` | — | yes | Distinct labels across project | `tasks.ts:243-246` |
-| `tasks.sync.links` | `cleo sync links` | PROPOSED `GET /api/tasks/sync/links` | `providerId?`, `taskId?` | `{ links }` | — | yes | External task link inventory | `tasks.ts:248-254` |
+| Op | CLI verb | Description |
+|----|----------|-------------|
+| `tasks.show` | `cleo show <id>` (several ids allowed) | Task record + view; `--full` returns withheld fields |
+| `tasks.list` | `cleo list --parent <id>` | Filter-scoped list (direct children for `--parent`) |
+| `tasks.find` | `cleo find "query"` | Lexical search; `--fuzzy` opts into subsequence matching |
+| `tasks.tree` | `cleo tree <rootId>` | Hierarchy subtree |
+| `tasks.blockers` | `cleo blockers` | Blocked tasks and blocking chains |
+| `tasks.depends` | `cleo deps show <id>` (also `overview`, `cycles`) | Dependency graph |
+| `tasks.deps.validate`, `tasks.deps.tree` | `cleo deps …` | Dependency-graph validation / tree |
+| `tasks.slice` | `cleo tasks slice` | Local WorkGraph slice around a task |
+| `tasks.context` | (no CLI verb) | Task-scoped context pack with token budget |
+| `tasks.analyze` | `cleo analyze` | Leverage scoring and bottleneck detection |
+| `tasks.impact` | `cleo reason impact --change "<text>"` | Keyword-match tasks affected by a change (`change` required) |
+| `tasks.next` | `cleo next` | Next-work suggestions |
+| `tasks.plan` | `cleo plan` | Composite planning view |
+| `tasks.relates` | `cleo relates suggest` / `discover` | Related-task discovery |
+| `tasks.complexity.estimate` | `cleo complexity estimate <id>` | small / medium / large estimate |
+| `tasks.history` | `cleo history log` / `work` | Task audit and work history |
+| `tasks.current` | `cleo current` | Current task for the session |
+| `tasks.label.list` | `cleo labels` | Labels with task counts |
+| `tasks.sync.links` | `cleo sync links` | External task link inventory |
+| `tasks.saga.list`, `.members`, `.rollup` | `cleo saga list` / `members` / `rollup` | Saga reads |
+| `tasks.req.list`, `.req.migrate.preview` | `cleo req …` | REQ-ID acceptance gates |
+
+`cleo exists <id>` is a CLI verb that reads core directly; there is no
+`tasks.exists` dispatch operation.
 
 ### 5.2 Mutate operations
 
-| Op | CLI verb | HTTP | Params | Result | Error codes | Idempotent | Description | Cite |
-|----|----------|------|--------|--------|-------------|------------|-------------|------|
-| `tasks.add` | `cleo add` | PROPOSED `POST /api/tasks` | `title`, `description?`, `parent?`, `depends?`, `priority?`, `labels?`, `type?`, `acceptance?`, `phase?`, `size?`, `notes?`, `files?`, `dryRun?`, `parentSearch?` | `{ task }` | `VALIDATION_ERROR` (400), `PARENT_NOT_FOUND` (404), `DEPTH_EXCEEDED` (409), `SIBLING_LIMIT` (409), `INVALID_PARENT_TYPE` (409), `ID_COLLISION` (409) | NO | Create a task/epic/subtask | `tasks.ts:278-296` |
-| `tasks.update` | `cleo update <id>` | PROPOSED `PATCH /api/tasks/:id` | `taskId` + any `add` field + `addLabels?`, `removeLabels?`, `addDepends?`, `removeDepends?`, `pipelineStage?` | `{ task, changes }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `TASK_COMPLETED` (409), `LIFECYCLE_GATE_FAILED` (422), `CIRCULAR_REFERENCE` (409) | yes | Partial update; forward-only pipeline_stage | `tasks.ts:298-319` |
-| `tasks.complete` | `cleo complete <id>` | PROPOSED `POST /api/tasks/:id/complete` | `taskId`, `notes?` (REJECTS `force`) | `{ task, gates }` | `NOT_FOUND` (404), `E_EVIDENCE_MISSING` (422), `E_EVIDENCE_INSUFFICIENT` (422), `E_EVIDENCE_STALE` (422), `E_EVIDENCE_TESTS_FAILED` (422), `E_EVIDENCE_TOOL_FAILED` (422), `LIFECYCLE_GATE_FAILED` (422), `FLAG_REMOVED` (410 on `force:true`) | yes | ADR-051 evidence-gated completion | `tasks.ts:321-340` |
-| `tasks.delete` | `cleo delete <id>` | PROPOSED `DELETE /api/tasks/:id` | `taskId`, `force?` | `{ deletedIds }` | `NOT_FOUND` (404), `HAS_CHILDREN` (409), `HAS_DEPENDENTS` (409), `CASCADE_FAILED` (500) | yes | Permanent removal (default rejects if children) | `tasks.ts:342-349` |
-| `tasks.archive` | `cleo archive [<id>]` | PROPOSED `POST /api/tasks/:id/archive` | `taskId?`, `before?`, `taskIds?`, `includeCancelled?`, `dryRun?` | `{ archived }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Soft-archive (bulk or single) | `tasks.ts:351-363` |
-| `tasks.restore` | `cleo restore <id>` | PROPOSED `POST /api/tasks/:id/restore` | `taskId`, `from?` ({done, archived}), `status?`, `reason?`, `preserveStatus?`, `cascade?`, `notes?` | `{ task }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Restore from any terminal state | `tasks.ts:365-388` |
-| `tasks.cancel` | `cleo cancel <id>` | PROPOSED `POST /api/tasks/:id/cancel` | `taskId`, `reason?` | `{ task }` | `NOT_FOUND` (404), `TASK_COMPLETED` (409) | yes | Soft terminal (reversible) | `tasks.ts:390-397` |
-| `tasks.reparent` | `cleo reparent <id> <newParent>` | PROPOSED `POST /api/tasks/:id/reparent` | `taskId`, `newParentId` (string OR null), `dryRun?` | `{ movedRoot, oldParentId, newParentId, affectedDescendants, typeChanges, reopenedAncestors, warnings }` per §8.1 | `NOT_FOUND` (404), `CIRCULAR_REFERENCE` (409), `INVALID_PARENT_TYPE` (409) | yes | Move task and its subtree under new parent; `null` reroots; dry-run returns plan | `tasks.ts:399-406` |
-| `tasks.retype` | `cleo retype <id> <type>` | PROPOSED `POST /api/tasks/:id/retype` | `taskId`, `newType` (`saga`\|`epic`\|`task`\|`subtask`), `dryRun?` | `{ plan }` (dryRun) or `{ rootTaskId, oldType, newType, performedChildRetypes, reopenedAncestors, warnings }` per §8.2 | `NOT_FOUND` (404), `INVALID_RETYPE` (409), `CASCADE_FAILED` (500) | yes | Change task type with full subtree validation; dry-run returns plan | §8.2 |
-| `tasks.reorder` | `cleo reorder <id> <pos>` | PROPOSED `POST /api/tasks/:id/reorder` | `taskId`, `position` | `{ task }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400) | yes | Change sibling order | `tasks.ts:408-415` |
-| `tasks.relates.add` | `cleo relates add <id> <related>` | PROPOSED `POST /api/tasks/:id/relates` | `taskId`, `relatedId\|targetId`, `type`, `reason?` | `{ relation }` | `NOT_FOUND` (404), `VALIDATION_ERROR` (400), `ALREADY_EXISTS` (200 `NO_CHANGE`) | yes | Record a relation between tasks | `tasks.ts:417-438` |
-| `tasks.start` | `cleo start <id>` | PROPOSED `POST /api/tasks/:id/start` | `taskId` | `{ task, sessionId }` | `NOT_FOUND` (404), `SESSION_REQUIRED` (409), `TASK_CLAIMED` (409), `TASK_NOT_IN_SCOPE` (409) | yes | Set as current task for active session | `tasks.ts:440-443` |
-| `tasks.stop` | `cleo stop` | PROPOSED `POST /api/tasks/stop` | — | `{ previousTaskId }` | — | yes | Stop current task (session-scoped) | `tasks.ts:445-448` |
-| `tasks.sync.reconcile` | `cleo sync reconcile` | PROPOSED `POST /api/tasks/sync/reconcile` | `providerId`, `externalTasks`, `dryRun?`, `conflictPolicy?`, `defaultPhase?`, `defaultLabels?` | `{ reconciled, conflicts }` | `VALIDATION_ERROR` (400), `CONFLICT_POLICY_FAILED` (409) | yes | External task link reconciliation | `tasks.ts:450-460` |
-| `tasks.sync.links.remove` | `cleo sync links remove` | PROPOSED `DELETE /api/tasks/sync/links` | `providerId` | `{ removed }` | — | yes | Drop all links from provider | `tasks.ts:462-465` |
-| `tasks.claim` | `cleo claim <id>` | PROPOSED `POST /api/tasks/:id/claim` | `taskId`, `agentId?`, `renew?`, `takeOver?`, `forceClaim?` | `{ taskId, claim }` (the lease: `sessionId`, `agentId`, `claimedAt`, `leaseExpiresAt`) | `NOT_FOUND` (404), `TASK_CLAIMED` (409), `SESSION_UNBOUND` (409, on `takeOver`/`forceClaim` without a bound session) | yes | Take, renew or override the caller session's leased claim (T12502); never writes `assignee` | `TasksClaimParams` in `contracts/src/operations/tasks.ts` |
-| `tasks.unclaim` | `cleo unclaim <id>` | PROPOSED `POST /api/tasks/:id/unclaim` | `taskId`, `forceClaim?` | `{ taskId, released }` | `NOT_FOUND` (404), `TASK_CLAIMED` (409) | yes | Release the caller session's lease (`forceClaim` releases another session's, audited) | `TasksUnclaimParams` in `contracts/src/operations/tasks.ts` |
+| Op | CLI verb | Description |
+|----|----------|-------------|
+| `tasks.add` | `cleo add` | Create a task (`--acceptance` is pipe-separated) |
+| `tasks.add-batch` | `cleo add-batch --file <json>` | Create several tasks in one transaction |
+| `tasks.update` | `cleo update <id>` | Partial update; forward-only `--pipeline-stage` |
+| `tasks.complete` | `cleo complete <id>` | ADR-051 evidence-gated completion; rejects `force` (§7) |
+| `tasks.cancel` | `cleo cancel <id>` | Soft terminal state; reversible via restore |
+| `tasks.decompose` | `cleo decompose <id>` | Move text criteria onto a new child |
+| `tasks.reconcile-scope` | `cleo reconcile scope` | Scope reconciliation |
+| `tasks.delete` | `cleo delete <id>` | Soft delete to archive; parents with children need `--cascade` or `--force` |
+| `tasks.archive` | `cleo archive` | Archive done (and cancelled) tasks (§10) |
+| `tasks.restore` | `cleo restore task <id>` | Restore from archived, cancelled or done |
+| `tasks.reparent` | `cleo reparent <id> --to <parent>` (`""` for root) | Move a subtree (§8) |
+| `tasks.reorder` | `cleo reorder <id> --position <n>` / `--top` / `--bottom` | Sibling order |
+| `tasks.reorder-rank`, `tasks.bulk-move`, `tasks.assignee` | (Studio Kanban; no CLI verb) | Bulk board mutations |
+| `tasks.relates.add`, `.add-batch`, `.remove` | `cleo relates add` / `add-batch` / `remove` | Soft relation edges |
+| `tasks.ranking.revert` | `cleo history revert` | Undo one audited ranking change |
+| `tasks.start` | `cleo start <id>` | Set current task and take the session's claim lease |
+| `tasks.stop` | `cleo stop` | Stop the current task |
+| `tasks.sync.reconcile` | `cleo sync reconcile` | External task reconciliation (§9) |
+| `tasks.sync.links.remove` | `cleo sync links remove` | Drop all links for a provider |
+| `tasks.claim` | `cleo claim <id>` | Take, renew (`--renew`) or override (`--take-over`, `--force-claim`) the session's leased claim; never writes `assignee` |
+| `tasks.unclaim` | `cleo unclaim <id>` | Release the session's lease (`--force-claim`: another session's, audited) |
+| `tasks.saga.create`, `.add`, `.detach`, `.repair`, `.reconcile` | `cleo saga …` | Saga mutations (ADR-073) |
+| `tasks.req.add`, `.replace`, `.move`, `.migrate` | `cleo req …` | REQ-ID acceptance gates |
+
+There is no `tasks.retype` operation (§8.2).
+
+### 5.3 Registered but not dispatched
+
+These ops appear in `TasksOps` and/or the operation registry but are absent
+from the handler's `QUERY_OPS` / `MUTATE_OPS`, so dispatch rejects them as
+unsupported: `tasks.completion.list`, `tasks.completion.evaluate`,
+`tasks.completion.explain`, `tasks.projection.repair`,
+`tasks.saga.migrate-containment`, and the registry-only `tasks.traverse`,
+`tasks.rollup`, `tasks.frontier`, `tasks.workgraph.audit`, `tasks.subscribe`.
+
+### 5.4 HTTP exposure
+
+- **Runtime gateway.** Every registered operation is addressable at
+  `/v1/<domain>/<operation>` (e.g. `/v1/tasks/show`); the gateway (`query` or
+  `mutate`) is inferred from the registry (`packages/runtime/src/gateway/http/listen.ts:53-58`,
+  `packages/runtime/src/gateway/registry.ts:85-100`).
+- **Studio routes** (`packages/studio/src/routes/api/tasks/`): `GET`/`POST
+  /api/tasks`, `GET`/`PATCH`/`DELETE /api/tasks/:id`, `GET /api/tasks/:id/deps`,
+  `GET /api/tasks/:id/stream`, `POST /api/tasks/:id/transition`,
+  `POST /api/tasks/:id/dispatch`, `GET /api/tasks/search`,
+  `GET /api/tasks/tree/:epicId`, `GET /api/tasks/graph`,
+  `GET /api/tasks/pipeline`, `GET /api/tasks/events`,
+  `GET /api/tasks/sessions`, `GET /api/tasks/subscribe`. The write routes call
+  `tasks.add`, `tasks.update`, `tasks.assignee` and `tasks.delete` through the
+  `/v1` gateway client first (`api/tasks/+server.ts`, `api/tasks/[id]/+server.ts`,
+  `api/tasks/[id]/transition/+server.ts`). See
+  [`cleo-studio-http.md`](cleo-studio-http.md).
 
 ---
 
 ## 6. Error Code Map (tasks-relevant subset)
 
-Full enum at `packages/contracts/src/exit-codes.ts:11-160`. The table below
-lists only codes that can surface from `tasks.*` operations.
+Numeric codes: `packages/contracts/src/exit-codes.ts`. String-code → exit
+mapping for the CLI: `ERROR_CODE_TO_EXIT` in
+`packages/cleo/src/dispatch/adapters/cli.ts`.
 
-| ExitCode | Value | HTTP | When it fires |
-|----------|------:|------|---------------|
-| `SUCCESS` | 0 | 200 | Normal success |
-| `INVALID_INPUT` | 2 | 400 | Arg shape wrong |
-| `NOT_FOUND` | 4 | 404 | `taskId` does not exist |
-| `VALIDATION_ERROR` | 6 | 400 | Business rule violation |
-| `LOCK_TIMEOUT` | 7 | 423 | Concurrent SQLite lock |
-| `PARENT_NOT_FOUND` | 10 | 404 | Parent taskId missing |
-| `INVALID_PARENT_TYPE` | 10 | 400 | Invalid parent for tier |
-| `HAS_CHILDREN` | 16 | 409 | Delete without cascade |
-| `HAS_DEPENDENTS` | 19 | 409 | Delete with downstream deps |
-| `CONCURRENT_MODIFICATION` | 21 | 409 | Row version mismatch |
-| `INVALID_RETYPE` | 22 | 409 | Retype plan has invalid descendants |
-| `VERSION_CONFLICT` | 23 | 409 | `--if-match` (`expectedUpdatedAt`) differs from the stored version (`E_CONFLICT`; `details` carry the current version) |
-| `SESSION_UNBOUND` | 24 | 409 | Claim override (`takeOver`/`forceClaim`) with no bound session |
-| `TASK_RENAMED` | 26 | 409 | Sync re-numbered the task the caller addressed after a display-id collision (T12800): an `--if-match` of exactly the version it had under the old id, a renew/release of the claim the caller holds on it, or no row holds the old id. `details.expected` is the new id; nothing was written. Local renames of the last 24 h only; otherwise the write falls through to `E_CONFLICT` / `E_TASK_CLAIMED` |
-| `SESSION_EXISTS` | 30 | 409 | Already-active session conflict |
-| `SESSION_NOT_FOUND` | 31 | 404 | start/stop without session |
-| `TASK_CLAIMED` | 35 | 409 | Another session holds the task's claim lease (`E_TASK_CLAIMED`; `details` names the holder and override) |
-| `SESSION_CLOSE_BLOCKED` | 37 | 409 | Session has unfinished work |
-| `INVALID_GATE` | 42 | 400 | Unknown gate name on verify |
-| `LIFECYCLE_GATE_FAILED` | 80 | 422 | Gate not satisfied |
-| `AUDIT_MISSING` | 81 | 422 | No audit trail for op |
-| `PROVENANCE_REQUIRED` | 84 | 422 | Missing provenance metadata |
-| `E_EVIDENCE_MISSING` | — | 422 | ADR-051 gate lacks evidence |
-| `E_EVIDENCE_INSUFFICIENT` | — | 422 | Atom kind wrong for gate |
-| `E_EVIDENCE_STALE` | — | 422 | Files/commits changed post-verify |
-| `E_EVIDENCE_TESTS_FAILED` | — | 422 | Test-run atom reports failures |
-| `E_EVIDENCE_TOOL_FAILED` | — | 422 | Tool atom exited non-zero |
-| `E_FLAG_REMOVED` | — | 410 | `force:true` removed per ADR-051 |
+| ExitCode | Value | When it fires |
+|----------|------:|---------------|
+| `SUCCESS` | 0 | Normal success |
+| `INVALID_INPUT` | 2 | Arg shape wrong |
+| `NOT_FOUND` | 4 | `taskId` does not exist |
+| `VALIDATION_ERROR` | 6 | Business rule violation |
+| `LOCK_TIMEOUT` | 7 | Concurrent SQLite lock |
+| `PARENT_NOT_FOUND` | 10 | Parent taskId missing |
+| `DEPTH_EXCEEDED` | 11 | Hierarchy depth limit |
+| `SIBLING_LIMIT` | 12 | Sibling limit |
+| `INVALID_PARENT_TYPE` | 13 | Parent type not allowed for this tier |
+| `CIRCULAR_REFERENCE` | 14 | Cycle in hierarchy or dependencies |
+| `HAS_CHILDREN` | 16 | Delete without cascade |
+| `TASK_COMPLETED` | 17 | Mutation on a completed task |
+| `CASCADE_FAILED` | 18 | Cascade mutation failed |
+| `HAS_DEPENDENTS` | 19 | Delete with downstream deps |
+| `CONCURRENT_MODIFICATION` | 21 | Row version mismatch |
+| `ID_COLLISION` | 22 | Task id collision |
+| `VERSION_CONFLICT` | 23 | `--if-match` (`expectedUpdatedAt`) differs from the stored version (`E_CONFLICT`; `details` carry the current version) |
+| `SESSION_UNBOUND` | 24 | Claim override (`takeOver`/`forceClaim`) with no bound session |
+| `TASK_RENAMED` | 26 | Sync re-numbered the task the caller addressed after a display-id collision (T12800); `details.expected` is the new id and nothing was written |
+| `SESSION_EXISTS` | 30 | Already-active session conflict |
+| `SESSION_NOT_FOUND` | 31 | Session not found |
+| `TASK_NOT_IN_SCOPE` | 34 | Task outside the session scope |
+| `TASK_CLAIMED` | 35 | Another session holds the task's claim lease (`E_TASK_CLAIMED`; `details` name the holder and override) |
+| `SESSION_REQUIRED` | 36 | Operation needs an active session |
+| `SESSION_CLOSE_BLOCKED` | 37 | Session has unfinished work |
+| `INVALID_GATE` | 42 | Unknown gate name on verify |
+| `LIFECYCLE_GATE_FAILED` | 80 | Lifecycle gate not satisfied |
+| `AUDIT_MISSING` | 81 | No audit trail for op |
+| `PROVENANCE_REQUIRED` | 84 | Missing provenance metadata |
 
-HTTP mapping is centralised (PROPOSED) in a `dispatchAsHttp()` helper — see
-`docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §4.
+The ADR-051 codes (`E_EVIDENCE_MISSING`, `E_EVIDENCE_INSUFFICIENT`,
+`E_EVIDENCE_INVALID`, `E_EVIDENCE_STALE`, `E_EVIDENCE_TESTS_FAILED`,
+`E_EVIDENCE_TOOL_FAILED`, `E_FLAG_REMOVED`, `E_ALREADY_DONE`, …) have no entry
+of their own in the exit-code maps; match on the string code. The full list is
+in [`gate-integrity.md`](gate-integrity.md) §5.3.
+
+**HTTP status** on the runtime gateway comes from `statusForResponse`
+(`packages/runtime/src/gateway/http/server.ts:48-64`): success → 200;
+`E_NOT_FOUND` or any `*_NOT_FOUND` → 404; `E_UNAUTHORIZED`/`E_AUTH_REQUIRED` →
+401; `E_FORBIDDEN` → 403; `E_RATE_LIMITED`/`E_RATE_LIMIT_EXCEEDED` → 429;
+`E_VALIDATION*`, `E_INVALID_INPUT`, `E_BAD_REQUEST` → 400;
+`E_NOT_IMPLEMENTED`/`E_UNSUPPORTED` → 501; every other code → 500. That includes client refusals such as `E_TASK_CLAIMED`, `E_CONFLICT`,
+`E_EVIDENCE_*` and `E_FLAG_REMOVED`; T14607 tracks mapping them to 4xx.
 
 ---
 
 ## 7. Evidence-Gate Contract (ADR-051)
 
-Per `.cleo/adrs/ADR-051-programmatic-gate-integrity.md`, `tasks.complete` is
-NOT callable without evidence atoms. The 5 canonical gates and their
-required atom kinds are specified in
-`docs/specs/T832-gate-integrity-spec.md` and summarised here.
+`tasks.complete` is not callable without evidence for every required gate
+(INV-6). Atom kinds, the per-gate minimums and the error codes are specified
+in [`gate-integrity.md`](gate-integrity.md); the SSoT is
+`GATE_EVIDENCE_REQUIREMENTS` in `packages/contracts/src/evidence-atom-schema.ts:579-600`.
 
-| Gate | Purpose | Required atoms (one-of or all) | Emergency override |
-|------|---------|--------------------------------|---------------------|
-| `implemented` | Code shipped | `commit:<sha>` AND `files:<list>` | `CLEO_OWNER_OVERRIDE=1` + reason |
-| `testsPassed` | Tests green | `tool:pnpm-test` OR `test-run:<json>` | same |
-| `qaPassed` | Lint/type clean | `tool:biome` AND `tool:tsc` | same |
-| `documented` | Docs updated | `files:<docs-paths>` OR `url:<live-url>` | same |
-| `securityPassed` | Security OK | `tool:security-scan` OR `note:<waiver>` | same |
-| `cleanupDone` | Repo tidy | `note:<summary>` | same |
+Summary of the minimums:
 
-**Re-validation** happens at `tasks.complete` time. CLEO re-checks hard atoms
-(commit reachable, file sha256 match, test-run hash match). Tampering between
-`verify` and `complete` raises `E_EVIDENCE_STALE` and forces re-verify.
+| Gate | Accepted atom combinations (any one) |
+|------|--------------------------------------|
+| `implemented` | `commit`+`files`, `commit`+`note`, `decision`+`files`, `decision`+`note`, `pr`+`files`, `pr`+`note` (deletion-only PR) |
+| `testsPassed` | `test-run`, `tool`, or `ci` |
+| `qaPassed` | `tool`, `ci`, or `qa-run` |
+| `documented` | `files` or `url` |
+| `securityPassed` | `tool` or `note` |
+| `cleanupDone` | `note` |
+| `nexusImpact` | `tool` or `note` |
 
-The legacy `--force` flag is REMOVED (`E_FLAG_REMOVED` on attempt). Owner
-override MUST go through `CLEO_OWNER_OVERRIDE=1` + `CLEO_OWNER_OVERRIDE_REASON`,
-which appends a line to `.cleo/audit/force-bypass.jsonl`.
+**Re-validation** happens at `tasks.complete`. CLEO re-checks every hard atom
+(commit reachable, file sha256, test-run hash); a change between `verify` and
+`complete` raises `E_EVIDENCE_STALE` (`packages/core/src/tasks/complete.ts:1912-1927`).
 
-Legal sequence at the CLI:
+The `--force` flag is removed: dispatch rejects any `force` param with
+`E_FLAG_REMOVED` (`packages/cleo/src/dispatch/domains/tasks.ts:502-511`).
+`CLEO_OWNER_OVERRIDE=1` (+ `CLEO_OWNER_OVERRIDE_REASON`) on `cleo verify` is
+honoured only for the owner and is audited to `.cleo/audit/force-bypass.jsonl`
+(see [`gate-integrity.md`](gate-integrity.md) §6).
+
+**How work closes:**
+
+- **PR work** closes through the merge sweep (ADR-099): the PR body carries
+  `Closes: T#### AC1,AC2` (or `Refs:` for partial delivery), a non-author
+  records a per-AC verdict with `cleo review verdict`, and on merge the sweep
+  records the `pr:`, `ci:` and `satisfies:` evidence and closes the task.
+  `cleo done --from-merge <pr> --dry-run` previews it.
+- **No-PR work**: `cleo done <id> --plan` names the gates and the evidence each
+  needs; record them, then complete:
 
 ```bash
-cleo verify T### --gate implemented \
-  --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
-cleo verify T### --gate testsPassed  --evidence "tool:pnpm-test"
-cleo verify T### --gate qaPassed     --evidence "tool:biome;tool:tsc"
-cleo verify T### --gate documented   --evidence "files:docs/spec.md"
-cleo verify T### --gate securityPassed --evidence "tool:security-scan"
-cleo verify T### --gate cleanupDone  --evidence "note:removed dead branches"
+cleo done T### --plan
+cleo verify T### --gate implemented --evidence "commit:<sha>;files:path/a.ts,path/b.ts"
+cleo verify T### --gate testsPassed  --evidence "tool:test"
+cleo verify T### --gate qaPassed     --evidence "tool:lint;tool:typecheck"
 cleo complete T###
 ```
 
-The HTTP equivalent (PROPOSED) is `POST /api/tasks/:id/verify` per
-`docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §2.
+`cleo done <id>` without `--plan` derives the evidence, records every required
+gate in one write, and completes.
 
 ### 7.1 Contract — `cleo verify` NEVER auto-completes a task (GH #94)
 
-A `cleo verify` write is scoped exclusively to `task.verification.*`. Even
-when the final gate write drives `verification.passed = true`, the engine
-**never** mutates `task.status`. Closing a task is a separate, explicit
-action: the user (or orchestrator) MUST call `cleo complete <id>`, which
-re-validates every hard evidence atom (commit reachability, file sha256,
-test-run hash) before flipping `status → done`.
+A `cleo verify` write is scoped to `task.verification.*`. Even when the final
+gate write drives `verification.passed = true`, the engine never mutates
+`task.status`. Closing is a separate, explicit action (`cleo complete` or the
+merge sweep), which re-validates every hard atom before flipping
+`status → done`.
 
-This is the canonical contract per ADR-051 §10 (Pre-Complete Gate Ritual) and
-is enforced in `packages/core/src/validation/engine-ops.ts` (the comment
-labelled "policy (b): verify NEVER auto-completes"). The decision rests on
-two operational invariants:
+Enforced in `packages/core/src/validation/engine-ops.ts:1452-1467` (comment
+"policy (b): verify NEVER auto-completes"). The reasons:
 
-1. **Evidence staleness protection.** If `verify` auto-flipped status,
-   nothing would force the staleness re-check at `complete` time. An agent
-   could verify, then tamper with files, and the status would already be
-   `done` — bypassing the E_EVIDENCE_STALE guard entirely.
-2. **Lifecycle audit clarity.** Every status transition to `done` MUST be
-   accompanied by an explicit `cleo complete` audit entry. Coupling `verify`
-   and `complete` would blur the audit trail and break per-task evidence
-   re-validation.
+1. **Evidence staleness protection.** If `verify` flipped status, nothing would
+   force the staleness re-check at `complete`; an agent could verify, edit the
+   files, and already be `done`.
+2. **Lifecycle audit clarity.** Every transition to `done` is accompanied by an
+   explicit completion audit entry.
 
-The engine emits a `hint` field on every gate write that drives
-`verification.passed = true`, so the agent knows the next step:
+A gate write that drives `verification.passed = true` with no gate missing
+returns a `hint`:
 
 ```json
 {
@@ -396,395 +423,328 @@ The engine emits a `hint` field on every gate write that drives
 ```
 
 **Reference**: `packages/core/src/validation/__tests__/gate-verify-hint.test.ts`
-(GH #94 reproduction test asserts `status: 'pending'` is preserved after
-all gates pass).
+(GH #94 reproduction test).
 
 ---
 
 ## 8. Reparent and Retype (WorkGraph Mutation)
 
-PM-Core V2 specifies two subtree-granularity mutation operations that
-must operate atomically and produce caller-visible plans. Both are subject
-to the invariants in ADR-088 §2–5.
+ADR-088 Decisions 2 and 5 require both operations to move or validate whole
+subtrees. The current implementation covers reparent only.
 
 ### 8.1 `tasks.reparent` — Move a subtree under a new parent
 
-Reparenting a task moves that task and every descendant underneath a new
-`parentId`. The operation is **never** a scalar `parent_id` update — it is
-a full-subtree move with validation, type adjustment, and ancestor
-reopening.
+CLI: `cleo reparent <id> --to <parentId>` (`--to ""` makes the task a root).
+Params: `TasksReparentQueryParams` = `{ taskId, newParentId }` (`null` or empty
+promotes to root). There is no dry-run.
 
-#### Request
+Implementation: `coreTaskReparent` in `packages/core/src/tasks/task-reparent.ts:50`.
+Before any write it rejects:
+- a move under the task itself or under one of its descendants (circular
+  reference);
+- a missing parent, or a parent that is a subtask;
+- a parent whose sibling limit (`maxSiblings`) is reached;
+- a moved subtree whose deepest node would exceed `maxDepth`
+  (`task-reparent.ts:177`);
+- a parent/type combination the PM-Core V2 matrix forbids.
 
-```
-POST /api/tasks/:id/reparent
-{
-  "taskId": "T####",
-  "newParentId": "T####" | null,
-  "dryRun?": false
-}
-```
+It then moves the whole subtree (Saga and Epic types are kept; Task/Subtask
+descendants change type only when the new parent tier requires it), reopens any
+`done` ancestor to `pending` with a note (`task-reparent.ts:210-220`), and
+appends a `task_reparented` log entry.
 
-- `newParentId: null` promotes the root task to top-level (if its type
-  allows it per the parent matrix — ADR-088 §2).
-- `dryRun: true` returns the plan without mutating.
-
-#### Response (applied, `dryRun: false`)
-
-```jsonc
-{
-  "movedRoot": "T11203",
-  "oldParentId": "T11100",
-  "newParentId": "T10965",
-  "affectedDescendants": 4,
-  "typeChanges": [
-    {"taskId": "T11203-1", "oldType": "task", "newType": "subtask"}
-  ],
-  "reopenedAncestors": ["T10965", "T9977"],
-  "warnings": [
-    "Task T10965 was 'done'; automatically reopened to 'in_progress'"
-  ]
-}
-```
-
-| Field | Meaning |
-|-------|---------|
-| `movedRoot` | The task whose `parent_id` was changed. |
-| `oldParentId` | Previous parent (or `null` if root). |
-| `newParentId` | New parent (or `null` if promoted to root). |
-| `affectedDescendants` | Count of descendant tasks whose depth, type, or ancestor cache changed. |
-| `typeChanges` | Descendants whose projected type changed because the new parent tier requires a different type (e.g., Task under an Epic → Subtask under a Task). |
-| `reopenedAncestors` | Any ancestor chain that was `done` and must be reopened because a new child was added. |
-| `warnings` | Human-readable advisory messages (reopened ancestors, depth adjustment notes). |
-
-#### Atomicity
-
-The entire subtree move is one transaction. If any validation fails
-(cycles, tier violations, depth overflow, sibling limit), the database
-rolls back completely — no partial writes.
-
-#### Epic → Saga reparenting
-
-When an Epic is reparented under a Saga, the Epic preserves its own type
-and all descendants remain Epics/Tasks/Subtasks as appropriate. The
-operation validates:
-- The new parent is type `saga` (or `null` for standalone).
-- No descendant creates a cycle (descendant == new parent anywhere in the
-  moved subtree).
-- The resulting depth of every moved node does not exceed the project
-  `maxDepth` setting.
-
-### 8.2 `tasks.retype` — Change a task's type category
-
-Retyping is a **full-subtree graph mutation**, not a scalar `type` field
-edit. Changing a row between Saga/Epic/Task/Subtask can invalidate every
-parent and child edge.
-
-#### Request: dry-run plan
-
-```
-POST /api/tasks/:id/retype
-{
-  "taskId": "T####",
-  "newType": "epic" | "task" | "subtask" | "saga",
-  "dryRun": true
-}
-```
-
-#### Response: dry-run plan
+Core result (`task-reparent.ts:61-69`):
 
 ```jsonc
 {
-  "plan": {
-    "rootTaskId": "T11203",
-    "currentType": "task",
-    "proposedType": "epic",
-    "requiredChildRetypes": [
-      {"taskId": "T11203-1", "currentType": "subtask", "requiredType": "task"},
-      {"taskId": "T11203-2", "currentType": "subtask", "requiredType": "task"}
-    ],
-    "invalidDescendants": [
-      {"taskId": "T11203-child", "reason": "Saga can only contain Epics; found Subtask"}
-    ],
-    "reopenedAncestors": ["T10965"],
-    "rollbackBehavior": "DELETE temporary type shadow; RESTORE parent_id column on retype row"
-  },
-  "valid": false
+  "task": "T11203",
+  "reparented": true,
+  "oldParent": "T11100",
+  "newParent": "T10965",
+  "newType": "task",
+  "ancestorsReopened": ["T10965"],
+  "subtreeUpdated": ["T11203", "T11204"]
 }
 ```
 
-| Field | Meaning |
-|-------|---------|
-| `rootTaskId` | The task being retyped. |
-| `currentType` / `proposedType` | Before/after type. |
-| `requiredChildRetypes` | Direct children whose types must change because the parent tier demands it (e.g., Subtask under Task → Task under Epic). |
-| `invalidDescendants` | Descendants that CANNOT exist under the new type (e.g., Subtask under Saga — only Epics allowed). A non-empty list makes `valid: false`. |
-| `reopenedAncestors` | Ancestors that were `done` and would be reopened. |
-| `rollbackBehavior` | How to undo if the user aborts. |
+The contract type `TasksReparentDispatchResult`
+(`packages/contracts/src/operations/tasks.ts:1146-1157`) declares only `task`,
+`reparented`, `oldParent`, `newParent`, `newType`.
 
-#### Request: apply
+**Atomicity.** All validation runs before the first write, so a rejected move
+writes nothing. The row writes go through a caller-owned transaction when one
+is passed (`options.tx`, used by `cancel` to reparent children); otherwise each
+row is upserted in turn (`task-reparent.ts:222-228`).
 
-```
-POST /api/tasks/:id/retype
-{
-  "taskId": "T####",
-  "newType": "epic",
-  "dryRun": false
-}
-```
+ADR-088 Decision 2 also asks for a caller-visible plan (moved root, depth/type
+changes, warnings); that richer result is not implemented.
 
-Returns a `RetypeResult`:
+### 8.2 Retype
 
-```jsonc
-{
-  "rootTaskId": "T11203",
-  "oldType": "task",
-  "newType": "epic",
-  "performedChildRetypes": [
-    {"taskId": "T11203-1", "oldType": "subtask", "newType": "task"}
-  ],
-  "reopenedAncestors": ["T10965"],
-  "warnings": []
-}
-```
+ADR-088 Decision 5 requires a retype to be a full-subtree mutation with a
+dry-run plan and atomic failure. No `tasks.retype` operation or `cleo retype`
+verb exists today. A task's type is changed through `tasks.update`
+(`cleo update <id> --type <task|epic|subtask>`).
 
-#### Error codes
-
-| Code | When |
-|------|------|
-| `NOT_FOUND` (404) | `taskId` does not exist. |
-| `INVALID_RETYPE` (409) | Plan results in invalid descendants or violated parent matrix. |
-| `CASCADE_FAILED` (500) | A required child retype could not be applied. |
-
-#### Atomicity
-
-Retyping is **atomic at the subtree level**. If any required child retype
-fails, or any invalid descendant is detected, the entire operation rolls
-back. No partial type mutations are ever committed.
-
-### 8.3 Canonical rules
-
-From `docs/design/CleoCode-Task-System.txt`:
+### 8.3 Canonical rules (ADR-088)
 
 - `parent_id` is the only containment edge.
 - Reparenting moves the **entire subtree**.
-- Retyping requires a **dry run** and full subtree validation.
+- Retyping requires a **dry run** and full subtree validation (not yet implemented).
 - Invalid reparent or retype **must fail atomically**.
 
-#### Cross-references
-
-- ADR-088 §2 (reparenting), §5 (retyping)
-- `packages/core/src/tasks/task-reparent.ts` — current implementation
-- `packages/contracts/src/workgraph.ts::validateWorkGraphHierarchy()` — parent/type matrix
-- T11203 — this specification task
+Parent/type matrix: `validateWorkGraphHierarchy()` in
+`packages/contracts/src/workgraph.ts:1171`.
 
 ---
 
 ## 9. External Task Links (sync)
 
-`tasks.sync.*` operations reconcile external provider IDs against CLEO
-tasks. Canonical reference:
-`docs/specs/TASK-RECONCILIATION-SPEC.md`. This spec does not duplicate
-content; it documents only the HTTP-exposure question:
+Provider-agnostic reconciliation syncs external issue systems (Linear, Jira,
+GitHub Issues, GitLab, …) with CLEO as SSoT. A provider adapter normalizes its
+native format into `ExternalTask[]`; the reconciliation engine diffs, creates,
+updates and links.
 
-Today: not exposed via HTTP. `tasks.sync.reconcile` is CLI-only.
-PROPOSED: `POST /api/tasks/sync/reconcile` per §5.2 above.
+```
+External issue tracker (any format)
+  -> Provider adapter (implements ExternalTaskProvider)
+    -> ExternalTask[] (normalized, provider-agnostic)
+      -> reconcile() (packages/core/src/reconciliation/)
+        -> CLEO core task operations
+        -> tasks_external_task_links table (link tracking)
+```
+
+Types: `packages/contracts/src/task-sync.ts`.
+
+```typescript
+interface ExternalTaskProvider {
+  getExternalTasks(projectDir: string): Promise<ExternalTask[]>;
+  pushTaskState?(
+    tasks: ReadonlyArray<{ id: string; title: string; status: string }>,
+    projectDir: string,
+  ): Promise<void>;
+}
+
+interface ExternalTask {
+  externalId: string;
+  title: string;
+  status: 'pending' | 'active' | 'completed' | 'removed';
+  description?: string;
+  priority?: 'critical' | 'high' | 'medium' | 'low';
+  type?: 'epic' | 'task' | 'subtask';
+  labels?: string[];
+  url?: string;
+  parentExternalId?: string;
+  providerMeta?: Record<string, unknown>;
+}
+
+interface ExternalTaskLink {
+  id: string;                // UUID
+  taskId: string;            // CLEO task id
+  providerId: string;        // e.g. 'linear', 'jira', 'github'
+  externalId: string;
+  externalUrl?: string | null;
+  externalTitle?: string | null;
+  linkType: 'created' | 'matched' | 'manual' | 'transferred';
+  syncDirection: 'inbound' | 'outbound' | 'bidirectional';
+  metadata?: Record<string, unknown>;
+  linkedAt: string;          // ISO 8601
+  lastSyncAt?: string | null;
+}
+```
+
+Links live in the `tasks_external_task_links` table of the project
+`cleo.db` (`packages/core/src/store/schema/cleo-project/tasks-core.ts:656`).
+
+Conflict policy (`ConflictPolicy`): `'cleo-wins'` (default), `'provider-wins'`,
+`'latest-wins'`, `'report-only'`.
+
+Surfaces:
+- CLI: `cleo sync reconcile` (from a JSON file), `cleo sync links
+  [--provider <id>] [--task <id>]`, `cleo sync links remove`.
+- Dispatch: `tasks.sync.reconcile`, `tasks.sync.links`, `tasks.sync.links.remove`
+  (HTTP via `/v1/tasks/<op>`, §5.4).
+- SDK (`packages/core/src/cleo.ts:516-536`):
+
+```typescript
+import { Cleo } from '@cleocode/core';
+
+const cleo = await Cleo.init('./project');
+const result = await cleo.sync.reconcile({
+  externalTasks: normalizedTasks,
+  providerId: 'linear',
+  dryRun: false,
+});
+const links = await cleo.sync.getLinks('linear');
+const taskLinks = await cleo.sync.getTaskLinks('T123');
+await cleo.sync.removeProviderLinks('linear');
+```
 
 ---
 
 ## 10. Archive Semantics
 
-`status = 'archived'` is both (a) a status enum value, (b) a terminal status,
-AND (c) backed by three companion columns on the SAME `tasks` row:
-`archived_at`, `archive_reason`, `cycle_time_days`.
+`status = 'archived'` is a status value, a terminal status, and is backed by
+companion columns on the same `tasks_tasks` row: `archived_at`,
+`archive_reason`, `cycle_time_days`
+(`packages/core/src/store/schema/cleo-project/tasks-core.ts:173-177`). There is
+no separate archive table.
 
-Evidence: `packages/core/src/store/tasks-schema.ts:181-184`.
+`cleo archive` archives tasks whose status is `done`, plus `cancelled` ones when
+cancelled tasks are included (the default); any other status is skipped
+(`packages/core/src/tasks/archive.ts:95`, `:103`, `:124`). Each row is written by
+`archiveSingleTask` inside a transaction (`archive.ts:182`). The generic
+status map has no `cancelled → archived` edge (§2), which is why the archive
+path writes through the accessor rather than the generic validator.
 
-There is NO separate archive table. `cleo archive` flips
-`status = 'archived'` and populates the companion columns atomically via
-`archiveSingleTask()` at
-`packages/core/src/tasks/archive.ts:111-114`.
-
-Archive is triggered only from `status ∈ {done, cancelled}` (source:
-`packages/core/src/tasks/archive.ts:51,72-75`). The generic
-`validateStatusTransition` map does not include `cancelled → archived`, which
-is why `archive.ts` uses the direct accessor call (intentional archive-path
-write that bypasses the generic validator).
-
-`archive_reason` is exactly one of `{'completed', 'cancelled'}`.
-
----
-
-## 11. Contract Gaps
-
-These operations exist today but are NOT exposed via HTTP. They are marked
-PROPOSED in §5 above and slated for implementation via the HTTP adapter
-described in `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §4.
-
-**Read gaps** (CLI-only today):
-`tasks.exists`, `tasks.analyze`, `tasks.impact`, `tasks.next`, `tasks.plan`,
-`tasks.relates`, `tasks.complexity.estimate`, `tasks.current`, `tasks.history`,
-`tasks.label.list`, `tasks.sync.links`.
-
-**Write gaps** (CLI-only today — all 17 mutate ops):
-`tasks.add`, `tasks.update`, `tasks.complete`, `tasks.delete`, `tasks.archive`,
-`tasks.restore`, `tasks.cancel`, `tasks.reparent`, `tasks.retype`, `tasks.reorder`,
-`tasks.relates.add`, `tasks.start`, `tasks.stop`, `tasks.sync.reconcile`,
-`tasks.sync.links.remove`, `tasks.claim`, `tasks.unclaim`.
-
-Studio exposes **0 tasks writes** today (verified in
-`.cleo/agent-outputs/T910-docs-audit/http-endpoint-inventory.md` §2 TASKS).
-
-See `docs/specs/CLEO-STUDIO-HTTP-SPEC.md` §2 proposed-additions table for
-the full mapping and request/response shapes.
+`archive_reason` is one of `verified`, `reconciled`, `superseded`, `shadowed`,
+`cancelled`, `completed-unverified` (`packages/contracts/src/enums.ts:110-117`).
+The bulk archive path stamps `cancelled` for cancelled tasks, `verified` for
+done tasks whose verification passed, and `completed-unverified` otherwise
+(`archive.ts:50-60`). `completed-unverified` is a tombstone that new code may
+not pass explicitly outside the migration backfill
+(`packages/contracts/src/tasks/archive.ts:106-145`).
 
 ---
 
-## 12. Open Questions (HITL)
+## 11. Workflow Enforcement
 
-- **Q1 — "Deferred" label** (`@HITL`). Rename Studio UI label to "Show
-  cancelled epics"? See §4. Blocks CLEO-TASK-DASHBOARD-SPEC.md §10.
-- **Q2 — `tasks.claim` / `tasks.unclaim` workflow** (`@HITL`). Constitution
-  lists them; no spec explains the intended multi-agent lock workflow. Draft
-  needed.
-- **Q3 — `tasks.impact` keyword-match algorithm** (`@HITL`). Constitution +
-  archived `docs/archive/CLEO-API.md` §15 reference the concept; no algorithm
-  spec exists. Source: `tasks.ts:177-192` takes a `change` string and
-  `matchLimit?`; semantics unspecified.
-- **Q4 — DELETE cascade default** (`@HITL`). CLI defaults to REJECT
-  (`HAS_CHILDREN 16`). HTTP should mirror this — confirm.
-- **Q5 — `tasks.complete` with `force:true`** (`@HITL`). `410 Gone` vs `400
-  FLAG_REMOVED`? `410` is semantically accurate but some clients confuse it
-  with CORS. Owner call.
+Strictness presets, acceptance-criteria rules, sessions, compliance reporting
+and backfill (originally Epic T056).
+
+### 11.1 Strictness presets
+
+`cleo config presets` lists them; `cleo config set-preset <strict|standard|minimal>`
+applies one. Values: `STRICTNESS_PRESETS` in `packages/core/src/config.ts:498-533`.
+
+| Key | strict | standard | minimal |
+|-----|--------|----------|---------|
+| `enforcement.acceptance.mode` | `block` | `warn` | `off` |
+| `session.requireNotes` | `true` | `false` | `false` |
+| `session.multiSession` | `false` | `true` | `true` |
+| `lifecycle.mode` | `strict` | `advisory` | `off` |
+| `lifecycle.stageGate` | `strict` | (unset) | (unset) |
+| `session.autoStart` | `false` | `false` | `false` |
+
+A preset merges over the existing config: keys it does not name are kept, and
+applying the same preset twice gives the same result (`config.ts:544-547`).
+Individual keys: `cleo config get <key>`, `cleo config set <key> <value>`,
+`cleo config list`.
+
+### 11.2 Acceptance criteria
+
+- Tasks need at least `enforcement.acceptance.minimumCriteria` criteria
+  (default 3: `packages/core/src/config.ts:56-60`;
+  `packages/core/src/tasks/enforcement.ts:46`). Epics need 5 in strict mode
+  (`EPIC_MIN_AC`, `packages/core/src/tasks/epic-enforcement.ts:42`).
+- `block` refuses creation, update or completion without enough criteria;
+  `warn` warns; `off` skips the check (`enforcement.ts:52-105`).
+- `--acceptance` is ONE pipe-separated value on both `add` and `update`:
+
+```bash
+cleo add "Implement login endpoint" \
+  --acceptance "Returns 200 with JWT on valid credentials|Returns 401 on invalid credentials|Rate limiting applied after 5 failed attempts"
+cleo update T042 --acceptance "AC1|AC2|AC3"
+cleo show T042 --full    # acceptance and verification are withheld without --full
+```
+
+### 11.3 Verification gates
+
+New tasks are created with `implemented`, `testsPassed` and `qaPassed` set to
+`false` (`buildDefaultVerification`, `packages/core/src/tasks/add.ts:287-301`).
+Every gate write needs evidence (§7): `cleo verify <id> --gate <g>` without
+`--evidence` returns `E_EVIDENCE_MISSING`, and bare `cleo verify <id> --all` is
+rejected the same way. `cleo verify <id> --reset` resets verification;
+`cleo verify <id> --explain` shows per-gate evidence and what blocks
+`cleo complete`.
+
+### 11.4 Lifecycle stages
+
+```bash
+cleo lifecycle show T056
+cleo lifecycle start T056 specification
+cleo lifecycle complete T056 specification --notes "Spec approved in PR #44"
+cleo lifecycle skip T056 consensus --reason "Single author, consensus not needed"
+cleo lifecycle gate T056 implementation
+```
+
+Other subcommands: `guidance`, `history`, `reset`, `gate-record`.
+
+### 11.5 Sessions
+
+```bash
+cleo session start --scope epic:T056 --name "Hardening docs"   # or --scope global
+cleo session status
+cleo session list
+cleo session resume <session-id>
+cleo session end --note "..."
+```
+
+`--scope` and `--name` are both required. `cleo add` and `cleo complete`
+require an active session. The strict preset sets `session.requireNotes: true`.
+
+### 11.6 Compliance monitoring
+
+`cleo stats compliance [--since <ISO date>] [--json]` reports the WF-001 … WF-005
+rules (`packages/core/src/stats/workflow-telemetry.ts:228-232`), computed from
+the existing `tasks`, `sessions` and `audit_log` data:
+
+| Rule | Level | Requirement |
+|------|-------|-------------|
+| WF-001 | MUST | Tasks have ≥3 acceptance criteria |
+| WF-002 | MUST | Task completions occur within an active session |
+| WF-003 | SHOULD | Completed tasks have verification gates set |
+| WF-004 | SHOULD | Tasks with verification have all 3 gates set |
+| WF-005 | MUST | Tasks have session binding on creation (non-epic) |
+
+MUST rules count double in the weighted score (`workflow-telemetry.ts:454`). The
+report carries `overallScore`, `grade` and up to 20 violation samples
+(`:483`). Grades (`gradeFromScore`, `:211-218`): A+ ≥ 0.95, A ≥ 0.90,
+B ≥ 0.80, C ≥ 0.70, D ≥ 0.60, otherwise F.
+
+Related: `cleo compliance violations`, `cleo compliance skills`,
+`cleo compliance summary`.
+
+### 11.7 Backfill
+
+`cleo backfill` (`packages/core/src/backfill/index.ts`) fills tasks that have
+no acceptance criteria or no verification record:
+
+1. Generates 3 criteria from the title and description by verb matching
+   (`generateAcFromDescription`, `:79`).
+2. Initializes verification with the three default gates set to `false`.
+3. Adds a note `[T066-backfill] auto-backfilled at <timestamp>: …` (`:145`, `:284`).
+
+```bash
+cleo backfill --dry-run            # preview, writes nothing
+cleo backfill                      # apply
+cleo backfill --tasks T001,T002    # restrict to tasks
+cleo backfill --rollback --dry-run
+cleo backfill --rollback           # clears AC and verification on tasks carrying the marker note
+```
+
+Migration order for an older project: `cleo config set-preset minimal`, run
+the backfill, replace generated criteria on important tasks, check
+`cleo stats compliance`, then move to `standard` and later `strict`.
 
 ---
 
 ## References
 
 - **Contract**: `packages/contracts/src/operations/tasks.ts`
-- **Implementation root**: `packages/core/src/tasks/` (38 files, 11K LoC)
+- **Operation registry**: `packages/contracts/src/dispatch/operations-registry.ts`
+- **Implementation root**: `packages/core/src/tasks/`
 - **Dispatch handler**: `packages/cleo/src/dispatch/domains/tasks.ts`
-- **Registry**: `packages/cleo/src/dispatch/registry.ts`
-- **Schema**: `packages/core/src/store/tasks-schema.ts`
+- **Tables**: `packages/core/src/store/schema/cleo-project/tasks-core.ts` (re-exported by `packages/core/src/store/tasks-schema.ts`)
 - **Status enum**: `packages/contracts/src/status-registry.ts`
 - **Pipeline stages**: `packages/core/src/tasks/pipeline-stage.ts`
 - **Archive**: `packages/core/src/tasks/archive.ts`
 - **Validation engine**: `packages/core/src/validation/engine.ts`
-- **T877 migration**:
-  `packages/core/migrations/drizzle-tasks/20260417000000_t877-pipeline-stage-invariants/migration.sql`
+- **T877 triggers**: `packages/core/migrations/drizzle-cleo-project/20261105120000_t14218-guard-triggers-compare-old/migration.sql`
 - **Exit codes**: `packages/contracts/src/exit-codes.ts`
-- **LAFS envelope**: `packages/contracts/src/lafs.ts`
-- **Evidence grammar**: `docs/specs/T832-gate-integrity-spec.md`
-- **ADR-051**: `.cleo/adrs/ADR-051-programmatic-gate-integrity.md`
-- **Constitution**: `docs/specs/CLEO-OPERATION-CONSTITUTION.md` §6.1
-- **Audit evidence**: `.cleo/agent-outputs/T910-docs-audit/task-schema-audit.md`,
-  `.cleo/agent-outputs/T910-docs-audit/api-docs-inventory.md` §TASKS
-
----
-
-**End.**
-
-<!-- merged from `task-reconciliation-spec` by cleo docs modernize -->
-
-## From `task-reconciliation-spec`
-
-# Provider-Agnostic Task Reconciliation Specification
-
-**Version**: 2026.3.19
-**Status**: APPROVED
-
----
-
-
-## 1. Overview (from `task-reconciliation-spec`)
-
-Provider-agnostic task reconciliation system for syncing external issue/task systems (Linear, Jira, GitHub Issues, GitLab, etc.) with CLEO as SSoT. Provider adapters normalize their native formats into `ExternalTask[]`, and the reconciliation engine handles diffing, creating, updating, and linking.
-
-## 2. Architecture
-
-```
-External issue tracker (any format)
-  -> Provider adapter (implements ExternalTaskProvider)
-    -> ExternalTask[] (normalized, provider-agnostic)
-      -> ReconciliationEngine (in @cleocode/core)
-        -> CLEO core task operations (addTask, completeTask, updateTask)
-        -> external_task_links table (DB-backed link tracking)
-```
-
-## 3. Key Contract: ExternalTaskProvider
-
-```typescript
-interface ExternalTaskProvider {
-  getExternalTasks(projectDir: string): Promise<ExternalTask[]>;
-  pushTaskState?(tasks: Task[], projectDir: string): Promise<void>;
-}
-```
-
-## 4. Normalized Type: ExternalTask
-
-```typescript
-interface ExternalTask {
-  externalId: string;        // Provider-assigned ID
-  title: string;             // Human-readable title
-  status: 'pending' | 'active' | 'completed' | 'removed';
-  description?: string;
-  priority?: 'critical' | 'high' | 'medium' | 'low';
-  type?: 'epic' | 'task' | 'subtask';
-  labels?: string[];
-  url?: string;              // Link back to external system
-  parentExternalId?: string; // Hierarchy support
-  providerMeta?: Record<string, unknown>;
-}
-```
-
-## 5. External Task Links (DB-backed)
-
-Links between CLEO tasks and external tasks are stored in the `external_task_links` table in tasks.db:
-
-```typescript
-interface ExternalTaskLink {
-  id: string;                // UUID
-  taskId: string;            // FK to tasks.id
-  providerId: string;        // e.g. 'linear', 'jira', 'github'
-  externalId: string;        // Provider-assigned ID
-  externalUrl?: string;      // URL for human navigation
-  externalTitle?: string;    // Title at last sync
-  linkType: 'created' | 'matched' | 'manual';
-  syncDirection: 'inbound' | 'outbound' | 'bidirectional';
-  metadata?: Record<string, unknown>;
-  linkedAt: string;          // ISO 8601
-  lastSyncAt?: string;       // ISO 8601
-}
-```
-
-## 6. Conflict Resolution
-
-Configurable via `ConflictPolicy`: `'cleo-wins'` (default), `'provider-wins'`, `'latest-wins'`, `'report-only'`.
-
-## 7. Consumer API
-
-```typescript
-import { Cleo } from '@cleocode/core';
-
-const cleo = await Cleo.init('./project');
-
-// Reconcile external tasks
-const result = await cleo.sync.reconcile({
-  externalTasks: normalizedTasks,
-  providerId: 'linear',
-  dryRun: false,
-});
-
-// Query links
-const links = await cleo.sync.getLinks('linear');
-const taskLinks = await cleo.sync.getTaskLinks('T123');
-
-// Cleanup
-await cleo.sync.removeProviderLinks('linear');
-```
-
-## 8. References
-
-- `packages/contracts/src/task-sync.ts` — Type contracts
-- `packages/core/src/reconciliation/` — Engine and link store
-- `packages/core/src/store/tasks-schema.ts` — `external_task_links` table
+- **HTTP status mapping**: `packages/runtime/src/gateway/http/server.ts`
+- **Evidence grammar**: [`docs/spec/gate-integrity.md`](gate-integrity.md)
+- **ADR-051**: [`docs/adr/adr-051-programmatic-gate-integrity.md`](../adr/adr-051-programmatic-gate-integrity.md)
+- **ADR-088**: [`docs/adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md`](../adr/ADR-088-pm-core-v2-workgraph-relations-completion-criteria.md)
+- **Operation tables**: [`docs/spec/cleo-operation-constitution.md`](cleo-operation-constitution.md) §6.1
+- **External task sync types**: `packages/contracts/src/task-sync.ts`; engine `packages/core/src/reconciliation/`

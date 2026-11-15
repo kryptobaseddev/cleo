@@ -1,10 +1,11 @@
-# T832 — CLI Gate Integrity Specification
+# CLI Gate Integrity Specification
 
-**Version**: 1.0.0
-**Task**: T832
-**ADR**: ADR-051
+**Version**: 2.0.0
+**ADR**: ADR-051 ([`docs/adr/adr-051-programmatic-gate-integrity.md`](../adr/adr-051-programmatic-gate-integrity.md))
 **Status**: ACCEPTED
-**Target Release**: v2026.4.78
+**Introduced**: v2026.4.78
+
+Task: T832
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
 "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in
@@ -19,12 +20,25 @@ and completion. It governs:
 
 - How `cleo verify` accepts, validates, and stores gate evidence.
 - How `cleo complete` re-verifies evidence at completion time.
-- The removal of `cleo complete --force` and the replacement emergency path.
-- The unification of `lifecycle_stages` and `tasks.pipelineStage` data.
-- The audit trail and migration rules.
+- The removal of `cleo complete --force` and the owner-override path.
+- The coupling of lifecycle stages and `tasks.pipeline_stage`.
+- The audit trail.
 
-This specification supersedes all prior behaviour for `cleo verify --all` and
-`cleo complete --force` as documented in ADR-014 and predecessor docs.
+How a task reaches these gates:
+
+- **PR work** closes through the merge sweep (ADR-099): the PR body carries
+  `Closes: T#### AC1,AC2` (`Refs:` for partial delivery), a non-author records a
+  per-AC verdict with `cleo review verdict`, and the sweep records `pr:`, `ci:`
+  and `satisfies:` evidence and completes the task. `cleo done --from-merge <pr>
+  --dry-run` previews it.
+- **No-PR work**: `cleo done <id> --plan` names every required gate and the
+  evidence it needs; record each with `cleo verify`, then `cleo complete <id>`.
+  `cleo done <id>` without `--plan` derives the evidence, records every
+  required gate in one write, and completes.
+
+Code: evidence validation `packages/core/src/tasks/evidence.ts`; the verify write path
+`packages/core/src/validation/engine-ops.ts`; completion `packages/core/src/tasks/complete.ts`;
+atom grammar and gate minimums `packages/contracts/src/evidence-atom-schema.ts`.
 
 ---
 
@@ -33,466 +47,372 @@ This specification supersedes all prior behaviour for `cleo verify --all` and
 ### 2.1 CLI Syntax
 
 ```
-cleo verify <taskId> --gate <gateName> --evidence <evidence-list>
-cleo verify <taskId> --all --evidence <evidence-list>
-cleo verify <taskId>                                      # view only (no write)
-cleo verify <taskId> --reset                              # reset verification (no evidence required)
+cleo verify <taskId> --gate <gateName> --evidence "<evidence-list>"
+cleo verify <taskId> --all --evidence "<evidence-list>"
+cleo verify <taskId> --auto [--satisfies AC1,AC3|all] [--pr <n>]   # derive and record, no complete
+cleo verify <taskId> --run [--req REQ-A,REQ-B]                     # run typed acceptance gates
+cleo verify <taskId> --criterion --evidence "satisfies:<id>#AC<n>;decision:<id>"
+cleo verify <taskId> [--explain]                                   # view only (no write)
+cleo verify <taskId> --reset                                       # reset verification
+cleo done <taskId> --plan                                          # read-only evidence plan
 ```
 
-- `<taskId>` MUST match `/^T\d{3,}$/`.
-- `<gateName>` MUST be one of `implemented | testsPassed | qaPassed | cleanupDone | securityPassed | documented`.
-- `<evidence-list>` is a semicolon-separated list of evidence atoms (§2.2).
+- `<gateName>` is one of `implemented | testsPassed | qaPassed | cleanupDone | securityPassed |
+  documented | nexusImpact` (`VerificationGate`, `packages/contracts/src/task.ts:151-165`).
+  `nexusImpact` is opt-in via `CLEO_NEXUS_IMPACT_GATE=1`.
+- `<evidence-list>` is a semicolon-separated list of atoms (§2.2). Quote it: `;` ends a shell
+  command.
+- `--fresh` bypasses the tool-result cache (ADR-061) and re-runs every `tool:` atom.
 
 ### 2.2 Evidence Atoms
 
-```
-evidence-atom := "commit:" <sha>
-              | "files:" <comma-separated-paths>
-              | "test-run:" <path>
-              | "tool:" <tool>
-              | "url:" <url>
-              | "note:" <note>
-```
+The parser (`parseEvidenceString`, `packages/contracts/src/evidence-atom-schema.ts:1005-1215`)
+accepts these kinds:
 
-Rules:
-- Atoms within `--evidence` are separated by `;` (semicolon).
-- Paths in `files:` are comma-separated.
-- `<sha>` MUST be a full 40-char or short (>=7 char) git SHA-1.
-- `<path>` MUST be an absolute or repo-relative path.
-- `<tool>` MUST be one of: `biome`, `tsc`, `eslint`, `pnpm-build`, `pnpm-test`, `security-scan`.
-- `<url>` MUST begin with `https://` or `http://`.
-- `<note>` MAY contain any printable ASCII; MUST NOT contain `;` (reserved).
+| Atom | Meaning |
+|------|---------|
+| `commit:<sha>` | A commit (7–40 hex chars) |
+| `files:<p1,p2,…>` | Files, comma-separated; each is hashed |
+| `test-run:<report.json>` | A test runner's JSON report (vitest `--reporter=json`, jest `--json`) |
+| `qa-run:<receipt>` | A QA run receipt |
+| `tool:<name>` | A tool CLEO runs itself (§2.3) |
+| `pr:<number>` | A merged pull request (optionally followed by `state:MERGED`) |
+| `ci:<pr>` | Green required CI for a PR (`<n>`, `<component>@<integration>` or `<owner>/<repo>#<n>`; same forms for `pr:`) |
+| `ci-run:<…>` | A CI run record |
+| `decision:<id>` | A recorded decision |
+| `deploy:<…>` | A deployment record |
+| `loc-drop:<…>`, `callsite-coverage:<…>` | Engine-migration proofs (tasks labelled `engine-migration`) |
+| `satisfies:<taskId>#AC<n>` | Links the evidence to an acceptance criterion |
+| `url:<url>` | A URL (soft) |
+| `note:<text>` | Free text (soft); a note keeps every character, including `;` |
 
-### 2.3 Gate-to-Evidence Mapping
+Stored shapes: `EvidenceAtom` in `packages/contracts/src/task.ts:283` onward (adds the
+`override` kind written by the override path).
 
-| Gate | Minimum required evidence |
-|------|---------------------------|
-| `implemented` | `commit:<sha>` AND at least one `files:<path>` |
-| `testsPassed` | `test-run:<path>` OR `tool:pnpm-test` |
-| `qaPassed` | Either (a) `tool:biome` AND `tool:tsc`, OR (b) `tool:pnpm-build` (which runs both) |
-| `documented` | At least one `files:<path>` OR `url:<url>` |
-| `securityPassed` | `tool:security-scan` OR `note:<waiver>` |
-| `cleanupDone` | At least one `note:<summary>` |
+### 2.3 Tool Names
 
-If the provided atoms do not satisfy the minimum, the CLI MUST reject with
-`E_EVIDENCE_INSUFFICIENT` (exit 84).
+`tool:<name>` accepts (`packages/core/src/tasks/tool-resolver.ts`):
+
+- **Canonical** (`:53-70`): `test`, `build`, `lint`, `typecheck`, `audit`, `security-scan`,
+  `nexus-impact-full`.
+- **Legacy aliases** (`:146-178`), mapped to a canonical tool: `pnpm-test`, `npm-test`,
+  `yarn-test`, `bun-test`, `vitest`, `jest`, `pytest`, `cargo-test`, `go-test` → `test`;
+  `pnpm-build`, `npm-build`, `yarn-build`, `bun-build`, `cargo-build`, `go-build` → `build`;
+  `biome`, `eslint`, `prettier`, `ruff`, `clippy` → `lint`; `tsc`, `mypy`, `pyright` →
+  `typecheck`; `pnpm-audit`, `npm-audit`, `cargo-audit` → `audit`.
+- **Planned** (`:210`): `test-affected` (runs the tests the branch diff touches, from
+  `testing.affectedCommand`) and `config-schema`.
+
+The command for each canonical tool is resolved per project from `.cleo/project-context.json`
+(`testing.command`, `build.command`, `lint.command`, `typecheck.command`, `audit.command`,
+`security-scan.command`), falling back to per-language defaults (`:191-199`).
+
+### 2.4 Gate-to-Evidence Mapping
+
+SSoT: `GATE_EVIDENCE_REQUIREMENTS`, `packages/contracts/src/evidence-atom-schema.ts:579-600`.
+A gate is satisfied when ANY one listed combination is fully present.
+
+| Gate | Accepted combinations |
+|------|-----------------------|
+| `implemented` | `commit`+`files` · `commit`+`note` · `decision`+`files` · `decision`+`note` · `pr`+`files` · `pr`+`note` (deletion-only PR) |
+| `testsPassed` | `test-run` · `tool` · `ci` |
+| `qaPassed` | `tool` · `ci` · `qa-run` |
+| `documented` | `files` · `url` |
+| `securityPassed` | `tool` · `note` |
+| `cleanupDone` | `note` |
+| `nexusImpact` | `tool` · `note` |
+
+A task that touches no code and declares a gate profile label (`profile:ops`, `profile:census`,
+`profile:audit`) may also prove `implemented` with `files`+`note` when every `files:` path is a
+document (`PROFILE_GATE_EVIDENCE`, same file). A documentation or research task does not owe
+`testsPassed` or `qaPassed` (`packages/core/src/tasks/verification-policy.ts:98-157`).
+
+If the atoms do not satisfy the gate, `cleo verify` MUST reject with `E_EVIDENCE_INSUFFICIENT`.
+A gate write with no `--evidence` at all is rejected with `E_EVIDENCE_MISSING`
+(`packages/core/src/validation/engine-ops.ts:1020-1030`).
 
 ---
 
 ## 3. Evidence Validation
 
-For each atom, the CLI MUST perform the following validation before persisting the gate:
+For each atom the CLI MUST validate before persisting the gate (`validateAtom`,
+`packages/core/src/tasks/evidence.ts:462`). Evidence about the repository is checked in the
+evidence git root (the execution root), which may differ from the CLEO store root; an unusable
+git root fails with `E_EVIDENCE_GIT_ROOT`.
 
 ### 3.1 `commit:<sha>`
-1. Normalise to repo-relative context (`git rev-parse --show-toplevel`).
-2. Run `git cat-file -e <sha>^{commit}`. Non-zero exit → `E_EVIDENCE_INVALID`.
-3. Run `git merge-base --is-ancestor <sha> HEAD`. Non-zero exit (SHA not reachable from HEAD) →
-   `E_EVIDENCE_INVALID`.
-4. Record both full SHA and short SHA (`git rev-parse --short`).
+1. The SHA MUST be 7–40 hex chars.
+2. `git cat-file -e <sha>^{commit}` MUST succeed (else "Commit not found in repository").
+3. The commit MUST be reachable (`git merge-base --is-ancestor`) from the task branch
+   `task/<taskId>` when it exists, else `HEAD`, or from a configured integration branch.
+4. Both full and short SHA are recorded.
+
+Failures are `E_EVIDENCE_INVALID` (`evidence.ts:803-900`).
 
 ### 3.2 `files:<paths>`
-For each path:
-1. Resolve against `cwd`. Path MUST exist (`fs.stat`).
-2. Compute sha256 of file content.
-3. Record `{path, sha256}`.
-
-Non-existent path → `E_EVIDENCE_INVALID`.
+At least one path is required. Each path MUST exist, resolved against a sibling `commit:` atom's
+tree first, then the worktree and git refs; a missing path fails with "File does not exist"
+(`evidence.ts:1722`). Each file's sha256 is recorded.
 
 ### 3.3 `test-run:<path>`
-1. Path MUST exist.
-2. File MUST parse as JSON.
-3. The parsed object MUST conform to vitest JSON reporter output. Minimum fields:
-   `{testResults: [...], numTotalTests: N, numPassedTests: M, numFailedTests: F}`.
-4. If `numFailedTests > 0` OR `testResults.some(tr => tr.status !== 'passed')`, the evidence
-   MUST be rejected with `E_EVIDENCE_TESTS_FAILED` (exit 85).
-5. Record `{path, sha256, passCount, failCount, skipCount}`.
+The file MUST exist and parse as a test runner's JSON report with test counts. It is rejected
+with `E_EVIDENCE_TESTS_FAILED` when it reports failed tests, a non-zero exit code, zero total
+tests, or a suite whose status is neither `passed` nor `skipped` (`evidence.ts:2100-2175`). Its
+sha256 and pass count are recorded.
 
-### 3.4 `tool:<tool>`
-1. Resolve the tool invocation per §3.4.1.
-2. Execute the tool with stdio captured.
-3. Record `{tool, exitCode, stdoutTail: last 512 chars}`.
-4. If `exitCode !== 0`, the evidence MUST be rejected with `E_EVIDENCE_TOOL_FAILED` (exit 86).
+### 3.4 `tool:<name>`
+CLEO resolves the command (§2.3) and runs it. Results are cached (ADR-061); `--fresh` re-runs.
 
-#### 3.4.1 Tool Invocations
+| Outcome | Code |
+|---------|------|
+| Non-zero exit | `E_EVIDENCE_TOOL_FAILED` |
+| Ran but provably checked nothing (e.g. `tsc` without `-b` on a references-only tsconfig) | `E_EVIDENCE_TOOL_VACUOUS` |
+| Tool not available | `E_EVIDENCE_TOOL_UNAVAILABLE` |
+| Timed out | `E_EVIDENCE_TOOL_TIMEOUT` |
+| Not runnable yet (e.g. `tool:test` cannot resolve its affected scope; retry) | `E_EVIDENCE_TOOL_BUSY` |
+| Started and was killed | `E_EVIDENCE_TOOL_KILLED` |
 
-| Tool | Command (cwd = project root) |
-|------|-----------------------------|
-| `biome` | `pnpm biome ci .` |
-| `tsc` | `pnpm tsc --noEmit` (or project-specific `tsc -b`) |
-| `eslint` | `pnpm eslint .` |
-| `pnpm-build` | `pnpm run build` |
-| `pnpm-test` | `pnpm run test` |
-| `security-scan` | `pnpm audit` |
+The recorded atom holds `tool`, `exitCode` and an optional `stdoutTail`.
 
-If a tool is not available (binary missing), the evidence MUST be rejected with
-`E_EVIDENCE_TOOL_UNAVAILABLE` (exit 87).
-
-### 3.5 `url:<url>`
-No validation. Record the URL verbatim.
-
-### 3.6 `note:<note>`
-No validation. Record the note verbatim (max 512 chars).
+### 3.5 `url:` and `note:`
+Recorded verbatim. They are soft atoms (§5.1).
 
 ---
 
-## 4. Persistence
+## 4. Persistence and Audit Trail
 
-On successful evidence validation, the CLI MUST:
+### 4.1 Persistence
 
-1. Load the current `task.verification` state (initialise if null).
+On successful validation the CLI MUST:
+
+1. Load `task.verification` (initialise if null).
 2. Set `task.verification.gates[<gate>] = true`.
-3. Set `task.verification.evidence[<gate>] = {atoms: [...], capturedAt, capturedBy, override?}`.
-4. Recompute `task.verification.passed` from `gates`.
-5. Persist the task via the accessor in a single transaction.
-6. Append one line to `.cleo/audit/gates.jsonl` (see §6).
+3. Set `task.verification.evidence[<gate>] = {atoms, capturedAt, capturedBy, override?, …}`.
+4. Recompute `task.verification.passed`.
+5. Persist the task.
+6. Append one line to `.cleo/audit/gates.jsonl`.
 
-If the evidence is insufficient or invalid, the task MUST NOT be modified.
+If the evidence is insufficient or invalid, the task MUST NOT be modified. A `cleo verify` write
+NEVER changes `task.status`; when the write makes every required gate green it returns
+`hint: "All gates green. Run: cleo complete <id>"` (`engine-ops.ts:1452-1467`).
 
----
+### 4.2 `.cleo/audit/gates.jsonl`
 
-## 5. Completion Re-Verification
-
-`cleo complete <taskId>` MUST re-verify all hard evidence atoms before completing:
-
-### 5.1 Hard vs Soft Evidence
-
-- **Hard** (re-verified): `commit:`, `files:`, `test-run:`, `tool:`.
-- **Soft** (not re-verified): `url:`, `note:`.
-
-### 5.2 Re-Verification Algorithm
-
-For each gate with evidence:
-1. For each hard atom, re-run the validator from §3.
-2. If the validator returns the same recorded values (SHA reachable, file sha256 matches,
-   test-run sha256 matches, tool exit 0), the atom is current.
-3. If ANY hard atom fails re-verification, the complete call MUST reject with
-   `E_EVIDENCE_STALE` (exit 88) and report which atoms failed.
-
-### 5.3 Fix Message
-
-The `E_EVIDENCE_STALE` error MUST include a fix message of the form:
-```
-Evidence for gate '<gate>' on task <taskId> is stale.
-Failed atoms: <list>
-Re-verify with: cleo verify <taskId> --gate <gate> --evidence <updated-evidence>
-```
-
----
-
-## 6. Audit Trail
-
-### 6.1 `.cleo/audit/gates.jsonl`
-
-Every `cleo verify` write (successful or override) MUST append one JSON line to
-`.cleo/audit/gates.jsonl`. Schema:
+Writer: `appendGateAuditLine`, `packages/core/src/tasks/gate-audit.ts`. One JSON line per write,
+append-only; new fields MAY be added, existing field semantics MUST NOT change. Record
+(`GateAuditRecord`):
 
 ```json
 {
   "timestamp": "2026-04-17T03:14:15.926Z",
   "taskId": "T832",
   "gate": "implemented",
-  "action": "set|reset|all",
-  "evidence": {
-    "atoms": [...],
-    "capturedAt": "...",
-    "capturedBy": "...",
-    "override": false
-  },
-  "agent": "opus-lead",
-  "sessionId": "ses_20260416230443_5f23a3",
+  "action": "set",
+  "evidence": { "atoms": [], "capturedAt": "...", "capturedBy": "..." },
+  "agent": "...",
+  "sessionId": "...",
   "passed": true,
   "override": false
 }
 ```
 
-- Writer MUST use `fs.promises.appendFile` with `{flag: 'a'}`.
-- Writer MUST serialise as a single line (no pretty-printing).
-- Writer MUST NOT read the file — append-only semantics.
-- The directory `.cleo/audit/` MUST be created if it does not exist.
+`gate` is `"*all*"` for a multi-gate write; `action` is `set | reset | all`; `evidence` is
+absent on reset.
 
-### 6.2 `.cleo/audit/force-bypass.jsonl`
+### 4.3 `.cleo/audit/force-bypass.jsonl`
 
-If `CLEO_OWNER_OVERRIDE=1` is set during `cleo verify`, one line MUST be appended to
-`.cleo/audit/force-bypass.jsonl` with the same schema as §6.1 plus:
+Owner-override writes and override refusals append here (`ForceBypassRecord`: the gates.jsonl
+fields plus `overrideReason`, `pid`, `command`, and optional `sessionOverrideOrdinal`,
+`sharedEvidence`, `sharedAtomWarning`, `workTreeContext`).
 
-```json
-{
-  ...gates.jsonl fields...,
-  "overrideReason": "<reason from CLEO_OWNER_OVERRIDE_REASON env or 'unspecified'>",
-  "pid": 12345,
-  "command": "cleo verify T832 --all --evidence ..."
-}
+---
+
+## 5. Completion Re-Verification
+
+`cleo complete <taskId>` MUST re-verify every hard evidence atom before completing.
+
+### 5.1 Hard vs Soft Evidence
+
+- **Soft** (not re-verified): `note:`, `url:`, and override entries.
+- **Hard** (re-verified): every other kind (`isHardAtom`, `packages/core/src/tasks/evidence.ts:4720-4722`).
+
+### 5.2 Re-Verification
+
+For each gate with evidence, each hard atom is re-validated (SHA still reachable, file sha256
+unchanged, test-run sha256 unchanged). If ANY hard atom fails, completion MUST reject with
+`E_EVIDENCE_STALE`, naming each stale gate and its failures
+(`packages/core/src/tasks/complete.ts:1912-1927`). Fix text:
+
 ```
+Re-capture evidence for the stale gates via 'cleo verify <taskId> --gate <gate> --evidence <updated>'
+then retry 'cleo complete <taskId>'. See ADR-051.
+```
+
+A non-epic task with no verification record is refused with `E_EVIDENCE_MISSING`
+(`complete.ts:1995-2010`). Override evidence is not re-validated at completion.
+
+### 5.3 Error Codes
+
+| Code | When |
+|------|------|
+| `E_EVIDENCE_MISSING` | A gate write has no evidence; bare `--all`; completing with no verification record |
+| `E_EVIDENCE_INSUFFICIENT` | Atoms do not satisfy the gate's minimum (§2.4) |
+| `E_EVIDENCE_INVALID` | An atom fails to parse or validate (bad SHA, unreachable commit, missing file, …) |
+| `E_EVIDENCE_CONTENT_MISMATCH` | The evidence does not match the task's change (content-intersect check) |
+| `E_EVIDENCE_GIT_ROOT` | The evidence git root is unusable |
+| `E_EVIDENCE_TESTS_FAILED` | A `test-run:` report shows failures, a non-zero exit or no tests |
+| `E_EVIDENCE_TOOL_FAILED` / `_VACUOUS` / `_UNAVAILABLE` / `_TIMEOUT` / `_BUSY` / `_KILLED` | See §3.4 |
+| `E_EVIDENCE_STALE` | A hard atom changed between verify and complete |
+| `E_CRITICAL_GATE_OVERRIDE_REJECTED` | Override with no hard atom on `implemented` or `testsPassed` (§6) |
+| `E_ALREADY_DONE` | Evidence write on a `done` task (§8) |
+| `E_FLAG_REMOVED` | `cleo complete --force` / a `force` param (§7) |
+
+These codes have no dedicated numeric exit code in the CLI exit map
+(`ERROR_CODE_TO_EXIT`, `packages/cleo/src/dispatch/adapters/cli.ts`). Callers and tests MUST
+assert on the string code (`error.codeName`), not the numeric exit.
+
+---
+
+## 6. Owner Override (`CLEO_OWNER_OVERRIDE=1`)
+
+The emergency path is `CLEO_OWNER_OVERRIDE=1` (with `CLEO_OWNER_OVERRIDE_REASON=<reason>`) on
+`cleo verify`. It is honoured only for the owner
+(`packages/core/src/security/owner-override-authority.ts:1-30`):
+
+1. **Role fence**: refused when `CLEO_AGENT_ROLE` is `worker`, `lead` or `subagent` (at bootstrap
+   or since).
+2. **Owner-marked session**: the bound session was started with
+   `cleo session start --scope global --name <n> --owner` (refused without an interactive
+   terminal or with `CLEO_AGENT_ROLE` set).
+3. **Owner's terminal**: the override call itself runs on a TTY.
+
+Every refusal is appended to `.cleo/audit/force-bypass.jsonl`.
+
+When honoured:
+
+- The gate is stored with
+  `{kind: 'override', reason}` plus any supplied atoms, which are still validated
+  (`engine-ops.ts:925-1019`).
+- `implemented` and `testsPassed` MUST still carry a hard atom; an override-only or soft-only
+  write to them is refused with `E_CRITICAL_GATE_OVERRIDE_REJECTED`. The override may still pass
+  `qaPassed`, `documented`, `securityPassed` and `cleanupDone`.
+- Overrides are capped per session (T1501).
+- `override: true` and `overrideReason` are stored on the gate's evidence, and a line is
+  appended to `.cleo/audit/force-bypass.jsonl`.
+- A derived multi-gate write (`cleo done`, `cleo verify --auto`) refuses `CLEO_OWNER_OVERRIDE`.
 
 ---
 
 ## 7. `cleo complete --force` Removal
 
-### 7.1 CLI Surface
-
-The `--force` flag MUST be removed from `cleo complete` as declared in
-`packages/cleo/src/cli/commands/complete.ts`. The `args` object MUST NOT contain `force`.
-
-### 7.2 Dispatch Layer
-
-The dispatch case for `tasks.complete` in `packages/cleo/src/dispatch/domains/tasks.ts` MUST
-reject any `force` parameter in `params` with a structured error:
+- The `--force` flag is removed from `cleo complete`
+  (`packages/cleo/src/cli/commands/complete.ts`).
+- The dispatch case for `tasks.complete` rejects any `force` parameter
+  (`packages/cleo/src/dispatch/domains/tasks.ts:502-511`):
 
 ```ts
-if (params?.force !== undefined) {
-  return errorResult('mutate', 'tasks', 'complete', 'E_FLAG_REMOVED',
-    'The --force flag has been removed. Use CLEO_OWNER_OVERRIDE=1 for emergency bypass (audited). See ADR-051.',
-    startTime);
+if (params.force !== undefined) {
+  return lafsError(
+    'E_FLAG_REMOVED',
+    '--force has been removed. Use evidence-based `cleo verify --gate … --evidence …` or set CLEO_OWNER_OVERRIDE=1 on verify for emergency bypass (audited). See ADR-051.',
+    'complete',
+  );
 }
 ```
 
-### 7.3 Engine Signature
-
-`taskCompleteStrict` SHALL drop the `force?: boolean` parameter. All force branches in the
-function body MUST be deleted, along with `ivtrBypassed` and `lifecycleGateBypassed` result
-markers.
-
-### 7.4 `CLEO_OWNER_OVERRIDE=1` Behaviour
-
-When `CLEO_OWNER_OVERRIDE=1` is set in the process environment at `cleo verify` time:
-1. Evidence validation MUST be skipped.
-2. The gate MUST still be persisted with `evidence: {kind: 'override', reason}` where reason
-   comes from `CLEO_OWNER_OVERRIDE_REASON` env (or "unspecified").
-3. An audit line MUST be appended to `.cleo/audit/force-bypass.jsonl`.
-4. A stderr warning MUST be emitted.
-5. The stored evidence MUST include `override: true` so re-verification at complete time can
-   detect and warn.
-
-### 7.5 `CLEO_OWNER_OVERRIDE` at Complete Time
-
-At `cleo complete <id>`, if ANY gate's evidence has `override: true`, the CLI MUST emit a
-stderr warning but MUST proceed with completion (override evidence is not re-verified since
-it has no programmatic proof).
+- The engine function `completeTaskStrict` (`packages/core/src/tasks/complete.ts:1858`) takes no
+  `force` option. The audited bypasses it does take are named flags:
+  `--override-reason` (pending children), `--waive-ac` + `--waive-reason`,
+  `--waive-cancelled-children`, `--waive-depends`, `--acknowledge-risk` (`nexusImpact`).
 
 ---
 
-## 8. `cleo update --pipelineStage` Wiring
+## 8. Migration Rules
 
-### 8.1 Dispatch Forwarding
+### 8.1 Done Tasks
 
-`packages/cleo/src/dispatch/domains/tasks.ts` `update` case MUST include
-`pipelineStage: params?.pipelineStage as string | undefined` in the object passed to
-`taskUpdate`.
+Completed tasks are immutable with respect to verification. `cleo verify <doneTaskId>` in read
+mode (and `--reset`) is permitted; an evidence write returns `E_ALREADY_DONE`
+(`packages/core/src/validation/engine-ops.ts:512-520`).
 
-### 8.2 Engine Forwarding
+### 8.2 In-Flight Verification
 
-`taskUpdate` in `packages/cleo/src/dispatch/engines/task-engine.ts` MUST:
-1. Accept `pipelineStage?: string` in its `updates` parameter type.
-2. Forward `pipelineStage: updates.pipelineStage` to `coreUpdateTask`.
+Existing boolean gate values remain. Only new writes populate `verification.evidence`.
 
-### 8.3 Core Behaviour (unchanged)
+### 8.3 Callers on the Pre-ADR-051 Protocol
 
-`coreUpdateTask` in `packages/core/src/tasks/update.ts` already validates and persists
-`pipelineStage`. No core changes required for T834.
-
-### 8.4 Forward-Only Enforcement
-
-The existing `validatePipelineTransition` behaviour remains authoritative. Backward transitions
-MUST raise `E_VALIDATION` (exit 6). Epic stage-ceiling and child stage-ceiling checks remain
-active.
-
----
-
-## 9. Lifecycle ↔ pipelineStage Unification
-
-### 9.1 Dual Write in `recordStageProgress`
-
-`recordStageProgress` in `packages/core/src/lifecycle/index.ts` MUST include an update to
-`tasks.pipeline_stage` in the same DB transaction that updates `lifecycle_stages` and
-`lifecycle_pipelines.currentStageId`.
-
-The update MUST use the existing drizzle `db.update(schema.tasks).set({pipelineStage: stage})`
-pattern and MUST be conditional: only update when `status === 'in_progress'` or
-`status === 'completed'` (not for `skipped` or `failed` — those do not advance the canonical
-stage).
-
-### 9.2 Backfill
-
-On next `cleo` startup after v2026.4.78 installs, a one-time backfill routine MUST reconcile
-existing mismatches:
-
-1. Select all `lifecycle_pipelines` where the corresponding task's `pipelineStage` does not
-   equal `currentStageId`.
-2. For each row, update `tasks.pipelineStage = lifecycle_pipelines.currentStageId`.
-3. Record the backfill in `.cleo/audit/migration.jsonl` (one line per update).
-4. Set a config key `verification.backfillV1Completed: true` to prevent repeat runs.
-
----
-
-## 10. Contract Extensions
-
-### 10.1 `TaskVerification.evidence`
-
-`packages/contracts/src/task.ts` MUST add:
-
-```ts
-export interface TaskVerification {
-  passed: boolean;
-  round: number;
-  gates: Partial<Record<VerificationGate, boolean | null>>;
-  /** Evidence backing each gate (T832). */
-  evidence?: Partial<Record<VerificationGate, GateEvidence>>;
-  lastAgent: VerificationAgent | null;
-  lastUpdated: string | null;
-  failureLog: VerificationFailure[];
-  initializedAt?: string | null;
-}
-```
-
-### 10.2 `GateEvidence` and `EvidenceAtom`
-
-```ts
-export interface GateEvidence {
-  atoms: EvidenceAtom[];
-  capturedAt: string;
-  capturedBy: string;
-  override?: boolean;
-  overrideReason?: string;
-}
-
-export type EvidenceAtom =
-  | { kind: 'commit'; sha: string; shortSha: string }
-  | { kind: 'files'; files: Array<{ path: string; sha256: string }> }
-  | { kind: 'test-run'; path: string; sha256: string; passCount: number; failCount: number; skipCount: number }
-  | { kind: 'tool'; tool: string; exitCode: number; stdoutTail: string }
-  | { kind: 'url'; url: string }
-  | { kind: 'note'; note: string }
-  | { kind: 'override'; reason: string };
-```
-
-### 10.3 New Exit Codes
-
-```ts
-export const ExitCode = {
-  ...,
-  EVIDENCE_MISSING: 84,
-  EVIDENCE_INSUFFICIENT: 84,
-  EVIDENCE_INVALID: 84,
-  EVIDENCE_TESTS_FAILED: 85,
-  EVIDENCE_TOOL_FAILED: 86,
-  EVIDENCE_TOOL_UNAVAILABLE: 87,
-  EVIDENCE_STALE: 88,
-  FLAG_REMOVED: 89,
-} as const;
-```
-
-Exit codes MAY be consolidated under a single `EVIDENCE` code for simplicity if the error
-structure carries the specific `codeName`. Implementation may choose either approach; tests
-MUST assert on the `codeName`, not the numeric exit, to avoid fragility.
-
----
-
-## 11. Migration Rules
-
-### 11.1 Existing Done Tasks
-
-Tasks where `status === 'done'` at the moment of v2026.4.78 install are considered immutable
-with respect to verification. Their `verification.evidence` remains undefined; they are not
-re-verified. `cleo verify <doneTaskId>` in read mode is permitted; write mode SHOULD return
-`E_ALREADY_DONE` with a note pointing to the ADR.
-
-### 11.2 In-Flight Verification Rounds
-
-Tasks where `verification.round > 0` but `status !== 'done'` are treated as partial evidence.
-On first `cleo verify --gate <g>` write after v2026.4.78, the evidence field is initialised.
-Existing boolean gate values remain; only new writes populate evidence.
-
-### 11.3 Orchestrator Migration Path
-
-Agents following the pre-v2026.4.78 protocol will hit `E_EVIDENCE_MISSING` on their first
-`cleo verify --all` call. The error message MUST include a migration hint:
+A gate write with no evidence fails with `E_EVIDENCE_MISSING`; the message gives an example and
+the fix is `cleo done <id> --plan`:
 
 ```
-Evidence is now required. See ADR-051.
-Quick migration:
-  cleo verify <id> --gate implemented --evidence commit:<sha>;files:<list>
-  cleo verify <id> --gate testsPassed --evidence tool:pnpm-test
-  cleo verify <id> --gate qaPassed   --evidence tool:biome;tool:tsc
+Evidence is required. See ADR-051.
+Example: cleo verify <id> --gate implemented --evidence commit:<sha>;files:<path>
+Or set CLEO_OWNER_OVERRIDE=1 with CLEO_OWNER_OVERRIDE_REASON=<reason> for emergency bypass (audited).
 ```
 
 ---
 
-## 12. Testing Requirements
+## 9. `cleo update --pipeline-stage` Wiring
 
-### 12.1 Unit Tests (MUST)
-
-- `tests/evidence/commit.test.ts` — reachable/unreachable/invalid SHAs.
-- `tests/evidence/files.test.ts` — existing/missing files; sha256 correctness.
-- `tests/evidence/test-run.test.ts` — valid/invalid/failing test runs.
-- `tests/evidence/tool.test.ts` — each tool exit 0 / non-zero.
-- `tests/evidence/mapping.test.ts` — gate-to-evidence minimums satisfied/unsatisfied.
-- `tests/audit/gates-jsonl.test.ts` — append-only behaviour.
-
-### 12.2 Integration Tests (MUST)
-
-- `verify --all` without evidence → `E_EVIDENCE_MISSING`.
-- `verify --gate implemented --evidence commit:<valid>;files:a,b` → persists atoms.
-- Mutate a file post-verify → `complete` → `E_EVIDENCE_STALE`.
-- `update --pipelineStage decomposition` → task.pipelineStage = 'decomposition'.
-- Backward pipelineStage transition → `E_VALIDATION`.
-- `lifecycle complete T832 research` → task.pipelineStage advances.
-
-### 12.3 Regression Tests (MUST)
-
-- Remove `taskCompleteStrict force=true` tests OR convert to tests asserting rejection.
-- Existing gate infrastructure tests must pass unchanged.
-
-### 12.4 E2E Closure Tests (MUST)
-
-Executable script or test fixture that reproduces closure of T488, T490, T491, T830 with the
-new evidence-based verify flow.
+- The dispatch `update` case forwards every update field, `pipelineStage` included, to
+  `taskUpdate` (`packages/cleo/src/dispatch/domains/tasks.ts:495-499`;
+  `packages/core/src/tasks/update.ts:1029`).
+- `validatePipelineTransition` is authoritative: a backward move raises `E_VALIDATION` (exit 6)
+  (`packages/core/src/tasks/pipeline-stage.ts:360`). Epic and child stage-ceiling checks
+  remain active.
 
 ---
 
-## 13. Rollout Plan
+## 10. Lifecycle ↔ pipeline_stage Coupling
 
-**v2026.4.78** (this release):
-- All contract, engine, dispatch, CLI changes per Decisions 1-10.
-- Migration backfill on startup.
-- CHANGELOG entry documenting the breaking CLI change.
-- Updated CLEO-INJECTION.md + ct-cleo + ct-orchestrator skills.
-
-**v2026.4.79+** (future):
-- `cleo audit gates` query command (optional follow-up).
-- `cleo audit bypass` query command (optional follow-up).
-- GC policy for audit logs (rotate monthly, keep 12 months).
+`recordStageProgress` (`packages/core/src/lifecycle/index.ts:752`) also writes
+`tasks.pipeline_stage` when the recorded stage status is `in_progress` or `completed` (not
+`skipped` or `failed`), and only when the new stage is at or after the current one, so lifecycle
+initialisation never moves an already-advanced task back (`index.ts:858-886`).
 
 ---
 
-## 14. Security Considerations
+## 11. Contract Extensions
 
-- Audit files MUST be append-only per Decision 7. An agent that modifies prior lines is a
-  security violation; an append-check tool MAY be added as follow-up.
-- `CLEO_OWNER_OVERRIDE=1` is a genuine escape hatch. The owner MUST understand the audit
-  implication before setting it.
-- Evidence sha256 hashes prevent the trivial "verify, modify, complete" attack. They do not
-  prevent an agent from forging a commit — `git cat-file -e` + `merge-base --is-ancestor`
-  verifies reachability, which is sufficient for this threat model.
+`packages/contracts/src/task.ts`:
 
----
-
-## 15. Compatibility
-
-- Backward compatible: existing `TaskVerification` persisted records load without errors
-  (evidence is optional).
-- Forward compatible: new evidence atoms MAY be added without breaking existing readers by
-  adding discriminated union members.
-- Breaking: `cleo complete --force` removal. Documented in CHANGELOG + release note.
+- `TaskVerification` (`:958-984`) carries `passed`, `round`, `gates`, optional `evidence`
+  (`Partial<Record<VerificationGate, GateEvidence>>`), `lastAgent`, `lastUpdated`, `failureLog`,
+  `initializedAt`, and `gateResults` (typed acceptance results).
+- `GateEvidence` (`:910-938`) carries `atoms`, `capturedAt`, `capturedBy`, optional `scope`
+  (task, gate, classification and linked criteria), `override`, `overrideReason`, and `standIn`
+  (a recorded post-merge stand-in).
+- `EvidenceAtom` (`:283` onward) is a discriminated union on `kind`; new kinds MAY be added
+  without breaking readers.
 
 ---
 
-## 16. Acceptance
+## 12. Testing
 
-This specification is ACCEPTED when all of the following hold:
+Evidence and gate tests live beside the code, for example
+`packages/core/src/tasks/__tests__/evidence-*.test.ts`,
+`packages/core/src/tasks/__tests__/gate-audit.test.ts`,
+`packages/core/src/tasks/__tests__/revalidation-cache.test.ts`,
+`packages/core/src/tasks/__tests__/tool-resolver.test.ts`, and
+`packages/core/src/validation/__tests__/gate-verify-hint.test.ts` (verify never
+auto-completes). Tests MUST assert on the string error code.
 
-- [ ] ADR-051 approved and linked.
-- [ ] All §10 contract extensions shipped.
-- [ ] All §7, §8, §9 code paths pass integration tests.
-- [ ] `cleo verify --all` alone returns `E_EVIDENCE_MISSING` in a fresh project.
-- [ ] T488, T490, T491, T830 closed using evidence-based flow.
-- [ ] 8331+ existing tests pass with zero regressions.
+---
+
+## 13. Security Considerations
+
+- Audit files are append-only. An agent that modifies prior lines is a security violation.
+- `CLEO_OWNER_OVERRIDE=1` is a genuine escape hatch for the owner only (§6). Its checks are
+  same-OS-user checks: they fence default and accidental agent use, but a process that emulates a
+  terminal can pass the TTY check.
+- Evidence sha256 hashes prevent the trivial "verify, modify, complete" attack. Commit
+  validation checks existence and reachability, not authorship.
+
+---
+
+## 14. Compatibility
+
+- Backward compatible: existing `TaskVerification` records load without errors (`evidence` is
+  optional).
+- Forward compatible: new atom kinds are added as discriminated-union members.
+- Breaking: `cleo complete --force` removal.
