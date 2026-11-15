@@ -114,7 +114,7 @@ export interface CommitCheck {
   runAttempt?: number;
   /** ISO 8601 time the run (or this attempt of it) started, when known (T14026). */
   startedAt?: string;
-  /** The workflow run a job belongs to, when read per attempt (T14253). */
+  /** The workflow run a job belongs to, resolved from its check suite or per-attempt API. */
   runId?: number;
   /** ISO 8601 time the job completed, when read per attempt (T14253). */
   completedAt?: string;
@@ -536,13 +536,26 @@ export function jobNameMatches(re: RegExp, name: string): boolean {
   return expression > 0 && re.test(name.slice(0, expression).trimEnd());
 }
 
-/** Exact runs take precedence; only a bare name without a run aliases matrix variants. */
+/** Judge the newest workflow run before choosing exact names or matrix variants. */
 function matchingJobRuns(glob: string, checks: readonly CommitCheck[]): CommitCheck[] {
+  const latestRuns = new Map<string, number>();
+  for (const check of checks) {
+    const runId = check.source === 'workflow-run' ? check.id : check.runId;
+    if (runId !== undefined) {
+      const source = jobRunSource(check);
+      latestRuns.set(source, Math.max(latestRuns.get(source) ?? 0, runId));
+    }
+  }
+  const current = checks.filter(
+    (c) =>
+      c.source === 'check-run' &&
+      (c.runId === undefined || c.runId === latestRuns.get(jobRunSource(c))),
+  );
   const re = globToRegExp(glob);
-  if (glob.includes('*')) return checks.filter((c) => jobNameMatches(re, c.name));
-  const exact = checks.filter((c) => c.name === glob);
+  if (glob.includes('*')) return current.filter((c) => jobNameMatches(re, c.name));
+  const exact = current.filter((c) => c.name === glob);
   if (exact.length > 0) return exact;
-  return checks.filter((c) => jobNameMatches(re, c.name) || jobMatrixSuffixStart(re, c.name) > 0);
+  return current.filter((c) => jobNameMatches(re, c.name) || jobMatrixSuffixStart(re, c.name) > 0);
 }
 
 /** The configured base can contain parentheses, as can a matrix value. */
@@ -596,7 +609,6 @@ export function evaluateFilterSkippedJobs(
     };
   const inScope = checks.filter(
     (c) =>
-      c.source === 'check-run' &&
       c.headSha === sha &&
       scope.workflows.some((workflow) => workflowMatch(c, workflow) === 'match') &&
       (scope.app === undefined ||
@@ -639,8 +651,8 @@ const JOB_NOT_RUN = /^job .+: (not found in .+|skipped|cancelled) on [0-9a-f]{12
 
 /**
  * Judge job globs on one SHA: every glob must match at least one job (check
- * run) from the allowed workflows/app, and the latest run of each matched
- * (job, event) must be `success` — a `skipped` job is refused by name.
+ * run) from the allowed workflows/app in its newest workflow run, and the
+ * latest attempt of each matched job must be `success`; skips are refused.
  *
  * @param globs - Job-name globs for the gate.
  * @param checks - Every check reported for the commit.
@@ -659,7 +671,6 @@ export function evaluateJobs(
 ): { ok: true; jobs: string[] } | { ok: false; reasons: string[] } {
   const inScope = checks.filter(
     (c) =>
-      c.source === 'check-run' &&
       c.headSha === sha &&
       (onlyEvent === undefined || c.event === onlyEvent) &&
       scope.workflows.some((workflow) => workflowMatch(c, workflow) === 'match') &&
@@ -671,7 +682,9 @@ export function evaluateJobs(
   for (const glob of globs) {
     const matched = matchingJobRuns(glob, inScope);
     if (matched.length === 0) {
-      const closest = [...new Set(inScope.map((c) => c.name))]
+      const closest = [
+        ...new Set(inScope.filter((c) => c.source === 'check-run').map((c) => c.name)),
+      ]
         .map((name) => [name, similarityScore(glob, name)] as const)
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .slice(0, 3)
@@ -2917,7 +2930,10 @@ export async function defaultFetchChecks(
   const checks: CommitCheck[] = [];
   const bySuite = new Map<
     number,
-    Pick<CommitCheck, 'event' | 'workflowPath' | 'workflowName' | 'runAttempt' | 'startedAt'>
+    Pick<
+      CommitCheck,
+      'event' | 'workflowPath' | 'workflowName' | 'runId' | 'runAttempt' | 'startedAt'
+    >
   >();
   for (const r of wf.workflow_runs ?? []) {
     const event = typeof r.event === 'string' ? r.event : undefined;
@@ -2925,11 +2941,13 @@ export async function defaultFetchChecks(
     const workflowName = typeof r.name === 'string' ? r.name : undefined;
     const attempt = typeof r.run_attempt === 'number' ? r.run_attempt : undefined;
     const startedAt = typeof r.run_started_at === 'string' ? r.run_started_at : undefined;
+    const runId = Number(r.id ?? 0);
     if (typeof r.check_suite_id === 'number')
       bySuite.set(r.check_suite_id, {
         event,
         workflowPath: path,
         workflowName,
+        runId,
         runAttempt: attempt,
         startedAt,
       });
@@ -2939,7 +2957,7 @@ export async function defaultFetchChecks(
       status: String(r.status ?? ''),
       conclusion: typeof r.conclusion === 'string' ? r.conclusion : null,
       headSha: String(r.head_sha ?? ''),
-      id: Number(r.id ?? 0),
+      id: runId,
       appSlug: 'github-actions',
       ...(path ? { workflowPath: path } : {}),
       ...(workflowName ? { workflowName } : {}),
@@ -2980,6 +2998,7 @@ export async function defaultFetchChecks(
         ...(origin?.workflowPath ? { workflowPath: origin.workflowPath } : {}),
         ...(origin?.workflowName ? { workflowName: origin.workflowName } : {}),
         ...(origin?.event ? { event: origin.event } : {}),
+        ...(origin?.runId !== undefined ? { runId: origin.runId } : {}),
         ...(attempt !== undefined ? { runAttempt: attempt } : {}),
         ...(startedAt ? { startedAt } : {}),
       });
@@ -3385,11 +3404,19 @@ export async function resolveCiEvidenceAtom(
     ((!mainOnly && prRequired.length === 0) ||
       !pushRequired.some((name) => pins[name]?.event === 'push'))
   ) {
+    const missingEvent = !pushRequired.some((name) => pins[name]?.event === 'push')
+      ? 'push'
+      : 'pull_request';
     // @sync-invariant none:input-shape event-scoped CI configuration must declare both sides
     return {
       ok: false,
       codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason: `ci:${prNumber}: release.prRequiredWorkflows[].event needs both "pull_request" and "push" checks (workflow edits require only "push"); a PR-head check alone proves no main push CI.`,
+      reason:
+        `ci:${prNumber}: release.prRequiredWorkflows[].event is missing a "${missingEvent}" required check; ` +
+        'both "pull_request" and "push" entries are needed (workflow edits require only "push"). ' +
+        `Fix: add the missing ${missingEvent} entry in .cleo/project-context.json, e.g. ` +
+        `{ "name": "${missingEvent === 'push' ? 'Main full suite' : 'PR checks'}", "app": "github-actions", ` +
+        `"workflow": ".github/workflows/ci.yml", "event": "${missingEvent}" }; keep the other event entry.`,
     };
   }
   const judgedRequired = mainOnly ? pushRequired : required.workflows;
@@ -3685,7 +3712,8 @@ export async function resolveCiEvidenceAtom(
         (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : '') +
         '\n  When PR and main checks differ, set release.prRequiredWorkflows[].event to "pull_request" or "push" for each check.' +
         (eventChecks
-          ? '\n  A cancelled merge run is refused unless a qualifying descendant exists under the T12742 descendant rule (or the applicable current-HEAD rule).'
+          ? '\n  Event pins apply to check runs only; commit statuses carry no triggering event, so a status-only event pin is refused. Use a check run reporting the pinned event.' +
+            '\n  A cancelled merge run is refused unless a qualifying descendant exists under the T12742 descendant rule (or the applicable current-HEAD rule).'
           : '') +
         (eventJobKeys.length
           ? `\n  Check the per-event job requirements: ${eventJobKeys.map((key) => `${key}.pullRequest and ${key}.push`).join('; ')}.`

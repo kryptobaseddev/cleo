@@ -159,8 +159,8 @@ export interface MergeCloseDeps {
   viewPr(root: string, prNumber: number): Promise<MergedPrRecord | null>;
   /** Post a PR comment; false when it could not. */
   comment(root: string, prNumber: number, body: string): Promise<boolean>;
-  /** The required check names (`release.prRequiredWorkflows` tiers). */
-  requiredChecks(storeRoot: string): Promise<string[]>;
+  /** Required check names for the event (PR prechecks by default), including unscoped entries. */
+  requiredChecks(storeRoot: string, event?: 'pull_request' | 'push'): Promise<string[]>;
   /** Whether `gh` can run at all. */
   ghAvailable(): Promise<boolean>;
   /** Plan (`dryRun`) or record the task's gates from the PR, as `cleo done --pr`. */
@@ -895,14 +895,14 @@ async function mergeCiWait(
   root: string,
   pr: MergedPrRecord,
   taskId: string,
-  required: readonly string[],
   deps: MergeCloseDeps,
   dryRun: boolean,
   refusal: string,
 ): Promise<{ reason: string; reran: boolean; final?: boolean } | null> {
   const sha = pr.mergeCommitSha;
   if (sha === null) return null;
-  const check = required[0] ?? 'CI';
+  const check = (await deps.requiredChecks(storeRoot, 'push'))[0];
+  if (check === undefined) return null;
   // T14535: a required check is a job; its run is found by its workflow.
   const workflow = deps.requiredCheckWorkflow
     ? await deps.requiredCheckWorkflow(storeRoot, check)
@@ -1073,16 +1073,7 @@ async function applyDirective(
   if (!recorded.ok) {
     // A merge whose own CI run was cancelled, skipped or unfinished, with no
     // later run standing in yet (ci-evidence's T12742 rule, unchanged), waits.
-    const wait = await mergeCiWait(
-      storeRoot,
-      root,
-      pr,
-      taskId,
-      required,
-      deps,
-      dryRun,
-      recorded.reason,
-    );
+    const wait = await mergeCiWait(storeRoot, root, pr, taskId, deps, dryRun, recorded.reason);
     if (wait?.final)
       return { ...base, action: 'refused', reason: `${wait.reason}: ${recorded.reason}` };
     if (wait !== null)
@@ -1932,7 +1923,7 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   async comment(root, prNumber, body) {
     return (await gh(['pr', 'comment', String(prNumber), '--body', body], root)) !== null;
   },
-  async requiredChecks(storeRoot) {
+  async requiredChecks(storeRoot, event = 'pull_request') {
     const { loadProjectContext } = await import('../agents/variable-substitution.js');
     const { readRequiredCheckPins, resolveRequiredWorkflows } = await import(
       '../release/pr-evidence.js'
@@ -1941,7 +1932,7 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     const context = ctx.loaded ? ctx.context : null;
     const pins = readRequiredCheckPins(context);
     return resolveRequiredWorkflows(process.env, context).filter(
-      (name) => pins[name]?.event !== 'push',
+      (name) => pins[name]?.event === undefined || pins[name]?.event === event,
     );
   },
   async ghAvailable() {
