@@ -13,10 +13,18 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { createApprovalGate, createPlaybookRun } from '@cleocode/playbooks';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { OWNER_SESSION_MARK } from '@cleocode/core/security/owner-override-auth';
+import { createTestDb, type TestDbEnv } from '@cleocode/core/store/__tests__/test-db-helper';
+import { createSession, setSessionOwnerAuthToken } from '@cleocode/core/store/session-store';
+import { createApprovalGate, createPlaybookRun, getPendingApprovals } from '@cleocode/playbooks';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrchestrateHandler } from '../orchestrate.js';
 import { __playbookRuntimeOverrides } from '../playbook.js';
+
+// Simulate owner and agent callers in this isolated test process, not the worker running vitest.
+vi.hoisted(() => {
+  delete process.env['CLEO_AGENT_ROLE'];
+});
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -83,8 +91,34 @@ function seedPendingGate(
 describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   let db: DatabaseSync;
   let handler: OrchestrateHandler;
+  let env: TestDbEnv;
+  const tty = { stdin: process.stdin.isTTY, stderr: process.stderr.isTTY };
 
-  beforeEach(() => {
+  async function callerSession(id: string, owner: boolean): Promise<void> {
+    await createSession(
+      {
+        id,
+        name: id,
+        status: 'active',
+        scope: { type: 'global' },
+        taskWork: { taskId: null, setAt: null },
+        startedAt: new Date().toISOString(),
+      },
+      env.tempDir,
+    );
+    if (owner) await setSessionOwnerAuthToken(id, OWNER_SESSION_MARK, env.tempDir);
+    vi.stubEnv('CLEO_SESSION_ID', id);
+  }
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    vi.stubEnv('CLEO_DIR', env.cleoDir);
+    vi.stubEnv('CLEO_ROOT', env.tempDir);
+    vi.stubEnv('CLEO_AGENT_ROLE', undefined);
+    vi.stubEnv('CLEO_OWNER_OVERRIDE', undefined);
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+    await callerSession('ses_approval_owner', true);
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
     applyMigration(db, playbookTwinSql());
@@ -93,9 +127,13 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     handler = new OrchestrateHandler();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     db.close();
     delete __playbookRuntimeOverrides.db;
+    Object.defineProperty(process.stdin, 'isTTY', { value: tty.stdin, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: tty.stderr, configurable: true });
+    await env.cleanup();
+    vi.unstubAllEnvs();
   });
 
   // -------------------------------------------------------------------------
@@ -123,6 +161,100 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     };
     expect(data.count).toBe(2);
     for (const a of data.approvals) expect(a.status).toBe('pending');
+  });
+
+  it('orchestrate.pending — exposes tokens only to the owner on their own terminal', async () => {
+    const { token } = seedPendingGate(db);
+    expect((await handler.query('pending', {})).data).toMatchObject({
+      approvals: [expect.objectContaining({ token })],
+      count: 1,
+    });
+    await callerSession('ses_approval_agent', false);
+    const agent = await handler.query('pending', {});
+    expect(agent.success).toBe(true);
+    expect(agent.data).toMatchObject({
+      approvals: [expect.objectContaining({ status: 'pending' })],
+      count: 1,
+    });
+    expect(JSON.stringify(agent.data)).not.toContain(token);
+    vi.stubEnv('CLEO_SESSION_ID', 'ses_approval_owner');
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    expect(JSON.stringify((await handler.query('pending', {})).data)).not.toContain(token);
+  });
+
+  it.each([
+    'approve',
+    'reject',
+  ])('orchestrate.%s — refuses an agent session even with a valid token and an owner label', async (operation) => {
+    const { token } = seedPendingGate(db);
+    await callerSession('ses_unlabelled_agent', false);
+    const result = await handler.mutate(operation, {
+      resumeToken: token,
+      approver: 'owner',
+      reason: 'agent says yes',
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_OVERRIDE_NOT_OWNER',
+        fix: expect.stringContaining('cleo session start --scope global --name owner --owner'),
+      },
+    });
+    expect(getPendingApprovals(db)).toEqual([
+      expect.objectContaining({ token, status: 'pending' }),
+    ]);
+  });
+
+  it.each([
+    'worker',
+    'lead',
+    'subagent',
+  ])('refuses role %s even in an owner-marked session with a terminal', async (role) => {
+    const { token } = seedPendingGate(db);
+    vi.stubEnv('CLEO_AGENT_ROLE', role);
+    for (const operation of ['approve', 'reject']) {
+      expect(
+        await handler.mutate(operation, { resumeToken: token, reason: 'reviewed' }),
+      ).toMatchObject({
+        success: false,
+        error: { code: 'E_OVERRIDE_FORBIDDEN_AGENT_ROLE', fix: expect.any(String) },
+      });
+    }
+    expect(JSON.stringify((await handler.query('pending', {})).data)).not.toContain(token);
+    expect(getPendingApprovals(db)).toHaveLength(1);
+  });
+
+  it('refuses an owner-session agent without a terminal, including idempotent approval', async () => {
+    const { token } = seedPendingGate(db);
+    expect((await handler.mutate('approve', { resumeToken: token })).success).toBe(true);
+    Object.defineProperty(process.stderr, 'isTTY', { value: false, configurable: true });
+    for (const operation of ['approve', 'reject']) {
+      expect(
+        await handler.mutate(operation, { resumeToken: token, reason: 'reviewed' }),
+      ).toMatchObject({
+        success: false,
+        error: { code: 'E_OVERRIDE_NOT_OWNER', fix: expect.any(String) },
+      });
+    }
+  });
+
+  it.each([
+    'approve',
+    'reject',
+  ])('orchestrate.%s — refuses a legacy gate with a re-request fix', async (operation) => {
+    const { token } = seedPendingGate(db);
+    const legacy = 'a'.repeat(32);
+    db.prepare('UPDATE tasks_playbook_approvals SET token = ? WHERE token = ?').run(legacy, token);
+    expect(
+      await handler.mutate(operation, { resumeToken: legacy, reason: 'reviewed' }),
+    ).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_APPROVAL_TOKEN_LEGACY',
+        fix: expect.stringContaining('cleo playbook run <name>'),
+      },
+    });
+    expect(getPendingApprovals(db)).toHaveLength(1);
   });
 
   // -------------------------------------------------------------------------

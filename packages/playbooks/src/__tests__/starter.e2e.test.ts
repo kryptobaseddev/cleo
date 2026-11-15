@@ -449,7 +449,7 @@ describe('T934: starter playbooks — E2E against stubbed dispatcher', () => {
       expect(result.terminalStatus).toBe('pending_approval');
       expect(result.approvalToken).toBeDefined();
       // Approval.ts truncates the HMAC to 32 hex chars.
-      expect(result.approvalToken).toMatch(/^[0-9a-f]{32}$/);
+      expect(result.approvalToken).toMatch(/^v2:[0-9a-f]{32}$/);
       // version_bump + changelog ran; publish did not.
       expect(dispatcher.calls.map((c) => c.nodeId)).toEqual(['version_bump', 'changelog']);
 

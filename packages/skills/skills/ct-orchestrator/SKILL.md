@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.23.0
+  version: 4.24.0
   tier: core
   install: harness
   covers:
@@ -10,11 +10,21 @@ metadata:
     - packages/core/src/orchestration/spawn-prompt.ts
     - packages/core/src/orchestrate/orca-routing.ts
     - packages/core/src/orchestrate/spawn-ops.ts
-  lastReviewed: 2026-11-14
+  lastReviewed: 2026-11-15
   stability: stable
 ---
 
 # Orchestrator Protocol
+
+Playbook HITL decisions (`orchestrate approve` and `reject`) belong to the human
+owner: the caller must pass the bootstrap role fence, bind an owner-marked session
+started with `cleo session start --scope global --name owner --owner`, and use the
+owner's own stdin/stderr terminal. An agent must return the decision to its
+coordinator for the owner ask tool; a token or approver label grants no authority.
+`orchestrate pending` redacts resume tokens from other callers. New tokens use a
+private installation key unless `CLEO_PLAYBOOK_SECRET` is configured. Legacy gates
+refuse decisions with `E_APPROVAL_TOKEN_LEGACY`; the owner can request a fresh gate
+with `cleo playbook run <name>` after reviewing any earlier steps that will rerun.
 
 Worker execution (`spawn-execute`, fanout and lead-dispatched workers) selects
 Orca automatically when the local runtime proves the session's coordinator

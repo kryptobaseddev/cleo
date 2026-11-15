@@ -178,11 +178,26 @@ Both tables live in the project `cleo.db` as `tasks_playbook_runs` and `tasks_pl
 
 Resume tokens are HMAC-SHA-256 signed with the secret resolved from `getPlaybookSecret(env)`:
 
-1. `CLEO_PLAYBOOK_SECRET` (preferred)
-2. `CLEO_SECRET` (fallback)
-3. Hard error if neither is set — approval nodes cannot be created without a secret.
+1. A nonempty `CLEO_PLAYBOOK_SECRET`, when configured.
+2. Otherwise a purpose-bound key derived from the installation's private
+   `machine-key` in CLEO home. The credential machinery creates that key once,
+   exclusively, with permission and length checks. There is no public fallback.
 
-Tokens encode `{runId, nodeId, issuedAt}` and are verified before any `approveGate` / `rejectGate` call. Replay-resistant: an already-decided approval returns `E_APPROVAL_ALREADY_DECIDED`.
+Tokens have the form `v2:<32 hex characters>`, binding the run id, node id and
+canonical bindings through HMAC. Decisions look up the exact stored token and
+refuse already-decided gates (`E_APPROVAL_ALREADY_DECIDED`). Legacy tokens are
+refused with `E_APPROVAL_TOKEN_LEGACY`: request a fresh gate with
+`cleo playbook run <name>`. Existing legacy rows remain intact; restarting a
+playbook executes its earlier steps again, so the owner must review those steps
+before restarting it.
+
+`cleo orchestrate approve` and `reject` require the same human owner authority as
+the owner override: an unrestricted bootstrap role, an owner-marked bound session
+(`cleo session start --scope global --name owner --owner`), and the owner's own
+stdin/stderr terminal. Setting an approver label or `CLEO_OWNER_OVERRIDE` does not
+grant authority. `cleo orchestrate pending` includes tokens only for that owner;
+agents can see pending gate metadata. The SDK's synchronous database primitives
+are trusted in-process APIs; the dispatch boundary enforces caller authority.
 
 ## Error codes
 
@@ -190,6 +205,9 @@ Tokens encode `{runId, nodeId, issuedAt}` and are verified before any `approveGa
 |----------|---------|
 | `E_APPROVAL_NOT_FOUND` | Token does not match any pending approval row |
 | `E_APPROVAL_ALREADY_DECIDED` | Approval is already `approved` or `rejected` |
+| `E_APPROVAL_TOKEN_LEGACY` | Re-request the gate using a fresh playbook run |
+| `E_OVERRIDE_NOT_OWNER` | The caller has no owner-marked session or own terminal |
+| `E_OVERRIDE_FORBIDDEN_AGENT_ROLE` | The caller runs as a restricted agent role |
 | `PlaybookParseError` | Thrown by `parsePlaybook` with a list of validation issues |
 
 ## Policy evaluator

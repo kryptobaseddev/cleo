@@ -215,9 +215,14 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 | Get spawn prompt for a task | `cleo orchestrate spawn <taskId>` |
 | Spawn without worktree (opt-out) | `cleo orchestrate spawn <taskId> --no-worktree` |
 | View epic wave plan | `cleo orchestrate waves <epicId>` |
-| Grant HITL approval (paused playbook) | `cleo orchestrate approve <resumeToken>` |
-| Deny HITL approval with reason | `cleo orchestrate reject <resumeToken> --reason "<r>"` |
-| List awaiting HITL approvals | `cleo orchestrate pending` |
+| Owner: grant HITL approval (paused playbook) | `cleo orchestrate approve <resumeToken>` |
+| Owner: deny HITL approval with reason | `cleo orchestrate reject <resumeToken> --reason "<r>"` |
+| List awaiting HITL approvals (tokens redacted for non-owners) | `cleo orchestrate pending` |
+
+Approve/reject require the owner override's authority rule: an unrestricted
+bootstrap role, an owner-marked bound session, and the owner's own terminal.
+The owner starts that session with `cleo session start --scope global --name owner --owner`.
+Agents return the decision to their coordinator for the human ask tool.
 <!-- /CLEO-INJECTION:section=orchestration -->
 
 <!-- CLEO-INJECTION:section=playbooks -->

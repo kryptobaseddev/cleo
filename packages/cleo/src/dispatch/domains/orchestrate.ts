@@ -24,6 +24,7 @@ import { CleoError } from '@cleocode/core/errors';
 import { getLogger } from '@cleocode/core/logger';
 import type { DispatchWorkerResult } from '@cleocode/core/orchestrate/dispatch-workers';
 import { getProjectRoot } from '@cleocode/core/project-scope';
+import { requireOwnerAuthority } from '@cleocode/core/security/owner-override-authority';
 import { sessionContextInject } from '@cleocode/core/session/engine-ops';
 import { CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '@cleocode/runtime/gateway/dispatch';
 import type { OpsFromCore } from '../adapters/typed.js';
@@ -1669,7 +1670,18 @@ async function handleWorktreePrune(
 
 async function handlePendingApprovals(startTime: number): Promise<DispatchResponse> {
   try {
-    const approvals = await listPendingApprovalsForDispatch();
+    const pending = await listPendingApprovalsForDispatch();
+    let approvals = pending.map(({ token: _token, ...approval }) => approval);
+    try {
+      await requireOwnerAuthority(getProjectRoot());
+      approvals = pending;
+    } catch (error) {
+      if (
+        !(error instanceof CleoError) ||
+        !['E_OVERRIDE_NOT_OWNER', 'E_OVERRIDE_FORBIDDEN_AGENT_ROLE'].includes(error.codeName ?? '')
+      )
+        throw error;
+    }
     return {
       meta: dispatchMeta('query', 'orchestrate', 'pending', startTime),
       success: true,
@@ -1706,6 +1718,7 @@ async function handleApproveGate(
   const reason = typeof params?.reason === 'string' ? params.reason : undefined;
 
   try {
+    await requireOwnerAuthority(getProjectRoot());
     const existing = await lookupApprovalByTokenForDispatch(resumeToken);
     if (existing === null)
       return errorResult(
@@ -1717,6 +1730,8 @@ async function handleApproveGate(
         startTime,
       );
 
+    const { approveGate, assertCurrentApprovalToken } = await import('@cleocode/playbooks');
+    assertCurrentApprovalToken(existing.token);
     if (existing.status === 'approved') {
       return {
         meta: dispatchMeta('mutate', 'orchestrate', 'approve', startTime),
@@ -1735,7 +1750,6 @@ async function handleApproveGate(
       );
 
     const db = await acquirePlaybookDb();
-    const { approveGate } = await import('@cleocode/playbooks');
     const updated = approveGate(db, resumeToken, approver, reason);
     return {
       meta: dispatchMeta('mutate', 'orchestrate', 'approve', startTime),
@@ -1799,6 +1813,7 @@ async function handleRejectGate(
       : 'cli-user';
 
   try {
+    await requireOwnerAuthority(getProjectRoot());
     const existing = await lookupApprovalByTokenForDispatch(resumeToken);
     if (existing === null)
       return errorResult(
@@ -1810,6 +1825,8 @@ async function handleRejectGate(
         startTime,
       );
 
+    const { rejectGate, assertCurrentApprovalToken } = await import('@cleocode/playbooks');
+    assertCurrentApprovalToken(existing.token);
     if (existing.status === 'rejected') {
       return {
         meta: dispatchMeta('mutate', 'orchestrate', 'reject', startTime),
@@ -1828,7 +1845,6 @@ async function handleRejectGate(
       );
 
     const db = await acquirePlaybookDb();
-    const { rejectGate } = await import('@cleocode/playbooks');
     const updated = rejectGate(db, resumeToken, approver, reason);
     return {
       meta: dispatchMeta('mutate', 'orchestrate', 'reject', startTime),

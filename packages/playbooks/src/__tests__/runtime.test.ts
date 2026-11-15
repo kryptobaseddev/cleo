@@ -249,7 +249,7 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
 
     expect(result.terminalStatus).toBe('pending_approval');
     expect(result.approvalToken).toBeDefined();
-    expect(result.approvalToken).toMatch(/^[0-9a-f]{32}$/);
+    expect(result.approvalToken).toMatch(/^v2:[0-9a-f]{32}$/);
     // Only the research node executed; ship is gated.
     expect(dispatcher.calls.map((c) => c.nodeId)).toEqual(['research']);
 

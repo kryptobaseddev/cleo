@@ -2,10 +2,9 @@
  * HMAC-SHA256 resume tokens for HITL approval gates.
  *
  * Tokens bind `{runId, nodeId, bindings}` so they cannot be forged or replayed
- * across different executions. The secret defaults to a well-known dev value —
- * production deployments MUST set the `CLEO_PLAYBOOK_SECRET` env var to a
- * high-entropy secret. If the secret rotates, existing tokens are invalidated
- * because the HMAC output changes.
+ * across different executions. The secret comes from `CLEO_PLAYBOOK_SECRET`
+ * or this installation's private credential key. Versioned tokens distinguish
+ * these gates from legacy gates that could use a public constant secret.
  *
  * Binding canonicalization uses sorted-keys JSON so that `{a:1,b:2}` and
  * `{b:2,a:1}` produce the same token — semantically identical payloads
@@ -17,12 +16,9 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { PlaybookApproval, PlaybookApprovalStatus } from '@cleocode/contracts';
-
-/**
- * Dev-only fallback secret. Surfaced through {@link getPlaybookSecret} so
- * production code paths can override via `CLEO_PLAYBOOK_SECRET`.
- */
-const DEFAULT_SECRET = 'cleo-playbook-dev-secret-do-not-use-in-production';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { deriveInstallationKey } from '@cleocode/core/crypto/credentials';
+import { CleoError } from '@cleocode/core/errors';
 
 /**
  * Token length (hex chars). 32 hex chars = 128 bits of HMAC output — enough
@@ -42,18 +38,45 @@ export const E_APPROVAL_NOT_FOUND = 'E_APPROVAL_NOT_FOUND' as const;
  */
 export const E_APPROVAL_ALREADY_DECIDED = 'E_APPROVAL_ALREADY_DECIDED' as const;
 
+/** Legacy tokens must be re-requested rather than accepted under the new trust rule. */
+export const E_APPROVAL_TOKEN_LEGACY = 'E_APPROVAL_TOKEN_LEGACY' as const;
+
+/**
+ * Refuse a legacy gate before deciding it, including idempotent decisions.
+ * Existing rows stay intact and pending runs remain paused for explicit recovery.
+ *
+ * @param token - Token of a stored approval gate.
+ * @throws {CleoError} A typed refusal naming how to request a fresh gate.
+ * @remarks This version check follows exact-token lookup; it does not grant caller authority.
+ * @example
+ * ```typescript
+ * assertCurrentApprovalToken(approval.token);
+ * ```
+ */
+export function assertCurrentApprovalToken(token: string): void {
+  if (/^v2:[0-9a-f]{32}$/.test(token)) return;
+  // @sync-invariant none:input-shape legacy approval tokens cannot authorize a new decision
+  throw new CleoError(ExitCode.VALIDATION_ERROR, 'This gate uses a legacy approval token.', {
+    codeName: E_APPROVAL_TOKEN_LEGACY,
+    fix: 'Re-request approval with a fresh playbook run: cleo playbook run <name>. The legacy gate is preserved and is not approved automatically.',
+  });
+}
+
 /**
  * Resolve the HMAC secret for resume-token generation.
  *
  * @param env - Override env source (defaults to `process.env`). Used in tests.
- * @returns The configured secret, or a dev-only fallback if unset.
+ * @returns The configured secret, or a purpose-bound installation secret.
  */
 export function getPlaybookSecret(env: NodeJS.ProcessEnv = process.env): string {
-  return env['CLEO_PLAYBOOK_SECRET'] ?? DEFAULT_SECRET;
+  return (
+    env['CLEO_PLAYBOOK_SECRET']?.trim() ||
+    deriveInstallationKey('playbook-approval', { cleoHome: env['CLEO_HOME'] }).toString('hex')
+  );
 }
 
 /**
- * Generate a deterministic 32-char hex HMAC-SHA256 resume token.
+ * Generate a versioned, deterministic HMAC-SHA256 resume token.
  *
  * The token is derived from `HMAC(secret, "runId:nodeId:canonicalBindings")`
  * and truncated to 32 hex chars (128 bits). Determinism is an intentional
@@ -64,7 +87,7 @@ export function getPlaybookSecret(env: NodeJS.ProcessEnv = process.env): string 
  * @param nodeId - Node identifier within the run graph.
  * @param bindings - Current runtime bindings (canonicalized via sorted-keys JSON).
  * @param secret - HMAC secret (defaults to {@link getPlaybookSecret}).
- * @returns A 32-char lowercase hex string.
+ * @returns `v2:` followed by 32 lowercase hex characters.
  */
 export function generateResumeToken(
   runId: string,
@@ -75,7 +98,7 @@ export function generateResumeToken(
   // Canonicalize bindings via sorted-keys JSON for determinism.
   const canonical = JSON.stringify(bindings, Object.keys(bindings).sort());
   const payload = `${runId}:${nodeId}:${canonical}`;
-  return createHmac('sha256', secret).update(payload).digest('hex').slice(0, TOKEN_LENGTH);
+  return `v2:${createHmac('sha256', secret).update(payload).digest('hex').slice(0, TOKEN_LENGTH)}`;
 }
 
 /**
@@ -281,6 +304,7 @@ function transitionGate(
   if (existing === undefined) {
     throw new Error(`${E_APPROVAL_NOT_FOUND}: no approval gate for token`);
   }
+  assertCurrentApprovalToken(readString(existing, 'token'));
   const existingStatus = narrowStatus(readString(existing, 'status'));
   if (existingStatus !== 'pending') {
     const approvalId = readString(existing, 'approval_id');
