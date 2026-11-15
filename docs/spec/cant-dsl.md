@@ -44,10 +44,19 @@ the frontmatter kinds `message`, `protocol`, `lifecycle`, `team`, `tool`, `model
 `validate/hierarchy.rs`: TEAM-001, TEAM-002, TEAM-003, TIER-001, TIER-002, JIT-001, MM-001,
 MM-002.
 
-**Validation rules**: `validate()` (`crates/cant-core/src/validate/mod.rs`) emits 41 of the
-42 numbered rules in Section 4: S01–S03, S05–S13, P01–P07, T01–T07, H01–H04 and W01–W11
-(counted from the rule-id string literals under `crates/cant-core/src/validate/`), plus the
-eight hierarchy rules above. Limits use the defaults in `ValidationLimits`
+**Validation rules**: the validator defines 41 of the 42 numbered rules in Section 4:
+S01–S03, S05–S13, P01–P07, T01–T07, H01–H04 and W01–W11 (counted from the rule-id string
+literals under `crates/cant-core/src/validate/`), plus the eight hierarchy rules above.
+S04 is never defined. `validate()` (`crates/cant-core/src/validate/mod.rs:31`) does not run
+all of them:
+
+- **S03** (circular imports, `check_circular_import`) and **S12** (permission escalation,
+  `check_permission_escalation`) are never called.
+- **S11** (import depth) runs against the fresh `ValidationContext` that `validate()`
+  creates, whose import chain is always empty, so it never fires.
+
+So a cyclic import chain, an over-deep chain and an imported agent that escalates
+permissions all validate cleanly today. T14603 tracks the fix. Limits use the defaults in `ValidationLimits`
 (`validate/context.rs`); `.cleo/config.json` is not read (see Appendix B).
 
 **Runtime**: only pipelines execute (Section 7.1). The TypeScript `WorkflowExecutor` was
@@ -4175,7 +4184,7 @@ them today. The `cant.*` names are reserved for a future configuration source.
 | **AGENTS.md** | Industry-standard entry point. `.cant` files are referenced via `@import`. AGENTS.md is NOT replaced. |
 | **LAFS** | Response protocol. CANT encompasses LAFS as its response syntax. `@cleocode/lafs` continues to exist independently. |
 | **CAAMP** | Hook event taxonomy. CANT's `on Event:` blocks name the 31 `canonicalEvents` in `packages/caamp/providers/hook-mappings.json` (16 provider, 15 domain; Section 5). |
-| **AgentMBX** | Agent messaging (D11176). CANT defines message content; it does not define a transport. Conduit is a legacy client over AgentMBX and SignalDock is retired. |
+| **AgentMBX** | Agent messaging (D11176). CANT defines message content; it does not define a transport. Conduit is legacy and retiring under D11176/T13933. It is not an AgentMBX client yet: `resolveTransport` (`packages/core/src/conduit/factory.ts:36`) still picks its own local SQLite, SSE or HTTP transport. SignalDock is retired. |
 | **CLEO Dispatch** | Operation router. CANT directives map to CLEO CQRS operations via the directive-to-operation table. |
 | **cant-core (Rust)** | The canonical parser implementation. Layer 1 is frozen in the existing crate; Layers 2-3 are additive modules. |
 | **@cleocode/cant (TS)** | WASM/napi-rs wrapper (`packages/cant`) exposing parsing, validation, pipeline execution and `compileBundle()` to TypeScript. |

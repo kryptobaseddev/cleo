@@ -53,8 +53,10 @@ result appears in the `created` list it returns):
 - The project store. The task, brain and conduit domains all open the project
   `cleo.db` (`init.ts:1520-1555`). The output still labels these steps `tasks.db`,
   `brain.db` and `conduit.db`; those labels are leftover names, not separate files.
-- The isolated checkpoint repo `.cleo/.git`, and an empty initial commit when the
-  project has no `HEAD`.
+- The isolated checkpoint repo `.cleo/checkpoint.git` (`CHECKPOINT_GIT_DIRNAME`,
+  `packages/core/src/store/checkpoint-git-dir.ts:59`), and an empty initial commit when
+  the project has no `HEAD`. A legacy `.cleo/.git` is migrated to it by
+  `migrateCheckpointGitDir`.
 - The legacy `claudedocs/` → `.cleo/agent-outputs/` migration
   (`packages/core/src/migration/agent-outputs.ts`).
 - Git hooks, `.github/ISSUE_TEMPLATE/*` and `.github/pull_request_template.md`.
@@ -203,8 +205,12 @@ specification stage record (§3.1).
 | `.cleo/quarantine/` | Rows and stores moved aside by repairs. Not tracked. |
 | `.cleo/cant/` | Project-tier CANT team and agent files (§2.2) |
 
-`.cleo/agents/` is read only as a legacy location by `migrate-agents-v2`
-(`packages/cleo/src/cli/commands/migrate-agents-v2.ts:321`). Nothing writes it.
+`.cleo/agents/` is the default output of `cleo cant migrate --write`
+(`packages/cant/src/migrate/converter.ts:49`, written at
+`packages/cleo/src/cli/commands/cant.ts:228`), so files there may be current migration
+output. `migrate-agents-v2` also reads it as a legacy location
+(`packages/cleo/src/cli/commands/migrate-agents-v2.ts:321`). Agents installed with
+`cleo agent install` go to `.cleo/cant/agents/` instead.
 
 ---
 
