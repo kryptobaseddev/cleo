@@ -29,9 +29,12 @@ is a personal-account repository, where GraphQL `repository.mergeQueue` is
    `pr-task-lines.yml` flags a PR whose body names no task or whose lines are
    malformed. It is a flag, not a merge gate (exempt: `release/*`, bot authors,
    the `no-task` label).
-3. **Required checks.** Branch protection on `main` requires only `CI`, with
-   `strict: false`: a PR merges once its own `CI` is
-   green, without re-running after every other merge. Main-push CI catches a
+3. **Required checks.** Branch protection on `main` requires `CI` and
+   `Contracts Dep Lint`, with `strict: false` (owner decision D11250, T14589).
+   `Contracts Dep Lint` runs on every CI run (the `contracts-dep-lint` job in
+   `ci.yml` has no `if:` or `needs:`), so requiring it cannot strand a PR. A PR
+   merges once both checks are green on its own head, without re-running after
+   every other merge. Main-push CI catches a
    break that only the combination of two PRs causes. Setup commands:
    [`branch-protection-setup.md`](./branch-protection-setup.md).
 4. **Independent review.** A reviewer who is not an author of the task records
@@ -51,9 +54,9 @@ is a personal-account repository, where GraphQL `repository.mergeQueue` is
    `T#### AC4: no verdict on head <sha>`). It is not a required check; it shows
    before merge whether the merge will close anything. Check the same thing
    locally with `cleo done --from-merge <pr> --dry-run`.
-6. **Merge** serially once `CI` is green on the PR head. A repo admin can merge
-   without `CI` (`enforce_admins: false`, T12152): that is the owner's escape
-   hatch, used for the release bump-PR below and otherwise only as an audited
+6. **Merge** serially once `CI` and `Contracts Dep Lint` are green on the PR
+   head. A repo admin can merge without them (`enforce_admins: false`,
+   T12152): that is the owner's escape hatch, used for the release bump-PR below and otherwise only as an audited
    break-glass step (log it in `.cleo/audit/force-bypass.jsonl` with PR,
    reason, operator and time).
 
@@ -79,7 +82,8 @@ is a personal-account repository, where GraphQL `repository.mergeQueue` is
 ## The bump-PR opens with zero checks (T12094 — fixed)
 
 **Symptom.** `release-prepare` completes, the bump-PR exists, and it has *no*
-checks at all. Branch protection on `main` requires the `CI` context, so the PR
+checks at all. Branch protection on `main` requires the `CI` and
+`Contracts Dep Lint` contexts, so the PR
 can never become mergeable and `cleo release pr-status` reports nothing to poll.
 
 **Cause.** GitHub deliberately does not trigger workflows for events caused by
