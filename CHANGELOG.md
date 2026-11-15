@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.11.11] (2026-11-15)
+
+### Fixed
+
+- Preserve incoming document lineage when updates reuse retired content and suppress yielded version rows and neighbour warnings _(provenance: [T14584](https://github.com/kryptobaseddev/cleo/search?q=T14584&type=commits))_
+
 ## [2026.11.10] (2026-11-14)
 
 ### Fixed
