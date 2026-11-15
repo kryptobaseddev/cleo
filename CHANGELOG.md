@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.11.12] (2026-11-15)
+
+### Fixed
+
+- ci: judge PR-only and main-only required checks on their declared events _(provenance: [T14602](https://github.com/kryptobaseddev/cleo/search?q=T14602&type=commits))_
+
 ## [2026.11.11] (2026-11-15)
 
 ### Fixed
