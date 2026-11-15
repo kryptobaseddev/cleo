@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -12,6 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Source tests exercise the real CAAMP leaf. Built export/install checks remain separate.
@@ -219,6 +221,38 @@ describe('real npm inventory through release wrappers', { timeout: 60_000 }, () 
 });
 
 describe('packed operational execution', () => {
+  it('retains the failed attempt when the first Git probe cannot obtain hard limits', async () => {
+    const env = {
+      ...packedEnvironment(root),
+      CLEO_PACKED_EVIDENCE_DIR: root,
+      CLEO_PACKED_SYSTEMD_RUNTIME: join(root, 'unavailable-manager'),
+    };
+    await expect(
+      runPackedCommand(
+        process.execPath,
+        [fileURLToPath(new URL('../packed-install-smoke.mjs', import.meta.url))],
+        { cwd: root, env, timeout: 10000 },
+      ),
+    ).rejects.toMatchObject({ capture: { exitCode: 1, targetCloseObserved: true } });
+    const attempts = readdirSync(root).filter((name) => name.startsWith('cleo-packed-smoke-'));
+    expect(attempts).toHaveLength(1);
+    const attempt = join(root, attempts[0]);
+    const manifest = JSON.parse(readFileSync(join(attempt, 'manifest.json'), 'utf8'));
+    expect(manifest).toMatchObject({ status: 'failed', sourceRevision: null, packages: [] });
+    expect(manifest.scriptSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(manifest.lockSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(manifest.error).toContain('resource-limit');
+    expect(readFileSync(join(attempt, 'failure.log'), 'utf8')).toContain(manifest.error);
+    const receipts = readdirSync(join(attempt, 'command-receipts'));
+    expect(receipts).toHaveLength(1);
+    const command = JSON.parse(
+      readFileSync(join(attempt, 'command-receipts', receipts[0]), 'utf8'),
+    );
+    expect(command).toMatchObject({
+      command: 'git',
+      result: { started: false, stopped: 'resource-limit' },
+    });
+  });
   it('refuses resource escalation before capture admission', async () => {
     await expect(
       runPackedCommand(process.execPath, ['--version'], { memoryMaxMb: 8192 }),
