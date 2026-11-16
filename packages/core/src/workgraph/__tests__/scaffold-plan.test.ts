@@ -115,7 +115,8 @@ describe('WorkGraph planning doc generator', () => {
       ['proposed', false],
       ['cancelled', false],
     ] as const)('assesses an external %s prerequisite', async (status, ready) => {
-      await seedReadinessSaga(status);
+      const accessor = await seedReadinessSaga(status);
+      expect((await accessor.loadSingleTask('T98003'))?.status).toBe(status);
       const { generatePlanningDoc } = await import('../scaffold-plan.js');
       const result = await generatePlanningDoc(tempDir, { sagaId: 'T98000' });
       expect(result.readyTasks.map((task) => task.id)).toEqual(ready ? ['T98004'] : []);
