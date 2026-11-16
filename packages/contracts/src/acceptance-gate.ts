@@ -440,6 +440,8 @@ export interface AcceptanceGateCacheInputs {
   environmentHash: string | null;
   /** The captured input files. */
   artifacts: readonly AcceptanceGateArtifact[];
+  /** Captured invocation, when comparing an authenticated pass across checkouts. */
+  invocation?: AcceptanceGateInvocation;
 }
 
 /**
@@ -546,6 +548,10 @@ export interface AcceptanceGateBinding {
 export interface AcceptanceGateTreeBinding {
   /** HEAD commit of the tree the gate ran in. */
   headSha: string;
+  /** Immutable git tree object captured with the pass; absent on legacy receipts. */
+  treeHash?: string;
+  /** Merge commit this carried pass was accepted for. */
+  mergeSha?: string;
   /** True when that tree had no uncommitted tracked changes. */
   clean: boolean;
   /** Gate working directory, relative to the tree root (`.` for the root). */

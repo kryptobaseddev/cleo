@@ -49,7 +49,7 @@ import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
-import { readProjectInfoAtDirectorySync } from '../project-scope.js';
+import { readProjectInfoAtDirectorySync, worktreeScope } from '../project-scope.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
 
 import { createOperationExecutionContext } from '../store/background-ops.js';
@@ -75,6 +75,7 @@ import {
 import { PROFILE_WAIVED_GATES } from './gate-notes.js';
 import {
   extractTypedGates,
+  mergedGateVerifyCommand,
   probeTypedGateCache,
   type TypedResultDrift,
   typedGateAdmissionMs,
@@ -578,7 +579,10 @@ async function planTypedCache(
   projectRoot: string,
   projectId: string | undefined,
 ): Promise<DonePlanTypedGate[]> {
-  const open = checked.filter(({ entry }) => entry.status === 'not-run' && !entry.reason);
+  const open = checked.filter(
+    ({ entry }) =>
+      entry.status === 'not-run' && (!entry.reason || worktreeScope.getStore()?.typedGateCommit),
+  );
   if (open.length === 0 || !projectId) return checked.map(({ entry }) => entry);
   const execution = createOperationExecutionContext(
     {
@@ -596,9 +600,10 @@ async function planTypedCache(
   try {
     for (const { entry, originalIndex } of open) {
       const probe = await probeTypedGateCache(task, gateAt(typed, originalIndex), execution);
-      if (probe.status === 'hit')
-        probed.set(originalIndex, { ...entry, status: 'cached', cachedAt: probe.cachedAt });
-      else if (probe.status === 'miss' && probe.why)
+      if (probe.status === 'hit') {
+        const { reason: _reason, fix: _fix, cacheMiss: _miss, ...current } = entry;
+        probed.set(originalIndex, { ...current, status: 'cached', cachedAt: probe.cachedAt });
+      } else if (probe.status === 'miss' && probe.why)
         probed.set(originalIndex, { ...entry, cacheMiss: probe.why });
     }
   } catch {
@@ -838,6 +843,10 @@ function toolAndTypedGateBlockers(
   }
   for (const typed of typedGates) {
     const label = `Typed gate ${typed.alias} (${typed.kind}${typed.req ? ` ${typed.req}` : ''})`;
+    const mergeCommit = worktreeScope.getStore()?.typedGateCommit;
+    const mergedRun = mergeCommit
+      ? mergedGateVerifyCommand(taskId, root, mergeCommit, typed.req)
+      : undefined;
     if (typed.status === 'fail') {
       out.push({
         code: 'typed-gate-failed',
@@ -858,15 +867,20 @@ function toolAndTypedGateBlockers(
           ? `${label}'s stored pass would be refused by cleo complete: ${typed.reason}.`
           : `${label} has no current passing result; cleo complete refuses it until it passes.` +
             (typed.cacheMiss ? ` Its cached pass does not match: ${typed.cacheMiss}` : ''),
-        next: typed.fix
+        next: mergedRun
           ? step(
-              typed.fix,
-              'Re-binds the typed result in this tree and environment; only typed gates with no current pass run again.',
+              mergedRun,
+              'Run this requirement on the merge tree in a clean checkout; any checkout of this project may cache the pass.',
             )
-          : step(
-              `cleo verify ${taskId} --run && ${retry}`,
-              'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
-            ),
+          : typed.fix
+            ? step(
+                typed.fix,
+                'Re-binds the typed result in this tree and environment; only typed gates with no current pass run again.',
+              )
+            : step(
+                `cleo verify ${taskId} --run && ${retry}`,
+                'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
+              ),
       });
     }
   }
@@ -1663,7 +1677,13 @@ export async function deriveTaskEvidence(
           taskId,
           storeRoot,
           changeSet,
-          needsTree: toolRuns.length > 0 || typedGates.length > 0,
+          needsTree:
+            toolRuns.length > 0 ||
+            (typedGates.length > 0 &&
+              (!worktreeScope.getStore()?.typedGateCommit ||
+                typedGates.some(
+                  ({ kind }) => kind === 'file' || kind === 'http' || kind === 'manual',
+                ))),
           retry,
           gates,
           additionalImplemented,

@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   constants,
+  existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -98,6 +99,7 @@ import {
   evidenceCacheKeyPath,
   type GateCacheState,
   gateCacheEntryPath,
+  gateInputsHash,
   isCacheableGate,
   readGateCacheEntry,
   sealGateCacheEntry,
@@ -359,7 +361,7 @@ export async function probeTypedGateCache(
       reason: error instanceof Error ? error.message : String(error),
     };
   }
-  const state = await captureGateCacheState(gateRoot);
+  const state = await captureGateCacheState(gateRoot, mergedGateCommit(gateRoot), task.id);
   if (state === null)
     return { status: 'unavailable', reason: 'the gate tree is not a git checkout' };
   const key = readEvidenceCacheKey();
@@ -380,7 +382,16 @@ export async function probeTypedGateCache(
     };
   }
   const inputsHash = gateInputsHash(invocation, artifacts);
-  const lookup = readGateCacheEntry(root, gate, state, inputsHash, key);
+  const lookup = readGateCacheEntry(
+    root,
+    gate,
+    state,
+    inputsHash,
+    key,
+    mergedGateCommit(gateRoot) && gate.repo === undefined
+      ? { invocation, environmentHash: invocation?.environmentHash ?? null, artifacts }
+      : undefined,
+  );
   if (lookup.status === 'hit') return { status: 'hit', cachedAt: lookup.createdAt };
   if (lookup.status === 'invalid') return { status: 'unavailable', reason: lookup.reason };
   return {
@@ -393,10 +404,10 @@ export async function probeTypedGateCache(
 }
 
 /**
- * Seal and store a pass this runner EXECUTED itself. Module-private for the same
- * reason as {@link loadEvidenceCacheKey}: only an observed execution is cached.
+ * Seal a runner execution or carry an authenticated pass to a named merge.
+ * Only this module holds the key; a carry preserves its original tree and timestamp.
  */
-function writeExecutedGatePass(
+function writeGatePass(
   projectRoot: string,
   gate: AcceptanceGate,
   state: GateCacheState,
@@ -404,9 +415,11 @@ function writeExecutedGatePass(
   observed: AcceptanceGateResult,
   key: Buffer,
   inputs?: AcceptanceGateCacheInputs,
+  createdAt?: string,
 ): void {
   const body = buildGateCacheEntryBody(gate, state, inputsHash, observed, inputs);
   if (!body) return;
+  if (createdAt) body.createdAt = createdAt;
   try {
     const path = gateCacheEntryPath(projectRoot, gate, state, inputsHash);
     mkdirSync(dirname(path), { recursive: true });
@@ -416,20 +429,6 @@ function writeExecutedGatePass(
   } catch {
     // A cache is an optimisation: failing to persist one never fails the gate.
   }
-}
-
-/**
- * Digest of a gate's captured invocation and input artifacts: the part of its
- * cache key that the git fingerprint cannot see (untracked harness scripts,
- * task files, the environment hash).
- */
-function gateInputsHash(
-  invocation: AcceptanceGateInvocation | undefined,
-  artifacts: readonly AcceptanceGateArtifact[],
-): string {
-  return createHash('sha256')
-    .update(JSON.stringify({ invocation: invocation ?? null, artifacts }))
-    .digest('hex');
 }
 
 /**
@@ -481,7 +480,7 @@ export async function captureGateInputs(
   const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
   return {
     hash: gateInputsHash(invocation, artifacts),
-    inputs: { environmentHash: invocation?.environmentHash ?? null, artifacts },
+    inputs: { invocation, environmentHash: invocation?.environmentHash ?? null, artifacts },
   };
 }
 
@@ -518,6 +517,9 @@ export async function captureGateInputs(
  * from the main checkout. Only this project's checkout or one of its linked
  * worktrees is accepted; any other candidate is skipped.
  *
+ * The merge sweep uses the store's repository to read immutable merge inputs;
+ * it neither enters a worker's old checkout nor executes a historical gate.
+ *
  * @param projectRoot - CLEO store root (the typed gate's authority).
  * @param cwd - Invocation directory. Defaults to `process.cwd()`.
  * @param env - Where the evidence declaration is read. Defaults to `process.env`.
@@ -541,6 +543,7 @@ export function resolveTypedGateRoot(
     }
   };
   const root = real(projectRoot);
+  if (mergedGateCommit(root)) return projectRoot;
   const ofThisProject = (top: string): boolean =>
     real(top) === root || real(resolveCanonicalProjectRoot(top)) === root;
   const tree = real(resolveEvidenceTree(projectRoot, taskId, cwd, env, ofThisProject).root);
@@ -620,6 +623,7 @@ async function runGateBatch(
   gates: AcceptanceGate[],
   options: RunGatesOptions,
   reserveMs?: number,
+  binding?: AcceptanceGateBinding,
 ): Promise<AcceptanceGateResult[]> {
   const inherited = worktreeScope.getStore();
   if (inherited?.execution && options.execution && inherited.execution !== options.execution)
@@ -675,7 +679,10 @@ async function runGateBatch(
     } catch {
       cacheTree = null;
     }
-    cacheState = cacheTree === null ? null : await captureGateCacheState(cacheTree);
+    cacheState =
+      cacheTree === null
+        ? null
+        : await captureGateCacheState(cacheTree, mergedGateCommit(cacheTree), options.taskId);
   }
   const cacheKey = cacheState ? loadEvidenceCacheKey() : null;
   const results: AcceptanceGateResult[] = [];
@@ -702,8 +709,24 @@ async function runGateBatch(
               cacheState,
               cacheInputsHash!,
               cacheKey,
+              mergedGateCommit(gateRoot) && parsed.repo === undefined
+                ? options.cacheInputs
+                : undefined,
             );
             if (lookup.status === 'hit') {
+              const mergeSha = mergedGateCommit(gateRoot);
+              const origin = lookup.state;
+              if (mergeSha && origin.mergeSha !== mergeSha)
+                writeGatePass(
+                  projectRoot,
+                  parsed,
+                  { ...origin, mergeSha },
+                  lookup.inputsHash,
+                  { ...lookup.observation, index: i },
+                  cacheKey,
+                  undefined,
+                  lookup.createdAt,
+                );
               // Re-dated to now (the reuse is this run's check; a bound result
               // may not precede its input capture) and marked, never disguised.
               results.push({
@@ -712,6 +735,27 @@ async function runGateBatch(
                 checkedAt: new Date().toISOString(),
                 source: 'cache',
                 cachedAt: lookup.createdAt,
+                ...(mergeSha && binding && origin.treeHash
+                  ? {
+                      binding: {
+                        ...binding,
+                        tree: {
+                          headSha: origin.head,
+                          treeHash: origin.treeHash,
+                          clean: origin.clean === true,
+                          mergeSha,
+                          cwd: binding.invocation
+                            ? relative(gateRoot, binding.invocation.cwd) || '.'
+                            : '.',
+                          inputsHash: treeInputsHash(
+                            gateRoot,
+                            binding.invocation,
+                            binding.artifacts,
+                          ),
+                        },
+                      },
+                    }
+                  : {}),
               });
               continue;
             }
@@ -735,9 +779,12 @@ async function runGateBatch(
                   )
                 : null;
             throw new Error(
-              `${gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null)}${why ? ` ${why}` : ''}`,
+              `${gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null)}${why ? ` ${why}` : ''}${mergedGateCommit(gateRoot) && options.taskId ? ` Run \`${mergedGateVerifyCommand(options.taskId, projectRoot, mergedGateCommit(gateRoot)!, parsed.req)}\`.` : ''}`,
             );
           }
+          if (mergedGateCommit(gateRoot) && isCacheableGate(parsed))
+            // @sync-invariant none:input-shape the merge sweep cannot execute a historical gate against the live checkout
+            throw new Error('Merge-tree verification only reads cached typed-gate passes');
           const observed: AcceptanceGateResult = {
             ...(await runOneGate(
               parsed,
@@ -749,16 +796,25 @@ async function runGateBatch(
             )),
             source: 'executed',
           };
-          if (cacheState && cacheKey && cacheMode !== 'only')
-            writeExecutedGatePass(
+          if (cacheState && cacheKey && cacheMode !== 'only') {
+            const after = await captureGateCacheState(gateRoot, undefined, options.taskId);
+            writeGatePass(
               projectRoot,
               parsed,
-              cacheState,
+              {
+                ...cacheState,
+                clean:
+                  cacheState.clean === true &&
+                  after?.clean === true &&
+                  after.head === cacheState.head &&
+                  after.treeHash === cacheState.treeHash,
+              },
               cacheInputsHash!,
               observed,
               cacheKey,
               options.cacheInputs,
             );
+          }
           results.push(observed);
         } catch (error) {
           results.push(
@@ -803,6 +859,15 @@ function gitOut(cwd: string, args: readonly string[]): string | null {
   }
 }
 
+/** Immutable commit only while the merge sweep is judging this project's own repository. */
+function mergedGateCommit(tree: string): string | undefined {
+  const scope = worktreeScope.getStore();
+  return scope?.typedGateCommit &&
+    resolve(resolveCanonicalProjectRoot(tree)) === resolve(scope.worktreeRoot)
+    ? scope.typedGateCommit
+    : undefined;
+}
+
 /** Digest of a gate's inputs with every path made relative to `tree` (T12625). */
 function treeInputsHash(
   tree: string,
@@ -839,12 +904,14 @@ function captureTreeBinding(
 ): AcceptanceGateTreeBinding | undefined {
   const headSha = gitOut(tree, ['rev-parse', 'HEAD']);
   if (headSha === null || !/^[0-9a-f]{40}$/.test(headSha)) return undefined;
+  const treeHash = gitOut(tree, ['rev-parse', `${headSha}^{tree}`]);
   const dirty = gitOut(tree, ['status', '--porcelain', '--untracked-files=no']);
   const base = resolveOriginDefault(tree);
   const baseSha = base ? gitOut(tree, ['merge-base', base, headSha]) : null;
   return {
     headSha,
     clean: dirty === '',
+    ...(treeHash && /^[0-9a-f]{40}$/.test(treeHash) ? { treeHash } : {}),
     cwd: invocation ? relative(tree, invocation.cwd) || '.' : '.',
     inputsHash: treeInputsHash(tree, invocation, artifacts),
     ...(baseSha && /^[0-9a-f]{40}$/.test(baseSha) ? { baseSha } : {}),
@@ -866,6 +933,27 @@ export class TypedRevalidationError extends Error {
     this.name = 'TypedRevalidationError';
     this.fix = fix;
   }
+}
+
+/**
+ * Build the exact command that caches a pass in a fresh checkout of the merge.
+ * @param taskId - Task whose gate must run.
+ * @param root - Existing repository from which to create the checkout.
+ * @param mergeSha - Immutable merge commit to verify.
+ * @param req - Optional requirement to run alone.
+ * @returns Shell command that leaves the existing checkout untouched.
+ */
+export function mergedGateVerifyCommand(
+  taskId: string,
+  root: string,
+  mergeSha: string,
+  req?: string,
+): string {
+  return (
+    `cleo_gate_checkout=$(mktemp -d) && git -C ${shellArg(root)} worktree add --detach "$cleo_gate_checkout" ${shellArg(mergeSha)} && ` +
+    `if [ -d ${shellArg(join(root, 'node_modules'))} ] && [ ! -e "$cleo_gate_checkout/node_modules" ]; then ln -s ${shellArg(join(root, 'node_modules'))} "$cleo_gate_checkout/node_modules"; fi && ` +
+    `cd "$cleo_gate_checkout" && cleo verify ${taskId} --run${req ? ` --req ${shellArg(req)}` : ''}`
+  );
 }
 
 /** Exact command that re-records testsPassed (re-running typed gates) in `tree`. */
@@ -905,6 +993,25 @@ function assertTreeEquivalent(
   artifacts: readonly AcceptanceGateArtifact[],
 ): void {
   const fix = reverifyCommand(task, tree);
+  const mergeCommit = mergedGateCommit(tree);
+  if (mergeCommit) {
+    const verifiedTree = gitOut(tree, ['rev-parse', `${bound.headSha}^{tree}`]);
+    const mergeTree = gitOut(tree, ['rev-parse', `${mergeCommit}^{tree}`]);
+    if (
+      bound.clean &&
+      verifiedTree !== null &&
+      verifiedTree === mergeTree &&
+      bound.treeHash === verifiedTree &&
+      (!bound.mergeSha || bound.mergeSha === mergeCommit) &&
+      treeInputsHash(tree, invocation, artifacts) === bound.inputsHash
+    )
+      return;
+    // @sync-invariant none:input-shape a stored typed pass must prove the immutable merge inputs before completion
+    throw new TypedRevalidationError(
+      `Typed requirement ${gateLabel} ${bound.treeHash ? `inputs do not match merge commit ${mergeCommit.slice(0, 12)}` : 'has no recorded tree hash; re-run verification to migrate the stored pass'}`,
+      mergedGateVerifyCommand(task.id, projectRoot, mergeCommit, gateLabel),
+    );
+  }
   const real = (p: string): string => {
     try {
       return realpathSync(p);
@@ -1077,6 +1184,7 @@ export async function runTaskGates(
                   ? {
                       cacheInputsHash: gateInputsHash(invocation, artifacts),
                       cacheInputs: {
+                        invocation,
                         environmentHash: invocation?.environmentHash ?? null,
                         artifacts,
                       },
@@ -1084,14 +1192,35 @@ export async function runTaskGates(
                   : {}),
               },
               reserveMs,
+              binding,
             )
           )[0]!;
-      let result: AcceptanceGateResult = { ...observed, index, binding };
+      let result: AcceptanceGateResult = {
+        ...observed,
+        index,
+        binding: observed.binding ?? binding,
+      };
+      if (observed.source === 'executed' && binding.tree) {
+        const afterTree = captureTreeBinding(gateRoot, invocation, artifacts);
+        binding.tree.clean =
+          binding.tree.clean &&
+          afterTree?.clean === true &&
+          afterTree.headSha === binding.tree.headSha &&
+          afterTree.treeHash === binding.tree.treeHash;
+      }
       // T13525: a cache-only run must not wipe a stored pass that still proves
       // this exact gate on these exact inputs (a commit moved HEAD, which keys
       // the cache, but changed nothing the gate reads).
       if (result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX)) {
-        const reused = reusableStoredPass(options.priorResults, index, gate, binding);
+        const reused = reusableStoredPass(
+          options.priorResults,
+          index,
+          gate,
+          binding,
+          snapshot,
+          gateRoot,
+          root,
+        );
         if (reused) result = reused;
       }
       try {
@@ -1125,6 +1254,9 @@ function reusableStoredPass(
   index: number,
   gate: AcceptanceGate,
   binding: AcceptanceGateBinding,
+  task: Task,
+  tree: string,
+  projectRoot: string,
 ): AcceptanceGateResult | null {
   const stored = prior?.find((r) => r.index === index);
   const was = stored?.binding;
@@ -1142,12 +1274,32 @@ function reusableStoredPass(
     !isDeepStrictEqual(was.artifacts, binding.artifacts)
   )
     return null;
+  const mergeSha = mergedGateCommit(tree);
+  if (mergeSha) {
+    if (!was.tree) return null;
+    try {
+      assertTreeEquivalent(
+        task,
+        gate.req ?? String(index),
+        was.tree,
+        tree,
+        projectRoot,
+        binding.invocation,
+        binding.artifacts,
+      );
+    } catch {
+      return null;
+    }
+  }
   const { binding: _old, source: _source, cachedAt: _cachedAt, ...observation } = stored;
   // Re-dated to now, as a cache hit is: a bound result may not precede its capture.
   return {
     ...observation,
     index,
-    binding,
+    binding: {
+      ...binding,
+      ...(was.tree ? { tree: { ...was.tree, ...(mergeSha ? { mergeSha } : {}) } } : {}),
+    },
     checkedAt: new Date().toISOString(),
     source: 'cache',
     cachedAt: was.capturedAt,
@@ -1412,6 +1564,24 @@ async function revalidateTypedResult(
     resolved && binding.invocation && !binding.invocation.environmentKeys
       ? legacyInvocation(gate, resolved, env)
       : resolved;
+  if (mergedGateCommit(tree) && isCacheableGate(gate)) {
+    if (!binding.tree)
+      // @sync-invariant none:input-shape legacy receipts without a captured tree cannot prove the merge tree
+      throw new TypedRevalidationError(
+        `Typed requirement ${gate.req ?? index} has no clean-tree proof; re-run verification to migrate the stored pass`,
+        mergedGateVerifyCommand(task.id, root, mergedGateCommit(tree)!, gate.req),
+      );
+    assertTreeEquivalent(
+      task,
+      gate.req ?? String(index),
+      binding.tree,
+      tree,
+      root,
+      invocation,
+      artifacts,
+    );
+    return;
+  }
   if (
     isDeepStrictEqual(binding.invocation, invocation) &&
     isDeepStrictEqual(binding.artifacts, artifacts)
@@ -1427,7 +1597,7 @@ async function revalidateTypedResult(
   }
   // @sync-invariant none:input-shape a typed result whose inputs moved in its own tree is refused before the completion write; nothing is written
   throw new TypedRevalidationError(
-    `Typed requirement ${label} ${describeTypedDrift(binding, invocation, artifacts, tree)}`,
+    `Typed requirement ${label} ${binding.artifacts.length < artifacts.length ? 'input inventory predates test-file capture; re-run verification to migrate the stored pass' : describeTypedDrift(binding, invocation, artifacts, tree)}`,
     rebindCommand(task, tree),
   );
 }
@@ -2036,6 +2206,39 @@ async function interpreterScript(
   return { script: undefined, notInputs, base, flagFiles };
 }
 
+/** Read a tracked input from the immutable merge tree; untracked harnesses retain live checks. */
+function snapshotMergedInput(
+  root: string,
+  commit: string,
+  path: string,
+  execution: OperationExecutionContext,
+): AcceptanceGateArtifact | undefined {
+  const rel = relative(root, path);
+  const listed = gitOut(root, ['ls-tree', '-z', commit, '--', `:(literal)${rel}`]);
+  if (listed === null)
+    // @sync-invariant none:input-shape an unreadable merge tree cannot establish typed gate inputs
+    throw new Error(`Cannot read typed input ${rel} at merge commit ${commit}`);
+  if (listed === '') {
+    return gitOut(root, ['ls-files', '--error-unmatch', '--', `:(literal)${rel}`]) === null
+      ? undefined
+      : { path, sha256: null, bytes: null };
+  }
+  const blob = /^100(?:644|755) blob ([a-f0-9]{40})\t/.exec(listed)?.[1];
+  if (!blob)
+    // @sync-invariant none:input-shape a merge-tree input must be an unambiguous regular file
+    throw new Error(`Typed input is not a regular file at merge commit ${commit}: ${rel}`);
+  const ceiling = execution.resources.maxBytes ?? 1_048_576;
+  const bytes = execFileSync('git', ['cat-file', 'blob', blob], {
+    cwd: root,
+    env: discoveryEnv(),
+    maxBuffer: ceiling,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  execution.assertActive();
+  execution.consume({ bytes: bytes.length });
+  return { path, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
+}
+
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
 async function snapshotGateInputs(
   task: Task,
@@ -2057,6 +2260,21 @@ async function snapshotGateInputs(
   // T13690: a declared task file is a literal path; `app/[id]/page.tsx` is a
   // Next.js route, not a glob. Only paths from other sources are refused.
   const literal = new Set(paths);
+  // A targeted package-manager test command names its input just as an interpreter does.
+  for (const arg of invocation?.args ?? []) {
+    if (arg.startsWith('-') || !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(arg)) continue;
+    const path = resolve(invocation!.cwd, arg);
+    if (/[?*[\]{}]/.test(arg) && !existsSync(path)) {
+      const mergeSha = mergedGateCommit(root);
+      if (
+        !mergeSha ||
+        gitOut(root, ['cat-file', '-e', `${mergeSha}:${relative(root, path)}`]) === null
+      )
+        continue;
+    }
+    paths.add(path);
+    literal.add(path);
+  }
   if (gate.kind === 'file' && gate.path) paths.add(resolve(root, gate.path));
   if (
     invocation &&
@@ -2095,6 +2313,14 @@ async function snapshotGateInputs(
     const rel = relative(root, path);
     if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
       throw new Error(`Typed input escapes the captured project: ${path}`);
+    const mergeCommit = isCacheableGate(gate) ? mergedGateCommit(root) : undefined;
+    if (mergeCommit) {
+      const merged = snapshotMergedInput(root, mergeCommit, path, execution);
+      if (merged) {
+        artifacts.push(merged);
+        continue;
+      }
+    }
     // Refuse redirected parents even for absent files; absence must belong to this project.
     let parent = dirname(path);
     for (;;) {

@@ -19,6 +19,9 @@ import {
   buildGateCacheEntryBody,
   describeGateCacheMiss,
   type GateCacheState,
+  gateCacheEntryPath,
+  readGateCacheEntry,
+  sealGateCacheEntry,
 } from '../gate-result-cache.js';
 import { runGates } from '../gate-runner.js';
 
@@ -170,4 +173,45 @@ describe('a cache-only run names what moved since --run cached the pass (T13693)
       rmSync(repo, { recursive: true, force: true });
     }
   }, 60_000);
+});
+
+describe('authenticated cache identity (T14596)', () => {
+  it.each([
+    { taskId: 'T2' },
+    { mergeSha: 'c'.repeat(40) },
+    { treeHash: 'd'.repeat(40) },
+    { clean: false },
+  ])('refuses a re-keyed replay with altered identity %j', (change) => {
+    const project = mkdtempSync(join(root, 'identity-'));
+    const originalState: GateCacheState = {
+      ...state,
+      taskId: 'T1',
+      mergeSha: 'b'.repeat(40),
+      treeHash: 'e'.repeat(40),
+      clean: true,
+    };
+    const key = Buffer.alloc(32, 7);
+    const original = buildGateCacheEntryBody(gate, originalState, 'inputs-1', pass)!;
+    const entry = sealGateCacheEntry(original, key);
+    mkdirSync(join(project, '.cleo/cache/evidence'), { recursive: true });
+    writeFileSync(
+      gateCacheEntryPath(project, gate, originalState, 'inputs-1'),
+      JSON.stringify(entry),
+    );
+    expect(readGateCacheEntry(project, gate, originalState, 'inputs-1', key).status).toBe('hit');
+    const replayState = { ...originalState, ...change };
+    const replay = buildGateCacheEntryBody(gate, replayState, 'inputs-1', pass)!;
+    writeFileSync(
+      gateCacheEntryPath(project, gate, replayState, 'inputs-1'),
+      JSON.stringify({
+        ...replay,
+        createdAt: original.createdAt,
+        mac: entry.mac,
+      }),
+    );
+    expect(readGateCacheEntry(project, gate, replayState, 'inputs-1', key)).toEqual({
+      status: 'invalid',
+      reason: 'entry MAC does not verify under this machine key',
+    });
+  });
 });
