@@ -169,6 +169,14 @@
               "type": "string",
               "pattern": "^[0-9a-f]{40}$"
             },
+            "treeHash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "mergeSha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
             "clean": {
               "type": "boolean"
             },
