@@ -1,4 +1,4 @@
-# Repeat one test file N times on main (T14149).
+# Repeat one test file N times on a branch (T14149, T14620).
 #
 # An acceptance criterion that needs a heavy or repeated run ("50 consecutive
 # runs of X pass") used to be waived by the owner, because the owner rule
@@ -9,13 +9,13 @@
 # the task's work, the test file relevant to the task) and the uploaded
 # report's counts.
 #
-# Dispatch: gh workflow run repeat-run.yml -f test=<repo-relative test file> -f runs=50
+# Dispatch: gh workflow run repeat-run.yml --ref <branch> -f test=<repo-relative test file> -f runs=50
 #
 # Inputs never reach a shell: they pass through `env:` to
 # scripts/ci-repeat-run.mjs, which validates them before running anything and
-# spawns vitest without a shell. Main only, so the workflow file that runs and
-# the tree it tests are main's. Its own concurrency group keeps repeats out of
-# ci.yml's live main group.
+# spawns vitest without a shell. A branch dispatch proves a fix before merge;
+# ci-run evidence still requires main. Its own concurrency group keeps repeats
+# out of ci.yml's live main group.
 name: Repeat Run
 
 run-name: repeat-run ${{ inputs.test }} x${{ inputs.runs }}
@@ -32,6 +32,10 @@ on:
         type: string
         required: true
         default: '50'
+      test_name:
+        description: 'Optional test name pattern for branch verification (main repeats the full file)'
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -43,7 +47,7 @@ concurrency:
 jobs:
   repeat:
     name: Repeat test file
-    if: github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -59,6 +63,7 @@ jobs:
         env:
           REPEAT_TEST: ${{ inputs.test }}
           REPEAT_RUNS: ${{ inputs.runs }}
+          REPEAT_TEST_NAME: ${{ inputs.test_name }}
         run: node scripts/ci-repeat-run.mjs validate
       - run: pnpm install --frozen-lockfile
       - name: Build
@@ -67,6 +72,7 @@ jobs:
         env:
           REPEAT_TEST: ${{ inputs.test }}
           REPEAT_RUNS: ${{ inputs.runs }}
+          REPEAT_TEST_NAME: ${{ inputs.test_name }}
           REPEAT_OUT: ${{ runner.temp }}/repeat-run
         run: node scripts/ci-repeat-run.mjs run
       - name: Upload the repeat report

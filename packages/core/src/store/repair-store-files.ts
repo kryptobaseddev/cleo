@@ -149,10 +149,10 @@ export async function assertRepairQuiescent(target: string, diagnostics: string[
             command !== null &&
             /(?:^|[\\/\s])cleo(?:\.m?js|\.ts)?(?:[\\/\s]|$)/i.test(command),
         );
-      // A holder can exit between the kernel probe and ps; require a fresh handle proof.
+      // ps may name an exited holder "[command] <defunct>"; require a fresh handle proof.
       const exiting =
         holders.length > 0 &&
-        holders.every(({ command }) => command === null || command === '<defunct>');
+        holders.every(({ command }) => command === null || command.endsWith('<defunct>'));
       if (
         (error instanceof StoreInspectionPending || cleoOnly || exiting) &&
         Date.now() < deadline

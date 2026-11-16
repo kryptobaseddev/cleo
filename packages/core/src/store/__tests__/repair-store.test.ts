@@ -266,6 +266,42 @@ it.each(['Z', 'gone'])('skips an exited Node process with state %s', async (stat
   expect(repairFileHash(live)).toBe(before);
 });
 
+it.each([
+  null,
+  '<defunct>',
+  '[cleo list teard] <defunct>',
+  '[node-MainThread] <defunct>',
+])('rechecks handles when a holder exits before its command is read as %s', async (command) => {
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  const empty: SpawnSyncReturns<string> = {
+    pid: 424243,
+    output: [null, '', ''],
+    stdout: '',
+    stderr: '',
+    status: 1,
+    signal: null,
+  };
+  const probe = vi
+    .spyOn(await import('node:child_process'), 'spawnSync')
+    .mockClear()
+    .mockReturnValueOnce({ ...empty, status: 0, stdout: 'p424242\n' })
+    .mockReturnValue(empty);
+  vi.spyOn(await import('../../sessions/terminal-identity.js'), 'readProcessArgs').mockReturnValue(
+    command,
+  );
+  const pause = vi
+    .spyOn(await import('node:timers/promises'), 'setTimeout')
+    .mockClear()
+    .mockResolvedValue(undefined);
+  const before = repairFileHash(live);
+  const diagnostics: string[] = [];
+  await assertRepairQuiescent(live, diagnostics);
+  expect(probe).toHaveBeenCalledTimes(2);
+  expect(pause).toHaveBeenCalledTimes(1);
+  expect(diagnostics).toContain('CLEO store holders exited during the bounded teardown wait');
+  expect(repairFileHash(live)).toBe(before);
+});
+
 it('accepts an unrelated macOS mount warning only after proving its device is unrelated', async () => {
   Object.defineProperty(process, 'platform', { value: 'darwin' });
   const device = (BigInt.asUintN(32, statSync(live, { bigint: true }).dev) ^ 1n).toString(16);
@@ -1662,7 +1698,7 @@ describe('copy-only whole-store repair', () => {
     });
     const signal = await new Promise<NodeJS.Signals | null>((resolve, reject) => {
       child.on('error', reject);
-      child.on('exit', (code, signal) => {
+      child.once('close', (code, signal) => {
         exitCode = code;
         resolve(signal);
       });
