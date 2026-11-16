@@ -406,8 +406,12 @@ describe('loadExplorerBundle (T952)', () => {
 
     const defaultBundle = await loadExplorerBundle({ projectCtx: ctx });
     expect(defaultBundle.tasks.map((t) => t.id).sort()).toEqual(['E1', 'T1']);
-    // T1->T2 edge dropped because T2 is filtered out.
-    expect(defaultBundle.deps).toEqual([]);
+    expect(defaultBundle.deps).toEqual([{ taskId: 'T1', dependsOn: 'T2' }]);
+    expect(defaultBundle.dependencyStatuses['T2']).toBe('archived');
+    const hiddenGraph = tasksToGraph(defaultBundle.tasks, defaultBundle.deps, {
+      dependencyStatuses: defaultBundle.dependencyStatuses,
+    });
+    expect(hiddenGraph.edges.filter((edge) => edge.kind === 'depends')).toEqual([]);
 
     const withArchivedBundle = await loadExplorerBundle({
       projectCtx: ctx,
@@ -415,6 +419,13 @@ describe('loadExplorerBundle (T952)', () => {
     });
     expect(withArchivedBundle.tasks.map((t) => t.id).sort()).toEqual(['E1', 'T1', 'T2']);
     expect(withArchivedBundle.deps).toEqual([{ taskId: 'T1', dependsOn: 'T2' }]);
+    const visibleGraph = tasksToGraph(withArchivedBundle.tasks, withArchivedBundle.deps, {
+      includeArchived: true,
+      dependencyStatuses: withArchivedBundle.dependencyStatuses,
+    });
+    expect(visibleGraph.edges.filter((edge) => edge.kind === 'depends')).toMatchObject([
+      { source: 'T2', target: 'T1' },
+    ]);
   });
 
   it('loadedAt is set to a valid current ISO timestamp', async () => {
