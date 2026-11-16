@@ -106,6 +106,14 @@ describe('resolveOwnerOverride (T13790)', () => {
     });
   });
 
+  it('an omitted request source cannot inherit owner authority', async () => {
+    const id = await session('ses_owner_unknown_source', true);
+    await expect(requireOwnerAuthority(env.tempDir, id)).rejects.toMatchObject({
+      codeName: 'E_OVERRIDE_NOT_OWNER',
+      fix: expect.stringContaining('own terminal'),
+    });
+  });
+
   it.each([
     'http',
     'rpc',

@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.25.0
+  version: 4.24.0
   tier: core
   install: harness
   covers:
@@ -24,9 +24,12 @@ clients cannot borrow the server's owner authority. An agent must return the dec
 coordinator for the owner ask tool; a token or approver label grants no authority.
 `orchestrate pending` and `playbook run|resume` redact tokens from other callers. New tokens use a
 private installation key unless `CLEO_PLAYBOOK_SECRET` is configured. Legacy gates
-refuse decisions and resume with `E_APPROVAL_TOKEN_LEGACY`, even if already
+refuse approval and resume with `E_APPROVAL_TOKEN_LEGACY`, even if already
 approved before the upgrade; the owner can request a fresh gate
 with `cleo playbook run <name>` after reviewing any earlier steps that will rerun.
+The owner can reject a pending legacy gate to clear it. An approval is consumed
+atomically by one resume; a replay, including after a crash, refuses with
+`E_APPROVAL_ALREADY_CONSUMED`. An omitted caller source never grants owner authority.
 An old pending `resume:...` audit trace can be cleared by the owner using
 `cleo orchestrate reject <resumeToken> --reason "clear resume trace"`;
 it cannot approve or resume execution. New traces are already resolved.

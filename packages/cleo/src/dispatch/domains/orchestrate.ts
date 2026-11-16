@@ -621,7 +621,7 @@ export class OrchestrateHandler implements DomainHandler {
   async query(
     operation: string,
     params?: Record<string, unknown>,
-    source: GatewaySource = 'cli',
+    source?: GatewaySource,
   ): Promise<DispatchResponse> {
     const startTime = Date.now();
 
@@ -839,7 +839,7 @@ export class OrchestrateHandler implements DomainHandler {
   async mutate(
     operation: string,
     params?: Record<string, unknown>,
-    source: GatewaySource = 'cli',
+    source?: GatewaySource,
   ): Promise<DispatchResponse> {
     const startTime = Date.now();
 
@@ -1682,7 +1682,7 @@ async function handleWorktreePrune(
 
 async function handlePendingApprovals(
   startTime: number,
-  source: GatewaySource,
+  source?: GatewaySource,
 ): Promise<DispatchResponse> {
   try {
     const pending = await listPendingApprovalsForDispatch();
@@ -1714,7 +1714,7 @@ async function handlePendingApprovals(
 async function handleApproveGate(
   params: Record<string, unknown> | undefined,
   startTime: number,
-  source: GatewaySource,
+  source?: GatewaySource,
 ): Promise<DispatchResponse> {
   const resumeToken = params?.resumeToken as string | undefined;
   if (!resumeToken)
@@ -1800,7 +1800,7 @@ async function handleApproveGate(
 async function handleRejectGate(
   params: Record<string, unknown> | undefined,
   startTime: number,
-  source: GatewaySource,
+  source?: GatewaySource,
 ): Promise<DispatchResponse> {
   const resumeToken = params?.resumeToken as string | undefined;
   if (!resumeToken)

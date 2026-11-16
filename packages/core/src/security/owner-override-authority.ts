@@ -71,7 +71,7 @@ export type OwnerOverrideAuthority =
  *
  * @param projectRoot - Project whose session store supplies the owner mark.
  * @param sessionId - Already-resolved session, or resolve the caller's binding.
- * @param source - Transport of the caller; only a direct CLI call can prove terminal ownership.
+ * @param source - Transport of the caller; only an explicit CLI source can prove terminal ownership.
  * @returns The authoritative owner session id.
  * @throws A {@link CleoError} with the owner-session repair command.
  * @remarks Uses the owner override's same-OS-user authority rule, without requesting an override.
@@ -83,7 +83,7 @@ export type OwnerOverrideAuthority =
 export async function requireOwnerAuthority(
   projectRoot: string,
   sessionId?: string | null,
-  source: GatewaySource = 'cli',
+  source?: GatewaySource,
 ): Promise<string> {
   const refuse = (codeName: string, message: string): never => {
     // @sync-invariant none:local-only owner authority is checked before a protected write
@@ -95,7 +95,7 @@ export async function requireOwnerAuthority(
   if (source !== 'cli')
     return refuse(
       BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
-      `the ${source} transport cannot prove caller ownership; the serving process cannot grant its owner session or terminal to a client. Use the direct CLI in the owner's terminal.`,
+      `the ${source ?? 'unknown'} transport cannot prove caller ownership; the serving process cannot grant its owner session or terminal to a client. Use the direct CLI in the owner's terminal.`,
     );
   const sessions = await import('../store/session-store.js');
   if (!sessionId) {
@@ -180,7 +180,7 @@ export async function resolveOwnerOverride(
     };
   };
   try {
-    const ownerSessionId = await requireOwnerAuthority(projectRoot, sessionId);
+    const ownerSessionId = await requireOwnerAuthority(projectRoot, sessionId, 'cli');
     return { requested: true, allowed: true, reason, sessionId: ownerSessionId };
   } catch (error) {
     if (error instanceof CleoError && error.codeName) return refuse(error.codeName, error.message);

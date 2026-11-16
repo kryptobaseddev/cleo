@@ -47,7 +47,6 @@ import type {
   PlaybookEdgeCondition,
   PlaybookNode,
   PlaybookRun,
-  PlaybookRunStatus,
   SubstitutionContext,
 } from '@cleocode/contracts';
 // T11762 ST-2: registry-driven ensures.schema resolution. The bodied accessors
@@ -65,7 +64,7 @@ import {
 } from '@cleocode/core/dispatch/contracts/ensures-schema';
 import { assertCurrentApprovalToken, createApprovalGate } from './approval.js';
 import {
-  createPlaybookApproval,
+  consumePlaybookApproval,
   createPlaybookRun,
   getPlaybookApprovalByToken,
   getPlaybookRun,
@@ -1345,13 +1344,14 @@ export async function executePlaybook(
 /**
  * Resume a paused playbook run using a HITL approval token. The runtime
  * validates that a current-version token maps to an `approved`
- * {@link PlaybookApproval} row and that the associated run can resume, then
- * continues from the approval node's single successor. Legacy decisions
+ * {@link PlaybookApproval} row for the paused node, consumes that approval
+ * atomically, and continues from its single successor. Legacy decisions
  * require a fresh run; resume audit traces never authorize execution.
  *
  * @throws Error stamped with {@link E_PLAYBOOK_RESUME_BLOCKED} if the token
  *   is unknown, the gate is still `pending`, the gate was `rejected`, the
  *   run is not `paused`, or the approval node has no successor.
+ * @throws A typed refusal with `E_APPROVAL_ALREADY_CONSUMED` for a replay.
  */
 export async function resumePlaybook(
   options: ResumePlaybookOptions,
@@ -1391,12 +1391,6 @@ export async function resumePlaybook(
       `${E_PLAYBOOK_RESUME_BLOCKED}: run ${approval.runId} no longer exists (deleted?)`,
     );
   }
-  const validResumeStatuses: readonly PlaybookRunStatus[] = ['paused', 'running'];
-  if (!validResumeStatuses.includes(run.status)) {
-    throw new Error(
-      `${E_PLAYBOOK_RESUME_BLOCKED}: run ${run.runId} is ${run.status}, expected paused|running`,
-    );
-  }
 
   // Validate the approval node is present and resolve its single successor.
   const nodeIndex: NodeIndex = new Map(options.playbook.nodes.map((n) => [n.id, n]));
@@ -1426,6 +1420,7 @@ export async function resumePlaybook(
   };
 
   const successor = resolveNextNodeId(approvalNode.id, edgeIndex, context);
+  consumePlaybookApproval(options.db, approval.token);
   if (successor === null) {
     // Approval at the tail of the graph completes the run immediately.
     const completedAt = now().toISOString();
@@ -1447,16 +1442,6 @@ export async function resumePlaybook(
     status: 'running',
     currentNode: successor,
     errorContext: null,
-  });
-
-  // Persist an approval trace row for audit purposes. createPlaybookApproval
-  // is distinct from createApprovalGate — the latter generates the HMAC
-  // resume token, while this helper records arbitrary approval state.
-  createPlaybookApproval(options.db, {
-    runId: run.runId,
-    nodeId: approval.nodeId,
-    token: `resume:${approval.token}:${now().getTime()}`,
-    autoPassed: true,
   });
 
   const runArgs: Parameters<typeof runFromNode>[0] = {

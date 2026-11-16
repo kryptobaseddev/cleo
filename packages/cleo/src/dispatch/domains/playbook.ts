@@ -56,6 +56,7 @@ import {
   type AgentDispatcher,
   type AgentDispatchInput,
   type AgentDispatchResult,
+  assertCurrentApprovalToken,
   type DeterministicRunner,
   E_PLAYBOOK_RESUME_BLOCKED,
   E_PLAYBOOK_RUNTIME_INVALID,
@@ -798,9 +799,12 @@ const _playbookTypedHandler = defineTypedHandler<PlaybookOps>('playbook', {
         'resume',
       );
     }
-    // Newest approval first — sorted ascending by requested_at so pick tail.
-    const latest = approvals[approvals.length - 1] as PlaybookApproval;
+    // Bind to the paused node even when consecutive gates share a timestamp.
+    const latest =
+      approvals.findLast((approval) => approval.nodeId === run.currentNode) ??
+      (approvals[approvals.length - 1] as PlaybookApproval);
     if (latest.status === 'pending') {
+      assertCurrentApprovalToken(latest.token);
       return lafsError(
         'E_APPROVAL_PENDING',
         `gate ${latest.approvalId} for run ${runId} is still pending — approve before resuming`,
@@ -937,7 +941,7 @@ export class PlaybookHandler implements DomainHandler {
   async mutate(
     operation: string,
     params?: Record<string, unknown>,
-    source: GatewaySource = 'cli',
+    source?: GatewaySource,
   ): Promise<DispatchResponse> {
     const startTime = Date.now();
     if (!MUTATE_OPS.has(operation)) {

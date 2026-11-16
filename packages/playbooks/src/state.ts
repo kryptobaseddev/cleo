@@ -20,6 +20,9 @@ import type {
   PlaybookRun,
   PlaybookRunStatus,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { CleoError } from '@cleocode/core/errors';
+import { assertCurrentApprovalToken, E_APPROVAL_ALREADY_CONSUMED } from './approval.js';
 
 // ---------------------------------------------------------------------------
 // Row shapes (snake_case — mirror of SQLite PRAGMA table_info output)
@@ -390,6 +393,58 @@ export function getPlaybookApprovalByToken(
     | PlaybookApprovalRow
     | undefined;
   return row ? rowToPlaybookApproval(row) : null;
+}
+
+/**
+ * Consume an approved gate once, under SQLite's writer lock, before execution.
+ * A durable receipt also refuses retries after a crash or an older timestamped trace.
+ *
+ * @param db - Open playbook store, outside another transaction.
+ * @param token - Current-version token of the approved, currently paused gate.
+ * @throws A {@link CleoError} when the gate is consumed or is no longer resumable.
+ * @remarks A committed receipt is retained even if later execution fails.
+ * @example
+ * ```typescript
+ * consumePlaybookApproval(db, approval.token);
+ * ```
+ * @internal
+ */
+export function consumePlaybookApproval(db: DatabaseSync, token: string): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const approval = getPlaybookApprovalByToken(db, token);
+    const run = approval ? getPlaybookRun(db, approval.runId) : null;
+    const receiptToken = `resume:${token}`;
+    if (
+      approval?.status !== 'approved' ||
+      run?.status !== 'paused' ||
+      run.currentNode !== approval.nodeId ||
+      listPlaybookApprovals(db, approval.runId).some(
+        (row) => row.token === receiptToken || row.token.startsWith(`${receiptToken}:`),
+      )
+    ) {
+      // @sync-invariant playbook.approval.once a decided approval authorizes only one resume, recorded by a durable receipt
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        'This approval was consumed or is no longer the paused gate.',
+        {
+          codeName: E_APPROVAL_ALREADY_CONSUMED,
+          fix: 'Do not replay post-gate steps. The owner must review the run and request a fresh gate with cleo playbook run <name> before retrying; earlier steps will rerun.',
+        },
+      );
+    }
+    assertCurrentApprovalToken(approval.token);
+    createPlaybookApproval(db, {
+      runId: approval.runId,
+      nodeId: approval.nodeId,
+      token: receiptToken,
+      autoPassed: true,
+    });
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 /**

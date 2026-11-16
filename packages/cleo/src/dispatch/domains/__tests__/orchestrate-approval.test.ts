@@ -155,7 +155,7 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   // -------------------------------------------------------------------------
 
   it('orchestrate.pending — returns empty list when no gates are pending', async () => {
-    const result = await handler.query('pending', {});
+    const result = await handler.query('pending', {}, 'cli');
     expect(result.success).toBe(true);
     const data = result.data as { approvals: unknown[]; count: number; total: number };
     expect(data.count).toBe(0);
@@ -166,7 +166,7 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     seedPendingGate(db, { runId: 'run-a' });
     seedPendingGate(db, { runId: 'run-b' });
 
-    const result = await handler.query('pending', {});
+    const result = await handler.query('pending', {}, 'cli');
     expect(result.success).toBe(true);
     const data = result.data as {
       approvals: Array<{ status: string }>;
@@ -179,12 +179,12 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
 
   it('orchestrate.pending — exposes tokens only to the owner on their own terminal', async () => {
     const { token } = seedPendingGate(db);
-    expect((await handler.query('pending', {})).data).toMatchObject({
+    expect((await handler.query('pending', {}, 'cli')).data).toMatchObject({
       approvals: [expect.objectContaining({ token })],
       count: 1,
     });
     await callerSession('ses_approval_agent', false);
-    const agent = await handler.query('pending', {});
+    const agent = await handler.query('pending', {}, 'cli');
     expect(agent.success).toBe(true);
     expect(agent.data).toMatchObject({
       approvals: [expect.objectContaining({ status: 'pending' })],
@@ -193,7 +193,7 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     expect(JSON.stringify(agent.data)).not.toContain(token);
     vi.stubEnv('CLEO_SESSION_ID', 'ses_approval_owner');
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
-    expect(JSON.stringify((await handler.query('pending', {})).data)).not.toContain(token);
+    expect(JSON.stringify((await handler.query('pending', {}, 'cli')).data)).not.toContain(token);
   });
 
   it.each([
@@ -238,17 +238,34 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     });
   });
 
+  it('an omitted source cannot approve, reject or disclose tokens even in an owner terminal', async () => {
+    const { token } = seedPendingGate(db);
+    for (const operation of ['approve', 'reject']) {
+      expect(
+        await handler.mutate(operation, { resumeToken: token, reason: 'reviewed' }),
+      ).toMatchObject({ success: false, error: { code: 'E_OVERRIDE_NOT_OWNER' } });
+    }
+    const pending = await handler.query('pending', {});
+    expect(pending.success).toBe(true);
+    expect(JSON.stringify(pending.data)).not.toContain(token);
+    expect(getPendingApprovals(db)).toHaveLength(1);
+  });
+
   it.each([
     'approve',
     'reject',
   ])('orchestrate.%s — refuses an agent session even with a valid token and an owner label', async (operation) => {
     const { token } = seedPendingGate(db);
     await callerSession('ses_unlabelled_agent', false);
-    const result = await handler.mutate(operation, {
-      resumeToken: token,
-      approver: 'owner',
-      reason: 'agent says yes',
-    });
+    const result = await handler.mutate(
+      operation,
+      {
+        resumeToken: token,
+        approver: 'owner',
+        reason: 'agent says yes',
+      },
+      'cli',
+    );
     expect(result).toMatchObject({
       success: false,
       error: {
@@ -270,23 +287,23 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     vi.stubEnv('CLEO_AGENT_ROLE', role);
     for (const operation of ['approve', 'reject']) {
       expect(
-        await handler.mutate(operation, { resumeToken: token, reason: 'reviewed' }),
+        await handler.mutate(operation, { resumeToken: token, reason: 'reviewed' }, 'cli'),
       ).toMatchObject({
         success: false,
         error: { code: 'E_OVERRIDE_FORBIDDEN_AGENT_ROLE', fix: expect.any(String) },
       });
     }
-    expect(JSON.stringify((await handler.query('pending', {})).data)).not.toContain(token);
+    expect(JSON.stringify((await handler.query('pending', {}, 'cli')).data)).not.toContain(token);
     expect(getPendingApprovals(db)).toHaveLength(1);
   });
 
   it('refuses an owner-session agent without a terminal, including idempotent approval', async () => {
     const { token } = seedPendingGate(db);
-    expect((await handler.mutate('approve', { resumeToken: token })).success).toBe(true);
+    expect((await handler.mutate('approve', { resumeToken: token }, 'cli')).success).toBe(true);
     Object.defineProperty(process.stderr, 'isTTY', { value: false, configurable: true });
     for (const operation of ['approve', 'reject']) {
       expect(
-        await handler.mutate(operation, { resumeToken: token, reason: 'reviewed' }),
+        await handler.mutate(operation, { resumeToken: token, reason: 'reviewed' }, 'cli'),
       ).toMatchObject({
         success: false,
         error: { code: 'E_OVERRIDE_NOT_OWNER', fix: expect.any(String) },
@@ -294,15 +311,12 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
     }
   });
 
-  it.each([
-    'approve',
-    'reject',
-  ])('orchestrate.%s — refuses a legacy gate with a re-request fix', async (operation) => {
+  it('the owner can reject a legacy pending gate, but cannot approve it', async () => {
     const { token } = seedPendingGate(db);
     const legacy = 'a'.repeat(32);
     db.prepare('UPDATE tasks_playbook_approvals SET token = ? WHERE token = ?').run(legacy, token);
     expect(
-      await handler.mutate(operation, { resumeToken: legacy, reason: 'reviewed' }),
+      await handler.mutate('approve', { resumeToken: legacy, reason: 'reviewed' }, 'cli'),
     ).toMatchObject({
       success: false,
       error: {
@@ -311,13 +325,17 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
       },
     });
     expect(getPendingApprovals(db)).toHaveLength(1);
+    expect(
+      await handler.mutate('reject', { resumeToken: legacy, reason: 'clear legacy gate' }, 'cli'),
+    ).toMatchObject({ success: true, data: { status: 'rejected', token: legacy } });
+    expect(getPendingApprovals(db)).toEqual([]);
   });
 
   it('the owner can reject an old pending resume trace, but cannot approve it', async () => {
     const { token, runId, nodeId } = seedPendingGate(db);
     const traceToken = `resume:${token}:1234`;
     createPlaybookApproval(db, { runId, nodeId, token: traceToken });
-    expect(await handler.mutate('approve', { resumeToken: traceToken })).toMatchObject({
+    expect(await handler.mutate('approve', { resumeToken: traceToken }, 'cli')).toMatchObject({
       success: false,
       error: {
         code: 'E_APPROVAL_RESUME_TRACE',
@@ -325,7 +343,11 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
       },
     });
     expect(
-      await handler.mutate('reject', { resumeToken: traceToken, reason: 'clear resume trace' }),
+      await handler.mutate(
+        'reject',
+        { resumeToken: traceToken, reason: 'clear resume trace' },
+        'cli',
+      ),
     ).toMatchObject({ success: true, data: { token: traceToken, status: 'rejected' } });
     expect(getPendingApprovals(db)).toEqual([expect.objectContaining({ token })]);
   });
@@ -337,11 +359,15 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   it('orchestrate.approve — transitions a pending gate to approved and writes audit row', async () => {
     const { token } = seedPendingGate(db);
 
-    const result = await handler.mutate('approve', {
-      resumeToken: token,
-      approver: 'owner',
-      reason: 'ship it',
-    });
+    const result = await handler.mutate(
+      'approve',
+      {
+        resumeToken: token,
+        approver: 'owner',
+        reason: 'ship it',
+      },
+      'cli',
+    );
     expect(result.success).toBe(true);
     const data = result.data as { status: string; approver?: string; reason?: string };
     expect(data.status).toBe('approved');
@@ -358,13 +384,13 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   });
 
   it('orchestrate.approve — missing resumeToken returns E_VALIDATION', async () => {
-    const result = await handler.mutate('approve', {});
+    const result = await handler.mutate('approve', {}, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_VALIDATION');
   });
 
   it('orchestrate.approve — unknown token returns E_APPROVAL_NOT_FOUND', async () => {
-    const result = await handler.mutate('approve', { resumeToken: 'not-a-real-token' });
+    const result = await handler.mutate('approve', { resumeToken: 'not-a-real-token' }, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_APPROVAL_NOT_FOUND');
   });
@@ -372,13 +398,17 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   it('orchestrate.approve — is idempotent for double approval', async () => {
     const { token } = seedPendingGate(db);
 
-    const first = await handler.mutate('approve', { resumeToken: token, approver: 'owner' });
+    const first = await handler.mutate('approve', { resumeToken: token, approver: 'owner' }, 'cli');
     expect(first.success).toBe(true);
 
-    const second = await handler.mutate('approve', {
-      resumeToken: token,
-      approver: 'second-caller',
-    });
+    const second = await handler.mutate(
+      'approve',
+      {
+        resumeToken: token,
+        approver: 'second-caller',
+      },
+      'cli',
+    );
     expect(second.success).toBe(true);
     const data = second.data as Record<string, unknown>;
     expect(data.status).toBe('approved');
@@ -389,12 +419,16 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
 
   it('orchestrate.approve — rejects when gate was previously rejected', async () => {
     const { token } = seedPendingGate(db);
-    await handler.mutate('reject', {
-      resumeToken: token,
-      reason: 'security concern',
-    });
+    await handler.mutate(
+      'reject',
+      {
+        resumeToken: token,
+        reason: 'security concern',
+      },
+      'cli',
+    );
 
-    const result = await handler.mutate('approve', { resumeToken: token });
+    const result = await handler.mutate('approve', { resumeToken: token }, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_APPROVAL_ALREADY_DECIDED');
   });
@@ -406,11 +440,15 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   it('orchestrate.reject — transitions a pending gate to rejected with the mandatory reason', async () => {
     const { token } = seedPendingGate(db);
 
-    const result = await handler.mutate('reject', {
-      resumeToken: token,
-      reason: 'blocked pending security review',
-      approver: 'owner',
-    });
+    const result = await handler.mutate(
+      'reject',
+      {
+        resumeToken: token,
+        reason: 'blocked pending security review',
+        approver: 'owner',
+      },
+      'cli',
+    );
     expect(result.success).toBe(true);
     const data = result.data as { status: string; reason?: string };
     expect(data.status).toBe('rejected');
@@ -419,7 +457,7 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
 
   it('orchestrate.reject — missing reason returns E_VALIDATION', async () => {
     const { token } = seedPendingGate(db);
-    const result = await handler.mutate('reject', { resumeToken: token });
+    const result = await handler.mutate('reject', { resumeToken: token }, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_VALIDATION');
     expect(result.error?.message).toMatch(/reason/i);
@@ -427,22 +465,26 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
 
   it('orchestrate.reject — empty reason returns E_VALIDATION', async () => {
     const { token } = seedPendingGate(db);
-    const result = await handler.mutate('reject', { resumeToken: token, reason: '   ' });
+    const result = await handler.mutate('reject', { resumeToken: token, reason: '   ' }, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_VALIDATION');
   });
 
   it('orchestrate.reject — missing resumeToken returns E_VALIDATION', async () => {
-    const result = await handler.mutate('reject', { reason: 'because' });
+    const result = await handler.mutate('reject', { reason: 'because' }, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_VALIDATION');
   });
 
   it('orchestrate.reject — unknown token returns E_APPROVAL_NOT_FOUND', async () => {
-    const result = await handler.mutate('reject', {
-      resumeToken: 'no-such-token',
-      reason: 'because',
-    });
+    const result = await handler.mutate(
+      'reject',
+      {
+        resumeToken: 'no-such-token',
+        reason: 'because',
+      },
+      'cli',
+    );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_APPROVAL_NOT_FOUND');
   });
@@ -450,16 +492,24 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
   it('orchestrate.reject — is idempotent for double rejection', async () => {
     const { token } = seedPendingGate(db);
 
-    const first = await handler.mutate('reject', {
-      resumeToken: token,
-      reason: 'reason-1',
-    });
+    const first = await handler.mutate(
+      'reject',
+      {
+        resumeToken: token,
+        reason: 'reason-1',
+      },
+      'cli',
+    );
     expect(first.success).toBe(true);
 
-    const second = await handler.mutate('reject', {
-      resumeToken: token,
-      reason: 'reason-2',
-    });
+    const second = await handler.mutate(
+      'reject',
+      {
+        resumeToken: token,
+        reason: 'reason-2',
+      },
+      'cli',
+    );
     expect(second.success).toBe(true);
     const data = second.data as Record<string, unknown>;
     expect(data.status).toBe('rejected');
@@ -470,12 +520,16 @@ describe('T935 OrchestrateHandler — HITL approval gate operations', () => {
 
   it('orchestrate.reject — rejects when gate was previously approved', async () => {
     const { token } = seedPendingGate(db);
-    await handler.mutate('approve', { resumeToken: token, approver: 'owner' });
+    await handler.mutate('approve', { resumeToken: token, approver: 'owner' }, 'cli');
 
-    const result = await handler.mutate('reject', {
-      resumeToken: token,
-      reason: 'changed my mind',
-    });
+    const result = await handler.mutate(
+      'reject',
+      {
+        resumeToken: token,
+        reason: 'changed my mind',
+      },
+      'cli',
+    );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_APPROVAL_ALREADY_DECIDED');
   });

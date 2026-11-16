@@ -358,6 +358,95 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
     expect(getPlaybookRun(db, first.runId)?.status).toBe('paused');
   });
 
+  it('one approved gate cannot resume concurrently or replay after a crash reset', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'single-use',
+      nodes: [approvalNode('gate'), agenticNode('ship')],
+      edges: [{ from: 'gate', to: 'ship' }],
+    };
+    let release: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const dispatcher = makeRecordingDispatcher(async () => {
+      await blocked;
+      return { status: 'success', output: {} };
+    });
+    const first = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'single-use',
+      initialContext: {},
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const token = first.approvalToken;
+    if (token === undefined) throw new Error('expected approval token');
+    approveGate(db, token, 'owner');
+    const active = resumePlaybook({ db, playbook, approvalToken: token, dispatcher });
+    try {
+      expect(getPlaybookRun(db, first.runId)?.status).toBe('running');
+      await expect(
+        resumePlaybook({ db, playbook, approvalToken: token, dispatcher }),
+      ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+      expect(dispatcher.calls).toHaveLength(1);
+    } finally {
+      release();
+      await active;
+    }
+    db.prepare('UPDATE tasks_playbook_runs SET status = ?, current_node = ? WHERE run_id = ?').run(
+      'paused',
+      'gate',
+      first.runId,
+    );
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: token, dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+    expect(dispatcher.calls).toHaveLength(1);
+  });
+
+  it('each gate in a multi-gate run requires its own approval and consumes once', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'two-gates',
+      nodes: [approvalNode('first'), approvalNode('second')],
+      edges: [{ from: 'first', to: 'second' }],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({ status: 'success', output: {} }));
+    const first = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'two-gates',
+      initialContext: {},
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const firstToken = first.approvalToken;
+    if (firstToken === undefined) throw new Error('expected first approval token');
+    approveGate(db, firstToken, 'owner');
+    const second = await resumePlaybook({
+      db,
+      playbook,
+      approvalToken: firstToken,
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const secondToken = second.approvalToken;
+    if (secondToken === undefined) throw new Error('expected second approval token');
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: firstToken, dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+    approveGate(db, secondToken, 'owner');
+    expect(
+      (await resumePlaybook({ db, playbook, approvalToken: secondToken, dispatcher }))
+        .terminalStatus,
+    ).toBe('completed');
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: secondToken, dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+  });
+
   it('ignores an invalid installation key until an approval node is reached, including on resume', async () => {
     const home = mkdtempSync(join(tmpdir(), 'playbook-lazy-key-'));
     vi.stubEnv('CLEO_HOME', home);

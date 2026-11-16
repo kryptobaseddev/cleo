@@ -124,6 +124,21 @@ edges:
     to: ship
 `;
 
+const TWO_GATE_PLAYBOOK_YAML = `
+version: "1.0"
+name: two-gates
+nodes:
+  - id: first
+    type: approval
+    prompt: Review first
+  - id: second
+    type: approval
+    prompt: Review second
+edges:
+  - from: first
+    to: second
+`;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -163,6 +178,7 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
     tmpPlaybookDir = mkdtempSync(join(tmpdir(), 'cleo-playbook-fixture-'));
     writeFileSync(join(tmpPlaybookDir, 'linear-smoke.cantbook'), LINEAR_PLAYBOOK_YAML);
     writeFileSync(join(tmpPlaybookDir, 'approval-smoke.cantbook'), APPROVAL_PLAYBOOK_YAML);
+    writeFileSync(join(tmpPlaybookDir, 'two-gates.cantbook'), TWO_GATE_PLAYBOOK_YAML);
 
     __playbookRuntimeOverrides.db = db;
     __playbookRuntimeOverrides.dispatcher = stubSuccessDispatcher();
@@ -189,10 +205,14 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
   // -------------------------------------------------------------------------
 
   it('playbook.run — happy path returns a LAFS envelope with runId + terminalStatus=completed', async () => {
-    const result = await handler.mutate('run', {
-      name: 'linear-smoke',
-      context: JSON.stringify({ epicId: 'T999' }),
-    });
+    const result = await handler.mutate(
+      'run',
+      {
+        name: 'linear-smoke',
+        context: JSON.stringify({ epicId: 'T999' }),
+      },
+      'cli',
+    );
 
     expect(result.success).toBe(true);
     expect(result.meta.domain).toBe('playbook');
@@ -209,34 +229,42 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
   });
 
   it('playbook.run — missing playbook file returns E_NOT_FOUND envelope', async () => {
-    const result = await handler.mutate('run', { name: 'does-not-exist' });
+    const result = await handler.mutate('run', { name: 'does-not-exist' }, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_NOT_FOUND');
     expect(result.error?.message).toContain('does-not-exist');
   });
 
   it('playbook.run — missing name returns E_INVALID_INPUT', async () => {
-    const result = await handler.mutate('run', {});
+    const result = await handler.mutate('run', {}, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_INVALID_INPUT');
     expect(result.error?.message).toMatch(/name.*required/i);
   });
 
   it('playbook.run — invalid context JSON returns E_INVALID_INPUT', async () => {
-    const result = await handler.mutate('run', {
-      name: 'linear-smoke',
-      context: 'not-json-at-all',
-    });
+    const result = await handler.mutate(
+      'run',
+      {
+        name: 'linear-smoke',
+        context: 'not-json-at-all',
+      },
+      'cli',
+    );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_INVALID_INPUT');
     expect(result.error?.message).toMatch(/context/i);
   });
 
   it('playbook.run — approval playbook pauses with a v2 token and refuses legacy tokens', async () => {
-    const result = await handler.mutate('run', {
-      name: 'approval-smoke',
-      context: JSON.stringify({ taskId: 'T500' }),
-    });
+    const result = await handler.mutate(
+      'run',
+      {
+        name: 'approval-smoke',
+        context: JSON.stringify({ taskId: 'T500' }),
+      },
+      'cli',
+    );
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -280,7 +308,7 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
       env.tempDir,
     );
     vi.stubEnv('CLEO_SESSION_ID', id);
-    const result = await handler.mutate('run', { name: 'approval-smoke' });
+    const result = await handler.mutate('run', { name: 'approval-smoke' }, 'cli');
     expect(result).toMatchObject({ success: true, data: { terminalStatus: 'pending_approval' } });
     expect(result.data).not.toHaveProperty('approvalToken');
     const approvals = listPlaybookApprovals(db, (result.data as PlaybookRunResult).runId);
@@ -306,12 +334,18 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
     expect(body.data).not.toHaveProperty('approvalToken');
   });
 
+  it('playbook.run omits tokens when the caller source is unknown', async () => {
+    const result = await handler.mutate('run', { name: 'approval-smoke' });
+    expect(result).toMatchObject({ success: true, data: { terminalStatus: 'pending_approval' } });
+    expect(result.data).not.toHaveProperty('approvalToken');
+  });
+
   // -------------------------------------------------------------------------
   // playbook.status
   // -------------------------------------------------------------------------
 
   it('playbook.status — returns the hydrated run record for a known runId', async () => {
-    const runResult = await handler.mutate('run', { name: 'linear-smoke' });
+    const runResult = await handler.mutate('run', { name: 'linear-smoke' }, 'cli');
     const runId = (runResult.data as Record<string, unknown>).runId as string;
 
     const statusResult = await handler.query('status', { runId });
@@ -339,8 +373,8 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
   // -------------------------------------------------------------------------
 
   it('playbook.list — enumerates runs ordered newest-first', async () => {
-    await handler.mutate('run', { name: 'linear-smoke' });
-    await handler.mutate('run', { name: 'approval-smoke' });
+    await handler.mutate('run', { name: 'linear-smoke' }, 'cli');
+    await handler.mutate('run', { name: 'approval-smoke' }, 'cli');
 
     const result = await handler.query('list', {});
     expect(result.success).toBe(true);
@@ -351,8 +385,8 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
 
   it('playbook.list — translates status=active to running filter', async () => {
     // Insert a paused run (from approval playbook) and a completed run.
-    await handler.mutate('run', { name: 'linear-smoke' });
-    await handler.mutate('run', { name: 'approval-smoke' });
+    await handler.mutate('run', { name: 'linear-smoke' }, 'cli');
+    await handler.mutate('run', { name: 'approval-smoke' }, 'cli');
 
     const pendingResult = await handler.query('list', { status: 'pending' });
     const pendingData = pendingResult.data as {
@@ -368,9 +402,9 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
   });
 
   it('playbook.list — limit + offset paginates correctly', async () => {
-    await handler.mutate('run', { name: 'linear-smoke' });
-    await handler.mutate('run', { name: 'linear-smoke' });
-    await handler.mutate('run', { name: 'linear-smoke' });
+    await handler.mutate('run', { name: 'linear-smoke' }, 'cli');
+    await handler.mutate('run', { name: 'linear-smoke' }, 'cli');
+    await handler.mutate('run', { name: 'linear-smoke' }, 'cli');
 
     const result = await handler.query('list', { limit: 2, offset: 1 });
     const data = result.data as { runs: unknown[]; count: number; total: number };
@@ -384,30 +418,30 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
   // -------------------------------------------------------------------------
 
   it('playbook.resume — fails with E_APPROVAL_PENDING when gate is still pending', async () => {
-    const runResult = await handler.mutate('run', { name: 'approval-smoke' });
+    const runResult = await handler.mutate('run', { name: 'approval-smoke' }, 'cli');
     const runId = (runResult.data as Record<string, unknown>).runId as string;
 
-    const resumeResult = await handler.mutate('resume', { runId });
+    const resumeResult = await handler.mutate('resume', { runId }, 'cli');
     expect(resumeResult.success).toBe(false);
     expect(resumeResult.error?.code).toBe('E_APPROVAL_PENDING');
   });
 
   it('playbook.resume — succeeds after gate is approved', async () => {
-    const runResult = await handler.mutate('run', { name: 'approval-smoke' });
+    const runResult = await handler.mutate('run', { name: 'approval-smoke' }, 'cli');
     const data = runResult.data as Record<string, unknown>;
     const runId = data.runId as string;
     const token = data.approvalToken as string;
 
     approveGate(db, token, 'test-approver', 'ok');
 
-    const resumeResult = await handler.mutate('resume', { runId });
+    const resumeResult = await handler.mutate('resume', { runId }, 'cli');
     expect(resumeResult.success).toBe(true);
     const resumeData = resumeResult.data as Record<string, unknown>;
     expect(resumeData.terminalStatus).toBe('completed');
   });
 
   it('playbook.resume refuses a gate approved under the legacy token rule and preserves the run', async () => {
-    const first = await handler.mutate('run', { name: 'approval-smoke' });
+    const first = await handler.mutate('run', { name: 'approval-smoke' }, 'cli');
     const { runId, approvalToken } = first.data as PlaybookRunResult;
     if (approvalToken === undefined) throw new Error('expected approval token');
     db.prepare('UPDATE tasks_playbook_approvals SET token = ?, status = ? WHERE token = ?').run(
@@ -415,7 +449,7 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
       'approved',
       approvalToken,
     );
-    expect(await handler.mutate('resume', { runId })).toMatchObject({
+    expect(await handler.mutate('resume', { runId }, 'cli')).toMatchObject({
       success: false,
       error: {
         code: 'E_APPROVAL_TOKEN_LEGACY',
@@ -425,25 +459,8 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
     expect(await handler.query('status', { runId })).toMatchObject({ data: { status: 'paused' } });
   });
 
-  it('playbook.resume ignores historical pending trace rows and hides a new gate token from HTTP', async () => {
-    writeFileSync(
-      join(tmpPlaybookDir, 'two-gates.cantbook'),
-      `
-version: "1.0"
-name: two-gates
-nodes:
-  - id: first
-    type: approval
-    prompt: Review first
-  - id: second
-    type: approval
-    prompt: Review second
-edges:
-  - from: first
-    to: second
-`,
-    );
-    const first = await handler.mutate('run', { name: 'two-gates' });
+  it('playbook.resume refuses a historical pending trace instead of replaying its approved gate', async () => {
+    const first = await handler.mutate('run', { name: 'two-gates' }, 'cli');
     const { runId, approvalToken } = first.data as PlaybookRunResult;
     if (approvalToken === undefined) throw new Error('expected approval token');
     approveGate(db, approvalToken, 'owner');
@@ -457,24 +474,71 @@ edges:
       operation: 'resume',
       params: { runId },
     });
-    expect(body).toMatchObject({ success: true, data: { terminalStatus: 'pending_approval' } });
-    expect(body.data).not.toHaveProperty('approvalToken');
-    expect(listPlaybookApprovals(db, runId)).toContainEqual(
+    expect(body).toMatchObject({ success: false, error: { code: 'E_APPROVAL_ALREADY_CONSUMED' } });
+    expect(listPlaybookApprovals(db, runId)).not.toContainEqual(
       expect.objectContaining({ nodeId: 'second', status: 'pending' }),
     );
   });
 
+  it('HTTP resume consumes a fresh gate without disclosing the next token, and the owner can continue', async () => {
+    const first = await handler.mutate('run', { name: 'two-gates' }, 'cli');
+    const { runId, approvalToken } = first.data as PlaybookRunResult;
+    if (approvalToken === undefined) throw new Error('expected approval token');
+    approveGate(db, approvalToken, 'owner');
+    const gateway = createGatewayHandler({
+      handlers: new Map([['playbook', new LazyDomainHandler('playbook', async () => handler)]]),
+    });
+    const { body } = await routeUnary(gateway, {
+      gateway: 'mutate',
+      domain: 'playbook',
+      operation: 'resume',
+      params: { runId },
+    });
+    expect(body).toMatchObject({ success: true, data: { terminalStatus: 'pending_approval' } });
+    expect(body.data).not.toHaveProperty('approvalToken');
+    const second = listPlaybookApprovals(db, runId).find((row) => row.nodeId === 'second');
+    if (second === undefined) throw new Error('expected second approval gate');
+    approveGate(db, second.token, 'owner');
+    expect(await handler.mutate('resume', { runId }, 'cli')).toMatchObject({
+      success: true,
+      data: { terminalStatus: 'completed' },
+    });
+    expect(await handler.mutate('resume', { runId }, 'cli')).toMatchObject({
+      success: false,
+      error: { code: 'E_APPROVAL_ALREADY_CONSUMED' },
+    });
+  });
+
+  it('playbook.resume gives legacy pending gates a reject path instead of asking for approval', async () => {
+    const first = await handler.mutate('run', { name: 'approval-smoke' }, 'cli');
+    const { runId, approvalToken } = first.data as PlaybookRunResult;
+    if (approvalToken === undefined) throw new Error('expected approval token');
+    db.prepare('UPDATE tasks_playbook_approvals SET token = ? WHERE token = ?').run(
+      'b'.repeat(32),
+      approvalToken,
+    );
+    const result = await handler.mutate('resume', { runId }, 'cli');
+    expect(result).toMatchObject({
+      success: false,
+      error: {
+        code: 'E_APPROVAL_TOKEN_LEGACY',
+        fix: expect.stringContaining('cleo orchestrate reject'),
+      },
+    });
+    expect(result.error?.message).not.toContain('approve before resuming');
+  });
+
   it('playbook.resume — invalid runId returns E_NOT_FOUND', async () => {
-    const result = await handler.mutate('resume', { runId: 'unknown-run' });
+    const result = await handler.mutate('resume', { runId: 'unknown-run' }, 'cli');
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_NOT_FOUND');
   });
 
   it('playbook.resume — run without any approvals returns E_APPROVAL_NOT_FOUND', async () => {
-    const runResult = await handler.mutate('run', { name: 'linear-smoke' });
+    const runResult = await handler.mutate('run', { name: 'linear-smoke' }, 'cli');
     const runId = (runResult.data as Record<string, unknown>).runId as string;
 
-    const resumeResult = await handler.mutate('resume', { runId });
+    const resumeResult = await handler.mutate('resume', { runId }, 'cli');
     expect(resumeResult.success).toBe(false);
     expect(resumeResult.error?.code).toBe('E_APPROVAL_NOT_FOUND');
   });
@@ -494,7 +558,7 @@ edges:
     expect(q.success).toBe(false);
     expect(q.error?.code).toBe('E_INVALID_OPERATION');
 
-    const m = await handler.mutate('nope', {});
+    const m = await handler.mutate('nope', {}, 'cli');
     expect(m.success).toBe(false);
     expect(m.error?.code).toBe('E_INVALID_OPERATION');
   });

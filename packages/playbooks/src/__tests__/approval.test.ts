@@ -200,7 +200,7 @@ describe('W4-16: Approval DB operations', () => {
     expect(updated.approvedAt).toBeTruthy();
   });
 
-  it('refuses legacy pending tokens without changing the gate and names the re-request path', () => {
+  it('refuses legacy approval but lets the owner clear a pending legacy gate by rejection', () => {
     const gate = createApprovalGate(db, {
       runId: 'run-1',
       nodeId: 'legacy',
@@ -212,17 +212,12 @@ describe('W4-16: Approval DB operations', () => {
       legacyToken,
       gate.approvalId,
     );
-    for (const decide of [approveGate, rejectGate]) {
-      try {
-        decide(db, legacyToken, 'owner', 'reviewed');
-        expect.fail('a legacy gate must not be decided');
-      } catch (error) {
-        expect(error).toMatchObject({
-          codeName: 'E_APPROVAL_TOKEN_LEGACY',
-          fix: expect.stringContaining('cleo playbook run <name>'),
-        });
-      }
-    }
+    expect(() => approveGate(db, legacyToken, 'owner', 'reviewed')).toThrowError(
+      expect.objectContaining({
+        codeName: 'E_APPROVAL_TOKEN_LEGACY',
+        fix: expect.stringContaining('cleo orchestrate reject'),
+      }),
+    );
     expect(getPendingApprovals(db)).toEqual([
       expect.objectContaining({
         approvalId: gate.approvalId,
@@ -230,6 +225,10 @@ describe('W4-16: Approval DB operations', () => {
         status: 'pending',
       }),
     ]);
+    expect(rejectGate(db, legacyToken, 'owner', 'clear legacy gate')).toMatchObject({
+      status: 'rejected',
+    });
+    expect(getPendingApprovals(db)).toEqual([]);
   });
 
   it('a resume trace can only be rejected to clear it from pending', () => {

@@ -30,6 +30,7 @@ export {
   assertCurrentApprovalToken,
   type CreateApprovalGateInput,
   createApprovalGate,
+  E_APPROVAL_ALREADY_CONSUMED,
   E_APPROVAL_ALREADY_DECIDED,
   E_APPROVAL_NOT_FOUND,
   E_APPROVAL_RESUME_TRACE,
