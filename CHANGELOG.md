@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.11.14] (2026-11-16)
+
+### Fixed
+
+- Cross-epic execution readiness: retain canonical prerequisite evidence and read failures _(provenance: [T12293](https://github.com/kryptobaseddev/cleo/search?q=T12293&type=commits))_
+- Merge sweeps reuse authenticated typed-gate passes against the merge tree across checkouts _(provenance: [T14596](https://github.com/kryptobaseddev/cleo/search?q=T14596&type=commits))_
+- A worker's task claim stays live while the worker is, and a worker renews its own expired claim with cleo claim --renew _(provenance: [T14546](https://github.com/kryptobaseddev/cleo/search?q=T14546&type=commits))_
+
 ## [2026.11.13] (2026-11-16)
 
 ### Fixed
