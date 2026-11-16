@@ -322,9 +322,18 @@ export async function lookupCliSession(): Promise<string | null> {
  * @task T14546
  */
 export async function heartbeatCliSession(req: DispatchRequest, sessionId: string): Promise<void> {
-  const claims = await import('@cleocode/core/task-work/claims');
-  if (req.gateway === 'query') await claims.renewStaleSessionClaims(getProjectRoot(), sessionId);
-  else await claims.heartbeatProjectSession(getProjectRoot(), sessionId);
+  const projectRoot = getProjectRoot();
+  if (req.gateway === 'query') {
+    // The probe lives in a module every call already loads; the renewal is
+    // loaded only for the rare read that finds a stale lease (gate 39).
+    const { sessionHoldsStaleClaim } = await import('@cleocode/core/store/session-store');
+    if (!(await sessionHoldsStaleClaim(sessionId, projectRoot))) return;
+    const { renewStaleSessionClaims } = await import('@cleocode/core/task-work/claims');
+    await renewStaleSessionClaims(projectRoot, sessionId);
+    return;
+  }
+  const { heartbeatProjectSession } = await import('@cleocode/core/task-work/claims');
+  await heartbeatProjectSession(projectRoot, sessionId);
 }
 
 /**

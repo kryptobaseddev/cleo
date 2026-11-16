@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs';
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, desc, eq, inArray, isNotNull, isNull, lte, ne, notLike, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notLike, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
@@ -24,6 +24,7 @@ import { noteSessionStatusWritten } from './db-helpers.js';
 import { assertExodusWriteSafe } from './dual-scope-db.js';
 import { sessionTerminalBindings } from './session-binding-schema.js';
 import { getDb, getDbPath, getNativeTasksDb } from './sqlite.js';
+import { taskClaimLeaseMs } from './task-claim.js';
 import * as schema from './tasks-schema.js';
 import { runHeartbeatWrite } from './with-retry.js';
 
@@ -1547,6 +1548,47 @@ export async function touchSessionActivity(
       ),
     );
     return (changes ?? 0) > 0;
+  });
+}
+
+/**
+ * Whether `sessionId` holds a task claim lease that needs a beat (T14546): one
+ * with less than half its length left, or already lapsed. One indexed read and
+ * no write. It lives here, beside {@link touchSessionActivity}, because every
+ * CLI call already loads this module: a bound session's read asks this first
+ * and loads the claim renewal only when the answer is yes.
+ *
+ * @param sessionId - The session that just showed activity.
+ * @param cwd - Working directory for DB resolution.
+ * @param nowMs - Clock override for tests.
+ * @returns `true` when at least one lease the session holds is stale.
+ * @example
+ * ```ts
+ * if (await sessionHoldsStaleClaim(sessionId, projectRoot)) await renewStaleSessionClaims(projectRoot, sessionId);
+ * ```
+ * @task T14546
+ */
+export async function sessionHoldsStaleClaim(
+  sessionId: string,
+  cwd?: string,
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const staleBefore = new Date(nowMs + taskClaimLeaseMs() / 2).toISOString();
+    const db = await getDb(scope.worktreeRoot);
+    const [stale] = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.claimedBySession, sessionId),
+          or(isNull(schema.tasks.leaseExpiresAt), lt(schema.tasks.leaseExpiresAt, staleBefore)),
+        ),
+      )
+      .limit(1)
+      .all();
+    return stale !== undefined;
   });
 }
 

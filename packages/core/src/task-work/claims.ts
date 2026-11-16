@@ -13,13 +13,14 @@
  */
 
 import type { TaskClaim, TaskClaimMode } from '@cleocode/contracts';
-import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, or } from 'drizzle-orm';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   ensureAgentSession,
   getSession,
   resolveBoundSession,
+  sessionHoldsStaleClaim,
   setSessionSpawnedBy,
   touchSessionActivity,
   updateSession,
@@ -230,7 +231,8 @@ export async function heartbeatProjectSession(
  * so its claim lapsed while its dispatch was live.
  *
  * Runs the full {@link heartbeatProjectSession} only when a lease the session
- * holds has less than half its length left (or has already lapsed), so an
+ * holds has less than half its length left (or has already lapsed; the probe
+ * is `sessionHoldsStaleClaim`), so an
  * agent whose mutations keep its leases fresh pays one indexed read and no
  * write. Only leases the session STILL holds are extended: a task another
  * session took over in the meantime is never touched. A store whose twin
@@ -251,20 +253,7 @@ export async function renewStaleSessionClaims(
   sessionId: string,
   nowMs: number = Date.now(),
 ): Promise<number> {
-  const staleBefore = new Date(nowMs + taskClaimLeaseMs() / 2).toISOString();
-  const db = await getDb(projectRoot);
-  const [stale] = await db
-    .select({ id: schema.tasks.id })
-    .from(schema.tasks)
-    .where(
-      and(
-        eq(schema.tasks.claimedBySession, sessionId),
-        or(isNull(schema.tasks.leaseExpiresAt), lt(schema.tasks.leaseExpiresAt, staleBefore)),
-      ),
-    )
-    .limit(1)
-    .all();
-  if (!stale) return 0;
+  if (!(await sessionHoldsStaleClaim(sessionId, projectRoot, nowMs))) return 0;
   const { storeWriteBlock } = await import('../store/store-write-guard.js');
   if (await storeWriteBlock(projectRoot, { domain: 'tasks', operation: 'claim' })) return 0;
   return (await heartbeatProjectSession(projectRoot, sessionId, nowMs)).leasesRenewed;
