@@ -1533,9 +1533,7 @@ async function main() {
     nodeVersion: process.version,
     platform: process.platform,
     architecture: process.arch,
-    sourceRevision: (
-      await runPackedCommand('git', ['rev-parse', 'HEAD'], { env, systemdControl })
-    ).trim(),
+    sourceRevision: null,
     lockSha256: sha256(readFileSync(join(REPO_ROOT, 'pnpm-lock.yaml'))),
     packages: [],
     status: 'running',
@@ -1559,6 +1557,9 @@ async function main() {
   save();
   console.log(`[packed-smoke] Retaining evidence at ${root}`);
   try {
+    manifest.sourceRevision = (
+      await runPackedCommand('git', ['rev-parse', 'HEAD'], { env, systemdControl })
+    ).trim();
     const overrides = {};
     for (const directory of PUBLISHED_PKGS) {
       const cwd = join(REPO_ROOT, 'packages', directory);

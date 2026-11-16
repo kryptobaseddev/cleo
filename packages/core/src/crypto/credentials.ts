@@ -21,8 +21,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getCleoHome } from '../paths.js';
 import {
@@ -83,13 +82,34 @@ export interface CredentialKeyOptions {
 }
 
 /**
+ * Derive a purpose-bound key from this installation's private machine key.
+ * Creates the machine key exclusively on first use, with the same permission
+ * and length checks as credential encryption; never exports the machine key.
+ *
+ * @param purpose - Stable domain separator for the signing operation.
+ * @param options - The CLEO installation whose machine key to use.
+ * @returns A 32-byte HMAC key unique to this installation and purpose.
+ * @remarks Keep the derived key private; distinct purposes derive distinct keys.
+ * @example
+ * ```typescript
+ * const signingKey = deriveInstallationKey('playbook-approval');
+ * ```
+ */
+export function deriveInstallationKey(purpose: string, options: CredentialKeyOptions = {}): Buffer {
+  const key = readOrCreateMachineKey(options.cleoHome, true);
+  // @sync-invariant none:local-only installation keys are device-local credential material
+  if (key === null) throw new Error('machine key could not be created');
+  return createHmac('sha256', key).update(`cleo:installation-key:v1\0${purpose}`).digest();
+}
+
+/**
  * Read or auto-generate the machine key (32 random bytes).
  * Sets file permissions to 0600 (owner read/write only).
  *
  * @throws If the machine key exists but has wrong permissions (not 0600).
  */
 async function getMachineKey(cleoHome?: string): Promise<Buffer> {
-  const key = await readOrCreateMachineKey(cleoHome, true);
+  const key = readOrCreateMachineKey(cleoHome, true);
   if (key === null) throw new Error('machine key could not be created');
   return key;
 }
@@ -105,19 +125,16 @@ async function getMachineKey(cleoHome?: string): Promise<Buffer> {
  * @returns The key, or `null` when it does not exist and `create` is false.
  * @throws If the key exists with unsafe permissions or the wrong length.
  */
-async function readOrCreateMachineKey(
-  cleoHome: string | undefined,
-  create: boolean,
-): Promise<Buffer | null> {
+function readOrCreateMachineKey(cleoHome: string | undefined, create: boolean): Buffer | null {
   const keyPath = getMachineKeyPath(cleoHome);
   sweepStaleSecretTemps(keyPath);
   try {
     return readMachineKeyAt(keyPath);
-  } catch (err: unknown) {
+  } catch (err) {
     if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw err;
   }
   if (!create) return null;
-  await mkdir(dirname(keyPath), { recursive: true });
+  mkdirSync(dirname(keyPath), { recursive: true });
   const created = createSecretFileExclusive(keyPath, randomBytes(KEY_LENGTH), 0o600);
   if (created && process.platform === 'win32') {
     // Lock down Windows ACLs: remove inherited permissions, grant only current user
@@ -509,11 +526,11 @@ export async function loadGlobalKeyMaterial(
 ): Promise<GlobalKeyMaterial | null> {
   const home = options.cleoHome ?? getCleoHome();
   if (!options.create) {
-    const machineKey = await readOrCreateMachineKey(home, false);
+    const machineKey = readOrCreateMachineKey(home, false);
     const globalSalt = readGlobalSaltAt(home);
     return machineKey === null || globalSalt === null ? null : { machineKey, globalSalt };
   }
-  const machineKey = await readOrCreateMachineKey(home, true);
+  const machineKey = readOrCreateMachineKey(home, true);
   if (machineKey === null) throw new Error('machine key could not be created');
   return { machineKey, globalSalt: loadGlobalSaltAt(home) };
 }

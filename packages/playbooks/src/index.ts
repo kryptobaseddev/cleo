@@ -27,10 +27,14 @@ export const PLAYBOOKS_PACKAGE_VERSION: string = '2026.4.129';
 
 export {
   approveGate,
+  assertCurrentApprovalToken,
   type CreateApprovalGateInput,
   createApprovalGate,
+  E_APPROVAL_ALREADY_CONSUMED,
   E_APPROVAL_ALREADY_DECIDED,
   E_APPROVAL_NOT_FOUND,
+  E_APPROVAL_RESUME_TRACE,
+  E_APPROVAL_TOKEN_LEGACY,
   generateResumeToken,
   getPendingApprovals,
   getPlaybookSecret,

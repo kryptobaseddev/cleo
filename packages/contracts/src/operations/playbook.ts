@@ -121,7 +121,7 @@ export interface PlaybookRunResult {
   runId: string;
   terminalStatus: 'completed' | 'paused' | 'failed' | 'cancelled';
   finalContext: Record<string, unknown>;
-  /** HMAC-signed resume token; present only when `terminalStatus === 'paused'`. */
+  /** HMAC-signed resume token; disclosed only to the human owner on the direct CLI when paused. */
   approvalToken?: string;
   /** ID of the node that failed; present only on `terminalStatus === 'failed'`. */
   failedNodeId?: string;
@@ -190,7 +190,7 @@ export interface PlaybookResumeResult {
   runId: string;
   terminalStatus: 'completed' | 'paused' | 'failed' | 'cancelled';
   finalContext: Record<string, unknown>;
-  /** HMAC-signed resume token; present only when the resumed run paused again. */
+  /** HMAC-signed resume token; disclosed only to the human owner on the direct CLI when paused again. */
   approvalToken?: string;
   /** ID of the node that failed on resume; present only on `terminalStatus === 'failed'`. */
   failedNodeId?: string;

@@ -70,6 +70,9 @@ import { resolveActiveWorktree } from './worktree-path.js';
 /** Sentinel exit code for a shim-blocked git operation. */
 const BLOCKED_EXIT_CODE = 77;
 
+/** Bound delegation even when an intermediary shell breaks parent-PID continuity. */
+const MAX_DELEGATION_HOPS = 16;
+
 /**
  * Read and validate the CLEO agent role from the environment.
  *
@@ -149,6 +152,7 @@ function launcherTargets(listedPath: string, canonical: string): string[] {
  * The bounded chain is propagated to children so distinct shim copies cannot
  * delegate indefinitely. Continuity requires the immediately delegating parent;
  * Git hooks invoking Git again start a fresh chain after the real Git boundary.
+ * An inherited hop budget also bounds wrappers that break that parent relationship.
  * This is recursion protection, not a trust boundary. Launcher scripts that
  * delegate to the shim (pnpm/npm `.bin/git` wrappers) are excluded by their
  * target, see {@link launcherTargets}.
@@ -156,12 +160,23 @@ function launcherTargets(listedPath: string, canonical: string): string[] {
  * @returns Absolute path to real git, or null if not found.
  */
 function resolveRealGit(): string | null {
+  const inheritedHops = process.env['CLEO_GIT_SHIM_HOPS'] ?? '0';
+  const hops = Number(inheritedHops);
+  if (!/^\d+$/.test(inheritedHops) || !Number.isSafeInteger(hops) || hops >= MAX_DELEGATION_HOPS) {
+    process.stderr.write(
+      '[git-shim] ERROR: invalid or exhausted executable delegation hop limit\n',
+    );
+    return null;
+  }
   const inherited =
     process.env['CLEO_GIT_SHIM_PARENT_PID'] === String(process.ppid)
       ? (process.env['CLEO_GIT_SHIM_CHAIN'] ?? '')
       : '';
   const chain = inherited ? inherited.split(';') : [];
-  if (chain.length >= 16 || chain.some((identity) => !/^\d+:\d+$/.test(identity))) {
+  if (
+    chain.length >= MAX_DELEGATION_HOPS ||
+    chain.some((identity) => !/^\d+:\d+$/.test(identity))
+  ) {
     process.stderr.write('[git-shim] ERROR: invalid or exhausted executable delegation chain\n');
     return null;
   }
@@ -197,6 +212,7 @@ function resolveRealGit(): string | null {
   };
   process.env['CLEO_GIT_SHIM_CHAIN'] = chain.join(';');
   process.env['CLEO_GIT_SHIM_PARENT_PID'] = String(process.pid);
+  process.env['CLEO_GIT_SHIM_HOPS'] = String(hops + 1);
   const override = process.env['CLEO_REAL_GIT_PATH'];
   if (override) {
     const candidate = candidatePath(override);

@@ -8,7 +8,7 @@
  * @task T930 — Playbook Runtime State Machine
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -20,7 +20,7 @@ import type {
   PlaybookDefinition,
   PlaybookDeterministicNode,
 } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { approveGate, rejectGate } from '../approval.js';
 import { parsePlaybook } from '../parser.js';
 import {
@@ -249,7 +249,7 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
 
     expect(result.terminalStatus).toBe('pending_approval');
     expect(result.approvalToken).toBeDefined();
-    expect(result.approvalToken).toMatch(/^[0-9a-f]{32}$/);
+    expect(result.approvalToken).toMatch(/^v2:[0-9a-f]{32}$/);
     // Only the research node executed; ship is gated.
     expect(dispatcher.calls.map((c) => c.nodeId)).toEqual(['research']);
 
@@ -315,6 +315,188 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
 
     const run = getPlaybookRun(db, first.runId);
     expect(run?.status).toBe('completed');
+    const trace = listPlaybookApprovals(db, first.runId).find((gate) =>
+      gate.token.startsWith('resume:'),
+    );
+    expect(trace).toMatchObject({ status: 'approved', autoPassed: true });
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: trace?.token ?? '', dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_RESUME_TRACE' }));
+  });
+
+  it('refuses an already-approved legacy gate without executing its successor', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'legacy-resume',
+      nodes: [approvalNode('gate'), agenticNode('ship')],
+      edges: [{ from: 'gate', to: 'ship' }],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({ status: 'success', output: {} }));
+    const first = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'legacy',
+      initialContext: {},
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const legacyToken = 'a'.repeat(32);
+    db.prepare('UPDATE tasks_playbook_approvals SET token = ?, status = ? WHERE token = ?').run(
+      legacyToken,
+      'approved',
+      first.approvalToken ?? '',
+    );
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: legacyToken, dispatcher }),
+    ).rejects.toThrowError(
+      expect.objectContaining({
+        codeName: 'E_APPROVAL_TOKEN_LEGACY',
+        fix: expect.stringContaining('cleo playbook run <name>'),
+      }),
+    );
+    expect(dispatcher.calls).toEqual([]);
+    expect(getPlaybookRun(db, first.runId)?.status).toBe('paused');
+  });
+
+  it('one approved gate cannot resume concurrently or replay after a crash reset', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'single-use',
+      nodes: [approvalNode('gate'), agenticNode('ship')],
+      edges: [{ from: 'gate', to: 'ship' }],
+    };
+    let release: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const dispatcher = makeRecordingDispatcher(async () => {
+      await blocked;
+      return { status: 'success', output: {} };
+    });
+    const first = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'single-use',
+      initialContext: {},
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const token = first.approvalToken;
+    if (token === undefined) throw new Error('expected approval token');
+    approveGate(db, token, 'owner');
+    const active = resumePlaybook({ db, playbook, approvalToken: token, dispatcher });
+    try {
+      expect(getPlaybookRun(db, first.runId)?.status).toBe('running');
+      await expect(
+        resumePlaybook({ db, playbook, approvalToken: token, dispatcher }),
+      ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+      expect(dispatcher.calls).toHaveLength(1);
+    } finally {
+      release();
+      await active;
+    }
+    db.prepare('UPDATE tasks_playbook_runs SET status = ?, current_node = ? WHERE run_id = ?').run(
+      'paused',
+      'gate',
+      first.runId,
+    );
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: token, dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+    expect(dispatcher.calls).toHaveLength(1);
+  });
+
+  it('each gate in a multi-gate run requires its own approval and consumes once', async () => {
+    const playbook: PlaybookDefinition = {
+      version: '1.0',
+      name: 'two-gates',
+      nodes: [approvalNode('first'), approvalNode('second')],
+      edges: [{ from: 'first', to: 'second' }],
+    };
+    const dispatcher = makeRecordingDispatcher(() => ({ status: 'success', output: {} }));
+    const first = await executePlaybook({
+      db,
+      playbook,
+      playbookHash: 'two-gates',
+      initialContext: {},
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const firstToken = first.approvalToken;
+    if (firstToken === undefined) throw new Error('expected first approval token');
+    approveGate(db, firstToken, 'owner');
+    const second = await resumePlaybook({
+      db,
+      playbook,
+      approvalToken: firstToken,
+      dispatcher,
+      approvalSecret: 'unit-test-secret',
+    });
+    const secondToken = second.approvalToken;
+    if (secondToken === undefined) throw new Error('expected second approval token');
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: firstToken, dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+    approveGate(db, secondToken, 'owner');
+    expect(
+      (await resumePlaybook({ db, playbook, approvalToken: secondToken, dispatcher }))
+        .terminalStatus,
+    ).toBe('completed');
+    await expect(
+      resumePlaybook({ db, playbook, approvalToken: secondToken, dispatcher }),
+    ).rejects.toThrowError(expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }));
+  });
+
+  it('ignores an invalid installation key until an approval node is reached, including on resume', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'playbook-lazy-key-'));
+    vi.stubEnv('CLEO_HOME', home);
+    vi.stubEnv('CLEO_PLAYBOOK_SECRET', '');
+    writeFileSync(join(home, 'machine-key'), 'corrupt', { mode: 0o600 });
+    try {
+      const dispatcher = makeRecordingDispatcher(() => ({ status: 'success', output: {} }));
+      const linear = await executePlaybook({
+        db,
+        playbook: linearPlaybook('no-gate', ['a']),
+        playbookHash: 'no-gate',
+        initialContext: {},
+        dispatcher,
+      });
+      expect(linear.terminalStatus).toBe('completed');
+      const playbook: PlaybookDefinition = {
+        version: '1.0',
+        name: 'lazy-key',
+        nodes: [approvalNode('gate'), agenticNode('ship')],
+        edges: [{ from: 'gate', to: 'ship' }],
+      };
+      const first = await executePlaybook({
+        db,
+        playbook,
+        playbookHash: 'lazy',
+        initialContext: {},
+        dispatcher,
+        approvalSecret: 'unit-test-secret',
+      });
+      approveGate(db, first.approvalToken ?? '', 'owner');
+      const resumed = await resumePlaybook({
+        db,
+        playbook,
+        approvalToken: first.approvalToken ?? '',
+        dispatcher,
+      });
+      expect(resumed.terminalStatus).toBe('completed');
+      await expect(
+        executePlaybook({
+          db,
+          playbook,
+          playbookHash: 'lazy',
+          initialContext: {},
+          dispatcher,
+        }),
+      ).rejects.toThrow(/invalid length/);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   // 5 ------------------------------------------------------------------------

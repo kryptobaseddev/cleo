@@ -456,7 +456,13 @@ describe('T12273 package artifact checks reach the required PR and merge-group g
     expect(upload.if).toContain("startsWith(github.ref, 'refs/tags/')");
     expect(upload.if).not.toContain('always()');
     expect(upload.with['retention-days']).toBe(1);
-    for (const part of ['tarballs/*.tgz', 'manifest.json', '**/*.log'])
+    for (const part of [
+      'tarballs/*.tgz',
+      'manifest.json',
+      '**/*.log',
+      'command-receipts/*.json',
+      'runtime-*.json',
+    ])
       expect(upload.with.path).toContain(part);
     expect(upload.with['retention-days']).toBeGreaterThan(0);
   });

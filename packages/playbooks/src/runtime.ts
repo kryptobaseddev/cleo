@@ -47,7 +47,6 @@ import type {
   PlaybookEdgeCondition,
   PlaybookNode,
   PlaybookRun,
-  PlaybookRunStatus,
   SubstitutionContext,
 } from '@cleocode/contracts';
 // T11762 ST-2: registry-driven ensures.schema resolution. The bodied accessors
@@ -63,9 +62,9 @@ import {
   getEnsuresSchema,
   listEnsuresSchemaNames,
 } from '@cleocode/core/dispatch/contracts/ensures-schema';
-import { createApprovalGate, getPlaybookSecret } from './approval.js';
+import { assertCurrentApprovalToken, createApprovalGate } from './approval.js';
 import {
-  createPlaybookApproval,
+  consumePlaybookApproval,
   createPlaybookRun,
   getPlaybookApprovalByToken,
   getPlaybookRun,
@@ -782,7 +781,7 @@ function executeApprovalNode(
   runId: string,
   context: Record<string, unknown>,
   db: DatabaseSync,
-  secret: string,
+  secret: string | undefined,
 ): NodeOutcome {
   const gate = createApprovalGate(db, {
     runId,
@@ -926,7 +925,7 @@ async function runFromNode(args: {
   iterationCounts: Record<string, number>;
   dispatcher: AgentDispatcher;
   deterministicRunner: DeterministicRunner | undefined;
-  approvalSecret: string;
+  approvalSecret: string | undefined;
   maxIterationsDefault: number;
   now: () => Date;
   /** Project root for contract-violations.jsonl audit writes (T1261 E4). */
@@ -1306,7 +1305,6 @@ export async function executePlaybook(
       `${E_PLAYBOOK_RUNTIME_INVALID}: maxIterationsDefault must be a non-negative integer (got ${maxIterationsDefault})`,
     );
   }
-  const approvalSecret = options.approvalSecret ?? getPlaybookSecret();
 
   const nodeIndex: NodeIndex = new Map(options.playbook.nodes.map((n) => [n.id, n]));
   const edgeIndex = buildEdgeIndex(options.playbook);
@@ -1335,7 +1333,7 @@ export async function executePlaybook(
     iterationCounts,
     dispatcher: options.dispatcher,
     deterministicRunner: options.deterministicRunner,
-    approvalSecret,
+    approvalSecret: options.approvalSecret,
     maxIterationsDefault,
     now,
     projectRoot: options.projectRoot,
@@ -1345,13 +1343,15 @@ export async function executePlaybook(
 
 /**
  * Resume a paused playbook run using a HITL approval token. The runtime
- * validates that the token maps to an `approved` {@link PlaybookApproval}
- * row and that the associated run is in `paused` state, then continues from
- * the approval node's single successor.
+ * validates that a current-version token maps to an `approved`
+ * {@link PlaybookApproval} row for the paused node, consumes that approval
+ * atomically, and continues from its single successor. Legacy decisions
+ * require a fresh run; resume audit traces never authorize execution.
  *
  * @throws Error stamped with {@link E_PLAYBOOK_RESUME_BLOCKED} if the token
  *   is unknown, the gate is still `pending`, the gate was `rejected`, the
  *   run is not `paused`, or the approval node has no successor.
+ * @throws A typed refusal with `E_APPROVAL_ALREADY_CONSUMED` for a replay.
  */
 export async function resumePlaybook(
   options: ResumePlaybookOptions,
@@ -1362,6 +1362,7 @@ export async function resumePlaybook(
       `${E_PLAYBOOK_RESUME_BLOCKED}: no approval gate for token ${options.approvalToken}`,
     );
   }
+  assertCurrentApprovalToken(approval.token);
   if (approval.status === 'pending') {
     throw new Error(
       `${E_PLAYBOOK_RESUME_BLOCKED}: gate ${approval.approvalId} is still pending — approve before resuming`,
@@ -1390,12 +1391,6 @@ export async function resumePlaybook(
       `${E_PLAYBOOK_RESUME_BLOCKED}: run ${approval.runId} no longer exists (deleted?)`,
     );
   }
-  const validResumeStatuses: readonly PlaybookRunStatus[] = ['paused', 'running'];
-  if (!validResumeStatuses.includes(run.status)) {
-    throw new Error(
-      `${E_PLAYBOOK_RESUME_BLOCKED}: run ${run.runId} is ${run.status}, expected paused|running`,
-    );
-  }
 
   // Validate the approval node is present and resolve its single successor.
   const nodeIndex: NodeIndex = new Map(options.playbook.nodes.map((n) => [n.id, n]));
@@ -1409,7 +1404,6 @@ export async function resumePlaybook(
 
   const now = options.now ?? (() => new Date());
   const maxIterationsDefault = options.maxIterationsDefault ?? 3;
-  const approvalSecret = options.approvalSecret ?? getPlaybookSecret();
   const context: Record<string, unknown> = { ...run.bindings };
   const iterationCounts: Record<string, number> = { ...run.iterationCounts };
 
@@ -1426,6 +1420,7 @@ export async function resumePlaybook(
   };
 
   const successor = resolveNextNodeId(approvalNode.id, edgeIndex, context);
+  consumePlaybookApproval(options.db, approval.token);
   if (successor === null) {
     // Approval at the tail of the graph completes the run immediately.
     const completedAt = now().toISOString();
@@ -1449,16 +1444,6 @@ export async function resumePlaybook(
     errorContext: null,
   });
 
-  // Persist an approval trace row for audit purposes. createPlaybookApproval
-  // is distinct from createApprovalGate — the latter generates the HMAC
-  // resume token, while this helper records arbitrary approval state.
-  createPlaybookApproval(options.db, {
-    runId: run.runId,
-    nodeId: approval.nodeId,
-    token: `resume:${approval.token}:${now().getTime()}`,
-    autoPassed: true,
-  });
-
   const runArgs: Parameters<typeof runFromNode>[0] = {
     db: options.db,
     playbook: options.playbook,
@@ -1470,7 +1455,7 @@ export async function resumePlaybook(
     iterationCounts,
     dispatcher: options.dispatcher,
     deterministicRunner: options.deterministicRunner,
-    approvalSecret,
+    approvalSecret: options.approvalSecret,
     maxIterationsDefault,
     now,
     projectRoot: options.projectRoot,

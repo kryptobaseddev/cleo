@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
+import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 
 export default defineConfig({
+  resolve: { alias: withWorkspaceSubpathAliases({}) },
   test: {
     // Memory-safe fork bounds (T12087) — spread FIRST so anything below
     // can still override deliberately. Applies on a DIRECT per-package run,

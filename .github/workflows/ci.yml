@@ -2530,6 +2530,8 @@ jobs:
             ${{ runner.temp }}/cleo-packed-evidence/**/*.log
             ${{ runner.temp }}/cleo-packed-evidence/**/version.txt
             ${{ runner.temp }}/cleo-packed-evidence/**/runtime.json
+            ${{ runner.temp }}/cleo-packed-evidence/**/runtime-*.json
+            ${{ runner.temp }}/cleo-packed-evidence/**/command-receipts/*.json
             ${{ runner.temp }}/cleo-packed-evidence/**/cleanup.json
             ${{ runner.temp }}/cleo-packed-evidence/**/embedding.json
             ${{ runner.temp }}/cleo-packed-evidence/**/model-manifest.json

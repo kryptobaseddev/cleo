@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import {
   createSession,
@@ -23,7 +23,16 @@ import {
   deriveOwnerAuthToken,
   OWNER_SESSION_MARK,
 } from '../owner-override-auth.js';
-import { ownerMarkRefusal, resolveOwnerOverride } from '../owner-override-authority.js';
+import {
+  ownerMarkRefusal,
+  requireOwnerAuthority,
+  resolveOwnerOverride,
+} from '../owner-override-authority.js';
+
+// The fixtures simulate the owner independently of the worker invoking vitest.
+vi.hoisted(() => {
+  delete process.env['CLEO_AGENT_ROLE'];
+});
 
 let env: TestDbEnv;
 const tty = { stdin: process.stdin.isTTY, stderr: process.stderr.isTTY };
@@ -95,6 +104,27 @@ describe('resolveOwnerOverride (T13790)', () => {
       reason: 'T13790 test',
       sessionId: id,
     });
+  });
+
+  it('an omitted request source cannot inherit owner authority', async () => {
+    const id = await session('ses_owner_unknown_source', true);
+    await expect(requireOwnerAuthority(env.tempDir, id)).rejects.toMatchObject({
+      codeName: 'E_OVERRIDE_NOT_OWNER',
+      fix: expect.stringContaining('own terminal'),
+    });
+  });
+
+  it.each([
+    'http',
+    'rpc',
+    'mcp',
+  ] as const)('%s cannot borrow the serving process owner session and terminal', async (source) => {
+    const id = await session('ses_owner_server', true);
+    await expect(requireOwnerAuthority(env.tempDir, id, source)).rejects.toMatchObject({
+      codeName: 'E_OVERRIDE_NOT_OWNER',
+      fix: expect.stringContaining('own terminal'),
+    });
+    await expect(requireOwnerAuthority(env.tempDir, id, 'cli')).resolves.toBe(id);
   });
 
   it('red: an unlabelled agent (no CLEO_AGENT_ROLE, session not owner-marked) is refused and audited', async () => {

@@ -215,15 +215,50 @@ before the store consolidated into `cleo.db`.
 
 ## Approval tokens (HMAC)
 
-`generateResumeToken(runId, nodeId, bindings, secret)` returns the first 32 hex
-characters of HMAC-SHA-256 over `runId:nodeId:<bindings as sorted-key JSON>`.
-The secret comes from `getPlaybookSecret(env)`: `CLEO_PLAYBOOK_SECRET` when
-set, otherwise a built-in development default. Set `CLEO_PLAYBOOK_SECRET` in
-any real deployment.
+`generateResumeToken(runId, nodeId, bindings, secret)` returns `v2:` followed by
+the first 32 lowercase hex characters of HMAC-SHA-256 over
+`runId:nodeId:<bindings as sorted-key JSON>`.
+The secret comes from `getPlaybookSecret(env)`:
 
-`approveGate` / `rejectGate` look the gate up by token and only move a
-`pending` gate: an unknown token fails with `E_APPROVAL_NOT_FOUND`, an
+1. A nonempty `CLEO_PLAYBOOK_SECRET`, when configured.
+2. Otherwise a purpose-bound key derived from the installation's private
+   `machine-key` in CLEO home. The credential machinery creates that key once,
+   exclusively, with permission and length checks. There is no public fallback.
+
+`approveGate` / `rejectGate` look the gate up by its exact stored token and only
+move a `pending` gate: an unknown token fails with `E_APPROVAL_NOT_FOUND`, an
 already-decided gate with `E_APPROVAL_ALREADY_DECIDED`.
+
+Legacy tokens are refused for approval and resume, including gates approved
+before the upgrade, with `E_APPROVAL_TOKEN_LEGACY`: request a fresh gate with
+`cleo playbook run <name>`. Existing legacy rows remain intact; restarting a
+playbook executes its earlier steps again, so the owner must review those steps
+before restarting it. The owner can reject a pending legacy gate with
+`cleo orchestrate reject <resumeToken> --reason "clear legacy gate"` to remove it
+from pending approvals. A `resume:...` row is an audit trace, never an approval
+token. The owner can clear an old pending trace with
+`cleo orchestrate reject <resumeToken> --reason "clear resume trace"`;
+approval or resume of a trace refuses with `E_APPROVAL_RESUME_TRACE`. New traces
+are recorded as already approved and never appear in pending approvals.
+
+An approval authorizes one resume. The runtime verifies the paused node and
+commits a consumption receipt under SQLite's writer lock before executing any
+post-gate step. A second resume, an old trace, or a retry after a crash is refused
+with `E_APPROVAL_ALREADY_CONSUMED`, including when the run is still running.
+The owner must review the run before requesting a fresh gate; restarting can
+repeat earlier side effects.
+
+`cleo orchestrate approve` and `reject` require the same human owner authority as
+the owner override: an unrestricted bootstrap role, an owner-marked bound session
+(`cleo session start --scope global --name owner --owner`), and the owner's own
+stdin/stderr terminal, through the direct CLI. HTTP, MCP and RPC clients cannot
+inherit the serving process's owner authority. Setting an approver label or
+`CLEO_OWNER_OVERRIDE` does not grant authority. `cleo orchestrate pending` and
+`cleo playbook run|resume` disclose tokens only to that owner; other callers see
+pending metadata and paused run results without tokens. The installation key is
+read only when execution reaches an approval node. The SDK's synchronous database
+primitives are trusted in-process APIs; dispatch enforces caller authority.
+An omitted or unknown caller source never grants owner authority.
 
 ## Error codes
 
@@ -231,6 +266,11 @@ already-decided gate with `E_APPROVAL_ALREADY_DECIDED`.
 |------|---------|
 | `E_APPROVAL_NOT_FOUND` | No approval row matches the token |
 | `E_APPROVAL_ALREADY_DECIDED` | The approval is already `approved` or `rejected` |
+| `E_APPROVAL_ALREADY_CONSUMED` | The approval has already authorized a resume or is no longer the paused gate |
+| `E_APPROVAL_TOKEN_LEGACY` | Re-request the gate using a fresh playbook run |
+| `E_APPROVAL_RESUME_TRACE` | Audit traces cannot approve or resume; the owner can reject an old pending trace |
+| `E_OVERRIDE_NOT_OWNER` | The caller has no owner-marked session or own terminal |
+| `E_OVERRIDE_FORBIDDEN_AGENT_ROLE` | The caller runs as a restricted agent role |
 | `E_PLAYBOOK_PARSE` | `PlaybookParseError` from `parsePlaybook` (exit code 70), with the offending `field` and `value` |
 | `E_PLAYBOOK_RESUME_BLOCKED` | `resumePlaybook` got a token that does not resolve to an `approved` gate |
 | `E_PLAYBOOK_RUNTIME_INVALID` | Invalid runtime input, e.g. no entry node, or a node with more than one unconditional successor |

@@ -5,10 +5,15 @@
  * @task T889 / T904 / W4-8
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { approveGate, createApprovalGate } from '../approval.js';
 import {
+  consumePlaybookApproval,
   createPlaybookApproval,
   createPlaybookRun,
   deletePlaybookRun,
@@ -142,6 +147,37 @@ describe('W4-8: playbook state CRUD', () => {
   });
 
   describe('playbook approvals', () => {
+    it('consumption is durable across connections before the run advances', () => {
+      const home = mkdtempSync(join(tmpdir(), 'playbook-consume-'));
+      const first = new DatabaseSync(join(home, 'playbook.db'));
+      applyPlaybookTwinSchema(first);
+      const second = new DatabaseSync(join(home, 'playbook.db'));
+      try {
+        const run = createPlaybookRun(first, { playbookName: 'consume', playbookHash: 'hash' });
+        updatePlaybookRun(first, run.runId, { status: 'paused', currentNode: 'gate' });
+        const approval = createApprovalGate(first, {
+          runId: run.runId,
+          nodeId: 'gate',
+          bindings: {},
+          secret: 'unit-test-secret',
+        });
+        approveGate(first, approval.token, 'owner');
+        consumePlaybookApproval(first, approval.token);
+        expect(getPlaybookRun(second, run.runId)?.status).toBe('paused');
+        expect(() => consumePlaybookApproval(second, approval.token)).toThrowError(
+          expect.objectContaining({ codeName: 'E_APPROVAL_ALREADY_CONSUMED' }),
+        );
+        expect(
+          listPlaybookApprovals(second, run.runId).filter((row) => row.token.startsWith('resume:')),
+        ).toHaveLength(1);
+        expect(() => second.exec('BEGIN; ROLLBACK')).not.toThrow();
+      } finally {
+        first.close();
+        second.close();
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+
     it('createPlaybookApproval generates approvalId UUID + pending status', () => {
       const run = createPlaybookRun(db, {
         playbookName: 'p',
@@ -158,6 +194,18 @@ describe('W4-8: playbook state CRUD', () => {
       expect(approval.status).toBe('pending');
       expect(approval.autoPassed).toBe(false);
       expect(approval.nodeId).toBe('approval-publish');
+    });
+
+    it('auto-passed approval records are already approved, including resume traces', () => {
+      const run = createPlaybookRun(db, { playbookName: 'p', playbookHash: 'h' });
+      const trace = createPlaybookApproval(db, {
+        runId: run.runId,
+        nodeId: 'gate',
+        token: 'resume:v2:token:1234',
+        autoPassed: true,
+      });
+      expect(trace).toMatchObject({ status: 'approved', autoPassed: true });
+      expect(getPlaybookApprovalByToken(db, trace.token)?.status).toBe('approved');
     });
 
     it('getPlaybookApprovalByToken finds approval by exact token', () => {
