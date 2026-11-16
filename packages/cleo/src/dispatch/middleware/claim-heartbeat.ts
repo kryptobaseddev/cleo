@@ -10,8 +10,13 @@
  * so liveness checks and `session gc` can tell it from a long-running agent
  * that is still working.
  *
- * Reads never renew (a heartbeat is a write). A failed renewal never fails
- * the command it followed.
+ * A READ by a bound session is activity too (T14546): a worker waiting on CI
+ * or a review round makes no mutation for longer than a lease, and its claim
+ * lapsed while its dispatch was live. So a bound session's read runs the
+ * heartbeat BEFORE it dispatches, and the renewer extends only a lease whose
+ * time is half gone: a resuming worker reads its claim as live, and a session
+ * whose leases are fresh pays one indexed read and no write. A failed renewal
+ * never fails the command.
  *
  * Bounding the wait: the store is node:sqlite, which is SYNCHRONOUS — a write
  * stuck behind another connection's lock blocks the event loop, so no timer
@@ -36,33 +41,38 @@ export const CLAIM_HEARTBEAT_BUDGET_MS = 250;
 /**
  * Create the claim heartbeat.
  *
- * @param renew - Runs the session's heartbeat (activity + leases) in the request's project.
+ * @param renew - Runs the session's heartbeat in the request's project: activity + leases
+ *   after a mutation, stale leases only before a read (it is told which by `req.gateway`).
  * @param budgetMs - Upper bound on how long the response waits for the renewal.
- * @returns A middleware that renews the caller's claim leases after a successful mutation.
+ * @returns A middleware that renews the caller's claim leases before its reads and after its
+ *   successful mutations.
  * @task T12502
+ * @task T14546
  */
 export function createClaimHeartbeat(
   renew: (req: DispatchRequest, sessionId: string) => Promise<void>,
   budgetMs: number = CLAIM_HEARTBEAT_BUDGET_MS,
 ): Middleware {
+  // Best-effort: a heartbeat must never fail the command it serves. The race
+  // caps async stalls only; lock waits are bounded in the store.
+  const beat = async (req: DispatchRequest, sessionId: string): Promise<void> => {
+    const renewal = renew(req, sessionId).catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const budget = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, budgetMs);
+      timer.unref?.();
+    });
+    await Promise.race([renewal, budget]);
+    if (timer) clearTimeout(timer);
+  };
   return async (
     req: DispatchRequest,
     next: () => Promise<DispatchResponse>,
   ): Promise<DispatchResponse> => {
-    const response = await next();
     const sessionId = req.sessionId;
-    if (req.gateway === 'mutate' && response.success && sessionId) {
-      // Best-effort: a heartbeat must never fail the command it follows. The
-      // race caps async stalls only; lock waits are bounded in the store.
-      const renewal = renew(req, sessionId).catch(() => undefined);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const budget = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, budgetMs);
-        timer.unref?.();
-      });
-      await Promise.race([renewal, budget]);
-      if (timer) clearTimeout(timer);
-    }
+    if (req.gateway === 'query' && sessionId) await beat(req, sessionId);
+    const response = await next();
+    if (req.gateway === 'mutate' && response.success && sessionId) await beat(req, sessionId);
     return response;
   };
 }

@@ -1391,6 +1391,7 @@ function buildFilePathsBlock(outputDir: string, testRunsDir: string): string {
 
 /** Bind every worker command to its preallocated session and existing claim. */
 function buildSessionBlock(
+  taskId: string,
   sessionId: string | null | undefined,
   agentId: string,
   coordinatorSessionId?: string | null,
@@ -1420,7 +1421,7 @@ function buildSessionBlock(
     '- The task is already claimed under your allocated worker session and agent identity. Do not start another session, re-claim the task, or force-claim it.',
     '- These allocated-worker instructions take precedence over generic session-start or task-start recipes in embedded skills.',
     `- **Command binding**: begin every Bash call with \`export ${commandBinding}\`. This also applies without a worktree; keep the Worktree Setup Step 1 prefix when present.`,
-    '- If your session or claim has expired or belongs to someone else, return blocked to the coordinator for handoff; never replace it yourself.',
+    `- Your claim lease renews with every CLEO command and shell command you run. If it still reads expired, renew it yourself and carry on: \`cleo claim ${taskId} --renew\`. Return blocked to the coordinator for handoff only when that renewal is refused (\`E_TASK_CLAIMED\`: another session took the task) or your session has ended; never replace either yourself.`,
   ].join('\n');
 }
 
@@ -1778,7 +1779,13 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   authoredSections.push(buildReturnFormatBlock(protocol, askProviderId));
   authoredSections.push(buildManifestProtocolBlock(taskId, protocol));
   authoredSections.push(
-    buildSessionBlock(sessionId, agentId, input.coordinatorSessionId, input.workerSession?.role),
+    buildSessionBlock(
+      taskId,
+      sessionId,
+      agentId,
+      input.coordinatorSessionId,
+      input.workerSession?.role,
+    ),
   );
   authoredSections.push(
     [

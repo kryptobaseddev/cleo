@@ -30,11 +30,28 @@ vi.mock('@cleocode/core/resources/heavy-command.js', async (importOriginal) => {
   return { ...real, heavyPressureNotice: async () => pressure.line };
 });
 
+const beats = vi.hoisted(() => ({
+  calls: [] as { sessionId: string; cwd: string | undefined }[],
+  fail: false,
+}));
+vi.mock('@cleocode/core/resources/claim-keepalive.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@cleocode/core/resources/claim-keepalive.js')>();
+  return {
+    ...real,
+    renewSessionClaimsFromHook: async (sessionId: string, options: { cwd?: string } = {}) => {
+      if (beats.fail) throw new Error('store locked');
+      beats.calls.push({ sessionId, cwd: options.cwd });
+      return 1;
+    },
+  };
+});
+
 import {
   type ClaudeAllowContext,
   claudeAllowedBashRules,
   claudeManagedFiles,
   claudeSettingsFiles,
+  commandSessionId,
   type HookIo,
   heavyCommandHook,
   heavyHookContext,
@@ -55,6 +72,8 @@ beforeEach(() => {
   chmodSync(join(bin, 'cleo'), 0o755);
   pathWithCleo = `${bin}:/usr/bin:/bin`;
   pressure.line = null;
+  beats.calls = [];
+  beats.fail = false;
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
@@ -539,6 +558,59 @@ describe('runHookCli', () => {
     expect(await runHookCli(['heavy-command'], io)).toBe(0);
     expect(c.out).toEqual([]);
     expect(c.err.join('')).toMatch(/skipped: boom/);
+  });
+});
+
+describe('claim heartbeat on a shell command (T14546)', () => {
+  const run = async (command: string, env: Record<string, string | undefined> = {}) => {
+    const out: string[] = [];
+    const io: HookIo = {
+      readStdin: async () => payload(command),
+      writeStdout: (t) => out.push(t),
+      writeStderr: () => undefined,
+      env: { PATH: pathWithCleo, ...env },
+      cwd: '/elsewhere',
+    };
+    return { code: await runHookCli(['heavy-command'], io), out };
+  };
+
+  it('reads the session a command exports, in each quoting, else the hook environment', () => {
+    const prefix = "cd '/w t' && export CLEO_SESSION_ID='ses_1_aa' CLEO_AGENT_ID='a' || exit 1";
+    expect(commandSessionId(`${prefix}\ngit status`, {})).toBe('ses_1_aa');
+    expect(commandSessionId('CLEO_SESSION_ID="ses_2_bb" cleo show T1', {})).toBe('ses_2_bb');
+    expect(commandSessionId('export CLEO_SESSION_ID=ses_3_cc; gh pr checks 1', {})).toBe(
+      'ses_3_cc',
+    );
+    expect(commandSessionId('git status', { CLEO_SESSION_ID: 'ses_env' })).toBe('ses_env');
+    expect(commandSessionId("export CLEO_SESSION_ID='ses_cmd'; ls", { CLEO_SESSION_ID: 'x' })).toBe(
+      'ses_cmd',
+    );
+    expect(commandSessionId('git status', {})).toBeNull();
+  });
+
+  it('beats for the session of a light command, from the directory the call names, and prints nothing', async () => {
+    const r = await run("export CLEO_SESSION_ID='ses_1_aa' CLEO_AGENT_ID='a'; gh pr checks 7");
+    expect(r).toEqual({ code: 0, out: [] });
+    expect(beats.calls).toEqual([{ sessionId: 'ses_1_aa', cwd: dir }]);
+  });
+
+  it('beats after answering a heavy command, leaving the answer as it was', async () => {
+    const r = await run("export CLEO_SESSION_ID='ses_1_aa'; pnpm test");
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out.join('')).hookSpecificOutput.updatedInput.command).toContain(
+      'cleo run --wait',
+    );
+    expect(beats.calls).toHaveLength(1);
+  });
+
+  it('does nothing for a command that names no session, and fails open when the beat throws', async () => {
+    expect(await run('git status')).toEqual({ code: 0, out: [] });
+    expect(beats.calls).toEqual([]);
+    beats.fail = true;
+    expect(await run("export CLEO_SESSION_ID='ses_1_aa'; git status")).toEqual({
+      code: 0,
+      out: [],
+    });
   });
 });
 

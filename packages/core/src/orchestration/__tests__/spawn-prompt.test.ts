@@ -470,7 +470,10 @@ describe('buildSpawnPrompt — session linkage', () => {
       expect(result.prompt).not.toContain('legacy-agent-must-not-win');
       expect(result.prompt).not.toContain("CLEO_SESSION_ID='ses_coordinator'");
       expect(result.prompt).toContain(
-        'If your session or claim has expired or belongs to someone else, return blocked',
+        `If it still reads expired, renew it yourself and carry on: \`cleo claim ${id} --renew\``,
+      );
+      expect(result.prompt).toContain(
+        'Return blocked to the coordinator for handoff only when that renewal is refused',
       );
     }
   });

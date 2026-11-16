@@ -16,7 +16,9 @@
  *    holder, the lease expiry and the one explicit, audited override.
  *
  * Lifecycle: taken by `cleo start` / `cleo claim` / spawn; renewed by the
- * holder session's mutations (dispatch heartbeat) or `cleo claim --renew`;
+ * holder session's activity (its mutations, its reads and its harness hook's
+ * shell-command beat, T14546) or `cleo claim --renew`, which also revives the
+ * holder's own lapsed lease while nobody else has taken the task;
  * released by `cleo stop`, `cleo unclaim`, and — via SQL triggers — by the
  * task reaching done / cancelled / archived and by the holder session ending
  * or being deleted. An expired lease is never taken silently: `--take-over`.
@@ -337,6 +339,9 @@ export function sameClaimAgent(
  * @param requester - The refused caller.
  * @param now - ISO-8601 UTC instant used for the expiry comparison.
  * @param verb - The refused command, for the fix hint (`start`, `claim`, …).
+ * @param renew - The caller asked to renew its own lease (`cleo claim --renew`,
+ *   T14546): the refusal then says the claim is no longer the caller's and
+ *   names a hand-off, not an override.
  * @returns A {@link CleoError} with `ExitCode.TASK_CLAIMED` (LAFS
  *   `E_TASK_CLAIMED`) and {@link TaskClaimedDetails} as `details`.
  * @example
@@ -350,6 +355,7 @@ export function taskClaimedError(
   requester: { sessionId: string | null; agentId: string | null },
   now: string,
   verb = 'start',
+  renew = false,
 ): CleoError {
   const expired = isClaimExpired(holder, now);
   const override = expired ? '--take-over' : '--force-claim';
@@ -367,6 +373,19 @@ export function taskClaimedError(
   const lease = expired
     ? `its lease expired at ${holder.leaseExpiresAt}`
     : `lease expires ${holder.leaseExpiresAt}`;
+  if (renew) {
+    // T14546: the caller asked for its OWN lease back and another claimant has
+    // the task, so the remedy is a hand-off, never an override.
+    // @sync-invariant none:local-only refuses before any write; lease liveness is this device's coordination
+    return new CleoError(
+      ExitCode.TASK_CLAIMED,
+      `Cannot renew your claim on ${taskId}: ${who} claimed it at ${holder.claimedAt}, after your lease lapsed or was handed over; ${lease}.`,
+      {
+        fix: `Do not take it back. Stop work on ${taskId} and report this holder to your coordinator, who decides the hand-off (cleo show ${taskId} names the current claim).`,
+        details: { ...details },
+      },
+    );
+  }
   const fix = expired
     ? `The holder stopped renewing its lease. Take the task over explicitly (audited): cleo ${verb} ${taskId} --take-over`
     : `Pick another task (cleo next), wait for the lease to expire at ${holder.leaseExpiresAt}, or override the live lease (audited): cleo ${verb} ${taskId} --force-claim`;

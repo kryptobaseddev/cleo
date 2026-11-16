@@ -114,8 +114,10 @@ Reference: @skills/_shared/task-system-integration.md
 ```
 
 Do not start another session or re-claim a preallocated task. Export the allocated
-`CLEO_SESSION_ID` and `CLEO_AGENT_ID` on every command. A missing, expired or foreign
-binding returns blocked to the coordinator for handoff; never replace it yourself.
+`CLEO_SESSION_ID` and `CLEO_AGENT_ID` on every command. An expired claim lease on your own
+task is not a blocker: renew it with `cleo claim {{TASK_ID}} --renew` and carry on. A missing
+session, or a claim another session now holds (the renewal is refused with `E_TASK_CLAIMED`),
+returns blocked to the coordinator for handoff; never replace it yourself.
 
 ---
 
@@ -225,5 +227,5 @@ If work cannot proceed:
 | Returning full content | Bloats orchestrator context | Return only summary message |
 | Manual JSONL append | No validation, race conditions | Use `cleo research add` |
 | Missing manifest entry | Orchestrator can't find findings | Always create manifest entry |
-| Starting or re-claiming a preallocated task | Replaces the worker binding or steals a claim | Preserve the allocated session and claim. A missing, expired or foreign binding returns blocked to the coordinator for handoff. |
+| Starting or re-claiming a preallocated task | Replaces the worker binding or steals a claim | Preserve the allocated session and claim. Renew your own expired lease with `cleo claim {{TASK_ID}} --renew`; a missing session or a claim another session holds returns blocked to the coordinator for handoff. |
 | Incomplete checklist | Protocol violation | Verify all items before return |

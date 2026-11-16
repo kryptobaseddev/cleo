@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.24.0
+  version: 4.25.0
   tier: core
   install: harness
   covers:
@@ -298,8 +298,12 @@ since harness shells keep neither cwd nor env between calls (the git shim reads
 same identity line in its Session Linkage block: both `CLEO_SESSION_ID` and `CLEO_AGENT_ID`,
 so teammates sharing one harness session keep separate claims and focus (T14269).
 The prompt names the allocated **Worker Session** and the separate **Coordinator Session**;
-workers preserve the preclaim and never start a session or re-claim. Expired or foreign
-claims return to the coordinator for handoff. Execution backends receive `workerSession`
+workers preserve the preclaim and never start a session or re-claim. A worker's lease
+renews with every CLEO command it runs (reads included) and with the heavy-command hook's beat
+before each shell command, so it stays live while the worker is (T14546). A worker whose
+lease still lapsed renews it itself with `cleo claim <id> --renew` and carries on; no resume
+spawn is needed. Only a refused renewal (`E_TASK_CLAIMED`: another session took the task)
+or an ended session returns to the coordinator for handoff. Execution backends receive `workerSession`
 separately from `coordinatorSessionId`; a CLI's own environment does not prove Orca's
 launched worker inherited it.
 `workerSession.role` comes from dispatch and controls the shell binding (worker by

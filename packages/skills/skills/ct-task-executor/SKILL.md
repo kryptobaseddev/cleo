@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.14.0
+version: 2.15.0
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.14.0
+  version: 2.15.0
   tier: core
   install: harness
   covers:
@@ -351,11 +351,18 @@ cleo complete T1234 --if-match <updatedAt>
 task. If another session holds it, the start is refused with `E_TASK_CLAIMED`
 and nothing is written; `error.details` names the `holder` (session, agent,
 `leaseExpiresAt`), whether the lease has `expired`, and the `override` flag.
-Your mutations renew your leases; `cleo stop`, `cleo complete` and ending your
-session release them. The human `assignee` is a separate field.
+Your activity renews your leases (T14546): every mutation, a read once half the
+lease is gone, and, where the heavy-command hook is installed, the shell commands
+you run with your `CLEO_SESSION_ID` export. `cleo stop`, `cleo complete` and
+ending your session release them. The human `assignee` is a separate field.
+
+An expired lease on your own task is not a reason to stop. Renew it and carry
+on; while no other session has claimed the task, the renewal revives it. If the
+renewal is refused with `E_TASK_CLAIMED`, another session holds the task now:
+stop and report that holder to your orchestrator.
 
 ```bash
-cleo claim T1234 --renew        # extend your lease during a long step
+cleo claim T1234 --renew        # extend your lease, or revive your own expired one
 cleo start T1234 --take-over    # holder's lease EXPIRED (audited)
 cleo start T1234 --force-claim  # holder is LIVE: only with a clear reason (audited)
 ```

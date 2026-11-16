@@ -978,6 +978,53 @@ function subagentIdentityDecision(
   };
 }
 
+/** `CLEO_SESSION_ID=<id>` in a command line: single-quoted, double-quoted or bare. */
+const COMMAND_SESSION_ID = /\bCLEO_SESSION_ID=(?:'([^']*)'|"([^"]*)"|([^\s;&|'"]+))/;
+
+/**
+ * The CLEO session a shell command runs as (T14546): the one its own text
+ * exports (a spawned worker begins every call with
+ * `export CLEO_SESSION_ID='…'`, because harness shells keep no environment
+ * between calls), else the hook's environment.
+ *
+ * @param command - the command line.
+ * @param env - the hook's environment.
+ * @returns the session id, or `null` when the command names none.
+ */
+export function commandSessionId(
+  command: string,
+  env: Readonly<Record<string, string | undefined>>,
+): string | null {
+  const named = COMMAND_SESSION_ID.exec(command);
+  return named?.[1] ?? named?.[2] ?? named?.[3] ?? env.CLEO_SESSION_ID ?? null;
+}
+
+/**
+ * Claim heartbeat (T14546): a shell command is worker activity, so the hook
+ * that runs before each one renews the claim leases of the session it is
+ * bound to. Without it a worker editing, running git or watching CI makes no
+ * CLEO mutation for longer than a lease and loses its claim mid-task. Core
+ * throttles the beat with a stamp file and validates the id; a command that
+ * names no session costs nothing.
+ *
+ * @param stdin - the harness's `PreToolUse` payload.
+ * @param io - environment and working directory.
+ * @returns leases renewed.
+ */
+export async function claimHeartbeat(
+  stdin: string,
+  io: Pick<HookIo, 'env' | 'cwd'>,
+): Promise<number> {
+  const input = parseHookInput(stdin);
+  if (input?.tool_input === undefined) return 0;
+  const sessionId = commandSessionId(input.tool_input.command, io.env);
+  if (sessionId === null) return 0;
+  const { renewSessionClaimsFromHook } = await import(
+    '@cleocode/core/resources/claim-keepalive.js'
+  );
+  return renewSessionClaimsFromHook(sessionId, { cwd: input.cwd ?? io.cwd });
+}
+
 /** Seams of {@link heavyCommandHook} (tests). */
 export interface HeavyHookDeps {
   /** Replaces {@link claudeAllowContext}: where Claude Code allow rules are read from. */
@@ -1317,8 +1364,10 @@ export async function runHookCli(
     io.writeStderr(USAGE);
     return 1;
   }
+  let stdin = '';
   try {
-    const answer = await heavyCommandHook(provider, await io.readStdin(), io);
+    stdin = await io.readStdin();
+    const answer = await heavyCommandHook(provider, stdin, io);
     if (answer !== '') io.writeStdout(answer);
   } catch (err) {
     // Fail open: the command runs unchanged.
@@ -1326,5 +1375,7 @@ export async function runHookCli(
       `[cleo hook] heavy-command skipped: ${err instanceof Error ? err.message : String(err)}\n`,
     );
   }
+  // T14546: the answer is already written; the beat never changes it.
+  await claimHeartbeat(stdin, io).catch(() => undefined);
   return 0;
 }
