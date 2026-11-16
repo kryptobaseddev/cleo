@@ -146,7 +146,7 @@ export interface AgentLifecycleSignal {
    */
   depends?: readonly string[] | null;
   /**
-   * Count of {@link AgentLifecycleSignal.depends} whose status is NOT `done`.
+   * Count of {@link AgentLifecycleSignal.depends} that lack done/archived execution-readiness evidence.
    * `0` means every dependency is satisfied. When unknown (loader could not
    * resolve), pass `undefined` — the resolver then treats a non-empty
    * `depends` list as "not yet eligible" (conservative: keeps it in Backlog

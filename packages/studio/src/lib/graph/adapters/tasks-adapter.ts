@@ -27,6 +27,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { isReadinessDependencySatisfied } from '@cleocode/core/tasks/dependency-check';
 import type { EdgeKind, GraphCluster, GraphEdge, GraphNode } from '$lib/graph/types.js';
 import type { TaskDependencyEdge } from '$lib/server/tasks/explorer-loader.js';
 
@@ -280,7 +281,7 @@ export function tasksToGraph(
       const blockers = incomingBlockers.get(task.id) ?? [];
       const stillBlocked = blockers.some((bid) => {
         const blocker = byId.get(bid);
-        return blocker ? blocker.status !== 'done' : false;
+        return !isReadinessDependencySatisfied(blocker?.status);
       });
       if (stillBlocked) {
         projected.meta = { ...projected.meta, blocked: true };

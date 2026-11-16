@@ -7,7 +7,7 @@
  * Acceptance criteria (T1199):
  * - `priority` is copied from the task record
  * - `depends` reflects the raw direct dependency IDs
- * - `blockedBy` contains only open (non-done/non-cancelled) deps
+ * - `blockedBy` contains only execution blockers (only done/archived satisfy)
  * - `ready` is true when blockedBy is empty AND status is pending/active
  * - `ready` is false for tasks blocked by open deps
  * - Existing consumers (id/title/status/type/children) are unchanged
@@ -93,13 +93,13 @@ describe('FlatTreeNode dependency metadata (T1199)', () => {
       expect(tree[0]!.blockedBy).toEqual([]);
     });
 
-    it('is empty when all deps are cancelled', async () => {
+    it('retains cancelled prerequisites as blockers', async () => {
       await seed([
         { id: 'T001', status: 'cancelled' },
         { id: 'T002', depends: ['T001'] },
       ]);
       const { tree } = await coreTaskTree(env.tempDir, 'T002');
-      expect(tree[0]!.blockedBy).toEqual([]);
+      expect(tree[0]!.blockedBy).toEqual(['T001']);
     });
 
     it('contains pending dep IDs that are still open', async () => {

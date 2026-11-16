@@ -428,7 +428,7 @@ export function topologicalSort(tasks: Task[]): string[] | null {
 
 /**
  * Walk upstream recursively through a task's dependency chain.
- * Returns all non-done/non-cancelled/non-archived dependency IDs (deduplicated).
+ * Returns unresolved execution dependency IDs, including missing identities (deduplicated).
  * Uses a visited set for cycle protection.
  *
  * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
@@ -448,11 +448,7 @@ export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
     const t = taskMap.get(id);
     if (!t?.depends?.length) return;
 
-    for (const depId of t.depends) {
-      const dep = taskMap.get(depId);
-      if (!dep) continue;
-      if (dep.status === 'done' || dep.status === 'cancelled' || dep.status === 'archived')
-        continue;
+    for (const depId of getReadinessDependencyBlockers(t.depends, taskMap)) {
       blockers.add(depId);
       walk(depId);
     }
@@ -464,7 +460,7 @@ export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
 
 /**
  * From the transitive blockers, return only "leaf" blockers — those whose
- * own dependencies are all resolved (done/cancelled/archived) or that have no
+ * own dependencies are execution-ready (done/archived) or that have no
  * dependencies at all. These are the root-cause tasks that need action first.
  *
  * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
@@ -474,15 +470,8 @@ export function getLeafBlockers(taskId: string, tasks: Task[]): string[] {
   if (blockerIds.length === 0) return [];
 
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
-  const completedIds = new Set(
-    tasks
-      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
-      .map((t) => t.id),
-  );
-
   return blockerIds.filter((id) => {
-    const t = taskMap.get(id);
-    if (!t?.depends?.length) return true;
-    return t.depends.every((depId) => completedIds.has(depId));
+    const task = taskMap.get(id);
+    return getReadinessDependencyBlockers(task?.depends, taskMap).length === 0;
   });
 }

@@ -18,11 +18,25 @@
  * @see ADR-077-human-render-contract.md
  */
 
-import type { TreeResponse } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TaskStatus, TreeResponse } from '@cleocode/contracts';
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { reasonWhy } from '../../memory/brain-reasoning.js';
+import { getCriticalPath } from '../../orchestration/critical-path.js';
+import { collectOrchestrateDashboard } from '../../orchestration/dashboard.js';
 import { SAGA_GROUPS_RELATION } from '../../sagas/constants.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { getDb, getNativeDb } from '../../store/sqlite.js';
+import * as schema from '../../store/tasks-schema.js';
+import { buildTaskTree } from '../../task-tools/build-task-tree.js';
+import { archiveTasks } from '../archive.js';
+import { computeTaskView, computeTaskViews } from '../compute-task-view.js';
 import { buildGenericTaskTree, type GenericTreeMetadata } from '../generic-tree.js';
+import { showTask } from '../show.js';
+import { coreTaskBlockers } from '../task-blockers.js';
+import { coreTaskContext } from '../task-context.js';
+import { coreTaskDepends, coreTaskDeps, coreTaskRelates } from '../task-data.js';
+import { coreTaskTree } from '../task-tree.js';
 
 let env: TestDbEnv;
 
@@ -289,5 +303,174 @@ describe('buildGenericTaskTree (T10134)', () => {
     await expect(buildGenericTaskTree(env.tempDir, 'T-MISSING')).rejects.toThrow(
       /Task 'T-MISSING' not found/,
     );
+  });
+});
+
+describe('cross-epic readiness metadata shares the execution policy', () => {
+  async function seedDependency(status: TaskStatus): Promise<void> {
+    await seedTasks(env.accessor, [
+      { id: 'T100', type: 'epic' },
+      { id: 'T101', parentId: 'T100', status: status === 'archived' ? 'done' : status },
+      { id: 'T200', type: 'epic' },
+      { id: 'T201', parentId: 'T200', depends: ['T101'] },
+      { id: 'T300', depends: ['T201'] },
+    ]);
+    if (status === 'archived') {
+      expect(await archiveTasks({ taskIds: ['T101'] }, env.tempDir, env.accessor)).toMatchObject({
+        archived: ['T101'],
+      });
+      expect((await env.accessor.queryTasks({})).tasks.map((task) => task.id)).not.toContain(
+        'T101',
+      );
+    }
+  }
+
+  async function assertReadiness(ready: boolean, dependencyId = 'T101'): Promise<void> {
+    const blockedBy = ready ? [] : [dependencyId];
+    expect
+      .soft(await coreTaskDeps(env.tempDir, 'T201'))
+      .toMatchObject({ allDepsReady: ready, unresolvedDeps: blockedBy });
+    expect
+      .soft(await coreTaskDepends(env.tempDir, 'T201'))
+      .toMatchObject({ allDepsReady: ready, unresolvedChain: blockedBy.length });
+    const blockers = await coreTaskBlockers(env.tempDir, { analyze: true });
+    expect.soft(blockers.blockedTasks.some((task) => task.id === 'T201')).toBe(!ready);
+    if (!ready)
+      expect
+        .soft(blockers.blockedTasks.find((task) => task.id === 'T201')?.blockingChain)
+        .toEqual(blockedBy);
+    const tree = await coreTaskTree(env.tempDir, 'T200', true);
+    expect.soft(tree.totalNodes).toBe(2);
+    expect.soft(tree.tree[0]?.children[0]).toMatchObject({
+      id: 'T201',
+      ready,
+      blockedBy,
+      blockerChain: blockedBy,
+      leafBlockers: blockedBy,
+    });
+    const generic = await buildGenericTaskTree(env.tempDir, 'T200', { withBlockers: true });
+    expect.soft(generic.tree.totalNodes).toBe(2);
+    expect
+      .soft(generic.tree.tree.find((node) => node.id === 'T201')?.metadata)
+      .toMatchObject({ ready, blockedBy, blockerChain: blockedBy, leafBlockers: blockedBy });
+    const population = await env.accessor.loadTasks(['T100', 'T101', 'T200', 'T201']);
+    const pure = buildTaskTree(population, 'T200', { withBlockers: true });
+    expect.soft(pure.totalNodes).toBe(2);
+    expect
+      .soft(pure.tree[0]?.children[0])
+      .toMatchObject({ ready, blockedBy, blockerChain: blockedBy, leafBlockers: blockedBy });
+    expect
+      .soft((await coreTaskRelates(env.tempDir, 'T201')).relations)
+      .toContainEqual(
+        expect.objectContaining({ taskId: dependencyId, source: 'dependency', ready }),
+      );
+    const context = await coreTaskContext(env.tempDir, {
+      taskId: 'T201',
+      includeAcceptance: false,
+      includeDocs: false,
+      includeEdges: false,
+      includeActivity: false,
+    });
+    expect
+      .soft(
+        context.blockers
+          ?.filter((blocker) => blocker.kind === 'dependency')
+          .map((blocker) => blocker.taskId) ?? [],
+      )
+      .toEqual(blockedBy);
+    expect
+      .soft(
+        (await showTask('T201', env.tempDir, env.accessor)).unresolvedDeps?.map(
+          (dependency) => dependency.id,
+        ) ?? [],
+      )
+      .toEqual(blockedBy);
+    const view = await computeTaskView('T201', env.accessor);
+    expect.soft(view?.nextAction).toBe(ready ? 'verify' : 'blocked-on-deps');
+    expect.soft(await computeTaskViews(['T201'], env.accessor)).toEqual([view]);
+    const trace = await reasonWhy('T201', env.tempDir, env.accessor);
+    expect.soft(trace.blockers.map((blocker) => blocker.taskId)).toEqual(blockedBy);
+    expect.soft(trace.rootCauses).toEqual(blockedBy);
+    const critical = await getCriticalPath(env.tempDir, env.accessor);
+    expect
+      .soft(critical.path.find((node) => node.taskId === 'T201')?.blockerCount)
+      .toBe(blockedBy.length);
+    const dashboard = await collectOrchestrateDashboard(env.tempDir, {
+      accessor: env.accessor,
+      worktreeStates: [],
+    });
+    const prerequisitePending = population.find((task) => task.id === 'T101')?.status === 'pending';
+    expect.soft(dashboard.queue.ready).toBe(2 + Number(ready) + Number(prerequisitePending));
+  }
+
+  it.each([
+    ['done', true],
+    ['archived', true],
+    ['pending', false],
+    ['active', false],
+    ['blocked', false],
+    ['proposed', false],
+    ['cancelled', false],
+  ] as const)('retains independent %s dependency evidence', async (status, ready) => {
+    await seedDependency(status);
+    const before = (await env.accessor.loadTasks(['T100', 'T101', 'T200', 'T201'])).map(
+      ({ id, parentId, depends }) => ({ id, parentId, depends }),
+    );
+    await assertReadiness(ready);
+    expect(
+      (await env.accessor.loadTasks(['T100', 'T101', 'T200', 'T201'])).map(
+        ({ id, parentId, depends }) => ({ id, parentId, depends }),
+      ),
+    ).toEqual(before);
+  });
+
+  it('keeps genuinely missing persisted prerequisites in every blocker projection', async () => {
+    await seedDependency('done');
+    const db = await getDb(env.tempDir);
+    const native = getNativeDb(env.tempDir);
+    if (!native) throw new Error('Expected canonical fixture handle');
+    native.exec('PRAGMA foreign_keys = OFF');
+    try {
+      await db
+        .update(schema.taskDependencies)
+        .set({ dependsOn: 'T999' })
+        .where(eq(schema.taskDependencies.taskId, 'T201'))
+        .run();
+    } finally {
+      native.exec('PRAGMA foreign_keys = ON');
+    }
+    expect(native.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 });
+    expect(native.prepare('PRAGMA foreign_key_check').all()).toHaveLength(1);
+    await assertReadiness(false, 'T999');
+    expect((await env.accessor.loadSingleTask('T201'))?.depends).toEqual(['T999']);
+  });
+
+  it('propagates a required archive read failure in every store-backed projection', async () => {
+    await seedDependency('archived');
+    const read = vi
+      .spyOn(env.accessor, 'loadTasks')
+      .mockRejectedValue(new Error('dependency evidence unavailable'));
+    try {
+      await expect(coreTaskDeps(env.tempDir, 'T201')).rejects.toThrow(
+        'dependency evidence unavailable',
+      );
+      await expect(coreTaskDepends(env.tempDir, 'T201')).rejects.toThrow(
+        'dependency evidence unavailable',
+      );
+      await expect(coreTaskBlockers(env.tempDir)).rejects.toThrow(
+        'dependency evidence unavailable',
+      );
+      await expect(coreTaskTree(env.tempDir, 'T200')).rejects.toThrow(
+        'dependency evidence unavailable',
+      );
+      await expect(buildGenericTaskTree(env.tempDir, 'T200')).rejects.toThrow(
+        'dependency evidence unavailable',
+      );
+      await expect(coreTaskRelates(env.tempDir, 'T201')).rejects.toThrow(
+        'dependency evidence unavailable',
+      );
+    } finally {
+      read.mockRestore();
+    }
   });
 });

@@ -73,7 +73,7 @@ describe('showTask dependency enrichment', () => {
     expect(result.unresolvedDeps).toBeUndefined();
   });
 
-  it('omits unresolvedDeps when dependencies are cancelled', async () => {
+  it('retains cancelled prerequisites as execution blockers', async () => {
     await seedTasks(accessor, [
       {
         id: 'T001',
@@ -94,7 +94,9 @@ describe('showTask dependency enrichment', () => {
     ]);
 
     const result = await showTask('T002', env.tempDir, accessor);
-    expect(result.unresolvedDeps).toBeUndefined();
+    expect(result.unresolvedDeps).toEqual([
+      { id: 'T001', title: 'Cancelled', status: 'cancelled' },
+    ]);
   });
 
   it('shows only unresolved deps in unresolvedDeps when some are done', async () => {

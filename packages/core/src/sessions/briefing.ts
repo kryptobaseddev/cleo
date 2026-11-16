@@ -44,6 +44,10 @@ import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { truncateString } from '../render/helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 import { rankReadyTasks, resolveRankingPhase } from '../tasks/task-next.js';
 import {
   readLiveFocus,
@@ -353,7 +357,7 @@ export async function computeBriefing(
   // T12684: the one validating focus reader — a pointer to a finished task
   // (archived included, which the task listing below omits) comes back stale.
   // Build task map for quick lookups
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const taskMap = await loadReadinessDependencyLookup(tasks, accessor);
   // T12698: reuse the loaded task map — only an unlisted (archived) pointer
   // costs a lookup.
   const liveFocus = await readLiveFocus(accessor, focusSessionId, taskMap);
@@ -1004,14 +1008,12 @@ async function resolveHandoffFromDocs(
  */
 function computeCurrentTask(
   focus: TaskWorkStateExt | undefined,
-  taskMap: Map<string, unknown>,
+  taskMap: ReadonlyMap<string, Task>,
 ): { current: CurrentTaskInfo | null; stale: StaleFocusPointer | null } {
   const focusTaskId = focus?.currentTask;
   if (!focusTaskId) return { current: null, stale: null };
 
-  const task = taskMap.get(focusTaskId) as
-    | { id: string; title: string; status: string; depends?: string[] }
-    | undefined;
+  const task = taskMap.get(focusTaskId);
   // T12660: a pointer to a done, cancelled, archived or missing task is stale —
   // never the current task.
   const stale = staleFocusPointer(focusTaskId, task?.status);
@@ -1025,10 +1027,7 @@ function computeCurrentTask(
 
   // Check for unresolved dependencies on the focused task
   if (task.depends?.length) {
-    const unresolved = task.depends.filter((depId) => {
-      const dep = taskMap.get(depId) as { status?: string } | undefined;
-      return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-    });
+    const unresolved = getReadinessDependencyBlockers(task.depends, taskMap);
     if (unresolved.length > 0) {
       info.blockedBy = unresolved;
     }
@@ -1169,21 +1168,13 @@ function computeOpenBugs(
  * Compute blocked tasks.
  */
 function computeBlockedTasks(
-  tasks: unknown[],
-  taskMap: Map<string, unknown>,
+  tasks: Task[],
+  taskMap: ReadonlyMap<string, Task>,
   options: { maxBlocked: number; scopeTaskIds?: Set<string>; truncateTitles?: boolean },
 ): BriefingBlockedTask[] {
   const blocked: BriefingBlockedTask[] = [];
 
-  for (const task of tasks) {
-    const t = task as {
-      id: string;
-      title: string;
-      status?: string;
-      depends?: string[];
-      blockedBy?: string;
-    };
-
+  for (const t of tasks) {
     if (options.scopeTaskIds && !options.scopeTaskIds.has(t.id)) continue;
 
     const blockedBy: string[] = [];
@@ -1193,16 +1184,9 @@ function computeBlockedTasks(
       blockedBy.push(t.blockedBy);
     }
 
-    // Check unresolved dependencies
-    if (t.depends && t.depends.length > 0) {
-      for (const depId of t.depends) {
-        const dep = taskMap.get(depId) as { status?: string } | undefined;
-        if (dep && dep.status !== 'done' && dep.status !== 'cancelled') {
-          if (!blockedBy.includes(depId)) {
-            blockedBy.push(depId);
-          }
-        }
-      }
+    // Retain unresolved hard-dependency identities, including missing records.
+    for (const depId of getReadinessDependencyBlockers(t.depends, taskMap)) {
+      if (!blockedBy.includes(depId)) blockedBy.push(depId);
     }
 
     if (blockedBy.length > 0) {
@@ -1247,8 +1231,8 @@ function isTestFixtureEpic(id: string, title: string): boolean {
  * Compute active epics.
  */
 function computeActiveEpics(
-  tasks: unknown[],
-  taskMap: Map<string, unknown>,
+  tasks: Task[],
+  taskMap: ReadonlyMap<string, Task>,
   options: { maxEpics: number; scopeTaskIds?: Set<string>; truncateTitles?: boolean },
 ): BriefingEpic[] {
   const epics: BriefingEpic[] = [];

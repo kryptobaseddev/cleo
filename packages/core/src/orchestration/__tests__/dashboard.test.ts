@@ -101,7 +101,8 @@ function task(id: string, status: Task['status'], depends: string[] = []): Task 
 function accessor(tasks: Task[]): DataAccessor {
   return {
     queryTasks: async () => ({ tasks, total: tasks.length }),
-  } as unknown as DataAccessor;
+    loadTasks: async (ids: string[]) => tasks.filter((task) => ids.includes(task.id)),
+  } as DataAccessor;
 }
 
 function worktreeState(

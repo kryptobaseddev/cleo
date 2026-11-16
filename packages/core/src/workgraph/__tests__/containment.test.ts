@@ -490,3 +490,80 @@ describe('SqliteWorkGraphContainmentQueryService', () => {
     ]);
   });
 });
+
+describe('WorkGraph execution frontier policy', () => {
+  it.each([
+    ['done', true],
+    ['archived', true],
+    ['pending', false],
+    ['active', false],
+    ['blocked', false],
+    ['proposed', false],
+    ['cancelled', false],
+  ] as const)('checks %s hard dependencies without changing containment', (status, ready) => {
+    const db = new FakeDb({
+      frontier: [
+        {
+          root_id: 'E1',
+          id: 'T1',
+          title: 'Work',
+          type: 'task',
+          status: 'pending',
+          priority: 'medium',
+          parent_id: 'E1',
+          depends_on: 'T0',
+          dep_status: status,
+        },
+      ],
+    });
+    const result = createSqliteWorkGraphContainmentQueryService(db).readyFrontier({ rootId: 'E1' });
+    expect(result.groups.ready.map((task) => task.id)).toEqual(ready ? ['T1'] : []);
+    expect(result.groups.blocked.map((task) => task.id)).toEqual(ready ? [] : ['T1']);
+    expect(db.prepared[0]?.sql).toContain('child.parent_id = parent.id');
+  });
+
+  it.each([
+    'blocked',
+    'proposed',
+  ] as const)('keeps stored %s work out of the actionable frontier', (status) => {
+    const db = new FakeDb({
+      frontier: [
+        {
+          root_id: 'E1',
+          id: 'T1',
+          title: 'Work',
+          type: 'task',
+          status,
+          priority: 'medium',
+          parent_id: 'E1',
+          depends_on: null,
+          dep_status: null,
+        },
+      ],
+    });
+    const result = createSqliteWorkGraphContainmentQueryService(db).readyFrontier({ rootId: 'E1' });
+    expect(result.groups.ready).toEqual([]);
+    expect(result.groups.blocked.map((task) => task.id)).toEqual(['T1']);
+  });
+
+  it('rejects a missing dependency assessment instead of returning a ready frontier', () => {
+    const db = new FakeDb({
+      frontier: [
+        {
+          root_id: 'E1',
+          id: 'T1',
+          title: 'Work',
+          type: 'task',
+          status: 'pending',
+          priority: 'medium',
+          parent_id: 'E1',
+          depends_on: 'T999',
+          dep_status: null,
+        },
+      ],
+    });
+    expect(() =>
+      createSqliteWorkGraphContainmentQueryService(db).readyFrontier({ rootId: 'E1' }),
+    ).toThrow('dependency T999 is missing');
+  });
+});

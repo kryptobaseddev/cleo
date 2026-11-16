@@ -7,7 +7,12 @@
 import type { Task, TaskPriority } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDataPath, readJsonFile as storeReadJsonFile } from '../store/file-utils.js';
-import { getLeafBlockers, getTransitiveBlockers } from './dependency-check.js';
+import {
+  getLeafBlockers,
+  getReadinessDependencyBlockers,
+  getTransitiveBlockers,
+  loadReadinessDependencyLookup,
+} from './dependency-check.js';
 
 /** Task record shape expected from the data layer — alias for the contracts Task type. */
 type TaskRecord = Task;
@@ -44,8 +49,8 @@ export interface FlatTreeNode {
   /**
    * Open (unresolved) dependency IDs that are currently blocking this task.
    *
-   * A dependency is considered open when its status is not `"done"` or
-   * `"cancelled"`. Empty when all dependencies are resolved.
+   * Only done/archived dependency records satisfy execution readiness.
+   * Missing and cancelled dependencies remain in this list.
    */
   blockedBy: string[];
   /**
@@ -90,7 +95,7 @@ export interface FlatTreeNode {
  * - `priority`     — copied directly from the task record.
  * - `depends`      — raw direct dependency IDs from the task record.
  * - `blockedBy`    — subset of `depends` whose referenced tasks are not yet
- *                    done or cancelled (i.e. still open).
+ *                    done or archived (missing references remain open).
  * - `ready`        — `true` when `blockedBy` is empty AND the task is in a
  *                    pending or active state.
  * - `blockerChain` — full transitive blocker chain (only when `allTasksFlat`
@@ -121,11 +126,7 @@ export function buildTreeNode(
 
   // Compute dependency fields.
   const depends = task.depends ?? [];
-  const blockedBy = depends.filter((depId) => {
-    const dep = taskMap.get(depId);
-    if (!dep) return false; // unknown dep — treat as resolved
-    return dep.status !== 'done' && dep.status !== 'cancelled';
-  });
+  const blockedBy = getReadinessDependencyBlockers(depends, taskMap);
   const ready = blockedBy.length === 0 && (task.status === 'pending' || task.status === 'active');
 
   // Transitive blocker chain — only computed when allTasksFlat is supplied.
@@ -171,10 +172,7 @@ export function buildUpstreamTree(
     if (!dep) continue;
 
     const depDepends = dep.depends ?? [];
-    const depBlockedBy = depDepends.filter((id) => {
-      const d = taskMap.get(id);
-      return d !== undefined && d.status !== 'done' && d.status !== 'cancelled';
-    });
+    const depBlockedBy = getReadinessDependencyBlockers(depDepends, taskMap);
     const depReady =
       depBlockedBy.length === 0 && (dep.status === 'pending' || dep.status === 'active');
 
@@ -278,7 +276,7 @@ export async function coreTaskTree(
 
   const childrenMap = new Map<string, TaskRecord[]>();
   // Build a flat lookup map so buildTreeNode can resolve dependency status.
-  const taskMap = new Map<string, TaskRecord>(allTasks.map((t) => [t.id, t]));
+  const taskMap = await loadReadinessDependencyLookup(allTasks, accessor);
 
   for (const task of allTasks) {
     const parentKey = task.parentId ?? '__root__';
@@ -297,7 +295,7 @@ export async function coreTaskTree(
 
   // Pass allTasks once when blocker chains are requested so getTransitiveBlockers
   // and getLeafBlockers share the same array reference across all recursive calls.
-  const allTasksFlat = withBlockers ? allTasks : undefined;
+  const allTasksFlat = withBlockers ? [...taskMap.values()] : undefined;
 
   const tree = roots.map((root) => buildTreeNode(root, childrenMap, taskMap, allTasksFlat));
 

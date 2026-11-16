@@ -273,3 +273,27 @@ describe('tasksToEgoGraph', () => {
     expect(result.nodes.map((n) => n.id).sort()).toEqual(['T2', 'T3']);
   });
 });
+
+describe('graph dependency halos share execution status semantics', () => {
+  it.each([
+    ['done', false],
+    ['archived', false],
+    ['cancelled', true],
+    ['pending', true],
+  ] as const)('projects %s prerequisite evidence', (status, blocked) => {
+    const tasks = [
+      mkTask({ id: 'T1', title: 'Prerequisite', status }),
+      mkTask({ id: 'T2', title: 'Work', status: 'pending' }),
+    ];
+    const result = tasksToGraph(tasks, [{ taskId: 'T2', dependsOn: 'T1' }]);
+    expect(result.nodes.find((node) => node.id === 'T2')?.meta?.['blocked'] === true).toBe(blocked);
+  });
+
+  it('keeps missing blocker identities visible', () => {
+    const result = tasksToGraph(
+      [mkTask({ id: 'T2', title: 'Work', status: 'pending' })],
+      [{ taskId: 'T2', dependsOn: 'T999' }],
+    );
+    expect(result.nodes.find((node) => node.id === 'T2')?.meta?.['blocked']).toBe(true);
+  });
+});

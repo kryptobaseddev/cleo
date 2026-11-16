@@ -27,6 +27,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { findHeldTask, SyncHeldError } from '../store/sync/held.js';
 import { computeTaskView } from './compute-task-view.js';
+import { isReadinessDependencySatisfied } from './dependency-check.js';
 import { type LifecycleStageEntry, taskToRecord } from './engine-converters.js';
 
 /**
@@ -185,9 +186,9 @@ export async function showTask(
         };
       });
 
-      // Add unresolvedDeps: only unresolved dependencies (not done/cancelled)
+      // Execution blockers retain cancelled and missing prerequisite evidence.
       const unresolved = detail.dependencyStatus.filter(
-        (d) => d.status !== 'done' && d.status !== 'cancelled',
+        (dependency) => !isReadinessDependencySatisfied(dependency.status),
       );
       if (unresolved.length > 0) {
         detail.unresolvedDeps = unresolved;

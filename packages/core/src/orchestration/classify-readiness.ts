@@ -34,6 +34,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
+import { getReadyTasks } from '../tasks/dependency-check.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -339,19 +340,7 @@ function hasAmbiguousScope(
  * @param children - Direct child tasks of the epic.
  */
 function hasReadyFrontier(children: Task[]): boolean {
-  const terminalStatuses = new Set(['done', 'cancelled', 'archived']);
-  const satisfiedStatuses = new Set(['done', 'archived']);
-
-  const childMap = new Map(children.map((c) => [c.id, c]));
-
-  return children.some((child) => {
-    if (terminalStatuses.has(child.status)) return false;
-    const deps = child.depends ?? [];
-    return deps.every((depId) => {
-      const dep = childMap.get(depId);
-      return dep !== undefined && satisfiedStatuses.has(dep.status);
-    });
-  });
+  return getReadyTasks(children).length > 0;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

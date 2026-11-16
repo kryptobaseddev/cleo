@@ -12,3 +12,8 @@ Saga traversal preserves failed readiness reads, and `saga next` emits an error
 envelope and unsuccessful exit instead of wrapping a failure in success output.
 Legacy startup and scoped sentient selection use the same canonical dependency
 evidence, including archived prerequisites and required read failures.
+
+Start/pivot/update admission, dependency details, trees, frontier groups, task
+view execution hints, focus/briefing and blocker diagnostics share the same
+readiness predicate. Completion retains its separate terminal cancellation
+policy; cancellation forecasts no longer advertise dependent work as unblocked.

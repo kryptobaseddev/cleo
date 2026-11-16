@@ -27,6 +27,10 @@ import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, nexusSchema } from '../store/nexus-sqlite.js';
 import type { BrainDecisionRow } from '../store/schema/memory-schema.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 import type { BrainDecisionNode } from './brain-row-types.js';
 import { searchBrain } from './brain-search.js';
 import { searchSimilar } from './brain-similarity.js';
@@ -72,9 +76,7 @@ export async function reasonWhy(
 ): Promise<CausalTrace> {
   const acc = taskAccessor ?? (await getTaskAccessor(projectRoot));
   const { tasks: reasonTasks } = await acc.queryTasks({});
-  const taskMap = new Map(reasonTasks.map((t) => [t.id, t]));
-
-  const completedStatuses = new Set(['done', 'cancelled']);
+  const taskMap = await loadReadinessDependencyLookup(reasonTasks, acc);
 
   let accessor: Awaited<ReturnType<typeof getBrainAccessor>> | null = null;
   try {
@@ -100,10 +102,7 @@ export async function reasonWhy(
     if (!task) return;
 
     // Collect unresolved dependencies
-    const unresolvedDeps = (task.depends ?? []).filter((depId) => {
-      const dep = taskMap.get(depId);
-      return dep && !completedStatuses.has(dep.status);
-    });
+    const unresolvedDeps = getReadinessDependencyBlockers(task.depends, taskMap);
 
     if (unresolvedDeps.length === 0 && id !== taskId) {
       // This is a leaf blocker — no further unresolved deps
@@ -113,7 +112,7 @@ export async function reasonWhy(
     for (const depId of unresolvedDeps) {
       if (visited.has(depId)) continue;
 
-      const dep = taskMap.get(depId)!;
+      const dep = taskMap.get(depId);
 
       // Query brain decisions related to this blocker
       let decisions: BrainDecisionNode[] = [];
@@ -128,8 +127,8 @@ export async function reasonWhy(
 
       blockers.push({
         taskId: depId,
-        status: dep.status,
-        reason: dep.blockedBy ?? undefined,
+        status: dep?.status ?? 'missing',
+        reason: dep?.blockedBy ?? undefined,
         decisions,
       });
 
@@ -145,10 +144,9 @@ export async function reasonWhy(
     .filter((b) => {
       const task = taskMap.get(b.taskId);
       if (!task?.depends?.length) return true;
-      return task.depends.every((depId) => {
-        const dep = taskMap.get(depId);
-        return !dep || completedStatuses.has(dep.status) || !blockerIds.has(depId);
-      });
+      return getReadinessDependencyBlockers(task.depends, taskMap).every(
+        (depId) => !blockerIds.has(depId),
+      );
     })
     .map((b) => b.taskId);
 

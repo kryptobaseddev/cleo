@@ -58,7 +58,7 @@ function cli(args: readonly string[], expectedExit = 0): string {
 }
 
 describe.skipIf(!built)('cross-epic dependency readiness through the compiled CLI', () => {
-  it('emits a failed envelope and exit code when saga readiness cannot be assessed', () => {
+  it('emits the canonical failed envelope and exit code for an unknown saga', () => {
     expect(JSON.parse(cli(['saga', 'next', 'T999'], 4))).toMatchObject({
       success: false,
       error: { code: 4, codeName: 'E_NOT_FOUND' },

@@ -33,6 +33,7 @@ import type {
   WorkGraphTreeOptions,
   WorkGraphTreeResult,
 } from '@cleocode/contracts';
+import { isReadinessDependencySatisfied } from '../tasks/dependency-check.js';
 
 type TaskRow = {
   id: string;
@@ -90,7 +91,6 @@ const VERIFICATION_GATE_ORDER: readonly VerificationGate[] = [
   'documented',
   'nexusImpact',
 ];
-const DEPENDENCY_READY_STATUSES: ReadonlySet<WorkGraphTaskStatus> = new Set(['done', 'cancelled']);
 
 export interface SqliteWorkGraphContainmentReader {
   prepare(sql: string): {
@@ -189,10 +189,15 @@ function groupReadyFrontierRows(
         gateBlockers: parseGateBlockers(row.verification_json),
       } satisfies WorkGraphReadyFrontierTask);
 
+    if (row.depends_on !== null && row.dep_status === null) {
+      // @sync-invariant none:local-only Read-only frontier refuses missing dependency evidence.
+      throw new Error(`Cannot assess ${row.id}: dependency ${row.depends_on} is missing`);
+    }
+
     if (
       row.depends_on !== null &&
       row.dep_status !== null &&
-      !DEPENDENCY_READY_STATUSES.has(row.dep_status) &&
+      !isReadinessDependencySatisfied(row.dep_status) &&
       !task.dependencyBlockers.some((blocker) => blocker.taskId === row.depends_on)
     ) {
       byTask.set(row.id, {
@@ -209,8 +214,13 @@ function groupReadyFrontierRows(
   }
 
   const tasks = [...byTask.values()];
-  const ready = tasks.filter((task) => task.dependencyBlockers.length === 0);
-  const blocked = tasks.filter((task) => task.dependencyBlockers.length > 0);
+  const ready = tasks.filter(
+    (task) =>
+      (task.status === 'pending' || task.status === 'active') &&
+      task.dependencyBlockers.length === 0,
+  );
+  const readyIds = new Set(ready.map((task) => task.id));
+  const blocked = tasks.filter((task) => !readyIds.has(task.id));
 
   return { rootId, role, groups: { ready, blocked, blockedBy: rollupBlockedBy(tasks) } };
 }
@@ -465,7 +475,9 @@ ORDER BY sort_cursor ASC`;
 
   /**
    * Group runnable frontier descendants by dependency readiness while preserving
-   * gate metadata for verification diagnostics.
+   * gate metadata for verification diagnostics. Missing dependency records
+   * reject the assessment; cancelled prerequisites and non-actionable statuses
+   * remain blocked without changing containment.
    */
   readyFrontier(options: WorkGraphReadyFrontierOptions): WorkGraphReadyFrontierResult {
     const roleFilter = options.role === undefined ? '' : 'AND t.role = ?';

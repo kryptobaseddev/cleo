@@ -43,6 +43,7 @@ import { orchestrateReady } from '@cleocode/core/orchestrate/query-ops';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { isSagaType } from '@cleocode/core/sagas/is-saga-type';
 import { createAttachmentStore } from '@cleocode/core/store/attachment-store';
+import { isReadinessDependencySatisfied } from '@cleocode/core/tasks/dependency-check';
 import { taskRelates } from '@cleocode/core/tasks/engine-wrap';
 import { taskShow } from '@cleocode/core/tasks/show';
 import { lafsSuccess } from '../adapters/typed.js';
@@ -377,16 +378,16 @@ async function buildFocusEnvelope(
           reasons: ['A dependency record could not be assessed.'],
           evidence: [],
         };
-      if (dRes?.success && dRes.data) {
-        const s = dRes.data.task.status;
-        if (s !== 'done' && s !== 'cancelled') {
-          unresolvedDepends.push(depId);
-          blockers.push({
-            id: depId,
-            title: dRes.data.task.title,
-            reason: `dependency not resolved (status: ${s})`,
-          });
-        }
+      const dependency = dRes?.success ? dRes.data?.task : undefined;
+      if (!isReadinessDependencySatisfied(dependency?.status)) {
+        unresolvedDepends.push(depId);
+        blockers.push({
+          id: depId,
+          title: dependency?.title ?? 'Unknown task',
+          reason: dependency
+            ? `dependency not resolved (status: ${dependency.status})`
+            : 'dependency readiness could not be assessed',
+        });
       }
     }
   }

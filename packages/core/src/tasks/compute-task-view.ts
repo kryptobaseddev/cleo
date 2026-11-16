@@ -20,7 +20,8 @@
  *   - `readyToComplete` requires all required gates green, no blocking deps,
  *     and non-terminal status.
  *   - `nextAction` is derived via a priority ladder so agents always know what
- *     to do next without extra logic in the caller.
+ *     to do next without extra logic in the caller. Dependency execution hints
+ *     share the spawn policy; completion retains its separate cancellation policy.
  *
  * @task T943
  */
@@ -37,6 +38,7 @@ import type {
 } from '@cleocode/contracts';
 import { getNativeTasksDb } from '../store/sqlite.js';
 import { claimClockNow, LIVE_CLAIM_SQL } from '../store/task-claim.js';
+import { getReadinessDependencyBlockers } from './dependency-check.js';
 import { describeGateNotes, profileGateNotes } from './gate-notes.js';
 
 // =============================================================================
@@ -255,7 +257,7 @@ function deriveGatesStatus(task: Task): TaskViewGatesStatus {
  * Conditions (all must hold):
  *   1. Status is not already terminal.
  *   2. Required gates `implemented`, `testsPassed`, `qaPassed` are all `true`.
- *   3. No unresolved `depends` entries (all deps are `done` or `cancelled`).
+ *   3. No unresolved `depends` entries (all deps are `done`, `cancelled` or `archived`).
  */
 function deriveReadyToComplete(
   task: Task,
@@ -289,13 +291,12 @@ function deriveNextAction(
   gatesStatus: TaskViewGatesStatus,
   childRollup: TaskViewChildRollup,
   lifecycleProgress: TaskViewLifecycleProgress,
-  resolvedDeps: Set<string>,
+  unresolvedDeps: readonly string[],
 ): TaskViewNextAction {
   // 1. Terminal status — nothing to do.
   if (TERMINAL_STATUSES.has(task.status)) return 'already-complete';
 
   // 2. Blocked on dependencies.
-  const unresolvedDeps = (task.depends ?? []).filter((id) => !resolvedDeps.has(id));
   if (unresolvedDeps.length > 0) return 'blocked-on-deps';
 
   // 3. Awaiting children (epic-level task with active/pending children).
@@ -391,8 +392,12 @@ export async function computeTaskViews(
     for (const depId of task.depends ?? []) allDepIds.add(depId);
   }
   const depTasks = allDepIds.size > 0 ? await accessor.loadTasks(Array.from(allDepIds)) : [];
+  const dependencyLookup = new Map(depTasks.map((dependency) => [dependency.id, dependency]));
+  // Completion keeps its terminal cancellation policy; execution hints use the shared readiness rule.
   const resolvedDepIds = new Set(
-    depTasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    depTasks
+      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
+      .map((t) => t.id),
   );
 
   const views: TaskView[] = [];
@@ -418,7 +423,7 @@ export async function computeTaskViews(
       gatesStatus,
       childRollup,
       lifecycleProgress,
-      resolvedDepIds,
+      getReadinessDependencyBlockers(task.depends, dependencyLookup),
     );
 
     views.push({
@@ -448,8 +453,12 @@ async function buildViewFromTask(task: Task, accessor: DataAccessor): Promise<Ta
   // Resolve dependency statuses.
   const depTasks =
     (task.depends ?? []).length > 0 ? await accessor.loadTasks(task.depends ?? []) : [];
+  const dependencyLookup = new Map(depTasks.map((dependency) => [dependency.id, dependency]));
+  // Completion keeps its terminal cancellation policy; execution hints use the shared readiness rule.
   const resolvedDepIds = new Set(
-    depTasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    depTasks
+      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
+      .map((t) => t.id),
   );
 
   const childRollup: TaskViewChildRollup = childMap.get(task.id) ?? {
@@ -470,7 +479,7 @@ async function buildViewFromTask(task: Task, accessor: DataAccessor): Promise<Ta
     gatesStatus,
     childRollup,
     lifecycleProgress,
-    resolvedDepIds,
+    getReadinessDependencyBlockers(task.depends, dependencyLookup),
   );
 
   return {
