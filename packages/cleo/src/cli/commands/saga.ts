@@ -27,7 +27,12 @@
 
 import { parseAcceptanceCriteria } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
+import {
+  dispatchFromCli,
+  dispatchRaw,
+  ERROR_CODE_TO_EXIT,
+  handleRawError,
+} from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 /** cleo saga create — create a new Saga (type='saga') */
@@ -312,7 +317,7 @@ const nextCommand = defineCommand({
       typeof args.sagaId === 'string' && args.sagaId.length > 0 ? args.sagaId : undefined;
     const result = await sagas.sagaNext(projectRoot, { sagaId });
     if (!result.success) {
-      const exitCode = result.error.exitCode ?? 1;
+      const exitCode = result.error.exitCode ?? ERROR_CODE_TO_EXIT[result.error.code] ?? 1;
       cliError(
         result.error.message,
         exitCode,

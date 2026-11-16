@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 /** Run the real CLI with only fixture-owned project and global stores. */
-function cli(args: readonly string[], failure = false): string {
+function cli(args: readonly string[], expectedExit = 0): string {
   const run = spawnSync(process.execPath, [cliPath, ...args], {
     cwd: fixture.tempDir,
     env: {
@@ -53,16 +53,15 @@ function cli(args: readonly string[], failure = false): string {
   });
   expect(run.error, args.join(' ')).toBeUndefined();
   expect(run.signal, args.join(' ')).toBeNull();
-  if (failure) expect(run.status, `${args.join(' ')}: ${run.stdout}`).not.toBe(0);
-  else expect(run.status, `${args.join(' ')}: ${run.stderr}\n${run.stdout}`).toBe(0);
+  expect(run.status, `${args.join(' ')}: ${run.stderr}\n${run.stdout}`).toBe(expectedExit);
   return run.stdout;
 }
 
 describe.skipIf(!built)('cross-epic dependency readiness through the compiled CLI', () => {
   it('emits a failed envelope and exit code when saga readiness cannot be assessed', () => {
-    expect(JSON.parse(cli(['saga', 'next', 'T999'], true))).toMatchObject({
+    expect(JSON.parse(cli(['saga', 'next', 'T999'], 4))).toMatchObject({
       success: false,
-      error: { codeName: 'E_NOT_FOUND' },
+      error: { code: 4, codeName: 'E_NOT_FOUND' },
     });
   });
 

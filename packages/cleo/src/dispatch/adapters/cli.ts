@@ -69,9 +69,8 @@ function reportDeferredHooks(...outcomes: readonly HookDispatchOutcome[]): void 
   });
 }
 
-// Reverse mapping from string error codes to numeric exit codes.
-// Used when dispatch handlers return string error codes without exitCode.
-const ERROR_CODE_TO_EXIT: Record<string, number> = {
+/** Canonical CLI exit codes for engine failures without an explicit numeric exit code. */
+export const ERROR_CODE_TO_EXIT: Readonly<Record<string, number>> = {
   E_NOT_FOUND: 4,
   E_INVALID_INPUT: 2,
   E_FILE_ERROR: 3,
