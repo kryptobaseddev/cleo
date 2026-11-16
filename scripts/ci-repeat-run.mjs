@@ -12,6 +12,8 @@
  * non-zero exit. `$REPEAT_OUT/repeat-report.json` records the test, the count,
  * the commit and every run's counts; `cleo verify … ci-run:<runId>` reads it
  * to cross-check the run's title (T14149).
+ * Branch runs may set REPEAT_TEST_NAME to repeat a particular test; main
+ * always runs the whole file so its ci-run evidence keeps the same coverage.
  *
  * @task T14149
  */
@@ -93,14 +95,18 @@ function main() {
     isTrackedInRepo,
   );
   if (!input.ok) fail(input.reason);
-  if (process.env.GITHUB_REF && process.env.GITHUB_REF !== 'refs/heads/main')
-    fail(`runs only on refs/heads/main, not ${process.env.GITHUB_REF}`);
+  if (process.env.GITHUB_REF && !process.env.GITHUB_REF.startsWith('refs/heads/'))
+    fail(`runs only on branch refs, not ${process.env.GITHUB_REF}`);
+  const testName = process.env.REPEAT_TEST_NAME?.trim();
+  if (testName && process.env.GITHUB_REF === 'refs/heads/main')
+    fail('main repeats the full file for ci-run evidence; select a test name on a PR branch');
   if (mode === 'validate') return;
   if (mode !== 'run') fail('usage: ci-repeat-run.mjs validate|run');
   const out = process.env.REPEAT_OUT ?? join(process.cwd(), '.repeat-run');
   mkdirSync(out, { recursive: true });
   const report = {
     test: input.test,
+    testName: testName || null,
     runs: input.runs,
     sha: process.env.GITHUB_SHA ?? null,
     runId: process.env.GITHUB_RUN_ID ? Number(process.env.GITHUB_RUN_ID) : null,
@@ -110,11 +116,9 @@ function main() {
     writeFileSync(join(out, 'repeat-report.json'), `${JSON.stringify(report, null, 2)}\n`);
   for (let i = 1; i <= input.runs; i++) {
     const file = join(out, `run-${i}.json`);
-    const child = spawnSync(
-      'pnpm',
-      ['exec', 'vitest', 'run', input.test, '--reporter=json', `--outputFile=${file}`],
-      { stdio: ['ignore', 'ignore', 'inherit'] },
-    );
+    const args = ['exec', 'vitest', 'run', input.test, '--reporter=json', `--outputFile=${file}`];
+    if (testName) args.push('--testNamePattern', testName);
+    const child = spawnSync('pnpm', args, { stdio: ['ignore', 'ignore', 'inherit'] });
     let counts = { numTotalTests: 0, numPassedTests: 0, numFailedTests: 0, files: [] };
     try {
       counts = runCounts(JSON.parse(readFileSync(file, 'utf8')));
