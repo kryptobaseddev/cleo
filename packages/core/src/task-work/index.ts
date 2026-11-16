@@ -128,7 +128,21 @@ export async function assertTaskStartable(acc: DataAccessor, taskId: string): Pr
       ExitCode.DEPENDENCY_ERROR,
       `Task ${taskId} is blocked by unresolved dependencies: ${unresolvedDeps.join(', ')}`,
       {
-        fix: `Complete blockers first: ${unresolvedDeps.map((d) => `cleo complete ${d}`).join(', ')}`,
+        fix: unresolvedDeps
+          .map((id) => {
+            const dependency = dependencyLookup.get(id);
+            if (!dependency) {
+              return `Missing dependency ${id}: locate it with cleo find "${id}" --include-archive; restore the record or correct the dependency after verifying its identity`;
+            }
+            if (dependency.status === 'cancelled') {
+              return `Restore cancelled dependency ${id} with cleo restore task ${id} and finish its work, or review the dependency if cancellation is intentional`;
+            }
+            if (dependency.status === 'proposed') {
+              return `Review proposed dependency ${id} before accepting and finishing its work`;
+            }
+            return `Finish dependency ${id} (${dependency.status}), then run cleo complete ${id}`;
+          })
+          .join('; '),
       },
     );
   }

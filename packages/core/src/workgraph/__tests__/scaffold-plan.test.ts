@@ -34,6 +34,33 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
   } as Task;
 }
 
+async function seedReadinessSaga(status: Task['status'] = 'done') {
+  const { createTask } = await import('../../store/tasks-sqlite.js');
+  for (const task of [
+    makeTask({ id: 'T98000', type: 'saga' }),
+    makeTask({ id: 'T98001', type: 'epic', parentId: 'T98000' }),
+    makeTask({ id: 'T98002', type: 'epic' }),
+    makeTask({
+      id: 'T98003',
+      parentId: 'T98002',
+      status: status === 'archived' ? 'done' : status,
+      ...(status === 'cancelled' ? { pipelineStage: 'cancelled' } : {}),
+    }),
+    makeTask({ id: 'T98004', parentId: 'T98001', depends: ['T98003'] }),
+  ]) {
+    await createTask(task);
+  }
+  if (status === 'active') leaseTestTasks(['T98003']);
+  const { getTaskAccessor } = await import('../../store/data-accessor.js');
+  const accessor = await getTaskAccessor(tempDir);
+  if (status === 'archived') {
+    const { archiveTasks } = await import('../../tasks/archive.js');
+    await archiveTasks({ taskIds: ['T98003'] }, tempDir, accessor);
+    expect((await accessor.queryTasks({})).tasks.map((task) => task.id)).not.toContain('T98003');
+  }
+  return accessor;
+}
+
 // ---------------------------------------------------------------------------
 // Isolated DB setup
 // ---------------------------------------------------------------------------
@@ -76,6 +103,95 @@ describe('WorkGraph planning doc generator', () => {
     await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  describe('cross-epic execution readiness', () => {
+    it.each([
+      ['done', true],
+      ['archived', true],
+      ['pending', false],
+      ['active', false],
+      ['blocked', false],
+      ['proposed', false],
+      ['cancelled', false],
+    ] as const)('assesses an external %s prerequisite', async (status, ready) => {
+      await seedReadinessSaga(status);
+      const { generatePlanningDoc } = await import('../scaffold-plan.js');
+      const result = await generatePlanningDoc(tempDir, { sagaId: 'T98000' });
+      expect(result.readyTasks.map((task) => task.id)).toEqual(ready ? ['T98004'] : []);
+      expect(result.blockedTasks.map((task) => [task.id, task.blockedBy])).toEqual(
+        ready ? [] : [['T98004', ['T98003']]],
+      );
+      expect(result.epics).toMatchObject([{ epicId: 'T98001', totalChildren: 1 }]);
+    });
+
+    it('retains a genuinely missing prerequisite identity without repairing its edge', async () => {
+      const accessor = await seedReadinessSaga();
+      const { getNativeDb } = await import('../../store/sqlite.js');
+      const native = getNativeDb(tempDir);
+      if (!native) throw new Error('Fixture database unavailable');
+      native.exec('PRAGMA foreign_keys = OFF');
+      try {
+        native
+          .prepare('UPDATE tasks_task_dependencies SET depends_on = ? WHERE task_id = ?')
+          .run('T999', 'T98004');
+      } finally {
+        native.exec('PRAGMA foreign_keys = ON');
+      }
+      expect(native.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 });
+      expect(native.prepare('PRAGMA foreign_key_check').all()).toHaveLength(1);
+      const { generatePlanningDoc } = await import('../scaffold-plan.js');
+      const result = await generatePlanningDoc(tempDir, { sagaId: 'T98000' });
+      expect(result.readyTasks).toEqual([]);
+      expect(result.blockedTasks).toMatchObject([{ id: 'T98004', blockedBy: ['T999'] }]);
+      expect((await accessor.loadSingleTask('T98004'))?.depends).toEqual(['T999']);
+    });
+
+    it('propagates a required external dependency read failure', async () => {
+      const accessor = await seedReadinessSaga('archived');
+      const accessors = await import('../../store/data-accessor.js');
+      vi.spyOn(accessors, 'getTaskAccessor').mockResolvedValue(accessor);
+      const original = accessor.loadTasks.bind(accessor);
+      vi.spyOn(accessor, 'loadTasks').mockImplementation(async (ids) => {
+        if (ids.includes('T98003')) throw new Error('required prerequisite read failed');
+        return original(ids);
+      });
+      const { generatePlanningDoc } = await import('../scaffold-plan.js');
+      await expect(generatePlanningDoc(tempDir, { sagaId: 'T98000' })).rejects.toThrow(
+        'required prerequisite read failed',
+      );
+    });
+
+    it('lists only unmet identities and preserves manual blocked and proposed states', async () => {
+      await seedReadinessSaga();
+      const { createTask } = await import('../../store/tasks-sqlite.js');
+      for (const task of [
+        makeTask({ id: 'T98005', parentId: 'T98002' }),
+        makeTask({ id: 'T98006', parentId: 'T98001', depends: ['T98003', 'T98005'] }),
+        makeTask({
+          id: 'T98007',
+          parentId: 'T98001',
+          status: 'blocked',
+          depends: ['T98003'],
+        }),
+        makeTask({
+          id: 'T98008',
+          parentId: 'T98001',
+          status: 'proposed',
+          depends: ['T98003'],
+        }),
+      ]) {
+        await createTask(task);
+      }
+      const { generatePlanningDoc } = await import('../scaffold-plan.js');
+      const result = await generatePlanningDoc(tempDir, { sagaId: 'T98000' });
+      expect(result.readyTasks.map((task) => task.id)).toEqual(['T98004']);
+      expect(result.blockedTasks).toMatchObject([
+        { id: 'T98006', blockedBy: ['T98005'] },
+        { id: 'T98007', status: 'blocked', blockedBy: [] },
+      ]);
+      expect(result.epics).toMatchObject([{ epicId: 'T98001', totalChildren: 4 }]);
+    });
   });
 
   // -----------------------------------------------------------------------

@@ -5,22 +5,25 @@
  * (dashboard panel + 3-tab Task Explorer: Hierarchy / Graph / Kanban).
  *
  * All three Explorer tabs project from the SAME {@link ExplorerBundle}, so
- * only ONE DB round-trip is issued per SvelteKit page load. Switching tabs
+ * one bundle is issued per SvelteKit page load. Switching tabs
  * client-side does not re-query the server.
  *
  * Reference spec: `docs/spec/cleo-task-dashboard.md` §3 / §5.
  *
  * ## Query budget (per `loadExplorerBundle` call)
  *
- * Four prepared statements execute per load:
+ * Two prepared statements execute per load, plus one when prerequisite
+ * records lie outside the displayed task set:
  *
  * 1. `SELECT … FROM tasks_tasks WHERE status != 'archived'` (or unfiltered when
  *    `includeArchived`) — the node set.
  * 2. `SELECT task_id, depends_on FROM tasks_task_dependencies` — the edge set.
- * 3. Epic rollup is computed **in-memory** from the already-loaded task set
+ * 3. Exact external prerequisite identities are loaded separately, including
+ *    archives, without affecting displayed nodes, labels or child counts.
+ * Epic rollup is computed **in-memory** from the already-loaded task set
  *    (walk `parentId` pointers once to build a `parent -> children[]`
  *    adjacency, then sum per epic). This adds zero SQL round-trips.
- * 4. Distinct labels are aggregated in the same single pass over tasks.
+ * Distinct labels are aggregated in the same single pass over tasks.
  *
  * ## Epic progress semantics (preserved from T874)
  *
@@ -44,6 +47,7 @@
 
 import type { Task, TaskPriority, TaskStatus, TaskType } from '@cleocode/contracts';
 import { derivedStatusSqlAt } from '@cleocode/core/store/task-claim';
+import { parseBlockedBy } from '../../graph/adapters/tasks-adapter.js';
 import { getTasksDb } from '../db/connections.js';
 import type { ProjectContext } from '../project-context.js';
 
@@ -93,7 +97,9 @@ export interface EpicProgressBucket {
 export interface ExplorerBundle {
   /** All non-archived tasks for the current project context. */
   tasks: Task[];
-  /** All dependency edges (task_dependencies table). */
+  /** Prerequisite statuses, including external archives, without expanding displayed tasks. */
+  dependencyStatuses: Record<string, TaskStatus>;
+  /** Hard edges from displayed tasks, retaining prerequisite IDs outside the node set. */
   deps: TaskDependencyEdge[];
   /** Epic hierarchy rollup: `{ epicId -> { total, done, cancelled, active } }`. */
   epicProgress: Record<string, EpicProgressBucket>;
@@ -101,6 +107,8 @@ export interface ExplorerBundle {
   labels: string[];
   /** Snapshot timestamp (ISO) for UI freshness indicator. */
   loadedAt: string;
+  /** A composite page can retain its dashboard while marking Explorer evidence unavailable. */
+  error?: string;
 }
 
 /**
@@ -381,6 +389,7 @@ const tasksSelectColumns = (): string => `
 function emptyBundle(): ExplorerBundle {
   return {
     tasks: [],
+    dependencyStatuses: {},
     deps: [],
     epicProgress: {},
     labels: [],
@@ -435,22 +444,42 @@ export async function loadExplorerBundle(opts: LoadExplorerOptions): Promise<Exp
 
     const tasks = taskRows.map(rowToTask);
 
-    // Dependency edges are loaded in full; filtering by the loaded id-set
-    // below keeps the Explorer's graph view consistent with its node set.
+    // Retain declared prerequisite identities even when their nodes are not displayed.
     const depRows = db
       .prepare('SELECT task_id, depends_on FROM tasks_task_dependencies')
       .all() as DependencyRowSqlite[];
 
     const loadedIds = new Set(tasks.map((t) => t.id));
     const deps: TaskDependencyEdge[] = depRows
-      .filter((r) => loadedIds.has(r.task_id) && loadedIds.has(r.depends_on))
+      .filter((r) => loadedIds.has(r.task_id))
       .map((r) => ({ taskId: r.task_id, dependsOn: r.depends_on }));
+    const externalIds = [
+      ...new Set([
+        ...deps.map((edge) => edge.dependsOn),
+        ...tasks.flatMap((task) => parseBlockedBy(task.blockedBy)),
+      ]),
+    ].filter((id) => !loadedIds.has(id));
+    const externalRows =
+      externalIds.length > 0
+        ? (db
+            .prepare(
+              `SELECT ${tasksSelectColumns()}
+               FROM tasks_tasks
+               WHERE id IN (SELECT value FROM json_each(?))
+               ORDER BY id ASC`,
+            )
+            .all(JSON.stringify(externalIds)) as TaskRowSqlite[])
+        : [];
+    const dependencyStatuses = Object.fromEntries<TaskStatus>(
+      [...tasks, ...externalRows.map(rowToTask)].map((task) => [task.id, task.status]),
+    );
 
     const epicProgress = _computeEpicProgressRollup(tasks);
     const labels = _collectDistinctLabels(tasks);
 
     return {
       tasks,
+      dependencyStatuses,
       deps,
       epicProgress,
       labels,

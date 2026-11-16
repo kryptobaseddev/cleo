@@ -280,16 +280,22 @@ describe('graph dependency halos share execution status semantics', () => {
     ['archived', false],
     ['cancelled', true],
     ['pending', true],
+    ['active', true],
+    ['blocked', true],
+    ['proposed', true],
   ] as const)('projects %s prerequisite evidence', (status, blocked) => {
-    const tasks = [
-      mkTask({ id: 'T1', title: 'Prerequisite', status }),
-      mkTask({ id: 'T2', title: 'Work', status: 'pending' }),
-    ];
-    const result = tasksToGraph(tasks, [{ taskId: 'T2', dependsOn: 'T1' }]);
+    const dependent = mkTask({ id: 'T2', title: 'Work', status: 'pending' });
+    const tasks = [mkTask({ id: 'T1', title: 'Prerequisite', status }), dependent];
+    const result = tasksToGraph([dependent], [{ taskId: 'T2', dependsOn: 'T1' }], {
+      dependencyStatuses: Object.fromEntries<TaskStatus>(
+        tasks.map((task) => [task.id, task.status]),
+      ),
+    });
+    expect(result.nodes.map((node) => node.id)).toEqual(['T2']);
     expect(result.nodes.find((node) => node.id === 'T2')?.meta?.['blocked'] === true).toBe(blocked);
   });
 
-  it('marks work blocked when supplied prerequisite evidence is missing', () => {
+  it('marks work blocked when prerequisite evidence is genuinely missing from the full set', () => {
     const result = tasksToGraph(
       [mkTask({ id: 'T2', title: 'Work', status: 'pending' })],
       [{ taskId: 'T2', dependsOn: 'T999' }],

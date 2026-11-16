@@ -12,7 +12,7 @@ import {
 } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { archiveTasks } from '../../tasks/archive.js';
-import { currentTask, startTask } from '../index.js';
+import { assertTaskStartable, currentTask, startTask } from '../index.js';
 
 describe('startTask dependency enforcement', () => {
   let env: TestDbEnv;
@@ -26,6 +26,7 @@ describe('startTask dependency enforcement', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await env.cleanup();
   });
 
@@ -80,6 +81,9 @@ describe('startTask dependency enforcement', () => {
     ]);
 
     await expect(startTask('T003', env.tempDir, accessor)).rejects.toThrow('T001, T002');
+    await expect(assertTaskStartable(accessor, 'T003')).rejects.toMatchObject({
+      fix: expect.stringContaining('cleo complete T001'),
+    });
   });
 
   it('allows starting a task when all dependencies are done', async () => {
@@ -128,6 +132,27 @@ describe('startTask dependency enforcement', () => {
     ]);
 
     await expect(startTask('T002', env.tempDir, accessor)).rejects.toThrow('T001');
+    await expect(assertTaskStartable(accessor, 'T002')).rejects.toMatchObject({
+      fix: expect.stringContaining('cleo restore task T001'),
+    });
+  });
+
+  it('diagnoses a missing dependency without recommending completion of a nonexistent task', async () => {
+    await seedTasks(accessor, [{ id: 'T001' }, { id: 'T002', depends: ['T001'] }]);
+    vi.spyOn(accessor, 'loadTasks').mockResolvedValueOnce([]);
+    await expect(assertTaskStartable(accessor, 'T002')).rejects.toMatchObject({
+      fix: expect.stringContaining('cleo find "T001" --include-archive'),
+    });
+  });
+
+  it('requires review of a proposed prerequisite before its work can be accepted', async () => {
+    await seedTasks(accessor, [
+      { id: 'T001', status: 'proposed' },
+      { id: 'T002', depends: ['T001'] },
+    ]);
+    await expect(assertTaskStartable(accessor, 'T002')).rejects.toMatchObject({
+      fix: expect.stringContaining('Review proposed dependency T001'),
+    });
   });
 
   it('allows canonically archived prerequisites omitted by the active listing', async () => {

@@ -570,7 +570,9 @@
         </header>
 
         <div class="explorer-body">
-          {#if filters.state.view === 'hierarchy'}
+          {#if data.explorer?.error}
+            <p role="alert">{data.explorer.error}</p>
+          {:else if filters.state.view === 'hierarchy'}
             <HierarchyTab
               tasks={explorerTasks}
               deps={explorerDeps}
@@ -580,6 +582,7 @@
           {:else if filters.state.view === 'graph'}
             <GraphTab
               tasks={explorerTasks}
+              dependencyStatuses={data.explorer?.dependencyStatuses}
               deps={explorerDeps}
               {filters}
               labels={explorerLabels}

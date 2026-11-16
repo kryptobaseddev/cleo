@@ -26,7 +26,7 @@
  * @wave 1C
  */
 
-import type { Task } from '@cleocode/contracts';
+import type { Task, TaskStatus } from '@cleocode/contracts';
 import { isReadinessDependencySatisfied } from '@cleocode/core/tasks/dependency-check';
 import type { EdgeKind, GraphCluster, GraphEdge, GraphNode } from '$lib/graph/types.js';
 import type { TaskDependencyEdge } from '$lib/server/tasks/explorer-loader.js';
@@ -48,6 +48,8 @@ export interface TasksToGraphOpts {
   includeCancelled?: boolean;
   /** When false (default), archived tasks are filtered out. */
   includeArchived?: boolean;
+  /** Full prerequisite evidence, independent of displayed nodes; defaults to the input tasks. */
+  dependencyStatuses?: Readonly<Record<string, TaskStatus>>;
 }
 
 /**
@@ -210,7 +212,7 @@ function edgeId(source: string, target: string, kind: EdgeKind): string {
  * 5. Clusters are one per root epic id, filtered to groups of ≥ 3
  *    members so isolated subtrees do not clutter the backdrop layer.
  *
- * @param tasks - All tasks from the loader bundle.
+ * @param tasks - Tasks selected for display; prerequisite evidence may be supplied separately.
  * @param deps  - All dependency edges from the loader bundle.
  * @param opts  - Optional scope / filter flags.
  * @returns Projected nodes / edges / clusters.
@@ -276,12 +278,14 @@ export function tasksToGraph(
     const rootEpic = findRootEpicId(task, byId);
     rootEpicByTask.set(task.id, rootEpic);
     const projected = toGraphNode(task, rootEpic);
-    // Attach halo flag when the task is pending and at least one blocker is not done.
+    // Visibility filters must not remove evidence for a prerequisite.
     if (task.status === 'pending') {
       const blockers = incomingBlockers.get(task.id) ?? [];
       const stillBlocked = blockers.some((bid) => {
-        const blocker = byId.get(bid);
-        return !isReadinessDependencySatisfied(blocker?.status);
+        const status = opts.dependencyStatuses
+          ? opts.dependencyStatuses[bid]
+          : byId.get(bid)?.status;
+        return !isReadinessDependencySatisfied(status);
       });
       if (stillBlocked) {
         projected.meta = { ...projected.meta, blocked: true };

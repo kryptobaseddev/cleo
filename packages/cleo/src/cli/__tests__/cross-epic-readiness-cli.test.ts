@@ -194,6 +194,17 @@ describe.skipIf(!built)('cross-epic dependency readiness through the compiled CL
           : expect.not.arrayContaining(['T121']),
       },
     });
+    expect(JSON.parse(cli(['workgraph', 'plan', 'T100']))).toMatchObject({
+      success: true,
+      data: {
+        readyTasks: ready
+          ? expect.arrayContaining([dependent])
+          : expect.not.arrayContaining([dependent]),
+        blockedTasks: ready
+          ? expect.not.arrayContaining([dependent])
+          : expect.arrayContaining([expect.objectContaining({ id: 'T121', blockedBy: [blocker] })]),
+      },
+    });
     expect(readFileSync(projectFile, 'utf8')).toBe(identity);
     expect(
       (await fixture.accessor.loadTasks(ids)).map(({ id, parentId, depends }) => ({

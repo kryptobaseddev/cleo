@@ -17,7 +17,8 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { tasksToGraph } from '../../../graph/adapters/tasks-adapter.js';
 import type { ProjectContext } from '../../project-context.js';
 import {
   _collectDistinctLabels,
@@ -214,6 +215,7 @@ describe('loadExplorerBundle (T952)', () => {
   let cleanup: Array<() => void> = [];
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const fn of cleanup) {
       try {
         fn();
@@ -234,20 +236,104 @@ describe('loadExplorerBundle (T952)', () => {
     const ids = bundle.tasks.map((t) => t.id).sort();
     expect(ids).toEqual(['E1', 'E2', 'G1', 'T1', 'T10', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']);
 
-    // Deps filtered to endpoints within the loaded set — T6->T9 is dropped
-    // because T9 is archived.
+    // Keep prerequisite identities independently of displayed nodes.
     expect(bundle.deps).toEqual(
       expect.arrayContaining([
         { taskId: 'T4', dependsOn: 'T1' },
         { taskId: 'T5', dependsOn: 'T4' },
+        { taskId: 'T6', dependsOn: 'T9' },
       ]),
     );
-    expect(bundle.deps).toHaveLength(2);
+    expect(bundle.deps).toHaveLength(3);
 
     // CamelCase projection landed
     const t4 = bundle.tasks.find((t) => t.id === 'T4');
     expect(t4?.parentId).toBe('E1');
     expect(t4?.labels).toEqual(['core', 'urgent']);
+  });
+
+  it.each([
+    ['done', false],
+    ['archived', false],
+    ['cancelled', true],
+    ['pending', true],
+  ] as const)('retains external %s evidence beyond the node limit', async (status, blocked) => {
+    const { ctx, tmpDir } = seedFixture((db) => {
+      insertTask(db, { id: 'T1', labels: ['display'] });
+      insertTask(db, { id: 'Z9', status, labels: ['evidence-only'] });
+      insertDep(db, 'T1', 'Z9');
+    });
+    cleanup.push(() => rmSync(tmpDir, { recursive: true, force: true }));
+    const bundle = await loadExplorerBundle({ projectCtx: ctx, limit: 1 });
+    expect(bundle.tasks.map((task) => task.id)).toEqual(['T1']);
+    expect(bundle.labels).toEqual(['display']);
+    expect(bundle.deps).toEqual([{ taskId: 'T1', dependsOn: 'Z9' }]);
+    expect(bundle.dependencyStatuses).toMatchObject({ T1: 'pending', Z9: status });
+    const graph = tasksToGraph(bundle.tasks, bundle.deps, {
+      dependencyStatuses: bundle.dependencyStatuses,
+    });
+    expect(graph.nodes.map((node) => node.id)).toEqual(['T1']);
+    expect(graph.edges).toEqual([]);
+    expect(graph.nodes[0].meta?.['blocked'] === true).toBe(blocked);
+  });
+
+  it('preserves genuinely missing prerequisite identities for graph diagnostics', async () => {
+    const { ctx, tmpDir } = seedFixture((db) => {
+      insertTask(db, { id: 'T1' });
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        insertDep(db, 'T1', 'T404');
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toHaveLength(1);
+    });
+    cleanup.push(() => rmSync(tmpDir, { recursive: true, force: true }));
+    const bundle = await loadExplorerBundle({ projectCtx: ctx });
+    expect(bundle.deps).toEqual([{ taskId: 'T1', dependsOn: 'T404' }]);
+    expect(bundle.dependencyStatuses).toEqual({ T1: 'pending' });
+    const graph = tasksToGraph(bundle.tasks, bundle.deps, {
+      dependencyStatuses: bundle.dependencyStatuses,
+    });
+    expect(graph.nodes[0].meta?.['blocked']).toBe(true);
+  });
+
+  it('propagates failure of a required external evidence read', async () => {
+    const { ctx, tmpDir } = seedFixture((db) => {
+      insertTask(db, { id: 'T1' });
+      insertTask(db, { id: 'Z9', status: 'archived' });
+      insertDep(db, 'T1', 'Z9');
+    });
+    cleanup.push(() => rmSync(tmpDir, { recursive: true, force: true }));
+    const db = new DatabaseSync(ctx.tasksDbPath);
+    const connections = await import('../../db/connections.js');
+    vi.spyOn(connections, 'getTasksDb').mockReturnValue(db);
+    const prepare = db.prepare.bind(db);
+    vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+      if (sql.includes('json_each')) throw new Error('required external evidence read failed');
+      return prepare(sql);
+    });
+    await expect(loadExplorerBundle({ projectCtx: ctx })).rejects.toThrow(
+      'required external evidence read failed',
+    );
+  });
+
+  it.each([
+    'done',
+    'archived',
+  ] as const)('retains %s blockedBy evidence outside displayed nodes', async (status) => {
+    const { ctx, tmpDir } = seedFixture((db) => {
+      insertTask(db, { id: 'T1' });
+      insertTask(db, { id: 'Z9', status });
+      db.prepare('UPDATE tasks_tasks SET blocked_by = ? WHERE id = ?').run('Z9', 'T1');
+    });
+    cleanup.push(() => rmSync(tmpDir, { recursive: true, force: true }));
+    const bundle = await loadExplorerBundle({ projectCtx: ctx, limit: 1 });
+    const graph = tasksToGraph(bundle.tasks, bundle.deps, {
+      dependencyStatuses: bundle.dependencyStatuses,
+    });
+    expect(bundle.tasks.map((task) => task.id)).toEqual(['T1']);
+    expect(graph.nodes[0].meta?.['blocked']).not.toBe(true);
   });
 
   it('epic progress rollup is accurate (direct-children semantics, T874)', async () => {

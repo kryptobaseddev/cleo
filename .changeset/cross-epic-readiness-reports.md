@@ -17,3 +17,9 @@ Start/pivot/update admission, dependency details, trees, frontier groups, task
 view execution hints, focus/briefing and blocker diagnostics share the same
 readiness predicate. Completion retains its separate terminal cancellation
 policy; cancellation forecasts no longer advertise dependent work as unblocked.
+
+WorkGraph planning resolves satisfied cross-epic prerequisites instead of treating
+every declared edge as blocked. Studio graph filters keep complete prerequisite
+evidence separate from visible nodes, including archived and missing identities.
+Failed reads mark the Explorer unavailable while preserving the dashboard.
+Start refusals give state-specific remedies for cancelled, missing and proposed work.

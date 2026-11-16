@@ -31,6 +31,7 @@
 -->
 <script lang="ts" module>
   import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
+  import { isReadinessDependencySatisfied } from '@cleocode/core/tasks/dependency-check';
 
   import type { TaskDependencyEdge } from '$lib/server/tasks/explorer-loader.js';
   import type { TaskFilterState } from '$lib/stores/task-filters.svelte.js';
@@ -76,11 +77,11 @@
    *
    * A task is blocked iff its status is `pending` AND at least one
    * declared inbound dependency (task_dependencies row with
-   * `task_id === task.id`) has a blocker whose status is not `done`.
+   * `task_id === task.id`) lacks done/archived prerequisite evidence.
    *
    * @param task - The candidate task.
    * @param deps - All dependency edges (full set, not pre-filtered).
-   * @param tasksById - Lookup map keyed by task id.
+   * @param tasksById - Full prerequisite evidence, independent of visible nodes.
    */
   export function isBlocked(
     task: Task,
@@ -91,8 +92,7 @@
     for (const edge of deps) {
       if (edge.taskId !== task.id) continue;
       const blocker = tasksById.get(edge.dependsOn);
-      if (!blocker) continue;
-      if (blocker.status !== 'done') return true;
+      if (!isReadinessDependencySatisfied(blocker?.status)) return true;
     }
     return false;
   }
@@ -274,6 +274,8 @@
   interface Props {
     /** Full task set from the {@link ExplorerBundle}. */
     tasks: Task[];
+    /** Full prerequisite evidence, including archived rows outside the displayed set. */
+    dependencyStatuses?: Readonly<Record<string, TaskStatus>>;
     /** All dependency edges from the bundle. */
     deps: TaskDependencyEdge[];
     /** Shared filter store — drives visibility + selection. */
@@ -290,7 +292,7 @@
     activeProjectId?: string | null;
   }
 
-  let { tasks, deps, filters, labels = [], activeProjectId = null }: Props = $props();
+  let { tasks, dependencyStatuses, deps, filters, labels = [], activeProjectId = null }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // Derive the visible task set (post-filter) once; the adapter then
@@ -306,12 +308,16 @@
   });
 
   const visibleTasks = $derived(tasks.filter((t) => visibleTaskSet.has(t.id)));
+  const prerequisiteStatuses = $derived(
+    dependencyStatuses ?? Object.fromEntries<TaskStatus>(tasks.map((task) => [task.id, task.status])),
+  );
 
   const graph = $derived(
     tasksToGraph(visibleTasks, deps, {
       epicScope: filters.state.epic ?? null,
       includeCancelled: filters.state.cancelled,
       includeArchived: false,
+      dependencyStatuses: prerequisiteStatuses,
     }),
   );
 
