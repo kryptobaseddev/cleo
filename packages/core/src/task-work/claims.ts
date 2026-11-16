@@ -20,6 +20,7 @@ import {
   ensureAgentSession,
   getSession,
   resolveBoundSession,
+  sessionHoldsStaleClaim,
   setSessionSpawnedBy,
   touchSessionActivity,
   updateSession,
@@ -224,10 +225,45 @@ export async function heartbeatProjectSession(
 }
 
 /**
+ * Activity heartbeat for a session that is alive but not writing (T14546): a
+ * read by the holder, or a shell command its harness hook saw. A worker
+ * waiting on CI or a review round makes no mutation for longer than a lease,
+ * so its claim lapsed while its dispatch was live.
+ *
+ * Runs the full {@link heartbeatProjectSession} only when a lease the session
+ * holds has less than half its length left (or has already lapsed; the probe
+ * is `sessionHoldsStaleClaim`), so an
+ * agent whose mutations keep its leases fresh pays one indexed read and no
+ * write. Only leases the session STILL holds are extended: a task another
+ * session took over in the meantime is never touched. A store whose twin
+ * collapse blocks task writes is left alone.
+ *
+ * @param projectRoot - Project root.
+ * @param sessionId - The session that just showed activity.
+ * @param nowMs - Clock override for tests.
+ * @returns Number of leases renewed.
+ * @example
+ * ```ts
+ * await renewStaleSessionClaims(projectRoot, req.sessionId);
+ * ```
+ * @task T14546
+ */
+export async function renewStaleSessionClaims(
+  projectRoot: string,
+  sessionId: string,
+  nowMs: number = Date.now(),
+): Promise<number> {
+  if (!(await sessionHoldsStaleClaim(sessionId, projectRoot, nowMs))) return 0;
+  const { storeWriteBlock } = await import('../store/store-write-guard.js');
+  if (await storeWriteBlock(projectRoot, { domain: 'tasks', operation: 'claim' })) return 0;
+  return (await heartbeatProjectSession(projectRoot, sessionId, nowMs)).leasesRenewed;
+}
+
+/**
  * The sessions among `sessionIds` that hold a LIVE claim lease (T12502). A
- * lease is renewed by every mutation its holder makes (the dispatch
- * heartbeat), so a live lease proves the session did work within one lease
- * length — `session gc` uses this to keep a long-running session that is
+ * lease is renewed by its holder's activity (the dispatch heartbeat after a
+ * mutation, a read or hook beat once it is half gone, T14546), so a live lease
+ * proves the session was active within one lease length — `session gc` uses this to keep a long-running session that is
  * still working from being orphaned (which would drop its leases).
  *
  * @param projectRoot - Project root.

@@ -29,7 +29,11 @@ export const claimCommand = defineCommand({
       description:
         "Agent ID recorded with the lease (default: the session's agent / CLEO_AGENT_ID)",
     },
-    renew: { type: 'boolean', description: 'Renew your own lease on the task' },
+    renew: {
+      type: 'boolean',
+      description:
+        'Renew your own lease on the task; an expired one is revived while no other session has claimed the task',
+    },
     'take-over': {
       type: 'boolean',
       description: "Take over another session's EXPIRED lease (audited)",

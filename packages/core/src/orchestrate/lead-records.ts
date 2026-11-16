@@ -7,7 +7,7 @@
  * terminal for an interactive lead) and the `claude` lead process itself. The
  * lead is alive while ANY of them lives with the start time recorded for it,
  * so "one lead per epic" holds for as long as the lead runs (not for a claim
- * lease that only mutations renew), and a reused pid, whose start time
+ * lease that only the holder's activity renews), and a reused pid, whose start time
  * differs, never blocks the epic.
  *
  * A lead killed before its `SessionEnd` hook ran (SIGKILL, OOM), or one whose

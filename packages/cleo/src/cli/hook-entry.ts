@@ -978,6 +978,33 @@ function subagentIdentityDecision(
   };
 }
 
+/**
+ * Claim heartbeat (T14546): a shell command is worker activity, so the hook
+ * that runs before each one renews the claim leases of the session this hook
+ * PROCESS is bound to. Without it a worker editing, running git or watching CI
+ * makes no CLEO mutation for longer than a lease and loses its claim mid-task.
+ *
+ * The command line is never read for an identity: any agent can write
+ * `CLEO_SESSION_ID=<another session>` into a command, a string or a comment.
+ * Core takes the identity from the process's environment, else from the task
+ * worktree it runs in, and renews only while that session holds the claim.
+ *
+ * @param provider - the harness.
+ * @param io - the hook process's environment and working directory.
+ * @returns leases renewed.
+ */
+export async function claimHeartbeat(
+  provider: HeavyCommandHookProvider,
+  io: Pick<HookIo, 'env' | 'cwd'>,
+): Promise<number> {
+  const { renewClaimsOfHookProcess } = await import('@cleocode/core/resources/claim-keepalive.js');
+  // Claude Code names the directory it was launched in; a `cd` cannot move it.
+  return renewClaimsOfHookProcess({
+    cwd: providerProjectDir(provider, io.env) ?? io.cwd,
+    env: io.env,
+  });
+}
+
 /** Seams of {@link heavyCommandHook} (tests). */
 export interface HeavyHookDeps {
   /** Replaces {@link claudeAllowContext}: where Claude Code allow rules are read from. */
@@ -1326,5 +1353,7 @@ export async function runHookCli(
       `[cleo hook] heavy-command skipped: ${err instanceof Error ? err.message : String(err)}\n`,
     );
   }
+  // T14546: the answer is already written; the beat never changes it.
+  await claimHeartbeat(provider, io).catch(() => undefined);
   return 0;
 }

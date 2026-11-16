@@ -308,19 +308,32 @@ export async function lookupCliSession(): Promise<string | null> {
 }
 
 /**
- * Session heartbeat for the CLI (T12502 · T12540): after a bound session's
- * mutation succeeds, refresh its `lastActivity` (at most once a minute) and
- * renew every claim lease it holds in the current project — one best-effort
- * beat, never a second write per command.
+ * Session heartbeat for the CLI (T12502 · T12540 · T14546). After a bound
+ * session's mutation succeeds: refresh its `lastActivity` (at most once a
+ * minute) and renew every claim lease it holds in the current project — one
+ * best-effort beat, never a second write per command. Before a bound session's
+ * read: renew only a lease whose time is half gone, so a worker that waited on
+ * CI or a review round reads its claim as live.
  *
- * @param _req - The mutation that just succeeded.
+ * @param req - The mutation that just succeeded, or the read about to run.
  * @param sessionId - The bound session that made it.
  * @task T12502
  * @task T12540
+ * @task T14546
  */
-export async function heartbeatCliSession(_req: DispatchRequest, sessionId: string): Promise<void> {
+export async function heartbeatCliSession(req: DispatchRequest, sessionId: string): Promise<void> {
+  const projectRoot = getProjectRoot();
+  if (req.gateway === 'query') {
+    // The probe lives in a module every call already loads; the renewal is
+    // loaded only for the rare read that finds a stale lease (gate 39).
+    const { sessionHoldsStaleClaim } = await import('@cleocode/core/store/session-store');
+    if (!(await sessionHoldsStaleClaim(sessionId, projectRoot))) return;
+    const { renewStaleSessionClaims } = await import('@cleocode/core/task-work/claims');
+    await renewStaleSessionClaims(projectRoot, sessionId);
+    return;
+  }
   const { heartbeatProjectSession } = await import('@cleocode/core/task-work/claims');
-  await heartbeatProjectSession(getProjectRoot(), sessionId);
+  await heartbeatProjectSession(projectRoot, sessionId);
 }
 
 /**
@@ -367,7 +380,7 @@ export function createCliDispatcher(): Dispatcher {
       createStoreWriteGuard(() => getProjectRoot()),
       createSessionResolver(lookupCliSession, warnUnboundMutation), // T4959: session identity first; T12500: warn when unbound
       createWriteActor(), // T13229: local write frames record the command as actor.op
-      createClaimHeartbeat(heartbeatCliSession), // T12502 · T12540: a bound session's mutation refreshes lastActivity + renews its leases
+      createClaimHeartbeat(heartbeatCliSession), // T12502 · T12540 · T14546: a bound session's mutation refreshes lastActivity + renews its leases; its read renews a stale lease
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
       // T9922 (Saga T9855 / E8.3): MVI record projection default for read ops.
