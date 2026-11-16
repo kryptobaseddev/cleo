@@ -176,6 +176,7 @@ export async function showTask(
     // Add dependency status
     if (task.depends?.length) {
       const depTasks = await acc.loadTasks(task.depends);
+      const { isReadinessDependencySatisfied } = await import('./dependency-check.js');
       detail.dependencyStatus = task.depends.map((depId) => {
         const dep = depTasks.find((t) => t.id === depId);
         return {
@@ -185,9 +186,9 @@ export async function showTask(
         };
       });
 
-      // Add unresolvedDeps: only unresolved dependencies (not done/cancelled)
+      // Execution blockers retain cancelled and missing prerequisite evidence.
       const unresolved = detail.dependencyStatus.filter(
-        (d) => d.status !== 'done' && d.status !== 'cancelled',
+        (dependency) => !isReadinessDependencySatisfied(dependency.status),
       );
       if (unresolved.length > 0) {
         detail.unresolvedDeps = unresolved;

@@ -16,8 +16,15 @@
  * @task T12079
  */
 
+import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import * as taskAccessors from '../../store/data-accessor.js';
+import { getDb, getNativeDb } from '../../store/sqlite.js';
+import * as schema from '../../store/tasks-schema.js';
+import { archiveTasks } from '../../tasks/archive.js';
+import { DEFAULT_SENTIENT_STATE, writeSentientState } from '../state.js';
 import { runTick } from '../tick.js';
 
 /** Minimal task factory. */
@@ -25,11 +32,13 @@ function task(id: string, type: Task['type']): Task {
   return {
     id,
     title: `${type} ${id}`,
+    description: 'Executable-type fixture',
     status: 'pending',
     priority: 'medium',
     type,
     depends: [],
-  } as unknown as Task;
+    createdAt: '2026-11-15T00:00:00Z',
+  };
 }
 
 /**
@@ -83,5 +92,87 @@ describe('EXECUTABLE_TASK_TYPES classification (T12079)', () => {
     const MAX_ATTEMPTS = 3;
     const SELF_PAUSE_AT = 5;
     expect(MAX_ATTEMPTS * SELF_PAUSE_AT).toBe(15);
+  });
+});
+
+describe('default sentient picker uses canonical cross-epic evidence', () => {
+  let fixture: TestDbEnv;
+  let statePath: string;
+
+  beforeEach(async () => {
+    fixture = await createTestDb();
+    statePath = join(fixture.cleoDir, 'sentient-state.json');
+    await writeSentientState(statePath, { ...DEFAULT_SENTIENT_STATE });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await fixture.cleanup();
+  });
+
+  it.each([
+    ['done', true],
+    ['archived', true],
+    ['pending', false],
+    ['cancelled', false],
+    ['missing', false],
+  ] as const)('keeps %s prerequisite evidence outside the candidate selection', async (status, ready) => {
+    await seedTasks(fixture.accessor, [
+      { id: 'T100', type: 'epic' },
+      { id: 'T200', type: 'epic' },
+      {
+        id: 'T101',
+        type: 'task',
+        parentId: 'T100',
+        status: status === 'archived' || status === 'missing' ? 'done' : status,
+      },
+      { id: 'T201', type: 'task', parentId: 'T200', depends: ['T101'] },
+    ]);
+    if (status === 'archived')
+      await archiveTasks({ taskIds: ['T101'] }, fixture.tempDir, fixture.accessor);
+    if (status === 'missing') {
+      const db = await getDb(fixture.tempDir);
+      const native = getNativeDb(fixture.tempDir);
+      if (!native) throw new Error('Expected canonical native fixture handle');
+      native.exec('PRAGMA foreign_keys = OFF');
+      try {
+        await db.update(schema.taskDependencies).set({ dependsOn: 'T999' }).run();
+      } finally {
+        native.exec('PRAGMA foreign_keys = ON');
+      }
+      expect(native.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 });
+      expect(native.prepare('PRAGMA foreign_key_check').all()).toHaveLength(1);
+    }
+    expect(
+      await runTick({ projectRoot: fixture.tempDir, statePath, scopeEpicId: 'T200', dryRun: true }),
+    ).toMatchObject({
+      kind: ready ? 'success' : 'no-task',
+      taskId: ready ? 'T201' : null,
+    });
+    expect(await fixture.accessor.loadSingleTask('T201')).toMatchObject({
+      parentId: 'T200',
+      status: 'pending',
+      depends: [status === 'missing' ? 'T999' : 'T101'],
+    });
+  });
+
+  it('reports a failed prerequisite read instead of a healthy empty pick', async () => {
+    await seedTasks(fixture.accessor, [
+      { id: 'T100', type: 'epic' },
+      { id: 'T200', type: 'epic' },
+      { id: 'T101', type: 'task', parentId: 'T100', status: 'done' },
+      { id: 'T201', type: 'task', parentId: 'T200', depends: ['T101'] },
+    ]);
+    vi.spyOn(taskAccessors, 'getTaskAccessor').mockResolvedValue(fixture.accessor);
+    vi.spyOn(fixture.accessor, 'loadTasks').mockRejectedValue(
+      new Error('fixture dependency read failed'),
+    );
+    expect(
+      await runTick({ projectRoot: fixture.tempDir, statePath, scopeEpicId: 'T200', dryRun: true }),
+    ).toMatchObject({
+      kind: 'error',
+      taskId: null,
+      detail: expect.stringContaining('fixture dependency read failed'),
+    });
   });
 });

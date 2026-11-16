@@ -14,6 +14,7 @@ import type { TaskView } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
+import { archiveTasks } from '../archive.js';
 import { computeTaskView, computeTaskViews } from '../compute-task-view.js';
 
 describe('computeTaskView', () => {
@@ -27,6 +28,32 @@ describe('computeTaskView', () => {
 
   afterEach(async () => {
     await env.cleanup();
+  });
+
+  it.each([
+    ['done', 'spawn-worker'],
+    ['archived', 'spawn-worker'],
+    ['cancelled', 'blocked-on-deps'],
+  ] as const)('keeps %s execution hints separate from terminal completion policy', async (status, nextAction) => {
+    await seedTasks(accessor, [
+      { id: 'T001', status: status === 'archived' ? 'done' : status },
+      {
+        id: 'T002',
+        depends: ['T001'],
+        verification: {
+          passed: true,
+          round: 1,
+          gates: { implemented: true, testsPassed: true, qaPassed: true },
+          lastAgent: null,
+          lastUpdated: null,
+          failureLog: [],
+        },
+      },
+    ]);
+    if (status === 'archived') await archiveTasks({ taskIds: ['T001'] }, env.tempDir, accessor);
+    const view = await computeTaskView('T002', accessor);
+    expect(view).toMatchObject({ readyToComplete: true, nextAction });
+    expect(await computeTaskViews(['T002'], accessor)).toEqual([view]);
   });
 
   // ─── basic projection ────────────────────────────────────────────────────────

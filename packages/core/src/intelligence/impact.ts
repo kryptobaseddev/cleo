@@ -14,6 +14,10 @@
 import type { Task } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 import { getCriticalPath } from '../tasks/graph-ops.js';
 import { getParentChain } from '../tasks/hierarchy.js';
 import type {
@@ -276,7 +280,7 @@ export async function analyzeChangeImpact(
 ): Promise<ChangeImpact> {
   const acc = accessor ?? (await getTaskAccessor(cwd));
   const tasks = await loadAllTasks(acc);
-  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const taskMap = await loadReadinessDependencyLookup(tasks, acc);
 
   const sourceTask = taskMap.get(taskId);
   if (!sourceTask) {
@@ -368,8 +372,8 @@ export async function calculateBlastRadius(
 
 /**
  * Predict effects of cancelling a task.
- * Direct dependents whose only unmet dependency is this task become orphaned.
- * Transitive dependents that lose their last prerequisite also cascade.
+ * Explicit hard edges remain unresolved when their prerequisite is cancelled.
+ * Cancellation never makes a dependent ready or changes its stored status.
  */
 function predictCancelEffects(
   taskId: string,
@@ -385,31 +389,19 @@ function predictCancelEffects(
     const task = taskMap.get(depId);
     if (!task || task.status === 'done' || task.status === 'cancelled') continue;
 
-    const otherUnmetDeps = (task.depends ?? []).filter(
-      (d) =>
-        d !== taskId &&
-        taskMap.has(d) &&
-        taskMap.get(d)!.status !== 'done' &&
-        taskMap.get(d)!.status !== 'cancelled',
+    const otherUnmetDeps = getReadinessDependencyBlockers(
+      (task.depends ?? []).filter((dependencyId) => dependencyId !== taskId),
+      taskMap,
     );
-
-    if (otherUnmetDeps.length === 0) {
-      // This was the only blocking dep -- task becomes unblocked but orphaned
-      affected.push({
-        id: depId,
-        title: task.title,
-        currentStatus: task.status,
-        newStatus: task.status === 'blocked' ? 'pending' : undefined,
-        reason: 'Direct dependency cancelled; dependency link becomes orphaned.',
-      });
-    } else {
-      affected.push({
-        id: depId,
-        title: task.title,
-        currentStatus: task.status,
-        reason: 'Direct dependency cancelled; other dependencies remain.',
-      });
-    }
+    affected.push({
+      id: depId,
+      title: task.title,
+      currentStatus: task.status,
+      reason:
+        otherUnmetDeps.length === 0
+          ? 'Direct dependency cancelled; explicit hard dependency remains unresolved.'
+          : 'Direct dependency cancelled; hard dependency and other dependencies remain unresolved.',
+    });
   }
 
   // Transitive dependents (excluding direct)
@@ -478,12 +470,9 @@ function predictCompleteEffects(
     const task = taskMap.get(depId);
     if (!task || task.status === 'done' || task.status === 'cancelled') continue;
 
-    const remainingUnmet = (task.depends ?? []).filter(
-      (d) =>
-        d !== taskId &&
-        taskMap.has(d) &&
-        taskMap.get(d)!.status !== 'done' &&
-        taskMap.get(d)!.status !== 'cancelled',
+    const remainingUnmet = getReadinessDependencyBlockers(
+      (task.depends ?? []).filter((dependencyId) => dependencyId !== taskId),
+      taskMap,
     );
 
     if (remainingUnmet.length === 0) {
@@ -620,7 +609,7 @@ function generateRecommendation(
     case 'cancel':
       return (
         `${severity} impact: cancelling ${taskId} affects ${affectedCount} downstream task(s) ` +
-        `with cascade depth ${cascadeDepth}. Review affected tasks for orphaned dependencies.`
+        `with cascade depth ${cascadeDepth}. Review affected tasks for unresolved hard dependencies.`
       );
     case 'block':
       return (

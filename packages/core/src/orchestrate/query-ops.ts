@@ -36,6 +36,10 @@ import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import { orderByRanking } from '../task-tools/score-task-priority.js';
 import type { DepGraphIssue } from '../tasks/dep-graph-validator.js';
 import { runValidation } from '../tasks/dep-graph-validator.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 import { loadRankingContext } from '../tasks/task-next.js';
 import { computeAgentAdmission } from './admission.js';
 import type { ReapedLead } from './lead-records.js';
@@ -265,10 +269,17 @@ export async function orchestrateStatus(
 /**
  * orchestrate.analyze - Dependency analysis
  *
+ * @remarks
+ * Loads canonical prerequisite evidence separately from selected children and their counts.
+ *
  * @param epicId - Epic to analyze (required unless mode is 'critical-path').
  * @param projectRoot - Optional project root path.
  * @param mode - Analysis mode. Use 'critical-path' to delegate to orchestrateCriticalPath.
  * @returns Engine result with analysis data.
+ * @example
+ * ```ts
+ * const analysis = await orchestrateAnalyze('T100', projectRoot);
+ * ```
  * @task T4478
  */
 export async function orchestrateAnalyze(
@@ -297,7 +308,8 @@ export async function orchestrateAnalyze(
       // Add dependency graph and circular dep detection via core analyze module
       const tasks = await loadTasks(root);
       const children = tasks.filter((t) => t.parentId === epicId);
-      const depAnalysis = analyzeDependencies(children, tasks);
+      const dependencyLookup = await loadReadinessDependencyLookup(tasks, accessor);
+      const depAnalysis = analyzeDependencies(children, [...dependencyLookup.values()]);
 
       return {
         success: true,
@@ -902,7 +914,8 @@ const MAX_REPORT_PAGE_SIZE = 200;
 /**
  * orchestrate.report — Grouped readiness report
  *
- * Classifies every non-done, non-cancelled child task of an epic into one of
+ * @remarks
+ * Classifies pending, active and manually blocked children of an epic into one of
  * five readiness groups: ready, blocked (has unmet deps), blockedBy (lists
  * specific blocker IDs), gateBlocked (gates like implemented/testsPassed/
  * qaPassed not satisfied), or invalid (structural issues like missing
@@ -915,6 +928,10 @@ const MAX_REPORT_PAGE_SIZE = 200;
  * @param projectRoot - Optional project root path.
  * @param params - Pagination options.
  * @returns Engine result with grouped readiness report.
+ * @example
+ * ```ts
+ * const report = await orchestrateReport('T100', projectRoot);
+ * ```
  * @task T10631
  */
 export async function orchestrateReport(
@@ -938,7 +955,8 @@ export async function orchestrateReport(
       }
 
       const children = tasks.filter((t) => t.parentId === epicId);
-      const completedIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+      const accessor = await getTaskAccessor(root);
+      const dependencyLookup = await loadReadinessDependencyLookup(tasks, accessor);
 
       // Classification buckets
       const ready: OrchestrateReportEntry[] = [];
@@ -947,16 +965,7 @@ export async function orchestrateReport(
       const gateBlocked: OrchestrateReportEntry[] = [];
       const invalid: OrchestrateReportEntry[] = [];
 
-      // Dependency analysis for invalid detection — swallow errors gracefully
-      let depAnalysis: {
-        missingDependencies: Array<{ taskId: string; missingDep: string }>;
-        circularDependencies: string[][];
-      } = { missingDependencies: [], circularDependencies: [] };
-      try {
-        depAnalysis = analyzeDependencies(children, tasks);
-      } catch {
-        // Non-fatal: dependency analysis failed, skip invalid classification
-      }
+      const depAnalysis = analyzeDependencies(children, [...dependencyLookup.values()]);
       const missingDepIds = new Set(depAnalysis.missingDependencies.map((m) => m.missingDep));
       const circularInvolved = new Set<string>();
       for (const chain of depAnalysis.circularDependencies) {
@@ -965,10 +974,16 @@ export async function orchestrateReport(
 
       for (const task of children) {
         // Skip terminal states
-        if (task.status === 'done' || task.status === 'cancelled') continue;
+        if (
+          task.status === 'done' ||
+          task.status === 'cancelled' ||
+          task.status === 'archived' ||
+          task.status === 'proposed'
+        )
+          continue;
 
         const deps: string[] = task.depends ?? [];
-        const unmetDeps = deps.filter((d: string) => !completedIds.has(d));
+        const unmetDeps = getReadinessDependencyBlockers(deps, dependencyLookup);
         const gates = task.gates ?? {};
 
         // --- Invalid classification ---
@@ -1029,6 +1044,17 @@ export async function orchestrateReport(
             priority: task.priority ?? 'medium',
             status: task.status,
             reason: `${unmetDeps.length} unmet dep(s)`,
+          });
+          continue;
+        }
+
+        if (task.status === 'blocked') {
+          blocked.push({
+            id: task.id,
+            title: task.title,
+            priority: task.priority,
+            status: task.status,
+            reason: task.blockedBy ?? 'status: blocked',
           });
           continue;
         }

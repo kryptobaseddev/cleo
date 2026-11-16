@@ -18,11 +18,6 @@ vi.mock('../../store/file-utils.js', () => ({
   getDataPath: vi.fn((_root: string, file: string) => `/mock/${file}`),
 }));
 
-// Mock deps-ready (used by coreTaskNext but imported at module level)
-vi.mock('../deps-ready.js', () => ({
-  depsReady: vi.fn(() => true),
-}));
-
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { coreTaskDepends } from '../task-ops.js';
 
@@ -41,6 +36,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 function setupTasks(tasks: Task[]): void {
   const mockImpl = {
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+    loadTasks: vi.fn(async (ids: string[]) => tasks.filter((task) => ids.includes(task.id))),
   };
   // Both deprecated shim and canonical replacement (T9054)
   (getAccessor as ReturnType<typeof vi.fn>).mockResolvedValue(mockImpl);

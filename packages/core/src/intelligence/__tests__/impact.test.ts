@@ -44,11 +44,12 @@ function mockAccessor(tasks: Task[]): DataAccessor {
   return {
     queryTasks: async () => ({ tasks, total: tasks.length }),
     loadSingleTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
+    loadTasks: async (ids: string[]) => tasks.filter((task) => ids.includes(task.id)),
     taskExists: async (id: string) => tasks.some((t) => t.id === id),
     upsertSingleTask: async () => {},
     deleteSingleTask: async () => true,
     close: async () => {},
-  } as unknown as DataAccessor;
+  } as DataAccessor;
 }
 
 // ============================================================================
@@ -193,7 +194,7 @@ describe('analyzeChangeImpact', () => {
   });
 
   describe('cancel', () => {
-    it('identifies orphaned dependents when sole dependency cancelled', async () => {
+    it('keeps a dependent blocked when its sole prerequisite is cancelled', async () => {
       const tasks = [
         makeTask({ id: 'T001' }),
         makeTask({ id: 'T002', depends: ['T001'], status: 'blocked' }),
@@ -203,8 +204,8 @@ describe('analyzeChangeImpact', () => {
 
       expect(result.affectedTasks).toHaveLength(1);
       expect(result.affectedTasks[0].id).toBe('T002');
-      expect(result.affectedTasks[0].newStatus).toBe('pending');
-      expect(result.affectedTasks[0].reason).toContain('orphaned');
+      expect(result.affectedTasks[0].newStatus).toBeUndefined();
+      expect(result.affectedTasks[0].reason).toContain('hard dependency remains unresolved');
     });
 
     it('identifies tasks with remaining dependencies', async () => {
@@ -613,5 +614,40 @@ describe('predictImpact', () => {
     const result = await predictImpact('auth service', undefined, acc);
 
     expect(result.affectedTasks[0]?.downstreamCount).toBe(0);
+  });
+});
+
+describe('completion impact uses execution readiness for other prerequisites', () => {
+  it.each([
+    ['done', true],
+    ['archived', true],
+    ['cancelled', false],
+  ] as const)('resolves %s evidence separately from selected tasks', async (status, ready) => {
+    const all = [
+      makeTask({ id: 'T001' }),
+      makeTask({ id: 'T002', status }),
+      makeTask({ id: 'T003', status: 'blocked', depends: ['T001', 'T002'] }),
+    ];
+    const acc = mockAccessor(all);
+    acc.queryTasks = async () => ({
+      tasks: all.filter((task) => task.status !== 'archived'),
+      total: all.length - Number(status === 'archived'),
+    });
+    const result = await analyzeChangeImpact('T001', 'complete', acc);
+    expect(result.affectedTasks.find((task) => task.id === 'T003')?.newStatus === 'pending').toBe(
+      ready,
+    );
+  });
+
+  it('keeps a missing other prerequisite blocked', async () => {
+    const acc = mockAccessor([
+      makeTask({ id: 'T001' }),
+      makeTask({ id: 'T003', status: 'blocked', depends: ['T001', 'T999'] }),
+    ]);
+    const result = await analyzeChangeImpact('T001', 'complete', acc);
+    expect(result.affectedTasks.find((task) => task.id === 'T003')?.newStatus).toBeUndefined();
+    expect(result.affectedTasks.find((task) => task.id === 'T003')?.reason).toContain(
+      '1 other dependency',
+    );
   });
 });

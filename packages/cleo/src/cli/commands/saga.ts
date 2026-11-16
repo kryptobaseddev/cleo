@@ -27,8 +27,13 @@
 
 import { parseAcceptanceCriteria } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { cliOutput } from '../renderers/index.js';
+import {
+  dispatchFromCli,
+  dispatchRaw,
+  ERROR_CODE_TO_EXIT,
+  handleRawError,
+} from '../../dispatch/adapters/cli.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 /** cleo saga create — create a new Saga (type='saga') */
 const createCommand = defineCommand({
@@ -311,7 +316,23 @@ const nextCommand = defineCommand({
     const sagaId =
       typeof args.sagaId === 'string' && args.sagaId.length > 0 ? args.sagaId : undefined;
     const result = await sagas.sagaNext(projectRoot, { sagaId });
-    cliOutput(result.success ? result.data : result, { command: 'saga', operation: 'saga.next' });
+    if (!result.success) {
+      const exitCode = result.error.exitCode ?? ERROR_CODE_TO_EXIT[result.error.code] ?? 1;
+      cliError(
+        result.error.message,
+        exitCode,
+        {
+          name: result.error.code,
+          fix: result.error.fix,
+          details: result.error.details,
+          alternatives: result.error.alternatives,
+        },
+        { operation: 'saga.next' },
+      );
+      process.exitCode = exitCode;
+      return;
+    }
+    cliOutput(result.data, { command: 'saga', operation: 'saga.next' });
   },
 });
 

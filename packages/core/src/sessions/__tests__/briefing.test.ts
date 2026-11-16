@@ -149,6 +149,7 @@ function setupMockAccessor(tasks: unknown[] = makeMockTasks(), meta: Record<stri
     upsertSingleSession: vi.fn().mockResolvedValue(undefined),
     removeSingleSession: vi.fn().mockResolvedValue(undefined),
     queryTasks: vi.fn().mockImplementation(() => Promise.resolve({ tasks, total: tasks.length })),
+    loadTasks: vi.fn().mockResolvedValue([]),
     loadSingleTask: vi.fn((id: string) => Promise.resolve(tasks.find((t) => t.id === id) ?? null)),
     getMetaValue: vi
       .fn()
@@ -454,5 +455,41 @@ describe('computeBriefing scope filtering', () => {
     // Real epics must still appear
     expect(epicIds).toContain('T100');
     expect(epicIds).toContain('T400');
+  });
+});
+
+describe('briefing retains canonical execution blockers', () => {
+  it.each([
+    ['done', false],
+    ['archived', false],
+    ['cancelled', true],
+  ] as const)('uses %s evidence outside the selection', async (status, blocked) => {
+    const tasks = makeMockTasks();
+    const dependency = tasks.find((task) => task.id === 'T200');
+    if (!dependency) throw new Error('Expected fixture prerequisite');
+    dependency.status = status;
+    dependency.parentId = 'T400';
+    const selectedChild = tasks.find((task) => task.id === 'T401');
+    if (!selectedChild) throw new Error('Expected selected epic child');
+    selectedChild.status = 'done';
+    const accessor = setupMockAccessor(tasks.filter((task) => task.id !== 'T200'));
+    accessor.loadTasks.mockResolvedValue([dependency]);
+    const briefing = await computeBriefing('/fake/project', { scope: 'global' });
+    expect(briefing.blockedTasks.some((task) => task.id === 'T500')).toBe(blocked);
+    expect(briefing.activeEpics.find((epic) => epic.id === 'T400')?.completionPercent).toBe(100);
+  });
+
+  it('does not hide a missing declared prerequisite', async () => {
+    setupMockAccessor(makeMockTasks().filter((task) => task.id !== 'T200'));
+    const briefing = await computeBriefing('/fake/project', { scope: 'global' });
+    expect(briefing.blockedTasks.find((task) => task.id === 'T500')?.blockedBy).toContain('T200');
+  });
+
+  it('propagates a failed required dependency read', async () => {
+    const accessor = setupMockAccessor(makeMockTasks().filter((task) => task.id !== 'T200'));
+    accessor.loadTasks.mockRejectedValue(new Error('required dependency read failed'));
+    await expect(computeBriefing('/fake/project', { scope: 'global' })).rejects.toThrow(
+      'required dependency read failed',
+    );
   });
 });

@@ -8,7 +8,7 @@
 // Auto-register hook handlers
 import '../hooks/handlers/index.js';
 
-import type { KnowledgeCoverage, TaskClaim, TaskWorkState } from '@cleocode/contracts';
+import type { KnowledgeCoverage, Task, TaskClaim, TaskWorkState } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { compactKnowledgeCoverage } from '../doctor/knowledge-summary.js';
 import { CleoError } from '../errors.js';
@@ -25,7 +25,10 @@ import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { logOperation } from '../tasks/add.js';
-import { getUnresolvedDeps } from '../tasks/dependency-check.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 import { isValidPipelineStage } from '../tasks/pipeline-stage.js';
 import {
   type ClaimOverrideFlags,
@@ -104,25 +107,47 @@ export interface TaskWorkHistoryEntry {
  *
  * @param acc - Task accessor.
  * @param taskId - The task about to be started.
- * @throws CleoError `DEPENDENCY_ERROR` naming the unresolved blockers.
+ * @returns The validated task, with done/archived prerequisite evidence resolved canonically.
+ * @throws CleoError for a missing task or unresolved blockers; required reads propagate.
  * @example
  * ```ts
  * await assertTaskStartable(acc, 'T2');
  * ```
  * @task T12502
  */
-export async function assertTaskStartable(acc: DataAccessor, taskId: string): Promise<void> {
-  const { tasks: allTasks } = await acc.queryTasks({});
-  const unresolvedDeps = getUnresolvedDeps(taskId, allTasks);
+export async function assertTaskStartable(acc: DataAccessor, taskId: string): Promise<Task> {
+  const task = await acc.loadSingleTask(taskId);
+  if (!task) {
+    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`, {
+      fix: `Use 'cleo find "${taskId}"' to search`,
+    });
+  }
+  const dependencyLookup = await loadReadinessDependencyLookup([task], acc);
+  const unresolvedDeps = getReadinessDependencyBlockers(task.depends, dependencyLookup);
   if (unresolvedDeps.length > 0) {
     throw new CleoError(
       ExitCode.DEPENDENCY_ERROR,
       `Task ${taskId} is blocked by unresolved dependencies: ${unresolvedDeps.join(', ')}`,
       {
-        fix: `Complete blockers first: ${unresolvedDeps.map((d) => `cleo complete ${d}`).join(', ')}`,
+        fix: unresolvedDeps
+          .map((id) => {
+            const dependency = dependencyLookup.get(id);
+            if (!dependency) {
+              return `Missing dependency ${id}: locate it with cleo find "${id}" --include-archive; restore the record or correct the dependency after verifying its identity`;
+            }
+            if (dependency.status === 'cancelled') {
+              return `Restore cancelled dependency ${id} with cleo restore task ${id} and finish its work, or review the dependency if cancellation is intentional`;
+            }
+            if (dependency.status === 'proposed') {
+              return `Review proposed dependency ${id} before accepting and finishing its work`;
+            }
+            return `Finish dependency ${id} (${dependency.status}), then run cleo complete ${id}`;
+          })
+          .join('; '),
       },
     );
   }
+  return task;
 }
 
 /**
@@ -155,16 +180,8 @@ export async function startTask(
 
   const acc = accessor ?? (await getTaskAccessor(cwd));
 
-  // Verify task exists
-  const task = await acc.loadSingleTask(taskId);
-  if (!task) {
-    throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`, {
-      fix: `Use 'cleo find "${taskId}"' to search`,
-    });
-  }
-
-  // Block starting a task with unresolved dependencies
-  await assertTaskStartable(acc, taskId);
+  // Validate canonical prerequisite evidence before claims, pipeline or focus writes.
+  const task = await assertTaskStartable(acc, taskId);
 
   // Auto-advance pipelineStage: RCASD planning stages → implementation (T719)
   // Best-effort: if pipelineStage is in planning stages, advance to implementation.

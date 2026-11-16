@@ -183,3 +183,43 @@ describe('focus knowledge assessment', () => {
     ).toEqual(['T3', 'T1', 'T2']);
   });
 });
+
+describe('focus dependency evidence uses execution policy', () => {
+  it.each([
+    ['done', false],
+    ['archived', false],
+    ['cancelled', true],
+  ] as const)('retains %s evidence', async (status, blocked) => {
+    const base = await taskShow('/fixture', 'T123');
+    if (!base.success) throw new Error('Expected fixture task');
+    vi.mocked(taskShow)
+      .mockResolvedValueOnce({
+        ...base,
+        data: { ...base.data, task: { ...base.data.task, depends: ['T999'] } },
+      })
+      .mockResolvedValueOnce({
+        ...base,
+        data: { ...base.data, task: { ...base.data.task, id: 'T999', status } },
+      });
+    const result = await new FocusHandler().query('show', { id: 'T123' });
+    expect(result.data).toMatchObject({
+      blockers: blocked ? [expect.objectContaining({ id: 'T999' })] : [],
+    });
+  });
+
+  it('retains a failed dependency read as a blocker with failed source diagnostics', async () => {
+    const base = await taskShow('/fixture', 'T123');
+    if (!base.success) throw new Error('Expected fixture task');
+    vi.mocked(taskShow)
+      .mockResolvedValueOnce({
+        ...base,
+        data: { ...base.data, task: { ...base.data.task, depends: ['T999'] } },
+      })
+      .mockRejectedValueOnce(new Error('read failed'));
+    const result = await new FocusHandler().query('show', { id: 'T123' });
+    expect(result.data).toMatchObject({
+      blockers: [expect.objectContaining({ id: 'T999' })],
+      sourceDiagnostics: { dependencies: { status: 'failed' } },
+    });
+  });
+});

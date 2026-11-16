@@ -3,7 +3,7 @@
  * @task T5069
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bindTestSession,
   createTestDb,
@@ -11,7 +11,8 @@ import {
   type TestDbEnv,
 } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
-import { startTask } from '../index.js';
+import { archiveTasks } from '../../tasks/archive.js';
+import { assertTaskStartable, currentTask, startTask } from '../index.js';
 
 describe('startTask dependency enforcement', () => {
   let env: TestDbEnv;
@@ -25,6 +26,7 @@ describe('startTask dependency enforcement', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await env.cleanup();
   });
 
@@ -79,6 +81,9 @@ describe('startTask dependency enforcement', () => {
     ]);
 
     await expect(startTask('T003', env.tempDir, accessor)).rejects.toThrow('T001, T002');
+    await expect(assertTaskStartable(accessor, 'T003')).rejects.toMatchObject({
+      fix: expect.stringContaining('cleo complete T001'),
+    });
   });
 
   it('allows starting a task when all dependencies are done', async () => {
@@ -106,7 +111,7 @@ describe('startTask dependency enforcement', () => {
     expect(result.taskTitle).toBe('Ready task');
   });
 
-  it('allows starting a task when dependencies are cancelled', async () => {
+  it('refuses cancelled prerequisites under the shared execution policy', async () => {
     await seedTasks(accessor, [
       {
         id: 'T001',
@@ -126,8 +131,55 @@ describe('startTask dependency enforcement', () => {
       },
     ]);
 
-    const result = await startTask('T002', env.tempDir, accessor);
-    expect(result.taskId).toBe('T002');
+    await expect(startTask('T002', env.tempDir, accessor)).rejects.toThrow('T001');
+    await expect(assertTaskStartable(accessor, 'T002')).rejects.toMatchObject({
+      fix: expect.stringContaining('cleo restore task T001'),
+    });
+  });
+
+  it('diagnoses a missing dependency without recommending completion of a nonexistent task', async () => {
+    await seedTasks(accessor, [{ id: 'T001' }, { id: 'T002', depends: ['T001'] }]);
+    vi.spyOn(accessor, 'loadTasks').mockResolvedValueOnce([]);
+    await expect(assertTaskStartable(accessor, 'T002')).rejects.toMatchObject({
+      fix: expect.stringContaining('cleo find "T001" --include-archive'),
+    });
+  });
+
+  it('requires review of a proposed prerequisite before its work can be accepted', async () => {
+    await seedTasks(accessor, [
+      { id: 'T001', status: 'proposed' },
+      { id: 'T002', depends: ['T001'] },
+    ]);
+    await expect(assertTaskStartable(accessor, 'T002')).rejects.toMatchObject({
+      fix: expect.stringContaining('Review proposed dependency T001'),
+    });
+  });
+
+  it('allows canonically archived prerequisites omitted by the active listing', async () => {
+    await seedTasks(accessor, [
+      { id: 'T001', status: 'done' },
+      { id: 'T002', depends: ['T001'] },
+    ]);
+    expect(await archiveTasks({ taskIds: ['T001'] }, env.tempDir, accessor)).toMatchObject({
+      archived: ['T001'],
+    });
+    expect((await accessor.queryTasks({})).tasks.map((task) => task.id)).not.toContain('T001');
+    expect(await startTask('T002', env.tempDir, accessor)).toMatchObject({ taskId: 'T002' });
+  });
+
+  it('propagates a required dependency read failure before changing focus', async () => {
+    await seedTasks(accessor, [
+      { id: 'T000' },
+      { id: 'T001', status: 'done' },
+      { id: 'T002', depends: ['T001'] },
+    ]);
+    await archiveTasks({ taskIds: ['T001'] }, env.tempDir, accessor);
+    await startTask('T000', env.tempDir, accessor);
+    const before = await currentTask(env.tempDir, accessor);
+    const read = vi.spyOn(accessor, 'loadTasks').mockRejectedValueOnce(new Error('read failed'));
+    await expect(startTask('T002', env.tempDir, accessor)).rejects.toThrow('read failed');
+    expect(await currentTask(env.tempDir, accessor)).toEqual(before);
+    read.mockRestore();
   });
 
   it('allows starting a task with no dependencies', async () => {

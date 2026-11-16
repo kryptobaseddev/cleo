@@ -273,3 +273,33 @@ describe('tasksToEgoGraph', () => {
     expect(result.nodes.map((n) => n.id).sort()).toEqual(['T2', 'T3']);
   });
 });
+
+describe('graph dependency halos share execution status semantics', () => {
+  it.each([
+    ['done', false],
+    ['archived', false],
+    ['cancelled', true],
+    ['pending', true],
+    ['active', true],
+    ['blocked', true],
+    ['proposed', true],
+  ] as const)('projects %s prerequisite evidence', (status, blocked) => {
+    const dependent = mkTask({ id: 'T2', title: 'Work', status: 'pending' });
+    const tasks = [mkTask({ id: 'T1', title: 'Prerequisite', status }), dependent];
+    const result = tasksToGraph([dependent], [{ taskId: 'T2', dependsOn: 'T1' }], {
+      dependencyStatuses: Object.fromEntries<TaskStatus>(
+        tasks.map((task) => [task.id, task.status]),
+      ),
+    });
+    expect(result.nodes.map((node) => node.id)).toEqual(['T2']);
+    expect(result.nodes.find((node) => node.id === 'T2')?.meta?.['blocked'] === true).toBe(blocked);
+  });
+
+  it('marks work blocked when prerequisite evidence is genuinely missing from the full set', () => {
+    const result = tasksToGraph(
+      [mkTask({ id: 'T2', title: 'Work', status: 'pending' })],
+      [{ taskId: 'T2', dependsOn: 'T999' }],
+    );
+    expect(result.nodes.find((node) => node.id === 'T2')?.meta?.['blocked']).toBe(true);
+  });
+});

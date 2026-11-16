@@ -31,6 +31,7 @@ import type {
 import { SAGA_GROUPS_RELATION } from '../sagas/constants.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { orderByRanking } from '../task-tools/score-task-priority.js';
+import { isReadinessDependencySatisfied } from './dependency-check.js';
 import { coreTaskSlice } from './task-data.js';
 import { loadRankingContext } from './task-next.js';
 
@@ -94,11 +95,11 @@ async function buildBlockers(
   if (task.depends && task.depends.length > 0) {
     for (const depId of task.depends) {
       const dep = await accessor.loadSingleTask(depId);
-      if (dep && dep.status !== 'done' && dep.status !== 'cancelled') {
+      if (!isReadinessDependencySatisfied(dep?.status)) {
         blockers.push({
-          taskId: dep.id,
-          title: dep.title,
-          status: dep.status,
+          taskId: depId,
+          title: dep?.title ?? 'Unknown task',
+          status: dep?.status ?? 'missing',
           kind: 'dependency',
         });
       }

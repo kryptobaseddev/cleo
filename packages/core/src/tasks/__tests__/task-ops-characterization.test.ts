@@ -18,16 +18,6 @@ vi.mock('../../store/file-utils.js', () => ({
   getDataPath: vi.fn((_root: string, file: string) => `/mock/${file}`),
 }));
 
-vi.mock('../deps-ready.js', () => ({
-  depsReady: vi.fn((depends: string[], taskMap: Map<string, Task>) => {
-    if (!depends || depends.length === 0) return true;
-    return depends.every((id) => {
-      const dep = taskMap.get(id);
-      return dep?.status === 'done' || dep?.status === 'cancelled';
-    });
-  }),
-}));
-
 vi.mock('../../intelligence/impact.js', () => ({
   predictImpact: vi.fn().mockResolvedValue({ impact: [] }),
 }));
@@ -61,6 +51,7 @@ function makeTask(overrides: Partial<Task> & { id: string; title: string }): Tas
 function setupAccessor(tasks: Task[], extraMethods: Record<string, unknown> = {}): void {
   const mockImpl = {
     queryTasks: vi.fn().mockResolvedValue({ tasks, total: tasks.length }),
+    loadTasks: vi.fn(async (ids: string[]) => tasks.filter((task) => ids.includes(task.id))),
     getMetaValue: vi.fn().mockResolvedValue(null),
     loadSingleTask: vi
       .fn()

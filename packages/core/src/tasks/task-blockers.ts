@@ -4,18 +4,13 @@
  * @epic T9834
  */
 
-import type { BottleneckTask, Task } from '@cleocode/contracts';
+import type { BottleneckTask } from '@cleocode/contracts';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getTransitiveBlockers } from './dependency-check.js';
-
-/** Task record shape expected from the data layer. */
-type TaskRecord = Task;
-
-async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
-  const accessor = await getTaskAccessor(projectRoot);
-  const { tasks } = await accessor.queryTasks({});
-  return tasks;
-}
+import {
+  getReadinessDependencyBlockers,
+  getTransitiveBlockers,
+  loadReadinessDependencyLookup,
+} from './dependency-check.js';
 
 /**
  * Show blocked tasks and analyze blocking chains.
@@ -54,25 +49,20 @@ export async function coreTaskBlockers(
   total: number;
   limit: number;
 }> {
-  const allTasks = await loadAllTasks(projectRoot);
-  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const taskMap = await loadReadinessDependencyLookup(allTasks, accessor);
   const analyze = params?.analyze ?? false;
   const effectiveLimit = params?.limit ?? 20;
 
   const blockedTasks = allTasks.filter((t) => t.status === 'blocked');
 
   const depBlockedTasks = allTasks.filter(
-    (t) =>
-      t.status === 'pending' &&
-      t.depends &&
-      t.depends.length > 0 &&
-      t.depends.some((depId) => {
-        const dep = taskMap.get(depId);
-        return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-      }),
+    (task) =>
+      task.status === 'pending' && getReadinessDependencyBlockers(task.depends, taskMap).length > 0,
   );
 
-  const tasksAsTask = allTasks;
+  const tasksAsTask = [...taskMap.values()];
   const blockerInfos = [
     ...blockedTasks.map((t) => ({
       id: t.id,

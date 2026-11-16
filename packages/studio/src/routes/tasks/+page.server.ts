@@ -440,6 +440,7 @@ export function __resetLegacyDeferredParamWarningForTests(): void {
 function emptyExplorerBundle(): ExplorerBundle {
   return {
     tasks: [],
+    dependencyStatuses: {},
     deps: [],
     epicProgress: {},
     labels: [],
@@ -455,7 +456,7 @@ function emptyExplorerBundle(): ExplorerBundle {
  *
  * @param ctx - Active project context (from `locals.projectCtx`).
  * @param includeArchived - Pass through the dashboard archived toggle.
- * @returns The explorer bundle, or an empty stub on any failure.
+ * @returns The explorer bundle, or a stub explicitly marked unavailable on failure.
  *
  * @internal
  */
@@ -466,7 +467,10 @@ async function loadExplorerSafe(
   try {
     return await loadExplorerBundle({ projectCtx: ctx, includeArchived });
   } catch {
-    return emptyExplorerBundle();
+    return {
+      ...emptyExplorerBundle(),
+      error: 'Task Explorer unavailable: required task or dependency evidence could not be read.',
+    };
   }
 }
 

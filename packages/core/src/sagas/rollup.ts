@@ -281,6 +281,7 @@ export async function sagaRollup(
  * Canonical saga traversal — full structural walk including epics,
  * descendant tasks, the ready frontier, and blockers.
  *
+ * @remarks
  * This is the single entry point that agent orchestrators use to
  * understand a saga's full state. It combines epic-level rollup
  * (via {@link sagaRollup}) with the ready frontier (ready-to-execute
@@ -288,7 +289,11 @@ export async function sagaRollup(
  *
  * @param projectRoot - Absolute path to the project root.
  * @param sagaId - Saga task ID to traverse.
- * @returns EngineResult with {@link SagaTraversalResult}.
+ * @returns Traversal result, or the failure that prevented readiness assessment.
+ * @example
+ * ```ts
+ * const traversal = await sagaTraversal(projectRoot, 'T100');
+ * ```
  *
  * @task T10966 — Unify saga traversal and deep rollup Core semantics
  * @task T10967 — Define canonical saga traversal result
@@ -314,6 +319,7 @@ export async function sagaTraversal(
   // The saga walk in orchestrateReady auto-detects saga shape and
   // aggregates ready tasks across member epics.
   const readyResult = await orchestrateReady(sagaId, projectRoot);
+  if (!readyResult.success) return readyResult;
   let readyFrontier: string[] = [];
   const blockers: SagaTraversalResult['blockers'] = [];
 

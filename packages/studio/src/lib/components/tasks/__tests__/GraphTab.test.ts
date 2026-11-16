@@ -24,7 +24,7 @@
 
 import type { Task, TaskPriority, TaskStatus } from '@cleocode/contracts';
 import { describe, expect, it, vi } from 'vitest';
-
+import { tasksToGraph } from '../../../graph/adapters/tasks-adapter.js';
 import type { TaskDependencyEdge } from '../../../server/tasks/explorer-loader.js';
 import type { TaskFilterState } from '../../../stores/task-filters.svelte.js';
 import {
@@ -274,15 +274,57 @@ describe('isBlocked (blocked halo semantics)', () => {
     expect(isBlocked(blocked, deps, tasksById([blocker, blocked]))).toBe(false);
   });
 
-  it('treats a missing blocker lookup as non-blocking (defensive)', () => {
+  it('retains a missing blocker as unsatisfied evidence', () => {
     const t = task({ id: 'T2', title: 'Orphan', status: 'pending' });
     const deps: TaskDependencyEdge[] = [{ taskId: 'T2', dependsOn: 'T_MISSING' }];
-    expect(isBlocked(t, deps, tasksById([t]))).toBe(false);
+    expect(isBlocked(t, deps, tasksById([t]))).toBe(true);
+  });
+
+  it.each([
+    ['done', false],
+    ['archived', false],
+    ['cancelled', true],
+    ['pending', true],
+    ['active', true],
+    ['blocked', true],
+    ['proposed', true],
+  ] as const)('uses shared execution semantics for %s evidence', (status, blocked) => {
+    const prerequisite = task({ id: 'T1', title: 'Prerequisite', status });
+    const dependent = task({ id: 'T2', title: 'Dependent', status: 'pending' });
+    const deps: TaskDependencyEdge[] = [{ taskId: 'T2', dependsOn: 'T1' }];
+    expect(isBlocked(dependent, deps, tasksById([prerequisite, dependent]))).toBe(blocked);
   });
 
   it('returns false for a pending task with no inbound deps at all', () => {
     const t = task({ id: 'T1', title: 'Solo', status: 'pending' });
     expect(isBlocked(t, [], tasksById([t]))).toBe(false);
+  });
+});
+
+describe('filtered graph dependency evidence', () => {
+  it.each([
+    ['done', false],
+    ['archived', false],
+    ['cancelled', true],
+  ] as const)('retains hidden %s prerequisites under status and text filters', (status, blocked) => {
+    const prerequisite = task({ id: 'T1', title: 'Prerequisite', status });
+    const dependent = task({ id: 'T2', title: 'Visible work', status: 'pending' });
+    const allTasks = [prerequisite, dependent];
+    const dependencyStatuses = Object.fromEntries<TaskStatus>(
+      allTasks.map((task) => [task.id, task.status]),
+    );
+    for (const filters of [
+      emptyFilters({ status: ['pending'] }),
+      emptyFilters({ query: 'Visible' }),
+    ]) {
+      const visible = allTasks.filter((task) => passesFilter(task, filters));
+      const result = tasksToGraph(visible, [{ taskId: 'T2', dependsOn: 'T1' }], {
+        dependencyStatuses,
+      });
+      expect(result.nodes.map((node) => node.id)).toEqual(['T2']);
+      expect(result.edges).toEqual([]);
+      expect(result.nodes[0].meta?.['blocked'] === true).toBe(blocked);
+    }
   });
 });
 

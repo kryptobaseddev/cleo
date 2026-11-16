@@ -200,3 +200,25 @@ describe('getParallelTasks', () => {
     expect(getParallelTasks([])).toEqual([]);
   });
 });
+
+describe('pure execution selectors share readiness evidence', () => {
+  it.each([
+    ['done', true],
+    ['archived', true],
+    ['pending', false],
+    ['active', false],
+    ['blocked', false],
+    ['proposed', false],
+    ['cancelled', false],
+  ] as const)('checks %s prerequisites for next and parallel admission', (status, ready) => {
+    const tasks = [makeTask({ id: 'T001', status }), makeTask({ id: 'T002', depends: ['T001'] })];
+    expect(getNextTask(tasks)?.id === 'T002').toBe(ready);
+    expect(getParallelTasks(tasks).includes('T002')).toBe(ready);
+  });
+
+  it('does not admit active work whose prerequisite is missing', () => {
+    const tasks = [makeTask({ id: 'T002', status: 'active', depends: ['T999'] })];
+    expect(getNextTask(tasks)).toBeNull();
+    expect(getParallelTasks(tasks)).toEqual([]);
+  });
+});

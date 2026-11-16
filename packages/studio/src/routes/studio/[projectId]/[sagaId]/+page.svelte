@@ -153,6 +153,7 @@
     {:else if view === 'workgraph'}
       <WorkGraphView
         tasks={data.explorer.tasks}
+        dependencyStatuses={data.explorer.dependencyStatuses}
         deps={data.explorer.deps}
         sagaId={data.sagaId}
       />

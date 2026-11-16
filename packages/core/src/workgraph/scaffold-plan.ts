@@ -389,11 +389,14 @@ function generateMaintainerDoc(
  *   prose, headers, status emojis, and actionable recommendations.
  *
  * The result includes structured entries suitable for attachment to the
- * docs SSoT via `cleo docs add`.
+ * docs SSoT via `cleo docs add`. Pending work is ready only when canonical
+ * prerequisite evidence satisfies the shared execution policy; evidence rows
+ * remain separate from epic membership and child counts.
  *
  * @param projectRoot - Absolute path to the project root.
  * @param params - Saga ID and audience configuration.
  * @returns Structured planning document with markdown and metadata.
+ * @throws Error when required saga or prerequisite evidence cannot be read.
  */
 export async function generatePlanningDoc(
   projectRoot: string,
@@ -415,6 +418,9 @@ export async function generatePlanningDoc(
     if (memberIds === null) {
       throw new Error(`Saga '${sagaId}' not found or is not a saga`);
     }
+    const { getReadinessDependencyBlockers, loadReadinessDependencyLookup } = await import(
+      '../tasks/dependency-check.js'
+    );
 
     // Load all member epics + their children
     const epicTasks = await accessor.loadTasks(memberIds);
@@ -426,13 +432,15 @@ export async function generatePlanningDoc(
       const children = await accessor.getChildren(epic.id);
       const entry = await buildEpicEntry(epic, children);
       epicEntries.push(entry);
+      const dependencyLookup = await loadReadinessDependencyLookup(children, accessor);
 
       // Collect ready and blocked tasks from children
       for (const child of children) {
         const depends = child.depends ?? [];
+        const blockedBy = getReadinessDependencyBlockers(depends, dependencyLookup);
 
         // Ready: pending with no unsatisfied deps
-        if (child.status === 'pending' && depends.length === 0) {
+        if (child.status === 'pending' && blockedBy.length === 0) {
           readyTasks.push({
             id: child.id,
             title: child.title,
@@ -441,14 +449,14 @@ export async function generatePlanningDoc(
             depends,
           });
         } else if (
-          (child.status === 'pending' || child.status === 'blocked') &&
-          depends.length > 0
+          child.status === 'blocked' ||
+          (child.status === 'pending' && blockedBy.length > 0)
         ) {
           blockedTasks.push({
             id: child.id,
             title: child.title,
             status: child.status,
-            blockedBy: depends,
+            blockedBy,
             blocksCount: 0, // computed below
           });
         }

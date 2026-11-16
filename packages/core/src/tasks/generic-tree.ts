@@ -26,7 +26,12 @@ import type {
 import { SAGA_GROUPS_RELATION } from '../sagas/constants.js';
 import { isSagaShape } from '../sagas/enforcement.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getLeafBlockers, getTransitiveBlockers } from './dependency-check.js';
+import {
+  getLeafBlockers,
+  getReadinessDependencyBlockers,
+  getTransitiveBlockers,
+  loadReadinessDependencyLookup,
+} from './dependency-check.js';
 
 /**
  * Edge type that placed a node under its parent in the rendered tree.
@@ -63,8 +68,8 @@ export interface GenericTreeMetadata {
   /**
    * Open (unresolved) dependency IDs that are currently blocking this task.
    *
-   * A dependency is considered open when its status is not `'done'` or
-   * `'cancelled'`.
+   * Only done/archived dependency evidence satisfies execution readiness;
+   * cancelled and missing dependencies remain open.
    */
   readonly blockedBy: ReadonlyArray<string>;
   /**
@@ -229,9 +234,11 @@ export async function buildGenericTaskTree(
     bucket.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
   }
 
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
+
   // For blocker enrichment the helpers want the raw flat array — capture the
   // reference once so the recursive walk doesn't re-materialise it per node.
-  const allTasksFlat = opts.withBlockers === true ? allTasks : undefined;
+  const allTasksFlat = opts.withBlockers === true ? [...dependencyLookup.values()] : undefined;
 
   const flat: FlatTreeNode<GenericTreeMetadata>[] = [];
   const visited = new Set<string>();
@@ -253,7 +260,7 @@ export async function buildGenericTaskTree(
     if (visited.has(task.id)) return;
     visited.add(task.id);
 
-    flat.push(buildFlatNode(task, depth, parentId, edgeType, taskMap, allTasksFlat));
+    flat.push(buildFlatNode(task, depth, parentId, edgeType, dependencyLookup, allTasksFlat));
 
     // 1. parent_id children (sorted by position ASC).
     const parentChildren = childrenByParent.get(task.id) ?? [];
@@ -285,7 +292,7 @@ export async function buildGenericTaskTree(
     if (ancestorSeen.has(parent.id)) break;
     ancestorSeen.add(parent.id);
     ancestorChain.push(
-      buildFlatNode(parent, ancestorChain.length, null, 'parent', taskMap, allTasksFlat),
+      buildFlatNode(parent, ancestorChain.length, null, 'parent', dependencyLookup, allTasksFlat),
     );
     cursor = parent;
   }
@@ -317,11 +324,7 @@ function buildFlatNode(
   allTasksFlat: ReadonlyArray<Task> | undefined,
 ): FlatTreeNode<GenericTreeMetadata> {
   const depends = task.depends ?? [];
-  const blockedBy = depends.filter((depId) => {
-    const dep = taskMap.get(depId);
-    if (!dep) return false;
-    return dep.status !== 'done' && dep.status !== 'cancelled';
-  });
+  const blockedBy = getReadinessDependencyBlockers(depends, taskMap);
   const ready = blockedBy.length === 0 && (task.status === 'pending' || task.status === 'active');
 
   const blockerChain = allTasksFlat ? getTransitiveBlockers(task.id, [...allTasksFlat]) : undefined;

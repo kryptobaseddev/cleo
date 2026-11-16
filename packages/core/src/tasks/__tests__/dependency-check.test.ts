@@ -143,6 +143,47 @@ describe('getReadyTasks — tasks/dependency-check', () => {
     expect(ready).toHaveLength(1);
     expect(ready[0].id).toBe('T001');
   });
+
+  it('keeps manual blocked status out of the executable frontier', () => {
+    expect(getReadyTasks([makeTask({ id: 'T001', status: 'blocked' })])).toEqual([]);
+  });
+});
+
+describe('execution-readiness policy across generic dependency helpers', () => {
+  it.each([
+    ['done', true],
+    ['archived', true],
+    ['pending', false],
+    ['active', false],
+    ['blocked', false],
+    ['proposed', false],
+    ['cancelled', false],
+  ] as const)('uses independent %s dependency evidence', (status, satisfied) => {
+    const dependency = makeTask({ id: 'T001', status, parentId: 'T100' });
+    const selected = [makeTask({ id: 'T002', parentId: 'T200', depends: ['T001'] })];
+    const evidence = new Map([dependency, ...selected].map((task) => [task.id, task]));
+    expect(getReadyTasks(selected, evidence).map((task) => task.id)).toEqual(
+      satisfied ? ['T002'] : [],
+    );
+    expect(getBlockedTasks(selected, evidence).map((task) => task.id)).toEqual(
+      satisfied ? [] : ['T002'],
+    );
+    expect(validateDependencyRefs(selected, [...evidence.values()])).toEqual([]);
+  });
+
+  it('keeps missing identities blocked and reported without consuming completion waivers', () => {
+    const selected = [makeTask({ id: 'T002', depends: ['T999'] })];
+    expect(getReadyTasks(selected)).toEqual([]);
+    expect(getBlockedTasks(selected)).toEqual(selected);
+    expect(validateDependencyRefs(selected)).toMatchObject([{ relatedIds: ['T999'] }]);
+
+    const completedWithCancellation = [
+      makeTask({ id: 'T001', status: 'cancelled' }),
+      makeTask({ id: 'T002', depends: ['T001'] }),
+    ];
+    expect(getUnresolvedDeps('T002', completedWithCancellation)).toEqual([]);
+    expect(getReadyTasks(completedWithCancellation)).toEqual([]);
+  });
 });
 
 describe('getDependents / getDependentIds', () => {
@@ -366,13 +407,12 @@ describe('T1954: archived status satisfies dependency checks', () => {
       expect(getBlockedTasks(tasks)).toHaveLength(1);
     });
 
-    it('treats cancelled dep as satisfied (existing behavior preserved)', () => {
+    it('keeps cancelled prerequisites blocked under the spawn-readiness contract', () => {
       const tasks = [
         makeTask({ id: 'T001', status: 'cancelled' }),
         makeTask({ id: 'T002', status: 'pending', depends: ['T001'] }),
       ];
-      // cancelled has always satisfied getBlockedTasks (pre-existing behavior)
-      expect(getBlockedTasks(tasks)).toHaveLength(0);
+      expect(getBlockedTasks(tasks)).toMatchObject([{ id: 'T002' }]);
     });
   });
 

@@ -169,52 +169,64 @@ export function wouldCreateCycle(fromId: string, toId: string, tasks: Task[]): b
 /**
  * Get tasks that are blocked (have unmet dependencies).
  *
+ * @remarks
  * Excludes tasks in terminal states (`done`, `cancelled`, `archived`) and the
  * Tier 2 proposal queue (`proposed`) — `proposed` tasks are not part of the
  * active execution dependency graph.
  *
  * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
+ * Cancelled prerequisites remain execution blockers; completion uses a separate policy.
+ *
+ * @param tasks - Selected tasks to classify.
+ * @param taskLookup - Canonical dependency evidence, including external and archived tasks.
+ * @returns Selected non-terminal tasks with unresolved hard dependencies.
+ * @example
+ * ```ts
+ * const lookup = await loadReadinessDependencyLookup(tasks, accessor);
+ * const blocked = getBlockedTasks(tasks, lookup);
+ * ```
  */
-export function getBlockedTasks(tasks: Task[]): Task[] {
-  const completedIds = new Set(
-    tasks
-      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
-      .map((t) => t.id),
+export function getBlockedTasks(
+  tasks: Task[],
+  taskLookup: ReadonlyMap<string, Task> = new Map(tasks.map((task) => [task.id, task])),
+): Task[] {
+  return tasks.filter(
+    (task) =>
+      (task.status === 'pending' || task.status === 'active' || task.status === 'blocked') &&
+      getReadinessDependencyBlockers(task.depends, taskLookup).length > 0,
   );
-
-  return tasks.filter((t) => {
-    if (!t.depends?.length) return false;
-    if (t.status === 'done' || t.status === 'cancelled') return false;
-    if (t.status === 'archived') return false;
-    if (t.status === 'proposed') return false;
-    return t.depends.some((depId) => !completedIds.has(depId));
-  });
 }
 
 /**
  * Get tasks that are ready (all dependencies met).
  *
- * Excludes tasks in terminal states (`done`, `cancelled`, `archived`) and the
+ * @remarks
+ * Selects pending and active tasks, excluding manual blocked status and the
  * Tier 2 proposal queue (`proposed`). `proposed` tasks represent agent-suggested
  * work pending owner review and must never be auto-picked by the sentient loop
  * or orchestrator (T946 / Round 2 audit §8).
  *
  * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
+ * Cancelled prerequisites remain execution blockers; completion uses a separate policy.
+ *
+ * @param tasks - Selected tasks to classify.
+ * @param taskLookup - Canonical dependency evidence, including external and archived tasks.
+ * @returns Selected pending or active tasks with every hard dependency satisfied.
+ * @example
+ * ```ts
+ * const lookup = await loadReadinessDependencyLookup(tasks, accessor);
+ * const ready = getReadyTasks(tasks, lookup);
+ * ```
  */
-export function getReadyTasks(tasks: Task[]): Task[] {
-  const completedIds = new Set(
-    tasks
-      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
-      .map((t) => t.id),
+export function getReadyTasks(
+  tasks: Task[],
+  taskLookup: ReadonlyMap<string, Task> = new Map(tasks.map((task) => [task.id, task])),
+): Task[] {
+  return tasks.filter(
+    (task) =>
+      (task.status === 'pending' || task.status === 'active') &&
+      getReadinessDependencyBlockers(task.depends, taskLookup).length === 0,
   );
-
-  return tasks.filter((t) => {
-    if (t.status === 'done' || t.status === 'cancelled') return false;
-    if (t.status === 'archived') return false;
-    if (t.status === 'proposed') return false;
-    if (!t.depends?.length) return true;
-    return t.depends.every((depId) => completedIds.has(depId));
-  });
 }
 
 /**
@@ -251,9 +263,24 @@ export function getUnresolvedDeps(taskId: string, tasks: Task[]): string[] {
 
 /**
  * Validate dependencies for missing references.
+ *
+ * @remarks
+ * Assesses identity separately from execution status without expanding the selected graph.
+ *
+ * @param tasks - Selected tasks whose declared references are assessed.
+ * @param knownTasks - Canonical population containing selected and external dependency evidence.
+ * @returns Missing references without treating known unfinished tasks as absent.
+ * @example
+ * ```ts
+ * const lookup = await loadReadinessDependencyLookup(tasks, accessor);
+ * const missing = validateDependencyRefs(tasks, [...lookup.values()]);
+ * ```
  */
-export function validateDependencyRefs(tasks: Task[]): DependencyError[] {
-  const taskIds = new Set(tasks.map((t) => t.id));
+export function validateDependencyRefs(
+  tasks: Task[],
+  knownTasks: Task[] = tasks,
+): DependencyError[] {
+  const taskIds = new Set(knownTasks.map((t) => t.id));
   const errors: DependencyError[] = [];
 
   for (const task of tasks) {
@@ -275,13 +302,28 @@ export function validateDependencyRefs(tasks: Task[]): DependencyError[] {
 
 /**
  * Full dependency graph validation.
+ *
+ * @remarks
+ * Uses canonical external evidence for references while preserving the separate completion policy.
+ *
+ * @param tasks - Selected graph to validate.
+ * @param knownTasks - Canonical population containing selected and external dependency evidence.
+ * @returns Validation errors and completion-policy warnings for the selected graph.
+ * @example
+ * ```ts
+ * const lookup = await loadReadinessDependencyLookup(tasks, accessor);
+ * const validation = validateDependencies(tasks, [...lookup.values()]);
+ * ```
  */
-export function validateDependencies(tasks: Task[]): DependencyCheckResult {
+export function validateDependencies(
+  tasks: Task[],
+  knownTasks: Task[] = tasks,
+): DependencyCheckResult {
   const errors: DependencyError[] = [];
   const warnings: DependencyWarning[] = [];
 
   // Check for missing references
-  errors.push(...validateDependencyRefs(tasks));
+  errors.push(...validateDependencyRefs(tasks, knownTasks));
 
   // Check for circular dependencies
   const visited = new Set<string>();
@@ -318,7 +360,7 @@ export function validateDependencies(tasks: Task[]): DependencyCheckResult {
   // Warn about completed tasks with unmet dependencies
   for (const task of tasks) {
     if (task.status === 'done' && task.depends?.length) {
-      const unresolved = getUnresolvedDeps(task.id, tasks);
+      const unresolved = getUnresolvedDeps(task.id, knownTasks);
       if (unresolved.length > 0) {
         warnings.push({
           code: 'W_COMPLETED_WITH_UNMET_DEPS',
@@ -386,7 +428,7 @@ export function topologicalSort(tasks: Task[]): string[] | null {
 
 /**
  * Walk upstream recursively through a task's dependency chain.
- * Returns all non-done/non-cancelled/non-archived dependency IDs (deduplicated).
+ * Returns unresolved execution dependency IDs, including missing identities (deduplicated).
  * Uses a visited set for cycle protection.
  *
  * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
@@ -406,11 +448,7 @@ export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
     const t = taskMap.get(id);
     if (!t?.depends?.length) return;
 
-    for (const depId of t.depends) {
-      const dep = taskMap.get(depId);
-      if (!dep) continue;
-      if (dep.status === 'done' || dep.status === 'cancelled' || dep.status === 'archived')
-        continue;
+    for (const depId of getReadinessDependencyBlockers(t.depends, taskMap)) {
       blockers.add(depId);
       walk(depId);
     }
@@ -422,7 +460,7 @@ export function getTransitiveBlockers(taskId: string, tasks: Task[]): string[] {
 
 /**
  * From the transitive blockers, return only "leaf" blockers — those whose
- * own dependencies are all resolved (done/cancelled/archived) or that have no
+ * own dependencies are execution-ready (done/archived) or that have no
  * dependencies at all. These are the root-cause tasks that need action first.
  *
  * `archived` tasks satisfy dependencies (treated equivalent to done) — T1954.
@@ -432,15 +470,8 @@ export function getLeafBlockers(taskId: string, tasks: Task[]): string[] {
   if (blockerIds.length === 0) return [];
 
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
-  const completedIds = new Set(
-    tasks
-      .filter((t) => t.status === 'done' || t.status === 'cancelled' || t.status === 'archived')
-      .map((t) => t.id),
-  );
-
   return blockerIds.filter((id) => {
-    const t = taskMap.get(id);
-    if (!t?.depends?.length) return true;
-    return t.depends.every((depId) => completedIds.has(depId));
+    const task = taskMap.get(id);
+    return getReadinessDependencyBlockers(task?.depends, taskMap).length === 0;
   });
 }

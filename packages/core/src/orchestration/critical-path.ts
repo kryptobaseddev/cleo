@@ -5,6 +5,10 @@
 
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 
 export interface CriticalPathNode {
   taskId: string;
@@ -22,7 +26,7 @@ export interface CriticalPathResult {
   remainingInPath: number;
 }
 
-/** Find the critical path (longest dependency chain) in the task graph. */
+/** Find the longest selected dependency chain; count blockers using canonical execution evidence. */
 export async function getCriticalPath(
   cwd?: string,
   accessor?: DataAccessor,
@@ -35,6 +39,7 @@ export async function getCriticalPath(
   }
 
   const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const dependencyLookup = await loadReadinessDependencyLookup(tasks, acc);
 
   // Build dependency maps
   const dependsOn = new Map<string, Set<string>>();
@@ -100,10 +105,7 @@ export async function getCriticalPath(
   const annotatedPath: CriticalPathNode[] = criticalPath.map((taskId) => {
     const task = taskMap.get(taskId);
     const size = task?.size || 'medium';
-    const incompleteDeps = (task?.depends || []).filter((dep) => {
-      const depTask = taskMap.get(dep);
-      return depTask && depTask.status !== 'done' && depTask.status !== 'cancelled';
-    });
+    const incompleteDeps = getReadinessDependencyBlockers(task?.depends, dependencyLookup);
 
     return {
       taskId,

@@ -13,6 +13,10 @@ import { join } from 'node:path';
 import type { Task, WorktreeInfo } from '@cleocode/contracts';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../tasks/dependency-check.js';
 import { getForceBypassPath } from '../tasks/gate-audit.js';
 import { WORKTREE_LIFECYCLE_AUDIT_FILE } from '../worktree/audit.js';
 import {
@@ -120,7 +124,8 @@ export async function collectOrchestrateDashboard(
   const accessor = options.accessor ?? (await getTaskAccessor(projectRoot));
   const { tasks } = await accessor.queryTasks({});
 
-  const queue = summarizeQueue(tasks);
+  const dependencyLookup = await loadReadinessDependencyLookup(tasks, accessor);
+  const queue = summarizeQueue(tasks, dependencyLookup);
   const prove = options.proveWorktrees !== false;
   const worktreeStates =
     options.worktreeStates ??
@@ -165,12 +170,10 @@ export function formatDashboardPromptSummary(metrics: OrchestrateDashboardMetric
   return `queue=${metrics.queueDepth} ready / ${metrics.queue.active} active; ${worktrees}; adminMerge=${formatRate(metrics.adminMergeRate)}/h; forceBypass=${formatRate(metrics.forceBypassRate)}/h (${metrics.forceBypassRate.windowHours}h)`;
 }
 
-function summarizeQueue(tasks: Task[]): OrchestrateDashboardMetrics['queue'] {
-  const done = new Set(
-    tasks
-      .filter((task) => task.status === 'done' || task.status === 'cancelled')
-      .map((task) => task.id),
-  );
+function summarizeQueue(
+  tasks: Task[],
+  dependencyLookup: ReadonlyMap<string, Task>,
+): OrchestrateDashboardMetrics['queue'] {
   let ready = 0;
   let pending = 0;
   let active = 0;
@@ -181,8 +184,7 @@ function summarizeQueue(tasks: Task[]): OrchestrateDashboardMetrics['queue'] {
     if (task.status === 'blocked') blocked += 1;
     if (task.status !== 'pending') continue;
     pending += 1;
-    const deps = task.depends ?? [];
-    if (deps.every((dep) => done.has(dep))) ready += 1;
+    if (getReadinessDependencyBlockers(task.depends, dependencyLookup).length === 0) ready += 1;
   }
 
   return { ready, pending, active, blocked };

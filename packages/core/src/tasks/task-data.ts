@@ -17,8 +17,11 @@ import {
   detectCircularDeps,
   getBlockedTasks,
   getLeafBlockers,
+  getReadinessDependencyBlockers,
   getReadyTasks,
   getTransitiveBlockers,
+  isReadinessDependencySatisfied,
+  loadReadinessDependencyLookup,
   validateDependencies,
 } from './dependency-check.js';
 import { addBatchRelations } from './relates.js';
@@ -41,6 +44,8 @@ async function loadAllTasks(projectRoot: string): Promise<TaskRecord[]> {
  * @remarks
  * Aggregates dependency data across all tasks to provide a high-level view of
  * the dependency graph health, including which tasks are blocked and what would unblock them.
+ * Canonical archived dependency evidence is loaded separately from selected tasks;
+ * missing identities remain blockers and required dependency-read failures propagate.
  *
  * @example
  * ```typescript
@@ -57,13 +62,14 @@ export async function coreTaskDepsOverview(projectRoot: string): Promise<{
   readyTasks: TaskRef[];
   validation: { valid: boolean; errorCount: number; warningCount: number };
 }> {
-  const allTasks = await loadAllTasks(projectRoot);
-  const tasksAsTask = allTasks;
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
 
   const tasksWithDeps = allTasks.filter((t) => t.depends && t.depends.length > 0);
-  const blocked = getBlockedTasks(tasksAsTask);
-  const ready = getReadyTasks(tasksAsTask);
-  const validation = validateDependencies(tasksAsTask);
+  const blocked = getBlockedTasks(allTasks, dependencyLookup);
+  const ready = getReadyTasks(allTasks, dependencyLookup);
+  const validation = validateDependencies(allTasks, [...dependencyLookup.values()]);
 
   return {
     totalTasks: allTasks.length,
@@ -72,18 +78,9 @@ export async function coreTaskDepsOverview(projectRoot: string): Promise<{
       id: t.id,
       title: t.title,
       status: t.status,
-      unblockedBy: (t.depends ?? []).filter((depId) => {
-        const dep = allTasks.find((x) => x.id === depId);
-        return dep && dep.status !== 'done' && dep.status !== 'cancelled';
-      }),
+      unblockedBy: getReadinessDependencyBlockers(t.depends, dependencyLookup),
     })),
-    readyTasks: ready
-      .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
-      .map((t) => ({
-        id: t.id,
-        title: t.title,
-        status: t.status,
-      })),
+    readyTasks: ready.map((t) => ({ id: t.id, title: t.title, status: t.status })),
     validation: {
       valid: validation.valid,
       errorCount: validation.errors.length,
@@ -259,14 +256,16 @@ export async function coreTaskDepends(
   hint?: string;
   upstreamTree?: import('./task-tree.js').FlatTreeNode[];
 }> {
-  const allTasks = await loadAllTasks(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
 
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
 
-  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+  const taskMap = dependencyLookup;
 
   const upstream: TaskRef[] = [];
   if (direction === 'upstream' || direction === 'both') {
@@ -288,14 +287,14 @@ export async function coreTaskDepends(
   }
 
   // Transitive dependency hints
-  const tasksAsTask = allTasks;
+  const tasksAsTask = [...dependencyLookup.values()];
   const transitiveIds = getTransitiveBlockers(taskId, tasksAsTask);
   const unresolvedChain = transitiveIds.length;
 
   const leafIds = getLeafBlockers(taskId, tasksAsTask);
   const leafBlockers = leafIds.map((id) => {
-    const t = taskMap.get(id)!;
-    return { id: t.id, title: t.title, status: t.status };
+    const task = taskMap.get(id);
+    return { id, title: task?.title ?? 'Unknown task', status: task?.status ?? 'missing' };
   });
 
   const allDepsReady = unresolvedChain === 0;
@@ -526,7 +525,8 @@ export async function coreTaskSlice(
  *
  * @remarks
  * Returns both the tasks this task depends on (upstream) and the tasks that depend
- * on it (downstream). Unresolved deps are those not yet done or cancelled.
+ * on it (downstream). Only done/archived prerequisites satisfy execution readiness;
+ * missing or cancelled prerequisites remain unresolved and required read failures propagate.
  *
  * @example
  * ```typescript
@@ -540,16 +540,15 @@ export async function coreTaskDeps(
   projectRoot: string,
   taskId: string,
 ): Promise<import('@cleocode/contracts').TaskDepsResult> {
-  const allTasks = await loadAllTasks(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
   }
 
-  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
-  const completedIds = new Set(
-    allTasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
-  );
+  const taskMap = dependencyLookup;
 
   const dependsOn = (task.depends ?? [])
     .map((depId) => {
@@ -562,7 +561,7 @@ export async function coreTaskDeps(
     .filter((t) => t.depends?.includes(taskId))
     .map((t) => ({ id: t.id, title: t.title, status: t.status }));
 
-  const unresolvedDeps = (task.depends ?? []).filter((depId) => !completedIds.has(depId));
+  const unresolvedDeps = getReadinessDependencyBlockers(task.depends, dependencyLookup);
 
   return {
     taskId,
@@ -613,10 +612,6 @@ type CoreTaskRelationEntry = {
   status?: string;
 };
 
-function dependencyReady(task: TaskRecord | undefined): boolean {
-  return task?.status === 'done';
-}
-
 function relationTypeMatches(type: string, requested: string | undefined): boolean {
   if (!requested) return true;
   if (requested === 'depends' || requested === 'depends_on') return type === 'depends';
@@ -633,7 +628,9 @@ export async function coreTaskRelates(
   relations: CoreTaskRelationEntry[];
   count: number;
 }> {
-  const allTasks = await loadAllTasks(projectRoot);
+  const accessor = await getTaskAccessor(projectRoot);
+  const { tasks: allTasks } = await accessor.queryTasks({});
+  const dependencyLookup = await loadReadinessDependencyLookup(allTasks, accessor);
   const task = allTasks.find((t) => t.id === taskId);
   if (!task) {
     throw new Error(`Task '${taskId}' not found`);
@@ -641,7 +638,7 @@ export async function coreTaskRelates(
 
   const direction = options.direction ?? 'both';
   const includeDependencies = options.includeDependencies ?? true;
-  const taskById = new Map(allTasks.map((t) => [t.id, t]));
+  const taskById = dependencyLookup;
   const relations: CoreTaskRelationEntry[] = [];
 
   if (direction === 'out' || direction === 'both') {
@@ -677,7 +674,7 @@ export async function coreTaskRelates(
           type: 'depends',
           direction: 'out',
           source: 'dependency',
-          ready: dependencyReady(dep),
+          ready: isReadinessDependencySatisfied(dep?.status),
           status: dep?.status,
         });
       }
@@ -692,7 +689,7 @@ export async function coreTaskRelates(
           type: 'depends',
           direction: 'in',
           source: 'dependency',
-          ready: dependencyReady(task),
+          ready: isReadinessDependencySatisfied(task.status),
           status: other.status,
         });
       }

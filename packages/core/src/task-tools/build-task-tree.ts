@@ -16,7 +16,8 @@ import type {
   TaskTreeNode,
 } from '@cleocode/contracts';
 
-const SATISFIED_STATUSES = new Set<string>(['done', 'cancelled']);
+import { isReadinessDependencySatisfied } from '../tasks/dependency-check.js';
+
 const ACTIONABLE_STATUSES = new Set<string>(['pending', 'active']);
 
 function getTransitiveBlockers(
@@ -33,10 +34,8 @@ function getTransitiveBlockers(
   const blockers: string[] = [];
   for (const depId of task.depends) {
     const dep = taskMap.get(depId);
-    if (!dep) continue;
-    if (!SATISFIED_STATUSES.has(dep.status)) {
-      blockers.push(depId);
-    }
+    if (isReadinessDependencySatisfied(dep?.status)) continue;
+    blockers.push(depId);
     blockers.push(...getTransitiveBlockers(depId, taskMap, visited));
   }
   return [...new Set(blockers)];
@@ -46,11 +45,11 @@ function getLeafBlockers(taskId: string, taskMap: Map<string, BuildTaskTreeInput
   const chain = getTransitiveBlockers(taskId, taskMap);
   return chain.filter((id) => {
     const t = taskMap.get(id);
-    if (!t) return false;
+    if (!t) return true;
     const deps = t.depends ?? [];
     return deps.every((depId) => {
       const dep = taskMap.get(depId);
-      return !dep || SATISFIED_STATUSES.has(dep.status);
+      return isReadinessDependencySatisfied(dep?.status);
     });
   });
 }
@@ -68,7 +67,7 @@ function buildNode(
   const depends = task.depends ?? [];
   const blockedBy = depends.filter((depId) => {
     const dep = taskMap.get(depId);
-    return dep !== undefined && !SATISFIED_STATUSES.has(dep.status);
+    return !isReadinessDependencySatisfied(dep?.status);
   });
   const ready = blockedBy.length === 0 && ACTIONABLE_STATUSES.has(task.status);
 
@@ -104,7 +103,8 @@ function countNodes(nodes: TaskTreeNode[]): number {
  * Build a task hierarchy tree from a flat array of tasks.
  *
  * Pure functional — no I/O. The caller is responsible for loading tasks and
- * passing them in. When `rootId` is provided, only the subtree rooted at that
+ * passing them in, including archived/external prerequisite evidence. Missing
+ * records remain blockers. When `rootId` is provided, only the subtree rooted at that
  * task is returned. When `opts.withBlockers` is true, each node is annotated
  * with `blockerChain` and `leafBlockers`.
  *

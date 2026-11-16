@@ -33,7 +33,7 @@
   @saga T11555
 -->
 <script lang="ts">
-  import type { Task } from '@cleocode/contracts';
+  import type { Task, TaskStatus } from '@cleocode/contracts';
   import type { EdgeKind, GraphNode as KitGraphNode } from '$lib/graph/types.js';
   import { tasksToGraph } from '$lib/graph/adapters/tasks-adapter.js';
   import SvgRenderer from '$lib/graph/renderers/SvgRenderer.svelte';
@@ -47,6 +47,8 @@
   interface Props {
     /** Full task set (from the gateway-backed explorer bundle). */
     tasks: Task[];
+    /** Full prerequisite evidence, independent of displayed nodes. */
+    dependencyStatuses?: Readonly<Record<string, TaskStatus>>;
     /** All dependency edges from the bundle. */
     deps: TaskDependencyEdge[];
     /**
@@ -63,6 +65,7 @@
 
   let {
     tasks,
+    dependencyStatuses,
     deps,
     sagaId = null,
     includeCancelled = false,
@@ -78,6 +81,7 @@
       epicScope: sagaId,
       includeCancelled,
       includeArchived: false,
+      dependencyStatuses,
     }),
   );
 

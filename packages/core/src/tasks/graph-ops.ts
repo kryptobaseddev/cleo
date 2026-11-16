@@ -8,7 +8,11 @@
 
 import type { Task } from '@cleocode/contracts';
 import { buildRankingContext, rankTasks } from '../task-tools/score-task-priority.js';
-import { topologicalSort } from './dependency-check.js';
+import {
+  getReadyTasks,
+  isReadinessDependencySatisfied,
+  topologicalSort,
+} from './dependency-check.js';
 
 /** A wave of parallelizable tasks. */
 export interface DependencyWave {
@@ -18,16 +22,20 @@ export interface DependencyWave {
 
 /**
  * Compute dependency waves for parallel execution.
- * Tasks in the same wave can run in parallel; waves must be sequential.
+ * Orders only the supplied graph; the final planning group may contain cycles.
+ * Wave membership does not establish current readiness: use getReadyTasks with
+ * canonical dependency evidence for admission, including external prerequisites.
  */
 export function computeDependencyWaves(tasks: Task[]): DependencyWave[] {
-  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
+  const activeTasks = tasks.filter(
+    (task) => !isReadinessDependencySatisfied(task.status) && task.status !== 'cancelled',
+  );
 
   if (activeTasks.length === 0) return [];
 
   const taskMap = new Map(activeTasks.map((t) => [t.id, t]));
   const completedIds = new Set(
-    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
+    tasks.filter((task) => isReadinessDependencySatisfied(task.status)).map((task) => task.id),
   );
 
   // Compute in-degree for each task (only counting active deps)
@@ -96,20 +104,9 @@ function rankWithin(candidates: readonly Task[], tasks: readonly Task[]): Task[]
  * @returns The next task, or null.
  */
 export function getNextTask(tasks: Task[]): Task | null {
-  const completedIds = new Set(
-    tasks.filter((t) => t.status === 'done' || t.status === 'cancelled').map((t) => t.id),
-  );
-
-  const ready = tasks.filter((t) => {
-    if (t.status === 'done' || t.status === 'cancelled') return false;
-    if (t.cancelledAt) return false; // Exclude soft-cancelled tasks regardless of status
-    if (t.status === 'active') return true; // Already active = highest priority
-    if (!t.depends?.length) return true;
-    return t.depends.every((d) => completedIds.has(d));
-  });
+  const ready = getReadyTasks(tasks).filter((task) => !task.cancelledAt);
   const ranked = rankWithin(ready, tasks);
-
-  return ranked.find((t) => t.status === 'active') ?? ranked[0] ?? null;
+  return ranked.find((task) => task.status === 'active') ?? ranked[0] ?? null;
 }
 
 /**
@@ -117,7 +114,9 @@ export function getNextTask(tasks: Task[]): Task | null {
  * Returns task IDs along the critical path.
  */
 export function getCriticalPath(tasks: Task[]): string[] {
-  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled');
+  const activeTasks = tasks.filter(
+    (task) => !isReadinessDependencySatisfied(task.status) && task.status !== 'cancelled',
+  );
 
   if (activeTasks.length === 0) return [];
 
@@ -189,6 +188,7 @@ export function getTaskOrder(tasks: Task[]): string[] {
  * Get parallelizable tasks (tasks with no unmet dependencies).
  */
 export function getParallelTasks(tasks: Task[]): string[] {
-  const waves = computeDependencyWaves(tasks);
-  return waves[0]?.taskIds ?? [];
+  return getReadyTasks(tasks)
+    .map((task) => task.id)
+    .sort();
 }
