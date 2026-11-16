@@ -15,8 +15,10 @@
  *
  * A worker that is busy outside CLEO (editing, git, watching CI) makes no
  * mutation either. The harness hook that runs before each of its shell
- * commands calls {@link renewSessionClaimsFromHook} (T14546), so a claim stays
- * live while its worker is.
+ * commands calls {@link renewClaimsOfHookProcess} (T14546), so a claim stays
+ * live while its worker is. That beat trusts only what the hook PROCESS is:
+ * its own environment, or the task worktree it runs in. It never reads an
+ * identity out of the command line, which any agent can write.
  *
  * @task T13492
  * @task T14546
@@ -53,13 +55,18 @@ export async function renewInvokingSessionClaims(projectRoot?: string): Promise<
   }
 }
 
-/** A session id that is safe as a file name; ids CLEO mints match it. */
-const SESSION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+/** A stamp key that is safe as a file name: a session id, or `<projectHash>-<taskId>`. */
+const STAMP_KEY_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
-/** Options of {@link renewSessionClaimsFromHook}. */
+/** What {@link renewClaimsOfHookProcess} needs to know about the hook process. */
 export interface HookClaimHeartbeatOptions {
-  /** Directory the shell command starts in; a worktree resolves to its main checkout. */
-  readonly cwd?: string;
+  /**
+   * The hook process's own directory: the project directory its harness was
+   * launched in, else its working directory. Never a directory a command names.
+   */
+  readonly cwd: string;
+  /** The hook process's own environment. */
+  readonly env: Readonly<Record<string, string | undefined>>;
   /** The project, when the caller already resolved it; otherwise resolved from `cwd`. */
   readonly projectRoot?: string;
   /** Clock override for tests. */
@@ -68,54 +75,118 @@ export interface HookClaimHeartbeatOptions {
   readonly stampDir?: string;
 }
 
+/** The canonical task worktree a directory lies in (`<cleoHome>/worktrees/<hash>/<taskId>/…`). */
+interface TaskWorktree {
+  readonly projectHash: string;
+  readonly taskId: string;
+}
+
+/** Resolve the task worktree `cwd` lies in, or `null` when it is in none. */
+async function taskWorktreeOf(cwd: string): Promise<TaskWorktree | null> {
+  const { realpathSync } = await import('node:fs');
+  const { isAbsolute, relative, sep } = await import('node:path');
+  const { getCleoWorktreesRoot } = await import('@cleocode/paths');
+  let inside: string;
+  try {
+    inside = relative(realpathSync(getCleoWorktreesRoot()), realpathSync(cwd));
+  } catch {
+    return null; // no worktrees root, or a directory that is gone
+  }
+  if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) return null;
+  const [projectHash, taskId] = inside.split(sep);
+  return projectHash && taskId ? { projectHash, taskId } : null;
+}
+
 /**
- * Hook heartbeat (T14546): renew the claim leases of the session a worker's
- * shell command is bound to. The harness `PreToolUse` hook calls it before
- * every shell command, so it is throttled by a stamp file to one store open
- * per session every {@link CLAIM_KEEPALIVE_MS}; a throttled beat reads one
- * small file and never opens the store.
+ * The session a task worktree is allocated to, when it holds that task's
+ * claim: the session and agent of the worktree lock spawn wrote, provided the
+ * worktree belongs to `root` and the task's claim names the same session and
+ * agent. Anything else (no lock, another project, a claim another session
+ * took) is `null`: a worktree never renews a claim its holder does not own.
+ */
+async function worktreeClaimHolder(root: string, worktree: TaskWorktree): Promise<string | null> {
+  const { computeProjectHash } = await import('@cleocode/paths');
+  if (computeProjectHash(root) !== worktree.projectHash) return null;
+  const { readWorktreeTaskLock } = await import('@cleocode/worktree');
+  const lock = readWorktreeTaskLock(worktree.projectHash, worktree.taskId);
+  if (!lock?.sessionId) return null;
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const { sameClaimAgent } = await import('../store/task-claim.js');
+  const claim = (await (await getTaskAccessor(root)).loadSingleTask(worktree.taskId))?.claim;
+  if (claim?.sessionId !== lock.sessionId || !sameClaimAgent(claim.agentId, lock.agentId)) {
+    return null;
+  }
+  return lock.sessionId;
+}
+
+/**
+ * Hook heartbeat (T14546): renew the claim leases of the session the hook
+ * PROCESS is bound to. The harness `PreToolUse` hook calls it before every
+ * shell command a worker runs.
  *
- * Only an ACTIVE session is renewed, and only leases it still holds whose
- * time is half gone (see `renewStaleSessionClaims`): a task another session
- * took over is never touched. Best-effort: a malformed id, a directory outside
- * any project or a failing store renews nothing and never throws.
+ * Identity comes only from the process, never from the command line (a
+ * command can print or comment any session id):
  *
- * @param sessionId - The session the command names (`CLEO_SESSION_ID`).
- * @param options - Working directory, and test seams.
+ * 1. a session id in the process's own environment (`CLEO_SESSION_ID` & co.,
+ *    as `resolveSessionIdFromEnv` reads them), when its session row exists;
+ * 2. else the task worktree the process runs in, through the worktree lock
+ *    spawn wrote for it, and only while that lock's session and agent hold the
+ *    task's claim.
+ *
+ * Only an ACTIVE session is renewed, and only leases it holds whose time is
+ * half gone (`renewStaleSessionClaims`): a process bound to another session
+ * cannot extend this one's lease, so an idle holder's claim still lapses and
+ * can be taken over.
+ *
+ * A stamp file throttles the beat to one store open per identity every
+ * {@link CLAIM_KEEPALIVE_MS}; a throttled beat reads one small file. A process
+ * with neither binding opens nothing. Best-effort: it never throws.
+ *
+ * @param options - The hook process's directory and environment, and test seams.
  * @returns Leases renewed.
  * @example
  * ```ts
- * await renewSessionClaimsFromHook('ses_20261116024011_f800cb', { cwd: input.cwd });
+ * await renewClaimsOfHookProcess({ cwd: process.cwd(), env: process.env });
  * ```
  * @task T14546
  */
-export async function renewSessionClaimsFromHook(
-  sessionId: string,
-  options: HookClaimHeartbeatOptions = {},
+export async function renewClaimsOfHookProcess(
+  options: HookClaimHeartbeatOptions,
 ): Promise<number> {
-  if (!SESSION_ID_SHAPE.test(sessionId)) return 0;
   try {
+    const { resolveSessionIdFromEnv } = await import('../sessions/session-id.js');
+    const envSession = resolveSessionIdFromEnv(options.env);
+    const worktree = await taskWorktreeOf(options.cwd);
+    const stampKey = worktree ? `${worktree.projectHash}-${worktree.taskId}` : envSession;
+    if (stampKey === null || !STAMP_KEY_SHAPE.test(stampKey)) return 0;
+
     const nowMs = options.nowMs ?? Date.now();
     const { mkdirSync, readFileSync, writeFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const stampDir =
       options.stampDir ??
       join((await import('@cleocode/paths')).getCleoStateDir(), 'claim-heartbeat');
-    const stamp = join(stampDir, sessionId);
+    const stamp = join(stampDir, stampKey);
     let last = Number.NaN;
     try {
       last = Number(readFileSync(stamp, 'utf-8'));
     } catch {
-      // No stamp yet: this is the session's first beat.
+      // No stamp yet: this is the identity's first beat.
     }
     if (nowMs - last >= 0 && nowMs - last < CLAIM_KEEPALIVE_MS) return 0;
+
     const { getProjectRoot } = await import('../paths.js');
     const { getSession } = await import('../store/session-store.js');
     const { renewStaleSessionClaims } = await import('../task-work/claims.js');
     const root = options.projectRoot ?? getProjectRoot(options.cwd);
-    const session = await getSession(sessionId, root);
+    // An env id with no session row (a harness's own id) falls through to the worktree.
+    let session = envSession === null ? null : await getSession(envSession, root);
+    if (session === null && worktree !== null) {
+      const holder = await worktreeClaimHolder(root, worktree);
+      session = holder === null ? null : await getSession(holder, root);
+    }
     const renewed =
-      session?.status === 'active' ? await renewStaleSessionClaims(root, sessionId, nowMs) : 0;
+      session?.status === 'active' ? await renewStaleSessionClaims(root, session.id, nowMs) : 0;
     mkdirSync(stampDir, { recursive: true });
     writeFileSync(stamp, String(nowMs));
     return renewed;

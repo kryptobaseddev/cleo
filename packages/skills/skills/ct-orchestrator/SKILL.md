@@ -300,7 +300,10 @@ so teammates sharing one harness session keep separate claims and focus (T14269)
 The prompt names the allocated **Worker Session** and the separate **Coordinator Session**;
 workers preserve the preclaim and never start a session or re-claim. A worker's lease
 renews with every CLEO command it runs (reads included) and with the heavy-command hook's beat
-before each shell command, so it stays live while the worker is (T14546). A worker whose
+before each shell command, so it stays live while the worker is (T14546). The hook binds a
+worker by its process (a `CLEO_SESSION_ID` in the harness environment, else the worktree
+lock of the directory it runs in), never by command text, and renews only while that
+session holds the claim, so launch workers in their task worktree. A worker whose
 lease still lapsed renews it itself with `cleo claim <id> --renew` and carries on; no resume
 spawn is needed. Only a refused renewal (`E_TASK_CLAIMED`: another session took the task)
 or an ended session returns to the coordinator for handoff. Execution backends receive `workerSession`

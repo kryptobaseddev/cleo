@@ -353,7 +353,9 @@ and nothing is written; `error.details` names the `holder` (session, agent,
 `leaseExpiresAt`), whether the lease has `expired`, and the `override` flag.
 Your activity renews your leases (T14546): every mutation, a read once half the
 lease is gone, and, where the heavy-command hook is installed, the shell commands
-you run with your `CLEO_SESSION_ID` export. `cleo stop`, `cleo complete` and
+you run. The hook knows you by your process, never by your command text: a
+`CLEO_SESSION_ID` in your harness environment, else the task worktree you run in
+(its spawn lock), and only while you hold the claim. `cleo stop`, `cleo complete` and
 ending your session release them. The human `assignee` is a separate field.
 
 An expired lease on your own task is not a reason to stop. Renew it and carry
