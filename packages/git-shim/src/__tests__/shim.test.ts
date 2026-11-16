@@ -39,12 +39,12 @@ beforeAll(() => {
   });
   chmodSync(shim, 0o755);
   sentry = join(root, 'sentry.mjs');
-  // Independent safety control: even defective source can launch at most five
-  // successive Node children. No tested production guard is trusted for cleanup.
+  // Independent safety control: at most five Node children, or 24 for the
+  // wrapper hop-limit case. No tested production guard is trusted for cleanup.
   writeFileSync(
     sentry,
     "const n=Number(process.env.SHIM_TEST_DEPTH??'0')+1;" +
-      "process.env.SHIM_TEST_DEPTH=String(n);if(n>5){process.stderr.write('RECURSION_SENTRY');process.exit(88);}",
+      "process.env.SHIM_TEST_DEPTH=String(n);if(n>(process.env.SHIM_TEST_MAX_DEPTH==='24'?24:5)){process.stderr.write('RECURSION_SENTRY');process.exit(88);}",
   );
 });
 
@@ -225,6 +225,41 @@ describe('installed executable identity', () => {
     expect(status).toBe(1);
     expect(stderr).toContain('CLEO_REAL_GIT_PATH');
     expect(stderr).not.toContain('RECURSION_SENTRY');
+  });
+
+  it('bounds a non-exec wrapper that repeatedly invokes the next Git shim', async () => {
+    const dir = fixture();
+    const wrapper = join(dir, 'wrapper');
+    const next = join(dir, 'next');
+    mkdirSync(wrapper);
+    mkdirSync(next);
+    copyFileSync(shim, join(next, 'git'));
+    chmodSync(join(next, 'git'), 0o755);
+    writeFileSync(join(wrapper, 'git'), `#!/bin/sh\n"${join(next, 'git')}" "$@"\n`);
+    chmodSync(join(wrapper, 'git'), 0o755);
+    realGit(dir);
+    const [status, stdout, stderr] = await invoke(dir, shim, [wrapper, next, dir], ['--version'], {
+      SHIM_TEST_MAX_DEPTH: '24',
+    });
+    expect(status).toBe(1);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('delegation hop limit');
+    expect(stderr).not.toContain('RECURSION_SENTRY');
+  });
+
+  it.each([
+    'invalid',
+    '-1',
+    '16',
+  ])('refuses an invalid or exhausted hop budget: %s', async (hops) => {
+    const dir = fixture();
+    realGit(dir);
+    const [status, stdout, stderr] = await invoke(dir, shim, [dir], ['--version'], {
+      CLEO_GIT_SHIM_HOPS: hops,
+    });
+    expect(status).toBe(1);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('delegation hop limit');
   });
 
   it.each(['file', 'directory'])('skips a non-executable %s PATH candidate', async (kind) => {
