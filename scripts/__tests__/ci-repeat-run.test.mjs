@@ -1,7 +1,7 @@
 /**
  * T14149 — repeat-run.yml and scripts/ci-repeat-run.mjs.
  *
- * The workflow repeats one test file N times on main so a criterion that needs
+ * The workflow repeats one test file N times on a branch so a criterion that needs
  * a heavy or repeated run is proven in CI. Its inputs are user-supplied, so
  * none may reach a shell: they pass through `env:` and are validated before
  * anything runs.
@@ -9,6 +9,7 @@
  * @task T14149
  */
 
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -29,10 +30,10 @@ describe('repeat-run.yml structure (T14149)', () => {
     }
   });
 
-  it('runs only on main, under a bounded timeout, and only on workflow_dispatch', () => {
+  it('runs only on branches, under a bounded timeout, and only on workflow_dispatch', () => {
     const d = doc();
     expect(Object.keys(d.on)).toEqual(['workflow_dispatch']);
-    expect(d.jobs.repeat.if).toBe("github.ref == 'refs/heads/main'");
+    expect(d.jobs.repeat.if).toBe("startsWith(github.ref, 'refs/heads/')");
     expect(d.jobs.repeat['timeout-minutes']).toBeLessThanOrEqual(90);
     expect(d.permissions).toEqual({ contents: 'read' });
   });
@@ -50,6 +51,42 @@ describe('repeat-run.yml structure (T14149)', () => {
 });
 
 describe('validateRepeatInputs (T14149)', () => {
+  it.each([
+    ['refs/heads/main', 0],
+    ['refs/heads/task/T14620', 0],
+    ['refs/tags/v2026.11.1', 1],
+    ['refs/pull/1/merge', 1],
+  ])('validates a dispatch on %s with exit %i', (ref, status) => {
+    const child = spawnSync(process.execPath, ['scripts/ci-repeat-run.mjs', 'validate'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GITHUB_REF: ref,
+        REPEAT_TEST: 'scripts/__tests__/ci-repeat-run.test.mjs',
+        REPEAT_RUNS: '50',
+        REPEAT_TEST_NAME: '',
+      },
+    });
+    expect(child.status, child.stderr).toBe(status);
+  });
+
+  it.each([
+    ['refs/heads/main', 1],
+    ['refs/heads/task/T14620', 0],
+  ])('limits named-test repeats on %s with exit %i', (ref, status) => {
+    const child = spawnSync(process.execPath, ['scripts/ci-repeat-run.mjs', 'validate'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GITHUB_REF: ref,
+        REPEAT_TEST: 'scripts/__tests__/ci-repeat-run.test.mjs',
+        REPEAT_RUNS: '50',
+        REPEAT_TEST_NAME: 'waits for a preceding CLEO command',
+      },
+    });
+    expect(child.status, child.stderr).toBe(status);
+  });
+
   it('accepts a tracked repo-relative test file and a count of 1-200', () => {
     expect(
       validateRepeatInputs(

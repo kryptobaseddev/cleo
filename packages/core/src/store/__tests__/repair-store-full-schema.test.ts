@@ -1,5 +1,5 @@
 /** Repair against the complete runtime schema, including every domain's FTS and vec tables. */
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.restoreAllMocks();
-  if (child && child.exitCode === null) {
+  if (child && child.exitCode === null && child.signalCode === null) {
     const exited = once(child, 'exit');
     child.kill();
     await exited;
@@ -246,7 +246,7 @@ it('repairs the complete current schema with contentless/external FTS and vector
 }, 120_000);
 
 /** A real descriptor holder, with a CLEO title as a preceding command has during teardown. */
-async function holder(title: string, lifetime: number): Promise<ChildProcess> {
+async function holder(title: string): Promise<ChildProcessWithoutNullStreams> {
   resetDbState();
   const processHandle = spawn(
     process.execPath,
@@ -258,11 +258,11 @@ async function holder(title: string, lifetime: number): Promise<ChildProcess> {
     process.title = ${JSON.stringify(title)};
     const fd = openSync(process.argv[1], 'r');
     process.stdout.write('ready\\n');
-    setTimeout(() => { closeSync(fd); process.exit(0); }, ${lifetime});
+    process.stdin.once('data', () => { closeSync(fd); process.exit(0); });
   `,
       live,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    { stdio: ['pipe', 'pipe', 'pipe'] },
   );
   child = processHandle;
   if (!processHandle.stdout) throw new Error('holder stdout missing');
@@ -271,7 +271,14 @@ async function holder(title: string, lifetime: number): Promise<ChildProcess> {
 }
 
 it('waits for a preceding CLEO command to finish teardown without changing original bytes', async () => {
-  await holder('cleo list teardown', 700);
+  const held = await holder('cleo list teardown');
+  const identity = await import('../../sessions/terminal-identity.js');
+  const readProcessArgs = identity.readProcessArgs;
+  vi.spyOn(identity, 'readProcessArgs').mockImplementation((pid) => {
+    const command = readProcessArgs(pid);
+    if (pid === held.pid && !held.stdin.writableEnded) held.stdin.end('shutdown');
+    return command;
+  });
   const before = repairFileHash(live);
   const diagnostics: string[] = [];
   await assertRepairQuiescent(live, diagnostics);
@@ -280,7 +287,7 @@ it('waits for a preceding CLEO command to finish teardown without changing origi
 });
 
 it('refuses a persistent CLEO holder at the deadline with its pid, command and shutdown fix', async () => {
-  const held = await holder('cleo list persistent', 60_000);
+  const held = await holder('cleo list persistent');
   const before = repairFileHash(live);
   const identity = await import('../../sessions/terminal-identity.js');
   const readProcessArgs = identity.readProcessArgs;
@@ -301,7 +308,7 @@ it('refuses a persistent CLEO holder at the deadline with its pid, command and s
 });
 
 it('names a non-CLEO holder immediately instead of retrying the repair command', async () => {
-  const held = await holder('sqlite-holder fixture', 60_000);
+  const held = await holder('sqlite-holder fixture');
   await expect(assertRepairQuiescent(live, [])).rejects.toMatchObject({
     codeName: 'E_STORE_IN_USE',
     message: expect.stringContaining(`pid ${held.pid} (sqlite-holder fixture)`),
