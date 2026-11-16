@@ -21,13 +21,31 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { GhPrViewPayload, MergeSweepResult, ReviewVerdict } from '@cleocode/contracts';
+import type {
+  AcceptanceGate,
+  AcceptanceGateResult,
+  GhPrViewPayload,
+  MergeSweepResult,
+  ReviewVerdict,
+  TaskVerification,
+} from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readProjectInfoAtDirectorySync } from '../../project-scope.js';
 import { CURRENT_HEAD_STAND_IN_OPEN } from '../../release/ci-evidence.js';
 import { getActiveSessionInfo } from '../../sessions/session-enforcement.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
+import { deriveTaskEvidence } from '../done-plan.js';
+import { previewTaskGates } from '../gate-preview.js';
+import { type GateCacheEntry, gateInputsHash } from '../gate-result-cache.js';
+import {
+  captureGateInputs,
+  revalidateTaskGateResults,
+  runGates,
+  runTaskGates,
+} from '../gate-runner.js';
 import {
   acquireMergeSweepLock,
   claimMergeSweep,
@@ -50,6 +68,7 @@ import {
   sweepMergedClosures,
   sweepRegisteredProjects,
 } from '../merge-close.js';
+import { reqAdd } from '../req.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -110,6 +129,249 @@ async function seedTask(acceptance: string[]): Promise<string> {
   );
   return result.task.id;
 }
+
+describe('merge-tree typed-gate cache (T14596)', () => {
+  it('captures the explicit test file of a package-manager gate with no task files', async () => {
+    const id = await seedTask(['targeted gate']);
+    const gate: AcceptanceGate = {
+      kind: 'test',
+      command: 'pnpm',
+      args: ['exec', 'vitest', 'run', 'probe.test.ts'],
+      expect: 'exit0',
+      description: 'targeted test',
+    };
+    writeFileSync(join(root, 'probe.test.ts'), 'export {};\n');
+    const execution = createOperationExecutionContext(
+      {
+        projectId: readProjectInfoAtDirectorySync(root, join(root, '.cleo')).projectId,
+        projectRoot: root,
+        actor: 'test',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'test-input',
+      },
+      { budgetMs: 30_000 },
+    );
+    try {
+      const captured = await captureGateInputs(
+        (await env.accessor.loadSingleTask(id))!,
+        gate,
+        execution,
+      );
+      expect(captured.inputs.artifacts.map((artifact) => artifact.path)).toEqual([
+        join(root, 'probe.test.ts'),
+      ]);
+    } finally {
+      execution.close();
+    }
+  });
+
+  it.each([
+    'merge',
+    'pr-head',
+    'equivalent-tip',
+    'changed-input',
+    'tampered',
+    'no-input-merge',
+    'no-input-changed',
+    'stale-stored',
+    'legacy-empty-input',
+    'legacy-changed-input',
+  ])('after main advances, judges the %s pass against the merge inputs', async (source) => {
+    const git = (cwd: string, ...args: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    git(root, 'init', '-q', '-b', 'main');
+    writeFileSync(join(root, '.gitignore'), '.cleo/\n.cleo-home/\ngate-checkout/\n');
+    writeFileSync(join(root, 'check.mjs'), 'process.exit(0);\n');
+    git(root, 'add', '.gitignore', 'check.mjs');
+    git(root, 'commit', '-qm', 'base');
+    const id = await seedTask(['merged code ships']);
+    const noInputs = source.startsWith('no-input-');
+    await reqAdd(
+      root,
+      id,
+      {
+        kind: 'test',
+        command: process.execPath,
+        args: noInputs ? ['-e', 'process.exit(0)'] : ['check.mjs'],
+        expect: 'exit0',
+        req: 'MERGE-1',
+        description: 'merged inputs pass',
+      },
+      env.accessor,
+    );
+    const checkout = join(root, 'gate-checkout');
+    git(root, 'worktree', 'add', '-qb', `task/${id}`, checkout);
+    writeFileSync(join(checkout, 'check.mjs'), 'process.exitCode = 0;\n');
+    git(checkout, 'commit', '-qam', 'gate implementation');
+    const head = git(checkout, 'rev-parse', 'HEAD');
+    git(root, 'merge', '--no-ff', '-qm', 'merge gate', `task/${id}`);
+    const merge = git(root, 'rev-parse', 'HEAD');
+    writeFileSync(join(root, 'unrelated.txt'), 'later main commit\n');
+    git(root, 'add', 'unrelated.txt');
+    git(root, 'commit', '-qm', 'advance main');
+    const tip = git(root, 'rev-parse', 'HEAD');
+    git(
+      checkout,
+      'switch',
+      '-q',
+      '--detach',
+      source === 'pr-head' ? head : source === 'equivalent-tip' ? tip : merge,
+    );
+    if (
+      source === 'changed-input' ||
+      source === 'no-input-changed' ||
+      source === 'legacy-changed-input'
+    ) {
+      writeFileSync(join(checkout, 'check.mjs'), 'process.exitCode = 0; // different input\n');
+      git(checkout, 'commit', '-qam', 'different gate input');
+    }
+    const projectId = readProjectInfoAtDirectorySync(root, join(root, '.cleo')).projectId;
+    const execute = () =>
+      createOperationExecutionContext(
+        {
+          projectId,
+          projectRoot: root,
+          actor: 'test',
+          operation: 'check.gate.verify',
+          idempotencyKey: 'merge-gate',
+        },
+        { budgetMs: 30_000 },
+      );
+    let task = (await env.accessor.loadSingleTask(id))!;
+    const rows = await env.accessor.getAcRows(id);
+    vi.stubEnv('CLEO_EVIDENCE_GIT_ROOT', checkout);
+    try {
+      if (source.startsWith('legacy-')) {
+        const gate = task.acceptance![1]!;
+        if (typeof gate === 'string') throw new Error('expected the fixture gate');
+        const execution = execute();
+        try {
+          const { inputs } = await captureGateInputs(task, gate, execution);
+          const [legacy] = await runGates([gate], {
+            execution,
+            taskId: id,
+            cache: 'refresh',
+            cacheInputsHash: gateInputsHash(inputs.invocation, []),
+            cacheInputs: { ...inputs, artifacts: [] },
+          });
+          expect(legacy?.result).toBe('pass');
+        } finally {
+          execution.close();
+        }
+      } else {
+        expect((await previewTaskGates(root, { taskId: id })).passed).toBe(true);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    if (source === 'tampered') {
+      const { readdirSync } = await import('node:fs');
+      const dir = join(root, '.cleo', 'cache', 'evidence');
+      const path = join(dir, readdirSync(dir).find((name) => name.startsWith('gate-'))!);
+      const entry = JSON.parse(readFileSync(path, 'utf-8')) as GateCacheEntry;
+      entry.result.durationMs += 1;
+      writeFileSync(path, JSON.stringify(entry));
+    }
+    // Main's live bytes no longer match the merge: the merge tree remains the authority.
+    writeFileSync(join(root, 'check.mjs'), 'process.exit(1);\n');
+    git(root, 'commit', '-qam', 'later input change');
+    const merged = { ...pr(96, `Closes: ${id} AC1,AC2`), headRefOid: head, mergeCommitSha: merge };
+    const { deps } = fakeDeps([merged]);
+    let results: AcceptanceGateResult[] = [];
+    if (source === 'stale-stored') {
+      vi.stubEnv('CLEO_EVIDENCE_GIT_ROOT', checkout);
+      const execution = execute();
+      try {
+        const old = await runTaskGates(task, rows, { execution, cache: 'only' });
+        expect(old[0]?.result).toBe('pass');
+        old[0]!.binding!.tree!.inputsHash = '0'.repeat(64);
+        const verification: TaskVerification = {
+          passed: false,
+          round: 1,
+          gates: {},
+          lastAgent: null,
+          lastUpdated: null,
+          failureLog: [],
+          gateResults: old,
+        };
+        await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+        task = (await env.accessor.loadSingleTask(id))!;
+      } finally {
+        execution.close();
+        vi.unstubAllEnvs();
+      }
+    }
+    const sweep = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        record: async () => {
+          const plan = await deriveTaskEvidence(id, {
+            projectRoot: root,
+            cwd: root,
+            deps: {
+              listMergedPrs: async () => ({ ok: true, prs: [] }),
+              listMergedPrHeads: async () => [],
+              listTaskDocs: async () => [],
+              listTaskDecisions: async () => [],
+              listPrsForCommit: async () => [],
+              findPrByHead: async () => null,
+              defaultBranch: () => 'main',
+            },
+          });
+          if (source === 'stale-stored') {
+            expect(plan.typedGates[0]?.status).toBe('cached');
+            expect(plan.typedGates[0]?.reason).toBeUndefined();
+          }
+          const missing = plan.blockers.find((blocker) => blocker.code === 'typed-gate-not-run');
+          if (missing)
+            return { ok: false, reason: `${missing.message} Run \`${missing.next.command}\`.` };
+          const execution = execute();
+          try {
+            results = await runTaskGates(task, rows, { execution, cache: 'only' });
+            expect(results[0]).toMatchObject({
+              result: 'pass',
+              source: 'cache',
+              binding: { tree: { headSha: merge } },
+            });
+            return { ok: true };
+          } finally {
+            execution.close();
+          }
+        },
+        complete: async (...args) => {
+          const execution = execute();
+          try {
+            await revalidateTaskGateResults(task, rows, results, { execution });
+          } finally {
+            execution.close();
+          }
+          return deps.complete(...args);
+        },
+      },
+    );
+    if (
+      source === 'changed-input' ||
+      source === 'tampered' ||
+      source === 'no-input-changed' ||
+      source === 'legacy-changed-input'
+    ) {
+      expect(sweep.closed).toEqual([]);
+      expect(waitingOn(sweep)).toContain(
+        `git switch --detach ${merge} && cleo verify ${id} --run --req MERGE-1`,
+      );
+      expect((await env.accessor.loadSingleTask(id))?.status).toBe('pending');
+    } else {
+      expect(sweep.closed).toEqual([id]);
+      expect((await env.accessor.loadSingleTask(id))?.status).toBe('done');
+    }
+  }, 60_000);
+});
 
 /** Fake outside world: the PRs gh lists, and a record of every call. */
 /** A `met` verdict for every criterion of every PR, on that PR's own head. */

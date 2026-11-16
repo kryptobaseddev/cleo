@@ -38,6 +38,7 @@ import {
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import type {
+  EngineResult,
   GhPrViewPayload,
   MacosRegressionSync,
   MergeAttributionReceipt,
@@ -54,6 +55,7 @@ import type {
   TaskAuditLogRow,
 } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
+import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import type { RepoWorkflow } from '../release/ci-evidence.js';
 
 /** The audit action of an applied `Closes:` / `Refs:` line. */
@@ -1068,7 +1070,13 @@ async function applyDirective(
     };
   if (open)
     return { ...base, action: 'closed', reason: 'would close once it merges with green CI' };
-  const recorded = await deps.record(storeRoot, taskId, pr.number, [...union], dryRun);
+  const gateScope = {
+    ...captureProjectScope(storeRoot, worktreeScope.getStore()),
+    typedGateCommit: pr.mergeCommitSha ?? undefined,
+  };
+  const recorded = await worktreeScope.run(gateScope, () =>
+    deps.record(storeRoot, taskId, pr.number, [...union], dryRun),
+  );
   if (!recorded.ok) {
     // A merge whose own CI run was cancelled, skipped or unfinished, with no
     // later run standing in yet (ci-evidence's T12742 rule, unchanged), waits.
@@ -1080,7 +1088,9 @@ async function applyDirective(
     return { ...base, action: 'waiting', reason: recorded.reason };
   }
   if (dryRun) return { ...base, action: 'closed' };
-  const completed = await deps.complete(storeRoot, taskId, pr.number);
+  const completed = await worktreeScope.run(gateScope, () =>
+    deps.complete(storeRoot, taskId, pr.number),
+  );
   if (!completed.ok) {
     // A concurrent sweep (or agent) may have completed it first.
     const now = await accessor.loadSingleTask(taskId);
@@ -1874,8 +1884,10 @@ async function ghOrError(
 }
 
 /** A step's engine result as a {@link StepResult}. */
-function stepOf(r: { success: boolean; error?: { message?: string } | null }): StepResult {
-  return r.success ? { ok: true } : { ok: false, reason: r.error?.message ?? 'refused' };
+function stepOf<T>(r: EngineResult<T>): StepResult {
+  return r.success
+    ? { ok: true }
+    : { ok: false, reason: `${r.error.message}${r.error.fix ? ` Run \`${r.error.fix}\`.` : ''}` };
 }
 
 /** The default {@link MergeCloseDeps}: `gh`, and the `cleo done --pr` record and complete path. */
@@ -1941,7 +1953,9 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
       });
       if (!plan.success) return stepOf(plan);
       const blocker = plan.data.blockers[0];
-      return blocker ? { ok: false, reason: blocker.message } : { ok: true };
+      return blocker
+        ? { ok: false, reason: `${blocker.message} Run \`${blocker.next.command}\`.` }
+        : { ok: true };
     }
     const { recordTaskDone } = await import('./done-record.js');
     const recorded = await recordTaskDone(taskId, {

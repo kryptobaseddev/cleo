@@ -59,6 +59,8 @@ import {
 export interface WorktreeScope {
   /** Optional captured operation lifetime for guarded asynchronous storage work. */
   readonly execution?: OperationExecutionContext;
+  /** Merge sweep's immutable tree for typed-gate input revalidation; never executes tools. */
+  readonly typedGateCommit?: string;
   /**
    * Absolute path to the worktree directory (value of `CLEO_WORKTREE_ROOT`).
    */

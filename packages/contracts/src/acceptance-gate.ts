@@ -440,6 +440,8 @@ export interface AcceptanceGateCacheInputs {
   environmentHash: string | null;
   /** The captured input files. */
   artifacts: readonly AcceptanceGateArtifact[];
+  /** Captured invocation, when comparing an authenticated pass across checkouts. */
+  invocation?: AcceptanceGateInvocation;
 }
 
 /**

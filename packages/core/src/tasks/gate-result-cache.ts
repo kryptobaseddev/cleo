@@ -16,6 +16,12 @@
  * is not a git checkout gets no caching at all rather than one answer forever
  * (gh#1419).
  *
+ * Merge sweeps compare against their immutable merge tree. They may rebase
+ * captured paths to a stored checkout only when the resulting inputs digest
+ * authenticates under that entry's MAC. An older input inventory, or none,
+ * additionally requires the identical clean committed tree. Ordinary lookups
+ * retain their exact HEAD, fingerprint and checkout requirements.
+ *
  * NOT in the key (the gh#1221 trade-off, stated rather than hidden): modules an
  * untracked harness imports, `node_modules`, and an in-place toolchain upgrade.
  * A reused pass is therefore always marked `source: 'cache'` on the result and
@@ -41,12 +47,18 @@
  * @task T12621
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { AcceptanceGate, AcceptanceGateResult } from '@cleocode/contracts';
-import type { AcceptanceGateCacheInputs } from '@cleocode/contracts/acceptance-gate';
+import type {
+  AcceptanceGateArtifact,
+  AcceptanceGateCacheInputs,
+  AcceptanceGateInvocation,
+} from '@cleocode/contracts/acceptance-gate';
 import { acceptanceGateResultSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
+import { discoveryEnv } from '../git/work-tree.js';
 import { getCleoHome } from '../paths.js';
 import { acItemToText } from './ac-table.js';
 import { captureDirtyFingerprint, captureHead } from './tool-cache.js';
@@ -130,6 +142,7 @@ export function isCacheableGate(gate: AcceptanceGate): boolean {
 /**
  * Capture the repo state gate cache keys are computed against.
  * @param projectRoot - Directory the gates execute in.
+ * @param commit - Immutable merge tree to inspect instead of the live checkout.
  * @returns The state, or `null` when the directory is not a git checkout.
  * @example
  * ```typescript
@@ -137,10 +150,16 @@ export function isCacheableGate(gate: AcceptanceGate): boolean {
  * ```
  * @task T12621
  */
-export async function captureGateCacheState(projectRoot: string): Promise<GateCacheState | null> {
-  const head = await captureHead(projectRoot);
-  if (!head) return null;
-  const dirtyFingerprint = await captureDirtyFingerprint(projectRoot);
+export async function captureGateCacheState(
+  projectRoot: string,
+  commit?: string,
+): Promise<GateCacheState | null> {
+  const checkedOutHead = await captureHead(projectRoot);
+  if (!checkedOutHead) return null;
+  const head = commit ?? checkedOutHead;
+  const dirtyFingerprint = commit
+    ? createHash('sha256').digest('hex').slice(0, 32)
+    : await captureDirtyFingerprint(projectRoot);
   if (!dirtyFingerprint) return null;
   let cwd: string;
   try {
@@ -153,6 +172,21 @@ export async function captureGateCacheState(projectRoot: string): Promise<GateCa
 
 function gateHash(gate: AcceptanceGate): string {
   return createHash('sha256').update(acItemToText(gate)).digest('hex');
+}
+
+/**
+ * Digest the exact invocation and captured input bytes used by a typed gate.
+ * @param invocation - Captured process inputs, absent for non-process gates.
+ * @param artifacts - Captured input file hashes and lengths.
+ * @returns SHA-256 of the canonical input snapshot.
+ */
+export function gateInputsHash(
+  invocation: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ invocation: invocation ?? null, artifacts }))
+    .digest('hex');
 }
 
 function gateCacheKey(gate: AcceptanceGate, state: GateCacheState, inputsHash: string): string {
@@ -401,6 +435,7 @@ export function sealGateCacheEntry(body: GateCacheEntryBody, key: Buffer): GateC
  * @param state - Repo state from {@link captureGateCacheState}.
  * @param inputsHash - Digest of the captured invocation and input artifacts.
  * @param key - Machine key the entry must be sealed under.
+ * @param compatibleInputs - Merge-tree inputs; permits an authenticated pass from another checkout.
  * @returns `hit` with the observation, `miss` when there is no entry, or
  * `invalid` when an entry exists but is unauthenticated, tampered or not a pass.
  * @example
@@ -415,10 +450,14 @@ export function readGateCacheEntry(
   state: GateCacheState,
   inputsHash: string,
   key: Buffer,
+  compatibleInputs?: AcceptanceGateCacheInputs,
 ): GateCacheLookup {
   if (!isCacheableGate(gate)) return { status: 'miss' };
   const path = gateCacheEntryPath(projectRoot, gate, state, inputsHash);
-  if (!existsSync(path)) return { status: 'miss' };
+  if (!existsSync(path))
+    return compatibleInputs
+      ? readEquivalentGateCacheEntry(projectRoot, gate, state, key, compatibleInputs)
+      : { status: 'miss' };
   let entry: Partial<GateCacheEntry>;
   try {
     entry = JSON.parse(readFileSync(path, 'utf-8')) as Partial<GateCacheEntry>;
@@ -457,6 +496,90 @@ export function readGateCacheEntry(
   } catch {
     return { status: 'invalid', reason: 'entry result is malformed' };
   }
+}
+
+/** Compare merge inputs at each stored checkout's paths, then use the ordinary MAC verifier. */
+function readEquivalentGateCacheEntry(
+  projectRoot: string,
+  gate: AcceptanceGate,
+  state: GateCacheState,
+  key: Buffer,
+  inputs: AcceptanceGateCacheInputs,
+): GateCacheLookup {
+  let names: string[];
+  const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
+  try {
+    names = readdirSync(dir).filter((name) => /^gate-[a-f0-9]{32}\.json$/.test(name));
+  } catch {
+    return { status: 'miss' };
+  }
+  for (const name of names) {
+    try {
+      const entry = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as Partial<GateCacheEntry>;
+      if (
+        entry.gateHash !== gateHash(gate) ||
+        typeof entry.cwd !== 'string' ||
+        !isAbsolute(entry.cwd) ||
+        typeof entry.head !== 'string' ||
+        !/^[a-f0-9]{40}$/.test(entry.head) ||
+        typeof entry.dirtyFingerprint !== 'string' ||
+        typeof entry.inputsHash !== 'string'
+      )
+        continue;
+      const rebase = (path: string): string => resolve(entry.cwd!, relative(state.cwd, path));
+      const invocation = inputs.invocation;
+      const executable = invocation?.executable;
+      const rel = executable ? relative(state.cwd, executable) : null;
+      const rebased = invocation
+        ? {
+            ...invocation,
+            cwd: rebase(invocation.cwd),
+            ...(executable &&
+            rel !== null &&
+            rel !== '..' &&
+            !rel.startsWith(`..${sep}`) &&
+            !isAbsolute(rel)
+              ? { executable: rebase(executable) }
+              : {}),
+          }
+        : undefined;
+      const artifacts = inputs.artifacts.map((a) => ({ ...a, path: rebase(a.path) }));
+      const sameInputs = gateInputsHash(rebased, artifacts) === entry.inputsHash;
+      if (!sameInputs) {
+        // Older runners captured fewer inputs; accept that inventory only on the identical clean tree.
+        const paths = new Set(entry.inputs?.artifacts.map((artifact) => artifact.path) ?? []);
+        const older = artifacts.filter((artifact) => paths.has(artifact.path));
+        if (older.length !== paths.size || gateInputsHash(rebased, older) !== entry.inputsHash)
+          continue;
+      }
+      // A copied cache from an unrelated repository cannot establish this project's pass.
+      execFileSync('git', ['cat-file', '-e', `${entry.head}^{commit}`], {
+        cwd: state.cwd,
+        env: discoveryEnv(),
+        stdio: 'ignore',
+      });
+      // No declared inputs means the gate may read the whole tree, so require tree equality.
+      if (artifacts.length === 0 || !sameInputs) {
+        if (entry.dirtyFingerprint !== createHash('sha256').digest('hex').slice(0, 32)) continue;
+        execFileSync('git', ['diff', '--quiet', entry.head, state.head, '--'], {
+          cwd: state.cwd,
+          env: discoveryEnv(),
+          stdio: 'ignore',
+        });
+      }
+      const found = readGateCacheEntry(
+        projectRoot,
+        gate,
+        { head: entry.head, dirtyFingerprint: entry.dirtyFingerprint, cwd: entry.cwd },
+        entry.inputsHash,
+        key,
+      );
+      if (found.status === 'hit') return found;
+    } catch {
+      // Unreadable or unauthenticated candidates never establish a pass.
+    }
+  }
+  return { status: 'miss' };
 }
 
 /**
