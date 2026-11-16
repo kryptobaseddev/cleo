@@ -929,9 +929,17 @@ function assertTreeEquivalent(
     if (
       gitOut(tree, ['cat-file', '-e', `${bound.headSha}^{commit}`]) !== null &&
       treeInputsHash(tree, invocation, artifacts) === bound.inputsHash &&
-      (artifacts.length > 0 ||
+      (artifacts.some((artifact) => artifact.sha256 !== null) ||
         (bound.clean &&
-          gitOut(tree, ['diff', '--quiet', bound.headSha, mergeCommit, '--']) !== null))
+          gitOut(tree, [
+            'diff',
+            '--quiet',
+            '--no-ext-diff',
+            '--no-textconv',
+            bound.headSha,
+            mergeCommit,
+            '--',
+          ]) !== null))
     )
       return;
     // @sync-invariant none:input-shape a stored typed pass must prove the immutable merge inputs before completion

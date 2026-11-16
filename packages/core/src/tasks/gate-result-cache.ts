@@ -18,7 +18,7 @@
  *
  * Merge sweeps compare against their immutable merge tree. They may rebase
  * captured paths to a stored checkout only when the resulting inputs digest
- * authenticates under that entry's MAC. An older input inventory, or none,
+ * authenticates under that entry's MAC. An older inventory, or no captured file content,
  * additionally requires the identical clean committed tree. Ordinary lookups
  * retain their exact HEAD, fingerprint and checkout requirements.
  *
@@ -558,14 +558,18 @@ function readEquivalentGateCacheEntry(
         env: discoveryEnv(),
         stdio: 'ignore',
       });
-      // No declared inputs means the gate may read the whole tree, so require tree equality.
-      if (artifacts.length === 0 || !sameInputs) {
+      // Absent paths prove no input bytes; retain whole-tree equality when no file was captured.
+      if (artifacts.every((artifact) => artifact.sha256 === null) || !sameInputs) {
         if (entry.dirtyFingerprint !== createHash('sha256').digest('hex').slice(0, 32)) continue;
-        execFileSync('git', ['diff', '--quiet', entry.head, state.head, '--'], {
-          cwd: state.cwd,
-          env: discoveryEnv(),
-          stdio: 'ignore',
-        });
+        execFileSync(
+          'git',
+          ['diff', '--quiet', '--no-ext-diff', '--no-textconv', entry.head, state.head, '--'],
+          {
+            cwd: state.cwd,
+            env: discoveryEnv(),
+            stdio: 'ignore',
+          },
+        );
       }
       const found = readGateCacheEntry(
         projectRoot,

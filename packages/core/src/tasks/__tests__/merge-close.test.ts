@@ -176,6 +176,8 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     'stale-stored',
     'legacy-empty-input',
     'legacy-changed-input',
+    'missing-input-merge',
+    'missing-input-changed',
   ])('after main advances, judges the %s pass against the merge inputs', async (source) => {
     const git = (cwd: string, ...args: string[]): string =>
       execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
@@ -189,14 +191,20 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     git(root, 'add', '.gitignore', 'check.mjs');
     git(root, 'commit', '-qm', 'base');
     const id = await seedTask(['merged code ships']);
-    const noInputs = source.startsWith('no-input-');
+    const noInputs = source.startsWith('no-input-') || source.startsWith('missing-input-');
     await reqAdd(
       root,
       id,
       {
         kind: 'test',
         command: process.execPath,
-        args: noInputs ? ['-e', 'process.exit(0)'] : ['check.mjs'],
+        args: noInputs
+          ? [
+              '-e',
+              'process.exit(0)',
+              ...(source.startsWith('missing-input-') ? ['missing.test.mjs'] : []),
+            ]
+          : ['check.mjs'],
         expect: 'exit0',
         req: 'MERGE-1',
         description: 'merged inputs pass',
@@ -224,7 +232,8 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     if (
       source === 'changed-input' ||
       source === 'no-input-changed' ||
-      source === 'legacy-changed-input'
+      source === 'legacy-changed-input' ||
+      source === 'missing-input-changed'
     ) {
       writeFileSync(join(checkout, 'check.mjs'), 'process.exitCode = 0; // different input\n');
       git(checkout, 'commit', '-qam', 'different gate input');
@@ -359,7 +368,8 @@ describe('merge-tree typed-gate cache (T14596)', () => {
       source === 'changed-input' ||
       source === 'tampered' ||
       source === 'no-input-changed' ||
-      source === 'legacy-changed-input'
+      source === 'legacy-changed-input' ||
+      source === 'missing-input-changed'
     ) {
       expect(sweep.closed).toEqual([]);
       expect(waitingOn(sweep)).toContain(

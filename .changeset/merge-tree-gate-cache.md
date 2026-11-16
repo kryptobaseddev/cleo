@@ -10,3 +10,4 @@ current checkout. A pass from another checkout or a commit with identical gate
 inputs is accepted after main advances; changed inputs and tampered cache entries
 remain refused. Waiting outcomes name the command that caches an accepted pass
 on the merge tree. Ordinary cache lookups retain their exact tree requirements.
+An inventory containing only absent paths retains the whole-tree comparison.
