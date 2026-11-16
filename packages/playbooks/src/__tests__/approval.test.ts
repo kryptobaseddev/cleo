@@ -7,7 +7,10 @@
  * @task T889 / T908 / W4-16
  */
 
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -20,6 +23,7 @@ import {
   getPlaybookSecret,
   rejectGate,
 } from '../approval.js';
+import { createPlaybookApproval } from '../state.js';
 import { applyPlaybookTwinSchema } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
@@ -40,8 +44,8 @@ describe('W4-16: Resume-token generation', () => {
     const t1 = generateResumeToken('r1', 'n1', { a: 1, b: 2 }, 'secret');
     const t2 = generateResumeToken('r1', 'n1', { a: 1, b: 2 }, 'secret');
     expect(t1).toBe(t2);
-    expect(t1).toHaveLength(32);
-    expect(t1).toMatch(/^[0-9a-f]{32}$/);
+    expect(t1).toHaveLength(35);
+    expect(t1).toMatch(/^v2:[0-9a-f]{32}$/);
   });
 
   it('differs for different runIds', () => {
@@ -69,11 +73,30 @@ describe('W4-16: Resume-token generation', () => {
   });
 
   it('getPlaybookSecret reads CLEO_PLAYBOOK_SECRET from env override', () => {
-    const s = getPlaybookSecret({ CLEO_PLAYBOOK_SECRET: 'prod-secret' } as NodeJS.ProcessEnv);
+    const s = getPlaybookSecret({ CLEO_PLAYBOOK_SECRET: 'prod-secret' });
     expect(s).toBe('prod-secret');
-    const fallback = getPlaybookSecret({} as NodeJS.ProcessEnv);
-    expect(fallback.length).toBeGreaterThan(0);
-    expect(fallback).not.toBe('prod-secret');
+  });
+
+  it('persists a private secret per installation and produces different tokens across installations', () => {
+    const homeA = mkdtempSync(join(tmpdir(), 'playbook-key-a-'));
+    const homeB = mkdtempSync(join(tmpdir(), 'playbook-key-b-'));
+    try {
+      const a = getPlaybookSecret({ CLEO_HOME: homeA });
+      const key = readFileSync(join(homeA, 'machine-key'));
+      expect(key).toHaveLength(32);
+      if (process.platform !== 'win32')
+        expect(statSync(join(homeA, 'machine-key')).mode & 0o777).toBe(0o600);
+      expect(getPlaybookSecret({ CLEO_HOME: homeA })).toBe(a);
+      expect(readFileSync(join(homeA, 'machine-key'))).toEqual(key);
+      expect(getPlaybookSecret({ CLEO_HOME: homeA, CLEO_PLAYBOOK_SECRET: '' })).toBe(a);
+      const b = getPlaybookSecret({ CLEO_HOME: homeB });
+      expect(generateResumeToken('r', 'n', {}, a)).not.toBe(generateResumeToken('r', 'n', {}, b));
+      writeFileSync(join(homeA, 'machine-key'), 'corrupt');
+      expect(() => getPlaybookSecret({ CLEO_HOME: homeA })).toThrow(/invalid length/);
+    } finally {
+      rmSync(homeA, { recursive: true, force: true });
+      rmSync(homeB, { recursive: true, force: true });
+    }
   });
 });
 
@@ -175,6 +198,57 @@ describe('W4-16: Approval DB operations', () => {
     expect(updated.approver).toBe('auditor');
     expect(updated.reason).toBe('contract violation');
     expect(updated.approvedAt).toBeTruthy();
+  });
+
+  it('refuses legacy approval but lets the owner clear a pending legacy gate by rejection', () => {
+    const gate = createApprovalGate(db, {
+      runId: 'run-1',
+      nodeId: 'legacy',
+      bindings: {},
+      secret: 'test-secret',
+    });
+    const legacyToken = 'a'.repeat(32);
+    db.prepare('UPDATE tasks_playbook_approvals SET token = ? WHERE approval_id = ?').run(
+      legacyToken,
+      gate.approvalId,
+    );
+    expect(() => approveGate(db, legacyToken, 'owner', 'reviewed')).toThrowError(
+      expect.objectContaining({
+        codeName: 'E_APPROVAL_TOKEN_LEGACY',
+        fix: expect.stringContaining('cleo orchestrate reject'),
+      }),
+    );
+    expect(getPendingApprovals(db)).toEqual([
+      expect.objectContaining({
+        approvalId: gate.approvalId,
+        token: legacyToken,
+        status: 'pending',
+      }),
+    ]);
+    expect(rejectGate(db, legacyToken, 'owner', 'clear legacy gate')).toMatchObject({
+      status: 'rejected',
+    });
+    expect(getPendingApprovals(db)).toEqual([]);
+  });
+
+  it('a resume trace can only be rejected to clear it from pending', () => {
+    const trace = createPlaybookApproval(db, {
+      runId: 'run-1',
+      nodeId: 'gate',
+      token: 'resume:legacy-token:1234',
+    });
+    expect(() => approveGate(db, trace.token, 'owner')).toThrowError(
+      expect.objectContaining({
+        codeName: 'E_APPROVAL_RESUME_TRACE',
+        fix: expect.stringContaining('cleo orchestrate reject <resumeToken>'),
+      }),
+    );
+    expect(getPendingApprovals(db)).toHaveLength(1);
+    expect(rejectGate(db, trace.token, 'owner', 'clear resume trace')).toMatchObject({
+      status: 'rejected',
+      reason: 'clear resume trace',
+    });
+    expect(getPendingApprovals(db)).toEqual([]);
   });
 
   it('rejectGate throws E_APPROVAL_ALREADY_DECIDED for already-rejected gate', () => {

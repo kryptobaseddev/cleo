@@ -30,6 +30,9 @@
  */
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import type { GatewaySource } from '@cleocode/contracts/gateway';
+import { CleoError } from '../errors.js';
 import {
   appendOwnerOverrideAudit,
   isAgentRoleForbidden,
@@ -60,6 +63,68 @@ export type OwnerOverrideAuthority =
       sessionId: string;
     }
   | { requested: true; allowed: false; code: string; message: string };
+
+/**
+ * Require the human owner's authority for an operation, independently of the
+ * override switch: the bootstrap role fence, an owner-marked bound session,
+ * and the owner's own terminal must all pass.
+ *
+ * @param projectRoot - Project whose session store supplies the owner mark.
+ * @param sessionId - Already-resolved session, or resolve the caller's binding.
+ * @param source - Transport of the caller; only an explicit CLI source can prove terminal ownership.
+ * @returns The authoritative owner session id.
+ * @throws A {@link CleoError} with the owner-session repair command.
+ * @remarks Uses the owner override's same-OS-user authority rule, without requesting an override.
+ * @example
+ * ```typescript
+ * const ownerSessionId = await requireOwnerAuthority(projectRoot, sessionId, 'cli');
+ * ```
+ */
+export async function requireOwnerAuthority(
+  projectRoot: string,
+  sessionId?: string | null,
+  source?: GatewaySource,
+): Promise<string> {
+  const refuse = (codeName: string, message: string): never => {
+    // @sync-invariant none:local-only owner authority is checked before a protected write
+    throw new CleoError(ExitCode.VALIDATION_ERROR, message, {
+      codeName,
+      fix: `The owner must run \`${OWNER_SESSION_COMMAND}\` in their own terminal, then retry there.`,
+    });
+  };
+  if (source !== 'cli')
+    return refuse(
+      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
+      `the ${source ?? 'unknown'} transport cannot prove caller ownership; the serving process cannot grant its owner session or terminal to a client. Use the direct CLI in the owner's terminal.`,
+    );
+  const sessions = await import('../store/session-store.js');
+  if (!sessionId) {
+    try {
+      sessionId = await sessions.resolveBoundSessionId(projectRoot);
+    } catch {
+      sessionId = null;
+    }
+  }
+  if (isAgentRoleForbidden())
+    return refuse(
+      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_FORBIDDEN_AGENT_ROLE,
+      'this process runs as a restricted agent role (worker, lead or subagent).',
+    );
+  const auth = sessionId ? await sessions.getSessionOwnerAuth(sessionId, projectRoot) : null;
+  if (!sessionId || !isOwnerSessionMark(auth?.token))
+    return refuse(
+      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
+      sessionId
+        ? `session ${sessionId} is not owner-marked (it was not started with --owner).`
+        : 'no session is bound, so no owner-marked session can vouch for this call.',
+    );
+  if (!isTtyPresent())
+    return refuse(
+      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
+      `this call has no terminal: it runs inside owner-marked session ${sessionId} but not from the owner's own TTY (an agent spawned from the owner's session is not the owner).`,
+    );
+  return sessionId;
+}
 
 /**
  * Decide whether this process may use `CLEO_OWNER_OVERRIDE=1` (see the module
@@ -114,24 +179,11 @@ export async function resolveOwnerOverride(
         '"covered by T<n>" and cleo relates add <id> T<n> duplicates "<reason>".',
     };
   };
-  // @sync-invariant none:local-only override authority is judged before any write; refusals only append to the local audit log
-  if (isAgentRoleForbidden())
-    return refuse(
-      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_FORBIDDEN_AGENT_ROLE,
-      'this process runs as a restricted agent role (worker, lead or subagent).',
-    );
-  const auth = sessionId ? await sessions.getSessionOwnerAuth(sessionId, projectRoot) : null;
-  if (!sessionId || !isOwnerSessionMark(auth?.token))
-    return refuse(
-      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
-      sessionId
-        ? `session ${sessionId} is not owner-marked (it was not started with --owner).`
-        : 'no session is bound, so no owner-marked session can vouch for this call.',
-    );
-  if (!tty)
-    return refuse(
-      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
-      `this call has no terminal: it runs inside owner-marked session ${sessionId} but not from the owner's own TTY (an agent spawned from the owner's session is not the owner).`,
-    );
-  return { requested: true, allowed: true, reason, sessionId };
+  try {
+    const ownerSessionId = await requireOwnerAuthority(projectRoot, sessionId, 'cli');
+    return { requested: true, allowed: true, reason, sessionId: ownerSessionId };
+  } catch (error) {
+    if (error instanceof CleoError && error.codeName) return refuse(error.codeName, error.message);
+    throw error;
+  }
 }

@@ -127,9 +127,9 @@ export class Dispatcher {
     // 4. Run middleware pipeline with terminal handler
     const terminal = async (): Promise<DispatchResponse> => {
       if (request.gateway === 'query') {
-        return handler.query(resolved.operation, request.params);
+        return handler.query(resolved.operation, request.params, request.source);
       } else {
-        return handler.mutate(resolved.operation, request.params);
+        return handler.mutate(resolved.operation, request.params, request.source);
       }
     };
 

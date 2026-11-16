@@ -1039,7 +1039,8 @@ const worktreeCompleteCommand = defineCommand({
 const approveCommand = defineCommand({
   meta: {
     name: 'approve',
-    description: 'Approve a pending HITL playbook approval gate by its resume token',
+    description:
+      'Owner only: approve a pending HITL playbook gate from an owner-marked terminal session',
   },
   args: {
     resumeToken: {
@@ -1075,7 +1076,7 @@ const approveCommand = defineCommand({
 const rejectCommand = defineCommand({
   meta: {
     name: 'reject',
-    description: 'Reject a pending HITL playbook approval gate with a mandatory reason',
+    description: 'Owner only: reject a pending HITL playbook gate with a mandatory reason',
   },
   args: {
     resumeToken: {
@@ -1112,7 +1113,8 @@ const rejectCommand = defineCommand({
 const pendingCommand = defineCommand({
   meta: {
     name: 'pending',
-    description: 'List all pending HITL playbook approval gates awaiting a decision',
+    description:
+      'List pending HITL playbook gates; tokens are visible only to the owner on their own terminal',
   },
   async run() {
     await dispatchFromCli('query', 'orchestrate', 'pending', {}, { command: 'orchestrate' });
