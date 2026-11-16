@@ -8,6 +8,7 @@ import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { orchestrateAnalyze, orchestrateReport } from '../../orchestrate/query-ops.js';
 import { sagaTraversal } from '../../sagas/rollup.js';
+import { analyzeDependencies as analyzeStartupDependencies } from '../../skills/orchestrator/startup.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import * as taskAccessors from '../../store/data-accessor.js';
@@ -198,6 +199,11 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       taskId: 'T121',
       ready: true,
     });
+    expect(await analyzeStartupDependencies('T100', env.tempDir)).toMatchObject({
+      totalTasks: 1,
+      readyToSpawn: [expect.objectContaining({ id: 'T121' })],
+      blockedTasks: [],
+    });
     expect(await orchestrateAnalyze('T100', env.tempDir)).toMatchObject({
       success: true,
       data: { totalTasks: 1, missingDependencies: [] },
@@ -236,6 +242,11 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       completedTasks: [],
     });
     expect(await getNextTask('T100', env.tempDir, accessor)).toBeNull();
+    expect(await analyzeStartupDependencies('T100', env.tempDir)).toMatchObject({
+      totalTasks: 1,
+      readyToSpawn: [],
+      blockedTasks: [expect.objectContaining({ id: 'T121', depends: ['T111'] })],
+    });
     expect(await orchestrateAnalyze('T100', env.tempDir)).toMatchObject({
       success: true,
       data: { missingDependencies: [] },
@@ -284,6 +295,10 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
       blockedTasks: ['T121'],
     });
     expect(await getNextTask('T100', env.tempDir, accessor)).toBeNull();
+    expect(await analyzeStartupDependencies('T100', env.tempDir)).toMatchObject({
+      readyToSpawn: [],
+      blockedTasks: [expect.objectContaining({ id: 'T121', depends: ['T999'] })],
+    });
     expect(
       (await buildBrainState(env.tempDir, { speed: 'full' }, accessor)).blockers,
     ).toContainEqual({
@@ -369,6 +384,9 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
         success: false,
         error: { message: 'fixture dependency read failed' },
       });
+      await expect(analyzeStartupDependencies('T100', env.tempDir)).rejects.toThrow(
+        'fixture dependency read failed',
+      );
     } finally {
       read.mockRestore();
       access.mockRestore();

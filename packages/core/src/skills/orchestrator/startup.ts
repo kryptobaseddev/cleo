@@ -18,6 +18,10 @@ import { readLiveFocus, resolveFocusSessionId } from '../../sessions/focus-state
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resolveBoundSessionId } from '../../store/session-store.js';
 import { orderByRanking, rankTasks } from '../../task-tools/score-task-priority.js';
+import {
+  getReadinessDependencyBlockers,
+  loadReadinessDependencyLookup,
+} from '../../tasks/dependency-check.js';
 import { loadRankingContext } from '../../tasks/task-next.js';
 import type {
   DependencyAnalysis,
@@ -301,6 +305,19 @@ export function shouldPause(
 
 /**
  * Analyze dependency graph and compute execution waves.
+ *
+ * @remarks
+ * Resolves hard prerequisites independently of epic containment and selected counts.
+ * Execution readiness uses the canonical done/archived policy; read failures propagate.
+ *
+ * @param epicId - Epic whose direct children are assessed.
+ * @param cwd - Owning project root.
+ * @returns Selected task counts, planned waves and current ready/blocked children.
+ * @throws Error when a required canonical dependency read fails.
+ * @example
+ * ```ts
+ * const analysis = await analyzeDependencies('T100', projectRoot);
+ * ```
  * @task T4519
  */
 export async function analyzeDependencies(
@@ -325,7 +342,7 @@ export async function analyzeDependencies(
 
   // Need full task set to resolve cross-epic dependency status
   const { tasks: allTasks } = await acc.queryTasks({});
-  const doneIds = new Set(allTasks.filter((t) => t.status === 'done').map((t) => t.id));
+  const dependencyLookup = await loadReadinessDependencyLookup(epicTasks, acc);
   const epicIds = new Set(epicTasks.map((t) => t.id));
 
   // Compute waves iteratively
@@ -366,7 +383,7 @@ export async function analyzeDependencies(
     .sort(([a], [b]) => a - b)
     .map(([wave, tasks]) => ({ wave, tasks }));
 
-  // Find ready tasks (pending with all deps done or outside epic).
+  // Find pending work whose hard prerequisites satisfy the shared readiness policy.
   // The `status === 'pending'` check implicitly excludes the Tier-2 proposal
   // queue ('proposed') — those tasks are not part of the Tier-1 execution set
   // (T946 / Round 2 audit §8). See also dependency-check.ts:getReadyTasks.
@@ -376,8 +393,7 @@ export async function analyzeDependencies(
   const readyToSpawn = orderByRanking(
     epicTasks.filter((t) => {
       if (t.status !== 'pending') return false;
-      const deps = t.depends ?? [];
-      return deps.length === 0 || deps.every((d) => doneIds.has(d) || !epicIds.has(d));
+      return getReadinessDependencyBlockers(t.depends, dependencyLookup).length === 0;
     }),
     (t) => t.id,
     new Map(epicTasks.map((t) => [t.id, t] as const)),
@@ -393,8 +409,7 @@ export async function analyzeDependencies(
   const blockedTasks = epicTasks
     .filter((t) => {
       if (t.status !== 'pending') return false;
-      const deps = t.depends ?? [];
-      return deps.some((d) => epicIds.has(d) && !doneIds.has(d));
+      return getReadinessDependencyBlockers(t.depends, dependencyLookup).length > 0;
     })
     .map((t) => ({
       id: t.id,

@@ -466,7 +466,10 @@ async function defaultPickTask(
   // Lazy import so unit tests that inject `pickTask` never trigger the SDK
   // load (which pulls in the full @cleocode/core graph).
   const { Cleo } = await import('@cleocode/core/sdk');
-  const { getReadyTasks } = await import('@cleocode/core/tasks');
+  const { getReadyTasks, loadReadinessDependencyLookup } = await import(
+    '../tasks/dependency-check.js'
+  );
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
   // graph-ops is an intra-package import (not part of the @cleocode/core/tasks barrel).
   const { computeDependencyWaves } = await import('../tasks/graph-ops.js');
   const { collectionOf } = await import('../tasks/collection.js');
@@ -483,7 +486,6 @@ async function defaultPickTask(
     // Saga scope: resolve member epic IDs via parent_id containment (T10638).
     // Lazy import keeps the happy-path test surface tight.
     const { resolveSagaMemberIds } = await import('../sagas/storage.js');
-    const { getTaskAccessor } = await import('../store/data-accessor.js');
     const accessor = await getTaskAccessor(projectRoot);
     try {
       const memberIds = await resolveSagaMemberIds(accessor, scope.sagaId);
@@ -526,7 +528,9 @@ async function defaultPickTask(
 
   if (candidates.length === 0) return null;
 
-  const ready = getReadyTasks(candidates);
+  const accessor = await getTaskAccessor(projectRoot);
+  const dependencyLookup = await loadReadinessDependencyLookup(candidates, accessor);
+  const ready = getReadyTasks(candidates, dependencyLookup);
   if (ready.length === 0) return null;
 
   // Dependency-wave ordering: wave 0 (no unmet deps) is picked first.
