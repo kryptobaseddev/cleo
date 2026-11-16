@@ -64,7 +64,7 @@ import { acItemToText } from './ac-table.js';
 import { captureDirtyFingerprint, captureHead } from './tool-cache.js';
 
 /** Schema version of an on-disk gate cache entry; bump to invalidate every entry. */
-export const GATE_CACHE_SCHEMA_VERSION = 2;
+export const GATE_CACHE_SCHEMA_VERSION = 3;
 
 /** Gate kinds whose pass can be reused for an unchanged tree. */
 const CACHEABLE_GATE_KINDS: ReadonlySet<AcceptanceGate['kind']> = new Set([
@@ -85,6 +85,10 @@ export interface GateCacheEntryBody {
   key: string;
   gateHash: string;
   head: string;
+  taskId: string | null;
+  mergeSha: string | null;
+  treeHash: string | null;
+  clean: boolean;
   dirtyFingerprint: string;
   cwd: string;
   inputsHash: string;
@@ -113,6 +117,14 @@ export interface GateCacheEntry extends GateCacheEntryBody {
 export interface GateCacheState {
   /** Git HEAD sha of the execution root. */
   head: string;
+  /** Task owning this observation; absent only for unscoped runner calls. */
+  taskId?: string;
+  /** Merge commit this authenticated observation is being used to close. */
+  mergeSha?: string;
+  /** Git tree object captured at execution time. */
+  treeHash?: string;
+  /** True only when the execution tree had no tracked changes. */
+  clean?: boolean;
   /** sha256 of the tracked uncommitted changes (see `captureDirtyFingerprint`). */
   dirtyFingerprint: string;
   /** Symlink-resolved execution root. */
@@ -121,7 +133,13 @@ export interface GateCacheState {
 
 /** Outcome of looking a gate up in the cache. */
 export type GateCacheLookup =
-  | { status: 'hit'; observation: CachedGateObservation; createdAt: string }
+  | {
+      status: 'hit';
+      observation: CachedGateObservation;
+      createdAt: string;
+      state: GateCacheState;
+      inputsHash: string;
+    }
   | { status: 'miss' }
   | { status: 'invalid'; reason: string };
 
@@ -143,6 +161,7 @@ export function isCacheableGate(gate: AcceptanceGate): boolean {
  * Capture the repo state gate cache keys are computed against.
  * @param projectRoot - Directory the gates execute in.
  * @param commit - Immutable merge tree to inspect instead of the live checkout.
+ * @param taskId - Task owning the cached observation.
  * @returns The state, or `null` when the directory is not a git checkout.
  * @example
  * ```typescript
@@ -153,6 +172,7 @@ export function isCacheableGate(gate: AcceptanceGate): boolean {
 export async function captureGateCacheState(
   projectRoot: string,
   commit?: string,
+  taskId?: string,
 ): Promise<GateCacheState | null> {
   const checkedOutHead = await captureHead(projectRoot);
   if (!checkedOutHead) return null;
@@ -167,7 +187,32 @@ export async function captureGateCacheState(
   } catch {
     cwd = resolve(projectRoot);
   }
-  return { head, dirtyFingerprint, cwd };
+  try {
+    const treeHash = execFileSync('git', ['rev-parse', `${head}^{tree}`], {
+      cwd,
+      env: discoveryEnv(),
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return {
+      head,
+      dirtyFingerprint,
+      cwd,
+      treeHash,
+      clean:
+        commit !== undefined ||
+        execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+          cwd,
+          env: discoveryEnv(),
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim() === '',
+      ...(taskId ? { taskId } : {}),
+      ...(commit ? { mergeSha: commit } : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function gateHash(gate: AcceptanceGate): string {
@@ -192,7 +237,17 @@ export function gateInputsHash(
 function gateCacheKey(gate: AcceptanceGate, state: GateCacheState, inputsHash: string): string {
   return createHash('sha256')
     .update(
-      JSON.stringify([gateHash(gate), state.head, state.dirtyFingerprint, state.cwd, inputsHash]),
+      JSON.stringify([
+        gateHash(gate),
+        state.head,
+        state.taskId ?? null,
+        state.mergeSha ?? null,
+        state.treeHash ?? null,
+        state.clean ?? false,
+        state.dirtyFingerprint,
+        state.cwd,
+        inputsHash,
+      ]),
     )
     .digest('hex')
     .slice(0, 32);
@@ -273,6 +328,10 @@ export function buildGateCacheEntryBody(
     key: gateCacheKey(gate, state, inputsHash),
     gateHash: gateHash(gate),
     head: state.head,
+    taskId: state.taskId ?? null,
+    mergeSha: state.mergeSha ?? null,
+    treeHash: state.treeHash ?? null,
+    clean: state.clean ?? false,
     dirtyFingerprint: state.dirtyFingerprint,
     cwd: state.cwd,
     inputsHash,
@@ -352,6 +411,10 @@ export function describeGateCacheMiss(
   if (newest === null) return null;
   const short = (v: unknown): string => (typeof v === 'string' ? v.slice(0, 12) : 'unknown');
   const parts: string[] = [];
+  if (newest.schemaVersion !== GATE_CACHE_SCHEMA_VERSION)
+    parts.push(
+      'cache proof predates authenticated task, merge and clean-tree binding; re-run verification to migrate it',
+    );
   if (newest.head !== state.head) parts.push(`HEAD ${short(newest.head)} → ${short(state.head)}`);
   if (newest.dirtyFingerprint !== state.dirtyFingerprint)
     parts.push(
@@ -401,6 +464,10 @@ export function gateCacheEntryMacPayload(body: GateCacheEntryBody): string {
     body.key,
     body.gateHash,
     body.head,
+    body.taskId,
+    body.mergeSha,
+    body.treeHash,
+    body.clean,
     body.dirtyFingerprint,
     body.cwd,
     body.inputsHash,
@@ -469,6 +536,10 @@ export function readGateCacheEntry(
     entry.key !== gateCacheKey(gate, state, inputsHash) ||
     entry.gateHash !== gateHash(gate) ||
     entry.head !== state.head ||
+    entry.taskId !== (state.taskId ?? null) ||
+    entry.mergeSha !== (state.mergeSha ?? null) ||
+    entry.treeHash !== (state.treeHash ?? null) ||
+    entry.clean !== (state.clean ?? false) ||
     entry.dirtyFingerprint !== state.dirtyFingerprint ||
     entry.cwd !== state.cwd ||
     entry.inputsHash !== inputsHash ||
@@ -492,7 +563,7 @@ export function readGateCacheEntry(
       cachedAt: _cachedAt,
       ...observation
     } = result;
-    return { status: 'hit', observation, createdAt: entry.createdAt };
+    return { status: 'hit', observation, createdAt: entry.createdAt, state, inputsHash };
   } catch {
     return { status: 'invalid', reason: 'entry result is malformed' };
   }
@@ -517,7 +588,14 @@ function readEquivalentGateCacheEntry(
     try {
       const entry = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as Partial<GateCacheEntry>;
       if (
+        entry.schemaVersion !== GATE_CACHE_SCHEMA_VERSION ||
         entry.gateHash !== gateHash(gate) ||
+        entry.taskId !== (state.taskId ?? null) ||
+        (entry.mergeSha !== null && entry.mergeSha !== state.mergeSha) ||
+        entry.clean !== true ||
+        entry.dirtyFingerprint !== createHash('sha256').digest('hex').slice(0, 32) ||
+        typeof entry.treeHash !== 'string' ||
+        entry.treeHash !== state.treeHash ||
         typeof entry.cwd !== 'string' ||
         !isAbsolute(entry.cwd) ||
         typeof entry.head !== 'string' ||
@@ -552,29 +630,26 @@ function readEquivalentGateCacheEntry(
         if (older.length !== paths.size || gateInputsHash(rebased, older) !== entry.inputsHash)
           continue;
       }
-      // A copied cache from an unrelated repository cannot establish this project's pass.
-      execFileSync('git', ['cat-file', '-e', `${entry.head}^{commit}`], {
+      // Full-tree identity is required even when the declared gate inputs match.
+      const treeHash = execFileSync('git', ['rev-parse', `${entry.head}^{tree}`], {
         cwd: state.cwd,
         env: discoveryEnv(),
-        stdio: 'ignore',
-      });
-      // Absent paths prove no input bytes; retain whole-tree equality when no file was captured.
-      if (artifacts.every((artifact) => artifact.sha256 === null) || !sameInputs) {
-        if (entry.dirtyFingerprint !== createHash('sha256').digest('hex').slice(0, 32)) continue;
-        execFileSync(
-          'git',
-          ['diff', '--quiet', '--no-ext-diff', '--no-textconv', entry.head, state.head, '--'],
-          {
-            cwd: state.cwd,
-            env: discoveryEnv(),
-            stdio: 'ignore',
-          },
-        );
-      }
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      if (treeHash !== entry.treeHash) continue;
       const found = readGateCacheEntry(
         projectRoot,
         gate,
-        { head: entry.head, dirtyFingerprint: entry.dirtyFingerprint, cwd: entry.cwd },
+        {
+          head: entry.head,
+          dirtyFingerprint: entry.dirtyFingerprint,
+          cwd: entry.cwd,
+          treeHash: entry.treeHash,
+          clean: entry.clean,
+          ...(entry.taskId ? { taskId: entry.taskId } : {}),
+          ...(entry.mergeSha ? { mergeSha: entry.mergeSha } : {}),
+        },
         entry.inputsHash,
         key,
       );

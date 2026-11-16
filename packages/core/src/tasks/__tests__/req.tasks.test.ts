@@ -1507,7 +1507,7 @@ describe('typed requirement persistence', () => {
       );
       try {
         const inputsHash = await captureGateInputsHash(task, gate, execution);
-        const state = (await captureGateCacheState(root))!;
+        const state = (await captureGateCacheState(root, undefined, 'T121'))!;
         const body = buildGateCacheEntryBody(gate, state, inputsHash, {
           index: 0,
           req: 'COUNTED-121',

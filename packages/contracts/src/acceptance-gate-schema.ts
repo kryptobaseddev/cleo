@@ -494,6 +494,14 @@ const acceptanceGateBindingSchema: z.ZodType<AcceptanceGateBinding> = z
     tree: z
       .object({
         headSha: z.string().regex(/^[0-9a-f]{40}$/),
+        treeHash: z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .optional(),
+        mergeSha: z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .optional(),
         clean: z.boolean(),
         cwd: z
           .string()

@@ -14,7 +14,9 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
+  rmSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -29,6 +31,7 @@ import type {
   ReviewVerdict,
   TaskVerification,
 } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readProjectInfoAtDirectorySync } from '../../project-scope.js';
 import { CURRENT_HEAD_STAND_IN_OPEN } from '../../release/ci-evidence.js';
@@ -131,16 +134,23 @@ async function seedTask(acceptance: string[]): Promise<string> {
 }
 
 describe('merge-tree typed-gate cache (T14596)', () => {
-  it('captures the explicit test file of a package-manager gate with no task files', async () => {
+  it.each([
+    'probe.test.ts',
+    'app/[id]/page.test.tsx',
+    'app/**/*.test.tsx',
+  ])('captures a literal package-manager test argument %s and preserves glob filters', async (argument) => {
     const id = await seedTask(['targeted gate']);
     const gate: AcceptanceGate = {
       kind: 'test',
       command: 'pnpm',
-      args: ['exec', 'vitest', 'run', 'probe.test.ts'],
+      args: ['exec', 'vitest', 'run', argument],
       expect: 'exit0',
       description: 'targeted test',
     };
-    writeFileSync(join(root, 'probe.test.ts'), 'export {};\n');
+    if (!argument.includes('*')) {
+      mkdirSync(dirname(join(root, argument)), { recursive: true });
+      writeFileSync(join(root, argument), 'export {};\n');
+    }
     const execution = createOperationExecutionContext(
       {
         projectId: readProjectInfoAtDirectorySync(root, join(root, '.cleo')).projectId,
@@ -157,18 +167,147 @@ describe('merge-tree typed-gate cache (T14596)', () => {
         gate,
         execution,
       );
-      expect(captured.inputs.artifacts.map((artifact) => artifact.path)).toEqual([
-        join(root, 'probe.test.ts'),
-      ]);
+      expect(captured.inputs.artifacts.map((artifact) => artifact.path)).toEqual(
+        argument.includes('*') ? [] : [join(root, argument)],
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('explicitly migrates a stored package-manager pass with the older input inventory', async () => {
+    const id = await seedTask(['targeted gate']);
+    await reqAdd(
+      root,
+      id,
+      {
+        kind: 'test',
+        command: 'pnpm',
+        args: ['exec', 'vitest', 'run', 'app/[id]/page.test.tsx'],
+        expect: 'exit0',
+        req: 'MIGRATE-1',
+        description: 'targeted route test',
+      },
+      env.accessor,
+    );
+    mkdirSync(join(root, 'app/[id]'), { recursive: true });
+    writeFileSync(join(root, 'app/[id]/page.test.tsx'), 'export {};\n');
+    const task = (await env.accessor.loadSingleTask(id))!;
+    const rows = await env.accessor.getAcRows(id);
+    const execution = createOperationExecutionContext(
+      {
+        projectId: readProjectInfoAtDirectorySync(root, join(root, '.cleo')).projectId,
+        projectRoot: root,
+        actor: 'test',
+        operation: 'check.gate.verify',
+        idempotencyKey: 'migration',
+      },
+      { budgetMs: 30_000 },
+    );
+    try {
+      // Capture the canonical binding without launching pnpm; model a pre-inventory receipt.
+      const [captured] = await runTaskGates(task, rows, { execution, cache: 'only' });
+      expect(captured?.binding?.artifacts).toHaveLength(1);
+      const [observation] = await runGates(
+        [
+          {
+            kind: 'test',
+            command: process.execPath,
+            args: ['-e', 'process.exit(0)'],
+            expect: 'exit0',
+            description: 'receipt observation',
+          },
+        ],
+        { execution },
+      );
+      const current: AcceptanceGateResult = {
+        ...observation!,
+        index: captured!.index,
+        req: captured!.req,
+        binding: captured!.binding,
+      };
+      await expect(
+        revalidateTaskGateResults(task, rows, [current], { execution }),
+      ).resolves.toBeUndefined();
+      const older: AcceptanceGateResult = {
+        ...current,
+        binding: { ...current.binding!, artifacts: [] },
+      };
+      await expect(
+        revalidateTaskGateResults(task, rows, [older], { execution }),
+      ).rejects.toMatchObject({
+        message:
+          'Typed requirement MIGRATE-1 input inventory predates test-file capture; re-run verification to migrate the stored pass',
+        fix: `cd '${root}' && cleo verify ${id} --gate testsPassed --evidence 'tool:test' --run-typed`,
+      });
     } finally {
       execution.close();
     }
   });
 
   it.each([
+    'plan-error',
+    'record-error',
+    'complete-error',
+    'plan-blocker',
+  ])('preserves the complete rerun command through the default %s adapter', async (path) => {
+    const id = await seedTask(['merged code ships']);
+    const command = `cleo_gate_checkout=$(mktemp -d) && git -C '${root}' worktree add --detach "$cleo_gate_checkout" '${'a'.repeat(40)}' && cd "$cleo_gate_checkout" && cleo verify ${id} --run`;
+    const reason = `typed pass missing Run \`${command}\`.`;
+    try {
+      if (path === 'plan-error') {
+        const module = await import('../done-plan.js');
+        vi.spyOn(module, 'planTaskDone').mockResolvedValueOnce(
+          engineError('E_EVIDENCE_STALE', 'typed pass missing', { fix: command }),
+        );
+      } else if (path === 'record-error') {
+        const module = await import('../done-record.js');
+        vi.spyOn(module, 'recordTaskDone').mockResolvedValueOnce(
+          engineError('E_EVIDENCE_STALE', 'typed pass missing', { fix: command }),
+        );
+      } else if (path === 'complete-error') {
+        const module = await import('../complete.js');
+        vi.spyOn(module, 'taskComplete').mockResolvedValueOnce(
+          engineError('E_EVIDENCE_STALE', 'typed pass missing', { fix: command }),
+        );
+      } else {
+        const module = await import('../done-plan.js');
+        const plan = await deriveTaskEvidence(id, { projectRoot: root });
+        plan.blockers = [
+          {
+            code: 'typed-gate-not-run',
+            message: 'typed pass missing',
+            next: { command, why: 'cache a pass' },
+          },
+        ];
+        vi.spyOn(module, 'planTaskDone').mockResolvedValueOnce(engineSuccess(plan));
+      }
+      expect(
+        path === 'complete-error'
+          ? await defaultMergeCloseDeps.complete(root, id, 96)
+          : await defaultMergeCloseDeps.record(root, id, 96, ['AC1'], path !== 'record-error'),
+      ).toEqual({ ok: false, reason });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it.each([
     'merge',
+    'bracket-merge',
     'pr-head',
     'equivalent-tip',
+    'different-tree-tip',
+    'older-head',
+    'dirty',
+    'writes-source',
+    'stored-dirty',
+    'stored-older-head',
+    'stored-no-tree-hash',
+    'legacy-schema',
+    'tampered-task',
+    'tampered-merge',
+    'tampered-tree',
     'changed-input',
     'tampered',
     'no-input-merge',
@@ -188,7 +327,13 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     git(root, 'init', '-q', '-b', 'main');
     writeFileSync(join(root, '.gitignore'), '.cleo/\n.cleo-home/\ngate-checkout/\n');
     writeFileSync(join(root, 'check.mjs'), 'process.exit(0);\n');
-    git(root, 'add', '.gitignore', 'check.mjs');
+    writeFileSync(join(root, 'source.txt'), 'base source\n');
+    if (source === 'bracket-merge') {
+      mkdirSync(join(root, 'app/[id]'), { recursive: true });
+      writeFileSync(join(root, 'app/[id]/page.test.mjs'), 'process.exit(0);\n');
+      git(root, 'add', 'app/[id]/page.test.mjs');
+    }
+    git(root, 'add', '.gitignore', 'check.mjs', 'source.txt');
     git(root, 'commit', '-qm', 'base');
     const id = await seedTask(['merged code ships']);
     const noInputs = source.startsWith('no-input-') || source.startsWith('missing-input-');
@@ -204,7 +349,7 @@ describe('merge-tree typed-gate cache (T14596)', () => {
               'process.exit(0)',
               ...(source.startsWith('missing-input-') ? ['missing.test.mjs'] : []),
             ]
-          : ['check.mjs'],
+          : [source === 'bracket-merge' ? 'app/[id]/page.test.mjs' : 'check.mjs'],
         expect: 'exit0',
         req: 'MERGE-1',
         description: 'merged inputs pass',
@@ -213,9 +358,18 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     );
     const checkout = join(root, 'gate-checkout');
     git(root, 'worktree', 'add', '-qb', `task/${id}`, checkout);
-    writeFileSync(join(checkout, 'check.mjs'), 'process.exitCode = 0;\n');
+    writeFileSync(
+      join(checkout, 'check.mjs'),
+      source === 'writes-source'
+        ? "import { writeFileSync } from 'node:fs'; writeFileSync('source.txt', 'dirty during gate');\n"
+        : 'process.exitCode = 0;\n',
+    );
     git(checkout, 'commit', '-qam', 'gate implementation');
     const head = git(checkout, 'rev-parse', 'HEAD');
+    if (source.endsWith('older-head')) {
+      writeFileSync(join(root, 'source.txt'), 'changed source, same gate file\n');
+      git(root, 'commit', '-qam', 'change source before merge');
+    }
     git(root, 'merge', '--no-ff', '-qm', 'merge gate', `task/${id}`);
     const merge = git(root, 'rev-parse', 'HEAD');
     writeFileSync(join(root, 'unrelated.txt'), 'later main commit\n');
@@ -227,8 +381,16 @@ describe('merge-tree typed-gate cache (T14596)', () => {
       'switch',
       '-q',
       '--detach',
-      source === 'pr-head' ? head : source === 'equivalent-tip' ? tip : merge,
+      source === 'pr-head' || source.endsWith('older-head')
+        ? head
+        : source === 'different-tree-tip'
+          ? tip
+          : merge,
     );
+    if (source === 'equivalent-tip') git(checkout, 'commit', '--allow-empty', '-qm', 'same tree');
+    if (source.endsWith('dirty')) writeFileSync(join(checkout, 'source.txt'), 'dirty source\n');
+    const verifiedHead = git(checkout, 'rev-parse', 'HEAD');
+    const verifiedTree = git(checkout, 'rev-parse', 'HEAD^{tree}');
     if (
       source === 'changed-input' ||
       source === 'no-input-changed' ||
@@ -254,7 +416,7 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     const rows = await env.accessor.getAcRows(id);
     vi.stubEnv('CLEO_EVIDENCE_GIT_ROOT', checkout);
     try {
-      if (source.startsWith('legacy-')) {
+      if (source === 'legacy-empty-input' || source === 'legacy-changed-input') {
         const gate = task.acceptance![1]!;
         if (typeof gate === 'string') throw new Error('expected the fixture gate');
         const execution = execute();
@@ -277,27 +439,39 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     } finally {
       vi.unstubAllEnvs();
     }
-    if (source === 'tampered') {
-      const { readdirSync } = await import('node:fs');
+    if (source.startsWith('tampered') || source === 'legacy-schema') {
       const dir = join(root, '.cleo', 'cache', 'evidence');
       const path = join(dir, readdirSync(dir).find((name) => name.startsWith('gate-'))!);
       const entry = JSON.parse(readFileSync(path, 'utf-8')) as GateCacheEntry;
-      entry.result.durationMs += 1;
+      if (source === 'tampered-task') entry.taskId = `${id}-other`;
+      else if (source === 'tampered-merge') entry.mergeSha = merge;
+      else if (source === 'tampered-tree') entry.treeHash = '0'.repeat(40);
+      else if (source === 'legacy-schema') Reflect.set(entry, 'schemaVersion', 2);
+      else entry.result.durationMs += 1;
       writeFileSync(path, JSON.stringify(entry));
     }
     // Main's live bytes no longer match the merge: the merge tree remains the authority.
     writeFileSync(join(root, 'check.mjs'), 'process.exit(1);\n');
+    if (source === 'bracket-merge') rmSync(join(root, 'app/[id]/page.test.mjs'));
     git(root, 'commit', '-qam', 'later input change');
     const merged = { ...pr(96, `Closes: ${id} AC1,AC2`), headRefOid: head, mergeCommitSha: merge };
     const { deps } = fakeDeps([merged]);
     let results: AcceptanceGateResult[] = [];
-    if (source === 'stale-stored') {
+    let stored: AcceptanceGateResult[] | undefined;
+    if (source === 'stale-stored' || source.startsWith('stored-')) {
       vi.stubEnv('CLEO_EVIDENCE_GIT_ROOT', checkout);
       const execution = execute();
       try {
         const old = await runTaskGates(task, rows, { execution, cache: 'only' });
         expect(old[0]?.result).toBe('pass');
-        old[0]!.binding!.tree!.inputsHash = '0'.repeat(64);
+        if (source === 'stale-stored') old[0]!.binding!.tree!.inputsHash = '0'.repeat(64);
+        else {
+          if (source === 'stored-no-tree-hash') {
+            delete old[0]!.binding!.tree!.treeHash;
+            rmSync(join(root, '.cleo/cache/evidence'), { recursive: true });
+          }
+          stored = old;
+        }
         const verification: TaskVerification = {
           passed: false,
           round: 1,
@@ -320,6 +494,27 @@ describe('merge-tree typed-gate cache (T14596)', () => {
       {
         ...deps,
         record: async () => {
+          if (stored) {
+            const execution = execute();
+            try {
+              await expect(
+                revalidateTaskGateResults(task, rows, stored, { execution }),
+              ).rejects.toThrow(
+                source === 'stored-no-tree-hash'
+                  ? 'no recorded tree hash'
+                  : 'inputs do not match merge commit',
+              );
+              // A stored pass must not become portable just because its named test still matches.
+              const retried = await runTaskGates(task, rows, {
+                execution,
+                cache: 'only',
+                priorResults: stored,
+              });
+              expect(retried[0]?.result).toBe('error');
+            } finally {
+              execution.close();
+            }
+          }
           const plan = await deriveTaskEvidence(id, {
             projectRoot: root,
             cwd: root,
@@ -346,7 +541,14 @@ describe('merge-tree typed-gate cache (T14596)', () => {
             expect(results[0]).toMatchObject({
               result: 'pass',
               source: 'cache',
-              binding: { tree: { headSha: merge } },
+              binding: {
+                tree: {
+                  headSha: verifiedHead,
+                  treeHash: verifiedTree,
+                  clean: true,
+                  mergeSha: merge,
+                },
+              },
             });
             return { ok: true };
           } finally {
@@ -366,18 +568,45 @@ describe('merge-tree typed-gate cache (T14596)', () => {
     );
     if (
       source === 'changed-input' ||
-      source === 'tampered' ||
+      source.startsWith('tampered') ||
+      source === 'legacy-schema' ||
+      source.endsWith('dirty') ||
+      source === 'writes-source' ||
+      source === 'stored-no-tree-hash' ||
+      source.endsWith('older-head') ||
+      source === 'different-tree-tip' ||
       source === 'no-input-changed' ||
       source === 'legacy-changed-input' ||
       source === 'missing-input-changed'
     ) {
       expect(sweep.closed).toEqual([]);
-      expect(waitingOn(sweep)).toContain(
-        `git switch --detach ${merge} && cleo verify ${id} --run --req MERGE-1`,
-      );
+      const command =
+        `cleo_gate_checkout=$(mktemp -d) && git -C '${root}' worktree add --detach "$cleo_gate_checkout" '${merge}' && ` +
+        `if [ -d '${join(root, 'node_modules')}' ] && [ ! -e "$cleo_gate_checkout/node_modules" ]; then ln -s '${join(root, 'node_modules')}' "$cleo_gate_checkout/node_modules"; fi && ` +
+        `cd "$cleo_gate_checkout" && cleo verify ${id} --run --req 'MERGE-1'`;
+      expect(waitingOn(sweep).split(' Run `').at(-1)).toBe(`${command}\`.`);
+      if (source === 'legacy-schema')
+        expect(waitingOn(sweep)).toContain('re-run verification to migrate');
       expect((await env.accessor.loadSingleTask(id))?.status).toBe('pending');
     } else {
       expect(sweep.closed).toEqual([id]);
+      const entries = readdirSync(join(root, '.cleo/cache/evidence'))
+        .filter((name) => name.startsWith('gate-'))
+        .map(
+          (name) =>
+            JSON.parse(
+              readFileSync(join(root, '.cleo/cache/evidence', name), 'utf-8'),
+            ) as GateCacheEntry,
+        );
+      expect(
+        entries.some(
+          (entry) =>
+            entry.taskId === id &&
+            entry.mergeSha === merge &&
+            entry.treeHash === verifiedTree &&
+            entry.clean,
+        ),
+      ).toBe(true);
       expect((await env.accessor.loadSingleTask(id))?.status).toBe('done');
     }
   }, 60_000);

@@ -75,6 +75,7 @@ import {
 import { PROFILE_WAIVED_GATES } from './gate-notes.js';
 import {
   extractTypedGates,
+  mergedGateVerifyCommand,
   probeTypedGateCache,
   type TypedResultDrift,
   typedGateAdmissionMs,
@@ -844,7 +845,7 @@ function toolAndTypedGateBlockers(
     const label = `Typed gate ${typed.alias} (${typed.kind}${typed.req ? ` ${typed.req}` : ''})`;
     const mergeCommit = worktreeScope.getStore()?.typedGateCommit;
     const mergedRun = mergeCommit
-      ? `cd ${shellQuote(root)} && git switch --detach ${shellQuote(mergeCommit)} && cleo verify ${taskId} --run${typed.req ? ` --req ${shellQuote(typed.req)}` : ''}`
+      ? mergedGateVerifyCommand(taskId, root, mergeCommit, typed.req)
       : undefined;
     if (typed.status === 'fail') {
       out.push({
