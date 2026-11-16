@@ -139,7 +139,7 @@ export const ADR_070_INVARIANTS: readonly RegisteredInvariant[] = Object.freeze(
     code: 'ORC-004',
     name: 'Dependency-ordered spawning',
     description:
-      'Spawns within a wave are ordered by task.depends — a Worker MUST NOT be dispatched until its declared dependencies are status=done or status=archived; cancelled and missing dependencies remain blockers. Surfaced by validateSpawnReadiness via V_MISSING_DEP / V_UNMET_DEP codes; surfaced by the skill-orchestrator validator via the ORC-004_DEPENDENCY_ORDER warning emitted from packages/core/src/skills/orchestrator/validator.ts. Tier: warning because the validator surfaces ordering issues but does not throw — workers can still proceed if the operator overrides.',
+      'Spawns within a wave are ordered by task.depends — a Worker MUST NOT be dispatched until its declared dependencies are status=done. Surfaced by validateSpawnReadiness via V_MISSING_DEP / V_UNMET_DEP codes; surfaced by the skill-orchestrator validator via the ORC-004_DEPENDENCY_ORDER warning emitted from packages/core/src/skills/orchestrator/validator.ts. Tier: warning because the validator surfaces ordering issues but does not throw — workers can still proceed if the operator overrides.',
     severity: 'warning',
     runtimeGate: {
       module: VALIDATE_SPAWN_MODULE,

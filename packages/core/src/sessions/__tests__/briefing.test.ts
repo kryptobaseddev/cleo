@@ -468,10 +468,15 @@ describe('briefing retains canonical execution blockers', () => {
     const dependency = tasks.find((task) => task.id === 'T200');
     if (!dependency) throw new Error('Expected fixture prerequisite');
     dependency.status = status;
+    dependency.parentId = 'T400';
+    const selectedChild = tasks.find((task) => task.id === 'T401');
+    if (!selectedChild) throw new Error('Expected selected epic child');
+    selectedChild.status = 'done';
     const accessor = setupMockAccessor(tasks.filter((task) => task.id !== 'T200'));
     accessor.loadTasks.mockResolvedValue([dependency]);
     const briefing = await computeBriefing('/fake/project', { scope: 'global' });
     expect(briefing.blockedTasks.some((task) => task.id === 'T500')).toBe(blocked);
+    expect(briefing.activeEpics.find((epic) => epic.id === 'T400')?.completionPercent).toBe(100);
   });
 
   it('does not hide a missing declared prerequisite', async () => {

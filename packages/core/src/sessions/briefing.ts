@@ -357,7 +357,8 @@ export async function computeBriefing(
   // T12684: the one validating focus reader — a pointer to a finished task
   // (archived included, which the task listing below omits) comes back stale.
   // Build task map for quick lookups
-  const taskMap = await loadReadinessDependencyLookup(tasks, accessor);
+  const taskMap = new Map(tasks.map((task) => [task.id, task]));
+  const dependencyLookup = await loadReadinessDependencyLookup(tasks, accessor);
   // T12698: reuse the loaded task map — only an unlisted (archived) pointer
   // costs a lookup.
   const liveFocus = await readLiveFocus(accessor, focusSessionId, taskMap);
@@ -483,7 +484,7 @@ export async function computeBriefing(
   const lastSession = await computeLastSession(projectRoot, scopeFilter);
 
   // 2. Current active task (a stale pointer is reported as a warning below)
-  const { current: currentTaskInfo } = computeCurrentTask(focus, taskMap);
+  const { current: currentTaskInfo } = computeCurrentTask(focus, dependencyLookup);
   const staleFocus = liveFocus.staleFocus;
 
   // 3. Next tasks — the SAME ranking as `cleo next` (T12661), capped at 3 (T9974)
@@ -499,7 +500,7 @@ export async function computeBriefing(
   });
 
   // 5. Blocked tasks — default diet cap of 3 (T9964)
-  const blockedTasks = computeBlockedTasks(tasks, taskMap, {
+  const blockedTasks = computeBlockedTasks(tasks, dependencyLookup, {
     maxBlocked: params.maxBlocked ?? MAX_BLOCKED_TASKS_DIET,
     scopeTaskIds,
     truncateTitles: true,
@@ -1279,14 +1280,13 @@ function computeActiveEpics(
 /**
  * Calculate completion percentage for an epic.
  */
-function calculateEpicCompletion(epicId: string, taskMap: Map<string, unknown>): number {
+function calculateEpicCompletion(epicId: string, taskMap: ReadonlyMap<string, Task>): number {
   let totalTasks = 0;
   let completedTasks = 0;
 
   // Collect all descendant tasks
   const collectTasks = (parentId: string): void => {
-    for (const task of taskMap.values()) {
-      const t = task as { parentId?: string; id: string; status?: string };
+    for (const t of taskMap.values()) {
       if (t.parentId === parentId) {
         totalTasks++;
         if (t.status === 'done' || t.status === 'cancelled') {
