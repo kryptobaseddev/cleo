@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.11.13] (2026-11-16)
+
+### Fixed
+
+- ci: judge jobs within the newest workflow run and wait on push checks _(provenance: [T14611](https://github.com/kryptobaseddev/cleo/search?q=T14611&type=commits), [T14617](https://github.com/kryptobaseddev/cleo/search?q=T14617&type=commits))_
+- Bound Git wrapper recursion and retain packed process containment receipts _(provenance: [T12303](https://github.com/kryptobaseddev/cleo/search?q=T12303&type=commits))_
+- Playbook HITL gates: require human owner authority and private installation tokens _(provenance: [T14613](https://github.com/kryptobaseddev/cleo/search?q=T14613&type=commits))_
+- Repair-store: recheck named defunct holders before declaring a store busy _(provenance: [T14620](https://github.com/kryptobaseddev/cleo/search?q=T14620&type=commits))_
+
 ## [2026.11.11] (2026-11-15)
 
 ### Fixed
