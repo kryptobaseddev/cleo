@@ -38,7 +38,6 @@ import type {
 } from '@cleocode/contracts';
 import { getNativeTasksDb } from '../store/sqlite.js';
 import { claimClockNow, LIVE_CLAIM_SQL } from '../store/task-claim.js';
-import { getReadinessDependencyBlockers } from './dependency-check.js';
 import { describeGateNotes, profileGateNotes } from './gate-notes.js';
 
 // =============================================================================
@@ -378,6 +377,7 @@ export async function computeTaskViews(
 ): Promise<TaskView[]> {
   if (taskIds.length === 0) return [];
 
+  const { getReadinessDependencyBlockers } = await import('./dependency-check.js');
   const loaded = await accessor.loadTasks(taskIds);
   const byId = new Map<string, Task>();
   for (const task of loaded) byId.set(task.id, task);
@@ -447,6 +447,7 @@ export async function computeTaskViews(
 // ---------------------------------------------------------------------------
 
 async function buildViewFromTask(task: Task, accessor: DataAccessor): Promise<TaskView> {
+  const { getReadinessDependencyBlockers } = await import('./dependency-check.js');
   const childMap = fetchChildAggregates([task.id]);
   const lifecycleMap = fetchLifecycleProgress([task.id]);
 

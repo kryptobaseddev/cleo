@@ -27,7 +27,6 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { findHeldTask, SyncHeldError } from '../store/sync/held.js';
 import { computeTaskView } from './compute-task-view.js';
-import { isReadinessDependencySatisfied } from './dependency-check.js';
 import { type LifecycleStageEntry, taskToRecord } from './engine-converters.js';
 
 /**
@@ -177,6 +176,7 @@ export async function showTask(
     // Add dependency status
     if (task.depends?.length) {
       const depTasks = await acc.loadTasks(task.depends);
+      const { isReadinessDependencySatisfied } = await import('./dependency-check.js');
       detail.dependencyStatus = task.depends.map((depId) => {
         const dep = depTasks.find((t) => t.id === depId);
         return {

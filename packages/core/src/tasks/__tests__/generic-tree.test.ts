@@ -26,6 +26,7 @@ import { getCriticalPath } from '../../orchestration/critical-path.js';
 import { collectOrchestrateDashboard } from '../../orchestration/dashboard.js';
 import { SAGA_GROUPS_RELATION } from '../../sagas/constants.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import * as taskAccessors from '../../store/data-accessor.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { buildTaskTree } from '../../task-tools/build-task-tree.js';
@@ -447,6 +448,7 @@ describe('cross-epic readiness metadata shares the execution policy', () => {
 
   it('propagates a required archive read failure in every store-backed projection', async () => {
     await seedDependency('archived');
+    const canonical = vi.spyOn(taskAccessors, 'getTaskAccessor').mockResolvedValue(env.accessor);
     const read = vi
       .spyOn(env.accessor, 'loadTasks')
       .mockRejectedValue(new Error('dependency evidence unavailable'));
@@ -471,6 +473,7 @@ describe('cross-epic readiness metadata shares the execution policy', () => {
       );
     } finally {
       read.mockRestore();
+      canonical.mockRestore();
     }
   });
 });

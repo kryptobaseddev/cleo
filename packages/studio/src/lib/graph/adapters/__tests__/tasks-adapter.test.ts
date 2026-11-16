@@ -289,7 +289,7 @@ describe('graph dependency halos share execution status semantics', () => {
     expect(result.nodes.find((node) => node.id === 'T2')?.meta?.['blocked'] === true).toBe(blocked);
   });
 
-  it('keeps missing blocker identities visible', () => {
+  it('marks work blocked when supplied prerequisite evidence is missing', () => {
     const result = tasksToGraph(
       [mkTask({ id: 'T2', title: 'Work', status: 'pending' })],
       [{ taskId: 'T2', dependsOn: 'T999' }],

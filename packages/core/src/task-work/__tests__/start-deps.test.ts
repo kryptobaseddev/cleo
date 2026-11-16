@@ -148,6 +148,7 @@ describe('startTask dependency enforcement', () => {
       { id: 'T001', status: 'done' },
       { id: 'T002', depends: ['T001'] },
     ]);
+    await archiveTasks({ taskIds: ['T001'] }, env.tempDir, accessor);
     await startTask('T000', env.tempDir, accessor);
     const before = await currentTask(env.tempDir, accessor);
     const read = vi.spyOn(accessor, 'loadTasks').mockRejectedValueOnce(new Error('read failed'));
