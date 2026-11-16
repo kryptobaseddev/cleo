@@ -19,21 +19,43 @@
  * @epic T12497
  */
 
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { ExitCode, type Session, type TaskClaimedDetails } from '@cleocode/contracts';
+import {
+  ExitCode,
+  type Session,
+  type TaskClaimedDetails,
+  type WorktreeLockRecord,
+} from '@cleocode/contracts';
+import {
+  computeProjectHash,
+  resolveTaskWorktreePath,
+  resolveWorktreeTaskLockPath,
+} from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
-import { renewInvokingSessionClaims } from '../../resources/claim-keepalive.js';
+import {
+  CLAIM_KEEPALIVE_MS,
+  renewClaimsOfHookProcess,
+  renewInvokingSessionClaims,
+} from '../../resources/claim-keepalive.js';
 import { readFocusState } from '../../sessions/focus-state-store.js';
 import { gcSessions } from '../../sessions/index.js';
 import { abandonSpawnSession, requireSpawnSession } from '../../spawn/agent-identity.js';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { endSession } from '../../store/session-store.js';
 import { getNativeTasksDb } from '../../store/sqlite.js';
-import { setClaimClock } from '../../store/task-claim.js';
+import { DEFAULT_TASK_CLAIM_LEASE_MS, isLiveClaim, setClaimClock } from '../../store/task-claim.js';
 import { taskVersion } from '../../store/task-version.js';
-import { claimSpawnedTask, renewClaimsForSession, startTask, stopTask } from '../index.js';
+import { taskClaim } from '../../tasks/engine-wrap-ops.js';
+import {
+  claimSpawnedTask,
+  renewClaimsForSession,
+  renewStaleSessionClaims,
+  startTask,
+  stopTask,
+} from '../index.js';
 
 const ENV_KEYS = [
   'CLEO_SESSION_ID',
@@ -544,6 +566,222 @@ describe('leased task claims (T12502)', () => {
     expect(foreign?.leaseExpiresAt).toBe(soon);
     // An unbound waiter renews nothing.
     expect(await as(null, () => renewInvokingSessionClaims(env.tempDir))).toBe(0);
+  });
+
+  describe('a live worker keeps its claim (T14546)', () => {
+    const T0 = Date.parse('2026-11-16T00:00:00.000Z');
+    const MINUTE = 60_000;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const claimOf = async (taskId = 'T001') => (await env.accessor.loadSingleTask(taskId))?.claim;
+    /** One hook beat of a process whose own environment names `sessionId`. */
+    const beat = (sessionId: string, nowMs: number) =>
+      renewClaimsOfHookProcess({
+        cwd: env.tempDir,
+        env: { CLEO_SESSION_ID: sessionId },
+        projectRoot: env.tempDir,
+        nowMs,
+        stampDir: join(env.tempDir, 'beats'),
+      });
+    /**
+     * A task's canonical worktree with the lock record spawn writes for it. The
+     * record is written as a file: taking the lock needs the native addon, and
+     * the beat only reads it.
+     */
+    const lockedWorktree = (
+      holder: { sessionId: string; agentId: string | null },
+      taskId = 'T001',
+    ) => {
+      const projectHash = computeProjectHash(env.tempDir);
+      const record: WorktreeLockRecord = {
+        schemaVersion: 1,
+        token: `token-${taskId}`,
+        taskId,
+        projectHash,
+        sessionId: holder.sessionId,
+        agentId: holder.agentId,
+        deviceId: null,
+        pid: process.pid,
+        processStartedAt: null,
+        hostname: 'test-host',
+        acquiredAt: iso(T0),
+        heartbeatAt: iso(T0),
+      };
+      const lockPath = resolveWorktreeTaskLockPath(projectHash, taskId);
+      mkdirSync(dirname(lockPath), { recursive: true });
+      writeFileSync(lockPath, JSON.stringify(record));
+      const dir = resolveTaskWorktreePath(projectHash, taskId);
+      mkdirSync(join(dir, 'packages'), { recursive: true });
+      return dir;
+    };
+    /** One hook beat of a process that runs in `cwd` and has no session in its environment. */
+    const beatIn = (cwd: string, nowMs: number) =>
+      renewClaimsOfHookProcess({
+        cwd,
+        env: {},
+        projectRoot: env.tempDir,
+        nowMs,
+        stampDir: join(env.tempDir, 'beats'),
+      });
+
+    it('a claim outlives its default lease while its worker runs shell commands and never mutates (AC1, AC3)', async () => {
+      await env.accessor.claimTask('T001', {
+        sessionId: SES_A,
+        agentId: 'agent-t001',
+        mode: 'acquire',
+        now: iso(T0),
+      });
+      const granted = await claimOf();
+      expect(granted?.leaseExpiresAt).toBe(iso(T0 + DEFAULT_TASK_CLAIM_LEASE_MS));
+      // With no beat, this lease is over at its default length.
+      expect(isLiveClaim(granted, iso(T0 + DEFAULT_TASK_CLAIM_LEASE_MS))).toBe(false);
+
+      // A shell command every 10 minutes for three lease lengths; no CLEO mutation.
+      const end = T0 + 3 * DEFAULT_TASK_CLAIM_LEASE_MS;
+      let renewals = 0;
+      for (let now = T0 + 10 * MINUTE; now <= end; now += 10 * MINUTE) {
+        renewals += await beat(SES_A, now);
+        expect(isLiveClaim(await claimOf(), iso(now))).toBe(true);
+      }
+      const kept = await claimOf();
+      expect(kept).toMatchObject({ sessionId: SES_A, agentId: 'agent-t001' });
+      expect(kept?.claimedAt).toBe(iso(T0));
+      expect(Date.parse(kept?.leaseExpiresAt ?? '')).toBeGreaterThan(end);
+      // Only a lease whose time is half gone is written: every other beat here.
+      expect(renewals).toBe(4);
+    });
+
+    it('the beat opens the store at most once per keepalive window', async () => {
+      await start(SES_A);
+      expect(await beat(SES_A, T0)).toBe(0); // fresh lease: nothing to extend
+      await expireLease();
+      expect(await beat(SES_A, T0 + CLAIM_KEEPALIVE_MS - 1)).toBe(0);
+      expect((await claimOf())?.leaseExpiresAt).toBe('2000-01-01T00:00:00.000Z');
+      expect(await beat(SES_A, T0 + CLAIM_KEEPALIVE_MS)).toBe(1);
+      expect((await claimOf())?.leaseExpiresAt).toBe(
+        iso(T0 + CLAIM_KEEPALIVE_MS + DEFAULT_TASK_CLAIM_LEASE_MS),
+      );
+    });
+
+    it("a non-holder's commands never revive the holder's lapsed claim, and the takeover still works", async () => {
+      await start(SES_A);
+      await expireLease();
+      // SES_B is active and bound to its own process; it holds nothing.
+      expect(await beat(SES_B, T0)).toBe(0);
+      expect((await claimOf())?.leaseExpiresAt).toBe('2000-01-01T00:00:00.000Z');
+      const taken = await start(SES_B, 'T001', { takeOver: true });
+      expect(taken.claim?.sessionId).toBe(SES_B);
+      // The old holder's later commands do not take it back or touch the new lease.
+      const held = await claimOf();
+      expect(await beat(SES_A, T0 + CLAIM_KEEPALIVE_MS)).toBe(0);
+      expect(await claimOf()).toEqual(held);
+    });
+
+    it('the beat renews only an active session, only its own leases, and ignores an id that is no session', async () => {
+      await start(SES_A);
+      await start(SES_B, 'T002');
+      for (const id of ['T001', 'T002']) {
+        await env.accessor.updateTaskFields(
+          id,
+          { leaseExpiresAt: '2000-01-01T00:00:00.000Z' },
+          { keepVersion: true },
+        );
+      }
+      expect(await beat('../escape', T0)).toBe(0);
+      expect(await beat('ses_20260929000009_unknown', T0)).toBe(0);
+      expect(await beat(SES_A, T0)).toBe(1);
+      expect((await claimOf('T002'))?.leaseExpiresAt).toBe('2000-01-01T00:00:00.000Z');
+      // An ended session's lease is released, and a later beat brings nothing back.
+      await endSession(SES_B, 'worker done', env.tempDir);
+      expect(await beat(SES_B, T0)).toBe(0);
+      expect(await claimOf('T002')).toBeUndefined();
+    });
+
+    it('a process in a task worktree is bound through the worktree lock, while its holder holds the claim', async () => {
+      await env.accessor.claimTask('T001', {
+        sessionId: SES_A,
+        agentId: 'agent-t001',
+        mode: 'acquire',
+      });
+      const worktree = lockedWorktree({ sessionId: SES_A, agentId: 'agent-t001' });
+      await expireLease();
+      // Outside any worktree, with no session in its environment, a process is nobody.
+      expect(await beatIn(env.tempDir, T0)).toBe(0);
+      expect((await claimOf())?.leaseExpiresAt).toBe('2000-01-01T00:00:00.000Z');
+      // From a subdirectory of the worktree, the lock holder's claim is renewed.
+      expect(await beatIn(join(worktree, 'packages'), T0)).toBe(1);
+      expect((await claimOf())?.leaseExpiresAt).toBe(iso(T0 + DEFAULT_TASK_CLAIM_LEASE_MS));
+    });
+
+    it('a worktree renews nothing once another session or agent holds its task, or without a lock', async () => {
+      await start(SES_A);
+      await expireLease();
+      const projectHash = computeProjectHash(env.tempDir);
+      const unlocked = resolveTaskWorktreePath(projectHash, 'T001');
+      mkdirSync(unlocked, { recursive: true });
+      expect(await beatIn(unlocked, T0)).toBe(0);
+      // The lock names SES_B, but SES_A holds the claim: not this worktree's to renew.
+      lockedWorktree({ sessionId: SES_B, agentId: null });
+      expect(await beatIn(unlocked, T0 + CLAIM_KEEPALIVE_MS)).toBe(0);
+      expect((await claimOf())?.leaseExpiresAt).toBe('2000-01-01T00:00:00.000Z');
+      // Same session, a different named agent (T14269): still not the holder.
+      await env.accessor.claimTask('T002', {
+        sessionId: SES_A,
+        agentId: 'lane-a',
+        mode: 'acquire',
+      });
+      const other = lockedWorktree({ sessionId: SES_A, agentId: 'lane-b' }, 'T002');
+      await env.accessor.updateTaskFields(
+        'T002',
+        { leaseExpiresAt: '2000-01-01T00:00:00.000Z' },
+        { keepVersion: true },
+      );
+      expect(await beatIn(other, T0)).toBe(0);
+      expect((await claimOf('T002'))?.leaseExpiresAt).toBe('2000-01-01T00:00:00.000Z');
+    });
+
+    it('a read by the holder revives a lapsed lease; a fresh lease costs no write', async () => {
+      await start(SES_A);
+      const fresh = await claimOf();
+      expect(await renewStaleSessionClaims(env.tempDir, SES_A)).toBe(0);
+      expect(await claimOf()).toEqual(fresh);
+      await expireLease();
+      const v = taskVersion(await env.accessor.loadSingleTask('T001'));
+      expect(await renewStaleSessionClaims(env.tempDir, SES_B)).toBe(0);
+      expect(await renewStaleSessionClaims(env.tempDir, SES_A)).toBe(1);
+      const task = await env.accessor.loadSingleTask('T001');
+      expect(isLiveClaim(task?.claim, new Date().toISOString())).toBe(true);
+      expect(task?.claim?.claimedAt).toBe(fresh?.claimedAt);
+      expect(taskVersion(task)).toBe(v);
+    });
+
+    it('a worker renews its own expired claim with `cleo claim --renew` (AC2)', async () => {
+      await start(SES_A);
+      const before = await claimOf();
+      await expireLease();
+      const result = await as(SES_A, () => taskClaim(env.tempDir, { taskId: 'T001', renew: true }));
+      expect(result.success).toBe(true);
+      const after = await claimOf();
+      expect(after?.sessionId).toBe(SES_A);
+      expect(after?.claimedAt).toBe(before?.claimedAt);
+      expect(isLiveClaim(after, new Date().toISOString())).toBe(true);
+    });
+
+    it('`cleo claim --renew` is refused, naming the new holder, after another session took the task (AC2)', async () => {
+      await start(SES_A);
+      await expireLease();
+      await start(SES_B, 'T001', { takeOver: true });
+      const held = await claimOf();
+      const result = await as(SES_A, () => taskClaim(env.tempDir, { taskId: 'T001', renew: true }));
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('E_TASK_CLAIMED');
+      expect(result.error?.message).toContain('Cannot renew your claim on T001');
+      expect(result.error?.message).toContain(SES_B);
+      expect(result.error?.fix).toContain('Do not take it back');
+      expect(result.error?.fix).not.toContain('--take-over');
+      expect(result.error?.details).toMatchObject({ holder: { sessionId: SES_B } });
+      // The refused renewal wrote nothing: the new holder keeps its lease as it was.
+      expect(await claimOf()).toEqual(held);
+    });
   });
 
   it('an unbound --take-over / --force-claim is refused with E_SESSION_UNBOUND and a fix', async () => {

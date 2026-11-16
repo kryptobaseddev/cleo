@@ -52,6 +52,7 @@ export {
   releaseSpawnClaim,
   renewClaimsForSession,
   renewProjectSessionClaims,
+  renewStaleSessionClaims,
   renewTaskClaim,
   resolveClaimant,
 } from './claims.js';

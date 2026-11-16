@@ -145,7 +145,10 @@ describe('orchestrateSpawnExecute — claim rollback on a reported failure (T125
     const linkage = context?.prompt.split('## Session Linkage')[1]?.split('## ')[0] ?? '';
     expect(linkage).toContain(`**Worker Session**: \`${allocated.identity.sessionId}\``);
     expect(linkage).toContain(
-      'If your session or claim has expired or belongs to someone else, return blocked',
+      'If it still reads expired, renew it yourself and carry on: `cleo claim T001 --renew`',
+    );
+    expect(linkage).toContain(
+      'Return blocked to the coordinator for handoff only when that renewal is refused',
     );
     expect(linkage).not.toContain('cleo session start');
   });

@@ -1645,6 +1645,8 @@ function assertClaimAllowed(
     stored,
     { sessionId: guard.sessionId, agentId: guard.agentId ?? null },
     guard.now,
+    'start',
+    guard.mode === 'renew',
   );
 }
 

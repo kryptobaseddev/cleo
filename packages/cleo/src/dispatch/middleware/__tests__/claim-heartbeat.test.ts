@@ -1,8 +1,10 @@
 /**
  * The claim heartbeat renews a bound session's leases after its successful
- * mutations, and never on reads, failures or unbound calls (T12502).
+ * mutations (T12502) and before its reads (T14546), and never on failed
+ * mutations or unbound calls.
  *
  * @task T12502
+ * @task T14546
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -47,13 +49,40 @@ describe('createClaimHeartbeat (T12502)', () => {
     expect(renew).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'ses-a' }), 'ses-a');
   });
 
-  it('does not renew on reads, failures or unbound calls', async () => {
+  it('does not renew on failed mutations or unbound calls', async () => {
     const renew = vi.fn(async () => undefined);
     const heartbeat = createClaimHeartbeat(renew);
-    await heartbeat(request('query', 'ses-a'), async () => response(true));
     await heartbeat(request('mutate', 'ses-a'), async () => response(false));
     await heartbeat(request('mutate'), async () => response(true));
+    await heartbeat(request('query'), async () => response(true));
     expect(renew).not.toHaveBeenCalled();
+  });
+
+  it("a bound session's read beats once, before it dispatches, whatever the read returns (T14546)", async () => {
+    const order: string[] = [];
+    const renew = vi.fn(async (req: DispatchRequest) => {
+      order.push(`renew:${req.gateway}`);
+    });
+    const res = await createClaimHeartbeat(renew)(request('query', 'ses-a'), async () => {
+      order.push('read');
+      return response(false);
+    });
+    expect(res.success).toBe(false);
+    expect(order).toEqual(['renew:query', 'read']);
+  });
+
+  it('a failing or stalled renewal never fails or holds a read (T14546)', async () => {
+    const failing = vi.fn(async () => {
+      throw new Error('store locked');
+    });
+    expect(
+      (await createClaimHeartbeat(failing)(request('query', 'ses-a'), async () => response(true)))
+        .success,
+    ).toBe(true);
+    const stalled = vi.fn(() => new Promise<void>(() => undefined));
+    const started = Date.now();
+    await createClaimHeartbeat(stalled, 20)(request('query', 'ses-a'), async () => response(true));
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it('a failing renewal never fails the command', async () => {
