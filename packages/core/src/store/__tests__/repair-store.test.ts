@@ -1,4 +1,4 @@
-import { type SpawnSyncReturns, spawn, spawnSync } from 'node:child_process';
+import { type SpawnSyncOptions, type SpawnSyncReturns, spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   copyFileSync,
@@ -11,6 +11,7 @@ import {
   statSync,
   utimesSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -1548,6 +1549,111 @@ describe('copy-only whole-store repair', () => {
     } finally {
       check.close();
     }
+  });
+
+  /**
+   * Seed base/delta vectors, damage the store, and make `sqlite3` recover `orphanSql`.
+   * sqlite3 3.46 (Ubuntu 26.04) emits no `.dbconfig defensive off`, so its shell refuses the
+   * vec0 schema row and the recovered database keeps shadow tables without their parent.
+   */
+  function recoverOrphanShadows(
+    orphanSql: string,
+  ): { calls: string[][]; restore: () => void } | null {
+    const db = new DatabaseSync(live, { allowExtension: true });
+    if (!loadSqliteVecExtension(db)) {
+      db.close();
+      return null;
+    }
+    db.exec(
+      "CREATE VIRTUAL TABLE vectors USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[3]); INSERT INTO vectors VALUES('base','[1,2,3]')",
+    );
+    rmSync(snapshot);
+    advanceStoreGeneration(db, live);
+    db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+    db.exec("INSERT INTO vectors VALUES('delta','[4,5,6]')");
+    db.close();
+    damageIndex();
+    const spawnMock = vi.mocked(spawnSync);
+    const real = spawnMock.getMockImplementation();
+    if (!real) throw new Error('spawnSync is not wrapped by the node:child_process mock');
+    const calls: string[][] = [];
+    const fd = (options: SpawnSyncOptions | undefined, index: number): number => {
+      const stream = Array.isArray(options?.stdio) ? options.stdio[index] : undefined;
+      if (typeof stream !== 'number')
+        throw new Error(`sqlite3 stdio[${index}] is not a descriptor`);
+      return stream;
+    };
+    spawnMock.mockImplementation(
+      (command: string, args?: readonly string[], options?: SpawnSyncOptions) => {
+        if (command !== 'sqlite3') return real(command, args, options);
+        calls.push([...(args ?? [])]);
+        if (args?.at(-1) === '.recover --ignore-freelist') writeSync(fd(options, 1), orphanSql);
+        else {
+          const out = new DatabaseSync(String(args?.at(-1)));
+          out.exec(readFileSync(fd(options, 0), 'utf8'));
+          out.close();
+        }
+        return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
+      },
+    );
+    return { calls, restore: () => spawnMock.mockImplementation(real) };
+  }
+
+  /** Vector ids in the live store. */
+  function liveVectorIds(): unknown[] {
+    const check = new DatabaseSync(live, { allowExtension: true });
+    loadSqliteVecExtension(check);
+    try {
+      return check
+        .prepare('SELECT id FROM vectors ORDER BY id')
+        .all()
+        .map((r) => r.id);
+    } finally {
+      check.close();
+    }
+  }
+
+  const ORPHAN_SCHEMA = `CREATE TABLE "vectors_info" (key text primary key, value any);
+INSERT OR IGNORE INTO 'vectors_info'(_rowid_, 'key', 'value') VALUES (1, 'CREATE_VERSION', 'v0.1.9');
+CREATE TABLE "vectors_rowids"(rowid INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,chunk_id INTEGER,chunk_offset INTEGER);
+CREATE TABLE "vectors_vector_chunks00"(rowid PRIMARY KEY,vectors BLOB NOT NULL);
+`;
+
+  it('skips orphan vec0 shadow rows only when every vector reached the store (T14626)', async (context) => {
+    const recovery = recoverOrphanShadows(
+      `${ORPHAN_SCHEMA}INSERT INTO vectors_rowids VALUES (1, 'base', 1, 0);\n`,
+    );
+    if (!recovery) return context.skip();
+    try {
+      expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+        'repaired',
+      );
+    } finally {
+      recovery.restore();
+    }
+    expect(recovery.calls).toContainEqual(
+      expect.arrayContaining(['-cmd', '.dbconfig defensive off']),
+    );
+    expect(liveVectorIds()).toEqual(['base', 'delta']);
+  });
+
+  it('fails closed when orphan vec0 shadow rows hold a vector no parent recovered (T14626)', async (context) => {
+    const recovery = recoverOrphanShadows(
+      `${ORPHAN_SCHEMA}INSERT INTO vectors_rowids VALUES (1, 'base', 1, 0), (3, 'lost', 1, 2);\n`,
+    );
+    if (!recovery) return context.skip();
+    const before = repairFileHash(live);
+    try {
+      await expect(
+        repairStore({ projectRoot: env.tempDir, cwd: env.tempDir }),
+      ).rejects.toMatchObject({
+        codeName: 'E_DB_CORRUPT',
+        message: expect.stringContaining('1 vector(s) survive only in module tables'),
+      });
+    } finally {
+      recovery.restore();
+    }
+    expect(repairFileHash(live)).toBe(before);
   });
 
   it('returns E_STORE_IN_USE when a failed open finds a live store holder', async () => {
