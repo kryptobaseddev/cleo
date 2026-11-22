@@ -16,5 +16,9 @@ repair failed with `E_DB_CORRUPT`. Ubuntu 24.04's sqlite3 3.45.1 is built withou
 `sqlite_dbpage`, so `.recover` never ran there and the bug stayed hidden.
 
 The recovered SQL is now applied with defensive mode off, so the virtual parent
-is restored, and salvage never copies a table the destination's module owns,
-whatever the recovery tool produced.
+is restored. Salvage also never copies a table the destination's module owns.
+When a source keeps vec0 shadow rows without their virtual table, repair checks
+that every vector id in that source's `_rowids` reached the repaired store. If a
+vector is missing, or the rows cannot be matched, the repair fails closed with
+`E_DB_CORRUPT` and the originals stay quarantined, so it never reports
+`repaired` with fewer vectors.

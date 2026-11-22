@@ -444,6 +444,11 @@ export function salvageIntoSnapshot(
     const newestKeys = new Map<string, Set<string>>();
     const baseKeys = new Map<string, Set<string>>();
     const pending: (() => void)[] = [];
+    // vec0 rows a source kept without its virtual table, keyed by source and parent table.
+    const orphans = new Map<
+      string,
+      { source: string; table: string; rowids: Row[] | null; data: string[] }
+    >();
     const deletedKeys = new Map<string, Set<string>>();
     const alternateVersions = new Set<string>();
     const reportFor = (name: string) => {
@@ -540,14 +545,56 @@ export function salvageIntoSnapshot(
               const incompleteSchema = receipt.diagnostics.length !== beforeSchema;
               if (incompleteSchema)
                 for (const report of Object.values(receipt.tables)) report.unreadable = null;
+              // These shadows are rebuilt from the logical rows this same source's parent yields.
               const shadows = shadowTables(snap.db, sourceTables);
-              // A source can hold module-owned tables without their virtual parent (a partial
-              // recovery); the destination's module owns them, so they are rebuilt, never copied.
-              for (const name of shadowTables(db, tables(db, [], staged))) shadows.add(name);
+              const destSchema = tables(db, [], staged);
+              const destShadows = shadowTables(db, destSchema);
+              const destVirtual = destSchema.filter((t) => /\bVIRTUAL\s+TABLE\b/i.test(t.sql));
               for (const table of sourceTables) {
                 const report = reportFor(table.name);
                 if (shadows.has(table.name)) {
                   report.rebuilt = true;
+                  continue;
+                }
+                if (destShadows.has(table.name)) {
+                  // A partial recovery kept module-owned rows without their virtual parent, so
+                  // nothing rebuilds them from this source. Never copy them (the destination's
+                  // module owns the table); prove each vector reached the destination below.
+                  const parent = destVirtual
+                    .filter((t) => table.name.startsWith(`${t.name}_`))
+                    .sort((a, b) => b.name.length - a.name.length)[0];
+                  if (
+                    parent &&
+                    /\bUSING\s+fts[345]\b/i.test(parent.sql) &&
+                    /\bcontent\s*=/i.test(parent.sql)
+                  ) {
+                    receipt.diagnostics.push(
+                      `${table.name}: ${source} kept this derived index without ${parent.name}; it is rebuilt from its content`,
+                    );
+                    continue;
+                  }
+                  if (!parent || !/\bUSING\s+vec0\b/i.test(parent.sql))
+                    // @sync-invariant none:local-only module rows without a rebuild source keep the originals quarantined
+                    throw new Error(
+                      `${table.name}: ${source} holds module-owned rows without their virtual table; nothing proves them recovered, so the originals remain quarantined`,
+                    );
+                  const suffix = table.name.slice(parent.name.length + 1);
+                  if (/^info$/i.test(suffix)) continue; // vec0 version metadata holds no vectors
+                  const key = `${source}\0${parent.name}`;
+                  const orphan = orphans.get(key) ?? {
+                    source,
+                    table: parent.name,
+                    rowids: null,
+                    data: [],
+                  };
+                  orphans.set(key, orphan);
+                  if (/^rowids$/i.test(suffix)) {
+                    const read = snap.db.prepare(
+                      `SELECT rowid, id FROM main.${repairIdentifier(table.name)}`,
+                    );
+                    read.setReadBigInts(true);
+                    orphan.rowids = read.all();
+                  } else orphan.data.push(table.name);
                   continue;
                 }
                 if (table.name === 'cleo_trigger_suspend' || table.name === 'sqlite_sequence')
@@ -787,6 +834,24 @@ export function salvageIntoSnapshot(
               snap.close();
             }
           }
+        }
+        for (const orphan of orphans.values()) {
+          if (orphan.rowids === null)
+            // @sync-invariant none:local-only vector data without its id map cannot be proven recovered
+            throw new Error(
+              `${orphan.table}: ${orphan.source} kept ${orphan.data.join(', ')} without ${orphan.table}_rowids; its vectors cannot be matched, so the originals remain quarantined`,
+            );
+          const rowids = `main.${repairIdentifier(`${orphan.table}_rowids`)}`;
+          const byId = db.prepare(`SELECT 1 FROM ${rowids} WHERE id = ? LIMIT 1`);
+          const byRowid = db.prepare(`SELECT 1 FROM ${rowids} WHERE rowid = ? LIMIT 1`);
+          const lost = orphan.rowids.filter((row) =>
+            row.id === null ? !byRowid.get(row.rowid ?? null) : !byId.get(row.id ?? null),
+          ).length;
+          if (lost > 0)
+            // @sync-invariant none:local-only refusing to publish a store that drops recovered vectors
+            throw new Error(
+              `${orphan.table}: ${lost} vector(s) survive only in module tables ${orphan.source} kept without their virtual table; the originals remain quarantined`,
+            );
         }
         for (const [name, base] of baseKeys) {
           const table = tables(db, receipt.diagnostics, staged).find((t) => t.name === name);
