@@ -4,7 +4,8 @@
  * `docs_publications` row with it.
  *
  * Case-insensitive lookup is simulated on any host: under the docs root,
- * every path given to `node:fs` resolves to the existing entry whose name
+ * every path given to a path-taking `node:fs` function the apply, guard,
+ * blob-keep and status code imports resolves to the existing entry whose name
  * matches ignoring case, as APFS and NTFS resolve it. A rename onto such a
  * name therefore lands in the old entry, which keeps its old spelling.
  *
@@ -53,6 +54,10 @@ vi.mock('node:fs', async () => {
     ...real,
     existsSync: (p: Fs.PathLike) => real.existsSync(f(p)),
     statSync: (p: Fs.PathLike, o?: Fs.StatSyncOptions) => real.statSync(f(p), o),
+    lstatSync: (p: Fs.PathLike, o?: Fs.StatSyncOptions) => real.lstatSync(f(p), o),
+    openSync: (p: Fs.PathLike, flags?: Fs.OpenMode) => real.openSync(f(p), flags),
+    copyFileSync: (a: Fs.PathLike, b: Fs.PathLike) => real.copyFileSync(f(a), f(b)),
+    linkSync: (a: Fs.PathLike, b: Fs.PathLike) => real.linkSync(f(a), f(b)),
     readFileSync: (p: Fs.PathOrFileDescriptor, o?: never) => real.readFileSync(f(p), o),
     writeFileSync: (p: Fs.PathOrFileDescriptor, d: string, o?: Fs.WriteFileOptions) =>
       real.writeFileSync(f(p), d, o),
@@ -72,6 +77,10 @@ vi.mock('node:fs/promises', async () => {
   return {
     ...real,
     stat: (p: Fs.PathLike) => real.stat(f(p)),
+    lstat: (p: Fs.PathLike) => real.lstat(f(p)),
+    realpath: (p: Fs.PathLike) => real.realpath(f(p)),
+    open: (p: Fs.PathLike, flags?: Fs.OpenMode) => real.open(f(p), flags),
+    unlink: (p: Fs.PathLike) => real.unlink(f(p)),
     readFile: (p: Fs.PathLike, o?: never) => real.readFile(f(p), o),
     writeFile: (p: Fs.PathLike, d: string | Uint8Array) => real.writeFile(f(p), d),
     rename: (a: Fs.PathLike, b: Fs.PathLike) => real.rename(f(a), f(b)),
