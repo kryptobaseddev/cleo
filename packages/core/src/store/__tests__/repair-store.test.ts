@@ -1,4 +1,4 @@
-import { type SpawnSyncReturns, spawn, spawnSync } from 'node:child_process';
+import { type SpawnSyncOptions, type SpawnSyncReturns, spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   copyFileSync,
@@ -11,6 +11,7 @@ import {
   statSync,
   utimesSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -1536,6 +1537,72 @@ describe('copy-only whole-store repair', () => {
     expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
       'repaired',
     );
+    const check = new DatabaseSync(live, { allowExtension: true });
+    loadSqliteVecExtension(check);
+    try {
+      expect(
+        check
+          .prepare('SELECT id FROM vectors ORDER BY id')
+          .all()
+          .map((r) => r.id),
+      ).toEqual(['base', 'delta']);
+    } finally {
+      check.close();
+    }
+  });
+
+  it('never copies vec0 shadow rows from a recovery that lost their virtual parent (T14626)', async (context) => {
+    const db = new DatabaseSync(live, { allowExtension: true });
+    if (!loadSqliteVecExtension(db)) {
+      db.close();
+      context.skip();
+      return;
+    }
+    db.exec(
+      "CREATE VIRTUAL TABLE vectors USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[3]); INSERT INTO vectors VALUES('base','[1,2,3]')",
+    );
+    rmSync(snapshot);
+    advanceStoreGeneration(db, live);
+    db.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+    db.exec("INSERT INTO vectors VALUES('delta','[4,5,6]')");
+    db.close();
+    damageIndex();
+    // sqlite3 3.46 (Ubuntu 26.04) emits no `.dbconfig defensive off`, so its shell refuses the
+    // vec0 schema row and the recovered database keeps the shadow tables without their parent.
+    const orphanSql = `CREATE TABLE "vectors_info" (key text primary key, value any);
+INSERT OR IGNORE INTO 'vectors_info'(_rowid_, 'key', 'value') VALUES (1, 'CREATE_VERSION', 'v0.1.9');
+`;
+    const spawnMock = vi.mocked(spawnSync);
+    const real = spawnMock.getMockImplementation();
+    if (!real) throw new Error('spawnSync is not wrapped by the node:child_process mock');
+    const sqliteCalls: string[][] = [];
+    const fd = (options: SpawnSyncOptions | undefined, index: number): number => {
+      const stream = Array.isArray(options?.stdio) ? options.stdio[index] : undefined;
+      if (typeof stream !== 'number')
+        throw new Error(`sqlite3 stdio[${index}] is not a descriptor`);
+      return stream;
+    };
+    spawnMock.mockImplementation(
+      (command: string, args?: readonly string[], options?: SpawnSyncOptions) => {
+        if (command !== 'sqlite3') return real(command, args, options);
+        sqliteCalls.push([...(args ?? [])]);
+        if (args?.at(-1) === '.recover --ignore-freelist') writeSync(fd(options, 1), orphanSql);
+        else {
+          const out = new DatabaseSync(String(args?.at(-1)));
+          out.exec(readFileSync(fd(options, 0), 'utf8'));
+          out.close();
+        }
+        return { pid: 0, output: [], stdout: '', stderr: '', status: 0, signal: null };
+      },
+    );
+    try {
+      expect((await repairStore({ projectRoot: env.tempDir, cwd: env.tempDir })).status).toBe(
+        'repaired',
+      );
+    } finally {
+      spawnMock.mockImplementation(real);
+    }
+    expect(sqliteCalls).toContainEqual(expect.arrayContaining(['-cmd', '.dbconfig defensive off']));
     const check = new DatabaseSync(live, { allowExtension: true });
     loadSqliteVecExtension(check);
     try {

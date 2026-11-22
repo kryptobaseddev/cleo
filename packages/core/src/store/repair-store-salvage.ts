@@ -246,10 +246,17 @@ function sqliteRecover(file: string, diagnostics: string[]): string | null {
   const recoveredFile = `${file}.recovered`;
   const input = openSync(sqlFile, 'r');
   try {
-    const applied = spawnSync('sqlite3', ['-safe', recoveredFile], {
-      stdio: [input, 'ignore', 'pipe'],
-      timeout: 60_000,
-    });
+    // `.recover` restores virtual-table schema rows through writable_schema. sqlite3 3.46
+    // (Ubuntu 26.04) omits the `.dbconfig defensive off` line 3.47+ emits, so its defensive
+    // shell refused those rows and left vec0 shadow tables orphaned (T14626).
+    const applied = spawnSync(
+      'sqlite3',
+      ['-safe', '-cmd', '.dbconfig defensive off', recoveredFile],
+      {
+        stdio: [input, 'ignore', 'pipe'],
+        timeout: 60_000,
+      },
+    );
     if (applied.error || applied.status !== 0) {
       diagnostics.push(
         `sqlite3 recovered SQL: ${applied.error?.message ?? applied.stderr?.toString().trim()}`,
@@ -534,6 +541,9 @@ export function salvageIntoSnapshot(
               if (incompleteSchema)
                 for (const report of Object.values(receipt.tables)) report.unreadable = null;
               const shadows = shadowTables(snap.db, sourceTables);
+              // A source can hold module-owned tables without their virtual parent (a partial
+              // recovery); the destination's module owns them, so they are rebuilt, never copied.
+              for (const name of shadowTables(db, tables(db, [], staged))) shadows.add(name);
               for (const table of sourceTables) {
                 const report = reportFor(table.name);
                 if (shadows.has(table.name)) {
