@@ -6,7 +6,7 @@
  * links `b` into `packages/a/node_modules` only. The printed command runs with
  * a stub `cleo` on PATH (`run` executes its command, `verify` records whether
  * `b` resolves from `packages/a` and whether the tree is clean and equal to
- * the merge tree).
+ * the merge tree). A project without a pnpm lockfile keeps the root link.
  *
  * @task T14625
  */
@@ -27,6 +27,53 @@ function git(cwd: string, args: string[]): string {
 function write(path: string, content: string): void {
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, content);
+}
+
+/** Commit everything in `root` and return the commit sha. */
+function commitAll(root: string): string {
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['add', '-A']);
+  git(root, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'merge']);
+  return git(root, ['rev-parse', 'HEAD']);
+}
+
+/**
+ * Run the printed command with a stub `cleo` on PATH: `run` executes its
+ * command; `verify` reports whether `dep` resolves from `pkgDir` and whether
+ * the checkout is clean, with its tree hash.
+ */
+function runPrinted(
+  root: string,
+  merge: string,
+  pkgDir: string,
+  dep: string,
+): { resolves: string; dirty: string; tree: string } {
+  const bin = join(base, 'bin');
+  const report = join(base, 'report.json');
+  write(
+    join(bin, 'cleo'),
+    [
+      '#!/bin/sh',
+      'if [ "$1" = run ]; then',
+      '  while [ "$1" != -- ]; do shift; done; shift; exec "$@"',
+      'fi',
+      `resolves=$(cd ${pkgDir} && node -e "try{require.resolve('${dep}');process.stdout.write('yes')}catch{process.stdout.write('no')}")`,
+      'dirty=$(git status --porcelain --untracked-files=no)',
+      'tree=$(git rev-parse HEAD^{tree})',
+      `printf '{"resolves":"%s","dirty":"%s","tree":"%s"}' "$resolves" "$dirty" "$tree" > ${JSON.stringify(report)}`,
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'cleo'), 0o755);
+  execFileSync('/bin/sh', ['-c', mergedGateVerifyCommand('T1', root, merge)], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, TMPDIR: base },
+    stdio: 'ignore',
+  });
+  return JSON.parse(readFileSync(report, 'utf-8')) as {
+    resolves: string;
+    dirty: string;
+    tree: string;
+  };
 }
 
 beforeEach(() => {
@@ -55,44 +102,32 @@ describe('mergedGateVerifyCommand dependency layout (T14625)', () => {
     execFileSync('pnpm', ['install', '--lockfile-only'], { cwd: root, stdio: 'ignore' });
     // The source checkout has deps installed: only its root node_modules could be linked.
     execFileSync('pnpm', ['install', '--offline'], { cwd: root, stdio: 'ignore' });
-    git(root, ['init', '-q', '-b', 'main']);
-    git(root, ['add', '-A']);
-    git(root, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'merge']);
-    const merge = git(root, ['rev-parse', 'HEAD']);
+    const merge = commitAll(root);
 
-    const bin = join(base, 'bin');
-    const report = join(base, 'report.json');
-    write(
-      join(bin, 'cleo'),
-      [
-        '#!/bin/sh',
-        'if [ "$1" = run ]; then',
-        '  while [ "$1" != -- ]; do shift; done; shift; exec "$@"',
-        'fi',
-        `resolves=$(cd packages/a && node -e "try{require.resolve('b');process.stdout.write('yes')}catch{process.stdout.write('no')}")`,
-        'dirty=$(git status --porcelain --untracked-files=no)',
-        'tree=$(git rev-parse HEAD^{tree})',
-        `printf '{"resolves":"%s","dirty":"%s","tree":"%s"}' "$resolves" "$dirty" "$tree" > ${JSON.stringify(report)}`,
-        '',
-      ].join('\n'),
-    );
-    chmodSync(join(bin, 'cleo'), 0o755);
-
-    const command = mergedGateVerifyCommand('T1', root, merge);
-    execFileSync('/bin/sh', ['-c', command], {
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, TMPDIR: base },
-      stdio: 'ignore',
-    });
-
-    const result = JSON.parse(readFileSync(report, 'utf-8')) as {
-      resolves: string;
-      dirty: string;
-      tree: string;
-    };
-    expect(result).toEqual({
+    expect(runPrinted(root, merge, 'packages/a', 'b')).toEqual({
       resolves: 'yes',
       dirty: '',
       tree: git(root, ['rev-parse', `${merge}^{tree}`]),
     });
   }, 60_000);
+
+  it('links the root node_modules for a project without pnpm-lock.yaml (npm, Yarn, Bun)', () => {
+    const root = join(base, 'repo');
+    write(
+      join(root, 'package.json'),
+      '{"name":"app","private":true,"dependencies":{"dep":"1.0.0"}}\n',
+    );
+    write(join(root, '.gitignore'), 'node_modules/\n');
+    write(join(root, 'index.js'), 'module.exports = 0;\n');
+    const merge = commitAll(root);
+    // Installed by another manager into the source checkout's root only.
+    write(join(root, 'node_modules/dep/package.json'), '{"name":"dep","version":"1.0.0"}\n');
+    write(join(root, 'node_modules/dep/index.js'), 'module.exports = 1;\n');
+
+    expect(runPrinted(root, merge, '.', 'dep')).toEqual({
+      resolves: 'yes',
+      dirty: '',
+      tree: git(root, ['rev-parse', `${merge}^{tree}`]),
+    });
+  });
 });

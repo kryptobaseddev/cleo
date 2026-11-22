@@ -583,7 +583,8 @@ describe('merge-tree typed-gate cache (T14596)', () => {
       const command =
         `cleo_gate_checkout=$(mktemp -d) && git -C '${root}' worktree add --detach "$cleo_gate_checkout" '${merge}' && ` +
         `cd "$cleo_gate_checkout" && ` +
-        `if [ -f pnpm-lock.yaml ]; then cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline --store-dir '.pnpm-store'; fi && ` +
+        `if [ -f pnpm-lock.yaml ]; then cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline --store-dir '.pnpm-store'; ` +
+        `elif [ -d '${join(root, 'node_modules')}' ] && [ ! -e node_modules ]; then ln -s '${join(root, 'node_modules')}' node_modules; fi && ` +
         `cleo verify ${id} --run --req 'MERGE-1'`;
       expect(waitingOn(sweep).split(' Run `').at(-1)).toBe(`${command}\`.`);
       if (source === 'legacy-schema')

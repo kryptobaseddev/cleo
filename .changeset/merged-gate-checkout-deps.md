@@ -13,6 +13,7 @@ ran. When the merge tracks `pnpm-lock.yaml`, the printed command now runs the
 worktree provisioning install recipe (`workerInstallCommand`: frozen lockfile,
 the checkout's own store, through the heavy queue) inside the checkout. The
 install writes only untracked paths, so the checkout stays clean and equal to
-the merge tree and `cleo done --from-merge` accepts the pass.
+the merge tree and `cleo done --from-merge` accepts the pass. Without a
+pnpm lockfile (npm, Yarn, Bun) the root `node_modules` is linked as before.
 `workerInstallCommand` moves to `@cleocode/worktree/worktree-pnpm.js` and is
 exported from the package root.
