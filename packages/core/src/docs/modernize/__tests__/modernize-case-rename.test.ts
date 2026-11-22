@@ -59,6 +59,9 @@ vi.mock('node:fs', async () => {
     rmSync: (p: Fs.PathLike, o?: Fs.RmOptions) => real.rmSync(f(p), o),
     unlinkSync: (p: Fs.PathLike) => real.unlinkSync(f(p)),
     renameSync: (a: Fs.PathLike, b: Fs.PathLike) => real.renameSync(f(a), f(b)),
+    realpathSync: Object.assign((p: Fs.PathLike) => real.realpathSync(f(p)), {
+      native: (p: Fs.PathLike) => real.realpathSync.native(f(p)),
+    }),
   };
 });
 
