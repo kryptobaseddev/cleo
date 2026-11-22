@@ -1114,8 +1114,7 @@ jobs:
             # between polls; every poll logs each package's stalled rung.
             local STABLE_DEPENDENCY_EXIT=0
             if [[ "$TAG" == "latest" && "$PUBLISH_HALTED" == "0" ]]; then
-              POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000 \
-                node scripts/execute-payload.mjs \
+              POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000 node scripts/execute-payload.mjs \
                 --version "$VERSION" --dist-tag "$TAG" --before-package cleo \
                 --output-dir /tmp/stable-dependencies || {
                   STABLE_DEPENDENCY_EXIT=$?
