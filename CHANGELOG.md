@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026.11.15] (2026-11-22)
+
+### Fixed
+
+- the merge-commit gate checkout command installs dependencies like a provisioned worktree, so workspace packages resolve their own deps _(provenance: [T14625](https://github.com/kryptobaseddev/cleo/search?q=T14625&type=commits))_
+- repair-store keeps vec0 vector tables when sqlite3 3.46 (Ubuntu 26.04) recovers the damaged store _(provenance: [T14626](https://github.com/kryptobaseddev/cleo/search?q=T14626&type=commits))_
+
 ## [2026.11.14] (2026-11-16)
 
 ### Fixed
