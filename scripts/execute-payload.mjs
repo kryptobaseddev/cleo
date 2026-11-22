@@ -65,8 +65,11 @@
  *   Add --before-package cleo to gate the CLI on the earlier publish waves.
  *
  * Environment:
- *   POSTDEPLOY_TIMEOUT_MS   total propagation budget (default 900000 = 15 min)
- *   POSTDEPLOY_INTERVAL_MS  poll interval             (default 15000  = 15 s)
+ *   POSTDEPLOY_TIMEOUT_MS       total propagation budget (default 900000 = 15 min)
+ *   POSTDEPLOY_INTERVAL_MS      first poll interval      (default 15000  = 15 s)
+ *   POSTDEPLOY_BACKOFF          factor applied to the interval after each poll
+ *                               (default 1 = fixed interval)
+ *   POSTDEPLOY_MAX_INTERVAL_MS  cap on the backed-off interval (default: none)
  *
  * @task gh#1377
  */
@@ -385,7 +388,9 @@ export async function converge(attempt, opts = {}) {
  * @param {string} ver - Full version string.
  * @param {object} [opts]
  * @param {number} [opts.timeoutMs] - Total propagation budget.
- * @param {number} [opts.intervalMs] - Poll interval.
+ * @param {number} [opts.intervalMs] - First poll interval.
+ * @param {number} [opts.backoff] - Factor applied to the interval after each poll (1 = fixed).
+ * @param {number} [opts.maxIntervalMs] - Cap on the backed-off interval.
  * @param {typeof fetch} [opts.fetchImpl] - Injected for tests.
  * @param {(msg: string) => void} [opts.log] - Progress sink.
  * @param {(ms: number) => Promise<unknown>} [opts.sleepImpl] - Injected for tests.
@@ -396,6 +401,8 @@ export async function verifyAll(packages, ver, opts = {}) {
   const {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     intervalMs = DEFAULT_INTERVAL_MS,
+    backoff = 1,
+    maxIntervalMs = Number.POSITIVE_INFINITY,
     fetchImpl = fetch,
     log = () => {},
     sleepImpl = sleep,
@@ -406,6 +413,10 @@ export async function verifyAll(packages, ver, opts = {}) {
   const settled = new Map();
   const started = Date.now();
   let pending = [...packages];
+  // T14615: why each pending package is still pending, from its latest
+  // attempt, so every logged attempt names the rung and status it stalled at.
+  /** @type {Map<string, string>} */
+  const pendingDetail = new Map();
 
   const round = async () => {
     const results = await Promise.all(
@@ -417,6 +428,7 @@ export async function verifyAll(packages, ver, opts = {}) {
     for (const r of results) {
       if (r.state === 'pending') {
         stillPending.push(r.pkg);
+        pendingDetail.set(r.pkg, r.detail ?? 'not installable');
         continue;
       }
       // ok and mismatch are both terminal — a wrong version never becomes right.
@@ -449,10 +461,14 @@ export async function verifyAll(packages, ver, opts = {}) {
   const outcome = await converge(round, {
     timeoutMs,
     intervalMs,
+    backoff,
+    maxIntervalMs,
     sleepImpl,
-    onWait: ({ elapsedMs }) =>
+    onWait: ({ elapsedMs, attempts, waitMs }) =>
       log(
-        `  ... ${pending.length} not yet installable at +${Math.round(elapsedMs / 1000)}s: ${pending.join(', ')}`,
+        `  ... attempt ${attempts}: ${pending.length} not yet installable at +${Math.round(elapsedMs / 1000)}s ` +
+          `(next in ${Math.round(waitMs / 1000)}s): ` +
+          pending.map((pkg) => `${pkg} (${pendingDetail.get(pkg)})`).join(', '),
       ),
   });
 
@@ -545,6 +561,8 @@ export async function main() {
 
   const timeoutMs = Number(process.env.POSTDEPLOY_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
   const intervalMs = Number(process.env.POSTDEPLOY_INTERVAL_MS ?? DEFAULT_INTERVAL_MS);
+  const backoff = Number(process.env.POSTDEPLOY_BACKOFF ?? 1);
+  const maxIntervalMs = Number(process.env.POSTDEPLOY_MAX_INTERVAL_MS ?? Number.POSITIVE_INFINITY);
 
   /** @type {string[]} */
   let packages;
@@ -573,13 +591,18 @@ export async function main() {
   console.log(`\n=== execute-payload: post-deploy steps for v${version} ===\n`);
   console.log(`Step 1: Verify npm registry — ${packages.length} packages from release.yml (SSoT)`);
   console.log(
-    `        budget ${Math.round(timeoutMs / 1000)}s, polling every ${Math.round(intervalMs / 1000)}s; ` +
-      'checking the tarball an install fetches, not just metadata.\n',
+    `        budget ${Math.round(timeoutMs / 1000)}s, polling every ${Math.round(intervalMs / 1000)}s` +
+      (backoff > 1
+        ? ` (x${backoff} per poll${Number.isFinite(maxIntervalMs) ? `, capped at ${Math.round(maxIntervalMs / 1000)}s` : ''})`
+        : '') +
+      '; checking the tarball an install fetches, not just metadata.\n',
   );
 
   const verifyResults = await verifyAll(packages, version, {
     timeoutMs,
     intervalMs,
+    backoff,
+    maxIntervalMs,
     distTag,
     log: (m) => console.log(m),
   });
@@ -685,7 +708,7 @@ export async function main() {
       console.error(
         '    Their tarballs were still unfetchable at the deadline. Raise POSTDEPLOY_TIMEOUT_MS',
       );
-      console.error('    and re-run the job; an identical retry will fail the same way.');
+      console.error('    or re-run the job once npm serves them (propagation can exceed 20 min).');
     }
     return 1;
   }

@@ -380,6 +380,100 @@ describe('T14516 — the stable dependency gate retains per-package convergence 
   });
 });
 
+describe('T14615 — the stable dependency gate waits out a transient tarball 404', () => {
+  /**
+   * Run the wave gate (`--before-package cleo`) against a fake registry whose
+   * `core` tarball answers 404 for its first `failures` HEAD requests.
+   * @param {number} failures - 404s before the tarball is served (Infinity = never).
+   * @returns {Promise<{ exit: number, lines: string[], coreHeads: number }>}
+   */
+  async function runGate(failures) {
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'ep-t14615-'));
+    const argv = process.argv;
+    const env = { ...process.env };
+    const lines = [];
+    const sink = (/** @type {unknown[]} */ ...a) => lines.push(a.join(' '));
+    vi.spyOn(console, 'log').mockImplementation(sink);
+    vi.spyOn(console, 'error').mockImplementation(sink);
+    const served = stubFetch4();
+    let coreHeads = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/core-2026.9.8.tgz') && ++coreHeads <= failures) {
+        return /** @type {Response} */ ({ ok: false, status: 404 });
+      }
+      return served(url, init);
+    });
+    process.env.POSTDEPLOY_TIMEOUT_MS = '200';
+    process.env.POSTDEPLOY_INTERVAL_MS = '1';
+    process.env.POSTDEPLOY_BACKOFF = '2';
+    process.env.POSTDEPLOY_MAX_INTERVAL_MS = '20';
+    process.argv = [
+      process.execPath,
+      'execute-payload.mjs',
+      '--version',
+      '2026.9.8',
+      '--dist-tag',
+      'latest',
+      '--before-package',
+      'cleo',
+      '--output-dir',
+      outputDir,
+    ];
+    try {
+      return { exit: await main(), lines, coreHeads };
+    } finally {
+      process.argv = argv;
+      process.env = env;
+      vi.restoreAllMocks();
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  }
+
+  it('passes the wave when the tarball 404s twice and then 200s, logging each attempt', async () => {
+    const { exit, lines, coreHeads } = await runGate(2);
+    expect(exit).toBe(0);
+    expect(coreHeads).toBe(3);
+    const attempts = lines.filter((l) => l.includes('not yet installable'));
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toContain('attempt 1:');
+    expect(attempts[1]).toContain('attempt 2:');
+    for (const line of attempts) expect(line).toContain('core (tarball HTTP 404)');
+    expect(lines.some((l) => l.includes('[OK]   @cleocode/core@2026.9.8'))).toBe(true);
+  });
+
+  it('still fails the wave when the registry never serves the tarball', async () => {
+    const { exit, lines, coreHeads } = await runGate(Number.POSITIVE_INFINITY);
+    expect(exit).toBe(1);
+    expect(coreHeads).toBeGreaterThan(3);
+    expect(lines.some((l) => l.includes('[FAIL] @cleocode/core@2026.9.8  tarball HTTP 404'))).toBe(
+      true,
+    );
+    expect(lines.some((l) => l.includes('NOT INSTALLABLE after') && l.includes('core'))).toBe(true);
+  });
+
+  it('backs off between attempts up to the cap', async () => {
+    /** @type {number[]} */
+    const waits = [];
+    const served = stubFetch4();
+    const results = await verifyAll(['core'], '2026.9.8', {
+      // The tarball is served once four waits have elapsed.
+      fetchImpl: (url, init) =>
+        waits.length < 4 && String(url).endsWith('.tgz')
+          ? Promise.resolve(/** @type {Response} */ ({ ok: false, status: 404 }))
+          : served(url, init),
+      timeoutMs: 600_000,
+      intervalMs: 15_000,
+      backoff: 2,
+      maxIntervalMs: 60_000,
+      sleepImpl: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    expect(results[0].ok).toBe(true);
+    expect(waits).toEqual([15_000, 30_000, 60_000, 60_000]);
+  });
+});
+
 describe('gh#1474 — dist-tags is a third document and nothing checked it', () => {
   it('REGRESSION: metadata 200 + tarball 200 + STALE dist-tag is NOT installable', async () => {
     // This is the state nothing in the pipeline could see before. `npm i -g
