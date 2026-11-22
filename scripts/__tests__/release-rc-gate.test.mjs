@@ -306,6 +306,14 @@ describe('T14516 — stable dependencies are installable before the CLI reaches 
       'POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs',
     );
   });
+
+  it('waits out registry propagation with a bounded backoff before halting the CLI wave (T14615)', () => {
+    // v2026.11.12: core's tarball 404'd ~20 min after publish; 15 min halted wave 6.
+    expect(publishStep.run).toContain(
+      'POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000',
+    );
+    expect(releaseYaml.jobs.publish['timeout-minutes']).toBeGreaterThanOrEqual(195);
+  });
 });
 
 describe('supervisor-attach follows the GitHub Release, not the whole publish job (T14192)', () => {
