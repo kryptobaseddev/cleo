@@ -108,7 +108,10 @@ import {
   configureWorktreePnpmStore,
   installWorktreeDependencies,
   isNpmrcTracked,
+  workerInstallCommand,
 } from './worktree-pnpm.js';
+
+export { workerInstallCommand };
 
 /**
  * Apply the T9226 spawn-clone-exclude filter to a newly created worktree.
@@ -245,25 +248,6 @@ function discardBranchName(gitRoot: string, branch: string, fallbackRef: string)
   gitSync(['branch', '-m', branch, preserved], gitRoot);
   process.stderr.write(
     `[worktree] preserved unmerged history of ${branch} as ${preserved} (never deleted)\n`,
-  );
-}
-
-/**
- * What a worker runs when provisioning did not install dependencies (T13524).
- * It goes through the heavy queue and installs into the worktree's own store:
- * concurrent installs into the shared global store corrupt `.pnpm/` with
- * `@@`-prefixed directories (T9938, T13538), and deferral happens exactly when
- * many spawns are in flight.
- *
- * @param worktreePath - The worktree the command installs into.
- * @returns The shell command.
- * @task T13524
- * @task T13538
- */
-export function workerInstallCommand(worktreePath: string): string {
-  return (
-    'cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline ' +
-    `--store-dir ${shellQuote(join(worktreePath, '.pnpm-store'))}`
   );
 }
 

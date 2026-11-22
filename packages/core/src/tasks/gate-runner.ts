@@ -74,6 +74,7 @@ import type {
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
 import { findOnPath } from '@cleocode/paths';
+import { workerInstallCommand } from '@cleocode/worktree/worktree-pnpm.js';
 import { resolveOriginDefault } from '../git/base-ref.js';
 import { discoveryEnv } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
@@ -937,6 +938,14 @@ export class TypedRevalidationError extends Error {
 
 /**
  * Build the exact command that caches a pass in a fresh checkout of the merge.
+ *
+ * The checkout gets dependencies the way a provisioned worktree does (T14625):
+ * when the merge tracks `pnpm-lock.yaml`, the worker install recipe
+ * ({@link workerInstallCommand}) runs inside it with a frozen lockfile and the
+ * checkout's own store. Linking only the root `node_modules` left every
+ * workspace package's own `node_modules` missing. The install writes only
+ * untracked paths, so the checkout stays clean and equal to the merge tree.
+ *
  * @param taskId - Task whose gate must run.
  * @param root - Existing repository from which to create the checkout.
  * @param mergeSha - Immutable merge commit to verify.
@@ -951,8 +960,10 @@ export function mergedGateVerifyCommand(
 ): string {
   return (
     `cleo_gate_checkout=$(mktemp -d) && git -C ${shellArg(root)} worktree add --detach "$cleo_gate_checkout" ${shellArg(mergeSha)} && ` +
-    `if [ -d ${shellArg(join(root, 'node_modules'))} ] && [ ! -e "$cleo_gate_checkout/node_modules" ]; then ln -s ${shellArg(join(root, 'node_modules'))} "$cleo_gate_checkout/node_modules"; fi && ` +
-    `cd "$cleo_gate_checkout" && cleo verify ${taskId} --run${req ? ` --req ${shellArg(req)}` : ''}`
+    `cd "$cleo_gate_checkout" && ` +
+    // The store path is relative: the shell, not this string, knows the checkout.
+    `if [ -f pnpm-lock.yaml ]; then ${workerInstallCommand('.')}; fi && ` +
+    `cleo verify ${taskId} --run${req ? ` --req ${shellArg(req)}` : ''}`
   );
 }
 
