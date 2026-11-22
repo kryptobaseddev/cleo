@@ -446,6 +446,7 @@ export type {
   DocsModernizeJudgmentQuestion,
   DocsModernizeJudgmentSource,
   DocsModernizeLinkFix,
+  DocsModernizeMovedPublication,
   DocsModernizeOpKind,
   DocsModernizeOpPrior,
   DocsModernizeOpState,

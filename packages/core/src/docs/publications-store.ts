@@ -17,7 +17,8 @@
  *   - {@link upsertDocsPublication} refreshes `last_blob_sha` /
  *     `published_at` on conflict (latest-publish-wins). The only DELETE is
  *     {@link deleteDocsPublication}, used by the `cleo docs doctor` ledger
- *     prune (T14117) under its backup gate.
+ *     prune (T14117) under its backup gate and by the `cleo docs modernize`
+ *     row move (T14610).
  *   - {@link readDocsPublications} carries a one-time, idempotent migration
  *     shim: when the store table is empty and the legacy
  *     `.cleo/docs-publications.json` still holds entries, they are seeded
@@ -225,9 +226,11 @@ export async function readDocsPublicationSha256Set(projectRoot: string): Promise
  * Delete one publication row by its natural (ownerId, blobName, publishedPath)
  * key.
  *
- * Only the `cleo docs doctor` ledger prune (T14117) calls this, after its
+ * Two callers: the `cleo docs doctor` ledger prune (T14117), after its
  * backup gate passed and after it appended the full row to its audit log, so
- * a pruned row can be re-inserted with {@link upsertDocsPublication}.
+ * a pruned row can be re-inserted with {@link upsertDocsPublication}; and
+ * `cleo docs modernize`, which moves a row to its mirror's new path and
+ * journals both keys so a rollback moves it back (T14610).
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param key - The natural key of the row to delete.

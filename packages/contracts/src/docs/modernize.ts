@@ -218,6 +218,7 @@ export const DOCS_MODERNIZE_OPS = [
   'rekind',
   'reslug',
   'link-task',
+  'move-publication',
 ] as const;
 
 /** One of {@link DOCS_MODERNIZE_OPS}. */
@@ -245,6 +246,20 @@ export interface DocsModernizeOpPrior {
   readonly linkTargets?: readonly string[];
   /** `rekind`: the row's kind before the step. */
   readonly kind?: string | null;
+  /** `move-publication`: the ledger row that moved, by its natural key (T14610). */
+  readonly publication?: DocsModernizeMovedPublication;
+}
+
+/** A `docs_publications` row a tree move re-pointed at its file's new path (T14610). */
+export interface DocsModernizeMovedPublication {
+  /** Attachment name the row publishes. */
+  readonly blobName: string;
+  /** `published_path` before the move, as recorded. */
+  readonly fromPath: string;
+  /** `published_path` after the move. */
+  readonly toPath: string;
+  /** The row's `last_blob_sha`, carried unchanged. */
+  readonly lastBlobSha: string;
 }
 
 /**
@@ -261,6 +276,8 @@ export interface DocsModernizeOpPrior {
  * - `rekind` — the row `attachmentId` changed kind; `prior.kind` holds the old one (T14118).
  * - `reslug` — `slug` was renamed to `target`; `slug` stays an alias (T14118).
  * - `link-task` — the row `attachmentId` gained a ref to task `ownerId` (T14118).
+ * - `move-publication` — the `docs_publications` row of `ownerId` for the file `path` moved
+ *   with it to `target`; `prior.publication` holds both keys (T14610).
  */
 export interface DocsModernizeReceiptOp {
   /** Step kind. */
@@ -437,6 +454,14 @@ const receiptOpSchema = z.object({
       newAttachmentId: z.string().nullable().optional(),
       linkTargets: z.array(z.string()).optional(),
       kind: z.string().nullable().optional(),
+      publication: z
+        .object({
+          blobName: z.string(),
+          fromPath: z.string(),
+          toPath: z.string(),
+          lastBlobSha: z.string(),
+        })
+        .optional(),
     })
     .optional(),
   base: z.literal('repo').optional(),
