@@ -582,8 +582,10 @@ describe('merge-tree typed-gate cache (T14596)', () => {
       expect(sweep.closed).toEqual([]);
       const command =
         `cleo_gate_checkout=$(mktemp -d) && git -C '${root}' worktree add --detach "$cleo_gate_checkout" '${merge}' && ` +
-        `if [ -d '${join(root, 'node_modules')}' ] && [ ! -e "$cleo_gate_checkout/node_modules" ]; then ln -s '${join(root, 'node_modules')}' "$cleo_gate_checkout/node_modules"; fi && ` +
-        `cd "$cleo_gate_checkout" && cleo verify ${id} --run --req 'MERGE-1'`;
+        `cd "$cleo_gate_checkout" && ` +
+        `if [ -f pnpm-lock.yaml ]; then cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline --store-dir '.pnpm-store'; ` +
+        `elif [ -d '${join(root, 'node_modules')}' ] && [ ! -e node_modules ]; then ln -s '${join(root, 'node_modules')}' node_modules; fi && ` +
+        `cleo verify ${id} --run --req 'MERGE-1'`;
       expect(waitingOn(sweep).split(' Run `').at(-1)).toBe(`${command}\`.`);
       if (source === 'legacy-schema')
         expect(waitingOn(sweep)).toContain('re-run verification to migrate');

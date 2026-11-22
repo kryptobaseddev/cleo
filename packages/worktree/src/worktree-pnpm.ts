@@ -146,6 +146,30 @@ export function installWorktreeDependencies(worktreePath: string, projectRoot: s
 }
 
 /**
+ * What a worker runs when provisioning did not install dependencies (T13524).
+ * It goes through the heavy queue and installs into the worktree's own store:
+ * concurrent installs into the shared global store corrupt `.pnpm/` with
+ * `@@`-prefixed directories (T9938, T13538), and deferral happens exactly when
+ * many spawns are in flight.
+ *
+ * @param worktreePath - The worktree the command installs into.
+ * @returns The shell command.
+ * @task T13524
+ * @task T13538
+ */
+export function workerInstallCommand(worktreePath: string): string {
+  return (
+    'cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline ' +
+    `--store-dir ${shellQuote(join(worktreePath, '.pnpm-store'))}`
+  );
+}
+
+/** POSIX single-quote one shell word, so a path with spaces or quotes stays one literal word. */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
  * Point the worktree's pnpm at its own store (`<worktree>/.pnpm-store`) via
  * `.npmrc`, keeping every other line of an existing `.npmrc`. Called at
  * provisioning whether or not the install runs now, so a worker that installs

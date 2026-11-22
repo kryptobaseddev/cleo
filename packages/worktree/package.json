@@ -17,6 +17,11 @@
       "import": "./dist/worktree-locate.js",
       "default": "./dist/worktree-locate.js"
     },
+    "./worktree-pnpm.js": {
+      "types": "./dist/worktree-pnpm.d.ts",
+      "import": "./dist/worktree-pnpm.js",
+      "default": "./dist/worktree-pnpm.js"
+    },
     "./native/*": "./native/*",
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
