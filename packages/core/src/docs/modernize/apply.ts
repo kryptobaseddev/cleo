@@ -14,7 +14,8 @@
  *    its bytes are not already a doc, stored under its legacy name and
  *    superseded by the survivor (`supersede`).
  * 3. **Files.** Survivors are written to their canonical path (`write-file`)
- *    and every other scanned path is removed (`remove-file`).
+ *    and every other scanned path is removed (`remove-file`); a moved
+ *    mirror's `docs_publications` row follows it (`move-publication`).
  * 4. **Graph.** Each survivor's body links become `links-to` edges (`link`)
  *    and the column-derived edges are rebuilt (always, in `finally`).
  *
@@ -41,9 +42,10 @@ import {
   readFileSync,
   rmdirSync,
   rmSync,
+  statSync,
   writeSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type {
   BlobAttachment,
   DocsModernizeLinkFix,
@@ -61,6 +63,11 @@ import { backfillBlobStoreBytes } from '../../store/blob-keep.js';
 import { writeFileAtomic } from '../../tools/fs.js';
 import { extractWikilinkTargets } from '../derive-links.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
+import {
+  deleteDocsPublication,
+  readDocsPublications,
+  upsertDocsPublication,
+} from '../publications-store.js';
 import { normalizeSlug } from '../slug-normalize.js';
 import { assertPlanConsistent, assertPlanPaths, parseModernizeReceipt, safeJoin } from './guard.js';
 import { readSupersessionPrior, restoreSupersession, revertDocUpdate } from './restore.js';
@@ -172,6 +179,21 @@ async function backup(projectRoot: string, runId: string, text: string): Promise
     throw new DocsModernizeBlobError(`backup of ${sha} did not read back intact`);
   }
   return sha;
+}
+
+/**
+ * Whether two paths name one file on disk (same device and inode). A
+ * case-only rename on a case-insensitive filesystem is the case that matters:
+ * `ADR-1.md` and `adr-1.md` are then the same file (T14610).
+ */
+function sameFile(a: string, b: string): boolean {
+  try {
+    const x = statSync(a);
+    const y = statSync(b);
+    return x.dev === y.dev && x.ino === y.ino;
+  } catch {
+    return false;
+  }
 }
 
 /** Remove now-empty folders from `dir` up to (not including) `root`. */
@@ -678,6 +700,17 @@ export async function applyDocsModernize(
         const body = bodies.get(row.path) ?? '';
         const target = row.target ?? row.path;
         const abs = safeJoin(root, target);
+        const from = safeJoin(root, row.path);
+        if (target !== row.path && sameFile(from, abs)) {
+          // Both names are one file (a case-only rename on a case-insensitive
+          // filesystem): a write would land under the old name, which the
+          // removal below would then delete. Remove the old name first so the
+          // write creates the new one (T14610).
+          const beforeSha = await backup(projectRoot, runId, texts.get(row.path) ?? '');
+          const r = journal.begin({ op: 'remove-file', path: row.path, beforeSha256: beforeSha });
+          rmSync(from);
+          journal.done(r);
+        }
         const before = existsSync(abs) ? readFileSync(abs, 'utf-8') : null;
         if (before !== body) {
           const beforeSha = before === null ? null : await backup(projectRoot, runId, before);
@@ -709,10 +742,13 @@ export async function applyDocsModernize(
         journal.done(i);
       }
       const kept = new Set(survivors.map((r) => r.target ?? r.path));
+      const keptAbs = [...kept].map((p) => safeJoin(root, p));
       for (const row of plan.rows) {
         if (kept.has(row.path)) continue;
         const abs = safeJoin(root, row.path);
         if (!existsSync(abs)) continue;
+        // A path that resolves to a kept file is that file (T14610).
+        if (keptAbs.some((k) => sameFile(abs, k))) continue;
         const beforeSha = await backup(projectRoot, runId, texts.get(row.path) ?? '');
         const i = journal.begin({ op: 'remove-file', path: row.path, beforeSha256: beforeSha });
         rmSync(abs);
@@ -721,6 +757,14 @@ export async function applyDocsModernize(
           deleted.push(row.path);
         pruneEmptyDirs(root, dirname(abs));
       }
+      await save();
+      await movePublications(
+        journal,
+        projectRoot,
+        options.checkoutRoot ?? projectRoot,
+        root,
+        moves,
+      );
       await save();
 
       // Pass 4 — graph: wikilinks and relative markdown links both become
@@ -749,6 +793,64 @@ export async function applyDocsModernize(
     await save(edgeCount);
   }
   return receipt(edgeCount);
+}
+
+/**
+ * Re-point every `docs_publications` row whose mirror a tree run moved at the
+ * file's new path, journaling each as `move-publication` (T14610). A row
+ * keeps its form: an absolute path stays absolute, a relative one stays
+ * relative to the root it resolved against.
+ */
+async function movePublications(
+  journal: StepJournal,
+  projectRoot: string,
+  checkoutRoot: string,
+  root: string,
+  moves: readonly { readonly from: string; readonly to: string }[],
+): Promise<void> {
+  if (moves.length === 0) return;
+  const { resolvePublishedMirror } = await import('../docs-ops.js');
+  const ledger = await readDocsPublications(projectRoot);
+  for (const { from, to } of moves) {
+    const fromAbs = safeJoin(root, from);
+    const toAbs = safeJoin(root, to);
+    for (const pub of ledger) {
+      if (resolvePublishedMirror(projectRoot, checkoutRoot, pub.publishedPath) !== fromAbs) {
+        continue;
+      }
+      const base =
+        resolve(checkoutRoot, pub.publishedPath) === fromAbs ? checkoutRoot : projectRoot;
+      const toPath = isAbsolute(pub.publishedPath)
+        ? toAbs
+        : relative(base, toAbs).split(sep).join('/');
+      const i = journal.begin({
+        op: 'move-publication',
+        path: from,
+        target: to,
+        ownerId: pub.ownerId,
+        prior: {
+          publication: {
+            blobName: pub.blobName,
+            fromPath: pub.publishedPath,
+            toPath,
+            lastBlobSha: pub.lastBlobSha,
+          },
+        },
+      });
+      await upsertDocsPublication(projectRoot, {
+        ownerId: pub.ownerId,
+        blobName: pub.blobName,
+        publishedPath: toPath,
+        lastBlobSha: pub.lastBlobSha,
+      });
+      await deleteDocsPublication(projectRoot, {
+        ownerId: pub.ownerId,
+        blobName: pub.blobName,
+        publishedPath: pub.publishedPath,
+      });
+      journal.done(i);
+    }
+  }
 }
 
 /** Fold a step journal into the latest state of each step. */
@@ -935,6 +1037,23 @@ export async function rollbackDocsModernize(
         }
         case 'fold':
           break;
+        case 'move-publication': {
+          const pub = prior.publication;
+          if (!op.ownerId || !pub) break;
+          // Both writes are idempotent, so a pending step is reversed the same way.
+          await upsertDocsPublication(projectRoot, {
+            ownerId: op.ownerId,
+            blobName: pub.blobName,
+            publishedPath: pub.fromPath,
+            lastBlobSha: pub.lastBlobSha,
+          });
+          await deleteDocsPublication(projectRoot, {
+            ownerId: op.ownerId,
+            blobName: pub.blobName,
+            publishedPath: pub.toPath,
+          });
+          break;
+        }
         default: {
           // Store-mode steps (T14118).
           const { reverseStoreOp } = await import('./store.js');
