@@ -342,6 +342,20 @@ importers:
       node-cron:
         specifier: ^4.2.1
         version: 4.2.1
+      yaml:
+        specifier: '>=2.8.3'
+        version: 2.8.3
+    devDependencies:
+      '@cleocode/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@types/node-cron':
+        specifier: ^3.0.11
+        version: 3.0.11
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+    optionalDependencies:
       tree-sitter:
         specifier: 0.21.1
         version: 0.21.1
@@ -372,19 +386,6 @@ importers:
       tree-sitter-typescript:
         specifier: ^0.23.2
         version: 0.23.2(tree-sitter@0.21.1)
-      yaml:
-        specifier: '>=2.8.3'
-        version: 2.8.3
-    devDependencies:
-      '@cleocode/utils':
-        specifier: workspace:*
-        version: link:../utils
-      '@types/node-cron':
-        specifier: ^3.0.11
-        version: 3.0.11
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@25.5.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/cleo-os:
     dependencies:
@@ -543,36 +544,6 @@ importers:
       tar:
         specifier: ^7.4.3
         version: 7.5.13
-      tree-sitter:
-        specifier: 0.21.1
-        version: 0.21.1
-      tree-sitter-c:
-        specifier: 0.23.2
-        version: 0.23.2(tree-sitter@0.21.1)
-      tree-sitter-cpp:
-        specifier: ^0.23.4
-        version: 0.23.4(tree-sitter@0.21.1)
-      tree-sitter-go:
-        specifier: ^0.23.0
-        version: 0.23.4(tree-sitter@0.21.1)
-      tree-sitter-java:
-        specifier: ^0.23.5
-        version: 0.23.5(tree-sitter@0.21.1)
-      tree-sitter-javascript:
-        specifier: ^0.23.0
-        version: 0.23.1(tree-sitter@0.21.1)
-      tree-sitter-python:
-        specifier: 0.23.4
-        version: 0.23.4(tree-sitter@0.21.1)
-      tree-sitter-ruby:
-        specifier: ^0.23.1
-        version: 0.23.1(tree-sitter@0.21.1)
-      tree-sitter-rust:
-        specifier: 0.23.1
-        version: 0.23.1(tree-sitter@0.21.1)
-      tree-sitter-typescript:
-        specifier: ^0.23.2
-        version: 0.23.2(tree-sitter@0.21.1)
       write-file-atomic:
         specifier: ^7.0.1
         version: 7.0.1
@@ -608,6 +579,36 @@ importers:
       llmtxt:
         specifier: ^2026.5.15
         version: 2026.5.15(@cleocode/lafs@packages+lafs)(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+      tree-sitter:
+        specifier: 0.21.1
+        version: 0.21.1
+      tree-sitter-c:
+        specifier: 0.23.2
+        version: 0.23.2(tree-sitter@0.21.1)
+      tree-sitter-cpp:
+        specifier: ^0.23.4
+        version: 0.23.4(tree-sitter@0.21.1)
+      tree-sitter-go:
+        specifier: ^0.23.0
+        version: 0.23.4(tree-sitter@0.21.1)
+      tree-sitter-java:
+        specifier: ^0.23.5
+        version: 0.23.5(tree-sitter@0.21.1)
+      tree-sitter-javascript:
+        specifier: ^0.23.0
+        version: 0.23.1(tree-sitter@0.21.1)
+      tree-sitter-python:
+        specifier: 0.23.4
+        version: 0.23.4(tree-sitter@0.21.1)
+      tree-sitter-ruby:
+        specifier: ^0.23.1
+        version: 0.23.1(tree-sitter@0.21.1)
+      tree-sitter-rust:
+        specifier: 0.23.1
+        version: 0.23.1(tree-sitter@0.21.1)
+      tree-sitter-typescript:
+        specifier: ^0.23.2
+        version: 0.23.2(tree-sitter@0.21.1)
 
   packages/git-shim:
     dependencies:
@@ -691,6 +692,17 @@ importers:
       jsonc-parser:
         specifier: 3.3.1
         version: 3.3.1
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.0
+        version: 24.12.0
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@24.12.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+    optionalDependencies:
       tree-sitter:
         specifier: 0.21.1
         version: 0.21.1
@@ -721,16 +733,6 @@ importers:
       tree-sitter-typescript:
         specifier: ^0.23.2
         version: 0.23.2(tree-sitter@0.21.1)
-    devDependencies:
-      '@types/node':
-        specifier: ^24.3.0
-        version: 24.12.0
-      typescript:
-        specifier: ^6.0.2
-        version: 6.0.2
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@24.12.0)(@vitest/coverage-v8@4.1.4)(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/paths:
     dependencies:
@@ -10972,7 +10974,8 @@ snapshots:
       semver: 7.8.2
     optional: true
 
-  node-addon-api@8.7.0: {}
+  node-addon-api@8.7.0:
+    optional: true
 
   node-cron@4.2.1: {}
 
@@ -10984,7 +10987,8 @@ snapshots:
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
 
-  node-gyp-build@4.8.4: {}
+  node-gyp-build@4.8.4:
+    optional: true
 
   normalize-path@3.0.0: {}
 
@@ -12069,6 +12073,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-cpp@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12077,6 +12082,7 @@ snapshots:
       tree-sitter-c: 0.23.2(tree-sitter@0.21.1)
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-go@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12084,6 +12090,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-java@0.23.5(tree-sitter@0.21.1):
     dependencies:
@@ -12091,6 +12098,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-javascript@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12098,6 +12106,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-python@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12105,6 +12114,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-ruby@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12112,6 +12122,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-rust@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12119,6 +12130,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-typescript@0.23.2(tree-sitter@0.21.1):
     dependencies:
@@ -12127,11 +12139,13 @@ snapshots:
       tree-sitter-javascript: 0.23.1(tree-sitter@0.21.1)
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter@0.21.1:
     dependencies:
       node-addon-api: 8.7.0
       node-gyp-build: 4.8.4
+    optional: true
 
   trough@2.2.0: {}
 

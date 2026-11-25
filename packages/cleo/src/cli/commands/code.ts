@@ -18,8 +18,9 @@ async function requireTreeSitter(): Promise<void> {
     cliError(
       'tree-sitter native module not available.\n\n' +
         'This usually means the native addon failed to build during install.\n\n' +
-        'tree-sitter and grammar packages are bundled dependencies that should\n' +
-        'install automatically. If this persists, run: cleo doctor',
+        'tree-sitter and its grammars are optional dependencies: the install\n' +
+        'skips them where they cannot build (for example linux/arm64 on Node 24).\n' +
+        'Run cleo doctor for details.',
       7,
       {
         name: 'E_SERVICE_UNAVAILABLE',

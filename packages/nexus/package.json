@@ -79,7 +79,14 @@
     "graphology-communities-louvain": "^2.0.2",
     "graphology-types": "^0.24.8",
     "ignore": "7.0.5",
-    "jsonc-parser": "3.3.1",
+    "jsonc-parser": "3.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "optionalDependencies": {
     "tree-sitter": "0.21.1",
     "tree-sitter-c": "0.23.2",
     "tree-sitter-cpp": "^0.23.4",
@@ -90,10 +97,5 @@
     "tree-sitter-ruby": "^0.23.1",
     "tree-sitter-rust": "0.23.1",
     "tree-sitter-typescript": "^0.23.2"
-  },
-  "devDependencies": {
-    "@types/node": "^24.3.0",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.4"
   }
 }

@@ -299,7 +299,7 @@ function getParser(): NativeParser {
   if (!isTreeSitterAvailable() || _ParserClass === null) {
     throw new Error(
       'tree-sitter native module not available. ' +
-        'Run: pnpm install (tree-sitter is a bundled dependency)',
+        'Run: pnpm install (tree-sitter is an optional dependency, skipped where it cannot build)',
     );
   }
   _parserInstance = new _ParserClass();
@@ -603,7 +603,7 @@ export function parseFile(filePath: string, projectRoot?: string): ParseResult {
       symbols: [],
       errors: [
         'tree-sitter native module not available. ' +
-          'Run: pnpm install (tree-sitter is a bundled dependency)',
+          'Run: pnpm install (tree-sitter is an optional dependency, skipped where it cannot build)',
       ],
     };
   }
