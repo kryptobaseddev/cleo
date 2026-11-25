@@ -20,8 +20,51 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 /**
  * Maximum number of files a worker-role task may declare before it must be
  * split into subtasks with each child owning at most this many files.
+ *
+ * Test files that accompany a declared source file do not count toward it
+ * (see {@link countScopedFiles} and {@link ATOMIC_SCOPE_RULE}).
  */
 export const MAX_WORKER_FILES = 3;
+
+/**
+ * The worker file-scope rule in one sentence, stated in every refusal so the
+ * caller sees which files counted.
+ *
+ * @task T14633
+ */
+export const ATOMIC_SCOPE_RULE =
+  `A worker task may declare at most ${MAX_WORKER_FILES} source files; test files ` +
+  '(`*.test.*`, `*.spec.*`, or under `__tests__/`) that accompany a declared source file ' +
+  'do not count, and a scope of test files only counts every test file.';
+
+/**
+ * Whether a declared path is a test file under {@link ATOMIC_SCOPE_RULE}.
+ *
+ * @param path - A declared file path.
+ * @returns True for `*.test.*`, `*.spec.*` and anything under `__tests__/`.
+ * @task T14633
+ */
+export function isAtomicScopeTestFile(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/');
+  const base = normalized.slice(normalized.lastIndexOf('/') + 1);
+  return /\.(test|spec)\.[^/]+$/.test(base) || /(^|\/)__tests__\//.test(normalized);
+}
+
+/**
+ * Count the files of a worker scope that count toward {@link MAX_WORKER_FILES}.
+ *
+ * Applies {@link ATOMIC_SCOPE_RULE}: when the scope declares at least one
+ * source file, only source files count; a scope of test files only counts all
+ * of them.
+ *
+ * @param files - The declared files.
+ * @returns The counted-file total.
+ * @task T14633
+ */
+export function countScopedFiles(files: readonly string[]): number {
+  const sourceCount = files.filter((file) => !isAtomicScopeTestFile(file)).length;
+  return sourceCount > 0 ? sourceCount : files.length;
+}
 
 /**
  * Stable LAFS error codes emitted by {@link checkAtomicity}.
@@ -61,6 +104,16 @@ export interface AtomicityInput {
   declaredFiles?: readonly string[];
   /** Alias for {@link declaredFiles} — matches AC.files casing. */
   acFiles?: readonly string[];
+  /**
+   * The task's parent (usually its epic), named in the refusal's sibling-task
+   * route. Omitted for a root task.
+   */
+  parentId?: string | null;
+  /**
+   * The task's type. A `subtask` cannot hold children, so its refusal omits
+   * the convert-to-children route.
+   */
+  taskType?: string;
   /**
    * Structured waiver that allows a tier-1+ orchestrator to defer file-scope
    * declaration to the spawned worker at commit time.
@@ -111,6 +164,8 @@ export interface AtomicityResult {
   meta?: {
     /** Number of declared files (AC.files) observed. */
     fileCount: number;
+    /** Files counted toward {@link MAX_WORKER_FILES} under {@link ATOMIC_SCOPE_RULE}. */
+    countedFileCount?: number;
     /** Whether an explicit file-scope declaration was present. */
     hasScope: boolean;
   };
@@ -194,18 +249,58 @@ export function checkAtomicity(input: AtomicityInput): AtomicityResult {
     };
   }
 
-  if (files.length > MAX_WORKER_FILES) {
-    const splitCount = Math.ceil(files.length / MAX_WORKER_FILES);
+  const countedFileCount = countScopedFiles(files);
+  if (countedFileCount > MAX_WORKER_FILES) {
+    const id = input.taskId;
+    const fixHint = buildScopeFixHint(id, input.parentId ?? null, input.taskType !== 'subtask');
     return {
       allowed: false,
       code: 'E_ATOMICITY_VIOLATION',
-      message: `Task ${input.taskId} declares ${files.length} files (max ${MAX_WORKER_FILES} per atomic scope). Split into subtasks — each child owns ≤${MAX_WORKER_FILES} files.`,
-      fixHint: `Split task ${input.taskId} into ${splitCount} subtasks. Example:\ncleo add "Subtask 1: files a,b,c" --parent ${input.taskId} --files "path/a.ts,path/b.ts,path/c.ts" --acceptance "Acceptance criteria here"\ncleo add "Subtask 2: files d,e,f" --parent ${input.taskId} --files "path/d.ts,path/e.ts,path/f.ts" --acceptance "Acceptance criteria here"`,
-      meta: { fileCount: files.length, hasScope: true },
+      message:
+        `Task ${id} declares ${files.length} files, ${countedFileCount} of which count toward the ` +
+        `atomic scope (max ${MAX_WORKER_FILES}). Rule: ${ATOMIC_SCOPE_RULE}`,
+      fixHint,
+      meta: { fileCount: files.length, countedFileCount, hasScope: true },
     };
   }
 
-  return { allowed: true, meta: { fileCount: files.length, hasScope: true } };
+  return { allowed: true, meta: { fileCount: files.length, countedFileCount, hasScope: true } };
+}
+
+/**
+ * The three routes out of an over-scoped worker task, each a command that
+ * works whether or not the task carries its own text acceptance criteria.
+ *
+ * Plain `cleo add --parent <task>` is never offered: `addTask` refuses a child
+ * under a task with text ACs (PM-Core V2 design-point 3), so the route that
+ * splits under the task itself carries `--auto-decompose`.
+ *
+ * @param taskId - The refused task.
+ * @param parentId - Its parent, for the sibling route; null for a root task.
+ * @param canHoldChildren - False for a subtask, which drops the third route.
+ * @returns The fix text.
+ * @task T14633
+ */
+function buildScopeFixHint(
+  taskId: string,
+  parentId: string | null,
+  canHoldChildren: boolean,
+): string {
+  const siblingParent = parentId ? ` --parent ${parentId}` : '';
+  const narrowAndSibling =
+    `Pick one route:\n` +
+    `1. Narrow the scope to ≤${MAX_WORKER_FILES} source files (accompanying tests do not count): ` +
+    `cleo update ${taskId} --files "path/a.ts,path/a.test.ts"\n` +
+    `2. File the remaining work as sibling tasks${parentId ? ` under ${parentId}` : ''}, then narrow ${taskId} as in route 1: ` +
+    `cleo add "<title>"${siblingParent} --relates ${taskId} --files "path/d.ts,path/e.ts" --acceptance "<criteria>"`;
+  if (!canHoldChildren) return narrowAndSibling;
+  return (
+    `${narrowAndSibling}\n` +
+    `3. Convert ${taskId}'s acceptance criteria into child tasks and spawn each child: ` +
+    `cleo add "<title>" --type subtask --parent ${taskId} --auto-decompose --files "path/a.ts,path/b.ts" --acceptance "<criteria>"` +
+    ` (the child that receives the moved criteria, data.autoDecomposed.childId, needs its own ` +
+    `\`cleo update <childId> --files "..."\` before it can spawn)`
+  );
 }
 
 /**

@@ -1723,15 +1723,24 @@ export interface DocsDriftItem {
   readonly blobName: string;
   /** Project-root-relative path the blob was published to. */
   readonly publishedPath: string;
-  /** SHA-256 of the blob in the manifest (the docs SSoT). */
+  /**
+   * SHA-256 of the blob THIS ledger row published (`lastBlobSha`). Two rows of
+   * one owner at different blobs show different values here (T14633).
+   */
   readonly blobSha: string;
+  /**
+   * SHA-256 of the doc's current head blob in the manifest (the docs SSoT),
+   * which drift is judged against. Equals {@link blobSha} when the row
+   * published the head; falls back to it when the manifest lacks the blob.
+   */
+  readonly headBlobSha: string;
   /** SHA-256 of the file at `publishedPath`, or `null` when missing. */
   readonly fileSha: string | null;
   /**
    * Drift classification:
-   *   - `in-sync`  — blobSha === fileSha
+   *   - `in-sync`  — headBlobSha === fileSha
    *   - `added`    — file exists on disk but no row in the manifest (rare; never set today)
-   *   - `modified` — blobSha !== fileSha and file is present
+   *   - `modified` — headBlobSha !== fileSha and file is present
    *   - `deleted`  — file is missing from disk and from the places below
    *   - `pending-merge` — missing here, present in a canonical CLEO worktree
    *     of the project that has not merged yet (T14135)
@@ -1797,8 +1806,9 @@ export async function statusDocs(opts?: {
 
   const { readFile, stat } = await import('node:fs/promises');
 
-  // Refresh blob shas from the manifest so the ledger drives WHICH paths to
-  // check but the latest manifest drives the authoritative SSoT sha.
+  // The ledger drives WHICH paths to check and reports the blob each row
+  // published; the latest manifest supplies the head sha drift is judged
+  // against (T14633: never report the head as a row's published blob).
   const ownerCache = new Map<string, Map<string, string>>();
   async function getBlobSha(ownerId: string, blobName: string, ledgerSha: string): Promise<string> {
     let perOwner = ownerCache.get(ownerId);
@@ -1815,7 +1825,7 @@ export async function statusDocs(opts?: {
   for (const row of ledger) {
     const filePath = resolvePublishedMirror(root, checkout, row.publishedPath);
 
-    const blobSha = await getBlobSha(row.ownerId, row.blobName, row.lastBlobSha);
+    const headBlobSha = await getBlobSha(row.ownerId, row.blobName, row.lastBlobSha);
 
     let fileSha: string | null = null;
     let exists = false;
@@ -1844,12 +1854,12 @@ export async function statusDocs(opts?: {
       } else if (elsewhere.kind === 'default-branch') {
         fileSha = elsewhere.sha256;
         source = elsewhere.source;
-        drift = fileSha === blobSha ? 'in-sync' : 'modified';
+        drift = fileSha === headBlobSha ? 'in-sync' : 'modified';
       } else {
         source = elsewhere.source;
         drift = 'pending-merge';
       }
-    } else if (fileSha === blobSha) {
+    } else if (fileSha === headBlobSha) {
       drift = 'in-sync';
     } else {
       drift = 'modified';
@@ -1859,7 +1869,8 @@ export async function statusDocs(opts?: {
       ownerId: row.ownerId,
       blobName: row.blobName,
       publishedPath: row.publishedPath,
-      blobSha,
+      blobSha: row.lastBlobSha,
+      headBlobSha,
       fileSha,
       drift,
       ...(source !== undefined ? { source } : {}),

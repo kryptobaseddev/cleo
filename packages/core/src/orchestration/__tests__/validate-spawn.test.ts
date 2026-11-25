@@ -195,6 +195,20 @@ describe('validateSpawnReadiness — T894 atomic scope (worker role)', () => {
     expect(issue?.message).toContain(String(tooManyFiles.length));
   });
 
+  it('T14633 — accompanying test files do not count, matching checkAtomicity', async () => {
+    const files = [
+      'packages/core/src/a.ts',
+      'packages/core/src/a.test.ts',
+      'packages/core/src/__tests__/a-edge.test.ts',
+      'packages/core/src/__tests__/a-int.test.ts',
+    ];
+    const accessor = makeAccessor([baseTask({ files })]);
+    const result = await validateSpawnReadiness('T9801', undefined, accessor, {
+      role: 'worker',
+    });
+    expect(result.issues.some((i) => i.code === 'V_ATOMIC_SCOPE_TOO_LARGE')).toBe(false);
+  });
+
   it(`worker role + exactly ${MAX_WORKER_FILES} files → valid`, async () => {
     const exactFiles = Array.from(
       { length: MAX_WORKER_FILES },
