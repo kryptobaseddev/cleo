@@ -678,6 +678,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     // maps E_CANON_VIOLATION to exit 1; the full result rides in `details`.
     if (!result.passed) {
       const failure = canonFailure(result);
+      // @sync-invariant none:local-only read-only canon drift report over repo files; nothing is written
       return lafsError('E_CANON_VIOLATION', failure.message, 'canon', failure.fix, {
         result: { ...result },
       });
