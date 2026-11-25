@@ -310,6 +310,12 @@ async function startCli(): Promise<void> {
   }
 
   if (!isHelpOrVersion) {
+    // T14605 — start the pino file logger (`.cleo/logs/cleo.log`) once per
+    // process, before anything logs. Without it every `getLogger()` returns
+    // the stderr warn fallback and info/debug lines are dropped. Started
+    // before `--quiet` below so quiet mode still silences it (T9933).
+    const { startCliFileLogger } = await import('./logger-bootstrap.js');
+    await startCliFileLogger();
     // T9933 — propagate --quiet to the logger subsystem BEFORE startup
     // maintenance so the pino fallback logger emits at level=silent instead
     // of writing WARN-level entries to stderr during migration checks etc.

@@ -264,7 +264,8 @@ export function engineError<T>(
   const isVitest = process.env['VITEST'] === 'true';
   if (!isVitest) {
     // Lazy logger acquisition: avoids capturing the stderr fallback logger
-    // at module load time (before CLI's preAction hook calls initLogger()).
+    // at module load time, before CLI startup starts the file logger
+    // (`startCliFileLogger` in packages/cleo/src/cli/logger-bootstrap.ts).
     // This prevents the double-output envelope bug (T5148).
     const logger = getLogger('engine');
     logger[level](
