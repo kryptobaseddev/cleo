@@ -10974,7 +10974,8 @@ snapshots:
       semver: 7.8.2
     optional: true
 
-  node-addon-api@8.7.0: {}
+  node-addon-api@8.7.0:
+    optional: true
 
   node-cron@4.2.1: {}
 
@@ -10986,7 +10987,8 @@ snapshots:
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
 
-  node-gyp-build@4.8.4: {}
+  node-gyp-build@4.8.4:
+    optional: true
 
   normalize-path@3.0.0: {}
 
@@ -12071,6 +12073,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-cpp@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12079,6 +12082,7 @@ snapshots:
       tree-sitter-c: 0.23.2(tree-sitter@0.21.1)
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-go@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12086,6 +12090,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-java@0.23.5(tree-sitter@0.21.1):
     dependencies:
@@ -12093,6 +12098,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-javascript@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12100,6 +12106,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-python@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12107,6 +12114,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-ruby@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12114,6 +12122,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-rust@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12121,6 +12130,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter-typescript@0.23.2(tree-sitter@0.21.1):
     dependencies:
@@ -12129,11 +12139,13 @@ snapshots:
       tree-sitter-javascript: 0.23.1(tree-sitter@0.21.1)
     optionalDependencies:
       tree-sitter: 0.21.1
+    optional: true
 
   tree-sitter@0.21.1:
     dependencies:
       node-addon-api: 8.7.0
       node-gyp-build: 4.8.4
+    optional: true
 
   trough@2.2.0: {}
 
