@@ -93,7 +93,8 @@ interface RawObsRow {
   citation_count: number;
   memory_tier: string | null;
   created_at: string | null;
-  embedding: Buffer | null;
+  /** Float32 vector from `brain_embeddings` (node:sqlite returns BLOBs as Uint8Array). */
+  embedding: Uint8Array | null;
 }
 
 /** Minimal learning row for synthesis queries. */
@@ -126,6 +127,11 @@ export interface MergeDuplicatesResult {
   merged: number;
   /** Number of LLM merge decisions made. */
   llmDecisions: number;
+  /**
+   * Why the step failed, when it did (T14599). A failure such as a schema
+   * mismatch is reported here instead of reading as "nothing to merge".
+   */
+  error?: string;
 }
 
 /** Count of changes from the prune-stale step. */
@@ -305,24 +311,28 @@ function parseJson<T>(text: string): T | null {
  * Compute cosine similarity between two Float32 embedding buffers.
  *
  * Returns 0 when either buffer is null, empty, or different lengths.
- * Embeddings are stored as raw Buffer of 4-byte floats (sqlite-vec format).
+ * Embeddings are stored as raw little-endian 4-byte floats (sqlite-vec format);
+ * node:sqlite returns them as a plain `Uint8Array`, so they are read through a
+ * `DataView` rather than `Buffer` methods.
  *
  * @param a - First embedding buffer.
  * @param b - Second embedding buffer.
  */
-function cosineSimilarity(a: Buffer | null, b: Buffer | null): number {
+function cosineSimilarity(a: Uint8Array | null, b: Uint8Array | null): number {
   if (!a || !b || a.length === 0 || a.length !== b.length) return 0;
 
   const floatCount = Math.floor(a.length / 4);
   if (floatCount === 0) return 0;
+  const viewA = new DataView(a.buffer, a.byteOffset, a.byteLength);
+  const viewB = new DataView(b.buffer, b.byteOffset, b.byteLength);
 
   let dot = 0;
   let normA = 0;
   let normB = 0;
 
   for (let i = 0; i < floatCount; i++) {
-    const va = a.readFloatLE(i * 4);
-    const vb = b.readFloatLE(i * 4);
+    const va = viewA.getFloat32(i * 4, true);
+    const vb = viewB.getFloat32(i * 4, true);
     dot += va * vb;
     normA += va * va;
     normB += vb * vb;
@@ -346,6 +356,11 @@ function cosineSimilarity(a: Buffer | null, b: Buffer | null): number {
  * Falls back to structural merge (keep higher quality) when no API key is
  * available or the LLM call fails.
  *
+ * Vectors live in the `brain_embeddings` vec0 table, tagged by model; only
+ * vectors of the current provider's model are comparable (T13740). A query
+ * failure (for example a schema mismatch) propagates to the caller, which
+ * reports it in {@link MergeDuplicatesResult.error} (T14599).
+ *
  * @param projectRoot - Project root for brain.db resolution.
  */
 async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicatesResult> {
@@ -358,25 +373,26 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
   let llmDecisions = 0;
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-  // Fetch observations that have embeddings and are active
-  let rows: RawObsRow[];
-  try {
-    rows = typedAll<RawObsRow>(
-      nativeDb.prepare(
-        `
-        SELECT id, title, narrative, quality_score, citation_count, memory_tier, created_at, embedding
-        FROM brain_observations
-        WHERE embedding IS NOT NULL
-          AND invalid_at IS NULL
-          AND memory_tier = 'short'
-        ORDER BY quality_score DESC
-        LIMIT 200
-      `,
-      ),
-    );
-  } catch {
-    return { merged: 0, llmDecisions: 0 };
-  }
+  // `brain.embedding.enabled: false` means no vectors to compare (T13716).
+  const { ensureEmbeddingProvider, getEmbeddingProvider } = await import('./brain-embedding.js');
+  if (!(await ensureEmbeddingProvider(projectRoot))) return { merged: 0, llmDecisions: 0 };
+
+  // Fetch active short-tier observations that have a current-model embedding.
+  const rows = typedAll<RawObsRow>(
+    nativeDb.prepare(
+      `
+      SELECT o.id, o.title, o.narrative, o.quality_score, o.citation_count, o.memory_tier,
+             o.created_at, e.embedding
+      FROM brain_observations o
+      JOIN brain_embeddings e ON e.id = o.id AND e.model = ?
+      WHERE o.invalid_at IS NULL
+        AND o.memory_tier = 'short'
+      ORDER BY o.quality_score DESC
+      LIMIT 200
+    `,
+    ),
+    getEmbeddingProvider()?.model ?? '',
+  );
 
   if (rows.length < 2) return { merged: 0, llmDecisions: 0 };
 
@@ -974,6 +990,7 @@ export async function runSleepConsolidation(
     result.mergeDuplicates = await stepMergeDuplicates(projectRoot);
   } catch (err) {
     console.warn('[sleep-consolidation] Step 1 (merge duplicates) failed:', err);
+    result.mergeDuplicates.error = err instanceof Error ? err.message : String(err);
   }
 
   // Step 2: Prune stale
