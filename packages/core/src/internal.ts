@@ -2836,7 +2836,7 @@ export {
   pruneOrphanWorktrees,
 } from './gc/cleanup.js';
 // T11568 — coordinated CLI teardown: terminates the brain-writer worker thread
-// + pino-roll transport + DB handles so short-lived commands exit rc:0 instead
+// + log file + DB handles so short-lived commands exit rc:0 instead
 // of hanging on a live MessagePort.
 export { settleBeforeExit, shutdownCliRuntime } from './shutdown.js';
 export {

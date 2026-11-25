@@ -676,7 +676,7 @@ async function runMainWithLafsEnvelope(
       // LAFS envelope and returns, relying on the event loop draining so the
       // process exits rc:0. Process-lifetime worker threads (the BRAIN
       // single-writer worker behind `cleo memory observe` / brain.db writes, and
-      // the pino-roll log transport) own a `MessagePort` that keeps the loop
+      // the embedding queue) own a `MessagePort` that keeps the loop
       // alive forever — so without coordinated teardown the command printed its
       // success envelope and then HUNG (rc:124). Tear those down here, AFTER the
       // envelope has been written, so the loop drains and the process exits.

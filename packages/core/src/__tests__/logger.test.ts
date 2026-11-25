@@ -1,7 +1,9 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   closeLogger,
@@ -10,6 +12,7 @@ import {
   initLogger,
   LOGGER_CONFIG_DEFAULTS,
   resolveLoggerConfig,
+  rotateLogAtStartup,
   startFileLogger,
 } from '../logger.js';
 
@@ -109,7 +112,7 @@ describe('startFileLogger (T14605)', () => {
   let tempDir: string;
   let cleoDir: string;
 
-  /** Concatenated contents of every `cleo.*` log file pino-roll wrote. */
+  /** Concatenated contents of every rotated `cleo.*` log file. */
   function readCleoLogs(): string {
     const logDir = join(cleoDir, 'logs');
     if (!existsSync(logDir)) return '';
@@ -178,5 +181,99 @@ describe('startFileLogger (T14605)', () => {
       maxFileSize: 10 * 1024 * 1024,
       maxFiles: 2,
     });
+  });
+});
+
+describe('rotateLogAtStartup (T14605)', () => {
+  let logDir: string;
+  const now = new Date(2026, 10, 25, 12, 0, 0);
+
+  async function setup(): Promise<string> {
+    logDir = await mkdtemp(join(tmpdir(), 'cleo-log-rotate-'));
+    return join(logDir, 'cleo.log');
+  }
+
+  afterEach(async () => {
+    if (logDir) await rm(logDir, { recursive: true, force: true });
+  });
+
+  it('starts today at 1 with pino-roll naming', async () => {
+    const logPath = await setup();
+    expect(rotateLogAtStartup(logPath, 100, 2, now)).toBe(join(logDir, 'cleo.2026-11-25.1.log'));
+  });
+
+  it("reuses today's newest file until it reaches maxFileSize, then starts the next", async () => {
+    const logPath = await setup();
+    writeFileSync(join(logDir, 'cleo.2026-11-25.1.log'), 'x'.repeat(10));
+    expect(rotateLogAtStartup(logPath, 100, 2, now)).toBe(join(logDir, 'cleo.2026-11-25.1.log'));
+    writeFileSync(join(logDir, 'cleo.2026-11-25.1.log'), 'x'.repeat(100));
+    expect(rotateLogAtStartup(logPath, 100, 2, now)).toBe(join(logDir, 'cleo.2026-11-25.2.log'));
+  });
+
+  it('keeps maxFiles older files besides the active one and deletes the rest', async () => {
+    const logPath = await setup();
+    for (const name of [
+      'cleo.2026-11-20.1.log',
+      'cleo.2026-11-21.1.log',
+      'cleo.2026-11-22.1.log',
+      'cleo.2026-11-22.2.log',
+      'other.log',
+    ]) {
+      writeFileSync(join(logDir, name), 'x');
+    }
+    rotateLogAtStartup(logPath, 100, 2, now);
+    expect(readdirSync(logDir).sort()).toEqual([
+      'cleo.2026-11-22.1.log',
+      'cleo.2026-11-22.2.log',
+      'other.log',
+    ]);
+  });
+});
+
+describe('log flush on process exit (T14605)', () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('a line logged just before process.exit lands in the file', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-log-exit-'));
+    const cleoDir = join(tempDir, '.cleo');
+    const here = dirname(fileURLToPath(import.meta.url));
+    const loggerSource = resolve(here, '../logger.ts');
+    const pathsSource = resolve(here, '../../../paths/src/index.ts');
+    const childScript = join(tempDir, 'child.mjs');
+    const { build } = await import('esbuild');
+    await build({
+      stdin: {
+        contents: [
+          `import { getLogger, initLogger } from ${JSON.stringify(loggerSource)};`,
+          'initLogger(process.argv[2], { level: "info", filePath: "logs/cleo.log", maxFileSize: 1048576, maxFiles: 2 }, "exit-hash");',
+          'getLogger("exit-test").info("t14605 line before exit");',
+          'process.exit(0);',
+        ].join('\n'),
+        resolveDir: here,
+        loader: 'ts',
+      },
+      alias: { '@cleocode/paths': pathsSource },
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      outfile: childScript,
+      banner: {
+        js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);",
+      },
+      logLevel: 'silent',
+    });
+
+    const child = spawnSync(process.execPath, [childScript, cleoDir], { encoding: 'utf-8' });
+    expect(child.status, child.stderr).toBe(0);
+    const logDir = join(cleoDir, 'logs');
+    const text = readdirSync(logDir)
+      .filter((name) => name.startsWith('cleo.'))
+      .map((name) => readFileSync(join(logDir, name), 'utf-8'))
+      .join('');
+    expect(text).toContain('t14605 line before exit');
   });
 });

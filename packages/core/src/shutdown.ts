@@ -28,9 +28,9 @@
  *      brain writer — and the opportunistic dream in `cleo briefing` could feed
  *      it (or, in the worker-unavailable fallback, run embeddings inline on the
  *      main thread), the residual hang/spin path tracked in T11655.
- *   3. **The pino-roll log transport** ({@link closeLogger}). `pino.transport()`
- *      backs a worker thread too; its rotation timer + port keep the loop alive
- *      in the same way once `initLogger` has run.
+ *   3. **The log file** ({@link closeLogger}). Once a pino-roll transport
+ *      worker; since T14605 an in-thread destination that needs no thread
+ *      teardown, but its buffered lines are flushed and its fd closed here.
  *
  * Installed builds where the worker file was not resolvable fell back to the
  * inline executor (no worker) and exited cleanly — masking the defect until the
@@ -102,7 +102,7 @@ async function safely(
  * Call this from the CLI's success-path `finally`, AFTER the command's LAFS
  * envelope has been emitted to stdout. The CLI does not `process.exit()` on
  * success (ADR-039 / T9633), so without this the brain-writer worker thread
- * (T10351) or the pino-roll transport worker can keep the process hanging at
+ * (T10351) or the embedding worker can keep the process hanging at
  * rc:124.
  *
  * Order:
@@ -114,7 +114,7 @@ async function safely(
  *      one-shot CLI command alive after its envelope is emitted).
  *   3. {@link closeAllDatabases} — close the dual-scope `cleo.db` + brain/nexus
  *      native handles (releases file locks; required on Windows).
- *   4. {@link closeLogger} — flush + terminate the pino-roll transport worker.
+ *   4. {@link closeLogger} — flush the log file and close it.
  *
  * @remarks Two teardown classes (T14284): local-write producers are drained
  * before any database closes; best-effort producers get

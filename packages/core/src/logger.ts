@@ -1,7 +1,10 @@
 /**
  * Centralized pino logger factory for CLEO.
  *
- * Singleton pattern. Uses pino-roll for automatic file rotation and retention.
+ * Singleton pattern. Writes in-thread through pino's own async destination
+ * (sonic-boom): no transport worker thread, so a CLI call pays no extra thread
+ * or memory for it (T14605). Rotation and retention run once at startup and
+ * keep pino-roll's file naming (`cleo.YYYY-MM-DD.N.log`).
  * Custom formatters for uppercase level labels and ISO timestamps.
  * Context via child loggers (getLogger('subsystem')).
  *
@@ -9,8 +12,8 @@
  * CLI output. Fallback stderr logger if not yet initialized.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { basename, dirname, extname, join } from 'node:path';
 import type { LoggerConfig, LoggingConfig } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
 import pino from 'pino';
@@ -21,20 +24,12 @@ import pino from 'pino';
 // directly.
 export type { LoggerConfig };
 
-/**
- * Minimal shape of the pino-roll transport return value. `pino.transport()`
- * returns a writable stream that backs a worker thread; we only call
- * `.end(callback?)` on it during shutdown to terminate the worker so
- * pino-roll's rotation logic can't fire after the containing tmpdir is
- * removed (Vitest uncaught-exception repro, test.YYYY-MM-DD.N.log ENOENT).
- */
-interface TransportStream {
-  end: (callback?: () => void) => void;
-}
+/** The in-thread log destination (sonic-boom) pino writes to. */
+type LogDestination = ReturnType<typeof pino.destination>;
 
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;
-let currentTransport: TransportStream | null = null;
+let currentDestination: LogDestination | null = null;
 let quietMode = false;
 
 /**
@@ -66,22 +61,101 @@ export function isLoggerQuiet(): boolean {
   return quietMode;
 }
 
+/** One rotated log file: `<stem>.<YYYY-MM-DD>.<N><ext>`. */
+interface RotatedLogFile {
+  name: string;
+  date: string;
+  number: number;
+}
+
+/** Local calendar date as `YYYY-MM-DD` (pino-roll's `dateFormat`). */
+function formatLogDate(now: Date): string {
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/** Escape a literal for use inside a RegExp. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Rotated files of one configured log path, oldest first. */
+function listRotatedLogs(dir: string, stem: string, ext: string): RotatedLogFile[] {
+  const pattern = new RegExp(
+    `^${escapeRegExp(stem)}\\.(\\d{4}-\\d{2}-\\d{2})\\.(\\d+)${escapeRegExp(ext)}$`,
+  );
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const files: RotatedLogFile[] = [];
+  for (const name of names) {
+    const match = pattern.exec(name);
+    if (match) files.push({ name, date: match[1] ?? '', number: Number(match[2]) });
+  }
+  return files.sort((a, b) => a.date.localeCompare(b.date) || a.number - b.number);
+}
+
+/** Size of a file in bytes, or 0 when it does not exist. */
+function fileSize(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
+}
+
 /**
- * Convert bytes to a human-readable size string for pino-roll.
- * pino-roll accepts '10m', '1g', '500k', etc.
+ * Pick the file this process appends to and prune old ones (T14605).
+ *
+ * Keeps pino-roll's naming, which `observability/log-reader.ts` reads: the
+ * configured `logs/cleo.log` is written as `logs/cleo.<date>.<N>.log`. Today's
+ * newest file is reused until it reaches `maxFileSize`, then the next number
+ * starts; a new day starts at 1. Rotation happens here, once per process, so
+ * a long-running process keeps its file. Like pino-roll's `limit.count`, it
+ * keeps `maxFiles` older files besides the active one and deletes the rest.
+ *
+ * @param logPath     - Absolute configured log path (e.g. `.cleo/logs/cleo.log`).
+ * @param maxFileSize - Bytes after which a new file is started.
+ * @param maxFiles    - Older rotated files to keep besides the active one.
+ * @param now         - Clock for the date part of the name.
+ * @returns Absolute path of the file to append to.
  */
-function bytesToSizeString(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return `${Math.floor(bytes / (1024 * 1024 * 1024))}g`;
-  if (bytes >= 1024 * 1024) return `${Math.floor(bytes / (1024 * 1024))}m`;
-  if (bytes >= 1024) return `${Math.floor(bytes / 1024)}k`;
-  return `${bytes}`;
+export function rotateLogAtStartup(
+  logPath: string,
+  maxFileSize: number,
+  maxFiles: number,
+  now: Date = new Date(),
+): string {
+  const dir = dirname(logPath);
+  const ext = extname(logPath);
+  const stem = basename(logPath, ext);
+  const today = formatLogDate(now);
+  const existing = listRotatedLogs(dir, stem, ext);
+  const latestToday = existing.filter((f) => f.date === today).at(-1);
+  let number = latestToday?.number ?? 1;
+  if (latestToday && fileSize(join(dir, latestToday.name)) >= maxFileSize) number += 1;
+  const activeName = `${stem}.${today}.${number}${ext}`;
+
+  const older = existing.filter((f) => f.name !== activeName);
+  for (const file of older.slice(0, Math.max(0, older.length - maxFiles))) {
+    try {
+      unlinkSync(join(dir, file.name));
+    } catch {
+      // Retention is best-effort: a file another process removed is fine.
+    }
+  }
+  return join(dir, activeName);
 }
 
 /**
  * Initialize the root logger. Call once at startup.
  *
- * Uses pino-roll for automatic size+daily rotation with built-in retention.
- * No custom rotation code needed.
+ * Rotates with {@link rotateLogAtStartup}, then writes in-thread through
+ * `pino.destination` (no worker thread).
  *
  * @param cleoDir      - Absolute path to .cleo directory
  * @param config       - Logging configuration from CleoConfig.logging
@@ -97,34 +171,14 @@ export function initLogger(
   const dest = join(cleoDir, config.filePath);
   currentLogDir = dirname(dest);
 
-  // Log directory should already exist via ensureCleoStructure() which
-  // creates all REQUIRED_CLEO_SUBDIRS including 'logs'. The pino-roll
-  // transport has mkdir: true as a safety net for edge cases where the
-  // logger is initialized before scaffold (e.g. early startup fallback).
-  if (!existsSync(currentLogDir)) {
-    // Emit to stderr — stdout is reserved for structured output
-    process.stderr.write(
-      `[cleo:logger] Log directory missing: ${currentLogDir} — pino-roll will create it\n`,
-    );
-  }
-
-  // Use pino-roll transport for automatic rotation and retention.
-  // pino.transport() runs in a worker thread; sync: true ensures
-  // no log loss on process exit (critical for CLI tools).
-  const transport = pino.transport({
-    target: 'pino-roll',
-    options: {
-      file: dest,
-      size: bytesToSizeString(config.maxFileSize),
-      frequency: 'daily',
-      dateFormat: 'yyyy-MM-dd',
-      mkdir: true,
-      limit: {
-        count: config.maxFiles,
-        removeOtherLogFiles: true,
-      },
-    },
-  });
+  // Rotate once, then append in-thread. The fd is opened synchronously so the
+  // destination is ready at once: pino's exit hook (registered for every
+  // `sync: false` destination) flushes pending lines on a normal exit, which
+  // needs an open fd.
+  mkdirSync(currentLogDir, { recursive: true });
+  const activeFile = rotateLogAtStartup(dest, config.maxFileSize, config.maxFiles);
+  const destination = pino.destination({ dest: openSync(activeFile, 'a'), sync: false });
+  currentDestination = destination;
 
   // Build base object: projectHash and platform info appear in every log entry.
   // Pino merges base with pid/hostname by default; we add our fields alongside.
@@ -137,7 +191,6 @@ export function initLogger(
     base.projectHash = projectHash;
   }
 
-  currentTransport = transport as unknown as TransportStream;
   rootLogger = pino(
     {
       level: config.level,
@@ -147,7 +200,7 @@ export function initLogger(
       },
       timestamp: pino.stdTimeFunctions.isoTime,
     },
-    transport,
+    destination,
   );
 
   // Warn after logger is initialized so the message goes to the log file
@@ -278,50 +331,35 @@ export function getLogDir(): string | null {
 /**
  * Flush and close the logger. Call during graceful shutdown.
  *
- * Returns a Promise that resolves once the pino transport worker thread
- * has processed all pending writes. Callers that cannot await (e.g. sync
- * shutdown handlers) may fire-and-forget safely — the underlying flush
- * will still occur before the process exits.
+ * Buffered lines are written synchronously before this returns its
+ * Promise, which resolves once the log file is closed. Callers that cannot
+ * await may fire-and-forget: the flush has already happened, and pino's exit
+ * hook flushes any line logged later on a normal exit.
  */
 export function closeLogger(): Promise<void> {
   return new Promise<void>((resolve) => {
-    if (!rootLogger) {
+    const destination = currentDestination;
+    rootLogger = null;
+    currentLogDir = null;
+    currentDestination = null;
+    if (!destination) {
       resolve();
       return;
     }
-    const logger = rootLogger;
-    const transport = currentTransport;
-    // Flush pending writes through the pino-roll worker, then terminate the
-    // worker's writable stream. Without `.end()` the worker keeps its
-    // rotation timer alive and can try to open the next rotation file
-    // (e.g. `.1.log`) after the containing tmpdir has been rm'd, producing
-    // an ENOENT uncaught exception that Vitest surfaces even when every
-    // test passed. The end-callback is not guaranteed to fire (pino's
-    // transport worker may exit before acknowledging), so a short timeout
-    // fallback ensures closeLogger() always resolves promptly.
-    let resolved = false;
-    const done = () => {
-      if (resolved) return;
-      resolved = true;
-      rootLogger = null;
-      currentLogDir = null;
-      currentTransport = null;
+    // Write every buffered line synchronously, then close the fd once any
+    // in-flight async write lands ('close'). The unref'd fallback keeps a
+    // missing 'close' from stalling shutdown.
+    destination.once('close', () => resolve());
+    setTimeout(resolve, 100).unref();
+    try {
+      destination.flushSync();
+    } catch {
+      // Nothing to flush, or the fd is already gone: closing still applies.
+    }
+    try {
+      destination.end();
+    } catch {
       resolve();
-    };
-    logger.flush(() => {
-      if (transport && typeof transport.end === 'function') {
-        try {
-          transport.end(done);
-        } catch {
-          done();
-        }
-        // Fallback: resolve after a short delay if the end-callback
-        // never fires. 100ms is enough for the worker thread to
-        // finish flushing + terminate in the normal path.
-        setTimeout(done, 100);
-      } else {
-        done();
-      }
-    });
+    }
   });
 }

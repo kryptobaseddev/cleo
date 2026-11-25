@@ -10,7 +10,7 @@
 
 CLEO uses a two-store logging architecture that separates operational diagnostics from structured audit trails:
 
-1. **Pino structured logs**: operational events, startup lifecycle, warnings and debug traces, written to rotating log files through pino-roll.
+1. **Pino structured logs**: operational events, startup lifecycle, warnings and debug traces, written in-thread (no worker thread) to rotating log files.
 2. **SQLite audit log**: every audited dispatch operation, written to the `tasks_audit_log` table in the project store `<project>/.cleo/cleo.db`.
 
 Both stores share a common set of correlation fields (`projectHash`, `requestId`, `sessionId`, `taskId`) that let entries in one be matched to entries in the other. The dual-write principle is established in ADR-019 and extended by ADR-024.
@@ -19,7 +19,7 @@ The audit middleware is mounted on the CLI dispatcher (`packages/cleo/src/dispat
 
 Separate from both stores, the CLI output contract (ADR-086) puts exactly one LAFS envelope on stdout per call. All logs and progress go to stderr or to the log files.
 
-> **Current gap (see §12):** nothing in production calls `initLogger()`, so the Pino file sink in §2.1 is never opened. Pino output goes to the stderr fallback logger, which drops everything below `warn`. T14605 tracks the fix.
+> Every CLI call except `--help`/`--version` starts the Pino file sink in §2.1 once, inside a project (§5.1, §8). Outside a project, Pino output goes to the stderr fallback logger, which drops everything below `warn`.
 
 ---
 
@@ -29,9 +29,9 @@ Separate from both stores, the CLI output contract (ADR-086) puts exactly one LA
 
 **What goes here**: Operational events, debug traces, startup/shutdown lifecycle, warnings, error diagnostics, cache decisions, migration progress, and any non-audit diagnostic output.
 
-**Where written**: `initLogger(cleoDir, config, projectHash)` writes to `join(cleoDir, config.filePath)`; the default is `.cleo/logs/cleo.log`. pino-roll rotates daily (`dateFormat: 'yyyy-MM-dd'`) and when a file exceeds `maxFileSize`, producing files named `cleo.<yyyy-MM-dd>.<n>.log`. Before `initLogger()` runs, `getLogger()` returns a fallback logger that writes to stderr (fd 2) at `warn`, or at `silent` when `--quiet` set `setLoggerQuiet(true)`.
+**Where written**: `initLogger(cleoDir, config, projectHash)` writes to `join(cleoDir, config.filePath)`; the default is `.cleo/logs/cleo.log`, written as files named `cleo.<yyyy-MM-dd>.<n>.log`. `rotateLogAtStartup()` picks the file once per process: today's newest file until it reaches `maxFileSize`, then the next `<n>`; a new day starts at 1. Lines go through `pino.destination` (sonic-boom) in the calling thread, with no transport worker; pino's exit hook flushes buffered lines on a normal exit and `closeLogger()` flushes and closes the file at teardown. Before `initLogger()` runs, `getLogger()` returns a fallback logger that writes to stderr (fd 2) at `warn`, or at `silent` when `--quiet` set `setLoggerQuiet(true)`.
 
-**Retention**: Managed by pino-roll. `maxFiles` (default 5) is passed as `limit.count` with `removeOtherLogFiles: true`. CLEO does not prune log files itself.
+**Retention**: `rotateLogAtStartup()` keeps `maxFiles` (default 5) older `cleo.*` files besides the active one and deletes the rest, at startup.
 
 **Owner**: `packages/core/src/logger.ts`, which provides `initLogger()`, `getLogger()`, `getLogDir()`, `closeLogger()`, `setLoggerQuiet()` and `isLoggerQuiet()`. Read access to log files lives in `packages/core/src/observability/` (`discoverLogFiles`, `getProjectLogDir`, `getGlobalLogDir`, which is `<cleoHome>/logs`).
 
@@ -143,7 +143,7 @@ The CLI entry point `packages/cleo/src/cli/index.ts` runs:
 3. **Quiet mode**: with `--quiet`, `setLoggerQuiet(true)` silences the fallback logger before startup maintenance.
 4. **Startup maintenance** (`runStartupMaintenance`), through `getLogger('cli-startup')`: one-shot legacy-file cleanup, the signaldock-to-conduit migration check (`error` on failure, `warn` if the check throws, `debug` when there is no project), and the global-salt check (`info` fingerprint, `warn` on failure).
 
-No step calls `initLogger()` (see §12). `packages/cleo/src/cli/logger-bootstrap.ts` defines `initCliLogger(cwd, loggingConfig)`, which reads `projectHash` from `project-info.json` and calls `initLogger()`, but nothing calls it.
+Before quiet mode and startup maintenance, `startCliFileLogger()` in `packages/cleo/src/cli/index.ts` starts the file logger: it resolves the project root and `.cleo/` directory (nothing starts outside a project), reads `projectHash` with `getProjectInfoSync()`, and calls `startFileLogger(cleoDir, projectHash)` (`packages/core/src/logger.ts`), which reads the `logging` settings with `resolveLoggerConfig()` and calls `initLogger()` unless a logger is already running. It never fails the command. Because it runs first, `--quiet` still silences the file logger.
 
 ### 5.2 Install / Scaffold
 
@@ -194,7 +194,7 @@ Required events that MUST always be logged. "Emitter" names the code that logs t
 
 - All CLI commands that dispatch go through the CLI dispatcher, whose middleware chain includes `createAudit()` for the Pino + SQLite dual-write.
 - CLI stdout is reserved for command output: one LAFS envelope per call, or a human render with `--human` (ADR-086). All diagnostic logging MUST go to the Pino file sink or stderr.
-- CLI startup MUST initialize the file logger before dispatching (`initLogger()`, via `initCliLogger()`). This is not implemented today (§12); the stderr fallback logger handles all logging.
+- CLI startup MUST initialize the file logger before dispatching (`startFileLogger()` → `initLogger()`, §5.1).
 - Pre-init fallback: before `initLogger()` is called, `getLogger()` returns a stderr-bound logger at `warn` (`silent` under `--quiet`), so early startup code and error paths never crash for lack of a logger.
 - No `console.log()` or `console.error()` in post-init paths. The Node.js version check writes to stderr directly because it runs before any logger exists.
 
@@ -202,7 +202,8 @@ Required events that MUST always be logged. "Emitter" names the code that logs t
 
 ## 8. CLI Initialization Rules
 
-- `initCliLogger(cwd, loggingConfig)` in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger(join(cwd, '.cleo'), …)`, so every log entry carries the correlation context. It MUST run before any operation; today it is never called (§12).
+- `startCliFileLogger()` in `packages/cleo/src/cli/index.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `startFileLogger(cleoDir, projectHash)`, so every log entry carries the correlation context. It runs once per process, before any operation.
+- `resolveLoggerConfig(cleoDir)` resolves the logging settings in the same order as `loadConfig()`: defaults, global `config.json` `logging`, project `pinoLogging` then `logging`, then `CLEO_LOG_LEVEL` / `CLEO_LOG_FILE`. It reads only the two JSON files, so CLI startup loads no extra modules for it.
 - CLI commands dispatch through `packages/cleo/src/dispatch/adapters/cli.ts` (`getCliDispatcher()`, `dispatchRaw()`), which applies `createAudit()` and writes rows with `source: 'cli'`.
 
 ---
@@ -217,10 +218,10 @@ Required events that MUST always be logged. "Emitter" names the code that logs t
 | File path | `logging.filePath` | `'logs/cleo.log'` | Relative to `.cleo/` |
 | Max file size | `logging.maxFileSize` | 10,485,760 (10 MB) | Triggers size-based rotation |
 | Max files | `logging.maxFiles` | 5 | Number of rotated files to retain |
-| Rotation frequency | (hardcoded) | `'daily'` | Time-based rotation via pino-roll |
+| Rotation frequency | (hardcoded) | daily | Checked once per process at startup (`rotateLogAtStartup()`) |
 | Date format | (hardcoded) | `'yyyy-MM-dd'` | Date part of rotated file names |
 
-Defaults are in `packages/core/src/config.ts`. Retention is enforced by pino-roll via `limit.count` with `removeOtherLogFiles: true`.
+Defaults are in `packages/core/src/config.ts` and `LOGGER_CONFIG_DEFAULTS` in `packages/core/src/logger.ts` (a test keeps them equal). Rotation and retention run at startup in `rotateLogAtStartup()`; a long-running process keeps the file it opened.
 
 ### 9.2 SQLite audit log
 
@@ -289,11 +290,11 @@ The dispatch entry is authoritative; the `appendLog()` entry adds the state diff
 
 ## 12. Known gaps
 
-The missing logger initialization is tracked in T14605.
+T14605 fixed the uninitialized file logger (CLI startup now starts it, §5.1) and the stale "preAction hook" comment in `packages/runtime/src/gateway/engine-error.ts`.
 
-1. **The file logger is never initialized.** `initLogger()` has no production caller; `initCliLogger()` is defined but unused (`packages/cleo/src/cli/logger-bootstrap.ts:9`). Every `getLogger()` call returns the stderr fallback at `warn`, so `info` and `debug` events, including the Pino half of every audited dispatch, are dropped, and `.cleo/logs/cleo.log` is not written.
-2. **Required events with no emitter.** The §6 rows marked **none**.
-3. **Stale comments.** The header of `packages/cleo/src/dispatch/middleware/audit.ts` still names `.cleo/tasks.db`, and `packages/runtime/src/gateway/engine-error.ts` refers to a "preAction hook" that calls `initLogger()`; neither exists.
+1. **Required events with no emitter.** The §6 rows marked **none**.
+2. **Stale comment.** The header of `packages/cleo/src/dispatch/middleware/audit.ts` still names `.cleo/tasks.db`.
+3. **Health check path.** `cleo doctor`'s `log_file` check looks for the configured path itself (`.cleo/logs/cleo.log`), but the logger writes the dated `cleo.<yyyy-MM-dd>.<n>.log` files, so the check warns even when logs are written.
 
 ---
 
@@ -302,7 +303,7 @@ The missing logger initialization is tracked in T14605.
 - [ADR-019: Canonical Logging Architecture](../adr/adr-019-canonical-logging-architecture.md): original dual-write decision
 - [ADR-024: Multi-Store Canonical Logging Architecture](../adr/adr-024-multi-store-canonical-logging.md): extensions for CLI init, retention, correlation and memory
 - [ADR-086: CLI Output Contract](../adr/adr-086-cli-output-contract-e9.md): one envelope on stdout, logs on stderr
-- `packages/core/src/logger.ts`: Pino logger factory (`initLogger`, `getLogger`, `closeLogger`, `setLoggerQuiet`)
+- `packages/core/src/logger.ts`: Pino logger factory (`initLogger`, `startFileLogger`, `resolveLoggerConfig`, `rotateLogAtStartup`, `getLogger`, `closeLogger`, `setLoggerQuiet`)
 - `packages/core/src/observability/`: log-file discovery and reading
 - `packages/core/src/audit-prune.ts`: audit retention (`pruneAuditLog`, `autoPruneAuditLog`)
 - `packages/core/src/project-info.ts`: `projectHash`/`projectId` reader (`getProjectInfoSync`)
@@ -311,5 +312,5 @@ The missing logger initialization is tracked in T14605.
 - `packages/core/src/store/schema/cleo-project/audit.ts`: `tasks_audit_log` schema
 - `packages/cleo/src/dispatch/adapters/cli.ts`: CLI dispatcher and middleware chain
 - `packages/cleo/src/dispatch/middleware/audit.ts`: dual-write audit middleware (`createAudit`, `writeToSqlite`)
-- `packages/cleo/src/cli/logger-bootstrap.ts`: `initCliLogger`
-- `packages/cleo/src/cli/index.ts`: CLI entry point and startup maintenance
+- `packages/cleo/src/cli/index.ts`: CLI entry point, `startCliFileLogger` and startup maintenance
+
