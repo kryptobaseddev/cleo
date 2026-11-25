@@ -20,7 +20,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { lstatSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -287,6 +287,19 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
       LARGE_AC_NO_SCOPE,
       LEAF_TOO_MANY_FILES,
     ]);
+    // T14638: a successful spawn's session holds an agent-session lease for its
+    // life (T14133), and the default budget is max(1, cpus - 2) (T14283): ONE
+    // on a 3-vCPU macOS runner, so a test's second live spawn was refused with
+    // E_RESOURCE_DEFERRED there. Pin the budget so no test depends on the
+    // host's CPU count; no test here holds more than two leases at once.
+    const configPath = join(TEST_ROOT, '.cleo', 'config.json');
+    const existing = existsSync(configPath)
+      ? (JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>)
+      : {};
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...existing, resources: { agentSession: { maxSessions: 3 } } }),
+    );
     dashboardCalls.length = 0;
   });
 
@@ -416,13 +429,13 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
       undefined,
       true,
     );
-    expect(siblingSpawn.success).toBe(true);
+    expect(siblingSpawn.success, JSON.stringify(siblingSpawn.error)).toBe(true);
 
     // Route 1: narrow T9325 itself; it then spawns.
     expect(parseRoute(fix, 1).has('files')).toBe(true);
     await updateTask({ taskId: 'T9325', files: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }, TEST_ROOT);
     const narrowed = await orchestrateSpawn('T9325', undefined, TEST_ROOT, undefined, true);
-    expect(narrowed.success).toBe(true);
+    expect(narrowed.success, JSON.stringify(narrowed.error)).toBe(true);
   });
 
   it('T14633 — the convert-to-children route the refusal prints is accepted by add and spawns', async () => {
@@ -449,13 +462,13 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     );
     expect(child.autoDecomposed?.childId).toBeTruthy();
     const childSpawn = await orchestrateSpawn(child.task.id, undefined, TEST_ROOT, undefined, true);
-    expect(childSpawn.success).toBe(true);
+    expect(childSpawn.success, JSON.stringify(childSpawn.error)).toBe(true);
 
     // The child holding the moved criteria spawns once given its files.
     const movedId = child.autoDecomposed?.childId as string;
     await updateTask({ taskId: movedId, files: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }, TEST_ROOT);
     const movedSpawn = await orchestrateSpawn(movedId, undefined, TEST_ROOT, undefined, true);
-    expect(movedSpawn.success).toBe(true);
+    expect(movedSpawn.success, JSON.stringify(movedSpawn.error)).toBe(true);
   });
 
   it('T10430 — atomicityScope=orchestrator-defer waives E_ATOMICITY_NO_SCOPE for worker without files', async () => {
