@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.11.16] (2026-11-25)
+
+### Fixed
+
+- docs doctor publication-ledger-drift archives a gone row's only-held blob into its adopted doc's history, then prunes the row _(provenance: [T14632](https://github.com/kryptobaseddev/cleo/search?q=T14632&type=commits))_
+- cleo docs modernize keeps case-only renamed files on case-insensitive filesystems and moves a moved mirror's publication row _(provenance: [T14610](https://github.com/kryptobaseddev/cleo/search?q=T14610&type=commits))_
+- the stable release no longer halts the CLI wave on a transient tarball 404: the dependency gate waits up to 30 min with backoff and logs each attempt _(provenance: [T14615](https://github.com/kryptobaseddev/cleo/search?q=T14615&type=commits))_
+- Text acceptance now refuses a typed gate object instead of storing it as prose _(provenance: [T12292](https://github.com/kryptobaseddev/cleo/search?q=T12292&type=commits))_
+
 ## [2026.11.15] (2026-11-22)
 
 ### Fixed
