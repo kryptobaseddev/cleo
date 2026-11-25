@@ -594,6 +594,36 @@ describe('AC3: audit trail — publications ledger', () => {
     expect(await listPublications({ projectRoot: root })).toHaveLength(3);
   });
 
+  it('T14633: status shows the blob each ledger row published, not the doc head', async () => {
+    // One owner, one blob name, two mirror paths published at different blobs.
+    vi.mocked(blobOps.blobList).mockResolvedValue([blob('doc.md', 'sha-head', 2000)]);
+    await recordPublication({
+      ownerId: 'T_ROWS',
+      blobName: 'doc.md',
+      publishedPath: 'docs/old.md',
+      lastBlobSha: 'sha-old',
+      projectRoot: root,
+    });
+    await recordPublication({
+      ownerId: 'T_ROWS',
+      blobName: 'doc.md',
+      publishedPath: 'docs/head.md',
+      lastBlobSha: 'sha-head',
+      projectRoot: root,
+    });
+
+    const status = await statusDocs({ projectRoot: root });
+    const byPath = Object.fromEntries(
+      status.items
+        .filter((i) => i.ownerId === 'T_ROWS')
+        .map((i) => [i.publishedPath, { blobSha: i.blobSha, headBlobSha: i.headBlobSha }]),
+    );
+    expect(byPath).toEqual({
+      'docs/old.md': { blobSha: 'sha-old', headBlobSha: 'sha-head' },
+      'docs/head.md': { blobSha: 'sha-head', headBlobSha: 'sha-head' },
+    });
+  });
+
   it('readPublicationsLedger returns empty array when the store has no rows', async () => {
     // T13362: the ledger is the project store's `docs_publications` table —
     // a store with no rows (and no legacy JSON seed source) means "no
