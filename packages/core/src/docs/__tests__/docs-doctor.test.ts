@@ -1212,3 +1212,126 @@ describe('runDocsDoctor — scoped apply (--only, T14174)', () => {
     expect(conflict.error.code).toBe('E_DOCS_DOCTOR_FLAG_CONFLICT');
   });
 });
+
+describe('runDocsDoctor — archive-publication (T14632)', () => {
+  const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+  const OLD = '# ADR: renumbered doc\n\nbody\n';
+  const CURRENT = '# ADR-2: renumbered doc\n\nbody\n';
+
+  /**
+   * A renumbered doc: the (T9999, adr.md) blob stream was published as OLD to
+   * docs/ADR-1.md (now gone, tracked by no ref), then as CURRENT to
+   * docs/ADR-2.md (in sync). Only the gone row references OLD.
+   */
+  async function seedRenumbered(adopted: boolean): Promise<void> {
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: tempDir, stdio: 'ignore' });
+    execFileSync(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'seed'],
+      { cwd: tempDir, stdio: 'ignore' },
+    );
+    if (adopted) {
+      await seedSlug('adr-two', '# draft\n');
+      const { updateDocBySlug } = await import('../docs-update.js');
+      const updated = await updateDocBySlug(tempDir, { slug: 'adr-two', content: CURRENT });
+      expect(updated.ok).toBe(true);
+    } else {
+      await seedSlug('adr-two', CURRENT);
+    }
+    const { CleoBlobStore } = await import('../../store/llmtxt-blob-adapter.js');
+    const blobs = new CleoBlobStore({ projectRoot: tempDir });
+    await blobs.open();
+    try {
+      await blobs.attach('T9999', 'adr.md', new TextEncoder().encode(OLD), 'text/markdown');
+      await blobs.attach('T9999', 'adr.md', new TextEncoder().encode(CURRENT), 'text/markdown');
+    } finally {
+      await blobs.close();
+    }
+    mkdirSync(join(tempDir, 'docs'), { recursive: true });
+    writeFileSync(join(tempDir, 'docs', 'ADR-2.md'), CURRENT);
+    const { upsertDocsPublication } = await import('../publications-store.js');
+    const row = { ownerId: 'T9999', blobName: 'adr.md' };
+    await upsertDocsPublication(tempDir, {
+      ...row,
+      publishedPath: 'docs/ADR-1.md',
+      lastBlobSha: sha(OLD),
+    });
+    await upsertDocsPublication(tempDir, {
+      ...row,
+      publishedPath: 'docs/ADR-2.md',
+      lastBlobSha: sha(CURRENT),
+    });
+  }
+
+  async function ledgerPaths(): Promise<string[]> {
+    const { readDocsPublications } = await import('../publications-store.js');
+    return (await readDocsPublications(tempDir)).map((r) => r.publishedPath).sort();
+  }
+
+  function ledgerPlans(report: { repairs: ReadonlyArray<{ kind: string; action: string }> }) {
+    return report.repairs.filter((r) => r.kind === 'publication-ledger-drift');
+  }
+
+  it('archives an adopted doc’s only-held blob as a prior version, then prunes the row; GC keeps the blob', async () => {
+    await seedRenumbered(true);
+    const only = ['publication-ledger-drift'];
+
+    const archived = await doctor({ apply: true, receipt: makeReceipt(), only });
+    expect(archived.ok).toBe(true);
+    if (!archived.ok) return;
+    expect(ledgerPlans(archived.report)).toMatchObject([
+      { action: 'archive-publication', applied: true },
+    ]);
+    expect(await ledgerPaths()).toEqual(['docs/ADR-1.md', 'docs/ADR-2.md']);
+    const { listDocVersions } = await import('../docs-ops.js');
+    const versions = await listDocVersions({ ownerId: 'adr-two', projectRoot: tempDir });
+    expect(versions.versions.map((v) => v.sha256)).toContain(sha(OLD));
+    const { resolveDocRef } = await import('../slug-rename.js');
+    expect((await resolveDocRef(tempDir, 'adr-two', { quiet: true }))?.sha256).toBe(sha(CURRENT));
+
+    const planned = await doctor({ only });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect(ledgerPlans(planned.report).map((r) => r.action)).toEqual(['prune-publication']);
+
+    const pruned = await doctor({ apply: true, receipt: makeReceipt(), only });
+    expect(pruned.ok).toBe(true);
+    if (!pruned.ok) return;
+    expect(await ledgerPaths()).toEqual(['docs/ADR-2.md']);
+
+    // Blob GC: put OLD's bytes where the sweep looks; no ledger row names them
+    // any more, so only the archived conduit version can keep them.
+    const { blobFilePath, readVerifiedBlobBytes } = await import('../../store/blob-keep.js');
+    const cleoDir = join(tempDir, '.cleo');
+    const swept = blobFilePath(cleoDir, sha(OLD), 'text/markdown');
+    mkdirSync(dirname(swept), { recursive: true });
+    writeFileSync(swept, OLD);
+    const { repairAttachmentStore } = await import('../../store/attachment-repair.js');
+    const gc = await repairAttachmentStore({ cwd: tempDir, gracePeriodMs: 0 });
+    expect(gc.actions.filter((a) => a.sha256 === sha(OLD)).map((a) => a.kind)).toEqual([
+      'skip-referenced-blob',
+    ]);
+    expect(existsSync(swept)).toBe(true);
+    expect(readVerifiedBlobBytes(cleoDir, sha(OLD))?.toString('utf-8')).toBe(OLD);
+  });
+
+  it('refuses an unadopted doc with no store change and names the migrate step', async () => {
+    await seedRenumbered(false);
+    const result = await doctor({
+      apply: true,
+      receipt: makeReceipt(),
+      only: ['publication-ledger-drift'],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [plan] = ledgerPlans(result.report);
+    expect(plan).toMatchObject({ action: 'republish-or-prune', applied: false });
+    expect(plan?.detail).toContain('cleo docs migrate');
+    expect(await ledgerPaths()).toEqual(['docs/ADR-1.md', 'docs/ADR-2.md']);
+    const { listConduitHistorySha256Set } = await import('../../store/conduit-doc-history.js');
+    expect((await listConduitHistorySha256Set(tempDir)).has(sha(OLD))).toBe(false);
+    expect(existsSync(join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'))).toBe(
+      false,
+    );
+  });
+});
