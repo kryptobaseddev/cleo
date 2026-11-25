@@ -314,7 +314,6 @@ async function startCli(): Promise<void> {
     // process, before anything logs. Without it every `getLogger()` returns
     // the stderr warn fallback and info/debug lines are dropped. Started
     // before `--quiet` below so quiet mode still silences it (T9933).
-    const { startCliFileLogger } = await import('./logger-bootstrap.js');
     await startCliFileLogger();
     // T9933 — propagate --quiet to the logger subsystem BEFORE startup
     // maintenance so the pino fallback logger emits at level=silent instead
@@ -745,6 +744,38 @@ async function runMainWithLafsEnvelope(
  * `cleo show`, `cleo next`, and all memory commands no longer pay the cost
  * of opening two additional SQLite databases they never use.
  */
+/**
+ * Start the pino file logger (`.cleo/<logging.filePath>`, default
+ * `.cleo/logs/cleo.log`) for this process (T14605). Outside a project (no
+ * resolvable root or no `.cleo/` directory) nothing starts and `getLogger()`
+ * keeps its stderr warn fallback. Every module it loads is already on the
+ * command path (gate 39). Never throws: logging must not fail a command.
+ */
+async function startCliFileLogger(): Promise<void> {
+  try {
+    const [
+      { startFileLogger },
+      { getProjectRoot },
+      { getCleoDirAbsolute },
+      { getProjectInfoSync },
+    ] = await Promise.all([
+      import('@cleocode/core/logger'),
+      import('@cleocode/core/project-scope'),
+      import('@cleocode/core/paths.js'),
+      import('@cleocode/core/project-info'),
+    ]);
+    const projectRoot = getProjectRoot();
+    const cleoDir = getCleoDirAbsolute(projectRoot);
+    if (!existsSync(cleoDir)) return;
+    startFileLogger(cleoDir, getProjectInfoSync(projectRoot)?.projectHash);
+  } catch (error) {
+    if (process.env['CLEO_DEBUG'])
+      process.stderr.write(
+        `[cleo][debug] File logger not started: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+  }
+}
+
 /** Commands that start the lazy merge sweep (T14101): the ones agents already run. */
 const MERGE_SWEEP_COMMANDS = new Set(['briefing', 'next', 'current', 'show', 'release']);
 

@@ -9,9 +9,10 @@
  * CLI output. Fallback stderr logger if not yet initialized.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { LoggerConfig } from '@cleocode/contracts';
+import type { LoggerConfig, LoggingConfig } from '@cleocode/contracts';
+import { getCleoHome } from '@cleocode/paths';
 import pino from 'pino';
 
 // T9766 — `LoggerConfig` lives in `@cleocode/contracts`. Re-export here so
@@ -157,6 +158,88 @@ export function initLogger(
   }
 
   return rootLogger;
+}
+
+/**
+ * Default pino logging settings. `config.ts` builds `DEFAULTS.logging` from
+ * these, so the CLI file logger and `loadConfig()` agree.
+ */
+export const LOGGER_CONFIG_DEFAULTS: Readonly<
+  Pick<LoggingConfig, 'level' | 'filePath' | 'maxFileSize' | 'maxFiles'>
+> = {
+  level: 'info',
+  filePath: 'logs/cleo.log',
+  maxFileSize: 10 * 1024 * 1024, // 10MB
+  maxFiles: 5,
+};
+
+/** Narrow an unknown JSON value to a plain object, else `{}`. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** The well-typed logger fields of one config section. */
+function pickLoggerFields(section: Record<string, unknown>): Partial<LoggerConfig> {
+  const picked: Partial<LoggerConfig> = {};
+  if (typeof section.level === 'string') picked.level = section.level;
+  if (typeof section.filePath === 'string') picked.filePath = section.filePath;
+  if (typeof section.maxFileSize === 'number') picked.maxFileSize = section.maxFileSize;
+  if (typeof section.maxFiles === 'number') picked.maxFiles = section.maxFiles;
+  return picked;
+}
+
+/** Parse a config.json file; a missing or malformed file reads as `{}`. */
+function readConfigFile(path: string): Record<string, unknown> {
+  try {
+    return asRecord(JSON.parse(readFileSync(path, 'utf-8')));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Resolve the logger settings the way `loadConfig()` resolves `logging`:
+ * defaults, then the global `config.json`, then the project's (its legacy
+ * `pinoLogging` section first, `logging` over it), then `CLEO_LOG_LEVEL` and
+ * `CLEO_LOG_FILE`. Reads only the two JSON files, so CLI startup pays no
+ * extra modules for it (T14605).
+ *
+ * @param cleoDir - Absolute path to the project's `.cleo` directory.
+ * @returns The merged logger configuration.
+ */
+export function resolveLoggerConfig(cleoDir: string): LoggerConfig {
+  const globalConfig = readConfigFile(join(getCleoHome(), 'config.json'));
+  const projectConfig = readConfigFile(join(cleoDir, 'config.json'));
+  const config: LoggerConfig = {
+    ...LOGGER_CONFIG_DEFAULTS,
+    ...pickLoggerFields(asRecord(globalConfig.logging)),
+    ...pickLoggerFields(asRecord(projectConfig.pinoLogging)),
+    ...pickLoggerFields(asRecord(projectConfig.logging)),
+  };
+  const envLevel = process.env['CLEO_LOG_LEVEL'];
+  if (envLevel) config.level = envLevel;
+  const envFile = process.env['CLEO_LOG_FILE'];
+  if (envFile) config.filePath = envFile;
+  return config;
+}
+
+/**
+ * Start the file logger for a CLI process unless one is already running
+ * (T14605). Reads the settings with {@link resolveLoggerConfig} and calls
+ * {@link initLogger}; until this runs, {@link getLogger} returns the stderr
+ * warn fallback and info/debug lines are dropped.
+ *
+ * @param cleoDir     - Absolute path to the project's `.cleo` directory.
+ * @param projectHash - Project identity bound to every entry, when known.
+ * @returns `true` when this call started the logger, `false` when one was
+ *   already running.
+ */
+export function startFileLogger(cleoDir: string, projectHash?: string): boolean {
+  if (rootLogger) return false;
+  initLogger(cleoDir, resolveLoggerConfig(cleoDir), projectHash);
+  return true;
 }
 
 /**
