@@ -19,7 +19,6 @@ import { CleoError } from './errors.js';
 // chain and hit a temporal-dead-zone ReferenceError. See llm/fallback-model.ts.
 import { IMPLICIT_FALLBACK_MODEL } from './llm/fallback-model.js';
 import { GLOBAL_CONFIG_FILE_MODE } from './llm/global-config-migration.js';
-import { LOGGER_CONFIG_DEFAULTS } from './logger.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
 import { atomicWriteJson } from './store/atomic.js';
 import { readJson, saveJson } from './store/json.js';
@@ -70,7 +69,10 @@ const DEFAULTS: CleoConfig = {
     mode: 'strict',
   },
   logging: {
-    ...LOGGER_CONFIG_DEFAULTS,
+    level: 'info',
+    filePath: 'logs/cleo.log',
+    maxFileSize: 10 * 1024 * 1024, // 10MB
+    maxFiles: 5,
     auditRetentionDays: 90,
     archiveBeforePrune: true,
   },

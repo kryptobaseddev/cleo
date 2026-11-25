@@ -161,8 +161,9 @@ export function initLogger(
 }
 
 /**
- * Default pino logging settings. `config.ts` builds `DEFAULTS.logging` from
- * these, so the CLI file logger and `loadConfig()` agree.
+ * Default pino logging settings. They equal the logger fields of
+ * `DEFAULTS.logging` in `config.ts` (pinned by `logger.test.ts`); config.ts
+ * does not import them because many tests mock this module.
  */
 export const LOGGER_CONFIG_DEFAULTS: Readonly<
   Pick<LoggingConfig, 'level' | 'filePath' | 'maxFileSize' | 'maxFiles'>

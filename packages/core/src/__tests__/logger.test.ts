@@ -8,6 +8,7 @@ import {
   getLogDir,
   getLogger,
   initLogger,
+  LOGGER_CONFIG_DEFAULTS,
   resolveLoggerConfig,
   startFileLogger,
 } from '../logger.js';
@@ -124,8 +125,8 @@ describe('startFileLogger (T14605)', () => {
     await mkdir(join(cleoDir, 'logs'), { recursive: true });
     // Isolate from the machine's global config and any CLEO_LOG_* override.
     vi.stubEnv('CLEO_HOME', join(tempDir, 'home'));
-    vi.stubEnv('CLEO_LOG_LEVEL', '');
-    vi.stubEnv('CLEO_LOG_FILE', '');
+    vi.stubEnv('CLEO_LOG_LEVEL', undefined);
+    vi.stubEnv('CLEO_LOG_FILE', undefined);
   }
 
   afterEach(async () => {
@@ -147,6 +148,14 @@ describe('startFileLogger (T14605)', () => {
     });
     expect(readCleoLogs()).toContain('"level":"INFO"');
     expect(readCleoLogs()).toContain('"projectHash":"hash-t14605"');
+  });
+
+  it('defaults equal the logger fields loadConfig() resolves', async () => {
+    await setup();
+    const { loadConfig } = await import('../config.js');
+    const { level, filePath, maxFileSize, maxFiles } = (await loadConfig(tempDir)).logging;
+    expect({ level, filePath, maxFileSize, maxFiles }).toEqual(LOGGER_CONFIG_DEFAULTS);
+    expect(resolveLoggerConfig(cleoDir)).toEqual(LOGGER_CONFIG_DEFAULTS);
   });
 
   it('resolves defaults, project config and env overrides', async () => {
