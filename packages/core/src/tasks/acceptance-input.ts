@@ -11,12 +11,16 @@ import { CleoError } from '../errors.js';
  * @remarks
  * Absent input remains undefined. String entries are trimmed and blank strings
  * are dropped; an explicitly empty result remains [] so update can clear it.
- * Entries stay literal, including pipes and quoted unions. Nonstring entries
- * reject the entire input before any task mutation.
+ * Entries stay literal, including pipes and quoted unions. Nonstring entries,
+ * and string entries that are a typed gate's JSON object (a JSON object with a
+ * string `kind`), reject the entire input before any task mutation: text
+ * acceptance cannot carry gate meaning, so storing the gate as prose would drop
+ * it silently. The refusal's fix names `cleo req add` (T12292).
  *
  * @param acceptance - Optional array of literal string criteria supplied by the caller.
  * @returns Trimmed nonblank criteria, including an explicit empty array; undefined for absent input.
- * @throws CleoError when the input is not an array or includes a nonstring entry.
+ * @throws CleoError when the input is not an array, includes a nonstring entry,
+ *   or includes a typed gate's JSON object as text.
  * @example
  * ```typescript
  * const criteria = [' literal a|b ', '', ' verify output '];
@@ -41,12 +45,46 @@ export function normalizeAcceptance(
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Acceptance criterion ${index + 1} must be a string`,
+        { fix: TYPED_GATE_FIX },
       );
     }
     const text = criterion.trim();
+    if (isTypedGateJson(text)) {
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Acceptance criterion ${index + 1} is a typed gate object; text acceptance cannot store gate meaning`,
+        { fix: TYPED_GATE_FIX },
+      );
+    }
     if (text) normalized.push(text);
   }
   return normalized;
+}
+
+/** Fix shown when text acceptance receives a typed gate or a nonstring entry. */
+const TYPED_GATE_FIX =
+  "Pass each acceptance criterion as text; add a typed gate with: cleo req add <taskId> --gate '<gate-json>'";
+
+/**
+ * True when `text` is a whole JSON object with a string `kind` — the shape of
+ * an `AcceptanceGate`. Prose that merely contains braces is not valid JSON and
+ * stays a literal criterion.
+ *
+ * @internal
+ */
+function isTypedGateJson(text: string): boolean {
+  if (!text.startsWith('{') || !text.endsWith('}')) return false;
+  try {
+    const parsed: object | null = JSON.parse(text);
+    return (
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      'kind' in parsed &&
+      typeof parsed.kind === 'string'
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -230,7 +268,8 @@ function splitAcceptance(input: string, delim = '|'): string[] {
  *
  * @param raw - Raw string from `--acceptance` flag
  * @returns Array of trimmed, non-empty acceptance criteria strings
- * @throws CleoError for malformed explicit JSON arrays or nonstring JSON elements.
+ * @throws CleoError for malformed explicit JSON arrays, nonstring JSON elements, or a
+ *   typed gate's JSON object passed as text (fix: `cleo req add`).
  * @example
  * ```typescript
  * parseAcceptanceCriteria('first|ENUM (hot|cold)|third');
