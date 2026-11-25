@@ -679,6 +679,8 @@ export async function composeSpawnPayload(
           typeof item === 'string' ? item : (item.description ?? ''),
         ),
         declaredFiles: task.files,
+        parentId: task.parentId,
+        taskType: task.type,
         scope: options.scope,
       });
 

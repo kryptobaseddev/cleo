@@ -20,7 +20,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { lstatSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -236,6 +236,35 @@ const LARGE_AC_NO_SCOPE: SeededTask = {
   updatedAt: null,
 };
 
+/** T14633: a leaf task with its own text ACs and an over-large file scope. */
+const LEAF_TOO_MANY_FILES: SeededTask = {
+  id: 'T9325',
+  title: 'T14633 leaf worker with too many files',
+  description: 'Leaf worker task with text ACs and five declared source files',
+  status: 'pending',
+  priority: 'medium',
+  parentId: 'T9320',
+  acceptance: ['AC1: first holds', 'AC2: second holds', 'AC3: third holds'],
+  files: ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts'],
+  createdAt: '2026-04-17T00:00:00Z',
+  updatedAt: null,
+};
+
+/**
+ * Parse one numbered route of an `E_ATOMICITY_VIOLATION` fix into the flags it
+ * names, so the T14633 tests follow the printed command rather than a copy.
+ */
+function parseRoute(fix: string, route: number): Map<string, string | true> {
+  const line = fix.split('\n').find((l) => l.startsWith(`${route}. `));
+  if (!line) throw new Error(`fix has no route ${route}: ${fix}`);
+  const command = line.slice(line.indexOf('cleo '));
+  const flags = new Map<string, string | true>();
+  for (const m of command.matchAll(/--([a-z-]+)(?: (?!--)("[^"]*"|\S+))?/g)) {
+    flags.set(m[1] as string, m[2] ? m[2].replace(/^"|"$/g, '') : true);
+  }
+  return flags;
+}
+
 // Each scenario owns its seeded task store and explicitly selected project.
 beforeEach(() => {
   vi.stubEnv('CLEO_ROOT', undefined);
@@ -256,7 +285,21 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
       READY_WORKER_NO_SCOPE,
       EPIC_NO_FILES,
       LARGE_AC_NO_SCOPE,
+      LEAF_TOO_MANY_FILES,
     ]);
+    // T14638: a successful spawn's session holds an agent-session lease for its
+    // life (T14133), and the default budget is max(1, cpus - 2) (T14283): ONE
+    // on a 3-vCPU macOS runner, so a test's second live spawn was refused with
+    // E_RESOURCE_DEFERRED there. Pin the budget so no test depends on the
+    // host's CPU count; no test here holds more than two leases at once.
+    const configPath = join(TEST_ROOT, '.cleo', 'config.json');
+    const existing = existsSync(configPath)
+      ? (JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>)
+      : {};
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...existing, resources: { agentSession: { maxSessions: 3 } } }),
+    );
     dashboardCalls.length = 0;
   });
 
@@ -354,6 +397,78 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect((await acc.loadSingleTask('T9322'))?.claim).toBeUndefined();
     const sessions = await acc.loadSessions();
     expect(sessions.filter((x) => x.agentHandle === 'agent-t9322')).toHaveLength(0);
+  });
+
+  it('T14633 — the narrow and sibling routes the refusal prints lead to successful spawns', async () => {
+    const refused = await orchestrateSpawn('T9325', undefined, TEST_ROOT, undefined, true);
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('E_ATOMICITY_VIOLATION');
+    const fix = refused.error?.fix as string;
+    expect(refused.error?.message).toContain('Rule:');
+
+    const { addTask, updateTask } = await import('@cleocode/core');
+    // Route 2: a sibling under the parent epic, related back to T9325.
+    const sibling = parseRoute(fix, 2);
+    expect(sibling.get('parent')).toBe('T9320');
+    expect(sibling.get('relates')).toBe('T9325');
+    const added = await addTask(
+      {
+        title: 'T14633 sibling owning the remaining files',
+        description: 'Sibling filed through the printed route',
+        parentId: sibling.get('parent') as string,
+        relates: [{ taskId: sibling.get('relates') as string, type: 'related' }],
+        files: ['src/d.ts', 'src/e.ts'],
+        acceptance: ['AC1: one holds', 'AC2: two holds', 'AC3: three holds'],
+      },
+      TEST_ROOT,
+    );
+    const siblingSpawn = await orchestrateSpawn(
+      added.task.id,
+      undefined,
+      TEST_ROOT,
+      undefined,
+      true,
+    );
+    expect(siblingSpawn.success, JSON.stringify(siblingSpawn.error)).toBe(true);
+
+    // Route 1: narrow T9325 itself; it then spawns.
+    expect(parseRoute(fix, 1).has('files')).toBe(true);
+    await updateTask({ taskId: 'T9325', files: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }, TEST_ROOT);
+    const narrowed = await orchestrateSpawn('T9325', undefined, TEST_ROOT, undefined, true);
+    expect(narrowed.success, JSON.stringify(narrowed.error)).toBe(true);
+  });
+
+  it('T14633 — the convert-to-children route the refusal prints is accepted by add and spawns', async () => {
+    const refused = await orchestrateSpawn('T9325', undefined, TEST_ROOT, undefined, true);
+    expect(refused.error?.code).toBe('E_ATOMICITY_VIOLATION');
+    const route = parseRoute(refused.error?.fix as string, 3);
+    expect(route.get('parent')).toBe('T9325');
+    expect(route.get('auto-decompose')).toBe(true);
+
+    // Without --auto-decompose this add is refused (design-point 3); with it,
+    // T9325's text ACs move to a new first child and the add succeeds.
+    const { addTask, updateTask } = await import('@cleocode/core');
+    const child = await addTask(
+      {
+        title: 'T14633 child owning three files',
+        description: 'Child filed through the printed route',
+        parentId: route.get('parent') as string,
+        type: 'subtask',
+        autoDecompose: true,
+        files: ['src/d.ts', 'src/e.ts'],
+        acceptance: ['AC1: one holds', 'AC2: two holds', 'AC3: three holds'],
+      },
+      TEST_ROOT,
+    );
+    expect(child.autoDecomposed?.childId).toBeTruthy();
+    const childSpawn = await orchestrateSpawn(child.task.id, undefined, TEST_ROOT, undefined, true);
+    expect(childSpawn.success, JSON.stringify(childSpawn.error)).toBe(true);
+
+    // The child holding the moved criteria spawns once given its files.
+    const movedId = child.autoDecomposed?.childId as string;
+    await updateTask({ taskId: movedId, files: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }, TEST_ROOT);
+    const movedSpawn = await orchestrateSpawn(movedId, undefined, TEST_ROOT, undefined, true);
+    expect(movedSpawn.success, JSON.stringify(movedSpawn.error)).toBe(true);
   });
 
   it('T10430 — atomicityScope=orchestrator-defer waives E_ATOMICITY_NO_SCOPE for worker without files', async () => {

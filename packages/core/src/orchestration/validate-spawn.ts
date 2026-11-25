@@ -18,7 +18,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { installSchemaWriteGuard } from '../store/worktree-build-guard.js';
 import { getReadinessDependencyBlockers } from '../tasks/dependency-check.js';
-import { MAX_WORKER_FILES } from './atomicity.js';
+import { ATOMIC_SCOPE_RULE, countScopedFiles, MAX_WORKER_FILES } from './atomicity.js';
 import { CLASSIFY_CONFIDENCE_FLOOR, CLASSIFY_FALLBACK_AGENT_ID, classifyTask } from './classify.js';
 
 // ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ export interface SpawnValidationContext {
    *
    * When `'worker'` (tier 0), the validator enforces:
    *  - `files` field is present and non-empty → `V_ATOMIC_SCOPE_MISSING`
-   *  - `files` count ≤ {@link MAX_WORKER_FILES} → `V_ATOMIC_SCOPE_TOO_LARGE`
+   *  - counted `files` ≤ {@link MAX_WORKER_FILES} (accompanying tests excluded) → `V_ATOMIC_SCOPE_TOO_LARGE`
    *
    * Orchestrator and lead roles bypass the file-scope gate — they are
    * permitted inherently broader scope. Epic-type tasks are also exempt
@@ -214,14 +214,15 @@ export async function validateSpawnReadiness(
           `Fix: cleo update ${taskId} --files "path/a.ts,path/b.ts"`,
         severity: 'error',
       });
-    } else if (files.length > MAX_WORKER_FILES) {
-      // Worker role with too many files — split or promote to lead.
-      const splitCount = Math.ceil(files.length / MAX_WORKER_FILES);
+    } else if (countScopedFiles(files) > MAX_WORKER_FILES) {
+      // Worker role with too many counted files — the same rule as
+      // checkAtomicity (T14633); the spawn refusal names the routes out.
       issues.push({
         code: 'V_ATOMIC_SCOPE_TOO_LARGE',
         message:
-          `Worker-role task ${taskId} declares ${files.length} files (max ${MAX_WORKER_FILES}). ` +
-          `Split into ~${splitCount} subtasks or promote role to 'lead'.`,
+          `Worker-role task ${taskId} declares ${files.length} files, ${countScopedFiles(files)} ` +
+          `of which count (max ${MAX_WORKER_FILES}). Rule: ${ATOMIC_SCOPE_RULE} ` +
+          `Narrow it with cleo update ${taskId} --files, or file sibling tasks under its parent.`,
         severity: 'error',
       });
     }

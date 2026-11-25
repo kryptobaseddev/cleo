@@ -1050,6 +1050,37 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     expect(existsSync(PRUNE_AUDIT())).toBe(false);
   });
 
+  it('holds a gone row whose own blob is held when the manifest head has no survivor (T14633)', async () => {
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(tempDir, 'README.md'), 'seed\n');
+    git('add', 'README.md');
+    git('commit', '-q', '-m', 'seed');
+    // The row's own blob is held by an attachments row; the doc's manifest
+    // head moved to a blob nothing else references.
+    await seedSlug('published-doc', '# published\n');
+    await publish('removed.md', 'docs/removed.md', sha('# published\n'));
+    const { CleoBlobStore } = await import('../../store/llmtxt-blob-adapter.js');
+    const blobs = new CleoBlobStore({ projectRoot: tempDir });
+    await blobs.open();
+    try {
+      await blobs.attach(
+        'T9999',
+        'removed.md',
+        new TextEncoder().encode('# unheld head\n'),
+        'text/markdown',
+      );
+    } finally {
+      await blobs.close();
+    }
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerPaths()).toEqual(['docs/removed.md']);
+    expect(existsSync(PRUNE_AUDIT())).toBe(false);
+    const plan = result.report.repairs.find((r) => r.kind === 'publication-ledger-drift');
+    expect(plan?.action).not.toBe('prune-publication');
+  });
+
   it('two prune candidates sharing their only blob never protect each other (T14504)', async () => {
     const orphan = sha('only the ledger knows me\n');
     // Heads resolve, so both stale rows are real prune candidates.
