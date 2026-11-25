@@ -173,27 +173,37 @@ describe('checkAtomicity — worker role', () => {
     expect(result.fixHint).not.toContain('--auto-decompose');
   });
 
-  it('T14633 — test files beside a source file do not count; a tests-only scope counts them', () => {
+  it('T14633 — a test file paired with a declared source does not count; an orphan test counts', () => {
     expect(isAtomicScopeTestFile('packages/core/src/a.test.ts')).toBe(true);
     expect(isAtomicScopeTestFile('packages/core/src/a.spec.tsx')).toBe(true);
     expect(isAtomicScopeTestFile('packages/core/src/__tests__/helper.ts')).toBe(true);
     expect(isAtomicScopeTestFile('packages/core/src/attest.ts')).toBe(false);
 
-    // One source file with three tests: one counted file, allowed.
-    const oneSourceThreeTests = [
+    // One source file with three tests paired by stem: one counted file, allowed.
+    const paired = [
       'packages/core/src/a.ts',
+      'packages/core/src/a.test.ts',
       'packages/core/src/__tests__/a.test.ts',
-      'packages/core/src/__tests__/a-edge.test.ts',
-      'packages/core/src/__tests__/a-int.test.ts',
+      'packages/core/src/__tests__/a.spec.ts',
     ];
-    expect(countScopedFiles(oneSourceThreeTests)).toBe(1);
-    const allowed = checkAtomicity({
-      taskId: 'T310',
-      role: 'worker',
-      declaredFiles: oneSourceThreeTests,
-    });
+    expect(countScopedFiles(paired)).toBe(1);
+    const allowed = checkAtomicity({ taskId: 'T310', role: 'worker', declaredFiles: paired });
     expect(allowed.allowed).toBe(true);
     expect(allowed.meta).toEqual({ fileCount: 4, countedFileCount: 1, hasScope: true });
+
+    // Three sources plus tests that pair with none of them: every orphan counts.
+    const orphans = ['a.ts', 'b.ts', 'c.ts', 'x.test.ts', 'y.test.ts', 'z.test.ts', 'w.test.ts'];
+    expect(countScopedFiles(orphans)).toBe(7);
+    const refusedOrphans = checkAtomicity({
+      taskId: 'T312',
+      role: 'worker',
+      declaredFiles: orphans,
+    });
+    expect(refusedOrphans.allowed).toBe(false);
+    expect(refusedOrphans.message).toContain('7 of which count');
+
+    // A mix: a.test.ts pairs with a.ts, x.test.ts is an orphan.
+    expect(countScopedFiles(['src/a.ts', 'src/__tests__/a.test.ts', 'src/x.test.ts'])).toBe(2);
 
     // Four test files and no source file: all four count, refused, rule stated.
     const testsOnly = ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts'];

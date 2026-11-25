@@ -172,7 +172,7 @@ export const ADR_070_INVARIANTS: readonly RegisteredInvariant[] = Object.freeze(
     code: 'ORC-006',
     name: 'Worker scope ≤ 3 files per spawn',
     description:
-      'Cross-file reasoning quality degrades beyond ~3 files for a single Worker. Enforced at spawn-time by validateSpawnReadiness — V_ATOMIC_SCOPE_MISSING when task.files is empty, V_ATOMIC_SCOPE_TOO_LARGE when the counted files exceed MAX_WORKER_FILES (currently 3); test files that accompany a declared source file do not count (T14633). Spawn-prompt builder injects a Worker Budget Constraints section so the Worker sees the budget inline. Tier: error because the gate refuses to spawn an over-scoped Worker.',
+      'Cross-file reasoning quality degrades beyond ~3 files for a single Worker. Enforced at spawn-time by validateSpawnReadiness — V_ATOMIC_SCOPE_MISSING when task.files is empty, V_ATOMIC_SCOPE_TOO_LARGE when the counted files exceed MAX_WORKER_FILES (currently 3); a test file that pairs with a declared source file by name stem does not count; unpaired tests count (T14633). Spawn-prompt builder injects a Worker Budget Constraints section so the Worker sees the budget inline. Tier: error because the gate refuses to spawn an over-scoped Worker.',
     severity: 'error',
     runtimeGate: {
       module: VALIDATE_SPAWN_MODULE,

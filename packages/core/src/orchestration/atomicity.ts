@@ -33,9 +33,10 @@ export const MAX_WORKER_FILES = 3;
  * @task T14633
  */
 export const ATOMIC_SCOPE_RULE =
-  `A worker task may declare at most ${MAX_WORKER_FILES} source files; test files ` +
-  '(`*.test.*`, `*.spec.*`, or under `__tests__/`) that accompany a declared source file ' +
-  'do not count, and a scope of test files only counts every test file.';
+  `A worker task may declare at most ${MAX_WORKER_FILES} counted files. A test file ` +
+  '(`*.test.*`, `*.spec.*`, or under `__tests__/`) that pairs with a declared source file ' +
+  'by name stem (`foo.ts` with `foo.test.ts` or `__tests__/foo.test.ts`) does not count; ' +
+  'every source file and every unpaired test file counts.';
 
 /**
  * Whether a declared path is a test file under {@link ATOMIC_SCOPE_RULE}.
@@ -51,19 +52,35 @@ export function isAtomicScopeTestFile(path: string): boolean {
 }
 
 /**
+ * The name stem a file pairs on: the basename without its extension, and for a
+ * test file also without its `.test`/`.spec` suffix (`a/foo.test.ts` → `foo`).
+ */
+function scopeStem(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  const base = normalized.slice(normalized.lastIndexOf('/') + 1);
+  const dot = base.lastIndexOf('.');
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  return stem.replace(/\.(test|spec)$/, '');
+}
+
+/**
  * Count the files of a worker scope that count toward {@link MAX_WORKER_FILES}.
  *
- * Applies {@link ATOMIC_SCOPE_RULE}: when the scope declares at least one
- * source file, only source files count; a scope of test files only counts all
- * of them.
+ * Applies {@link ATOMIC_SCOPE_RULE}: every source file counts, and a test file
+ * counts unless its name stem matches a declared source file's (so a scope of
+ * test files only, or an orphan test, counts in full).
  *
  * @param files - The declared files.
  * @returns The counted-file total.
  * @task T14633
  */
 export function countScopedFiles(files: readonly string[]): number {
-  const sourceCount = files.filter((file) => !isAtomicScopeTestFile(file)).length;
-  return sourceCount > 0 ? sourceCount : files.length;
+  const sources = files.filter((file) => !isAtomicScopeTestFile(file));
+  const sourceStems = new Set(sources.map(scopeStem));
+  const unpairedTests = files.filter(
+    (file) => isAtomicScopeTestFile(file) && !sourceStems.has(scopeStem(file)),
+  );
+  return sources.length + unpairedTests.length;
 }
 
 /**

@@ -964,7 +964,9 @@ async function scanPublicationLedger(
     const absPath = resolvePublishedMirror(projectRoot, checkoutRoot, record.publishedPath);
     const rel = relative(checkoutRoot, absPath);
     const outsideRoot = rel.startsWith('..') || isAbsolute(rel);
-    const shas = new Set([record.lastBlobSha, item.blobSha]);
+    // The row's own blob AND the manifest head: a prune or archive stays held
+    // until a survivor holds both (T14504; T14633 split them in status).
+    const shas = new Set([record.lastBlobSha, item.headBlobSha]);
     const blob = record.lastBlobSha.slice(0, 12);
     if (item.drift === 'modified') {
       if (await isSuperseded(record)) {
