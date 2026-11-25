@@ -31,7 +31,11 @@ const {
   mockResolveCredentials,
   mockExecuteForRole,
 } = vi.hoisted(() => ({
-  mockGetBrainDb: vi.fn().mockResolvedValue({}),
+  // Drizzle handle: the merge step records its supersedes edge through
+  // insert(...).values(...).onConflictDoUpdate(...).run() (T14639).
+  mockGetBrainDb: vi.fn().mockResolvedValue({
+    insert: () => ({ values: () => ({ onConflictDoUpdate: () => ({ run: () => undefined }) }) }),
+  }),
   mockGetBrainNativeDb: vi.fn(),
   mockStoreLearning: vi.fn().mockResolvedValue({ id: 'L-test-001' }),
   mockStorePattern: vi.fn().mockResolvedValue({ id: 'P-test-001' }),
