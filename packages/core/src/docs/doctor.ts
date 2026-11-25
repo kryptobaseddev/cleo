@@ -83,6 +83,17 @@
  *                             and unprotected `deleted` rows get a plan-only
  *                             entry (republish, or ingest the edit) — the
  *                             doctor never picks which side of a drift wins.
+ *                             Conduit doc history protects a blob as blob GC
+ *                             does. Repair (`archive-publication`, T14632): a
+ *                             provably gone row that is the only reference to
+ *                             its blob, whose (ownerId, blobName) stream another
+ *                             row publishes in sync for an ADOPTED doc, has its
+ *                             hash-verified bytes imported as a prior conduit
+ *                             version of that doc (origin
+ *                             {@link DOCS_DOCTOR_ARCHIVE_ORIGIN}, created at the
+ *                             row's `publishedAt`, head untouched); the next run
+ *                             then prunes the row. An unadopted doc keeps
+ *                             `republish-or-prune` and names `cleo docs migrate`.
  *
  * SAFETY: `apply: true` (or `repair: true`) REFUSES to run without a backup receipt
  * ({@link DocsDoctorOptions.backupReceiptPath}) whose mtime is at most
@@ -120,9 +131,16 @@ import { createAttachmentStore } from '../store/attachment-store.js';
 import {
   backfillBlobStoreBytes,
   blobContentExists,
+  readVerifiedBlobBytes,
   resolveLegacyByteSource,
 } from '../store/blob-keep.js';
-import { mirrorConduitDocMeta } from '../store/conduit-doc-history.js';
+import {
+  importMigratedConduitVersion,
+  listConduitHistorySha256Set,
+  mirrorConduitDocMeta,
+  resolveConduitDocUid,
+  withConduitDocWriteTransaction,
+} from '../store/conduit-doc-history.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
@@ -176,6 +194,15 @@ export const DOCS_DOCTOR_MAX_DETAIL_ITEMS = 50;
  * @task T14117
  */
 export const DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE = '.cleo/audit/docs-publications-prune.jsonl';
+
+/**
+ * `conduit_attachment_versions.origin` of a version the `archive-publication`
+ * repair imports from a gone ledger row's blob, so it never poses as a native,
+ * migrated or backfilled row.
+ *
+ * @task T14632
+ */
+export const DOCS_DOCTOR_ARCHIVE_ORIGIN = 'archived-publication';
 
 /**
  * Project-relative audit log each mutating run (`--apply`/`--repair`)
@@ -676,16 +703,40 @@ interface LedgerFinding {
   readonly drift: 'deleted' | 'modified';
   /** True when the published path resolves outside the project root. */
   readonly outsideRoot: boolean;
-  /** `prune-publication` (applied) or a plan-only verb. */
+  /** `prune-publication` / `archive-publication` (applied) or a plan-only verb. */
   readonly action:
     | 'prune-publication'
+    | 'archive-publication'
     | 'republish'
     | 'reconcile-edit'
     | 'republish-or-prune'
     | 'report-only';
   readonly prunable: boolean;
   readonly detail: string;
+  /** Set on an `archive-publication` finding: the version `--apply` imports (T14632). */
+  readonly archive?: LedgerArchive;
 }
+
+/**
+ * A gone ledger row's blob, to be imported as a prior conduit version of the
+ * adopted doc whose stream another row publishes in sync (T14632).
+ */
+interface LedgerArchive {
+  readonly docUid: string;
+  readonly slug: string;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly tokens: number;
+}
+
+/**
+ * Where a gone row's only-held blob could be archived (T14632): an adopted
+ * doc, a doc with no conduit history yet, or nowhere provable.
+ */
+type ArchiveTarget =
+  | { readonly kind: 'adopted'; readonly archive: LedgerArchive }
+  | { readonly kind: 'unadopted'; readonly slug: string }
+  | null;
 
 /**
  * Decide whether a missing mirror is provably gone, not merely absent from
@@ -765,8 +816,11 @@ function provePublicationGone(
  * doctor and `cleo docs status` can never disagree.
  *
  * A `deleted` row is prunable only when its blob stays protected without it:
- * some attachments row holds the sha, or another ledger row naming the same
- * sha is not itself `deleted`.
+ * some attachments row holds the sha, the conduit doc history names it (blob
+ * GC keeps those, T14632), or another ledger row naming the same sha is not
+ * itself `deleted`. A gone row that is the only reference to its blob is
+ * planned `archive-publication` when {@link scanPublicationLedger}'s archive
+ * target resolves to an adopted doc (T14632).
  *
  * @internal
  */
@@ -783,6 +837,10 @@ async function scanPublicationLedger(
     `${r.ownerId}\u0000${r.blobName}\u0000${r.publishedPath}`;
   const recordByKey = new Map(ledger.map((r) => [key(r), r]));
   const attachmentShas = new Set(rows.map((r) => r.sha256));
+  // T14632: blob GC keeps what the conduit doc history names, so the doctor
+  // counts it as protection too. An unreadable history protects nothing more
+  // (fewer prunes, never more).
+  const conduitShas = await listConduitHistorySha256Set(projectRoot).catch(() => new Set<string>());
   const recordFor = (item: DocsDriftItem): DocsPublicationRecord | undefined =>
     recordByKey.get(key(item));
   // T14504: a drifted row is superseded only when its doc's CANONICAL head
@@ -848,12 +906,55 @@ async function scanPublicationLedger(
     }
     return false;
   };
+  // T14632: a gone row's blob is archived into the doc whose stream it
+  // published: another row of the SAME (ownerId, blobName) — one blob-manifest
+  // stream — publishes in sync the exact head of exactly one slugged doc. The
+  // doc must already be adopted into conduit history; the bytes must re-hash
+  // to the row's blob. Anything less is no target (the row keeps its refusal).
+  const cleoDir = resolveCleoDir(projectRoot);
+  const archiveTarget = async (record: DocsPublicationRecord): Promise<ArchiveTarget> => {
+    const slugs = new Set<string>();
+    for (const item of status.items) {
+      if (item.drift !== 'in-sync') continue;
+      const live = recordFor(item);
+      if (!live || live === record) continue;
+      if (live.ownerId !== record.ownerId || live.blobName !== record.blobName) continue;
+      const holder = holderBySha.get(live.lastBlobSha);
+      if (!holder?.slug) continue;
+      const ref = await resolveDocRef(projectRoot, holder.slug, { quiet: true }).catch(() => null);
+      if (ref?.sha256 === live.lastBlobSha) slugs.add(holder.slug);
+    }
+    const [slug, ...others] = [...slugs];
+    if (slug === undefined || others.length > 0) return null;
+    const docUid = await resolveConduitDocUid(projectRoot, slug).catch(() => null);
+    if (docUid === null) return { kind: 'unadopted', slug };
+    const bytes = readVerifiedBlobBytes(cleoDir, record.lastBlobSha);
+    if (bytes === null) return null;
+    return {
+      kind: 'adopted',
+      archive: {
+        docUid,
+        slug,
+        sha256: record.lastBlobSha,
+        sizeBytes: bytes.length,
+        tokens: bytes
+          .toString('utf-8')
+          .split(/\s+/)
+          .filter((w) => w.length > 0).length,
+      },
+    };
+  };
   type Draft = Omit<LedgerFinding, 'action' | 'prunable' | 'detail'> & {
+    /** Set when an unheld candidate can be archived instead (T14632). */
+    readonly archive?: LedgerArchive;
     readonly shas: ReadonlySet<string>;
     /** A prune candidate; prunable only if every blob it names stays held by a survivor. */
     readonly candidate: boolean;
-    /** Plan for a candidate whose blobs a survivor holds / for anything else. */
-    readonly plan: (held: boolean) => Pick<LedgerFinding, 'action' | 'detail'>;
+    /**
+     * Plan for a candidate whose blobs a survivor holds / for anything else;
+     * `archivable` when its `archive` will be imported (T14632).
+     */
+    readonly plan: (held: boolean, archivable: boolean) => Pick<LedgerFinding, 'action' | 'detail'>;
   };
   const drafts: Draft[] = [];
   for (const item of status.items) {
@@ -907,13 +1008,15 @@ async function scanPublicationLedger(
       continue;
     }
     const proof = provePublicationGone(checkoutRoot, record.publishedPath, absPath);
+    const target = proof.gone ? await archiveTarget(record) : null;
     drafts.push({
       record,
       drift: 'deleted',
       outsideRoot,
       shas,
       candidate: proof.gone,
-      plan: (held) =>
+      ...(target?.kind === 'adopted' ? { archive: target.archive } : {}),
+      plan: (held, archivable) =>
         proof.gone === false
           ? {
               action: 'report-only',
@@ -924,25 +1027,46 @@ async function scanPublicationLedger(
                 action: 'prune-publication',
                 detail: `mirror ${record.publishedPath} is gone (${proof.reason}); blob ${blob}… stays referenced elsewhere → delete the ledger row`,
               }
-            : {
-                action: 'republish-or-prune',
-                detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
-              },
+            : archivable && target?.kind === 'adopted'
+              ? {
+                  action: 'archive-publication',
+                  detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… → import it as a prior version of '${target.archive.slug}'; the next run prunes the row`,
+                }
+              : target?.kind === 'unadopted'
+                ? {
+                    action: 'republish-or-prune',
+                    detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; doc '${target.slug}' has no conduit history yet — adopt it with \`cleo docs migrate\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
+                  }
+                : {
+                    action: 'republish-or-prune',
+                    detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
+                  },
     });
   }
   // A blob is protected only by an attachments row or by a ledger row that
   // survives this run: two prune candidates never protect each other (T14504),
   // so the last row naming a blob is never deleted and the blob never exposed to GC.
   const candidateRecords = new Set(drafts.filter((d) => d.candidate).map((d) => d.record));
-  const survivorShas = new Set(attachmentShas);
+  const survivorShas = new Set([...attachmentShas, ...conduitShas]);
   for (const item of status.items) {
     if (item.drift === 'deleted') continue;
     const record = recordFor(item);
     if (record && !candidateRecords.has(record)) survivorShas.add(record.lastBlobSha);
   }
-  return drafts.map(({ shas, candidate, plan, ...finding }) => {
+  return drafts.map(({ shas, candidate, plan, archive, ...finding }) => {
     const held = candidate && [...shas].every((sha) => survivorShas.has(sha));
-    return { ...finding, ...plan(held), prunable: held };
+    // Archive only what still needs a home: the row's own blob unheld, and
+    // every other blob it names held by a survivor.
+    const archivable =
+      !held &&
+      archive !== undefined &&
+      [...shas].every((sha) => sha === archive.sha256 || survivorShas.has(sha));
+    return {
+      ...finding,
+      ...plan(held, archivable),
+      prunable: held,
+      ...(archivable ? { archive } : {}),
+    };
   });
 }
 
@@ -1487,7 +1611,7 @@ export async function runDocsDoctor(
       repairs.push({
         kind: 'publication-ledger-drift',
         action: finding.action,
-        applied: apply && finding.prunable,
+        applied: apply && (finding.prunable || finding.archive !== undefined),
         detail: finding.detail,
       });
     }
@@ -1592,6 +1716,37 @@ export async function runDocsDoctor(
       }
       if (pre.needsWikilinksRebuild && rebuildWikilinks) {
         await rebuildDocsWikilinks({ projectRoot });
+      }
+      // T14632: archive a gone row's only-held blob into its adopted doc's
+      // history (audited first); the next run sees it held and prunes the row.
+      const archivable = inScope('publication-ledger-drift')
+        ? pre.ledger.filter((f) => f.archive !== undefined)
+        : [];
+      for (const { record, archive } of archivable) {
+        if (archive === undefined) continue;
+        const auditPath = join(projectRoot, DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE);
+        mkdirSync(dirname(auditPath), { recursive: true });
+        appendFileSync(
+          auditPath,
+          `${JSON.stringify({ op: 'docs.doctor.archive-publication', archivedAt: new Date().toISOString(), backupReceiptPath: opts.backupReceiptPath ?? null, archive, record })}\n`,
+          'utf-8',
+        );
+        await withConduitDocWriteTransaction(projectRoot, async () => {
+          await importMigratedConduitVersion(projectRoot, {
+            attachmentUid: archive.docUid,
+            parentVersionUid: null,
+            authorAgentId: 'cleo:docs-doctor',
+            storageKey: `sha256:${archive.sha256}`,
+            contentHash: archive.sha256,
+            sizeBytes: archive.sizeBytes,
+            tokens: archive.tokens,
+            versionNumber: 0,
+            createdAt: record.publishedAt,
+            changeSummary: `archived by docs doctor from ledger row ${record.publishedPath} (owner ${record.ownerId}, blob ${record.blobName})`,
+            slug: archive.slug,
+            origin: DOCS_DOCTOR_ARCHIVE_ORIGIN,
+          });
+        });
       }
       const prunable = inScope('publication-ledger-drift')
         ? pre.ledger.filter((f) => f.prunable)
