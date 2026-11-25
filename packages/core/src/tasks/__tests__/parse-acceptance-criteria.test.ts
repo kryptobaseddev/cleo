@@ -70,6 +70,7 @@ describe('parseAcceptanceCriteria', () => {
     ],
     ['a JSON object without a kind', '{"status":"done"}', ['{"status":"done"}']],
     ['a JSON object whose kind is not a string', '{"kind":3}', ['{"kind":3}']],
+    ['a JSON object whose kind is not a gate kind', '{"kind":"widget"}', ['{"kind":"widget"}']],
     ['brace prose that is not JSON', '{kind: test}', ['{kind: test}']],
   ])('T12292: keeps %s literal (T12197)', (_label, input, expected) => {
     expect(parseAcceptanceCriteria(input)).toEqual(expected);

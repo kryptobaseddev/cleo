@@ -554,7 +554,9 @@ describe('addTask (integration)', () => {
       expect: 'exit0',
       timeoutMs: 1800000,
     };
-    const literal = JSON.stringify(gate);
+    // T12292: gate JSON passed as text acceptance is now refused (AC3), so the
+    // parent's text criterion is real prose; the typed gate still comes from reqAdd.
+    const literal = 'Parent harness stays documented in prose';
     await addTask(
       {
         title: 'Parent gate first',

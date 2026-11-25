@@ -2,14 +2,14 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.31.0
+  version: 2.32.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-11-13
+  lastReviewed: 2026-11-25
   stability: stable
 ---
 
@@ -184,8 +184,8 @@ canonical storage success, optional projection verification, and installed-provi
 Add, update, batch, and saga creation share one acceptance-input boundary. Pass
 arrays of strings in JSON parameters; `--acceptance` also accepts a JSON array
 string or the documented pipe-delimited form. Array entries keep literal pipes
-and quoted unions. Strings are trimmed and blank strings omitted; nonstring
-entries and malformed explicit JSON arrays reject the whole mutation. Bracketed
+and quoted unions. Strings are trimmed and blank strings omitted; nonstring entries, malformed
+explicit JSON arrays and typed gate JSON strings (fix: `cleo req add`) reject the whole mutation. Bracketed
 prose and the existing delimiter escaping rules retain their interpretation.
 
 On update, an explicit `[]` (including an all-blank string array) requests a clear;
