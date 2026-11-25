@@ -12,6 +12,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { inferTaskAddParams } from '@cleocode/core/tasks/infer-add-params';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CheckHandler } from '../../../dispatch/domains/check.js';
 import { TasksHandler } from '../../../dispatch/domains/tasks.js';
@@ -194,17 +196,20 @@ describe('typed requirement dispatch receipt (T12292)', () => {
     expect(storedAcceptance(taskId)).toEqual(before);
   });
 
-  it('add refuses a typed gate object passed as text acceptance and writes no task row', async () => {
+  it('cleo add refuses a typed gate object passed as --acceptance text and writes no task row', async () => {
     await addTask();
     const countBefore = freshRead('SELECT COUNT(*) AS n FROM tasks_tasks')[0]?.['n'];
 
-    const refused = await tasks.mutate('add', {
+    // The same call `cleo add` makes before it dispatches tasks.add.
+    const refused = inferTaskAddParams(root, {
       title: 'Gate as prose',
       description: 'A typed gate passed through text acceptance must be refused',
-      acceptance: [JSON.stringify(partnerGate())],
+      acceptanceRaw: JSON.stringify(partnerGate()),
     });
-    expect(refused.success).toBe(false);
-    expect(refused.error?.fix).toContain('cleo req add');
+    await expect(refused).rejects.toMatchObject({
+      code: ExitCode.VALIDATION_ERROR,
+      fix: expect.stringContaining('cleo req add'),
+    });
     expect(freshRead('SELECT COUNT(*) AS n FROM tasks_tasks')[0]?.['n']).toBe(countBefore);
   });
 });

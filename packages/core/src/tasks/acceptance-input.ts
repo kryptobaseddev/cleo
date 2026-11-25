@@ -11,16 +11,13 @@ import { CleoError } from '../errors.js';
  * @remarks
  * Absent input remains undefined. String entries are trimmed and blank strings
  * are dropped; an explicitly empty result remains [] so update can clear it.
- * Entries stay literal, including pipes and quoted unions. Nonstring entries,
- * and string entries that are a typed gate's JSON object (a JSON object with a
- * string `kind`), reject the entire input before any task mutation: text
- * acceptance cannot carry gate meaning, so storing the gate as prose would drop
- * it silently. The refusal's fix names `cleo req add` (T12292).
+ * Entries stay literal, including pipes and quoted unions and strings that
+ * happen to look like gate JSON (T12197). Nonstring entries reject the entire
+ * input before any task mutation, with a fix naming `cleo req add` (T12292).
  *
  * @param acceptance - Optional array of literal string criteria supplied by the caller.
  * @returns Trimmed nonblank criteria, including an explicit empty array; undefined for absent input.
- * @throws CleoError when the input is not an array, includes a nonstring entry,
- *   or includes a typed gate's JSON object as text.
+ * @throws CleoError when the input is not an array or includes a nonstring entry.
  * @example
  * ```typescript
  * const criteria = [' literal a|b ', '', ' verify output '];
@@ -49,14 +46,6 @@ export function normalizeAcceptance(
       );
     }
     const text = criterion.trim();
-    if (isTypedGateJson(text)) {
-      // @sync-invariant none:input-shape a typed gate passed as text acceptance is refused before any write
-      throw new CleoError(
-        ExitCode.VALIDATION_ERROR,
-        `Acceptance criterion ${index + 1} is a typed gate object; text acceptance cannot store gate meaning`,
-        { fix: TYPED_GATE_FIX },
-      );
-    }
     if (text) normalized.push(text);
   }
   return normalized;
@@ -270,7 +259,7 @@ function splitAcceptance(input: string, delim = '|'): string[] {
  * @param raw - Raw string from `--acceptance` flag
  * @returns Array of trimmed, non-empty acceptance criteria strings
  * @throws CleoError for malformed explicit JSON arrays, nonstring JSON elements, or a
- *   typed gate's JSON object passed as text (fix: `cleo req add`).
+ *   criterion that is a typed gate's JSON object (fix: `cleo req add`).
  * @example
  * ```typescript
  * parseAcceptanceCriteria('first|ENUM (hot|cold)|third');
@@ -295,7 +284,32 @@ export function parseAcceptanceCriteria(raw: string): string[] {
     } catch {
       throw new CleoError(ExitCode.VALIDATION_ERROR, 'Invalid JSON acceptance array');
     }
-    return normalizeAcceptance(parsed) ?? [];
+    return refuseTypedGateText(normalizeAcceptance(parsed) ?? []);
   }
-  return normalizeAcceptance(splitAcceptance(raw, '|')) ?? [];
+  return refuseTypedGateText(normalizeAcceptance(splitAcceptance(raw, '|')) ?? []);
+}
+
+/**
+ * Refuse CLI acceptance text whose criterion is a typed gate's JSON object.
+ *
+ * @remarks
+ * A flag value like `--acceptance '{"kind":"test",...}'` is someone trying to
+ * add a gate, and storing it as one literal criterion would drop its meaning
+ * without a word (T12292). The check runs on the parsed CLI input only: the
+ * SDK's `normalizeAcceptance` keeps such strings literal (T12197), so stored
+ * and programmatic literals are untouched.
+ *
+ * @internal
+ */
+function refuseTypedGateText(criteria: string[]): string[] {
+  const index = criteria.findIndex(isTypedGateJson);
+  if (index >= 0) {
+    // @sync-invariant none:input-shape a typed gate passed as CLI text acceptance is refused before any write
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Acceptance criterion ${index + 1} is a typed gate object; text acceptance cannot store gate meaning`,
+      { fix: TYPED_GATE_FIX },
+    );
+  }
+  return criteria;
 }
