@@ -858,7 +858,7 @@ importers:
         version: 3.3.1
       llmtxt:
         specifier: ^2026.5.15
-        version: 2026.5.15(@cleocode/lafs@2026.11.16(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1))(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        version: 2026.5.15(@cleocode/lafs@2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1))(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
       loro-crdt:
         specifier: '*'
         version: 1.11.0
@@ -1428,8 +1428,13 @@ packages:
     deprecated: This package has been renamed to @cleocode/lafs and moved to the cleocode monorepo.
     hasBin: true
 
-  '@cleocode/lafs@2026.11.16':
-    resolution: {integrity: sha512-X7cL4yM/9dVe1L4lq4/XDsVGl/C9PDhbSPxiz1l3VrgQNHFZsoUUBuM59G9KDdfKGGv9a7wEs+KqHOIellXPmA==}
+  '@cleocode/lafs@2026.4.9':
+    resolution: {integrity: sha512-9htqNRQfVxBc22WQDipGgdkOkzn6vtmbxgJvZo8RS7ALw8XhnzCglq+ZeC8T1PufPz6NgIfQywkHlLzWgp7vTg==}
+    engines: {node: '>=22.0.0'}
+    hasBin: true
+
+  '@cleocode/lafs@2026.9.18':
+    resolution: {integrity: sha512-TZ+uqa+S3urcThtCqumR0pwJM8OI82glLJqn4O/BynURcOGy5aWKrBeZspg1n7lqh1I/cljfNCtVN8T5lQqUHQ==}
     engines: {node: '>=24.16.0'}
     hasBin: true
     peerDependencies:
@@ -1440,11 +1445,6 @@ packages:
         optional: true
       express:
         optional: true
-
-  '@cleocode/lafs@2026.4.9':
-    resolution: {integrity: sha512-9htqNRQfVxBc22WQDipGgdkOkzn6vtmbxgJvZo8RS7ALw8XhnzCglq+ZeC8T1PufPz6NgIfQywkHlLzWgp7vTg==}
-    engines: {node: '>=22.0.0'}
-    hasBin: true
 
   '@codluv/versionguard@1.2.0':
     resolution: {integrity: sha512-iVyEiPp54DqiFa/gf2Tf6mwvlHx90UXTQ8A0EEx6ArLuPeNn7lhvn7JnG+rXzBybW+HOdmnOXxSSfg5sTHxLZQ==}
@@ -7116,15 +7116,6 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
-  '@cleocode/lafs@2026.11.16(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1)':
-    dependencies:
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
-    optionalDependencies:
-      '@a2a-js/sdk': 0.3.13(express@5.2.1)
-      express: 5.2.1
-    optional: true
-
   '@cleocode/lafs@2026.4.9':
     dependencies:
       '@a2a-js/sdk': 0.3.13(express@5.2.1)
@@ -7135,6 +7126,15 @@ snapshots:
       - '@bufbuild/protobuf'
       - '@grpc/grpc-js'
       - supports-color
+
+  '@cleocode/lafs@2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1)':
+    dependencies:
+      ajv: 8.18.0
+      ajv-formats: 3.0.1(ajv@8.18.0)
+    optionalDependencies:
+      '@a2a-js/sdk': 0.3.13(express@5.2.1)
+      express: 5.2.1
+    optional: true
 
   '@codluv/versionguard@1.2.0':
     dependencies:
@@ -10306,7 +10306,7 @@ snapshots:
     dependencies:
       uc.micro: 2.1.0
 
-  llmtxt@2026.5.15(@cleocode/lafs@2026.11.16(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1))(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
+  llmtxt@2026.5.15(@cleocode/lafs@2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1))(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
     dependencies:
       '@noble/ed25519': 3.1.0
       '@noble/hashes': 2.2.0
@@ -10315,7 +10315,7 @@ snapshots:
       yjs: 13.6.30
       zod: 4.3.6
     optionalDependencies:
-      '@cleocode/lafs': 2026.11.16(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1)
+      '@cleocode/lafs': 2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1)
       drizzle-orm: 1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6)
       onnxruntime-node: 1.24.3
       postgres: 3.4.9
@@ -10974,8 +10974,7 @@ snapshots:
       semver: 7.8.2
     optional: true
 
-  node-addon-api@8.7.0:
-    optional: true
+  node-addon-api@8.7.0: {}
 
   node-cron@4.2.1: {}
 
@@ -10987,8 +10986,7 @@ snapshots:
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
 
-  node-gyp-build@4.8.4:
-    optional: true
+  node-gyp-build@4.8.4: {}
 
   normalize-path@3.0.0: {}
 
@@ -12073,7 +12071,6 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-cpp@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12082,7 +12079,6 @@ snapshots:
       tree-sitter-c: 0.23.2(tree-sitter@0.21.1)
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-go@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12090,7 +12086,6 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-java@0.23.5(tree-sitter@0.21.1):
     dependencies:
@@ -12098,7 +12093,6 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-javascript@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12106,7 +12100,6 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-python@0.23.4(tree-sitter@0.21.1):
     dependencies:
@@ -12114,7 +12107,6 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-ruby@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12122,7 +12114,6 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-rust@0.23.1(tree-sitter@0.21.1):
     dependencies:
@@ -12130,7 +12121,6 @@ snapshots:
       node-gyp-build: 4.8.4
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter-typescript@0.23.2(tree-sitter@0.21.1):
     dependencies:
@@ -12139,13 +12129,11 @@ snapshots:
       tree-sitter-javascript: 0.23.1(tree-sitter@0.21.1)
     optionalDependencies:
       tree-sitter: 0.21.1
-    optional: true
 
   tree-sitter@0.21.1:
     dependencies:
       node-addon-api: 8.7.0
       node-gyp-build: 4.8.4
-    optional: true
 
   trough@2.2.0: {}
 
