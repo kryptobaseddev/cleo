@@ -233,3 +233,34 @@ export function runCanonCheck(params: CanonCheckParams): CanonCheckResult {
     passed,
   };
 }
+
+/**
+ * Build the error message and fix for a failed {@link runCanonCheck} result,
+ * so `cleo check canon` reports the drift and exits non-zero (T14591).
+ *
+ * @param result - A canon check result whose `passed` is `false`.
+ * @returns The human-readable message naming every violation and failed
+ *   assertion, and the fix to apply.
+ *
+ * @task T14591
+ */
+export function canonFailure(result: CanonCheckResult): { message: string; fix: string } {
+  const parts: string[] = [];
+  if (result.violations.length > 0)
+    parts.push(
+      `${result.violations.length} forbidden phrase(s) — ${result.violations
+        .map((v) => `"${v.phrase}" at ${v.file}:${v.line}`)
+        .join(', ')}`,
+    );
+  const failed = result.assertions.filter((a) => !a.passed);
+  if (failed.length > 0)
+    parts.push(
+      `${failed.length} required assertion(s) failed — ${failed
+        .map((a) => `${a.file}: ${a.assertion}`)
+        .join(', ')}`,
+    );
+  return {
+    message: `Canon drift: ${parts.join('; ')}`,
+    fix: 'Restore the required phrases and remove the forbidden ones in the audited docs, then rerun cleo check canon',
+  };
+}

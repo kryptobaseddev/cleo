@@ -672,8 +672,17 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
 
   canon: async (_params: ValidateCanonParams) => {
     const projectRoot = resolveInvokingCheckout(); // T14183: repo files of the invoking checkout
-    const { runCanonCheck } = await import('./check/canon.js');
+    const { canonFailure, runCanonCheck } = await import('./check/canon.js');
     const result = runCanonCheck({ projectRoot });
+    // T14591: drift must fail the CLI (and the CI step) — an error envelope
+    // maps E_CANON_VIOLATION to exit 1; the full result rides in `details`.
+    if (!result.passed) {
+      const failure = canonFailure(result);
+      // @sync-invariant none:local-only read-only canon drift report over repo files; nothing is written
+      return lafsError('E_CANON_VIOLATION', failure.message, 'canon', failure.fix, {
+        result: { ...result },
+      });
+    }
     return lafsSuccess(result, 'canon');
   },
 
