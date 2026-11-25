@@ -13,7 +13,9 @@
  * @task T9839
  */
 
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { describe, expect, it } from 'vitest';
+import { CleoError } from '../../errors.js';
 import { parseAcceptanceCriteria } from '../infer-add-params.js';
 
 describe('parseAcceptanceCriteria', () => {
@@ -32,6 +34,47 @@ describe('parseAcceptanceCriteria', () => {
     '[true,]',
   ])('rejects malformed explicit JSON arrays: %s', (input) =>
     expect(() => parseAcceptanceCriteria(input)).toThrow('Invalid JSON acceptance array'));
+
+  // ─── T12292: typed gates are refused, never stored as prose ──────────────
+  const gateJson = JSON.stringify({
+    kind: 'test',
+    command: 'node',
+    args: ['harness/verify.mjs'],
+    expect: 'exit0',
+    description: 'Partner harness passes',
+  });
+
+  it.each([
+    ['a single gate object', gateJson],
+    ['a gate object with surrounding whitespace', `  ${gateJson}  `],
+    ['a gate object among pipe-separated criteria', `tests pass|${gateJson}`],
+    ['a gate object as a JSON array string entry', JSON.stringify(['tests pass', gateJson])],
+    ['a gate object as a JSON array object entry', `["tests pass", ${gateJson}]`],
+  ])('T12292: refuses %s with a fix naming cleo req add', (_label, input) => {
+    let thrown: unknown;
+    try {
+      parseAcceptanceCriteria(input);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(CleoError);
+    expect((thrown as CleoError).code).toBe(ExitCode.VALIDATION_ERROR);
+    expect((thrown as CleoError).fix).toContain('cleo req add');
+  });
+
+  it.each([
+    [
+      'prose with braces',
+      'response body is {"ok": true} | union {x|y}',
+      ['response body is {"ok": true}', 'union {x|y}'],
+    ],
+    ['a JSON object without a kind', '{"status":"done"}', ['{"status":"done"}']],
+    ['a JSON object whose kind is not a string', '{"kind":3}', ['{"kind":3}']],
+    ['a JSON object whose kind is not a gate kind', '{"kind":"widget"}', ['{"kind":"widget"}']],
+    ['brace prose that is not JSON', '{kind: test}', ['{kind: test}']],
+  ])('T12292: keeps %s literal (T12197)', (_label, input, expected) => {
+    expect(parseAcceptanceCriteria(input)).toEqual(expected);
+  });
 
   it('keeps JSON array entries literal while trimming and dropping blank strings', () => {
     expect(

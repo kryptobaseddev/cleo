@@ -2,6 +2,7 @@
  * Canonical task acceptance input normalization, shared by CLI parsing and writes.
  * @task T12197
  */
+import type { AcceptanceGateKind } from '@cleocode/contracts/acceptance-gate.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
@@ -11,12 +12,18 @@ import { CleoError } from '../errors.js';
  * @remarks
  * Absent input remains undefined. String entries are trimmed and blank strings
  * are dropped; an explicitly empty result remains [] so update can clear it.
- * Entries stay literal, including pipes and quoted unions. Nonstring entries
- * reject the entire input before any task mutation.
+ * Entries stay literal, including pipes, braces and quoted unions (T12197).
+ * Nonstring entries, and a string entry that is a typed gate's JSON object (an
+ * object whose `kind` is a gate kind), reject the entire input before any task
+ * mutation with a fix naming `cleo req add`: text acceptance cannot carry gate
+ * meaning, so storing the gate as prose would drop it silently (T12292). This
+ * is the one input boundary add, update, add-batch, saga create and dispatch
+ * share; stored criteria are never re-normalized.
  *
  * @param acceptance - Optional array of literal string criteria supplied by the caller.
  * @returns Trimmed nonblank criteria, including an explicit empty array; undefined for absent input.
- * @throws CleoError when the input is not an array or includes a nonstring entry.
+ * @throws CleoError when the input is not an array, includes a nonstring entry,
+ *   or includes a typed gate's JSON object as text.
  * @example
  * ```typescript
  * const criteria = [' literal a|b ', '', ' verify output '];
@@ -41,12 +48,61 @@ export function normalizeAcceptance(
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Acceptance criterion ${index + 1} must be a string`,
+        { fix: TYPED_GATE_FIX },
       );
     }
     const text = criterion.trim();
+    if (isTypedGateJson(text)) {
+      // @sync-invariant none:input-shape a typed gate passed as text acceptance is refused before any write
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Acceptance criterion ${index + 1} is a typed gate object; text acceptance cannot store gate meaning`,
+        { fix: TYPED_GATE_FIX },
+      );
+    }
     if (text) normalized.push(text);
   }
   return normalized;
+}
+
+/** Fix shown when text acceptance receives a typed gate or a nonstring entry. */
+const TYPED_GATE_FIX =
+  "Pass each acceptance criterion as text; add a typed gate with: cleo req add <taskId> --gate '<gate-json>'";
+
+/** Every `AcceptanceGate` kind; the record keeps the list exhaustive at compile time. */
+const GATE_KINDS: ReadonlySet<string> = new Set(
+  Object.keys({
+    test: true,
+    file: true,
+    command: true,
+    lint: true,
+    http: true,
+    manual: true,
+  } satisfies Record<AcceptanceGateKind, true>),
+);
+
+/**
+ * True when `text` is a whole JSON object whose `kind` names a gate kind — the
+ * shape of an `AcceptanceGate`, complete or not. Prose that merely contains
+ * braces is not valid JSON, and a JSON object with any other `kind` is not a
+ * gate, so both stay literal criteria.
+ *
+ * @internal
+ */
+function isTypedGateJson(text: string): boolean {
+  if (!text.startsWith('{') || !text.endsWith('}')) return false;
+  try {
+    const parsed: object | null = JSON.parse(text);
+    return (
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      'kind' in parsed &&
+      typeof parsed.kind === 'string' &&
+      GATE_KINDS.has(parsed.kind)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -230,7 +286,8 @@ function splitAcceptance(input: string, delim = '|'): string[] {
  *
  * @param raw - Raw string from `--acceptance` flag
  * @returns Array of trimmed, non-empty acceptance criteria strings
- * @throws CleoError for malformed explicit JSON arrays or nonstring JSON elements.
+ * @throws CleoError for malformed explicit JSON arrays, nonstring JSON elements, or a
+ *   criterion that is a typed gate's JSON object (fix: `cleo req add`).
  * @example
  * ```typescript
  * parseAcceptanceCriteria('first|ENUM (hot|cold)|third');
