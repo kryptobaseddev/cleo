@@ -93,7 +93,7 @@ const DEPENDENCY_SPECS: DependencySpec[] = [
     name: 'tree-sitter',
     category: 'optional',
     description:
-      'Tree-sitter native Node module — enables cleo code outline, cleo code search, and AST analysis. Bundled as a regular dependency; re-run pnpm install if missing.',
+      'Tree-sitter native Node module — enables cleo code outline, cleo code search, and AST analysis. An optional dependency: npm skips it where it cannot build (T14629), and the features stay off.',
     documentationUrl: 'https://tree-sitter.github.io/tree-sitter/',
     installCommand: 'pnpm install',
   },

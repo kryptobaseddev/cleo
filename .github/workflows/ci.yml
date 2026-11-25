@@ -117,6 +117,8 @@ jobs:
       skills_depth: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.skills_depth }}
       # T13279: path scope of release-pipeline-matrix.yml, called below.
       release_matrix: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.release_matrix }}
+      # T14629: path scope of the linux/arm64 packed-install smoke below.
+      install_deps: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.install_deps }}
       # `true` only for a pull request — or a `workflow_dispatch` run on a
       # `release/v*` branch — whose whole diff is `"version"` lines in
       # package.json files, CHANGELOG.md and `.changeset/**` moves: the release
@@ -383,6 +385,14 @@ jobs:
             release_matrix:
               - 'packages/cleo/test/fixtures/release-test-**'
               - 'packages/cleo/test/integration/release-pipeline/**'
+            # T14629: what decides whether `npm i @cleocode/cleo` installs.
+            install_deps:
+              - 'package.json'
+              - 'packages/*/package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.npmrc'
+              - 'scripts/packed-install-smoke.mjs'
       # T14369: per-file test durations from the newest main run, fetched ONCE
       # here so every unit shard splits by the same data (a per-shard fetch
       # could disagree and drop or repeat files). None found: file-count split.
@@ -2543,6 +2553,48 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
+  packed-install-arm64:
+    # T14629: tree-sitter@0.21.1 has no linux-arm64 prebuild and its source
+    # build fails against the Node 24 headers, so `npm i -g @cleocode/cleo`
+    # failed on Graviton, Raspberry Pi and Docker on Apple Silicon while every
+    # x64 check stayed green. This installs the packed CLI on linux/arm64 and
+    # runs `cleo --version`, on dependency changes and nightly, so that drift
+    # fails here instead of in a user's install.
+    name: Packed CLI Install (linux/arm64)
+    needs: [ biome, changes ]
+    if: needs.changes.outputs.install_deps == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve the packed-evidence directory
+        run: echo "CLEO_PACKED_EVIDENCE_DIR=$RUNNER_TEMP/cleo-packed-evidence" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - name: Build release JavaScript
+        run: pnpm run build
+      - name: Install the packed CLI and run cleo --version
+        run: node scripts/packed-install-smoke.mjs --install-only
+      - name: Retain manifest and diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-install-arm64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/cleo-packed-evidence/**/manifest.json
+            ${{ runner.temp }}/cleo-packed-evidence/**/*.log
+            ${{ runner.temp }}/cleo-packed-evidence/**/app/package*.json
+          if-no-files-found: warn
+          retention-days: 1
+
   worktree-napi-gate:
     # T13279: the worktree-napi prebuild runs HERE (a reusable workflow) when
     # its paths change, instead of a standalone run this job used to poll and
@@ -2839,6 +2891,7 @@ jobs:
       - scripts-tests
       - build-verify
       - packed-artifact
+      - packed-install-arm64
       - worktree-napi-gate
       - forge-ts-check
       - cant-napi-gate

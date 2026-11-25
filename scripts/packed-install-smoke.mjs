@@ -3,6 +3,7 @@
  * Retained packed-install CLI smoke (T12273). Workspace packages come from local
  * tarballs; third-party dependencies may use npm's registry. Studio task readback and local embedding require actual installed execution.
  * Provider workflows and publication remain unassessed.
+ * `--install-only` (T14629) stops after the installed `cleo --version` check.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -1508,7 +1509,14 @@ async function verifyPackedRuntimeInScope(app, root, env, deadlineAt) {
   return receipt;
 }
 
-async function main() {
+/**
+ * Pack every published workspace package, install the CLI from the tarballs and verify it.
+ * @param {{installOnly?: boolean}} [options] - `installOnly` (T14629) stops after the
+ *   installed `cleo --version` check: the cross-platform install smoke for runners where
+ *   the Linux x64 runtime stages (Studio, embedding, git shim) are not the subject.
+ * @returns {Promise<void>} Resolves once every selected stage passed.
+ */
+async function main({ installOnly = false } = {}) {
   const evidenceParent = resolve(
     process.env.CLEO_PACKED_EVIDENCE_DIR ?? (process.platform === 'win32' ? tmpdir() : '/tmp'),
   );
@@ -1680,14 +1688,18 @@ async function main() {
         `Packed install resolves dependency versions the lockfile never tested: ${lockFailures.join('; ')}`,
       );
     manifest.coverage.dependencies = 'verified-lockfile-versions';
-    manifest.coverage.schemas = await verifyPackedSchemas(app, env, { systemdControl });
-    save();
-    manifest.adapterSelection = await verifyPackedSpawnAdapter(app, root, env, { systemdControl });
-    manifest.coverage.adapterSelection = 'verified-installed-claude-code-selection';
-    save();
-    manifest.git = await verifyPackedGit(app, root, env, { systemdControl });
-    manifest.coverage.git = 'verified-installed-version-and-initialization';
-    save();
+    if (!installOnly) {
+      manifest.coverage.schemas = await verifyPackedSchemas(app, env, { systemdControl });
+      save();
+      manifest.adapterSelection = await verifyPackedSpawnAdapter(app, root, env, {
+        systemdControl,
+      });
+      manifest.coverage.adapterSelection = 'verified-installed-claude-code-selection';
+      save();
+      manifest.git = await verifyPackedGit(app, root, env, { systemdControl });
+      manifest.coverage.git = 'verified-installed-version-and-initialization';
+      save();
+    }
     const binary = join(app, 'node_modules', '.bin', 'cleo');
     if (!existsSync(binary)) throw new Error('Installed CLI entry is missing.');
     const guard = join(root, 'runtime-guard.mjs');
@@ -1718,6 +1730,22 @@ syncBuiltinESMExports();
     writeFileSync(join(root, 'version.txt'), version + '\n');
     assertPackedVersion(version, expected);
     manifest.coverage.cliVersion = 'verified';
+    if (installOnly) {
+      // T14629: the native optional dependencies may be skipped on this platform;
+      // record which ones the install kept so a skip is visible, never silent.
+      manifest.optionalNative = Object.fromEntries(
+        Object.keys(
+          JSON.parse(readFileSync(join(app, 'node_modules/@cleocode/core/package.json'), 'utf8'))
+            .optionalDependencies ?? {},
+        ).map((name) => [name, existsSync(join(app, 'node_modules', name, 'package.json'))]),
+      );
+      manifest.status = 'verified-packed-install';
+      save();
+      console.log(
+        `[packed-smoke] Installed CLI version verified on ${process.platform}/${process.arch} (${version}); optional native: ${JSON.stringify(manifest.optionalNative)}. Evidence: ${root}`,
+      );
+      return;
+    }
     manifest.runtime = await verifyPackedRuntime(app, root, env, { systemdControl });
     manifest.coverage.health = manifest.runtime.health;
     manifest.coverage.studio = 'verified-canonical-task-readback';
@@ -1758,7 +1786,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
             (receipt) => process.stdout.write(JSON.stringify(receipt)),
           );
         })()
-      : main();
+      : main({ installOnly: process.argv.includes('--install-only') });
   operation.catch((error) => {
     console.error(`[packed-smoke] FAILED: ${error.message}`);
     process.exitCode = 1;
