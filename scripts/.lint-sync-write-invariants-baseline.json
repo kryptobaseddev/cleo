@@ -309,6 +309,14 @@
     "packages/core/src/init/engine-ops.ts :: engineError": {
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
       "count": 1
+    },
+    "packages/core/src/memory/sleep-consolidation.ts :: Error": {
+      "reason": "T14639: the sleep near-duplicate merge (T14599) now runs each pair in one savepoint; the Error aborts a pair whose evicted row stopped being active, and citation_count = citation_count + ? moves the evicted row's citations to the kept row (reversed from the supersedes edge provenance). No registry invariant covers consolidation merges; burn-down T12946.",
+      "count": 1
+    },
+    "packages/core/src/memory/sleep-consolidation.ts :: silent:counter": {
+      "reason": "T14639: the sleep near-duplicate merge (T14599) now runs each pair in one savepoint; the Error aborts a pair whose evicted row stopped being active, and citation_count = citation_count + ? moves the evicted row's citations to the kept row (reversed from the supersedes edge provenance). No registry invariant covers consolidation merges; burn-down T12946.",
+      "count": 1
     }
   },
   "sites": {
@@ -866,6 +874,8 @@
     "packages/core/src/memory/retrieval/search.ts :: Error": 2,
     "packages/core/src/memory/session-narrative.ts :: Error": 1,
     "packages/core/src/memory/sleep-consolidation.ts :: silent:cascade": 3,
+    "packages/core/src/memory/sleep-consolidation.ts :: Error": 1,
+    "packages/core/src/memory/sleep-consolidation.ts :: silent:counter": 1,
     "packages/core/src/memory/temporal-supersession.ts :: Error": 8,
     "packages/core/src/memory/transcript-ingestor.ts :: Error": 1,
     "packages/core/src/migration/index.ts :: ExitCode.INVALID_INPUT": 1,

@@ -41,6 +41,7 @@ import type { TransportMessage } from '@cleocode/contracts/llm/normalized-respon
 import type { ContextEngine } from '@cleocode/contracts/memory/context-engine.js';
 import { executeForRole } from '../llm/role-executor.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import { brainPageEdges } from '../store/schema/memory-schema.js';
 import { typedAll } from '../store/typed-query.js';
 import { storeLearning } from './learnings.js';
 import { storePattern } from './patterns.js';
@@ -93,7 +94,8 @@ interface RawObsRow {
   citation_count: number;
   memory_tier: string | null;
   created_at: string | null;
-  embedding: Buffer | null;
+  /** Float32 vector from `brain_embeddings` (node:sqlite returns BLOBs as Uint8Array). */
+  embedding: Uint8Array | null;
 }
 
 /** Minimal learning row for synthesis queries. */
@@ -126,7 +128,40 @@ export interface MergeDuplicatesResult {
   merged: number;
   /** Number of LLM merge decisions made. */
   llmDecisions: number;
+  /**
+   * Pair merges that failed and were rolled back, leaving both entries
+   * unchanged (T14639).
+   */
+  failed: number;
+  /**
+   * Why the step failed, or the first pair failure when pairs were rolled
+   * back (T14599, T14639). A failure such as a schema mismatch is reported
+   * here instead of reading as "nothing to merge".
+   */
+  error?: string;
 }
+
+/**
+ * `provenance` JSON of the `supersedes` edge a near-duplicate merge writes
+ * from the kept observation to the evicted one (T14639). It holds everything
+ * needed to reverse the merge: clear the evicted row's `invalid_at` (it equals
+ * {@link SleepMergeProvenance.invalidAt}), subtract
+ * {@link SleepMergeProvenance.citationsAdded} from the kept row's
+ * `citation_count`, and delete the edge.
+ */
+export interface SleepMergeProvenance {
+  /** Always `sleep-consolidation:merge`. */
+  source: typeof SLEEP_MERGE_PROVENANCE_SOURCE;
+  /** Cosine similarity of the pair's embeddings. */
+  similarity: number;
+  /** Citations moved from the evicted row onto the kept row. */
+  citationsAdded: number;
+  /** The `invalid_at` value set on the evicted row. */
+  invalidAt: string;
+}
+
+/** `source` of every {@link SleepMergeProvenance} record. */
+export const SLEEP_MERGE_PROVENANCE_SOURCE = 'sleep-consolidation:merge';
 
 /** Count of changes from the prune-stale step. */
 export interface PruneStaleResult {
@@ -305,24 +340,28 @@ function parseJson<T>(text: string): T | null {
  * Compute cosine similarity between two Float32 embedding buffers.
  *
  * Returns 0 when either buffer is null, empty, or different lengths.
- * Embeddings are stored as raw Buffer of 4-byte floats (sqlite-vec format).
+ * Embeddings are stored as raw little-endian 4-byte floats (sqlite-vec format);
+ * node:sqlite returns them as a plain `Uint8Array`, so they are read through a
+ * `DataView` rather than `Buffer` methods.
  *
  * @param a - First embedding buffer.
  * @param b - Second embedding buffer.
  */
-function cosineSimilarity(a: Buffer | null, b: Buffer | null): number {
+function cosineSimilarity(a: Uint8Array | null, b: Uint8Array | null): number {
   if (!a || !b || a.length === 0 || a.length !== b.length) return 0;
 
   const floatCount = Math.floor(a.length / 4);
   if (floatCount === 0) return 0;
+  const viewA = new DataView(a.buffer, a.byteOffset, a.byteLength);
+  const viewB = new DataView(b.buffer, b.byteOffset, b.byteLength);
 
   let dot = 0;
   let normA = 0;
   let normB = 0;
 
   for (let i = 0; i < floatCount; i++) {
-    const va = a.readFloatLE(i * 4);
-    const vb = b.readFloatLE(i * 4);
+    const va = viewA.getFloat32(i * 4, true);
+    const vb = viewB.getFloat32(i * 4, true);
     dot += va * vb;
     normA += va * va;
     normB += vb * vb;
@@ -346,39 +385,56 @@ function cosineSimilarity(a: Buffer | null, b: Buffer | null): number {
  * Falls back to structural merge (keep higher quality) when no API key is
  * available or the LLM call fails.
  *
+ * Vectors live in the `brain_embeddings` vec0 table, tagged by model; only
+ * vectors of the current provider's model are comparable (T13740). A query
+ * failure (for example a schema mismatch) propagates to the caller, which
+ * reports it in {@link MergeDuplicatesResult.error} (T14599).
+ *
+ * Each pair merges in one savepoint: the evicted row is invalidated, its
+ * citations move to the kept row, and a `supersedes` edge from the kept node
+ * to the evicted node records a {@link SleepMergeProvenance} from which the
+ * merge can be reversed. A failed pair rolls back, is counted in
+ * {@link MergeDuplicatesResult.failed}, and the first failure is reported in
+ * {@link MergeDuplicatesResult.error} (T14639).
+ *
  * @param projectRoot - Project root for brain.db resolution.
  */
 async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicatesResult> {
   const { getBrainDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb(projectRoot);
-  if (!nativeDb) return { merged: 0, llmDecisions: 0 };
+  if (!nativeDb) return { merged: 0, llmDecisions: 0, failed: 0 };
 
   let merged = 0;
   let llmDecisions = 0;
+  let failed = 0;
+  let firstFailure: string | undefined;
+  const drizzle = await getBrainDb(projectRoot);
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-  // Fetch observations that have embeddings and are active
-  let rows: RawObsRow[];
-  try {
-    rows = typedAll<RawObsRow>(
-      nativeDb.prepare(
-        `
-        SELECT id, title, narrative, quality_score, citation_count, memory_tier, created_at, embedding
-        FROM brain_observations
-        WHERE embedding IS NOT NULL
-          AND invalid_at IS NULL
-          AND memory_tier = 'short'
-        ORDER BY quality_score DESC
-        LIMIT 200
-      `,
-      ),
-    );
-  } catch {
-    return { merged: 0, llmDecisions: 0 };
-  }
+  // `brain.embedding.enabled: false` means no vectors to compare (T13716).
+  const { ensureEmbeddingProvider, getEmbeddingProvider } = await import('./brain-embedding.js');
+  if (!(await ensureEmbeddingProvider(projectRoot)))
+    return { merged: 0, llmDecisions: 0, failed: 0 };
 
-  if (rows.length < 2) return { merged: 0, llmDecisions: 0 };
+  // Fetch active short-tier observations that have a current-model embedding.
+  const rows = typedAll<RawObsRow>(
+    nativeDb.prepare(
+      `
+      SELECT o.id, o.title, o.narrative, o.quality_score, o.citation_count, o.memory_tier,
+             o.created_at, e.embedding
+      FROM brain_observations o
+      JOIN brain_embeddings e ON e.id = o.id AND e.model = ?
+      WHERE o.invalid_at IS NULL
+        AND o.memory_tier = 'short'
+      ORDER BY o.quality_score DESC
+      LIMIT 200
+    `,
+    ),
+    getEmbeddingProvider()?.model ?? '',
+  );
+
+  if (rows.length < 2) return { merged: 0, llmDecisions: 0, failed: 0 };
 
   // Build candidate pairs above the similarity threshold
   const pairs: Array<{ a: RawObsRow; b: RawObsRow; similarity: number }> = [];
@@ -391,7 +447,7 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
     }
   }
 
-  if (pairs.length === 0) return { merged: 0, llmDecisions: 0 };
+  if (pairs.length === 0) return { merged: 0, llmDecisions: 0, failed: 0 };
 
   // Ask the LLM for a batch merge decision (max 10 pairs per call)
   const pairBatch = pairs.slice(0, 10);
@@ -428,7 +484,7 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
   // Apply decisions (structural fallback when LLM unavailable)
   const processedIds = new Set<string>();
   for (let idx = 0; idx < pairBatch.length; idx++) {
-    const { a, b } = pairBatch[idx]!;
+    const { a, b, similarity } = pairBatch[idx]!;
     if (processedIds.has(a.id) || processedIds.has(b.id)) continue;
 
     const decision = decisions.find((d) => d.pair === idx);
@@ -448,30 +504,77 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
       evictId = keepId === a.id ? b.id : a.id;
     }
 
-    const keepRow = a.id === keepId ? a : b;
     const evictRow = a.id === evictId ? a : b;
-    const combinedCitations = (keepRow.citation_count ?? 0) + (evictRow.citation_count ?? 0);
+    const citationsAdded = evictRow.citation_count ?? 0;
+    const provenance: SleepMergeProvenance = {
+      source: SLEEP_MERGE_PROVENANCE_SOURCE,
+      similarity: Math.round(similarity * 10_000) / 10_000,
+      citationsAdded,
+      invalidAt: now,
+    };
 
+    // One pair = one transaction (T14639): evict, credit citations and record
+    // the supersedes edge together, or roll all three back.
+    nativeDb.prepare('SAVEPOINT sleep_merge_pair').run();
     try {
-      nativeDb
-        .prepare(`UPDATE brain_observations SET invalid_at = ?, updated_at = ? WHERE id = ?`)
+      const evicted = nativeDb
+        .prepare(
+          `UPDATE brain_observations SET invalid_at = ?, updated_at = ? WHERE id = ? AND invalid_at IS NULL`,
+        )
         .run(now, now, evictId);
-
-      if (combinedCitations > (keepRow.citation_count ?? 0)) {
-        nativeDb
-          .prepare(`UPDATE brain_observations SET citation_count = ?, updated_at = ? WHERE id = ?`)
-          .run(combinedCitations, now, keepId);
+      if (evicted.changes !== 1) {
+        throw new Error(`observation ${evictId} is no longer active`);
       }
 
+      if (citationsAdded > 0) {
+        nativeDb
+          .prepare(
+            `UPDATE brain_observations SET citation_count = citation_count + ?, updated_at = ? WHERE id = ?`,
+          )
+          .run(citationsAdded, now, keepId);
+      }
+
+      const edge = {
+        provenance: JSON.stringify(provenance),
+        weight: provenance.similarity,
+        createdAt: now,
+      };
+      drizzle
+        .insert(brainPageEdges)
+        .values({
+          fromId: `observation:${keepId}`,
+          toId: `observation:${evictId}`,
+          edgeType: 'supersedes',
+          ...edge,
+        })
+        .onConflictDoUpdate({
+          target: [brainPageEdges.fromId, brainPageEdges.toId, brainPageEdges.edgeType],
+          set: edge,
+        })
+        .run();
+
+      nativeDb.prepare('RELEASE sleep_merge_pair').run();
       merged++;
       processedIds.add(a.id);
       processedIds.add(b.id);
-    } catch {
-      /* best-effort */
+    } catch (err) {
+      nativeDb.prepare('ROLLBACK TO sleep_merge_pair').run();
+      nativeDb.prepare('RELEASE sleep_merge_pair').run();
+      failed++;
+      // Drizzle wraps the SQLite error as `cause` under a generic "Failed query".
+      const cause = err instanceof Error && err.cause instanceof Error ? err.cause : err;
+      firstFailure ??= `${keepId} <- ${evictId}: ${cause instanceof Error ? cause.message : String(cause)}`;
     }
   }
 
-  return { merged, llmDecisions };
+  return {
+    merged,
+    llmDecisions,
+    failed,
+    ...(firstFailure !== undefined
+      ? { error: `${failed} pair merge(s) rolled back; first: ${firstFailure}` }
+      : {}),
+  };
 }
 
 // ============================================================================
@@ -943,7 +1046,7 @@ export async function runSleepConsolidation(
 ): Promise<SleepConsolidationResult> {
   const empty: SleepConsolidationResult = {
     ran: false,
-    mergeDuplicates: { merged: 0, llmDecisions: 0 },
+    mergeDuplicates: { merged: 0, llmDecisions: 0, failed: 0 },
     pruneStale: { pruned: 0, preserved: 0 },
     strengthenPatterns: { synthesized: 0, patternsGenerated: 0 },
     generateInsights: { clustersProcessed: 0, insightsStored: 0 },
@@ -963,7 +1066,7 @@ export async function runSleepConsolidation(
 
   const result: SleepConsolidationResult = {
     ran: true,
-    mergeDuplicates: { merged: 0, llmDecisions: 0 },
+    mergeDuplicates: { merged: 0, llmDecisions: 0, failed: 0 },
     pruneStale: { pruned: 0, preserved: 0 },
     strengthenPatterns: { synthesized: 0, patternsGenerated: 0 },
     generateInsights: { clustersProcessed: 0, insightsStored: 0 },
@@ -974,6 +1077,7 @@ export async function runSleepConsolidation(
     result.mergeDuplicates = await stepMergeDuplicates(projectRoot);
   } catch (err) {
     console.warn('[sleep-consolidation] Step 1 (merge duplicates) failed:', err);
+    result.mergeDuplicates.error = err instanceof Error ? err.message : String(err);
   }
 
   // Step 2: Prune stale
