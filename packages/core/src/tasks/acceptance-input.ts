@@ -50,6 +50,7 @@ export function normalizeAcceptance(
     }
     const text = criterion.trim();
     if (isTypedGateJson(text)) {
+      // @sync-invariant none:input-shape a typed gate passed as text acceptance is refused before any write
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
         `Acceptance criterion ${index + 1} is a typed gate object; text acceptance cannot store gate meaning`,
