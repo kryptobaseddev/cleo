@@ -11,6 +11,7 @@
  * @task T14599
  * @task T14640
  * @task T14648
+ * @task T14653
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -245,7 +246,7 @@ describe.skipIf(!isSqliteVecAvailable())('sleep consolidation merge on a real st
     expect(orphan).toBeUndefined();
   });
 
-  it('inside a caller transaction a ROLLBACK TO failure reports nothing committed', async () => {
+  it('inside a caller transaction a ROLLBACK TO failure stops consolidation and propagates', async () => {
     const db = await seedStore();
     const { upsertEmbeddingRowsNative } = await import('../../store/memory-accessor.js');
     const insert = db.prepare(
@@ -265,20 +266,36 @@ describe.skipIf(!isSqliteVecAvailable())('sleep consolidation merge on a real st
              BEGIN SELECT RAISE(ABORT, 'injected citation failure'); END`);
     const before = snapshot(db);
     const prepare = db.prepare.bind(db);
+    const sqlAfterAbort: string[] = [];
+    let aborted = false;
     const spy = vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
-      if (sql === 'ROLLBACK TO sleep_merge_pair') throw new Error('injected rollback failure');
+      if (aborted) sqlAfterAbort.push(sql);
+      if (sql === 'ROLLBACK TO sleep_merge_pair') {
+        aborted = true;
+        throw new Error('injected rollback failure');
+      }
       return prepare(sql);
     });
 
     db.exec('BEGIN');
-    const { runSleepConsolidation } = await import('../sleep-consolidation.js');
-    const result = await runSleepConsolidation(tempDir);
+    const { runSleepConsolidation, SleepMergeAbortedError } = await import(
+      '../sleep-consolidation.js'
+    );
+    const error = await runSleepConsolidation(tempDir).then(
+      () => undefined,
+      (err: Error) => err,
+    );
     spy.mockRestore();
 
-    expect(result.mergeDuplicates.merged).toBe(0);
-    expect(result.mergeDuplicates.error).toMatch(/injected rollback failure/);
-    expect(result.mergeDuplicates.error).toMatch(/injected citation failure/);
-    expect(result.mergeDuplicates.error).toMatch(/nothing committed/);
+    // The failure propagates, so the caller cannot report success and commit.
+    expect(error).toBeInstanceOf(SleepMergeAbortedError);
+    if (!(error instanceof SleepMergeAbortedError)) throw new Error('unreachable');
+    expect(error.message).toMatch(/injected rollback failure/);
+    expect(error.message).toMatch(/injected citation failure/);
+    expect(error.message).toMatch(/nothing committed/);
+    expect(error.mergeDuplicates).toMatchObject({ merged: 0, failed: 1 });
+    // No later step queried or wrote the store inside the doomed transaction.
+    expect(sqlAfterAbort).toEqual([]);
     // The caller's transaction is left to the caller, who discards the writes.
     expect(db.isTransaction).toBe(true);
     db.exec('ROLLBACK');

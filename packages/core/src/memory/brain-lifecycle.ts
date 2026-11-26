@@ -963,6 +963,8 @@ export interface RunConsolidationResult {
  * @param trigger - What triggered this consolidation run (for observability).
  *   Defaults to 'session_end'. Written to brain_consolidation_events.
  * @returns Aggregated counts from each consolidation step
+ * @throws {SleepMergeAbortedError} When a sleep merge rollback failed inside a
+ *   caller transaction: the caller must roll that transaction back (T14653).
  */
 export async function runConsolidation(
   projectRoot: string,
@@ -1264,7 +1266,7 @@ export async function runConsolidation(
   // Runs the 4-step LLM pipeline: merge duplicates, prune stale, strengthen
   // patterns, generate insights. Enabled by default when an LLM API key is
   // available. Graceful no-op when disabled or LLM is unavailable — never
-  // blocks or throws.
+  // blocks or throws, except a SleepMergeAbortedError (T14653).
   try {
     const { runSleepConsolidation } = await import('./sleep-consolidation.js');
     const sleepResult = await runSleepConsolidation(projectRoot);
@@ -1291,6 +1293,10 @@ export async function runConsolidation(
       console.warn('[consolidation] Step 10 sleep consolidation skipped (disabled or no LLM)');
     }
   } catch (err) {
+    // A caller transaction holds a failed merge's partial writes: propagate
+    // so it is rolled back, never committed (T14653).
+    const { SleepMergeAbortedError } = await import('./sleep-consolidation.js');
+    if (err instanceof SleepMergeAbortedError) throw err;
     console.warn('[consolidation] Step 10 sleep consolidation failed:', err);
   }
 
