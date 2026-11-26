@@ -149,9 +149,9 @@ type PermissionContext = HashMap<String, Vec<String>>;
 /// spec's resolution algorithm (Section 6.2): `./` and `../` specifiers are
 /// relative to the importing file; `@name` and bare specifiers resolve to
 /// `.cleo/skills/<name>.cant` under the project root (the nearest ancestor
-/// holding `.cleo/` or `.git`). A `\\` in a specifier separates components
-/// like `/`, on every host, so a file resolves the same everywhere. A specifier without a `.cant` suffix also
-/// tries `<specifier>.cant`. Imports that do not resolve or do not parse are
+/// holding `.cleo/` or `.git`). A `\` in a specifier separates components
+/// like `/`, on every host, so a file resolves the same everywhere. A
+/// specifier without a `.cant` suffix also tries `<specifier>.cant`. Imports that do not resolve or do not parse are
 /// skipped here: S04 (target existence) is not implemented.
 ///
 /// Containment (Section 6.4) is checked before the filesystem is touched: a
