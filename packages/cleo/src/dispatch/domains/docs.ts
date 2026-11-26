@@ -2119,7 +2119,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'Pipe the body with `cat new.md | cleo docs update <slug> --content -`, or use `--file ./new.md`.',
       );
     }
-    if (statusOnly && rawStatus === undefined) {
+    // T14660: a bare --superseded-by falls through to core, whose refusal
+    // names the full supersession command as its fix.
+    if (statusOnly && rawStatus === undefined && params.supersededBy === undefined) {
       return lafsError(
         'E_INVALID_INPUT',
         'Provide --file <path>, --content <text>, or --status <status> alone',
@@ -2151,7 +2153,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         outcome.error.code,
         outcome.error.message,
         'update',
-        undefined,
+        outcome.error.fix,
         'details' in outcome.error ? outcome.error.details : undefined,
       );
     }
@@ -2201,7 +2203,11 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         attachmentId: outcome.result.attachmentId,
         sha256: outcome.result.sha256,
         previousSha256: outcome.result.previousSha256 ?? undefined,
-        summary: `Updated doc '${outcome.result.slug}'${outcome.result.lifecycleStatus ? ` (status: ${outcome.result.lifecycleStatus})` : ''}`,
+        // T14660 — a supersession records the successor as `docs supersede` did.
+        summary:
+          outcome.result.supersededBy !== undefined
+            ? `Superseded '${outcome.result.slug}' → '${outcome.result.supersededBy}'`
+            : `Updated doc '${outcome.result.slug}'${outcome.result.lifecycleStatus ? ` (status: ${outcome.result.lifecycleStatus})` : ''}`,
       });
     } catch {
       /* best-effort */

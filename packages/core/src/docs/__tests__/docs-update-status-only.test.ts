@@ -92,6 +92,10 @@ describe('updateDocBySlug — status alone (T12654)', () => {
         expect(res.error.message).toMatch(
           /superseded.*cleo docs update t12945-old --status superseded --superseded-by/s,
         );
+        // T14660: the command is a structured fix, not only message text.
+        expect(res.error.fix).toBe(
+          'cleo docs update t12945-old --status superseded --superseded-by NEW_SLUG',
+        );
       }
     }
     // The origin keeps the doc superseded with its bytes, as every synced peer does.
@@ -168,6 +172,17 @@ describe('updateDocBySlug — status superseded with a successor (T14657)', () =
       successorSlug: true,
     });
     expect(await link('t14657-old-b', 't14657-new-b')).toEqual(viaSupersede);
+
+    // T14660: the docs-versioning audit names the successor.
+    const { readFile } = await import('node:fs/promises');
+    const { DOCS_VERSIONING_AUDIT_FILE } = await import('../docs-update.js');
+    const lines = (await readFile(join(tempDir, DOCS_VERSIONING_AUDIT_FILE), 'utf-8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { slug: string; revisions: { supersededBy?: string }[] });
+    const entry = lines.filter((line) => line.slug === 't14657-old-b').at(-1);
+    expect(entry?.revisions.at(-1)?.supersededBy).toBe('t14657-new-b');
+    expect(res.result.supersededBy).toBe('t14657-new-b');
   });
 
   it('refuses a successor with a content edit, another status, an unknown or the same doc', async () => {
@@ -188,11 +203,23 @@ describe('updateDocBySlug — status superseded with a successor (T14657)', () =
       { slug: 't14657-doc', status: 'superseded', supersededBy: 't14657-doc' },
     ] as const;
     const codes: string[] = [];
+    const fixes: (string | undefined)[] = [];
     for (const params of refused) {
       const res = await updateDocBySlug(tempDir, params);
       expect(res.ok, JSON.stringify(params)).toBe(false);
-      if (!res.ok) codes.push(res.error.code);
+      if (!res.ok) {
+        codes.push(res.error.code);
+        fixes.push(res.error.fix);
+      }
     }
+    // T14660: every refusal carries a structured, runnable fix.
+    expect(fixes).toEqual([
+      'cleo docs update t14657-doc --status superseded --superseded-by t14657-next',
+      'cleo docs update t14657-doc --status superseded --superseded-by t14657-next',
+      'cleo docs update t14657-doc --status superseded --superseded-by t14657-next',
+      'cleo docs add OWNER_ID FILE --slug t14657-missing',
+      'cleo docs update t14657-doc --status superseded --superseded-by NEW_SLUG',
+    ]);
     expect(codes).toEqual([
       'E_INVALID_INPUT',
       'E_INVALID_INPUT',
