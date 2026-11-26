@@ -54,6 +54,8 @@ const ADAPTER_MAP: Record<BrainSubstrate, (options: BrainQueryOptions) => BrainS
  * @param ctx - Project whose `cleo.db` code graph resolves nexus stubs.
  * @param errors - Collects a failed nexus stub read, so the stubs it would
  *   have recovered are never dropped silently (T14656).
+ * @param failedSubstrates - Substrates whose read failed: their missing targets
+ *   get no query-less stub, since the node may exist but failed to load (T14658).
  * @returns Array of stub BrainNode objects for missing targets.
  */
 function loadStubNodesForEdgeTargets(
@@ -61,6 +63,7 @@ function loadStubNodesForEdgeTargets(
   edges: BrainEdge[],
   ctx: ProjectContext,
   errors: string[],
+  failedSubstrates: ReadonlySet<BrainSubstrate>,
 ): BrainNode[] {
   // Collect all target IDs referenced by edges but not yet loaded
   const missingTargetIds = new Set<string>();
@@ -137,6 +140,7 @@ function loadStubNodesForEdgeTargets(
   // without DB queries — they are rare as cross-substrate edge targets.
   for (const [substrate, nodeIds] of stubsBySubstrate) {
     if (substrate === 'nexus') continue; // already handled above
+    if (failedSubstrates.has(substrate)) continue; // never fake a node that failed to load
 
     for (const nodeId of nodeIds) {
       const rawId = nodeId.replace(new RegExp(`^${substrate}:`), '');
@@ -167,7 +171,9 @@ function loadStubNodesForEdgeTargets(
  * stub (id, substrate, kind, label). This recovers cross-substrate edges
  * that would otherwise be silently dropped.
  *
- * Stub nodes carry `meta.isStub: true` for optional UI differentiation.
+ * Stub nodes carry `meta.isStub: true` for optional UI differentiation. A
+ * substrate whose read failed gets no query-less stubs: an edge to one of its
+ * unloaded nodes is dropped and counted in that substrate's error (T14658).
  * A substrate whose read failed is named in `errors` with the SQL error, so a
  * broken query never passes for an empty substrate (T14647). Each query is
  * caught on its own, so one failure never skips a substrate's other queries;
@@ -236,6 +242,7 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
     allEdges,
     options.projectCtx ?? resolveDefaultProjectContext(),
     stubErrors,
+    new Set(Object.keys(errors) as BrainSubstrate[]),
   );
   // A failed stub read is a nexus read failure; it joins any nexus adapter error.
   for (const message of stubErrors) {
@@ -253,11 +260,27 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
     }
   }
 
+  // An edge into a failed substrate whose target did not load got no stub:
+  // drop it and count it under that substrate's error (T14658).
+  const droppedBySubstrate = new Map<BrainSubstrate, number>();
+  const edges = allEdges.filter((edge) => {
+    if (seenIds.has(edge.target)) return true;
+    const target = edge.target.slice(0, edge.target.indexOf(':')) as BrainSubstrate;
+    if (target === 'nexus' || errors[target] === undefined) return true;
+    droppedBySubstrate.set(target, (droppedBySubstrate.get(target) ?? 0) + 1);
+    edgeCounts[edge.substrate] -= 1;
+    return false;
+  });
+  for (const [substrate, count] of droppedBySubstrate) {
+    errors[substrate] =
+      `${errors[substrate]}; dropped ${count} edge(s) whose ${substrate} target did not load`;
+  }
+
   const truncated = uniqueNodes.length >= limit;
 
   return {
     nodes: truncated ? uniqueNodes.slice(0, limit) : uniqueNodes,
-    edges: allEdges,
+    edges,
     counts: { nodes: nodeCounts, edges: edgeCounts },
     truncated,
     ...(Object.keys(errors).length > 0 ? { errors } : {}),

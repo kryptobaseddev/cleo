@@ -112,8 +112,12 @@ beforeAll(async () => {
     INSERT INTO brain_learnings (id, insight, source, confidence) VALUES ('L-1', 'Seeded learning', 'test', 0.9);
     INSERT INTO brain_page_edges (from_id, to_id, edge_type, weight) VALUES
       ('learning:L-1', 'observation:O-1', 'derived_from', 0.9),
-      ('observation:O-1', 'src/a.ts::run', 'code_reference', 0.6);
+      ('observation:O-1', 'src/a.ts::run', 'code_reference', 0.6),
+      ('decision:D-1', 'pattern:P-1', 'informed_by', 0.8),
+      ('learning:L-1', 'decision:D-1', 'supersedes', 0.5),
+      ('observation:O-1', 'task:T9', 'applies_to', 0.7);
     DROP TABLE brain_decisions;
+    DROP TABLE tasks_sessions;
     DROP TABLE nexus_nodes;
   `);
   _resetDualScopeDbCache();
@@ -211,6 +215,21 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
     expect(edges.has('brain:L-1|derived_from|brain:O-1')).toBe(true);
     expect(partialGraph.errors?.brain).toMatch(/^brain_decisions: .*no such table/i);
     expect(partialGraph.errors?.brain).not.toMatch(/brain_patterns|brain_learnings/);
+  });
+
+  it('drops and counts edges whose endpoint failed to load, with no fake stub (T14658)', () => {
+    const edges = partialGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    expect(edges.some((e) => e.includes('brain:D-1'))).toBe(false);
+    expect(partialGraph.nodes.some((n) => n.id === 'brain:D-1')).toBe(false);
+    expect(partialGraph.nodes.some((n) => n.meta?.isStub && n.substrate === 'brain')).toBe(false);
+    expect(edges).not.toContain('brain:O-1|applies_to|tasks:T9');
+    expect(partialGraph.nodes.some((n) => n.id === 'tasks:T9')).toBe(false);
+    expect(partialGraph.errors?.tasks).toMatch(
+      /dropped 1 edge\(s\) whose tasks target did not load$/,
+    );
+    expect(partialGraph.errors?.brain).toMatch(
+      /dropped 2 edge\(s\) whose brain endpoint did not load/,
+    );
   });
 
   it('reports a failed nexus stub read (T14656)', () => {

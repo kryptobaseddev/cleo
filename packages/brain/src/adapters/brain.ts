@@ -160,12 +160,21 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
   const errors: string[] = [];
+  /** Node kinds whose query failed; their unloaded endpoints never become edges (T14658). */
+  const failedKinds = new Set<string>();
+  /** Runs one node query through `tryQuery`, remembering its kind when it fails. */
+  const queryNodes = <T>(kind: string, table: string, query: () => T[]): T[] => {
+    const before = errors.length;
+    const rows = tryQuery(errors, table, query);
+    if (errors.length > before) failedKinds.add(kind);
+    return rows;
+  };
 
   readProjectStore(
     ctx,
     (db) => {
       // Observations — normalise created_at to ISO-8601 with 'T' separator via strftime
-      const obsRows = tryQuery(errors, 'brain_observations', () =>
+      const obsRows = queryNodes('observation', 'brain_observations', () =>
         allTyped<ObservationRow>(
           db.prepare(
             `SELECT id, title, quality_score, memory_tier,
@@ -198,7 +207,7 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
       }
 
       // Decisions — normalise created_at to ISO-8601 with 'T' separator via strftime
-      const decRows = tryQuery(errors, 'brain_decisions', () =>
+      const decRows = queryNodes('decision', 'brain_decisions', () =>
         allTyped<DecisionRow>(
           db.prepare(
             `SELECT id, decision, quality_score, context_task_id,
@@ -230,7 +239,7 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
 
       // Patterns — uses 'pattern' text column (not 'title') and 'extracted_at' (not 'created_at').
       // SQLite strftime is used to normalise the timestamp to ISO-8601 with 'T' separator.
-      const patRows = tryQuery(errors, 'brain_patterns', () =>
+      const patRows = queryNodes('pattern', 'brain_patterns', () =>
         allTyped<PatternRow>(
           db.prepare(
             `SELECT id, pattern, type, quality_score,
@@ -259,7 +268,7 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
 
       // Learnings — uses 'insight' text column (not 'title').
       // Normalise created_at to ISO-8601 with 'T' separator via strftime.
-      const learnRows = tryQuery(errors, 'brain_learnings', () =>
+      const learnRows = queryNodes('learning', 'brain_learnings', () =>
         allTyped<LearningRow>(
           db.prepare(
             `SELECT id, insight, quality_score,
@@ -301,6 +310,12 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
         typeIdToBrainNodeId.set(`${typePrefix}:${rawId}`, n.id);
       }
 
+      // An endpoint whose node query failed and that is not loaded would be a
+      // dangling edge or a fake stub downstream; drop it and count it (T14658).
+      let droppedEdges = 0;
+      const isUnloadedFailedNode = (typeId: string): boolean =>
+        !typeIdToBrainNodeId.has(typeId) && failedKinds.has(typeId.slice(0, typeId.indexOf(':')));
+
       // brain_page_edges: query all and classify each edge
       const pageEdgeRows = tryQuery(errors, 'brain_page_edges', () =>
         allTyped<PageEdgeRow>(
@@ -312,6 +327,10 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
         const sourceBrainNodeId =
           typeIdToBrainNodeId.get(row.from_id) ?? brainTypeIdToBrainNodeId(row.from_id);
         if (!sourceBrainNodeId) continue; // source not a recognised brain node
+        if (isUnloadedFailedNode(row.from_id)) {
+          droppedEdges++;
+          continue;
+        }
 
         if (isTaskId(row.to_id)) {
           // Cross-substrate: brain → tasks
@@ -335,7 +354,9 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
           // Intra-brain: both IDs should be brain nodes
           const targetBrainNodeId =
             typeIdToBrainNodeId.get(row.to_id) ?? brainTypeIdToBrainNodeId(row.to_id);
-          if (targetBrainNodeId) {
+          if (targetBrainNodeId && isUnloadedFailedNode(row.to_id)) {
+            droppedEdges++;
+          } else if (targetBrainNodeId) {
             edges.push({
               source: sourceBrainNodeId,
               target: targetBrainNodeId,
@@ -362,6 +383,10 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
         const sourceBrainNodeId =
           typeIdToBrainNodeId.get(sourceTypeId) ?? brainTypeIdToBrainNodeId(sourceTypeId);
         if (!sourceBrainNodeId) continue; // source node not in loaded set
+        if (isUnloadedFailedNode(sourceTypeId)) {
+          droppedEdges++;
+          continue;
+        }
         edges.push({
           source: sourceBrainNodeId,
           target: `tasks:${row.task_id}`,
@@ -369,6 +394,11 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
           weight: 0.7,
           substrate: 'cross',
         });
+      }
+      if (droppedEdges > 0) {
+        errors.push(
+          `dropped ${droppedEdges} edge(s) whose brain endpoint did not load because its node query failed`,
+        );
       }
 
       // brain_observations.files_modified_json: cross-substrate observation → nexus file

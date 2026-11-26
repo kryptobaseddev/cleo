@@ -146,11 +146,11 @@ Typed memory: observations, decisions, patterns, learnings. Node weight comes
 from `quality_score`; `minWeight` filters low-weight rows. Intra-memory edges
 come from `brain_page_edges`. Bridges:
 
-- `brain_page_edges` whose `to_id` starts with `task:` → `tasks:*` (`brain.ts:316`)
-- `brain_page_edges` whose `to_id` looks like a NEXUS ID (contains `::`, or has a `/` and no `:`) → `nexus:*` (`brain.ts:325`)
-- `brain_memory_links` rows → `tasks:*` (`brain.ts:360`)
-- `brain_observations.files_modified_json` entries → `nexus:*`, edge type `modified_by` (`brain.ts:375`)
-- `brain_decisions.context_task_id` → `tasks:*`, edge type `applies_to` (`brain.ts:399`)
+- `brain_page_edges` whose `to_id` starts with `task:` → `tasks:*` (`brain.ts:335`)
+- `brain_page_edges` whose `to_id` looks like a NEXUS ID (contains `::`, or has a `/` and no `:`) → `nexus:*` (`brain.ts:344`)
+- `brain_memory_links` rows → `tasks:*` (`brain.ts:381`)
+- `brain_observations.files_modified_json` entries → `nexus:*`, edge type `modified_by` (`brain.ts:405`)
+- `brain_decisions.context_task_id` → `tasks:*`, edge type `applies_to` (`brain.ts:429`)
 
 ### 4.2 nexus
 
@@ -266,11 +266,11 @@ schema change. The wire contract enumerates built-ins for autocompletion in
 
 | Bridge | Edge type | Source mechanism | File:line |
 |---|---|---|---|
-| memory → tasks (page edges) | the row's `edge_type` | `brain_page_edges` with `to_id` starting `task:` | `packages/brain/src/adapters/brain.ts:316` |
-| memory → nexus (page edges) | the row's `edge_type` | `brain_page_edges` whose `to_id` is NEXUS-style | `packages/brain/src/adapters/brain.ts:325` |
-| memory → tasks (memory links) | the row's `link_type` | `brain_memory_links` rows | `packages/brain/src/adapters/brain.ts:360` |
-| memory → nexus (files modified) | `modified_by` | `brain_observations.files_modified_json` | `packages/brain/src/adapters/brain.ts:375` |
-| memory → tasks (decision context) | `applies_to` | `brain_decisions.context_task_id` | `packages/brain/src/adapters/brain.ts:399` |
+| memory → tasks (page edges) | the row's `edge_type` | `brain_page_edges` with `to_id` starting `task:` | `packages/brain/src/adapters/brain.ts:335` |
+| memory → nexus (page edges) | the row's `edge_type` | `brain_page_edges` whose `to_id` is NEXUS-style | `packages/brain/src/adapters/brain.ts:344` |
+| memory → tasks (memory links) | the row's `link_type` | `brain_memory_links` rows | `packages/brain/src/adapters/brain.ts:381` |
+| memory → nexus (files modified) | `modified_by` | `brain_observations.files_modified_json` | `packages/brain/src/adapters/brain.ts:405` |
+| memory → tasks (decision context) | `applies_to` | `brain_decisions.context_task_id` | `packages/brain/src/adapters/brain.ts:429` |
 | conduit → agent-registry | `messages` | aggregated `from_agent_id → to_agent_id` counts | `packages/brain/src/adapters/conduit.ts:104` |
 
 Every bridge carries `substrate: 'cross'`.
@@ -335,21 +335,24 @@ carries `substrates`, `limit`, `minWeight` and `projectCtx`
 and each adapter caps itself at `ceil(limit / 5)`. Within a substrate the
 adapter MAY split its budget by kind: the memory adapter spends 40% on
 observations, 25% on decisions, 20% on patterns and 15% on learnings
-(`brain.ts:180`, `:212`, `:244`, `:273`); the tasks adapter 80% tasks, 20%
+(`brain.ts:189`, `:221`, `:253`, `:282`); the tasks adapter 80% tasks, 20%
 sessions.
 
 ### 7.3 Merge and stub pass
 
-`getAllSubstrates()` (`index.ts:179`):
+`getAllSubstrates()` (`index.ts:185`):
 
 1. Runs the requested adapters (default all five) and copies each adapter's
    `error` into `errors[substrate]`.
 2. Deduplicates nodes by ID.
-3. Loads stub nodes for edge targets not yet loaded (`index.ts:59`). NEXUS
+3. Loads stub nodes for edge targets not yet loaded (`index.ts:61`). NEXUS
    stubs are looked up in `nexus_nodes` and typed `file` or `symbol`; stubs for
    other substrates are built without a query and typed `observation`. When the
    caller passed a `substrates` filter, stubs from other substrates are dropped.
-   A failed NEXUS stub read is added to `errors.nexus`.
+   A failed NEXUS stub read is added to `errors.nexus`. A non-NEXUS substrate
+   whose read failed gets no query-less stub: an edge to one of its unloaded
+   nodes is dropped and counted as `dropped <n> edge(s) whose <substrate>
+   target did not load` in that substrate's error.
 4. Sets `truncated` when the node count reaches `limit` and slices to `limit`.
 
 ### 7.4 Read failures
@@ -364,9 +367,13 @@ A failed read is reported, never returned as a silently empty substrate:
   on loaded nodes) finds nothing to join.
 - **Unopenable store.** When the `cleo.db` exists but cannot be opened (a
   restore in progress, a malformed file), the reader reports
-  `store cannot be opened: <message>` (`db-connections.ts:85`), and every
+  `store cannot be opened: <message>` (`db-connections.ts:95`), and every
   substrate on that store lists it. A missing store is not an error: the
   substrate is empty.
+- **Edges to unloaded nodes.** When a memory node query fails, a page edge or
+  memory link whose endpoint is of that kind and did not load is dropped, not
+  emitted as a dangling edge, and counted as `dropped <n> edge(s) whose brain
+  endpoint did not load because its node query failed` (`brain.ts:315`).
 - **Stub pass.** A failed NEXUS stub lookup records
   `nexus_nodes (stubs): <message>` under `errors.nexus`; a message the NEXUS
   adapter already reported is not repeated.
