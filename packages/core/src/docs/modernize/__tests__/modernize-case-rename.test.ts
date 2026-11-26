@@ -568,6 +568,98 @@ describe('modernize tree apply: merged, deleted and linked mirrors (T14631)', ()
     expect(await ledgerRows(projectRoot)).toEqual([]);
   });
 
+  it('gives a named target the automatic lifecycle rules: unknown, superseded, alias (T14651)', async () => {
+    const { oldSha } = await deleteKeptMirror(true);
+    const slug = await survivorSlug();
+    const only = ['publication-ledger-drift'];
+    const publishedPath = 'docs/adr/store-notes.md';
+    const ledgerPlan = async (target: string) => {
+      const res = await runDocsDoctor(projectRoot, {
+        apply: true,
+        only,
+        archiveInto: { publishedPath, slug: target },
+        backupReceiptPath: receiptFile(),
+      });
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error(res.error.message);
+      return res.report.repairs.find((r) => r.kind === 'publication-ledger-drift');
+    };
+    const archived = async (target: string): Promise<boolean> =>
+      (await listDocVersions({ ownerId: target, projectRoot })).versions.some(
+        (v) => v.sha256 === oldSha,
+      );
+
+    // Unknown: named as such, not as an unadopted doc.
+    const unknown = await ledgerPlan('no-such-doc');
+    expect(unknown).toMatchObject({ action: 'republish-or-prune', applied: false });
+    expect(unknown?.detail).toContain("no doc named 'no-such-doc'");
+    expect(unknown?.detail).not.toContain('cleo docs migrate');
+
+    // Rename the survivor so the superseded check below is reached through an alias.
+    const { renameDocSlug } = await import('../../slug-rename.js');
+    await renameDocSlug(projectRoot, {
+      oldSlug: slug,
+      newSlug: 'store-decision',
+      authorAgentId: 'tester',
+      reason: 'test: alias',
+    });
+    // Superseded: refused, and the fix names the successor.
+    await createAttachmentStore().put(
+      Buffer.from('# draft\n', 'utf-8'),
+      { kind: 'blob', storageKey: '', mime: 'text/markdown', size: 8 },
+      'task',
+      'T2',
+      'modernize-test',
+      projectRoot,
+      { slug: 'store-successor', type: 'adr' },
+    );
+    expect(
+      (await updateDocBySlug(projectRoot, { slug: 'store-successor', content: `${keep}\nNext.\n` }))
+        .ok,
+    ).toBe(true);
+    const { supersedeDoc } = await import('../../supersede.js');
+    await supersedeDoc(projectRoot, { oldSlug: 'store-decision', newSlug: 'store-successor' });
+    const superseded = await ledgerPlan(slug);
+    expect(superseded).toMatchObject({ action: 'republish-or-prune', applied: false });
+    expect(superseded?.detail).toContain("doc 'store-decision' is superseded");
+    expect(superseded?.detail).toContain(
+      `--publication ${publishedPath} --archive-into store-successor`,
+    );
+    expect(await archived('store-decision')).toBe(false);
+
+    // The printed successor command archives (into a doc of another owner).
+    expect(await ledgerPlan('store-successor')).toMatchObject({
+      action: 'archive-publication',
+      applied: true,
+    });
+    expect(await archived('store-successor')).toBe(true);
+  });
+
+  it('resolves an alias named target to the live slug and archives into it (T14651)', async () => {
+    const { oldSha } = await deleteKeptMirror(true);
+    const slug = await survivorSlug();
+    const { renameDocSlug } = await import('../../slug-rename.js');
+    await renameDocSlug(projectRoot, {
+      oldSlug: slug,
+      newSlug: 'store-decision',
+      authorAgentId: 'tester',
+      reason: 'test: alias',
+    });
+    const res = await runDocsDoctor(projectRoot, {
+      apply: true,
+      only: ['publication-ledger-drift'],
+      archiveInto: { publishedPath: 'docs/adr/store-notes.md', slug },
+      backupReceiptPath: receiptFile(),
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const plan = res.report.repairs.find((r) => r.kind === 'publication-ledger-drift');
+    expect(plan).toMatchObject({ action: 'archive-publication', applied: true });
+    expect(plan?.detail).toContain("prior version of 'store-decision'");
+    const versions = await listDocVersions({ ownerId: 'store-decision', projectRoot });
+    expect(versions.versions.map((v) => v.sha256)).toContain(oldSha);
+  });
+
   it('removes a non-survivor hard link to a kept file', async () => {
     const keptAbs = join(docsRoot, 'adr', 'adr-001-store.md');
     linkSync(keptAbs, join(docsRoot, 'adr', 'store-copy.md'));

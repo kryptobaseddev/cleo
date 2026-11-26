@@ -377,7 +377,11 @@ export interface DocsDoctorOptions {
    * the doc `slug` (T14651). A merged or deleted mirror (`cleo docs modernize`)
    * leaves no in-sync sibling row to find the doc by, so the caller names it.
    * The row must be proven gone, as for every ledger repair; the import is
-   * additive and the next run prunes the row. Needs the
+   * additive and the next run prunes the row. The doc may belong to another
+   * owner than the row (a merge folds one doc's mirror into another's), but
+   * it gets the automatic target's lifecycle rules: an alias resolves to the
+   * doc's live slug, a superseded doc is refused (naming its successor), and
+   * a slug that names no doc is refused as such. Needs the
    * `publication-ledger-drift` class in scope; refused with {@link repair}.
    */
   readonly archiveInto?: DocsDoctorArchiveInto;
@@ -389,14 +393,18 @@ export interface DocsDoctorOptions {
 export interface DocsDoctorArchiveInto {
   /** The `docs_publications.published_path` of the row(s), exactly as stored. */
   readonly publishedPath: string;
-  /** The adopted doc the blob becomes a prior version of. */
+  /**
+   * The adopted doc the blob becomes a prior version of: its live slug or an
+   * alias, of any owner (not necessarily the row's).
+   */
   readonly slug: string;
 }
 
 /**
  * The `cleo docs doctor` invocation that archives the only-held blob of the
  * ledger row at `publishedPath` into `slug` (T14651). A placeholder `slug`
- * (such as `<slug>`) is printed as given.
+ * (such as `SLUG`, never one in angle brackets, which a shell reads as a
+ * redirect) is printed as given.
  *
  * @param publishedPath - The row's published path, as stored.
  * @param slug - The archive target doc.
@@ -873,6 +881,8 @@ type ArchiveTarget =
   | { readonly kind: 'unadopted'; readonly slug: string }
   | { readonly kind: 'ambiguous'; readonly slugs: readonly string[] }
   | { readonly kind: 'no-bytes'; readonly slug: string }
+  | { readonly kind: 'unknown'; readonly slug: string }
+  | { readonly kind: 'superseded'; readonly slug: string; readonly successor: string | null }
   | null;
 
 /**
@@ -987,7 +997,7 @@ async function scanPublicationLedger(
   // sha `status` reports is best-effort (sync and SDK updates move the head
   // without it), so it is never trusted here; a head that does not resolve
   // keeps the row (fail closed).
-  const { resolveDocRef } = await import('./slug-rename.js');
+  const { resolveDocRef, supersessionSlugs } = await import('./slug-rename.js');
   const headByName = async (blobName: string): Promise<string | null> => {
     for (const name of new Set([blobName, blobName.replace(/\.md$/, '')])) {
       const ref = await resolveDocRef(projectRoot, name, { quiet: true }).catch(() => null);
@@ -1082,11 +1092,22 @@ async function scanPublicationLedger(
     if (others.length > 0) return { kind: 'ambiguous', slugs: [slug, ...others] };
     return namedTarget(slug, record);
   };
-  // T14651: a caller-named doc (a merged or deleted mirror has no sibling row).
+  // T14651: a caller-named doc (a merged or deleted mirror has no sibling
+  // row). It gets the automatic path's lifecycle rules: an alias resolves to
+  // the doc's live slug, a superseded doc is no target (T14634), and a slug
+  // that names no doc is refused as such.
   const namedTarget = async (
-    slug: string,
+    named: string,
     record: DocsPublicationRecord,
   ): Promise<ArchiveTarget> => {
+    const ref = await resolveDocRef(projectRoot, named, { quiet: true }).catch(() => null);
+    if (ref === null) return { kind: 'unknown', slug: named };
+    const slug = ref.slug;
+    const { supersededBy } = await supersessionSlugs(projectRoot, ref);
+    const lifecycle = ref.meta.lifecycleStatus ?? ref.ownRow.lifecycleStatus;
+    if (lifecycle === 'superseded' || supersededBy !== null) {
+      return { kind: 'superseded', slug, successor: supersededBy };
+    }
     const archive = await buildLedgerArchive(projectRoot, slug, record.lastBlobSha);
     if (archive === 'unadopted') return { kind: 'unadopted', slug };
     return archive === null ? { kind: 'no-bytes', slug } : { kind: 'adopted', archive };
@@ -1199,15 +1220,25 @@ async function scanPublicationLedger(
                       action: 'republish-or-prune',
                       detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; the archive target is ambiguous: docs ${target.slugs.map((s) => `'${s}'`).join(', ')} share the head its stream publishes — keep the doc the stream belongs to and supersede each other one with \`cleo docs supersede <duplicate> <kept>\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
                     }
-                  : target?.kind === 'no-bytes'
+                  : target?.kind === 'unknown'
                     ? {
                         action: 'republish-or-prune',
-                        detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…, whose bytes are not in this device's blob store — run ${rerun} on a device that holds them`,
+                        detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; no doc named '${target.slug}' — name an existing doc with --archive-into (\`cleo docs list\` lists them)`,
                       }
-                    : {
-                        action: 'republish-or-prune',
-                        detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
-                      },
+                    : target?.kind === 'superseded'
+                      ? {
+                          action: 'republish-or-prune',
+                          detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; doc '${target.slug}' is superseded, so it takes no archive${target.successor ? ` — archive into its successor: \`${docsDoctorArchiveCommand(record.publishedPath, target.successor)}\`` : ' — name the doc that replaced it with --archive-into'}`,
+                        }
+                      : target?.kind === 'no-bytes'
+                        ? {
+                            action: 'republish-or-prune',
+                            detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…, whose bytes are not in this device's blob store — run ${rerun} on a device that holds them`,
+                          }
+                        : {
+                            action: 'republish-or-prune',
+                            detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
+                          },
     });
   }
   // A blob is protected only by an attachments row or by a ledger row that

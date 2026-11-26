@@ -901,9 +901,9 @@ async function movePublications(
           // T14651: name the doctor's named-target archive, the one route that
           // repairs a row with no in-sync sibling; it runs once the removal is
           // committed (the doctor prunes only a row proven gone).
-          const repair = docsDoctorArchiveCommand(pub.publishedPath, slug ?? '<slug>');
+          const repair = docsDoctorArchiveCommand(pub.publishedPath, slug ?? 'SLUG');
           const why = !slug
-            ? 'no doc holds its content; name the one that should keep it as <slug>'
+            ? 'no doc holds its content; replace SLUG with the doc that should keep it'
             : built === 'unadopted'
               ? `'${slug}' has no conduit history yet: adopt it with cleo docs migrate first`
               : `its bytes are not in this device's blob store: run the repair on a device that holds them`;

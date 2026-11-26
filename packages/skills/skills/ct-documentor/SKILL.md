@@ -98,8 +98,11 @@ with the valid list. A gone row that is its blob's only reference is archived
 into the doc an in-sync sibling row of its stream publishes; a mirror
 `cleo docs modernize` merged or deleted has no such sibling, so name the doc:
 `cleo docs doctor --only publication-ledger-drift --apply --publication <path> --archive-into <slug>`
-archives the blob and the next run prunes the row (T14651).
-`W_DOCS_MODERNIZE_PUBLICATION_KEPT` prints that command for each kept row.
+archives the blob and the next run prunes the row (T14651). The named doc may
+belong to another owner than the row (a merge folds a mirror into another doc);
+an alias resolves to its live slug, and a superseded or unknown doc is refused.
+`W_DOCS_MODERNIZE_PUBLICATION_KEPT` prints that command for each kept row, with
+`SLUG` standing in when no doc holds the content.
 
 `cleo docs migrate` (T13360) imports legacy docs + history into the re-keyed
 conduit store inside the migration safety harness (pre-step backup, verified
