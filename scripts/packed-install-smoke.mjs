@@ -1734,16 +1734,21 @@ syncBuiltinESMExports();
     if (installOnly) {
       // T14629: the native optional dependencies may be skipped on this platform;
       // record which ones the install kept so a skip is visible, never silent.
+      // T14637: npm may nest a dependency under @cleocode/core (a grammar's peer
+      // pulls another tree-sitter to the root), so look where core resolves it.
+      const core = join(app, 'node_modules', '@cleocode', 'core');
       manifest.optionalNative = Object.fromEntries(
         Object.keys(
-          JSON.parse(readFileSync(join(app, 'node_modules/@cleocode/core/package.json'), 'utf8'))
-            .optionalDependencies ?? {},
-        ).map((name) => [name, existsSync(join(app, 'node_modules', name, 'package.json'))]),
+          JSON.parse(readFileSync(join(core, 'package.json'), 'utf8')).optionalDependencies ?? {},
+        ).map((name) => [
+          name,
+          [core, app].some((dir) => existsSync(join(dir, 'node_modules', name, 'package.json'))),
+        ]),
       );
       // T14637: tree-sitter@0.25.1 and every grammar ship a prebuild for each release
       // platform, so a skipped one is a regression, and a parse proves the binding loads.
       const skipped = Object.entries(manifest.optionalNative)
-        .filter(([, installed]) => !installed)
+        .filter(([name, installed]) => name.startsWith('tree-sitter') && !installed)
         .map(([name]) => name);
       if (skipped.length)
         throw new Error(`Optional native dependencies skipped: ${skipped.join(', ')}`);
