@@ -1,17 +1,19 @@
 /**
  * TASKS substrate adapter for the Living Brain API.
  *
- * Queries tasks.db and returns BrainNodes/BrainEdges for tasks and sessions.
+ * Queries the project `cleo.db` (`tasks_tasks`, `tasks_sessions`,
+ * `tasks_task_relations`, `tasks_task_dependencies`) and returns
+ * BrainNodes/BrainEdges for tasks and sessions.
  * Prioritises critical/high priority tasks and active sessions.
  *
  * Node IDs are prefixed with "tasks:" to prevent collisions.
  */
 
-import { allTyped, getTasksDb } from '../db-connections.js';
+import { allTyped, readProjectStore } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
-/** Raw row from tasks table. */
+/** Raw row from `tasks_tasks`. */
 interface TaskRow {
   id: string;
   title: string;
@@ -22,7 +24,7 @@ interface TaskRow {
   created_at: string;
 }
 
-/** Raw row from sessions table. */
+/** Raw row from `tasks_sessions`. */
 interface SessionRow {
   id: string;
   status: string;
@@ -30,17 +32,17 @@ interface SessionRow {
   ended_at: string | null;
 }
 
-/** Raw row from task_relations. */
+/** Raw row from `tasks_task_relations`. */
 interface TaskRelationRow {
   task_id: string;
-  related_task_id: string;
+  related_to: string;
   relation_type: string;
 }
 
-/** Raw row from task_dependencies. */
+/** Raw row from `tasks_task_dependencies`. */
 interface TaskDepRow {
   task_id: string;
-  depends_on_task_id: string;
+  depends_on: string;
 }
 
 /** Maps priority string to numeric weight for BrainNode.weight. */
@@ -55,7 +57,7 @@ function priorityWeight(priority: string): number {
 }
 
 /**
- * Returns all BrainNodes and BrainEdges sourced from tasks.db.
+ * Returns all BrainNodes and BrainEdges sourced from the project `cleo.db`.
  *
  * Fetches tasks ordered by priority, plus recent sessions.
  * Synthesizes parent→child, dependency, and relation edges.
@@ -68,21 +70,19 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): {
   edges: BrainEdge[];
 } {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
-  const db = getTasksDb(ctx);
-  if (!db) return { nodes: [], edges: [] };
-
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
   const minWeight = options.minWeight ?? 0;
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
 
-  try {
-    // Tasks (prioritised by severity, then recency)
-    const taskRows = allTyped<TaskRow>(
-      db.prepare(
-        `SELECT id, title, status, priority, type, parent_id, created_at
-         FROM tasks
+  readProjectStore(ctx, (db) => {
+    try {
+      // Tasks (prioritised by severity, then recency)
+      const taskRows = allTyped<TaskRow>(
+        db.prepare(
+          `SELECT id, title, status, priority, type, parent_id, created_at
+         FROM main.tasks_tasks
          WHERE status NOT IN ('archived', 'cancelled')
          ORDER BY
            CASE priority
@@ -90,123 +90,124 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): {
            END,
            created_at DESC
          LIMIT ?`,
-      ),
-      Math.ceil(perSubstrateLimit * 0.8),
-    );
+        ),
+        Math.ceil(perSubstrateLimit * 0.8),
+      );
 
-    const taskIds = new Set<string>();
-    for (const row of taskRows) {
-      const weight = priorityWeight(row.priority);
-      if (weight < minWeight) continue;
-      taskIds.add(row.id);
-      nodes.push({
-        id: `tasks:${row.id}`,
-        kind: 'task',
-        substrate: 'tasks',
-        label: row.title,
-        weight,
-        createdAt: row.created_at,
-        meta: {
-          status: row.status,
-          priority: row.priority,
-          type: row.type,
-          parent_id: row.parent_id,
-          created_at: row.created_at,
-        },
-      });
-    }
+      const taskIds = new Set<string>();
+      for (const row of taskRows) {
+        const weight = priorityWeight(row.priority);
+        if (weight < minWeight) continue;
+        taskIds.add(row.id);
+        nodes.push({
+          id: `tasks:${row.id}`,
+          kind: 'task',
+          substrate: 'tasks',
+          label: row.title,
+          weight,
+          createdAt: row.created_at,
+          meta: {
+            status: row.status,
+            priority: row.priority,
+            type: row.type,
+            parent_id: row.parent_id,
+            created_at: row.created_at,
+          },
+        });
+      }
 
-    // Sessions (most recent)
-    const sessionRows = allTyped<SessionRow>(
-      db.prepare(
-        `SELECT id, status, started_at, ended_at
-         FROM sessions
+      // Sessions (most recent)
+      const sessionRows = allTyped<SessionRow>(
+        db.prepare(
+          `SELECT id, status, started_at, ended_at
+         FROM main.tasks_sessions
          ORDER BY started_at DESC
          LIMIT ?`,
-      ),
-      Math.ceil(perSubstrateLimit * 0.2),
-    );
-
-    const sessionIds = new Set<string>();
-    for (const row of sessionRows) {
-      sessionIds.add(row.id);
-      nodes.push({
-        id: `tasks:${row.id}`,
-        kind: 'session',
-        substrate: 'tasks',
-        label: `Session ${row.id.slice(-8)}`,
-        weight: row.status === 'active' ? 0.9 : 0.4,
-        createdAt: row.started_at,
-        meta: {
-          status: row.status,
-          started_at: row.started_at,
-          ended_at: row.ended_at,
-        },
-      });
-    }
-
-    // Parent → child task edges
-    for (const row of taskRows) {
-      if (row.parent_id && taskIds.has(row.parent_id)) {
-        edges.push({
-          source: `tasks:${row.parent_id}`,
-          target: `tasks:${row.id}`,
-          type: 'parent_of',
-          weight: 0.9,
-          substrate: 'tasks',
-        });
-      }
-    }
-
-    // Task relations
-    if (taskIds.size > 0) {
-      const placeholders = [...taskIds].map(() => '?').join(',');
-      const relRows = allTyped<TaskRelationRow>(
-        db.prepare(
-          `SELECT task_id, related_task_id, relation_type
-           FROM task_relations
-           WHERE task_id IN (${placeholders})
-             AND related_task_id IN (${placeholders})`,
         ),
-        ...taskIds,
-        ...taskIds,
+        Math.ceil(perSubstrateLimit * 0.2),
       );
 
-      for (const row of relRows) {
-        edges.push({
-          source: `tasks:${row.task_id}`,
-          target: `tasks:${row.related_task_id}`,
-          type: row.relation_type,
-          weight: 0.7,
+      const sessionIds = new Set<string>();
+      for (const row of sessionRows) {
+        sessionIds.add(row.id);
+        nodes.push({
+          id: `tasks:${row.id}`,
+          kind: 'session',
           substrate: 'tasks',
+          label: `Session ${row.id.slice(-8)}`,
+          weight: row.status === 'active' ? 0.9 : 0.4,
+          createdAt: row.started_at,
+          meta: {
+            status: row.status,
+            started_at: row.started_at,
+            ended_at: row.ended_at,
+          },
         });
       }
 
-      // Task dependencies
-      const depRows = allTyped<TaskDepRow>(
-        db.prepare(
-          `SELECT task_id, depends_on_task_id
-           FROM task_dependencies
+      // Parent → child task edges
+      for (const row of taskRows) {
+        if (row.parent_id && taskIds.has(row.parent_id)) {
+          edges.push({
+            source: `tasks:${row.parent_id}`,
+            target: `tasks:${row.id}`,
+            type: 'parent_of',
+            weight: 0.9,
+            substrate: 'tasks',
+          });
+        }
+      }
+
+      // Task relations
+      if (taskIds.size > 0) {
+        const placeholders = [...taskIds].map(() => '?').join(',');
+        const relRows = allTyped<TaskRelationRow>(
+          db.prepare(
+            `SELECT task_id, related_to, relation_type
+           FROM main.tasks_task_relations
            WHERE task_id IN (${placeholders})
-             AND depends_on_task_id IN (${placeholders})`,
-        ),
-        ...taskIds,
-        ...taskIds,
-      );
+             AND related_to IN (${placeholders})`,
+          ),
+          ...taskIds,
+          ...taskIds,
+        );
 
-      for (const row of depRows) {
-        edges.push({
-          source: `tasks:${row.task_id}`,
-          target: `tasks:${row.depends_on_task_id}`,
-          type: 'depends_on',
-          weight: 0.85,
-          substrate: 'tasks',
-        });
+        for (const row of relRows) {
+          edges.push({
+            source: `tasks:${row.task_id}`,
+            target: `tasks:${row.related_to}`,
+            type: row.relation_type,
+            weight: 0.7,
+            substrate: 'tasks',
+          });
+        }
+
+        // Task dependencies
+        const depRows = allTyped<TaskDepRow>(
+          db.prepare(
+            `SELECT task_id, depends_on
+           FROM main.tasks_task_dependencies
+           WHERE task_id IN (${placeholders})
+             AND depends_on IN (${placeholders})`,
+          ),
+          ...taskIds,
+          ...taskIds,
+        );
+
+        for (const row of depRows) {
+          edges.push({
+            source: `tasks:${row.task_id}`,
+            target: `tasks:${row.depends_on}`,
+            type: 'depends_on',
+            weight: 0.85,
+            substrate: 'tasks',
+          });
+        }
       }
+    } catch {
+      // Return partial results on error
     }
-  } catch {
-    // Return partial results on error
-  }
+  });
 
   return { nodes, edges };
 }

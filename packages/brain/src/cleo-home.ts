@@ -2,8 +2,8 @@
  * CLEO home + project DB path resolution for `@cleocode/brain`.
  *
  * Path resolution delegates to the `@cleocode/paths` SSoT
- * ({@link getCleoHome}). Project data (tasks.db, brain.db, conduit.db) is
- * resolved via projectId → nexus.db registry lookup
+ * ({@link getCleoHome}). The project store (`.cleo/cleo.db`) is resolved via
+ * projectId → global registry lookup
  * ({@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}), with a
  * `CLEO_ROOT` / `process.cwd()` fallback for non-project contexts.
  *
@@ -16,6 +16,7 @@
  * @task T1874 (original Windows fix)
  * @task T1886 (migrated to @cleocode/paths SSoT)
  * @task T11040 (verified 2026-05-27: projectId-based resolution confirmed; 72/72 tests pass)
+ * @task T14583 (read the consolidated cleo.db, not the legacy per-domain files)
  */
 
 import { existsSync } from 'node:fs';
@@ -62,29 +63,29 @@ export function getCleoProjectDir(): string {
   return join(root, '.cleo');
 }
 
-/** Returns the absolute path to the global nexus.db file. */
-export function getNexusDbPath(): string {
-  return join(getCleoHome(), 'nexus.db');
+/**
+ * Returns the absolute path to the project-scope `cleo.db`.
+ *
+ * It holds the project's `tasks_*`, `brain_*`, `conduit_*` and `nexus_*`
+ * (code graph, ADR-090) tables. The legacy `tasks.db`, `brain.db` and
+ * `conduit.db` files are decoys and are never read (T12095, T14583).
+ *
+ * @returns `<project>/.cleo/cleo.db`.
+ */
+export function getProjectStorePath(): string {
+  return join(getCleoProjectDir(), 'cleo.db');
 }
 
-/** Returns the absolute path to the project-scoped brain.db file. */
-export function getBrainDbPath(): string {
-  return join(getCleoProjectDir(), 'brain.db');
-}
-
-/** Returns the absolute path to the project-scoped tasks.db file. */
-export function getTasksDbPath(): string {
-  return join(getCleoProjectDir(), 'tasks.db');
-}
-
-/** Returns the absolute path to the project-scoped conduit.db file. */
-export function getConduitDbPath(): string {
-  return join(getCleoProjectDir(), 'conduit.db');
-}
-
-/** Returns the absolute path to the global signaldock.db file. */
-export function getAgentRegistryDbPath(): string {
-  return join(getCleoHome(), 'signaldock.db');
+/**
+ * Returns the absolute path to the global-scope `cleo.db` under CLEO home.
+ *
+ * It holds the `agent_registry_*` tables; the retired `signaldock.db` and
+ * `nexus.db` files are never read (T14583).
+ *
+ * @returns `<cleoHome>/cleo.db`.
+ */
+export function getGlobalStorePath(): string {
+  return join(getCleoHome(), 'cleo.db');
 }
 
 /** Returns true when the given DB file exists on disk. */

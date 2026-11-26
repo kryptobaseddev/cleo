@@ -6,7 +6,7 @@
  * - Unified query function (`getAllSubstrates`)
  * - Individual substrate adapters (`getBrainSubstrate`, `getNexusSubstrate`, `getTasksSubstrate`, `getConduitSubstrate`, `getAgentRegistrySubstrate`)
  * - Project context helpers (`ProjectContext`, `resolveDefaultProjectContext`)
- * - Path helpers (`getCleoHome`, `getCleoProjectDir`, `getBrainDbPath`, etc.)
+ * - Path helpers (`getCleoHome`, `getCleoProjectDir`, `getProjectStorePath`, `getGlobalStorePath`)
  *
  * @remarks
  * T973 renamed the `LB*` prefix to `Brain*` to align the runtime naming with
@@ -31,23 +31,14 @@ export {
 // DB paths without importing the connection helpers directly)
 export {
   dbExists,
-  getAgentRegistryDbPath,
-  getBrainDbPath,
   getCleoHome,
   getCleoProjectDir,
-  getConduitDbPath,
-  getNexusDbPath,
-  getTasksDbPath,
+  getGlobalStorePath,
+  getProjectStorePath,
 } from './cleo-home.js';
-// Low-level connection getters (for advanced consumers; studio typically uses
-// its own connection helpers and passes ProjectContext to the adapters instead)
-export {
-  getAgentRegistryDb,
-  getBrainDb,
-  getConduitDb,
-  getNexusDb,
-  getTasksDb,
-} from './db-connections.js';
+// Read-only store readers (for advanced consumers; each opens a snapshot of
+// the consolidated cleo.db through the core store chokepoint and closes it)
+export { readGlobalStore, readProjectStore } from './db-connections.js';
 // Project context
 export type { ProjectContext } from './project-context.js';
 export { resolveDefaultProjectContext } from './project-context.js';

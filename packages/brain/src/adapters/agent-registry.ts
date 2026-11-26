@@ -1,12 +1,14 @@
 /**
  * AGENT-REGISTRY substrate adapter for the Living Brain API.
  *
- * Read-only visualization path. Queries the LEGACY standalone `signaldock.db`
- * (resolved by `getAgentRegistryDbPath`) and returns BrainNodes/BrainEdges for
- * agents and agent-to-agent social connections. The legacy standalone file still
- * carries the BARE table names (`agents`, `agent_connections`); the brain-package
- * read path is migrated to the consolidated `cleo.db` separately in E6 (T11249),
- * so the SQL below intentionally still targets the bare names.
+ * Read-only visualization path. Queries `agent_registry_agents` in the global
+ * `cleo.db` and returns one BrainNode per active agent. The retired standalone
+ * `signaldock.db` is never read (T14583).
+ *
+ * The consolidated store has no declared agent-to-agent social graph
+ * (`agent_registry_agent_connections` records transport connections, not
+ * pairs), so this adapter emits no edges; agent→agent edges come from the
+ * CONDUIT substrate's message pairs.
  *
  * The substrate identifier + node-id prefix were renamed `signaldock` →
  * `agent-registry` under T11622 (display identifiers, decoupled from the physical
@@ -17,118 +19,75 @@
  * (assignee), CONDUIT (from/to), and BRAIN (source agent).
  *
  * @task T11622 (Signaldock → Agent Registry rename; folds T11578 AC2)
+ * @task T14583 (read the global cleo.db)
  */
 
-import { allTyped, getAgentRegistryDb } from '../db-connections.js';
+import { allTyped, readGlobalStore } from '../db-connections.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
-/** Raw row from the legacy standalone `signaldock.db` `agents` table. */
+/** Raw row from `agent_registry_agents`. */
 interface AgentRow {
   agent_id: string;
   name: string;
   status: string;
-  /** UNIX epoch seconds (INTEGER column in the legacy `signaldock.db`). May be null on legacy rows. */
-  created_at: number | null;
-}
-
-/**
- * Converts a UNIX epoch seconds value to an ISO-8601 string.
- * Returns null when the value is not a finite positive number.
- *
- * @param epoch - UNIX timestamp in seconds, or null.
- * @returns ISO-8601 string or null.
- */
-function epochToIso(epoch: number | null): string | null {
-  if (epoch === null || !Number.isFinite(epoch) || epoch <= 0) return null;
-  return new Date(epoch * 1000).toISOString();
-}
-
-/** Raw row from agent_connections table. */
-interface AgentConnectionRow {
-  from_agent_id: string;
-  to_agent_id: string;
-  connection_type: string;
-  strength: number | null;
+  /** ISO-8601 timestamp, normalised by the query; null when unparseable. */
+  created_at: string | null;
 }
 
 /**
  * Returns all BrainNodes and BrainEdges sourced from the Agent Registry.
  *
- * Fetches all active agents plus their declared connections.
- * Agent nodes serve as the cross-substrate identity anchors.
+ * Fetches the most recently registered active agents. Agent nodes serve as
+ * the cross-substrate identity anchors.
  *
  * @param options - Query options (limit).
- * @returns Nodes and edges from the AGENT-REGISTRY substrate.
+ * @returns Nodes (and no edges) from the AGENT-REGISTRY substrate.
  */
 export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): {
   nodes: BrainNode[];
   edges: BrainEdge[];
 } {
-  const db = getAgentRegistryDb();
-  if (!db) return { nodes: [], edges: [] };
-
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
 
-  try {
-    // Active agents (legacy standalone signaldock.db bare table)
-    const agentRows = allTyped<AgentRow>(
-      db.prepare(
-        `SELECT agent_id, name, status, created_at
-         FROM agents
-         WHERE status != 'deleted'
-         ORDER BY created_at DESC
-         LIMIT ?`,
-      ),
-      perSubstrateLimit,
-    );
-
-    const agentIds = new Set<string>();
-    for (const row of agentRows) {
-      agentIds.add(row.agent_id);
-      nodes.push({
-        id: `agent-registry:${row.agent_id}`,
-        kind: 'agent',
-        substrate: 'agent-registry',
-        label: row.name,
-        weight: row.status === 'active' ? 1.0 : 0.5,
-        createdAt: epochToIso(row.created_at),
-        meta: {
-          status: row.status,
-          created_at: row.created_at,
-        },
-      });
-    }
-
-    // Agent connections (declared social graph)
-    if (agentIds.size > 0) {
-      const placeholders = [...agentIds].map(() => '?').join(',');
-      const connRows = allTyped<AgentConnectionRow>(
+  readGlobalStore((db) => {
+    try {
+      // created_at is ISO text; a legacy epoch-seconds integer is converted too.
+      const agentRows = allTyped<AgentRow>(
         db.prepare(
-          `SELECT from_agent_id, to_agent_id, connection_type, strength
-           FROM agent_connections
-           WHERE from_agent_id IN (${placeholders})
-             AND to_agent_id IN (${placeholders})`,
+          `SELECT agent_id, name, status,
+                  CASE WHEN typeof(created_at) = 'integer'
+                    THEN strftime('%Y-%m-%dT%H:%M:%S', created_at, 'unixepoch')
+                    ELSE strftime('%Y-%m-%dT%H:%M:%S', created_at)
+                  END AS created_at
+           FROM main.agent_registry_agents
+           WHERE is_active = 1
+           ORDER BY created_at DESC
+           LIMIT ?`,
         ),
-        ...agentIds,
-        ...agentIds,
+        perSubstrateLimit,
       );
 
-      for (const row of connRows) {
-        edges.push({
-          source: `agent-registry:${row.from_agent_id}`,
-          target: `agent-registry:${row.to_agent_id}`,
-          type: row.connection_type,
-          weight: row.strength ?? 0.5,
+      for (const row of agentRows) {
+        nodes.push({
+          id: `agent-registry:${row.agent_id}`,
+          kind: 'agent',
           substrate: 'agent-registry',
+          label: row.name,
+          weight: row.status === 'online' ? 1.0 : 0.5,
+          createdAt: row.created_at,
+          meta: {
+            status: row.status,
+            created_at: row.created_at,
+          },
         });
       }
+    } catch {
+      // Return partial results on error
     }
-  } catch {
-    // Return partial results on error
-  }
+  });
 
   return { nodes, edges };
 }

@@ -2,8 +2,8 @@
  * Barrel for all substrate adapters.
  *
  * Re-exports individual adapter functions and provides the unified
- * `getAllSubstrates()` function that merges results from all five databases
- * into a single BrainGraph.
+ * `getAllSubstrates()` function that merges results from all five substrates
+ * (read from the project and global `cleo.db`) into a single BrainGraph.
  */
 
 export { getAgentRegistrySubstrate } from './agent-registry.js';
@@ -12,7 +12,8 @@ export { getConduitSubstrate } from './conduit.js';
 export { getNexusSubstrate } from './nexus.js';
 export { getTasksSubstrate } from './tasks.js';
 
-import { allTyped, getNexusDb } from '../db-connections.js';
+import { allTyped, readProjectStore } from '../db-connections.js';
+import { type ProjectContext, resolveDefaultProjectContext } from '../project-context.js';
 import type {
   BrainEdge,
   BrainGraph,
@@ -52,9 +53,14 @@ const ADAPTER_MAP: Record<
  *
  * @param loadedNodeIds - Set of already-loaded node IDs (substrate-prefixed).
  * @param edges - All edges collected from substrates (may reference unloaded targets).
+ * @param ctx - Project whose `cleo.db` code graph resolves nexus stubs.
  * @returns Array of stub BrainNode objects for missing targets.
  */
-function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: BrainEdge[]): BrainNode[] {
+function loadStubNodesForEdgeTargets(
+  loadedNodeIds: Set<string>,
+  edges: BrainEdge[],
+  ctx: ProjectContext,
+): BrainNode[] {
   // Collect all target IDs referenced by edges but not yet loaded
   const missingTargetIds = new Set<string>();
   for (const edge of edges) {
@@ -88,8 +94,7 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: BrainEdg
   // Load stubs for nexus targets (most common cross-substrate case)
   const nexusStubs = stubsBySubstrate.get('nexus');
   if (nexusStubs && nexusStubs.length > 0) {
-    const db = getNexusDb();
-    if (db) {
+    readProjectStore(ctx, (db) => {
       try {
         const rawNexusIds = nexusStubs.map((id) => id.replace(/^nexus:/, ''));
         const placeholders = rawNexusIds.map(() => '?').join(',');
@@ -97,8 +102,8 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: BrainEdg
         // Query minimal node data: id, kind, name
         const stubRows = allTyped<{ id: string; kind: string; name: string }>(
           db.prepare(
-            `SELECT id, kind, name
-             FROM nexus_nodes
+            `SELECT id, kind, COALESCE(name, label) AS name
+             FROM main.nexus_nodes
              WHERE id IN (${placeholders})`,
           ),
           ...rawNexusIds,
@@ -122,7 +127,7 @@ function loadStubNodesForEdgeTargets(loadedNodeIds: Set<string>, edges: BrainEdg
       } catch {
         // Silently continue on error; stubs are supplemental
       }
-    }
+    });
   }
 
   // For other substrates (tasks, brain, conduit, signaldock), create minimal stubs
@@ -215,7 +220,11 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
   // within the requested set — never inject nodes from excluded substrates, as that
   // would violate the caller's filter contract.
   const requestedSubstrateSet = options.substrates ? new Set<string>(options.substrates) : null;
-  const stubNodes = loadStubNodesForEdgeTargets(seenIds, allEdges);
+  const stubNodes = loadStubNodesForEdgeTargets(
+    seenIds,
+    allEdges,
+    options.projectCtx ?? resolveDefaultProjectContext(),
+  );
   for (const stubNode of stubNodes) {
     if (!seenIds.has(stubNode.id)) {
       // Skip stubs from substrates not in the requested set

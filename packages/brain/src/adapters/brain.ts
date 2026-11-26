@@ -1,7 +1,8 @@
 /**
  * BRAIN substrate adapter for the Living Brain API.
  *
- * Queries brain.db and returns BrainNodes/BrainEdges for all typed memory tables:
+ * Queries the project `cleo.db` and returns BrainNodes/BrainEdges for all typed
+ * memory tables:
  * observations, decisions, patterns, learnings, plus the graph layer
  * (brain_page_nodes / brain_page_edges).
  *
@@ -14,7 +15,7 @@
  * Node IDs are prefixed with "brain:" to prevent collisions.
  */
 
-import { allTyped, getBrainDb } from '../db-connections.js';
+import { allTyped, readProjectStore } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
@@ -138,7 +139,7 @@ function taskRefToBrainNodeId(taskRef: string): string {
 }
 
 /**
- * Returns all BrainNodes and BrainEdges sourced from brain.db.
+ * Returns all BrainNodes and BrainEdges sourced from the project `cleo.db`.
  *
  * Pulls from all four typed memory tables plus brain_page_edges.
  * Emits intra-brain edges between loaded nodes, cross-substrate
@@ -156,250 +157,249 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): {
   edges: BrainEdge[];
 } {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
-  const db = getBrainDb(ctx);
-  if (!db) return { nodes: [], edges: [] };
-
   const minWeight = options.minWeight ?? 0;
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
 
-  try {
-    // Observations — normalise created_at to ISO-8601 with 'T' separator via strftime
-    const obsRows = allTyped<ObservationRow>(
-      db.prepare(
-        `SELECT id, title, quality_score, memory_tier,
+  readProjectStore(ctx, (db) => {
+    try {
+      // Observations — normalise created_at to ISO-8601 with 'T' separator via strftime
+      const obsRows = allTyped<ObservationRow>(
+        db.prepare(
+          `SELECT id, title, quality_score, memory_tier,
                 strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at,
                 source_session_id, files_modified_json
-         FROM brain_observations
+         FROM main.brain_observations
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
          LIMIT ?`,
-      ),
-      minWeight,
-      Math.ceil(perSubstrateLimit * 0.4),
-    );
+        ),
+        minWeight,
+        Math.ceil(perSubstrateLimit * 0.4),
+      );
 
-    for (const row of obsRows) {
-      nodes.push({
-        id: `brain:${row.id}`,
-        kind: 'observation',
-        substrate: 'brain',
-        label: row.title,
-        weight: row.quality_score ?? undefined,
-        createdAt: row.created_at,
-        meta: {
-          memory_tier: row.memory_tier,
-          created_at: row.created_at,
-          source_session_id: row.source_session_id,
-        },
-      });
-    }
+      for (const row of obsRows) {
+        nodes.push({
+          id: `brain:${row.id}`,
+          kind: 'observation',
+          substrate: 'brain',
+          label: row.title,
+          weight: row.quality_score ?? undefined,
+          createdAt: row.created_at,
+          meta: {
+            memory_tier: row.memory_tier,
+            created_at: row.created_at,
+            source_session_id: row.source_session_id,
+          },
+        });
+      }
 
-    // Decisions — normalise created_at to ISO-8601 with 'T' separator via strftime
-    const decRows = allTyped<DecisionRow>(
-      db.prepare(
-        `SELECT id, decision, quality_score, context_task_id,
+      // Decisions — normalise created_at to ISO-8601 with 'T' separator via strftime
+      const decRows = allTyped<DecisionRow>(
+        db.prepare(
+          `SELECT id, decision, quality_score, context_task_id,
                 strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at
-         FROM brain_decisions
+         FROM main.brain_decisions
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
          LIMIT ?`,
-      ),
-      minWeight,
-      Math.ceil(perSubstrateLimit * 0.25),
-    );
+        ),
+        minWeight,
+        Math.ceil(perSubstrateLimit * 0.25),
+      );
 
-    for (const row of decRows) {
-      nodes.push({
-        id: `brain:${row.id}`,
-        kind: 'decision',
-        substrate: 'brain',
-        label: row.decision.slice(0, 100),
-        weight: row.quality_score ?? undefined,
-        createdAt: row.created_at,
-        meta: {
-          context_task_id: row.context_task_id,
-          created_at: row.created_at,
-        },
-      });
-    }
+      for (const row of decRows) {
+        nodes.push({
+          id: `brain:${row.id}`,
+          kind: 'decision',
+          substrate: 'brain',
+          label: row.decision.slice(0, 100),
+          weight: row.quality_score ?? undefined,
+          createdAt: row.created_at,
+          meta: {
+            context_task_id: row.context_task_id,
+            created_at: row.created_at,
+          },
+        });
+      }
 
-    // Patterns — uses 'pattern' text column (not 'title') and 'extracted_at' (not 'created_at').
-    // SQLite strftime is used to normalise the timestamp to ISO-8601 with 'T' separator.
-    const patRows = allTyped<PatternRow>(
-      db.prepare(
-        `SELECT id, pattern, type, quality_score,
+      // Patterns — uses 'pattern' text column (not 'title') and 'extracted_at' (not 'created_at').
+      // SQLite strftime is used to normalise the timestamp to ISO-8601 with 'T' separator.
+      const patRows = allTyped<PatternRow>(
+        db.prepare(
+          `SELECT id, pattern, type, quality_score,
                 strftime('%Y-%m-%dT%H:%M:%S', extracted_at) AS extracted_at
-         FROM brain_patterns
+         FROM main.brain_patterns
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, extracted_at DESC
          LIMIT ?`,
-      ),
-      minWeight,
-      Math.ceil(perSubstrateLimit * 0.2),
-    );
+        ),
+        minWeight,
+        Math.ceil(perSubstrateLimit * 0.2),
+      );
 
-    for (const row of patRows) {
-      nodes.push({
-        id: `brain:${row.id}`,
-        kind: 'pattern',
-        substrate: 'brain',
-        label: row.pattern.slice(0, 100),
-        weight: row.quality_score ?? undefined,
-        createdAt: row.extracted_at,
-        meta: { pattern_type: row.type, created_at: row.extracted_at },
-      });
-    }
+      for (const row of patRows) {
+        nodes.push({
+          id: `brain:${row.id}`,
+          kind: 'pattern',
+          substrate: 'brain',
+          label: row.pattern.slice(0, 100),
+          weight: row.quality_score ?? undefined,
+          createdAt: row.extracted_at,
+          meta: { pattern_type: row.type, created_at: row.extracted_at },
+        });
+      }
 
-    // Learnings — uses 'insight' text column (not 'title').
-    // Normalise created_at to ISO-8601 with 'T' separator via strftime.
-    const learnRows = allTyped<LearningRow>(
-      db.prepare(
-        `SELECT id, insight, quality_score,
+      // Learnings — uses 'insight' text column (not 'title').
+      // Normalise created_at to ISO-8601 with 'T' separator via strftime.
+      const learnRows = allTyped<LearningRow>(
+        db.prepare(
+          `SELECT id, insight, quality_score,
                 strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at
-         FROM brain_learnings
+         FROM main.brain_learnings
          WHERE (quality_score IS NULL OR quality_score >= ?)
          ORDER BY quality_score DESC, created_at DESC
          LIMIT ?`,
-      ),
-      minWeight,
-      Math.ceil(perSubstrateLimit * 0.15),
-    );
+        ),
+        minWeight,
+        Math.ceil(perSubstrateLimit * 0.15),
+      );
 
-    for (const row of learnRows) {
-      nodes.push({
-        id: `brain:${row.id}`,
-        kind: 'learning',
-        substrate: 'brain',
-        label: row.insight.slice(0, 100),
-        weight: row.quality_score ?? undefined,
-        createdAt: row.created_at,
-        meta: { created_at: row.created_at },
-      });
-    }
-
-    // Build lookup: type-prefixed ID (e.g. "observation:O-abc") → BrainNode ID
-    // (e.g. "brain:O-abc"). This is needed because brain_page_edges stores
-    // IDs in type-prefixed format while BrainNode IDs use the "brain:" prefix.
-    const typeIdToBrainNodeId = new Map<string, string>();
-    for (const n of nodes) {
-      const rawId = n.id.slice('brain:'.length);
-      // Determine which type prefix this node would have in brain_page_edges
-      let typePrefix: string;
-      if (n.kind === 'observation') typePrefix = 'observation';
-      else if (n.kind === 'decision') typePrefix = 'decision';
-      else if (n.kind === 'pattern') typePrefix = 'pattern';
-      else typePrefix = 'learning';
-      typeIdToBrainNodeId.set(`${typePrefix}:${rawId}`, n.id);
-    }
-
-    // brain_page_edges: query all and classify each edge
-    const pageEdgeRows = allTyped<PageEdgeRow>(
-      db.prepare(`SELECT from_id, to_id, edge_type, weight FROM brain_page_edges`),
-    );
-
-    for (const row of pageEdgeRows) {
-      const sourceBrainNodeId =
-        typeIdToBrainNodeId.get(row.from_id) ?? brainTypeIdToBrainNodeId(row.from_id);
-      if (!sourceBrainNodeId) continue; // source not a recognised brain node
-
-      if (isTaskId(row.to_id)) {
-        // Cross-substrate: brain → tasks
-        edges.push({
-          source: sourceBrainNodeId,
-          target: taskRefToBrainNodeId(row.to_id),
-          type: row.edge_type,
-          weight: row.weight ?? 0.5,
-          substrate: 'cross',
+      for (const row of learnRows) {
+        nodes.push({
+          id: `brain:${row.id}`,
+          kind: 'learning',
+          substrate: 'brain',
+          label: row.insight.slice(0, 100),
+          weight: row.quality_score ?? undefined,
+          createdAt: row.created_at,
+          meta: { created_at: row.created_at },
         });
-      } else if (isNexusStyleId(row.to_id)) {
-        // Cross-substrate: brain → nexus (code_reference, etc.)
-        edges.push({
-          source: sourceBrainNodeId,
-          target: `nexus:${row.to_id}`,
-          type: row.edge_type,
-          weight: row.weight ?? 0.5,
-          substrate: 'cross',
-        });
-      } else {
-        // Intra-brain: both IDs should be brain nodes
-        const targetBrainNodeId =
-          typeIdToBrainNodeId.get(row.to_id) ?? brainTypeIdToBrainNodeId(row.to_id);
-        if (targetBrainNodeId) {
+      }
+
+      // Build lookup: type-prefixed ID (e.g. "observation:O-abc") → BrainNode ID
+      // (e.g. "brain:O-abc"). This is needed because brain_page_edges stores
+      // IDs in type-prefixed format while BrainNode IDs use the "brain:" prefix.
+      const typeIdToBrainNodeId = new Map<string, string>();
+      for (const n of nodes) {
+        const rawId = n.id.slice('brain:'.length);
+        // Determine which type prefix this node would have in brain_page_edges
+        let typePrefix: string;
+        if (n.kind === 'observation') typePrefix = 'observation';
+        else if (n.kind === 'decision') typePrefix = 'decision';
+        else if (n.kind === 'pattern') typePrefix = 'pattern';
+        else typePrefix = 'learning';
+        typeIdToBrainNodeId.set(`${typePrefix}:${rawId}`, n.id);
+      }
+
+      // brain_page_edges: query all and classify each edge
+      const pageEdgeRows = allTyped<PageEdgeRow>(
+        db.prepare(`SELECT from_id, to_id, edge_type, weight FROM main.brain_page_edges`),
+      );
+
+      for (const row of pageEdgeRows) {
+        const sourceBrainNodeId =
+          typeIdToBrainNodeId.get(row.from_id) ?? brainTypeIdToBrainNodeId(row.from_id);
+        if (!sourceBrainNodeId) continue; // source not a recognised brain node
+
+        if (isTaskId(row.to_id)) {
+          // Cross-substrate: brain → tasks
           edges.push({
             source: sourceBrainNodeId,
-            target: targetBrainNodeId,
+            target: taskRefToBrainNodeId(row.to_id),
             type: row.edge_type,
             weight: row.weight ?? 0.5,
-            substrate: 'brain',
+            substrate: 'cross',
+          });
+        } else if (isNexusStyleId(row.to_id)) {
+          // Cross-substrate: brain → nexus (code_reference, etc.)
+          edges.push({
+            source: sourceBrainNodeId,
+            target: `nexus:${row.to_id}`,
+            type: row.edge_type,
+            weight: row.weight ?? 0.5,
+            substrate: 'cross',
+          });
+        } else {
+          // Intra-brain: both IDs should be brain nodes
+          const targetBrainNodeId =
+            typeIdToBrainNodeId.get(row.to_id) ?? brainTypeIdToBrainNodeId(row.to_id);
+          if (targetBrainNodeId) {
+            edges.push({
+              source: sourceBrainNodeId,
+              target: targetBrainNodeId,
+              type: row.edge_type,
+              weight: row.weight ?? 0.5,
+              substrate: 'brain',
+            });
+          }
+        }
+      }
+
+      // brain_memory_links: cross-substrate edges from typed memory nodes to tasks
+      const memLinkRows = allTyped<MemoryLinkRow>(
+        db.prepare(
+          `SELECT memory_type, memory_id, task_id, link_type
+         FROM main.brain_memory_links`,
+        ),
+      );
+
+      for (const row of memLinkRows) {
+        const sourceTypeId = `${row.memory_type}:${row.memory_id}`;
+        const sourceBrainNodeId =
+          typeIdToBrainNodeId.get(sourceTypeId) ?? brainTypeIdToBrainNodeId(sourceTypeId);
+        if (!sourceBrainNodeId) continue; // source node not in loaded set
+        edges.push({
+          source: sourceBrainNodeId,
+          target: `tasks:${row.task_id}`,
+          type: row.link_type,
+          weight: 0.7,
+          substrate: 'cross',
+        });
+      }
+
+      // brain_observations.files_modified_json: cross-substrate observation → nexus file
+      for (const row of obsRows) {
+        if (!row.files_modified_json) continue;
+        let filePaths: unknown;
+        try {
+          filePaths = JSON.parse(row.files_modified_json);
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(filePaths)) continue;
+        const sourceBrainNodeId = `brain:${row.id}`;
+        for (const rawPath of filePaths) {
+          if (typeof rawPath !== 'string' || rawPath.length === 0) continue;
+          edges.push({
+            source: sourceBrainNodeId,
+            target: `nexus:${rawPath}`,
+            type: 'modified_by',
+            weight: 0.6,
+            substrate: 'cross',
           });
         }
       }
-    }
 
-    // brain_memory_links: cross-substrate edges from typed memory nodes to tasks
-    const memLinkRows = allTyped<MemoryLinkRow>(
-      db.prepare(
-        `SELECT memory_type, memory_id, task_id, link_type
-         FROM brain_memory_links`,
-      ),
-    );
-
-    for (const row of memLinkRows) {
-      const sourceTypeId = `${row.memory_type}:${row.memory_id}`;
-      const sourceBrainNodeId =
-        typeIdToBrainNodeId.get(sourceTypeId) ?? brainTypeIdToBrainNodeId(sourceTypeId);
-      if (!sourceBrainNodeId) continue; // source node not in loaded set
-      edges.push({
-        source: sourceBrainNodeId,
-        target: `tasks:${row.task_id}`,
-        type: row.link_type,
-        weight: 0.7,
-        substrate: 'cross',
-      });
-    }
-
-    // brain_observations.files_modified_json: cross-substrate observation → nexus file
-    for (const row of obsRows) {
-      if (!row.files_modified_json) continue;
-      let filePaths: unknown;
-      try {
-        filePaths = JSON.parse(row.files_modified_json);
-      } catch {
-        continue;
+      // Soft FK: brain_decisions.context_task_id → tasks (direct, not via page_edges)
+      // This handles decisions whose context_task_id may not yet appear in brain_page_edges.
+      for (const dec of decRows) {
+        if (dec.context_task_id) {
+          edges.push({
+            source: `brain:${dec.id}`,
+            target: `tasks:${dec.context_task_id}`,
+            type: 'applies_to',
+            weight: 0.8,
+            substrate: 'cross',
+          });
+        }
       }
-      if (!Array.isArray(filePaths)) continue;
-      const sourceBrainNodeId = `brain:${row.id}`;
-      for (const rawPath of filePaths) {
-        if (typeof rawPath !== 'string' || rawPath.length === 0) continue;
-        edges.push({
-          source: sourceBrainNodeId,
-          target: `nexus:${rawPath}`,
-          type: 'modified_by',
-          weight: 0.6,
-          substrate: 'cross',
-        });
-      }
+    } catch {
+      // Return partial results on error
     }
-
-    // Soft FK: brain_decisions.context_task_id → tasks (direct, not via page_edges)
-    // This handles decisions whose context_task_id may not yet appear in brain_page_edges.
-    for (const dec of decRows) {
-      if (dec.context_task_id) {
-        edges.push({
-          source: `brain:${dec.id}`,
-          target: `tasks:${dec.context_task_id}`,
-          type: 'applies_to',
-          weight: 0.8,
-          substrate: 'cross',
-        });
-      }
-    }
-  } catch {
-    // Return partial results on error
-  }
+  });
 
   return { nodes, edges };
 }
