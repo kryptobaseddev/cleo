@@ -418,6 +418,20 @@ export function docsDoctorArchiveCommand(publishedPath: string, slug: string): s
 }
 
 /**
+ * The `cleo docs update` invocation that marks `slug` superseded (T14650):
+ * the non-deprecated route (`cleo docs supersede` warns W_DEPRECATED_COMMAND,
+ * T11179) that takes a duplicate doc out of the archive-target tie. A
+ * placeholder `slug` (such as `DUPLICATE`, never one in angle brackets) is
+ * printed as given.
+ *
+ * @param slug - The doc to mark superseded.
+ * @returns The command.
+ */
+export function docsSupersedeCommand(slug: string): string {
+  return `cleo docs update ${slug} --status superseded`;
+}
+
+/**
  * Discriminated outcome of {@link runDocsDoctor}.
  *
  * The failure arm covers the backup-gate refusals
@@ -1061,18 +1075,26 @@ async function scanPublicationLedger(
   // T14634: every slugged doc's head is resolved, so two docs with
   // byte-identical heads both match and the target is refused as ambiguous
   // (one attachments row per sha could only ever name one of them). A
-  // superseded doc is no target, so `cleo docs supersede` resolves the tie.
-  let slugsByHead: Promise<ReadonlyMap<string, ReadonlySet<string>>> | undefined;
-  const docsByHead = (): Promise<ReadonlyMap<string, ReadonlySet<string>>> => {
+  // superseded doc is no target, so marking the duplicate superseded
+  // (`docsSupersedeCommand`, T14650) resolves the tie. When the only doc
+  // holding the head is superseded, the finding names it (T14650).
+  type HeadDocs = { live: Set<string>; superseded: Set<string> };
+  let slugsByHead: Promise<ReadonlyMap<string, HeadDocs>> | undefined;
+  const docsByHead = (): Promise<ReadonlyMap<string, HeadDocs>> => {
     slugsByHead ??= (async () => {
-      const bySha = new Map<string, Set<string>>();
-      const live = rows.filter((r) => r.lifecycleStatus !== 'superseded');
-      for (const slug of new Set(live.flatMap((r) => (r.slug ? [r.slug] : [])))) {
+      const bySha = new Map<string, HeadDocs>();
+      const live = new Set(
+        rows.flatMap((r) => (r.slug && r.lifecycleStatus !== 'superseded' ? [r.slug] : [])),
+      );
+      for (const slug of new Set(rows.flatMap((r) => (r.slug ? [r.slug] : [])))) {
         const ref = await resolveDocRef(projectRoot, slug, { quiet: true }).catch(() => null);
         if (!ref) continue;
-        const slugs = bySha.get(ref.sha256) ?? new Set<string>();
-        slugs.add(slug);
-        bySha.set(ref.sha256, slugs);
+        const docs = bySha.get(ref.sha256) ?? {
+          live: new Set<string>(),
+          superseded: new Set<string>(),
+        };
+        (live.has(slug) ? docs.live : docs.superseded).add(slug);
+        bySha.set(ref.sha256, docs);
       }
       return bySha;
     })();
@@ -1080,15 +1102,24 @@ async function scanPublicationLedger(
   };
   const archiveTarget = async (record: DocsPublicationRecord): Promise<ArchiveTarget> => {
     const slugs = new Set<string>();
+    const supersededSlugs = new Set<string>();
     for (const item of status.items) {
       if (item.drift !== 'in-sync') continue;
       const live = recordFor(item);
       if (!live || live === record) continue;
       if (live.ownerId !== record.ownerId || live.blobName !== record.blobName) continue;
-      for (const slug of (await docsByHead()).get(live.lastBlobSha) ?? []) slugs.add(slug);
+      const docs = (await docsByHead()).get(live.lastBlobSha);
+      for (const slug of docs?.live ?? []) slugs.add(slug);
+      for (const slug of docs?.superseded ?? []) supersededSlugs.add(slug);
     }
     const [slug, ...others] = [...slugs].sort();
-    if (slug === undefined) return null;
+    if (slug === undefined) {
+      const [gone] = [...supersededSlugs].sort();
+      if (gone === undefined) return null;
+      const ref = await resolveDocRef(projectRoot, gone, { quiet: true }).catch(() => null);
+      const successor = ref ? (await supersessionSlugs(projectRoot, ref)).supersededBy : null;
+      return { kind: 'superseded', slug: gone, successor };
+    }
     if (others.length > 0) return { kind: 'ambiguous', slugs: [slug, ...others] };
     return namedTarget(slug, record);
   };
@@ -1218,7 +1249,7 @@ async function scanPublicationLedger(
                 : target?.kind === 'ambiguous'
                   ? {
                       action: 'republish-or-prune',
-                      detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; the archive target is ambiguous: docs ${target.slugs.map((s) => `'${s}'`).join(', ')} share the head its stream publishes — keep the doc the stream belongs to and supersede each other one with \`cleo docs supersede <duplicate> <kept>\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
+                      detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; the archive target is ambiguous: docs ${target.slugs.map((s) => `'${s}'`).join(', ')} share the head its stream publishes — keep the doc the stream belongs to and mark each other one superseded with \`${docsSupersedeCommand('DUPLICATE')}\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
                     }
                   : target?.kind === 'unknown'
                     ? {
@@ -1228,7 +1259,7 @@ async function scanPublicationLedger(
                     : target?.kind === 'superseded'
                       ? {
                           action: 'republish-or-prune',
-                          detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; doc '${target.slug}' is superseded, so it takes no archive${target.successor ? ` — archive into its successor: \`${docsDoctorArchiveCommand(record.publishedPath, target.successor)}\`` : ' — name the doc that replaced it with --archive-into'}`,
+                          detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; doc '${target.slug}' is superseded, so it takes no archive${target.successor ? ` — archive into its successor: \`${docsDoctorArchiveCommand(record.publishedPath, target.successor)}\`` : ` — name the doc that replaced it: \`${docsDoctorArchiveCommand(record.publishedPath, 'SLUG')}\``}`,
                         }
                       : target?.kind === 'no-bytes'
                         ? {
