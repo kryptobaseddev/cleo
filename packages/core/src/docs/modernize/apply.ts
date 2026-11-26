@@ -63,6 +63,8 @@ import { createAttachmentStore } from '../../store/attachment-store.js';
 import { backfillBlobStoreBytes } from '../../store/blob-keep.js';
 import { writeFileAtomic } from '../../tools/fs.js';
 import { extractWikilinkTargets } from '../derive-links.js';
+import type { DocsPublicationRecord } from '../docs-ops.js';
+import type { LedgerArchive } from '../doctor.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
 import {
   deleteDocsPublication,
@@ -750,6 +752,11 @@ export async function applyDocsModernize(
         journal.done(i);
       }
       const kept = new Set(survivors.map((r) => r.target ?? r.path));
+      // Ledger changes: a moved survivor's rows follow it; a removed merged or
+      // deleted mirror's rows go, archived into the doc its content went to.
+      const publicationChanges: PublicationChange[] = survivors
+        .filter((r) => (r.target ?? r.path) !== r.path)
+        .map((r) => ({ from: r.path, to: r.target ?? r.path, slug: r.slug }));
       const keptAbs = [...kept].map((p) => safeJoin(root, p));
       for (const row of plan.rows) {
         if (kept.has(row.path)) continue;
@@ -761,8 +768,14 @@ export async function applyDocsModernize(
         const i = journal.begin({ op: 'remove-file', path: row.path, beforeSha256: beforeSha });
         rmSync(abs);
         journal.done(i);
-        if (row.disposition === 'merge-into' || row.disposition === 'delete')
+        if (row.disposition === 'merge-into' || row.disposition === 'delete') {
           deleted.push(row.path);
+          publicationChanges.push({
+            from: row.path,
+            to: null,
+            slug: row.target ?? foldSlug.get(row.path) ?? null,
+          });
+        }
         pruneEmptyDirs(root, dirname(abs));
       }
       await save();
@@ -771,8 +784,7 @@ export async function applyDocsModernize(
         projectRoot,
         options.checkoutRoot ?? projectRoot,
         root,
-        moves,
-        deleted,
+        publicationChanges,
       );
       await save();
 
@@ -814,6 +826,17 @@ function publicationKey(row: {
 }
 
 /**
+ * One ledger change of a tree run: the mirror at `from` moved to `to`, or was
+ * removed (`to` null); `slug` is the doc its content now lives in, where a
+ * row's last-referenced blob is archived (T14631).
+ */
+interface PublicationChange {
+  readonly from: string;
+  readonly to: string | null;
+  readonly slug: string | null;
+}
+
+/**
  * Re-point every `docs_publications` row whose mirror a tree run moved at the
  * file's new path (T14610), and remove every row whose mirror it merged into
  * another doc or deleted (T14631), journaling each as `move-publication` with
@@ -823,24 +846,39 @@ function publicationKey(row: {
  * stays relative to the root it resolved against) and its `publishedAt`. A row
  * already at the new path is kept as it was: the moved row is dropped rather
  * than overwriting it, and a rollback leaves it in place (T14631).
+ *
+ * A dropped row may be the last reference to its blob (a drifted mirror,
+ * ADR-076 / T14632). The docs doctor's protection set and archive route decide
+ * it: a blob no attachments row, conduit version or surviving ledger row holds
+ * is first imported as a prior version of the change's doc; when that doc is
+ * not adopted or the bytes are not local, the row is kept and a warning names
+ * the doctor repair.
  */
 async function movePublications(
   journal: StepJournal,
   projectRoot: string,
   checkoutRoot: string,
   root: string,
-  moves: readonly { readonly from: string; readonly to: string }[],
-  removed: readonly string[],
+  changes: readonly PublicationChange[],
 ): Promise<void> {
-  if (moves.length === 0 && removed.length === 0) return;
+  if (changes.length === 0) return;
   const { resolvePublishedMirror } = await import('../docs-ops.js');
+  const { buildLedgerArchive, importLedgerArchive, readBlobHolderShas } = await import(
+    '../doctor.js'
+  );
   const ledger = await readDocsPublications(projectRoot);
-  const present = new Set(ledger.map(publicationKey));
-  const changes: { from: string; to: string | null }[] = [
-    ...moves,
-    ...removed.map((from) => ({ from, to: null })),
-  ];
-  for (const { from, to } of changes) {
+  const present = new Map(ledger.map((r) => [publicationKey(r), r]));
+  let holders: Set<string> | undefined;
+  const heldElsewhere = async (pub: DocsPublicationRecord): Promise<boolean> => {
+    holders ??= await readBlobHolderShas(projectRoot);
+    if (holders.has(pub.lastBlobSha)) return true;
+    const self = publicationKey(pub);
+    for (const [k, row] of present) {
+      if (k !== self && row.lastBlobSha === pub.lastBlobSha) return true;
+    }
+    return false;
+  };
+  for (const { from, to, slug } of changes) {
     const fromAbs = safeJoin(root, from);
     for (const pub of ledger) {
       if (!present.has(publicationKey(pub))) continue;
@@ -856,6 +894,23 @@ async function movePublications(
       }
       const moved = toPath === null ? null : { ...pub, publishedPath: toPath };
       const targetExisted = moved !== null && present.has(publicationKey(moved));
+      let archive: LedgerArchive | null = null;
+      if ((moved === null || targetExisted) && !(await heldElsewhere(pub))) {
+        const built = slug ? await buildLedgerArchive(projectRoot, slug, pub.lastBlobSha) : null;
+        if (built === null || built === 'unadopted') {
+          pushWarning({
+            // @sync-invariant none:local-only the warning reports a ledger row modernize kept; it rejects nothing and writes nothing
+            code: 'W_DOCS_MODERNIZE_PUBLICATION_KEPT',
+            message:
+              `kept the docs_publications row ${pub.publishedPath} (owner ${pub.ownerId}, blob ${pub.blobName}): ` +
+              `it is the only reference to blob ${pub.lastBlobSha.slice(0, 12)}…, which could not be archived into ` +
+              `${slug ? `'${slug}' (${built === 'unadopted' ? 'no conduit history yet: adopt it with cleo docs migrate' : 'bytes not found locally'})` : 'any doc'}; ` +
+              'then run cleo docs doctor --only publication-ledger-drift --apply',
+          });
+          continue;
+        }
+        archive = built;
+      }
       const i = journal.begin({
         op: 'move-publication',
         path: from,
@@ -869,12 +924,20 @@ async function movePublications(
             lastBlobSha: pub.lastBlobSha,
             publishedAt: pub.publishedAt,
             targetExisted,
+            ...(archive ? { archivedInto: archive.slug } : {}),
           },
         },
       });
+      if (archive) {
+        await importLedgerArchive(projectRoot, pub, archive, {
+          agentId: MODERNIZE_ACTOR,
+          changeSummary: `archived by cleo docs modernize from ledger row ${pub.publishedPath} (owner ${pub.ownerId}, blob ${pub.blobName})`,
+        });
+        holders?.add(pub.lastBlobSha);
+      }
       if (moved !== null && !targetExisted) {
         await insertDocsPublication(projectRoot, moved);
-        present.add(publicationKey(moved));
+        present.set(publicationKey(moved), moved);
       }
       await deleteDocsPublication(projectRoot, pub);
       present.delete(publicationKey(pub));

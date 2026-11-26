@@ -14,3 +14,10 @@ summary: "cleo docs modernize: merged or deleted mirrors lose their ledger rows,
 - Case-only rename detection uses `lstat` and requires the two paths to differ
   only in case, so a hard link to a kept file is removed when it is not a survivor
   (a symlinked file stays refused before any write).
+- Before a dropped row goes, modernize runs the docs doctor's held check
+  (attachments rows, conduit history, surviving ledger rows). A row that is the
+  last reference to its blob (a drifted mirror) has that blob imported as a prior
+  version of the doc its content went to, via the doctor's `archive-publication`
+  route, so `cleo docs versions` still lists it. When that doc is not adopted or
+  the bytes are not local, the row is kept and `W_DOCS_MODERNIZE_PUBLICATION_KEPT`
+  names the repair.

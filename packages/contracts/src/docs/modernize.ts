@@ -270,6 +270,12 @@ export interface DocsModernizeMovedPublication {
    * rollback leaves it there (T14631). Absent on receipts written before T14631.
    */
   readonly targetExisted?: boolean;
+  /**
+   * The row was the last reference to its blob, so the blob was imported as a
+   * prior version of this doc before the row went (T14631). A rollback keeps
+   * that version: the import is additive and the restored row holds the blob too.
+   */
+  readonly archivedInto?: string;
 }
 
 /**
@@ -473,6 +479,7 @@ const receiptOpSchema = z.object({
           lastBlobSha: z.string(),
           publishedAt: z.string().optional(),
           targetExisted: z.boolean().optional(),
+          archivedInto: z.string().optional(),
         })
         .optional(),
     })

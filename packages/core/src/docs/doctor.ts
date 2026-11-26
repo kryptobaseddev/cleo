@@ -721,15 +721,112 @@ interface LedgerFinding {
 }
 
 /**
- * A gone ledger row's blob, to be imported as a prior conduit version of the
- * adopted doc whose stream another row publishes in sync (T14632).
+ * A ledger row's blob, to be imported as a prior conduit version of an
+ * adopted doc (T14632): the doc whose stream another row publishes in sync
+ * (doctor), or the doc a merged or deleted mirror went into (modernize, T14631).
  */
-interface LedgerArchive {
+export interface LedgerArchive {
+  /** Conduit identity of the adopted doc. */
   readonly docUid: string;
+  /** Slug of that doc. */
   readonly slug: string;
+  /** The row's blob. */
   readonly sha256: string;
+  /** Byte length of the verified blob. */
   readonly sizeBytes: number;
+  /** Whitespace-separated word count of the blob. */
   readonly tokens: number;
+}
+
+/**
+ * Every blob sha a ledger row's blob may rely on besides the ledger: the
+ * `docs_attachments` rows and the conduit doc history (blob GC keeps what it
+ * names, T14632). A ledger row whose blob is in neither set, and named by no
+ * other surviving ledger row, is the blob's last reference.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param attachmentShas - The `docs_attachments` shas when already loaded.
+ * @returns The protecting shas. An unreadable conduit history protects
+ *   nothing more (fewer removals, never more).
+ */
+export async function readBlobHolderShas(
+  projectRoot: string,
+  attachmentShas?: ReadonlySet<string>,
+): Promise<Set<string>> {
+  let held = attachmentShas;
+  if (held === undefined) {
+    const db = await getDb(projectRoot);
+    const rows = await db.select({ sha256: docsAttachments.sha256 }).from(docsAttachments).all();
+    held = new Set(rows.map((r) => r.sha256));
+  }
+  const conduitShas = await listConduitHistorySha256Set(projectRoot).catch(() => new Set<string>());
+  return new Set([...held, ...conduitShas]);
+}
+
+/**
+ * Build the archive of a blob into the doc `slug` (T14632): `'unadopted'`
+ * when the doc has no conduit history yet, `null` when its bytes do not
+ * re-hash to `sha256` from any local source.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param slug - The doc the blob becomes a prior version of.
+ * @param sha256 - The blob.
+ * @returns The archive, or why there is none.
+ */
+export async function buildLedgerArchive(
+  projectRoot: string,
+  slug: string,
+  sha256: string,
+): Promise<LedgerArchive | 'unadopted' | null> {
+  const docUid = await resolveConduitDocUid(projectRoot, slug).catch(() => null);
+  if (docUid === null) return 'unadopted';
+  const bytes = readVerifiedBlobBytes(resolveCleoDir(projectRoot), sha256);
+  if (bytes === null) return null;
+  return {
+    docUid,
+    slug,
+    sha256,
+    sizeBytes: bytes.length,
+    tokens: bytes
+      .toString('utf-8')
+      .split(/\s+/)
+      .filter((w) => w.length > 0).length,
+  };
+}
+
+/**
+ * Import a ledger row's blob as a prior conduit version of its archive doc
+ * (origin {@link DOCS_DOCTOR_ARCHIVE_ORIGIN}, created at the row's
+ * `publishedAt`, head untouched), so the blob stays reachable once the row
+ * goes (T14632). Additive: no row is lost.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param record - The ledger row whose blob is archived.
+ * @param archive - From {@link buildLedgerArchive}.
+ * @param author - The writer's agent id and the version's change summary.
+ */
+export async function importLedgerArchive(
+  projectRoot: string,
+  record: DocsPublicationRecord,
+  archive: LedgerArchive,
+  author: { readonly agentId: string; readonly changeSummary: string },
+): Promise<void> {
+  await withConduitDocWriteTransaction(projectRoot, async () => {
+    await importMigratedConduitVersion(projectRoot, {
+      attachmentUid: archive.docUid,
+      parentVersionUid: null,
+      authorAgentId: author.agentId,
+      storageKey: `sha256:${archive.sha256}`,
+      contentHash: archive.sha256,
+      sizeBytes: archive.sizeBytes,
+      tokens: archive.tokens,
+      versionNumber: 0,
+      createdAt: record.publishedAt,
+      changeSummary: author.changeSummary,
+      slug: archive.slug,
+      origin: DOCS_DOCTOR_ARCHIVE_ORIGIN,
+    });
+  });
 }
 
 /**
@@ -842,9 +939,8 @@ async function scanPublicationLedger(
   const recordByKey = new Map(ledger.map((r) => [key(r), r]));
   const attachmentShas = new Set(rows.map((r) => r.sha256));
   // T14632: blob GC keeps what the conduit doc history names, so the doctor
-  // counts it as protection too. An unreadable history protects nothing more
-  // (fewer prunes, never more).
-  const conduitShas = await listConduitHistorySha256Set(projectRoot).catch(() => new Set<string>());
+  // counts it as protection too.
+  const holderShas = await readBlobHolderShas(projectRoot, attachmentShas);
   const recordFor = (item: DocsDriftItem): DocsPublicationRecord | undefined =>
     recordByKey.get(key(item));
   // T14504: a drifted row is superseded only when its doc's CANONICAL head
@@ -935,7 +1031,6 @@ async function scanPublicationLedger(
     })();
     return slugsByHead;
   };
-  const cleoDir = resolveCleoDir(projectRoot);
   const archiveTarget = async (record: DocsPublicationRecord): Promise<ArchiveTarget> => {
     const slugs = new Set<string>();
     for (const item of status.items) {
@@ -948,23 +1043,9 @@ async function scanPublicationLedger(
     const [slug, ...others] = [...slugs].sort();
     if (slug === undefined) return null;
     if (others.length > 0) return { kind: 'ambiguous', slugs: [slug, ...others] };
-    const docUid = await resolveConduitDocUid(projectRoot, slug).catch(() => null);
-    if (docUid === null) return { kind: 'unadopted', slug };
-    const bytes = readVerifiedBlobBytes(cleoDir, record.lastBlobSha);
-    if (bytes === null) return null;
-    return {
-      kind: 'adopted',
-      archive: {
-        docUid,
-        slug,
-        sha256: record.lastBlobSha,
-        sizeBytes: bytes.length,
-        tokens: bytes
-          .toString('utf-8')
-          .split(/\s+/)
-          .filter((w) => w.length > 0).length,
-      },
-    };
+    const archive = await buildLedgerArchive(projectRoot, slug, record.lastBlobSha);
+    if (archive === 'unadopted') return { kind: 'unadopted', slug };
+    return archive === null ? null : { kind: 'adopted', archive };
   };
   type Draft = Omit<LedgerFinding, 'action' | 'prunable' | 'detail'> & {
     /** Set when an unheld candidate can be archived instead (T14632). */
@@ -1076,7 +1157,7 @@ async function scanPublicationLedger(
   // survives this run: two prune candidates never protect each other (T14504),
   // so the last row naming a blob is never deleted and the blob never exposed to GC.
   const candidateRecords = new Set(drafts.filter((d) => d.candidate).map((d) => d.record));
-  const survivorShas = new Set([...attachmentShas, ...conduitShas]);
+  const survivorShas = new Set(holderShas);
   for (const item of status.items) {
     if (item.drift === 'deleted') continue;
     const record = recordFor(item);
@@ -1755,21 +1836,9 @@ export async function runDocsDoctor(
         : [];
       for (const { record, archive } of archivable) {
         if (archive === undefined) continue;
-        await withConduitDocWriteTransaction(projectRoot, async () => {
-          await importMigratedConduitVersion(projectRoot, {
-            attachmentUid: archive.docUid,
-            parentVersionUid: null,
-            authorAgentId: 'cleo:docs-doctor',
-            storageKey: `sha256:${archive.sha256}`,
-            contentHash: archive.sha256,
-            sizeBytes: archive.sizeBytes,
-            tokens: archive.tokens,
-            versionNumber: 0,
-            createdAt: record.publishedAt,
-            changeSummary: `archived by docs doctor from ledger row ${record.publishedPath} (owner ${record.ownerId}, blob ${record.blobName})`,
-            slug: archive.slug,
-            origin: DOCS_DOCTOR_ARCHIVE_ORIGIN,
-          });
+        await importLedgerArchive(projectRoot, record, archive, {
+          agentId: 'cleo:docs-doctor',
+          changeSummary: `archived by docs doctor from ledger row ${record.publishedPath} (owner ${record.ownerId}, blob ${record.blobName})`,
         });
         // The import has committed: a failed audit append must not hide it
         // from the report or stop the remaining archives and prunes (T14634).

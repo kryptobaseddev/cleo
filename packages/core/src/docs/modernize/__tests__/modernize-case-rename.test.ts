@@ -33,9 +33,13 @@ import type * as FsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAttachmentStore } from '../../../store/attachment-store.js';
+import { backfillBlobStoreBytes } from '../../../store/blob-keep.js';
 import { closeDb } from '../../../store/sqlite.js';
 import type { DocsPublicationRecord } from '../../docs-ops.js';
-import { statusDocs } from '../../docs-ops.js';
+import { listDocVersions, statusDocs } from '../../docs-ops.js';
+import { updateDocBySlug } from '../../docs-update.js';
+import { readBlobHolderShas } from '../../doctor.js';
 import {
   insertDocsPublication,
   readDocsPublications,
@@ -339,6 +343,84 @@ describe('modernize tree apply: merged, deleted and linked mirrors (T14631)', ()
 
     await rollbackDocsModernize(projectRoot, receipt.runId);
     expect(await ledgerRows(projectRoot)).toEqual(rows);
+  });
+
+  /**
+   * A drifted merged mirror: the ledger row published OLD, which the file no
+   * longer holds, so the row is the blob's only reference (ADR-076 / T14632).
+   * The survivor's doc is stored under its slug, and adopted when `adopted`.
+   */
+  async function seedDriftedMirror(slug: string, adopted: boolean): Promise<string> {
+    const old = '# Store notes\n\nThe published, since-edited text.\n';
+    writeFileSync(join(docsRoot, 'adr', 'store-notes.md'), merged);
+    // Adoption is an update, so the adopted doc starts as a draft; the
+    // unadopted one holds the survivor's bytes, so the plan still matches it.
+    const first = adopted ? '# draft\n' : keep;
+    await createAttachmentStore().put(
+      Buffer.from(first, 'utf-8'),
+      { kind: 'blob', storageKey: '', mime: 'text/markdown', size: Buffer.byteLength(first) },
+      'task',
+      'T1',
+      'modernize-test',
+      projectRoot,
+      { slug, type: 'adr' },
+    );
+    if (adopted) {
+      const updated = await updateDocBySlug(projectRoot, { slug, content: keep });
+      expect(updated.ok).toBe(true);
+    }
+    const src = join(projectRoot, 'old-bytes.md');
+    writeFileSync(src, old);
+    expect(await backfillBlobStoreBytes(join(projectRoot, '.cleo'), sha(old), src)).toBe('written');
+    rmSync(src);
+    await insertDocsPublication(projectRoot, {
+      ownerId: 'T1',
+      blobName: 'store-notes.md',
+      publishedPath: 'docs/adr/store-notes.md',
+      lastBlobSha: sha(old),
+      publishedAt: '2026-03-01T00:00:00.000Z',
+    });
+    return sha(old);
+  }
+
+  it('archives a merged mirror row’s only-held blob into the survivor before removing the row', async () => {
+    const slug = await survivorSlug();
+    const oldSha = await seedDriftedMirror(slug, true);
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+      overrides: {
+        'adr/store-notes.md': { disposition: 'merge-into', target: slug, reason: 'test: merge' },
+      },
+    });
+
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    expect(await ledgerRows(projectRoot)).toEqual([]);
+    const step = receipt.ops.find((o) => o.op === 'move-publication');
+    expect(step?.prior?.publication?.archivedInto).toBe(slug);
+    // The blob stays reachable: `cleo docs versions` lists it, and blob GC keeps it.
+    const versions = await listDocVersions({ ownerId: slug, projectRoot });
+    expect(versions.versions.map((v) => v.sha256)).toContain(oldSha);
+    expect(await readBlobHolderShas(projectRoot)).toContain(oldSha);
+  });
+
+  it('keeps a deleted mirror row whose only-held blob cannot be archived (its doc is not adopted)', async () => {
+    const slug = await survivorSlug();
+    const oldSha = await seedDriftedMirror(slug, false);
+    // No survivor: the file is stored under a fresh legacy slug with no
+    // conduit history, so there is nowhere to archive the blob.
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+      overrides: { 'adr/store-notes.md': { disposition: 'delete', reason: 'test: delete' } },
+    });
+
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    expect(existsSync(join(docsRoot, 'adr', 'store-notes.md'))).toBe(false);
+    expect((await ledgerRows(projectRoot)).map((r) => r.lastBlobSha)).toEqual([oldSha]);
+    expect(receipt.ops.some((o) => o.op === 'move-publication')).toBe(false);
   });
 
   it('removes a non-survivor hard link to a kept file', async () => {
