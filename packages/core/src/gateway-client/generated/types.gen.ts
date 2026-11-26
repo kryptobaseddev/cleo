@@ -14284,6 +14284,10 @@ export type MutateDocsUpdateData = {
          */
         status?: 'draft' | 'proposed' | 'accepted' | 'superseded' | 'archived' | 'deprecated';
         /**
+         * Slug of the doc that replaces this one (T14657). Use with --status superseded and no file or content: records the successor link (this doc's superseded_by, the successor's supersedes) that `cleo docs supersede` wrote.
+         */
+        supersededBy?: string;
+        /**
          * Preview validation and resulting envelope without mutating attachment rows, blob storage, or audit logs.
          */
         dryRun?: boolean;

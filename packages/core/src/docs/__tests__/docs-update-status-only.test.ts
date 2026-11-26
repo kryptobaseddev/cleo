@@ -89,7 +89,9 @@ describe('updateDocBySlug — status alone (T12654)', () => {
       expect(res.ok).toBe(false);
       if (!res.ok) {
         expect(res.error.code).toBe('E_INVALID_STATUS');
-        expect(res.error.message).toMatch(/superseded.*cleo docs supersede t12945-old/s);
+        expect(res.error.message).toMatch(
+          /superseded.*cleo docs update t12945-old --status superseded --superseded-by/s,
+        );
       }
     }
     // The origin keeps the doc superseded with its bytes, as every synced peer does.
@@ -120,5 +122,88 @@ describe('updateDocBySlug — status alone (T12654)', () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.message).toMatch(/mutually exclusive/);
+  });
+});
+
+describe('updateDocBySlug — status superseded with a successor (T14657)', () => {
+  it('records the same successor link the deprecated supersede wrote', async () => {
+    const { updateDocBySlug } = await import('../docs-update.js');
+    const { supersedeDoc } = await import('../supersede.js');
+    await seedSlug('t14657-old-a', '# Old A\n');
+    await seedSlug('t14657-new-a', '# New A\n');
+    await seedSlug('t14657-old-b', '# Old B\n');
+    await seedSlug('t14657-new-b', '# New B\n');
+
+    await supersedeDoc(tempDir, { oldSlug: 't14657-old-a', newSlug: 't14657-new-a' });
+    const res = await updateDocBySlug(tempDir, {
+      slug: 't14657-old-b',
+      status: 'superseded',
+      supersededBy: 't14657-new-b',
+    });
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+    if (!res.ok) return;
+    expect(res.result.lifecycleStatus).toBe('superseded');
+    expect(res.result.changed).toBe(false);
+
+    const { resolveDocRef, supersessionSlugs } = await import('../slug-rename.js');
+    const link = async (oldSlug: string, newSlug: string) => {
+      const old = await resolveDocRef(tempDir, oldSlug);
+      const next = await resolveDocRef(tempDir, newSlug);
+      if (!old || !next) throw new Error(`unresolved ${oldSlug} or ${newSlug}`);
+      return {
+        status: old.ownRow.lifecycleStatus,
+        oldNamesNew: old.ownRow.supersededBy === next.ownRow.id,
+        newNamesOld: next.ownRow.supersedes === old.ownRow.id,
+        newStatus: next.ownRow.lifecycleStatus,
+        // The doctor reads the successor's slug off the identity rows.
+        successorSlug: (await supersessionSlugs(tempDir, old)).supersededBy === newSlug,
+      };
+    };
+    const viaSupersede = await link('t14657-old-a', 't14657-new-a');
+    expect(viaSupersede).toEqual({
+      status: 'superseded',
+      oldNamesNew: true,
+      newNamesOld: true,
+      newStatus: viaSupersede.newStatus,
+      successorSlug: true,
+    });
+    expect(await link('t14657-old-b', 't14657-new-b')).toEqual(viaSupersede);
+  });
+
+  it('refuses a successor with a content edit, another status, an unknown or the same doc', async () => {
+    const { updateDocBySlug } = await import('../docs-update.js');
+    const sha = await seedSlug('t14657-doc', '# Doc\n');
+    await seedSlug('t14657-next', '# Next\n');
+
+    const refused = [
+      {
+        slug: 't14657-doc',
+        content: '# Edit\n',
+        status: 'superseded',
+        supersededBy: 't14657-next',
+      },
+      { slug: 't14657-doc', status: 'accepted', supersededBy: 't14657-next' },
+      { slug: 't14657-doc', supersededBy: 't14657-next' },
+      { slug: 't14657-doc', status: 'superseded', supersededBy: 't14657-missing' },
+      { slug: 't14657-doc', status: 'superseded', supersededBy: 't14657-doc' },
+    ] as const;
+    const codes: string[] = [];
+    for (const params of refused) {
+      const res = await updateDocBySlug(tempDir, params);
+      expect(res.ok, JSON.stringify(params)).toBe(false);
+      if (!res.ok) codes.push(res.error.code);
+    }
+    expect(codes).toEqual([
+      'E_INVALID_INPUT',
+      'E_INVALID_INPUT',
+      'E_INVALID_INPUT',
+      'E_NOT_FOUND',
+      'E_INVALID_INPUT',
+    ]);
+    const { resolveDocRef } = await import('../slug-rename.js');
+    const ref = await resolveDocRef(tempDir, 't14657-doc');
+    expect(ref?.ownRow.lifecycleStatus).not.toBe('superseded');
+    expect(ref?.ownRow.supersededBy ?? null).toBeNull();
+    expect(ref?.sha256).toBe(sha);
   });
 });

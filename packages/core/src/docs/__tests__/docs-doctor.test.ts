@@ -1273,7 +1273,7 @@ describe('docs doctor repair commands resolve against the CLI manifest (T14650)'
       pathToFileURL(join(root, 'scripts/lint-injection-commands.mjs')).href
     )) as CommandGate;
     const { docsDoctorArchiveCommand, docsSupersedeCommand } = await import('../doctor.js');
-    const supersede = docsSupersedeCommand('DUPLICATE');
+    const supersede = docsSupersedeCommand('DUPLICATE', 'KEPT');
     const archive = docsDoctorArchiveCommand('docs/ADR-1.md', 'SLUG');
     const registry = gate.loadRegistry(new Set(['docs']), root);
     expect(gate.findViolations(`\`${supersede}\`\n\`${archive}\``, registry)).toEqual([]);
@@ -1443,15 +1443,20 @@ describe('runDocsDoctor — archive-publication (T14632)', () => {
     const [plan] = ledgerPlans(result.report);
     expect(plan).toMatchObject({ action: 'republish-or-prune', applied: false });
     expect(plan?.detail).toContain("archive target is ambiguous: docs 'adr-copy', 'adr-two'");
-    expect(plan?.detail).toContain('cleo docs update DUPLICATE --status superseded');
+    expect(plan?.detail).toContain(
+      'cleo docs update DUPLICATE --status superseded --superseded-by KEPT',
+    );
     expect(await ledgerPaths()).toEqual(['docs/ADR-1.md', 'docs/ADR-2.md']);
     const { listConduitHistorySha256Set } = await import('../../store/conduit-doc-history.js');
     expect((await listConduitHistorySha256Set(tempDir)).has(sha(OLD))).toBe(false);
 
     // The named fix resolves it: mark the duplicate superseded, and the blob archives.
-    expect((await updateDocBySlug(tempDir, { slug: 'adr-copy', status: 'superseded' })).ok).toBe(
-      true,
-    );
+    const marked = await updateDocBySlug(tempDir, {
+      slug: 'adr-copy',
+      status: 'superseded',
+      supersededBy: 'adr-two',
+    });
+    expect(marked.ok).toBe(true);
     const fixed = await doctor({
       apply: true,
       receipt: makeReceipt(),
@@ -1472,7 +1477,7 @@ describe('runDocsDoctor — archive-publication (T14632)', () => {
       true,
     );
     const only = ['publication-ledger-drift'];
-    const { docsDoctorArchiveCommand } = await import('../doctor.js');
+    const { docsDoctorArchiveCommand, docsSupersedeCommand } = await import('../doctor.js');
 
     const orphan = await doctor({ only });
     expect(orphan.ok).toBe(true);
@@ -1480,10 +1485,11 @@ describe('runDocsDoctor — archive-publication (T14632)', () => {
     const [plan] = ledgerPlans(orphan.report);
     expect(plan).toMatchObject({ action: 'republish-or-prune' });
     expect(plan?.detail).toContain("doc 'adr-two' is superseded, so it takes no archive");
+    expect(plan?.detail).toContain(docsSupersedeCommand('adr-two', 'SLUG'));
     expect(plan?.detail).toContain(docsDoctorArchiveCommand('docs/ADR-1.md', 'SLUG'));
   });
 
-  it('names the superseded doc’s successor as the archive target (T14650)', async () => {
+  it('names the successor docs update --superseded-by recorded as the archive target (T14650, T14657)', async () => {
     await seedRenumbered(true);
     // An adopted successor with its own head: it holds no publication's blob,
     // so only the superseded doc matches and the finding must name the route.
@@ -1493,8 +1499,13 @@ describe('runDocsDoctor — archive-publication (T14632)', () => {
     expect((await updateDocBySlug(tempDir, { slug: 'adr-three', content: successorBody })).ok).toBe(
       true,
     );
-    const { supersedeDoc } = await import('../supersede.js');
-    await supersedeDoc(tempDir, { oldSlug: 'adr-two', newSlug: 'adr-three' });
+    // T14657: the non-deprecated route records the successor link.
+    const linked = await updateDocBySlug(tempDir, {
+      slug: 'adr-two',
+      status: 'superseded',
+      supersededBy: 'adr-three',
+    });
+    expect(linked.ok).toBe(true);
     const only = ['publication-ledger-drift'];
     const { docsDoctorArchiveCommand } = await import('../doctor.js');
 

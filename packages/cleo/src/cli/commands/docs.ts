@@ -1389,9 +1389,8 @@ function formatDocsUpdateContractHelp(): string {
  *      `.cleo/audit/docs-versioning.jsonl`. Updates for the same slug within
  *      a 5-minute window squash into the prior line (revisions[]).
  *
- * Pairs with `cleo docs supersede` (T10162) — supersede creates an explicit
- * lineage edge for major scope shifts; update is for minor edits that
- * shouldn't fragment the slug history.
+ * `--status superseded --superseded-by <slug>` (T14657) records the explicit
+ * lineage edge the deprecated `cleo docs supersede` (T10162) wrote.
  *
  * @task T10161 (Epic T10157 · Saga T9855 · E12.C4)
  */
@@ -1464,6 +1463,10 @@ const updateCommand = defineCommand({
         ...(inlineContent !== undefined ? { content: inlineContent } : {}),
         ...(typeof args.message === 'string' ? { message: args.message } : {}),
         ...(typeof args.status === 'string' ? { status: args.status } : {}),
+        // T14657: the successor a lifecycle-only --status superseded links.
+        ...(typeof args['superseded-by'] === 'string'
+          ? { supersededBy: args['superseded-by'] }
+          : {}),
         ...(args['dry-run'] === true ? { dryRun: true } : {}),
         ...(args.strict === true ? { strict: true } : {}),
         ...(typeof args['attached-by'] === 'string' ? { attachedBy: args['attached-by'] } : {}),

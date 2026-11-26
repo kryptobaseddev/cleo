@@ -8,8 +8,8 @@
  *
  * The previous row stays reachable by attachment-id (and by raw sha256) for
  * version history — its slug column is cleared so the UNIQUE index does
- * not trip. No supersession edge is written (callers wanting an explicit
- * lineage edge should use `cleo docs supersede`).
+ * not trip. No supersession edge is written, except by a lifecycle-only
+ * `--status superseded --superseded-by <slug>` (T14657).
  *
  * Each successful update appends one line to
  * `.cleo/audit/docs-versioning.jsonl`. When a second update for the same
@@ -53,7 +53,11 @@ import {
   linksJsonOrNull,
 } from './derive-links.js';
 import type { DocUpdatePreview, ProjectDocUpdateInput } from './section-write-path.js';
-import { preserveIncomingSupersessionOnReuse, rehomeSupersessionEdges } from './supersede.js';
+import {
+  preserveIncomingSupersessionOnReuse,
+  rehomeSupersessionEdges,
+  supersedeDoc,
+} from './supersede.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -499,6 +503,19 @@ export async function updateDocBySlug(
       },
     };
   }
+  // T14657: a successor is a lifecycle-only supersession, never a content edit
+  // (a content edit would write a superseded row the link does not name).
+  const successorRef = params.supersededBy;
+  if (successorRef !== undefined && (!statusOnly || status !== 'superseded')) {
+    return {
+      ok: false,
+      error: {
+        // @sync-invariant none:input-shape a successor without a lifecycle-only --status superseded is refused before any write
+        code: 'E_INVALID_INPUT',
+        message: `--superseded-by needs --status superseded and no --file or --content — e.g. \`cleo docs update ${requestedSlug} --status superseded --superseded-by ${successorRef}\``,
+      },
+    };
+  }
 
   const now = new Date();
   const nowIso = now.toISOString();
@@ -587,9 +604,36 @@ export async function updateDocBySlug(
       ok: false,
       error: {
         code: 'E_INVALID_STATUS', // @sync-invariant docs.lifecycle.transitions
-        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and supersede again with \`cleo docs supersede ${slug} <new-slug>\``,
+        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and name it the successor with \`cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG\``,
       },
     };
+  }
+
+  // T14657: resolve the successor (live slug or alias) before any write.
+  let successor: { slug: string; rowId: string } | null = null;
+  if (successorRef !== undefined) {
+    const next = await resolveDocRef(projectRoot, successorRef);
+    if (!next) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape an unknown successor slug is refused before any write
+          code: 'E_NOT_FOUND',
+          message: `successor '${successorRef}' does not match any doc — add it first (\`cleo docs add\`), then name it with --superseded-by`,
+        },
+      };
+    }
+    if (next.slug === slug) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape a doc cannot supersede itself; refused before any write
+          code: 'E_INVALID_INPUT',
+          message: `doc '${slug}' cannot be its own successor — name the doc that replaces it`,
+        },
+      };
+    }
+    successor = { slug: next.slug, rowId: next.ownRow.id };
   }
 
   const previousAttachmentId = oldRow.id;
@@ -689,7 +733,10 @@ export async function updateDocBySlug(
     }
   }
   const newSha256 = buf === null ? previousSha256 : sha256Of(buf);
-  const wouldChange = newSha256 !== previousSha256 || oldRow.lifecycleStatus !== status;
+  const wouldChange =
+    newSha256 !== previousSha256 ||
+    oldRow.lifecycleStatus !== status ||
+    (successor !== null && oldRow.supersededBy !== successor.rowId);
 
   // The body schema is checked on new bytes; a lifecycle-only change keeps
   // the stored body, which was checked when it was written.
@@ -747,8 +794,15 @@ export async function updateDocBySlug(
   // operators can see the noop attempt. A lifecycle-only update (no new
   // bytes, T12654) always takes this path.
   if (buf === null || incomingSha256 === previousSha256) {
-    // Only touch lifecycle_status if it actually changes.
-    if (oldRow.lifecycleStatus !== status) {
+    // T14657: a successor writes the same link the deprecated `docs supersede`
+    // did (status, superseded_by and the successor's supersedes, one
+    // transaction, both identity rows mirrored).
+    if (successor !== null) {
+      if (oldRow.lifecycleStatus !== status || oldRow.supersededBy !== successor.rowId) {
+        await supersedeDoc(projectRoot, { oldSlug: slug, newSlug: successor.slug });
+      }
+    } else if (oldRow.lifecycleStatus !== status) {
+      // Only touch lifecycle_status if it actually changes.
       await db
         .update(docsAttachments)
         .set({ lifecycleStatus: status })
@@ -790,9 +844,11 @@ export async function updateDocBySlug(
         version: await countDocVersions(projectRoot, slug, oldRow.docVersion),
         squashed,
         summary:
-          status === oldRow.lifecycleStatus
-            ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
-            : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
+          successor !== null
+            ? `slug '${slug}' is superseded by '${successor.slug}' (bytes unchanged)`
+            : status === oldRow.lifecycleStatus
+              ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
+              : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
         docVersion: oldRow.docVersion,
         ...(noopHead !== undefined ? { headVersionUid: noopHead } : {}),

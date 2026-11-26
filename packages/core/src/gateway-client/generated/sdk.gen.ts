@@ -3688,7 +3688,7 @@ export const queryDocsLlmOutput = <ThrowOnError extends boolean = false>(options
 });
 
 /**
- * docs.update (mutate) — replace blob content for an existing slug while preserving the slug. New sha256 + new attachment row; the old row stays reachable by ID for history. NO supersession edge (use `cleo docs supersede` for that). Audit log entry appended to .cleo/audit/docs-versioning.jsonl (squashed within a 5-min window).
+ * docs.update (mutate) — replace blob content for an existing slug while preserving the slug. New sha256 + new attachment row; the old row stays reachable by ID for history. A supersession edge is written only by --status superseded with --superseded-by. Audit log entry appended to .cleo/audit/docs-versioning.jsonl (squashed within a 5-min window).
  */
 export const mutateDocsUpdate = <ThrowOnError extends boolean = false>(options: Options<MutateDocsUpdateData, ThrowOnError>): RequestResult<MutateDocsUpdateResponses, unknown, ThrowOnError> => (options.client ?? client).post<MutateDocsUpdateResponses, unknown, ThrowOnError>({
     url: '/v1/docs/update',
