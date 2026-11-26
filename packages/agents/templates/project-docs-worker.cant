@@ -24,13 +24,13 @@ agent project-docs-worker:
   consult-when: "Writing documentation, updating READMEs, adding code comments, or improving existing docs"
 
   context_sources:
-    - source: patterns
+    on_overflow: escalate_tier
+    patterns:
       query: "documentation conventions and style patterns"
       max_entries: 3
-    - source: decisions
+    decisions:
       query: "architectural decisions needing documentation"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
@@ -44,9 +44,7 @@ agent project-docs-worker:
       read: ["**/*"]
       delete: ["docs/**"]
 
-  skills:
-    - ct-cleo
-    - ct-documentor
+  skills: [ct-cleo, ct-documentor]
 
   tools:
     core: [Read, Edit, Write, Bash, Glob, Grep]

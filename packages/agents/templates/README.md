@@ -11,28 +11,33 @@ never overwrites a seed that already exists in the project.
 
 ## Bundled templates
 
-### `orchestrator-generic.cant`
+### `project-orchestrator.cant`
 
 Top-level team orchestrator. Classifies tasks, dispatches to the dev-lead,
 synthesises results. Coordinates — does not execute code itself.
 
-### `dev-lead-generic.cant`
+### `project-dev-lead.cant`
 
 Development lead. Decomposes tasks into concrete implementation steps,
 reviews worker output, and decides technical approach. Dispatches to
 code-worker and docs-worker. **MUST NOT** hold Edit/Write/Bash tools
 (TEAM-002 / ULTRAPLAN 10.3) — review-only authority.
 
-### `code-worker-generic.cant`
+### `project-code-worker.cant`
 
 General-purpose code worker. Reads requirements from the dev-lead, writes
 code, runs tests, and validates changes. Operates within declared file
 permission globs.
 
-### `docs-worker-generic.cant`
+### `project-docs-worker.cant`
 
 Documentation worker. Writes READMEs, updates guides, adds inline
 documentation. Operates within declared documentation file globs.
+
+### `project-security-worker.cant`
+
+Security worker. Reviews code for vulnerabilities, audits dependencies and
+produces findings reports. Read-only; escalates remediation to the dev-lead.
 
 ## Template variables
 
@@ -66,15 +71,18 @@ idempotent and safe to run on already-initialised projects.
 
 ## Validation
 
-All four templates validate clean against the CANT 42-rule type and grammar
-suite *after* variable substitution:
+All five templates parse and validate clean with `cant-core` *after*
+variable substitution. The `template_project_*_parses_clean` tests in
+`crates/cant-core/tests/parse_new_sections.rs` render each template with
+sample values and enforce this in CI:
 
 ```bash
-for f in seed-agents/*.cant; do cleo cant validate "$f"; done
+cargo test -p cant-core --test parse_new_sections template_
 ```
 
-Each must return `valid: true` with `errorCount: 0` once placeholders are
-filled.
+Use CANT syntax, not YAML: lists are inline arrays (`skills: [ct-cleo,
+ct-task-executor]`), and `context_sources:` is a keyed sub-block with
+`on_overflow:` inside it.
 
 ## Project-specific personas
 
