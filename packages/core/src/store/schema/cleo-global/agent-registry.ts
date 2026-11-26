@@ -296,6 +296,12 @@ export const agentRegistryAgents = sqliteTable(
     cantPath: text('cant_path'),
     /** SHA-256 checksum of the .cant file at install time. */
     cantSha256: text('cant_sha256'),
+    /**
+     * SHA-256 of the packaged seed template as installed (T14654). Written only
+     * when a packaged template is installed, never by a hash refresh, so it
+     * proves whether the file on disk is still the unedited seed.
+     */
+    seedSha256: text('seed_sha256'),
     /** Installation provenance (seed / user / manual). */
     installedFrom: text('installed_from'),
     /** ISO-8601 UTC install instant (already canonical TEXT, §4). */

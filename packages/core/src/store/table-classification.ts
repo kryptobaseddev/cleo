@@ -1735,6 +1735,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         reason: 'draft §3: device path or per-device counter',
       },
       {
+        column: 'seed_sha256',
+        class: 'local-only',
+        reason:
+          'digest of the packaged seed this device installed at cant_path; proves the local file is unedited (T14654)',
+      },
+      {
         column: 'messages_sent',
         class: 'local-only',
         reason: 'draft §3: device path or per-device counter',

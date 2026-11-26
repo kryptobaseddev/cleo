@@ -21,7 +21,7 @@
  * @epic T889
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -428,6 +428,44 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const fs = require('node:fs') as typeof import('node:fs');
       expect(fs.existsSync(dest)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  // T14654: a force install never loses the bytes it replaces.
+  it('keeps a backup of replaced bytes and restores them on rollback', async () => {
+    const { installAgentFromCant } = await import('../agent-install.js');
+    const db = env.openDb();
+    try {
+      const srcDir = join(env.projectRoot, 'sources');
+      const src = writeSource(srcDir, 'fixture-agent.cant', FIXTURE_MINIMAL_CANT);
+      const base = {
+        targetTier: 'global',
+        installedFrom: 'manual',
+        globalCantDir: env.globalCantDir,
+      } as const;
+      const { cantPath } = installAgentFromCant(db, { ...base, cantSource: src });
+      const userBytes = `${FIXTURE_MINIMAL_CANT}# user edit\n`;
+      writeFileSync(cantPath, userBytes);
+
+      const updated = writeSource(srcDir, 'fixture-agent.cant', `${FIXTURE_MINIMAL_CANT}# v2\n`);
+      installAgentFromCant(db, { ...base, cantSource: updated, force: true });
+      const backups = readdirSync(env.globalCantDir).filter((f) =>
+        f.startsWith('fixture-agent.cant.bak-'),
+      );
+      expect(backups).toHaveLength(1);
+      expect(readFileSync(join(env.globalCantDir, backups[0] ?? ''), 'utf8')).toBe(userBytes);
+
+      // A failing row write must put the previous bytes back.
+      writeFileSync(cantPath, userBytes);
+      db.exec(
+        "CREATE TEMP TRIGGER fail_update BEFORE UPDATE ON agent_registry_agents BEGIN SELECT RAISE(ABORT, 'boom'); END",
+      );
+      expect(() =>
+        installAgentFromCant(db, { ...base, cantSource: updated, force: true }),
+      ).toThrow();
+      expect(readFileSync(cantPath, 'utf8')).toBe(userBytes);
     } finally {
       db.close();
     }

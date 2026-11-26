@@ -2394,6 +2394,7 @@
       "privacy_tier",
       "reports_to",
       "requires_reauth",
+      "seed_sha256",
       "skills",
       "status",
       "tier",

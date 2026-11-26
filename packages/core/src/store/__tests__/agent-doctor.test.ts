@@ -441,6 +441,7 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
         targetTier: 'project',
         installedFrom: 'seed',
         projectRoot: env.projectRoot,
+        packagedSeed: true,
       });
       return { cantPath, tpl };
     }
@@ -495,6 +496,91 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
         const result = await reconcileDoctor(db, d007, { templatesDir: tpl });
         expect(result.skipped).toEqual(['D-007']);
         expect(readFileSync(cantPath, 'utf8')).toBe(edited);
+      } finally {
+        db.close();
+      }
+    });
+
+    // The D-003 repair rewrites cant_sha256 to the edited file's digest; the
+    // refresh must not then mistake the edited file for the seed.
+    it('keeps user edits when repair gets the full findings list, twice', async () => {
+      const { buildDoctorReport, reconcileDoctor } = await import('../agent-doctor.js');
+      const db = env.openDb();
+      try {
+        const { cantPath, tpl } = await installOldSeed(db);
+        appendFileSync(cantPath, '# user edit\n');
+        const edited = readFileSync(cantPath, 'utf8');
+        const opts = {
+          projectRoot: env.projectRoot,
+          globalCantDir: env.globalCantDir,
+          homeDir: env.homeDir,
+          templatesDir: tpl,
+          cantParses,
+        };
+        for (let run = 0; run < 2; run++) {
+          const report = await buildDoctorReport(db, opts);
+          await reconcileDoctor(db, report.findings, { templatesDir: tpl });
+          expect(readFileSync(cantPath, 'utf8')).toBe(edited);
+        }
+        const last = await buildDoctorReport(db, opts);
+        expect(last.findings.map((f) => f.code)).toEqual(['D-007']);
+        expect(last.findings[0]?.fixCommand).toContain('cleo agent install');
+      } finally {
+        db.close();
+      }
+    });
+
+    it('does not refresh a seed installed without a recorded seed digest', async () => {
+      const { installAgentFromCant } = await import('../agent-install.js');
+      const { buildDoctorReport, reconcileDoctor } = await import('../agent-doctor.js');
+      const db = env.openDb();
+      try {
+        const src = writeCant(join(env.projectRoot, 'old'), 'doctor-fixture.cant', OLD_SEED);
+        const tpl = writeCant(
+          join(env.projectRoot, 'templates'),
+          'doctor-fixture.cant',
+          NEW_TEMPLATE,
+        );
+        const { cantPath } = installAgentFromCant(db, {
+          cantSource: src,
+          targetTier: 'project',
+          installedFrom: 'seed',
+          projectRoot: env.projectRoot,
+        });
+        const report = await buildDoctorReport(db, {
+          projectRoot: env.projectRoot,
+          globalCantDir: env.globalCantDir,
+          homeDir: env.homeDir,
+          templatesDir: join(tpl, '..'),
+          cantParses,
+        });
+        const result = await reconcileDoctor(db, report.findings, {
+          templatesDir: join(tpl, '..'),
+        });
+        expect(result.skipped).toContain('D-007');
+        expect(readFileSync(cantPath, 'utf8')).toBe(OLD_SEED);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('reports D-012 once when the parser cannot load', async () => {
+      const { buildDoctorReport } = await import('../agent-doctor.js');
+      const db = env.openDb();
+      try {
+        await installOldSeed(db);
+        const report = await buildDoctorReport(db, {
+          projectRoot: env.projectRoot,
+          globalCantDir: env.globalCantDir,
+          homeDir: env.homeDir,
+          cantParses: async () => {
+            throw new Error('addon missing');
+          },
+        });
+        const d012 = report.findings.filter((f) => f.code === 'D-012');
+        expect(d012).toHaveLength(1);
+        expect(d012[0]?.message).toContain('addon missing');
+        expect(report.findings.some((f) => f.code === 'D-007')).toBe(false);
       } finally {
         db.close();
       }

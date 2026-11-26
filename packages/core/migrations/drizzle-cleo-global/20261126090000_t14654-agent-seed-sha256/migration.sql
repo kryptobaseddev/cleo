@@ -1,0 +1,14 @@
+-- T14654: record the digest of a packaged seed at the moment it is installed
+-- (consolidated GLOBAL cleo.db, drizzle-cleo-global scope).
+--
+-- `cleo agent doctor --repair` refreshes an installed seed that no longer
+-- parses from its packaged template, but only when the file on disk is
+-- byte-identical to what the package installed. `cant_sha256` cannot prove
+-- that: the D-003 repair rewrites it to the current file's digest after a user
+-- edit. `seed_sha256` is written only when a packaged template is installed
+-- and never by a hash refresh. Nullable: rows installed before this column
+-- have no proof, so the doctor reports them instead of refreshing them.
+--
+-- ADD COLUMN only (no table rebuild), so the migration journal probe
+-- (reconcileJournal) detects it by column presence — see T12541.
+ALTER TABLE `agent_registry_agents` ADD COLUMN `seed_sha256` text;

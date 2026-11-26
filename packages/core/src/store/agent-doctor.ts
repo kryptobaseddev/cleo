@@ -23,9 +23,9 @@
  *   present in the manifest's declared `skills[]`.
  * - **D-007** `cant-parse-error`  — the file on disk failed to read or, when the
  *   caller supplies {@link BuildDoctorReportOptions.cantParses}, to parse. An
- *   unedited seed (file digest equals the stored `cant_sha256`) with a packaged
- *   template of the same name is refreshed from that template by
- *   {@link reconcileDoctor} (T14654).
+ *   unedited seed (file digest equals `seed_sha256`, the digest recorded when
+ *   the packaged template was installed) with a packaged template of the same
+ *   name is refreshed from that template by {@link reconcileDoctor} (T14654).
  * - **D-008** `legacy-path`       — row uses the pre-T889 `.cleo/agents/`
  *   path instead of `.cleo/cant/agents/`.
  * - **D-009** `deprecated-live`   — a deprecated agent is still registered
@@ -37,6 +37,8 @@
  *   a reinstall to `<cleoHome>/cant/agents/`). Info only: no drift checks run
  *   against it and no fix command installs it, so it cannot overwrite the
  *   registered agent (T14600).
+ * - **D-012** `parser-unavailable` — {@link BuildDoctorReportOptions.cantParses}
+ *   threw, so the D-007 parse check was skipped for this run (T14654).
  *
  * The module is intentionally dependency-light and does NOT import
  * `@cleocode/cant` (a circular dependency) — skill-list extraction reuses
@@ -168,6 +170,7 @@ interface DoctorAgentRow {
   cant_sha256: string | null;
   skills: string | null;
   installed_from?: string | null;
+  seed_sha256?: string | null;
 }
 
 /** Shape of the skill-join rows used to detect D-005 / D-006 drift. */
@@ -212,8 +215,8 @@ function sha256Hex(bytes: Buffer): string {
 /**
  * Resolve the packaged template a seed agent can be refreshed from, but only
  * when refreshing loses nothing: the row came from a seed, the file on disk
- * is byte-identical to what was installed, and a template of the same name
- * ships (T14654).
+ * is byte-identical to the packaged seed that was installed (`seed_sha256`),
+ * and a template of the same name ships (T14654).
  *
  * @param row - Registry row of the agent.
  * @param fileHash - SHA-256 of the file on disk.
@@ -221,11 +224,16 @@ function sha256Hex(bytes: Buffer): string {
  * @returns The template path, or `null` when the file must not be replaced.
  */
 async function refreshableSeedTemplate(
-  row: Pick<DoctorAgentRow, 'agent_id' | 'cant_sha256' | 'installed_from'>,
+  row: Pick<DoctorAgentRow, 'agent_id' | 'installed_from' | 'seed_sha256'>,
   fileHash: string,
   templatesDir: string | null,
 ): Promise<string | null> {
-  if (row.installed_from !== 'seed' || row.cant_sha256 !== fileHash || !templatesDir) return null;
+  // seed_sha256, never cant_sha256: the D-003 repair rewrites cant_sha256 to an
+  // edited file's digest, so only seed_sha256 proves the bytes are the seed's.
+  if (row.installed_from !== 'seed' || !row.seed_sha256 || row.seed_sha256 !== fileHash) {
+    return null;
+  }
+  if (!templatesDir) return null;
   const template = join(templatesDir, `${row.agent_id}.cant`);
   return (await exists(template)) ? template : null;
 }
@@ -375,6 +383,7 @@ export async function buildDoctorReport(
   const scans = resolveTierDirs(options);
   const templatesDir =
     options.templatesDir !== undefined ? options.templatesDir : resolveAgentTemplates();
+  let cantParses = options.cantParses;
 
   // --- D-001 / D-003 / D-005 / D-006 / D-007: filesystem-driven walk -------
   for (const scan of scans) {
@@ -385,7 +394,7 @@ export async function buildDoctorReport(
 
       const row = db
         .prepare(
-          'SELECT id, agent_id, tier, cant_path, cant_sha256, skills, installed_from FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
+          'SELECT id, agent_id, tier, cant_path, cant_sha256, skills, installed_from, seed_sha256 FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
         )
         .get(agentId, scan.tier) as DoctorAgentRow | undefined;
 
@@ -416,10 +425,12 @@ export async function buildDoctorReport(
       // D-003 — sha256 drift
       let parsedSkills: string[] | null = null;
       let actualHash = '';
+      let drifted = false;
       try {
         const buf = await readFile(path);
         actualHash = sha256Hex(buf);
         if (row.cant_sha256 && actualHash !== row.cant_sha256) {
+          drifted = true;
           findings.push({
             code: 'D-003',
             severity: 'error',
@@ -442,12 +453,22 @@ export async function buildDoctorReport(
       // D-007 — the file does not parse with the current grammar (T14654).
       let parses = true;
       try {
-        if (options.cantParses) parses = await options.cantParses(path);
-      } catch {
-        // Parser unavailable: the parse check did not run.
+        if (cantParses) parses = await cantParses(path);
+      } catch (parseErr) {
+        // D-012 — the parser could not run: say so once, skip the check.
+        cantParses = undefined;
+        findings.push({
+          code: 'D-012',
+          severity: 'warn',
+          subject: 'cant-parser',
+          message: `CANT parser unavailable, so the D-007 parse check was skipped: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+        });
       }
       if (!parses) {
-        const template = await refreshableSeedTemplate(row, actualHash, templatesDir);
+        // A D-003 drift means the file was edited: never offer a refresh.
+        const template = drifted
+          ? null
+          : await refreshableSeedTemplate(row, actualHash, templatesDir);
         const tierFlag = scan.tier === 'global' ? ' --global' : '';
         findings.push({
           code: 'D-007',
@@ -455,7 +476,7 @@ export async function buildDoctorReport(
           subject: `${scan.tier}:${agentId}`,
           message: template
             ? `${path} does not parse with the current CANT grammar. It is an unedited seed, so --repair refreshes it from the packaged template ${template}.`
-            : `${path} does not parse with the current CANT grammar and was edited after install or has no packaged template, so it is left alone. Rewrite it in the current syntax${templatesDir ? ` (see ${join(templatesDir, `${agentId}.cant`)})` : ''}, then reinstall it.`,
+            : `${path} does not parse with the current CANT grammar and is not provably the unedited packaged seed (edited after install, installed before seed digests were recorded, or no packaged template), so it is left alone. Rewrite it in the current syntax${templatesDir ? ` (see ${join(templatesDir, `${agentId}.cant`)})` : ''}, then reinstall it.`,
           fixCommand: template
             ? 'cleo agent doctor --repair'
             : `cleo agent install ${path} --force${tierFlag}`,
@@ -646,14 +667,19 @@ export async function reconcileDoctor(
       }
       case 'D-007': {
         // Refresh an unparseable seed from its packaged template, only when the
-        // file is byte-identical to what was installed (T14654).
+        // file is byte-identical to the installed packaged seed and no D-003
+        // in this run says the file was edited (T14654).
         const [tier, agentId] = finding.subject.split(':');
+        if (findings.some((f) => f.code === 'D-003' && f.subject === finding.subject)) {
+          skipped.push(finding.code);
+          break;
+        }
         const row = db
           .prepare(
-            'SELECT agent_id, cant_path, cant_sha256, installed_from FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
+            'SELECT agent_id, cant_path, installed_from, seed_sha256 FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
           )
           .get(agentId ?? '', tier ?? '') as
-          | Pick<DoctorAgentRow, 'agent_id' | 'cant_path' | 'cant_sha256' | 'installed_from'>
+          | Pick<DoctorAgentRow, 'agent_id' | 'cant_path' | 'installed_from' | 'seed_sha256'>
           | undefined;
         let fileHash: string | null = null;
         try {
@@ -687,10 +713,11 @@ export async function reconcileDoctor(
             projectRoot,
             globalCantDir: dirname(cantPath),
             force: true,
+            packagedSeed: true,
           });
           repaired.push(finding.code);
         } catch {
-          // installAgentFromCant rolls back its own file + row on failure.
+          // installAgentFromCant restores its own file + row on failure.
           skipped.push(finding.code);
         }
         break;

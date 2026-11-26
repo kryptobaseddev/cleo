@@ -421,6 +421,7 @@ export async function installTemplatesAtProjectTier(
         installedFrom: 'seed',
         projectRoot,
         force: true,
+        packagedSeed: true,
       });
       installed.push({
         agentId: result.agentId,

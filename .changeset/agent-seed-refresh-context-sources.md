@@ -14,3 +14,13 @@ summary: "cleo agent doctor refreshes an unedited seed that no longer parses, an
 - `compileBundle` rebuilds the keyed `context_sources:` block from the parser's
   flat property list, so `contextSources` and `onOverflow` carry the template's
   values instead of the defaults.
+- The refresh proves a file is unedited with a new local-only
+  `agent_registry_agents.seed_sha256` column, written only when a packaged
+  template is installed. A D-003 hash refresh never touches it, and a file
+  that D-003 flags in the same run is never refreshed. Rows installed before
+  the column have no proof and are reported instead.
+- `installAgentFromCant` writes through a temp file and a rename. It keeps the
+  bytes it replaces as `<file>.bak-<instant>`, and restores them when the row
+  write fails.
+- When the parser cannot load, `cleo agent doctor` reports D-012 instead of
+  skipping the parse check silently.
