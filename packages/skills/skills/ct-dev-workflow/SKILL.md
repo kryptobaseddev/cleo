@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.13.0
+version: 3.14.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.13.0
+  version: 3.14.0
   tier: core
   install: harness
   covers:
@@ -28,7 +28,7 @@ metadata:
     - packages/contracts/src/git-hooks.ts
     - packages/core/src/tasks/merge-train.ts
     - packages/cleo/src/cli/commands/merge.ts
-  lastReviewed: 2026-11-13
+  lastReviewed: 2026-11-26
   stability: stable
 ---
 
@@ -137,6 +137,10 @@ generated marker is never overwritten (T14378). The lead is written only where t
 restrict it: Claude Code gets `Agent(cleo-worker)`, the `cleo_run` runner and its MCP server
 (`cleo orchestrate lead-runner`), with Bash, Edit and Write denied; OpenCode files cannot hold a
 tool allow-list, so its lead is reported as not installed (T14374).
+`cleo init` installs the packaged agent templates into `.cleo/cant/agents/` and records each
+template's digest in `seed_sha256`. That digest is the only proof `cleo agent doctor --repair`
+accepts before it refreshes an installed seed that no longer parses; an edited file is reported,
+never overwritten, and a replaced file is kept as `<file>.bak-<instant>` (T14654).
 On a project with no tasks, `cleo init`'s next steps start with the root saga
 (`cleo saga create --title ... --acceptance ...`), the only node allowed without a parent; the
 first `cleo add` refusal names the same command (T14186).

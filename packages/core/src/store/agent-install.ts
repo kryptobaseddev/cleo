@@ -32,9 +32,16 @@
  * @epic T889
  */
 
-import { createHash, randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentRegistryExtendedFields, AgentSkillSource, AgentTier } from '@cleocode/contracts';
 import { getCleoGlobalCantAgentsDir } from '../paths.js';
@@ -61,6 +68,12 @@ export interface InstallAgentFromCantInput {
   globalCantDir?: string;
   /** When `true`, overwrite an existing row/file instead of throwing. */
   force?: boolean;
+  /**
+   * `true` only when `cantSource` is a packaged seed template (T14654). Its
+   * digest is then recorded in `seed_sha256`, the proof `cleo agent doctor`
+   * needs before it refreshes the file. Other installs leave that column as is.
+   */
+  packagedSeed?: boolean;
 }
 
 /**
@@ -257,6 +270,28 @@ function resolveDestinationPath(input: InstallAgentFromCantInput, agentId: strin
   return join(input.projectRoot, '.cleo', 'cant', 'agents', `${agentId}.cant`);
 }
 
+/**
+ * Write `bytes` to `path` through a temp file and a rename, so the path never
+ * holds a partial file.
+ *
+ * @param path - Destination file.
+ * @param bytes - Content to write.
+ */
+function writeBytesAtomic(path: string, bytes: Buffer): void {
+  const tmp = join(dirname(path), `.${basename(path)}.${randomBytes(6).toString('hex')}.tmp`);
+  writeFileSync(tmp, bytes);
+  try {
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // best-effort cleanup; do not mask the original error
+    }
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Atomic install pipeline
 // ---------------------------------------------------------------------------
@@ -359,18 +394,25 @@ export function installAgentFromCant(
   // `agent_registry_agent_skills` attached_at are TEXT ISO-8601 (GLOB CHECK).
   const nowIso = new Date().toISOString();
 
-  // 9. Atomic transaction: copy file, INSERT/UPDATE agent_registry_agents, sync agent_skills.
-  //    On ANY failure roll back the DB AND (if we own the destination file)
-  //    unlink it, restoring pre-call state.
-  const destinationExistedBefore = existsSync(destinationPath);
-  let didCopyFile = false;
+  // 9. Atomic transaction: write file, INSERT/UPDATE agent_registry_agents, sync agent_skills.
+  //    A file with different bytes is first kept as `<dest>.bak-<instant>`
+  //    (T14654). On ANY failure roll back the DB AND restore the destination
+  //    file's previous bytes (or remove it when this call created it).
+  const previousBytes = existsSync(destinationPath) ? readFileSync(destinationPath) : null;
+  const seedSha256 = input.packagedSeed === true ? cantSha256 : null;
+  let didWriteFile = false;
   db.exec('BEGIN IMMEDIATE TRANSACTION');
   try {
     if (!existsSync(destinationDir)) {
       mkdirSync(destinationDir, { recursive: true });
     }
-    copyFileSync(input.cantSource, destinationPath);
-    didCopyFile = true;
+    if (previousBytes === null || !previousBytes.equals(sourceBytes)) {
+      if (previousBytes !== null) {
+        writeBytesAtomic(`${destinationPath}.bak-${nowIso.replace(/[:.]/g, '-')}`, previousBytes);
+      }
+      didWriteFile = true;
+      writeBytesAtomic(destinationPath, sourceBytes);
+    }
 
     const agentUuid = existingRow?.id ?? randomUUID();
     const inserted = !existingRow;
@@ -383,12 +425,12 @@ export function installAgentFromCant(
           transport_type, api_base_url, transport_config, is_active,
           status, created_at, updated_at, requires_reauth,
           tier, can_spawn, orch_level, reports_to,
-          cant_path, cant_sha256, installed_from, installed_at
+          cant_path, cant_sha256, installed_from, installed_at, seed_sha256
         ) VALUES (?, ?, ?, 'custom', 'public', '[]', ?, 'http',
           'local', '{}', 1,
           'online', ?, ?, 0,
           ?, ?, ?, ?,
-          ?, ?, ?, ?)`,
+          ?, ?, ?, ?, ?)`,
       ).run(
         agentUuid,
         agentId,
@@ -404,13 +446,15 @@ export function installAgentFromCant(
         cantSha256,
         input.installedFrom,
         nowIso,
+        seedSha256,
       );
     } else {
       db.prepare(
         `UPDATE agent_registry_agents SET
            skills = ?, updated_at = ?,
            tier = ?, can_spawn = ?, orch_level = ?, reports_to = ?,
-           cant_path = ?, cant_sha256 = ?, installed_from = ?, installed_at = ?
+           cant_path = ?, cant_sha256 = ?, installed_from = ?, installed_at = ?,
+           seed_sha256 = COALESCE(?, seed_sha256)
          WHERE agent_id = ?`,
       ).run(
         JSON.stringify(parsed.skills),
@@ -423,6 +467,7 @@ export function installAgentFromCant(
         cantSha256,
         input.installedFrom,
         nowIso,
+        seedSha256,
         agentId,
       );
     }
@@ -467,11 +512,12 @@ export function installAgentFromCant(
     };
   } catch (err) {
     db.exec('ROLLBACK');
-    if (didCopyFile && !destinationExistedBefore) {
+    if (didWriteFile) {
       try {
-        unlinkSync(destinationPath);
+        if (previousBytes === null) unlinkSync(destinationPath);
+        else writeBytesAtomic(destinationPath, previousBytes);
       } catch {
-        // best-effort cleanup; do not mask the original error
+        // best-effort restore; the .bak copy still holds the previous bytes
       }
     }
     throw err;
