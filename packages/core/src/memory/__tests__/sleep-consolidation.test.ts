@@ -32,9 +32,14 @@ const {
   mockExecuteForRole,
 } = vi.hoisted(() => ({
   // Drizzle handle: the merge step records its supersedes edge through
-  // insert(...).values(...).onConflictDoUpdate(...).run() (T14639).
+  // insert(...).values(...).onConflictDoNothing().returning(...).all(); one
+  // returned row means the edge was new (T14639, T14640).
   mockGetBrainDb: vi.fn().mockResolvedValue({
-    insert: () => ({ values: () => ({ onConflictDoUpdate: () => ({ run: () => undefined }) }) }),
+    insert: () => ({
+      values: () => ({
+        onConflictDoNothing: () => ({ returning: () => ({ all: () => [{ fromId: 'x' }] }) }),
+      }),
+    }),
   }),
   mockGetBrainNativeDb: vi.fn(),
   mockStoreLearning: vi.fn().mockResolvedValue({ id: 'L-test-001' }),
