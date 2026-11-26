@@ -14,6 +14,7 @@ import {
   resolveLoggerConfig,
   rotateLogAtStartup,
   startFileLogger,
+  startProjectFileLogger,
 } from '../logger.js';
 
 describe('initLogger', () => {
@@ -185,6 +186,13 @@ describe('startFileLogger (T14605)', () => {
 });
 
 describe('rotateLogAtStartup (T14605)', () => {
+  it('with maxFiles 0 never deletes the file another process may still write', async () => {
+    const logPath = await setup();
+    writeFileSync(join(logDir, 'cleo.2026-11-25.1.log'), 'x'.repeat(100));
+    expect(rotateLogAtStartup(logPath, 100, 0, now)).toBe(join(logDir, 'cleo.2026-11-25.2.log'));
+    expect(existsSync(join(logDir, 'cleo.2026-11-25.1.log'))).toBe(true);
+  });
+
   let logDir: string;
   const now = new Date(2026, 10, 25, 12, 0, 0);
 
@@ -230,33 +238,143 @@ describe('rotateLogAtStartup (T14605)', () => {
   });
 });
 
-describe('log flush on process exit (T14605)', () => {
+describe('startProjectFileLogger: the CLI startup path (T14605)', () => {
+  let tempDir: string;
+
+  async function setup(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-cli-logger-'));
+    vi.stubEnv('CLEO_HOME', join(tempDir, 'home'));
+    vi.stubEnv('CLEO_DIR', undefined);
+    vi.stubEnv('CLEO_PROJECT_ROOT', undefined);
+    vi.stubEnv('CLEO_LOG_LEVEL', undefined);
+    vi.stubEnv('CLEO_LOG_FILE', undefined);
+    vi.stubEnv('CLEO_ROOT', tempDir);
+    return tempDir;
+  }
+
+  afterEach(async () => {
+    await closeLogger();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('resolves the project and its config, then writes an INFO line to .cleo/logs', async () => {
+    const root = await setup();
+    await mkdir(join(root, '.cleo'), { recursive: true });
+    await writeFile(
+      join(root, '.cleo', 'config.json'),
+      JSON.stringify({ logging: { filePath: 'logs/cli.log' } }),
+    );
+
+    const result = await startProjectFileLogger();
+    expect(result).toEqual({ status: 'started', cleoDir: join(root, '.cleo') });
+    expect(await startProjectFileLogger()).toEqual({ status: 'running' });
+
+    getLogger('cli-start').info('t14605 cli path line');
+    await closeLogger();
+    const logDir = join(root, '.cleo', 'logs');
+    const files = readdirSync(logDir).filter((name) => name.startsWith('cli.'));
+    expect(files).toHaveLength(1);
+    const text = readFileSync(join(logDir, files[0] ?? ''), 'utf-8');
+    expect(text).toContain('t14605 cli path line');
+    expect(text).toContain('"level":"INFO"');
+  });
+
+  it('starts nothing, silently, when the root has no .cleo directory', async () => {
+    await setup();
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    expect(await startProjectFileLogger()).toEqual({ status: 'no-project' });
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
+  it('reports a failure on stderr instead of silently dropping logs', async () => {
+    const root = await setup();
+    await mkdir(join(root, '.cleo'), { recursive: true });
+    // `logs` is a file, so the log directory cannot be created.
+    await writeFile(join(root, '.cleo', 'logs'), 'not a directory');
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const result = await startProjectFileLogger();
+    expect(result.status).toBe('failed');
+    expect(stderr).toHaveBeenCalledTimes(1);
+    expect(String(stderr.mock.calls[0]?.[0])).toContain('[cleo] File logger not started:');
+  });
+});
+
+describe('initLogger input checks (T14605)', () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    await closeLogger();
+    vi.restoreAllMocks();
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('falls back to the default level, with a warning, on an unknown level', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-log-level-'));
+    const cleoDir = join(tempDir, '.cleo');
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const logger = initLogger(cleoDir, { ...LOGGER_CONFIG_DEFAULTS, level: 'verbose' }, 'h');
+    expect(logger.level).toBe('info');
+    expect(String(stderr.mock.calls[0]?.[0])).toContain('Unknown logging.level "verbose"');
+
+    getLogger('level-test').info('t14605 level fallback line');
+    await closeLogger();
+    const logDir = join(cleoDir, 'logs');
+    const text = readdirSync(logDir)
+      .map((name) => readFileSync(join(logDir, name), 'utf-8'))
+      .join('');
+    expect(text).toContain('t14605 level fallback line');
+  });
+});
+
+describe('log flush when the process ends (T14605)', () => {
+  const LINES = 200;
   let tempDir: string;
 
   afterEach(async () => {
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('a line logged just before process.exit lands in the file', async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'cleo-log-exit-'));
-    const cleoDir = join(tempDir, '.cleo');
+  /**
+   * Bundle a child script that starts the logger, logs {@link LINES} lines
+   * and then runs `ending` (an exit or a signal). Core modules the logger
+   * imports lazily are left out; the child never calls them.
+   */
+  async function buildChild(ending: string): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-log-end-'));
     const here = dirname(fileURLToPath(import.meta.url));
-    const loggerSource = resolve(here, '../logger.ts');
-    const pathsSource = resolve(here, '../../../paths/src/index.ts');
     const childScript = join(tempDir, 'child.mjs');
     const { build } = await import('esbuild');
     await build({
       stdin: {
         contents: [
-          `import { getLogger, initLogger } from ${JSON.stringify(loggerSource)};`,
-          'initLogger(process.argv[2], { level: "info", filePath: "logs/cleo.log", maxFileSize: 1048576, maxFiles: 2 }, "exit-hash");',
-          'getLogger("exit-test").info("t14605 line before exit");',
-          'process.exit(0);',
+          `import { getLogger, initLogger } from ${JSON.stringify(resolve(here, '../logger.ts'))};`,
+          'initLogger(process.argv[2], { level: "info", filePath: "logs/cleo.log", maxFileSize: 1048576, maxFiles: 2 }, "end-hash");',
+          'const log = getLogger("end-test");',
+          `for (let i = 0; i < ${LINES}; i++) log.info({ i }, "t14605 line");`,
+          ending,
         ].join('\n'),
         resolveDir: here,
         loader: 'ts',
       },
-      alias: { '@cleocode/paths': pathsSource },
+      alias: { '@cleocode/paths': resolve(here, '../../../paths/src/index.ts') },
+      plugins: [
+        {
+          name: 'lazy-core-external',
+          setup(pluginBuild) {
+            pluginBuild.onResolve(
+              { filter: /^\.\/(project-scope|paths|project-info)\.js$/ },
+              (args) => ({
+                path: args.path,
+                external: true,
+              }),
+            );
+          },
+        },
+      ],
       bundle: true,
       platform: 'node',
       format: 'esm',
@@ -266,14 +384,36 @@ describe('log flush on process exit (T14605)', () => {
       },
       logLevel: 'silent',
     });
+    return childScript;
+  }
 
+  /** Lines of every rotated log file the child wrote. */
+  function loggedLines(cleoDir: string): string[] {
+    const logDir = join(cleoDir, 'logs');
+    return readdirSync(logDir)
+      .filter((name) => name.startsWith('cleo.'))
+      .flatMap((name) => readFileSync(join(logDir, name), 'utf-8').split('\n'))
+      .filter((line) => line.includes('t14605 line'));
+  }
+
+  it('writes every line logged just before process.exit', async () => {
+    const childScript = await buildChild('process.exit(0);');
+    const cleoDir = join(tempDir, '.cleo');
     const child = spawnSync(process.execPath, [childScript, cleoDir], { encoding: 'utf-8' });
     expect(child.status, child.stderr).toBe(0);
-    const logDir = join(cleoDir, 'logs');
-    const text = readdirSync(logDir)
-      .filter((name) => name.startsWith('cleo.'))
-      .map((name) => readFileSync(join(logDir, name), 'utf-8'))
-      .join('');
-    expect(text).toContain('t14605 line before exit');
+    expect(loggedLines(cleoDir)).toHaveLength(LINES);
+  });
+
+  it.each([
+    'SIGTERM',
+    'SIGINT',
+  ] as const)('writes every buffered line on %s and still dies by that signal', async (signal) => {
+    const childScript = await buildChild(
+      `process.kill(process.pid, ${JSON.stringify(signal)}); setTimeout(() => {}, 5000);`,
+    );
+    const cleoDir = join(tempDir, '.cleo');
+    const child = spawnSync(process.execPath, [childScript, cleoDir], { encoding: 'utf-8' });
+    expect(child.signal, child.stderr).toBe(signal);
+    expect(loggedLines(cleoDir)).toHaveLength(LINES);
   });
 });

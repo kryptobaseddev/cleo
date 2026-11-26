@@ -746,33 +746,20 @@ async function runMainWithLafsEnvelope(
  */
 /**
  * Start the pino file logger (`.cleo/<logging.filePath>`, default
- * `.cleo/logs/cleo.log`) for this process (T14605). Outside a project (no
- * resolvable root or no `.cleo/` directory) nothing starts and `getLogger()`
- * keeps its stderr warn fallback. Every module it loads is already on the
- * command path (gate 39). Never throws: logging must not fail a command.
+ * `.cleo/logs/cleo.*.log`) for this process (T14605) through core's
+ * `startProjectFileLogger`, which reports its own failures on stderr.
+ * Outside a project nothing starts and `getLogger()` keeps its stderr warn
+ * fallback. Every module it loads is already on the command path (gate 39).
+ * Never throws: logging must not fail a command, but a failure is visible.
  */
 async function startCliFileLogger(): Promise<void> {
   try {
-    const [
-      { startFileLogger },
-      { getProjectRoot },
-      { getCleoDirAbsolute },
-      { getProjectInfoSync },
-    ] = await Promise.all([
-      import('@cleocode/core/logger'),
-      import('@cleocode/core/project-scope'),
-      import('@cleocode/core/paths.js'),
-      import('@cleocode/core/project-info'),
-    ]);
-    const projectRoot = getProjectRoot();
-    const cleoDir = getCleoDirAbsolute(projectRoot);
-    if (!existsSync(cleoDir)) return;
-    startFileLogger(cleoDir, getProjectInfoSync(projectRoot)?.projectHash);
+    const { startProjectFileLogger } = await import('@cleocode/core/logger');
+    await startProjectFileLogger();
   } catch (error) {
-    if (process.env['CLEO_DEBUG'])
-      process.stderr.write(
-        `[cleo][debug] File logger not started: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
+    process.stderr.write(
+      `[cleo] File logger not started: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
   }
 }
 

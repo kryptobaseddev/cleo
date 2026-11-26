@@ -12,7 +12,16 @@
  * CLI output. Fallback stderr logger if not yet initialized.
  */
 
-import { mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import type { LoggerConfig, LoggingConfig } from '@cleocode/contracts';
 import { getCleoHome } from '@cleocode/paths';
@@ -30,6 +39,7 @@ type LogDestination = ReturnType<typeof pino.destination>;
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;
 let currentDestination: LogDestination | null = null;
+let removeSignalFlush: (() => void) | null = null;
 let quietMode = false;
 
 /**
@@ -116,7 +126,9 @@ function fileSize(path: string): number {
  * newest file is reused until it reaches `maxFileSize`, then the next number
  * starts; a new day starts at 1. Rotation happens here, once per process, so
  * a long-running process keeps its file. Like pino-roll's `limit.count`, it
- * keeps `maxFiles` older files besides the active one and deletes the rest.
+ * keeps `maxFiles` older files besides the active one and deletes the rest,
+ * but always keeps at least one: the newest older file may still be another
+ * process's active file, so `maxFiles: 0` keeps it too.
  *
  * @param logPath     - Absolute configured log path (e.g. `.cleo/logs/cleo.log`).
  * @param maxFileSize - Bytes after which a new file is started.
@@ -141,7 +153,8 @@ export function rotateLogAtStartup(
   const activeName = `${stem}.${today}.${number}${ext}`;
 
   const older = existing.filter((f) => f.name !== activeName);
-  for (const file of older.slice(0, Math.max(0, older.length - maxFiles))) {
+  const keep = Math.max(1, maxFiles);
+  for (const file of older.slice(0, Math.max(0, older.length - keep))) {
     try {
       unlinkSync(join(dir, file.name));
     } catch {
@@ -171,37 +184,57 @@ export function initLogger(
   const dest = join(cleoDir, config.filePath);
   currentLogDir = dirname(dest);
 
+  // An unknown level makes pino throw; fall back before anything is opened.
+  let level = config.level;
+  if (!isLogLevel(level)) {
+    process.stderr.write(
+      `[cleo:logger] Unknown logging.level "${level}"; using "${LOGGER_CONFIG_DEFAULTS.level}"\n`,
+    );
+    level = LOGGER_CONFIG_DEFAULTS.level;
+  }
+
   // Rotate once, then append in-thread. The fd is opened synchronously so the
   // destination is ready at once: pino's exit hook (registered for every
   // `sync: false` destination) flushes pending lines on a normal exit, which
   // needs an open fd.
   mkdirSync(currentLogDir, { recursive: true });
   const activeFile = rotateLogAtStartup(dest, config.maxFileSize, config.maxFiles);
-  const destination = pino.destination({ dest: openSync(activeFile, 'a'), sync: false });
-  currentDestination = destination;
+  const fd = openSync(activeFile, 'a');
+  let destination: LogDestination;
+  let logger: pino.Logger;
+  try {
+    destination = pino.destination({ dest: fd, sync: false });
 
-  // Build base object: projectHash and platform info appear in every log entry.
-  // Pino merges base with pid/hostname by default; we add our fields alongside.
-  const base: Record<string, unknown> = {
-    platform: process.platform,
-    arch: process.arch,
-    nodeVersion: process.version,
-  };
-  if (projectHash) {
-    base.projectHash = projectHash;
-  }
+    // Build base object: projectHash and platform info appear in every log entry.
+    // Pino merges base with pid/hostname by default; we add our fields alongside.
+    const base: Record<string, unknown> = {
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version,
+    };
+    if (projectHash) {
+      base.projectHash = projectHash;
+    }
 
-  rootLogger = pino(
-    {
-      level: config.level,
-      base,
-      formatters: {
-        level: (label: string) => ({ level: label.toUpperCase() }),
+    logger = pino(
+      {
+        level,
+        base,
+        formatters: {
+          level: (label: string) => ({ level: label.toUpperCase() }),
+        },
+        timestamp: pino.stdTimeFunctions.isoTime,
       },
-      timestamp: pino.stdTimeFunctions.isoTime,
-    },
-    destination,
-  );
+      destination,
+    );
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+  currentDestination = destination;
+  rootLogger = logger;
+  removeSignalFlush?.();
+  removeSignalFlush = flushOnTerminatingSignals(destination);
 
   // Warn after logger is initialized so the message goes to the log file
   if (!projectHash) {
@@ -210,7 +243,44 @@ export function initLogger(
     );
   }
 
-  return rootLogger;
+  return logger;
+}
+
+/** Whether `level` names a pino level (`silent` included). */
+function isLogLevel(level: string): boolean {
+  return level === 'silent' || Object.hasOwn(pino.levels.values, level);
+}
+
+/** Signals whose default action ends the process before pino's exit hook runs. */
+const TERMINATING_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
+
+/**
+ * Flush buffered log lines when SIGINT or SIGTERM arrives (T14605). Node runs
+ * no `exit` handlers on a signal's default action, so pino's exit hook never
+ * fires and buffered lines would be lost. The handler flushes, removes itself
+ * and, when no other listener handles the signal, re-raises it so the process
+ * still dies by that signal with the usual exit status.
+ *
+ * @param destination - The destination to flush.
+ * @returns A function that removes the handlers.
+ */
+function flushOnTerminatingSignals(destination: LogDestination): () => void {
+  const handlers = TERMINATING_SIGNALS.map((signal) => {
+    const handler = (): void => {
+      try {
+        destination.flushSync();
+      } catch {
+        // Nothing to flush, or the fd is gone: the signal still proceeds.
+      }
+      process.removeListener(signal, handler);
+      if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+    };
+    process.on(signal, handler);
+    return { signal, handler };
+  });
+  return () => {
+    for (const { signal, handler } of handlers) process.removeListener(signal, handler);
+  };
 }
 
 /**
@@ -296,6 +366,57 @@ export function startFileLogger(cleoDir: string, projectHash?: string): boolean 
   return true;
 }
 
+/** Outcome of {@link startProjectFileLogger}. */
+export type ProjectFileLoggerStart =
+  | { status: 'started'; cleoDir: string }
+  | { status: 'running' }
+  | { status: 'no-project' }
+  | { status: 'failed'; error: string };
+
+/**
+ * Start the file logger for the current project: the CLI startup path
+ * (T14605). Resolves the project root and its `.cleo` directory, reads
+ * `projectHash`, and calls {@link startFileLogger}. Outside a project it
+ * starts nothing. Any other failure is written to stderr once, as one
+ * `[cleo] File logger not started: …` line, and returned, so a broken path
+ * or config cannot silently disable logging. Never throws.
+ *
+ * The modules it needs are imported lazily: they are already loaded on every
+ * command path, and importing them statically would make every
+ * `getLogger()` caller load them.
+ *
+ * @returns What happened.
+ */
+export async function startProjectFileLogger(): Promise<ProjectFileLoggerStart> {
+  if (rootLogger) return { status: 'running' };
+  try {
+    const [
+      { getProjectRoot, isMissingProjectError },
+      { getCleoDirAbsolute },
+      { getProjectInfoSync },
+    ] = await Promise.all([
+      import('./project-scope.js'),
+      import('./paths.js'),
+      import('./project-info.js'),
+    ]);
+    let projectRoot: string;
+    try {
+      projectRoot = getProjectRoot();
+    } catch (error) {
+      if (isMissingProjectError(error)) return { status: 'no-project' };
+      throw error;
+    }
+    const cleoDir = getCleoDirAbsolute(projectRoot);
+    if (!existsSync(cleoDir)) return { status: 'no-project' };
+    startFileLogger(cleoDir, getProjectInfoSync(projectRoot)?.projectHash);
+    return { status: 'started', cleoDir };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[cleo] File logger not started: ${message}\n`);
+    return { status: 'failed', error: message };
+  }
+}
+
 /**
  * Get a child logger bound to a subsystem name.
  *
@@ -339,6 +460,8 @@ export function getLogDir(): string | null {
 export function closeLogger(): Promise<void> {
   return new Promise<void>((resolve) => {
     const destination = currentDestination;
+    removeSignalFlush?.();
+    removeSignalFlush = null;
     rootLogger = null;
     currentLogDir = null;
     currentDestination = null;
