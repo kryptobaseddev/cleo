@@ -23,7 +23,7 @@ import {
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempDir: string;
 
@@ -1344,6 +1344,56 @@ describe('runDocsDoctor — archive-publication (T14632)', () => {
     ]);
     expect(existsSync(swept)).toBe(true);
     expect(readVerifiedBlobBytes(cleoDir, sha(OLD))?.toString('utf-8')).toBe(OLD);
+  });
+
+  it('writes no audit line when the archive import fails (T14634)', async () => {
+    await seedRenumbered(true);
+    const { closeDb } = await import('../../store/sqlite.js');
+    closeDb();
+    vi.resetModules();
+    vi.doMock('../../store/conduit-doc-history.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../store/conduit-doc-history.js')>()),
+      importMigratedConduitVersion: async (): Promise<never> => {
+        throw new Error('injected import failure');
+      },
+    }));
+    try {
+      await expect(
+        doctor({ apply: true, receipt: makeReceipt(), only: ['publication-ledger-drift'] }),
+      ).rejects.toThrow('injected import failure');
+    } finally {
+      vi.doUnmock('../../store/conduit-doc-history.js');
+      (await import('../../store/sqlite.js')).closeDb();
+      vi.resetModules();
+    }
+    expect(existsSync(join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'))).toBe(
+      false,
+    );
+    const { listConduitHistorySha256Set } = await import('../../store/conduit-doc-history.js');
+    expect((await listConduitHistorySha256Set(tempDir)).has(sha(OLD))).toBe(false);
+  });
+
+  it('refuses as ambiguous when two adopted docs hold the same head (T14634)', async () => {
+    await seedRenumbered(true);
+    await seedSlug('adr-copy', '# copy draft\n');
+    const { updateDocBySlug } = await import('../docs-update.js');
+    expect((await updateDocBySlug(tempDir, { slug: 'adr-copy', content: CURRENT })).ok).toBe(true);
+    const { resolveDocRef } = await import('../slug-rename.js');
+    expect((await resolveDocRef(tempDir, 'adr-copy', { quiet: true }))?.sha256).toBe(sha(CURRENT));
+
+    const result = await doctor({
+      apply: true,
+      receipt: makeReceipt(),
+      only: ['publication-ledger-drift'],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(ledgerPlans(result.report)).toMatchObject([
+      { action: 'republish-or-prune', applied: false },
+    ]);
+    expect(await ledgerPaths()).toEqual(['docs/ADR-1.md', 'docs/ADR-2.md']);
+    const { listConduitHistorySha256Set } = await import('../../store/conduit-doc-history.js');
+    expect((await listConduitHistorySha256Set(tempDir)).has(sha(OLD))).toBe(false);
   });
 
   it('refuses an unadopted doc with no store change and names the migrate step', async () => {
