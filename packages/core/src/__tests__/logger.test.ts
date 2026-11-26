@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,7 @@ import {
   LOGGER_CONFIG_DEFAULTS,
   resolveLoggerConfig,
   rotateLogAtStartup,
+  setLoggerQuiet,
   startFileLogger,
   startProjectFileLogger,
 } from '../logger.js';
@@ -300,6 +301,20 @@ describe('startProjectFileLogger: the CLI startup path (T14605)', () => {
     expect(stderr).toHaveBeenCalledTimes(1);
     expect(String(stderr.mock.calls[0]?.[0])).toContain('[cleo] File logger not started:');
   });
+
+  it('writes no failure line under --quiet (T14644)', async () => {
+    const root = await setup();
+    await mkdir(join(root, '.cleo'), { recursive: true });
+    await writeFile(join(root, '.cleo', 'logs'), 'not a directory');
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    setLoggerQuiet(true);
+    try {
+      expect((await startProjectFileLogger()).status).toBe('failed');
+    } finally {
+      setLoggerQuiet(false);
+    }
+    expect(stderr).not.toHaveBeenCalled();
+  });
 });
 
 describe('initLogger input checks (T14605)', () => {
@@ -327,6 +342,20 @@ describe('initLogger input checks (T14605)', () => {
       .map((name) => readFileSync(join(logDir, name), 'utf-8'))
       .join('');
     expect(text).toContain('t14605 level fallback line');
+  });
+
+  it('under --quiet, warns nothing and starts silent (T14644)', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-log-quiet-'));
+    const cleoDir = join(tempDir, '.cleo');
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    setLoggerQuiet(true);
+    try {
+      const logger = initLogger(cleoDir, { ...LOGGER_CONFIG_DEFAULTS, level: 'verbose' });
+      expect(logger.level).toBe('silent');
+    } finally {
+      setLoggerQuiet(false);
+    }
+    expect(stderr).not.toHaveBeenCalled();
   });
 });
 
@@ -407,7 +436,7 @@ describe('log flush when the process ends (T14605)', () => {
   it.each([
     'SIGTERM',
     'SIGINT',
-  ] as const)('writes every buffered line on %s and still dies by that signal', async (signal) => {
+  ] as const)('writes every line on %s and still dies by that signal', async (signal) => {
     const childScript = await buildChild(
       `process.kill(process.pid, ${JSON.stringify(signal)}); setTimeout(() => {}, 5000);`,
     );
@@ -416,4 +445,36 @@ describe('log flush when the process ends (T14605)', () => {
     expect(child.signal, child.stderr).toBe(signal);
     expect(loggedLines(cleoDir)).toHaveLength(LINES);
   });
+
+  it('dies at once on SIGINT during a synchronous wait, keeping every line (T14644)', async () => {
+    // The child blocks its thread in Atomics.wait for 20 s after logging. A
+    // JS signal listener would run only after the wait ends; with none, the
+    // signal's default action ends the process at once.
+    const childScript = await buildChild(
+      [
+        'const { writeSync } = await import("node:fs");',
+        'writeSync(1, "waiting\\n");',
+        'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20000);',
+      ].join('\n'),
+    );
+    const cleoDir = join(tempDir, '.cleo');
+    const child = spawn(process.execPath, [childScript, cleoDir], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let sentAt = 0;
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (!sentAt && chunk.toString().includes('waiting')) {
+        sentAt = Date.now();
+        child.kill('SIGINT');
+      }
+    });
+    const signal = await new Promise<NodeJS.Signals | null>((resolveExit) => {
+      child.on('exit', (_code, exitSignal) => resolveExit(exitSignal));
+    });
+    const latencyMs = Date.now() - sentAt;
+    expect(signal).toBe('SIGINT');
+    expect(sentAt).toBeGreaterThan(0);
+    expect(latencyMs).toBeLessThan(5000);
+    expect(loggedLines(cleoDir)).toHaveLength(LINES);
+  }, 30000);
 });
