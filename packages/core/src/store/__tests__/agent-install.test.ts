@@ -443,7 +443,7 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
     const db = env.openDb();
     try {
       // No globalCantDir override: the default destination is under test.
-      installAgentFromCant(db, { cantSource: src, targetTier: 'global' });
+      installAgentFromCant(db, { cantSource: src, targetTier: 'global', installedFrom: 'user' });
       const expected = join(env.globalCantDir, 'fixture-agent.cant');
 
       const byRegistry = resolveAgent(db, 'fixture-agent');
