@@ -250,16 +250,32 @@ export interface DocsModernizeOpPrior {
   readonly publication?: DocsModernizeMovedPublication;
 }
 
-/** A `docs_publications` row a tree move re-pointed at its file's new path (T14610). */
+/**
+ * A `docs_publications` row a tree run re-pointed at its file's new path
+ * (T14610), or removed because its mirror was merged or deleted (T14631).
+ */
 export interface DocsModernizeMovedPublication {
   /** Attachment name the row publishes. */
   readonly blobName: string;
   /** `published_path` before the move, as recorded. */
   readonly fromPath: string;
-  /** `published_path` after the move. */
-  readonly toPath: string;
+  /** `published_path` after the move; null when the row was removed with its mirror (T14631). */
+  readonly toPath: string | null;
   /** The row's `last_blob_sha`, carried unchanged. */
   readonly lastBlobSha: string;
+  /** The row's `published_at`, carried unchanged so a rollback restores it exactly (T14631). */
+  readonly publishedAt?: string;
+  /**
+   * A row already sat at `toPath` before the move: it was kept as it was, and a
+   * rollback leaves it there (T14631). Absent on receipts written before T14631.
+   */
+  readonly targetExisted?: boolean;
+  /**
+   * The row was the last reference to its blob, so the blob was imported as a
+   * prior version of this doc before the row went (T14631). A rollback keeps
+   * that version: the import is additive and the restored row holds the blob too.
+   */
+  readonly archivedInto?: string;
 }
 
 /**
@@ -277,7 +293,8 @@ export interface DocsModernizeMovedPublication {
  * - `reslug` — `slug` was renamed to `target`; `slug` stays an alias (T14118).
  * - `link-task` — the row `attachmentId` gained a ref to task `ownerId` (T14118).
  * - `move-publication` — the `docs_publications` row of `ownerId` for the file `path` moved
- *   with it to `target`; `prior.publication` holds both keys (T14610).
+ *   with it to `target`; `prior.publication` holds both keys (T14610). A merged or deleted
+ *   mirror's row is removed instead (`target` and `toPath` null, T14631).
  */
 export interface DocsModernizeReceiptOp {
   /** Step kind. */
@@ -458,8 +475,11 @@ const receiptOpSchema = z.object({
         .object({
           blobName: z.string(),
           fromPath: z.string(),
-          toPath: z.string(),
+          toPath: z.string().nullable(),
           lastBlobSha: z.string(),
+          publishedAt: z.string().optional(),
+          targetExisted: z.boolean().optional(),
+          archivedInto: z.string().optional(),
         })
         .optional(),
     })
