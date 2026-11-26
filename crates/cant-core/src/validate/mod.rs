@@ -20,15 +20,36 @@ pub mod scope;
 pub mod types;
 pub mod workflows;
 
+use std::path::Path;
+
 use crate::dsl::ast::CantDocument;
 use context::ValidationContext;
 use diagnostic::Diagnostic;
 
-/// Runs every validation rule against `doc` and returns all diagnostics.
+/// Runs every single-document validation rule against `doc` and returns all
+/// diagnostics.
+///
+/// The cross-file import rules (S03 circular imports, S11 import depth and
+/// S12 permission escalation) need the file `doc` was read from to resolve
+/// its imports; use [`validate_file`] to run them as well.
+pub fn validate(doc: &CantDocument) -> Vec<Diagnostic> {
+    run_rules(doc, None)
+}
+
+/// Runs every validation rule against `doc`, read from `file`, including the
+/// cross-file import rules S03, S11 and S12.
+///
+/// Imports are resolved from `file` (see [`scope::check_import_graph`]), so
+/// S11 sees the real import chain and a cyclic import is refused with S03.
+pub fn validate_file(doc: &CantDocument, file: &Path) -> Vec<Diagnostic> {
+    run_rules(doc, Some(file))
+}
+
+/// Runs the rule modules in order.
 ///
 /// The order of rule execution matters: scope rules populate the
 /// [`ValidationContext`] symbol tables that later rules depend on.
-pub fn validate(doc: &CantDocument) -> Vec<Diagnostic> {
+fn run_rules(doc: &CantDocument, file: Option<&Path>) -> Vec<Diagnostic> {
     let mut ctx = ValidationContext::new();
     let mut diags = Vec::new();
 
@@ -38,7 +59,10 @@ pub fn validate(doc: &CantDocument) -> Vec<Diagnostic> {
     diags.extend(scope::check_unique_parallel_arms(doc));
     diags.extend(scope::check_import_path_traversal(doc));
     diags.extend(scope::check_import_symlink_escape(doc));
-    diags.extend(scope::check_import_depth(&ctx));
+    if let Some(file) = file {
+        // S03 + S11 + S12 over the resolved import graph.
+        diags.extend(scope::check_import_graph(doc, file, &mut ctx));
+    }
     diags.extend(scope::check_permission_values(doc));
     diags.extend(scope::check_shadowed_bindings(doc, &mut ctx));
     diags.extend(scope::check_unresolved_refs(doc, &mut ctx));

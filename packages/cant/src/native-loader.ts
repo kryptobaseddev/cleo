@@ -70,7 +70,7 @@ export interface NativeParseDocumentResult {
   errors: NativeParseError[];
 }
 
-/** A validation diagnostic from the 42-rule validation engine. */
+/** A validation diagnostic from the cant-core validation engine. */
 export interface NativeDiagnostic {
   /** The rule ID (e.g., "S01", "P06", "W08"). */
   ruleId: string;
@@ -147,7 +147,7 @@ interface CantNativeModule {
   cantParse(content: string): NativeParseResult;
   cantClassifyDirective(verb: string): string;
   cantParseDocument(content: string): NativeParseDocumentResult;
-  cantValidateDocument(content: string): NativeValidateResult;
+  cantValidateDocument(content: string, filePath?: string): NativeValidateResult;
   cantExtractAgentProfiles(content: string): unknown[];
   cantExecutePipeline(
     filePath: string,
@@ -272,12 +272,19 @@ export function cantParseDocumentNative(content: string): NativeParseDocumentRes
 }
 
 /**
- * Parse and validate a `.cant` document via the native addon (42 rules).
+ * Parse and validate a `.cant` document via the native addon: the 41
+ * implemented numbered rules (S04 has no validator) plus the hierarchy lints.
  *
  * @param content - The raw `.cant` file content to parse and validate.
+ * @param filePath - The path `content` was read from. When given, imports
+ *   resolve relative to it and the cross-file rules S03 (circular imports),
+ *   S11 (import depth) and S12 (permission escalation) run as well.
  */
-export function cantValidateDocumentNative(content: string): NativeValidateResult {
-  return requireNative().cantValidateDocument(content);
+export function cantValidateDocumentNative(
+  content: string,
+  filePath?: string,
+): NativeValidateResult {
+  return requireNative().cantValidateDocument(content, filePath);
 }
 
 /**

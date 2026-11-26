@@ -101,7 +101,10 @@ export async function parseDocument(filePath: string): Promise<CantDocumentResul
 }
 
 /**
- * Validate a `.cant` file using the 42-rule validation engine.
+ * Validate a `.cant` file with cant-core's validator: the 41 implemented
+ * numbered rules (S04 has no validator) plus the hierarchy lints. Imports
+ * resolve relative to `filePath`, so the cross-file rules S03 (circular
+ * imports), S11 (import depth) and S12 (permission escalation) run too.
  *
  * @param filePath - Absolute path to the `.cant` file.
  * @returns A {@link CantValidationResult} with all diagnostics.
@@ -110,7 +113,7 @@ export async function validateDocument(filePath: string): Promise<CantValidation
   // Normalize CRLF → LF so the Rust validator sees consistent line endings
   // on Windows runners that check out files with core.autocrlf=true.
   const content = (await readFile(filePath, 'utf-8')).replace(/\r\n/g, '\n');
-  const result = cantValidateDocumentNative(content);
+  const result = cantValidateDocumentNative(content, filePath);
   return {
     file: filePath,
     valid: result.valid,
