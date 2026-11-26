@@ -103,6 +103,7 @@ export {
   cantParseDocumentNative,
   cantParseNative,
   cantValidateDocumentNative,
+  cantValidateFileNative,
   extractAgentProfilesTyped,
   extractAgentSkills,
   initWasm,

@@ -234,6 +234,9 @@ pub struct JsDiagnostic {
     pub line: u32,
     /// Column number (1-based).
     pub col: u32,
+    /// The file `line`/`col` refer to, when it is not the validated file: the
+    /// resolved path of an imported file. Absent for the validated file.
+    pub file: Option<String>,
 }
 
 /// The result of validating a `.cant` document.
@@ -253,20 +256,45 @@ pub struct JsValidateResult {
 
 /// Parse and validate a `.cant` document in one call.
 ///
-/// First parses the document, then runs the validation rules: the 41
-/// implemented numbered rules (S04 has no validator) plus the hierarchy
-/// lints. Returns parse errors if parsing fails, or validation diagnostics
-/// if parsing succeeds.
+/// First parses the document, then runs the validation rules: the 42
+/// numbered rules plus the hierarchy lints. Returns parse errors if parsing
+/// fails, or validation diagnostics if parsing succeeds.
 ///
 /// # Arguments
 ///
 /// * `content` - The raw `.cant` file content to parse and validate.
 /// * `file_path` - The path `content` was read from. When given, imports
 ///   resolve relative to it and the cross-file rules S03 (circular imports),
-///   S11 (import depth) and S12 (permission escalation) run as well.
+///   S04 (import target existence), S11 (import depth) and S12 (permission
+///   escalation) run as well. Prefer [`cant_validate_file`]: its presence
+///   tells a caller the binary walks imports, which an older binary that
+///   ignores this argument cannot.
 #[napi]
 pub fn cant_validate_document(content: String, file_path: Option<String>) -> JsValidateResult {
-    let doc = match cant_core::parse_document(&content) {
+    validate_to_js(&content, file_path.as_deref())
+}
+
+/// Parse and validate a `.cant` file and its imports: the import-graph entry
+/// point.
+///
+/// Runs every rule [`cant_validate_document`] runs with a file path,
+/// including S03, S04, S11 and S12 over the resolved import graph. A
+/// diagnostic raised in an imported file carries that file's path in
+/// `file`, with its own line/col. A binary without this export predates the
+/// import-graph walk.
+///
+/// # Arguments
+///
+/// * `content` - The raw `.cant` file content to parse and validate.
+/// * `file_path` - The path `content` was read from; imports resolve from it.
+#[napi]
+pub fn cant_validate_file(content: String, file_path: String) -> JsValidateResult {
+    validate_to_js(&content, Some(&file_path))
+}
+
+/// Shared body of [`cant_validate_document`] and [`cant_validate_file`].
+fn validate_to_js(content: &str, file_path: Option<&str>) -> JsValidateResult {
+    let doc = match cant_core::parse_document(content) {
         Ok(doc) => doc,
         Err(errors) => {
             let parse_diagnostics: Vec<JsDiagnostic> = errors
@@ -277,6 +305,7 @@ pub fn cant_validate_document(content: String, file_path: Option<String>) -> JsV
                     severity: "error".to_string(),
                     line: e.span.line,
                     col: e.span.col,
+                    file: None,
                 })
                 .collect();
             let count = parse_diagnostics.len() as u32;
@@ -291,7 +320,7 @@ pub fn cant_validate_document(content: String, file_path: Option<String>) -> JsV
     };
 
     let diagnostics = match file_path {
-        Some(path) => cant_core::validate_document_file(&doc, std::path::Path::new(&path)),
+        Some(path) => cant_core::validate_document_file(&doc, std::path::Path::new(path)),
         None => cant_core::validate_document(&doc),
     };
     let js_diagnostics: Vec<JsDiagnostic> = diagnostics
@@ -307,6 +336,7 @@ pub fn cant_validate_document(content: String, file_path: Option<String>) -> JsV
             },
             line: d.span.line,
             col: d.span.col,
+            file: d.file.clone(),
         })
         .collect();
 

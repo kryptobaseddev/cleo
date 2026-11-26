@@ -387,3 +387,77 @@ fn backslash_specifiers_resolve_relative_and_escapes_are_refused() {
     assert_eq!(s09.len(), 1, "diagnostics: {diags:#?}");
     assert_outside_not_read(&diags);
 }
+
+// ── S04 and imported-file locations (T14642) ───────────────────────
+
+#[test]
+fn missing_import_is_reported_with_s04() {
+    let dir = project("missing");
+    let main = write(
+        &dir,
+        "main.cant",
+        "@import \"./agents/present.cant\"\n@import \"./agents/missing.cant\"\n",
+    );
+    write(
+        &dir,
+        "agents/present.cant",
+        "agent helper:\n  model: opus\n",
+    );
+
+    let diags = validate_path(&main);
+    let s04: Vec<_> = diags.iter().filter(|d| d.rule_id == "S04").collect();
+    assert_eq!(s04.len(), 1, "diagnostics: {diags:#?}");
+    assert!(
+        s04[0]
+            .message
+            .contains("Import target './agents/missing.cant' does not exist"),
+        "message: {}",
+        s04[0].message
+    );
+    assert!(
+        s04[0]
+            .message
+            .contains("Resolved from 'main.cant' at line 2")
+    );
+    assert_eq!(s04[0].span.line, 2);
+    // Raised in the validated file itself, so no other file is named.
+    assert_eq!(s04[0].file, None);
+
+    // Missing skill-scope imports are reported too.
+    let skill = write(&dir, "skill.cant", "@import \"@ct-absent\"\n");
+    assert!(rule_ids(&validate_path(&skill)).contains(&"S04"));
+}
+
+#[test]
+fn diagnostics_in_an_imported_file_carry_its_path_and_own_span() {
+    let dir = project("located");
+    let main = write(
+        &dir,
+        "main.cant",
+        "@import \"./agents/worker.cant\"\n\nagent coordinator:\n  model: opus\n  permissions:\n    tasks: read\n",
+    );
+    let worker = write(
+        &dir,
+        "agents/worker.cant",
+        "@import \"./gone.cant\"\n\nagent worker:\n  model: opus\n  permissions:\n    tasks: write\n",
+    );
+    let worker_path = std::fs::canonicalize(&worker)
+        .unwrap()
+        .display()
+        .to_string();
+
+    let diags = validate_path(&main);
+    let s12: Vec<_> = diags.iter().filter(|d| d.rule_id == "S12").collect();
+    assert_eq!(s12.len(), 1, "diagnostics: {diags:#?}");
+    assert_eq!(s12[0].file.as_deref(), Some(worker_path.as_str()));
+    assert_eq!(
+        s12[0].span.line, 6,
+        "S12 points at the worker's permission line"
+    );
+
+    let s04: Vec<_> = diags.iter().filter(|d| d.rule_id == "S04").collect();
+    assert_eq!(s04.len(), 1, "diagnostics: {diags:#?}");
+    assert_eq!(s04[0].file.as_deref(), Some(worker_path.as_str()));
+    assert_eq!(s04[0].span.line, 1);
+    assert!(s04[0].message.contains("'./gone.cant'"));
+}

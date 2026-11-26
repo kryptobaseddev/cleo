@@ -1526,7 +1526,7 @@ export class PiHarness implements Harness {
         validation.errors.find((e) => e.severity === 'error') ?? validation.errors[0];
       const detail =
         firstError !== undefined
-          ? ` (${firstError.ruleId} at ${firstError.line}:${firstError.col}: ${firstError.message})`
+          ? ` (${firstError.ruleId} at ${firstError.file ? `${firstError.file}:` : ''}${firstError.line}:${firstError.col}: ${firstError.message})`
           : '';
       throw new Error(`installCantProfile: source file failed cant-core validation${detail}`);
     }
@@ -1634,6 +1634,7 @@ export class PiHarness implements Harness {
       message: d.message,
       line: d.line,
       col: d.col,
+      ...(d.file ? { file: d.file } : {}),
       severity: normaliseSeverity(d.severity),
     }));
 

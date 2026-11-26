@@ -74,7 +74,10 @@ export interface BundleDiagnostic {
   message: string;
   /** Severity: `"error"`, `"warning"`, `"info"`, or `"hint"`. */
   severity: string;
-  /** Source file path. */
+  /**
+   * The file the diagnostic lies in: the compiled file, or, for a diagnostic
+   * raised in a file it imports, that imported file.
+   */
   sourcePath: string;
   /** Line number (1-based) where the diagnostic occurred, or `undefined` if unavailable. */
   line?: number;
@@ -826,13 +829,15 @@ export async function compileBundle(filePaths: string[]): Promise<CompiledBundle
         continue;
       }
 
-      // Convert validation diagnostics (preserving line/col from the native binding)
+      // Convert validation diagnostics (preserving line/col from the native
+      // binding). A diagnostic raised in an imported file is reported at that
+      // file, whose own line/col it carries.
       for (const diag of validationResult.diagnostics) {
         fileDiagnostics.push({
           ruleId: diag.ruleId,
           message: diag.message,
           severity: diag.severity,
-          sourcePath: filePath,
+          sourcePath: diag.file ?? filePath,
           line: diag.line,
           col: diag.col,
         });

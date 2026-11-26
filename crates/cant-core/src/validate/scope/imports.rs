@@ -1,7 +1,8 @@
-//! Import safety rules: S03, S09, S10, S11, and the import-graph walk
-//! that runs S03, S11 and S12 across resolved files.
+//! Import safety rules: S03, S04, S09, S10, S11, and the import-graph walk
+//! that runs S03, S04, S11 and S12 across resolved files.
 //!
 //! S03: Circular import chain detection.
+//! S04: Import target existence (in the import-graph walk).
 //! S09: Import path traversal prevention.
 //! S10: Symlink escape prevention.
 //! S11: Import chain depth limit.
@@ -136,14 +137,14 @@ pub fn check_circular_import(path: &str, ctx: &ValidationContext, span: Span) ->
     diags
 }
 
-// ── Import graph walk: S03, S11, S12 across files ──────────────────
+// ── Import graph walk: S03, S04, S11, S12 across files ─────────────
 
 /// Permissions held by an import context, by domain.
 type PermissionContext = HashMap<String, Vec<String>>;
 
 /// Walks the import graph rooted at `file` and runs the cross-file import
-/// rules on every edge: S03 (circular chain), S11 (chain depth) and S12
-/// (permission escalation).
+/// rules on every edge: S03 (circular chain), S04 (target existence), S11
+/// (chain depth) and S12 (permission escalation).
 ///
 /// `doc` is the already-parsed contents of `file`. Imports resolve per the
 /// spec's resolution algorithm (Section 6.2): `./` and `../` specifiers are
@@ -151,8 +152,10 @@ type PermissionContext = HashMap<String, Vec<String>>;
 /// `.cleo/skills/<name>.cant` under the project root (the nearest ancestor
 /// holding `.cleo/` or `.git`). A `\` in a specifier separates components
 /// like `/`, on every host, so a file resolves the same everywhere. A
-/// specifier without a `.cant` suffix also tries `<specifier>.cant`. Imports that do not resolve or do not parse are
-/// skipped here: S04 (target existence) is not implemented.
+/// specifier without a `.cant` suffix also tries `<specifier>.cant`. An
+/// import that resolves to no file is reported with S04; one whose file does
+/// not parse is skipped (parse errors are reported when that file itself is
+/// validated).
 ///
 /// Containment (Section 6.4) is checked before the filesystem is touched: a
 /// specifier whose normalized path leaves the project root is refused with
@@ -163,6 +166,11 @@ type PermissionContext = HashMap<String, Vec<String>>;
 /// of the file importing it: the permissions its own agents hold, or, for a
 /// file that defines no agents, the context it inherited from its importer.
 /// The root file without agents sets no context.
+///
+/// A diagnostic whose span lies in an imported file (an S12 on its agent, or
+/// an S03/S04/S09/S10 on one of its own imports) carries that file's
+/// resolved path in [`Diagnostic::file`]; its span is that file's own
+/// line/col. Diagnostics on the root file leave `file` unset.
 ///
 /// The `import_chain` of `ctx` holds the resolution stack (root first) while
 /// the walk runs and is restored before returning.
@@ -175,6 +183,7 @@ pub fn check_import_graph(
     let project_root = find_project_root(&root_file);
     let mut walk = ImportWalk {
         project_root,
+        root_file: root_file.clone(),
         ctx,
         finished: HashSet::new(),
         depth_reported: false,
@@ -191,6 +200,8 @@ struct ImportWalk<'a> {
     /// Directory every import must resolve within; `@name` and bare
     /// specifiers resolve under its `.cleo/skills/`.
     project_root: PathBuf,
+    /// The validated file; diagnostics on any other file are tagged with it.
+    root_file: PathBuf,
     /// Context whose `import_chain` is the live resolution stack.
     ctx: &'a mut ValidationContext,
     /// (file, permission context) pairs whose whole subgraph was already
@@ -235,7 +246,9 @@ impl ImportWalk<'_> {
             let target_display = self.display(&target);
             let cycle = check_circular_import(&target_display, self.ctx, imp.span);
             if !cycle.is_empty() {
-                self.diags.extend(cycle);
+                for diag in cycle {
+                    self.push_at(diag, file);
+                }
                 continue;
             }
 
@@ -246,11 +259,9 @@ impl ImportWalk<'_> {
             if let Some(allowed) = &context {
                 for section in &imported.sections {
                     if let Section::Agent(agent) = section {
-                        self.diags.extend(check_permission_escalation(
-                            agent,
-                            allowed,
-                            &target_display,
-                        ));
+                        for diag in check_permission_escalation(agent, allowed, &target_display) {
+                            self.push_at(diag, &target);
+                        }
                     }
                 }
             }
@@ -267,8 +278,9 @@ impl ImportWalk<'_> {
 
     /// Resolves an import to an existing file inside the project root.
     ///
-    /// Returns `None` for an import that does not resolve, and for one that
-    /// escapes the project root, which is reported (S09/S10) and never read.
+    /// Returns `None` for an import that resolves to no file, which is
+    /// reported with S04, and for one that escapes the project root, which is
+    /// reported (S09/S10) and never read.
     /// On the root file, escapes the string checks
     /// [`check_import_path_traversal`] and [`check_import_symlink_escape`]
     /// already report are not reported twice.
@@ -306,7 +318,20 @@ impl ImportWalk<'_> {
         }
 
         let with_ext = PathBuf::from(format!("{}.cant", candidate.display()));
-        let found = [candidate, with_ext].into_iter().find(|p| p.is_file())?;
+        let Some(found) = [candidate, with_ext].into_iter().find(|p| p.is_file()) else {
+            // S04: the import names no file.
+            let source = self.display(importer);
+            let diag = Diagnostic::error(
+                "S04",
+                format!(
+                    "Import target '{}' does not exist. Resolved from '{source}' at line {}.",
+                    imp.path, imp.span.line
+                ),
+                imp.span,
+            );
+            self.push_at(diag, importer);
+            return None;
+        };
 
         // S10: the real path, after symlinks, must stay inside the root.
         let real = canonical_or_normalized(&found);
@@ -324,15 +349,27 @@ impl ImportWalk<'_> {
 
     /// Records an S09/S10 refusal for an import that was not read.
     fn refuse(&mut self, rule: &str, why: &str, imp: &ImportStatement, importer: &Path) {
-        let importer = self.display(importer);
-        self.diags.push(Diagnostic::error(
+        let shown = self.display(importer);
+        let diag = Diagnostic::error(
             rule,
             format!(
-                "Import '{}' in '{importer}' {why}. Imports MUST resolve within the project directory; the import was not read.",
+                "Import '{}' in '{shown}' {why}. Imports MUST resolve within the project directory; the import was not read.",
                 imp.path
             ),
             imp.span,
-        ));
+        );
+        self.push_at(diag, importer);
+    }
+
+    /// Records `diag`, whose span lies in `file`; a file other than the root
+    /// is recorded in [`Diagnostic::file`].
+    fn push_at(&mut self, diag: Diagnostic, file: &Path) {
+        let diag = if file == self.root_file {
+            diag
+        } else {
+            diag.in_file(file.display().to_string())
+        };
+        self.diags.push(diag);
     }
 
     /// Displays a resolved path relative to the project root when possible.

@@ -15,8 +15,10 @@
 import { readFile } from 'node:fs/promises';
 import {
   cantExecutePipelineNative,
+  cantLegacyEntryPointWalksImports,
   cantParseDocumentNative,
   cantValidateDocumentNative,
+  cantValidateFileNative,
   type NativeDiagnostic,
   type NativeParseError,
   type NativePipelineResult,
@@ -51,6 +53,21 @@ export interface CantValidationResult {
   warningCount: number;
   /** All diagnostics emitted by the 42-rule validator. */
   diagnostics: NativeDiagnostic[];
+  /**
+   * Whether the cross-file import rules ran. `false` only when the loaded
+   * cant-napi addon cannot walk imports at all (it predates T14603); only the
+   * single-document rules ran then. An addon from v2026.11.17 runs S03, S11
+   * and S12 (`true`) but not S04, and sets no diagnostic `file`; see
+   * `importRuleCoverage`.
+   */
+  importRulesRun: boolean;
+  /**
+   * How much of the import-graph validation ran: `full` (S03, S04, S11, S12
+   * and imported-file locations), `partial` (an addon without
+   * `cantValidateFile` that still walks imports: S03, S11 and S12, but no S04
+   * and no diagnostic `file`), or `none` (single-document rules only).
+   */
+  importRuleCoverage: 'full' | 'partial' | 'none';
 }
 
 /** Result of {@link listSections}. */
@@ -101,10 +118,15 @@ export async function parseDocument(filePath: string): Promise<CantDocumentResul
 }
 
 /**
- * Validate a `.cant` file with cant-core's validator: the 41 implemented
- * numbered rules (S04 has no validator) plus the hierarchy lints. Imports
- * resolve relative to `filePath`, so the cross-file rules S03 (circular
- * imports), S11 (import depth) and S12 (permission escalation) run too.
+ * Validate a `.cant` file with cant-core's validator: the 42 numbered rules
+ * plus the hierarchy lints. Imports resolve relative to `filePath`, so the
+ * cross-file rules S03 (circular imports), S04 (import target existence),
+ * S11 (import depth) and S12 (permission escalation) run too, and a
+ * diagnostic raised in an imported file names that file in `file`. An addon
+ * without the `cantValidateFile` entry point falls back to
+ * `cantValidateDocument(content, filePath)`: one from v2026.11.17 still runs
+ * S03, S11 and S12 (`importRuleCoverage: 'partial'`); an older one ignores the
+ * path, and `importRulesRun` is then `false` (`importRuleCoverage: 'none'`).
  *
  * @param filePath - Absolute path to the `.cant` file.
  * @returns A {@link CantValidationResult} with all diagnostics.
@@ -113,7 +135,10 @@ export async function validateDocument(filePath: string): Promise<CantValidation
   // Normalize CRLF → LF so the Rust validator sees consistent line endings
   // on Windows runners that check out files with core.autocrlf=true.
   const content = (await readFile(filePath, 'utf-8')).replace(/\r\n/g, '\n');
-  const result = cantValidateDocumentNative(content, filePath);
+  const graphResult = cantValidateFileNative(content, filePath);
+  const result = graphResult ?? cantValidateDocumentNative(content, filePath);
+  const coverage =
+    graphResult !== null ? 'full' : cantLegacyEntryPointWalksImports() ? 'partial' : 'none';
   return {
     file: filePath,
     valid: result.valid,
@@ -121,6 +146,8 @@ export async function validateDocument(filePath: string): Promise<CantValidation
     errorCount: result.errorCount,
     warningCount: result.warningCount,
     diagnostics: result.diagnostics,
+    importRulesRun: coverage !== 'none',
+    importRuleCoverage: coverage,
   };
 }
 

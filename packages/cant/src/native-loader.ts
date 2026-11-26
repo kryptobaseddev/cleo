@@ -82,6 +82,12 @@ export interface NativeDiagnostic {
   line: number;
   /** Column number (1-based). */
   col: number;
+  /**
+   * The file `line`/`col` refer to when it is not the validated file: the
+   * resolved path of an imported file. Absent (or `null`) for the validated
+   * file itself.
+   */
+  file?: string | null;
 }
 
 /** Result of validating a `.cant` document via the native binding. */
@@ -148,6 +154,8 @@ interface CantNativeModule {
   cantClassifyDirective(verb: string): string;
   cantParseDocument(content: string): NativeParseDocumentResult;
   cantValidateDocument(content: string, filePath?: string): NativeValidateResult;
+  /** Import-graph entry point; absent from binaries built before it existed. */
+  cantValidateFile?(content: string, filePath: string): NativeValidateResult;
   cantExtractAgentProfiles(content: string): unknown[];
   cantExecutePipeline(
     filePath: string,
@@ -272,19 +280,75 @@ export function cantParseDocumentNative(content: string): NativeParseDocumentRes
 }
 
 /**
- * Parse and validate a `.cant` document via the native addon: the 41
- * implemented numbered rules (S04 has no validator) plus the hierarchy lints.
+ * Parse and validate a `.cant` document via the native addon: the 42
+ * numbered rules plus the hierarchy lints.
+ *
+ * @remarks
+ * An addon built before the import-graph walk ignores `filePath` silently;
+ * use {@link cantValidateFileNative}, which reports whether it ran.
  *
  * @param content - The raw `.cant` file content to parse and validate.
  * @param filePath - The path `content` was read from. When given, imports
  *   resolve relative to it and the cross-file rules S03 (circular imports),
- *   S11 (import depth) and S12 (permission escalation) run as well.
+ *   S04 (import target existence), S11 (import depth) and S12 (permission
+ *   escalation) run as well.
  */
 export function cantValidateDocumentNative(
   content: string,
   filePath?: string,
 ): NativeValidateResult {
   return requireNative().cantValidateDocument(content, filePath);
+}
+
+/**
+ * Validate a `.cant` file and its imports through the addon's import-graph
+ * entry point (`cantValidateFile`): every rule, including S03, S04, S11 and
+ * S12 across the resolved imports. A diagnostic raised in an imported file
+ * carries that file's path in `file` with its own line/col.
+ *
+ * @param content - The raw `.cant` file content to parse and validate.
+ * @param filePath - The path `content` was read from; imports resolve from it.
+ * @returns The validation result, or `null` when the loaded addon predates
+ *   the import-graph entry point (the import rules cannot run; validate with
+ *   {@link cantValidateDocumentNative} and say so).
+ */
+export function cantValidateFileNative(
+  content: string,
+  filePath: string,
+): NativeValidateResult | null {
+  const native = requireNative();
+  if (typeof native.cantValidateFile !== 'function') return null;
+  return native.cantValidateFile(content, filePath);
+}
+
+let legacyFilePathSupport: boolean | null = null;
+
+/**
+ * Whether the loaded addon's `cantValidateDocument` honours its `filePath`
+ * argument, i.e. walks imports and runs S03, S11 and S12.
+ *
+ * @remarks
+ * Addons from v2026.11.17 (T14603) honour it but lack `cantValidateFile`
+ * (so S04 and `NativeDiagnostic.file` are absent); older ones ignore it
+ * silently. A probe tells them apart: a root-file import of `@/…` names an
+ * absolute path, which only the import-graph walk refuses (S10; the
+ * single-document check sees no leading `/`). The probe reads no file
+ * contents; a walking addon does read-only metadata lookups for it
+ * (`canonicalize` of the probe path and `.cleo`/`.git` checks on its
+ * ancestors to find the project root). The answer is cached for the
+ * process.
+ *
+ * @returns `true` when import rules run through `cantValidateDocument`.
+ */
+export function cantLegacyEntryPointWalksImports(): boolean {
+  if (legacyFilePathSupport === null) {
+    const probe = requireNative().cantValidateDocument(
+      '@import "@/cant-import-graph-probe"\n',
+      join(__dirname, 'cant-import-graph-probe.cant'),
+    );
+    legacyFilePathSupport = probe.diagnostics.some((d) => d.ruleId === 'S10');
+  }
+  return legacyFilePathSupport;
 }
 
 /**
