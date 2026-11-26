@@ -169,6 +169,31 @@ export interface SleepMergeProvenance {
 /** `source` of every {@link SleepMergeProvenance} record. */
 export const SLEEP_MERGE_PROVENANCE_SOURCE = 'sleep-consolidation:merge';
 
+/**
+ * Thrown when a pair merge failed and its savepoint could not be rolled back
+ * inside a caller's transaction (T14648, T14653). That transaction still holds
+ * the pair's partial writes and only the caller can discard them, so sleep
+ * consolidation runs no further step and this error propagates to the caller,
+ * which must roll its transaction back instead of committing.
+ */
+export class SleepMergeAbortedError extends Error {
+  /**
+   * The merge step's counts at the abort: `merged` is 0 because nothing
+   * committed, and `failed` counts the failed pairs (T14653).
+   */
+  readonly mergeDuplicates: MergeDuplicatesResult;
+
+  /**
+   * @param message - Why the merge aborted, naming the failed pair.
+   * @param mergeDuplicates - The merge step's counts at the abort.
+   */
+  constructor(message: string, mergeDuplicates: MergeDuplicatesResult) {
+    super(message);
+    this.name = 'SleepMergeAbortedError';
+    this.mergeDuplicates = mergeDuplicates;
+  }
+}
+
 /** Count of changes from the prune-stale step. */
 export interface PruneStaleResult {
   /** Number of entries soft-evicted. */
@@ -593,12 +618,18 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
           // RELEASE only folded a pair into the caller's transaction, which
           // still holds this pair's partial writes. Only the caller can
           // discard them, so rethrow instead of reporting merges (T14648).
-          // @sync-invariant none:local-only the caller's open transaction still holds the uncommitted writes; nothing is committed
-          throw new Error(
+          const message =
             `sleep merge rollback failed inside a caller transaction (${rollbackFailure}); ` +
-              `pair ${keepId} <- ${evictId} failed: ${firstFailure}; nothing committed, ` +
-              'roll back the caller transaction',
-          );
+            `pair ${keepId} <- ${evictId} failed: ${firstFailure}; nothing committed, ` +
+            'roll back the caller transaction';
+          // @sync-invariant none:local-only the caller's open transaction still holds the uncommitted writes; nothing is committed
+          throw new SleepMergeAbortedError(message, {
+            merged: 0,
+            llmDecisions,
+            failed,
+            skipped,
+            error: message,
+          });
         }
         if (nativeDb.isTransaction) {
           try {
@@ -1073,8 +1104,11 @@ async function stepGenerateInsights(
  * Run the full sleep-time consolidation pipeline for CLEO BRAIN.
  *
  * This is the main entry point for LLM-driven background memory hygiene.
- * It is designed to run after session end (via setImmediate) and must never
- * throw — all errors are caught and logged.
+ * It is designed to run after session end (via setImmediate) and throws only
+ * {@link SleepMergeAbortedError}: a failed merge whose rollback failed inside
+ * a caller's transaction stops the pipeline and propagates, so the caller
+ * rolls back instead of committing partial writes (T14653). Every other error
+ * is caught and logged.
  *
  * Steps (in order):
  *   1. Merge duplicates — embedding-similarity-based dedup with LLM confirmation
@@ -1092,6 +1126,8 @@ async function stepGenerateInsights(
  *   staying within the model's context window. When absent, raw payloads are
  *   used unchanged (the existing behaviour).
  * @returns Aggregated result counts from each step.
+ * @throws {SleepMergeAbortedError} When a merge rollback failed inside a caller
+ *   transaction; its `mergeDuplicates.failed` counts the failed pairs.
  */
 export async function runSleepConsolidation(
   projectRoot: string,
@@ -1129,6 +1165,9 @@ export async function runSleepConsolidation(
   try {
     result.mergeDuplicates = await stepMergeDuplicates(projectRoot);
   } catch (err) {
+    // A doomed caller transaction: run no further step, so nothing more lands
+    // in it, and let the caller roll it back (T14653).
+    if (err instanceof SleepMergeAbortedError) throw err;
     console.warn('[sleep-consolidation] Step 1 (merge duplicates) failed:', err);
     result.mergeDuplicates.error = err instanceof Error ? err.message : String(err);
   }
