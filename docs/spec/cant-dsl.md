@@ -3119,12 +3119,15 @@ FUNCTION resolve_import(specifier, current_file, project_root):
 
 ### 6.3 Project Root Detection
 
-The project root is determined by searching upward from the current file's directory for:
+The project root is the NEAREST directory, searching upward from the current file's
+directory, that contains `.cleo/` or `.git` (a directory, or the file a linked worktree has).
+A farther ancestor never wins over a nearer one: a repository without its own `.cleo/` under a
+home directory holding `~/.cleo/` is rooted at the repository.
 
-1. A directory containing `.cleo/` -- preferred
-2. A directory containing `.git/` -- fallback
+If neither is found, the current file's directory is used as the project root.
 
-If neither is found, the current working directory is used as the project root.
+A `\` in an import specifier separates components like `/` on every host, so `.\x.cant` and
+`..\x.cant` are relative imports and containment (Section 6.4) applies to them.
 
 ### 6.4 Security Constraints
 

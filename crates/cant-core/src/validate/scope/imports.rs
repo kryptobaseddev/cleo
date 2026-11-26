@@ -43,10 +43,10 @@ pub fn check_import_path_traversal(doc: &CantDocument) -> Vec<Diagnostic> {
 
 /// Checks whether a relative path escapes the project root by resolving
 /// `..` components. Returns true if the net path goes above the starting
-/// directory.
+/// directory. Both `/` and `\` separate components.
 pub(super) fn path_escapes_root(path: &str) -> bool {
     let mut depth: i32 = 0;
-    for component in path.split('/') {
+    for component in path.split(['/', '\\']) {
         match component {
             ".." => {
                 depth -= 1;
@@ -76,7 +76,7 @@ pub fn check_import_symlink_escape(doc: &CantDocument) -> Vec<Diagnostic> {
     for section in &doc.sections {
         if let Section::Import(imp) = section {
             // Static check: absolute paths are never relative to project root
-            if imp.path.starts_with('/') {
+            if imp.path.starts_with(['/', '\\']) {
                 diags.push(Diagnostic::error(
                     "S10",
                     format!(
@@ -149,7 +149,8 @@ type PermissionContext = HashMap<String, Vec<String>>;
 /// spec's resolution algorithm (Section 6.2): `./` and `../` specifiers are
 /// relative to the importing file; `@name` and bare specifiers resolve to
 /// `.cleo/skills/<name>.cant` under the project root (the nearest ancestor
-/// holding `.cleo/`, else `.git/`). A specifier without a `.cant` suffix also
+/// holding `.cleo/` or `.git`). A `\\` in a specifier separates components
+/// like `/`, on every host, so a file resolves the same everywhere. A specifier without a `.cant` suffix also
 /// tries `<specifier>.cant`. Imports that do not resolve or do not parse are
 /// skipped here: S04 (target existence) is not implemented.
 ///
@@ -278,7 +279,8 @@ impl ImportWalk<'_> {
         importer: &Path,
         is_root_file: bool,
     ) -> Option<PathBuf> {
-        let specifier = imp.path.as_str();
+        let specifier = imp.path.replace('\\', "/");
+        let specifier = specifier.as_str();
         let relative = specifier.starts_with("./") || specifier.starts_with("../");
         let name = specifier.strip_prefix('@').unwrap_or(specifier);
 
@@ -406,9 +408,16 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 
 /// Canonicalizes `path`, falling back to lexical normalization when the
 /// filesystem cannot (for example under WASI without `realpath`).
+///
+/// A Windows verbatim result (`\\?\C:\…`) is converted to its plain form
+/// (see [`strip_verbatim`]) so it compares with lexically built paths and
+/// a later `/`-separated join still splits into components.
 fn canonical_or_normalized(path: &Path) -> PathBuf {
     if let Ok(p) = std::fs::canonicalize(path) {
-        return p;
+        return match p.to_str().and_then(strip_verbatim) {
+            Some(plain) => PathBuf::from(plain),
+            None => p,
+        };
     }
     if path.is_absolute() {
         normalize_lexically(path)
@@ -417,14 +426,44 @@ fn canonical_or_normalized(path: &Path) -> PathBuf {
     }
 }
 
-/// Finds the project root above `file`: the nearest ancestor directory
-/// holding `.cleo/`, else `.git/`, else the file's own directory.
+/// Converts a Windows verbatim path to its plain form: `\\?\C:\x` becomes
+/// `C:\x` and `\\?\UNC\srv\share\x` becomes `\\srv\share\x`.
+///
+/// Returns `None` when `path` is not verbatim, or when the plain form would
+/// not name the same file (a `/`, a `.` or `..` component, or a component
+/// ending in `.` or a space, which only verbatim paths preserve).
+pub(super) fn strip_verbatim(path: &str) -> Option<String> {
+    let rest = path.strip_prefix(r"\\?\")?;
+    let plain = if let Some(unc) = rest.strip_prefix(r"UNC\") {
+        format!(r"\\{unc}")
+    } else {
+        let bytes = rest.as_bytes();
+        let is_drive = bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && bytes[2] == b'\\';
+        if !is_drive {
+            return None;
+        }
+        rest.to_string()
+    };
+    let unsafe_component = plain.contains('/')
+        || plain.split('\\').any(|c| {
+            c == "." || c == ".." || (!c.is_empty() && (c.ends_with('.') || c.ends_with(' ')))
+        });
+    (!unsafe_component).then_some(plain)
+}
+
+/// Finds the project root above `file`: the NEAREST ancestor directory
+/// holding `.cleo/` or `.git` (a directory, or the file a linked worktree
+/// has), else the file's own directory. A farther ancestor never wins over
+/// a nearer one, so a repository without its own `.cleo/` under a home
+/// directory holding `~/.cleo/` is rooted at the repository.
 fn find_project_root(file: &Path) -> PathBuf {
     let start = file.parent().unwrap_or(file);
-    for marker in [".cleo", ".git"] {
-        if let Some(dir) = start.ancestors().find(|d| d.join(marker).is_dir()) {
-            return dir.to_path_buf();
-        }
-    }
-    start.to_path_buf()
+    start
+        .ancestors()
+        .find(|d| d.join(".cleo").is_dir() || d.join(".git").exists())
+        .unwrap_or(start)
+        .to_path_buf()
 }
