@@ -9,6 +9,7 @@
  * takes its structural fallback.
  *
  * @task T14599
+ * @task T14640
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -168,6 +169,79 @@ describe.skipIf(!isSqliteVecAvailable())('sleep consolidation merge on a real st
     expect(result.mergeDuplicates).toMatchObject({ merged: 0, failed: 1 });
     expect(result.mergeDuplicates.error).toMatch(/injected edge failure/);
     expect(snapshot(db)).toEqual(before);
+  });
+
+  it('never overwrites an existing supersedes edge for the pair and reports the skip', async () => {
+    const db = await seedStore();
+    db.prepare(
+      `INSERT INTO brain_page_edges (from_id, to_id, edge_type, weight, provenance, created_at)
+       VALUES ('observation:O-keep', 'observation:O-dup', 'supersedes', 0.5, '{"source":"earlier"}', '2026-01-01 00:00:00')`,
+    ).run();
+    const before = snapshot(db);
+
+    const { runSleepConsolidation } = await import('../sleep-consolidation.js');
+    const result = await runSleepConsolidation(tempDir);
+
+    expect(result.mergeDuplicates).toMatchObject({ merged: 0, failed: 0, skipped: 1 });
+    expect(result.mergeDuplicates.error).toBeUndefined();
+    expect(snapshot(db)).toEqual(before);
+    const edge = db
+      .prepare(
+        `SELECT provenance, weight, created_at FROM brain_page_edges
+         WHERE from_id = 'observation:O-keep' AND to_id = 'observation:O-dup' AND edge_type = 'supersedes'`,
+      )
+      .get();
+    expect(edge).toMatchObject({
+      provenance: '{"source":"earlier"}',
+      weight: 0.5,
+      created_at: '2026-01-01 00:00:00',
+    });
+  });
+
+  it('reports committed merges and the failure when ROLLBACK TO itself throws', async () => {
+    const db = await seedStore();
+    const { upsertEmbeddingRowsNative } = await import('../../store/memory-accessor.js');
+    db.prepare(
+      `INSERT INTO brain_observations (id, type, title, narrative, quality_score, memory_tier, citation_count)
+       VALUES (?, 'discovery', ?, 'Second duplicate', ?, 'short', ?)`,
+    ).run('O-keep2', 'Second A', 0.8, 0);
+    db.prepare(
+      `INSERT INTO brain_observations (id, type, title, narrative, quality_score, memory_tier, citation_count)
+       VALUES (?, 'discovery', ?, 'Second duplicate', ?, 'short', ?)`,
+    ).run('O-dup2', 'Second B', 0.3, 4);
+    upsertEmbeddingRowsNative(db, MODEL, [
+      { id: 'O-keep2', vector: unitVector(4) },
+      { id: 'O-dup2', vector: unitVector(4) },
+    ]);
+    // The second pair fails after its edge and eviction are written.
+    db.exec(`CREATE TRIGGER t14640_inject BEFORE UPDATE OF citation_count ON brain_observations
+             WHEN NEW.id = 'O-keep2'
+             BEGIN SELECT RAISE(ABORT, 'injected citation failure'); END`);
+    const prepare = db.prepare.bind(db);
+    const spy = vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
+      if (sql === 'ROLLBACK TO sleep_merge_pair') throw new Error('injected rollback failure');
+      return prepare(sql);
+    });
+
+    const { runSleepConsolidation } = await import('../sleep-consolidation.js');
+    const result = await runSleepConsolidation(tempDir);
+    spy.mockRestore();
+
+    expect(result.mergeDuplicates).toMatchObject({ merged: 1, failed: 1 });
+    expect(result.mergeDuplicates.error).toMatch(/injected citation failure/);
+    expect(result.mergeDuplicates.error).toMatch(/injected rollback failure/);
+    expect(result.mergeDuplicates.error).toMatch(/stopped after 1 committed merge/);
+    expect(db.isTransaction).toBe(false);
+    const state = snapshot(db);
+    // The first pair committed; the failed pair's partial writes were discarded.
+    expect(state['O-dup']).not.toMatch(/^null\|/);
+    expect(state['O-keep']).toBe('null|5');
+    expect(state['O-dup2']).toBe('null|4');
+    expect(state['O-keep2']).toBe('null|0');
+    const orphan = db
+      .prepare(`SELECT 1 FROM brain_page_edges WHERE to_id = 'observation:O-dup2'`)
+      .get();
+    expect(orphan).toBeUndefined();
   });
 
   it('reports a query failure in the result instead of reading as nothing to merge', async () => {
