@@ -53,6 +53,6 @@ agent project-security-worker:
     session "Review security context and identify high-risk surface areas"
       context: [active-tasks, memory-bridge]
 
-  on TaskAssigned:
+  on TaskStarted:
     if **the task involves authentication, crypto, or network surface**:
       session "Perform OWASP-aligned review of the assigned scope and produce a findings report"
