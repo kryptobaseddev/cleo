@@ -1388,12 +1388,51 @@ describe('runDocsDoctor — archive-publication (T14632)', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(ledgerPlans(result.report)).toMatchObject([
-      { action: 'republish-or-prune', applied: false },
-    ]);
+    const [plan] = ledgerPlans(result.report);
+    expect(plan).toMatchObject({ action: 'republish-or-prune', applied: false });
+    expect(plan?.detail).toContain("archive target is ambiguous: docs 'adr-copy', 'adr-two'");
+    expect(plan?.detail).toContain('cleo docs supersede <duplicate> <kept>');
     expect(await ledgerPaths()).toEqual(['docs/ADR-1.md', 'docs/ADR-2.md']);
     const { listConduitHistorySha256Set } = await import('../../store/conduit-doc-history.js');
     expect((await listConduitHistorySha256Set(tempDir)).has(sha(OLD))).toBe(false);
+
+    // The named fix resolves it: supersede the duplicate, and the blob archives.
+    const { supersedeDoc } = await import('../supersede.js');
+    await supersedeDoc(tempDir, { oldSlug: 'adr-copy', newSlug: 'adr-two' });
+    const fixed = await doctor({
+      apply: true,
+      receipt: makeReceipt(),
+      only: ['publication-ledger-drift'],
+    });
+    expect(fixed.ok).toBe(true);
+    if (!fixed.ok) return;
+    expect(ledgerPlans(fixed.report)).toMatchObject([
+      { action: 'archive-publication', applied: true },
+    ]);
+    expect((await listConduitHistorySha256Set(tempDir)).has(sha(OLD))).toBe(true);
+  });
+
+  it('keeps a committed archive in the report and warns when its audit append fails (T14634)', async () => {
+    await seedRenumbered(true);
+    // A directory at the audit file's path makes the append fail (EISDIR).
+    mkdirSync(join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'), {
+      recursive: true,
+    });
+    const { drainWarnings } = await import('../../output.js');
+    drainWarnings();
+    const result = await doctor({
+      apply: true,
+      receipt: makeReceipt(),
+      only: ['publication-ledger-drift'],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(ledgerPlans(result.report)).toMatchObject([
+      { action: 'archive-publication', applied: true },
+    ]);
+    const { listConduitHistorySha256Set } = await import('../../store/conduit-doc-history.js');
+    expect((await listConduitHistorySha256Set(tempDir)).has(sha(OLD))).toBe(true);
+    expect(drainWarnings()?.map((w) => w.code)).toContain('W_DOCS_DOCTOR_ARCHIVE_AUDIT_FAILED');
   });
 
   it('refuses an unadopted doc with no store change and names the migrate step', async () => {

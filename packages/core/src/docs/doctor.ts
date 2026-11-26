@@ -128,6 +128,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { gitDefaultBranchRefs, gitRefHasPath, gitToplevel } from '../git/work-tree.js';
+import { pushWarning } from '../output.js';
 import { resolveCleoDir } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import {
@@ -738,6 +739,7 @@ interface LedgerArchive {
 type ArchiveTarget =
   | { readonly kind: 'adopted'; readonly archive: LedgerArchive }
   | { readonly kind: 'unadopted'; readonly slug: string }
+  | { readonly kind: 'ambiguous'; readonly slugs: readonly string[] }
   | null;
 
 /**
@@ -915,12 +917,14 @@ async function scanPublicationLedger(
   // to the row's blob. Anything less is no target (the row keeps its refusal).
   // T14634: every slugged doc's head is resolved, so two docs with
   // byte-identical heads both match and the target is refused as ambiguous
-  // (one attachments row per sha could only ever name one of them).
+  // (one attachments row per sha could only ever name one of them). A
+  // superseded doc is no target, so `cleo docs supersede` resolves the tie.
   let slugsByHead: Promise<ReadonlyMap<string, ReadonlySet<string>>> | undefined;
   const docsByHead = (): Promise<ReadonlyMap<string, ReadonlySet<string>>> => {
     slugsByHead ??= (async () => {
       const bySha = new Map<string, Set<string>>();
-      for (const slug of new Set(rows.flatMap((r) => (r.slug ? [r.slug] : [])))) {
+      const live = rows.filter((r) => r.lifecycleStatus !== 'superseded');
+      for (const slug of new Set(live.flatMap((r) => (r.slug ? [r.slug] : [])))) {
         const ref = await resolveDocRef(projectRoot, slug, { quiet: true }).catch(() => null);
         if (!ref) continue;
         const slugs = bySha.get(ref.sha256) ?? new Set<string>();
@@ -941,8 +945,9 @@ async function scanPublicationLedger(
       if (live.ownerId !== record.ownerId || live.blobName !== record.blobName) continue;
       for (const slug of (await docsByHead()).get(live.lastBlobSha) ?? []) slugs.add(slug);
     }
-    const [slug, ...others] = [...slugs];
-    if (slug === undefined || others.length > 0) return null;
+    const [slug, ...others] = [...slugs].sort();
+    if (slug === undefined) return null;
+    if (others.length > 0) return { kind: 'ambiguous', slugs: [slug, ...others] };
     const docUid = await resolveConduitDocUid(projectRoot, slug).catch(() => null);
     if (docUid === null) return { kind: 'unadopted', slug };
     const bytes = readVerifiedBlobBytes(cleoDir, record.lastBlobSha);
@@ -1056,10 +1061,15 @@ async function scanPublicationLedger(
                     action: 'republish-or-prune',
                     detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; doc '${target.slug}' has no conduit history yet — adopt it with \`cleo docs migrate\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
                   }
-                : {
-                    action: 'republish-or-prune',
-                    detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
-                  },
+                : target?.kind === 'ambiguous'
+                  ? {
+                      action: 'republish-or-prune',
+                      detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; the archive target is ambiguous: docs ${target.slugs.map((s) => `'${s}'`).join(', ')} share the head its stream publishes — keep the doc the stream belongs to and supersede each other one with \`cleo docs supersede <duplicate> <kept>\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
+                    }
+                  : {
+                      action: 'republish-or-prune',
+                      detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`,
+                    },
     });
   }
   // A blob is protected only by an attachments row or by a ledger row that
@@ -1761,13 +1771,23 @@ export async function runDocsDoctor(
             origin: DOCS_DOCTOR_ARCHIVE_ORIGIN,
           });
         });
-        const auditPath = join(projectRoot, DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE);
-        mkdirSync(dirname(auditPath), { recursive: true });
-        appendFileSync(
-          auditPath,
-          `${JSON.stringify({ op: 'docs.doctor.archive-publication', archivedAt: new Date().toISOString(), backupReceiptPath: opts.backupReceiptPath ?? null, archive, record })}\n`,
-          'utf-8',
-        );
+        // The import has committed: a failed audit append must not hide it
+        // from the report or stop the remaining archives and prunes (T14634).
+        try {
+          const auditPath = join(projectRoot, DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE);
+          mkdirSync(dirname(auditPath), { recursive: true });
+          appendFileSync(
+            auditPath,
+            `${JSON.stringify({ op: 'docs.doctor.archive-publication', archivedAt: new Date().toISOString(), backupReceiptPath: opts.backupReceiptPath ?? null, archive, record })}\n`,
+            'utf-8',
+          );
+        } catch (err) {
+          pushWarning({
+            // @sync-invariant none:input-shape the warning reports an audit append that failed after a committed import; it rejects nothing and writes nothing
+            code: 'W_DOCS_DOCTOR_ARCHIVE_AUDIT_FAILED',
+            message: `archived blob ${archive.sha256.slice(0, 12)}… into '${archive.slug}', but its audit line could not be written to ${DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE}: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
       }
       const prunable = inScope('publication-ledger-drift')
         ? pre.ledger.filter((f) => f.prunable)
