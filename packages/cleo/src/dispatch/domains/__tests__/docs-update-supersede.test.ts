@@ -71,6 +71,17 @@ describe('docs.update --superseded-by through dispatch (T14660)', () => {
     await add('retired-note');
     await add('successor-note');
 
+    // No --status: refused with the full supersession command, not the
+    // generic "--status accepted" prose.
+    const bare = await new DocsHandler().mutate('update', {
+      slug: 'retired-note',
+      supersededBy: 'successor-note',
+    });
+    expect(bare.success).toBe(false);
+    expect(bare.error?.fix).toBe(
+      'cleo docs update retired-note --status superseded --superseded-by successor-note',
+    );
+
     const refusals = [
       { status: 'accepted', supersededBy: 'successor-note' },
       { status: 'superseded', supersededBy: 'missing-note' },

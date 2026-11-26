@@ -2119,7 +2119,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'Pipe the body with `cat new.md | cleo docs update <slug> --content -`, or use `--file ./new.md`.',
       );
     }
-    if (statusOnly && rawStatus === undefined) {
+    // T14660: a bare --superseded-by falls through to core, whose refusal
+    // names the full supersession command as its fix.
+    if (statusOnly && rawStatus === undefined && params.supersededBy === undefined) {
       return lafsError(
         'E_INVALID_INPUT',
         'Provide --file <path>, --content <text>, or --status <status> alone',
