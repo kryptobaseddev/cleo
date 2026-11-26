@@ -1,5 +1,25 @@
 # Changelog
 
+## [2026.11.18] (2026-11-26)
+
+### Fixed
+
+- cleo agent doctor refreshes an unedited seed that no longer parses, and context_sources and on_overflow reach the compiled CANT bundle _(provenance: [T14654](https://github.com/kryptobaseddev/cleo/search?q=T14654&type=commits))_
+- @cleocode/agents: the five project-* agent templates now parse and validate with cant-core _(provenance: [T14643](https://github.com/kryptobaseddev/cleo/search?q=T14643&type=commits))_
+- @cleocode/brain catches each substrate query on its own, so one failing query no longer skips the adapter's other queries, and reports an unopenable store and a failed nexus stub read in graph.errors _(provenance: [T14656](https://github.com/kryptobaseddev/cleo/search?q=T14656&type=commits))_
+- @cleocode/brain substrate adapters report a failed SQL read in their result (error) and getAllSubstrates() names it per substrate in graph.errors, instead of returning a silently empty substrate _(provenance: [T14647](https://github.com/kryptobaseddev/cleo/search?q=T14647&type=commits))_
+- cleo cant validate reports missing imports (S04), reports diagnostics from imported files at their own file and line, and warns when an old cant-napi binary cannot run the import rules _(provenance: [T14642](https://github.com/kryptobaseddev/cleo/search?q=T14642&type=commits))_
+- cleo docs doctor --publication <path> --archive-into <slug> repairs a ledger row cleo docs modernize kept _(provenance: [T14651](https://github.com/kryptobaseddev/cleo/search?q=T14651&type=commits))_
+- cleo docs doctor names a non-deprecated supersede route and the superseded doc that alone holds a gone row's head _(provenance: [T14650](https://github.com/kryptobaseddev/cleo/search?q=T14650&type=commits))_
+- cleo doctor gate-text lists and converts text acceptance stored as typed gate JSON _(provenance: [T14635](https://github.com/kryptobaseddev/cleo/search?q=T14635&type=commits))_
+- @cleocode/core: Ctrl-C ends the CLI at once during synchronous waits again, and --quiet hides the file logger's start-up warnings _(provenance: [T14644](https://github.com/kryptobaseddev/cleo/search?q=T14644&type=commits))_
+- cleo docs modernize: merged or deleted mirrors lose their ledger rows, a row already at a move target is kept, and rollback restores every row exactly _(provenance: [T14631](https://github.com/kryptobaseddev/cleo/search?q=T14631&type=commits))_
+- @cleocode/core: personas scaffolded by cleo agent create now parse and validate with cant-core _(provenance: [T14652](https://github.com/kryptobaseddev/cleo/search?q=T14652&type=commits))_
+- @cleocode/core sleep consolidation stops and throws SleepMergeAbortedError when a merge rollback fails inside a caller transaction, so the caller rolls back instead of committing partial writes _(provenance: [T14653](https://github.com/kryptobaseddev/cleo/search?q=T14653&type=commits))_
+- cleo memory dream reports sleepConsolidation.mergeSkipped, and a sleep merge inside a caller transaction never claims merges committed when its rollback fails _(provenance: [T14648](https://github.com/kryptobaseddev/cleo/search?q=T14648&type=commits))_
+- every wait in the release publish job has its own timeout, so a stuck publish, registry fetch or install fails with its gate's message before the job timeout _(provenance: [T14646](https://github.com/kryptobaseddev/cleo/search?q=T14646&type=commits))_
+- cleo upgrade refreshes unedited agent seeds that no longer parse and reports edited ones with a fix that yields a parseable agent _(provenance: [T14655](https://github.com/kryptobaseddev/cleo/search?q=T14655&type=commits))_
+
 ## [2026.11.17] (2026-11-26)
 
 ### Fixed
