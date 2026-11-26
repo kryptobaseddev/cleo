@@ -110,6 +110,27 @@ async function addTask(): Promise<string> {
   return (await addSpine()).taskId;
 }
 
+/**
+ * Bind every criterion of the spine except the typed gate, so the gate's
+ * harness is the only thing that can hold the child (and so the parent) open.
+ */
+async function bindProseCriteria({ epicId, taskId }: Spine): Promise<void> {
+  const bindings: Array<[string, string]> = [
+    [taskId, `satisfies:${taskId}#AC1`],
+    [epicId, FIVE_ACS.map((_, i) => `satisfies:${epicId}#AC${i + 1}`).join(';')],
+  ];
+  for (const [id, satisfies] of bindings) {
+    const bound = await check.mutate('gate.set', {
+      taskId: id,
+      gate: 'cleanupDone',
+      value: true,
+      agent: 'implementer',
+      evidence: `note:prose criteria hold;${satisfies}`,
+    });
+    expect(bound.success, JSON.stringify(bound.error)).toBe(true);
+  }
+}
+
 function taskCount(): unknown {
   return freshRead('SELECT COUNT(*) AS n FROM tasks_tasks')[0]?.['n'];
 }
@@ -191,10 +212,16 @@ describe('typed requirement dispatch receipt (T12292)', () => {
     ).not.toBe('done');
   });
 
+  // AC2 (T14635): the child is otherwise complete, so the harness is the only
+  // blocker; the variant below supplies it and both tasks complete.
   it('a parent cannot complete while its child is held open by a missing harness', async () => {
-    const { epicId, taskId } = await addSpine();
+    const spine = await addSpine();
+    const { epicId, taskId } = spine;
     await tasks.mutate('req.add', { taskId, gate: JSON.stringify(partnerGate()) });
-    expect((await tasks.mutate('complete', { taskId })).success).toBe(false);
+    await bindProseCriteria(spine);
+    const child = await tasks.mutate('complete', { taskId });
+    expect(child.success).toBe(false);
+    expect(child.error?.message).toContain('PARTNER-01');
 
     const parent = await tasks.mutate('complete', { taskId: epicId });
     expect(parent.success).toBe(false);
@@ -204,6 +231,34 @@ describe('typed requirement dispatch receipt (T12292)', () => {
         (row) => row['status'],
       ),
     ).not.toContain('done');
+  });
+
+  it('with the harness present the same child and its parent complete', async () => {
+    const spine = await addSpine();
+    const { epicId, taskId } = spine;
+    await tasks.mutate('req.add', { taskId, gate: JSON.stringify(partnerGate()) });
+    await bindProseCriteria(spine);
+    await writeFile(join(root, HARNESS), 'process.exit(0);\n');
+
+    // `verify --run-typed` records the typed result that `complete` revalidates.
+    const verified = await check.mutate('gate.set', {
+      taskId,
+      gate: 'cleanupDone',
+      value: true,
+      agent: 'implementer',
+      evidence: 'note:partner harness present',
+      runTyped: true,
+    });
+    expect(verified.success, JSON.stringify(verified.error)).toBe(true);
+    const child = await tasks.mutate('complete', { taskId });
+    expect(child.success, JSON.stringify(child.error)).toBe(true);
+    const parent = await tasks.mutate('complete', { taskId: epicId });
+    expect(parent.success, JSON.stringify(parent.error)).toBe(true);
+    expect(
+      freshRead(`SELECT status FROM tasks_tasks WHERE id IN ('${epicId}','${taskId}')`).map(
+        (row) => row['status'],
+      ),
+    ).toEqual(['done', 'done']);
   });
 
   it('a present harness passes verify --run, and deleting it invalidates the pass', async () => {

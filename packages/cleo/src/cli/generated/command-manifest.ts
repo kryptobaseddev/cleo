@@ -435,6 +435,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-fk-check.js')).doctorFkCheckCommand as CommandDef,
   },
   {
+    exportName: 'doctorGateTextCommand',
+    name: 'gate-text',
+    description:
+      'List tasks whose stored text acceptance criteria are typed gate JSON (stored before ',
+    load: async () =>
+      (await import('../commands/doctor-gate-text.js')).doctorGateTextCommand as CommandDef,
+  },
+  {
     exportName: 'doctorGlobalDeliveryCommand',
     name: 'global-delivery',
     description:

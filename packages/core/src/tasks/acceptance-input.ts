@@ -85,11 +85,18 @@ const GATE_KINDS: ReadonlySet<string> = new Set(
  * True when `text` is a whole JSON object whose `kind` names a gate kind — the
  * shape of an `AcceptanceGate`, complete or not. Prose that merely contains
  * braces is not valid JSON, and a JSON object with any other `kind` is not a
- * gate, so both stay literal criteria.
+ * gate, so both stay literal criteria. `cleo doctor gate-text` uses the same
+ * predicate to find criteria stored as text before this became a refusal (T14635).
  *
- * @internal
+ * @param text - A trimmed acceptance criterion.
+ * @returns True when the criterion is a typed gate's JSON object.
+ * @example
+ * ```typescript
+ * isTypedGateJson('{"kind":"manual","prompt":"Approve?","description":"Review"}'); // true
+ * isTypedGateJson('Config {a|b} is documented'); // false
+ * ```
  */
-function isTypedGateJson(text: string): boolean {
+export function isTypedGateJson(text: string): boolean {
   if (!text.startsWith('{') || !text.endsWith('}')) return false;
   try {
     const parsed: object | null = JSON.parse(text);

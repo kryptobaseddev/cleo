@@ -22,10 +22,12 @@ import {
   acItemToText,
   applyAcPlan,
   buildAcRowId,
+  convertGateTextRowsPlan,
   directTextSourceKey,
   planAcUpdate,
   replaceAcRowPlan,
 } from './ac-table.js';
+import { isTypedGateJson } from './acceptance-input.js';
 import { commandGateCmdProblem } from './command-gate-cmd.js';
 import { joinCommandLine, splitCommandLine } from './command-line.js';
 import { minCountReporterProblem } from './test-report-counts.js';
@@ -721,6 +723,154 @@ export async function reqMigrate(
     };
   };
   return apply ? acc.transaction(migrate) : migrate();
+}
+
+/** One text criterion holding a typed gate's JSON, found by {@link reqConvertGateText}. */
+export interface GateTextConversion {
+  /** Zero-based index in the task's acceptance array. */
+  index: number;
+  /** The stored text criterion. */
+  original: string;
+  /** The validated gate it converts to; null when it cannot be converted. */
+  gate: AcceptanceGate | null;
+  /** Why the criterion cannot be converted; null when it can. */
+  problem: string | null;
+}
+
+/** Result of {@link reqConvertGateText}. */
+export interface GateTextConversionResult {
+  /** The task inspected. */
+  taskId: string;
+  /** Every gate-JSON text criterion on the task. */
+  conversions: GateTextConversion[];
+  /** Criteria converted to typed gates (0 without `apply`). */
+  applied: number;
+}
+
+/**
+ * Convert text criteria stored as a typed gate's JSON into the typed gate
+ * (T14635).
+ *
+ * @remarks
+ * Before T12292, `cleo add --acceptance '<gate-json>'` stored the gate as prose,
+ * which carries no gate meaning; writes now refuse that input, so `cleo
+ * decompose` refuses such a task. This parses each such criterion through the
+ * same checks as `cleo req add` (schema, command shape, countable `minCount`,
+ * a REQ-ID unique on the task) and, with `apply`, replaces it in place: the
+ * criterion keeps its position, ordinal and uid, and the old text is kept in
+ * the AC history (reason `convert`). Criteria that fail a check are reported
+ * with the problem and left as they are, and so is a row with evidence
+ * bindings but no uid, whose bindings the conversion could not carry.
+ *
+ * The rewrite is an acceptance change: in a locked pipeline stage it needs
+ * `reason`, exactly as `cleo update --acceptance` does, and it is audited in
+ * `.cleo/audit/ac-changes.jsonl`. Terminal tasks are refused. The task audit
+ * row carries a receipt per criterion (old text, new gate) for reversal.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - Task to inspect.
+ * @param apply - When true, writes the conversions in one transaction.
+ * @param options - `reason` for a locked stage; `accessor` for tests.
+ * @returns Every gate-JSON text criterion and how many were converted.
+ * @throws CleoError E_NOT_FOUND for an unknown task; E_VALIDATION for a
+ *   terminal task on apply or when the AC rows do not project the acceptance
+ *   array; AC_LOCKED in a locked stage without `reason` (nothing is written).
+ * @example
+ * ```typescript
+ * const preview = await reqConvertGateText(root, 'T42', false);
+ * if (preview.conversions.every((c) => c.gate)) await reqConvertGateText(root, 'T42', true);
+ * ```
+ * @task T14635
+ */
+export async function reqConvertGateText(
+  projectRoot: string,
+  taskId: string,
+  apply: boolean,
+  options: { reason?: string; accessor?: DataAccessor } = {},
+): Promise<GateTextConversionResult> {
+  const acc = options.accessor ?? (await getTaskAccessor(projectRoot));
+  const convert = async (tx?: TransactionAccessor): Promise<GateTextConversionResult> => {
+    const task = await loadTask(acc, taskId);
+    const acceptance = (task.acceptance ?? []) as AcceptanceItem[];
+    const rows = [...(await (tx ?? acc).getAcRows(taskId))].sort((a, b) => a.ordinal - b.ordinal);
+    const usedRequirements = new Set(
+      acceptance.flatMap((item) => (typeof item === 'object' && item.req ? [item.req] : [])),
+    );
+    const conversions: GateTextConversion[] = [];
+    for (const [index, item] of acceptance.entries()) {
+      if (typeof item !== 'string' || !isTypedGateJson(item.trim())) continue;
+      const refuse = (problem: string): void => {
+        conversions.push({ index, original: item, gate: null, problem });
+      };
+      try {
+        const gate = parseGateJson(item.trim());
+        refuseArgsInCmd(gate, projectRoot);
+        refuseUncountableMinCount(gate);
+        if (gate.req && usedRequirements.has(gate.req)) {
+          refuse(`REQ-ID "${gate.req}" already exists on task ${taskId}`);
+          continue;
+        }
+        const row = rows[index];
+        if (row && !row.uid && (await (tx ?? acc).getAcBindings([row.id])).length > 0) {
+          refuse(
+            `AC${row.ordinal} has evidence bindings but no uid, so converting it would drop them`,
+          );
+          continue;
+        }
+        if (gate.req) usedRequirements.add(gate.req);
+        conversions.push({ index, original: item, gate, problem: null });
+      } catch (err) {
+        if (!(err instanceof CleoError)) throw err;
+        refuse(err.message);
+      }
+    }
+    const convertible = new Map(
+      conversions.flatMap((c) =>
+        c.gate ? [[c.index, { original: c.original, gate: c.gate }]] : [],
+      ),
+    );
+    if (!tx || convertible.size === 0) return { taskId, conversions, applied: 0 };
+
+    if (TERMINAL_TASK_STATUSES.has(task.status))
+      // @sync-invariant none:input-shape a terminal task's acceptance is never rewritten; nothing is written
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `${taskId} is ${task.status}; its acceptance is not rewritten`,
+        { fix: `cleo show ${taskId} --full  # a terminal task keeps the criteria it closed with` },
+      );
+    const updated = acceptance.map((item, i) => convertible.get(i)?.gate ?? item);
+    // Same guard as `cleo update --acceptance`: a locked stage needs a reason.
+    const authorization = enforceAcceptanceImmutability({
+      task,
+      newAcceptance: updated,
+      reason: options.reason,
+      projectRoot,
+    });
+    const now = new Date().toISOString();
+    await tx.updateTaskFields(taskId, { acceptanceJson: JSON.stringify(updated), updatedAt: now });
+    await applyAcPlan(tx, taskId, convertGateTextRowsPlan(taskId, rows, convertible));
+    await tx.appendLog({
+      timestamp: now,
+      action: 'req_gate_text_converted',
+      taskId,
+      actor: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+      details: {
+        receipts: [...convertible].map(([index, { original, gate }]) => ({
+          taskId,
+          criterion: `AC${rows[index]?.ordinal ?? index + 1}`,
+          acId: rows[index]?.id ?? null,
+          oldText: original,
+          newGate: gate,
+        })),
+        ...(options.reason?.trim() ? { reason: options.reason.trim() } : {}),
+        ...(authorization ? { acceptanceOverride: { ...authorization, status: 'committed' } } : {}),
+      },
+      before: { acceptance },
+      after: { acceptance: updated },
+    });
+    return { taskId, conversions, applied: convertible.size };
+  };
+  return apply ? acc.transaction(convert) : convert();
 }
 
 /**
