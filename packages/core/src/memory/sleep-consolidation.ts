@@ -593,6 +593,7 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
           // RELEASE only folded a pair into the caller's transaction, which
           // still holds this pair's partial writes. Only the caller can
           // discard them, so rethrow instead of reporting merges (T14648).
+          // @sync-invariant none:local-only the caller's open transaction still holds the uncommitted writes; nothing is committed
           throw new Error(
             `sleep merge rollback failed inside a caller transaction (${rollbackFailure}); ` +
               `pair ${keepId} <- ${evictId} failed: ${firstFailure}; nothing committed, ` +
