@@ -63,4 +63,29 @@ describe('cant-bridge template — global agent lookup (T12602)', () => {
 
     expect(mod.resolveAgentFile(cwd, 'reviewer')).toBe(agent);
   });
+
+  // T14600: `cleo agent install --global` writes <cleoHome>/cant/agents, which
+  // the bridge checks before the legacy <cleoHome>/agents.
+  it('prefers <installed CLEO home>/cant/agents/<name>.cant over the legacy agents/ dir', async () => {
+    const cleoHome = join(root, 'cleo-home');
+    mkdirSync(join(cleoHome, 'pi-extensions'), { recursive: true });
+    mkdirSync(join(cleoHome, 'cant', 'agents'), { recursive: true });
+    mkdirSync(join(cleoHome, 'agents'), { recursive: true });
+    copyFileSync(TEMPLATE, join(cleoHome, 'pi-extensions', 'cant-bridge.ts'));
+    const canonical = join(cleoHome, 'cant', 'agents', 'reviewer.cant');
+    writeFileSync(canonical, 'agent reviewer:\n');
+    writeFileSync(join(cleoHome, 'agents', 'reviewer.cant'), 'agent reviewer:\n');
+    writeFileSync(join(cleoHome, 'cant', 'agents', 'installed.cant'), 'agent installed:\n');
+    const cwd = join(root, 'project');
+    mkdirSync(cwd);
+
+    const mod = (await import(
+      pathToFileURL(join(cleoHome, 'pi-extensions', 'cant-bridge.ts')).href
+    )) as CantBridgeModule;
+
+    expect(mod.resolveAgentFile(cwd, 'reviewer')).toBe(canonical);
+    expect(mod.resolveAgentFile(cwd, 'installed')).toBe(
+      join(cleoHome, 'cant', 'agents', 'installed.cant'),
+    );
+  });
 });

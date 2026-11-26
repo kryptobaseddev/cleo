@@ -79,6 +79,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
       getCleoHome: () => cleoHome,
       getCleoGlobalAgentsDir: () => globalCantDir,
       getCleoGlobalCantAgentsDir: () => globalCantDir,
+      getCleoLegacyGlobalAgentsDir: () => join(cleoHome, 'agents'),
     };
   });
 
@@ -231,6 +232,46 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
       expect(d003[0]?.severity).toBe('error');
       expect(d003[0]?.subject).toBe('global:doctor-fixture');
       expect(d003[0]?.fixCommand).toContain('--force');
+    } finally {
+      db.close();
+    }
+  });
+
+  // T14600: agents installed to the legacy <cleoHome>/agents dir still get the
+  // filesystem drift checks, and each finding names the file it is about.
+  it('runs D-001 and D-003 on the legacy <cleoHome>/agents dir and names the file', async () => {
+    const { installAgentFromCant } = await import('../agent-install.js');
+    const { buildDoctorReport } = await import('../agent-doctor.js');
+    const legacyDir = join(env.cleoHome, 'agents');
+    const orphan = writeCant(legacyDir, 'legacy-orphan.cant', FIXTURE_MINIMAL_CANT);
+    const sourcePath = writeCant(
+      join(env.projectRoot, 'sources'),
+      'doctor-fixture.cant',
+      FIXTURE_MINIMAL_CANT,
+    );
+    const db = env.openDb();
+    try {
+      // An install made by an older CLEO: file and row in the legacy dir.
+      const install = installAgentFromCant(db, {
+        cantSource: sourcePath,
+        targetTier: 'global',
+        installedFrom: 'manual',
+        globalCantDir: legacyDir,
+      });
+      appendFileSync(install.cantPath, '\n# drift marker added by test\n');
+
+      const report = await buildDoctorReport(db, {
+        globalCantDir: env.globalCantDir,
+        homeDir: env.homeDir,
+      });
+      const d001 = report.findings.filter((f) => f.code === 'D-001');
+      expect(d001).toHaveLength(1);
+      expect(d001[0]?.subject).toBe('global:legacy-orphan');
+      expect(d001[0]?.message).toContain(orphan);
+      const d003 = report.findings.filter((f) => f.code === 'D-003');
+      expect(d003).toHaveLength(1);
+      expect(d003[0]?.subject).toBe('global:doctor-fixture');
+      expect(d003[0]?.message).toContain(join(legacyDir, 'doctor-fixture.cant'));
     } finally {
       db.close();
     }
