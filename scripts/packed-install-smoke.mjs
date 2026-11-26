@@ -1745,8 +1745,10 @@ syncBuiltinESMExports();
           [core, app].some((dir) => existsSync(join(dir, 'node_modules', name, 'package.json'))),
         ]),
       );
-      // T14637: tree-sitter@0.25.1 and every grammar ship a prebuild for each release
-      // platform, so a skipped one is a regression, and a parse proves the binding loads.
+      // T14637: tree-sitter@0.25.1 ships a linux-arm64 prebuild; cpp, java, ruby and
+      // typescript (and the c@0.23 and javascript@0.23 they pull in) ship x86-64 files
+      // under linux-arm64 and build from source there, which needs a C++ toolchain
+      // (T14665). A skipped one is a regression, and a parse proves the binding loads.
       const skipped = Object.entries(manifest.optionalNative)
         .filter(([name, installed]) => name.startsWith('tree-sitter') && !installed)
         .map(([name]) => name);

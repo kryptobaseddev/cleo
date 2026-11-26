@@ -862,7 +862,8 @@ describe('bounded original parser capacity (T12262)', () => {
   });
 
   // tree-sitter 0.21.1 threw "Invalid argument" on a default parse above 32767 units;
-  // 0.25.1 (T14637) parses it whole. Pin the native behaviour the chunked input relies on.
+  // 0.25.1 (T14637) parses it whole. This pins the native upgrade; the chunked input
+  // used by parseOriginalSource does not depend on it.
   it.each([32767, 32768, 262144])('native default parse reads all %i units', (length) => {
     const tree = nativeParser().parse(sourceOfLength(length));
     expect(tree.rootNode.hasError).toBe(false);
