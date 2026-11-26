@@ -29,4 +29,5 @@ export type {
   BrainQueryOptions,
   BrainStreamEvent,
   BrainSubstrate,
+  BrainSubstrateResult,
 } from '@cleocode/contracts';

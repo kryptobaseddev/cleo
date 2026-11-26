@@ -20,6 +20,7 @@ import type {
   BrainNode,
   BrainQueryOptions,
   BrainSubstrate,
+  BrainSubstrateResult,
 } from '../types.js';
 import { getAgentRegistrySubstrate } from './agent-registry.js';
 import { getBrainSubstrate } from './brain.js';
@@ -31,10 +32,7 @@ import { getTasksSubstrate } from './tasks.js';
 const ALL_SUBSTRATES: BrainSubstrate[] = ['brain', 'nexus', 'tasks', 'conduit', 'agent-registry'];
 
 /** Maps substrate name to its adapter function. */
-const ADAPTER_MAP: Record<
-  BrainSubstrate,
-  (options: BrainQueryOptions) => { nodes: BrainNode[]; edges: BrainEdge[] }
-> = {
+const ADAPTER_MAP: Record<BrainSubstrate, (options: BrainQueryOptions) => BrainSubstrateResult> = {
   brain: getBrainSubstrate,
   nexus: getNexusSubstrate,
   tasks: getTasksSubstrate,
@@ -165,6 +163,8 @@ function loadStubNodesForEdgeTargets(
  * that would otherwise be silently dropped.
  *
  * Stub nodes carry `meta.isStub: true` for optional UI differentiation.
+ * A substrate whose read failed is named in `errors` with the SQL error, so a
+ * broken query never passes for an empty substrate (T14647).
  *
  * @param options - Query options forwarded to each substrate adapter.
  * @returns Merged BrainGraph across all requested substrates, with stub nodes for unresolved edge targets.
@@ -186,11 +186,14 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
     number
   >;
 
+  const errors: Partial<Record<BrainSubstrate, string>> = {};
+
   for (const substrate of substrates) {
     const adapter = ADAPTER_MAP[substrate];
     if (!adapter) continue;
 
-    const { nodes, edges } = adapter({ ...options, limit });
+    const { nodes, edges, error } = adapter({ ...options, limit });
+    if (error !== undefined) errors[substrate] = error;
 
     allNodes.push(...nodes);
     allEdges.push(...edges);
@@ -243,5 +246,6 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
     edges: allEdges,
     counts: { nodes: nodeCounts, edges: edgeCounts },
     truncated,
+    ...(Object.keys(errors).length > 0 ? { errors } : {}),
   };
 }

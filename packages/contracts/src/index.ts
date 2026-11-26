@@ -181,6 +181,7 @@ export type {
   BrainQueryOptions,
   BrainStreamEvent,
   BrainSubstrate,
+  BrainSubstrateResult,
 } from './brain-graph.js';
 export type {
   AbsolutePathRules,

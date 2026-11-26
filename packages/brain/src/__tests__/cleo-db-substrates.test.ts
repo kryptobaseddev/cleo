@@ -4,9 +4,12 @@
  *
  * Both stores are created through the core chokepoint, so their schema is the
  * real migrated one; the test seeds rows and asserts each substrate's nodes and
- * edges come back.
+ * edges come back. A second store with a dropped table proves a failed adapter
+ * read is reported in `graph.errors`, never returned as a silently empty
+ * substrate (T14647).
  *
  * @task T14583
+ * @task T14647
  */
 
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -24,6 +27,7 @@ import type { BrainGraph } from '../types.js';
 
 let dir: string;
 let graph: BrainGraph;
+let brokenGraph: BrainGraph;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'cleo-brain-t14583-'));
@@ -48,6 +52,13 @@ beforeAll(async () => {
     INSERT INTO brain_observations (id, type, title) VALUES ('O-1', 'discovery', 'Seeded observation');
     INSERT INTO brain_decisions (id, type, decision, rationale, confidence, context_task_id)
       VALUES ('D-1', 'architecture', 'Seeded decision', 'because', 'high', 'T1');
+    INSERT INTO brain_patterns (id, type, pattern, context) VALUES ('P-1', 'workflow', 'Seeded pattern', 'ctx');
+    INSERT INTO brain_learnings (id, insight, source, confidence) VALUES ('L-1', 'Seeded learning', 'test', 0.9);
+    INSERT INTO brain_page_edges (from_id, to_id, edge_type, weight) VALUES
+      ('learning:L-1', 'observation:O-1', 'derived_from', 0.9),
+      ('decision:D-1', 'pattern:P-1', 'informed_by', 0.8),
+      ('observation:O-1', 'task:T2', 'applies_to', 0.7),
+      ('observation:O-1', 'src/a.ts::run', 'code_reference', 0.6);
     INSERT INTO conduit_conversations (id, participants) VALUES ('C-1', '["a1","a2"]');
     INSERT INTO conduit_messages (id, conversation_id, from_agent_id, to_agent_id, content)
       VALUES ('M-1', 'C-1', 'a1', 'a2', 'hello');
@@ -71,6 +82,19 @@ beforeAll(async () => {
     tasksDbPath: projectStore,
   };
   graph = getAllSubstrates({ limit: 500, projectCtx });
+
+  // A store whose nexus_relations table is gone: the nexus read fails after
+  // its nodes query, which must surface as an error, not a quiet short graph.
+  const brokenRoot = join(dir, 'broken');
+  mkdirSync(join(brokenRoot, '.cleo'), { recursive: true });
+  const brokenStore = join(brokenRoot, '.cleo', 'cleo.db');
+  const broken = getDualScopeNativeDb(await openDualScopeDbAtPath('project', brokenStore));
+  broken.exec('DROP TABLE nexus_relations;');
+  _resetDualScopeDbCache();
+  brokenGraph = getAllSubstrates({
+    limit: 500,
+    projectCtx: { projectPath: brokenRoot, brainDbPath: brokenStore, tasksDbPath: brokenStore },
+  });
 });
 
 afterAll(() => {
@@ -89,6 +113,8 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
       'tasks:ses_seed_00000001',
       'brain:O-1',
       'brain:D-1',
+      'brain:P-1',
+      'brain:L-1',
       'conduit:M-1',
       'nexus:src/a.ts',
       'nexus:src/a.ts::run',
@@ -106,6 +132,10 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
       'tasks:T2|depends_on|tasks:T1',
       'tasks:T2|related|tasks:T3',
       'brain:D-1|applies_to|tasks:T1',
+      'brain:L-1|derived_from|brain:O-1',
+      'brain:D-1|informed_by|brain:P-1',
+      'brain:O-1|applies_to|tasks:T2',
+      'brain:O-1|code_reference|nexus:src/a.ts::run',
       'nexus:src/a.ts|contains|nexus:src/a.ts::run',
       'agent-registry:a1|messages|agent-registry:a2',
     ]) {
@@ -118,5 +148,17 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
     expect(agent?.createdAt).toBe('2026-11-01T00:00:00');
     const message = graph.nodes.find((n) => n.id === 'conduit:M-1');
     expect(message?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+  });
+
+  it('reports no substrate errors for a healthy store', () => {
+    expect(graph.errors).toBeUndefined();
+    const kinds = new Map(graph.nodes.map((n) => [n.id, n.kind]));
+    expect(kinds.get('brain:P-1')).toBe('pattern');
+    expect(kinds.get('brain:L-1')).toBe('learning');
+  });
+
+  it('reports a failed adapter read instead of a silently empty substrate (T14647)', () => {
+    expect(brokenGraph.errors?.nexus).toMatch(/no such table/i);
+    expect(Object.keys(brokenGraph.errors ?? {})).toEqual(['nexus']);
   });
 });

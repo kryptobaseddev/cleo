@@ -9,9 +9,10 @@
  * Node IDs are prefixed with "conduit:" to prevent collisions.
  */
 
+import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { allTyped, readProjectStore } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
 
 /** Raw row from `conduit_messages`. */
 interface MessageRow {
@@ -34,15 +35,13 @@ interface MessageRow {
  * @param options - Query options (limit).
  * @returns Nodes and edges from the CONDUIT substrate.
  */
-export function getConduitSubstrate(options: BrainQueryOptions = {}): {
-  nodes: BrainNode[];
-  edges: BrainEdge[];
-} {
+export function getConduitSubstrate(options: BrainQueryOptions = {}): BrainSubstrateResult {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
+  let error: string | undefined;
 
   readProjectStore(ctx, (db) => {
     try {
@@ -100,10 +99,12 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): {
           substrate: 'cross',
         });
       }
-    } catch {
-      // Return partial results on error
+    } catch (err) {
+      // Keep the partial results, but report the failure instead of
+      // returning a silently short substrate (T14647).
+      error = getErrorMessage(err);
     }
   });
 
-  return { nodes, edges };
+  return error === undefined ? { nodes, edges } : { nodes, edges, error };
 }
