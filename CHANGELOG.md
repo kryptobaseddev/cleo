@@ -1,5 +1,31 @@
 # Changelog
 
+## [2026.11.17] (2026-11-26)
+
+### Fixed
+
+- orchestrate spawn names routes out of an over-large worker scope that work, does not count test files paired with a source, and docs status shows each ledger row's own blob _(provenance: [T14633](https://github.com/kryptobaseddev/cleo/search?q=T14633&type=commits))_
+- cleo cant validate roots import containment at the nearest .cleo or .git ancestor, and treats backslash import paths as relative _(provenance: [T14645](https://github.com/kryptobaseddev/cleo/search?q=T14645&type=commits))_
+- cleo cant validate now walks a file's imports and reports circular imports (S03), over-deep import chains (S11) and imported agents that escalate permissions (S12) _(provenance: [T14603](https://github.com/kryptobaseddev/cleo/search?q=T14603&type=commits))_
+- cleo check canon now exits 1 when its result is passed: false, so the CI canon drift step fails on drift _(provenance: [T14591](https://github.com/kryptobaseddev/cleo/search?q=T14591&type=commits))_
+- the CLI starts its file logger again, writing .cleo/logs/cleo.*.log in-thread with no worker thread, so info and debug lines are kept _(provenance: [T14605](https://github.com/kryptobaseddev/cleo/search?q=T14605&type=commits))_
+- docs doctor archive-publication audits only after the import commits and refuses an archive target two docs share _(provenance: [T14634](https://github.com/kryptobaseddev/cleo/search?q=T14634&type=commits))_
+- cleo doctor's log_file check finds the dated cleo.<date>.<n>.log files the logger writes, and the unused pino-roll dependency is gone _(provenance: [T14641](https://github.com/kryptobaseddev/cleo/search?q=T14641&type=commits))_
+- cleo agent install --global now writes to <cleoHome>/cant/agents, the directory create, the seed and the resolver already use, so a globally installed agent is found _(provenance: [T14600](https://github.com/kryptobaseddev/cleo/search?q=T14600&type=commits))_
+- sleep consolidation never overwrites an existing supersedes edge, and reports committed merges when a pair's rollback fails _(provenance: [T14640](https://github.com/kryptobaseddev/cleo/search?q=T14640&type=commits))_
+- sleep consolidation merges near-duplicate memories again, one transaction per pair with a reversible supersedes link, and reports failures in the cleo memory dream result _(provenance: [T14599](https://github.com/kryptobaseddev/cleo/search?q=T14599&type=commits), [T14639](https://github.com/kryptobaseddev/cleo/search?q=T14639&type=commits))_
+- @cleocode/studio depends on the workspace @cleocode/lafs, so llmtxt's optional lafs peer stops resolving from the registry _(provenance: [T14649](https://github.com/kryptobaseddev/cleo/search?q=T14649&type=commits))_
+- the release candidate gate waits out a ~20 min tarball propagation lag with the same 30 min backoff budget as the stable gate, and execute-payload refuses a poll setting that would spin _(provenance: [T14630](https://github.com/kryptobaseddev/cleo/search?q=T14630&type=commits))_
+- npm i -g @cleocode/cleo no longer fails on linux/arm64: tree-sitter and its grammars are optional dependencies _(provenance: [T14629](https://github.com/kryptobaseddev/cleo/search?q=T14629&type=commits))_
+
+### BREAKING CHANGES
+
+- @cleocode/brain substrate adapters read the project and global cleo.db (prefixed tables) through the core snapshot opener instead of the legacy brain.db, tasks.db, conduit.db, nexus.db and signaldock.db _(provenance: [T14583](https://github.com/kryptobaseddev/cleo/search?q=T14583&type=commits))_
+
+  Migration:
+
+  Removed from @cleocode/brain: getBrainDb, getTasksDb and getConduitDb (replacement: readProjectStore(ctx, read)); getNexusDb (replacement: readProjectStore(ctx, read), since the code graph is project-scope); getAgentRegistryDb (replacement: readGlobalStore(read)); getBrainDbPath, getTasksDbPath, getConduitDbPath and getNexusDbPath (replacement: getProjectStorePath()); getAgentRegistryDbPath (replacement: getGlobalStorePath()). The readers open a read-only snapshot for one synchronous read and close it, instead of returning a caller-owned writable handle. The agent-registry substrate no longer emits declared agent connection edges.
+
 ## [2026.11.16] (2026-11-25)
 
 ### Fixed
