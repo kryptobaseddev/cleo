@@ -165,6 +165,21 @@ export function rotateLogAtStartup(
 }
 
 /**
+ * The newest dated file the logger has written for a configured log path
+ * (T14641), e.g. `logs/cleo.2026-11-25.1.log` for `logs/cleo.log`. The
+ * configured path itself is never written (see {@link rotateLogAtStartup}).
+ *
+ * @param logPath - Absolute configured log path (e.g. `.cleo/logs/cleo.log`).
+ * @returns Absolute path of the newest rotated file, or `null` when none exists.
+ */
+export function findActiveLogFile(logPath: string): string | null {
+  const dir = dirname(logPath);
+  const ext = extname(logPath);
+  const newest = listRotatedLogs(dir, basename(logPath, ext), ext).at(-1);
+  return newest ? join(dir, newest.name) : null;
+}
+
+/**
  * Initialize the root logger. Call once at startup.
  *
  * Rotates with {@link rotateLogAtStartup}, then writes in-thread through

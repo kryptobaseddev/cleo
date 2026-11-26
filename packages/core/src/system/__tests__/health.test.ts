@@ -210,3 +210,47 @@ describe('heavy-command hook checks (T13124)', () => {
     expect(cli?.fix).toMatch(/upgrade the cleo at/);
   });
 });
+
+describe('log_file check reads the dated log files (T14641)', () => {
+  let projectRoot: string;
+  let cleoHome: string;
+
+  beforeEach(async () => {
+    projectRoot = await mkdtemp(join(tmpdir(), 'cleo-health-log-'));
+    cleoHome = await mkdtemp(join(tmpdir(), 'cleo-health-home-'));
+    await mkdir(join(projectRoot, '.cleo'), { recursive: true });
+    await mkdir(join(projectRoot, '.git'), { recursive: true });
+    vi.stubEnv('CLEO_HOME', cleoHome);
+    vi.stubEnv('CLEO_LOG_FILE', undefined);
+  });
+
+  afterEach(async () => {
+    const { closeLogger } = await import('../../logger.js');
+    await closeLogger();
+    await rm(projectRoot, { recursive: true, force: true });
+    await rm(cleoHome, { recursive: true, force: true });
+  });
+
+  it('warns before any CLI call and reports the dated file as healthy after one', async () => {
+    const cleoDir = join(projectRoot, '.cleo');
+    const before = await getSystemHealth(projectRoot, { detailed: true });
+    expect(before.checks.find((c) => c.name === 'log_file')?.status).toBe('warn');
+
+    // The CLI startup path: start the file logger, write a line, exit.
+    const { closeLogger, getLogger, startFileLogger } = await import('../../logger.js');
+    expect(startFileLogger(cleoDir)).toBe(true);
+    getLogger('test').warn('a CLI call');
+    await closeLogger();
+
+    const dated = /cleo\.\d{4}-\d{2}-\d{2}\.1\.log$/;
+    const health = await getSystemHealth(projectRoot, { detailed: true });
+    const healthLog = health.checks.find((c) => c.name === 'log_file');
+    expect(healthLog?.status).toBe('pass');
+    expect(healthLog?.message).toMatch(dated);
+
+    const report = await coreDoctorReport(projectRoot);
+    const reportLog = report.checks.find((c) => c.check === 'log_file');
+    expect(reportLog?.status).toBe('ok');
+    expect(reportLog?.message).toMatch(dated);
+  });
+});

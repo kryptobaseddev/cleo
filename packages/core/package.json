@@ -505,7 +505,6 @@
     "openai": "^6.0.0",
     "p-retry": "^6.2.0",
     "pino": "^10.3.1",
-    "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
     "sqlite-vec": "^0.1.9",
     "tar": "^7.4.3",
