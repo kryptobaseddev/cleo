@@ -165,7 +165,8 @@ export type AgentDoctorCode =
   | 'D-007'
   | 'D-008'
   | 'D-009'
-  | 'D-010';
+  | 'D-010'
+  | 'D-011';
 
 /**
  * Single finding produced by the agent doctor. A `fixCommand` is populated

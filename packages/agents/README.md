@@ -220,9 +220,9 @@ installed to `<cleoHome>/agents/` are still found by the resolver.
   compares `<cleoHome>/.seed-version` against the bundled version and returns
   early when they match.
 - **Doctor drift reporting**: `packages/core/src/store/agent-doctor.ts` emits
-  D-001…D-010 (orphan file, orphan row, SHA mismatch, unattached global,
+  D-001…D-011 (orphan file, orphan row, SHA mismatch, unattached global,
   missing or extra skills, parse error, legacy path, deprecated agent still
-  live, legacy JSON registry). `cleo agent doctor --repair` applies the safe
+  live, legacy JSON registry, shadowed copy of a registered agent). `cleo agent doctor --repair` applies the safe
   repairs (D-002 orphan-row delete, D-003 hash refresh).
 
 ## See Also

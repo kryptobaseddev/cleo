@@ -28,6 +28,11 @@
  *   without an alias redirect row.
  * - **D-010** `legacy-json`       — discovered `~/.cleo/agent-registry.json`
  *   from a pre-T889 install.
+ * - **D-011** `shadowed-copy`     — a scanned `.cant` file is not the file its
+ *   registry row points at (e.g. a stale `<cleoHome>/agents/` copy left after
+ *   a reinstall to `<cleoHome>/cant/agents/`). Info only: no drift checks run
+ *   against it and no fix command installs it, so it cannot overwrite the
+ *   registered agent (T14600).
  *
  * The module is intentionally dependency-light and does NOT import
  * `@cleocode/cant` (a circular dependency) — skill-list extraction reuses
@@ -42,7 +47,7 @@
 import { createHash } from 'node:crypto';
 import { access, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentDoctorCode, AgentDoctorFinding, DoctorReport } from '@cleocode/contracts';
 import { rerouteLegacyStarterBundlePaths } from '../agents/seed-install.js';
@@ -345,6 +350,19 @@ export async function buildDoctorReport(
           subject: `${scan.tier}:${agentId}`,
           message: `Orphan file: ${path} has no registry row at tier=${scan.tier}.`,
           fixCommand: `cleo agent install ${path}${scan.tier === 'global' ? ' --global' : ''}`,
+        });
+        continue;
+      }
+
+      // D-011 — this file is not the registered one. Never drift-check it or
+      // suggest installing it: `install --force` would copy a stale file over
+      // the agent the row points at.
+      if (row.cant_path && resolve(row.cant_path) !== resolve(path)) {
+        findings.push({
+          code: 'D-011',
+          severity: 'info',
+          subject: `${scan.tier}:${agentId}`,
+          message: `Shadowed copy: ${path} is not the registered file; the registry row points at ${row.cant_path}, which wins.`,
         });
         continue;
       }

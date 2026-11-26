@@ -277,6 +277,52 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
     }
   });
 
+  // T14600: after an upgrade and reinstall, a stale legacy copy must not be
+  // drift-checked or offered for install over the registered canonical file.
+  it('reports a stale legacy copy of a canonical agent as D-011 with no fix command', async () => {
+    const { installAgentFromCant } = await import('../agent-install.js');
+    const { buildDoctorReport } = await import('../agent-doctor.js');
+    const legacyDir = join(env.cleoHome, 'agents');
+    const sourcePath = writeCant(
+      join(env.projectRoot, 'sources'),
+      'doctor-fixture.cant',
+      FIXTURE_MINIMAL_CANT,
+    );
+    // Stale copy: different bytes and skills from the registered file.
+    const stale = writeCant(
+      legacyDir,
+      'doctor-fixture.cant',
+      `${FIXTURE_MINIMAL_CANT.replace('["ct-cleo"]', '[]')}\n# stale\n`,
+    );
+    const db = env.openDb();
+    try {
+      const install = installAgentFromCant(db, {
+        cantSource: sourcePath,
+        targetTier: 'global',
+        installedFrom: 'manual',
+        globalCantDir: env.globalCantDir,
+      });
+
+      const report = await buildDoctorReport(db, {
+        globalCantDir: env.globalCantDir,
+        homeDir: env.homeDir,
+      });
+      const codes = report.findings.map((f) => f.code);
+      expect(codes).not.toContain('D-003');
+      expect(codes).not.toContain('D-005');
+      expect(codes).not.toContain('D-006');
+      const d011 = report.findings.filter((f) => f.code === 'D-011');
+      expect(d011).toHaveLength(1);
+      expect(d011[0]?.severity).toBe('info');
+      expect(d011[0]?.subject).toBe('global:doctor-fixture');
+      expect(d011[0]?.message).toContain(stale);
+      expect(d011[0]?.message).toContain(install.cantPath);
+      expect(report.findings.some((f) => f.fixCommand?.includes(stale))).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it('emits D-010 when ~/.cleo/agent-registry.json is present', async () => {
     const { buildDoctorReport } = await import('../agent-doctor.js');
     const legacyDir = join(env.homeDir, '.cleo');
