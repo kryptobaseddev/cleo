@@ -925,6 +925,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const apply = params.apply === true;
     const repair = params.repair === true;
     const projectRoot = getProjectRoot();
+    // T14651: a named archive target is a pair; refuse half of one before the
+    // backup below is taken.
+    const publication = params.publication?.trim() ?? '';
+    const archiveInto = params.archiveInto?.trim() ?? '';
+    const named = publication !== '' || archiveInto !== '';
+    if (named && (publication === '' || archiveInto === '')) {
+      return lafsError(
+        'E_DOCS_DOCTOR_ARCHIVE_INTO_INVALID', // @sync-invariant none:input-shape an argument refusal before the backup and any repair write; nothing was written
+        'docs doctor: --publication <path> and --archive-into <slug> are given together',
+        'doctor',
+      );
+    }
 
     // T13447 — an apply/repair run must have a fresh backup. Create it through the
     // same core function `cleo backup add` dispatches to, then hand the
@@ -962,6 +974,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           }
         : {}),
       ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
+      // T14651: a caller-named archive target (the pair is checked above).
+      ...(named ? { archiveInto: { publishedPath: publication, slug: archiveInto } } : {}),
       // T14188: mirrors and git come from the invoking checkout.
       checkoutRoot: resolveInvokingCheckout(),
     });

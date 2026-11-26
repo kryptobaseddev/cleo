@@ -8434,6 +8434,20 @@ export const OPERATIONS: OperationDef[] = [
         description:
           'Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)',
       },
+      {
+        name: 'publication',
+        type: 'string' as const,
+        required: false,
+        description:
+          'With archiveInto: the docs_publications path of a gone row whose blob it alone references (T14651)',
+      },
+      {
+        name: 'archiveInto',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Archive the only-held blob of the publication row into this adopted doc; the next run prunes the row (T14651)',
+      },
     ],
   },
   // ── docs.triage (T13446 — Epic T13340 / Saga T13339) ──────────────────────
@@ -8552,6 +8566,20 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description:
           'Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)',
+      },
+      {
+        name: 'publication',
+        type: 'string' as const,
+        required: false,
+        description:
+          'With archiveInto: the docs_publications path of a gone row whose blob it alone references (T14651)',
+      },
+      {
+        name: 'archiveInto',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Archive the only-held blob of the publication row into this adopted doc; the next run prunes the row (T14651)',
       },
     ],
   },
